@@ -5,7 +5,7 @@ historical design record, not a pending plan. The live corpus migrated
 (173 → 406 threads, validate clean), `los` was **deleted** (not "rewritten in
 lockstep" as the staging below anticipated — its `time` capability was ported to
 `lodestar time` and the rest retired in favor of lodestar). The current operating
-manual is `threads/CLAUDE.md`. Rollback: git tag `pre-claim-native` (both repos).
+manual is `docs/operating-manual.md`. Rollback: git tag `pre-claim-native` (both repos).
 Stage/Q sections below are kept verbatim as the original plan; where they say "los
 in lockstep" or "nothing started yet," read them as the pre-execution plan.*
 
@@ -144,7 +144,7 @@ title-first/YAML-emitting capture is replaced.
 - **Corpus** — all **173** live threads + **9** bundled examples: id reformat +
   tags→relates_to (+ mint topic threads) + state→lifecycle facts + YAML→triples +
   prefix-strip/`@`-refs. One coordinated rewrite.
-- **Docs** — `threads/CLAUDE.md` (the spec) rewritten for the new model.
+- **Docs** — `docs/operating-manual.md` (the spec) rewritten for the new model.
 
 This is the **biggest change since the flip.** Almost every piece couples
 engine+los+corpus, so it's a *build-new + migrate + cutover*, not many tiny

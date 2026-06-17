@@ -4,8 +4,8 @@ The life app — what you steer by. Capture an intention; query what's **ready**
 **blocked**, and the highest-leverage keystone. The board is *derived* from a
 graph of claims, never hand-maintained.
 
-Lodestar is a **consumer of the Fram engine** (a domain-neutral claim
-substrate, a separate sibling repo). It supplies the *life domain*: the
+Lodestar is a **consumer of the [Fram](https://github.com/tompassarelli/fram)
+engine** (a domain-neutral claim substrate). It supplies the *life domain*: the
 lifecycle projections, the cardinality vocab (`FRAM_SINGLE_VALUED`), capture
 conventions, time tracking, and the operating manual.
 
@@ -15,8 +15,8 @@ your own setup.
 
 ## Shape
 
-- **Engine** → Fram (`~/code/fram`): claims, Datalog, the coordinator daemon.
-  The hard substrate.
+- **Engine** → [Fram](https://github.com/tompassarelli/fram) (`~/code/fram`):
+  claims, Datalog, the coordinator daemon. The hard substrate.
 - **Life domain** → `src/lodestar/{projections,clock,clockify,staleness,audit}.bclj`:
   the lifecycle derivations, billing projection, and staleness layer that make
   the engine a life app.
@@ -38,12 +38,13 @@ your own setup.
 
 ## Building
 
-Lodestar is a consumer of the Fram engine and is written in Beagle (a Lisp that
-emits Clojure). Building from the `.bclj` sources requires both Fram and Beagle
-checked out alongside this repo; `build.sh` links the engine sources in
-(`src/fram`, gitignored) and
-compiles the life-domain modules into `out/`. Set `FRAM_HOME`/`BEAGLE_HOME` if
-they don't live at `~/code/fram` / `~/code/beagle`.
+Lodestar is a consumer of the [Fram](https://github.com/tompassarelli/fram)
+engine and is written in [Beagle](https://github.com/tompassarelli/beagle) (a
+Lisp that emits Clojure). Building from the `.bclj` sources requires both Fram
+and Beagle checked out alongside this repo; `build.sh` links the engine sources
+in (`src/fram`, gitignored) and compiles the life-domain modules into `out/`.
+Set `FRAM_HOME`/`BEAGLE_HOME` if they don't live at `~/code/fram` /
+`~/code/beagle`.
 
 ## License
 
