@@ -1,12 +1,11 @@
-# Lodestar runtime image — babashka + the Fram engine + the Lodestar life domain.
+# Lodestar runtime image — the Fram engine + the Lodestar life domain.
 # One image, two roles (choose at run time):
-#   • coordinator (default CMD): a single tenant's sole-writer daemon
-#   • gateway:                   the authenticated multi-tenant edge
+#   • coordinator (default CMD): a single tenant's sole-writer daemon (runs on the JVM)
+#   • gateway:                   the authenticated multi-tenant edge (runs on babashka)
 #
-# Coordinators bind loopback, so the gateway and the coordinators it fronts must
-# share a network namespace (run with `--network host`, or the compose example).
-# Multi-host / bridge-network deployment needs a configurable coordinator bind —
-# see the roadmap in docs/hosting.md.
+# Coordinators default to loopback; FRAM_BIND=0.0.0.0 + engine mTLS (FRAM_TLS_*) are
+# shipped, so cross-host/bridge-network deployment is supported (the gateway can front
+# coordinators on other hosts). See docs/hosting.md and fram/docs/coordinator-bind-and-wire.md.
 #
 #   docker build -t lodestar:latest .
 #   docker run --rm --network host -v /srv/lodestar:/data lodestar:latest          # coordinator
@@ -16,18 +15,23 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      bash git curl ca-certificates iproute2 \
+      bash git curl ca-certificates iproute2 default-jre-headless rlwrap \
  && rm -rf /var/lib/apt/lists/*
 
-# babashka is the only runtime dependency — the compiled Clojure is committed.
+# Two runtimes by design: babashka for the CLI + MCP (fast per-command startup);
+# clojure/JVM for the long-lived coordinator daemon (JIT throughput, real threads,
+# SSLServerSocket for engine-terminated mTLS — bb's native image lacks server TLS).
 RUN curl -sL https://raw.githubusercontent.com/babashka/babashka/master/install | bash
+RUN curl -sL https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh -o /tmp/clj.sh \
+ && bash /tmp/clj.sh && rm /tmp/clj.sh
 
 # Pinned to the Fram commit Lodestar is built against — keep in sync with
 # FRAM_VERSION (override at build with --build-arg FRAM_REF=<sha>).
-ARG FRAM_REF=d4d0c1e6860773d081f49d6a006d575e5834e5fa
+ARG FRAM_REF=91102021e5063e1fc43fafd65a60229c1571b1e4
 WORKDIR /opt
 RUN git clone https://github.com/tompassarelli/fram \
- && git -C fram checkout --quiet "${FRAM_REF}"
+ && git -C fram checkout --quiet "${FRAM_REF}" \
+ && (cd fram && clojure -P)   # prefetch the coordinator daemon's JVM deps (clojure + cheshire)
 COPY . /opt/lodestar
 
 ENV FRAM_HOME=/opt/fram \
@@ -40,5 +44,5 @@ ENV FRAM_HOME=/opt/fram \
 RUN mkdir -p /data
 VOLUME ["/data"]
 
-# Default role: this tenant's coordinator (loopback, sole writer).
+# Default role: this tenant's coordinator (JVM daemon, loopback sole writer).
 CMD ["bash","-lc","exec fram-daemon \"$FRAM_PORT\" \"$FRAM_LOG\""]

@@ -151,9 +151,9 @@ pinned-SHA seam by design.** Keep them decoupled.
   `FRAM_BIND` invariant, topology). If Fram changes `:assert/:retract/:subscribe/:status/:version`
   it is a **breaking change** for the gateway AND any future warm head — must be pinned/versioned jointly.
 
-**Pin:** `FRAM_VERSION` = `727feb57533ded51958d51227ac1771b91fdc34f` — the single source of
-truth. CI (`.github/workflows/ci.yml`) and the `Dockerfile` (`ARG FRAM_REF`, currently the
-same SHA) both read it; **the two literals are not auto-synced — bump both.** Lodestar links
+**Pin:** the SHA lives in the `FRAM_VERSION` file — **the single source of truth** (don't
+duplicate it in prose, it drifts). CI (`.github/workflows/ci.yml`) reads that file; the
+`Dockerfile` (`ARG FRAM_REF`) carries the same SHA and is **not auto-synced — bump both.** Lodestar links
 Fram's library API in-process (`fram.clock/export/fold/import/json/kernel/rt`; `projections.bclj`
 does `(require fram.kernel :as k)` calling `k/one-i`, `k/terminal-i?`), so a Fram library change
 can break the committed `out/` even if the wire protocol is untouched. **That is why we pin

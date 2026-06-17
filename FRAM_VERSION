@@ -3,4 +3,4 @@
 # (fram.kernel/fold/import/export/clock/json/rt), so we pin instead of tracking
 # main. Bump deliberately: check out the new Fram, rebuild (./build.sh), re-run
 # the tests, and update this SHA. CI and the Dockerfile both read this pin.
-d4d0c1e6860773d081f49d6a006d575e5834e5fa
+91102021e5063e1fc43fafd65a60229c1571b1e4
