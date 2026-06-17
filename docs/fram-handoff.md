@@ -1,5 +1,21 @@
 # Hand-off → Fram: configurable coordinator bind for gateway-fronted deployment
 
+> ## ✅ LANDED in Fram (2026-06-17)
+>
+> The Fram agent shipped this. **`FRAM_BIND`** is configurable in
+> `cnf_coord_daemon.clj` — **default loopback** (existing users unchanged);
+> set **`FRAM_BIND=0.0.0.0`** behind the gateway (binds all interfaces *incl.
+> loopback*, so local CLI/doctor keep working; logs a one-time UNAUTHENTICATED
+> warning to stderr). Wire protocol unchanged. Contract-of-record now lives in
+> Fram at `docs/coordinator-bind-and-wire.md`. Verified: Fram's `bind_test.clj`
+> (both modes) + **this repo's gateway smoke test passes 7/7** against the new build.
+>
+> **Lodestar is unblocked.** Remaining cross-host steps are downstream-only (see
+> "What Lodestar does after Fram lands this" below): bridge-network compose with
+> `FRAM_BIND=0.0.0.0` + `:coordinator-host` service names, the cross-host gateway
+> integration test, and flipping `docs/hosting.md` to "multi-host" — which is also
+> where this doc + its `hosting.md` link should finally be removed.
+
 **This is a hand-off document for the Fram engine repo.** It captures the one
 engine-side change that the Lodestar multi-tenant work depends on, plus the
 contract that keeps the two repos decoupled. Move/copy it into Fram; delete it
