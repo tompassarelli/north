@@ -148,25 +148,12 @@ tenant's coordinator, and registers it; the gateway authenticates and forwards.
 None of this is a foundation rewrite — it's the product layer the
 [proposal](PROPOSAL.md) (Phases 4–5) already mapped.
 
-### Drop-in spec: configurable coordinator bind (Fram)
+### The one cross-host dependency lives in Fram
 
-The only thing blocking cross-host coordinators is that the daemon binds loopback
-unconditionally. When Fram is ready for it, this change (kept loopback-default, so
-nothing regresses) enables it — in `cnf_coord_daemon.clj`'s `serve`:
-
-```clojure
-;; default loopback; honor FRAM_BIND for behind-the-gateway deployment
-(defn- bind-addr []
-  (let [b (System/getenv "FRAM_BIND")]
-    (if (or (nil? b) (#{"" "loopback" "127.0.0.1"} b))
-      (java.net.InetAddress/getLoopbackAddress)
-      (java.net.InetAddress/getByName b))))
-;; in serve: bind `(bind-addr)` instead of getLoopbackAddress, and when it is NOT
-;; a loopback address, log a WARNING that the protocol is unauthenticated and MUST
-;; sit behind the gateway / a firewall.
-```
-
-Then a per-tenant coordinator can bind a private interface, the gateway reaches it
-via `:coordinator-host`, and the raw port is still never publicly exposed. (Left
-unapplied here on purpose — Fram is under active development; this is ready to drop
-in once it settles.)
+Cross-host coordinators need a configurable bind address on the coordinator socket
+— a **Fram engine change**, not a Lodestar one. The full spec, the wire-protocol
+contract between the two repos, and the acceptance criteria are written up as a
+hand-off for the Fram agent in **[`fram-handoff.md`](fram-handoff.md)**. The gateway
+side is already done (it forwards to `:coordinator-host`); when Fram lands the bind,
+Lodestar's only remaining step is to flip the compose topology and this doc to
+multi-host.
