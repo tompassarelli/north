@@ -5,8 +5,8 @@
 > `capture`, `clock`, …) to remote clients. Nothing here is implemented yet.
 > It is also deliberately **sequenced behind Fram's current churn** — see
 > §5. Treat the recommendation as the intended path, not a shipped capability.
-> Companion to [`hosting.md`](hosting.md) (the transport/tenancy model) and
-> [`fram-handoff.md`](fram-handoff.md) (the engine seam).
+> Companion to [`hosting.md`](hosting.md) (transport/tenancy + the engine↔app
+> seam) and Fram's `docs/coordinator-bind-and-wire.md` (the wire contract).
 
 ## 1. Problem statement
 
@@ -158,7 +158,7 @@ and no second auth or second writer.
 
 Fram has added its **own engine-level MCP + structured-query surface**; Lodestar
 already has an MCP server. They must not duplicate or fight. The rule mirrors the
-repo seam in `fram-handoff.md`: **Fram owns the neutral claim engine; Lodestar
+repo seam (see `hosting.md` → "The engine ↔ app seam"): **Fram owns the neutral claim engine; Lodestar
 owns the life domain.** MCP-wise:
 
 | | **Engine MCP (Fram)** | **App / life MCP (Lodestar)** |
@@ -175,8 +175,8 @@ Boundary rules:
 
 1. **No life verbs in the engine MCP.** `ready`/`plate`/`clock` are derivations
    over the *life* vocabulary; they stay in Lodestar. Fram exposing them would
-   pull domain code into the engine — the exact complecting `fram-handoff.md`
-   forbids.
+   pull domain code into the engine — the exact complecting the engine↔app
+   seam forbids.
 2. **No raw-claim manipulation duplicated in the life MCP.** Lodestar's `tell`/
    `untell`/`capture` are *opinionated, provenance-stamped* writes (see
    `capture-claims` — it stamps `source`/`created_by`/`lead`/`committed`/…). The
@@ -192,7 +192,7 @@ Boundary rules:
    picks by altitude. Default product posture: **expose the Lodestar/life MCP**;
    the engine MCP is for graph-level tooling, not the everyday "run my life" client.
 
-This keeps the contract from `fram-handoff.md` intact: the two repos meet only at
+This keeps the wire contract intact: the two repos meet only at
 the coordinator wire protocol; the two MCPs are just two clients of it at two
 altitudes.
 
@@ -210,7 +210,7 @@ altitudes.
     resident server against the lib API. Build this last, against a **pinned Fram
     version**, after Fram's in-flight changes (incl. its new engine MCP / query
     surface) settle.
-- The **wire-protocol contract** (`fram-handoff.md` §"The seam"): if Fram's "big
+- The **wire-protocol contract** (Fram's `coordinator-bind-and-wire.md`): if Fram's "big
   updates" change `:assert`/`:retract`/`:subscribe`/`:status`, that is a breaking
   change for the gateway *and* for any warm head subscribing to events. Pin it;
   version it if it moves.

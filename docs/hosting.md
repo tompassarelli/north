@@ -70,6 +70,11 @@ Build the image, provision tenants, run it — see `deploy/README.md` and
 `deploy/docker-compose.example.yml`. Provisioning mints a bearer token, starts the
 tenant's coordinator, and registers it; the gateway authenticates and forwards.
 
+Coordinators run either **co-located** with the gateway (loopback, the default) or
+on **separate hosts/containers** — set `FRAM_BIND=0.0.0.0` on the coordinator and
+the tenant's `:coordinator-host` in the registry. Both paths are exercised in CI
+(`deploy/gateway/smoke_test.sh` loopback; `crosshost_test.sh` non-loopback).
+
 ### Why instance-per-tenant (not one shared graph)
 
 - **Isolation is the only safe boundary.** The per-assertion `frame` records *who
@@ -96,8 +101,11 @@ tenant's coordinator, and registers it; the gateway authenticates and forwards.
   Only the gateway is reachable, and only behind TLS.
 - The gateway authenticates a **bearer token**, stored **hashed** (sha-256) in the
   registry; it maps the token to exactly one tenant's coordinator.
-- Coordinators bind loopback; the gateway forwards over loopback (same host / shared
-  netns). Cross-host forwarding needs a configurable bind + mTLS (roadmap below).
+- Coordinators default to **loopback** (same host). To run them on separate
+  hosts/containers, set **`FRAM_BIND=0.0.0.0`** and point the gateway's
+  `:coordinator-host` at the private address; the raw port is still never publicly
+  exposed (gateway-only ingress). Add mTLS between gateway and coordinator over
+  untrusted links.
 - Plain-text data, no telemetry, `export` is claim-identical — the leave-anytime
   guarantee holds in every mode, including hosted.
 
@@ -127,33 +135,32 @@ tenant's coordinator, and registers it; the gateway authenticates and forwards.
 | Tenant provisioning + systemd/Docker/compose | **built** (`deploy/`) |
 | TLS termination | **built** example (`deploy/Caddyfile.example`) — delegated to a reverse proxy |
 | Per-tenant backups (snapshot + prune, timer) | **built** (`deploy/backup.sh` + `lodestar-backup.{service,timer}`) |
-| Cross-host coordinators (configurable bind + mTLS) | **planned** — gateway side ready (`:coordinator-host`); needs the Fram change below |
+| Cross-host coordinators (`FRAM_BIND=0.0.0.0` + `:coordinator-host`) | **built** (Fram `FRAM_BIND`; gateway routing; `crosshost_test.sh` in CI) |
+| mTLS between gateway and coordinator (untrusted links) | **planned** |
 | Control plane (provisioning API, quotas, key mgmt beyond a file) | **planned** |
 | Self-service signup, billing, web client | **planned** (product layer) |
 | Transactional store swap for very large single tenants | **planned** (model-stable) |
 
 ## Roadmap (in dependency order)
 
-1. ~~**Harden the gateway:** token rotation/revocation, request caps, audit logging.~~
-   **Done** — `deploy/gateway`.
-2. **Configurable coordinator bind + mTLS** so coordinators can live on separate
-   hosts behind the gateway (lifts the same-host constraint; keeps loopback default).
-   The gateway already forwards to `:coordinator-host`; the remaining piece is a
-   one-line Fram change (spec below).
-3. **Control plane:** provisioning/lifecycle API, per-tenant daemon supervision,
+1. ~~**Harden the gateway:** token rotation/revocation, request caps, audit logging.~~ **Done** — `deploy/gateway`.
+2. ~~**Configurable coordinator bind** so coordinators can live on separate hosts behind the gateway.~~ **Done** — Fram `FRAM_BIND` (default loopback); gateway `:coordinator-host`; `crosshost_test.sh` in CI.
+3. **mTLS** between gateway and coordinator for untrusted networks (today: keep coordinators on a private network / same host).
+4. **Control plane:** provisioning/lifecycle API, per-tenant daemon supervision,
    quotas, key management beyond a flat registry.
-4. **Product layer:** self-service signup, billing, web client, teams.
-5. **Scale path:** transactional store option for outsized single tenants.
+5. **Product layer:** self-service signup, billing, web client, teams. (See
+   [`product-surface-design.md`](product-surface-design.md) for the life-verb edge.)
+6. **Scale path:** transactional store option for outsized single tenants.
 
 None of this is a foundation rewrite — it's the product layer the
 [proposal](PROPOSAL.md) (Phases 4–5) already mapped.
 
-### The one cross-host dependency lives in Fram
+### The engine ↔ app seam (where Fram ends and Lodestar begins)
 
-Cross-host coordinators need a configurable bind address on the coordinator socket
-— a **Fram engine change**, not a Lodestar one. The full spec, the wire-protocol
-contract between the two repos, and the acceptance criteria are written up as a
-hand-off for the Fram agent in **[`fram-handoff.md`](fram-handoff.md)**. The gateway
-side is already done (it forwards to `:coordinator-host`); when Fram lands the bind,
-Lodestar's only remaining step is to flip the compose topology and this doc to
-multi-host.
+The two repos meet at exactly one interface — the coordinator's line-delimited EDN
+wire protocol. The durable contract-of-record lives in Fram at
+`docs/coordinator-bind-and-wire.md` (the seam, the protocol surface, the
+`FRAM_BIND` security invariant, and the topology). Lodestar consumes that protocol
+through the gateway and links Fram's library API for projections (pinned via
+[`FRAM_VERSION`](../FRAM_VERSION)); it never reaches past the protocol into engine
+internals.

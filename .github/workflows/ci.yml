@@ -43,3 +43,7 @@ jobs:
       - name: Gateway integration smoke test
         working-directory: lodestar
         run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/smoke_test.sh
+
+      - name: Gateway cross-host test (FRAM_BIND=0.0.0.0 + :coordinator-host)
+        working-directory: lodestar
+        run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/crosshost_test.sh

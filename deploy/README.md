@@ -17,9 +17,10 @@ quick index.
 ## The shape
 
 Each tenant is an isolated **coordinator + `claims.log`**. The gateway authenticates
-a request and routes it to that tenant's coordinator. Coordinators bind loopback,
-so the gateway and the coordinators it fronts share one network namespace (one
-host, `--network host`, or one pod) — multi-host is a roadmap item (see hosting.md).
+a request and routes it to that tenant's coordinator. Coordinators default to
+loopback (co-located); for separate hosts/containers, set `FRAM_BIND=0.0.0.0` on the
+coordinator and the tenant's `:coordinator-host` in the registry (the compose example
+does this on a bridge network). Only the gateway is ever publicly exposed.
 
 ## Fastest real deployment (systemd, one host)
 

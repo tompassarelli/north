@@ -24,7 +24,7 @@ RUN curl -sL https://raw.githubusercontent.com/babashka/babashka/master/install 
 
 # Pinned to the Fram commit Lodestar is built against — keep in sync with
 # FRAM_VERSION (override at build with --build-arg FRAM_REF=<sha>).
-ARG FRAM_REF=e6978b5b2959e4cd3ad9d209d94400e3e5e0d153
+ARG FRAM_REF=727feb57533ded51958d51227ac1771b91fdc34f
 WORKDIR /opt
 RUN git clone https://github.com/tompassarelli/fram \
  && git -C fram checkout --quiet "${FRAM_REF}"

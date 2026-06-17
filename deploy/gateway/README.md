@@ -85,11 +85,13 @@ Built and tested here:
 - [x] **Rate limiting + body-size cap** — per-tenant token bucket; bounded read → `413`.
 - [x] **TLS** — terminate in a reverse proxy; see `../Caddyfile.example`.
 - [x] **Supervision** — `../lodestar-coordinator@.service` + `../lodestar-gateway.service`.
+- [x] **Cross-host coordinators** — Fram `FRAM_BIND=0.0.0.0` + the registry's
+      `:coordinator-host`; exercised by `./crosshost_test.sh` in CI.
 
 Still ahead (see `../../docs/hosting.md`):
 
-- [ ] **Cross-host coordinators** — needs a configurable coordinator bind + mTLS
-      (a Fram-engine change; the gateway side already supports `:coordinator-host`).
+- [ ] **mTLS** between gateway and coordinator for untrusted networks (today: keep
+      coordinators on a private network / same host).
 - [ ] **Control plane** — provisioning API, quotas, key management beyond a file.
 
 See `../../docs/hosting.md` for the full picture and roadmap.
