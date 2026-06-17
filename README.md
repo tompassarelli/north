@@ -42,6 +42,8 @@ operator works — adapt the wrapper to your own setup.
 
 ## Docs
 
+- **`docs/HANDOFF.md`** — current project state: what's done & verified, what's
+  pending (sequenced), the open decisions, and the engine↔app seam. Start here.
 - `docs/operating-manual.md` — the working manual: thread model, claim format,
   derived lifecycle, the CLI surface, and session behavior.
 - `docs/claim-native-redesign.md` — the design record for the claim-native model.
