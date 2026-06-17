@@ -6,11 +6,13 @@ quick index.
 
 | file | what |
 |------|------|
-| `gateway/` | the authenticated multi-tenant edge (bearer token → tenant → coordinator) + `provision.sh` + smoke test |
+| `gateway/` | the authenticated multi-tenant edge (token → tenant → coordinator); auth, rotation/revocation, audit log, rate limit + body cap; `provision.sh` + smoke test |
 | `../Dockerfile` | one runtime image (bb + Fram + Lodestar); runs as a coordinator or the gateway |
 | `docker-compose.example.yml` | example one-host topology: a gateway + one coordinator per tenant |
 | `lodestar-coordinator@.service` | systemd template — one coordinator per tenant |
 | `lodestar-gateway.service` | systemd unit — the gateway |
+| `Caddyfile.example` | reverse proxy terminating TLS in front of the gateway |
+| `backup.sh` + `lodestar-backup.{service,timer}` | per-tenant `claims.log` snapshot + prune, on a daily timer |
 
 ## The shape
 

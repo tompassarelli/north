@@ -27,8 +27,9 @@ is *provenance, not authorization* — never the tenancy boundary.
 | `POST` | `/v1/rpc`  | `Authorization: Bearer <token>` | one EDN map, e.g. `{:op :version}` | forwards to the caller's tenant coordinator, relays the EDN reply |
 
 `:op` values are the coordinator's: `:version`, `:status`, `:validate`,
-`:assert {:te :p :r :base}`, `:retract {…}`. Unknown token → `401`; coordinator
-down → `502`; malformed body → `400`.
+`:assert {:te :p :r :base}`, `:retract {…}`. Bad/missing token → `401`;
+rate-limited → `429`; body over the cap → `413`; malformed body → `400`;
+coordinator down → `502`.
 
 ## Config (env)
 
@@ -36,20 +37,29 @@ down → `502`; malformed body → `400`.
 - `GATEWAY_TENANTS` — path to the registry (default `./tenants.edn`):
 
 ```clojure
-{"acme"   {:token-sha256 "<hex>" :coordinator-port 7801}
- "globex" {:token-sha256 "<hex>" :coordinator-port 7802 :coordinator-host "127.0.0.1"}}
+{"acme"   {:tokens #{"<sha256-hex>" "<sha256-hex>"} :coordinator-port 7801}
+ "globex" {:tokens #{"<sha256-hex>"} :coordinator-port 7802 :coordinator-host "10.0.0.5"}}
 ```
 
-Tokens are stored **sha-256 hashed**, never in plaintext. The file is re-read when
-its mtime changes, so `provision.sh` adds a tenant with no gateway restart.
-`:coordinator-host` is optional (default `127.0.0.1`) for when a coordinator lives
-on a private network rather than co-located.
+- `GATEWAY_AUDIT_LOG` — path for structured audit lines (default: stderr).
+- `GATEWAY_RATE` / `GATEWAY_BURST` — per-tenant token-bucket limit (default `20`/s, burst `40`).
+- `GATEWAY_MAX_BODY` — max request body bytes (default `65536`; over it → `413`).
+
+`:tokens` is a **set** of accepted token hashes (sha-256 hex, never plaintext) so
+rotation keeps old + new valid during a grace window; the legacy `:token-sha256
+"<hex>"` form is still accepted. `:coordinator-host` is optional (default
+`127.0.0.1`). The registry is re-read on mtime change, so `provision.sh`
+rotate/revoke takes effect with **no gateway restart**.
 
 ## Run it
 
 ```sh
 # provision a tenant (mints a token, starts its coordinator, registers it)
-./provision.sh acme 7801          # prints the bearer token ONCE
+./provision.sh acme 7801                 # prints the bearer token ONCE
+
+# rotate (issue a new token; the old one keeps working until you revoke it)
+./provision.sh rotate acme               # prints the new token; clients roll over
+./provision.sh revoke acme <old-token>   # then drop the old one — no downtime
 
 # start the gateway
 GATEWAY_TENANTS=$PWD/tenants.edn bb gateway.clj
@@ -59,20 +69,27 @@ curl -s -H "Authorization: Bearer <token>" --data '{:op :version}' \
   http://127.0.0.1:8088/v1/rpc
 ```
 
-`./smoke_test.sh` stands up a real coordinator + gateway and asserts authed
-requests pass and unauthed ones are `401` (this runs in CI).
+`./smoke_test.sh` stands up a real coordinator + gateway and asserts: authed
+requests reach the coordinator, unauthed → `401`, oversized → `413`, the audit log
+captures the request, and a revoked token → `401`. This runs in CI.
 
-## Scope and hardening checklist
+## Hardening status
 
-This is the **first real slice** of the auth layer — proven end-to-end, but not
-yet everything a public SaaS needs. Before exposing it to the internet:
+Built and tested here:
 
-- [ ] **TLS** terminated in a reverse proxy (Caddy/nginx) ahead of the gateway.
-- [ ] **Same-host (or shared-netns) coordinators** — the gateway forwards over
-      loopback by default; cross-host needs a configurable coordinator bind + mTLS.
-- [ ] **Rate limiting / request size caps** (at the proxy or here).
-- [ ] **Token rotation + revocation** policy (registry edit + reload is the hook).
-- [ ] **Audit logging** of who-asserted-what at the edge.
-- [ ] **Per-tenant daemon supervision** (systemd template unit or one container each).
+- [x] **Authentication** — bearer token → tenant, hashes stored not plaintext.
+- [x] **Tenant isolation** — one coordinator + `claims.log` per tenant.
+- [x] **Token rotation + revocation** — `:tokens` set; `provision.sh rotate/revoke`.
+- [x] **Audit logging** — one EDN line per request (`:tenant :op :te :p :status`);
+      **never logs the object value** `:r`. Unauthorized attempts are logged too.
+- [x] **Rate limiting + body-size cap** — per-tenant token bucket; bounded read → `413`.
+- [x] **TLS** — terminate in a reverse proxy; see `../Caddyfile.example`.
+- [x] **Supervision** — `../lodestar-coordinator@.service` + `../lodestar-gateway.service`.
+
+Still ahead (see `../../docs/hosting.md`):
+
+- [ ] **Cross-host coordinators** — needs a configurable coordinator bind + mTLS
+      (a Fram-engine change; the gateway side already supports `:coordinator-host`).
+- [ ] **Control plane** — provisioning API, quotas, key management beyond a file.
 
 See `../../docs/hosting.md` for the full picture and roadmap.

@@ -122,24 +122,51 @@ tenant's coordinator, and registers it; the gateway authenticates and forwards.
 | Lifecycle/clock/billing projections | **built** (Lodestar, tested) |
 | Runs on bare babashka, no build step | **built** (`out/` committed) |
 | Single-machine + SSH-tunnel remote | **built** |
-| Authenticated gateway (bearer → tenant → coordinator), per-tenant isolation | **MVP** (`deploy/gateway`, smoke-tested in CI) |
-| Tenant provisioning + systemd/Docker/compose | **MVP** (`deploy/`) |
-| TLS, rate limiting | **delegated** to a reverse proxy (documented, not bundled) |
-| Token rotation/revocation, edge audit logging | **planned** |
-| Cross-host coordinators (configurable bind + mTLS) | **planned** |
+| Authenticated gateway (bearer → tenant → coordinator), per-tenant isolation | **built** (`deploy/gateway`, smoke-tested in CI) |
+| Token rotation/revocation, audit logging, rate limit + body cap | **built** (gateway; covered by the smoke test) |
+| Tenant provisioning + systemd/Docker/compose | **built** (`deploy/`) |
+| TLS termination | **built** example (`deploy/Caddyfile.example`) — delegated to a reverse proxy |
+| Per-tenant backups (snapshot + prune, timer) | **built** (`deploy/backup.sh` + `lodestar-backup.{service,timer}`) |
+| Cross-host coordinators (configurable bind + mTLS) | **planned** — gateway side ready (`:coordinator-host`); needs the Fram change below |
+| Control plane (provisioning API, quotas, key mgmt beyond a file) | **planned** |
 | Self-service signup, billing, web client | **planned** (product layer) |
 | Transactional store swap for very large single tenants | **planned** (model-stable) |
 
 ## Roadmap (in dependency order)
 
-1. **Harden the gateway:** token rotation/revocation, request caps, structured
-   audit logging, a `/v1/rpc` schema for the higher-level intents (not just raw ops).
+1. ~~**Harden the gateway:** token rotation/revocation, request caps, audit logging.~~
+   **Done** — `deploy/gateway`.
 2. **Configurable coordinator bind + mTLS** so coordinators can live on separate
    hosts behind the gateway (lifts the same-host constraint; keeps loopback default).
+   The gateway already forwards to `:coordinator-host`; the remaining piece is a
+   one-line Fram change (spec below).
 3. **Control plane:** provisioning/lifecycle API, per-tenant daemon supervision,
-   quotas, backup automation.
+   quotas, key management beyond a flat registry.
 4. **Product layer:** self-service signup, billing, web client, teams.
 5. **Scale path:** transactional store option for outsized single tenants.
 
 None of this is a foundation rewrite — it's the product layer the
 [proposal](PROPOSAL.md) (Phases 4–5) already mapped.
+
+### Drop-in spec: configurable coordinator bind (Fram)
+
+The only thing blocking cross-host coordinators is that the daemon binds loopback
+unconditionally. When Fram is ready for it, this change (kept loopback-default, so
+nothing regresses) enables it — in `cnf_coord_daemon.clj`'s `serve`:
+
+```clojure
+;; default loopback; honor FRAM_BIND for behind-the-gateway deployment
+(defn- bind-addr []
+  (let [b (System/getenv "FRAM_BIND")]
+    (if (or (nil? b) (#{"" "loopback" "127.0.0.1"} b))
+      (java.net.InetAddress/getLoopbackAddress)
+      (java.net.InetAddress/getByName b))))
+;; in serve: bind `(bind-addr)` instead of getLoopbackAddress, and when it is NOT
+;; a loopback address, log a WARNING that the protocol is unauthenticated and MUST
+;; sit behind the gateway / a firewall.
+```
+
+Then a per-tenant coordinator can bind a private interface, the gateway reaches it
+via `:coordinator-host`, and the raw port is still never publicly exposed. (Left
+unapplied here on purpose — Fram is under active development; this is ready to drop
+in once it settles.)

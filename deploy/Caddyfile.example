@@ -1,0 +1,41 @@
+# Example Caddy v2 reverse proxy — terminates TLS in front of the Lodestar gateway.
+#
+# Caddy handles automatic HTTPS (provisions + renews a real certificate from
+# Let's Encrypt for the named domain), terminates TLS, and forwards plain HTTP to
+# the gateway on loopback. The gateway itself speaks plain HTTP by design — TLS
+# lives out here in the proxy (see deploy/gateway/README.md).
+#
+# Only the gateway is ever exposed. The raw coordinator ports (FRAM_PORT, e.g.
+# 7801+) are unauthenticated and bind loopback — NEVER reverse-proxy or expose
+# them; the gateway is the single authenticated edge.
+#
+# Usage:
+#   1. Replace lodestar.example.com with your real domain (DNS A/AAAA -> this host).
+#   2. Make sure the gateway is up on 127.0.0.1:8088 (lodestar-gateway.service).
+#   3. caddy run --config deploy/Caddyfile.example
+#      (or copy this to /etc/caddy/Caddyfile and `systemctl enable --now caddy`).
+
+lodestar.example.com {
+	# Forward to the gateway on loopback (plain HTTP — TLS is terminated here).
+	reverse_proxy 127.0.0.1:8088
+
+	# Cap request bodies to match the gateway's own expectation (one small EDN
+	# map per /v1/rpc call); reject anything larger at the edge.
+	request_body {
+		max_size 64KB
+	}
+
+	# Sensible security response headers.
+	header {
+		# Force HTTPS for a year, including subdomains.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Don't let browsers MIME-sniff responses.
+		X-Content-Type-Options "nosniff"
+		# Disallow framing (clickjacking).
+		X-Frame-Options "DENY"
+		# Don't leak the full URL in the Referer header cross-origin.
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Caddy advertises itself by default — drop it.
+		-Server
+	}
+}

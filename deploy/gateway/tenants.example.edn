@@ -1,9 +1,16 @@
 ;; Lodestar gateway tenant registry (example).
 ;; Copy to tenants.edn (gitignored) — or let provision.sh manage it.
 ;;
-;; One entry per tenant: a sha-256 hex of the tenant's bearer token (never the
-;; plaintext token), and the loopback port of that tenant's own coordinator.
-;; Each tenant is a fully isolated coordinator + claims.log — the only safe
-;; tenancy boundary (the per-assertion `frame` is provenance, not authorization).
-{"acme"   {:token-sha256 "REPLACE_WITH_SHA256_OF_ACME_TOKEN"   :coordinator-port 7801}
- "globex" {:token-sha256 "REPLACE_WITH_SHA256_OF_GLOBEX_TOKEN" :coordinator-port 7802}}
+;; One entry per tenant: a SET of accepted bearer-token hashes (sha-256 hex, never
+;; the plaintext) and the loopback port of that tenant's own coordinator. `:tokens`
+;; is a set so rotation can keep the old + new token valid during a grace window
+;; (provision.sh rotate adds one; revoke drops one). Each tenant is a fully isolated
+;; coordinator + claims.log — the only safe tenancy boundary (the per-assertion
+;; `frame` is provenance, not authorization).
+;;
+;; Optional per-tenant `:coordinator-host` (default "127.0.0.1") points the gateway
+;; at a coordinator on a private network instead of loopback.
+;;
+;; The legacy single-token form `{:token-sha256 "<hex>" ...}` is still accepted.
+{"acme"   {:tokens #{"REPLACE_WITH_SHA256_OF_AN_ACME_TOKEN"}   :coordinator-port 7801}
+ "globex" {:tokens #{"REPLACE_WITH_SHA256_OF_A_GLOBEX_TOKEN"}  :coordinator-port 7802}}
