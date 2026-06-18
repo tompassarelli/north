@@ -5,6 +5,14 @@
 
 (require fram.kernel :as k)
 
+;; DECIDED NON-GOAL (2026-06-18): do NOT rewrite ready/blocked as Datalog rules.
+;; Measured on the live log (see leverage_probe.clj): the Datalog twin is ~2.3x MORE
+;; code than these filterv's and forces a hand-listed predicate schema that duplicates
+;; what k/Index already owns — a second source of truth that silently rots. Claim-native
+;; logic is a win ONLY for recursive/relational derivation (the transitive leverage
+;; closure below — proven output-identical, a real 1-rule-vs-loop win IF the reified
+;; store is amortized across the whole layer), never for these flat filters.
+
 ;; Direct deps of te that are known threads and not yet terminal.
 (defn incomplete-deps [idx :- k/Index te :- String] :- (Vec String)
   (filterv (fn [d :- String] :- Bool
