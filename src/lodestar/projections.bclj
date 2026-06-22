@@ -22,9 +22,34 @@
 (defn blocked? [idx :- k/Index te :- String] :- Bool
   (not (empty? (incomplete-deps idx te))))
 
-(defn ready [idx :- k/Index] :- (Vec String)
+;; Schedule axis (the-model §3/§7): a thread is DORMANT iff it carries a future
+;; `do_on` (start date strictly after today) — it drops out of ready/next until
+;; its date. A past/equal do_on is NOT dormant (it's live/overdue). today/before?
+;; are threaded through callers exactly as staleness.bclj does (before? =
+;; fram.rt/str-lt?); projections has no clock access of its own.
+(defn dormant? [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- Bool
+  (let [d (k/one-i idx te "do_on")]
+    (and (some? d) (before? today d))))
+
+;; The ONE shared precedence classifier (the-model §3): every single-bucket view
+;; calls this, so two views can never disagree. EXACT precedence:
+;;   terminal > blocked > active > ready > dormant > draft
+;; committed + future-do_on reads `ready` (committed dominates the schedule —
+;; both-true semantics); uncommitted + future-do_on falls to `dormant`.
+(defn classify [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- String
+  (cond
+    [(k/terminal-i? idx te) "terminal"]
+    [(blocked? idx te) "blocked"]
+    [(some? (k/one-i idx te "driver")) "active"]
+    [(some? (k/one-i idx te "committed")) "ready"]
+    [(dormant? idx te today before?) "dormant"]
+    [:else "draft"]))
+
+(defn ready [idx :- k/Index today :- String before? :- [String String -> Bool]] :- (Vec String)
   (filterv (fn [te :- String] :- Bool
-             (and (not (k/terminal-i? idx te)) (not (blocked? idx te))))
+             (and (not (k/terminal-i? idx te))
+                  (and (not (blocked? idx te))
+                       (not (dormant? idx te today before?)))))
            (k/work-thread-ids-i idx)))
 
 (defn blocked [idx :- k/Index] :- (Vec String)
@@ -32,14 +57,10 @@
              (and (not (k/terminal-i? idx te)) (blocked? idx te)))
            (k/work-thread-ids-i idx)))
 
-;; Derived condition of a non-terminal work thread (shared by plate text + json):
-;;   active = has a driver · ready = committed, unblocked · blocked = committed,
-;;   blocked · draft = not committed.
-(defn condition-i [idx :- k/Index te :- String] :- String
-  (cond
-    [(some? (k/one-i idx te "driver")) "active"]
-    [(some? (k/one-i idx te "committed")) (if (blocked? idx te) "blocked" "ready")]
-    [:else "draft"]))
+;; Derived condition of a work thread — delegates to the ONE precedence classifier
+;; so plate text + json + the blocked command all agree.
+(defn condition-i [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- String
+  (classify idx te today before?))
 
 ;; Presentation: a deterministic, user-configurable emoji per condition. Engine
 ;; defaults here; any is overridden by a claim `@ui emoji_<condition> "<glyph>"`,
@@ -49,6 +70,8 @@
     [(= c "active") "🔵"]
     [(= c "ready") "🟢"]
     [(= c "blocked") "🔴"]
+    [(= c "dormant") "🟡"]
+    [(= c "terminal") "⚫"]
     [(= c "draft") "⚪"]
     [:else "•"]))
 

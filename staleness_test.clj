@@ -56,7 +56,13 @@
    ;; @t10 — committed + estimate  -> NOT promotable
    (asrt 95 "@t10" "title" "T10" "import")
    (asrt 96 "@t10" "estimate_hours" "3" "import")
-   (asrt 97 "@t10" "committed" "2026-01-01" "import")])
+   (asrt 97 "@t10" "committed" "2026-01-01" "import")
+   ;; @t11 — superseded_by @t12 (terminal via superseded_by, the-model §7) +
+   ;; a past valid_until that must be IGNORED (terminal-i? true => no time-stale).
+   (asrt 120 "@t11" "title" "T11" "import")
+   (asrt 121 "@t11" "superseded_by" "@t12" "import")
+   (asrt 122 "@t11" "valid_until" "2020-01-01" "import")
+   (asrt 123 "@t12" "title" "T12" "import")])
 
 (def idx (k/build-index (:claims (fold/fold asserts))))
 (def latest (fold/fold-latest asserts))
@@ -71,6 +77,7 @@
 (def checks
   [["time-stale flags past valid_until"          (contains? time-tes "@t1")]
    ["time-stale skips terminal thread"           (not (contains? time-tes "@t5"))]
+   ["time-stale skips superseded_by terminal"    (not (contains? time-tes "@t11"))]
    ["edge-stale flags clarifies->abandoned"      (contains? edge-tes "@t4")]
    ["edge-stale excludes depends_on->abandoned"  (not (contains? edge-tes "@t7"))]
    ["edge-stale skips terminal subject"          (not (contains? edge-tes "@t6"))]

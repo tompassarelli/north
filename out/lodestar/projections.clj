@@ -7,23 +7,35 @@
 (defn ^Boolean blocked? [idx ^String te]
   (not (empty? (incomplete-deps idx te))))
 
-(defn ready [idx]
-  (filterv (fn [te] (and (not (k/terminal-i? idx te)) (not (blocked? idx te)))) (k/work-thread-ids-i idx)))
+(defn ^Boolean dormant? [idx ^String te ^String today before?]
+  (let [d (k/one-i idx te "do_on")]
+  (and (some? d) (before? today d))))
+
+(defn ^String classify [idx ^String te ^String today before?]
+  (cond
+  (k/terminal-i? idx te) "terminal"
+  (blocked? idx te) "blocked"
+  (some? (k/one-i idx te "driver")) "active"
+  (some? (k/one-i idx te "committed")) "ready"
+  (dormant? idx te today before?) "dormant"
+  :else "draft"))
+
+(defn ready [idx ^String today before?]
+  (filterv (fn [te] (and (not (k/terminal-i? idx te)) (and (not (blocked? idx te)) (not (dormant? idx te today before?))))) (k/work-thread-ids-i idx)))
 
 (defn blocked [idx]
   (filterv (fn [te] (and (not (k/terminal-i? idx te)) (blocked? idx te))) (k/work-thread-ids-i idx)))
 
-(defn ^String condition-i [idx ^String te]
-  (cond
-  (some? (k/one-i idx te "driver")) "active"
-  (some? (k/one-i idx te "committed")) (if (blocked? idx te) "blocked" "ready")
-  :else "draft"))
+(defn ^String condition-i [idx ^String te ^String today before?]
+  (classify idx te today before?))
 
 (defn- ^String default-emoji [^String c]
   (cond
   (= c "active") "🔵"
   (= c "ready") "🟢"
   (= c "blocked") "🔴"
+  (= c "dormant") "🟡"
+  (= c "terminal") "⚫"
   (= c "draft") "⚪"
   :else "•"))
 

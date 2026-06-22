@@ -8,11 +8,11 @@
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/lodestar/threads}"
 export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/lodestar/claims.log}"
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/lodestar/time}"
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clockify_id}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clockify_id}"
 # Lodestar DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
-export FRAM_TERMINAL_PREDS="${FRAM_TERMINAL_PREDS:-outcome abandoned}"
+export FRAM_TERMINAL_PREDS="${FRAM_TERMINAL_PREDS:-outcome abandoned superseded_by}"
 export FRAM_WITHDRAWN_PREDS="${FRAM_WITHDRAWN_PREDS:-abandoned}"
 export CLOCKIFY_SECRET_FILE="${CLOCKIFY_SECRET_FILE:-/run/secrets/clockify-api-key}"
 export LODESTAR_SOURCE="${LODESTAR_SOURCE:-tom}"

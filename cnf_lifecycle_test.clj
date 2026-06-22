@@ -14,8 +14,15 @@
 (def flat-claims (:claims (fold/fold (fram.rt/read-log log))))
 
 ;; --- hand-coded (flat) projections = the golden reference -------------------
+;; proj/ready now takes today + before? and excludes future-do_on (dormant)
+;; threads (the-model §3/§7). The Datalog twin below has no schedule axis, so for
+;; the golden EQUALITY we drive ready with a far-future `today` (no live do_on can
+;; be in the future of it) — a dormancy-FREE base. Dormancy itself is covered
+;; directly in projections_test.clj, not pushed into the Datalog layer.
 (def flat-idx (k/build-index flat-claims))
-(def flat-ready (set (proj/ready flat-idx)))
+(def far-future "9999-12-31")
+(defn before? [a b] (neg? (compare a b)))
+(def flat-ready (set (proj/ready flat-idx far-future before?)))
 (def flat-blocked (set (proj/blocked flat-idx)))
 
 ;; --- load the corpus into the reified store (schema loader) -----------------
@@ -41,22 +48,40 @@
 ;;     committed/outcome/abandoned facts — never a stored heuristic) -----------
 (def out-p (c/value-id ctx "outcome"))
 (def ab-p  (c/value-id ctx "abandoned"))
-(def src-p (c/value-id ctx "source"))
-(def mig-v (c/value-id ctx "migrated"))
 (def tit-p (c/value-id ctx "title"))
 (def dep-p (c/value-id ctx "depends_on"))
+(def com-p (c/value-id ctx "committed"))
+;; the STRUCTURAL anchor (the-model §2/§7) replaces source=migrated: an anchor is
+;; a titled, committed node with NO work axis at all. These are the work-axis
+;; predicate value-ids — any one present disqualifies a node from being an anchor.
+;; Mirrors fram.kernel/anchor-i? exactly, so flat work == reified work both pre-
+;; AND post-migration (after source=migrated is dropped).
+(def work-axis-preds
+  (->> ["outcome" "abandoned" "driver" "depends_on" "part_of" "do_on"
+        "valid_until" "estimate_hours" "lead" "proposed_by" "created_at"
+        "updated_at" "repo"]
+       (map (fn [p] (c/value-id ctx p)))
+       (remove nil?)
+       vec))
 
 (def strata
   [;; stratum 0 — positive base over the EDB
-   [(d/rule "terminal" [(d/v :x)] [(d/lit "triple" [(d/v :x) out-p (d/v :o)])])
-    (d/rule "terminal" [(d/v :x)] [(d/lit "triple" [(d/v :x) ab-p (d/v :a)])])
-    (d/rule "anchor"   [(d/v :x)] [(d/lit "triple" [(d/v :x) src-p mig-v])])
-    (d/rule "titled"   [(d/v :x)] [(d/lit "triple" [(d/v :x) tit-p (d/v :t)])])]
-   ;; stratum 1 — needs ¬anchor, ¬terminal
+   (into
+    [(d/rule "terminal" [(d/v :x)] [(d/lit "triple" [(d/v :x) out-p (d/v :o)])])
+     (d/rule "terminal" [(d/v :x)] [(d/lit "triple" [(d/v :x) ab-p (d/v :a)])])
+     (d/rule "titled"   [(d/v :x)] [(d/lit "triple" [(d/v :x) tit-p (d/v :t)])])
+     (d/rule "committed-r" [(d/v :x)] [(d/lit "triple" [(d/v :x) com-p (d/v :c)])])]
+    ;; work-axis: positive disjunction over the EDB (any work-axis pred present).
+    (mapv (fn [wp] (d/rule "work-axis" [(d/v :x)] [(d/lit "triple" [(d/v :x) wp (d/v :w)])]))
+          work-axis-preds))
+   ;; stratum 1 — anchor needs ¬work-axis (computed in stratum 0)
+   [(d/rule "anchor" [(d/v :x)]
+            [(d/lit "titled" [(d/v :x)]) (d/lit "committed-r" [(d/v :x)]) (d/nlit "work-axis" [(d/v :x)])])]
+   ;; stratum 2 — needs ¬anchor, ¬terminal
    [(d/rule "work" [(d/v :x)] [(d/lit "titled" [(d/v :x)]) (d/nlit "anchor" [(d/v :x)])])
     (d/rule "open-dep" [(d/v :x)]
             [(d/lit "triple" [(d/v :x) dep-p (d/v :y)]) (d/lit "titled" [(d/v :y)]) (d/nlit "terminal" [(d/v :y)])])]
-   ;; stratum 2 — needs ¬terminal, ¬open-dep
+   ;; stratum 3 — needs ¬terminal, ¬open-dep
    [(d/rule "blocked" [(d/v :x)] [(d/lit "work" [(d/v :x)]) (d/nlit "terminal" [(d/v :x)]) (d/lit "open-dep" [(d/v :x)])])
     (d/rule "ready"   [(d/v :x)] [(d/lit "work" [(d/v :x)]) (d/nlit "terminal" [(d/v :x)]) (d/nlit "open-dep" [(d/v :x)])])]])
 

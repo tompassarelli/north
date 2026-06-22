@@ -60,7 +60,7 @@
 
 (defn- capture-claims [^String te ^String title ^String owner ^String source ^String author ^String lead ^String driver ^String proposed ^String today]
   (let [c (add-claim [] te "title" title)
-   c (add-claim c te "owner" owner)
+   c (if (= owner "personal") c (add-claim c te "owner" owner))
    c (add-claim c te "source" source)
    c (add-claim c te "created_by" (ref-or-blank author))
    c (add-claim c te "lead" (ref-or-blank lead))
@@ -106,14 +106,17 @@
 
 (defn cmd-ready [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
-   rs (proj/ready idx)]
+   today (fram.rt/today-iso)
+   rs (proj/ready idx today fram.rt/str-lt?)]
   (println (str "READY NOW — " (count rs)))
   (doseq [te rs]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))))
 
 (defn cmd-blocked [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
-   bs (proj/blocked idx)]
+   today (fram.rt/today-iso)
+   before? fram.rt/str-lt?
+   bs (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (k/work-thread-ids-i idx))]
   (println (str "BLOCKED — " (count bs)))
   (doseq [te bs]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 48) "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
@@ -137,7 +140,7 @@
   (= doo today) 3
   :else 0) 0)
    mom (if (some? (k/one-i idx te "driver")) 2 0)]
-  (->NextItem te (+ (* 3 lev) (+ urg mom))))) (proj/ready idx))
+  (->NextItem te (+ (* 3 lev) (+ urg mom))))) (proj/ready idx today fram.rt/str-lt?))
    ranked (vec (take 12 (sort-by (fn [it] (- 0 (:score it))) items)))]
   (println (str "WHAT TO WORK ON — top picks (" today ")"))
   (doseq [it ranked]
@@ -169,17 +172,20 @@
   (doseq [te grp]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52)))))))
 
-(defn- in-condition [idx nonterm ^String c]
-  (filterv (fn [te] (= (proj/condition-i idx te) c)) nonterm))
+(defn- in-condition [idx nonterm ^String today before? ^String c]
+  (filterv (fn [te] (= (proj/condition-i idx te today before?) c)) nonterm))
 
 (defn cmd-plate [^String log]
   (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+   today (fram.rt/today-iso)
+   before? fram.rt/str-lt?
    nonterm (filterv (fn [te] (not (k/terminal-i? idx te))) (k/work-thread-ids-i idx))]
   (println (str "ON YOUR PLATE — " (count nonterm) " open"))
-  (plate-group idx "active" (in-condition idx nonterm "active"))
-  (plate-group idx "ready" (in-condition idx nonterm "ready"))
-  (plate-group idx "blocked" (in-condition idx nonterm "blocked"))
-  (plate-group idx "draft" (in-condition idx nonterm "draft"))))
+  (plate-group idx "active" (in-condition idx nonterm today before? "active"))
+  (plate-group idx "ready" (in-condition idx nonterm today before? "ready"))
+  (plate-group idx "blocked" (in-condition idx nonterm today before? "blocked"))
+  (plate-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
+  (plate-group idx "draft" (in-condition idx nonterm today before? "draft"))))
 
 (defrecord JThread [id title condition emoji])
 
@@ -241,18 +247,20 @@
 
 (defn jclockreport-calibration [r] (:calibration r))
 
-(defn- ^JThread jthread [idx ^String te]
-  (let [c (proj/condition-i idx te)]
+(defn- ^JThread jthread [idx ^String te ^String today before?]
+  (let [c (proj/condition-i idx te today before?)]
   (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 (defn cmd-json [^String log ^String what ^String arg]
   (let [as (fram.rt/read-log log)
    f (fold/fold as)
-   idx (k/build-index (:claims f))]
+   idx (k/build-index (:claims f))
+   today (fram.rt/today-iso)
+   before? fram.rt/str-lt?]
   (cond
-  (= what "plate") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te)) (filterv (fn [te] (not (k/terminal-i? idx te))) (k/work-thread-ids-i idx)))))
-  (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te)) (proj/ready idx))))
-  (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te)) (proj/blocked idx))))
+  (= what "plate") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (not (k/terminal-i? idx te))) (k/work-thread-ids-i idx)))))
+  (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (proj/ready idx today before?))))
+  (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (k/work-thread-ids-i idx)))))
   (= what "needs-review") (let [latest (fold/fold-latest as)
    today (fram.rt/today-iso)
    reviews (stale/needs-review idx latest today (fn [a b] (fram.rt/str-lt? a b)))]
