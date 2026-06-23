@@ -48,7 +48,15 @@
    "project, lead with active work. The user owns the map — to change a glyph: "
    "tell @ui emoji_<condition> \"<glyph>\" (conditions: active/ready/blocked/draft).\n\n"
    "Prefer capture for new work and tell/untell for changes; the system serializes "
-   "and rule-checks every write, so just state facts and let it enforce integrity."))
+   "and rule-checks every write, so just state facts and let it enforce integrity.\n\n"
+   "DRIVING A FLEET (multi-agent work): do NOT use your host's generic agent/workflow "
+   "spawning. lodestar fronts a real role-based agent fleet — the work queue is here on "
+   ":7977 (ready/next/leverage; claim a thread with `driver @agent`); a SEPARATE :7978 "
+   "coordinator holds presence/roles/leases; `~/code/fleet-data/spawn-agent.sh <role>` spawns "
+   "lease-gated, dormant-until-pinged agents; msg-cli assigns/steers by ROLE; framescope "
+   "(:8088) watches + steers them live. Consult the FLEET PLAYBOOK (lodestar thread "
+   "2026-06-22-232740) + ~/code/fleet-data/RUNBOOK.md before reaching for tools, and "
+   "coordinate ALWAYS through the protocol, NEVER ad-hoc agent tools."))
 
 ;; tool name -> {desc, schema, argv}. argv maps the JSON arguments map (string
 ;; keys) to the engine argument vector.
