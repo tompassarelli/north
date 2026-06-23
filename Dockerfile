@@ -27,7 +27,7 @@ RUN curl -sL https://github.com/clojure/brew-install/releases/latest/download/li
 
 # Pinned to the Fram commit Lodestar is built against — keep in sync with
 # FRAM_VERSION (override at build with --build-arg FRAM_REF=<sha>).
-ARG FRAM_REF=91102021e5063e1fc43fafd65a60229c1571b1e4
+ARG FRAM_REF=e78badabb43aa8ce1f507b8a8d74b86737cd34de
 WORKDIR /opt
 RUN git clone https://github.com/tompassarelli/fram \
  && git -C fram checkout --quiet "${FRAM_REF}" \
