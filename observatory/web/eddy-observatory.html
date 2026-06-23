@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fleet Observatory — eddy dogfood</title>
+  <!-- utility-class → CSS-var mapping (the .text-foreground etc. the components use).
+       The :root var VALUES are injected by the compiled JS from the .eddy (theme …) form. -->
+  <link rel="stylesheet" href="/eddy-observatory.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: var(--background); color: var(--foreground); }
+    #app { height: 100vh; }
+    .eddy-panel { border: 1px solid var(--border); border-radius: 8px; margin: 8px 12px; padding: 10px 12px; background: var(--muted); }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- SHELL STUBS — stand in for framescope's real custom panes. eddy carves a container
+       per (panel … :mount "framescope.mountX") and hands it { el, eddy }; the pane shares
+       the SAME /presence feed (eddy.feed.onUpdate) + selection (eddy.selection) as the
+       entity-view. framescope swaps the real Cytoscape graph (web/graph.js) and stream-tail
+       in here later — the seam (el + window.eddy) does not change. -->
+  <script>
+    window.framescope = window.framescope || {};
+    function _pane(el, title) {
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-foreground);margin-bottom:6px';
+      h.textContent = title;
+      const body = document.createElement('div');
+      body.style.cssText = 'font-size:13px;color:var(--foreground)';
+      el.appendChild(h); el.appendChild(body);
+      return body;
+    }
+    window.framescope.mountGraph = ({ el, eddy }) => {
+      const body = _pane(el, 'framescope · agent graph (Cytoscape mount-point)');
+      const render = () => {
+        const rows = eddy && eddy.stores && eddy.stores.agents ? eddy.stores.agents.all() : [];
+        const sel = eddy && eddy.selection ? eddy.selection.get() : null;
+        body.textContent = `▣ ${rows.length} nodes from shared /presence feed` + (sel ? ` · selected ${sel}` : '');
+      };
+      render();
+      if (eddy && eddy.feed) eddy.feed.onUpdate(() => render());
+    };
+    window.framescope.mountStream = ({ el, eddy }) => {
+      const body = _pane(el, 'framescope · live stream-tail');
+      let n = 0;
+      const line = (t) => {
+        const d = document.createElement('div');
+        d.style.cssText = 'font-family:monospace;font-size:11px;color:var(--muted-foreground)';
+        d.textContent = t; body.prepend(d);
+        while (body.childElementCount > 5) body.lastChild.remove();
+      };
+      line('stream attached to window.eddy.feed');
+      if (eddy && eddy.feed) eddy.feed.onUpdate(({ name, changed }) =>
+        line(`Δ ${name}: ${(changed || []).length} row(s) moved  [#${++n}]`));
+    };
+  </script>
+
+  <script src="/eddy-observatory.js"></script>
+</body>
+</html>

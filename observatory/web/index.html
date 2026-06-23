@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>framescope · fleet observatory</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand"><span class="logo">◆</span> framescope <span class="sub">fleet observatory</span></div>
+  <nav class="tabs">
+    <button class="tab active" data-view="observatory">Observatory</button>
+    <button class="tab" data-view="board">Board</button>
+    <button class="tab" data-view="graph">Graph</button>
+  </nav>
+  <div class="omni"><input id="omni" type="search" placeholder="⌕ search all node data…" autocomplete="off" spellcheck="false"></div>
+  <button id="cmdk-hint" class="cmdk-hint" title="Command palette — quick actions, group, voice">⌘K</button>
+  <div class="conn">
+    <!-- NAMED-CONTEXT picker: choose the daemon by NAME (Fleet/Board/Code/Attention); the
+         port mapping is hidden in app.js and never surfaced. The online-indicator label
+         below shows the context name, not a port. -->
+    <label class="ctx-pick">context
+      <select id="context" style="background:var(--bg2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-family:var(--mono);font-size:13px;">
+        <option value="fleet">Fleet</option>
+        <option value="board">Board</option>
+        <option value="code">Code</option>
+        <option value="attention">Attention</option>
+      </select>
+    </label>
+    <span id="status" class="dot off" title="disconnected"></span>
+    <span id="status-label">connecting…</span>
+  </div>
+</header>
+
+<!-- ============ OBSERVATORY ============ -->
+<main id="observatory" class="view active">
+  <div class="obs-main">
+    <aside id="agents">
+      <div class="pane-head">Agents <span id="agent-count" class="count">0</span></div>
+      <!-- STATUS FILTER: narrow the list to All / Working / Dormant / Offline. -->
+      <div class="seg agent-filter" id="agent-filter" style="margin:6px 6px 0;">
+        <button data-status="all" class="on">All</button><button data-status="working">Working</button><button data-status="dormant">Dormant</button><button data-status="offline">Offline</button>
+      </div>
+      <ul id="agent-list"></ul>
+    </aside>
+
+    <section id="stream-col">
+      <div class="pane-head" id="stream-head">
+        <span id="stream-title">Select an agent →</span>
+        <!-- agent-detail view switch: live Stream ⇄ Decisions (window.mountDecisions). -->
+        <div class="seg detail-view" id="detail-view">
+          <button data-detail="stream" class="on">Stream</button><button data-detail="decisions">Decisions</button>
+        </div>
+        <span id="stream-cost" class="cost"></span>
+      </div>
+      <div id="stream" class="stream"><div class="empty">Pick an agent on the left to watch it think, live.</div></div>
+      <!-- Decisions surface for the selected agent — filled by the decisions module. -->
+      <div id="decisions" style="display:none; flex:1; min-height:0; overflow:auto;"></div>
+      <form id="steer-form" class="steer">
+        <input id="steer-to" type="text" placeholder="to (role or uuid)" autocomplete="off">
+        <input id="steer-body" type="text" placeholder="steer this agent — type a message and hit ↵" autocomplete="off">
+        <button type="submit">Steer</button>
+      </form>
+    </section>
+  </div>
+
+  <!-- ---- TIME TAPE: scrubbable last-N-min activity ribbon ---- -->
+  <div id="timetape">
+    <div class="tt-head">
+      <span class="tt-title">Time Tape</span>
+      <div class="tt-range" id="tt-range">
+        <button data-mins="15">15m</button><button data-mins="30" class="on">30m</button><button data-mins="60">60m</button>
+      </div>
+      <span class="tt-readout" id="tt-readout">— hover the ribbon —</span>
+      <span class="tt-cost" id="tt-cost"></span>
+    </div>
+    <div id="tt-track" class="tt-track">
+      <svg id="tt-cost-spark" class="tt-spark" preserveAspectRatio="none"></svg>
+      <div id="tt-lane-msg" class="tt-lane"></div>
+      <div id="tt-lane-session" class="tt-lane"></div>
+      <div id="tt-lane-run" class="tt-lane"></div>
+      <div id="tt-now" class="tt-now"></div>
+      <div id="tt-scrub" class="tt-scrub"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ============ BOARD ============ -->
+<!-- mounted by the board module (window.mountBoard); a sibling top-level view. -->
+<main id="board-view" class="view"><div id="board-root" style="flex:1;min-height:0;overflow:auto;"></div></main>
+
+<!-- ============ GRAPH ============ -->
+<!-- LAYOUT ARCHITECTURE (da10): one CSS grid — [toolbar full-width] / [canvas | properties].
+     Nothing absolute-positioned over another region; the properties column only exists
+     when a node is selected (:has() opens it). Overlays (legend/toast/banner) live INSIDE
+     #canvas-wrap so they can never bleed onto the toolbar or properties. -->
+<main id="graph-view" class="view">
+  <div class="graph-controls">
+    <!-- 2-ROW TOOLBAR (c78a/54be): MAX two rows. Row 1 = VIEW (what you're looking at);
+         row 2 = TOOLS (what you do). Presets + source-graphs fold into dropdown BUTTONS so
+         the toolbar never spills past two rows or eats the canvas. Advanced knobs stay in ⚙. -->
+    <!-- ROW 1 — VIEW -->
+    <div class="gc-toolbar gc-row1">
+      <div class="seg" id="graph-mode">
+        <button data-mode="backbone" class="on">Backbone</button><button data-mode="raw">Raw atoms</button>
+      </div>
+      <div class="seg" id="graph-layout" title="Layout: force-directed · time-hierarchical · dependency DAG · radial">
+        <button data-layout="force" class="on">Force</button><button data-layout="time">Time</button><button data-layout="dag">DAG</button><button data-layout="radial">Radial</button>
+      </div>
+      <!-- 2D ⇄ 3D: same graph, sibling projection. 3D = three.js force layout, orbit to
+           explore, drag to pin, ⟳ to re-layout. Layout selector is 2D-only. -->
+      <div class="seg" id="graph-dim" title="2D canvas ⇄ 3D force layout (same data + filters)">
+        <button data-dim="2d" class="on">2D</button><button data-dim="3d">3D</button>
+      </div>
+      <!-- PRESETS folded into a dropdown: a view = filter × layout × color × edge-layers. -->
+      <div class="gc-dd" id="preset-dd">
+        <button class="ctl-btn dd-btn" id="preset-dd-btn" aria-expanded="false" title="Views are presets — click to apply a saved view">▦ Views ▾</button>
+        <div class="gc-menu" id="preset-bar"></div>
+      </div>
+      <!-- GRAPH MEMBERSHIP folded into a dropdown: the graph is ONE federated union of all
+           daemons; toggle which source graphs (fleet/code/board/work/attention) are in view. -->
+      <div class="gc-dd" id="graphs-dd">
+        <button class="ctl-btn dd-btn" id="graphs-dd-btn" aria-expanded="false" title="Federated union — toggle which source graphs are visible">⬡ Graphs ▾</button>
+        <div class="gc-menu" id="graph-facets"><span class="gc-lbl">source graphs</span></div>
+      </div>
+      <!-- LIGHT-SHOW (item 4): dark-room toggle. Dim everything but the live attention beams. -->
+      <button id="lightshow-toggle" class="ctl-btn lightshow" title="Dark room — dim everything but the live attention beams (each agent → the code it's touching NOW). Click an agent to isolate its focus; click empty for the whole-graph show.">🔦 Dark room</button>
+    </div>
+
+    <!-- ROW 2 — TOOLS -->
+    <div class="gc-toolbar gc-row2">
+      <!-- CONTROL SURFACE (573b): arm a typed-edge gesture, then click source→target.
+           Each draws a real claim into the daemon. Hotkeys mirror the buttons. -->
+      <div class="seg" id="graph-edit" title="Draw a typed edge → assert a claim. Select a node, hit a key (or a button), then click the target.">
+        <button data-link="assign" title="assign work to an agent — sets the work's driver + pings the agent (a)">assign</button><button data-link="depends" title="work depends on work (d)">dep</button><button data-link="relates" title="relate two nodes (r)">rel</button><button data-link="watch" title="agent watches a thread (w)">watch</button>
+      </div>
+      <button id="graph-newwork" class="ctl-btn" title="Create a new work node on the canvas (n)">✛ Work</button>
+      <button id="graph-relayout" class="ctl-btn" title="Re-run layout. Auto-layout is frozen during live updates so the graph holds still while you work — hit this to re-arrange.">⟳</button>
+      <button id="preset-save" class="ctl-btn" title="Save the current view (layout + filters + edge-layers) as a named preset">＋ Save</button>
+      <button id="legend-toggle" class="ctl-btn on" title="Show/hide the node-types legend (docked bottom-left)">▤ Legend</button>
+      <button id="isolates-toggle" class="ctl-btn" title="Show/hide disconnected (0-degree) nodes. Hidden by default so the canvas reads as connected structure, not a dot-grid.">◌ Isolates</button>
+      <button id="gc-more" class="ctl-btn" title="Show/hide advanced controls — size, edge layers, recency, depth" aria-expanded="false">⚙ More</button>
+    </div>
+
+    <!-- advanced drawer: collapsed by default, toggled by ⚙ More. -->
+    <div class="gc-drawer collapsed" id="gc-drawer">
+      <label class="gc-sel" title="Size nodes by traffic, $ cost, context, or how recently active">size
+        <select id="size-by">
+          <option value="messages">messages</option>
+          <option value="cost">cost</option>
+          <option value="context">context</option>
+          <option value="recency">recency</option>
+        </select>
+      </label>
+
+      <div class="gc-row" id="edge-layers" title="Toggle edge layers by kind">
+        <span class="gc-lbl">edges</span>
+        <label><input type="checkbox" data-layer="struct" checked> struct</label>
+        <label><input type="checkbox" data-layer="talk" checked> talk</label>
+        <label><input type="checkbox" data-layer="child" checked> child</label>
+        <label title="agent → the code it touched (cross-graph)"><input type="checkbox" data-layer="working" checked> working</label>
+        <label title="live attention beam — agent cursor → the module it's on NOW (light-show)"><input type="checkbox" data-layer="attending" checked> attending</label>
+      </div>
+
+      <div class="gc-row recency" id="graph-recency" title="Hide nodes idle longer than N minutes — far right = show all">
+        <span class="gc-lbl">recency</span>
+        <input id="recency-slider" type="range" min="5" max="120" step="5" value="45">
+        <span id="recency-val" class="gc-val">45m</span>
+      </div>
+
+      <div class="depth hidden" id="graph-depth" title="AST collapse depth — module → def → expr → ast">
+        <span class="depth-lbl">depth</span>
+        <input id="depth-slider" type="range" min="0" max="6" step="1" value="1">
+        <span id="depth-val" class="depth-val">1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CANVAS cell: 2D + 3D projections plus the in-canvas overlays. position:relative so
+       legend/toast/banner anchor to THIS box, never the toolbar or properties column. -->
+  <div id="canvas-wrap">
+    <div id="cy"></div>
+    <!-- 3D sibling projection — same data + view-engine, three.js force layout. Hidden
+         until the 2D/3D toggle flips to 3D. -->
+    <div id="cy3d"></div>
+    <!-- node-types legend: docked bottom-left corner, toggled by ▤ Legend (da10). -->
+    <div id="legend" class="legend"></div>
+    <div id="graph-toast" class="toast"></div>
+    <!-- live prompt while a typed-edge gesture is armed (573b control surface). -->
+    <div id="link-banner" class="link-banner hidden"></div>
+  </div>
+
+  <!-- PROPERTIES cell: its own grid column, never under the toolbar (da10). -->
+  <aside id="node-panel" class="node-panel hidden">
+    <div class="pane-head"><span id="node-title">node</span><button id="node-close">✕</button></div>
+    <div id="node-claims"></div>
+  </aside>
+</main>
+
+<script src="vendor/cytoscape.min.js"></script>
+<script src="vendor/layout-base.js"></script>
+<script src="vendor/cose-base.js"></script>
+<script src="vendor/cytoscape-fcose.js"></script>
+<script src="vendor/3d-force-graph.min.js"></script>
+<script src="graph-domain.js"></script>
+<script src="graph3d.js"></script>
+<script src="graph.js"></script>
+<script src="timetape.js"></script>
+<!-- parallel modules (other workers own these files): markdown renderer, Board view,
+     Decisions view. app.js wires to their window.* exports defensively, so a file that
+     hasn't landed yet is a harmless 404, not a break. -->
+<script src="md.js"></script>
+<script src="board.js"></script>
+<script src="decisions.js"></script>
+<script src="app.js"></script>
+<script src="command.js"></script>
+</body>
+</html>
