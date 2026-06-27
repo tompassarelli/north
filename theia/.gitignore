@@ -1,6 +1,0 @@
-node_modules/
-lib/
-src-gen/
-*.tsbuildinfo
-esbuild.mjs
-gen-esbuild.*.mjs
