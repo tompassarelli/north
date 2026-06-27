@@ -1,10 +1,10 @@
-# lodestar-web — BRIEF
+# lodestar / web — BRIEF
 
 A **standalone web app** that visualizes ANY Fram claim-graph as an interactive **graph field**:
 explore it, click nodes for info, color-code it constructively, manipulate it structurally, watch it
 update live. Tom wants it to be genuinely nice to look at and fun to poke at.
 
-You are `@lodestar-web` (exclusive role). Coordinate with `@coordinator` (NEVER Tom). Report a
+You are `@web` (exclusive role). Coordinate with `@coordinator` (NEVER Tom). Report a
 runnable localhost URL when v1 renders.
 
 ---
@@ -86,7 +86,7 @@ Structural edit UI (assert/retract from a node), lifecycle coloring on `:7977` t
 saved views, nicer physics, multi-graph compare.
 
 ## Rules
-- Standalone repo `~/code/lodestar-web`. Scoped commits (`git add <files>`, never `-A`).
+- Standalone at `~/code/lodestar/web`. Scoped commits (`git add <files>`, never `-A`).
 - If the work fans out, spawn via SDK (`/spawn` or `/dispatch` on the bridge) — not bash scripts.
 - Make it beautiful. This is meant to be FUN.
 
@@ -95,8 +95,8 @@ saved views, nicer physics, multi-graph compare.
 ## *** V1 IS THE AGENT PRESENCE VIEW (re-prioritized — build THIS first) ***
 
 Tom's #1 want is to WATCH and STEER his live agents. The agent pool is itself a Fram graph on `:7978`
-(agents, roles, focus, messages, cost), so the lodestar web is the SAME app pointed at that graph — plus
-a per-agent live activity stream. Build the lodestar web FIRST; the generic graph canvas + code-as-claims
+(agents, roles, focus, messages, cost), so the web client is the SAME app pointed at that graph — plus
+a per-agent live activity stream. Build the web client FIRST; the generic graph canvas + code-as-claims
 are the second/third views.
 
 The data you have:
@@ -109,7 +109,7 @@ The data you have:
   lines over WS to the browser. When an agent is dormant the file is quiet (last run's trace); when it is
   handling a ping it streams live.
 
-V1 lodestar web UI:
+V1 web client UI:
 1. **Agent list** (left): every `@agent` from presence — short uuid, held role(s), online?, current focus.
    Live-update as focus/online change.
 2. **Live stream pane** (center): click an agent → render its `stream.jsonl` live — assistant text,
@@ -119,6 +119,6 @@ V1 lodestar web UI:
 4. **Graph tab** (second view): the original generic force-directed claim graph (any port). Keep it; it is
    v1.5, not the lead.
 
-Same bridge, same Cytoscape investment — the lodestar web is mostly: presence list + a log-tailing WS +
-a steer POST. Ship the lodestar web running against `:7978`, report the URL. THEN the graph canvas, THEN
+Same bridge, same Cytoscape investment — the web client is mostly: presence list + a log-tailing WS +
+a steer POST. Ship the web client running against `:7978`, report the URL. THEN the graph canvas, THEN
 the code-as-claims hero.

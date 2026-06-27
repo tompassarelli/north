@@ -24,12 +24,12 @@
       when: c => c.agents.length === 1, run: () => { toGraph(); G().startLink('assign'); } },
     { id: 'reconsider', label: '↻ Reconsider current approach', hint: 'ping the agent',
       when: c => c.agents.length >= 1,
-      run: c => c.agents.forEach(a => steer(handle(a.id), 'reconsider your current approach — sanity-check the plan and report back. (from lodestar web)')) },
+      run: c => c.agents.forEach(a => steer(handle(a.id), 'reconsider your current approach — sanity-check the plan and report back. (from web)')) },
     { id: 'research', label: '🔎 Deep research…', hint: 'dispatch a research task',
       when: () => true, run: c => {
         const topic = prompt('Deep research on:'); if (!topic) return;
         const to = c.agents[0] ? handle(c.agents[0].id) : 'coordinator';
-        steer(to, `run deep research on: ${topic}. fan out sources, verify, report a cited synthesis. (from lodestar web)`);
+        steer(to, `run deep research on: ${topic}. fan out sources, verify, report a cited synthesis. (from web)`);
         toast(`🔎 research dispatched → ${to}`);
       } },
     { id: 'spawn', label: '✦ Spawn an agent (SDK)…', hint: 'launch via Claude Agent SDK',
@@ -55,7 +55,7 @@
       } },
     { id: 'stop', label: '■ Stop / stand down', hint: 'halt the agent',
       when: c => c.agents.length >= 1,
-      run: c => c.agents.forEach(a => steer(handle(a.id), 'stop — stand down your current work and await instruction. (from lodestar web)')) },
+      run: c => c.agents.forEach(a => steer(handle(a.id), 'stop — stand down your current work and await instruction. (from web)')) },
     { id: 'watch', label: '👁 Watch a thread', hint: 'draw agent → thread',
       when: c => c.agents.length === 1, run: () => { toGraph(); G().startLink('watch'); } },
     { id: 'depends', label: '⛓ Add a dependency', hint: 'draw work → work',
@@ -98,7 +98,7 @@
     if (!q || !c.agents.length) return null;
     const to = c.agents.map(a => handle(a.id));
     return { id: 'steer', label: `🗣 Steer ${to.join(', ')}: “${q}”`, hint: 'send as a message',
-      when: () => true, run: () => { to.forEach(t => steer(t, q + ' (from lodestar web)')); toast(`→ steered ${to.length}`); } };
+      when: () => true, run: () => { to.forEach(t => steer(t, q + ' (from web)')); toast(`→ steered ${to.length}`); } };
   }
 
   // ---- palette DOM -----------------------------------------------------------------

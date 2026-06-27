@@ -12,11 +12,11 @@ always-loaded surface: load-bearing rules + thin pointers. Detail lives in what 
 
 Agent coordination uses the **TypeScript SDK** (`~/code/lodestar/sdk/`), not bash scripts.
 
-- **Dispatch**: `bun run ~/code/lodestar/sdk/src/dispatch.ts <thread-id>` — reads thread claims, derives posture (unplanned/atomic/composite), injects the right prompt + tool set, streams to lodestar web.
+- **Dispatch**: `bun run ~/code/lodestar/sdk/src/dispatch.ts <thread-id>` — reads thread claims, derives posture (unplanned/atomic/composite), injects the right prompt + tool set, streams to the web client.
 - **Spawn**: `bun run ~/code/lodestar/sdk/src/spawn.ts <prompt>` — direct agent spawn with SDK `query()`.
 - **Parallel**: `spawnParallel()` in `~/code/lodestar/sdk/src/spawn.ts` — `Promise.all` over multiple agents.
 - **Work queue**: lodestar threads on **:7977** — `ready`/`next`/`leverage` to pick; claim a thread with `driver @agent`.
-- **Observe/steer**: lodestar web on **:8088** — tails each agent's stream, `/steer`.
+- **Observe/steer**: web client on **:8088** — tails each agent's stream, `/steer`.
 - **Concurrency lives in the engine** (the DB owns it): write-serialization + OCC + the **lease** primitive in fram's `cnf_coord.clj`.
 
 ## Write safely (claim-backed, concurrent agents)

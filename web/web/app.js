@@ -1,4 +1,4 @@
-// app.js — lodestar web: agent list + live "watch it think" stream + steer.
+// app.js — web client: agent list + live "watch it think" stream + steer.
 'use strict';
 
 const $ = sel => document.querySelector(sel);

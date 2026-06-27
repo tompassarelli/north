@@ -1,4 +1,4 @@
-# lodestar-web
+# lodestar / web
 
 A web app that points at any **Fram claim-graph daemon** by port and renders it
 live. v1 is the **agent presence view**: watch and steer your running agents.
@@ -15,7 +15,7 @@ live from the port box in the UI (no restart).
 
 ## What you get
 
-- **Lodestar Web tab**
+- **Web client**
   - **Agents** (left): every `@agent` from presence — online dot, held roles,
     current focus (workflow/thread), live activity tag. Refreshes itself.
   - **Stream** (center, the hero): click an agent → its

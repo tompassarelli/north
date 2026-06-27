@@ -54,7 +54,7 @@
    "Claude Agent SDK. For ad-hoc tasks without a thread, use `spawn`. The canonical flow is: "
    "capture a thread → tell it claims (model, dependencies) → dispatch it. "
    "Work queue on :7977 (ready/next/leverage; claim with `driver @agent`); "
-   "lodestar web (:8088) watches + steers live."))
+   "web client (:8088) watches + steers live."))
 
 ;; tool name -> {desc, schema, argv}. argv maps the JSON arguments map (string
 ;; keys) to the engine argument vector.
@@ -145,7 +145,7 @@
         {:content [{:type "text" :text (str "dispatched @agent:" agent-id " for thread @" id
                                             (when model (str " model=" model))
                                             "\nAgent is running in the background. "
-                                            "Watch via lodestar web (:8088) or `show` the thread.")}]})
+                                            "Watch via web client (:8088) or `show` the thread.")}]})
 
       "spawn"
       (let [prompt (get args "prompt")
@@ -162,7 +162,7 @@
         {:content [{:type "text" :text (str "spawned @agent:" agent-id
                                             (when model (str " model=" model))
                                             "\nAgent is running in the background. "
-                                            "Watch via lodestar web (:8088).")}]}))))
+                                            "Watch via web client (:8088).")}]}))))
 
 (defn find-tool [nm] (first (filter #(= (:name %) nm) tools)))
 (defn find-sdk-tool [nm] (first (filter #(= (:name %) nm) sdk-tools)))
