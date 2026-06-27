@@ -26,5 +26,6 @@ defmodule LodestarWeb.Router do
   scope "/", LodestarWeb do
     get "/presence", ApiController, :wake_presence
     get "/live", ApiController, :live
+    get "/wake", ApiController, :wake_shell
   end
 end
