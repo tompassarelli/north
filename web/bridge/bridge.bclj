@@ -1,5 +1,5 @@
 #lang beagle/clj
-;; framescope bridge (TYPED) — authored in Beagle, compiled to bridge.clj (bb runs
+;; lodestar-web bridge (TYPED) — authored in Beagle, compiled to bridge.clj (bb runs
 ;; that). Browser <-(HTTP/WS)-> bridge <-(line-delimited EDN/TCP)-> fram coord daemon.
 ;;
 ;; The DOGFOOD: paren-safety + types on the bridge. This file owns the typed logic
@@ -62,7 +62,7 @@
 (defrecord Timetape [now :- Int mins :- Int events :- (Vec TapeEvent)])
 (defrecord SubjGroup [subj :- String rows :- (Vec (Vec String))])
 
-;; a distilled decision (the shape framescope/web/decisions.js renders as a DAG)
+;; a distilled decision (the shape lodestar-web/web/decisions.js renders as a DAG)
 (defrecord Decision [id :- String chosen :- (U String Nil) options :- (Vec String)
                      tradeoffs :- (U String Nil) rationale :- (U String Nil) led_to :- (Vec String)])
 

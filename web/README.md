@@ -1,4 +1,4 @@
-# framescope
+# lodestar-web
 
 A web app that points at any **Fram claim-graph daemon** by port and renders it
 live. v1 is the **fleet lodestar web**: watch and steer your running agents.
@@ -6,8 +6,8 @@ live. v1 is the **fleet lodestar web**: watch and steer your running agents.
 ## Run
 
 ```bash
-bin/framescope            # -> http://localhost:8088   (needs babashka `bb`)
-bin/framescope 9000       # pick a different http port
+bin/lodestar-web            # -> http://localhost:8088   (needs babashka `bb`)
+bin/lodestar-web 9000       # pick a different http port
 ```
 
 Targets the fleet coordinator on `:7978` by default; change the target daemon

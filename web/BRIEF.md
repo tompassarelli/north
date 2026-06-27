@@ -1,10 +1,10 @@
-# framescope — BRIEF
+# lodestar-web — BRIEF
 
 A **standalone web app** that visualizes ANY Fram claim-graph as an interactive **graph field**:
 explore it, click nodes for info, color-code it constructively, manipulate it structurally, watch it
 update live. Tom wants it to be genuinely nice to look at and fun to poke at.
 
-You are `@framescope` (exclusive role). Coordinate with `@fleet-commander` (NEVER Tom). Report a
+You are `@lodestar-web` (exclusive role). Coordinate with `@fleet-commander` (NEVER Tom). Report a
 runnable localhost URL when v1 renders.
 
 ---
@@ -55,7 +55,7 @@ against the daemon (`cnf_coord_daemon.clj` in `~/code/fram`) before building on 
     (dark bg, high-contrast accents).
   - **Live**: the `/live` WS animates nodes/edges appearing/disappearing and flashes a node on change.
     This is the "fun" — the graph should feel alive.
-- **`bin/framescope`** — ONE command: start the bridge + serve `web/`, print a `http://localhost:PORT` URL.
+- **`bin/lodestar-web`** — ONE command: start the bridge + serve `web/`, print a `http://localhost:PORT` URL.
 
 ## Beagle dogfood (Tom's explicit ask: use the compiler as a library)
 
@@ -76,7 +76,7 @@ proof-of-dogfood is the cleanest pure piece, not the whole app.
 1. `bridge`: `/graph` snapshot + `/live` WS against `:7978`.
 2. `web`: render the live `:7978` fleet graph; force layout; click-node → claims panel; color-by-type +
    legend; animate on live commits.
-3. `bin/framescope` one-command start that prints the URL.
+3. `bin/lodestar-web` one-command start that prints the URL.
 4. Commit (scoped). Reply to `@fleet-commander` with the URL + how to start it.
 
 Then Tom opens it and iterates the fun/aesthetic with you (you can't see the render; he is your eyes).
@@ -86,9 +86,9 @@ Structural edit UI (assert/retract from a node), lifecycle coloring on `:7977` t
 saved views, nicer physics, multi-graph compare.
 
 ## Rules
-- Standalone repo `~/code/framescope`. Scoped commits (`git add <files>`, never `-A`).
+- Standalone repo `~/code/lodestar-web`. Scoped commits (`git add <files>`, never `-A`).
 - If the work fans out, you may spawn an ephemeral helper (`~/code/fleet-data/spawn-agent.sh
-  framescope-<slug>-1`, inclusive role) — but start lean.
+  lodestar-web-<slug>-1`, inclusive role) — but start lean.
 - Make it beautiful. This is meant to be FUN.
 
 ---

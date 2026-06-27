@@ -1,5 +1,5 @@
 (ns bridge.rt
-  "Host-interop runtime for the framescope bridge's Beagle module — the
+  "Host-interop runtime for the lodestar-web bridge's Beagle module — the
   irreducible Clojure layer the .bclj `declare-extern`s bind to. Beagle
   (bridge.bclj -> bridge.clj) owns the typed logic: the graph fold, federation
   merge, presence/timetape projection, routing. THIS owns the host calls:
@@ -161,7 +161,7 @@
 ;; ---- steer: send a message to an agent via msg-cli --------------------------
 (defn steer! [port to body]
   (let [subject "steer from web"
-        res (p/sh ["bb" (.getPath MSG-CLI) (str port) "send" "framescope" to subject body])]
+        res (p/sh ["bb" (.getPath MSG-CLI) (str port) "send" "lodestar-web" to subject body])]
     {:ok (zero? (:exit res)) :out (str/trim (str (:out res) (:err res)))}))
 
 ;; ---- distill: (re)run the decision analyst for one agent into the decisions
@@ -258,7 +258,7 @@
 (defn boot! [handler]
   (let [port (or (some-> (first *command-line-args*) parse-long) 8088)]
     (http/run-server handler {:port port})
-    (println (str "framescope bridge up  →  http://localhost:" port))
+    (println (str "lodestar-web bridge up  →  http://localhost:" port))
     (println (str "  serving " (.getPath WEB)))
     (println "  lodestar web targets fram daemon :7978 (override per-request with ?port=N)")
     @(promise)))
