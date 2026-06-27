@@ -1,0 +1,217 @@
+;; lodestar-map.clj — deterministic FAN-OUT + BARRIER. Sibling to
+;; presence-cli/msg-cli/lease-cli; speaks the SAME daemon wire (:assert / :version / :query /
+;; :resolved). The capability that replaces Anthropic Workflow's parallel: spawn N workers
+;; under ONE batch claim, then BLOCK on a derived "K-of-N DONE" barrier and surface the payloads.
+;;
+;; Model (all claims, no new daemon verbs):
+;;   @batch:<id>  batch_kind=fan-out  expected_count=N  barrier_k=K  role_template=..  task=..
+;;                created_at=..  worker=<handle>          (one `worker` claim per spawned worker)
+;;   @done:<id>:<worker>  done_batch=@batch:<id>  done_worker=<handle>  done_payload=..  done_at=..
+;;
+;; The BARRIER is a Datalog join over the claim graph (scan engine): distinct workers that emitted a
+;; DONE against the batch. complete? := (count distinct-done-workers) >= K. Set semantics in the
+;; derived head collapse a worker that reports twice — the barrier counts WORKERS, not claims.
+;;
+;; usage:
+;;   bb fleet-map.clj <port> map    <role-template> <N> <task> [K]   — register batch + fan out N workers
+;;   bb fleet-map.clj <port> done   <batch-id> <worker> <payload>    — a worker reports DONE (carries payload)
+;;   bb fleet-map.clj <port> status <batch-id>                       — barrier state + aggregated payloads
+;;   bb fleet-map.clj <port> barrier <batch-id>                      — just the derived fired? + done set
+;;   bb fleet-map.clj <port> list                                    — known batches
+;; env: FLEET_MAP_SPAWN=0 registers the batch + records worker handles but skips the real
+;;      spawn-agent/msg ping (deterministic test path; DONEs then simulated via the `done` verb).
+(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
+         '[clojure.java.shell :refer [sh]])
+
+;; rec4: schema-validated structured output. Load the sibling validator so a batch can carry a JSON
+;; schema (done_schema) and the `done` verb gates each worker's payload against it before accepting —
+;; invalid => reject + retry, the K-of-N barrier does NOT advance. Sibling-relative; load-file leaves
+;; the validator's own CLI dormant (main-guard).
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
+
+(defn send-op [port op]
+  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
+    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
+      (.write w (.getBytes (str (pr-str op) "\n"))) (.flush w)
+      (edn/read-string (.readLine r)))))
+
+(defn assert! [port te p r]                 ; OCC at current :version; retry on reject
+  (loop [tries 4]
+    (let [v (:version (send-op port {:op :version}))
+          res (send-op port {:op :assert :te te :p p :r (str r) :base v})]
+      (if (and (:reject res) (pos? tries)) (recur (dec tries)) res))))
+
+(defn one  [port te p] (:value  (send-op port {:op :resolved :te te :p p})))
+(defn many [port te p] (:values (send-op port {:op :resolved :te te :p p})))
+
+(defn q [port query] (:ok (send-op port {:op :query :query query})))
+
+;; --- BARRIER: distinct workers that emitted DONE against this batch (2-literal Datalog join).
+;; A multi-literal body routes to the scan engine (q/run); set-semantics on the derived head
+;; `done/1` dedups a worker that reported more than once. THIS is the complete-when-K-DONE query.
+(defn done-workers [port batch-e]
+  (->> (q port {:find "done"
+                :rules [{:head {:rel "done" :args [{:var "w"}]}
+                         :body [{:rel "triple" :args [{:var "d"} "done_batch" batch-e]}
+                                {:rel "triple" :args [{:var "d"} "done_worker" {:var "w"}]}]}]})
+       (map first) set))
+
+;; aggregated DONE payloads: [worker payload] per reporting worker (for the synthesis step).
+(defn done-payloads [port batch-e]
+  (->> (q port {:find "dp"
+                :rules [{:head {:rel "dp" :args [{:var "w"} {:var "pl"}]}
+                         :body [{:rel "triple" :args [{:var "d"} "done_batch" batch-e]}
+                                {:rel "triple" :args [{:var "d"} "done_worker" {:var "w"}]}
+                                {:rel "triple" :args [{:var "d"} "done_payload" {:var "pl"}]}]}]})
+       (reduce (fn [m [w pl]] (assoc m w pl)) {})))
+
+(defn batch-meta [port batch-e]
+  {:expected (some-> (one port batch-e "expected_count") Integer/parseInt)
+   :k        (some-> (one port batch-e "barrier_k") Integer/parseInt)
+   :role     (one port batch-e "role_template")
+   :task     (one port batch-e "task")
+   :workers  (many port batch-e "worker")})
+
+(defn batch-ent [id] (if (str/starts-with? id "@batch:") id (str "@batch:" id)))
+
+(let [[port verb & args] *command-line-args*
+      port (Integer/parseInt port)
+      home (System/getenv "HOME")
+      fleet (str home "/code/fleet-data")
+      scratch (str home "/code/lodestar/fleet/cli")]
+  (case verb
+
+    "map"          ; <role-template> <N> <task> [K] [<json-schema>]  — register @batch + fan out N workers
+    (let [[tmpl n-s task k-s schema] args
+          n (Integer/parseInt n-s)
+          k (if (and k-s (seq k-s)) (Integer/parseInt k-s) n)
+          has-schema (and schema (seq (str/trim schema)))
+          id (str (.format (java.time.LocalDateTime/now)
+                           (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
+                  "-" (format "%04x" (rand-int 0x10000)))
+          e (batch-ent id)
+          spawn? (not= "0" (System/getenv "FLEET_MAP_SPAWN"))]
+      (assert! port e "batch_kind"     "fan-out")
+      (assert! port e "expected_count" n)
+      (assert! port e "barrier_k"      k)
+      (assert! port e "role_template"  tmpl)
+      (assert! port e "task"           task)
+      (assert! port e "created_at"     (str (java.time.Instant/now)))
+      (when has-schema (assert! port e "done_schema" schema))   ; rec4: payload contract for every DONE
+      (doseq [i (range 1 (inc n))]
+        (let [slug (str tmpl "-" id "-" i)]
+          (assert! port e "worker" slug)            ; membership claim (tagged with batch id)
+          (when spawn?
+            ;; define the per-worker role, spawn an ephemeral holder, ping it with the
+            ;; batch-tagged task + the exact DONE-report line it must run on completion.
+            (sh "bb" (str scratch "/presence-cli.clj") (str port) "define-role" slug "exclusive"
+                (str "fan-out worker " i "/" n " of " id))
+            (sh "bash" (str fleet "/spawn-agent.sh") slug
+                :env (assoc (into {} (System/getenv))
+                            "AGENT_LIFECYCLE" "ephemeral" "FLEET_PORT" (str port)))
+            (sh "bb" (str scratch "/msg-cli.clj") (str port) "send" "fleet-map" slug
+                (str task "\n\n[batch " e " worker " slug "]\n"
+                     (when has-schema
+                       (str "Your result payload MUST be JSON conforming to this schema:\n  " schema "\n"))
+                     "On completion you MUST run:\n"
+                     "  bb " scratch "/fleet-map.clj " port " done " id " " slug " \"<your result>\""
+                     (when has-schema
+                       (str "\nThe payload is schema-validated on acceptance; a non-conforming payload is "
+                            "REJECTED (nonzero exit) and you must re-run the line with a conforming result.")))
+                (or schema "")))))
+      (println (str "batch " e "  N=" n " K=" k " role=" tmpl
+                    (when has-schema "  +schema")
+                    (if spawn? "  (spawned + pinged)" "  (registered only, FLEET_MAP_SPAWN=0)"))))
+
+    "done"         ; <batch-id> <worker> <payload>  — a worker reports DONE against the batch
+    (let [[id worker payload] args
+          be (batch-ent id)
+          de (str "@done:" (str/replace be #"^@batch:" "") ":" worker)
+          ;; rec4 GATE: if the batch carries a schema, the payload must conform BEFORE we record the
+          ;; DONE. A reject does NOT assert any @done:* claim, so the K-of-N barrier cannot advance on
+          ;; malformed output — exit 3 + retry instruction is the agent's signal to re-run with a fix.
+          ;; No schema => validate-json returns valid (:no-schema), identical to pre-rec4 behavior.
+          schema (one port be "done_schema")
+          vr (fleet.schema-validate/validate-json payload schema)]
+      (when-not (:valid vr)
+        (println (str "REJECTED  " worker " DONE -> " be "  (payload failed schema validation)"))
+        (doseq [er (:errors vr)] (println (str "  - " er)))
+        (println (str "  ↳ DONE not recorded; barrier unchanged. Fix the payload to satisfy the schema and "
+                      "re-run:\n     bb <fleet-map.clj> " port " done " id " " worker " \"<conforming-json>\""))
+        (System/exit 3))
+      (assert! port de "done_batch"   be)
+      (assert! port de "done_worker"  worker)
+      (assert! port de "done_payload" (or payload ""))
+      (assert! port de "done_at"      (str (java.time.Instant/now)))
+      (let [done (done-workers port be)
+            {:keys [k expected]} (batch-meta port be)
+            kk (or k expected)]
+        (println (str worker " DONE -> " be "  (" (count done) "/" kk
+                      (when expected (str " of " expected)) " barrier"
+                      (if (and kk (>= (count done) kk)) " — FIRED" "") ")"))))
+
+    ("status" "barrier")   ; <batch-id>  — derived K-of-N barrier state (+ payloads for status)
+    (let [[id] args
+          be (batch-ent id)
+          {:keys [expected k role task workers]} (batch-meta port be)
+          done (done-workers port be)
+          kk (or k expected)
+          fired (and kk (>= (count done) kk))]
+      (println (format "%-14s %s" "batch" be))
+      (when role (println (format "%-14s %s" "role" role)))
+      (when (= verb "status") (when task (println (format "%-14s %s" "task" task))))
+      (println (format "%-14s N=%s K=%s" "counts" (or expected "?") (or kk "?")))
+      (println (format "%-14s %d  %s" "done" (count done) (str/join ", " (sort done))))
+      (println (format "%-14s %s" "BARRIER" (if fired "FIRED (K-of-N satisfied)" "waiting")))
+      (when (= verb "status")
+        (println (format "%-14s %d/%s expected workers spawned" "membership"
+                         (count (or workers [])) (or expected "?")))
+        (when (seq done)
+          (println "--- aggregated DONE payloads (synthesis input) ---")
+          (doseq [[w pl] (sort (done-payloads port be))]
+            (println (format "  %-24s %s" w pl)))))
+      (System/exit (if fired 0 1)))   ; exit 0 ONLY when the barrier has fired — scriptable gate
+
+    "list"
+    (let [batches (->> (q port {:find "b"
+                                :rules [{:head {:rel "b" :args [{:var "e"}]}
+                                         :body [{:rel "triple" :args [{:var "e"} "batch_kind" "fan-out"]}]}]})
+                       (map first) sort)]
+      (println (format "%-40s %-6s %s" "BATCH" "K/N" "DONE"))
+      (doseq [be batches]
+        (let [{:keys [expected k]} (batch-meta port be)
+              done (count (done-workers port be))]
+          (println (format "%-40s %-6s %d%s" be (str (or k expected) "/" expected)
+                           done (if (and k (>= done k)) "  FIRED" ""))))))
+
+    "wait"   ; <batch-id> [timeout-secs=300]  — BLOCK until K-of-N done or deadline.
+             ; Reaper: on timeout, assert barrier_status=timed_out, report missing
+             ; workers to stderr, exit 4 — so a dead/silent worker SIGNALS instead of
+             ; hanging the coordinator forever (closes the rec3 stranding vector).
+    (let [[id ts] args
+          be (batch-ent id)
+          timeout-ms (* 1000 (Integer/parseInt (or ts "300")))
+          {:keys [expected k workers]} (batch-meta port be)
+          kk (or k expected)
+          deadline (+ (System/currentTimeMillis) timeout-ms)]
+      (loop []
+        (let [done (done-workers port be)]
+          (cond
+            (and kk (>= (count done) kk))
+            (do (println (format "BARRIER FIRED — %d/%s done: %s"
+                                 (count done) kk (str/join ", " (sort done))))
+                (System/exit 0))
+
+            (>= (System/currentTimeMillis) deadline)
+            (let [missing (remove (set done) (or workers []))]
+              (assert! port be "barrier_status" "timed_out")
+              (binding [*out* *err*]
+                (println (format "BARRIER TIMED OUT after %ss — %d/%s done; missing: %s"
+                                 (quot timeout-ms 1000) (count done) (or kk "?")
+                                 (if (seq missing) (str/join ", " missing) "(membership unknown)"))))
+              (System/exit 4))
+
+            :else
+            (do (Thread/sleep 1000) (recur))))))
+
+    (do (println "usage: fleet-map.clj <port> {map|done|status|barrier|wait|list}\n  map adds optional [K] [<json-schema>]; done is schema-gated when the batch carries one; wait blocks with a reaper timeout") (System/exit 2))))
