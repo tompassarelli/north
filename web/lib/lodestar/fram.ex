@@ -24,6 +24,48 @@ defmodule Lodestar.Fram do
   def agents_port, do: @agents_port
   def board_port, do: @board_port
 
+  @ports %{"agents" => @agents_port, "board" => @board_port, "code" => 7979, "attention" => 7980}
+  @doc "Map a graph name to its daemon port (default: board)."
+  def port_for(graph), do: Map.get(@ports, graph, @board_port)
+
+  # ---- writes (OCC: read version → assert/retract with :base → retry) --------
+
+  @doc "Current head version of a daemon, or nil."
+  def version(port) do
+    case query(port, "{:op :version}") do
+      %{version: v} when is_integer(v) -> v
+      _ -> nil
+    end
+  end
+
+  @doc "Assert a claim (te p r). Single-valued preds supersede; multi add. {:ok v} | {:conflict r} | {:error _}."
+  def assert!(port, te, p, r), do: occ(port, "assert", te, p, r, 5)
+
+  @doc "Retract the exact claim (te p r). {:ok v} | {:conflict r} | {:error _}."
+  def retract!(port, te, p, r), do: occ(port, "retract", te, p, r, 5)
+
+  defp occ(_port, _op, _te, _p, _r, 0), do: {:conflict, :tries_exhausted}
+
+  defp occ(port, op, te, p, r, tries) do
+    case version(port) do
+      nil ->
+        {:error, :nodaemon}
+
+      v ->
+        edn = ~s({:op :#{op} :te "#{esc(te)}" :p "#{esc(p)}" :r "#{esc(r)}" :base #{v}})
+
+        case query(port, edn) do
+          %{ok: nv} -> {:ok, nv}
+          %{version: nv} -> {:ok, nv}
+          resp when is_map(resp) -> if rejected?(resp), do: occ(port, op, te, p, r, tries - 1), else: {:ok, resp}
+          _ -> {:error, :no_response}
+        end
+    end
+  end
+
+  defp rejected?(m), do: Map.has_key?(m, :reject) or Map.has_key?(m, :conflict)
+  defp esc(s), do: s |> to_string() |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
+
   @doc "Send one EDN op string to a daemon; return the decoded+normalized response (or nil on failure)."
   def query(port, edn_op) do
     opts = [:binary, active: false, packet: :line, recbuf: @recbuf, buffer: @recbuf]

@@ -19,6 +19,11 @@ defmodule LodestarWeb.Router do
 
     get "/dag", ApiController, :dag
     get "/presence", ApiController, :presence
+
+    # claim writes (OCC handled server-side)
+    post "/assert", ApiController, :assert
+    post "/retract", ApiController, :retract
+    post "/tell", ApiController, :tell
   end
 
   # wake frontend feed: flat /presence snapshot + /live WebSocket (raw, no

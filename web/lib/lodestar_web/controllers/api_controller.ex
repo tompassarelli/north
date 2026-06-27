@@ -30,6 +30,28 @@ defmodule LodestarWeb.ApiController do
     json(conn, rows)
   end
 
+  # ── claim writes (backend owns OCC/versioning; the browser just states facts) ──
+
+  # Raw substrate op: assert a claim (te p r) on a graph.
+  def assert(conn, %{"graph" => g, "te" => te, "p" => p, "r" => r}) do
+    write_resp(conn, Lodestar.Fram.assert!(Lodestar.Fram.port_for(g), te, p, r))
+  end
+
+  def retract(conn, %{"graph" => g, "te" => te, "p" => p, "r" => r}) do
+    write_resp(conn, Lodestar.Fram.retract!(Lodestar.Fram.port_for(g), te, p, r))
+  end
+
+  # Higher-level claim-native verb (lodestar `tell`): one fact about an entity.
+  # Normalizes the @ on the subject; the engine decides assert-vs-supersede.
+  def tell(conn, %{"graph" => g, "id" => id, "pred" => pred, "obj" => obj}) do
+    te = if String.starts_with?(id, "@"), do: id, else: "@" <> id
+    write_resp(conn, Lodestar.Fram.assert!(Lodestar.Fram.port_for(g), te, pred, obj))
+  end
+
+  defp write_resp(conn, {:ok, v}), do: json(conn, %{ok: v})
+  defp write_resp(conn, {:conflict, _}), do: conn |> put_status(409) |> json(%{conflict: true})
+  defp write_resp(conn, {:error, reason}), do: conn |> put_status(502) |> json(%{error: to_string(reason)})
+
   # wake's sibling /live WebSocket — upgrade + hand off to LiveFeed (PubSub-fed).
   def live(conn, _params) do
     conn
