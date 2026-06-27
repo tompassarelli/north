@@ -59,6 +59,9 @@
 .card-chips{display:flex;flex-wrap:wrap;gap:.22rem;margin-bottom:.22rem}
 .bchip{font-size:.6rem;padding:.08rem .28rem;border-radius:3px;background:var(--bg2,#121624);color:var(--dim,#8a96b4);white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis}
 .bchip-driver{background:#0d1e12;color:#4ade80}
+.bchip-driver-link{cursor:pointer}
+.bchip-driver-link:hover{background:#142e20;color:#86efac}
+.agent-av{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;font-size:.48rem;font-weight:700;color:#0c0f17;margin-right:.18rem;vertical-align:middle;flex-shrink:0}
 .bchip-est{background:#1e1a08;color:#fbbf24}
 .bchip-overdue{background:#2a0d0d;color:#f87171}
 .bchip-today{background:#1e1a08;color:#fbbf24}
@@ -262,6 +265,11 @@
     const clean = String(s).replace('@agent:', '').replace('@role:', '');
     return clean.length > 18 ? clean.slice(0, 16) + '…' : clean;
   }
+  function agentColor(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return `hsl(${(h >>> 0) % 360},50%,55%)`;
+  }
 
   function buildCard(t, byFrom, onClick, extraChips) {
     const a = t.attrs || {};
@@ -289,10 +297,15 @@
     const driverEdge = es.find(e => e.pred === 'driver');
     const driver = (driverEdge ? driverEdge.to : null) || a.driver;
     if (driver) {
-      const dchip = sp('bchip bchip-driver', '▸ ' + shorten(driver));
-      if (driver.startsWith('@agent:')) {
+      const isAgent = driver.startsWith('@agent:');
+      const rawHandle = driver.replace('@agent:', '').replace('@role:', '');
+      const dchip = mk('span', 'bchip bchip-driver' + (isAgent ? ' bchip-driver-link' : ''));
+      const av = mk('span', 'agent-av');
+      av.textContent = rawHandle.charAt(0).toUpperCase();
+      av.style.background = agentColor(rawHandle);
+      dchip.append(av, shorten(rawHandle));
+      if (isAgent) {
         const uuid = driver.slice('@agent:'.length);
-        dchip.style.cursor = 'pointer';
         dchip.title = 'Open agent stream';
         dchip.addEventListener('click', e => {
           e.stopPropagation();
