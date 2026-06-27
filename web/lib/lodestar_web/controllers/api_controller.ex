@@ -91,6 +91,14 @@ defmodule LodestarWeb.ApiController do
 
   def capture(conn, _), do: conn |> put_status(400) |> json(%{error: "title required"})
 
+  # Steer an agent from the agents-panel "›": write a steer claim on the agent's
+  # session (agents daemon). The agent's loop can pick it up.
+  def steer(conn, %{"handle" => h, "text" => text}) when is_binary(h) and is_binary(text) and text != "" do
+    write_resp(conn, Lodestar.Fram.assert!(Lodestar.Fram.agents_port(), "@session:" <> h, "steer", text))
+  end
+
+  def steer(conn, _), do: conn |> put_status(400) |> json(%{error: "handle + text required"})
+
   defp write_resp(conn, {:ok, v}), do: json(conn, %{ok: v})
   defp write_resp(conn, {:conflict, _}), do: conn |> put_status(409) |> json(%{conflict: true})
   defp write_resp(conn, {:error, reason}), do: conn |> put_status(502) |> json(%{error: to_string(reason)})

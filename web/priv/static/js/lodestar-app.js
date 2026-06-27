@@ -22,13 +22,40 @@
       label);
   }
 
-  // a frame: header (optional) + flex content + bottom badge
-  function frame(badgeLabel, headerEl) {
+  // every panel carries a "›" CLI — the per-frame claim-writer affordance.
+  function cliBar(placeholder, onSubmit) {
+    const bar = el("div",
+      `flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid ${EF.edge};background:${EF.bg};`);
+    bar.append(el("span", `color:${EF.accent};font-size:14px;`, "›"));
+    const input = el("input",
+      `flex:1 1 auto;background:transparent;border:none;outline:none;color:${EF.ink};font-size:13px;font-family:inherit;`);
+    input.placeholder = placeholder;
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter" && input.value.trim()) {
+        const v = input.value.trim();
+        input.value = "";
+        try { await onSubmit(v); } catch (_) {}
+      }
+    });
+    bar.append(input);
+    return bar;
+  }
+
+  // a frame: header (optional) + flex content + "›" CLI + bottom badge
+  function frame(badgeLabel, headerEl, cli) {
     const f = el("div", "display:flex;flex-direction:column;min-width:0;height:100%;");
     if (headerEl) f.append(headerEl);
     const content = el("div", "flex:1 1 auto;min-height:0;overflow:hidden;position:relative;");
-    f.append(content, badge(badgeLabel));
+    f.append(content);
+    if (cli) f.append(cliBar(cli.placeholder, cli.onSubmit));
+    f.append(badge(badgeLabel));
     return { f, content };
+  }
+
+  async function post(url, body) {
+    try {
+      await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch (_) {}
   }
 
   const VIEWS = [
@@ -45,12 +72,21 @@
     // LEFT — workbench with a view toggle in its header
     const toggle = el("div",
       `flex:0 0 auto;display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid ${EF.edge};background:${EF.bg};`);
-    const wb = frame("frame: workbench", toggle);
+    const wb = frame("frame: workbench", toggle, {
+      placeholder: "capture a thread…",
+      onSubmit: (v) => post("/api/capture", { graph: "board", title: v }),
+    });
     const left = el("div", `flex:1 1 58%;border-right:1px solid ${EF.edge};min-width:0;`);
     left.append(wb.f);
 
-    // RIGHT — agents
-    const ag = frame("frame: agents", null);
+    // RIGHT — agents; its "›" steers the currently-selected agent
+    const ag = frame("frame: agents", null, {
+      placeholder: "message the selected agent…",
+      onSubmit: (v) => {
+        const handle = window.lodestar && window.lodestar.agentSelection;
+        if (handle) return post("/api/steer", { handle, text: v });
+      },
+    });
     const right = el("div", "flex:1 1 42%;min-width:0;");
     right.append(ag.f);
 

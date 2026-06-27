@@ -145,6 +145,7 @@
   function selectAgent(handle) {
     if (selected === handle) return;
     selected = handle;
+    window.lodestar.agentSelection = handle; // the frame "›" steers this agent
     if (chatEl) chatEl._stream = null;
     rebuildRoster();
     renderChat();
@@ -182,6 +183,7 @@
       const first = agents.find((a) => a.online) || agents[0];
       if (first) {
         selected = handleOf(first);
+        window.lodestar.agentSelection = selected; // the frame "›" steers this agent
         if (chatEl) chatEl._stream = null;
         loadStream();
       }

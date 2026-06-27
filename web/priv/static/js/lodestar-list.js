@@ -178,7 +178,9 @@
     if (!root) return;
     root.style.cssText = "height:100%;display:flex;flex-direction:column;";
     const listEl = el("div", "flex:1 1 auto;overflow:auto;");
-    root.append(listEl, buildCli(listEl));
+    // CLI lives at the panel-frame level now (every panel gets a "›"); the list
+    // is just the surface. capture()/buildCli kept for standalone use if needed.
+    root.append(listEl);
     render(listEl);
     liveRefresh(listEl);
   };

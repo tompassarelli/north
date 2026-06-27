@@ -32,6 +32,7 @@ defmodule LodestarWeb.Router do
     post "/retract", ApiController, :retract
     post "/tell", ApiController, :tell
     post "/capture", ApiController, :capture
+    post "/steer", ApiController, :steer
   end
 
   # wake frontend feed: flat /presence snapshot + /live WebSocket (raw, no
