@@ -4,6 +4,22 @@ defmodule LodestarWeb.ApiController do
   # Cytoscape-ready thread DAG from the board daemon (:7977).
   def dag(conn, _params), do: json(conn, Lodestar.Threads.graph())
 
+  # Generic claims read for wake's `persist :feed`: flat entity rows (id = the
+  # claim ref, so writes target the right subject) for a graph. Board for now.
+  def entities(conn, params) do
+    rows =
+      case Map.get(params, "graph", "board") do
+        "board" ->
+          Lodestar.Threads.graph().nodes
+          |> Enum.map(fn n -> %{id: n.id, title: n.label, status: n.status, driver: n.driver || ""} end)
+
+        _ ->
+          []
+      end
+
+    json(conn, rows)
+  end
+
   # Live agent roster + fleet token totals from the agents daemon (:7978).
   def presence(conn, _params) do
     roster = Lodestar.Presence.roster()
@@ -85,5 +101,27 @@ defmodule LodestarWeb.ApiController do
     conn
     |> put_resp_content_type("text/html")
     |> send_resp(200, @wake_shell)
+  end
+
+  # Claims-native write demo: board threads with a `(tell …)` action button.
+  # Proves the round-trip click → /api/tell → daemon commit → /live → re-fetch.
+  @board_shell """
+  <!doctype html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>lodestar · board write</title>
+    <style>html,body{margin:0;height:100%;background:#272e33;color:#d3c6aa;font-family:ui-sans-serif,system-ui,sans-serif}#app{height:100vh;overflow:auto}.border-border{border-color:#414b50}.text-foreground{color:#d3c6aa}.text-muted-foreground{color:#859289}</style>
+    <script>window.WAKE_GRAPH = "board";</script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/js/board-write.js"></script>
+  </body>
+  </html>
+  """
+
+  def wake_board(conn, _params) do
+    conn |> put_resp_content_type("text/html") |> send_resp(200, @board_shell)
   end
 end

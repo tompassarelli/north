@@ -19,6 +19,9 @@ defmodule LodestarWeb.Router do
 
     get "/dag", ApiController, :dag
     get "/presence", ApiController, :presence
+    get "/entities", ApiController, :entities
+    # wake derives the feed's WS as a sibling of the feed URL (/api/entities → /api/live)
+    get "/live", ApiController, :live
 
     # claim writes (OCC handled server-side)
     post "/assert", ApiController, :assert
@@ -32,5 +35,6 @@ defmodule LodestarWeb.Router do
     get "/presence", ApiController, :wake_presence
     get "/live", ApiController, :live
     get "/wake", ApiController, :wake_shell
+    get "/wb", ApiController, :wake_board
   end
 end
