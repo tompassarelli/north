@@ -25,20 +25,16 @@
       (span :class "text-xs text-muted-foreground" :text status))
     ;; CLAIMS-NATIVE ACTION: tell = remote claim write → /api/tell → daemon commit
     ;; → /live → feed re-fetch → re-render. The full round-trip from one click.
-    ;; NOTE: with an action attr present, only the last attr currently survives
-    ;; (wake reader bug — logged). Keep :on-click last so the action fires; the
-    ;; button renders unlabeled until the multi-attr+action bug is fixed.
-    (button :on-click (tell status "done"))))
+    (button :class "text-xs px-2 py-1 border border-border text-foreground hover:bg-muted"
+            :text "mark done" :on-click (tell status "done"))))
 
 (component thread-detail
   :props [id title status]
   (div :class "p-6 flex flex-col gap-2"
     (h2 :class "text-lg text-foreground" :text title)
     (div :class "text-sm text-muted-foreground" :text status)
-    ;; NOTE: with an action attr present, only the last attr currently survives
-    ;; (wake reader bug — logged). Keep :on-click last so the action fires; the
-    ;; button renders unlabeled until the multi-attr+action bug is fixed.
-    (button :on-click (tell status "done"))))
+    (button :class "text-xs px-2 py-1 border border-border text-foreground hover:bg-muted"
+            :text "mark done" :on-click (tell status "done"))))
 
 (view threads
   :entity thread :each thread-row
