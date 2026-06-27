@@ -4,7 +4,7 @@
 // total functions with no DOM/WS/IO. Authored in plain JS for a runnable v1; the
 // intent is to port THIS file to beagle-js (compile→JS) once the observatory ships.
 // Everything here is data-driven — no hardcoded agent/msg/role knowledge — so the
-// v2 code-as-claims graph reuses it unchanged (fleet-commander msg f4c6).
+// v2 code-as-claims graph reuses it unchanged.
 
 (function (global) {
   'use strict';
@@ -115,9 +115,9 @@
       const type = n.type || nodeType(n.id);
       const attrs = n.attrs || {};
       typeSet.add(type);
-      // `graph` = source-daemon membership (fleet/code/board/work) — a filter facet.
+      // `graph` = source-daemon membership (agents/code/board/work) — a filter facet.
       return { data: { id: n.id, label: labelFor(n.id, type, attrs, ctx[n.id]), type, attrs,
-                       graph: n.graph || 'fleet' } };
+                       graph: n.graph || 'agents' } };
     });
     // stamp lastActive so the recency filter + size-by:recency channel work in raw mode too.
     nodes.forEach(n => { n.data.lastActive = nodeTime(n.data.attrs); });
@@ -135,7 +135,7 @@
   // WEIGHTED who-talks-to-whom edges between the parties. Messages stop being nodes
   // and become DRILL-DOWN: each party-node / talk-edge carries the messages behind
   // it for the detail pane. `@run` cost is rolled up onto the agent it ran as.
-  // (fleet-commander msg 7329 — backbone-only + aggregate edges.)
+  // backbone-only + aggregate edges.
   // `work` survives the de-blob too: a control-surface work node is first-class
   // structure (it gets a driver/depends_on), not collapsible firehose like @msg. (573b)
   const STRUCTURAL = new Set(['agent', 'role', 'thread', 'work']);
@@ -144,7 +144,7 @@
   // RETIRED (8972): every codename now folds onto a current agent/role instead of
   // spawning a synthetic party. A role slug HELD by an agent merges onto that agent
   // (role-addressed traffic == the agent doing the work); a renamed/unknown handle is
-  // treated as an agent handle — never a party. (fleet-commander msg 8972.)
+  // treated as an agent handle — never a party.
   function resolveParty(name, roleSlugs, agentHandles, roleHolder) {
     if (name == null || name === '') return null;
     const s = String(name);
