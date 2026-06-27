@@ -26,6 +26,22 @@ defmodule Lodestar.Presence do
     |> Enum.sort_by(fn r -> {if(r.online, do: 0, else: 1), if(r.focus, do: 0, else: 1), r.uuid} end)
   end
 
+  @doc """
+  Set of agent ENTITY refs (\"@agent:<h>\") whose lease is currently live.
+  Cheap (one lease resolve per handle) — used to decide whether a thread's
+  driver is an agent working RIGHT NOW (the real meaning of \"active\").
+  """
+  def online_refs(port \\ nil) do
+    port = port || Fram.agents_port()
+    now = System.system_time(:millisecond)
+
+    port
+    |> Fram.agents()
+    |> Enum.filter(fn [_e, h] -> elem(lease_state(port, h, now), 0) end)
+    |> Enum.map(fn [_e, h] -> "@agent:" <> h end)
+    |> MapSet.new()
+  end
+
   defp build_row(port, h, now, tokens) do
     {online, expires_s} = lease_state(port, h, now)
 

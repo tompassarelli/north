@@ -36,4 +36,24 @@
     color: var(--color-ink);
     font-family: var(--font-sans);
   }
+
+  /* thin everforest scrollbars everywhere (kill the chunky native bars) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-edge);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted);
+  }
 }

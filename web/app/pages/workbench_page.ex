@@ -85,9 +85,9 @@ defmodule LodestarWeb.WorkbenchPage do
           {%if @view == "graph"}
             <div id="cy" class="w-full h-full"></div>
           {%else}
-            <div class="flex gap-3 h-full overflow-x-auto" data-testid="kanban">
+            <div class="flex gap-3 h-full" data-testid="kanban">
               {%for lane <- @board.lanes}
-                <div class="flex flex-col gap-2 w-[210px] shrink-0">
+                <div class="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                   <div class="text-[11px] uppercase tracking-wide text-muted flex items-center gap-2">
                     {lane.label} <span class="text-star">{length(lane.cards)}</span>
                   </div>

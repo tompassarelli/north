@@ -51,7 +51,10 @@ defmodule Lodestar.Threads do
 
     titled = for {id, attrs} <- node_attrs, Map.get(attrs, "title", "") != "", into: %{}, do: {id, attrs}
     by_from = Enum.group_by(edges, & &1.from)
-    status = Map.new(titled, fn {id, attrs} -> {id, derive_status(attrs, Map.get(by_from, id, []), node_attrs)} end)
+    # "active" = driven by an agent live RIGHT NOW (driver edge → online agent),
+    # not merely "has a driver claim". Cross-reference the agents daemon.
+    online = Lodestar.Presence.online_refs()
+    status = Map.new(titled, fn {id, attrs} -> {id, derive_status(attrs, Map.get(by_from, id, []), node_attrs, online)} end)
 
     open = titled |> Map.keys() |> Enum.reject(&(status[&1] in ["done", "abandoned"])) |> MapSet.new()
 
@@ -97,16 +100,22 @@ defmodule Lodestar.Threads do
 
   defp ref_obj?(o), do: String.starts_with?(o, "@") and not String.contains?(o, " ")
 
-  # board.js deriveCol; first match wins
-  defp derive_status(attrs, out_edges, node_attrs) do
+  # board.js deriveCol, refined: "active" means a CURRENTLY-ONLINE agent is the
+  # driver (not just any driver claim). first match wins.
+  defp derive_status(attrs, out_edges, node_attrs, online) do
     cond do
       Map.has_key?(attrs, "abandoned") -> "abandoned"
       Map.has_key?(attrs, "outcome") -> "done"
-      Enum.any?(out_edges, &(&1.pred == "driver")) -> "active"
+      driven_live?(out_edges, online) -> "active"
       blocked?(out_edges, node_attrs) -> "blocked"
       Map.has_key?(attrs, "committed") -> "ready"
       true -> "backlog"
     end
+  end
+
+  # a driver edge pointing at an agent whose lease is live right now
+  defp driven_live?(out_edges, online) do
+    Enum.any?(out_edges, &(&1.pred == "driver" and MapSet.member?(online, &1.to)))
   end
 
   defp blocked?(out_edges, node_attrs) do
