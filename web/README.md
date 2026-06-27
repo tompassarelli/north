@@ -1,7 +1,7 @@
 # framescope
 
 A web app that points at any **Fram claim-graph daemon** by port and renders it
-live. v1 is the **fleet observatory**: watch and steer your running agents.
+live. v1 is the **fleet lodestar web**: watch and steer your running agents.
 
 ## Run
 
@@ -15,7 +15,7 @@ live from the port box in the UI (no restart).
 
 ## What you get
 
-- **Observatory tab**
+- **Lodestar Web tab**
   - **Agents** (left): every `@agent` from presence — online dot, held roles,
     current focus (workflow/thread), live activity tag. Refreshes itself.
   - **Stream** (center, the hero): click an agent → its

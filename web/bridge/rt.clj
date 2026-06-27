@@ -160,7 +160,7 @@
 
 ;; ---- steer: send a message to an agent via msg-cli --------------------------
 (defn steer! [port to body]
-  (let [subject "steer from observatory"
+  (let [subject "steer from web"
         res (p/sh ["bb" (.getPath MSG-CLI) (str port) "send" "framescope" to subject body])]
     {:ok (zero? (:exit res)) :out (str/trim (str (:out res) (:err res)))}))
 
@@ -260,5 +260,5 @@
     (http/run-server handler {:port port})
     (println (str "framescope bridge up  →  http://localhost:" port))
     (println (str "  serving " (.getPath WEB)))
-    (println "  observatory targets fram daemon :7978 (override per-request with ?port=N)")
+    (println "  lodestar web targets fram daemon :7978 (override per-request with ?port=N)")
     @(promise)))

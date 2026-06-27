@@ -96,8 +96,8 @@ saved views, nicer physics, multi-graph compare.
 ## *** V1 IS NOW THE FLEET OBSERVATORY (re-prioritized — build THIS first) ***
 
 Tom's #1 want is to WATCH and STEER his live fleet agents. The fleet is itself a Fram graph on `:7978`
-(agents, roles, focus, messages, cost), so the observatory is the SAME app pointed at that graph — plus
-a per-agent live activity stream. Build the observatory FIRST; the generic graph canvas + code-as-claims
+(agents, roles, focus, messages, cost), so the lodestar web is the SAME app pointed at that graph — plus
+a per-agent live activity stream. Build the lodestar web FIRST; the generic graph canvas + code-as-claims
 are the second/third views.
 
 The data you have:
@@ -110,7 +110,7 @@ The data you have:
   lines over WS to the browser. When an agent is dormant the file is quiet (last run's trace); when it is
   handling a ping it streams live.
 
-V1 observatory UI:
+V1 lodestar web UI:
 1. **Agent list** (left): every `@agent` from presence — short uuid, held role(s), online?, current focus.
    Live-update as focus/online change.
 2. **Live stream pane** (center): click an agent → render its `stream.jsonl` live — assistant text,
@@ -120,6 +120,6 @@ V1 observatory UI:
 4. **Graph tab** (second view): the original generic force-directed claim graph (any port). Keep it; it is
    v1.5, not the lead.
 
-Same bridge, same Cytoscape investment — the observatory is mostly: presence list + a log-tailing WS +
-a steer POST. Ship the observatory running against `:7978`, report the URL. THEN the graph canvas, THEN
+Same bridge, same Cytoscape investment — the lodestar web is mostly: presence list + a log-tailing WS +
+a steer POST. Ship the lodestar web running against `:7978`, report the URL. THEN the graph canvas, THEN
 the code-as-claims hero.
