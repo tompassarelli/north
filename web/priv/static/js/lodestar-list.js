@@ -33,9 +33,11 @@
   }
 
   function row(item) {
+    const draggable = item.group === "ready"; // only the next-up queue reorders
     const r = el("div",
       `display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid ${EF.edge};` +
-      `cursor:default;font-size:13px;color:${EF.ink};`);
+      `cursor:${draggable ? "grab" : "default"};font-size:13px;color:${EF.ink};`);
+    if (draggable) { r.draggable = true; r.dataset.id = item.id; }
     r.onmouseenter = () => (r.style.background = EF.panel);
     r.onmouseleave = () => (r.style.background = "transparent");
 
@@ -58,7 +60,21 @@
     return r;
   }
 
-  function group(g) {
+  let dragEl = null;
+
+  // y-position → the row to insert the dragged element before (null = append).
+  function dragAfter(container, y) {
+    const rows = [...container.querySelectorAll("[data-id]")].filter((r) => r !== dragEl);
+    let best = null, bestOff = -Infinity;
+    for (const r of rows) {
+      const box = r.getBoundingClientRect();
+      const off = y - box.top - box.height / 2;
+      if (off < 0 && off > bestOff) { bestOff = off; best = r; }
+    }
+    return best;
+  }
+
+  function group(g, listEl) {
     const sec = el("div", "margin-bottom:2px;");
     const head = el("div",
       `display:flex;align-items:center;gap:8px;padding:6px 14px;position:sticky;top:0;background:${EF.bg};` +
@@ -68,8 +84,35 @@
       `background:${EF.panel};color:${HUE[g.key] || EF.muted};`, String(g.count));
     head.append(el("span", null, g.label), chip);
     sec.append(head);
-    g.items.forEach((it) => sec.append(row(it)));
-    if (!g.items.length) sec.append(el("div", `padding:6px 14px;font-size:12px;color:${EF.edge};`, "—"));
+
+    const body = el("div");
+    g.items.forEach((it) => body.append(row(it)));
+    if (!g.items.length) body.append(el("div", `padding:6px 14px;font-size:12px;color:${EF.edge};`, "—"));
+    sec.append(body);
+
+    // DRAG-RESEQUENCE (ready queue only): reorder rows, then persist the new
+    // order as `priority` claims (10,20,30…) — claims-native, survives reload.
+    if (g.key === "ready" && g.items.length > 1) {
+      body.addEventListener("dragstart", (e) => {
+        dragEl = e.target.closest("[data-id]");
+        if (dragEl) dragEl.style.opacity = "0.4";
+      });
+      body.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (!dragEl) return;
+        const after = dragAfter(body, e.clientY);
+        if (after == null) body.appendChild(dragEl);
+        else body.insertBefore(dragEl, after);
+      });
+      body.addEventListener("dragend", async () => {
+        if (!dragEl) return;
+        dragEl.style.opacity = "1";
+        dragEl = null;
+        const ids = [...body.querySelectorAll("[data-id]")].map((r) => r.dataset.id);
+        await Promise.all(ids.map((id, i) => tell(id, "priority", String((i + 1) * 10))));
+        render(listEl);
+      });
+    }
     return sec;
   }
 
@@ -78,7 +121,7 @@
     try { data = await fetch("/api/list").then((r) => r.json()); } catch (_) { return; }
     root.textContent = "";
     const wrap = el("div", `max-width:760px;margin:0 auto;`);
-    (data.groups || []).forEach((g) => wrap.append(group(g)));
+    (data.groups || []).forEach((g) => wrap.append(group(g, root)));
     root.append(wrap);
   }
 

@@ -75,6 +75,7 @@ defmodule Lodestar.Threads do
           group: group,
           status: status,
           do_on: Map.get(attrs, "do_on", ""),
+          priority: Map.get(attrs, "priority", ""),
           driver: driver_of(by_from, id)
         }
       end
@@ -87,13 +88,24 @@ defmodule Lodestar.Threads do
 
         ordered =
           if key == "ready",
-            do: Enum.sort_by(items, &{&1.do_on == "", &1.do_on}),
+            # manual order wins (a `priority` claim, drag-set), then do_on, so the
+            # top ready row is "next". Items without priority sort after by do_on.
+            do: Enum.sort_by(items, &{prio_key(&1.priority), &1.do_on == "", &1.do_on}),
             else: Enum.sort_by(items, & &1.id, :desc)
 
         %{key: key, label: label, count: length(ordered), items: ordered}
       end
 
     %{groups: groups}
+  end
+
+  # sort key for a drag-set priority claim: {0, n} for a parseable rank (ordered
+  # ascending), {1, 0} for none (sorts after, falls back to do_on).
+  defp prio_key(p) do
+    case Float.parse(to_string(p)) do
+      {f, _} -> {0, f}
+      :error -> {1, 0.0}
+    end
   end
 
   defp list_group(status, attrs) do
