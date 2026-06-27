@@ -11,9 +11,8 @@
   };
   // lens key -> accent (the dot + count chip). Lenses are the default grouping
   // of the orthogonal axes; per-row badges show the axes themselves.
-  const HUE = {
-    active: EF.star, blocked: EF.warn, committed: EF.ok, draft: EF.purple,
-  };
+  // resolution lane -> hue (attention/blocked/scheduled are overlay badges)
+  const HUE = { open: EF.ok, draft: EF.purple, done: EF.muted };
 
   function el(tag, style, text) {
     const e = document.createElement(tag);
@@ -83,15 +82,15 @@
         `font-size:10px;color:${color};border:1px solid ${color}55;border-radius:3px;padding:0 5px;white-space:nowrap;`, txt);
       c.title = title; return c;
     };
-    if (item.committed) wrap.append(chip("spec", EF.accent, "committed — plan resolved"));
+    // attention (the live relation) first — an agent is on it RIGHT NOW
+    if (item.active) wrap.append(chip("▷ " + (item.driver ? item.driver.replace(/^@/, "") : "active"), EF.star, "active — an agent is attending now"));
     if (item.scheduled) wrap.append(chip("◷ " + (item.do_on || "soon"), EF.ok, "scheduled (do_on)"));
-    if (item.active && item.driver) wrap.append(chip(item.driver.replace(/^@/, ""), EF.star, "active — agent driving now"));
     if (item.blocked) wrap.append(chip("blocked", EF.warn, "blocked — open dependency"));
     return wrap;
   }
 
   function row(item) {
-    const draggable = item.lens === "committed"; // reorder the actionable pool
+    const draggable = item.lens === "open"; // reorder the actionable pool
     const r = el("div",
       `display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid ${EF.edge};` +
       `cursor:${draggable ? "grab" : "default"};font-size:13px;color:${EF.ink};`);
@@ -123,7 +122,10 @@
   }
 
   // collapsed group keys, persisted so folds survive reload + live re-render.
-  const collapsed = new Set((() => { try { return JSON.parse(localStorage.getItem("ls-collapsed") || "[]"); } catch (_) { return []; } })());
+  // Done is the resting state → collapsed by default until the user opens it.
+  const collapsed = new Set((() => {
+    try { const s = localStorage.getItem("ls-collapsed"); return s === null ? ["done"] : JSON.parse(s); } catch (_) { return ["done"]; }
+  })());
   const saveCollapsed = () => { try { localStorage.setItem("ls-collapsed", JSON.stringify([...collapsed])); } catch (_) {} };
 
   function group(g, listEl) {

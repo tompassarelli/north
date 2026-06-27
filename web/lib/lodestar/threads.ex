@@ -58,11 +58,15 @@ defmodule Lodestar.Threads do
   # of Committed). "ready"/"unscheduled" retired (ambiguous). Active/blocked are
   # execution overlays; committed = plan resolved (the actionable pool); draft =
   # planning still open. Each row still carries all axes for badges/compound views.
+  # Lanes = the thread's INTRINSIC resolution only (Draft → Open → Done). That's
+  # the one axis the thread actually owns. ATTENTION ("active") is NOT a lane — it
+  # is a relation the agent holds on the thread, so it renders as a live badge and
+  # sorts active work to the top of Open (no stored "in progress" column to rot).
+  # Blocked / scheduled / priority are overlays (badges + sort), never lanes.
   @list_lenses [
-    {"active", "Active"},
-    {"blocked", "Blocked"},
-    {"committed", "Committed"},
-    {"draft", "Draft"}
+    {"open", "Open"},
+    {"draft", "Draft"},
+    {"done", "Done"}
   ]
 
   def list(port \\ nil) do
@@ -74,8 +78,8 @@ defmodule Lodestar.Threads do
 
     rows =
       for {id, attrs} <- titled,
-          status = derive_status(attrs, Map.get(by_from, id, []), node_attrs, online),
-          status not in ["done", "abandoned"] do
+          status = derive_status(attrs, Map.get(by_from, id, []), node_attrs, online) do
+        closed = status in ["done", "abandoned"]
         committed = Map.has_key?(attrs, "committed")
         scheduled = Map.get(attrs, "do_on", "") != ""
         active = status == "active"
@@ -87,12 +91,12 @@ defmodule Lodestar.Threads do
           do_on: Map.get(attrs, "do_on", ""),
           priority: Map.get(attrs, "priority", ""),
           driver: driver_of(by_from, id),
-          # the orthogonal axes, explicit (the UI renders these as badges)
+          # axes/overlays, explicit (the UI renders these as badges)
           committed: committed,
           scheduled: scheduled,
           active: active,
           blocked: blocked,
-          lens: lens(active, blocked, committed)
+          lens: lens(closed, committed)
         }
       end
 
@@ -103,10 +107,11 @@ defmodule Lodestar.Threads do
         items = Map.get(by_lens, key, [])
 
         ordered =
-          if key == "committed",
-            # actionable pool: drag-set `priority` first, then SCHEDULED items (have
-            # a do_on) ahead of undated, scheduled by date — so dated work floats up.
-            do: Enum.sort_by(items, &{prio_key(&1.priority), &1.do_on == "", &1.do_on}),
+          if key == "open",
+            # Open ordering: ATTENTION first (active now floats to top), then drag-set
+            # priority, then scheduled (dated ahead of undated, by date). So "what's
+            # being worked / what's next" surfaces without a lying status column.
+            do: Enum.sort_by(items, &{bool_key(&1.active), prio_key(&1.priority), &1.do_on == "", &1.do_on}),
             else: Enum.sort_by(items, & &1.id, :desc)
 
         %{key: key, label: label, count: length(ordered), items: ordered}
@@ -117,14 +122,18 @@ defmodule Lodestar.Threads do
 
   # Default mutually-exclusive lens (urgency order). Axes stay independent on the
   # row; this is only the grouping the default view collapses them to.
-  defp lens(active, blocked, committed) do
+  # Intrinsic resolution lane. Done (work resolved) is the resting state; Open =
+  # committed but not done; Draft = plan not yet committed. Attention is NOT here.
+  defp lens(closed, committed) do
     cond do
-      active -> "active"
-      blocked -> "blocked"
-      committed -> "committed"
+      closed -> "done"
+      committed -> "open"
       true -> "draft"
     end
   end
+
+  defp bool_key(true), do: 0
+  defp bool_key(_), do: 1
 
   # sort key for a drag-set priority claim: {0, n} for a parseable rank (ordered
   # ascending), {1, 0} for none (sorts after, falls back to do_on).
