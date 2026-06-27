@@ -4,14 +4,14 @@ A **standalone web app** that visualizes ANY Fram claim-graph as an interactive 
 explore it, click nodes for info, color-code it constructively, manipulate it structurally, watch it
 update live. Tom wants it to be genuinely nice to look at and fun to poke at.
 
-You are `@lodestar-web` (exclusive role). Coordinate with `@fleet-commander` (NEVER Tom). Report a
+You are `@lodestar-web` (exclusive role). Coordinate with `@coordinator` (NEVER Tom). Report a
 runnable localhost URL when v1 renders.
 
 ---
 
 ## The data — what a Fram graph IS
 
-A Fram daemon listens on a TCP port (`:7978` = fleet coordination, `:7977` = lodestar / Tom's life-os)
+A Fram daemon listens on a TCP port (`:7978` = agent coordination, `:7977` = lodestar / Tom's life-os)
 speaking **line-delimited EDN** (one request per connection, one EDN line back).
 
 - Facts are **triples**: `(subject predicate object)`.
@@ -29,7 +29,7 @@ speaking **line-delimited EDN** (one request per connection, one EDN line back).
 - `{:op :subscribe}` → the daemon then PUSHES every commit as a line `{:event :commit :op "assert"|"retract" :l <subj> :p <pred> :r <obj> :version N}` (this is the LIVE feed — the firehose; filter client-side).
 
 **Working client code to copy the socket pattern from:** `~/code/beagle/.scratch/presence-cli.clj`,
-`msg-cli.clj`, `fleet-listen.clj` (the subscribe/live-feed pattern is in fleet-listen).
+`msg-cli.clj`, `lodestar-listen.clj` (the subscribe/live-feed pattern is in fleet-listen).
 
 To dump a whole graph: there is no single "get all" op — use `:query` over `triple(s,p,o)` with all-var
 args to pull every triple, then assemble nodes/edges/attrs client-side. Confirm the exact query shape
@@ -74,10 +74,10 @@ proof-of-dogfood is the cleanest pure piece, not the whole app.
 ## v1 — build this, make it RUN
 
 1. `bridge`: `/graph` snapshot + `/live` WS against `:7978`.
-2. `web`: render the live `:7978` fleet graph; force layout; click-node → claims panel; color-by-type +
+2. `web`: render the live `:7978` agent graph; force layout; click-node → claims panel; color-by-type +
    legend; animate on live commits.
 3. `bin/lodestar-web` one-command start that prints the URL.
-4. Commit (scoped). Reply to `@fleet-commander` with the URL + how to start it.
+4. Commit (scoped). Reply to `@coordinator` with the URL + how to start it.
 
 Then Tom opens it and iterates the fun/aesthetic with you (you can't see the render; he is your eyes).
 
@@ -95,7 +95,7 @@ saved views, nicer physics, multi-graph compare.
 
 ## *** V1 IS NOW THE FLEET OBSERVATORY (re-prioritized — build THIS first) ***
 
-Tom's #1 want is to WATCH and STEER his live fleet agents. The fleet is itself a Fram graph on `:7978`
+Tom's #1 want is to WATCH and STEER his live agents. The agent pool is itself a Fram graph on `:7978`
 (agents, roles, focus, messages, cost), so the lodestar web is the SAME app pointed at that graph — plus
 a per-agent live activity stream. Build the lodestar web FIRST; the generic graph canvas + code-as-claims
 are the second/third views.

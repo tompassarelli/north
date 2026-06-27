@@ -78,7 +78,7 @@
       port (Integer/parseInt port)
       home (System/getenv "HOME")
       fleet (str home "/code/fleet-data")
-      scratch (str home "/code/lodestar/fleet/cli")]
+      scratch (str home "/code/lodestar/cli")]
   (case verb
 
     "map"          ; <role-template> <N> <task> [K] [<json-schema>]  — register @batch + fan out N workers
