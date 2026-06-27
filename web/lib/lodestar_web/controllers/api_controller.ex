@@ -68,6 +68,20 @@ defmodule LodestarWeb.ApiController do
     write_resp(conn, Lodestar.Fram.assert!(Lodestar.Fram.port_for(g), te, pred, obj))
   end
 
+  # Capture a new thread (lodestar `capture`): mint a timestamp id + assert its
+  # title. A thread IS any id with a title; it derives as "draft" until committed.
+  def capture(conn, %{"title" => title} = params) when is_binary(title) and title != "" do
+    graph = Map.get(params, "graph", "board")
+    id = "@" <> Calendar.strftime(DateTime.utc_now(), "%Y-%m-%d-%H%M%S")
+
+    case Lodestar.Fram.assert!(Lodestar.Fram.port_for(graph), id, "title", title) do
+      {:ok, v} -> json(conn, %{ok: v, id: id})
+      other -> write_resp(conn, other)
+    end
+  end
+
+  def capture(conn, _), do: conn |> put_status(400) |> json(%{error: "title required"})
+
   defp write_resp(conn, {:ok, v}), do: json(conn, %{ok: v})
   defp write_resp(conn, {:conflict, _}), do: conn |> put_status(409) |> json(%{conflict: true})
   defp write_resp(conn, {:error, reason}), do: conn |> put_status(502) |> json(%{error: to_string(reason)})

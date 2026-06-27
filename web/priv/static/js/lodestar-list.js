@@ -96,13 +96,48 @@
     setInterval(() => render(root), 15000); // backstop poll
   }
 
+  // Claude-Code-shaped CLI: type a thought, Enter -> POST /api/capture -> the
+  // claim lands in fram and the live feed surfaces it in Draft. The input IS a
+  // claim-writer; no form ceremony.
+  async function capture(title) {
+    try {
+      await fetch("/api/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ graph: "board", title }),
+      });
+    } catch (_) {}
+  }
+
+  function buildCli(listEl) {
+    const bar = el("div",
+      `flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid ${EF.edge};` +
+      `background:${EF.bg};max-width:760px;margin:0 auto;width:100%;box-sizing:border-box;`);
+    bar.append(el("span", `color:${EF.accent};font-size:14px;`, "›"));
+    const input = el("input",
+      `flex:1 1 auto;background:transparent;border:none;outline:none;color:${EF.ink};font-size:13px;` +
+      `font-family:inherit;`);
+    input.placeholder = "capture a thread…";
+    input.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter" && input.value.trim()) {
+        const v = input.value.trim();
+        input.value = "";
+        await capture(v);
+        render(listEl);
+      }
+    });
+    bar.append(input);
+    return bar;
+  }
+
   window.lodestar = window.lodestar || {};
   window.lodestar.mountList = function ({ el: root }) {
     if (!root) return;
-    root.style.height = "100vh";
-    root.style.overflow = "auto";
-    render(root);
-    liveRefresh(root);
+    root.style.cssText = "height:100vh;display:flex;flex-direction:column;";
+    const listEl = el("div", "flex:1 1 auto;overflow:auto;");
+    root.append(listEl, buildCli(listEl));
+    render(listEl);
+    liveRefresh(listEl);
   };
 
   // Standalone boot when loaded on /list directly.
