@@ -10,3 +10,9 @@ deploy/gateway/tenants.edn
 
 # npm-generated lockfile in bun projects (bun.lock is the source of truth)
 sdk/package-lock.json
+
+# Nix/direnv + project-local Elixir tooling (web/ dev shell)
+.direnv/
+.mix/
+.hex/
+erl_crash.dump

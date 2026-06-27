@@ -1,0 +1,59 @@
+:root {
+  --bg: #0d1117;
+  --panel: #1d3a52;
+  --panel-edge: #6e8ca6;
+  --ink: #e6edf3;
+  --muted: #9fb3c8;
+  --accent: #f08a7a;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  height: 100vh;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-label {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  margin-bottom: 12px;
+}
+
+.panel-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.panel-cli {
+  border-top: 1px solid var(--panel-edge);
+  padding-top: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
