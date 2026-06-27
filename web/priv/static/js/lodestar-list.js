@@ -176,7 +176,7 @@
   window.lodestar = window.lodestar || {};
   window.lodestar.mountList = function ({ el: root }) {
     if (!root) return;
-    root.style.cssText = "height:100vh;display:flex;flex-direction:column;";
+    root.style.cssText = "height:100%;display:flex;flex-direction:column;";
     const listEl = el("div", "flex:1 1 auto;overflow:auto;");
     root.append(listEl, buildCli(listEl));
     render(listEl);

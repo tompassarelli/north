@@ -8,6 +8,15 @@ defmodule LodestarWeb.ApiController do
   # blocked/backlog/draft), ready ordered by do_on so the top row is "next".
   def list(conn, _params), do: json(conn, Lodestar.Threads.list())
 
+  # Kanban lanes (derived status) for the board view.
+  def board(conn, _params), do: json(conn, Lodestar.Threads.board())
+
+  # Live agent roster for the agents panel.
+  def agents(conn, _params), do: json(conn, %{agents: Lodestar.Presence.roster()})
+
+  # Chat stream for one agent (from ~/code/agent-data/agent-<h>.stream.jsonl).
+  def agent_stream(conn, %{"handle" => h}), do: json(conn, %{handle: h, messages: Lodestar.Stream.messages(h)})
+
   # Generic claims read for wake's `persist :feed`: flat entity rows (id = the
   # claim ref, so writes target the right subject) for a graph. Board for now.
   def entities(conn, params) do
@@ -163,4 +172,50 @@ defmodule LodestarWeb.ApiController do
   def list_view(conn, _params) do
     conn |> put_resp_content_type("text/html") |> send_resp(200, @list_shell)
   end
+
+  # Minimal shell that mounts ONE renderer into a root div. Both board + agents
+  # boot the same way; the renderer self-fetches + self-refreshes.
+  defp shell(title, root_id, js) do
+    """
+    <!doctype html>
+    <html lang="en"><head><meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lodestar · #{title}</title>
+    <style>html,body{margin:0;height:100%;background:#272e33;color:#d3c6aa;font-family:ui-sans-serif,system-ui,sans-serif}</style>
+    </head><body><div id="#{root_id}"></div><script src="#{js}"></script></body></html>
+    """
+  end
+
+  def board_view(conn, _params),
+    do: conn |> put_resp_content_type("text/html") |> send_resp(200, shell("board", "board", "/js/lodestar-board.js"))
+
+  def agents_view(conn, _params),
+    do: conn |> put_resp_content_type("text/html") |> send_resp(200, shell("agents", "agents", "/js/lodestar-agents.js"))
+
+  # The full 2-panel client (workbench + agents). Loads every renderer; the
+  # orchestrator (lodestar-app.js, last) lays out the frames + view toggle.
+  @app_shell """
+  <!doctype html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lodestar</title>
+    <script>window.WAKE_GRAPH = "board";</script>
+    <style>html,body{margin:0;height:100%;background:#272e33;color:#d3c6aa;font-family:ui-sans-serif,system-ui,sans-serif}*{box-sizing:border-box}</style>
+    <script src="/js/cytoscape.min.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/js/wake-mounts.js"></script>
+    <script src="/js/lodestar-list.js"></script>
+    <script src="/js/lodestar-board.js"></script>
+    <script src="/js/lodestar-agents.js"></script>
+    <script src="/js/lodestar-app.js"></script>
+  </body>
+  </html>
+  """
+
+  def app_view(conn, _params),
+    do: conn |> put_resp_content_type("text/html") |> send_resp(200, @app_shell)
 end

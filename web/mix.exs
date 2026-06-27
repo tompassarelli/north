@@ -10,7 +10,7 @@ defmodule Lodestar.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:hologram],
+      compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -32,8 +32,8 @@ defmodule Lodestar.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["app", "lib", "test/support"]
-  defp elixirc_paths(_), do: ["app", "lib"]
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # Specifies your project dependencies.
   #
@@ -59,7 +59,6 @@ defmodule Lodestar.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:hologram, "~> 0.9.3"},
       {:eden, "~> 2.1"}
     ]
   end

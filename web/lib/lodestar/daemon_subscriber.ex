@@ -2,7 +2,7 @@ defmodule Lodestar.DaemonSubscriber do
   @moduledoc """
   The BEAM-native heart of live updates: one supervised, long-lived process per
   fram daemon, holding a persistent `:subscribe` TCP connection to the commit
-  stream. On every commit it pushes a Hologram realtime action to subscribed
+  stream. On every commit it broadcasts on PubSub "wakefeed" to subscribed
   clients (via Phoenix.PubSub) — true push, no polling. Crashes/disconnects are
   handled by reconnecting; the supervisor restarts us if we die.
 
@@ -37,8 +37,7 @@ defmodule Lodestar.DaemonSubscriber do
     if String.contains?(line, ":commit") do
       # coarse + robust: any commit on this daemon = "this graph changed".
       # No EDN parse on the hot path; clients re-fetch the affected view.
-      Hologram.Realtime.broadcast_action({:graph, state.graph}, :daemon_changed, graph: state.graph)
-      # raw PubSub for the wake /live WebSocket feed (framework-agnostic edge)
+      # Raw PubSub drives the wake /live WebSocket feed (framework-agnostic edge).
       Phoenix.PubSub.broadcast(Lodestar.PubSub, "wakefeed", {:commit, state.graph})
     end
 
