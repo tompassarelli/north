@@ -148,17 +148,24 @@
       (when wf (assert! port se "active_workflow" wf))
       (prn {:focus se :current_thread ct :active_workflow wf}))
 
-    "presence"                              ; THE PROJECTION — agents + held roles + focus
-    (let [ss (sort-by second (or (sessions port) []))]
-      (println (format "%-14s %-6s %-7s %-26s %s" "AGENT" "ONLINE" "EXPIRES" "ROLES" "FOCUS"))
-      (doseq [[e h] ss]
-        (let [l (lease-of port (str "session:" h))
-              on (boolean (and l (> (:exp l) now)))
-              exp (if (and l on) (str (int (/ (- (:exp l) now) 1000)) "s") "lapsed")
-              rs (:values (send-op port {:op :resolved :te (str "@agent:" h) :p "holds"}))
-              resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
-              focus (or (resolved port e "active_workflow") (resolved port e "current_thread") (resolved port e "task") "-")]
-          (println (format "%-14s %-6s %-7s %-26s %s" h (if on "yes" "no") exp resp focus)))))
+    "presence"                              ; THE PROJECTION — agents + held roles + focus. Pinned first, then online, then rest.
+    (let [ss (or (sessions port) [])
+          enriched (mapv (fn [[e h]]
+                          (let [ae (str "@agent:" h)
+                                l (lease-of port (str "session:" h))
+                                on (boolean (and l (> (:exp l) now)))
+                                pinned (= "true" (resolved port ae "pinned"))
+                                exp (if (and l on) (str (int (/ (- (:exp l) now) 1000)) "s") "lapsed")
+                                rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
+                                resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
+                                focus (or (resolved port e "active_workflow") (resolved port e "current_thread") (resolved port e "task") "-")]
+                            {:h h :on on :pinned pinned :exp exp :roles resp :focus focus}))
+                        ss)
+          sorted (sort-by (fn [r] [(not (:pinned r)) (not (:on r)) (:h r)]) enriched)]
+      (println (format "%-14s %-4s %-6s %-7s %-26s %s" "AGENT" "PIN" "ONLINE" "EXPIRES" "ROLES" "FOCUS"))
+      (doseq [r sorted]
+        (println (format "%-14s %-4s %-6s %-7s %-26s %s"
+                         (:h r) (if (:pinned r) " *" "") (if (:on r) "yes" "no") (:exp r) (:roles r) (:focus r)))))
 
     "slackers"                              ; derived; replaces the polling slacker-detector/reaper
     (let [_mins (if (seq args) (parse-long (first args)) 10)
@@ -170,6 +177,48 @@
               b (lease-of port "build")
               has-build (boolean (and b (= (:holder b) h) (> (:exp b) now)))]
           (when (and on (not has-build)) (println "  -" h)))))
+
+    "pin"                                   ; <uuid> [reason]  — mark agent as important (surfaces first in roster)
+    (let [[h & reason-parts] args, ae (str "@agent:" h)]
+      (assert! port ae "pinned" "true")
+      (when (seq reason-parts) (assert! port ae "pin_reason" (str/join " " reason-parts)))
+      (prn {:pinned ae}))
+
+    "unpin"                                 ; <uuid>  — remove pin
+    (let [[h] args, ae (str "@agent:" h)]
+      (retract! port ae "pinned" "true")
+      (prn {:unpinned ae}))
+
+    "stale"                                 ; [threshold-hours=24]  — agents whose last run exceeds threshold
+    (let [thresh-h (if (seq args) (parse-long (first args)) 24)
+          thresh-ms (* thresh-h 3600000)
+          ss (or (sessions port) [])
+          runs-by-agent (reduce (fn [m [e h]]
+                                  (let [at (resolved port (str "@agent:" h) "last_run_at")]
+                                    (if at (assoc m h at) m)))
+                                {} ss)
+          spawns (reduce (fn [m [e h]]
+                           (let [at (resolved port (str "@agent:" h) "spawned_at")]
+                             (if at (assoc m h at) m)))
+                         {} ss)]
+      (println (format "%-14s %-8s %-20s %-20s %s" "AGENT" "STALE?" "SPAWNED" "LAST_RUN" "ROLES"))
+      (doseq [[_e h] (sort-by second ss)]
+        (let [ae (str "@agent:" h)
+              spawn-at (get spawns h)
+              last-run (get runs-by-agent h)
+              rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
+              resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
+              age-ms (when last-run
+                       (try (- now (.toEpochMilli (java.time.Instant/parse last-run)))
+                            (catch Exception _ nil)))
+              stale? (cond
+                       (nil? last-run) "no-data"
+                       (nil? age-ms)   "parse-err"
+                       (> age-ms thresh-ms) (str "YES (" (int (/ age-ms 3600000)) "h)")
+                       :else "no")
+              spawn-short (when spawn-at (subs spawn-at 0 (min 19 (count spawn-at))))
+              run-short (when last-run (subs last-run 0 (min 19 (count last-run))))]
+          (println (format "%-14s %-8s %-20s %-20s %s" h (or stale? "?") (or spawn-short "-") (or run-short "-") resp)))))
 
     "forget"                                ; deregister: retract session claims + release the lease
     (let [[h] args, se (str "@session:" h)]
