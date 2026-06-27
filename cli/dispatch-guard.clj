@@ -54,7 +54,7 @@
                 (when pinned " [PINNED]")
                 (when needs-rotation " [NEEDS ROTATION]")))
   (case bucket
-    :rotate (do (println (str "-> COMPACT: agent flagged for rotation (input_tokens exceeded threshold). Run: bash ~/code/fleet-data/lodestar-compact.sh " uuid))
+    :rotate (do (println (str "-> COMPACT: agent flagged for rotation (input_tokens exceeded threshold). Run: bash ~/code/agent-data/lodestar-compact.sh " uuid))
                 (System/exit 2))
     :pinned (do (println "-> REUSE (pinned — user trusts this context)") (System/exit 3))
     :green  (do (println "-> REUSE (fresh)") (System/exit 0))

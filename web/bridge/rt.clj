@@ -17,7 +17,7 @@
 ;; bridge/rt.clj -> parent=bridge -> parent=repo root (matches the original's *file* walk).
 (def ROOT (-> *file* io/file .getCanonicalFile .getParentFile .getParentFile))
 (def WEB  (io/file ROOT "web"))
-(def FLEET-DATA (io/file (System/getProperty "user.home") "code/fleet-data"))
+(def AGENT-DATA (io/file (System/getProperty "user.home") "code/agent-data"))
 (def MSG-CLI (io/file (System/getProperty "user.home") "code/beagle/.scratch/msg-cli.clj"))
 (def DISTILLER (io/file (System/getProperty "user.home") "code/fram-lease/bin/fram-distill"))
 
@@ -109,7 +109,7 @@
 
 ;; most-recent file an agent EDITED, tailed from its activity stream.
 (defn last-edit-file [uuid]
-  (let [f (io/file FLEET-DATA (str "agent-" uuid ".stream.jsonl"))]
+  (let [f (io/file AGENT-DATA (str "agent-" uuid ".stream.jsonl"))]
     (when (.exists f)
       (->> (str/split-lines (str (:out (p/sh ["tail" "-n" "400" (.getPath f)]))))
            (keep (fn [line]
@@ -125,10 +125,10 @@
            last))))
 
 (defn stream-exists? [uuid]
-  (.exists (io/file FLEET-DATA (str "agent-" uuid ".stream.jsonl"))))
+  (.exists (io/file AGENT-DATA (str "agent-" uuid ".stream.jsonl"))))
 
 (defn stream-age-s [uuid]
-  (let [f (io/file FLEET-DATA (str "agent-" uuid ".stream.jsonl"))]
+  (let [f (io/file AGENT-DATA (str "agent-" uuid ".stream.jsonl"))]
     (when (.exists f) (int (/ (- (System/currentTimeMillis) (.lastModified f)) 1000)))))
 
 ;; ---- time -------------------------------------------------------------------
@@ -234,7 +234,7 @@
 
 ;; ---- per-agent activity stream: tail agent-<uuid>.stream.jsonl --------------
 (defn ws-stream [req uuid]
-  (let [f (io/file FLEET-DATA (str "agent-" uuid ".stream.jsonl"))]
+  (let [f (io/file AGENT-DATA (str "agent-" uuid ".stream.jsonl"))]
     (http/as-channel req
       {:on-open
        (fn [ch]

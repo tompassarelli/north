@@ -3,7 +3,7 @@ import { join } from "path";
 
 const STREAM_DIR =
   process.env.LODESTAR_STREAM_DIR ??
-  join(process.env.HOME ?? "", "code/fleet-data");
+  join(process.env.HOME ?? "", "code/agent-data");
 
 // Write SDK messages to .stream.jsonl in the same format the lodestar web tails.
 // This bridges SDK dispatch into the existing lodestar web without changing the bridge.

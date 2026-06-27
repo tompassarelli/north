@@ -87,7 +87,7 @@ saved views, nicer physics, multi-graph compare.
 
 ## Rules
 - Standalone repo `~/code/lodestar-web`. Scoped commits (`git add <files>`, never `-A`).
-- If the work fans out, you may spawn an ephemeral helper (`~/code/fleet-data/spawn-agent.sh
+- If the work fans out, you may spawn an ephemeral helper (`~/code/agent-data/spawn-agent.sh
   lodestar-web-<slug>-1`, inclusive role) — but start lean.
 - Make it beautiful. This is meant to be FUN.
 
@@ -104,7 +104,7 @@ The data you have:
 - **Fleet graph** (`:7978`): `@agent:<uuid>` nodes with `model`/`effort`/`lifecycle`/`holds @role:<slug>`;
   `@session:<uuid>` with `current_thread`/`active_workflow`; `@msg:*` (`from`/`to`/`subject`/`body`);
   `@run:*` (`cost_usd`). Read via the bridge. Live changes via `:subscribe`.
-- **Per-agent live ACTIVITY stream**: each running agent writes `~/code/fleet-data/agent-<uuid>.stream.jsonl`
+- **Per-agent live ACTIVITY stream**: each running agent writes `~/code/agent-data/agent-<uuid>.stream.jsonl`
   — newline-delimited `claude -p --output-format stream-json` events (every assistant turn + tool call +
   result, as it happens). This is the "watch it think" feed. The bridge should `tail -f` these and push
   lines over WS to the browser. When an agent is dormant the file is quiet (last run's trace); when it is

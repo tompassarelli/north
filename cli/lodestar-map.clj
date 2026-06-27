@@ -77,7 +77,7 @@
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)
       home (System/getenv "HOME")
-      fleet (str home "/code/fleet-data")
+      fleet (str home "/code/agent-data")
       scratch (str home "/code/lodestar/cli")]
   (case verb
 

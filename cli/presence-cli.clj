@@ -318,7 +318,7 @@
         (do (println (str "triggering compact for " h " roles=" (pr-str (map #(subs % 6) roles))))
             (assert! port ae "needs_rotation" "true")
             (let [r (clojure.java.shell/sh "bash"
-                      (str (System/getenv "HOME") "/code/fleet-data/lodestar-compact.sh") h)]
+                      (str (System/getenv "HOME") "/code/agent-data/lodestar-compact.sh") h)]
               (println (:out r))
               (when (seq (:err r)) (binding [*out* *err*] (println (:err r))))
               (System/exit (:exit r))))))

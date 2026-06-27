@@ -19,7 +19,7 @@ live from the port box in the UI (no restart).
   - **Agents** (left): every `@agent` from presence — online dot, held roles,
     current focus (workflow/thread), live activity tag. Refreshes itself.
   - **Stream** (center, the hero): click an agent → its
-    `~/code/fleet-data/agent-<uuid>.stream.jsonl` is tailed over a WebSocket and
+    `~/code/agent-data/agent-<uuid>.stream.jsonl` is tailed over a WebSocket and
     rendered as it happens — thinking, assistant text, tool calls + inputs, tool
     results, a token ticker. You watch it think.
   - **Steer** (bottom): type a message → `POST /steer` → sent to that agent via
