@@ -1,10 +1,16 @@
+/* Everforest Dark Hard — matches the desktop (nixos-config stylix,
+   base16-schemes/everforest-dark-hard.yaml, Sainnhe Park). */
 :root {
-  --bg: #0d1117;
-  --panel: #1d3a52;
-  --panel-edge: #6e8ca6;
-  --ink: #e6edf3;
-  --muted: #9fb3c8;
-  --accent: #f08a7a;
+  --bg: #272e33;          /* base00 bg0 — same as the terminal */
+  --panel: #272e33;       /* base00 bg0 — panels match the terminal exactly */
+  --panel-edge: #414b50;  /* base02 bg3 */
+  --ink: #d3c6aa;         /* base05 fg */
+  --muted: #859289;       /* base03 grey1 */
+  --accent: #7fbbb3;      /* base0D blue */
+  --accent-alt: #d699b6;  /* base0E purple */
+  --star: #dbbc7f;        /* base0A yellow — active/lodestar */
+  --ok: #a7c080;          /* base0B green — done */
+  --warn: #e67e80;        /* base08 red — blocked */
 }
 
 * { box-sizing: border-box; }
