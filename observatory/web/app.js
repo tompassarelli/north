@@ -355,7 +355,7 @@ function showTab(view) {
 if (location.hash === '#graph') { showTab('graph'); requestAnimationFrame(() => Graph.ensure()); }
 else if (location.hash === '#observatory') { showTab('observatory'); }
 else { showTab('board'); }
-window.FrameScope = {
+window.Lodestar = {
   openAgentStream(handle) {
     showTab('observatory');
     const a = agentsById[handle] || { uuid: handle, roles: [], has_stream: true };
@@ -364,6 +364,12 @@ window.FrameScope = {
     if (li) li.scrollIntoView({ block: 'nearest' });
   }
 };
+
+// board card click with @agent: driver → pre-select agent stream (no tab switch).
+document.addEventListener('board:agent-select', e => {
+  const a = agentsById[e.detail.uuid] || { uuid: e.detail.uuid, roles: [], has_stream: true };
+  selectAgent(a);
+});
 
 // Board card → thread detail in the graph PROPERTIES pane. focus() is the cross-tab
 // entry point (centers + selects + opens #node-panel); the federated graph loads async

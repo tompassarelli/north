@@ -62,6 +62,8 @@
 .bchip-driver-link{cursor:pointer}
 .bchip-driver-link:hover{background:#142e20;color:#86efac}
 .agent-av{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;font-size:.48rem;font-weight:700;color:#0c0f17;margin-right:.18rem;vertical-align:middle;flex-shrink:0}
+.agent-dot{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:.22rem;vertical-align:middle;flex-shrink:0}
+.agent-dot-on{background:#4a4}.agent-dot-off{background:#555}
 .bchip-est{background:#1e1a08;color:#fbbf24}
 .bchip-overdue{background:#2a0d0d;color:#f87171}
 .bchip-today{background:#1e1a08;color:#fbbf24}
@@ -271,7 +273,11 @@
     return `hsl(${(h >>> 0) % 360},50%,55%)`;
   }
 
-  function buildCard(t, byFrom, onClick, extraChips) {
+  function stalenessBorderColor(bucket) {
+    return { green: '#4a4', yellow: '#ca0', red: '#c44', pinned: '#58f' }[bucket] || '#283150';
+  }
+
+  function buildCard(t, byFrom, onClick, extraChips, presenceByUuid) {
     const a = t.attrs || {};
     const es = byFrom[t.id] || [];
 
@@ -283,7 +289,16 @@
       card.classList.add('dragging');
     });
     card.addEventListener('dragend', () => card.classList.remove('dragging'));
-    card.addEventListener('click', () => { if (onClick) onClick(t); });
+    card.addEventListener('click', () => {
+      if (onClick) onClick(t);
+      const dEdge = es.find(e => e.pred === 'driver');
+      const drv = (dEdge ? dEdge.to : null) || a.driver;
+      if (drv && drv.startsWith('@agent:')) {
+        document.dispatchEvent(new CustomEvent('board:agent-select', {
+          detail: { uuid: drv.slice('@agent:'.length) }
+        }));
+      }
+    });
 
     const title = mk('div', 'card-title');
     title.textContent = a.title;
@@ -309,7 +324,7 @@
         dchip.title = 'Open agent stream';
         dchip.addEventListener('click', e => {
           e.stopPropagation();
-          if (window.FrameScope) FrameScope.openAgentStream(uuid);
+          if (window.Lodestar) Lodestar.openAgentStream(uuid);
         });
       }
       chips.append(dchip);
