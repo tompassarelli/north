@@ -37,9 +37,22 @@ try {
   const titles = await page.$$eval(".pane-title", (els) => els.map((e) => e.textContent.trim()));
   check("pane titles", titles.some((t) => t.includes("work bench")) && titles.some((t) => t.includes("agent chat")), titles.join(" | "));
 
-  // agent roster rendered
-  const agents = await page.$$eval(".agent-row", (els) => els.length);
-  check("agent rows", agents >= 0, `${agents} rows`);
+  // agent picker (below cli) + chat area
+  const picks = await page.$$eval(".pick-row", (els) => els.length);
+  check("picker rows", picks >= 0, `${picks} rows`);
+  const sel = await page.$$eval(".pick-row.sel", (els) => els.length);
+  check("one selected pick", picks === 0 || sel === 1, `${sel} selected`);
+  const chat = await page.$(".chat");
+  check("chat area present", chat !== null);
+
+  // clicking a picker row swaps selection (if >1 agent)
+  if (picks > 1) {
+    const before = await page.$eval(".pick-row.sel .pick-name", (e) => e.textContent);
+    await page.$$eval(".pick-row", (els) => els[els.length - 1].click());
+    await new Promise((r) => setTimeout(r, 400));
+    const after = await page.$eval(".pick-row.sel .pick-name", (e) => e.textContent);
+    check("click selects different agent", before !== after, `${before} -> ${after}`);
+  }
 
   // Cytoscape mounted: it injects <canvas> layers into #cy (async, on-mount action)
   let canvases = 0;
