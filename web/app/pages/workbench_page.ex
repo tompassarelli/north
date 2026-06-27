@@ -5,6 +5,21 @@ defmodule LodestarWeb.WorkbenchPage do
   route "/"
   layout LodestarWeb.MainLayout
 
+  @tips [
+    "A thread is just an id with a title — capture a thought and it becomes a unit of work.",
+    "Lifecycle isn't a status field; it's derived from your claims — committed, outcome, driver, depends_on.",
+    "Every fact is a subject-predicate-object triple — you never edit a row, you assert a new claim.",
+    "Don't mark something done; tell the thread its outcome and let the engine derive the rest.",
+    "Reference another thread with @id; everything else is a literal value.",
+    "Blocked? Add a depends_on edge — the DAG figures out what's actually ready.",
+    "Run ready / next / plate to let the substrate tell you what to work on.",
+    "Dispatch an agent against a thread and it reads the claims to derive its own posture.",
+    "needs-review surfaces judgments whose inputs moved: stale estimates, expired dates, dead edges.",
+    "Clock start/stop logs real time so your estimates calibrate against actuals.",
+    "Watch the ctx budget — a thread that won't fit is a thread that needs decomposing.",
+    "The kanban is a projection; the claim graph is the source of truth, always queryable."
+  ]
+
   # class bundles as functions — in HOLO templates `@x` is STATE access, so a
   # module attribute can't be referenced as `{@x}`; a 0-arity call can.
   defp panel_cls, do: "flex flex-col min-h-0 border border-edge rounded-2xl p-4"
@@ -24,9 +39,19 @@ defmodule LodestarWeb.WorkbenchPage do
       fleet: Lodestar.Presence.fleet_tokens(roster),
       selected: selected,
       messages: if(selected, do: Lodestar.Stream.messages(selected), else: []),
+      active: active_info(roster, selected),
+      tip: Enum.random(@tips),
       view: "board",
       board: Lodestar.Threads.board()
     )
+  end
+
+  # thinking-indicator info for the selected agent (only when it's live + working)
+  defp active_info(agents, selected) do
+    case Enum.find(agents, &(&1.uuid == selected)) do
+      %{thinking: true} = r -> %{thinking: true, elapsed: r.elapsed_str, ctx: r.ctx_str}
+      _ -> %{thinking: false, elapsed: "", ctx: ""}
+    end
   end
 
   def action(:mount_graph, _params, component) do
@@ -57,7 +82,7 @@ defmodule LodestarWeb.WorkbenchPage do
 
   defp select(component, uuid) do
     component
-    |> put_state(:selected, uuid)
+    |> put_state(selected: uuid, active: active_info(component.state.agents, uuid))
     |> put_command(:load_stream, agent: uuid)
   end
 
@@ -126,6 +151,13 @@ defmodule LodestarWeb.WorkbenchPage do
             <div class="h-full flex items-center justify-center text-muted">no activity</div>
           {/if}
         </div>
+
+        {%if @active.thinking}
+          <div data-testid="thinking" class="mt-2 font-mono text-xs">
+            <div class="text-star">✦ Deliberating… ({@active.elapsed} · ↑{@active.ctx} tokens)</div>
+            <div class="text-muted mt-0.5">Tip: {@tip}</div>
+          </div>
+        {/if}
 
         <div class={cli_cls()}>
           <span class={cli_tag_cls()}>ultracode</span>
