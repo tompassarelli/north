@@ -65,7 +65,7 @@ try {
   check("two panels", panels === 2, `found ${panels}`);
 
   const body = await page.evaluate(() => document.body.innerText);
-  check("pane titles", body.includes("work bench") && body.includes("agent chat"), "");
+  check("frame badges", body.includes("frame: workbench") && body.includes("frame: agents"), "");
 
   // tailwind actually applied (everforest bg token resolved, not unstyled)
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);

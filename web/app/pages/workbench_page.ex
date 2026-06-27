@@ -23,7 +23,7 @@ defmodule LodestarWeb.WorkbenchPage do
   # class bundles as functions — in HOLO templates `@x` is STATE access, so a
   # module attribute can't be referenced as `{@x}`; a 0-arity call can.
   defp panel_cls, do: "flex flex-col min-h-0 border border-edge rounded-2xl p-4"
-  defp title_cls, do: "text-muted text-[13px] tracking-wide lowercase mb-2.5"
+  defp frame_cls, do: "border border-edge rounded-md px-2 py-0.5 text-accent-alt text-[11px] font-mono"
   defp cli_cls, do: "relative mt-3 border border-edge rounded-[10px] px-3 py-2.5 font-mono text-[13px] flex items-center gap-1.5"
   defp cli_tag_cls, do: "absolute -top-2 right-3.5 bg-panel px-2 text-[11px] text-accent-alt"
   defp status_cls, do: "flex items-center gap-2.5 mt-2 font-mono text-xs text-muted flex-wrap"
@@ -145,7 +145,6 @@ defmodule LodestarWeb.WorkbenchPage do
 
     <div class="grid grid-cols-2 gap-4 p-4 h-screen">
       <section class={panel_cls()} data-testid="panel">
-        <div class={title_cls()}>work bench</div>
         <div class="flex-1 min-h-0 overflow-hidden" data-testid="workarea">
           {%if @view == "graph"}
             <div id="cy" class="w-full h-full"></div>
@@ -175,14 +174,13 @@ defmodule LodestarWeb.WorkbenchPage do
           <span class="text-accent">&gt;</span> <span class="text-muted">cli</span>
         </div>
         <div class={status_cls()}>
+          <span class={frame_cls()}>frame: workbench</span>
           <span class="border border-edge rounded-md px-2 py-0.5 text-ink text-[11px] cursor-pointer hover:border-accent" data-testid="view-toggle" $click="toggle_view">View: {view_label(@view)}</span>
           <span class="border border-edge rounded-md px-2 py-0.5 text-ink text-[11px]">Types: Threads</span>
         </div>
       </section>
 
       <section class={panel_cls()} data-testid="panel">
-        <div class={title_cls()}>agent chat{%if @selected} · {@selected}{/if}</div>
-
         <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2" data-testid="chat">
           {%for m <- @messages}
             <div class={"text-[13px] leading-snug max-w-full break-words whitespace-pre-wrap " <> msg_cls(m.kind)}>{m.text}</div>
@@ -217,6 +215,7 @@ defmodule LodestarWeb.WorkbenchPage do
         </div>
 
         <div class={status_cls()}>
+          <span class={frame_cls()}>frame: agents</span>
           <span class="bg-star text-bg px-1.5 py-px rounded text-[11px] font-semibold">auto</span>
           <span>auto mode on · {length(@agents)} agents</span>
           <span class="text-ok" data-testid="synced" title="live pushes received">●&nbsp;{@synced}</span>
