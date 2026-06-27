@@ -1,14 +1,12 @@
-// app.js — fleet observatory: agent list + live "watch it think" stream + steer.
+// app.js — lodestar web: agent list + live "watch it think" stream + steer.
 'use strict';
 
 const $ = sel => document.querySelector(sel);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
-// NAMED-CONTEXT picker: pick a daemon by NAME; the port mapping stays hidden here and is
-// never shown in the UI. PORT() stays a global (timetape.js reads it) — only its source moved.
-const CTX_PORTS = { fleet: 7978, board: 7977, code: 7979, attention: 7980 };
+const CTX_PORTS = { agents: 7978, board: 7977, code: 7979, attention: 7980 };
 const ctxEl = $('#context');
-const CTX = () => (ctxEl && ctxEl.value) || 'fleet';
-const CTX_NAME = () => ctxEl ? ctxEl.options[ctxEl.selectedIndex].text : 'Fleet';
+const CTX = () => (ctxEl && ctxEl.value) || 'agents';
+const CTX_NAME = () => ctxEl ? ctxEl.options[ctxEl.selectedIndex].text : 'Agents';
 const PORT = () => CTX_PORTS[CTX()] || 7978;
 
 let selected = null;        // selected agent uuid
@@ -27,7 +25,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 
 // ---------- graph-membership facet: toggle source daemons in the one union ----------
 const GRAPH_FACETS = [
-  ['fleet', 'fleet'], ['code', 'code'], ['board', 'board'], ['work', 'working'], ['attention', 'attention'],
+  ['agents', 'agents'], ['code', 'code'], ['board', 'board'], ['work', 'working'], ['attention', 'attention'],
 ];
 function renderGraphFacets() {
   const bar = document.getElementById('graph-facets');

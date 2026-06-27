@@ -140,7 +140,7 @@
 
 ^{:line 70 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (def DECISIONS-PORT 7981)
 
-^{:line 75 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (def GRAPHS ^{:line 76 :file "/home/tom/code/framescope/bridge/bridge.bclj"} [^{:line 76 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "fleet" 7978) ^{:line 77 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "code" 7979) ^{:line 78 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "board" 7977) ^{:line 79 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "attention" 7980)])
+^{:line 75 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (def GRAPHS ^{:line 76 :file "/home/tom/code/framescope/bridge/bridge.bclj"} [^{:line 76 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "agents" 7978) ^{:line 77 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "code" 7979) ^{:line 78 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "board" 7977) ^{:line 79 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (->GraphSpec "attention" 7980)])
 
 ^{:line 83 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (defn ^Boolean ref-obj? [^String o]
   ^{:line 84 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (and ^{:line 84 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (str/starts-with? o "@") ^{:line 84 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (nil? ^{:line 84 :file "/home/tom/code/framescope/bridge/bridge.bclj"} (re-find #"\s" o))))

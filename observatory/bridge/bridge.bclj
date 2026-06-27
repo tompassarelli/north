@@ -75,7 +75,7 @@
 ;; "It is all one claim graph" across DAEMONS. (Mirror of bridge.rt/LIVE-GRAPHS,
 ;; which the WS fan-out uses.)
 (def GRAPHS :- (Vec GraphSpec)
-  [(->GraphSpec "fleet" 7978)      ; agents / roles / messages / runs
+  [(->GraphSpec "agents" 7978)     ; agents / roles / messages / runs
    (->GraphSpec "code" 7979)       ; the live program (AST)
    (->GraphSpec "board" 7977)      ; threads / planning board
    (->GraphSpec "attention" 7980)]) ; light-show: @attention cursors → modules

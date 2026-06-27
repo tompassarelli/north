@@ -1,7 +1,7 @@
 // decisions.js — on-demand decision-DAG view for an agent.
 // Exported API: window.mountDecisions(el, agentUuid)
 // Data: POST /distill?agent=<uuid>&window=<N>  → {decisions:[...]}
-// Stub: 404 → "distiller not wired yet" (fleet-commander wires the endpoint).
+// Stub: 404 → "distiller not wired yet" (coordinator wires the endpoint).
 'use strict';
 
 window.mountDecisions = (function () {

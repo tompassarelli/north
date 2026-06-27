@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>framescope · fleet observatory</title>
+<title>lodestar web</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header id="topbar">
-  <div class="brand"><span class="logo">◆</span> framescope <span class="sub">fleet observatory</span></div>
+  <div class="brand"><span class="logo">◆</span> lodestar <span class="sub">web</span></div>
   <nav class="tabs">
     <button class="tab" data-view="observatory">Observatory</button>
     <button class="tab active" data-view="board">Board</button>
@@ -17,12 +17,9 @@
   <div class="omni"><input id="omni" type="search" placeholder="⌕ search all node data…" autocomplete="off" spellcheck="false"></div>
   <button id="cmdk-hint" class="cmdk-hint" title="Command palette — quick actions, group, voice">⌘K</button>
   <div class="conn">
-    <!-- NAMED-CONTEXT picker: choose the daemon by NAME (Fleet/Board/Code/Attention); the
-         port mapping is hidden in app.js and never surfaced. The online-indicator label
-         below shows the context name, not a port. -->
     <label class="ctx-pick">context
       <select id="context" style="background:var(--bg2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-family:var(--mono);font-size:13px;">
-        <option value="fleet">Fleet</option>
+        <option value="agents">Agents</option>
         <option value="board">Board</option>
         <option value="code">Code</option>
         <option value="attention">Attention</option>
@@ -120,7 +117,7 @@
         <div class="gc-menu" id="preset-bar"></div>
       </div>
       <!-- GRAPH MEMBERSHIP folded into a dropdown: the graph is ONE federated union of all
-           daemons; toggle which source graphs (fleet/code/board/work/attention) are in view. -->
+           daemons; toggle which source graphs (agents/code/board/work/attention) are in view. -->
       <div class="gc-dd" id="graphs-dd">
         <button class="ctl-btn dd-btn" id="graphs-dd-btn" aria-expanded="false" title="Federated union — toggle which source graphs are visible">⬡ Graphs ▾</button>
         <div class="gc-menu" id="graph-facets"><span class="gc-lbl">source graphs</span></div>
