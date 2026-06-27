@@ -288,7 +288,19 @@
 
     const driverEdge = es.find(e => e.pred === 'driver');
     const driver = (driverEdge ? driverEdge.to : null) || a.driver;
-    if (driver) chips.append(sp('bchip bchip-driver', '▸ ' + shorten(driver)));
+    if (driver) {
+      const dchip = sp('bchip bchip-driver', '▸ ' + shorten(driver));
+      if (driver.startsWith('@agent:')) {
+        const uuid = driver.slice('@agent:'.length);
+        dchip.style.cursor = 'pointer';
+        dchip.title = 'Open agent stream';
+        dchip.addEventListener('click', e => {
+          e.stopPropagation();
+          if (window.FrameScope) FrameScope.openAgentStream(uuid);
+        });
+      }
+      chips.append(dchip);
+    }
 
     const est = a.estimate_hours || a.estimate;
     if (est) chips.append(sp('bchip bchip-est', est + 'h'));

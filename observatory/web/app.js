@@ -353,9 +353,10 @@ function showTab(view) {
   // wire-in: the Board view is owned by the board module — mount once on first open.
   if (view === 'board' && window.mountBoard && !boardMounted) { mountBoard($('#board-root')); boardMounted = true; }
 }
-// deep-link: #graph / #board open that tab on load (shareable + lets QA target it directly).
+// deep-link: #graph / #observatory override default; everything else lands on board.
 if (location.hash === '#graph') { showTab('graph'); requestAnimationFrame(() => Graph.ensure()); }
-else if (location.hash === '#board') { showTab('board'); }
+else if (location.hash === '#observatory') { showTab('observatory'); }
+else { showTab('board'); }
 window.FrameScope = {
   openAgentStream(handle) {
     showTab('observatory');
