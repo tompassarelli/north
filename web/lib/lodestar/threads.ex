@@ -146,6 +146,8 @@ defmodule Lodestar.Threads do
     titled = for {id, attrs} <- node_attrs, Map.get(attrs, "title", "") != "", into: %{}, do: {id, attrs}
     by_from = Enum.group_by(edges, & &1.from)
     online = Lodestar.Presence.online_refs()
+    # children index for completion%: `child part_of parent` → group by parent.
+    kids = edges |> Enum.filter(&(&1.pred == "part_of")) |> Enum.group_by(& &1.to, & &1.from)
 
     rows =
       for {id, attrs} <- titled,
@@ -167,6 +169,8 @@ defmodule Lodestar.Threads do
           scheduled: scheduled,
           active: active,
           blocked: blocked,
+          # emergent-outcome completion: done children / total (nil if atomic)
+          completion: completion(Map.get(kids, id, []), node_attrs),
           lens: lens(closed, committed)
         }
       end
@@ -205,6 +209,15 @@ defmodule Lodestar.Threads do
 
   defp bool_key(true), do: 0
   defp bool_key(_), do: 1
+
+  # Emergent-outcome completion: %{done, total} over part_of children (a child is
+  # "done" once it has an outcome). nil for atomic threads (no children).
+  defp completion([], _node_attrs), do: nil
+
+  defp completion(children, node_attrs) do
+    done = Enum.count(children, &Map.has_key?(Map.get(node_attrs, &1, %{}), "outcome"))
+    %{done: done, total: length(children)}
+  end
 
   # sort key for a drag-set priority claim: {0, n} for a parseable rank (ordered
   # ascending), {1, 0} for none (sorts after, falls back to do_on).

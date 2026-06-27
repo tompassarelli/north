@@ -97,6 +97,10 @@
     if (item.active) wrap.append(chip("▷ " + (item.driver ? item.driver.replace(/^@/, "") : "active"), EF.star, "active — an agent is attending now"));
     if (item.scheduled) wrap.append(chip("◷ " + (item.do_on || "soon"), EF.ok, "scheduled (do_on)"));
     if (item.blocked) wrap.append(chip("blocked", EF.warn, "blocked — open dependency"));
+    if (item.completion && item.completion.total > 0) {
+      const c = item.completion, full = c.done === c.total;
+      wrap.append(chip("▦ " + c.done + "/" + c.total, full ? EF.ok : EF.muted, "emergent outcome — " + c.done + " of " + c.total + " sub-threads done"));
+    }
     return wrap;
   }
 
