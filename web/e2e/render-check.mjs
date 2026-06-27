@@ -31,27 +31,31 @@ try {
   await page.goto(URL, { waitUntil: "networkidle2", timeout: 15000 });
 
   // panels render (SSR + hydrate)
-  const panels = await page.$$eval(".panel", (els) => els.length);
+  const panels = await page.$$eval('[data-testid="panel"]', (els) => els.length);
   check("two panels", panels === 2, `found ${panels}`);
 
-  const titles = await page.$$eval(".pane-title", (els) => els.map((e) => e.textContent.trim()));
-  check("pane titles", titles.some((t) => t.includes("work bench")) && titles.some((t) => t.includes("agent chat")), titles.join(" | "));
+  const body = await page.evaluate(() => document.body.innerText);
+  check("pane titles", body.includes("work bench") && body.includes("agent chat"), "");
+
+  // tailwind actually applied (everforest bg token resolved, not unstyled)
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  check("tailwind theme applied (everforest bg)", bg === "rgb(39, 46, 51)", bg);
 
   // agent picker (below cli) + chat area
-  const picks = await page.$$eval(".pick-row", (els) => els.length);
+  const picks = await page.$$eval('[data-testid="pick-row"]', (els) => els.length);
   check("picker rows", picks >= 0, `${picks} rows`);
-  const sel = await page.$$eval(".pick-row.sel", (els) => els.length);
+  const sel = await page.$$eval('[data-sel="1"]', (els) => els.length);
   check("one selected pick", picks === 0 || sel === 1, `${sel} selected`);
-  const chat = await page.$(".chat");
+  const chat = await page.$('[data-testid="chat"]');
   check("chat area present", chat !== null);
 
   // clicking a picker row swaps selection (if >1 agent)
   if (picks > 1) {
-    const before = await page.$eval(".pick-row.sel .pick-name", (e) => e.textContent);
-    await page.$$eval(".pick-row", (els) => els[els.length - 1].click());
+    const before = await page.$eval('[data-sel="1"]', (e) => e.textContent);
+    await page.$$eval('[data-testid="pick-row"]', (els) => els[els.length - 1].click());
     await new Promise((r) => setTimeout(r, 400));
-    const after = await page.$eval(".pick-row.sel .pick-name", (e) => e.textContent);
-    check("click selects different agent", before !== after, `${before} -> ${after}`);
+    const after = await page.$eval('[data-sel="1"]', (e) => e.textContent);
+    check("click selects different agent", before !== after, "selection moved");
   }
 
   // Cytoscape mounted: it injects <canvas> layers into #cy (async, on-mount action)
