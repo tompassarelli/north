@@ -254,6 +254,51 @@
                  (catch Exception _ nil)
                  (finally (try (p/destroy-tree proc) (catch Exception _ nil))))))))})))
 
+;; ---- SDK spawn: fire bun-based agent in background, register in presence ----
+(def SDK-DIR (io/file (System/getProperty "user.home") "code/lodestar/sdk/src"))
+(def BUN "/run/current-system/sw/bin/bun")
+
+(defn- register-sdk-agent! [port agent-id & {:keys [model thread-id]}]
+  (let [ae (str "@agent:" agent-id)
+        se (str "@session:" agent-id)
+        le (str "@lease:session:" agent-id)
+        expiry (+ (now-ms) 3600000)]
+    (coord-assert! port se "agent" agent-id)
+    (coord-assert! port le "lease" (str agent-id "|" expiry "|0"))
+    (coord-assert! port ae "lifecycle" "sdk")
+    (coord-assert! port ae "spawned_at"
+      (.toString (java.time.Instant/now)))
+    (when model (coord-assert! port ae "model" model))
+    (when thread-id
+      (coord-assert! port ae "current_thread" (str "@" thread-id)))))
+
+(defn spawn-sdk! [port prompt & {:keys [model effort]}]
+  (let [agent-id (str "sdk-" (.format (java.time.LocalDateTime/now)
+                                       (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
+                       "-" (format "%04x" (rand-int 0x10000)))]
+    (register-sdk-agent! port agent-id :model model)
+    (let [env (merge (into {} (System/getenv))
+                     {"AGENT_ID" agent-id
+                      "LODESTAR_STREAM_DIR" (.getPath AGENT-DATA)}
+                     (when model {"AGENT_MODEL" model})
+                     (when effort {"AGENT_EFFORT" effort}))]
+      (p/process [BUN "run" (.getPath (io/file SDK-DIR "spawn.ts")) prompt]
+                 {:env env :out :inherit :err :inherit}))
+    {:ok true :agentId agent-id}))
+
+(defn dispatch-sdk! [port thread-id & {:keys [model effort]}]
+  (let [agent-id (str "sdk-" (str/replace thread-id #"[^a-z0-9]" "") "-"
+                       (format "%04x" (rand-int 0x10000)))]
+    (register-sdk-agent! port agent-id :model model :thread-id thread-id)
+    (let [env (merge (into {} (System/getenv))
+                     {"AGENT_ID" agent-id
+                      "LODESTAR_STREAM_DIR" (.getPath AGENT-DATA)}
+                     (when model {"AGENT_MODEL" model})
+                     (when effort {"AGENT_EFFORT" effort}))]
+      (p/process [BUN "run" (.getPath (io/file SDK-DIR "dispatch.ts")) thread-id]
+                 {:env env :out :inherit :err :inherit}))
+    {:ok true :agentId agent-id :threadId thread-id}))
+
 ;; ---- boot: read argv, run the http-kit server, block ------------------------
 (defn boot! [handler]
   (let [port (or (some-> (first *command-line-args*) parse-long) 8088)]

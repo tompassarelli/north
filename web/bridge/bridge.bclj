@@ -568,6 +568,16 @@
                            res (rt/coord-retract! (body-port b) (get b :from) (get b :pred) (get b :to))]
                        (json-resp {:ok (not (rt/rejected? res)) :res res}))
                      {:status 405 :body "POST only"})]
+      ["/spawn"    (if post?
+                     (let [b (rt/read-json-body req)]
+                       (json-resp (rt/spawn-sdk! (body-port b) (get b :prompt)
+                                   :model (get b :model) :effort (get b :effort))))
+                     {:status 405 :body "POST only"})]
+      ["/dispatch" (if post?
+                     (let [b (rt/read-json-body req)]
+                       (json-resp (rt/dispatch-sdk! (body-port b) (get b :threadId)
+                                   :model (get b :model) :effort (get b :effort))))
+                     {:status 405 :body "POST only"})]
       [_ (rt/serve-static uri)])))
 
 (defn handler [req :- Any] :- Any

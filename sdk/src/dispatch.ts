@@ -40,7 +40,9 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
       ? "atomic"
       : "composite";
 
-  const agentId = `sdk-${threadId.replace(/[^a-z0-9]/gi, "").slice(-12)}`;
+  const agentId =
+    process.env.AGENT_ID ??
+    `sdk-${threadId.replace(/[^a-z0-9]/gi, "").slice(-12)}`;
   const stream = new StreamWriter(agentId);
 
   console.log(`[dispatch] @${threadId} — ${posture.title}`);

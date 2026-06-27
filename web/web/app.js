@@ -198,7 +198,7 @@ if (lightBtn) lightBtn.onclick = () => { const on = !Graph.getLightShow(); Graph
 // ---------- omni-search + status filter (agent list) ----------
 // both narrow the same list; fold them into the one styled hide class (.agent.hide-search).
 let omniQuery = '';
-let statusFilter = 'all';   // all | working | dormant | offline
+let statusFilter = 'working';   // all | working | dormant | offline
 function statusOf(a) { return !a.online ? 'offline' : (isWorking(a) ? 'working' : 'dormant'); }
 function applyAgentFilter() {
   document.querySelectorAll('#agent-list .agent').forEach(li => {

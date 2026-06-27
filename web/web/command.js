@@ -32,12 +32,26 @@
         steer(to, `run deep research on: ${topic}. fan out sources, verify, report a cited synthesis. (from lodestar web)`);
         toast(`🔎 research dispatched → ${to}`);
       } },
-    { id: 'spawn', label: '✦ Spawn a sub-agent…', hint: 'ask coordinator to spawn',
+    { id: 'spawn', label: '✦ Spawn an agent (SDK)…', hint: 'launch via Claude Agent SDK',
       when: () => true, run: c => {
-        const task = prompt('Spawn an agent to:'); if (!task) return;
+        const task = prompt('Spawn an agent with prompt:'); if (!task) return;
         const ctx = c.primary ? ` (context: ${c.primary.id})` : '';
-        steer('coordinator', `spawn an agent to: ${task}${ctx}. (requested from lodestar web)`);
-        toast('✦ spawn requested → coordinator');
+        fetch('/spawn', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: task + ctx }) })
+          .then(r => r.json())
+          .then(r => { if (r.ok) toast(`✦ spawned ${r.agentId}`); else toast('spawn failed'); })
+          .catch(() => toast('spawn failed'));
+      } },
+    { id: 'dispatch', label: '⚡ Dispatch thread (SDK)…', hint: 'thread-driven agent spawn',
+      when: c => c.works.length === 1 || c.one, run: c => {
+        const node = c.primary;
+        const threadId = node ? node.id.replace(/^@/, '') : prompt('Thread ID:');
+        if (!threadId) return;
+        fetch('/dispatch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ threadId }) })
+          .then(r => r.json())
+          .then(r => { if (r.ok) toast(`⚡ dispatched ${r.agentId}`); else toast('dispatch failed'); })
+          .catch(() => toast('dispatch failed'));
       } },
     { id: 'stop', label: '■ Stop / stand down', hint: 'halt the agent',
       when: c => c.agents.length >= 1,

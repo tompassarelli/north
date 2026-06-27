@@ -534,6 +534,12 @@
     "/retract" (if post? (let [b (rt/read-json-body req)
    res (rt/coord-retract! (body-port b) (:from b) (:pred b) (:to b))]
   (json-resp {:ok (not (rt/rejected? res)) :res res})) {:status 405 :body "POST only"})
+    "/spawn" (if post? (let [b (rt/read-json-body req)]
+  (json-resp (rt/spawn-sdk! (body-port b) (:prompt b)
+               :model (:model b) :effort (:effort b)))) {:status 405 :body "POST only"})
+    "/dispatch" (if post? (let [b (rt/read-json-body req)]
+  (json-resp (rt/dispatch-sdk! (body-port b) (:threadId b)
+               :model (:model b) :effort (:effort b)))) {:status 405 :body "POST only"})
     (rt/serve-static uri))))
 
 ^{:line 558 :file "/home/tom/code/lodestar/web/bridge/bridge.bclj"} (defn handler [req]

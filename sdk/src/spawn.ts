@@ -74,6 +74,7 @@ if (import.meta.main) {
 
   spawn({
     prompt,
+    agentId: process.env.AGENT_ID,
     model: process.env.AGENT_MODEL,
     effort: process.env.AGENT_EFFORT,
   })
