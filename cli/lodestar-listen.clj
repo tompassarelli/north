@@ -37,11 +37,14 @@
 ;; The @swarm-slot:1..N pool stays as a non-binding fork-bomb backstop (default HIGH);
 ;; a crashed holder's slot self-frees via the lease TTL (lazy expiry, no sweeper).
 (def swarm-max (Integer/parseInt (or (System/getenv "LODESTAR_SWARM_MAX") "64")))
+;; MUST match sdk/src/budget.ts SUBJECT (same env var + default) so the reactor reads the
+;; exact entity the executors charge — else the gate reads a budget nobody is spending.
+(def budget-subj (or (System/getenv "LODESTAR_BUDGET") "@swarm"))
 (defn budget-remaining
-  "total - spent for @swarm, or nil if no budget_total is set (= unbounded)."
+  "total - spent for the budget subject, or nil if no budget_total set (= unbounded)."
   [port]
-  (when-let [total (parse-long (str (or (rf port "@swarm" "budget_total") "")))]
-    (- total (or (parse-long (str (or (rf port "@swarm" "budget_spent") "0"))) 0))))
+  (when-let [total (parse-long (str (or (rf port budget-subj "budget_total") "")))]
+    (- total (or (parse-long (str (or (rf port budget-subj "budget_spent") "0"))) 0))))
 (defn acquire-slot! [port holder]
   (some (fn [i]                                   ; first free slot key, or nil if all N held
           (let [res (str "@swarm-slot:" i)]
