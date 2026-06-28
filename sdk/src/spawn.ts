@@ -1,12 +1,12 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { StreamWriter } from "./stream-writer";
-
+import { harnessOptions, type Effort } from "./harness";
 
 interface SpawnOptions {
   prompt: string;
   agentId?: string;
   model?: string;
-  effort?: string;
+  effort?: Effort;
   tools?: string[];
   systemPrompt?: string;
   maxTurns?: number;
@@ -19,32 +19,18 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
 
   console.log(`[spawn] @agent:${agentId} starting`);
 
-  const modelMap: Record<string, string> = {
-    opus: "claude-opus-4-6",
-    sonnet: "claude-sonnet-4-6",
-    haiku: "claude-haiku-4-5-20251001",
-  };
-
   let result = "";
 
   for await (const message of query({
     prompt: opts.prompt,
-    options: {
-      allowedTools: opts.tools ?? [
-        "Read",
-        "Edit",
-        "Write",
-        "Bash",
-        "Grep",
-        "Glob",
-      ],
-      permissionMode: "acceptEdits",
-      model: opts.model ? modelMap[opts.model] ?? opts.model : undefined,
-      systemPrompt:
-        opts.systemPrompt ??
-        "You are a lodestar worker agent. Execute your task directly and report results concisely.",
-      maxTurns: opts.maxTurns ?? 50,
-    },
+    options: harnessOptions({
+      self: agentId,
+      extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
+      model: opts.model,
+      effort: opts.effort,
+      systemPrompt: opts.systemPrompt,
+      maxTurns: opts.maxTurns,
+    }),
   })) {
     const msg = message as any;
     stream.writeSDKMessage(msg);
@@ -76,7 +62,7 @@ if (import.meta.main) {
     prompt,
     agentId: process.env.AGENT_ID,
     model: process.env.AGENT_MODEL,
-    effort: process.env.AGENT_EFFORT,
+    effort: process.env.AGENT_EFFORT as Effort | undefined,
   })
     .then((result) => console.log(result))
     .catch((err) => {
