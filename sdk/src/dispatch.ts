@@ -3,6 +3,7 @@ import { getThreadClaims, getChildren } from "./lodestar-client";
 import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, DEFAULT_SYSTEM_PROMPT, type Effort } from "./harness";
+import { charge, tokensOf } from "./budget";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -50,6 +51,7 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
   console.log(`[dispatch] posture: ${postureLabel}, tools: ${tools.join(",")}`);
 
   let result = "";
+  let resultMsg: any = null;
 
   for await (const message of query({
     prompt,
@@ -66,6 +68,7 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
 
     if ("result" in msg) {
       result = msg.result;
+      resultMsg = msg;
     }
 
     if (msg.type === "assistant" && msg.message?.content) {
@@ -77,6 +80,7 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
     }
   }
 
+  charge(tokensOf(resultMsg)); // bill this run's tokens to the shared budget
   console.log(`\n[dispatch] @${threadId} complete`);
   return { threadId, posture: postureLabel, result };
 }

@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, type Effort } from "./harness";
+import { charge, tokensOf } from "./budget";
 
 interface SpawnOptions {
   prompt: string;
@@ -20,6 +21,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   console.log(`[spawn] @agent:${agentId} starting`);
 
   let result = "";
+  let resultMsg: any = null;
 
   for await (const message of query({
     prompt: opts.prompt,
@@ -37,9 +39,11 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
 
     if ("result" in msg) {
       result = msg.result ?? "";
+      resultMsg = msg;
     }
   }
 
+  charge(tokensOf(resultMsg)); // bill this run's tokens to the shared budget
   console.log(`[spawn] @agent:${agentId} complete`);
   return result;
 }

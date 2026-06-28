@@ -10,7 +10,7 @@
 import { execSync, execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { dispatch } from "./dispatch";
-import { acquireSlot, releaseSlot, SWARM_MAX } from "./slots";
+import { remaining } from "./budget";
 
 const REPO = resolve(import.meta.dir, "../..");
 const CLAIM_CLI = `${REPO}/cli/claim-cli.clj`;
@@ -70,33 +70,29 @@ export async function discover(self: string, opts: DiscoverOpts = {}): Promise<s
   };
 
   while (done.length < maxTasks && empty < maxEmpty) {
-    // Budget gate: hold one of N swarm slots before running ANY agent. No free
-    // slot = at cap → back off. This is what stops a fan-out from fork-bombing.
-    const slot = await acquireSlot(self);
-    if (!slot) {
-      await backoff(`at cap (${SWARM_MAX} slots full)`);
+    // Budget gate: stop pulling work once the token budget is spent. Bounds spend,
+    // not concurrency — fan out freely, cost is the only ceiling. No budget set =>
+    // remaining() is Infinity (unbounded, opt-in).
+    if (remaining() <= 0) {
+      await backoff("token budget spent");
       continue;
     }
     let claimed = false;
-    try {
-      for (const t of readyThreads()) {
-        if (!claimDriver(t.id, self)) continue; // peer got it — try the next ready thread
-        claimed = true;
-        empty = 0;
-        console.log(`[discover] ${self} claimed ${t.id} — ${t.title}`);
-        try {
-          await dispatch(t.id);
-          done.push(t.id);
-          console.log(`[discover] ${self} finished ${t.id} (${done.length} total)`);
-        } catch (e) {
-          console.error(`[discover] ${self} dispatch of ${t.id} failed:`, e);
-        } finally {
-          releaseDriver(t.id, self);
-        }
-        break; // re-poll fresh — the graph moved
+    for (const t of readyThreads()) {
+      if (!claimDriver(t.id, self)) continue; // peer got it — try the next ready thread
+      claimed = true;
+      empty = 0;
+      console.log(`[discover] ${self} claimed ${t.id} — ${t.title}`);
+      try {
+        await dispatch(t.id); // dispatch bills its token usage to the budget
+        done.push(t.id);
+        console.log(`[discover] ${self} finished ${t.id} (${done.length} total)`);
+      } catch (e) {
+        console.error(`[discover] ${self} dispatch of ${t.id} failed:`, e);
+      } finally {
+        releaseDriver(t.id, self);
       }
-    } finally {
-      await releaseSlot(self, slot); // free the budget slot whether or not we found work
+      break; // re-poll fresh — the graph moved
     }
     if (!claimed) await backoff("no claimable work");
   }
