@@ -28,28 +28,41 @@
   (let [v (:version (send-op port {:op :version}))]
     (send-op port {:op :assert :te id :p "acked_by" :r me :base v})))
 
-;; --- swarm spawn-cap (shared pool with sdk/src/slots.ts) --------------------
-;; The reactor MUST hold a slot before it shells a real agent, else commanded
-;; fan-out bypasses the cap discover.ts gates on. Same pool @swarm-slot:1..N, same
-;; exclusive-lease primitive (P3) -> global concurrent agents can't exceed N. A
-;; crashed holder's slot self-frees: the lease has a TTL and lazily expires (the
-;; next acquirer reclaims it — cnf_coord acquire-lease!, no sweeper needed).
-(def swarm-max (Integer/parseInt (or (System/getenv "LODESTAR_SWARM_MAX") "4")))
+;; --- swarm token budget + fork-bomb backstop -------------------------------
+;; The REAL resource is token spend, not concurrency: N agents looping forever
+;; still burn infinite credits. So the binding limit is a declarative TOKEN BUDGET
+;; (@swarm budget_total set once; budget_spent accumulated atomically via the :bump
+;; coord op as sdk executors charge usage). The reactor GATES on remaining()>0 before
+;; it shells a real agent — fan out freely until the budget's spent, then stop.
+;; The @swarm-slot:1..N pool stays as a non-binding fork-bomb backstop (default HIGH);
+;; a crashed holder's slot self-frees via the lease TTL (lazy expiry, no sweeper).
+(def swarm-max (Integer/parseInt (or (System/getenv "LODESTAR_SWARM_MAX") "64")))
+(defn budget-remaining
+  "total - spent for @swarm, or nil if no budget_total is set (= unbounded)."
+  [port]
+  (when-let [total (parse-long (str (or (rf port "@swarm" "budget_total") "")))]
+    (- total (or (parse-long (str (or (rf port "@swarm" "budget_spent") "0"))) 0))))
 (defn acquire-slot! [port holder]
-  (some (fn [i]                                   ; first free slot key, or nil if all N held (= at cap)
+  (some (fn [i]                                   ; first free slot key, or nil if all N held
           (let [res (str "@swarm-slot:" i)]
             (when-not (:reject (send-op port {:op :acquire-lease :holder holder :res res :ttl-ms 600000}))
               res)))
         (range 1 (inc swarm-max))))
 (defn release-slot! [port holder slot]
   (send-op port {:op :release-lease :holder holder :res slot}))
-(defn with-slot
-  "Hold a swarm slot for the duration of thunk (a blocking agent shell); back off if at cap."
+(defn with-guard
+  "Gate a blocking agent shell: skip if the token budget is spent; else hold a backstop
+   slot for the run. Budget is the real limit; the slot pool is the fork-bomb ceiling."
   [port self label thunk]
-  (if-let [slot (acquire-slot! port self)]
-    (try (println (str "   ⛓ slot " slot " held (cap " swarm-max ")")) (flush) (thunk)
-         (finally (release-slot! port self slot) (println (str "   ⛓ slot " slot " freed")) (flush)))
-    (println (str "   ⏸ AT CAP (" swarm-max " slots held) — backing off, not spawning " label))))
+  (let [rem (budget-remaining port)]
+    (cond
+      (and rem (<= rem 0))
+      (println (str "   ⏸ BUDGET SPENT (remaining " rem ") — backing off, not spawning " label))
+      :else
+      (if-let [slot (acquire-slot! port self)]
+        (try (println (str "   ⛓ slot " slot (when rem (str ", budget ~" rem " left")))) (flush) (thunk)
+             (finally (release-slot! port self slot) (println (str "   ⛓ slot " slot " freed")) (flush)))
+        (println (str "   ⏸ fork-bomb backstop (" swarm-max " slots held) — backing off " label))))))
 
 ;; --- Phase 1: the reactor ---------------------------------------------------
 ;; Parse a mail body as the Phase-0 command envelope (must stay in sync with
@@ -72,12 +85,12 @@
 ;; sdk-* id) — required for multi-hop routing/acks (per nixos-config-1's P2 harness).
 (defn react! [port self op args]
   (case op
-    :spawn    (with-slot port self "spawn"
+    :spawn    (with-guard port self "spawn"
                 (fn [] (println (str "   ⚙ spawn: " (pr-str (:prompt args))))
                   (proc/shell {:dir sdk :continue true
                                :extra-env (cond-> {"AGENT_ID" self} (:model args) (assoc "AGENT_MODEL" (str (:model args))))}
                               "bun" "src/spawn.ts" (str (:prompt args)))))
-    :dispatch (with-slot port self "dispatch"
+    :dispatch (with-guard port self "dispatch"
                 (fn [] (println (str "   ⚙ dispatch thread " (:thread args)))
                   (proc/shell {:dir sdk :continue true :extra-env {"AGENT_ID" self}}
                               "bun" "src/dispatch.ts" (str (:thread args)))))
