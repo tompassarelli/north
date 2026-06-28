@@ -13,7 +13,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
 // sdk/src/harness.ts -> repo root (~/code/lodestar).
@@ -110,8 +110,30 @@ export interface HarnessOpts {
   maxTurns?: number;
 }
 
+// Auto-connect every SDK-spawned agent to lodestar coordination — the SDK twin of
+// the bin/lodestar-on-spawn SessionStart hook. Presence so it shows on the roster;
+// the concern protocol appended to the system prompt so it self-coordinates.
+function registerPresence(self: string): void {
+  // fire-and-forget — coordination must never delay or break a spawn
+  execFile("bb", [`${REPO}/cli/presence-cli.clj`, "7978", "register", self, process.cwd(), self], () => {});
+}
+function withCoordination(self: string, base: string): string {
+  const repo = process.cwd().split("/").filter(Boolean).pop() ?? "repo";
+  const proto = [
+    ``, `## lodestar coordination`,
+    `You are agent "${self}" in "${repo}". Other agents may work here concurrently.`,
+    `Coordinate through CONCERNS, not locks — work coexists; declaring never blocks. Before`,
+    `editing code for a feature, declare it so others can see + shape around your work:`,
+    `  ${REPO}/bin/concern declare ${self} ${repo} "<what you're building>" <file1,file2,...>`,
+    `  ${REPO}/bin/concern shape <id>   # likely-to-land work in your footprint — build against it`,
+    `  ${REPO}/bin/concern status <id> likely-to-land · done <id> · ls [repo]`,
+  ].join("\n");
+  return `${base}\n${proto}`;
+}
+
 // The single Options builder. dispatch.ts + spawn.ts both route through here.
 export function harnessOptions(o: HarnessOpts): Options {
+  registerPresence(o.self);
   return {
     mcpServers: {
       lodestar: { type: "stdio", command: MCP, args: [], env: { ...process.env, LODESTAR_BIN: ENGINE } },
@@ -121,7 +143,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     model: resolveModel(o.model),
     effort: o.effort, // the reasoning knob spawn.ts used to drop on the floor
     permissionMode: "acceptEdits",
-    systemPrompt: o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT),
     maxTurns: o.maxTurns ?? 50,
   } as Options;
 }
