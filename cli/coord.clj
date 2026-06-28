@@ -127,10 +127,18 @@
                               :rules [{:head {:rel "agg" :args (mapv (fn [v] {:var v}) project)}
                                        :body body}]}})))
 
+;; Apply a REDUCER to a row-seq you already hold. The seam for callers that must
+;; scope rows with a predicate the scan body can't express (e.g. an entity-id
+;; PREFIX like "@run:") — they fold the pre-filtered rows through the SAME reducer,
+;; so the reducer (not the query) is the shared substrate budget and quorum split on.
+(defn reduce-rows [{:keys [init step final]} rows] (final (reduce step init rows)))
+(defn sum-rows      [rows] (reduce-rows sum-reducer rows))       ; Σ the [key val] rows
+(defn distinct-rows [rows] (reduce-rows distinct-reducer rows))  ; SET of the [key] rows
+
 ;; THE primitive. Quorum and budget are THIS fn with a different reducer — that
 ;; identity is the whole point. Pure read; recomputable from the log.
-(defn aggregate [port project body {:keys [init step final]}]
-  (final (reduce step init (agg-rows port project body))))
+(defn aggregate [port project body reducer]
+  (reduce-rows reducer (agg-rows port project body)))
 
 ;; --- named folds (each reducer, applied) ------------------------------------
 (defn distinct-of

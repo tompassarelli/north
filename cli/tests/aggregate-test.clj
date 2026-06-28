@@ -46,6 +46,12 @@
   (let [total 600 spent (co/sum-of port ["c" "n"] charge-body)]
     (chk "budget gate: remaining = cap - Σ(charges), still under"
          (and (> (- total spent) 0) (== 99.5 (- total spent)))))
+  ;; the ROW SEAM: scope rows with a client-side predicate the scan body can't
+  ;; express (here: drop r3), then fold through the SAME shared reducer. This is
+  ;; how the swarm gate's @run:-prefix Σ rides coord/sum-rows.
+  (chk "sum-rows folds pre-filtered rows (drop r3=50.5 -> 100+250+100)"
+       (== 450.0 (co/sum-rows (->> (co/agg-rows port ["c" "n"] charge-body)
+                                   (remove #(= "50.5" (str (second %))))))))
 
   (let [results @checks pass (count (filter second results))]
     (doseq [[nm ok] results] (println (format "  [%s]  %s" (if ok "PASS" "FAIL") nm)))
