@@ -100,7 +100,7 @@ Assertion (log event) = (tx, op, claim-hash, frame, timestamp)
    frame = asserter + context (e.g. personal | client:acme)
 ```
 
-- **Claims are interned by `hash(l,p,r)`** → the same fact is the same claim →
+- **Claims are interned by `hash(l,p,r)`** → identical content is the same claim →
   dedup, rename-in-one-place, conflict detection all work.
 - **Truth is a fold, not a stored bit.** Current state = fold over assertions
   under a chosen frame/policy (default: latest-assert-wins + supersession).

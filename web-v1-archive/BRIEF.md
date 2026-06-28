@@ -14,11 +14,11 @@ runnable localhost URL when v1 renders.
 A Fram daemon listens on a TCP port (`:7978` = agent coordination, `:7977` = lodestar / Tom's life-os)
 speaking **line-delimited EDN** (one request per connection, one EDN line back).
 
-- Facts are **triples**: `(subject predicate object)`.
+- Claims are **triples**: `(subject predicate object)`.
   - `subject` = an id: `@agent:9509c8…`, `@msg:2026…`, `@role:fram-engine`, `@2026-06-22-101500` (thread).
   - `object` = a **ref** (`@`-prefixed id, whitespace-free) = an EDGE; OR an EDN **literal** = a node ATTRIBUTE.
 - So: a **node** = any id; an **edge** = a triple whose object is a ref; a **literal triple** = a node attribute.
-- Lifecycle is DERIVED from facts, never stored: `committed` (accepted), `outcome` (done), `abandoned`
+- Lifecycle is DERIVED from claims, never stored: `committed` (accepted), `outcome` (done), `abandoned`
   (canceled), `driver` (active), `depends_on` (blocked). Color these where the thread vocab is present.
 
 **Wire ops** (open TCP to `127.0.0.1:<port>`, write `<edn>\n`, read one `<edn>\n`):

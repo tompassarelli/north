@@ -19,7 +19,7 @@ export function recordRun(rec: RunRecord): void {
   // base36 ms suffix keeps the id unique per agent without a clock dependency the
   // board cares about; this is runtime code, not a workflow script, so Date is fine.
   const id = `run-${rec.agent}-${Date.now().toString(36)}`;
-  const facts: Array<[string, string]> = [
+  const claims: Array<[string, string]> = [
     ["kind", "run"],
     ["thread", rec.thread],
     ["agent", rec.agent],
@@ -29,7 +29,7 @@ export function recordRun(rec: RunRecord): void {
     ["outcome", rec.outcome],
     ["at", new Date().toISOString()],
   ];
-  for (const [p, v] of facts) {
+  for (const [p, v] of claims) {
     // async + ignored: never let telemetry add latency to, or break, the run.
     try {
       execFile("lodestar", ["tell", id, p, v], () => {});

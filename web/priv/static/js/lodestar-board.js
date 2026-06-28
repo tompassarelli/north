@@ -5,7 +5,7 @@
 // MODEL: columns are the thread's intrinsic RESOLUTION only — Open (committed,
 // not done), Draft (plan not yet committed), Done (work resolved). ATTENTION is
 // NOT a column: active / scheduled / blocked render as card BADGES, exactly like
-// the list's facetBadges. Lifecycle is derived from facts, never a stored status.
+// the list's facetBadges. Lifecycle is derived from claims, never a stored status.
 //
 // DRAG: within a column reorders (priority claims 10,20,30…); across a column
 // mutates the defining claim — Done sets outcome=done, Open sets committed=true,
@@ -39,7 +39,7 @@
   }
 
   // Retract a single claim — the inverse of tell. Draft is "uncommitted", so
-  // moving a card back to Draft means dropping its `committed` fact entirely.
+  // moving a card back to Draft means dropping its `committed` claim entirely.
   async function retract(id, pred, obj) {
     try {
       await fetch("/api/retract", {

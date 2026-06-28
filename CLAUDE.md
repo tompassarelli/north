@@ -4,7 +4,7 @@ lodestar is the claim-native life/work app on the **fram** engine. This file is 
 always-loaded surface: load-bearing rules + thin pointers. Detail lives in what it points to.
 
 ## The model in one breath
-- **fram** (`~/code/fram`) = the engine. CNF: every fact is a `(subject predicate object)` triple of interned value-ids (subject/predicate/object share ONE flat content-interned id-space — purer than RDF/Datomic); lifecycle is DERIVED from claims, never a stored status.
+- **fram** (`~/code/fram`) = the engine. CNF: every claim is a `(subject predicate object)` triple of interned value-ids (subject/predicate/object share ONE flat content-interned id-space — purer than RDF/Datomic); lifecycle is DERIVED from claims, never a stored status.
 - **lodestar** = the app: the durable thread/intent ledger served by the canonical coordinator on **:7977** (data `~/code/lodestar-data` → `~/.local/state/lodestar`).
 - **One branch, always `main`** (all repos consolidated 2026-06-23 — no feature branches; a pin is a SHA, never a branch).
 

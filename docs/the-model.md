@@ -43,7 +43,7 @@ the mistake nearly every task system makes. The conflations we refuse:
 | commonly conflated | kept separate here |
 |---|---|
 | a single `status` enum (todo/doing/blocked/done) | **separate axes**: commitment, completion, activity, blocked, schedule (§3) |
-| the fact vs. its interpretation | facts are **stored**; conditions (active/ready/blocked/done) are **derived** queries, never stored labels |
+| the claim vs. its interpretation | claims are **stored**; conditions (active/ready/blocked/done) are **derived** queries, never stored labels |
 | human **intent** vs. machine **mechanism** | `driver` (an actor is pushing a thread) is *not* a `lease` (a machine holds exclusive access). Different predicates, different node kinds (§4) |
 | durable intent vs. ephemeral bookkeeping | threads are durable; leases/heartbeats are a TTL'd **tier** (§4) — never permanently written into the intent log |
 | loose grouping vs. hard dependency | `relates_to` (association) is *not* `depends_on` (execution block). Never merged |
@@ -74,11 +74,11 @@ Same graph; the shape tells you what you're looking at.
 
 ## 3. The thread shape — orthogonal axes, derived conditions
 
-A thread carries several **independent** facts. None is a status; each is its own
+A thread carries several **independent** claims. None is a status; each is its own
 queryable axis. A thread can be committed *and* blocked *and* scheduled-for-tomorrow
 at once, and each is true separately.
 
-| axis | the fact (stored) | the condition (derived) |
+| axis | the claim (stored) | the condition (derived) |
 |---|---|---|
 | **commitment** | `committed` (date) / `abandoned` (reason) | desired = committed ∧ ¬abandoned; canceled = abandoned |
 | **completion** | `outcome` (what came of it) | done = outcome present |
@@ -194,7 +194,7 @@ needs-review).
   billable/client owner). Today it's 98.8% the constant `personal`; it earns its
   function only on the ~5 exceptions.
 - `source` → keep `{tom, ai, bug}` (`ai` triggers extra scrutiny — a real function);
-  drop the `migrated` value (it's history, not a fact about the thread) and the 4
+  drop the `migrated` value (it's history, not a claim about the thread) and the 4
   phantom unused enum members.
 
 **Drop (no function):** `created_by` (the mechanical author is always the AI and is

@@ -45,7 +45,7 @@
     (if (ref? r) (s/link! ctx subj p (ent-for! r) tx) (s/assert! ctx subj p r tx))))
 
 ;; --- the lodestar lifecycle, AS RULES (lifecycle DERIVED from the explicit
-;;     committed/outcome/abandoned facts — never a stored heuristic) -----------
+;;     committed/outcome/abandoned claims — never a stored heuristic) -----------
 (def out-p (c/value-id ctx "outcome"))
 (def ab-p  (c/value-id ctx "abandoned"))
 (def tit-p (c/value-id ctx "title"))

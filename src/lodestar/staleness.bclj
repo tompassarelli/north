@@ -7,9 +7,9 @@
      - thread-ref edge relates_to/part_of/clarifies/amends
                                     input = the target's resolution; stale when
                                     the target is terminal (done/abandoned).
-     - estimate_hours               input = the thread's scope facts
+     - estimate_hours               input = the thread's scope claims
                                     (depends_on/part_of/body); stale when a scope
-                                    fact was (re)asserted at a tx LATER than the
+                                    claim was (re)asserted at a tx LATER than the
                                     estimate's own tx.
    History (committed/outcome/abandoned/proposed_by/created_at) never goes stale;
    derived views (ready/blocked/active) recompute and so can't go stale either.")

@@ -64,7 +64,7 @@ defmodule LodestarWeb.ApiController do
     json(conn, rows)
   end
 
-  # ── claim writes (backend owns OCC/versioning; the browser just states facts) ──
+  # ── claim writes (backend owns OCC/versioning; the browser just states claims) ──
 
   # Raw substrate op: assert a claim (te p r) on a graph.
   def assert(conn, %{"graph" => g, "te" => te, "p" => p, "r" => r}) do
@@ -75,7 +75,7 @@ defmodule LodestarWeb.ApiController do
     write_resp(conn, Lodestar.Fram.retract!(Lodestar.Fram.port_for(g), te, p, r))
   end
 
-  # Higher-level claim-native verb (lodestar `tell`): one fact about an entity.
+  # Higher-level claim-native verb (lodestar `tell`): one claim about an entity.
   # Resolve the subject (id OR handle) to its canonical id; resolve the object too
   # when it's a thread ref (`@…`) so `tell @perf depends_on @other-handle` works.
   # Literal objects (estimate_hours 4, do_on …, outcome …) pass through untouched.

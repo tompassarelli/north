@@ -23,15 +23,15 @@
 (def cheatsheet
   (str
    "Lodestar is a claim-native substrate for coordinating work and life. A "
-   "\"thread\" is a unit of work or thought; under the hood every fact is a claim "
+   "\"thread\" is a unit of work or thought; under the hood every claim is a "
    "triple (subject predicate object), and a thread is any id that has a `title`. "
-   "Lifecycle is DERIVED from facts, never a stored status: committed (accepted), "
+   "Lifecycle is DERIVED from claims, never a stored status: committed (accepted), "
    "outcome (done), abandoned (canceled), driver (active now), depends_on (blocked).\n\n"
    "Refs to other threads are written as @<id> (e.g. depends_on @2026-06-16-101500); "
    "everything else is a literal. ids look like 2026-06-16-101500.\n\n"
    "How to work with it:\n"
    "- capture: turn a thought/task into a thread.\n"
-   "- tell / untell: add or retract a single fact about a thread "
+   "- tell / untell: add or retract a single claim about a thread "
    "(e.g. tell <id> depends_on <other-id>, tell <id> estimate_hours 4, "
    "tell <id> do_on 2026-06-20, tell <id> outcome shipped).\n"
    "- ready / next / plate / blocked / agenda / leverage: see what to work on.\n"
@@ -48,7 +48,7 @@
    "project, lead with active work. The user owns the map — to change a glyph: "
    "tell @ui emoji_<condition> \"<glyph>\" (conditions: active/ready/blocked/draft).\n\n"
    "Prefer capture for new work and tell/untell for changes; the system serializes "
-   "and rule-checks every write, so just state facts and let it enforce integrity.\n\n"
+   "and rule-checks every write, so just state claims and let it enforce integrity.\n\n"
    "DRIVING AGENTS (multi-agent work): use `dispatch` to spawn an agent for a thread — "
    "it reads thread claims, derives posture (unplanned/atomic/composite), and dispatches via "
    "Claude Agent SDK. For ad-hoc tasks without a thread, use `spawn`. The canonical flow is: "
@@ -83,13 +83,13 @@
                                          :owner {:type "string" :description "defaults to personal"}}
              :required ["title"]}
     :argv (fn [a] ["capture" (get a "title") (get a "owner" "personal")])}
-   {:name "tell"         :desc "Add or replace one fact about a thread. For thread refs (depends_on/part_of/relates_to) pass the bare target id; the engine adds the @."
+   {:name "tell"         :desc "Add or replace one claim about a thread. For thread refs (depends_on/part_of/relates_to) pass the bare target id; the engine adds the @."
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}
              :required ["id" "predicate" "value"]}
     :argv (fn [a] ["tell" (get a "id") (get a "predicate") (get a "value")])}
-   {:name "untell"       :desc "Retract one fact about a thread."
+   {:name "untell"       :desc "Retract one claim about a thread."
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}

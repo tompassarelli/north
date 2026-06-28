@@ -70,7 +70,7 @@
       try { return await fetch('/graph?port=' + port).then(r => r.json()); }
       catch (_) { return { nodes: [], edges: [] }; }
     }
-    // Lifecycle derived from facts (mirrors board.js deriveCol), not a stored status.
+    // Lifecycle derived from claims (mirrors board.js deriveCol), not a stored status.
     function deriveCol(t, byFrom, tmap) {
       const a = t.attrs || {};
       const es = byFrom[t.id] || [];

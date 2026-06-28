@@ -10,7 +10,7 @@
 >   are gone — Clockify is just a sync target now).
 > - **Thread files are CLAIM TRIPLES, not YAML.** `@<id>` subject + `predicate
 >   object` lines + `---` + prose body. Refs are `@id`; literals are EDN.
-> - **No `state` enum.** Lifecycle is *derived* from facts: `committed`,
+> - **No `state` enum.** Lifecycle is *derived* from claims: `committed`,
 >   `outcome` (done), `abandoned` (canceled, reason inline), `driver` (active),
 >   `depends_on` (blocked). A thread = any id with a `title`.
 > - **No `tags`.** Relatedness is `relates_to @<thread>` (former tags are now
@@ -192,7 +192,7 @@ readers do.
 
 **There is no `state` enum.** `draft`/`ready`/`active`/`done`/`canceled` are
 *not* values you write anywhere. A thread's condition is a **query over its
-facts** along orthogonal axes:
+claims** along orthogonal axes:
 
 | axis                     | how it's derived                                                     |
 |--------------------------|---------------------------------------------------------------------|
@@ -213,7 +213,7 @@ The derived conditions you'll actually use (all `lodestar` projections):
 - **abandoned** = `abandoned` present
 - **desired** = committed ∧ not abandoned
 
-So lifecycle is moved by **adding facts**, not by editing a status field:
+So lifecycle is moved by **adding claims**, not by editing a status field:
 
 - Capturing creates a `committed` thread (accepted, in-play) by default.
 - To pick it up, add a `driver` → it's active. To set it down, drop the driver
@@ -343,7 +343,7 @@ Loose reasoning, links, caveats.
 
 **`## Log` is the most important section.** It's where decisions, pickups,
 hand-offs, and reviews accumulate as dated, append-only entries. Lifecycle is now
-derived from facts, but the *narrative* of why a fact changed still belongs here.
+derived from claims, but the *narrative* of why a claim changed still belongs here.
 Don't invent an event database; the Log is it.
 
 ### Outputs section
@@ -483,8 +483,8 @@ for the old per-state lists: it buckets threads by *derived* condition.
 
 ```sh
 lodestar capture "<title>" [owner]              # mint a new thread (claim-first)
-lodestar tell   <id> <pred> <value>             # add/replace a fact, via the coordinator
-lodestar untell <id> <pred> <value>             # retract a fact, via the coordinator
+lodestar tell   <id> <pred> <value>             # add/replace a claim, via the coordinator
+lodestar untell <id> <pred> <value>             # retract a claim, via the coordinator
 lodestar merge  <from> <to>                     # fold one node into another
 lodestar import                                 # fold file edits into the claim log
 lodestar export <out-dir>                       # regenerate files from the log
@@ -567,7 +567,7 @@ If you are an AI (Claude or otherwise) editing this directory:
    `capture`/`merge`; people with Tom's sign-off).
 9. **Do not nest by directory.** All threads live flat here; structure lives in
    claims (`part_of`/`relates_to`).
-10. **Preserve the body verbatim** when changing facts. Facts go through `tell`;
+10. **Preserve the body verbatim** when changing claims. Claims go through `tell`;
     leave the prose alone unless you mean to edit it.
 
 ---

@@ -15,7 +15,7 @@ The flip made the claim graph canonical and the `.md` files a projection. But th
 projection — and parts of the model — still carry **pre-claim assumptions**:
 
 - **YAML frontmatter** — a *denormalized* record that reshapes atomic claims into
-  typed fields + lists (a second, fragile serialization of facts the log already holds).
+  typed fields + lists (a second, fragile serialization of claims the log already holds).
 - **Entity types smuggled into string prefixes** (`thread:`/`person:`/`tag:`/`owner:`/`repo:`)
   — type as a string convention instead of structure.
 - **A flat `state` enum** that crushes several *orthogonal* axes onto one line.
@@ -142,7 +142,7 @@ title-first/YAML-emitting capture is replaced.
   validator / display in `los-bb/src/los/{main,thread}.bclj` must learn the
   triple format. **This breaks `los` unless done in lockstep.**
 - **Corpus** — all **173** live threads + **9** bundled examples: id reformat +
-  tags→relates_to (+ mint topic threads) + state→lifecycle facts + YAML→triples +
+  tags→relates_to (+ mint topic threads) + state→lifecycle claims + YAML→triples +
   prefix-strip/`@`-refs. One coordinated rewrite.
 - **Docs** — `docs/operating-manual.md` (the spec) rewritten for the new model.
 
@@ -166,7 +166,7 @@ fixtures as the proof; round-trip must be claim-identical and projections sane.
 **Stage 2 — Migration script** (old corpus → new). One transform: id reformat
 (+ rewrite every `part_of`/`depends_on`/`relates_to` cross-ref), tags→relates_to
 (auto-mint a topic thread per distinct tag; `merge` the obvious ones into existing
-threads), state→lifecycle facts (`ready/active`→`committed`; `active`→ leave a
+threads), state→lifecycle claims (`ready/active`→`committed`; `active`→ leave a
 driver; `done`→`outcome`; `canceled`→`abandoned`+reason; `draft`→ no committed),
 prefix-strip → `@`-refs, YAML→triples. **Dry-run on a copy**; diff; validate.
 
