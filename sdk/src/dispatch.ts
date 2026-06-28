@@ -4,6 +4,7 @@ import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, DEFAULT_SYSTEM_PROMPT, type Effort } from "./harness";
 import { charge, tokensOf } from "./budget";
+import { recordRun } from "./telemetry";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -81,6 +82,8 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
   }
 
   await charge(tokensOf(resultMsg)); // bill this run's tokens to the shared budget (atomic :bump)
+  recordRun({ thread: threadId, agent: agentId, tokens: tokensOf(resultMsg),
+              durationMs: resultMsg?.duration_ms ?? 0, posture: postureLabel, outcome: "ran" });
   console.log(`\n[dispatch] @${threadId} complete`);
   return { threadId, posture: postureLabel, result };
 }
