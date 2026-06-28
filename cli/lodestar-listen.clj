@@ -44,13 +44,18 @@
 (def sdk (or (System/getenv "LODESTAR_SDK") (str (System/getenv "HOME") "/code/lodestar/sdk")))
 ;; EXECUTE a command envelope: REUSE dispatch.ts/spawn.ts as the executor. Phase 1 wires
 ;; :spawn + :dispatch (the keystone); :tell/:claim are Phase 2/3.
-(defn react! [port op args]
+;; `self` = the reactor's handle (its uuid). Passed as AGENT_ID into spawned/dispatched
+;; agents so any command_peer they emit is attributed to the real handle (not a generated
+;; sdk-* id) — required for multi-hop routing/acks (per nixos-config-1's P2 harness).
+(defn react! [port self op args]
   (case op
     :spawn    (do (println (str "   ⚙ spawn: " (pr-str (:prompt args))))
-                  (proc/shell {:dir sdk :continue true :extra-env (cond-> {} (:model args) (assoc "AGENT_MODEL" (str (:model args))))}
+                  (proc/shell {:dir sdk :continue true
+                               :extra-env (cond-> {"AGENT_ID" self} (:model args) (assoc "AGENT_MODEL" (str (:model args))))}
                               "bun" "src/spawn.ts" (str (:prompt args))))
     :dispatch (do (println (str "   ⚙ dispatch thread " (:thread args)))
-                  (proc/shell {:dir sdk :continue true} "bun" "src/dispatch.ts" (str (:thread args))))
+                  (proc/shell {:dir sdk :continue true :extra-env {"AGENT_ID" self}}
+                              "bun" "src/dispatch.ts" (str (:thread args))))
     ;; Phase 3: atomic work-claim via the exclusive-lease (mutual exclusion in the coordinator).
     :claim    (let [h (or (:holder args) "reactor")
                     r (send-op port {:op :acquire-lease :holder h :res (str "@lease:" (:thread args))
@@ -102,7 +107,7 @@
                           ;; REACTOR (--react): a command envelope -> EXECUTE + ack. The closed loop.
                           (do (println (format "⚙  REACT %s  op=%s args=%s  (from %s)"
                                                l (:op env) (pr-str (:args env)) (rf port l "from"))) (flush)
-                              (react! port (:op env) (:args env))
+                              (react! port uuid (:op env) (:args env))
                               (ack! port uuid l)
                               (println (str "   ↳ executed + acked_by " uuid)) (flush))
                           ;; LISTENER: print (flag a malformed command body if present)
