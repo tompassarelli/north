@@ -44,14 +44,21 @@
 (def sdk (or (System/getenv "LODESTAR_SDK") (str (System/getenv "HOME") "/code/lodestar/sdk")))
 ;; EXECUTE a command envelope: REUSE dispatch.ts/spawn.ts as the executor. Phase 1 wires
 ;; :spawn + :dispatch (the keystone); :tell/:claim are Phase 2/3.
-(defn react! [op args]
+(defn react! [port op args]
   (case op
     :spawn    (do (println (str "   ⚙ spawn: " (pr-str (:prompt args))))
                   (proc/shell {:dir sdk :continue true :extra-env (cond-> {} (:model args) (assoc "AGENT_MODEL" (str (:model args))))}
                               "bun" "src/spawn.ts" (str (:prompt args))))
     :dispatch (do (println (str "   ⚙ dispatch thread " (:thread args)))
                   (proc/shell {:dir sdk :continue true} "bun" "src/dispatch.ts" (str (:thread args))))
-    (println (str "   ⚠ op " op " not yet wired in the reactor (Phase 2/3)"))))
+    ;; Phase 3: atomic work-claim via the exclusive-lease (mutual exclusion in the coordinator).
+    :claim    (let [h (or (:holder args) "reactor")
+                    r (send-op port {:op :acquire-lease :holder h :res (str "@lease:" (:thread args))
+                                     :ttl-ms (or (:ttl-ms args) 600000)})]
+                (if (:reject r)
+                  (println (str "   ⚠ claim DENIED " (:thread args) " — held by " (:holder r)))
+                  (println (str "   ✓ claimed " (:thread args) " by " h " (epoch " (:epoch r) ")"))))
+    (println (str "   ⚠ op " op " not yet wired in the reactor (e.g. :tell -> Phase 2)"))))
 
 (let [[ps uuid & flags] *command-line-args*
       port    (Integer/parseInt ps)
@@ -95,7 +102,7 @@
                           ;; REACTOR (--react): a command envelope -> EXECUTE + ack. The closed loop.
                           (do (println (format "⚙  REACT %s  op=%s args=%s  (from %s)"
                                                l (:op env) (pr-str (:args env)) (rf port l "from"))) (flush)
-                              (react! (:op env) (:args env))
+                              (react! port (:op env) (:args env))
                               (ack! port uuid l)
                               (println (str "   ↳ executed + acked_by " uuid)) (flush))
                           ;; LISTENER: print (flag a malformed command body if present)
