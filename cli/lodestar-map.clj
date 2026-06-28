@@ -29,20 +29,13 @@
 ;; the validator's own CLI dormant (main-guard).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
 
-(defn send-op [port op]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-      (.write w (.getBytes (str (pr-str op) "\n"))) (.flush w)
-      (edn/read-string (.readLine r)))))
-
-(defn assert! [port te p r]                 ; OCC at current :version; retry on reject
-  (loop [tries 4]
-    (let [v (:version (send-op port {:op :version}))
-          res (send-op port {:op :assert :te te :p p :r (str r) :base v})]
-      (if (and (:reject res) (pos? tries)) (recur (dec tries)) res))))
-
-(defn one  [port te p] (:value  (send-op port {:op :resolved :te te :p p})))
-(defn many [port te p] (:values (send-op port {:op :resolved :te te :p p})))
+;; shared coord substrate (Foundation Part B): wire helpers live once in cli/coord.clj
+;; (one/many = the single/multi resolved variants — semantics unchanged).
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def send-op lodestar.coord/send-op)
+(def assert! lodestar.coord/assert!)
+(def one     lodestar.coord/resolved)
+(def many    lodestar.coord/many)
 
 (defn q [port query] (:ok (send-op port {:op :query :query query})))
 

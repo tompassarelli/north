@@ -14,14 +14,12 @@
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[babashka.process :as proc])
 
-(defn send-op [port op]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-      (.write w (.getBytes (str (pr-str op) "\n"))) (.flush w)
-      (edn/read-string (.readLine r)))))
-
-(defn rf    [port te p] (:value  (send-op port {:op :resolved :te te :p p})))
-(defn rmany [port te p] (:values (send-op port {:op :resolved :te te :p p})))
+;; shared coord substrate (Foundation Part B): wire helpers live once in cli/coord.clj
+;; (rf/rmany = the single/multi resolved variants — semantics unchanged).
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def send-op lodestar.coord/send-op)
+(def rf      lodestar.coord/resolved)
+(def rmany   lodestar.coord/many)
 (defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id]

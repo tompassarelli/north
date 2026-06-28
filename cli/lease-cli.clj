@@ -10,13 +10,9 @@
 ;;   bb lease-cli.clj <port> status
 (require '[clojure.edn :as edn] '[clojure.java.io :as io])
 
-(defn send-op [port op]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s)
-          r (io/reader (.getInputStream s))]
-      (.write w (.getBytes (str (pr-str op) "\n")))
-      (.flush w)
-      (edn/read-string (.readLine r)))))
+;; shared coord substrate (Foundation Part B): send-op lives once in cli/coord.clj.
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def send-op lodestar.coord/send-op)
 
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)

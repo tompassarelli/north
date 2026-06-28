@@ -21,25 +21,13 @@
 (def TTL 600000)          ; 10min lease; renew every ~3min
 (def LEASE-PRED "lease")
 
-(defn send-op [port op]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-      (.write w (.getBytes (str (pr-str op) "\n"))) (.flush w)
-      (edn/read-string (.readLine r)))))
-
-(defn assert! [port te p r]                 ; OCC: assert at current :version; retry on reject
-  (loop [tries 4]
-    (let [v (:version (send-op port {:op :version}))
-          res (send-op port {:op :assert :te te :p p :r (str r) :base v})]
-      (if (and (:reject res) (pos? tries)) (recur (dec tries)) res))))
-
-(defn retract! [port te p r]
-  (loop [tries 4]
-    (let [v (:version (send-op port {:op :version}))
-          res (send-op port {:op :retract :te te :p p :r (str r) :base v})]
-      (if (and (:reject res) (pos? tries)) (recur (dec tries)) res))))
-
-(defn resolved [port te p] (:value (send-op port {:op :resolved :te te :p p})))
+;; shared coord substrate (Foundation Part B): the wire helpers live once in
+;; cli/coord.clj; rebind the local names this CLI uses (semantics unchanged).
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def send-op  lodestar.coord/send-op)
+(def assert!  lodestar.coord/assert!)
+(def retract! lodestar.coord/retract!)
+(def resolved lodestar.coord/resolved)
 
 (defn decode-lease [v]
   (when (string? v)

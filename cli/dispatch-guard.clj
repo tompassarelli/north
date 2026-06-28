@@ -6,13 +6,10 @@
 ;;   bb dispatch-guard.clj <port> <role>    — resolves role to its current holder
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
-(defn send-op [port op]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-      (.write w (.getBytes (str (pr-str op) "\n"))) (.flush w)
-      (edn/read-string (.readLine r)))))
-
-(defn resolved [port te p] (:value (send-op port {:op :resolved :te te :p p})))
+;; shared coord substrate (Foundation Part B): send-op/resolved live once in cli/coord.clj.
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def send-op  lodestar.coord/send-op)
+(def resolved lodestar.coord/resolved)
 
 (defn resolve-role [port slug]
   (let [rows (:ok (send-op port {:op :query

@@ -16,26 +16,13 @@
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[clojure.set :as set])
 
-(defn send-op [port op]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-      (.write w (.getBytes (str (pr-str op) "\n"))) (.flush w)
-      (edn/read-string (.readLine r)))))
-
-(defn cur-ver [port] (:version (send-op port {:op :version})))
-
-;; OCC assert with a small retry — 10 agents write concurrently, base goes stale.
-(defn assert! [port te p r]
-  (loop [n 3]
-    (let [res (send-op port {:op :assert :te te :p p :r r :base (cur-ver port)})]
-      (if (and (:reject res) (pos? n)) (recur (dec n)) res))))
-
-(defn retract! [port te p r]
-  (loop [n 3]
-    (let [res (send-op port {:op :retract :te te :p p :r r :base (cur-ver port)})]
-      (if (and (:reject res) (pos? n)) (recur (dec n)) res))))
-
-(defn resolved [port te p] (:value (send-op port {:op :resolved :te te :p p})))
+;; shared coord substrate (Foundation Part B): send-op/assert!/retract!/resolved
+;; live once in cli/coord.clj (OCC assert-with-retry — semantics unchanged).
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def send-op  lodestar.coord/send-op)
+(def assert!  lodestar.coord/assert!)
+(def retract! lodestar.coord/retract!)
+(def resolved lodestar.coord/resolved)
 
 ;; one-column datalog query: bind ?e in `body`, return the column
 (defn q-col [port body]
