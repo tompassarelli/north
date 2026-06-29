@@ -1,8 +1,11 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, type Effort } from "./harness";
-import { tokensOf, costOf } from "./budget";
+import { tokensOf, costOf, remaining } from "./budget";
 import { recordRun } from "./telemetry";
+import { inputChannel } from "./coordination";
+import { makeStruggleState, updateStruggle, checkStruggle, resetStruggle } from "./struggle";
+import { LADDER, tierIndexOf, decideEscalation, escalateInFlight } from "./ladder";
 
 interface SpawnOptions {
   prompt: string;
@@ -12,60 +15,104 @@ interface SpawnOptions {
   tools?: string[];
   systemPrompt?: string;
   maxTurns?: number;
-  budgetUsd?: number; // per-run USD spend cap; stop gracefully when crossed (thread 019f1194-ca57)
+  budgetUsd?: number; // per-run (or per-tier when escalating) USD spend cap (thread 019f1194-ca57)
+  escalate?: boolean; // escalate-not-kill: climb the ladder on struggle instead of stopping
 }
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
-  const agentId =
-    opts.agentId ?? `sdk-${Date.now().toString(36).slice(-8)}`;
+  const agentId = opts.agentId ?? `sdk-${Date.now().toString(36).slice(-8)}`;
   const stream = new StreamWriter(agentId);
+  const escalate = opts.escalate ?? process.env.AGENT_ESCALATE === "1";
+  const tierBudgetUsd = opts.budgetUsd ?? (Number(process.env.AGENT_BUDGET_USD) || Infinity);
 
-  console.log(`[spawn] @agent:${agentId} starting`);
+  // escalate-not-kill (thread 019f1194-ca57): a struggling agent climbs the LADDER
+  // in-flight (setModel on the live streaming-input query) instead of being killed at
+  // a turn cap. Opt-in via opts.escalate / AGENT_ESCALATE; off => behaves as before.
+  let tier = escalate ? tierIndexOf(opts.model, opts.effort) : -1; // -1 = fixed model (legacy)
+  const rung = () => (tier >= 0 ? LADDER[tier] : { model: opts.model, effort: opts.effort });
+  const st = makeStruggleState();
+  const ch = inputChannel(opts.prompt); // streaming-input mode -> unlocks q.setModel()
 
-  let result = "";
-  let resultMsg: any = null;
-  // Spend-budget cap: estimate cost per streamed message; stop gracefully when the
-  // per-run USD cap is crossed — a principled replacement for the blunt maxTurns
-  // guillotine (thread 019f1194-ca57). Opt-in: no cap set => unbounded (old behavior).
-  const budgetUsd = opts.budgetUsd ?? (Number(process.env.AGENT_BUDGET_USD) || Infinity);
-  let runCost = 0;
-  let stoppedForBudget = false;
+  if (escalate && !Number.isFinite(await remaining())) {
+    console.warn(`[spawn] @agent:${agentId} escalation ON but no budget_total — no spend floor; ` +
+      `it stops only at the ladder ceiling. Set: lodestar tell @swarm budget_total <usd>`);
+  }
+  console.log(`[spawn] @agent:${agentId} starting${escalate ? ` (escalate @ tier ${tier} ${rung().model}/${rung().effort})` : ""}`);
+
+  let result = "", resultMsg: any = null, outcome = "ran";
+  let runCost = 0, tierStartCost = 0;
+  const escalations: Array<{ from: string; to: string; reason: string; atCost: number }> = [];
+  const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
 
   const q = query({
-    prompt: opts.prompt,
+    prompt: ch.stream(),
     options: harnessOptions({
       self: agentId,
       extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
-      model: opts.model,
-      effort: opts.effort,
-      systemPrompt: opts.systemPrompt,
-      maxTurns: opts.maxTurns,
+      model: rung().model, effort: rung().effort,
+      systemPrompt: opts.systemPrompt, maxTurns: opts.maxTurns,
     }),
   });
 
   for await (const message of q) {
     const msg = message as any;
     stream.writeSDKMessage(msg);
+    runCost += costOf(rung().model, msg.message?.usage ?? msg.usage); // price at the CURRENT tier
 
-    runCost += costOf(opts.model, msg.message?.usage ?? msg.usage);
-    if ("result" in msg) {
-      result = msg.result ?? "";
-      resultMsg = msg;
-    }
-    if (runCost >= budgetUsd) {
-      stoppedForBudget = true;
-      console.log(`[spawn] @agent:${agentId} hit budget $${budgetUsd} (est $${runCost.toFixed(3)}) — stopping`);
+    if (escalate) {
+      updateStruggle(msg, st);
+      let trigger: string | null = checkStruggle(st);
+      if (!trigger && runCost - tierStartCost >= tierBudgetUsd) trigger = "budget_exceeded";
+      if (trigger) {
+        const d = await decideEscalation(tier);
+        if (d.kind === "escalate") {
+          const from = `${rung().model}/${rung().effort}`;
+          tier = d.toTier;
+          await escalateInFlight(q, ch, LADDER[tier], trigger);
+          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: trigger, atCost: runCost });
+          resetStruggle(st);
+          tierStartCost = runCost;
+          continue; // same loop, smarter tier
+        }
+        end(d.kind); // budget_exhausted | struggle_ceiling
+        try { await (q as any).interrupt?.(); } catch {}
+        break;
+      }
+    } else if (runCost >= tierBudgetUsd) { // legacy fixed-model spend cap (df473b8)
+      end("budget_exceeded");
+      console.log(`[spawn] @agent:${agentId} hit budget $${tierBudgetUsd} (est $${runCost.toFixed(3)}) — stopping`);
       try { await (q as any).interrupt?.(); } catch {}
       break;
     }
+
+    if ("result" in msg) {
+      result = msg.result ?? "";
+      resultMsg = msg;
+      if (escalate && !result.trim()) { // terminal empty result -> escalate rather than give up
+        const d = await decideEscalation(tier);
+        if (d.kind === "escalate") {
+          const from = `${rung().model}/${rung().effort}`;
+          tier = d.toTier;
+          await escalateInFlight(q, ch, LADDER[tier], "empty_result");
+          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: "empty_result", atCost: runCost });
+          resetStruggle(st);
+          tierStartCost = runCost;
+          continue;
+        }
+      }
+      if (ch.pending() === 0) { end("ran"); break; } // MUST end the channel or the query hangs
+    }
   }
 
-  // Spend is no longer charged to a counter here; it is summed from the @run
-  // cost_usd claim this run records below (remaining() folds Σ over @run costs).
-  recordRun({ thread: "(ad-hoc)", agent: agentId, tokens: tokensOf(resultMsg),
-              durationMs: resultMsg?.duration_ms ?? 0, posture: "spawn",
-              outcome: stoppedForBudget ? "budget_exceeded" : "ran" });
-  console.log(`[spawn] @agent:${agentId} complete`);
+  recordRun({
+    thread: "(ad-hoc)", agent: agentId, posture: "spawn",
+    tokens: tokensOf(resultMsg), durationMs: resultMsg?.duration_ms ?? 0, outcome,
+    costUsd: resultMsg?.total_cost_usd ?? runCost, numTurns: resultMsg?.num_turns ?? 0,
+    errorCount: st.totalErrors, escalationTier: tier,
+    escalations: escalations.length ? escalations : undefined,
+  });
+  console.log(`[spawn] @agent:${agentId} complete (${outcome}` +
+    `${escalations.length ? `, ${escalations.length} escalation(s) -> ${rung().model}/${rung().effort}` : ""})`);
   return result;
 }
 

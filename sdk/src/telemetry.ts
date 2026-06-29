@@ -12,7 +12,15 @@ export interface RunRecord {
   tokens: number; // total tokens this run (from tokensOf)
   durationMs: number; // SDK result duration_ms
   posture: string; // unplanned | atomic | composite | spawn
-  outcome: string; // "ran" | "error"
+  outcome: string; // "ran" | "error" | "budget_exceeded" | "budget_exhausted" | "struggle_ceiling"
+  // escalate-not-kill (thread 019f1194-ca57) — present only on escalation-enabled runs.
+  // Option A yields ONE @run row per spawn with an internal escalation chain, NOT one
+  // row per tier (lodestar-reconcile.clj queries adapt in lockstep — follow-up).
+  costUsd?: number; // authoritative SDK total_cost_usd (falls back to the in-loop estimate)
+  numTurns?: number; // SDKResultMessage.num_turns (was dropped before)
+  errorCount?: number; // tool_result errors this run
+  escalationTier?: number; // final ladder tier (omit / <0 = escalation off)
+  escalations?: Array<{ from: string; to: string; reason: string; atCost: number }>;
 }
 
 export function recordRun(rec: RunRecord): void {
@@ -29,6 +37,16 @@ export function recordRun(rec: RunRecord): void {
     ["outcome", rec.outcome],
     ["at", new Date().toISOString()],
   ];
+  if (rec.costUsd != null) claims.push(["cost_usd", rec.costUsd.toFixed(4)]);
+  if (rec.numTurns != null) claims.push(["num_turns", String(rec.numTurns)]);
+  if (rec.errorCount != null) claims.push(["error_count", String(rec.errorCount)]);
+  if (rec.escalationTier != null && rec.escalationTier >= 0)
+    claims.push(["escalation_tier", String(rec.escalationTier)]);
+  if (rec.escalations && rec.escalations.length) {
+    claims.push(["escalation_count", String(rec.escalations.length)]);
+    claims.push(["escalation_path", rec.escalations.map((e) => `${e.from}>${e.to}`).join(" ")]);
+    claims.push(["escalation_reasons", rec.escalations.map((e) => e.reason).join(",")]);
+  }
   for (const [p, v] of claims) {
     // async + ignored: never let telemetry add latency to, or break, the run.
     try {
