@@ -123,7 +123,7 @@
    ["worker"         "multi"  "literal" "worker handles spawned under a batch"]
    ;; --- swarm budget (lodestar-listen) ---
    ["budget_total" "single" "literal" "the swarm token/cost budget ceiling"]
-   ["budget_spent" "single" "literal" "tokens/cost charged against the swarm budget"]
+   ;; (budget_spent removed — budget is now derived: Σ(@run cost_usd), no mutated cell)
    ;; --- run telemetry (presence-cli runmeta / lodestar-reconcile) ---
    ["cost_usd"       "single" "literal" "real USD cost of a run"]
    ["ended_at"       "single" "literal" "instant a run ended"]
