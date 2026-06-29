@@ -1,16 +1,18 @@
-;; msg-cli.clj — messaging-as-claims (Lodestar gate-2, primitive 3). Sibling to presence-cli/lease-cli.
-;; A message = @msg:<id> claims; ack = a claim (acked_by); inbox/done = DERIVED queries. The coordinator
-;; STORES + (with scoped-subscribe) NOTIFIES; it never ROUTES. Replaces mbox/ + ack-by-move-to-done/.
-;; Wire (daemon): :assert / :version / :query / :resolved. `watch` needs §2 scoped-subscribe (poll until then).
+;; msg-cli.clj — messaging-as-claims (Lodestar gate-2, primitive 3) + command-as-claims.
+;; A message = @msg:<id> claims (human mail); a COMMAND = @cmd:<id> claims (op/target/args
+;; each a separate claim, NEVER an opaque {:op :args} body blob). ack = a claim (acked_by);
+;; inbox/done/pending = DERIVED queries. The coordinator STORES + (with scoped-subscribe)
+;; NOTIFIES; it never ROUTES. Wire (daemon): :assert / :version / :query / :resolved.
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
 ;; Schema validation (rec4) — load the sibling validator so `send` can attach a JSON schema and the
-;; new `validate` verb can check a payload against the schema a message carries. Sibling-relative so it
+;; `validate` verb can check a payload against the schema a message carries. Sibling-relative so it
 ;; resolves no matter the cwd; the validator's own CLI stays dormant when load-file'd (main-guard).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
 
-;; shared coord substrate: cardinality-typed write verbs (move-C) live once in
-;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
+;; shared coord substrate: cardinality-typed write verbs + the command-as-claims
+;; pending rule (move-C) live once in cli/coord.clj. append! = MULTI coexist; put! =
+;; SINGLE last-writer-wins; pending-cmds = the single Datalog rule the reactor shares.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def send-op lodestar.coord/send-op)
 (def append! lodestar.coord/append!)
@@ -26,47 +28,66 @@
 
 (defn for-me? [to me] (or (= to me) (= to "*")))   ; group ("beagle-*") expansion = a later demand-driven add
 
-;; --- Phase 0: structured command envelope ----------------------------------
-;; A message body MAY be an EDN command the reactor (Phase 1) dispatches on:
-;;   {:op :dispatch|:spawn|:tell|:claim  :args {...}}
-;; Plain-string bodies stay valid (human mail) — only EDN maps starting `{` with a
-;; known :op are commands. This is the one machine-dispatchable contract both sides agree on.
-(def known-ops #{:dispatch :spawn :tell :claim})
-(defn parse-envelope
-  "Parse a message body as a command envelope. -> {:op kw :args map} on a valid
-   command, {:error msg} on a malformed command, nil for a plain (non-command) body."
-  [body]
-  (when (and body (str/starts-with? (str/triml (str body)) "{"))
-    (let [m (try (edn/read-string body) (catch Exception _ ::bad))]
-      (cond
-        (= m ::bad)               {:error "body looks like a command but is not valid EDN"}
-        (not (map? m))            {:error "command envelope must be an EDN map"}
-        (not (known-ops (:op m))) {:error (str "unknown :op " (pr-str (:op m)) " (known: " (str/join " " (sort (map name known-ops))) ")")}
-        (not (map? (:args m)))    {:error ":args must be a map"}
-        :else                     {:op (:op m) :args (:args m)}))))
+(defn fresh-id [from]   ; yyyyMMdd-HHmmss-<from>-<4hex>: ts prefix sorts, hex suffix dodges same-second aliasing
+  (str (.format (java.time.LocalDateTime/now)
+                (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
+       "-" from "-" (format "%04x" (rand-int 0x10000))))
+
+;; --- command-as-claims -------------------------------------------------------
+;; A command is NOT an opaque {:op :args} EDN blob in one `body` cell (the old cargo-cult,
+;; whose parse-envelope parser was duplicated across this file + lodestar-listen.clj "MUST
+;; stay in sync"). It is CLAIMS on @cmd:<id>: `op` + `target` (routing handle) + one claim
+;; per arg, so the graph can query/supersede/attach-provenance to each, and the reactor
+;; drives off claim-patterns (a Datalog rule), never a string parse.
+;;
+;; CONTENT-ADDRESSED id = SHA-256(op, args, target) → a re-send is the SAME @cmd:<id>, so
+;; re-asserting identical claims is an engine no-op (commit! idempotency): exactly-once
+;; intake with zero dedup bookkeeping.
+;;
+;; known-ops = a CLOSED VOCAB held as claims (@cmd:vocab known_op …), validated at intake —
+;; single-source + queryable, not a #{…} set duplicated in two files.
+(def vocab-subj  "@cmd:vocab")
+(def default-ops ["dispatch" "spawn" "tell" "claim"])
+(defn known-ops [port] (set (many port vocab-subj "known_op")))
+(defn ensure-vocab! [port]   ; idempotent seed: append! is a no-op once the vocab claim exists
+  (when-not (seq (known-ops port))
+    (doseq [op default-ops] (append! port vocab-subj "known_op" op)))
+  (known-ops port))
+
+(defn content-id
+  "Stable @cmd id = first 16 hex of SHA-256(op | canonical-args | target). A re-send of the
+   same (op,args,target) hashes identically → idempotent exactly-once intake."
+  [op args target]
+  (let [canon (str op " " (pr-str (into (sorted-map) args)) " " target)
+        bs    (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes canon "UTF-8"))]
+    (apply str (map #(format "%02x" %) (take 8 bs)))))
+
+(defn arg-pred [k] (str/replace (name k) "-" "_"))   ; :ttl-ms -> "ttl_ms"
+
+(defn parse-args
+  "Read the <args-edn> map. The SDK's command_peer emits ref values (@id, @lease:x) RAW —
+   valid lodestar refs but not EDN (edn rejects a leading @), so quote bare @-tokens first;
+   the @-string value is then stored as a claim and the engine's ref-shape makes it a link."
+  [s]
+  (try (edn/read-string (str/replace (str s) #"@[^\s,}\]]+" #(str \" % \")))
+       (catch Exception _ ::bad)))
 
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
   (case verb
-    "send"        ; <from> <to> "<subject>" "<body>" ["<json-schema>"]
+    "send"        ; <from> <to> "<subject>" "<body>" ["<json-schema>"]  — human mail
     (let [[from to subj body schema] args
-          ;; id = yyyyMMdd-HHmmss-<from>-<4hex>: timestamp prefix sorts; the random suffix makes it
-          ;; collision-resistant (two sends in the same second from the same sender no longer alias to one
-          ;; entity — that aliasing silently MERGES messages, i.e. data loss; the suffix is load-bearing).
-          id (str (.format (java.time.LocalDateTime/now)
-                           (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss")) "-" from
-                  "-" (format "%04x" (rand-int 0x10000)))
-          e (str "@msg:" id)]
+          e (str "@msg:" (fresh-id from))
+          has-schema (and schema (seq (str/trim schema)))]
+      ;; write content claims first, `to` LAST: the listener triggers on `to`, so landing it
+      ;; last means from/subject/body are already visible — no settle race, no sleep.
       (put! port e "from" from)              ; single — all message fields are write-once on a fresh @msg
-      (put! port e "to" to)
       (put! port e "subject" (or subj ""))
       (put! port e "body" (or body ""))
       (put! port e "sent_at" (str (java.time.Instant/now)))
-      ;; rec4: optional JSON schema the recipient's structured reply must satisfy. Absent => no claim,
-      ;; identical to pre-rec4 behavior.
-      (let [has-schema (and schema (seq (str/trim schema)))]
-        (when has-schema (put! port e "schema" schema))
-        (println (str "sent " e " -> " to (when has-schema "  [+schema]")))))
+      (when has-schema (put! port e "schema" schema))  ; rec4 optional reply schema
+      (put! port e "to" to)
+      (println (str "sent " e " -> " to (when has-schema "  [+schema]"))))
 
     "inbox"       ; <me>  — DERIVED: to∈{me,"*"} AND not acked_by me
     (let [[me] args]
@@ -93,34 +114,50 @@
             (doseq [er errors] (println (str "  - " er)))))
       (System/exit (if valid 0 1)))
 
-    "ack"         ; <me> <msg-id>  — replaces mv mbox/<msg> mbox/done/
-    (let [[me id] args, e (str "@msg:" id)]
+    "ack"         ; <me> <msg-id-or-cmd-id>  — works for @msg and @cmd subjects
+    (let [[me id] args, e (if (str/starts-with? (str id) "@") id (str "@msg:" id))]
       (append! port e "acked_by" me)                       ; multi (many ackers)
       (put!    port e "acked_at" (str (java.time.Instant/now))) ; single
       (println (str me " acked " e)))
 
-    "send-cmd"    ; <from> <to> <op> "<args-edn>" — send a structured command envelope as the body
-    (let [[from to op args-edn] args
-          env {:op (keyword op) :args (try (edn/read-string (or args-edn "{}")) (catch Exception _ ::bad))}
-          chk (parse-envelope (pr-str env))]
-      (if (:error chk)
-        (do (println (str "REJECTED: " (:error chk))) (System/exit 2))
-        (let [id (str (.format (java.time.LocalDateTime/now)
-                               (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss")) "-" from
-                      "-" (format "%04x" (rand-int 0x10000)))
-              e (str "@msg:" id)]
-          (put! port e "from" from)              ; single — write-once on a fresh @msg
-          (put! port e "to" to)
-          (put! port e "subject" (str "cmd:" op))
-          (put! port e "body" (pr-str env))
-          (put! port e "sent_at" (str (java.time.Instant/now)))
-          (println (str "sent cmd " e " -> " to "  " (pr-str env))))))
+    "send-cmd"    ; <from> <target> <op> "<args-edn>"  — assert a command as CLAIMS on @cmd:<id>
+    (let [[from target op args-edn] args
+          ops  (ensure-vocab! port)
+          argm (parse-args (or args-edn "{}"))]
+      (cond
+        (not (contains? ops op))
+        (do (println (str "REJECTED: unknown op " (pr-str op) " (known: " (str/join " " (sort ops)) ")")) (System/exit 2))
+        (= argm ::bad)
+        (do (println "REJECTED: <args-edn> is not valid EDN") (System/exit 2))
+        (not (map? argm))
+        (do (println "REJECTED: <args-edn> must be an EDN map") (System/exit 2))
+        :else
+        (let [e (str "@cmd:" (content-id op argm target))]
+          ;; arg claims + provenance + op first; `target` (the routing key the reactor
+          ;; triggers on) LAST → op/args already visible when it lands (no settle race).
+          ;; All write-once (put!): a re-send re-asserts identical claims = idempotent no-op.
+          (doseq [[k v] argm] (put! port e (arg-pred k) (str v)))
+          (put! port e "from" from)
+          (put! port e "op" op)
+          (put! port e "target" target)
+          (println (str "sent cmd " e " op=" op " -> " target "  args=" (pr-str argm))))))
 
-    "parse"       ; "<body>" — show how the reactor (Phase 1) would parse this body (dogfood/validate)
-    (let [[body] args, r (parse-envelope body)]
-      (println (cond (nil? r)   "PLAIN (not a command — handled as human mail)"
-                     (:error r) (str "MALFORMED: " (:error r))
-                     :else      (str "COMMAND op=" (:op r) " args=" (pr-str (:args r)))))
-      (System/exit (if (:error r) 1 0)))
+    "cmd"         ; <cmd-id>  — show ALL claims on a command (it is a queryable subject now)
+    (let [[id] args, e (str "@cmd:" id)
+          rows (:ok (send-op port {:op :query
+                                   :query {:find "pv"
+                                           :rules [{:head {:rel "pv" :args [{:var "p"} {:var "o"}]}
+                                                    :body [{:rel "triple" :args [e {:var "p"} {:var "o"}]}]}]}}))]
+      (if (seq rows)
+        (doseq [[p o] (sort rows)] (println (format "%-12s %s" p o)))
+        (println (str "no claims on " e))))
 
-    (do (println "usage: msg-cli.clj <port> {send|send-cmd|parse|inbox|thread|ack|validate}") (System/exit 2))))
+    "cmds"        ; [target]  — list PENDING commands (no acked_by), optionally scoped to a target
+    (let [rows (sort (or (lodestar.coord/pending-cmds port) []))
+          [tgt] args]
+      (println (format "%-24s %-10s %s" "CMD" "OP" "TARGET"))
+      (doseq [[c op t] rows]
+        (when (or (nil? tgt) (= t tgt))
+          (println (format "%-24s %-10s %s" c op t)))))
+
+    (do (println "usage: msg-cli.clj <port> {send|send-cmd|cmd|cmds|inbox|thread|ack|validate}") (System/exit 2))))

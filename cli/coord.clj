@@ -159,6 +159,30 @@
    never un-fires while completion predicates are irretractable (see roadmap F↔H)."
   [port k project body] (>= (count-distinct port project body) k))
 
+;; ============================================================================
+;; COMMAND-AS-CLAIMS — the pending-command rule (single source).
+;;
+;; Roadmap tier I: a command is NOT an opaque {:op :args} body blob with a
+;; parse-envelope parser duplicated across msg-cli + lodestar-listen. It is CLAIMS
+;; on @cmd:<id> — `op` + `target` (the routing handle) + one claim per arg. PENDING
+;; = has op+target, NO acked_by. This stratified Datalog rule is the forward-chaining
+;; match BOTH the sender's `cmds` listing and the reactor drive off; it lives ONCE
+;; here so the duplication this redesign deletes can never reappear as a copied query.
+(defn pending-cmds
+  "[[cmd op target] …] for every command carrying op+target and NO acked_by. Stratum
+   0 binds `acked`; stratum 1 selects op+target where the command is NOT acked (the
+   negated `acked` var is bound by the positive op literal — the engine's stratified-
+   negation safety rule)."
+  [port]
+  (:ok (send-op port {:op :query
+                      :query {:find "pending"
+                              :strata [[{:head {:rel "acked" :args [{:var "c"}]}
+                                         :body [{:rel "triple" :args [{:var "c"} "acked_by" {:var "a"}]}]}]
+                                       [{:head {:rel "pending" :args [{:var "c"} {:var "op"} {:var "t"}]}
+                                         :body [{:rel "triple" :args [{:var "c"} "op" {:var "op"}]}
+                                                {:rel "triple" :args [{:var "c"} "target" {:var "t"}]}
+                                                {:rel "acked" :args [{:var "c"}] :neg true}]}]]}})))
+
 (defn -main [& args]
   (let [port (Integer/parseInt (or (first args) PORT))]
     (prn (send-op port {:op :version}))))
