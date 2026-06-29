@@ -5,10 +5,10 @@
 ;; NOTIFIES; it never ROUTES. Wire (daemon): :assert / :version / :query / :resolved.
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; Schema validation (rec4) — load the sibling validator so `send` can attach a JSON schema and the
-;; `validate` verb can check a payload against the schema a message carries. Sibling-relative so it
-;; resolves no matter the cwd; the validator's own CLI stays dormant when load-file'd (main-guard).
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
+;; Reply-schema sidecar (the old rec4 JSON-Schema field + `validate` verb + schema-validate.clj)
+;; is GONE (assessment §3.3): it reimplemented a JSON-Schema engine duplicating the coordinator's
+;; own commit-time rule-check (closed-vocab/cardinality/dangling-ref). A reply is now just a CLAIM
+;; — the coordinator's commit rule-check IS the validator; a rejected claim IS the invalid reply.
 
 ;; shared coord substrate: cardinality-typed write verbs + the command-as-claims
 ;; pending rule (move-C) live once in cli/coord.clj. append! = MULTI coexist; put! =
@@ -75,19 +75,17 @@
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
   (case verb
-    "send"        ; <from> <to> "<subject>" "<body>" ["<json-schema>"]  — human mail
-    (let [[from to subj body schema] args
-          e (str "@msg:" (fresh-id from))
-          has-schema (and schema (seq (str/trim schema)))]
+    "send"        ; <from> <to> "<subject>" "<body>"  — human mail
+    (let [[from to subj body] args
+          e (str "@msg:" (fresh-id from))]
       ;; write content claims first, `to` LAST: the listener triggers on `to`, so landing it
       ;; last means from/subject/body are already visible — no settle race, no sleep.
       (put! port e "from" from)              ; single — all message fields are write-once on a fresh @msg
       (put! port e "subject" (or subj ""))
       (put! port e "body" (or body ""))
       (put! port e "sent_at" (str (java.time.Instant/now)))
-      (when has-schema (put! port e "schema" schema))  ; rec4 optional reply schema
       (put! port e "to" to)
-      (println (str "sent " e " -> " to (when has-schema "  [+schema]"))))
+      (println (str "sent " e " -> " to)))
 
     "inbox"       ; <me>  — DERIVED: to∈{me,"*"} AND not acked_by me
     (let [[me] args]
@@ -100,19 +98,7 @@
     (let [[id] args, e (str "@msg:" id)]
       (doseq [p ["from" "to" "subject" "body" "sent_at"]]
         (println (format "%-9s %s" p (or (one port e p) "-"))))
-      (when-let [s (one port e "schema")] (println (format "%-9s %s" "schema" s)))
       (println (str "acked_by: " (str/join ", " (many port e "acked_by")))))
-
-    "validate"    ; <msg-id> <payload-json>  — rec4 receiving-side gate: check a structured reply
-                  ; against the schema this message carries. No schema => accepts (no-constraint).
-    (let [[id payload] args, e (str "@msg:" id)
-          schema (one port e "schema")
-          {:keys [valid errors no-schema]} (lodestar.schema-validate/validate-json payload schema)]
-      (if valid
-        (println (str "VALID" (when no-schema " (message carries no schema)") " — payload accepted"))
-        (do (println (str "INVALID — payload rejected for " e ", retry with a conforming reply:"))
-            (doseq [er errors] (println (str "  - " er)))))
-      (System/exit (if valid 0 1)))
 
     "ack"         ; <me> <msg-id-or-cmd-id>  — works for @msg and @cmd subjects
     (let [[me id] args, e (if (str/starts-with? (str id) "@") id (str "@msg:" id))]
@@ -160,4 +146,4 @@
         (when (or (nil? tgt) (= t tgt))
           (println (format "%-24s %-10s %s" c op t)))))
 
-    (do (println "usage: msg-cli.clj <port> {send|send-cmd|cmd|cmds|inbox|thread|ack|validate}") (System/exit 2))))
+    (do (println "usage: msg-cli.clj <port> {send|send-cmd|cmd|cmds|inbox|thread|ack}") (System/exit 2))))
