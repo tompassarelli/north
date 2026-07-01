@@ -18,7 +18,7 @@
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[cheshire.core :as json] '[clojure.java.shell])
 
-(def TTL 600000)          ; 10min lease; renew every ~3min
+(def TTL 1800000)         ; 30min lease; renewed on every tool call (PostToolUse hook)
 
 ;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
