@@ -41,6 +41,13 @@ case "${1:-}" in
     # tokens) until a peer addresses you, then prints the message and exits:
     # that exit is the interrupt. Read it, act, re-arm. bin/tern-arm = alias.
     exec bb "$TERN/cli/tern-listen.clj" 7977 "${2:?usage: tern listen <agent-id>}" --once "${@:3}" ;;
+  reactor)
+    # Coordinator AUTO-EXPORT sidecar — RUN AS A LONG-LIVED BACKGROUND TASK next to
+    # the daemon. Subscribes to the coordinator commit firehose and re-projects
+    # touched threads (`heal`, debounced) so threads/*.md never lag the log. Rides
+    # the existing :subscribe seam — no daemon change. Inherits FRAM_LOG/FRAM_THREADS.
+    #   tern reactor [port] [debounce-ms]   (defaults: 7977, 400)
+    exec bb "$TERN/cli/tern-reactor.clj" "${2:-7977}" "${@:3}" ;;
   tell|untell)
     # Handles (and @ids) are a TERN concern: fram is handle-blind and re-adds
     # the leading @ to the bare subject it's handed. So resolve the SUBJECT ref to
