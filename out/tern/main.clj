@@ -33,7 +33,8 @@
   (if (some? (k/one-i idx ref "title")) ref (let [bare (short-id ref)
    matches (filterv (fn [te] (let [h (k/one-i idx te "handle")]
   (and (some? h) (= h bare)))) (k/thread-ids-i idx))]
-  (if (empty? matches) ref (reduce (fn [best te] (if (str/blank? best) te (let [bc (let [c (k/one-i idx best "created_at")]
+  (if (empty? matches) (let [pms (if (str/blank? bare) [] (filterv (fn [te] (str/starts-with? (short-id te) bare)) (k/thread-ids-i idx)))]
+  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [best te] (if (str/blank? best) te (let [bc (let [c (k/one-i idx best "created_at")]
   (if (some? c) c ""))
    tc (let [c (k/one-i idx te "created_at")]
   (if (some? c) c ""))]
@@ -127,9 +128,13 @@
   (fram.rt/spit-file path (exp/thread-md (:claims (fold/fold (fram.rt/read-log log))) te))
   (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " claims via coordinator. Next: tern tell " id " <pred> <value>"))) (println (str "capture PARTIAL: only " oks "/" (count claims) " claim(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files."))))))))))
 
+(defn- ^Boolean id-like? [^String bare]
+  (and (not (str/blank? bare)) (str/blank? (str/replace bare #"[0-9a-f-]" "")) (or (str/includes? bare "-") (>= (count bare) 8))))
+
 (defn cmd-resolve [^String log ^String ref]
-  (let [idx (live-idx log)]
-  (println (resolve-ref idx ref))))
+  (let [idx (live-idx log)
+   r (resolve-ref idx ref)]
+  (if (and (= r ref) (id-like? (short-id ref)) (nil? (k/one-i idx (str "@" (short-id ref)) "title"))) (println (str "ERROR unresolved id-like ref " ref " — not a thread id, unique prefix, or handle" " (ambiguous/truncated? `tern show " (short-id ref) "` lists candidates)")) (println r))))
 
 (defn cmd-audit [^String log]
   (let [idx (live-idx log)

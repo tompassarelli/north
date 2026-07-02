@@ -56,8 +56,15 @@ case "${1:-}" in
     # when the full `tell <id> <pred> <value>` shape is present; otherwise pass
     # through untouched so fram's own usage/arg checks are unchanged.
     if [ "$#" -ge 4 ]; then
+      # FAIL-CLOSED: an unresolvable id-like ref (or a dead resolver) aborts the
+      # write — passing the raw ref through would mint a phantom subject under a
+      # truncated id and strand the claims (2026-07-03 incident: 19 orphans).
       canon="$(bb -cp "$TERN/out:$FRAM/out" -m tern.main resolve "$2" 2>/dev/null)"
-      [ -n "$canon" ] && set -- "$1" "${canon#@}" "${@:3}"
+      case "$canon" in
+        ERROR*) echo "tern: $1 REFUSED — ${canon#ERROR }" >&2; exit 1 ;;
+        "")     echo "tern: $1 REFUSED — subject resolver unavailable for '$2' (build out/? daemon?)" >&2; exit 1 ;;
+        *)      set -- "$1" "${canon#@}" "${@:3}" ;;
+      esac
     fi
     exec "$FRAM/bin/fram" "$@" ;;
   *)  # engine verbs: import/export/show/set/merge/watch

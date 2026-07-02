@@ -85,7 +85,16 @@
                                (and (some? h) (= h bare))))
                            (k/thread-ids-i idx))]
       (if (empty? matches)
-        ref
+        ;; no handle match — try a UNIQUE id-prefix (the short form people paste).
+        ;; Blank never prefix-matches (it would match every thread); an ambiguous
+        ;; or unknown prefix resolves nothing here — cmd-resolve polices id-like
+        ;; fallthrough so a truncated id is REFUSED instead of minting a phantom.
+        (let [pms (if (str/blank? bare)
+                    []
+                    (filterv (fn [te :- String] :- Bool
+                               (str/starts-with? (short-id te) bare))
+                             (k/thread-ids-i idx)))]
+          (if (= (count pms) 1) (first pms) ref))
         (reduce (fn [best :- String te :- String] :- String
                   (if (str/blank? best)
                     te
@@ -228,9 +237,28 @@
 ;; bin/tern wrapper calls this before routing tell/untell to fram, so a
 ;; handle ref (`tern tell @perf ...`) lands on the right thread — fram itself
 ;; is handle-blind and only ever sees the canonical id.
+;; FAIL-CLOSED: a ref that LOOKS like an id (hex/date chars + dashes only) but
+;; resolved to nothing prints "ERROR ..." — the wrapper aborts the write instead
+;; of letting fram mint a phantom subject under the truncated id. Human handles
+;; (any other chars) still pass through untouched.
+(defn- id-like? [bare :- String] :- Bool
+  ;; hex+dash only AND (dashed OR >=8 chars): catches uuidv7/date ids and their
+  ;; truncations (dashed like 019f20b1-7a98, dashless like 019f20b1) while a real
+  ;; human handle (letters beyond a-f, or short) still passes through.
+  (and (not (str/blank? bare))
+       (str/blank? (str/replace bare #"[0-9a-f-]" ""))
+       (or (str/includes? bare "-") (>= (count bare) 8))))
+
 (defn cmd-resolve [log :- String ref :- String] :- Nil
-  (let [idx (live-idx log)]
-    (println (resolve-ref idx ref))))
+  (let [idx (live-idx log)
+        r (resolve-ref idx ref)]
+    (if (and (= r ref)
+             (id-like? (short-id ref))
+             (nil? (k/one-i idx (str "@" (short-id ref)) "title")))
+      (println (str "ERROR unresolved id-like ref " ref
+                    " — not a thread id, unique prefix, or handle"
+                    " (ambiguous/truncated? `tern show " (short-id ref) "` lists candidates)"))
+      (println r))))
 
 ;; Entity-drift audit: repo path-form collisions (tags retired with relates_to).
 (defn cmd-audit [log :- String] :- Nil
