@@ -12,7 +12,14 @@ cwd="$(jget cwd)"; [ -z "$cwd" ] && cwd="$PWD"
 sid="$(jget session_id)"
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
-ID="${TERN_AGENT_ID:-cc-$RN-${sid:0:8}}"
+# identity resolution: env pin -> per-session cache (written by tern-on-spawn) ->
+# legacy cwd derivation. The cache keeps ONE identity per session; deriving from each
+# tool call's cwd minted a phantom agent per repo touched (roster flood, 2026-07-02).
+ID="${TERN_AGENT_ID:-}"
+if [ -z "$ID" ] && [ -n "$sid" ] && [ -r "${XDG_RUNTIME_DIR:-/tmp}/tern-agent-ids/$sid" ]; then
+  ID="$(cat "${XDG_RUNTIME_DIR:-/tmp}/tern-agent-ids/$sid" 2>/dev/null || true)"
+fi
+[ -z "$ID" ] && ID="cc-$RN-${sid:0:8}"
 [ "$ID" = "cc-$RN-" ] && ID="cc-$RN-$RANDOM"
 
 # renew presence — the 30min lease "renew every ~3min" the docs promise but nothing did.
