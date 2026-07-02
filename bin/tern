@@ -32,6 +32,10 @@ case "${1:-}" in
     exec bb -cp "$TERN/out:$FRAM/out" -m tern.main "$@" ;;
   up)
     exec "$FRAM/bin/fram-up" "${@:2}" ;;
+  stream-sync)
+    # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
+    # plain bash script, not a tern.main verb, so it execs directly.
+    exec "$TERN/bin/tern-stream-sync" "${@:2}" ;;
   listen)
     # Real-time interrupt listener — RUN AS A BACKGROUND TASK. Dormant (zero
     # tokens) until a peer addresses you, then prints the message and exits:
