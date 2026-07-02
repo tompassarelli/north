@@ -47,6 +47,7 @@
 (declare-extern fram.rt/coord-retract [Int String String String Int -> String])
 (declare-extern fram.rt/coord-port [-> Int])
 (declare-extern fram.rt/coord-status [Int -> String])
+(declare-extern fram.rt/coord-live-claims [Int String -> (Vec k/Claim)])
 
 ;; --- thread id: tern-owned UUIDv7 minter --------------------------------
 ;; A UUIDv7 packs a 48-bit ms timestamp in the high bits, so ids are both
@@ -106,6 +107,30 @@
   (reduce (fn [m :- (Map String Bool) c :- k/Claim] :- (Map String Bool)
             (assoc m (claim-sig c) true))
           {} claims))
+
+;; --- daemon-first read (thread 019f2190) -------------------------------------
+;; Read verbs query the warm coordinator's already-folded live view instead of
+;; paying the per-process cold fold (read-log EDN parse + fold ≈ 700ms on the
+;; 11k-line log; the warm fetch + JSON decode ≈ 75ms). The daemon serves the
+;; view in fold emission order (the :claims op contract), so every listing stays
+;; byte-identical to the cold path. [] from coord-live-claims is the capability
+;; handshake — daemon down, an older daemon without the op, or one serving a
+;; DIFFERENT log — and falls back to the cold fold, so every verb works
+;; daemon-less, just slower.
+;; Deliberately NOT warm: doctor/heal/boot (doctor's whole job is checking the
+;; daemon AGAINST an independent fold of the log — a daemon-served view would
+;; have it vouch for itself; heal/boot classify through the same probe), capture's
+;; post-write render (the .md is defined as a projection OF THE LOG), and
+;; needs-review (reads fold-latest — per-assertion tx/frame provenance the live
+;; view doesn't carry; a candidate for plan (b)'s snapshot surface).
+(defn- live-claims [log :- String] :- (Vec k/Claim)
+  (let [warm (fram.rt/coord-live-claims (fram.rt/coord-port) log)]
+    (if (empty? warm)
+      (:claims (fold/fold (fram.rt/read-log log)))
+      warm)))
+
+(defn- live-idx [log :- String] :- k/Index
+  (k/build-index (live-claims log)))
 
 ;; --- write THROUGH the coordinator (serialized, safe under concurrent agents) --
 (defn- tell-once [port :- Int op :- String te :- String pred :- String rv :- String] :- String
@@ -204,12 +229,12 @@
 ;; handle ref (`tern tell @perf ...`) lands on the right thread — fram itself
 ;; is handle-blind and only ever sees the canonical id.
 (defn cmd-resolve [log :- String ref :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))]
+  (let [idx (live-idx log)]
     (println (resolve-ref idx ref))))
 
 ;; Entity-drift audit: repo path-form collisions (tags retired with relates_to).
 (defn cmd-audit [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         rd (audit/repo-drift idx)]
     (println (str "REPO DRIFT — " (count rd) " group(s):"))
     (doseq [g rd]
@@ -220,7 +245,7 @@
 ;; The fram CLI `validate` only runs the generic half; this is the full check, so
 ;; bin/tern routes `validate` here (and the MCP validate tool through it).
 (defn cmd-validate [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         problems (reduce
                   (fn [acc :- (Vec String) te :- String] :- (Vec String)
                     (reduce (fn [a :- (Vec String) v :- String] :- (Vec String)
@@ -234,7 +259,7 @@
           (println (str (count problems) " violation(s)."))))))
 
 (defn cmd-ready [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         today (fram.rt/today-iso)
         rs (proj/ready idx today fram.rt/str-lt?)]
     (println (str "READY NOW — " (count rs)))
@@ -242,7 +267,7 @@
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))))
 
 (defn cmd-blocked [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
         bs (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) "blocked"))
@@ -253,7 +278,7 @@
                     "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
 
 (defn cmd-leverage [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         cands (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                        (proj/work-thread-ids-i idx))
         items (filterv (fn [it :- LevItem] :- Bool (> (:score it) 0))
@@ -267,7 +292,7 @@
                     "  " (trunc (title-of idx (:te it)) 46))))))
 
 (defn cmd-next [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         today (fram.rt/today-iso)
         items (mapv
                (fn [te :- String] :- NextItem
@@ -289,7 +314,7 @@
                     (trunc (title-of idx (:te it)) 50))))))
 
 (defn cmd-agenda [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         today (fram.rt/today-iso)
         cands (filterv (fn [te :- String] :- Bool
                          (and (not (proj/terminal-i? idx te)) (some? (k/one-i idx te "do_on"))))
@@ -321,7 +346,7 @@
 
 ;; board (kanban prior; `plate` kept as a hidden alias — vocabulary pass, thread 019f2032)
 (defn cmd-board [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
         nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
@@ -347,9 +372,8 @@
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 (defn cmd-json [log :- String what :- String arg :- String] :- Nil
-  (let [as (fram.rt/read-log log)
-        f (fold/fold as)
-        idx (k/build-index (:claims f))
+  (let [claims (live-claims log)
+        idx (k/build-index claims)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?]
     (cond
@@ -365,13 +389,18 @@
                                        (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) "blocked"))
                                                 (proj/work-thread-ids-i idx)))))]
       [(= what "needs-review")
-       (let [latest (fold/fold-latest as)
+       ;; COLD on purpose (see live-claims): fold-latest needs per-assertion
+       ;; tx/frame provenance. idx is re-derived from the SAME read so the
+       ;; staleness comparison never mixes two snapshots of the log.
+       (let [as (fram.rt/read-log log)
+             cidx (k/build-index (:claims (fold/fold as)))
+             latest (fold/fold-latest as)
              today (fram.rt/today-iso)
-             reviews (stale/needs-review idx latest today
+             reviews (stale/needs-review cidx latest today
                                          (fn [a :- String b :- String] :- Bool (fram.rt/str-lt? a b)))]
          (println (fram.rt/to-json
                    (mapv (fn [rv :- stale/Review] :- JReview
-                           (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv)))
+                           (->JReview (short-id (:te rv)) (title-of cidx (:te rv)) (:pred rv) (:detail rv)))
                          reviews))))]
       [(= what "clock-report")
        (let [rs (clk/rows idx
@@ -387,7 +416,7 @@
       [(= what "show")
        (println (fram.rt/to-json
                  (mapv (fn [c :- k/Claim] :- JClaim (->JClaim (:p c) (:r c)))
-                       (k/q-by-l (:claims f) (str "@" arg)))))]
+                       (k/q-by-l claims (str "@" arg)))))]
       [(= what "presentation")
        (println (fram.rt/to-json
                  (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready")
@@ -423,7 +452,7 @@
     seed))
 
 (defn cmd-clock-start [log :- String id :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         te (str "@" id)
         run (clk/running-session idx)]
     (cond
@@ -445,7 +474,7 @@
                (println (str "clock start FAILED to record (" r1 "/" r2 ") — retry"))))))])))
 
 (defn cmd-clock-stop [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         run (clk/running-session idx)
         port (fram.rt/coord-port)]
     (cond
@@ -463,7 +492,7 @@
            (println (str "clock stop FAILED to record end_time (" resp ") — still clocked in, retry"))))])))
 
 (defn cmd-clock-status [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         run (clk/running-session idx)]
     (if (nil? run)
       (println "not clocked in")
@@ -475,7 +504,7 @@
         (println (str "  since " (if (some? st) st "?") "  (" (fmt-hm dur) " elapsed)"))))))
 
 (defn cmd-clock-report [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         rs (clk/rows idx
                      (fn [s :- String] :- Int (fram.rt/iso-to-seconds s))
                      (fn [s :- String] :- Int (fram.rt/parse-int s)))
@@ -491,7 +520,7 @@
       (println "\nCALIBRATION — not enough completed estimate+actual data yet"))))
 
 (defn cmd-clock-sync [log :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         dir (fram.rt/time-dir)
         sessions (clk/syncable-sessions idx)
         port (fram.rt/coord-port)]
@@ -525,7 +554,7 @@
          (println "done."))])))
 
 (defn- clock-window [log :- String prefixes :- (Vec String) label :- String] :- Nil
-  (let [idx (k/build-index (:claims (fold/fold (fram.rt/read-log log))))
+  (let [idx (live-idx log)
         rs (clk/logged-rows idx prefixes (fn [s :- String] :- Int (fram.rt/iso-to-seconds s)))
         total (reduce (fn [m :- Int r :- clk/Row] :- Int (+ m (:act-sec r))) 0 rs)]
     (println (str "LOGGED " label " — " (fmt-hm total) " across " (count rs) " thread(s)"))
