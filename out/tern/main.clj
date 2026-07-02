@@ -427,7 +427,7 @@
    f (fold/fold (fram.rt/read-log log))
    log-v (:version f)
    daemon-v (fram.rt/coord-version port)
-   fresh (= daemon-v log-v)
+   fresh (>= daemon-v log-v)
    file-claims (:claims (fold/fold (imp/load-corpus threads-dir)))
    idx (k/build-index (:claims f))
    thread-log (filterv (fn [c] (some? (k/one-i idx (:l c) "title"))) (:claims f))
@@ -441,7 +441,7 @@
   (if up (do
   (println (str "  [ok]    coordinator UP on 127.0.0.1:" port))
   (if serving (println "  [ok]    serving the canonical log") (println (str "  [WARN]  daemon is NOT serving " log " — status: " status)))
-  (if fresh (println "  [ok]    daemon state matches the on-disk log") (println (str "  [WARN]  daemon is STALE (loaded v" daemon-v ", log is v" log-v ") — the log changed out-of-band; restart: kill it + `tern up`")))) (println (str "  [DOWN]  no coordinator on 127.0.0.1:" port " — writes won't serialize. Run `tern up`.")))
+  (if fresh (if (= daemon-v log-v) (println "  [ok]    daemon state matches the on-disk log") (println (str "  [ok]    daemon current with the log (loaded v" daemon-v " > log v" log-v " — in-memory lease txs, never flat-logged)"))) (println (str "  [WARN]  daemon is STALE (loaded v" daemon-v " behind log v" log-v ") — the log changed out-of-band; restart: kill it + `tern up`")))) (println (str "  [DOWN]  no coordinator on 127.0.0.1:" port " — writes won't serialize. Run `tern up`.")))
   (cond
   synced (println "  [ok]    files <-> claim log in sync")
   clean (println (str "  [ok]    files behind the log by " (count log-behind) " thread-claim(s) — benign projection lag; `tern export` to refresh"))

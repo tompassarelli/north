@@ -546,7 +546,12 @@
         f (fold/fold (fram.rt/read-log log))
         log-v (:version f)
         daemon-v (fram.rt/coord-version port)
-        fresh (= daemon-v log-v)
+        ;; loaded >= log is HEALTHY: ephemeral coordination txs (the lease primitive —
+        ;; presence register/renew ends in :acquire-lease) consume seqs in the daemon's
+        ;; shared counter but are deliberately never flat-logged, so the daemon routinely
+        ;; runs AHEAD of the log's max :tx. Staleness is only the OTHER direction:
+        ;; loaded < log = the log gained lines the daemon hasn't absorbed.
+        fresh (>= daemon-v log-v)
         file-claims (:claims (fold/fold (imp/load-corpus threads-dir)))
         idx (k/build-index (:claims f))
         ;; Files are a PROJECTION of the log: only title-bearing threads render to a
@@ -571,8 +576,11 @@
           (println "  [ok]    serving the canonical log")
           (println (str "  [WARN]  daemon is NOT serving " log " — status: " status)))
         (if fresh
-          (println "  [ok]    daemon state matches the on-disk log")
-          (println (str "  [WARN]  daemon is STALE (loaded v" daemon-v ", log is v" log-v
+          (if (= daemon-v log-v)
+            (println "  [ok]    daemon state matches the on-disk log")
+            (println (str "  [ok]    daemon current with the log (loaded v" daemon-v
+                          " > log v" log-v " — in-memory lease txs, never flat-logged)")))
+          (println (str "  [WARN]  daemon is STALE (loaded v" daemon-v " behind log v" log-v
                         ") — the log changed out-of-band; restart: kill it + `tern up`"))))
       (println (str "  [DOWN]  no coordinator on 127.0.0.1:" port " — writes won't serialize. Run `tern up`.")))
     (cond
