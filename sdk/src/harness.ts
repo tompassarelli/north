@@ -14,6 +14,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { execFile, execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // sdk/src/harness.ts -> repo root (~/code/tern).
@@ -152,6 +153,24 @@ function esoAppendix(): string {
     "  val1\\tval2\\tval3   ← one tab-delimited row per record (strings with tabs/newlines use JSON quoting)";
 }
 
+// AGENT_LAWS=on|off — appends the user's global CLAUDE.md to every spawned agent.
+// A custom-string systemPrompt bypasses the SDK's claude_code preset, which is the
+// only path that injects CLAUDE.md — so without this, workers get NONE of the
+// global laws interactive sessions live under. Read per spawn (~/.claude/CLAUDE.md
+// is an out-of-store symlink into nixos-config, so it's always the current text —
+// one source, no drift). Fail-open: unreadable file must never block a spawn.
+function globalLawsAppendix(): string {
+  if ((process.env.AGENT_LAWS ?? "on") !== "on") return "";
+  try {
+    const laws = readFileSync(`${process.env.HOME}/.claude/CLAUDE.md`, "utf8").trim();
+    return laws
+      ? "\n\n## Global laws — the user's ~/.claude/CLAUDE.md (binds every agent, spawned or interactive)\n\n" + laws
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 // AGENT_CAVEMAN=full|lite|off — appends terse-output instruction to every spawned agent.
 function cavemanAppendix(): string {
   const mode = process.env.AGENT_CAVEMAN ?? "full";
@@ -178,7 +197,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     model: resolveModel(o.model),
     effort: o.effort, // the reasoning knob spawn.ts used to drop on the floor
     permissionMode: "acceptEdits",
-    systemPrompt: withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT) + cavemanAppendix() + esoAppendix(),
+    systemPrompt: withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT) + globalLawsAppendix() + cavemanAppendix() + esoAppendix(),
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),
   } as Options;
 }
