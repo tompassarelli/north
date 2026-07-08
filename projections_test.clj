@@ -8,7 +8,7 @@
          '[fram.fold :as fold]
          '[tern.projections :as proj])
 
-(defn asrt [tx l p r frame] (fold/->Assertion tx "assert" l p r frame))
+(defn asrt [tx l p r frame] (fold/->FactOp tx "assert" l p r frame))
 
 ;; today = 2026-06-16 ; future do_on = 2026-12-01 ; past do_on = 2020-01-01
 (def today "2026-06-16")
@@ -49,7 +49,7 @@
    (asrt 61 "@g" "committed" "2026-01-01" "import")
    (asrt 62 "@g" "do_on" "2026-12-01" "import")])
 
-(def idx (k/build-index (:claims (fold/fold asserts))))
+(def idx (k/build-index (:facts (fold/fold asserts))))
 
 (defn cls [te] (proj/condition-i idx te today before?))
 (def ready-set (set (proj/ready idx today before?)))

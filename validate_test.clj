@@ -13,43 +13,43 @@
 
 ;; @p is a person (display_name). @w1 lead @p resolves cleanly.
 (def ok-claims
-  [(k/->Claim "@p" "display_name" "Tom")
-   (k/->Claim "@w1" "title" "W1")
-   (k/->Claim "@w1" "lead" "@p")])
+  [(k/->Fact "@p" "display_name" "Tom")
+   (k/->Fact "@w1" "title" "W1")
+   (k/->Fact "@w1" "lead" "@p")])
 
 ;; @w2 driver @ghost — @ghost has no display_name => dangling person ref.
 (def ghost-claims
-  [(k/->Claim "@p" "display_name" "Tom")
-   (k/->Claim "@w2" "title" "W2")
-   (k/->Claim "@w2" "driver" "@ghost")])
+  [(k/->Fact "@p" "display_name" "Tom")
+   (k/->Fact "@w2" "title" "W2")
+   (k/->Fact "@w2" "driver" "@ghost")])
 
 ;; @w3 proposed_by @p (ok) + @ghost (dangling) — only @ghost flags.
 (def proposed-claims
-  [(k/->Claim "@p" "display_name" "Tom")
-   (k/->Claim "@w3" "title" "W3")
-   (k/->Claim "@w3" "proposed_by" "@p")
-   (k/->Claim "@w3" "proposed_by" "@ghost")])
+  [(k/->Fact "@p" "display_name" "Tom")
+   (k/->Fact "@w3" "title" "W3")
+   (k/->Fact "@w3" "proposed_by" "@p")
+   (k/->Fact "@w3" "proposed_by" "@ghost")])
 
 ;; @w4 (open) depends_on @dead; @dead is abandoned => points-at-abandoned.
 (def abandoned-claims
-  [(k/->Claim "@w4" "title" "W4")
-   (k/->Claim "@dead" "title" "DEAD")
-   (k/->Claim "@dead" "abandoned" "2026-01-01")
-   (k/->Claim "@w4" "depends_on" "@dead")])
+  [(k/->Fact "@w4" "title" "W4")
+   (k/->Fact "@dead" "title" "DEAD")
+   (k/->Fact "@dead" "abandoned" "2026-01-01")
+   (k/->Fact "@w4" "depends_on" "@dead")])
 
 ;; a RESOLVED thread's stale dep is NOT flagged (term? short-circuits).
 (def abandoned-terminal
-  [(k/->Claim "@w4" "title" "W4")
-   (k/->Claim "@w4" "outcome" "shipped")
-   (k/->Claim "@dead" "title" "DEAD")
-   (k/->Claim "@dead" "abandoned" "2026-01-01")
-   (k/->Claim "@w4" "depends_on" "@dead")])
+  [(k/->Fact "@w4" "title" "W4")
+   (k/->Fact "@w4" "outcome" "shipped")
+   (k/->Fact "@dead" "title" "DEAD")
+   (k/->Fact "@dead" "abandoned" "2026-01-01")
+   (k/->Fact "@w4" "depends_on" "@dead")])
 
 ;; composition: full violations-i = engine-generic ++ tern-work.
 (def mixed-claims
-  [(k/->Claim "@w5" "title" "W5")
-   (k/->Claim "@w5" "driver" "@ghost")
-   (k/->Claim "@w5" "depends_on" "@missing")])
+  [(k/->Fact "@w5" "title" "W5")
+   (k/->Fact "@w5" "driver" "@ghost")
+   (k/->Fact "@w5" "depends_on" "@missing")])
 
 (def checks
   [["lead -> named person => no person violation"

@@ -1,7 +1,7 @@
 ;; tern-invoice — the invoice state machine over billable tern threads.
 ;;
 ;; Worklogs live as clock sessions on client-owned threads (see tern-timelog).
-;; This tool moves those threads through invoice states by asserting claims —
+;; This tool moves those threads through invoice states by asserting facts —
 ;; no separate ledger, the graph IS the ledger:
 ;;
 ;;   uninvoiced  (no invoice_id)                     ← work as you go, no ceremony
@@ -39,8 +39,8 @@
 (defn- tell! [id pred val]
   (p/shell {:dir TERN :out :string :err :string} (str TERN "/bin/tern") "tell" id pred val))
 
-(let [claims (:claims (fold/fold (rt/read-log LOG)))
-      idx    (k/build-index claims)
+(let [facts (:facts (fold/fold (rt/read-log LOG)))
+      idx    (k/build-index facts)
       allsub (:subjects idx)
       one    (fn [s p] (k/one-i idx s p))
       thread? (fn [s] (some? (one s "title")))]

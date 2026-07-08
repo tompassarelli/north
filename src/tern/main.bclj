@@ -21,7 +21,7 @@
 (import java.util.Random)   ; non-java.lang classes need an explicit import
 (import java.util.UUID)
 
-(declare-extern fram.rt/read-log [String -> (Vec fold/Assertion)])
+(declare-extern fram.rt/read-log [String -> (Vec fold/FactOp)])
 ;; NOTE: NO write-log extern. Tern is a CLIENT — it mutates state ONLY through
 ;; the coordinator (tell-retry -> coord-assert/retract). The removed `write-log`
 ;; was a direct log-file bypass; capture reached for it and stranded data in files
@@ -47,7 +47,7 @@
 (declare-extern fram.rt/coord-retract [Int String String String Int -> String])
 (declare-extern fram.rt/coord-port [-> Int])
 (declare-extern fram.rt/coord-status [Int -> String])
-(declare-extern fram.rt/coord-live-claims [Int String -> (Vec k/Claim)])
+(declare-extern fram.rt/coord-live-facts [Int String -> (Vec k/Fact)])
 
 ;; --- thread id: tern-owned UUIDv7 minter --------------------------------
 ;; A UUIDv7 packs a 48-bit ms timestamp in the high bits, so ids are both
@@ -74,7 +74,7 @@
 ;; The view/boundary concern. An id is an opaque immutable key; a handle is an
 ;; optional mutable human alias. fram NEVER sees a handle — capture/tell/CLI hand
 ;; it a ref, this maps it to the canonical id first. Passthrough when the ref
-;; already names a thread (has a title); else find a thread whose `handle` claim
+;; already names a thread (has a title); else find a thread whose `handle` fact
 ;; equals the ref (sans @), latest created_at winning ties; else ref unchanged.
 (defn resolve-ref [idx :- k/Index ref :- String] :- String
   (if (some? (k/one-i idx ref "title"))
@@ -110,19 +110,19 @@
 (defrecord NextItem [te :- String score :- Int])
 (defrecord AgendaItem [te :- String do_on :- String])
 
-;; --- claim-set signatures (for capture's import guard) ----------------------
-(defn- claim-sig [c :- k/Claim] :- String (str (:l c) "|" (:p c) "|" (:r c)))
-(defn- sig-member-map [claims :- (Vec k/Claim)] :- (Map String Bool)
-  (reduce (fn [m :- (Map String Bool) c :- k/Claim] :- (Map String Bool)
-            (assoc m (claim-sig c) true))
-          {} claims))
+;; --- fact-set signatures (for capture's import guard) ----------------------
+(defn- fact-sig [c :- k/Fact] :- String (str (:l c) "|" (:p c) "|" (:r c)))
+(defn- sig-member-map [facts :- (Vec k/Fact)] :- (Map String Bool)
+  (reduce (fn [m :- (Map String Bool) c :- k/Fact] :- (Map String Bool)
+            (assoc m (fact-sig c) true))
+          {} facts))
 
 ;; --- daemon-first read (thread 019f2190) -------------------------------------
 ;; Read verbs query the warm coordinator's already-folded live view instead of
 ;; paying the per-process cold fold (read-log EDN parse + fold ≈ 700ms on the
 ;; 11k-line log; the warm fetch + JSON decode ≈ 75ms). The daemon serves the
-;; view in fold emission order (the :claims op contract), so every listing stays
-;; byte-identical to the cold path. [] from coord-live-claims is the capability
+;; view in fold emission order (the :claims wire-op contract (wire name frozen)), so every listing stays
+;; byte-identical to the cold path. [] from coord-live-facts is the capability
 ;; handshake — daemon down, an older daemon without the op, or one serving a
 ;; DIFFERENT log — and falls back to the cold fold, so every verb works
 ;; daemon-less, just slower.
@@ -132,14 +132,14 @@
 ;; post-write render (the .md is defined as a projection OF THE LOG), and
 ;; needs-review (reads fold-latest — per-assertion tx/frame provenance the live
 ;; view doesn't carry; a candidate for plan (b)'s snapshot surface).
-(defn- live-claims [log :- String] :- (Vec k/Claim)
-  (let [warm (fram.rt/coord-live-claims (fram.rt/coord-port) log)]
+(defn- live-facts [log :- String] :- (Vec k/Fact)
+  (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
     (if (empty? warm)
-      (:claims (fold/fold (fram.rt/read-log log)))
+      (:facts (fold/fold (fram.rt/read-log log)))
       warm)))
 
 (defn- live-idx [log :- String] :- k/Index
-  (k/build-index (live-claims log)))
+  (k/build-index (live-facts log)))
 
 ;; --- write THROUGH the coordinator (serialized, safe under concurrent agents) --
 (defn- tell-once [port :- Int op :- String te :- String pred :- String rv :- String] :- String
@@ -160,31 +160,31 @@
 (defn- ctrl? [s :- String] :- Bool
   (or (str/includes? s "\n") (str/includes? s "\r")))
 
-(defn- add-claim [acc :- (Vec k/Claim) te :- String p :- String v :- String] :- (Vec k/Claim)
-  (if (str/blank? v) acc (conj acc (k/->Claim te p v))))
+(defn- add-fact [acc :- (Vec k/Fact) te :- String p :- String v :- String] :- (Vec k/Fact)
+  (if (str/blank? v) acc (conj acc (k/->Fact te p v))))
 
 (defn- ref-or-blank [v :- String] :- String
   (if (str/blank? v) "" (str "@" v)))
 
-(defn- capture-claims [te :- String title :- String owner :- String source :- String
+(defn- capture-facts [te :- String title :- String owner :- String source :- String
                        author :- String lead :- String proposed :- String
-                       created-at :- String today :- String] :- (Vec k/Claim)
+                       created-at :- String today :- String] :- (Vec k/Fact)
   ;; NO `driver` at birth (operating-manual): making a thread active is a deliberate
   ;; pickup (`tell <id> driver @x`), never a capture default — a driver cell here is
   ;; exactly the "stray driver" pollution the-model warns about.
-  (let [c (add-claim [] te "title" title)
+  (let [c (add-fact [] te "title" title)
         ;; the-model §7: `personal` is the IMPLICIT owner default — store `owner`
         ;; only for a non-personal (billable/client) owner, so absence == personal.
-        c (if (= owner "personal") c (add-claim c te "owner" owner))
-        c (add-claim c te "source" source)
-        c (add-claim c te "created_by" (ref-or-blank author))
-        c (add-claim c te "lead" (ref-or-blank lead))
-        c (add-claim c te "proposed_by" (ref-or-blank proposed))
-        ;; created_at is an explicit full-ISO claim (now-iso), asserted at capture —
+        c (if (= owner "personal") c (add-fact c te "owner" owner))
+        c (add-fact c te "source" source)
+        c (add-fact c te "created_by" (ref-or-blank author))
+        c (add-fact c te "lead" (ref-or-blank lead))
+        c (add-fact c te "proposed_by" (ref-or-blank proposed))
+        ;; created_at is an explicit full-ISO fact (now-iso), asserted at capture —
         ;; the id is opaque now (UUIDv7), so ordering/display read THIS, not the id.
-        c (add-claim c te "created_at" created-at)
-        c (add-claim c te "updated_at" today)
-        c (add-claim c te "committed" today)]
+        c (add-fact c te "created_at" created-at)
+        c (add-fact c te "updated_at" today)
+        c (add-fact c te "committed" today)]
     c))
 
 (defn cmd-capture [threads-dir :- String log :- String title :- String owner :- String] :- Nil
@@ -209,7 +209,7 @@
              te (str "@" id)
              path (str threads-dir "/" id "-" slug ".md")
              port (fram.rt/coord-port)]
-         ;; Coordinator-native: assert each capture claim THROUGH the daemon (the
+         ;; Coordinator-native: assert each capture fact THROUGH the daemon (the
          ;; same serialized path as `tell`), then render the .md FROM the log. The
          ;; log is the source of truth; the file is a regenerated view — so a
          ;; capture can never strand title/provenance in a file. (The old file-first
@@ -219,18 +219,18 @@
          ;; (the old now-id/reserve-id dance guarded same-second timestamp clashes).
          (if (< (fram.rt/coord-version port) 0)
            (println "no coordinator on 127.0.0.1:7977 — writes won't serialize. Run `tern up`.")
-           (let [claims (capture-claims te title owner source author lead proposed created-at today)
-                 results (mapv (fn [c :- k/Claim] :- String
+           (let [facts (capture-facts te title owner source author lead proposed created-at today)
+                 results (mapv (fn [c :- k/Fact] :- String
                                  (tell-retry port "assert" (:l c) (:p c) (:r c) 5))
-                               claims)
+                               facts)
                  oks (count (filterv (fn [r :- String] :- Bool (str/starts-with? r "ok:")) results))]
-             (if (= oks (count claims))
+             (if (= oks (count facts))
                (do
-                 (fram.rt/spit-file path (exp/thread-md (:claims (fold/fold (fram.rt/read-log log))) te))
+                 (fram.rt/spit-file path (exp/thread-md (:facts (fold/fold (fram.rt/read-log log))) te))
                  (println (str "captured -> " te "  " title "  [owner: " owner "]\n"
                                "  file:      " path "\n"
                                "  committed: " oks " facts via coordinator. Next: tern tell " id " <pred> <value>")))
-               (println (str "capture PARTIAL: only " oks "/" (count claims)
+               (println (str "capture PARTIAL: only " oks "/" (count facts)
                              " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files.")))))))])))
 
 ;; Resolve a thread ref (@id OR @handle) to its canonical @id and print it. The
@@ -390,7 +390,7 @@
 (defrecord JThread [id :- String title :- String condition :- String emoji :- String])
 (defrecord JPresentation [active :- String ready :- String blocked :- String draft :- String])
 (defrecord JReview [id :- String title :- String pred :- String detail :- String])
-(defrecord JClaim [predicate :- String value :- String])
+(defrecord JFact [predicate :- String value :- String])
 (defrecord JClockRow [id :- String title :- String est_h :- Int actual_sec :- Int done :- Bool])
 (defrecord JCalib [pct :- Int sample :- Int])
 (defrecord JClockReport [rows :- (Vec JClockRow) calibration :- JCalib])
@@ -400,8 +400,8 @@
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 (defn cmd-json [log :- String what :- String arg :- String] :- Nil
-  (let [claims (live-claims log)
-        idx (k/build-index claims)
+  (let [facts (live-facts log)
+        idx (k/build-index facts)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?]
     (cond
@@ -417,11 +417,11 @@
                                        (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) "blocked"))
                                                 (proj/work-thread-ids-i idx)))))]
       [(= what "needs-review")
-       ;; COLD on purpose (see live-claims): fold-latest needs per-assertion
+       ;; COLD on purpose (see live-facts): fold-latest needs per-assertion
        ;; tx/frame provenance. idx is re-derived from the SAME read so the
        ;; staleness comparison never mixes two snapshots of the log.
        (let [as (fram.rt/read-log log)
-             cidx (k/build-index (:claims (fold/fold as)))
+             cidx (k/build-index (:facts (fold/fold as)))
              latest (fold/fold-latest as)
              today (fram.rt/today-iso)
              reviews (stale/needs-review cidx latest today
@@ -443,8 +443,8 @@
                     (->JCalib (:pct cal) (:sample cal))))))]
       [(= what "show")
        (println (fram.rt/to-json
-                 (mapv (fn [c :- k/Claim] :- JClaim (->JClaim (:p c) (:r c)))
-                       (k/q-by-l claims (str "@" arg)))))]
+                 (mapv (fn [c :- k/Fact] :- JFact (->JFact (:p c) (:r c)))
+                       (k/q-by-l facts (str "@" arg)))))]
       [(= what "presentation")
        (println (fram.rt/to-json
                  (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready")
@@ -453,7 +453,7 @@
 
 (defn cmd-needs-review [log :- String] :- Nil
   (let [as (fram.rt/read-log log)
-        idx (k/build-index (:claims (fold/fold as)))
+        idx (k/build-index (:facts (fold/fold as)))
         latest (fold/fold-latest as)
         today (fram.rt/today-iso)
         reviews (stale/needs-review idx latest today
@@ -467,7 +467,7 @@
     (doseq [te promo]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
 
-;; --- clock: claim-native time logging ---------------------------------------
+;; --- clock: fact-native time logging ---------------------------------------
 (defn- fmt-hm [secs :- Int] :- String
   (str (quot secs 3600) "h " (quot (mod secs 3600) 60) "m"))
 
@@ -603,18 +603,18 @@
 (defrecord Probe
   [up :- Bool serving :- Bool fresh :- Bool         ; safety inputs
    port :- Int status :- String daemon-v :- Int log-v :- Int
-   log-claims :- (Vec k/Claim)                      ; whole log (render/entry-point/board)
+   log-facts :- (Vec k/Fact)                      ; whole log (render/entry-point/board)
    idx :- k/Index
-   stale :- (Vec k/Claim)                           ; file-ahead, superseded projection
-   hand :- (Vec k/Claim)                            ; file-ahead, genuinely-new (hand edit)
-   log-behind :- (Vec k/Claim)])                    ; thread-claims not yet rendered to files
+   stale :- (Vec k/Fact)                           ; file-ahead, superseded projection
+   hand :- (Vec k/Fact)                            ; file-ahead, genuinely-new (hand edit)
+   log-behind :- (Vec k/Fact)])                    ; thread-facts not yet rendered to files
 
-;; A file-ahead claim is a STALE PROJECTION (superseded, NOT a hand edit) iff its
+;; A file-ahead fact is a STALE PROJECTION (superseded, NOT a hand edit) iff its
 ;; predicate is single-valued (k/single? reads FRAM_SINGLE_VALUED, the same vocab
 ;; bin/tern exports) AND the log holds a DIFFERENT value for the same (subject,pred)
 ;; — i.e. a `tell` replaced the value and the .md just wasn't re-rendered. Otherwise
 ;; the log has no competing value: a genuine hand edit a human must reconcile.
-(defn- stale-projection? [idx :- k/Index c :- k/Claim] :- Bool
+(defn- stale-projection? [idx :- k/Index c :- k/Fact] :- Bool
   (and (k/single? (:p c))
        (let [v (k/one-i idx (:l c) (:p c))]
          (and (some? v) (not (= v (:r c)))))))
@@ -625,26 +625,26 @@
         up (not (= status "down"))
         serving (str/includes? status log)
         f (fold/fold (fram.rt/read-log log))
-        log-claims (:claims f)
+        log-facts (:facts f)
         log-v (:version f)
         daemon-v (fram.rt/coord-version port)
         ;; loaded >= log is HEALTHY: ephemeral lease txs consume seqs in the daemon's
         ;; shared counter but are never flat-logged, so the daemon routinely runs
         ;; AHEAD of the log's max :tx. Staleness is only loaded < log.
         fresh (>= daemon-v log-v)
-        idx (k/build-index log-claims)
-        file-claims (:claims (fold/fold (imp/load-corpus threads-dir)))
+        idx (k/build-index log-facts)
+        file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
         ;; Files are a PROJECTION of the log: only title-bearing threads render to a
         ;; .md, so person nodes / non-thread entities live ONLY in the log. Compare
-        ;; against the thread-claim slice, not the whole log.
-        thread-log (filterv (fn [c :- k/Claim] :- Bool (some? (k/one-i idx (:l c) "title"))) log-claims)
+        ;; against the thread-fact slice, not the whole log.
+        thread-log (filterv (fn [c :- k/Fact] :- Bool (some? (k/one-i idx (:l c) "title"))) log-facts)
         tl-sigs (sig-member-map thread-log)
-        file-sigs (sig-member-map file-claims)
-        file-ahead (filterv (fn [c :- k/Claim] :- Bool (nil? (get tl-sigs (claim-sig c)))) file-claims)
-        log-behind (filterv (fn [c :- k/Claim] :- Bool (nil? (get file-sigs (claim-sig c)))) thread-log)
-        stale (filterv (fn [c :- k/Claim] :- Bool (stale-projection? idx c)) file-ahead)
-        hand (filterv (fn [c :- k/Claim] :- Bool (not (stale-projection? idx c))) file-ahead)]
-    (->Probe up serving fresh port status daemon-v log-v log-claims idx stale hand log-behind)))
+        file-sigs (sig-member-map file-facts)
+        file-ahead (filterv (fn [c :- k/Fact] :- Bool (nil? (get tl-sigs (fact-sig c)))) file-facts)
+        log-behind (filterv (fn [c :- k/Fact] :- Bool (nil? (get file-sigs (fact-sig c)))) thread-log)
+        stale (filterv (fn [c :- k/Fact] :- Bool (stale-projection? idx c)) file-ahead)
+        hand (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)]
+    (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind)))
 
 ;; SAFETY verdict: writes + warm reads are safe IFF the daemon is up, serving this
 ;; log, and current with it. Hygiene NEVER enters this — a stale .md is not a write hazard.
@@ -709,10 +709,10 @@
   (reduce (fn [acc :- (Vec String) x :- String] :- (Vec String)
             (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
 
-;; Subjects whose .md diverges from the log: a superseded claim OR a log claim not
+;; Subjects whose .md diverges from the log: a superseded fact OR a log fact not
 ;; yet rendered. (hand edits are handled separately — heal refuses if any exist.)
 (defn- heal-targets [p :- Probe] :- (Vec String)
-  (distinct-ids (mapv (fn [c :- k/Claim] :- String (:l c))
+  (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c))
                       (vec (concat (:stale p) (:log-behind p))))))
 
 ;; The @subject the importer would read from a file's head ("" if none/blank/before ---).
@@ -733,7 +733,7 @@
 
 ;; The bare thread id a filename (<id>-<slug>.md) belongs to: the LONGEST id whose
 ;; "<id>-" prefixes the name (or "<id>.md" == name). Longest-match is load-bearing —
-;; a bare id like `topic-agent` must NOT claim `topic-agent-ability`'s file (they
+;; a bare id like `topic-agent` must NOT fact `topic-agent-ability`'s file (they
 ;; share the prefix); substring/first-match silently clobbers the wrong file.
 (defn- file-owner [ids :- (Vec String) name :- String] :- String
   (reduce (fn [best :- String id :- String] :- String
@@ -796,7 +796,7 @@
                      path (if (str/blank? existing)
                             (str threads-dir "/" id "-" (fram.rt/slugify title) ".md")
                             existing)]
-                 (fram.rt/spit-file path (exp/thread-md (:log-claims p) te))
+                 (fram.rt/spit-file path (exp/thread-md (:log-facts p) te))
                  (println (str "  re-rendered " id "  " (trunc title 52)))))
              (println (str "heal: re-rendered " (count targets)
                            " thread file(s) from the log. Log untouched.")))))])))
@@ -860,20 +860,20 @@
         (doseq [it ranked]
           (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
 
-;; --- schema-seed: predicate metadata AS claims (schema-as-claims) -----------
-;; Predicates are ENTITIES: subject "@<pred>" carries its own metadata claims
+;; --- schema-seed: predicate metadata AS facts (schema-as-facts) -----------
+;; Predicates are ENTITIES: subject "@<pred>" carries its own metadata facts
 ;; (cardinality single|multi, value_kind ref|literal, acyclic true). fram's new
-;; precedence is claim > env > legacy fallback; this command derives the seed set
+;; precedence is fact > env > legacy fallback; this command derives the seed set
 ;; from the CURRENT env vocab + the live log so the graph can carry what the env
 ;; list carried, then it drops out. Writes go THROUGH the coordinator (same path
 ;; as `tell`): the subject IS the @-prefixed predicate name.
 ;;   (a) cardinality single for each pred in FRAM_SINGLE_VALUED (parsed from the
 ;;       env at runtime — the SAME list bin/tern exports; not duplicated here).
-;;       Every other live pred defaults multi and needs NO claim.
+;;       Every other live pred defaults multi and needs NO fact.
 ;;   (b) acyclic true for depends_on and part_of.
 ;;   (c) value_kind ref for preds whose live objects are ALL @-refs with >=1
 ;;       occurrence (mirrors fram.tools/all-ref?); literal is the default, omitted.
-;; --dry-run (default) prints the exact claim list and writes nothing; --execute
+;; --dry-run (default) prints the exact fact list and writes nothing; --execute
 ;; writes, but first aborts loudly if any predicate name collides with a live
 ;; thread id (asserting @title on a real thread @title would pollute it).
 
@@ -884,8 +884,8 @@
   (split-ws (fram.rt/getenv-or "FRAM_SINGLE_VALUED" "")))
 
 ;; Mirror fram.tools/all-ref?: pred appears >=1 time AND every object is an @-ref.
-(defn- all-ref? [claims :- (Vec k/Claim) pred :- String] :- Bool
-  (loop [cs claims seen false]
+(defn- all-ref? [facts :- (Vec k/Fact) pred :- String] :- Bool
+  (loop [cs facts seen false]
     (if (empty? cs)
       seen
       (let [c (first cs)]
@@ -895,30 +895,30 @@
             false)
           (recur (rest cs) seen))))))
 
-(defn- distinct-preds [claims :- (Vec k/Claim)] :- (Vec String)
-  (reduce (fn [acc :- (Vec String) c :- k/Claim] :- (Vec String)
+(defn- distinct-preds [facts :- (Vec k/Fact)] :- (Vec String)
+  (reduce (fn [acc :- (Vec String) c :- k/Fact] :- (Vec String)
             (if (k/vec-contains? acc (:p c)) acc (conj acc (:p c))))
-          [] claims))
+          [] facts))
 
-(defn- seed-claims [log :- String] :- (Vec k/Claim)
-  (let [claims (live-claims log)
-        card (mapv (fn [p :- String] :- k/Claim (k/->Claim (str "@" p) "cardinality" "single"))
+(defn- seed-facts [log :- String] :- (Vec k/Fact)
+  (let [facts (live-facts log)
+        card (mapv (fn [p :- String] :- k/Fact (k/->Fact (str "@" p) "cardinality" "single"))
                    (single-valued-preds))
-        acyc (mapv (fn [p :- String] :- k/Claim (k/->Claim (str "@" p) "acyclic" "true"))
+        acyc (mapv (fn [p :- String] :- k/Fact (k/->Fact (str "@" p) "acyclic" "true"))
                    ["depends_on" "part_of"])
-        refs (filterv (fn [p :- String] :- Bool (all-ref? claims p)) (distinct-preds claims))
-        vk (mapv (fn [p :- String] :- k/Claim (k/->Claim (str "@" p) "value_kind" "ref")) refs)]
+        refs (filterv (fn [p :- String] :- Bool (all-ref? facts p)) (distinct-preds facts))
+        vk (mapv (fn [p :- String] :- k/Fact (k/->Fact (str "@" p) "value_kind" "ref")) refs)]
     (vec (concat card acyc vk))))
 
 (defn cmd-schema-seed [log :- String execute :- Bool] :- Nil
-  (let [seeds (seed-claims log)]
+  (let [seeds (seed-facts log)]
     (if (not execute)
       (do
         (println (str "schema-seed DRY-RUN — " (count seeds) " fact(s); nothing written."))
         (doseq [c seeds] (println (str "  tell " (:l c) " " (:p c) " " (:r c))))
         (println "Run `tern schema-seed --execute` (coordinator session) to write."))
       (let [idx (live-idx log)
-            subs (distinct-ids (mapv (fn [c :- k/Claim] :- String (:l c)) seeds))
+            subs (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c)) seeds))
             collisions (filterv (fn [s :- String] :- Bool (some? (k/one-i idx s "title"))) subs)]
         (if (not (empty? collisions))
           (do
@@ -930,7 +930,7 @@
           (let [port (fram.rt/coord-port)]
             (if (< (fram.rt/coord-version port) 0)
               (println "no coordinator on 127.0.0.1:7977 — writes won't serialize. Run `tern up`.")
-              (let [results (mapv (fn [c :- k/Claim] :- String
+              (let [results (mapv (fn [c :- k/Fact] :- String
                                     (tell-retry port "assert" (:l c) (:p c) (:r c) 5))
                                   seeds)
                     oks (count (filterv (fn [r :- String] :- Bool (str/starts-with? r "ok:")) results))]

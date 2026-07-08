@@ -14,7 +14,7 @@
 (when (or (nil? log) (not (.exists (io/file log))))
   (println "leverage_probe: skipped — set FRAM_LOG") (System/exit 0))
 
-(def flat-claims (:claims (fold/fold (fram.rt/read-log log))))
+(def flat-claims (:facts (fold/fold (fram.rt/read-log log))))
 (def idx (k/build-index flat-claims))
 (def work-ids (k/work-thread-ids-i idx))
 

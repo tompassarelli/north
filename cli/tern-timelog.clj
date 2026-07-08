@@ -1,11 +1,11 @@
-;; tern-timelog — invoice-ready worklog export from tern billing claims.
+;; tern-timelog — invoice-ready worklog export from tern billing facts.
 ;;
-;; Reads the fram log, folds to current claims (retractions honored), and emits
+;; Reads the fram log, folds to current facts (retractions honored), and emits
 ;; one billable line per client-owned thread: date, Linear ticket, description,
 ;; hours (summed from that thread's clock sessions), rate, amount, and invoice
 ;; state. Grouped-by-invoice totals go to stderr so `> out.csv` stays clean.
 ;;
-;; Billing model (claims on a thread):
+;; Billing model (facts on a thread):
 ;;   owner <client>        — makes the thread billable to that client (e.g. msa)
 ;;   linear <MSA-123>      — the ticket, becomes the invoice line ref
 ;;   rate <n>              — $/hour for this thread's time
@@ -34,8 +34,8 @@
 (defn- to-int [s] (try (Integer/parseInt (str/trim (str s))) (catch Exception _ 0)))
 (defn- csv-cell [s] (str "\"" (str/replace (str s) "\"" "\"\"") "\""))
 
-(let [claims  (:claims (fold/fold (rt/read-log LOG)))
-      idx     (k/build-index claims)
+(let [facts  (:facts (fold/fold (rt/read-log LOG)))
+      idx     (k/build-index facts)
       allsub  (:subjects idx)
       one     (fn [s p] (k/one-i idx s p))
       ;; billable threads for this owner (must carry a title = a real thread)

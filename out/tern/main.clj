@@ -61,18 +61,18 @@
 
 (defn agendaitem-do_on [r] (:do_on r))
 
-(defn- ^String claim-sig [c]
+(defn- ^String fact-sig [c]
   (str (:l c) "|" (:p c) "|" (:r c)))
 
-(defn- sig-member-map [claims]
-  (reduce (fn [m c] (assoc m (claim-sig c) true)) {} claims))
+(defn- sig-member-map [facts]
+  (reduce (fn [m c] (assoc m (fact-sig c) true)) {} facts))
 
-(defn- live-claims [^String log]
-  (let [warm (fram.rt/coord-live-claims (fram.rt/coord-port) log)]
-  (if (empty? warm) (:claims (fold/fold (fram.rt/read-log log))) warm)))
+(defn- live-facts [^String log]
+  (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
+  (if (empty? warm) (:facts (fold/fold (fram.rt/read-log log))) warm)))
 
 (defn- live-idx [^String log]
-  (k/build-index (live-claims log)))
+  (k/build-index (live-facts log)))
 
 (defn- ^String tell-once [port ^String op ^String te ^String pred ^String rv]
   (let [v (fram.rt/coord-version port)]
@@ -85,22 +85,22 @@
 (defn- ^Boolean ctrl? [^String s]
   (or (str/includes? s "\n") (str/includes? s "\r")))
 
-(defn- add-claim [acc ^String te ^String p ^String v]
-  (if (str/blank? v) acc (conj acc (k/->Claim te p v))))
+(defn- add-fact [acc ^String te ^String p ^String v]
+  (if (str/blank? v) acc (conj acc (k/->Fact te p v))))
 
 (defn- ^String ref-or-blank [^String v]
   (if (str/blank? v) "" (str "@" v)))
 
-(defn- capture-claims [^String te ^String title ^String owner ^String source ^String author ^String lead ^String proposed ^String created-at ^String today]
-  (let [c (add-claim [] te "title" title)
-   c (if (= owner "personal") c (add-claim c te "owner" owner))
-   c (add-claim c te "source" source)
-   c (add-claim c te "created_by" (ref-or-blank author))
-   c (add-claim c te "lead" (ref-or-blank lead))
-   c (add-claim c te "proposed_by" (ref-or-blank proposed))
-   c (add-claim c te "created_at" created-at)
-   c (add-claim c te "updated_at" today)
-   c (add-claim c te "committed" today)]
+(defn- capture-facts [^String te ^String title ^String owner ^String source ^String author ^String lead ^String proposed ^String created-at ^String today]
+  (let [c (add-fact [] te "title" title)
+   c (if (= owner "personal") c (add-fact c te "owner" owner))
+   c (add-fact c te "source" source)
+   c (add-fact c te "created_by" (ref-or-blank author))
+   c (add-fact c te "lead" (ref-or-blank lead))
+   c (add-fact c te "proposed_by" (ref-or-blank proposed))
+   c (add-fact c te "created_at" created-at)
+   c (add-fact c te "updated_at" today)
+   c (add-fact c te "committed" today)]
   c))
 
 (defn cmd-capture [^String threads-dir ^String log ^String title ^String owner]
@@ -121,12 +121,12 @@
    te (str "@" id)
    path (str threads-dir "/" id "-" slug ".md")
    port (fram.rt/coord-port)]
-  (if (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — writes won't serialize. Run `tern up`.") (let [claims (capture-claims te title owner source author lead proposed created-at today)
-   results (mapv (fn [c] (tell-retry port "assert" (:l c) (:p c) (:r c) 5)) claims)
+  (if (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — writes won't serialize. Run `tern up`.") (let [facts (capture-facts te title owner source author lead proposed created-at today)
+   results (mapv (fn [c] (tell-retry port "assert" (:l c) (:p c) (:r c) 5)) facts)
    oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
-  (if (= oks (count claims)) (do
-  (fram.rt/spit-file path (exp/thread-md (:claims (fold/fold (fram.rt/read-log log))) te))
-  (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via coordinator. Next: tern tell " id " <pred> <value>"))) (println (str "capture PARTIAL: only " oks "/" (count claims) " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files."))))))))))
+  (if (= oks (count facts)) (do
+  (fram.rt/spit-file path (exp/thread-md (:facts (fold/fold (fram.rt/read-log log))) te))
+  (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via coordinator. Next: tern tell " id " <pred> <value>"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files."))))))))))
 
 (defn- ^Boolean id-like? [^String bare]
   (and (not (str/blank? bare)) (str/blank? (str/replace bare #"[0-9a-f-]" "")) (or (str/includes? bare "-") (>= (count bare) 8))))
@@ -264,11 +264,11 @@
 
 (defn jreview-detail [r] (:detail r))
 
-(defrecord JClaim [predicate value])
+(defrecord JFact [predicate value])
 
-(defn jclaim-predicate [r] (:predicate r))
+(defn jfact-predicate [r] (:predicate r))
 
-(defn jclaim-value [r] (:value r))
+(defn jfact-value [r] (:value r))
 
 (defrecord JClockRow [id title est_h actual_sec done])
 
@@ -299,8 +299,8 @@
   (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 (defn cmd-json [^String log ^String what ^String arg]
-  (let [claims (live-claims log)
-   idx (k/build-index claims)
+  (let [facts (live-facts log)
+   idx (k/build-index facts)
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?]
   (cond
@@ -308,7 +308,7 @@
   (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (proj/ready idx today before?))))
   (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before?)) (filterv (fn [te] (= (proj/condition-i idx te today before?) "blocked")) (proj/work-thread-ids-i idx)))))
   (= what "needs-review") (let [as (fram.rt/read-log log)
-   cidx (k/build-index (:claims (fold/fold as)))
+   cidx (k/build-index (:facts (fold/fold as)))
    latest (fold/fold-latest as)
    today (fram.rt/today-iso)
    reviews (stale/needs-review cidx latest today (fn [a b] (fram.rt/str-lt? a b)))]
@@ -316,13 +316,13 @@
   (= what "clock-report") (let [rs (clk/rows idx (fn [s] (fram.rt/iso-to-seconds s)) (fn [s] (fram.rt/parse-int s)))
    cal (clk/calibration rs)]
   (println (fram.rt/to-json (->JClockReport (mapv (fn [r] (->JClockRow (short-id (:te r)) (title-of idx (:te r)) (:est-h r) (:act-sec r) (:term r))) rs) (->JCalib (:pct cal) (:sample cal))))))
-  (= what "show") (println (fram.rt/to-json (mapv (fn [c] (->JClaim (:p c) (:r c))) (k/q-by-l claims (str "@" arg)))))
+  (= what "show") (println (fram.rt/to-json (mapv (fn [c] (->JFact (:p c) (:r c))) (k/q-by-l facts (str "@" arg)))))
   (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
   :else (println "usage: json board|ready|blocked|needs-review|clock-report|show <id>|presentation"))))
 
 (defn cmd-needs-review [^String log]
   (let [as (fram.rt/read-log log)
-   idx (k/build-index (:claims (fold/fold as)))
+   idx (k/build-index (:facts (fold/fold as)))
    latest (fold/fold-latest as)
    today (fram.rt/today-iso)
    reviews (stale/needs-review idx latest today (fn [a b] (fram.rt/str-lt? a b)))
@@ -432,7 +432,7 @@
 (defn cmd-clock-week [^String log]
   (clock-window log (fram.rt/this-week-dates) "this week"))
 
-(defrecord Probe [up serving fresh port status daemon-v log-v log-claims idx stale hand log-behind])
+(defrecord Probe [up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind])
 
 (defn probe-up [r] (:up r))
 
@@ -448,7 +448,7 @@
 
 (defn probe-log-v [r] (:log-v r))
 
-(defn probe-log-claims [r] (:log-claims r))
+(defn probe-log-facts [r] (:log-facts r))
 
 (defn probe-idx [r] (:idx r))
 
@@ -468,20 +468,20 @@
    up (not (= status "down"))
    serving (str/includes? status log)
    f (fold/fold (fram.rt/read-log log))
-   log-claims (:claims f)
+   log-facts (:facts f)
    log-v (:version f)
    daemon-v (fram.rt/coord-version port)
    fresh (>= daemon-v log-v)
-   idx (k/build-index log-claims)
-   file-claims (:claims (fold/fold (imp/load-corpus threads-dir)))
-   thread-log (filterv (fn [c] (some? (k/one-i idx (:l c) "title"))) log-claims)
+   idx (k/build-index log-facts)
+   file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
+   thread-log (filterv (fn [c] (some? (k/one-i idx (:l c) "title"))) log-facts)
    tl-sigs (sig-member-map thread-log)
-   file-sigs (sig-member-map file-claims)
-   file-ahead (filterv (fn [c] (nil? (get tl-sigs (claim-sig c)))) file-claims)
-   log-behind (filterv (fn [c] (nil? (get file-sigs (claim-sig c)))) thread-log)
+   file-sigs (sig-member-map file-facts)
+   file-ahead (filterv (fn [c] (nil? (get tl-sigs (fact-sig c)))) file-facts)
+   log-behind (filterv (fn [c] (nil? (get file-sigs (fact-sig c)))) thread-log)
    stale (filterv (fn [c] (stale-projection? idx c)) file-ahead)
    hand (filterv (fn [c] (not (stale-projection? idx c))) file-ahead)]
-  (->Probe up serving fresh port status daemon-v log-v log-claims idx stale hand log-behind)))
+  (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind)))
 
 (defn- ^Boolean safe? [^Probe p]
   (and (:up p) (and (:serving p) (:fresh p))))
@@ -577,7 +577,7 @@
   (if (some? t) t "untitled"))
    existing (path-of scan id)
    path (if (str/blank? existing) (str threads-dir "/" id "-" (fram.rt/slugify title) ".md") existing)]
-  (fram.rt/spit-file path (exp/thread-md (:log-claims p) te))
+  (fram.rt/spit-file path (exp/thread-md (:log-facts p) te))
   (println (str "  re-rendered " id "  " (trunc title 52)))))
   (println (str "heal: re-rendered " (count targets) " thread file(s) from the log. Log untouched."))))))))
 
@@ -631,25 +631,25 @@
 (defn- single-valued-preds []
   (split-ws (fram.rt/getenv-or "FRAM_SINGLE_VALUED" "")))
 
-(defn- ^Boolean all-ref? [claims ^String pred]
-  (loop [cs claims
+(defn- ^Boolean all-ref? [facts ^String pred]
+  (loop [cs facts
    seen false]
   (if (empty? cs) seen (let [c (first cs)]
   (if (= (:p c) pred) (if (str/starts-with? (:r c) "@") (recur (rest cs) true) false) (recur (rest cs) seen))))))
 
-(defn- distinct-preds [claims]
-  (reduce (fn [acc c] (if (k/vec-contains? acc (:p c)) acc (conj acc (:p c)))) [] claims))
+(defn- distinct-preds [facts]
+  (reduce (fn [acc c] (if (k/vec-contains? acc (:p c)) acc (conj acc (:p c)))) [] facts))
 
-(defn- seed-claims [^String log]
-  (let [claims (live-claims log)
-   card (mapv (fn [p] (k/->Claim (str "@" p) "cardinality" "single")) (single-valued-preds))
-   acyc (mapv (fn [p] (k/->Claim (str "@" p) "acyclic" "true")) ["depends_on" "part_of"])
-   refs (filterv (fn [p] (all-ref? claims p)) (distinct-preds claims))
-   vk (mapv (fn [p] (k/->Claim (str "@" p) "value_kind" "ref")) refs)]
+(defn- seed-facts [^String log]
+  (let [facts (live-facts log)
+   card (mapv (fn [p] (k/->Fact (str "@" p) "cardinality" "single")) (single-valued-preds))
+   acyc (mapv (fn [p] (k/->Fact (str "@" p) "acyclic" "true")) ["depends_on" "part_of"])
+   refs (filterv (fn [p] (all-ref? facts p)) (distinct-preds facts))
+   vk (mapv (fn [p] (k/->Fact (str "@" p) "value_kind" "ref")) refs)]
   (vec (concat card acyc vk))))
 
 (defn cmd-schema-seed [^String log ^Boolean execute]
-  (let [seeds (seed-claims log)]
+  (let [seeds (seed-facts log)]
   (if (not execute) (do
   (println (str "schema-seed DRY-RUN — " (count seeds) " fact(s); nothing written."))
   (doseq [c seeds]

@@ -11,7 +11,7 @@
 (when (or (nil? log) (not (.exists (io/file log))))
   (println "cnf_lifecycle_test: skipped — set FRAM_LOG") (System/exit 0))
 
-(def flat-claims (:claims (fold/fold (fram.rt/read-log log))))
+(def flat-claims (:facts (fold/fold (fram.rt/read-log log))))
 
 ;; --- hand-coded (flat) projections = the golden reference -------------------
 ;; proj/ready now takes today + before? and excludes future-do_on (dormant)

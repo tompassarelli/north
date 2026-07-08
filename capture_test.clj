@@ -14,20 +14,20 @@
 (def _gap (Thread/sleep 5))
 (def u2 (m/uuidv7))
 
-;; --- (2) created_at present + full-ISO via capture-claims (private) ----------
-(def cap (#'m/capture-claims "@t1" "Test thread" "personal" "self" "" "" ""
+;; --- (2) created_at present + full-ISO via capture-facts (private) ----------
+(def cap (#'m/capture-facts "@t1" "Test thread" "personal" "self" "" "" ""
                              "2026-06-28T07:00:00" "2026-06-28"))
 (defn claim-val [claims pred] (:r (first (filter #(= (:p %) pred) claims))))
 
 ;; --- (3) resolve-ref: handle -> canonical id (latest created_at wins) --------
 (def rc
-  [(k/->Claim "@id-old" "title" "Old perf")
-   (k/->Claim "@id-old" "handle" "perf")
-   (k/->Claim "@id-old" "created_at" "2026-06-01T10:00:00")
-   (k/->Claim "@id-new" "title" "New perf")
-   (k/->Claim "@id-new" "handle" "perf")
-   (k/->Claim "@id-new" "created_at" "2026-06-28T10:00:00")
-   (k/->Claim "@solo" "title" "Solo")])
+  [(k/->Fact "@id-old" "title" "Old perf")
+   (k/->Fact "@id-old" "handle" "perf")
+   (k/->Fact "@id-old" "created_at" "2026-06-01T10:00:00")
+   (k/->Fact "@id-new" "title" "New perf")
+   (k/->Fact "@id-new" "handle" "perf")
+   (k/->Fact "@id-new" "created_at" "2026-06-28T10:00:00")
+   (k/->Fact "@solo" "title" "Solo")])
 (def ridx (k/build-index rc))
 
 (def checks

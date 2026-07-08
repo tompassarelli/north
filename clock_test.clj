@@ -10,7 +10,7 @@
          '[tern.clock :as clk]
          '[fram.rt])
 
-(defn asrt [tx l p r] (fold/->Assertion tx "assert" l p r "agent"))
+(defn asrt [tx l p r] (fold/->FactOp tx "assert" l p r "agent"))
 
 ;; iso datetimes one hour apart are easy to reason about: 3600s each.
 (def asserts
@@ -44,7 +44,7 @@
    (asrt 52 "@s5" "end_time"   "2026-06-16T20:30:00")
    (asrt 53 "@s5" "clockify_id" "cf-abc")])
 
-(def idx (k/build-index (:claims (fold/fold asserts))))
+(def idx (k/build-index (:facts (fold/fold asserts))))
 (defn iso->sec [s] (fram.rt/iso-to-seconds s))
 (defn str->int [s] (fram.rt/parse-int s))
 

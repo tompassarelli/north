@@ -9,7 +9,7 @@
          '[fram.fold :as fold]
          '[tern.staleness :as stale])
 
-(defn asrt [tx l p r frame] (fold/->Assertion tx "assert" l p r frame))
+(defn asrt [tx l p r frame] (fold/->FactOp tx "assert" l p r frame))
 
 (def asserts
   [;; @t1 — past valid_until, committed, non-terminal  -> time-stale
@@ -64,7 +64,7 @@
    (asrt 122 "@t11" "valid_until" "2020-01-01" "import")
    (asrt 123 "@t12" "title" "T12" "import")])
 
-(def idx (k/build-index (:claims (fold/fold asserts))))
+(def idx (k/build-index (:facts (fold/fold asserts))))
 (def latest (fold/fold-latest asserts))
 (def today "2026-06-16")
 (defn before? [a b] (neg? (compare a b)))
