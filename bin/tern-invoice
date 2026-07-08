@@ -6,5 +6,5 @@
 set -euo pipefail
 export TERN_HOME="$(cd "$(dirname "$0")/.." && pwd)"
 FRAM="${FRAM_HOME:-$HOME/code/fram}"
-export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/tern/claims.log}"
+export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/tern/facts.log}"
 exec bb -cp "$TERN_HOME/out:$FRAM/out" "$TERN_HOME/cli/tern-invoice.clj" "$@"

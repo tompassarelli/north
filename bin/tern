@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tern — the life app. Routes LIFE verbs to the Tern CLI (tern.main,
 # run against the Fram engine on the classpath) and ENGINE verbs to the Fram CLI.
-# Both operate on the same private XDG claim data. Supplies the life domain config
+# Both operate on the same private XDG fact data. Supplies the life domain config
 # (cardinality vocab §1.1 + capture provenance).
 #
 #   engine: ~/code/fram   data: ~/code/tern-data (XDG ~/.local/state/tern)
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/tern/threads}"
-export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/tern/claims.log}"
+export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/tern/facts.log}"
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/tern/time}"
 export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clockify_id rate invoice_id invoice_state linear}"
 # Tern DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
@@ -61,7 +61,7 @@ case "${1:-}" in
     if [ "$#" -ge 4 ]; then
       # FAIL-CLOSED: an unresolvable id-like ref (or a dead resolver) aborts the
       # write — passing the raw ref through would mint a phantom subject under a
-      # truncated id and strand the claims (2026-07-03 incident: 19 orphans).
+      # truncated id and strand the facts (2026-07-03 incident: 19 orphans).
       canon="$(bb -cp "$TERN/out:$FRAM/out" -m tern.main resolve "$2" 2>/dev/null)"
       case "$canon" in
         ERROR*) echo "tern: $1 REFUSED — ${canon#ERROR }" >&2; exit 1 ;;

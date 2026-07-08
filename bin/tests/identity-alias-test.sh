@@ -8,7 +8,7 @@
 # one name, and mail was answered by whichever actor peeked first (cc-fram-d5523b3b).
 #
 # INVARIANT under test: one live actor == one id. A given id is renewed/registered
-# ONLY by the session that first claimed it. An env pin is honored only when no OTHER
+# ONLY by the session that first acquired it. An env pin is honored only when no OTHER
 # session already owns it; an inherited pin yields a distinct per-sid id instead.
 #
 # Fully hermetic + fast: isolates XDG_RUNTIME_DIR (the id cache) into a temp dir and
@@ -74,7 +74,7 @@ SUB2="bbbb2222-0000-4000-8000-000000000002"     # -> cc-fram-bbbb2222
 FRESH="cccc3333-0000-4000-8000-000000000003"
 NOCACHE="dddd4444-0000-4000-8000-000000000004"
 
-echo "== 1. parent SessionStart (no env pin) claims its derived id =="
+echo "== 1. parent SessionStart (no env pin) acquires its derived id =="
 reg="$(run_hook "$SPAWN" "$PARENT" SessionStart)"
 eq "parent registers cc-fram-d5523b3b" "cc-fram-d5523b3b" "$reg"
 eq "parent cache file == its id"        "cc-fram-d5523b3b" "$(cache_of "$PARENT")"

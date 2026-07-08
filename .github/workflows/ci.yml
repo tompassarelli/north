@@ -52,10 +52,10 @@ jobs:
           CP="out:../fram/out"
           bb -cp "$CP" clock_test.clj
           bb -cp "$CP" staleness_test.clj
-          # Fram no longer ships a claims.log, so generate one (and exercise the
+          # Fram no longer ships a facts.log, so generate one (and exercise the
           # current log format) before the lifecycle test — otherwise it skips.
           ( cd ../fram && bin/fram import )
-          FRAM_LOG=../fram/claims.log bb -cp "$CP" cnf_lifecycle_test.clj
+          FRAM_LOG=../fram/facts.log bb -cp "$CP" lifecycle_test.clj
 
       - name: Gateway integration smoke test
         working-directory: tern

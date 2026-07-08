@@ -2,7 +2,7 @@
 #   sudo cp deploy/tern-coordinator@.service /etc/systemd/system/
 #   # per-tenant env (unique FRAM_PORT + that tenant's log):
 #   sudo install -d /etc/tern
-#   printf 'FRAM_PORT=7801\nFRAM_LOG=/var/lib/tern/tenants/acme/claims.log\n' \
+#   printf 'FRAM_PORT=7801\nFRAM_LOG=/var/lib/tern/tenants/acme/facts.log\n' \
 #     | sudo tee /etc/tern/acme.env
 #   sudo systemctl enable --now tern-coordinator@acme
 [Unit]

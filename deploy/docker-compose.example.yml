@@ -1,5 +1,5 @@
 # Example multi-tenant Tern topology: an authenticated gateway in front of one
-# coordinator (+ its own claims.log) per tenant.
+# coordinator (+ its own facts.log) per tenant.
 #
 # ISOLATION MODEL (this is load-bearing — read it):
 # The raw coordinator wire protocol is UNAUTHENTICATED; the gateway + bearer token is
@@ -31,7 +31,7 @@ services:
     environment:
       FRAM_BIND: "0.0.0.0"          # reachable by the gateway on acme-net (only)
       FRAM_PORT: "7801"
-      FRAM_LOG: /srv/tern/tenants/acme/claims.log
+      FRAM_LOG: /srv/tern/tenants/acme/facts.log
     volumes: ["/srv/tern:/srv/tern"]
     networks: [acme-net]            # isolated: only the gateway also joins acme-net
     restart: unless-stopped         # NOTE: port intentionally NOT published to host
@@ -41,7 +41,7 @@ services:
     environment:
       FRAM_BIND: "0.0.0.0"
       FRAM_PORT: "7802"
-      FRAM_LOG: /srv/tern/tenants/globex/claims.log
+      FRAM_LOG: /srv/tern/tenants/globex/facts.log
     volumes: ["/srv/tern:/srv/tern"]
     networks: [globex-net]          # isolated: cannot reach coordinator-acme
     restart: unless-stopped

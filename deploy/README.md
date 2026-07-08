@@ -12,11 +12,11 @@ quick index.
 | `tern-coordinator@.service` | systemd template — one coordinator per tenant |
 | `tern-gateway.service` | systemd unit — the gateway |
 | `Caddyfile.example` | reverse proxy terminating TLS in front of the gateway |
-| `backup.sh` + `tern-backup.{service,timer}` | per-tenant `claims.log` snapshot + prune, on a daily timer |
+| `backup.sh` + `tern-backup.{service,timer}` | per-tenant `facts.log` snapshot + prune, on a daily timer |
 
 ## The shape
 
-Each tenant is an isolated **coordinator + `claims.log`**. The gateway authenticates
+Each tenant is an isolated **coordinator + `facts.log`**. The gateway authenticates
 a request and routes it to that tenant's coordinator. Coordinators default to
 loopback (co-located); for separate hosts/containers, set `FRAM_BIND=0.0.0.0` on the
 coordinator and the tenant's `:coordinator-host` in the registry (the compose example
@@ -38,7 +38,7 @@ sudo -u tern env GATEWAY_TENANTS=/var/lib/tern/tenants.edn \
 # 2. install the units
 sudo cp /opt/tern/deploy/tern-coordinator@.service /etc/systemd/system/
 sudo cp /opt/tern/deploy/tern-gateway.service       /etc/systemd/system/
-printf 'FRAM_PORT=7801\nFRAM_LOG=/var/lib/tern/tenants/acme/claims.log\n' \
+printf 'FRAM_PORT=7801\nFRAM_LOG=/var/lib/tern/tenants/acme/facts.log\n' \
   | sudo tee /etc/tern/acme.env
 printf 'GATEWAY_PORT=8088\nGATEWAY_TENANTS=/var/lib/tern/tenants.edn\n' \
   | sudo tee /etc/tern/gateway.env

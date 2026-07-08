@@ -56,7 +56,7 @@
    "it reads thread facts, derives posture (unplanned/atomic/composite), and dispatches via "
    "Claude Agent SDK. For ad-hoc tasks without a thread, use `spawn`. The canonical flow is: "
    "capture a thread → tell it facts (model, dependencies) → dispatch it. "
-   "Work queue on :7977 (ready/next/leverage; claim with `driver @agent`); "
+   "Work queue on :7977 (ready/next/leverage; acquire with `driver @agent`); "
    "web client (:8088) watches + steers live."))
 
 ;; tool name -> {desc, schema, argv}. argv maps the JSON arguments map (string

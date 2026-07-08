@@ -62,7 +62,7 @@ case "$1" in
       PORT=7800
       while ss -tlnH "sport = :$PORT" 2>/dev/null | grep -q .; do PORT=$((PORT+1)); done
     fi
-    TDIR="$DATA_ROOT/$TENANT"; mkdir -p "$TDIR"; LOG="$TDIR/claims.log"; touch "$LOG"
+    TDIR="$DATA_ROOT/$TENANT"; mkdir -p "$TDIR"; LOG="$TDIR/facts.log"; touch "$LOG"
     TOKEN="$(mint_token)"
     reg_edit "$TENANT" init "$PORT" "$(hash_token "$TOKEN")"   # port + token in ONE atomic write
     FRAM_PORT="$PORT" FRAM_LOG="$LOG" "$FRAM/bin/fram-up"

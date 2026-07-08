@@ -2,7 +2,7 @@
 
 The network-safe edge in front of the (loopback-only, unauthenticated) coordinator.
 It is the single component that takes Tern from *single-machine* to *remote
-and multi-tenant* — without changing the claim model, the write-safety, or the
+and multi-tenant* — without changing the fact model, the write-safety, or the
 "export and walk away" guarantee.
 
 ```
@@ -16,7 +16,7 @@ The coordinator is a sole-writer daemon that binds `127.0.0.1` and speaks an
 **unauthenticated** line-delimited EDN protocol. That's correct for a single
 operator on one machine. To serve other people you need (a) authentication and
 (b) tenant isolation. The gateway adds both, and isolation is done the only safe
-way: **one coordinator + one `claims.log` per tenant.** The per-assertion `frame`
+way: **one coordinator + one `facts.log` per tenant.** The per-assertion `frame`
 is *provenance, not authorization* — never the tenancy boundary.
 
 ## Endpoints
@@ -78,7 +78,7 @@ captures the request, and a revoked token → `401`. This runs in CI.
 Built and tested here:
 
 - [x] **Authentication** — bearer token → tenant, hashes stored not plaintext.
-- [x] **Tenant isolation** — one coordinator + `claims.log` per tenant.
+- [x] **Tenant isolation** — one coordinator + `facts.log` per tenant.
 - [x] **Token rotation + revocation** — `:tokens` set; `provision.sh rotate/revoke`.
 - [x] **Audit logging** — one EDN line per request (`:tenant :op :te :p :status`);
       **never logs the object value** `:r`. Unauthorized attempts are logged too.

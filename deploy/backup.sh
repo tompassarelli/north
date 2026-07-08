@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Snapshot each tenant's append-only claims.log to a compressed, timestamped copy.
+# Snapshot each tenant's append-only facts.log to a compressed, timestamped copy.
 #
-# The claims.log is an append-only plain-text file, so a plain file copy is a
+# The facts.log is an append-only plain-text file, so a plain file copy is a
 # consistent-enough snapshot: a concurrent append either lands fully in the copy
 # or after it — never a torn record. (For a byte-exact point-in-time guarantee
 # you'd quiesce the coordinator first; this trades that for zero downtime.)
 #
 # Config (env):
 #   TERN_TENANT_ROOT     where tenants live, one subdir each containing a
-#                            claims.log (default "$HOME/.local/state/tern/tenants").
+#                            facts.log (default "$HOME/.local/state/tern/tenants").
 #   TERN_BACKUP_DIR      where snapshots are written, one subdir per tenant
 #                            (default "$HOME/.local/state/tern/backups").
 #   TERN_BACKUP_KEEP_DAYS  prune snapshots older than this many days
@@ -29,7 +29,7 @@ KEEP_DAYS="${TERN_BACKUP_KEEP_DAYS:-30}"
 found=0
 for tdir in "$TENANT_ROOT"/*/; do
   [ -d "$tdir" ] || continue
-  log="$tdir/claims.log"
+  log="$tdir/facts.log"
   [ -f "$log" ] || continue
 
   tenant="$(basename "$tdir")"
@@ -39,7 +39,7 @@ for tdir in "$TENANT_ROOT"/*/; do
   dest_dir="$BACKUP_DIR/$tenant"
   mkdir -p "$dest_dir"
 
-  dest="$dest_dir/claims.log.$TS"
+  dest="$dest_dir/facts.log.$TS"
   cp "$log" "$dest"
   gzip "$dest"
   out="$dest.gz"
@@ -54,4 +54,4 @@ if [ "$found" -eq 0 ]; then
 fi
 
 # Prune old snapshots.
-find "$BACKUP_DIR" -name 'claims.log.*.gz' -mtime +"$KEEP_DAYS" -delete
+find "$BACKUP_DIR" -name 'facts.log.*.gz' -mtime +"$KEEP_DAYS" -delete

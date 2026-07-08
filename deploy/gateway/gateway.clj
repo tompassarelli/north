@@ -6,7 +6,7 @@
 ;; What it does: terminates HTTP, authenticates a bearer token, maps the token to
 ;; a tenant, and forwards the request to THAT tenant's coordinator over the local
 ;; loopback socket (the coordinator's existing line-delimited EDN protocol). One
-;; coordinator + one claims.log per tenant — the instance-per-tenant model.
+;; coordinator + one facts.log per tenant — the instance-per-tenant model.
 ;;
 ;;   GET  /healthz          -> 200 "ok"
 ;;   POST /v1/rpc           -> Authorization: Bearer <token>, body is one EDN map
