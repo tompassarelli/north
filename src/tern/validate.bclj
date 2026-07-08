@@ -26,7 +26,7 @@
               []
               (k/many-i idx te "depends_on"))
         ;; person-ref integrity: lead/driver must point at a node carrying a
-        ;; display_name claim ('references unknown person', greppable apart from
+        ;; display_name fact ('references unknown person', greppable apart from
         ;; the thread-ref 'references missing entity'). `name` is a RESERVED
         ;; engine/schema predicate, so persons use display_name.
         v-p (reduce

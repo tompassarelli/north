@@ -1,12 +1,12 @@
 #lang beagle/clj
 (ns tern.clock
-  "Claim-native time logging: a work session is an entity
+  "Fact-native time logging: a work session is an entity
      @<sessid>  session_of  @<thread>
      @<sessid>  start_time  <iso>
      @<sessid>  end_time    <iso>      (absent while the clock runs)
    so actual effort rolls up to the thread and estimate-vs-actual calibrates
    future estimates. Sessions are titleless, so they never appear in thread
-   projections or file exports — they live in the claim log and roll up here.
+   projections or file exports — they live in the fact log and roll up here.
    Pure: clock seconds come from an injected iso->sec; actual stays DERIVED,
    never stored, consistent with the no-stored-derived model (D6).")
 

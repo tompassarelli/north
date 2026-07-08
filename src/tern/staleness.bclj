@@ -1,15 +1,15 @@
 #lang beagle/clj
 (ns tern.staleness
   "Belief-revision layer (D8): judgments revalidate when their inputs move.
-   A pure projection — it NEVER auto-flips a claim, only surfaces a needs-review
+   A pure projection — it NEVER auto-flips a fact, only surfaces a needs-review
    queue for a human to re-decide. Three judgment classes, three input models:
      - time-judgment  valid_until   input = the clock; stale once past today.
      - thread-ref edge relates_to/part_of/clarifies/amends
                                     input = the target's resolution; stale when
                                     the target is terminal (done/abandoned).
-     - estimate_hours               input = the thread's scope claims
+     - estimate_hours               input = the thread's scope facts
                                     (depends_on/part_of/body); stale when a scope
-                                    claim was (re)asserted at a tx LATER than the
+                                    fact was (re)asserted at a tx LATER than the
                                     estimate's own tx.
    History (committed/outcome/abandoned/proposed_by/created_at) never goes stale;
    derived views (ready/blocked/active) recompute and so can't go stale either.")
@@ -66,8 +66,8 @@
    (k/thread-ids-i idx)))
 
 ;; --- estimate_hours predating a genuine later scope edit (tx + frame) --------
-;; Highest scope-claim tx for subject l that came from a real later edit
-;; (coord/agent/cli) — bulk-import scope claims are ignored (their tx-order is
+;; Highest scope-fact tx for subject l that came from a real later edit
+;; (coord/agent/cli) — bulk-import scope facts are ignored (their tx-order is
 ;; serialization, not a later change), so a freshly-migrated corpus is never
 ;; estimate-stale; the rule lights up only once a real edit moves the scope.
 (defn- later-edit-scope-tx [latest :- (Vec f/Latest) l :- String] :- Int

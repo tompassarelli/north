@@ -1,6 +1,6 @@
 #lang beagle/clj
 (ns tern.audit
-  "Entity-drift detection over the claim graph: repo path-form collisions (same
+  "Entity-drift detection over the fact graph: repo path-form collisions (same
   normalized form under different surface spellings). Tags are gone (relatedness
   is now a `relates_to` edge to a real thread, which can't drift), so the tag
   audits retired with them. Pure logic.")

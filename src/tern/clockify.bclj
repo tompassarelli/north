@@ -1,7 +1,7 @@
 #lang beagle/clj
 (ns tern.clockify
-  "Clockify integration — the BILLING projection of claim-native sessions.
-   The canonical time store is the claim graph (fram.clock sessions); this
+  "Clockify integration — the BILLING projection of fact-native sessions.
+   The canonical time store is the fact graph (fram.clock sessions); this
    module only pushes closed billable sessions outward to Clockify on demand and
    lists workspaces/projects. The thread-owner -> Clockify-project mapping lives
    in <time-dir>/projects.json (integration config, not time data). API key from
