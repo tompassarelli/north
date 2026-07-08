@@ -9,7 +9,7 @@ defmodule TernWeb.ApiController do
 
   def dag(conn, _params), do: json(conn, Tern.Threads.graph())
 
-  # Claim-derived list view: threads grouped by lifecycle (in-progress/ready/
+  # Fact-derived list view: threads grouped by lifecycle (in-progress/ready/
   # blocked/backlog/draft), ready ordered by do_on so the top row is "next".
   def list(conn, _params), do: json(conn, Tern.Threads.list())
 
@@ -28,8 +28,8 @@ defmodule TernWeb.ApiController do
   # Chat stream for one agent (from ~/code/agent-data/agent-<h>.stream.jsonl).
   def agent_stream(conn, %{"handle" => h}), do: json(conn, %{handle: h, messages: Tern.Stream.messages(h)})
 
-  # Generic claims read for wake's `persist :feed`: flat entity rows (id = the
-  # claim ref, so writes target the right subject) for a graph. Board for now.
+  # Generic facts read for wake's `persist :feed`: flat entity rows (id = the
+  # fact ref, so writes target the right subject) for a graph. Board for now.
   def entities(conn, params) do
     rows =
       case Map.get(params, "graph", "board") do
@@ -70,9 +70,9 @@ defmodule TernWeb.ApiController do
     json(conn, rows)
   end
 
-  # ── claim writes (backend owns OCC/versioning; the browser just states claims) ──
+  # ── fact writes (backend owns OCC/versioning; the browser just states facts) ──
 
-  # Raw substrate op: assert a claim (te p r) on a graph.
+  # Raw substrate op: assert a fact (te p r) on a graph.
   def assert(conn, %{"graph" => g, "te" => te, "p" => p, "r" => r}) do
     write_resp(conn, Tern.Fram.assert!(Tern.Fram.port_for(g), te, p, r))
   end
@@ -81,7 +81,7 @@ defmodule TernWeb.ApiController do
     write_resp(conn, Tern.Fram.retract!(Tern.Fram.port_for(g), te, p, r))
   end
 
-  # Higher-level claim-native verb (tern `tell`): one claim about an entity.
+  # Higher-level fact-native verb (tern `tell`): one fact about an entity.
   # Resolve the subject (id OR handle) to its canonical id; resolve the object too
   # when it's a thread ref (`@…`) so `tell @perf depends_on @other-handle` works.
   # Literal objects (estimate_hours 4, do_on …, outcome …) pass through untouched.
@@ -92,7 +92,7 @@ defmodule TernWeb.ApiController do
   end
 
   # Capture a new thread (tern `capture`): mint a UUIDv7 id + assert its title
-  # and an explicit created_at claim. A thread IS any id with a title; it derives
+  # and an explicit created_at fact. A thread IS any id with a title; it derives
   # as "draft" until committed. Optional `handle` = a mutable alias; optional
   # `part_of` = a parent ref (id OR handle), resolved to its canonical id.
   def capture(conn, %{"title" => title} = params) when is_binary(title) and title != "" do
@@ -112,7 +112,7 @@ defmodule TernWeb.ApiController do
 
   def capture(conn, _), do: conn |> put_status(400) |> json(%{error: "title required"})
 
-  # Steer an agent from the agents-panel "›": write a steer claim on the agent's
+  # Steer an agent from the agents-panel "›": write a steer fact on the agent's
   # session (agents daemon). Resolve the incoming ref so a thread handle works;
   # an ordinary agent handle passes through unchanged.
   def steer(conn, %{"handle" => h, "text" => text}) when is_binary(h) and is_binary(text) and text != "" do
@@ -130,11 +130,11 @@ defmodule TernWeb.ApiController do
   defp at("@" <> _ = ref), do: ref
   defp at(ref) when is_binary(ref), do: "@" <> ref
 
-  # Optional LITERAL claim: assert only when present + non-blank, else a benign ok.
+  # Optional LITERAL fact: assert only when present + non-blank, else a benign ok.
   defp assert_optional(_port, _id, _pred, v) when v in [nil, ""], do: {:ok, nil}
   defp assert_optional(port, id, pred, v) when is_binary(v), do: Tern.Fram.assert!(port, id, pred, v)
 
-  # Optional REFERENCE claim (e.g. a parent): resolve the ref to a canonical id
+  # Optional REFERENCE fact (e.g. a parent): resolve the ref to a canonical id
   # before writing so a handle works as the target. Absent → benign ok.
   defp assert_optional_ref(_port, _id, _pred, v) when v in [nil, ""], do: {:ok, nil}
 
@@ -186,7 +186,7 @@ defmodule TernWeb.ApiController do
     |> send_resp(200, @wake_shell)
   end
 
-  # Claims-native write demo: board threads with a `(tell …)` action button.
+  # Facts-native write demo: board threads with a `(tell …)` action button.
   # Proves the round-trip click → /api/tell → daemon commit → /live → re-fetch.
   @board_shell """
   <!doctype html>
@@ -208,7 +208,7 @@ defmodule TernWeb.ApiController do
     conn |> put_resp_content_type("text/html") |> send_resp(200, @board_shell)
   end
 
-  # Claims-native list view — threads grouped by derived lifecycle, live.
+  # Facts-native list view — threads grouped by derived lifecycle, live.
   @list_shell """
   <!doctype html>
   <html lang="en">

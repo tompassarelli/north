@@ -1,6 +1,6 @@
 (ns board.write)
 
-;; Read board threads (id = claim ref) from the BEAM backend; re-fetch on /live.
+;; Read board threads (id = fact ref) from the BEAM backend; re-fetch on /live.
 (persist :feed "/api/entities?graph=board")
 
 (theme
@@ -23,7 +23,7 @@
     (div :class "flex flex-col"
       (span :class "text-sm text-foreground" :text title)
       (span :class "text-xs text-muted-foreground" :text status))
-    ;; CLAIMS-NATIVE ACTION: tell = remote claim write → /api/tell → daemon commit
+    ;; FACTS-NATIVE ACTION: tell = remote fact write → /api/tell → daemon commit
     ;; → /live → feed re-fetch → re-render. The full round-trip from one click.
     (button :class "text-xs px-2 py-1 border border-border text-foreground hover:bg-muted"
             :text "mark done" :on-click (tell status "done"))))
@@ -38,5 +38,5 @@
 
 (view threads
   :entity thread :each thread-row
-  :add-form [id] :title "board · claims-native write"
+  :add-form [id] :title "board · facts-native write"
   :select thread-detail)

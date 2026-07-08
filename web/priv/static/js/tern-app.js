@@ -1,5 +1,5 @@
 // The tern 2-panel client. LEFT = thread workbench (Graph | List | Board,
-// toggled), RIGHT = agents. Each surface is an independent claims-native renderer
+// toggled), RIGHT = agents. Each surface is an independent facts-native renderer
 // (window.tern.mount*); this just lays out the two frames, wires the view
 // toggle, and stamps the frame badges. Everforest-dark-hard.
 (function () {
@@ -22,7 +22,7 @@
       label);
   }
 
-  // every panel carries a "›" CLI — the per-frame claim-writer affordance.
+  // every panel carries a "›" CLI — the per-frame fact-writer affordance.
   function cliBar(placeholder, onSubmit) {
     const bar = el("div",
       `flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid ${EF.edge};background:${EF.bg};`);

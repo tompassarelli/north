@@ -1,6 +1,6 @@
 defmodule Tern.Fram do
   @moduledoc """
-  Server-side client for the fram claim-graph daemons (TCP, line-delimited EDN).
+  Server-side client for the fram fact-graph daemons (TCP, line-delimited EDN).
 
   Wire protocol (one request per connection): write one EDN op line + "\\n",
   read one EDN line back, decode. Mirrors the archived Clojure bridge's rt.clj.
@@ -39,10 +39,10 @@ defmodule Tern.Fram do
     end
   end
 
-  @doc "Assert a claim (te p r). Single-valued preds supersede; multi add. {:ok v} | {:conflict r} | {:error _}."
+  @doc "Assert a fact (te p r). Single-valued preds supersede; multi add. {:ok v} | {:conflict r} | {:error _}."
   def assert!(port, te, p, r), do: occ(port, "assert", te, p, r, 5)
 
-  @doc "Retract the exact claim (te p r). {:ok v} | {:conflict r} | {:error _}."
+  @doc "Retract the exact fact (te p r). {:ok v} | {:conflict r} | {:error _}."
   def retract!(port, te, p, r), do: occ(port, "retract", te, p, r, 5)
 
   defp occ(_port, _op, _te, _p, _r, 0), do: {:conflict, :tries_exhausted}

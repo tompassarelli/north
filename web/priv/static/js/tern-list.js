@@ -1,5 +1,5 @@
-// Claims-native list view. Reads /api/list (threads grouped by derived
-// lifecycle), renders grouped lanes, and writes claims back via /api/tell —
+// Facts-native list view. Reads /api/list (threads grouped by derived
+// lifecycle), renders grouped lanes, and writes facts back via /api/tell —
 // the same round-trip the wake action primitive uses. Auto-refreshes on the
 // /live WebSocket (board commits) so it stays current with zero reload.
 // Everforest-dark-hard, matched to the rest of the surface.
@@ -41,7 +41,7 @@
   }
 
   // Linear-style row actions — NO static buttons. Hover a row to target it, press
-  // a hotkey; or right-click for the menu. Each action writes a claim.
+  // a hotkey; or right-click for the menu. Each action writes a fact.
   let hoverItem = null;
   const today = () => new Date().toISOString().slice(0, 10);
   const focusGraph = (id) => { if (window.tern && window.tern.focusGraph) window.tern.focusGraph(id); };
@@ -93,7 +93,7 @@
     if (a) { e.preventDefault(); a.run(hoverItem); }
   });
 
-  // The human alias (a mutable claim, separate owner from identity). Subtle,
+  // The human alias (a mutable fact, separate owner from identity). Subtle,
   // monospace, leads the title. Absent handle → null (additive, never breaks).
   function handleChip(item) {
     if (!item.handle) return null;
@@ -194,8 +194,8 @@
       caret.textContent = nowFolded ? "▸" : "▾";
     };
 
-    // DRAG. Within Open: reorder → priority claims. Across lanes: change the
-    // thread's resolution by writing the dropped-into lane's defining claim.
+    // DRAG. Within Open: reorder → priority facts. Across lanes: change the
+    // thread's resolution by writing the dropped-into lane's defining fact.
     body.addEventListener("dragstart", (e) => {
       dragEl = e.target.closest("[data-id]");
       if (dragEl) { dragLens = dragEl.dataset.lens; dragEl.style.opacity = "0.4"; }
@@ -220,7 +220,7 @@
         else if (g.key === "draft") await retract(id, "committed", "true");
         render(listEl);
       } else if (g.key === "open") {
-        // within Open: persist the new visual order as priority claims
+        // within Open: persist the new visual order as priority facts
         const ids = [...body.querySelectorAll("[data-id]")].map((r) => r.dataset.id);
         await Promise.all(ids.map((d, i) => tell(d, "priority", String((i + 1) * 10))));
         render(listEl);
@@ -245,9 +245,9 @@
   function liveRefresh(root) {
     let ws;
     // Coalesce a burst of /live frames into ONE refetch. A single commit can
-    // emit several delta frames (one per claim); un-debounced, each would fire
+    // emit several delta frames (one per fact); un-debounced, each would fire
     // a full /api/list refetch+render. The first frame arms a 50ms timer; every
-    // frame arriving while it's pending is absorbed, so an N-claim commit
+    // frame arriving while it's pending is absorbed, so an N-fact commit
     // collapses to exactly one refetch+render (now ~35ms on the JSON wire).
     let timer = null;
     const scheduleRender = () => {
@@ -259,8 +259,8 @@
         const proto = location.protocol === "https:" ? "wss" : "ws";
         ws = new WebSocket(`${proto}://${location.host}/api/live?graph=board`);
         ws.onmessage = (ev) => {
-          // /live carries per-claim delta frames {t:"delta",graph,op,l,p,r}
-          // (a multi-claim commit emits one each) plus the legacy commit/refresh
+          // /live carries per-fact delta frames {t:"delta",graph,op,l,p,r}
+          // (a multi-fact commit emits one each) plus the legacy commit/refresh
           // ping. A delta can't drive a per-row patch — it holds the changed
           // triple, not the thread's derived lifecycle/badges — so delta and
           // ping alike route to the same coalesced refetch.
@@ -278,8 +278,8 @@
   }
 
   // Claude-Code-shaped CLI: type a thought, Enter -> POST /api/capture -> the
-  // claim lands in fram and the live feed surfaces it in Draft. The input IS a
-  // claim-writer; no form ceremony.
+  // fact lands in fram and the live feed surfaces it in Draft. The input IS a
+  // fact-writer; no form ceremony.
   async function capture(title) {
     try {
       await fetch("/api/capture", {

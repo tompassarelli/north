@@ -39,7 +39,7 @@ defmodule Tern.DaemonSubscriber do
       # Clients can re-fetch the affected view off this alone (back-compat).
       # Raw PubSub drives the wake /live WebSocket feed (framework-agnostic edge).
       Phoenix.PubSub.broadcast(Tern.PubSub, "wakefeed", {:commit, state.graph})
-      # Best-effort: decode the per-claim delta the daemon already emits and
+      # Best-effort: decode the per-fact delta the daemon already emits and
       # broadcast it too, so clients can patch in place instead of re-fetching.
       # A malformed/partial line leaves the coarse path above untouched.
       broadcast_delta(line, state.graph)
@@ -55,7 +55,7 @@ defmodule Tern.DaemonSubscriber do
   # EDN-decode the commit line — {:event :commit :version V :op "assert"|"retract"
   # :l <subj> :p <pred> :r <obj>} — and emit a {:delta, graph, %{op,l,p,r}} on the
   # same topic. Eden.decode! raises on a malformed/empty line; any failure (or a
-  # commit shape missing the claim fields) silently falls back to the coarse path.
+  # commit shape missing the fact fields) silently falls back to the coarse path.
   defp broadcast_delta(line, graph) do
     case Eden.decode!(line) do
       %{op: op, l: l, p: p, r: r} ->

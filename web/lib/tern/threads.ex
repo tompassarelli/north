@@ -1,7 +1,7 @@
 defmodule Tern.Threads do
   @moduledoc """
-  Thread DAG for the left panel. Folds the board daemon (:7977) claim graph into
-  title-bearing thread nodes + dependency edges, derives lifecycle from claims,
+  Thread DAG for the left panel. Folds the board daemon (:7977) fact graph into
+  title-bearing thread nodes + dependency edges, derives lifecycle from facts,
   and scopes to the open structural frontier. Layout/pan/zoom is Cytoscape's job
   (client-side) — this just provides the graph data.
 
@@ -149,8 +149,8 @@ defmodule Tern.Threads do
   end
 
   # List view — ORTHOGONAL AXES, not a linear status (Tom's model). Every thread
-  # carries an independent value on each axis, all DERIVED from claims:
-  #   committed  — a `committed` claim: spec frozen / planning resolved / "execute next"
+  # carries an independent value on each axis, all DERIVED from facts:
+  #   committed  — a `committed` fact: spec frozen / planning resolved / "execute next"
   #   scheduled  — a `do_on`: queued for a period (else unscheduled)
   #   active     — a live driver (an agent on it now)
   #   blocked    — an open depends_on
@@ -256,7 +256,7 @@ defmodule Tern.Threads do
     %{done: done, total: length(children)}
   end
 
-  # sort key for a drag-set priority claim: {0, n} for a parseable rank (ordered
+  # sort key for a drag-set priority fact: {0, n} for a parseable rank (ordered
   # ascending), {1, 0} for none (sorts after, falls back to do_on).
   defp prio_key(p) do
     case Float.parse(to_string(p)) do
@@ -274,7 +274,7 @@ defmodule Tern.Threads do
     titled = for {id, attrs} <- node_attrs, Map.get(attrs, "title", "") != "", into: %{}, do: {id, attrs}
     by_from = Enum.group_by(edges, & &1.from)
     # "active" = driven by an agent live RIGHT NOW (driver edge → online agent),
-    # not merely "has a driver claim". Cross-reference the agents daemon.
+    # not merely "has a driver fact". Cross-reference the agents daemon.
     online = Tern.Presence.online_refs()
     status = Map.new(titled, fn {id, attrs} -> {id, derive_status(attrs, Map.get(by_from, id, []), node_attrs, online)} end)
 
@@ -326,7 +326,7 @@ defmodule Tern.Threads do
   defp ref_obj?(o), do: String.starts_with?(o, "@") and not String.contains?(o, " ")
 
   # board.js deriveCol, refined: "active" means a CURRENTLY-ONLINE agent is the
-  # driver (not just any driver claim). first match wins.
+  # driver (not just any driver fact). first match wins.
   defp derive_status(attrs, out_edges, node_attrs, online) do
     cond do
       Map.has_key?(attrs, "abandoned") -> "abandoned"

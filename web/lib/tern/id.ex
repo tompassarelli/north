@@ -5,7 +5,7 @@ defmodule Tern.Id do
   variant, and random fill. Pure Elixir — no dependency.
 
   The id carries ONLY identity — it is an opaque, immutable, collision-proof key.
-  App ordering/display reads the explicit `created_at` claim, never these internal
+  App ordering/display reads the explicit `created_at` fact, never these internal
   timestamp bits. Old `@YYYY-MM-DD-HHMMSS` ids stay valid (ids are opaque to fram);
   this only governs how fresh ids are minted.
   """

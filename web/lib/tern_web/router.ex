@@ -28,7 +28,7 @@ defmodule TernWeb.Router do
     # wake derives the feed's WS as a sibling of the feed URL (/api/entities → /api/live)
     get "/live", ApiController, :live
 
-    # claim writes (OCC handled server-side)
+    # fact writes (OCC handled server-side)
     post "/assert", ApiController, :assert
     post "/retract", ApiController, :retract
     post "/tell", ApiController, :tell

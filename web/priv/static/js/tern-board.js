@@ -1,14 +1,14 @@
-// Claims-native KANBAN. Reads /api/list (the SAME source the list view uses) so
-// the two surfaces can never disagree, and writes claims back via /api/tell +
+// Facts-native KANBAN. Reads /api/list (the SAME source the list view uses) so
+// the two surfaces can never disagree, and writes facts back via /api/tell +
 // /api/retract — the round-trip the wake action primitive uses.
 //
 // MODEL: columns are the thread's intrinsic RESOLUTION only — Open (committed,
 // not done), Draft (plan not yet committed), Done (work resolved). ATTENTION is
 // NOT a column: active / scheduled / blocked render as card BADGES, exactly like
-// the list's facetBadges. Lifecycle is derived from claims, never a stored status.
+// the list's facetBadges. Lifecycle is derived from facts, never a stored status.
 //
-// DRAG: within a column reorders (priority claims 10,20,30…); across a column
-// mutates the defining claim — Done sets outcome=done, Open sets committed=true,
+// DRAG: within a column reorders (priority facts 10,20,30…); across a column
+// mutates the defining fact — Done sets outcome=done, Open sets committed=true,
 // Draft RETRACTS committed. Auto-refreshes on the /live WebSocket.
 // Everforest-dark-hard, matched to the rest of the surface.
 (function () {
@@ -38,8 +38,8 @@
     } catch (_) {}
   }
 
-  // Retract a single claim — the inverse of tell. Draft is "uncommitted", so
-  // moving a card back to Draft means dropping its `committed` claim entirely.
+  // Retract a single fact — the inverse of tell. Draft is "uncommitted", so
+  // moving a card back to Draft means dropping its `committed` fact entirely.
   async function retract(id, pred, obj) {
     try {
       await fetch("/api/retract", {
@@ -50,7 +50,7 @@
     } catch (_) {}
   }
 
-  // The human alias (a mutable claim, separate owner from identity). Subtle,
+  // The human alias (a mutable fact, separate owner from identity). Subtle,
   // monospace, leads the title — matches tern-list.js's handleChip exactly.
   function handleChip(item) {
     if (!item.handle) return null;
@@ -196,14 +196,14 @@
       if (!to) { render(root); return; }            // dropped nowhere → resync
 
       if (to === from) {
-        // WITHIN a column: persist the new order as priority claims (10,20,30…).
+        // WITHIN a column: persist the new order as priority facts (10,20,30…).
         const ids = [...targetCol.querySelectorAll("[data-id]")].map((r) => r.dataset.id);
         await Promise.all(ids.map((id, i) => tell(id, "priority", String((i + 1) * 10))));
         render(root);
         return;
       }
 
-      // CROSS column: set the destination column's defining resolution claim.
+      // CROSS column: set the destination column's defining resolution fact.
       const id = moved.dataset.id;
       if (to === "done") await tell(id, "outcome", "done");
       else if (to === "open") await tell(id, "committed", "true");
@@ -218,9 +218,9 @@
   function liveRefresh(root) {
     let ws;
     // Coalesce a burst of /live frames into ONE refetch. A single commit can
-    // emit several delta frames (one per claim); un-debounced, each would fire
+    // emit several delta frames (one per fact); un-debounced, each would fire
     // a full /api/list refetch+render. The first frame arms a 50ms timer; every
-    // frame arriving while it's pending is absorbed, so an N-claim commit
+    // frame arriving while it's pending is absorbed, so an N-fact commit
     // collapses to exactly one refetch+render (now ~35ms on the JSON wire).
     let timer = null;
     const scheduleRender = () => {
@@ -232,8 +232,8 @@
         const proto = location.protocol === "https:" ? "wss" : "ws";
         ws = new WebSocket(`${proto}://${location.host}/api/live?graph=board`);
         ws.onmessage = (ev) => {
-          // /live carries per-claim delta frames {t:"delta",graph,op,l,p,r}
-          // (a multi-claim commit emits one each) plus the legacy commit/refresh
+          // /live carries per-fact delta frames {t:"delta",graph,op,l,p,r}
+          // (a multi-fact commit emits one each) plus the legacy commit/refresh
           // ping. A delta can't drive a per-card patch — it holds the changed
           // triple, not the thread's derived lifecycle/badges — so delta and
           // ping alike route to the same coalesced refetch.

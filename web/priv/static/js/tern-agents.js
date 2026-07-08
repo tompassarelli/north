@@ -1,7 +1,7 @@
 // Claude-Code-shaped AGENTS panel. Reads /api/agents (the live agent roster) and
 // /api/agents/<handle>/stream (one agent's chat), rendering a two-region view:
 // a roster up top, the selected agent's conversation below. Writes go back via
-// /api/tell — the same claim round-trip the rest of the surface uses. Roster
+// /api/tell — the same fact round-trip the rest of the surface uses. Roster
 // auto-refreshes on the /live WebSocket; the open stream re-polls on a short
 // interval. Everforest-dark-hard, matched to the rest of the surface.
 (function () {

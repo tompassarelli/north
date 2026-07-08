@@ -1,7 +1,7 @@
 // EXP-025 ARENA — the filmable two-arm live task board (control vs graph).
 //
 // One experiment (?exp=<exp_id>), two columns side by side, ONE shared wall
-// clock, task tiles that change colour as their `state` claim moves. Data comes
+// clock, task tiles that change colour as their `state` fact moves. Data comes
 // from /api/arena?exp=…; the changing facets (state/cost/wall) are read fresh
 // server-side each request, so a refetch is always current. Refreshes are PUSH:
 // the /live WebSocket fires on every board commit (coalesced), with a 1.5s
@@ -35,7 +35,7 @@
     return STATE.pending;
   }
 
-  const ARM_LABEL = { control: "CONTROL · git", graph: "GRAPH · claim" };
+  const ARM_LABEL = { control: "CONTROL · git", graph: "GRAPH · fact" };
 
   function el(tag, style, text) {
     const e = document.createElement(tag);
