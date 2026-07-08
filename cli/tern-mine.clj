@@ -12,7 +12,7 @@
 ;;   verb votes    — "No such tool available: X" tool_result errors -> attempted name
 ;;   input errors  — InputValidationError per tool (deferred-tool + param friction)
 ;;   retry loops   — same tool+input fingerprint failing >=3 times w/o a success
-;;   guard denials — graph-owned / racket-build / firn guard + hook blocks
+;;   guard denials — graph-upstream / racket-build / firn guard + hook blocks
 ;;   engine rejects— coordinator "reject:<reason>" replies (e.g. reserved predicate)
 ;;   doc re-reads  — the same .md Read from the top >=3 times in one session
 ;;
@@ -75,7 +75,7 @@
 (defn guard-label [s]
   (let [t (str/triml s)]
     (cond
-      (str/includes? t "This file is GRAPH-OWNED")               "graph-owned-guard"
+      (str/includes? t "This file is GRAPH-OWNED")               "graph-upstream-guard"
       (str/includes? t "Racket version mismatch")                 "racket-build-guard"
       (str/includes? t "Stale bytecode")                          "racket-build-guard"
       (str/starts-with? t "BLOCKED:")                             "firn-guard"

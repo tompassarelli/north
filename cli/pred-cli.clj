@@ -8,7 +8,7 @@
 ;;
 ;; SCOPE NOTE: the registry lives as @pred:* FACTS over the canonical :7977 wire
 ;; (the tern analogue of s/setup!), NOT as an edit to the engine. Engine
-;; fram/schema.bclj is @graph-owned (text edits forbidden) and folding the
+;; fram/schema.bclj is @graph-upstream (text edits forbidden) and folding the
 ;; registry into the daemon's bootstrap is thread B's step — explicitly gated on
 ;; B owning what 'single' means. This thread builds the registry + the lint guard;
 ;; it does NOT touch engine code.
