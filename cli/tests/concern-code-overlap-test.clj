@@ -4,13 +4,13 @@
 ;; Boots a throwaway SPINE board + a throwaway warm CODE daemon (over fram's own
 ;; ingested corpus) and drives bin/concern's CLI end-to-end, asserting:
 ;;   - declare resolves a code-NODE footprint onto the CODE port; the spine carries
-;;     code_port but NEVER a footprint claim (no port partition, acceptance 6);
+;;     code_port but NEVER a footprint fact (no port partition, acceptance 6);
 ;;   - overlap surfaces a caller-coupled peer via the daemon's blast-closure join
 ;;     (a footprint declared seconds ago, no render/merge — acceptance 2/3);
 ;;   - status appends a monotone `reached` maturity level (set-single! is gone, 4);
 ;;   - a repo with no code daemon DEGRADES to the path-string footprint (acceptance 7).
 ;; Daemon-side scope-correctness + rename-stability live in fram's
-;; tests/cnf_concern_overlap_test.clj; this guards the tern CLI seam.
+;; tests/coord_concern_overlap_test.clj; this guards the tern CLI seam.
 ;; SKIPs cleanly if fram's compiled out/ or .fram/code.log is absent.
 ;;   bb cli/tests/concern-code-overlap-test.clj
 ;; ============================================================================
@@ -43,7 +43,7 @@
 (defn spawn [port log tag]
   (p/process {:dir fram :out (io/file (System/getProperty "java.io.tmpdir") (str "concern-cli-" tag ".out"))
               :err :out}
-             "bb" "-cp" "out" "cnf_coord_daemon.clj" "serve-flat" (str port) log))
+             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log))
 (println "booting spine" spine "+ code" cport "concurrently (folding fram corpus — up to ~3 min)…")
 ;; spawn BOTH first so their folds overlap, then wait on both with one budget.
 (def sp (spawn spine spine-log "spine"))
@@ -92,7 +92,7 @@
                   [{:head {:rel "e" :args [{:var "e"}]}
                     :body [{:rel "triple" :args [{:var "c"} "footprint" {:var "e"}]}]}]}})
        :ok (map first) set))
-(check "footprint claims land on the CODE port" (contains? (footprints cport) node))
+(check "footprint facts land on the CODE port" (contains? (footprints cport) node))
 (check "footprint NEVER lands on the spine board (port partition)" (empty? (footprints spine)))
 
 ;; monotone maturity — status appends `reached`, derives the max level (set-single! gone)

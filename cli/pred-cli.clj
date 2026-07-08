@@ -1,14 +1,14 @@
 ;; pred-cli.clj — the @pred:* PREDICATE REGISTRY (Foundation thread 019f100f
 ;; Part C / roadmap decision 10). Predicates become first-class @pred:<name>
 ;; entities carrying cardinality / value_kind / doc / minted_by / minted_at as
-;; claims, with same_as ALIAS edges so a content-addressed rename never orphans
+;; facts, with same_as ALIAS edges so a content-addressed rename never orphans
 ;; history. The registry is the substrate the cardinality keystone (thread B)
 ;; reads from: it is grounded in the SAME single|multi / literal|ref vocabulary
 ;; the engine schema uses (fram.schema setup! / def-predicate!).
 ;;
-;; SCOPE NOTE: the registry lives as @pred:* CLAIMS over the canonical :7977 wire
+;; SCOPE NOTE: the registry lives as @pred:* FACTS over the canonical :7977 wire
 ;; (the tern analogue of s/setup!), NOT as an edit to the engine. Engine
-;; fram/schema.bclj is @claim-canonical (text edits forbidden) and folding the
+;; fram/schema.bclj is @graph-owned (text edits forbidden) and folding the
 ;; registry into the daemon's bootstrap is thread B's step — explicitly gated on
 ;; B owning what 'single' means. This thread builds the registry + the lint guard;
 ;; it does NOT touch engine code.
@@ -53,9 +53,9 @@
   [;; --- registry meta-predicates (the registry describes itself) ---
    ;; NOTE: stored under pred_cardinality / pred_value_kind, NOT the bare
    ;; cardinality / value_kind. The engine RESERVES those four names
-   ;; (#{name cardinality value_kind cnf-supersedes}) and FILTERS any domain
-   ;; claim using them out of the flat-log replay (cnf_coord_daemon L1468/L1474),
-   ;; so an @pred:X cardinality claim is silently dropped on the next reload. The
+   ;; (#{name cardinality value_kind store-supersedes}) and FILTERS any domain
+   ;; fact using them out of the flat-log replay (coord_daemon L1468/L1474),
+   ;; so an @pred:X cardinality fact is silently dropped on the next reload. The
    ;; grounding is the VALUE vocabulary (single|multi, literal|ref), unchanged.
    ["pred_cardinality" "single" "literal" "single|multi — is this predicate single-valued?"]
    ["pred_value_kind"  "single" "literal" "literal|ref — interned value vs @-ref object"]
@@ -106,7 +106,7 @@
    ["reached" "multi"  "literal" "monotone maturity level a concern has reached (exploring|building|likely-to-land|landed); status = max level (decision 8: status is derived, never set)"]
    ["driver"  "single" "ref"     "the @handle currently driving a thread/concern (presence ⇒ active)"]
    ["touches" "multi"  "literal" "file paths a concern touches (display label + the path-string footprint fallback for non-flipped repos)"]
-   ["footprint" "multi" "ref"    "code NODE (@mod#n) in a concern's footprint — the cross-frame bridge (thread 019f1010-2705); asserted on the repo's warm CODE port, joined via the daemon's calls_defn blast closure (calls_defn itself is a fram daemon-internal derived edge, not a :7977 claim)"]
+   ["footprint" "multi" "ref"    "code NODE (@mod#n) in a concern's footprint — the cross-frame bridge (thread 019f1010-2705); asserted on the repo's warm CODE port, joined via the daemon's calls_defn blast closure (calls_defn itself is a fram daemon-internal derived edge, not a :7977 fact)"]
    ["code_port" "single" "literal" "port of the repo's warm code daemon, so a reader finds where a concern's footprint code store lives"]
    ;; --- fan-out / barrier (tern-map) ---
    ["batch_kind"     "single" "literal" "kind of fan-out batch"]
@@ -162,7 +162,7 @@
         (recur (pred-name al) (conj seen cur))
         cur))))
 
-;; every @pred:<name> that has a cardinality claim in the live graph.
+;; every @pred:<name> that has a cardinality fact in the live graph.
 (defn graph-pred-names [port]
   (->> (:ok (send-op port {:op :query
                            :query {:find "e"

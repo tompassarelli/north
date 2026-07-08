@@ -2,7 +2,7 @@
 ;;
 ;; Cognitive telemetry miner (thread 019f2036-3ca4): the stack learns from its own
 ;; operating record. Streams Claude Code session transcripts (~/.claude/projects/**/*.jsonl)
-;; and extracts per-session STRUGGLE SIGNALS, then appends them AS CLAIMS through the
+;; and extracts per-session STRUGGLE SIGNALS, then appends them AS FACTS through the
 ;; coordinator — the mining dual of sdk/src/telemetry.ts (which records run tuples) and
 ;; sdk/src/struggle.ts (which scores a LIVE run; same fingerprint scheme, applied post-hoc).
 ;;
@@ -12,14 +12,14 @@
 ;;   verb votes    — "No such tool available: X" tool_result errors -> attempted name
 ;;   input errors  — InputValidationError per tool (deferred-tool + param friction)
 ;;   retry loops   — same tool+input fingerprint failing >=3 times w/o a success
-;;   guard denials — claim-canonical / racket-build / firn guard + hook blocks
+;;   guard denials — graph-owned / racket-build / firn guard + hook blocks
 ;;   engine rejects— coordinator "reject:<reason>" replies (e.g. reserved predicate)
 ;;   doc re-reads  — the same .md Read from the top >=3 times in one session
 ;;
-;; Claims land on a titleless "@mine:<transcript-stem>" subject (the @run:* pattern —
+;; Facts land on a titleless "@mine:<transcript-stem>" subject (the @run:* pattern —
 ;; queryable via fram, invisible to the work views). Predicate vocabulary is kept SMALL,
 ;; reusing kind/session_id/repo/at/error_count/note; the one minted predicate is
-;; `verb_vote` (multi, one claim per attempted name per session — a session votes once).
+;; `verb_vote` (multi, one fact per attempted name per session — a session votes once).
 ;;
 ;; IDEMPOTENT by construction: subjects are deterministic, objects are deterministic
 ;; (counts inside notes are BUCKETED so a still-growing session doesn't mint rivals),
@@ -31,7 +31,7 @@
 ;; error reasons are recorded, never message content.
 ;;
 ;; All writes go through the coordinator socket (cli/coord.clj append!/put!) — never
-;; the claims.log directly. Streaming line-reader; snapshot lines and >8MB lines are
+;; the facts.log directly. Streaming line-reader; snapshot lines and >8MB lines are
 ;; skipped unparsed; per-file line cap keeps a pathological transcript bounded.
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
@@ -75,7 +75,7 @@
 (defn guard-label [s]
   (let [t (str/triml s)]
     (cond
-      (str/includes? t "This file is CLAIM-CANONICAL")            "claim-canonical-guard"
+      (str/includes? t "This file is GRAPH-OWNED")               "graph-owned-guard"
       (str/includes? t "Racket version mismatch")                 "racket-build-guard"
       (str/includes? t "Stale bytecode")                          "racket-build-guard"
       (str/starts-with? t "BLOCKED:")                             "firn-guard"
@@ -192,8 +192,8 @@
   (boolean (seq (concat votes input-val rejects retries guards rereads))))
 
 ;; ---------------------------------------------------------------------------
-;; claim emission — @mine:<stem>, existing predicates + the one minted `verb_vote`
-(defn emit-claims! [port {:keys [stem session-id cwd last-ts error-count
+;; fact emission — @mine:<stem>, existing predicates + the one minted `verb_vote`
+(defn emit-facts! [port {:keys [stem session-id cwd last-ts error-count
                                  votes input-val rejects retries guards rereads]}]
   (let [te (str "@mine:" stem)
         note! (fn [s] (tern.coord/append! port te "note" s))]
@@ -294,7 +294,7 @@
         (when u
           (vswap! units conj u)
           (when (and (findings? u) (not dry?))
-            (emit-claims! port u))
+            (emit-facts! port u))
           (vswap! state' assoc (.getPath f) {:mtime (.lastModified f) :size (.length f)}))))
     (when-not dry? (save-state! @state'))
     (let [us @units

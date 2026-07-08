@@ -27,7 +27,7 @@
 (def ^:private OWNER (or (first args) "msa"))
 (def ^:private INV-FILTER (second args))                 ; nil = all invoices
 (def ^:private LOG (or (System/getenv "FRAM_LOG")
-                       (str (System/getenv "HOME") "/.local/state/tern/claims.log")))
+                       (str (System/getenv "HOME") "/.local/state/tern/facts.log")))
 
 (defn- strip-at [s] (if (and s (str/starts-with? s "@")) (subs s 1) s))
 (defn- iso->sec [s] (.getEpochSecond (Instant/parse s)))

@@ -33,7 +33,7 @@
 (def ^:private TERN (or (System/getenv "TERN_HOME")
                         (str (System/getenv "HOME") "/code/tern")))
 (def ^:private LOG (or (System/getenv "FRAM_LOG")
-                       (str (System/getenv "HOME") "/.local/state/tern/claims.log")))
+                       (str (System/getenv "HOME") "/.local/state/tern/facts.log")))
 
 (defn- strip-at [s] (if (and s (str/starts-with? s "@")) (subs s 1) s))
 (defn- tell! [id pred val]

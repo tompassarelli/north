@@ -1,17 +1,17 @@
 ;; tern-map.clj — deterministic FAN-OUT + BARRIER. Sibling to
 ;; presence-cli/msg-cli/lease-cli; speaks the SAME daemon wire (:assert / :version / :query /
 ;; :resolved). The capability that replaces Anthropic Workflow's parallel: spawn N workers
-;; under ONE batch claim, then BLOCK on a derived "K-of-N DONE" barrier and surface the payloads.
+;; under ONE batch fact, then BLOCK on a derived "K-of-N DONE" barrier and surface the payloads.
 ;;
-;; Model (all claims, no new daemon verbs):
+;; Model (all facts, no new daemon verbs):
 ;;   @batch:<id>  batch_kind=fan-out  expected_count=N  barrier_k=K  role_template=..  task=..
-;;                created_at=..  worker=<handle>          (one `worker` claim per spawned worker)
+;;                created_at=..  worker=<handle>          (one `worker` fact per spawned worker)
 ;;   @done:<id>:<worker>  done_batch=@batch:<id>  done_worker=<handle>  done_payload=..  done_at=..
 ;;
 ;; The BARRIER is the count-distinct QUORUM — coord.clj's first-class incremental
 ;; aggregate (the completion DUAL of mutual exclusion). distinct workers that emitted a
 ;; DONE against the batch. complete? := (count distinct-done-workers) >= K. Set semantics
-;; collapse a worker that reports twice — the barrier counts WORKERS, not claims. Budget
+;; collapse a worker that reports twice — the barrier counts WORKERS, not facts. Budget
 ;; (Sigma) is the SAME primitive with the sum reducer instead of count-distinct.
 ;;
 ;; usage:
@@ -98,7 +98,7 @@
       (when has-schema (put! port e "done_schema" schema))   ; rec4: payload contract for every DONE
       (doseq [i (range 1 (inc n))]
         (let [slug (str tmpl "-" id "-" i)]
-          (append! port e "worker" slug)            ; multi — membership claim (one per spawned worker)
+          (append! port e "worker" slug)            ; multi — membership fact (one per spawned worker)
           (when spawn?
             (sh "bb" (str scratch "/presence-cli.clj") (str port) "define-role" slug "exclusive"
                 (str "fan-out worker " i "/" n " of " id))
@@ -123,7 +123,7 @@
           be (batch-ent id)
           de (str "@done:" (str/replace be #"^@batch:" "") ":" worker)
           ;; rec4 GATE: if the batch carries a schema, the payload must conform BEFORE we record the
-          ;; DONE. A reject does NOT assert any @done:* claim, so the K-of-N barrier cannot advance on
+          ;; DONE. A reject does NOT assert any @done:* fact, so the K-of-N barrier cannot advance on
           ;; malformed output — exit 3 + retry instruction is the agent's signal to re-run with a fix.
           ;; No schema => validate-json returns valid (:no-schema), identical to pre-rec4 behavior.
           schema (one port be "done_schema")

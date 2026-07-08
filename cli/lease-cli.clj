@@ -1,7 +1,7 @@
 ;; lease-cli.clj — agent-side Tern lease helper (P0 shadow).
 ;; Speaks the daemon lease WIRE verbs (b619283): :acquire-lease / :release-lease / :fence-ok / :status.
 ;; This is the contract every agent session uses to take the build mutex over the socket
-;; INSTEAD of dropping ~/code/agentchat/claims/BUILD-LOCK-<agent>.md.
+;; INSTEAD of dropping a per-agent BUILD-LOCK-<agent>.md lockfile.
 ;;
 ;; usage:
 ;;   bb lease-cli.clj <port> acquire <res> <holder> <ttl-ms>

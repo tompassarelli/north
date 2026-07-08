@@ -1,4 +1,4 @@
-;; presence-cli.clj — presence-as-claims (Tern gate-2 #30).
+;; presence-cli.clj — presence-as-facts (Tern gate-2 #30).
 ;;
 ;; THE TRICK: presence = a renewable LEASE. Liveness is judged by the COORDINATOR's
 ;; clock (the lease expiry), never a self-stamped wall-clock heartbeat. This kills
@@ -6,8 +6,8 @@
 ;; agent's lease simply lapses and online? flips false on its own.
 ;;
 ;; Sibling to lease-cli.clj. Wire (daemon b619283): :assert/:version/:acquire-lease/:resolved/:query.
-;; A session is @session:<handle> (descriptive claims); liveness = lease on resource
-;; session:<handle> -> claim @lease:session:<handle> = "holder|exp|epoch".
+;; A session is @session:<handle> (descriptive facts); liveness = lease on resource
+;; session:<handle> -> fact @lease:session:<handle> = "holder|exp|epoch".
 ;;
 ;; usage:
 ;;   bb presence-cli.clj <port> register <handle> <dir> <session_id>
@@ -53,7 +53,7 @@
       now  (System/currentTimeMillis)]      ; same machine as coord -> agent-now ~ coord-now
   (case verb
     "register"
-    ;; SESSION-START claims (agent/dir/session_id/started_at) are written ONCE per
+    ;; SESSION-START facts (agent/dir/session_id/started_at) are written ONCE per
     ;; session — NOT on every register. The PostToolUse hook calls `register` on every
     ;; tool call to renew the liveness lease; before this guard it ALSO re-put!
     ;; started_at with a fresh (Instant/now) each time, and since started_at is single-
@@ -81,7 +81,7 @@
 
     ;; ===========================================================================
     ;; AGENT REGISTRY. Handle is an opaque uuid (an ADDRESS, never a name). Identity is a
-    ;; COLLECTION OF ROLES (@role:<slug> claims), each exclusive (one holder,
+    ;; COLLECTION OF ROLES (@role:<slug> facts), each exclusive (one holder,
     ;; lease-enforced) or inclusive (shared). You ADDRESS a role (routes to its
     ;; holder) or a uuid; the uuid is just the non-colliding instance id.
     ;; ===========================================================================
@@ -90,7 +90,7 @@
     ;; intended semantics is last-writer-wins, hence put!. They are not yet in the
     ;; engine's FRAM_SINGLE_VALUED set, so the engine still treats them as multi — put!
     ;; here is presently wire-identical to a bare append; the LWW becomes native once
-    ;; thread B folds these into the engine cardinality CLAIM. Verb names the intent.
+    ;; thread B folds these into the engine cardinality FACT. Verb names the intent.
     (let [[h model effort ctx life sup] args, ae (str "@agent:" h)]
       (when (and model  (seq model))  (put! port ae "model" model))           ; single
       (when (and effort (seq effort)) (put! port ae "effort" effort))         ; single
@@ -134,7 +134,7 @@
               :note "exclusive resolved by coexist-elect (earliest holder wins; see `holders`)"})
         (prn {:assigned re :to h :exclusive false})))
 
-    "unassign"                              ; <uuid> <slug>  — drop the holds claim (no lease)
+    "unassign"                              ; <uuid> <slug>  — drop the holds fact (no lease)
     (let [[h slug] args, ae (str "@agent:" h), re (str "@role:" slug)]
       (retract! port ae "holds" re)
       (prn {:unassigned re :from h}))
@@ -280,13 +280,13 @@
         "RED"    (println (str "DISPATCH: consider MIGRATE_FROM — spawn fresh with\n"
                                "  MIGRATE_FROM=" h " to inherit roles + drain inbox"))))
 
-    "forget"                                ; deregister: retract session claims + release the lease
+    "forget"                                ; deregister: retract session facts + release the lease
     (let [[h] args, se (str "@session:" h)]
       (doseq [p ["agent" "dir" "session_id" "started_at" "task"]]
         (when-let [v (resolved port se p)] (retract! port se p v)))
       (prn (send-op port {:op :release-lease :res (str "session:" h) :holder h})))
 
-    "cost"                                  ; per-run real $ cost -> claim on the agent graph (per-task token tracking)
+    "cost"                                  ; per-run real $ cost -> fact on the agent graph (per-task token tracking)
     (let [[h sid c] args re (str "@run:" sid)]
       (put! port re "agent" h)                     ; single (write-once on a fresh @run)
       (put! port re "cost_usd" (or c "0"))         ; single
@@ -303,7 +303,7 @@
         (append! port re (name k) (str v)))        ; DYNAMIC pred -> append! (safe default)
       (prn {:recorded re :agent h :fields (count m)}))
 
-    ;; --- subscriptions: thread-watches as claims (consumed by tern-listen.clj) ---
+    ;; --- subscriptions: thread-watches as facts (consumed by tern-listen.clj) ---
     ;; subject = the agent's self node @<handle> (its self-reference channel is implicit; this
     ;; ADDS threads beyond it). multi-valued: an agent watches many threads.
     "watch"                                 ; <uuid> <thread-ref>  — subscribe to a thread

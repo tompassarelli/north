@@ -1,11 +1,11 @@
-;; claim-cli.clj <port> {claim|release|status} <thread> [holder]
-;; Atomic work-claiming WITHOUT a lease (thread 019f100f-eefe). The @lease:<thread>
-;; work-claim lease is DELETED: driving a thread is GRAPH-INTERNAL, so it collapses onto
-;; DECLARED-SINGLE — `driver` is a single-valued cardinality claim, and the engine's own
+;; acquire-cli.clj <port> {acquire|release|status} <thread> [holder]
+;; Atomic work acquisition WITHOUT a lease (thread 019f100f-eefe). The @lease:<thread>
+;; work-acquire lease is DELETED: driving a thread is GRAPH-INTERNAL, so it collapses onto
+;; DECLARED-SINGLE — `driver` is a single-valued cardinality fact, and the engine's own
 ;; per-(subject,predicate) base-version reject IS the mutual exclusion. Two agents racing
 ;; to drive the SAME thread both pass the empty-group base (0); the writer serialized first
 ;; wins, the second's now-stale base is rejected (:conflict). No @lease:, no epoch/ttl — a
-;; stuck driver is force-released (release) or reclaimed by derived liveness (thread G).
+;; stuck driver is force-released (release) or re-acquired by derived liveness (thread G).
 ;; acquire-lease!/lease-cli survive ONLY for EXTERNAL resources (build dir / external API),
 ;; never a graph-internal subject like @lease:<thread>.
 (require '[clojure.edn :as edn] '[clojure.java.io :as io])
@@ -20,13 +20,13 @@
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt ps)]
   (case verb
-    "claim"                              ; <thread> <holder> — declared-single driver claim
+    "acquire"                            ; <thread> <holder> — declared-single driver fact
     (let [[thread holder] args
           me  (str "@" holder)
           cur (driver-of port thread)]
       (cond
         (= cur me)                       ; already mine — idempotent re-drive, no write
-        (println (format "CLAIMED %s by %s (already held)" thread holder))
+        (println (format "ACQUIRED %s by %s (already held)" thread holder))
 
         (some? cur)                      ; driven by someone else — read-check denial
         (do (println (format "DENIED %s — driven by %s" thread cur)) (System/exit 1))
@@ -38,7 +38,7 @@
           (if (:reject r)
             (do (println (format "DENIED %s — lost the race (driver=%s)" thread (driver-of port thread)))
                 (System/exit 1))
-            (println (format "CLAIMED %s by %s" thread holder))))))
+            (println (format "ACQUIRED %s by %s" thread holder))))))
 
     "release"                            ; <thread> <holder> — only the live driver may release
     (let [[thread holder] args
@@ -54,4 +54,4 @@
     (let [[thread] args]
       (println (format "%s driver=%s" thread (or (driver-of port thread) "(none)"))))
 
-    (do (println "usage: claim-cli.clj <port> {claim|release|status} <thread> [holder]") (System/exit 2))))
+    (do (println "usage: acquire-cli.clj <port> {acquire|release|status} <thread> [holder]") (System/exit 2))))

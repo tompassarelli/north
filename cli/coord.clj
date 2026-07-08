@@ -6,7 +6,7 @@
 ;; coordination silently diverges. This is the single definition they all load.
 ;;
 ;; WRITE VERBS — cardinality-typed (move-C). The one global-version CAS ritual that
-;; every assert! cargo-culted (read GLOBAL :version, pass it as the per-claim base,
+;; every assert! cargo-culted (read GLOBAL :version, pass it as the per-fact base,
 ;; retry) is GONE. It is replaced by three verbs whose choice is the predicate's
 ;; cardinality, NOT a base dance:
 ;;   append!  MULTI            one op, NO base, NO retry  — rival/disjoint writes
@@ -52,7 +52,7 @@
 
 ;; put! — SINGLE last-writer-wins: one wire op, NO base. For a pred the engine has
 ;; declared single this SUPERSEDES the prior live value (LWW). Wire-identical to
-;; append!; the cardinality CLAIM (engine-side) — not this verb — decides append-vs-
+;; append!; the cardinality FACT (engine-side) — not this verb — decides append-vs-
 ;; supersede, so the verb names the call site's INTENT. A no-base write is never
 ;; staleness-rejected (base-optional engine), which IS the LWW contract.
 (defn put! [port te p r]
@@ -81,7 +81,7 @@
 (defn many     [port te p] (:values (send-op port {:op :resolved :te te :p p})))
 
 ;; --- presence liveness: the renewable-LEASE rule (presence-cli #30 is the origin) ---
-;; A session's liveness is a lease claim @lease:session:<h> = "holder|exp|epoch"; the
+;; A session's liveness is a lease fact @lease:session:<h> = "holder|exp|epoch"; the
 ;; agent is ONLINE iff that lease's exp is still in the FUTURE by the coordinator's clock
 ;; (never a self-stamped heartbeat — a crashed agent's lease simply lapses). Factored here
 ;; so the presence roster (presence-cli) and any consumer that must judge liveness — e.g.
@@ -182,11 +182,11 @@
   [port k project body] (>= (count-distinct port project body) k))
 
 ;; ============================================================================
-;; COMMAND-AS-CLAIMS — the pending-command rule (single source).
+;; COMMAND-AS-FACTS — the pending-command rule (single source).
 ;;
 ;; Roadmap tier I: a command is NOT an opaque {:op :args} body blob with a
-;; parse-envelope parser duplicated across msg-cli + tern-listen. It is CLAIMS
-;; on @cmd:<id> — `op` + `target` (the routing handle) + one claim per arg. PENDING
+;; parse-envelope parser duplicated across msg-cli + tern-listen. It is FACTS
+;; on @cmd:<id> — `op` + `target` (the routing handle) + one fact per arg. PENDING
 ;; = has op+target, NO acked_by. This stratified Datalog rule is the forward-chaining
 ;; match BOTH the sender's `cmds` listing and the reactor drive off; it lives ONCE
 ;; here so the duplication this redesign deletes can never reappear as a copied query.

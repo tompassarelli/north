@@ -1,10 +1,10 @@
 ;; tern-listen.clj <uuid> [--once] [--ack] — dormant-until-pinged listener.
 ;;
-;; Claim-native pub/sub, client-side. An agent is @agent:<uuid> (an opaque address). Its SCOPE is:
+;; Fact-native pub/sub, client-side. An agent is @agent:<uuid> (an opaque address). Its SCOPE is:
 ;;   self-channel : a commit (to ∈ {uuid} ∪ {roles it HOLDS} ∪ {"*"})  — a message to it
 ;;   watched thread: a commit whose SUBJECT is a thread it watches                  — that thread moved
 ;; You ADDRESS a role (e.g. `to fram-engine`) and it routes to the current holder — agents are
-;; fungible, roles are the stable address. holds/watches are claims (@agent:<uuid> holds @role:…
+;; fungible, roles are the stable address. holds/watches are facts (@agent:<uuid> holds @role:…
 ;; / watches @thread), so an assign/unassign/watch/unwatch LIVE-updates the scope with NO reconnect.
 ;; The daemon's :subscribe firehoses every commit (it ignores :filter); ALL matching is here. Dormant on
 ;; the socket between pushes: zero poll, zero tokens until something is actually addressed.
@@ -35,7 +35,7 @@
 ;; The REAL resource is spend, not concurrency: N agents looping forever still burn
 ;; infinite credits. The binding limit is a declarative COST BUDGET: @swarm
 ;; budget_total (a USD ceiling) set once. Spend is a DERIVED SUM — Σ(@run:* cost_usd),
-;; folded from the immutable per-run cost claims presence-cli already writes — never a
+;; folded from the immutable per-run cost facts presence-cli already writes — never a
 ;; mutated budget_spent cell or a :bump op (that counter duplicated derivable state and
 ;; had to stay in sync with budget.ts). The reactor GATES on remaining()>0 before it
 ;; shells a real agent. No budget_total set => unbounded.
@@ -46,7 +46,7 @@
 ;; same budget the executors' costs roll up to.
 (def budget-subj (or (System/getenv "TERN_BUDGET") "@swarm"))
 (defn spent-sum
-  "Σ(@run:* cost_usd) — live spend folded from immutable per-run cost claims via the
+  "Σ(@run:* cost_usd) — live spend folded from immutable per-run cost facts via the
    shared SUM reducer (coord/sum-rows). cost_usd subjects are scoped to @run: with a
    client-side prefix the scan body can't express, then folded as [run cost] rows so
    equal-cost runs stay distinct (a value-only fold would dedup + under-count)."
@@ -60,7 +60,7 @@
   (when-let [total (parse-double (str (or (rf port budget-subj "budget_total") "")))]
     (- total (spent-sum port))))
 (defn live-drivers
-  "count-distinct subjects carrying a live `driver` claim — the derived concurrency
+  "count-distinct subjects carrying a live `driver` fact — the derived concurrency
    ceiling, replacing the @swarm-slot semaphore. The SAME count-distinct QUORUM
    (coord.clj) tern-map's K-of-N barrier folds: the ceiling is a quorum over drivers."
   [port]
@@ -80,15 +80,15 @@
       (do (println (str "   ⚙ run " label (when rem (str ", budget ~$" rem " left")) " (" live " live drivers)")) (flush)
           (thunk)))))
 
-;; --- Phase 1: the reactor — a forward-chaining rule over claim-patterns ------
+;; --- Phase 1: the reactor — a forward-chaining rule over fact-patterns ------
 ;; The reactor NO LONGER string-parses a command envelope (the parse-envelope copy that
-;; "MUST stay in sync" with msg-cli is DELETED). A command is CLAIMS on @cmd:<id>; the
+;; "MUST stay in sync" with msg-cli is DELETED). A command is FACTS on @cmd:<id>; the
 ;; reactor matches PENDING ones (op+target, NOT acked_by) via the shared Datalog rule
-;; (coord/pending-cmds) and reads each arg as a claim with rf — no parsing, no settle sleep.
+;; (coord/pending-cmds) and reads each arg as a fact with rf — no parsing, no settle sleep.
 (def sdk (or (System/getenv "TERN_SDK") (str (System/getenv "HOME") "/code/tern/sdk")))
 
 ;; EXECUTE one command (cmd = @cmd:<id>): REUSE dispatch.ts/spawn.ts as the executor. Args are
-;; read off the command's claims, not an envelope map. `self` = the reactor's handle (its uuid),
+;; read off the command's facts, not an envelope map. `self` = the reactor's handle (its uuid),
 ;; passed as AGENT_ID so any command_peer a spawned/dispatched agent emits is attributed to the
 ;; real handle (not a generated sdk-* id) — required for multi-hop routing/acks.
 (defn react! [port self op cmd]
@@ -104,21 +104,21 @@
                           (println (str "   ⚙ dispatch thread " thread))
                           (proc/shell {:dir sdk :continue true :extra-env {"AGENT_ID" self}}
                                       "bun" "src/dispatch.ts" (str thread)))))
-    ;; tell — the most claim-native op: assert a single claim (id pred value). No executor.
+    ;; tell — the most fact-native op: assert a single fact (id pred value). No executor.
     "tell"     (let [id (rf port cmd "id") pred (rf port cmd "pred") value (rf port cmd "value")]
                  (append! port id pred value)
                  (println (str "   ✓ told " id " " pred " " value)))
-    ;; claim — work-claim WITHOUT a reactor lease (the @lease:<thread> acquire-lease is DELETED,
-    ;; roadmap tier I + §3.5). A `driver` claim on the resource IS the lock (declared-single,
-    ;; last-writer-wins): graph-internal mutual exclusion collapses onto a claim, no parallel lease.
-    "claim"    (let [res (rf port cmd "resource") holder (or (rf port cmd "holder") (rf port cmd "from") self)
+    ;; acquire — work-acquire WITHOUT a reactor lease (the @lease:<thread> acquire-lease is DELETED,
+    ;; roadmap tier I + §3.5). A `driver` fact on the resource IS the lock (declared-single,
+    ;; last-writer-wins): graph-internal mutual exclusion collapses onto a fact, no parallel lease.
+    "acquire"  (let [res (rf port cmd "resource") holder (or (rf port cmd "holder") (rf port cmd "from") self)
                      subj (if (str/starts-with? (str res) "@") res (str "@" res))]
                  (put! port subj "driver" holder)
-                 (println (str "   ✓ claimed " subj " driver=" holder)))
+                 (println (str "   ✓ acquired " subj " driver=" holder)))
     (println (str "   ⚠ op " op " not wired in the reactor"))))
 
 ;; The forward-chaining loop: every PENDING command targeting one of my addrs -> execute,
-;; ack (acked_by removes it from the pending set — exactly-once), and reply with a CLAIM
+;; ack (acked_by removes it from the pending set — exactly-once), and reply with a FACT
 ;; (validated by the coordinator's existing commit rule-check, not a JSON-Schema sidecar).
 (defn react-pending! [port self addrs]
   (doseq [[cmd op tgt] (sort (or (tern.coord/pending-cmds port) []))]
@@ -126,7 +126,7 @@
       (println (format "⚙  REACT %s  op=%s  (target %s, from %s)" cmd op tgt (or (rf port cmd "from") "?"))) (flush)
       (react! port self op cmd)
       (ack! port self cmd)
-      (append! port cmd "reply" (str op " executed by " self))   ; reply = a claim
+      (append! port cmd "reply" (str op " executed by " self))   ; reply = a fact
       (println (str "   ↳ executed + acked_by " self)) (flush))))
 
 (let [[ps uuid & flags] *command-line-args*

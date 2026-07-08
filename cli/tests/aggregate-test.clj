@@ -23,7 +23,7 @@
     (let [de (str b ":" d)]
       (co/put! port de "agg_done_batch" b)
       (co/put! port de "agg_done_worker" w)))
-  (chk "count-distinct collapses a double-reporting worker (3 distinct, 4 claims)"
+  (chk "count-distinct collapses a double-reporting worker (3 distinct, 4 facts)"
        (= 3 (co/count-distinct port ["w"] done-body)))
   (chk "distinct-of returns the SET (for missing-member diffs)"
        (= #{"w1" "w2" "w3"} (co/distinct-of port ["w"] done-body)))

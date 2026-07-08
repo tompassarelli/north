@@ -1,4 +1,4 @@
-;; tern-reconcile.clj — telemetry reconciliation: reads all @run:* claims, surfaces
+;; tern-reconcile.clj — telemetry reconciliation: reads all @run:* facts, surfaces
 ;; estimate-vs-actual drift, cost distribution, model-tier patterns. This is the CONSUMER
 ;; that closes the feedback loop — without it, runmeta data is inert.
 ;;

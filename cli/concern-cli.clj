@@ -7,13 +7,13 @@
 ;;
 ;; FOOTPRINT = CODE-GRAPH BLAST JOINS over node IDENTITY (thread 019f1010-2705). On a
 ;; FLIPPED Beagle repo (a warm fram code daemon is up), a concern's footprint is
-;; `footprint` bridge claims FROM @concern:<id> TO @mod#n code NODES, asserted into the
+;; `footprint` bridge facts FROM @concern:<id> TO @mod#n code NODES, asserted into the
 ;; repo's warm CODE store; "who else is in my footprint" is then a recursive reaches
 ;; :query (the daemon's :concern-overlap) — scope-correct (same-named fns in different
 ;; modules never false-overlap), rename-stable (keyed on node identity), and it SEES a
-;; peer's committed-but-unrendered footprint claim with no render and no merge. The spine
+;; peer's committed-but-unrendered footprint fact with no render and no merge. The spine
 ;; (title/intent/agent/driver/repo/code_port + monotone `reached` maturity) lives on the
-;; :7977 board; the high-frequency footprint claims shard onto the per-repo code daemon —
+;; :7977 board; the high-frequency footprint facts shard onto the per-repo code daemon —
 ;; the shared @concern:<id> string bridges the two jurisdictions, no distributed tx.
 ;; A NON-flipped repo (no code daemon) DEGRADES to the path-string footprint + intersection.
 ;;
@@ -44,14 +44,14 @@
 (def online?  tern.coord/online?)   ; renewable-lease liveness — same rule as the presence roster
 
 ;; port coercion: coord/send-op does (int port), so every port must be a NUMBER, never a
-;; string (env vars + the stored code_port claim arrive as strings).
+;; string (env vars + the stored code_port fact arrive as strings).
 (defn ->port [p] (cond (nil? p) nil (number? p) p :else (Integer/parseInt (str p))))
 ;; the per-repo CODE daemon port (bin/concern discovers + exports it); nil => path fallback.
 (def code-port (let [p (System/getenv "TERN_CODE_PORT")] (when (and p (seq p)) (->port p))))
 
-;; concern-id args arrive from humans/agents in either form; every claim subject in
+;; concern-id args arrive from humans/agents in either form; every fact subject in
 ;; the log carries the @ sigil, so a bare id here writes to a PHANTOM bare node —
-;; the split-brain that stranded `reached landed` claims invisibly (2026-07-02).
+;; the split-brain that stranded `reached landed` facts invisibly (2026-07-02).
 (defn norm-cid [c] (if (or (nil? c) (str/starts-with? c "@")) c (str "@" c)))
 
 ;; one-column datalog query: bind ?e in `body`, return the column
@@ -62,7 +62,7 @@
        (map first)))
 
 ;; ---- monotone maturity (decision 8: status is DERIVED, never SET) -----------
-;; `reached` is an append-only, multi-valued ladder claim; status = the MAX level reached.
+;; `reached` is an append-only, multi-valued ladder fact; status = the MAX level reached.
 ;; Double-report is idempotent; full history is retained; no set-single! retract-then-put.
 (def maturity ["exploring" "building" "likely-to-land" "landed"])
 (def maturity-idx (into {} (map-indexed (fn [i m] [m i]) maturity)))
@@ -171,7 +171,7 @@
     "declare"
     (let [[agent repo intent files] args
           fs (->> (str/split (or files "") #",") (map str/trim) (remove str/blank?))
-          ;; @ sigil: every thread id in the claims log carries it; a bare id here made
+          ;; @ sigil: every thread id in the facts log carries it; a bare id here made
           ;; fram's export strip the wrong char. Old bare-id concerns are tolerated, not rewritten.
           id (str "@concern-" (System/currentTimeMillis) "-" (subs (str (java.util.UUID/randomUUID)) 0 4))]
       ;; spine on the :7977 board (low-frequency declare/maturity); footprint NEVER lands here.
@@ -187,7 +187,7 @@
       (when code-port (put! port id "code_port" (str code-port)))   ; so a reader finds the code store
       (doseq [f fs] (append! port id "touches" f))         ; display labels (+ the fallback footprint)
       (append! port id "reached" "building")               ; monotone maturity — NOT set-single!
-      ;; footprint = code-node bridge claims, on the CODE port (flipped repos only).
+      ;; footprint = code-node bridge facts, on the CODE port (flipped repos only).
       (if code-port
         (let [resolved-pairs (map (fn [f] [f (resolve-node code-port f)]) fs)
               hits (filter second resolved-pairs)

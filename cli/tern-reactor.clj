@@ -2,18 +2,18 @@
 ;; ============================================================================
 ;; tern-reactor.clj <port> [debounce-ms] — COORDINATOR AUTO-EXPORT.
 ;;
-;; The threads/*.md files are a PROJECTION of the claim log, but freshness was
+;; The threads/*.md files are a PROJECTION of the fact log, but freshness was
 ;; MANUAL (`tern export`/`heal`) and forbidden during concurrent work — so every
 ;; write that didn't self-render (`fram tell`, the MCP tell tool, and the CLI
 ;; spokes concern/presence/msg/lease that write via the daemon socket) left the
-;; file lagging the log. That lag ACCUMULATED (348 stale claims in one day) until
+;; file lagging the log. That lag ACCUMULATED (348 stale facts in one day) until
 ;; a human ran `heal`, and doctor screamed DEGRADED at every boot for the benign
 ;; drift. This reactor kills the class at the root: it treats the coordinator's
 ;; commit stream as the trigger and re-projects touched threads automatically, so
 ;; files NEVER lag the log and no client ever has to remember to render.
 ;;
 ;; HOW: the daemon already firehoses every commit to :subscribe subscribers
-;; (cnf_coord_daemon notify-subs!). We subscribe (nil filter = firehose), coalesce
+;; (coord_daemon notify-subs!). We subscribe (nil filter = firehose), coalesce
 ;; a burst of commits behind a short debounce, then shell the SAME `tern heal` a
 ;; human runs — byte-identical to `tern export` (both render via fram.export/
 ;; thread-md) and FAIL-CLOSED on genuine hand edits (a human decides those). heal
