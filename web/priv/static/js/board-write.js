@@ -423,7 +423,7 @@ function _wakePushSelection(eid) {
             const titleEl = document.createElement('h1');
             titleEl.className = 'text-lg font-semibold text-foreground';
           
-  titleEl.textContent = "board · claims-native write";
+  titleEl.textContent = "board · facts-native write";
   headerEl.appendChild(titleEl);
 
             const statsEl = document.createElement('div');

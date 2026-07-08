@@ -126,7 +126,7 @@
    oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count claims)) (do
   (fram.rt/spit-file path (exp/thread-md (:claims (fold/fold (fram.rt/read-log log))) te))
-  (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " claims via coordinator. Next: tern tell " id " <pred> <value>"))) (println (str "capture PARTIAL: only " oks "/" (count claims) " claim(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files."))))))))))
+  (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via coordinator. Next: tern tell " id " <pred> <value>"))) (println (str "capture PARTIAL: only " oks "/" (count claims) " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files."))))))))))
 
 (defn- ^Boolean id-like? [^String bare]
   (and (not (str/blank? bare)) (str/blank? (str/replace bare #"[0-9a-f-]" "")) (or (str/includes? bare "-") (>= (count bare) 8))))
@@ -496,7 +496,7 @@
   (let [ns (count (:stale p))
    nh (count (:hand p))
    nb (count (:log-behind p))]
-  (if (and (= ns 0) (and (= nh 0) (= nb 0))) "" (str "hygiene: " (+ ns nb) " stale/lagging projection claim(s) — run `tern heal`" (if (> nh 0) (str "; " nh " hand-edited claim(s) — reconcile via tell/import") "")))))
+  (if (and (= ns 0) (and (= nh 0) (= nb 0))) "" (str "hygiene: " (+ ns nb) " stale/lagging projection fact(s) — run `tern heal`" (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
 
 (defn cmd-doctor [^String threads-dir ^String log]
   (let [p (probe threads-dir log)]
@@ -510,13 +510,13 @@
   (let [ns (count (:stale p))
    nh (count (:hand p))
    nb (count (:log-behind p))]
-  (if (and (= ns 0) (and (= nh 0) (= nb 0))) (println "    [ok]    files <-> claim log in sync") (do
+  (if (and (= ns 0) (and (= nh 0) (= nb 0))) (println "    [ok]    files <-> fact log in sync") (do
   (if (> ns 0) (do
-  (println (str "    " ns " stale projection claim(s) — run `tern heal`"))))
+  (println (str "    " ns " stale projection fact(s) — run `tern heal`"))))
   (if (> nh 0) (do
-  (println (str "    " nh " genuinely-new file claim(s) (hand edits) — reconcile via tell or import"))))
+  (println (str "    " nh " genuinely-new file fact(s) (hand edits) — reconcile via tell or import"))))
   (if (> nb 0) (do
-  (println (str "    " nb " log claim(s) not yet in files — benign projection lag; run `tern heal`")))))))))
+  (println (str "    " nb " log fact(s) not yet in files — benign projection lag; run `tern heal`")))))))))
 
 (defn- distinct-ids [xs]
   (reduce (fn [acc x] (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
@@ -562,7 +562,7 @@
   (let [p (probe threads-dir log)]
   (cond
   (not (empty? (:hand p))) (do
-  (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file claim(s) not in the log " "(hand edits). A human decides: adopt via `tell`, or bulk `import`. Nothing was touched:"))
+  (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in the log " "(hand edits). A human decides: adopt via `tell`, or bulk `import`. Nothing was touched:"))
   (doseq [c (:hand p)]
   (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))
   :else (let [files (fram.rt/list-md threads-dir)
@@ -651,7 +651,7 @@
 (defn cmd-schema-seed [^String log ^Boolean execute]
   (let [seeds (seed-claims log)]
   (if (not execute) (do
-  (println (str "schema-seed DRY-RUN — " (count seeds) " claim(s); nothing written."))
+  (println (str "schema-seed DRY-RUN — " (count seeds) " fact(s); nothing written."))
   (doseq [c seeds]
   (println (str "  tell " (:l c) " " (:p c) " " (:r c))))
   (println "Run `tern schema-seed --execute` (coordinator session) to write.")) (let [idx (live-idx log)
@@ -661,11 +661,11 @@
   (println (str "!!! schema-seed ABORTED — " (count collisions) " predicate name(s) collide with a live thread id."))
   (println "    Writing predicate metadata onto these would pollute real threads:")
   (doseq [s collisions]
-  (println (str "      " s "  (has a `title` claim — is a thread)")))
-  (println "    No claims written. Rename the colliding thread(s) or exclude the pred(s).")) (let [port (fram.rt/coord-port)]
+  (println (str "      " s "  (has a `title` fact — is a thread)")))
+  (println "    No facts written. Rename the colliding thread(s) or exclude the pred(s).")) (let [port (fram.rt/coord-port)]
   (if (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — writes won't serialize. Run `tern up`.") (let [results (mapv (fn [c] (tell-retry port "assert" (:l c) (:p c) (:r c) 5)) seeds)
    oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
-  (println (str "schema-seed EXECUTED — " oks "/" (count seeds) " claim(s) committed via coordinator."))))))))))
+  (println (str "schema-seed EXECUTED — " oks "/" (count seeds) " fact(s) committed via coordinator."))))))))))
 
 (defn cmd-tools []
   (do
@@ -678,7 +678,7 @@
   (println "")
   (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
   (println "Vocabulary is DATA, not tools: `tern show <pred>` reveals a predicate's metadata")
-  (println "(cardinality/value_kind/acyclic claims). Seed that metadata with `tern schema-seed`.")))
+  (println "(cardinality/value_kind/acyclic facts). Seed that metadata with `tern schema-seed`.")))
 
 (defn- ^Boolean has-flag? [args ^String f]
   (not (empty? (filterv (fn [a] (= a f)) args))))

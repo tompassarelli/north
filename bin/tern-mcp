@@ -22,23 +22,25 @@
 
 (def cheatsheet
   (str
-   "Tern is a claim-native substrate for coordinating work and life. A "
-   "\"thread\" is a unit of work or thought; under the hood every claim is a "
+   "Tern is a fact-native substrate for coordinating work and life. A "
+   "\"thread\" is a unit of work or thought; under the hood every fact is a "
    "triple (subject predicate object), and a thread is any id that has a `title`. "
-   "Lifecycle is DERIVED from claims, never a stored status: committed (accepted), "
+   "Lifecycle is DERIVED from facts, never a stored status: committed (accepted), "
    "outcome (done), abandoned (canceled), driver (active now), depends_on (blocked).\n\n"
+   "Facts record what was asserted, not what is verified — supersession, "
+   "retraction, and views handle disagreement.\n\n"
    "Refs to other threads are written as @<id> (e.g. depends_on @2026-06-16-101500); "
    "everything else is a literal. ids look like 2026-06-16-101500.\n\n"
    "How to work with it:\n"
    "- capture: turn a thought/task into a thread.\n"
-   "- tell / retract: add or remove a single claim about a thread — tell "
+   "- tell / retract: add or remove a single fact about a thread — tell "
    "asserts, retract removes (untell accepted as a legacy alias) "
    "(e.g. tell <id> depends_on <other-id>, tell <id> estimate_hours 4, "
    "tell <id> do_on 2026-06-20, tell <id> outcome shipped).\n"
    "- ready / next / board / blocked / agenda / leverage: see what to work on.\n"
    "- needs-review: judgments whose inputs moved (stale estimates, expired dates, "
    "edges to abandoned threads) + uncommitted drafts that grew real structure.\n"
-   "- show: read one thread's claims.\n"
+   "- show: read one thread's facts.\n"
    "- clock start/stop/status/report: log real time against a thread so estimates "
    "calibrate against actuals over time.\n"
    "- validate: integrity check.\n"
@@ -49,11 +51,11 @@
    "project, lead with active work. The user owns the map — to change a glyph: "
    "tell @ui emoji_<condition> \"<glyph>\" (conditions: active/ready/blocked/draft).\n\n"
    "Prefer capture for new work and tell/retract for changes; the system serializes "
-   "and rule-checks every write, so just state claims and let it enforce integrity.\n\n"
+   "and rule-checks every write, so just state facts and let it enforce integrity.\n\n"
    "DRIVING AGENTS (multi-agent work): use `dispatch` to spawn an agent for a thread — "
-   "it reads thread claims, derives posture (unplanned/atomic/composite), and dispatches via "
+   "it reads thread facts, derives posture (unplanned/atomic/composite), and dispatches via "
    "Claude Agent SDK. For ad-hoc tasks without a thread, use `spawn`. The canonical flow is: "
-   "capture a thread → tell it claims (model, dependencies) → dispatch it. "
+   "capture a thread → tell it facts (model, dependencies) → dispatch it. "
    "Work queue on :7977 (ready/next/leverage; claim with `driver @agent`); "
    "web client (:8088) watches + steers live."))
 
@@ -78,7 +80,7 @@
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "needs-review"])}
    {:name "validate"     :desc "Integrity check over the whole graph."
     :schema {:type "object" :properties {}} :argv (fn [_] ["validate"])}
-   {:name "show"         :desc "Show one thread's claims. Returns JSON [{predicate,value}]."
+   {:name "show"         :desc "Show one thread's facts. Returns JSON [{predicate,value}]."
     :schema {:type "object" :properties {:id {:type "string"}} :required ["id"]}
     :argv (fn [a] ["json" "show" (get a "id")])}
    {:name "capture"      :desc "Create a new thread from a title (a thought or unit of work)."
@@ -86,13 +88,13 @@
                                          :owner {:type "string" :description "defaults to personal"}}
              :required ["title"]}
     :argv (fn [a] ["capture" (get a "title") (get a "owner" "personal")])}
-   {:name "tell"         :desc "Add or replace one claim about a thread. For thread refs (depends_on/part_of/relates_to) pass the bare target id; the engine adds the @."
+   {:name "tell"         :desc "Add or replace one fact about a thread. For thread refs (depends_on/part_of/relates_to) pass the bare target id; the engine adds the @."
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}
              :required ["id" "predicate" "value"]}
     :argv (fn [a] ["tell" (get a "id") (get a "predicate") (get a "value")])}
-   {:name "retract"      :desc "Retract one claim about a thread. (untell accepted as a legacy alias.)"
+   {:name "retract"      :desc "Retract one fact about a thread. (untell accepted as a legacy alias.)"
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}
@@ -116,7 +118,7 @@
 
 (def sdk-tools
   [{:name "dispatch"
-    :desc "Dispatch an agent for a thread. Reads thread claims to derive posture (unplanned/atomic/composite), then spawns via Claude Agent SDK. The thread must exist (use capture first). Returns the agent ID."
+    :desc "Dispatch an agent for a thread. Reads thread facts to derive posture (unplanned/atomic/composite), then spawns via Claude Agent SDK. The thread must exist (use capture first). Returns the agent ID."
     :schema {:type "object"
              :properties {:id {:type "string" :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
                           :model {:type "string" :description "Model tier: opus, sonnet, haiku (default: sonnet)"}

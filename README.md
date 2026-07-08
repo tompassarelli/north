@@ -2,10 +2,10 @@
 
 The life app — what you steer by. Capture an intention; query what's **ready**,
 **blocked**, and the highest-leverage keystone. The board is *derived* from a
-graph of claims, never hand-maintained.
+graph of facts, never hand-maintained.
 
 Tern is a **consumer of the [Fram](https://github.com/tompassarelli/fram)
-engine** (a domain-neutral claim substrate). It supplies the *life domain*: the
+engine** (a domain-neutral fact substrate). It supplies the *life domain*: the
 lifecycle projections, the cardinality vocab (`FRAM_SINGLE_VALUED`), capture
 conventions, time tracking, and the operating manual.
 
@@ -18,7 +18,7 @@ operator works — adapt the wrapper to your own setup.
 ## Shape
 
 - **Engine** → [Fram](https://github.com/tompassarelli/fram) (`~/code/fram`):
-  claims, Datalog, the coordinator daemon. The hard substrate.
+  facts, Datalog, the coordinator daemon. The hard substrate.
 - **Life domain** → `src/tern/{projections,clock,clockify,staleness,audit}.bclj`:
   the lifecycle derivations, billing projection, and staleness layer that make
   the engine a life app.
@@ -44,7 +44,7 @@ operator works — adapt the wrapper to your own setup.
 
 - **`docs/HANDOFF.md`** — current project state: what's done & verified, what's
   pending (sequenced), the open decisions, and the engine↔app seam. Start here.
-- `docs/operating-manual.md` — the working manual: thread model, claim format,
+- `docs/operating-manual.md` — the working manual: thread model, fact format,
   derived lifecycle, the CLI surface, and session behavior.
 - `docs/claim-native-redesign.md` — the design record for the claim-native model.
 - `docs/PROPOSAL.md` — the original vision and architecture.

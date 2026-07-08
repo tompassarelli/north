@@ -136,7 +136,7 @@
                                                     :body [{:rel "triple" :args [e {:var "p"} {:var "o"}]}]}]}}))]
       (if (seq rows)
         (doseq [[p o] (sort rows)] (println (format "%-12s %s" p o)))
-        (println (str "no claims on " e))))
+        (println (str "no facts on " e))))
 
     "cmds"        ; [target]  — list PENDING commands (no acked_by), optionally scoped to a target
     (let [rows (sort (or (tern.coord/pending-cmds port) []))

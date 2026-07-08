@@ -300,7 +300,7 @@
     (let [us @units
           with-findings (filter findings? us)]
       (binding [*out* *err*]
-        (println (format "tern-mine: scanned %d, findings in %d, claims %s"
+        (println (format "tern-mine: scanned %d, findings in %d, facts %s"
                          (count us) (count with-findings)
                          (if dry? "SKIPPED (dry-run)" "written via coordinator"))))
       (when report-file
