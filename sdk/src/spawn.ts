@@ -1,4 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { resolve as pathResolve } from "node:path";
+const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, type Effort } from "./harness";
 import { tokensOf, costOf, remaining } from "./budget";
@@ -132,6 +134,15 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     errorCount: st.totalErrors, escalationTier: tier,
     escalations: escalations.length ? escalations : undefined,
   });
+  // completion ping mirrors the death ping: the coordinator's inbox hook surfaces it.
+  const coord = opts.coordinator ?? process.env.AGENT_COORDINATOR;
+  if (coord && outcome !== "died") {
+    try {
+      const { execFileSync } = await import("node:child_process");
+      execFileSync("bb", [`${REPO_ROOT}/cli/msg-cli.clj`, process.env.TERN_PORT ?? "7977",
+        "send", agentId, coord, "AGENT COMPLETE", `outcome=${outcome}`], { stdio: "ignore", timeout: 10000 });
+    } catch { /* non-fatal */ }
+  }
   console.log(`[spawn] @agent:${agentId} complete (${outcome}` +
     `${escalations.length ? `, ${escalations.length} escalation(s) -> ${rung().model}/${rung().effort}` : ""})`);
   return result;
