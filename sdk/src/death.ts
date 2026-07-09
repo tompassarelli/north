@@ -19,7 +19,7 @@ const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
 // Resolved lazily (at call time, not module load) so env overrides apply regardless of
 // import order — and so tests can point notifications at a fake. NORTH_BIN is the same
 // convention the harness uses for the north engine path.
-const ternBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
+const northBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
 const port = () => process.env.NORTH_PORT ?? "7977";
 
 export interface DeathContext {
@@ -48,7 +48,7 @@ export function deathCommands(
   ts: string = new Date().toISOString(),
 ): Array<{ cmd: string; args: string[] }> {
   const line = `${agentId} | ${reason} | ${ts}`;
-  const north = ternBin();
+  const north = northBin();
   const cmds: Array<{ cmd: string; args: string[] }> = [
     { cmd: north, args: ["tell", "@swarm", "agent_death", line] },
   ];

@@ -65,7 +65,7 @@
         # packaged engine so the CLI is self-contained; an explicit env override
         # still wins (the script reads ${FRAM_HOME:-...}). NORTH_BIN points the
         # MCP server at the wrapped CLI in this same out.
-        ternPkg = pkgs.stdenvNoCC.mkDerivation {
+        northPkg = pkgs.stdenvNoCC.mkDerivation {
           pname = "north";
           version = "0.1.0";
           src = self;
@@ -97,23 +97,23 @@
         };
       in {
         packages = {
-          default = ternPkg;
-          north = ternPkg;
+          default = northPkg;
+          north = northPkg;
           fram-engine = framPkg;
         };
 
         apps = {
           default = {
             type = "app";
-            program = "${ternPkg}/bin/north";
+            program = "${northPkg}/bin/north";
           };
           north = {
             type = "app";
-            program = "${ternPkg}/bin/north";
+            program = "${northPkg}/bin/north";
           };
           north-mcp = {
             type = "app";
-            program = "${ternPkg}/bin/north-mcp";
+            program = "${northPkg}/bin/north-mcp";
           };
         };
 

@@ -13,12 +13,12 @@ The stream layer the operating manual describes. Two directories:
   with `@thread-id` links so the fact graph and the narrative cross-reference.
   Files: `YYYY-MM-DD-<slug>.tier1.md`.
 
-Provenance contract: every distillation names its raw source(s) and the tern
+Provenance contract: every distillation names its raw source(s) and the north
 thread minted for the session (`stream thread`), which carries `relates_to`
 edges to every thread the conversation spawned. Chain: utterance → distillation
 → stream thread → spawned thread → outcome fact → commit. Queryable end to end.
 
-Mining (retry loops, verb votes, doc re-reads) is `tern-mine`'s job, not this
+Mining (retry loops, verb votes, doc re-reads) is `north-mine`'s job, not this
 layer's — raw here is its input corpus.
 
 ## Cost contract — this layer is nearly free; keep it that way
