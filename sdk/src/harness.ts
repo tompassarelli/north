@@ -123,6 +123,32 @@ function registerPresence(self: string): void {
   // stranded, invisible to concern/roster/board which all read :7977.
   execFile("bb", [`${REPO}/cli/presence-cli.clj`, PORT, "register", self, process.cwd(), self], () => {});
 }
+
+// SDK-lane presence heartbeat (F2). registerPresence writes the lease ONCE at
+// spawn; the 30min TTL then lapses under any lane working longer — falsely
+// `lapsed` while alive, which the concern-decay machinery reads as STALE. Fix:
+// renew the lease on ACTIVITY. This is the SDK twin of bin/tern-on-tooluse (the
+// Claude Code PostToolUse hook) — renewal MEANS "this agent ran a tool just now"
+// (IS-WORKING), so a lapsed lease stays a real death signal. NOT a setInterval:
+// a timer on a hung-but-alive process would renew forever and defeat the
+// reactor's stuck-fork reaping (lapsed>30min + no outcome -> died-unreported).
+// Throttle ≥60s per agent (a bb spawn per tool call is pure waste against a
+// 30min lease); marker is an in-process Map (the hook callback runs in this host
+// process, so no XDG marker file needed — and it can't alias across agents).
+const RENEW_THROTTLE_MS = 60_000;
+const lastRenew = new Map<string, number>();
+function renewPresence(self: string): void {
+  const now = Date.now();
+  const prev = lastRenew.get(self) ?? 0;
+  if (now - prev < RENEW_THROTTLE_MS) return;
+  lastRenew.set(self, now); // stamp before dispatch so a burst of tool calls spawns one bb
+  // Best-effort + timeout-bounded: any failure is swallowed, never breaks the
+  // tool call. On failure, roll the stamp back (only if no newer renew landed)
+  // so the next tool call retries — same retry semantics as tern-on-tooluse.
+  execFile("bb", [`${REPO}/cli/presence-cli.clj`, PORT, "renew", self], { timeout: 5000 }, (err) => {
+    if (err && lastRenew.get(self) === now) lastRenew.set(self, prev);
+  });
+}
 function withCoordination(self: string, base: string): string {
   const repo = process.cwd().split("/").filter(Boolean).pop() ?? "repo";
   const proto = [
@@ -270,6 +296,11 @@ export function harnessOptions(o: HarnessOpts): Options {
     permissionMode: "acceptEdits",
     systemPrompt: withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT) + globalLawsAppendix() + praxisAppendix(o.model, o.role, o.posture) + cavemanAppendix() + esoAppendix(),
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),
+    // Presence heartbeat: renew the lease on tool activity (F2). Fire-and-forget +
+    // never block/fail the tool call; always continue.
+    hooks: {
+      PostToolUse: [{ hooks: [async () => { renewPresence(o.self); return { continue: true }; }] }],
+    },
   } as Options;
 }
 
