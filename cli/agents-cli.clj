@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; agents-cli.clj — tern's agent verbs: spawn · req · agents · watch · tell · retask.
+;; agents-cli.clj — tern's agent verbs: spawn · request · agents · watch · tell · retask.
 ;; Agents are a TERN concern (spawns run on the tern substrate, register presence,
 ;; write facts); this file is their CLI home. bin/tern routes the verbs here.
 ;; Ported from the convoy cockpit 2026-07-09 when the ownership rule moved the
@@ -163,7 +163,7 @@
             (println "watch:" (cyn (str "tern watch " aid)))))))))
 
 ;; req = fork-everything intake: self-triaging opus-high handler + ping-back.
-(defn cmd-req [args]
+(defn cmd-request [args]
   (let [notify (or (second (drop-while #(not= "--notify" %) args))
                    (System/getenv "TERN_NOTIFY"))
         text (str/join " " (remove #(or (#{"--notify" "--dry-run"} %)
@@ -176,7 +176,7 @@
                       "Strictly synchronous; commit checkpoints; never push unless asked; "
                       "report to docs/private/.")]
     (if (str/blank? text)
-      (println (red "usage:") "tern req \"<request>\" [--notify <peer>]")
+      (println (red "usage:") "tern request \"<request>\" [--notify <peer>]")
       (cmd-spawn (cond-> ["integrator" (str "REQUEST: " text "\n\nOPERATING CONTRACT: " contract)]
                    dry?   (conj "--dry-run")
                    notify (into ["--notify" notify]))))))
@@ -233,11 +233,13 @@
 ;; ---- dispatch ------------------------------------------------------------------
 (let [[cmd & args] *command-line-args*]
   (case cmd
-    "agents" (cmd-agents args)
-    "spawn"  (cmd-spawn args)
-    "req"    (cmd-req args)
-    "watch"  (cmd-watch args)
-    "steer"  (cmd-tell-agent args)
-    "retask" (cmd-retask args)
-    (do (println "usage: tern {agents|spawn|req|watch|steer|retask} ...")
+    "agents"  (cmd-agents args)
+    "spawn"   (cmd-spawn args)
+    "request" (cmd-request args)
+    ;; renamed 2026-07-09 (user: full word, pairs with /request) — teach, don't alias
+    "req"     (do (println "renamed: tern request") (System/exit 1))
+    "watch"   (cmd-watch args)
+    "steer"   (cmd-tell-agent args)
+    "retask"  (cmd-retask args)
+    (do (println "usage: tern {agents|spawn|request|watch|steer|retask} ...")
         (System/exit 1))))

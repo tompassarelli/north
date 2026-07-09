@@ -32,7 +32,7 @@ case "${1:-}" in
     exec bb -cp "$TERN/out:$FRAM/out" -m tern.main "$@" ;;
   up)
     exec "$FRAM/bin/fram-up" "${@:2}" ;;
-  agents|spawn|req|watch|steer|retask)
+  agents|spawn|request|watch|steer|retask)
     # Agent verbs — agents are a tern concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec bb "$TERN/cli/agents-cli.clj" "$@" ;;
