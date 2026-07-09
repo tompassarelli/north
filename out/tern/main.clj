@@ -256,6 +256,31 @@
 (defn- in-condition [idx nonterm ^String today before? ^String c]
   (filterv (fn [te] (= (proj/condition-i idx te today before?) c)) nonterm))
 
+(defn- lease-exp-secs [idx ^String driverref]
+  (let [handle (short-id driverref)
+   v (k/one-i idx (str "@lease:session:" handle) "lease")]
+  (if (nil? v) -1 (let [parts (str/split v #"\|")]
+  (if (< (count parts) 2) -1 (let [expms (nth parts 1)]
+  (if (> (count expms) 3) (fram.rt/parse-int (subs expms 0 (- (count expms) 3))) -1)))))))
+
+(defn- dt->secs [^String s]
+  (cond
+  (fram.rt/is-iso-datetime-19 s) (fram.rt/iso-to-seconds s)
+  (fram.rt/is-iso-datetime-16 s) (fram.rt/iso-to-seconds s)
+  (and (= 10 (count s)) (fram.rt/is-iso-datetime-19 (str s "T00:00:00"))) (fram.rt/iso-to-seconds (str s "T00:00:00"))
+  :else -1))
+
+(defn- ^Boolean driver-live? [idx ^String te now-secs window-secs]
+  (let [d (k/one-i idx te "driver")]
+  (if (nil? d) false (let [e (lease-exp-secs idx d)]
+  (if (and (> e 0) (> e now-secs)) true (let [u (k/one-i idx te "updated_at")]
+  (if (nil? u) false (let [us (dt->secs u)]
+  (and (> us 0) (< (- now-secs us) window-secs))))))))))
+
+(defn- driver-stale-window-secs []
+  (let [d (fram.rt/parse-int (fram.rt/getenv-or "TERN_DRIVER_STALE_DAYS" "14"))]
+  (* (if (> d 0) d 14) 86400)))
+
 (defn- board-full [idx ^String today before? nonterm]
   (do
   (println (str "BOARD — " (count nonterm) " open"))
@@ -265,9 +290,11 @@
   (board-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
   (board-group idx "draft" (in-condition idx nonterm today before? "draft"))))
 
-(defn- board-curated [idx ^String today before? nonterm]
+(defn- board-curated [idx ^String today before? nonterm now-secs window-secs]
   (let [threads (filterv (fn [te] (= (kind-of idx te) "thread")) nonterm)
-   active (in-condition idx threads today before? "active")
+   active-all (in-condition idx threads today before? "active")
+   active (filterv (fn [te] (driver-live? idx te now-secs window-secs)) active-all)
+   nparked (- (count active-all) (count active))
    readyl (in-condition idx threads today before? "ready")
    blockedl (in-condition idx threads today before? "blocked")
    nconcern (count (filterv (fn [s] (= (kind-of idx s) "concern")) (:subjects idx)))
@@ -282,6 +309,8 @@
   (if (str/blank? dl) "?" dl)) "  " (short-id te) "  " (trunc (title-of idx te) 44))))
   (if (> (count active) (count ashow)) (do
   (println (str "  … +" (- (count active) (count ashow)) " more · tern board --all"))))))
+  (if (> nparked 0) (do
+  (println (str "\n" nparked " parked driver(s) — stale, not shown (tern board --all)"))))
   (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked) " of " (count readyl) " by leverage"))
   (doseq [it rranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
@@ -293,7 +322,7 @@
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
-  (if all (board-full idx today before? nonterm) (board-curated idx today before? nonterm))))
+  (if all (board-full idx today before? nonterm) (board-curated idx today before? nonterm (fram.rt/iso-to-seconds (fram.rt/now-iso)) (driver-stale-window-secs)))))
 
 (defrecord JThread [id title condition emoji])
 
