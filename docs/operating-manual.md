@@ -188,6 +188,18 @@ collides with a live thread id (writing `@title` metadata onto a real thread
 titled "title" would pollute it). This is the migration path off the env list:
 seed the facts once, and the log carries what `FRAM_SINGLE_VALUED` used to.
 
+`tern schema` is the **read** side — a standing vocabulary census that answers
+"what schemas exist in tern?" from one live fold. It groups every subject into an
+**entity kind** and reports per-kind subject + live-fact counts, the top
+predicates in each, and the declared predicate metadata
+(`cardinality`/`value_kind`/`acyclic`). Kind is derived by: an explicit `kind`
+fact wins; else a reserved namespace in the subject id (`concern-`, `agent:`,
+`msg:`, `topic-`, `mine:`, and the `session:`/`run-`/`sess-`/… telemetry
+prefixes); else a `title` means `thread`; else a schema-as-facts subject is a
+`predicate`; else `other`. Buckets sort by fact count, so the biggest blobs name
+themselves — today the `session-telemetry` bulk dwarfs the work graph, which is
+the number that drives the worlds split below.
+
 The AI tool surface reflects this. `tern tools` lists TERN's **curated** verbs
 (the MCP surface: `ready`/`next`/`board`/…/`tell`/`show`/`dispatch`/`spawn`);
 the fram engine core underneath is **10 tools** (`tell`/`retract`/`show`/`ask`/
@@ -203,6 +215,19 @@ their **own** world log, never the coordination log. Mixing them would bury the
 work graph under machine noise and drag every fold/validate over data that isn't
 about coordination. Keep the coordination world small and human-meaningful; give
 each experiment or telemetry stream its own world.
+
+Every new entity **self-identifies its kind at birth**: `tern capture` stamps
+`kind thread` in the same coordinator write batch (`kind` is single-valued;
+concern-cli already stamps `kind concern`, telemetry writers `kind run`/`session`).
+No backfill — old subjects stay un-kinded and fall to the census's prefix
+heuristic; the kinded set grows forward. This is the seam the worlds split rides
+on: once entities carry their kind, `tern schema` counts each world's mass
+exactly, and moving telemetry to its own log is a filter on a fact, not a guess.
+(One open overlap to reconcile: reflection entities also use `kind`
+document/decision/observation — see the reflections section — so a reflection
+captured via `tern capture` starts `kind thread` and must be re-told its
+reflection kind; a follow-up should decide whether entity-kind and reflection-kind
+are one predicate or two.)
 
 ### ids and filenames
 
@@ -566,6 +591,46 @@ rules (also in the global CLAUDE.md):
 
 Reads are instant off the warm daemon (`tern serve`); writes serialize
 through the coordinator.
+
+### Concern liveness — decay, handoff, and reaping
+
+A **concern** (`concern declare …`) is a feature + footprint an agent is
+building. Concerns coexist; declaring never blocks. Their liveness is **derived
+from the owner's presence lease** — the same renewable-lease rule the presence
+roster uses — never a stored status. Three mechanisms keep the board honest when
+an owner dies without running `concern done`:
+
+1. **Read-time decay (no write).** `concern ls` / `concern overlap` judge each
+   concern's owner live-or-lapsed at render time:
+   - owner **online** → rendered normally.
+   - owner **lapsed**, still `building` → **STALE** (dimmed, `owner lapsed
+     <ago>`). Shown, not hidden — a hidden stale concern is what let dead-agent
+     work linger invisibly *and* misroute a live lane.
+   - owner **lapsed**, `likely-to-land` → **HANDOFF** (prominent). A
+     near-landing concern *survives* owner death: it is a signal to the next
+     agent to adopt, not stranded WIP.
+   `<ago>` uses the lease-expiry lapse, or the concern's own declare-age when a
+   pre-presence owner never held a lease.
+
+2. **Reactor auto-abandon (fact write).** The reactor (`cli/tern-reactor.clj`)
+   sweeps on its cadence (every 5 min): a `building` concern whose owner has
+   been lapsed **>24h** gets `reached=abandoned-stale` written through :7977
+   (auditable, reversible — a later `landed` still wins). `likely-to-land` is
+   **exempt** (it's a handoff). Abandoned concerns are retired from `concern ls`
+   (shown with `--all`). Test one-shot: `bb cli/tern-reactor.clj sweep-once
+   [--dry-run] [--repo <repo>]`.
+
+3. **Stuck-fork reaping.** The same sweep finds `kind=lane` agents whose
+   presence lapsed **>30min** with no `outcome` fact → writes
+   `outcome=died-unreported`, prefixes `display_name` with `✝ `, and pings the
+   lane's coordinator (if any) over the fact feed. Zombie forks surface instead
+   of lingering.
+
+The **activity heartbeat** that powers all of the above: the `tern-on-tooluse`
+PostToolUse hook renews the owner's presence lease on tool calls, **throttled to
+once per 60s** (marker in `XDG_RUNTIME_DIR`). A renewal therefore *means*
+"this agent ran a tool recently" (IS-WORKING), so lease expiry is a real death
+signal — not merely "never registered".
 
 ---
 

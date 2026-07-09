@@ -36,6 +36,7 @@
    ["uuidv7 parses as a UUID, version 7"         (= 7 (.version (java.util.UUID/fromString u1)))]
    ["uuidv7 ids are distinct"                    (not= u1 u2)]
    ["uuidv7 is k-sortable (earlier < later)"     (neg? (compare u1 u2))]
+   ["capture stamps kind=thread (kind-at-capture)"     (= "thread" (fact-val cap "kind"))]
    ["capture asserts a created_at fact"          (some? (fact-val cap "created_at"))]
    ["created_at is the full-ISO now-iso value"   (= "2026-06-28T07:00:00" (fact-val cap "created_at"))]
    ["created_at (full-ISO) differs from committed (date)"

@@ -51,7 +51,7 @@
   (or (= ek "run") (or (= ek "session") (= ek "lane"))) "session-telemetry"
   :else ek))
 
-(defn- ^String prefix-kind [idx ^String te ^String bare]
+(defn- ^String namespace-kind [^String bare]
   (cond
   (str/starts-with? bare "concern-") "concern"
   (str/starts-with? bare "agent:") "agent"
@@ -59,12 +59,12 @@
   (str/starts-with? bare "topic-") "topic"
   (str/starts-with? bare "mine:") "mine"
   (or (str/starts-with? bare "session:") (or (str/starts-with? bare "sess-") (or (str/starts-with? bare "run-") (or (str/starts-with? bare "snapshot:") (or (str/starts-with? bare "arena-") (or (str/starts-with? bare "cc-") (str/starts-with? bare "cmd:"))))))) "session-telemetry"
-  (or (some? (k/one-i idx te "cardinality")) (or (some? (k/one-i idx te "value_kind")) (some? (k/one-i idx te "acyclic")))) "predicate"
-  :else "other"))
+  :else ""))
 
 (defn- ^String kind-of [idx ^String te]
   (let [ek (k/one-i idx te "kind")]
-  (if (some? ek) (kind-bucket ek) (if (some? (k/one-i idx te "title")) "thread" (prefix-kind idx te (short-id te))))))
+  (if (some? ek) (kind-bucket ek) (let [np (namespace-kind (short-id te))]
+  (if (not (str/blank? np)) np (if (some? (k/one-i idx te "title")) "thread" (if (or (some? (k/one-i idx te "cardinality")) (or (some? (k/one-i idx te "value_kind")) (some? (k/one-i idx te "acyclic")))) "predicate" "other")))))))
 
 (defn- ^String driver-label [idx ^String te]
   (let [d (k/one-i idx te "driver")]
@@ -183,7 +183,8 @@
 (defn cmd-ready [^String log ^Boolean all]
   (let [idx (live-idx log)
    today (fram.rt/today-iso)
-   rs (proj/ready idx today fram.rt/str-lt?)
+   raw (proj/ready idx today fram.rt/str-lt?)
+   rs (if all raw (filterv (fn [te] (= (kind-of idx te) "thread")) raw))
    ranked (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) rs))
    shown (if all ranked (vec (take 15 ranked)))]
   (if all (println (str "READY NOW — " (count rs))) (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
@@ -265,18 +266,22 @@
   (board-group idx "draft" (in-condition idx nonterm today before? "draft"))))
 
 (defn- board-curated [idx ^String today before? nonterm]
-  (let [active (in-condition idx nonterm today before? "active")
-   readyl (in-condition idx nonterm today before? "ready")
-   blockedl (in-condition idx nonterm today before? "blocked")
+  (let [threads (filterv (fn [te] (= (kind-of idx te) "thread")) nonterm)
+   active (in-condition idx threads today before? "active")
+   readyl (in-condition idx threads today before? "ready")
+   blockedl (in-condition idx threads today before? "blocked")
    nconcern (count (filterv (fn [s] (= (kind-of idx s) "concern")) (:subjects idx)))
+   ashow (vec (take 20 active))
    ritems (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) readyl)
    rranked (vec (take 15 (sort-by (fn [it] (- 0 (:score it))) ritems)))]
-  (println (str "BOARD — " (count nonterm) " open · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (tern board --all for the full kanban)"))
+  (println (str "BOARD — " (count threads) " open threads · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (tern board --all for the full kanban)"))
   (if (not (empty? active)) (do
   (println (str "\n" (proj/condition-emoji idx "active") " ACTIVE — who's on what (" (count active) ")"))
-  (doseq [te active]
+  (doseq [te ashow]
   (println (str "  " (let [dl (driver-label idx te)]
-  (if (str/blank? dl) "?" dl)) "  " (short-id te) "  " (trunc (title-of idx te) 44))))))
+  (if (str/blank? dl) "?" dl)) "  " (short-id te) "  " (trunc (title-of idx te) 44))))
+  (if (> (count active) (count ashow)) (do
+  (println (str "  … +" (- (count active) (count ashow)) " more · tern board --all"))))))
   (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked) " of " (count readyl) " by leverage"))
   (doseq [it rranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
