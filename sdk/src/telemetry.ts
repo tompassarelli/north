@@ -12,6 +12,14 @@ export interface RunRecord {
   tokens: number; // total tokens this run (from tokensOf)
   durationMs: number; // SDK result duration_ms
   posture: string; // unplanned | atomic | composite | spawn
+  // Routing dials — the EFFECTIVE final dial the run finished at (escalation-aware:
+  // spawn passes rung() after any ladder climb, so this is the tier that actually did
+  // the work, not necessarily the spawn tier on @agent:<id>). Denormalized onto @run so
+  // dial analytics need no @run.agent -> @agent:<id> join, and so escalation cases
+  // (started opus/high, finished opus/xhigh) report the tier that carried the outcome.
+  model?: string; // opus | sonnet | haiku
+  effort?: string; // low | medium | high | xhigh | max
+  role?: string; // executor | implementer | integrator | designer | researcher | ...
   outcome: string; // "ran" | "error" | "budget_exceeded" | "budget_exhausted" | "struggle_ceiling"
   // escalate-not-kill (thread 019f1194-ca57) — present only on escalation-enabled runs.
   // Option A yields ONE @run row per spawn with an internal escalation chain, NOT one
@@ -37,6 +45,9 @@ export function recordRun(rec: RunRecord): void {
     ["outcome", rec.outcome],
     ["at", new Date().toISOString()],
   ];
+  if (rec.model) facts.push(["model", rec.model]);
+  if (rec.effort) facts.push(["effort", rec.effort]);
+  if (rec.role) facts.push(["role", rec.role]);
   if (rec.costUsd != null) facts.push(["cost_usd", rec.costUsd.toFixed(4)]);
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
   if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);

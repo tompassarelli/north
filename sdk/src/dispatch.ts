@@ -106,6 +106,8 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
   // Spend is no longer charged to a counter here; it is summed from the @run
   // cost_usd fact this run records below (remaining() folds Σ over @run costs).
   recordRun({ thread: threadId, agent: agentId, tokens: tokensOf(resultMsg),
+              model: process.env.AGENT_MODEL, effort: process.env.AGENT_EFFORT,
+              role: process.env.AGENT_ROLE,
               durationMs: resultMsg?.duration_ms ?? 0, posture: postureLabel, outcome });
   console.log(`\n[dispatch] @${threadId} ${outcome === "died" ? "DIED" : "complete"}`);
   return { threadId, posture: postureLabel, result };

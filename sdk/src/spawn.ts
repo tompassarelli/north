@@ -138,6 +138,11 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
 
   recordRun({
     thread: "(ad-hoc)", agent: agentId, posture: "spawn",
+    // Effective FINAL dial (rung() reflects any in-flight escalation); env-fallback
+    // mirrors the identity write so a bare AGENT_MODEL spawn is still attributed.
+    model: rung().model ?? opts.model ?? process.env.AGENT_MODEL,
+    effort: rung().effort ?? opts.effort ?? process.env.AGENT_EFFORT,
+    role: opts.role ?? process.env.AGENT_ROLE,
     tokens: tokensOf(resultMsg), durationMs: resultMsg?.duration_ms ?? 0, outcome,
     costUsd: resultMsg?.total_cost_usd ?? runCost, numTurns: resultMsg?.num_turns ?? 0,
     errorCount: st.totalErrors, escalationTier: tier,
