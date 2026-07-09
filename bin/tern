@@ -8,7 +8,7 @@
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/tern/threads}"
 export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/tern/facts.log}"
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/tern/time}"
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clockify_id rate invoice_id invoice_state linear kind}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clockify_id rate invoice_id invoice_state linear kind coordinator}"
 # Tern DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -36,6 +36,20 @@ case "${1:-}" in
     # Agent verbs — agents are a tern concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec bb "$TERN/cli/agents-cli.clj" "$@" ;;
+  trace)
+    # Single-agent lifecycle diagnosis — walk the invariant-spine checklist for one id,
+    # flag the first failing stage (F1–F7). Read-only. cli/trace-cli.clj.
+    exec bb "$TERN/cli/trace-cli.clj" "${@:2}" ;;
+  health)
+    # Aggregate coordination rollup — one durable log fold (lane outcomes, stale
+    # concerns, ping-loss, zombie forks, died-unreported). Read-only. cli/health-cli.clj.
+    exec bb "$TERN/cli/health-cli.clj" "${@:2}" ;;
+  dials)
+    # Routing analytics — group @run telemetry by dial/model/effort/role and report
+    # n/Σcost/Σtokens/turns/wall/outcome-mix/escalation-rate. The RATE step of
+    # ESTIMATE→RATE→CALIBRATE: measures whether we route the right dial. Read-only.
+    # Args: [by-dial|by-model|by-effort|by-role]. cli/dials-cli.clj.
+    exec bb "$TERN/cli/dials-cli.clj" "${@:2}" ;;
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a tern.main verb, so it execs directly.

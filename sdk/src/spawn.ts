@@ -39,6 +39,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     effort: (opts.effort ?? process.env.AGENT_EFFORT) as string | undefined,
     repo: process.cwd().split("/").pop(),
     goal: goalFromPrompt(opts.prompt),
+    coordinator: opts.coordinator ?? process.env.AGENT_COORDINATOR,
   });
   const escalate = opts.escalate ?? process.env.AGENT_ESCALATE === "1";
   const tierBudgetUsd = opts.budgetUsd ?? (Number(process.env.AGENT_BUDGET_USD) || Infinity);

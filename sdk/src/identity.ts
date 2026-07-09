@@ -14,6 +14,11 @@ export interface AgentIdentity {
   effort?: string;
   repo?: string;
   goal?: string;
+  // spawning coordinator handle. Persisted (not just held at ping time) so it survives
+  // the spawning session: the reactor's died-unreported sweep reads it to ping on a
+  // silent hard-kill (sweep-lanes! in tern-reactor.clj), and `tern health` folds it to
+  // compute ping-loss (lanes that carried a coordinator but landed no COMPLETE/DEATH).
+  coordinator?: string;
 }
 
 const shortModel = (m?: string) => (m ?? "?").replace(/^claude-/, "");
@@ -40,6 +45,7 @@ export function writeAgentFacts(agentId: string, f: AgentIdentity): void {
     ["effort", f.effort],
     ["repo", f.repo],
     ["goal", f.goal],
+    ["coordinator", f.coordinator],
     ["spawned_at", new Date().toISOString()],
     ["display_name", renderDisplayName(agentId, f)],
   ];
