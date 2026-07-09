@@ -1,9 +1,9 @@
-defmodule Tern.MixProject do
+defmodule North.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :tern,
+      app: :north,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -20,7 +20,7 @@ defmodule Tern.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {Tern.Application, []},
+      mod: {North.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -73,10 +73,10 @@ defmodule Tern.MixProject do
     [
       setup: ["deps.get", "assets.setup", "assets.build"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind tern", "esbuild tern"],
+      "assets.build": ["compile", "tailwind north", "esbuild north"],
       "assets.deploy": [
-        "tailwind tern --minify",
-        "esbuild tern --minify",
+        "tailwind north --minify",
+        "esbuild north --minify",
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]

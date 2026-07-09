@@ -6,7 +6,7 @@ import Config
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :tern, TernWeb.Endpoint,
+config :north, NorthWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
@@ -15,8 +15,8 @@ config :tern, TernWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "9FlaDeA5ESEFlHZqB7BIcbn24Dh1b6GhCw+Mw40uM5AcBnTbQtetFPx9guGORxv1",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:tern, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:tern, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:north, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:north, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -43,20 +43,20 @@ config :tern, TernWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
-config :tern, TernWeb.Endpoint,
+config :north, NorthWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
       # Static assets, except user uploads
       ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$",
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/tern_web/router\.ex$",
-      ~r"lib/tern_web/(controllers|live|components)/.*\.(ex|heex)$"
+      ~r"lib/north_web/router\.ex$",
+      ~r"lib/north_web/(controllers|live|components)/.*\.(ex|heex)$"
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :tern, dev_routes: true
+config :north, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

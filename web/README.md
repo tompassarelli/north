@@ -1,4 +1,4 @@
-# Tern
+# North
 
 To start your Phoenix server:
 
