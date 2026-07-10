@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# TRANSITIONAL SHIM — `tern` was renamed to `north` (rename wave 2A, 2026-07-09).
-# Live nixos units + settings.json hooks still invoke `bin/tern` until the nixos
-# wave + rebuild land; this shim keeps them working. Coordinator removes it at cutover.
+# `tern` was renamed to `north` (2026-07-09). Teach, don't alias.
 echo "renamed: north" >&2
-exec "$(dirname "$0")/north" "$@"
+exit 1
