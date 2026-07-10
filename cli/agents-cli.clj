@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; agents-cli.clj — north's agent verbs: spawn · request · agents · watch · tell · retask.
+;; agents-cli.clj — north's agent verbs: spawn · request · fork · agents · watch · tell · retask.
 ;; Agents are a NORTH concern (spawns run on the north substrate, register presence,
 ;; write facts); this file is their CLI home. bin/north routes the verbs here.
 ;; Ported from the convoy cockpit 2026-07-09 when the ownership rule moved the
@@ -181,6 +181,41 @@
                    dry?   (conj "--dry-run")
                    notify (into ["--notify" notify]))))))
 
+;; fork = context-carrying handoff: like request, but PREPENDS a parent-context
+;; brief so the lane inherits where the coordinator left off (files, decisions,
+;; constraints). Same integrator dials, same OPERATING CONTRACT, full lifecycle
+;; (id mint + identity facts + presence + completion/death ping) — the managed
+;; answer to the harness-native /fork's zombie forks (workflow-map pattern F/F4).
+(defn cmd-fork [args]
+  (let [notify (or (second (drop-while #(not= "--notify" %) args))
+                   (System/getenv "NORTH_NOTIFY"))
+        ctx-file (second (drop-while #(not= "--context" %) args))
+        skip (set (remove nil? [notify ctx-file]))
+        text (str/join " " (remove #(or (#{"--notify" "--context" "--dry-run"} %)
+                                        (skip %)) args))
+        dry? (some #{"--dry-run"} args)
+        ctx (when ctx-file
+              (let [f (io/file ctx-file)]
+                (when-not (.exists f)
+                  (println (red "context file not found:") ctx-file)
+                  (System/exit 1))
+                (str/trim (slurp f))))
+        contract (str (if ctx "You carry the coordinator's context (above) — continue the work, "
+                              "You are a managed fork — take the task forward. ")
+                      (when ctx "Do not re-discover what the brief already states. ")
+                      "If it decomposes, fan out sub-spawns at the "
+                      "right gaffer dials and supervise (escalation is wired). "
+                      "Strictly synchronous; commit checkpoints; never push unless asked; "
+                      "report to docs/private/.")
+        brief (str (when ctx (str "CONTEXT BRIEF:\n" ctx "\n\n"))
+                   "FORK TASK: " text
+                   "\n\nOPERATING CONTRACT: " contract)]
+    (if (str/blank? text)
+      (println (red "usage:") "north fork \"<task>\" [--context <file>] [--notify <peer>]")
+      (cmd-spawn (cond-> ["integrator" brief]
+                   dry?   (conj "--dry-run")
+                   notify (into ["--notify" notify]))))))
+
 (defn cmd-watch [[id & _]]
   (if (nil? id)
     (println (red "usage:") "north watch <agent-id>")
@@ -238,8 +273,9 @@
     "request" (cmd-request args)
     ;; renamed 2026-07-09 (user: full word, pairs with /request) — teach, don't alias
     "req"     (do (println "renamed: north request") (System/exit 1))
+    "fork"    (cmd-fork args)
     "watch"   (cmd-watch args)
     "steer"   (cmd-tell-agent args)
     "retask"  (cmd-retask args)
-    (do (println "usage: north {agents|spawn|request|watch|steer|retask} ...")
+    (do (println "usage: north {agents|spawn|request|fork|watch|steer|retask} ...")
         (System/exit 1))))
