@@ -1,0 +1,184 @@
+#lang beagle/js
+(ns north.presence)
+
+;; Live agent roster for the right panel. Port of web/lib/north/presence.ex.
+;; Per-handle row built from @agent:<h>, @session:<h>, and the
+;; @lease:session:<h> liveness lease, sorted online-first then focus then handle.
+;; Server-side: drives north.fram over TCP (:7977). Display strings precomputed
+;; server-side so the frontend stays client-stdlib-free.
+
+(require north.fram :as fram)
+
+;; ---- raw-JS helpers (js/quote — Date.now / string compare / JS-array plumbing).
+;; Beagle blocks argless Date in some contexts and `<`/`>` are numeric-only, so the
+;; lexical compare, epoch parse, and JS-array accumulators live here where JS is raw.
+(js/quote
+  (export (function nowMs () (return (.now Date))))
+  ;; lexical -1/0/1 compare (typed Beagle < / > are numeric-only)
+  (export (function strCmp (a b) (return (? (< a b) -1 (? (> a b) 1 0)))))
+  (export (function parseIntSafe (v)
+    (const n (parseInt (String v) 10))
+    (return (? (isNaN n) 0 n))))
+  ;; Float.round(n/1e6, 2) + "M", keeping a trailing .0 like Elixir's float inspect
+  (export (function fmtM (n)
+    (const r (/ (.round Math (* (/ n 1000000) 100)) 100))
+    (const s (String r))
+    (return (? (.includes s ".") (tpl "" s "M") (tpl "" s ".0M")))))
+  (export (function fdiv (a b) (return (.floor Math (/ a b)))))
+  (export (function frem (a b) (return (% a b))))
+  ;; ISO-8601 -> epoch ms, or -1 when unparseable
+  (export (function parseEpochMs (s)
+    (const t (.parse Date s))
+    (return (? (isNaN t) -1 t))))
+  ;; JS-array accumulators: rows/refs must serialize as JSON arrays, and the fram
+  ;; results are a mix of Beagle vectors and JS arrays — normalize into real arrays.
+  (export (function mkArr () (return (array))))
+  (export (function pushArr (a x) (.push a x) (return a)))
+  (export (function sortArr (a cmp) (return (.sort a cmp))))
+  ;; typed-Beagle `(new Set x)` emits an undefined `new$` helper — build it here.
+  (export (function mkSet (a) (return (new Set a)))))
+
+(declare-extern nowMs [-> Int])
+(declare-extern strCmp [String String -> Int])
+(declare-extern parseIntSafe [Any -> Int])
+(declare-extern fmtM [Int -> String])
+(declare-extern fdiv [Int Int -> Int])
+(declare-extern frem [Int Int -> Int])
+(declare-extern parseEpochMs [String -> Int])
+(declare-extern mkArr [-> Any])
+(declare-extern pushArr [Any Any -> Any])
+(declare-extern sortArr [Any Any -> Any])
+(declare-extern mkSet [Any -> Any])
+
+;; ---- display formatting -----------------------------------------------------
+
+;; token count -> display string: >=1e6 "X.XXM", >=1e3 "Nk", else "N".
+(defn fmt-tokens [(n :- Int)] :- String
+  (cond
+    (>= n 1000000) (fmtM n)
+    (>= n 1000) (str (fdiv n 1000) "k")
+    :else (str n)))
+
+;; whole-second elapsed -> "Xh Ym" / "Xm Ys" / "Xs"
+(defn fmt-duration [(s :- Int)] :- String
+  (cond
+    (>= s 3600) (str (fdiv s 3600) "h " (fdiv (frem s 3600) 60) "m")
+    (>= s 60) (str (fdiv s 60) "m " (frem s 60) "s")
+    :else (str (if (> s 0) s 0) "s")))
+
+;; spawned_at (ISO-8601, nil, or unparseable) -> elapsed string; "" when absent.
+(defn elapsed-str [(spawned :- Any) (now :- Int)] :- String
+  (if (nil? spawned)
+    ""
+    (let [ms (parseEpochMs spawned)]
+      (if (< ms 0)
+        ""
+        (fmt-duration (- (fdiv now 1000) (fdiv ms 1000)))))))
+
+;; ", "-join over a JS array / Beagle seq of strings; "" when empty.
+(defn join-comma [(xs :- Any)] :- String
+  (reduce (fn [acc x] (if (= acc "") (str x) (str acc ", " x))) "" xs))
+
+;; ---- lease liveness ---------------------------------------------------------
+;; lease format: "holder|exp_ms|epoch"; online iff a parseable exp is in the future.
+;; Returns [online expires-s] ([false nil] when offline/absent/unparseable).
+(defn lease-state [(port :- Int) (h :- String) (now :- Int)] :- (Promise Any)
+  (let [raw (js/await (fram/resolved port (str "@lease:session:" h) "lease"))]
+    (if (nil? raw)
+      [false nil]
+      (let [parts (.split raw "|")]
+        (if (< (count parts) 2)
+          [false nil]
+          (let [exp (parseIntSafe (nth parts 1))]
+            (if (> exp now)
+              [true (fdiv (- exp now) 1000)]
+              [false nil])))))))
+
+;; sorted roles (JS array) with the "@role:" prefix stripped.
+(defn roles-of [(port :- Int) (h :- String)] :- (Promise Any)
+  (let [all (js/await (fram/resolved-many port (str "@agent:" h) "holds"))
+        acc (reduce (fn [a r] (if (.startsWith r "@role:") (pushArr a (.slice r 6)) a))
+                    (mkArr) all)]
+    (sortArr acc strCmp)))
+
+;; ---- row shape --------------------------------------------------------------
+;; Field names kebab->snake on emit (current-thread -> current_thread), matching
+;; the wire keys the frontend reads. nil-or-string display values are Any.
+(defrecord Row
+  [(uuid :- String) (online :- Bool) (expires-s :- Any) (roles :- Any)
+   (model :- Any) (effort :- Any) (lifecycle :- Any) (current-thread :- Any)
+   (active-workflow :- Any) (task :- Any) (context-tokens :- Int) (total-tokens :- Int)
+   (focus :- Bool) (spawned-at :- Any) (thinking :- Bool) (elapsed-str :- String)
+   (roles-str :- String) (model-str :- Any) (ctx-str :- String)
+   (total-str :- String) (focus-str :- Any)])
+
+(defn build-row [(port :- Int) (h :- String) (now :- Int) (tokens :- Any)] :- (Promise Any)
+  (let [ls (js/await (lease-state port h now))
+        online (nth ls 0)
+        expires (nth ls 1)
+        current-thread (js/await (fram/resolved port (str "@session:" h) "current_thread"))
+        active-workflow (js/await (fram/resolved port (str "@session:" h) "active_workflow"))
+        task (js/await (fram/resolved port (str "@session:" h) "task"))
+        rls (js/await (roles-of port h))
+        model (js/await (fram/resolved port (str "@agent:" h) "model"))
+        effort (js/await (fram/resolved port (str "@agent:" h) "effort"))
+        lifecycle (js/await (fram/resolved port (str "@agent:" h) "lifecycle"))
+        spawned (js/await (fram/resolved port (str "@agent:" h) "spawned_at"))
+        tok (get tokens h {})
+        ctx (parseIntSafe (get tok "context" 0))
+        tot (parseIntSafe (get tok "total" 0))
+        focus (or (some? active-workflow) (some? current-thread) (some? task))]
+    (->Row h online expires rls model effort lifecycle current-thread active-workflow task
+           ctx tot focus spawned (and online focus) (elapsed-str spawned now)
+           (join-comma rls) (or model "") (fmt-tokens ctx) (fmt-tokens tot)
+           (or active-workflow current-thread task ""))))
+
+;; ---- sort key: online-first, then focus, then handle ------------------------
+(defn row-key [(r :- Row)] :- String
+  (str (if (.-online r) "0" "1") (if (.-focus r) "0" "1") (.-uuid r)))
+
+(defn row-cmp [(a :- Row) (b :- Row)] :- Int
+  (strCmp (row-key a) (row-key b)))
+
+;; sequential fan-out (correctness over speed): one build-row per handle, in order.
+(defn build-rows [(port :- Int) (ags :- Any) (i :- Int) (now :- Int) (tokens :- Any) (acc :- Any)] :- (Promise Any)
+  (if (>= i (count ags))
+    acc
+    (let [h (nth (nth ags i) 1)
+          row (js/await (build-row port h now tokens))]
+      (js/await (build-rows port ags (+ i 1) now tokens (pushArr acc row))))))
+
+;; ---- public API -------------------------------------------------------------
+
+;; Roster of Row objects for rendering, sorted online-first / focus / handle.
+(js/export (defn roster [(port :- Int)] :- (Promise Any)
+  (let [now (nowMs)
+        tokens (js/await (fram/agent-tokens port))
+        ags (js/await (fram/agents port))
+        rows (js/await (build-rows port ags 0 now tokens (mkArr)))]
+    (sortArr rows (fn [a b] (row-cmp a b))))))
+
+;; live @agent:<h> lease refs, as a JS Set (threads.bjs decides "active" from it).
+(defn collect-refs [(port :- Int) (ags :- Any) (i :- Int) (now :- Int) (acc :- Any)] :- (Promise Any)
+  (if (>= i (count ags))
+    acc
+    (let [row (nth ags i)
+          h (nth row 1)
+          ls (js/await (lease-state port h now))]
+      (js/await (collect-refs port ags (+ i 1) now
+                  (if (nth ls 0) (pushArr acc (str "@agent:" h)) acc))))))
+
+(js/export (defn online-refs [(port :- Int)] :- (Promise Any)
+  (let [now (nowMs)
+        ags (js/await (fram/agents port))
+        refs (js/await (collect-refs port ags 0 now (mkArr)))]
+    (mkSet refs))))
+
+;; ---- swarm totals -----------------------------------------------------------
+(defrecord Swarm [(context :- String) (total :- String)])
+
+;; Swarm token totals for the status line: {context, total} as display strings.
+(js/export (defn swarm-tokens [(roster :- Any)] :- Any
+  (let [ctx (reduce (fn [acc r] (+ acc (.-context-tokens r))) 0 roster)
+        tot (reduce (fn [acc r] (+ acc (.-total-tokens r))) 0 roster)]
+    (->Swarm (fmt-tokens ctx) (fmt-tokens tot)))))

@@ -1,0 +1,138 @@
+#lang beagle/js
+(ns north.boot)
+
+;; Entry point: Bun.serve HTTP + WebSocket, routing dispatcher, static file
+;; serving, and the persistent :subscribe → broadcast loop. The typed request
+;; handlers live in north.server; this file is the js/quote runtime shell.
+;; NOTE (js/quote): imported producers are called by their KEBAB names (they
+;; munge to snake_case: api-dag → api_dag); use logical `or` for string
+;; defaults; `.catch` via bracket; arrows that await must be `async function`s.
+
+(require north.server :as srv)
+
+(declare-extern Bun Any)
+(declare-extern JSON Any)
+(declare-extern URL Any)
+(declare-extern Set Any)
+(declare-extern TextDecoder Any)
+(declare-extern Response Any)
+(declare-extern process Any)
+(declare-extern setTimeout Any)
+(declare-extern console Any)
+
+(js/quote
+  ;; ---- config ----
+  (const PORT (or (dot (dot process env) PORT) 8088))
+  (const STATIC_DIR (or (bracket (dot process env) "STATIC_DIR")
+                        (tpl "" (dot (dot process env) HOME) "/code/north/web/priv/static")))
+  (const BOARD 7977)
+
+  ;; ---- response helpers ----
+  (const jsonR (=> (data status)
+    (new Response (.stringify JSON data)
+      (object status (or status 200)
+              headers (object "content-type" "application/json"
+                              "access-control-allow-origin" "*")))))
+  (const htmlR (=> (body)
+    (new Response body (object headers (object "content-type" "text/html; charset=utf-8")))))
+
+  ;; ---- WebSocket client registry + broadcast ----
+  (const clients (new Set))
+  (const broadcast (=> (msg)
+    (.forEach clients (=> (ws) (.send ws msg)))))
+
+  ;; ---- persistent :subscribe loop → broadcast "board" on every commit ----
+  (const startSubscribe (=> ()
+    (const decoder (new TextDecoder))
+    (let buf "")
+    (const connect (=> ()
+      (const cp (.connect Bun (object
+        hostname "127.0.0.1"
+        port BOARD
+        socket (object
+          open (=> (socket) (.write socket "{:op :subscribe}\n"))
+          data (=> (socket chunk)
+            (= buf (tpl "" buf (.decode decoder chunk (object stream true))))
+            (const parts (.split buf "\n"))
+            (= buf (bracket parts (- (dot parts length) 1)))
+            (const lines (.slice parts 0 (- (dot parts length) 1)))
+            (.forEach lines (=> (line)
+              (if (.includes line ":commit") (broadcast "board")))))
+          close (=> (socket) (setTimeout connect 2000))
+          error (=> (socket err) (setTimeout connect 2000))))))
+      ((bracket cp "catch") (=> (err) (setTimeout connect 2000)))))
+    (connect)))
+
+  ;; ---- POST body (tolerant) ----
+  (const readBody (=> (req)
+    ((bracket (.json req) "catch") (=> (e) (object)))))
+
+  ;; ---- GET dispatch ----
+  (async function handleGet (path qs)
+    (if (=== path "/api/dag")      (return (jsonR (await (.api-dag srv (.get qs "focus") BOARD)) 200)))
+    (if (=== path "/api/list")     (return (jsonR (await (.api-list srv BOARD)) 200)))
+    (if (=== path "/api/board")    (return (jsonR (await (.api-board srv BOARD)) 200)))
+    (if (=== path "/api/arena")    (return (jsonR (await (.api-arena srv (.get qs "exp") BOARD)) 200)))
+    (if (=== path "/api/agents")   (return (jsonR (await (.api-agents srv BOARD)) 200)))
+    (if (=== path "/api/presence") (return (jsonR (await (.api-presence srv BOARD)) 200)))
+    (if (=== path "/api/entities") (return (jsonR (await (.api-entities srv (or (.get qs "graph") "board") BOARD)) 200)))
+    (if (.startsWith path "/api/agents/")
+      (return (jsonR (await (.api-agent-stream srv (bracket (.split path "/") 3))) 200)))
+    (if (=== path "/presence")     (return (jsonR (await (.api-wake-presence srv BOARD)) 200)))
+    ;; HTML shells
+    (if (or (=== path "/") (=== path "/app")) (return (htmlR (.app-shell srv))))
+    (if (=== path "/wake")   (return (htmlR (.wake-shell srv))))
+    (if (=== path "/wb")     (return (htmlR (.wake-board-shell srv))))
+    (if (=== path "/list")   (return (htmlR (.list-shell srv))))
+    (if (=== path "/board")  (return (htmlR (.board-shell srv))))
+    (if (=== path "/arena")  (return (htmlR (.arena-shell srv))))
+    (if (=== path "/agents") (return (htmlR (.agents-shell srv))))
+    ;; static file
+    (const rel (? (=== path "/") "/index.html" path))
+    (const file (.file Bun (tpl "" STATIC_DIR rel)))
+    (if (await (.exists file))
+      (return (new Response file))
+      (return (jsonR (object error "not found") 404))))
+
+  ;; ---- POST dispatch ----
+  (async function handlePost (path req)
+    (const body (await (readBody req)))
+    (const out
+      (? (=== path "/api/assert")  (await (.api-assert srv body))
+      (? (=== path "/api/retract") (await (.api-retract srv body))
+      (? (=== path "/api/tell")    (await (.api-tell srv body))
+      (? (=== path "/api/capture") (await (.api-capture srv body))
+      (? (=== path "/api/steer")   (await (.api-steer srv body))
+         null))))))
+    (if (=== out null) (return (jsonR (object error "not found") 404)))
+    (return (jsonR (dot out body) (dot out http))))
+
+  ;; ---- main fetch ----
+  (export (async function fetchHandler (req server)
+    (const u (new URL (dot req url)))
+    (const path (dot u pathname))
+    (const method (dot req method))
+    (if (=== path "/live")
+      (return (? (.upgrade server req) undefined (jsonR (object error "upgrade failed") 400))))
+    (if (=== method "OPTIONS")
+      (return (new Response "" (object status 204 headers (object
+        "access-control-allow-origin" "*"
+        "access-control-allow-methods" "GET,POST,OPTIONS"
+        "access-control-allow-headers" "content-type")))))
+    (if (=== method "POST") (return (await (handlePost path req))))
+    (return (await (handleGet path (dot u searchParams))))))
+
+  ;; ---- server bootstrap ----
+  (export (function startServer ()
+    (startSubscribe)
+    (const server (.serve Bun (object
+      port PORT
+      fetch fetchHandler
+      websocket (object
+        open (=> (ws) (.add clients ws))
+        close (=> (ws) (.delete clients ws))
+        message (=> (ws msg) 0)))))
+    (.log console (tpl "north web (bjs) → http://localhost:" PORT "  static:" STATIC_DIR))
+    (return server))))
+
+(js/quote (startServer))
