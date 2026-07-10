@@ -163,10 +163,10 @@
             (println "watch:" (cyn (str "north watch " aid)))))))))
 
 ;; delegate = the ONE delegation verb; whether to carry context is BINARY (y/n),
-;; not a separate verb. `--with-context <file>` attaches a brief so the lane
+;; not a separate verb. `--context <file>` attaches a brief so the lane
 ;; inherits where the coordinator left off (files, decisions, constraints);
 ;; without it, a fresh right-sized lane takes the task with no baggage. (ASYMMETRY:
-;; the chat `/delegate --with-context` is a mechanical session fork — a session can
+;; the chat /delegate carries the session BY DEFAULT (mechanical fork) — a shell can
 ;; carry ITSELF forward; the shell has no session to fork, so it attaches a
 ;; pre-composed file instead.) Self-triaging integrator dials, full lifecycle (id
 ;; mint + identity facts + presence + completion/death ping). Merges the retired
@@ -174,9 +174,9 @@
 (defn cmd-delegate [args]
   (let [notify (or (second (drop-while #(not= "--notify" %) args))
                    (System/getenv "NORTH_NOTIFY"))
-        ctx-file (second (drop-while #(not= "--with-context" %) args))
+        ctx-file (second (drop-while #(not= "--context" %) args))
         skip (set (remove nil? [notify ctx-file]))
-        text (str/join " " (remove #(or (#{"--notify" "--with-context" "--dry-run"} %)
+        text (str/join " " (remove #(or (#{"--notify" "--context" "--dry-run"} %)
                                         (skip %)) args))
         dry? (some #{"--dry-run"} args)
         ctx (when ctx-file
@@ -198,7 +198,7 @@
                    "DELEGATE TASK: " text
                    "\n\nOPERATING CONTRACT: " contract)]
     (if (str/blank? text)
-      (println (red "usage:") "north delegate \"<task>\" [--with-context <file>] [--notify <peer>]")
+      (println (red "usage:") "north delegate \"<task>\" [--context <file>] [--notify <peer>]")
       (cmd-spawn (cond-> ["integrator" brief]
                    dry?   (conj "--dry-run")
                    notify (into ["--notify" notify]))))))
