@@ -188,6 +188,7 @@
    ranked (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) rs))
    shown (if all ranked (vec (take 15 ranked)))]
   (if all (println (str "READY NOW — " (count rs))) (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
+  (println "  ready = committed + unblocked, start anytime (vs open = merely not-done, may still be blocked)")
   (doseq [te shown]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
   (if (and (not all) (> (count rs) (count shown))) (do
@@ -302,6 +303,7 @@
    ritems (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) readyl)
    rranked (vec (take 15 (sort-by (fn [it] (- 0 (:score it))) ritems)))]
   (println (str "BOARD — " (count threads) " open threads · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (north board --all for the full kanban)"))
+  (println "  open = not done · active = being driven now · ready = committed + unblocked, start anytime · blocked = waiting on a dependency")
   (if (not (empty? active)) (do
   (println (str "\n" (proj/condition-emoji idx "active") " ACTIVE — who's on what (" (count active) ")"))
   (doseq [te ashow]
@@ -807,24 +809,96 @@
   (->KindStat kd (get ksub kd 0) (get kfacts kd 0) ptop))) (vec (keys ksub)))]
   (vec (sort-by (fn [ks] (- 0 (:facts ks))) stats))))
 
-(defn cmd-schema [^String log]
+(def ^String SP24 "                        ")
+
+(defn- ^String padr [^String s n]
+  (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))
+
+(defn- ^String pad7 [n]
+  (let [s (str n)]
+  (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
+
+(defn- kind-subjects [idx ^String kind]
+  (filterv (fn [s] (= (kind-of idx s) kind)) (:subjects idx)))
+
+(defrecord CovAcc [seen pc])
+
+(defn covacc-seen [r] (:seen r))
+
+(defn covacc-pc [r] (:pc r))
+
+(defn- coverage [facts subjset]
+  (:pc (reduce (fn [a c] (if (get subjset (:l c) false) (let [sk (str (:l c) KP-SEP (:p c))]
+  (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (:p c) (+ 1 (get (:pc a) (:p c) 0)))))) a)) (->CovAcc {} {}) facts)))
+
+(defrecord FieldStat [pred subs pct required])
+
+(defn fieldstat-pred [r] (:pred r))
+
+(defn fieldstat-subs [r] (:subs r))
+
+(defn fieldstat-pct [r] (:pct r))
+
+(defn fieldstat-required [r] (:required r))
+
+(defn- schema-fields [idx facts ^String kind]
+  (let [ksubs (kind-subjects idx kind)
+   total (count ksubs)
+   subjset (reduce (fn [m s] (assoc m s true)) {} ksubs)
+   pc (coverage facts subjset)
+   stats (mapv (fn [p] (let [n (get pc p 0)
+   pct (if (> total 0) (quot (* 100 n) total) 0)
+   req (if (> total 0) (>= (* n 100) (* total 98)) false)]
+  (->FieldStat p n pct req))) (vec (keys pc)))]
+  (vec (sort-by (fn [fs] (str (if (:required fs) "0" "1") "|" (pad7 (- 9999999 (:subs fs))) "|" (:pred fs))) stats))))
+
+(defn- ^String pred-ann [idx ^String p]
+  (let [ps (if (or (some? (k/one-i idx (str "@" p) "cardinality")) (some? (k/one-i idx (str "@" p) "value_kind"))) (str "@" p) p)
+   card (k/one-i idx ps "cardinality")
+   vk (k/one-i idx ps "value_kind")]
+  (str (if (some? card) (str "  cardinality=" card) "") (if (some? vk) (str " value_kind=" vk) ""))))
+
+(defn- ^String kind-writer [^String kind]
+  (cond
+  (= kind "thread") "north capture -> src/north/main.bclj capture-facts (title, kind=thread, created_at, committed, …)"
+  (= kind "concern") "concern declare -> cli/concern-cli.clj (put! kind=concern, intent, touches, reached)"
+  (= kind "agent") "agent identity -> sdk/src/identity.ts writeIdentity + bin/north-on-spawn (tell agent:<id> kind/role/display_name)"
+  (= kind "session-telemetry") "run/session telemetry -> sdk/src/telemetry.ts recordRun (kind=run) + bin/north-on-spawn (kind=session) + cli/presence-cli.clj (session leases)"
+  (= kind "msg") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"
+  (= kind "mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"
+  (= kind "predicate") "schema-as-facts -> north schema-seed (src/north/main.bclj cmd-schema-seed) / fram tell (cardinality/value_kind/acyclic)"
+  (= kind "topic") "topic grouping anchors (topic- prefix)"
+  :else "(writer not curated — grep the coordination log for this kind's writer)"))
+
+(defn- print-schema-kind [idx facts ^String kind]
+  (let [ksubs (kind-subjects idx kind)
+   total (count ksubs)]
+  (if (= total 0) (println (str "SCHEMA · " kind " — no subjects of this kind. `north schema` lists the kinds in use.")) (let [fields (schema-fields idx facts kind)
+   req (filterv (fn [fs] (:required fs)) fields)
+   opt (filterv (fn [fs] (not (:required fs))) fields)]
+  (println (str "SCHEMA · " kind " — " total " subjects · " (count fields) " distinct predicates"))
+  (println (str "  REQUIRED — carried by ≥98% of " kind " subjects (≈ every one):"))
+  (doseq [fs req]
+  (println (str "    " (padr (:pred fs) 20) " " (:pct fs) "%" (pred-ann idx (:pred fs)))))
+  (if (empty? req) (do
+  (println "    (none)")))
+  (println "  OPTIONAL — coverage % of subjects that carry it:")
+  (doseq [fs opt]
+  (println (str "    " (padr (:pred fs) 20) " " (:pct fs) "%" (pred-ann idx (:pred fs)))))
+  (if (empty? opt) (do
+  (println "    (none)")))
+  (println (str "  written by: " (kind-writer kind)))))))
+
+(defn cmd-schema [^String log ^String kind]
   (let [facts (live-facts log)
-   idx (k/build-index facts)
-   stats (census idx facts)]
-  (println (str "SCHEMA — vocabulary census: " (count (:subjects idx)) " subjects / " (count facts) " live facts, grouped by entity kind (top predicates each)"))
+   idx (k/build-index facts)]
+  (if (not (str/blank? kind)) (print-schema-kind idx facts kind) (let [stats (census idx facts)
+   pred-subs (filterv (fn [s] (or (some? (k/one-i idx s "cardinality")) (or (some? (k/one-i idx s "value_kind")) (some? (k/one-i idx s "acyclic"))))) (:subjects idx))]
+  (println (str "SCHEMA — " (count (:subjects idx)) " subjects / " (count facts) " live facts across " (count stats) " kinds"))
   (doseq [ks stats]
-  (println (str "\n" (:kind ks) "  —  " (:subjects ks) " subjects · " (:facts ks) " facts"))
-  (doseq [pc (:preds ks)]
-  (println (str "    " (:pred pc) "  " (:n pc)))))
-  (let [pred-subs (vec (sort-by (fn [x] x) (filterv (fn [s] (or (some? (k/one-i idx s "cardinality")) (or (some? (k/one-i idx s "value_kind")) (some? (k/one-i idx s "acyclic"))))) (:subjects idx))))]
-  (println (str "\nPREDICATE METADATA — " (count pred-subs) " predicate(s) with declared schema-as-facts (blank => env/legacy default)"))
-  (doseq [s pred-subs]
-  (let [card (let [c (k/one-i idx s "cardinality")]
-  (if (some? c) c "multi"))
-   vk (let [v (k/one-i idx s "value_kind")]
-  (if (some? v) v "literal"))
-   acy (if (some? (k/one-i idx s "acyclic")) " acyclic" "")]
-  (println (str "    " (short-id s) "  cardinality=" card " value_kind=" vk acy)))))))
+  (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
+  (println (str "  " (padr "predicate-meta" 20) " " (count pred-subs) " predicate(s) carry declared cardinality/value_kind/acyclic"))
+  (println "→ north schema <kind> for the field spec — required vs optional preds, coverage %, who writes it")))))
 
 (defn- ^Boolean has-flag? [args ^String f]
   (not (empty? (filterv (fn [a] (= a f)) args))))
@@ -840,7 +914,7 @@
   (= cmd "agenda") (cmd-agenda log)
   (= cmd "board") (cmd-board log (has-flag? args "--all"))
   (= cmd "plate") (cmd-board log (has-flag? args "--all"))
-  (= cmd "schema") (cmd-schema log)
+  (= cmd "schema") (cmd-schema log (if (>= (count args) 2) (nth args 1) ""))
   (= cmd "needs-review") (cmd-needs-review log)
   (= cmd "audit") (cmd-audit log)
   (= cmd "resolve") (if (>= (count args) 2) (cmd-resolve log (nth args 1)) (println "usage: resolve <@handle|@id>"))

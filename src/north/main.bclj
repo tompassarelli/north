@@ -373,6 +373,7 @@
     (if all
       (println (str "READY NOW — " (count rs)))
       (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
+    (println "  ready = committed + unblocked, start anytime (vs open = merely not-done, may still be blocked)")
     (doseq [te shown]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
     (when (and (not all) (> (count rs) (count shown)))
@@ -566,6 +567,9 @@
     (println (str "BOARD — " (count threads) " open threads · " (count active) " active · "
                   (count readyl) " ready · " (count blockedl) " blocked · "
                   nconcern " concerns   (north board --all for the full kanban)"))
+    ;; self-teaching legend: the counts above are derived conditions, not obvious labels —
+    ;; spell out what each word means so "open" vs "ready" needs no outside explanation.
+    (println "  open = not done · active = being driven now · ready = committed + unblocked, start anytime · blocked = waiting on a dependency")
     (when (not (empty? active))
       (println (str "\n" (proj/condition-emoji idx "active") " ACTIVE — who's on what (" (count active) ")"))
       (doseq [te ashow]
@@ -1209,30 +1213,120 @@
                     (vec (keys ksub)))]
     (vec (sort-by (fn [ks :- KindStat] :- Int (- 0 (:facts ks))) stats))))
 
-(defn cmd-schema [log :- String] :- Nil
+;; --- per-kind field spec (`north schema <kind>`) ----------------------------
+;; A schema here is a shape DERIVED from the live facts, not a declared record:
+;; for one kind, split its predicates into REQUIRED (carried by ≥98% of that
+;; kind's subjects — effectively "always present") vs OPTIONAL (show coverage %),
+;; and annotate declared cardinality/value_kind where the predicate carries it.
+;; Coverage is DISTINCT SUBJECTS per predicate (multi-valued preds counted once
+;; per subject), not fact count — "how many of this kind have it", not "how often".
+
+(def ^:private SP24 :- String "                        ")
+(defn- padr [s :- String n :- Int] :- String
+  (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))
+(defn- pad7 [n :- Int] :- String
+  (let [s (str n)] (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
+
+(defn- kind-subjects [idx :- k/Index kind :- String] :- (Vec String)
+  (filterv (fn [s :- String] :- Bool (= (kind-of idx s) kind)) (:subjects idx)))
+
+;; distinct-subject coverage per predicate over a subject set (one pass over facts).
+(defrecord CovAcc [seen :- (Map String Bool) pc :- (Map String Int)])
+(defn- coverage [facts :- (Vec k/Fact) subjset :- (Map String Bool)] :- (Map String Int)
+  (:pc (reduce (fn [a :- CovAcc c :- k/Fact] :- CovAcc
+                 (if (get subjset (:l c) false)
+                   (let [sk (str (:l c) KP-SEP (:p c))]
+                     (if (get (:seen a) sk false)
+                       a
+                       (->CovAcc (assoc (:seen a) sk true)
+                                 (assoc (:pc a) (:p c) (+ 1 (get (:pc a) (:p c) 0))))))
+                   a))
+               (->CovAcc {} {}) facts)))
+
+(defrecord FieldStat [pred :- String subs :- Int pct :- Int required :- Bool])
+(defn- schema-fields [idx :- k/Index facts :- (Vec k/Fact) kind :- String] :- (Vec FieldStat)
+  (let [ksubs (kind-subjects idx kind)
+        total (count ksubs)
+        subjset (reduce (fn [m :- (Map String Bool) s :- String] :- (Map String Bool)
+                          (assoc m s true)) {} ksubs)
+        pc (coverage facts subjset)
+        stats (mapv (fn [p :- String] :- FieldStat
+                      (let [n (get pc p 0)
+                            pct (if (> total 0) (quot (* 100 n) total) 0)
+                            ;; required := ≥98% coverage (integer-exact, no rounding boundary).
+                            req (if (> total 0) (>= (* n 100) (* total 98)) false)]
+                        (->FieldStat p n pct req)))
+                    (vec (keys pc)))]
+    ;; required first, then by coverage desc, then predicate name — a stable spec order.
+    (vec (sort-by (fn [fs :- FieldStat] :- String
+                    (str (if (:required fs) "0" "1") "|"
+                         (pad7 (- 9999999 (:subs fs))) "|" (:pred fs)))
+                  stats))))
+
+;; declared cardinality/value_kind for a predicate, if present (schema-seed writes
+;; @<pred> subjects; tolerate a bare <pred> subject too). Blank when undeclared.
+(defn- pred-ann [idx :- k/Index p :- String] :- String
+  (let [ps (if (or (some? (k/one-i idx (str "@" p) "cardinality"))
+                   (some? (k/one-i idx (str "@" p) "value_kind")))
+             (str "@" p) p)
+        card (k/one-i idx ps "cardinality")
+        vk (k/one-i idx ps "value_kind")]
+    (str (if (some? card) (str "  cardinality=" card) "")
+         (if (some? vk) (str " value_kind=" vk) ""))))
+
+;; WRITERS map: a schema here is a set of FACTS, so its "file location" is the code
+;; that WRITES that kind. Curated + each entry grep-verified against source.
+(defn- kind-writer [kind :- String] :- String
+  (cond
+    [(= kind "thread") "north capture -> src/north/main.bclj capture-facts (title, kind=thread, created_at, committed, …)"]
+    [(= kind "concern") "concern declare -> cli/concern-cli.clj (put! kind=concern, intent, touches, reached)"]
+    [(= kind "agent") "agent identity -> sdk/src/identity.ts writeIdentity + bin/north-on-spawn (tell agent:<id> kind/role/display_name)"]
+    [(= kind "session-telemetry") "run/session telemetry -> sdk/src/telemetry.ts recordRun (kind=run) + bin/north-on-spawn (kind=session) + cli/presence-cli.clj (session leases)"]
+    [(= kind "msg") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"]
+    [(= kind "mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"]
+    [(= kind "predicate") "schema-as-facts -> north schema-seed (src/north/main.bclj cmd-schema-seed) / fram tell (cardinality/value_kind/acyclic)"]
+    [(= kind "topic") "topic grouping anchors (topic- prefix)"]
+    [:else "(writer not curated — grep the coordination log for this kind's writer)"]))
+
+(defn- print-schema-kind [idx :- k/Index facts :- (Vec k/Fact) kind :- String] :- Nil
+  (let [ksubs (kind-subjects idx kind)
+        total (count ksubs)]
+    (if (= total 0)
+      (println (str "SCHEMA · " kind " — no subjects of this kind. `north schema` lists the kinds in use."))
+      (let [fields (schema-fields idx facts kind)
+            req (filterv (fn [fs :- FieldStat] :- Bool (:required fs)) fields)
+            opt (filterv (fn [fs :- FieldStat] :- Bool (not (:required fs))) fields)]
+        (println (str "SCHEMA · " kind " — " total " subjects · " (count fields) " distinct predicates"))
+        (println (str "  REQUIRED — carried by ≥98% of " kind " subjects (≈ every one):"))
+        (doseq [fs req]
+          (println (str "    " (padr (:pred fs) 20) " " (:pct fs) "%" (pred-ann idx (:pred fs)))))
+        (when (empty? req) (println "    (none)"))
+        (println "  OPTIONAL — coverage % of subjects that carry it:")
+        (doseq [fs opt]
+          (println (str "    " (padr (:pred fs) 20) " " (:pct fs) "%" (pred-ann idx (:pred fs)))))
+        (when (empty? opt) (println "    (none)"))
+        (println (str "  written by: " (kind-writer kind)))))))
+
+;; `north schema`        -> the kind census (one screen: kinds + counts + hint)
+;; `north schema <kind>` -> the per-kind field spec (required/optional + writers)
+(defn cmd-schema [log :- String kind :- String] :- Nil
   (let [facts (live-facts log)
-        idx (k/build-index facts)
-        stats (census idx facts)]
-    (println (str "SCHEMA — vocabulary census: " (count (:subjects idx)) " subjects / "
-                  (count facts) " live facts, grouped by entity kind (top predicates each)"))
-    (doseq [ks stats]
-      (println (str "\n" (:kind ks) "  —  " (:subjects ks) " subjects · " (:facts ks) " facts"))
-      (doseq [pc (:preds ks)]
-        (println (str "    " (:pred pc) "  " (:n pc)))))
-    ;; PREDICATE METADATA — schema-as-facts: cardinality/value_kind/acyclic where declared.
-    (let [pred-subs (vec (sort-by (fn [x :- String] :- String x)
-                                  (filterv (fn [s :- String] :- Bool
-                                             (or (some? (k/one-i idx s "cardinality"))
-                                                 (or (some? (k/one-i idx s "value_kind"))
-                                                     (some? (k/one-i idx s "acyclic")))))
-                                           (:subjects idx))))]
-      (println (str "\nPREDICATE METADATA — " (count pred-subs)
-                    " predicate(s) with declared schema-as-facts (blank => env/legacy default)"))
-      (doseq [s pred-subs]
-        (let [card (let [c (k/one-i idx s "cardinality")] (if (some? c) c "multi"))
-              vk (let [v (k/one-i idx s "value_kind")] (if (some? v) v "literal"))
-              acy (if (some? (k/one-i idx s "acyclic")) " acyclic" "")]
-          (println (str "    " (short-id s) "  cardinality=" card " value_kind=" vk acy)))))))
+        idx (k/build-index facts)]
+    (if (not (str/blank? kind))
+      (print-schema-kind idx facts kind)
+      (let [stats (census idx facts)
+            pred-subs (filterv (fn [s :- String] :- Bool
+                                 (or (some? (k/one-i idx s "cardinality"))
+                                     (or (some? (k/one-i idx s "value_kind"))
+                                         (some? (k/one-i idx s "acyclic")))))
+                               (:subjects idx))]
+        (println (str "SCHEMA — " (count (:subjects idx)) " subjects / " (count facts)
+                      " live facts across " (count stats) " kinds"))
+        (doseq [ks stats]
+          (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
+        (println (str "  " (padr "predicate-meta" 20) " " (count pred-subs)
+                      " predicate(s) carry declared cardinality/value_kind/acyclic"))
+        (println "→ north schema <kind> for the field spec — required vs optional preds, coverage %, who writes it")))))
 
 ;; --- dispatch (life verbs; engine verbs are routed to fram by the wrapper) ---
 (defn- has-flag? [args :- (Vec String) f :- String] :- Bool
@@ -1252,7 +1346,7 @@
       [(= cmd "agenda")   (cmd-agenda log)]
       [(= cmd "board")    (cmd-board log (has-flag? args "--all"))]
       [(= cmd "plate")    (cmd-board log (has-flag? args "--all"))]   ; hidden alias — works, not listed in usage
-      [(= cmd "schema")   (cmd-schema log)]
+      [(= cmd "schema")   (cmd-schema log (if (>= (count args) 2) (nth args 1) ""))]
       [(= cmd "needs-review") (cmd-needs-review log)]
       [(= cmd "audit")    (cmd-audit log)]
       [(= cmd "resolve")

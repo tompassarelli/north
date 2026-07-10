@@ -39,8 +39,8 @@ north — your one card. Type a command to do the thing next to it.
 
   SEE WHAT'S GOING ON
     north dashboard                    the cockpit: agents, concerns, board, health, profile
-    north board                        every open thread   (--all for the full kanban)
-    north ready                        unblocked work, ordered by leverage
+    north board                        open threads by state: active/ready/blocked  (--all = full kanban)
+    north ready                        committed + unblocked work, start anytime, ranked by leverage
     north agenda                       what's dated / overdue today
     north health                       coordination rollup: lanes ran/died, stale concerns
     north trace <id>                   diagnose one agent's lifecycle
