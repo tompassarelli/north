@@ -71,7 +71,7 @@ north — your one card. Type a command to do the thing next to it.
     north clock start|stop             log real time against a thread
 
   SETTINGS & HEALTH
-    my-agent-config                    posture toggles: dispatch, caveman, coord, guards
+    north config                       posture toggles: dispatch, caveman, coord, guards
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
     exit 0 ;;
@@ -92,6 +92,12 @@ CARD
     # is everything healthy (coordinator handshake + daemons/health/rev-skew/env/
     # guard-hooks). Both teach the primitive they wrap. cli/dashboard-cli.clj.
     exec bb "$NORTH/cli/dashboard-cli.clj" "$@" ;;
+  config)
+    # Personal-stack posture settings — caveman / dispatch / coord / beagle / guards
+    # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)
+    # 2026-07-10: north is the settings surface. State stays at
+    # ~/.claude/my-config.state (guard hooks read it live). cli/config-cli.clj.
+    exec bb "$NORTH/cli/config-cli.clj" "${@:2}" ;;
   up)
     exec "$FRAM/bin/fram-up" "${@:2}" ;;
   agents|spawn|request|fork|watch|steer|retask)
