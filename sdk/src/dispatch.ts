@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { getThreadFacts, getChildren } from "./north-client";
+import { getThreadFacts, getChildren } from "./tern-client";
 import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, DEFAULT_SYSTEM_PROMPT, type Effort } from "./harness";
@@ -7,6 +7,7 @@ import { inputChannel, subscribeFeed } from "./coordination";
 import { tokensOf } from "./budget";
 import { recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
+import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -62,13 +63,21 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
   const ch = inputChannel(prompt);
   const stopFeed = subscribeFeed(agentId, (m) => ch.push(m));
 
+  // Stream watchdog (thread 019f4d54): wrap the SDK iterator so a stall (no message for
+  // N min while the query is open) is caught — the iterator neither yields nor throws on
+  // a hang, so the catch below would never fire. N min silence -> stalled fact + ping;
+  // 2N -> abort + outcome=stalled + notifyDeath.
+  const coordHandle = process.env.AGENT_COORDINATOR;
+  const window = stallMs();
+  let stallAborted = false;
+
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) the generator THROWS exitError
   // here. catch -> outcome "died" + notifyDeath (agent_death fact on this thread + @swarm,
   // peer ping to the coordinator); finally -> ALWAYS stop the feed, close the channel, and
   // record the run so the coordinator learns of the death instead of noticing silence.
   try {
-    for await (const message of query({
+    const q = query({
       prompt: ch.stream(),
       options: harnessOptions({
         self: agentId,
@@ -77,14 +86,31 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
         effort: process.env.AGENT_EFFORT as Effort | undefined,
         systemPrompt: `You are a north worker agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
       }),
-    })) {
+    });
+    const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
+      stallMs: window,
+      onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
+      onAbort: () => { stallAborted = true; },
+    });
+    for await (const message of watched) {
       const msg = message as any;
       stream.writeSDKMessage(msg);
 
       if ("result" in msg) {
         result = msg.result;
         resultMsg = msg;
-        if (ch.pending() === 0) { break; } // task done + no pending peer ping -> finish
+        if (ch.pending() === 0) {
+          // Turn-cap ping (thread 019f4d54): a maxTurns/max-budget terminal arrives as a
+          // `result` with an error_max_* subtype; recording it as a clean finish hides the
+          // cap. Mark the outcome and ping the coordinator with a partial-result note.
+          const cap = typeof msg.subtype === "string" && msg.subtype.startsWith("error_max") ? msg.subtype : null;
+          if (cap) {
+            outcome = cap === "error_max_turns" ? "max_turns" : "capped";
+            const partial = (result ?? "").trim() ? `partial: ${(result ?? "").trim().slice(0, 200)}` : "no partial result";
+            notifyTurnCap(agentId, `${cap} — ${partial}`, { coordinator: coordHandle });
+          }
+          break; // task done + no pending peer ping -> finish
+        }
       }
 
       if (msg.type === "assistant" && msg.message?.content) {
@@ -94,6 +120,14 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
           }
         }
       }
+    }
+    if (stallAborted) {
+      // 2N of silence: interrupt the hung query, mark outcome=stalled, and fire the death
+      // path so a stall is terminal + visible instead of a silent hang.
+      outcome = "stalled";
+      try { await (q as any).interrupt?.(); } catch {}
+      notifyDeath(agentId, new Error(`stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`),
+        { thread: threadId, coordinator: coordHandle });
     }
   } catch (err) {
     outcome = "died";

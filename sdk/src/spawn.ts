@@ -10,6 +10,7 @@ import { inputChannel } from "./coordination";
 import { writeAgentFacts, goalFromPrompt } from "./identity";
 import { makeStruggleState, updateStruggle, checkStruggle, resetStruggle } from "./struggle";
 import { activeLadder, tierIndexOf, decideEscalation, escalateInFlight } from "./ladder";
+import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 
 interface SpawnOptions {
   prompt: string;
@@ -83,8 +84,21 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   // channel leaked. Now: catch -> outcome "died" + notifyDeath (fact + peer ping); finally
   // -> ALWAYS end the channel + record the run; return the PARTIAL result (supervision, not
   // fail-fast) so one worker's death never rejects a spawnParallel Promise.all batch.
+  // Stream watchdog (thread 019f4d54): a stall (no SDK message for N min while the
+  // query is open) is otherwise INVISIBLE — the iterator neither yields nor throws, so
+  // the catch below never fires. Wrap the iterator: N min silence -> stalled fact +
+  // coordinator ping (surface); 2N -> abort + outcome=stalled + notifyDeath (terminal).
+  const coordHandle = opts.coordinator ?? process.env.AGENT_COORDINATOR;
+  const window = stallMs();
+  let stallAborted = false;
+  const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
+    stallMs: window,
+    onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
+    onAbort: () => { stallAborted = true; },
+  });
+
   try {
-  for await (const message of q) {
+  for await (const message of watched) {
     const msg = message as any;
     stream.writeSDKMessage(msg);
     runCost += costOf(rung().model, msg.message?.usage ?? msg.usage); // price at the CURRENT tier
@@ -130,8 +144,31 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
           continue;
         }
       }
-      if (ch.pending() === 0) { end("ran"); break; } // MUST end the channel or the query hangs
+      if (ch.pending() === 0) {
+        // Turn-cap ping (thread 019f4d54): a maxTurns / max-budget terminal arrives as a
+        // `result` with an error_max_* subtype. Ignoring it records outcome="ran" — a cap
+        // masquerades as success. Detect it, mark the outcome, and ping the coordinator
+        // with a partial-result note instead of stopping silently.
+        const cap = typeof msg.subtype === "string" && msg.subtype.startsWith("error_max") ? msg.subtype : null;
+        if (cap) {
+          end(cap === "error_max_turns" ? "max_turns" : "capped");
+          const partial = result.trim() ? `partial: ${result.trim().slice(0, 200)}` : "no partial result";
+          notifyTurnCap(agentId, `${cap} — ${partial}`, { coordinator: coordHandle });
+        } else {
+          end("ran");
+        }
+        break; // MUST end the channel or the query hangs
+      }
     }
+  }
+  if (stallAborted) {
+    // 2N of silence: make the stall TERMINAL + VISIBLE. Interrupt the hung query, record
+    // outcome=stalled, and fire the death path (agent_death fact + coordinator ping) so a
+    // stall is never a silent hang again.
+    outcome = "stalled";
+    try { await (q as any).interrupt?.(); } catch {}
+    notifyDeath(agentId, new Error(`stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`),
+      { thread: undefined, coordinator: coordHandle });
   }
   } catch (err) {
     outcome = "died";
@@ -153,8 +190,12 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     escalations: escalations.length ? escalations : undefined,
   });
   // completion ping mirrors the death ping: the coordinator's inbox hook surfaces it.
+  // Suppress it for outcomes that already fired a dedicated ping (died -> AGENT DEATH,
+  // stalled -> AGENT DEATH via notifyDeath, max_turns/capped -> TURN CAP) — one terminal
+  // event, one ping, no contradictory "COMPLETE outcome=stalled" noise.
   const coord = opts.coordinator ?? process.env.AGENT_COORDINATOR;
-  if (coord && outcome !== "died") {
+  const alreadySignaled = new Set(["died", "stalled", "max_turns", "capped"]);
+  if (coord && !alreadySignaled.has(outcome)) {
     try {
       const { execFileSync } = await import("node:child_process");
       execFileSync("bb", [`${REPO_ROOT}/cli/msg-cli.clj`, process.env.NORTH_PORT ?? "7977",
