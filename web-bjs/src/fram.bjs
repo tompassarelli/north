@@ -17,17 +17,34 @@
 ;; ---- low-level I/O (js/quote — inherently callback-shaped) ------------------
 ;; Open a socket, write one op line, accumulate the reply, resolve the raw line
 ;; on close. Never rejects: connect failure / socket error resolve to null.
+;;
+;; LEAK FIX (2026-07-10): the client MUST close its own socket on EVERY settle
+;; path — success, error, and the added timeout — never trusting the daemon to
+;; close first. The prior version relied solely on the daemon's close event, so
+;; any op the daemon did not close (slow reply, unparsed op, no close) sat in
+;; ESTABLISHED forever; under the /live re-fetch fan-out this exhausted the
+;; ephemeral-port range (28,224 leaked conns → machine-wide outage). `settle`
+;; is idempotent (Promise resolve ignores the 2nd call) and force-terminates the
+;; socket; a 10s watchdog bounds any connection the daemon never answers.
 (js/quote
   (export (async function framRequestRaw (port op)
     (return (new Promise (=> (resolve)
       (const chunks (array))
       (const decoder (new TextDecoder))
-      (const settle (=> (v) (resolve v)))
+      (let sock null)
+      (let timer null)
+      (const settle (=> (v)
+        (if timer (clearTimeout timer))
+        (= timer null)
+        (if sock (try (.terminate sock) (catch e null)))
+        (= sock null)
+        (resolve v)))
+      (= timer (setTimeout (=> () (settle null)) 10000))
       (const cp (.connect Bun (object
         hostname "127.0.0.1"
         port port
         socket (object
-          open (=> (socket) (.write socket (tpl "" op "\n")))
+          open (=> (socket) (= sock socket) (.write socket (tpl "" op "\n")))
           data (=> (socket chunk) (.push chunks (.decode decoder chunk (object stream true))))
           close (=> (socket) (settle (.join chunks "")))
           error (=> (socket err) (settle null))))))
