@@ -123,26 +123,12 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            # Elixir / Erlang (Phoenix web app — OUT OF SCOPE for packaging)
-            elixir
-            beamPackages.erlang
-            hex
-            rebar3
-
-            # native deps for Phoenix/Hologram
-            inotify-tools
-            nodejs_22
-
-            # existing north deps
+            # north CLI + the bjs/Bun web cockpit (web-bjs/). The Elixir/Phoenix
+            # app was retired 2026-07-10 (see web-v1-archive/); beagle is provided
+            # system-wide by the nixos beagle module.
             babashka
             bun
           ];
-
-          shellHook = ''
-            export MIX_HOME="$PWD/.mix"
-            export HEX_HOME="$PWD/.hex"
-            export PATH="$MIX_HOME/bin:$HEX_HOME/bin:$PATH"
-          '';
         };
       });
 }

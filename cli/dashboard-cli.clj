@@ -94,7 +94,7 @@
   ;; the web cockpit. :7978/:7980 retired — modules deleted in nixos-config.
   (let [ports (listening-ports)]
     {:north (contains? ports "7977")   ; fact coordinator (the canonical log)
-     :web  (contains? ports "8088")   ; Phoenix cockpit
+     :web  (contains? ports "8088")   ; bjs/Bun cockpit
      :ports ports}))
 
 ;; ---- presence: live agents --------------------------------------------------
@@ -353,7 +353,7 @@
   (let [dh (daemon-health)]
     (println (bold "  daemons"))
     (doseq [[label k crit] [["7977 facts (the coordinator — everything reads/writes here)" :north true]
-                            ["8088 web (Phoenix cockpit)" :web false]]]
+                            ["8088 web (bjs/Bun cockpit)" :web false]]]
       (let [up (get dh k)]
         (println (str "    " (if up (grn "[ok]  ") (if crit (red "[ERR] ") (ylw "[warn]")))
                       " " label " " (ok-x up))))))
