@@ -1,5 +1,6 @@
 (ns north.staleness
-  (:require [fram.kernel :as k]
+  (:require [clojure.string :as str]
+            [fram.kernel :as k]
             [north.projections :as proj]
             [fram.fold :as f]))
 
@@ -31,8 +32,21 @@
 (defn estimate-stale [idx latest]
   (reduce (fn [acc v] (if (and (= (:p v) "estimate_hours") (and (not (proj/terminal-i? idx (:l v))) (> (later-edit-scope-tx latest (:l v)) (:tx v)))) (conj acc (->Review (:l v) "estimate_hours" (str (:r v) "h estimated before a later scope edit — re-estimate"))) acc)) [] latest))
 
+(defn ^String bar-mark [evs ^String bar]
+  (if (some? (first (filterv (fn [e] (str/includes? e bar)) evs))) "✓" "○"))
+
+(defn bars-missing [idx]
+  (reduce (fn [acc te] (if (and (some? (k/one-i idx te "committed")) (and (some? (k/one-i idx te "driver")) (and (not (proj/terminal-i? idx te)) (empty? (k/many-i idx te "done_when"))))) (conj acc (->Review te "done_when" "committed + driven with no done bar — tell it done_when \"<probe + expected result>\"")) acc)) [] (k/thread-ids-i idx)))
+
+(defn bars-unevidenced [idx]
+  (reduce (fn [acc te] (let [bars (k/many-i idx te "done_when")]
+  (if (and (some? (k/one-i idx te "outcome")) (not (empty? bars))) (let [evs (k/many-i idx te "bar_evidence")
+   marks (mapv (fn [b] (str (bar-mark evs b) " " b)) bars)
+   open (filterv (fn [m] (str/starts-with? m "○")) marks)]
+  (if (empty? open) acc (conj acc (->Review te "outcome" (str (- (count bars) (count open)) "/" (count bars) " bar(s) evidenced — " (reduce (fn [s m] (if (str/blank? s) m (str s " · " m))) "" marks) "  (bar_evidence \"<bar> → <observed result>\")"))))) acc))) [] (k/thread-ids-i idx)))
+
 (defn needs-review [idx latest ^String today before?]
-  (vec (concat (time-stale idx today before?) (vec (concat (edge-stale idx) (estimate-stale idx latest))))))
+  (vec (concat (time-stale idx today before?) (vec (concat (edge-stale idx) (vec (concat (estimate-stale idx latest) (vec (concat (bars-missing idx) (bars-unevidenced idx))))))))))
 
 (defn- ^Boolean has-structure? [idx ^String te]
   (or (some? (k/one-i idx te "driver")) (or (some? (k/one-i idx te "estimate_hours")) (or (some? (k/one-i idx te "part_of")) (or (not (empty? (k/many-i idx te "depends_on"))) (not (empty? (k/many-i idx te "relates_to"))))))))

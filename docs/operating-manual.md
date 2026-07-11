@@ -293,6 +293,53 @@ So lifecycle is moved by **adding facts**, not by editing a status field:
 
 ---
 
+## Done-bars
+
+A thread is "done" when `outcome` is present — but **done is a judgment, and
+judgments need evidence.** Done-bars make the evidence model explicit.
+
+### Schema
+
+Two predicates, both `cardinality multi`, `value_kind literal`:
+
+| predicate      | cardinality | phrasing convention                                          |
+|----------------|-------------|--------------------------------------------------------------|
+| `done_when`    | multi       | "probe + expected result" — e.g. `"north validate exits 0"`, `"firn build + validate green"`, `"smoke test passes on staging"` |
+| `bar_evidence` | multi       | observed probe result — e.g. `"north validate → exit 0 2026-07-11"` |
+
+One fact per criterion; repeat the line for multiple bars. `north schema thread`
+shows these predicates' metadata once declared in the log.
+
+### Friction gradient
+
+| moment            | behavior                                                                                         |
+|-------------------|--------------------------------------------------------------------------------------------------|
+| **capture**       | Zero ceremony — no bars required. A thought deserves a shelf without bureaucracy.                |
+| **commit/dispatch** | Bars expected. `north dispatch` warns visibly when a committed thread has no `done_when` facts and injects "define your own done bar as first act" into the worker contract. Barred threads get their bars injected verbatim into the worker brief. |
+| **outcome**       | `north tell <id> outcome ...` on a barred thread **echoes the bars** at write time — a reminder, never a reject. The gate teaches; it never blocks a human closing their own thread. |
+| **needs-review**  | Surfaces (i) committed+driven threads without any `done_when`, and (ii) outcomes written on barred threads whose bars lack evidence — each bar marked ✓/○. |
+
+### Evidence model
+
+A bar is EVIDENCED when some `bar_evidence` fact **quotes the bar's text** —
+the convention is `"<bar> → <observed result>"`, and the pairing is text
+containment, never position or count. `needs-review` (and the outcome-time
+echo) mark each bar ✓ (quoted by evidence) or ○ (open); an outcome over any
+○ bar surfaces as `n/m bar(s) evidenced`. Partial evidence surfaces but
+never blocks.
+
+### Example
+
+```
+north tell 2026-07-11-120000 done_when "north validate exits 0"
+north tell 2026-07-11-120000 done_when "firn build + validate green"
+north tell 2026-07-11-120000 bar_evidence "north validate exits 0 → exit 0, 2026-07-11"
+north tell 2026-07-11-120000 bar_evidence "firn build + validate green → both green, 2026-07-11"
+north tell 2026-07-11-120000 outcome "shipped done-bars schema + docs"
+```
+
+---
+
 ## Owner, lead, driver
 
 Three independent dimensions:

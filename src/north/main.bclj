@@ -331,6 +331,24 @@
                     " (ambiguous/truncated? `north show " (short-id ref) "` lists candidates)"))
       (println r))))
 
+;; Done-bars echo (friction gradient): bin/north calls this at outcome-write
+;; time so closing a barred thread SEES its bars — a reminder at the moment of
+;; judgment, never a reject (the gate teaches; it does not block a human
+;; closing their own thread). Silent when the thread has no bars, so the tell
+;; path can invoke it unconditionally. ✓/○ per bar = evidence containment
+;; (a bar_evidence fact quoting the bar text).
+(defn cmd-done-bars [log :- String ref :- String] :- Nil
+  (let [idx (live-idx log)
+        te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
+        bars (k/many-i idx te "done_when")
+        evs (k/many-i idx te "bar_evidence")]
+    (if (empty? bars)
+      nil
+      (do
+        (println (str "DONE BARS on " te " — this outcome claims they are met; cite probe + observed result:"))
+        (doseq [b bars] (println (str "  " (stale/bar-mark evs b) " " b)))
+        (println (str "  evidence: north tell " (short-id te) " bar_evidence \"<bar> → <observed result>\""))))))
+
 ;; Entity-drift audit: repo path-form collisions (tags retired with relates_to).
 (defn cmd-audit [log :- String] :- Nil
   (let [idx (live-idx log)
@@ -1353,6 +1371,10 @@
        (if (>= (count args) 2)
          (cmd-resolve log (nth args 1))
          (println "usage: resolve <@handle|@id>"))]
+      [(= cmd "done-bars")
+       (if (>= (count args) 2)
+         (cmd-done-bars log (nth args 1))
+         (println "usage: done-bars <@id|@handle>"))]
       [(= cmd "validate") (cmd-validate log)]
       [(= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))]
       [(= cmd "tools")    (cmd-tools)]

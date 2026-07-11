@@ -62,7 +62,30 @@
    (asrt 120 "@t11" "title" "T11" "import")
    (asrt 121 "@t11" "superseded_by" "@t12" "import")
    (asrt 122 "@t11" "valid_until" "2020-01-01" "import")
-   (asrt 123 "@t12" "title" "T12" "import")])
+   (asrt 123 "@t12" "title" "T12" "import")
+   ;; @t13 — committed + driven, NO done_when  -> bars-missing
+   (asrt 130 "@t13" "title" "T13" "import")
+   (asrt 131 "@t13" "committed" "2026-01-01" "import")
+   (asrt 132 "@t13" "driver" "@agent:x" "import")
+   ;; @t14 — committed + driven WITH a bar  -> NOT bars-missing
+   (asrt 140 "@t14" "title" "T14" "import")
+   (asrt 141 "@t14" "committed" "2026-01-01" "import")
+   (asrt 142 "@t14" "driver" "@agent:x" "import")
+   (asrt 143 "@t14" "done_when" "validate exits 0" "import")
+   ;; @t16 — outcome over 2 bars, 1 evidenced (evidence QUOTES its bar)  -> bars-unevidenced
+   (asrt 160 "@t16" "title" "T16" "import")
+   (asrt 161 "@t16" "done_when" "tests pass 9/9" "import")
+   (asrt 162 "@t16" "done_when" "docs updated" "import")
+   (asrt 163 "@t16" "outcome" "shipped" "agent")
+   (asrt 164 "@t16" "bar_evidence" "tests pass 9/9 → observed 9/9 PASS" "agent")
+   ;; @t17 — outcome over 1 bar, fully evidenced  -> NOT bars-unevidenced
+   (asrt 170 "@t17" "title" "T17" "import")
+   (asrt 171 "@t17" "done_when" "validate exits 0" "import")
+   (asrt 172 "@t17" "outcome" "shipped" "agent")
+   (asrt 173 "@t17" "bar_evidence" "validate exits 0 → ran, exit 0" "agent")
+   ;; @t18 — outcome, no bars  -> NOT bars-unevidenced (nothing was promised)
+   (asrt 180 "@t18" "title" "T18" "import")
+   (asrt 181 "@t18" "outcome" "shipped" "agent")])
 
 (def idx (k/build-index (:facts (fold/fold asserts))))
 (def latest (fold/fold-latest asserts))
@@ -73,6 +96,10 @@
 (def edge-tes (set (map :te (stale/edge-stale idx))))
 (def est-tes  (set (map :te (stale/estimate-stale idx latest))))
 (def promo    (set (stale/promotable idx)))
+(def missing  (set (map :te (stale/bars-missing idx))))
+(def unev     (stale/bars-unevidenced idx))
+(def unev-tes (set (map :te unev)))
+(def t16-detail (:detail (first (filter #(= (:te %) "@t16") unev))))
 
 (def checks
   [["time-stale flags past valid_until"          (contains? time-tes "@t1")]
@@ -85,7 +112,18 @@
    ["estimate-stale ignores import-order body"   (not (contains? est-tes "@t3"))]
    ["promotable flags uncommitted+structure"     (contains? promo "@t8")]
    ["promotable skips bare draft"                (not (contains? promo "@t9"))]
-   ["promotable skips committed"                 (not (contains? promo "@t10"))]])
+   ["promotable skips committed"                 (not (contains? promo "@t10"))]
+   ["bars-missing flags committed+driven barless" (contains? missing "@t13")]
+   ["bars-missing skips barred thread"           (not (contains? missing "@t14"))]
+   ["bars-missing skips undriven committed"      (not (contains? missing "@t1"))]
+   ["bars-unevidenced flags partial evidence"    (contains? unev-tes "@t16")]
+   ["bars-unevidenced counts 1/2"                (and (some? t16-detail)
+                                                      (clojure.string/starts-with? t16-detail "1/2"))]
+   ["bars-unevidenced marks evidenced bar ✓"     (and (some? t16-detail)
+                                                      (clojure.string/includes? t16-detail "✓ tests pass 9/9")
+                                                      (clojure.string/includes? t16-detail "○ docs updated"))]
+   ["bars-unevidenced skips fully evidenced"     (not (contains? unev-tes "@t17"))]
+   ["bars-unevidenced skips barless outcome"     (not (contains? unev-tes "@t18"))]])
 
 (let [fails (remove second checks)]
   (doseq [[nm ok] checks] (println (if ok "  [PASS] " "  [FAIL] ") nm))

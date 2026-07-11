@@ -155,6 +155,12 @@ CARD
       esac
     fi
     framverb="$1"; [ "$framverb" = retract ] && framverb=untell
+    # Done-bars echo (friction gradient): closing a barred thread SEES its bars
+    # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
+    # silent for bar-less threads; failures never block the write.
+    if [ "$framverb" = tell ] && [ "${3:-}" = outcome ]; then
+      bb -cp "$NORTH/out:$FRAM/out" -m north.main done-bars "$2" 2>/dev/null || true
+    fi
     exec "$FRAM/bin/fram" "$framverb" "${@:2}" ;;
   *)  # engine verbs: import/export/show/set/merge/watch
     exec "$FRAM/bin/fram" "$@" ;;

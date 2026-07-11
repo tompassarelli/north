@@ -29,6 +29,12 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
   const hasChildren = children.length > 0;
   const posture = derivePosture(facts, hasChildren);
 
+  // Done-bars: a committed thread with no done_when has no machine-checkable exit criterion —
+  // the worker will define its own as first act (see buildPrompt). Warn so the gap is visible.
+  if (posture.committed && posture.doneWhen.length === 0) {
+    console.log(`[dispatch] ⚠ @${threadId} committed but has NO done_when — worker will define its own done bar as first act`);
+  }
+
   if (posture.hasOutcome) {
     return { threadId, posture: "atomic", result: "already done" };
   }

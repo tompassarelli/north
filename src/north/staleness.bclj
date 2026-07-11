@@ -14,6 +14,7 @@
    History (committed/outcome/abandoned/proposed_by/created_at) never goes stale;
    derived views (ready/blocked/active) recompute and so can't go stale either.")
 
+(require clojure.string :as str)
 (require fram.kernel :as k)
 (require north.projections :as proj)
 (require fram.fold :as f)
@@ -90,9 +91,58 @@
    []
    latest))
 
+;; --- done-bars (friction gradient, dispatch-time not capture-time) ----------
+;; A done_when fact is a completion criterion ("probe + expected result"); a
+;; bar_evidence fact is an observed probe result, expected to QUOTE its bar so
+;; the pairing is text-containment, not positional guesswork. Two rules:
+;;   bars-missing     committed + driven work with NO bar — the moment bars
+;;                    become expected (capture stays zero-ceremony).
+;;   bars-unevidenced an outcome was claimed over bars that lack evidence —
+;;                    the done-claim itself is the judgment under review.
+(defn bar-mark [evs :- (Vec String) bar :- String] :- String
+  (if (some? (first (filterv (fn [e :- String] :- Bool (str/includes? e bar)) evs)))
+    "✓" "○"))
+
+(defn bars-missing [idx :- k/Index] :- (Vec Review)
+  (reduce
+   (fn [acc :- (Vec Review) te :- String] :- (Vec Review)
+     (if (and (some? (k/one-i idx te "committed"))
+              (and (some? (k/one-i idx te "driver"))
+                   (and (not (proj/terminal-i? idx te))
+                        (empty? (k/many-i idx te "done_when")))))
+       (conj acc (->Review te "done_when"
+                           "committed + driven with no done bar — tell it done_when \"<probe + expected result>\""))
+       acc))
+   []
+   (k/thread-ids-i idx)))
+
+(defn bars-unevidenced [idx :- k/Index] :- (Vec Review)
+  (reduce
+   (fn [acc :- (Vec Review) te :- String] :- (Vec Review)
+     (let [bars (k/many-i idx te "done_when")]
+       (if (and (some? (k/one-i idx te "outcome")) (not (empty? bars)))
+         (let [evs (k/many-i idx te "bar_evidence")
+               marks (mapv (fn [b :- String] :- String (str (bar-mark evs b) " " b)) bars)
+               open (filterv (fn [m :- String] :- Bool (str/starts-with? m "○")) marks)]
+           (if (empty? open)
+             acc
+             (conj acc (->Review te "outcome"
+                                 (str (- (count bars) (count open)) "/" (count bars)
+                                      " bar(s) evidenced — "
+                                      (reduce (fn [s :- String m :- String] :- String
+                                                (if (str/blank? s) m (str s " · " m)))
+                                              "" marks)
+                                      "  (bar_evidence \"<bar> → <observed result>\")")))))
+         acc)))
+   []
+   (k/thread-ids-i idx)))
+
 (defn needs-review [idx :- k/Index latest :- (Vec f/Latest) today :- String before? :- [String String -> Bool]] :- (Vec Review)
   (vec (concat (time-stale idx today before?)
-               (vec (concat (edge-stale idx) (estimate-stale idx latest))))))
+               (vec (concat (edge-stale idx)
+                            (vec (concat (estimate-stale idx latest)
+                                         (vec (concat (bars-missing idx)
+                                                      (bars-unevidenced idx))))))))))
 
 ;; --- promotion candidates: uncommitted drafts that grew real structure -------
 ;; The promotion prompt (D8): a raw capture is just title+body+owner; once it

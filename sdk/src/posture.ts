@@ -7,6 +7,8 @@ export interface Posture {
   title: string;
   hasDriver: boolean;
   hasOutcome: boolean;
+  committed: boolean;
+  doneWhen: string[];
 }
 
 // Derive agent posture from a thread's facts.
@@ -33,6 +35,9 @@ export function derivePosture(
     title: get("title") ?? "(untitled)",
     hasDriver: has("driver"),
     hasOutcome: has("outcome"),
+    committed: has("committed"),
+    // done_when is multi-valued — every fact is one completion criterion, order preserved.
+    doneWhen: facts.filter((c) => c.predicate === "done_when").map((c) => c.value),
   };
 }
 
@@ -48,6 +53,10 @@ export function buildPrompt(
     .map((c) => c.value)
     .join("\n");
 
+  // Done-bars: completion is gated on observed evidence, not the agent's say-so. Injected
+  // into EVERY posture so a barred thread carries its exit criteria regardless of shape.
+  const bars = doneBars(threadId, posture);
+
   if (!posture.planned) {
     return [
       context,
@@ -59,6 +68,7 @@ export function buildPrompt(
       "",
       "Do NOT execute the task. Plan only. Be specific about file paths and changes.",
       notes ? `\nContext notes:\n${notes}` : "",
+      bars,
     ].join("\n");
   }
 
@@ -69,6 +79,7 @@ export function buildPrompt(
       "This task is ATOMIC — it has been planned and cannot be broken down further.",
       "Execute it directly. Don't decompose or delegate.",
       notes ? `\nContext notes:\n${notes}` : "",
+      bars,
     ].join("\n");
   }
 
@@ -80,5 +91,29 @@ export function buildPrompt(
     "Check which subtasks are ready (unblocked, no driver, no outcome) and report them.",
     "Do NOT execute subtasks yourself — they will be dispatched separately.",
     notes ? `\nContext notes:\n${notes}` : "",
+    bars,
   ].join("\n");
+}
+
+// Done-bars block appended to every posture prompt. A barred thread lists its exit criteria
+// (probe + expected result) numbered verbatim; a committed thread with no bar is told to
+// define one before executing. Returns "" when neither applies (no trailing noise).
+function doneBars(threadId: string, posture: Posture): string {
+  if (posture.doneWhen.length) {
+    return [
+      "",
+      "DONE-BARS — this thread is done ONLY when each bar below has evidence (probe run + result observed). " +
+        "Cite evidence per bar in your report; record with " +
+        `\`tell ${threadId} bar_evidence "<probe → observed result>"\`:`,
+      ...posture.doneWhen.map((bar, i) => `${i + 1}. ${bar}`),
+    ].join("\n");
+  }
+  if (posture.committed) {
+    return [
+      "",
+      "This thread has NO done-bar. FIRST ACT: define your own — " +
+        `\`tell ${threadId} done_when "<probe + expected result>"\` — before executing.`,
+    ].join("\n");
+  }
+  return "";
 }

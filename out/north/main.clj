@@ -165,6 +165,17 @@
    r (resolve-ref idx ref)]
   (if (and (= r ref) (id-like? (short-id ref)) (nil? (k/one-i idx (str "@" (short-id ref)) "title"))) (println (str "ERROR unresolved id-like ref " ref " — not a thread id, unique prefix, or handle" " (ambiguous/truncated? `north show " (short-id ref) "` lists candidates)")) (println r))))
 
+(defn cmd-done-bars [^String log ^String ref]
+  (let [idx (live-idx log)
+   te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
+   bars (k/many-i idx te "done_when")
+   evs (k/many-i idx te "bar_evidence")]
+  (if (empty? bars) nil (do
+  (println (str "DONE BARS on " te " — this outcome claims they are met; cite probe + observed result:"))
+  (doseq [b bars]
+  (println (str "  " (stale/bar-mark evs b) " " b)))
+  (println (str "  evidence: north tell " (short-id te) " bar_evidence \"<bar> → <observed result>\""))))))
+
 (defn cmd-audit [^String log]
   (let [idx (live-idx log)
    rd (audit/repo-drift idx)]
@@ -918,6 +929,7 @@
   (= cmd "needs-review") (cmd-needs-review log)
   (= cmd "audit") (cmd-audit log)
   (= cmd "resolve") (if (>= (count args) 2) (cmd-resolve log (nth args 1)) (println "usage: resolve <@handle|@id>"))
+  (= cmd "done-bars") (if (>= (count args) 2) (cmd-done-bars log (nth args 1)) (println "usage: done-bars <@id|@handle>"))
   (= cmd "validate") (cmd-validate log)
   (= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))
   (= cmd "tools") (cmd-tools)
