@@ -8,6 +8,8 @@ import { tokensOf } from "./budget";
 import { recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
+import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
+import { liveChildren, notifyEarlyExitChildren } from "./children";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -76,6 +78,10 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
   const coordHandle = process.env.AGENT_COORDINATOR;
   const window = stallMs();
   let stallAborted = false;
+  // Background-task refusal (thread 019f4ed2, half a): don't finalize on the first
+  // `result` while a harness-tracked background task is live — see bgtasks.ts.
+  const bgTracker = makeBgTracker();
+  let bgContinuations = 0;
 
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) the generator THROWS exitError
@@ -101,6 +107,7 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
     for await (const message of watched) {
       const msg = message as any;
       stream.writeSDKMessage(msg);
+      if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
 
       if ("result" in msg) {
         result = msg.result;
@@ -114,6 +121,19 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
             outcome = cap === "error_max_turns" ? "max_turns" : "capped";
             const partial = (result ?? "").trim() ? `partial: ${(result ?? "").trim().slice(0, 200)}` : "no partial result";
             notifyTurnCap(agentId, `${cap} — ${partial}`, { coordinator: coordHandle });
+            break;
+          }
+          // Refuse to exit while background tasks are live (half a) — inject a
+          // continuation + keep looping so the SDK auto-continues to task settlement.
+          if (bgTracker.size() > 0 && bgContinuations < maxBgContinuations()) {
+            bgContinuations++;
+            const live = bgTracker.live();
+            console.error(`[harness] @agent:${agentId} refusing turn-end exit — ${live.length} live background task(s): ${live.join(", ")} (continuation ${bgContinuations}/${maxBgContinuations()})`);
+            ch.push(bgContinuationMessage(live));
+            continue; // do NOT finalize; keep the query loop alive
+          }
+          if (bgTracker.size() > 0) {
+            console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${bgTracker.size()} task(s) still live — finalizing anyway`);
           }
           break; // task done + no pending peer ping -> finish
         }
@@ -142,6 +162,13 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
     stopFeed();
     try { ch.end(); } catch { /* already closed */ }
   }
+
+  // Early exit with live children (thread 019f4ed2, half b): flag orphaned spawned
+  // agents loudly at finalize instead of waiting for the reactor's 30min sweep.
+  try {
+    const orphans = liveChildren(agentId);
+    if (orphans.length) notifyEarlyExitChildren(agentId, orphans, { coordinator: coordHandle });
+  } catch { /* never block finalize */ }
 
   // Spend is no longer charged to a counter here; it is summed from the @run
   // cost_usd fact this run records below (remaining() folds Σ over @run costs).

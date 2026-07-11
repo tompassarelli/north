@@ -11,6 +11,8 @@ import { writeAgentFacts, goalFromPrompt } from "./identity";
 import { makeStruggleState, updateStruggle, checkStruggle, resetStruggle } from "./struggle";
 import { activeLadder, tierIndexOf, decideEscalation, escalateInFlight } from "./ladder";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
+import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
+import { liveChildren, notifyEarlyExitChildren } from "./children";
 
 interface SpawnOptions {
   prompt: string;
@@ -91,6 +93,13 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const coordHandle = opts.coordinator ?? process.env.AGENT_COORDINATOR;
   const window = stallMs();
   let stallAborted = false;
+  // Background-task refusal (thread 019f4ed2): a lane that ends its turn while a
+  // harness-tracked background Bash task is live must NOT finalize — the SDK
+  // auto-continues the model on task settlement, but only if we keep the loop alive
+  // instead of breaking on the first `result`. Track the live set; bgContinuations
+  // counts CONSECUTIVE no-progress refusals (reset on settlement) for the stuck-lane cap.
+  const bgTracker = makeBgTracker();
+  let bgContinuations = 0;
   const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
     stallMs: window,
     onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
@@ -101,6 +110,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   for await (const message of watched) {
     const msg = message as any;
     stream.writeSDKMessage(msg);
+    if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
     runCost += costOf(rung().model, msg.message?.usage ?? msg.usage); // price at the CURRENT tier
 
     if (escalate) {
@@ -154,9 +164,26 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
           end(cap === "error_max_turns" ? "max_turns" : "capped");
           const partial = result.trim() ? `partial: ${result.trim().slice(0, 200)}` : "no partial result";
           notifyTurnCap(agentId, `${cap} — ${partial}`, { coordinator: coordHandle });
-        } else {
-          end("ran");
+          break;
         }
+        // Refuse to exit while harness-tracked background tasks are live (thread 019f4ed2,
+        // half a). Inject a continuation message + keep looping: the SDK re-invokes the
+        // model, the task settles (task_notification / task_updated), bgContinuations
+        // resets, and a later result with an empty live set finalizes clean. The cap
+        // (default 5 consecutive no-progress refusals) prevents infinite-looping a stuck
+        // lane — it then falls through to finalize, and the after-loop early-exit check
+        // makes the abandoned work loud.
+        if (bgTracker.size() > 0 && bgContinuations < maxBgContinuations()) {
+          bgContinuations++;
+          const live = bgTracker.live();
+          console.error(`[harness] @agent:${agentId} refusing turn-end exit — ${live.length} live background task(s): ${live.join(", ")} (continuation ${bgContinuations}/${maxBgContinuations()})`);
+          ch.push(bgContinuationMessage(live));
+          continue; // do NOT finalize; keep the query loop alive
+        }
+        if (bgTracker.size() > 0) {
+          console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${bgTracker.size()} task(s) still live — finalizing anyway`);
+        }
+        end("ran");
         break; // MUST end the channel or the query hangs
       }
     }
@@ -176,6 +203,16 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   } finally {
     end(outcome); // idempotent: close the channel so the query + any leak unwinds
   }
+
+  // Early exit with live children (thread 019f4ed2, half b): on TRUE finalize (any
+  // terminal path), if this lane spawned agents that have not yet reported an outcome,
+  // make the orphaning loud NOW instead of waiting up to 30min for the reactor's sweep —
+  // a loud lane-log line + coordinator ping + a durable early_exit_children fact.
+  // Fail-open: a graph hiccup here must never break the finalize.
+  try {
+    const orphans = liveChildren(agentId);
+    if (orphans.length) notifyEarlyExitChildren(agentId, orphans, { coordinator: coordHandle });
+  } catch { /* never block finalize */ }
 
   recordRun({
     thread: "(ad-hoc)", agent: agentId, posture: "spawn",
