@@ -136,15 +136,18 @@
     (println (banner))
     (println (str "
  1  CAVEMAN    output compression
-    session: " cv " (lite|full|ultra + wenyan-*)      workers: AGENT_CAVEMAN=" ac "
+    session: " cv " (lite|full|ultra + wenyan-*)      workers: " ac " (inherited at spawn)
     default: " cd " (persists — new sessions start here)
-    flip session → north config caveman lite|full|ultra (or /caveman)
-    flip default → north config caveman default off|lite|full|ultra
-    flip workers → AGENT_CAVEMAN=off|lite|full on spawn
+    [live]   session → north config caveman lite|full|ultra   (or /caveman)
+    [live]   default → north config caveman default off|lite|full|ultra|wenyan-*
+    [spawn]  one worker → spawn {caveman: off|lite|full}   (mcp__north__spawn param)
+    [launch] all workers from a session → AGENT_CAVEMAN=off|lite|full claude
 
  2  DISPATCH   who runs agents                 [guard: " (wired "agent-spawn-guard") "]
     " (mark d "north") " north    SDK workers — persistent, steerable, fact trail;
-               caveman (AGENT_CAVEMAN) + model tier (AGENT_MODEL) ride along
+               model, effort, caveman all have per-spawn opts on mcp__north__spawn;
+               without them, workers inherit AGENT_MODEL + AGENT_CAVEMAN from the
+               spawning session's env ([spawn] — inherited at spawn, frozen)
     " (mark d "warn") " warn     native Agent/Workflow allowed, nudged toward north
     " (mark d "native") " native   raw Claude Code spawns, no interference
     flip → north config dispatch north|warn|native
@@ -165,19 +168,28 @@
  5  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
     " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "code-upstream-guard") " upstream:graph   " (wired "firn-guard") " firn
     " (wired "tripwire-guard") " tripwire            " (wired "racket-build-guard") " racket-build      " (wired "beagle-session-start") " beagle-session
-    flip all → north config guards on|off   (persistent, live in all sessions)
-    session override at launch → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (≠0/false kills; 0/false forces live)
+    [live]   flip all → north config guards on|off   (persists, all sessions)
+    [launch] one session → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
+ dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] per-worker opt or inherited env, frozen at spawn
  state: ~/.claude/my-config.state · descriptions + advice: north config help"))))
 
 (defn help []
   (println "north config — every personal-stack posture setting, one entry point.
 
  1 CAVEMAN — output compression (token economy).
-   Session level lives in ~/.claude/.caveman-active (caveman plugin);
-   lite/full/ultra + wenyan variants. Workers get AGENT_CAVEMAN via the
-   north SDK spawn path (default full). Code/commits/quoted errors/security
+   Three binding classes:
+   [live]   session — north config caveman lite|full|ultra (or /caveman);
+            reads ~/.claude/.caveman-active; effective immediately.
+   [live]   default — north config caveman default off|lite|full|ultra|wenyan-*;
+            new sessions start here; persists across sessions.
+   [spawn]  one worker — pass {caveman: off|lite|full} on mcp__north__spawn;
+            frozen for that worker's lifetime.
+   [launch] all workers from a session — AGENT_CAVEMAN=off|lite|full claude;
+            inherited at spawn by workers without a per-spawn override;
+            frozen for the session; mid-session flip impossible.
+   lite/full/ultra + wenyan variants. Code/commits/quoted errors/security
    are never compressed at any level.
    Global default (new sessions start here) resolution order:
      CAVEMAN_DEFAULT_MODE env > repo-local .caveman.json
@@ -195,7 +207,10 @@
            PreToolUse hook and redirected to the north SDK: mcp__north__spawn
            (ad-hoc) / mcp__north__dispatch (thread-driven). SDK workers are
            persistent, dormant-until-pinged, observable (web :8088),
-           steerable (msg-cli :7977), and carry AGENT_CAVEMAN + AGENT_MODEL.
+           steerable (msg-cli :7977). Model, effort, and caveman all have
+           per-spawn opts on mcp__north__spawn; without them, workers inherit
+           AGENT_MODEL + AGENT_CAVEMAN from the spawning session's env
+           ([spawn] — inherited at spawn, frozen for each worker's lifetime).
    warn    native spawns allowed; the hook injects a reminder instead.
    native  no interference. For A/B baselines against stock Claude Code.
    Advice: stay on north. Drop to warn only when the daemon is down.
@@ -221,18 +236,19 @@
    Individually wired in ~/code/nixos-config/dotfiles/claude/settings.json.
    Kill-switch is VALUE-AWARE and has two surfaces:
 
-   Persistent state flip (primary — live across ALL sessions immediately,
-   no relaunch; hooks source the lib and re-read state on every call):
+   [live] state flip (primary — effective immediately across ALL sessions,
+   no relaunch; hooks re-read state on every call):
      north config guards off   → writes guards=off to ~/.claude/my-config.state
      north config guards on    → removes that line (or writes guards=on)
 
-   Launch-time env override (single pinned session, beats state):
+   [launch] env override — single session, launch ONLY; mid-session flip
+   impossible; per-command env prefix does nothing (claude reads it at
+   start, then frozen for the session):
      CLAUDE_NO_AUTHORING_HOOKS=1 claude     all guards OFF this session
      CLAUDE_NO_AUTHORING_HOOKS=0 claude     force-live (state ignored)
    Any non-empty value other than 0/false kills guards; 0 or false forces
-   them live — this fixes the old \"presence = killed\" trap where =0 also
-   killed guards. Env beats state. Semantics live in the shared lib
-   sourced by every guard hook AND by this verb:
+   them live. Env beats state. Semantics live in the shared lib sourced by
+   every guard hook AND by this verb:
      ~/.claude/hooks/lib/authoring-killswitch.sh
 
  Elsewhere (owned by other CLIs, not duplicated here):

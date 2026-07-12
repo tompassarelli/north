@@ -26,6 +26,7 @@ interface SpawnOptions {
   escalate?: boolean; // escalate-not-kill: climb the ladder on struggle instead of stopping
   role?: string;
   posture?: string;
+  caveman?: "off" | "lite" | "full"; // per-spawn terse-output dial; overrides ambient AGENT_CAVEMAN
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   queryFn?: typeof query; // injection seam for tests; defaults to the real SDK query()
   // Known limitation: on escalate path the system prompt is built once at the starting tier,
@@ -77,6 +78,8 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       model: rung().model, effort: rung().effort,
       systemPrompt: opts.systemPrompt, maxTurns: opts.maxTurns,
       role: opts.role, posture: opts.posture,
+      // per-spawn dial wins over ambient env; env-or-full is the harness fallback
+      caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
     }),
   });
 

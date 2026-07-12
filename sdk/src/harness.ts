@@ -113,6 +113,7 @@ export interface HarnessOpts {
   maxTurns?: number;
   role?: string;
   posture?: string;
+  caveman?: string; // resolved terse-output mode (off|lite|full); fallback env-or-full when omitted
 }
 
 // Auto-connect every SDK-spawned agent to north coordination — the SDK twin of
@@ -270,8 +271,10 @@ export function praxisAppendix(model?: string, role?: string, posture?: string):
 }
 
 // AGENT_CAVEMAN=full|lite|off — appends terse-output instruction to every spawned agent.
-function cavemanAppendix(): string {
-  const mode = process.env.AGENT_CAVEMAN ?? "full";
+// Per-spawn override rides in via HarnessOpts.caveman (spawn tool's `caveman` param);
+// env-or-full remains the fallback ONLY when no resolved mode was passed.
+export function cavemanAppendix(mode?: string): string {
+  mode = mode ?? process.env.AGENT_CAVEMAN ?? "full";
   if (mode === "full") return "\n\n" +
     "CAVEMAN OUTPUT MODE (full) — respond terse like smart caveman. Drop articles (a/an/the), " +
     "filler (just/really/basically/actually), pleasantries, hedging. Fragments OK. Short synonyms. " +
@@ -295,7 +298,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     model: resolveModel(o.model),
     effort: o.effort, // the reasoning knob spawn.ts used to drop on the floor
     permissionMode: "acceptEdits",
-    systemPrompt: withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT) + globalLawsAppendix() + praxisAppendix(o.model, o.role, o.posture) + cavemanAppendix() + esoAppendix(),
+    systemPrompt: withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT) + globalLawsAppendix() + praxisAppendix(o.model, o.role, o.posture) + cavemanAppendix(o.caveman) + esoAppendix(),
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),
     // Presence heartbeat: renew the lease on tool activity (F2). Fire-and-forget +
     // never block/fail the tool call; always continue.

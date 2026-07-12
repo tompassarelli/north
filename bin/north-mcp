@@ -135,6 +135,7 @@
                           :effort {:type "string" :description "Reasoning effort: low, medium, high, xhigh (default: high)"}
                           :role {:type "string" :description "Praxis role block: executor|implementer|integrator|designer|researcher (optional)"}
                           :posture {:type "string" :description "Praxis posture block: explore|deliver|preserve (optional)"}
+                          :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial for the spawned agent: off|lite|full (default: full, or ambient AGENT_CAVEMAN). Overrides the spawning process's env."}
                           :coordinator {:type "string" :description "Calling session's north id — the spawned lane pings it on completion/death and records a `coordinator` fact for it. Omit and it's inherited from the caller's AGENT_ID / NORTH_AGENT_ID env; pass it explicitly from an interactive session (no such env), e.g. the id from your 'you are agent \"…\"' context."}}
              :required ["prompt"]}}])
 
@@ -187,12 +188,14 @@
             effort (get args "effort")
             role (get args "role")
             posture (get args "posture")
+            caveman (get args "caveman")
             agent-id (str "sdk-" (subs (str (java.util.UUID/randomUUID)) 0 8))
             cmd-env (cond-> (assoc env "AGENT_ID" agent-id)
                       model       (assoc "AGENT_MODEL" model)
                       effort      (assoc "AGENT_EFFORT" effort)
                       role        (assoc "AGENT_ROLE" role)
                       posture     (assoc "AGENT_POSTURE" posture)
+                      caveman     (assoc "AGENT_CAVEMAN" caveman)
                       coordinator (assoc "AGENT_COORDINATOR" coordinator))]
         (let [log (io/file (str (System/getenv "HOME") "/.local/state/north/agents/" agent-id ".log"))]
           (.mkdirs (.getParentFile log))
