@@ -68,13 +68,19 @@ north — your one card. Type a command to do the thing next to it.
     north show <id>                    read one thread's facts
     north tell <id> <pred> <val>       assert a fact   (north retract … to remove)
     north clock start|stop             log real time against a thread
+    north clock audit                  commits-vs-clock coverage drift report
 
   SETTINGS & HEALTH
     north config                       posture toggles: dispatch, caveman, coord, guards
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
     exit 0 ;;
-  ready|blocked|leverage|next|agenda|board|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot|clock)
+  clock)
+    # `clock audit` is a standalone read-only report (commits-vs-sessions coverage,
+    # bin/north-clock-audit); every other clock verb is engine-side in north.main.
+    if [ "${2:-}" = "audit" ]; then exec "$NORTH/bin/north-clock-audit" "${@:3}"; fi
+    exec bb -cp "$NORTH/out:$FRAM/out" -m north.main "$@" ;;
+  ready|blocked|leverage|next|agenda|board|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
