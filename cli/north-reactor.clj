@@ -146,6 +146,19 @@
   (when-let [ts (north.coord/resolved port e "spawned_at")]
     (try (.toEpochMilli (java.time.Instant/parse ts)) (catch Throwable _ nil))))
 
+;; Crash-honesty: a reaped lane may have left a clock session open (SDK death path
+;; never ran — hard kill). Close it via the SAME `north clock orphan` the SDK uses:
+;; stamps end_time at detection + clock_orphaned so a silent death never leaves a
+;; session running forever and skewing wall-clock. Idempotent (no-op if already
+;; closed); best-effort. north-bin path computed inline (its def is later in the file).
+(defn orphan-clock! [h]
+  (try
+    (proc/shell {:out :string :err :string :continue true}
+                (-> (io/file (System/getProperty "babashka.file"))
+                    .getParentFile .getParentFile (io/file "bin" "north") .getPath)
+                "clock" "orphan" h)
+    (catch Throwable _ nil)))
+
 (defn sweep-lanes! [dry?]
   (let [lanes (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "lane"]}]))
         now   (System/currentTimeMillis)
@@ -160,6 +173,7 @@
     (doseq [{:keys [e h lapse]} hits]
       (when-not dry?
         (north.coord/put! port e "outcome" "died-unreported")
+        (orphan-clock! h)                                                  ; close any orphan clock session the dead lane left open
         (let [dn (north.coord/resolved port e "display_name")]
           (when (and dn (not (str/starts-with? dn "✝ ")))
             (north.coord/put! port e "display_name" (str "✝ " dn))))       ; recompute the projected name

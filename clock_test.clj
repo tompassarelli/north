@@ -48,7 +48,7 @@
 (defn iso->sec [s] (fram.rt/iso-to-seconds s))
 (defn str->int [s] (fram.rt/parse-int s))
 
-(def run (clk/running-session idx))
+(def run (clk/running-session-for idx "user"))   ; @s3 has no clocked_by -> legacy user
 (def t1-act (clk/actual-seconds idx "@t1" iso->sec))
 (def t2-act (clk/actual-seconds idx "@t2" iso->sec))
 (def rs (clk/rows idx iso->sec str->int))
@@ -59,7 +59,7 @@
 (def other-day  (set (map :te (clk/logged-rows idx ["2020-01-01"] iso->sec))))
 
 (def checks
-  [["running-session finds the open session"     (= run "@s3")]
+  [["running-session-for(user) finds open session" (= run "@s3")]
    ["actual sums two closed sessions (3h)"        (= t1-act 10800)]
    ["actual excludes the open session (0)"        (= t2-act 0)]
    ["rows include estimate-only thread"           (contains? row-tes "@t4")]
@@ -72,8 +72,64 @@
    ["windowed totals match the date"              (contains? today-rows "@t1")]
    ["windowed totals exclude other days"          (empty? other-day)]])
 
-(let [fails (remove second checks)]
-  (doseq [[nm ok] checks] (println (if ok "  [PASS] " "  [FAIL] ") nm))
+;; --- per-agent clocks + orphan close + wall-clock union merge (D-lane) --------
+;; Clocks became per-agent (clocked_by <id>), auto-clocked at dispatch, and the
+;; invoice view derives BOTH per-thread attribution and non-double-counted
+;; wall-clock. These fixtures pin the pure engine core of that change.
+(def asserts2
+  [;; two agents, concurrent OPEN sessions on different threads — neither blocks
+   (asrt 100 "@ta" "title" "TA")
+   (asrt 101 "@tb" "title" "TB")
+   (asrt 110 "@sa" "session_of" "@ta") (asrt 111 "@sa" "start_time" "2026-07-14T09:00:00")
+   (asrt 112 "@sa" "clocked_by" "a1")
+   (asrt 120 "@sb" "session_of" "@tb") (asrt 121 "@sb" "start_time" "2026-07-14T09:05:00")
+   (asrt 122 "@sb" "clocked_by" "a2")
+   ;; a legacy OPEN session (no clocked_by) reads as agent "user"
+   (asrt 130 "@tl" "title" "TL")
+   (asrt 131 "@sl" "session_of" "@tl") (asrt 132 "@sl" "start_time" "2026-07-14T09:10:00")
+   ;; an orphan-closed session: end_time + clock_orphaned -> closed, still billed
+   (asrt 140 "@to" "title" "TO")
+   (asrt 141 "@so" "session_of" "@to") (asrt 142 "@so" "start_time" "2026-07-14T08:00:00")
+   (asrt 143 "@so" "end_time" "2026-07-14T08:30:00") (asrt 144 "@so" "clocked_by" "a3")
+   (asrt 145 "@so" "clock_orphaned" "true")
+   ;; wall-clock: two OVERLAPPING closed sessions, different threads, SAME owner
+   (asrt 150 "@w1" "title" "W1") (asrt 151 "@w1" "owner" "acme")
+   (asrt 152 "@w2" "title" "W2") (asrt 153 "@w2" "owner" "acme")
+   (asrt 160 "@sw1" "session_of" "@w1") (asrt 161 "@sw1" "start_time" "2026-07-14T09:00:00")
+   (asrt 162 "@sw1" "end_time" "2026-07-14T10:00:00")
+   (asrt 163 "@sw2" "session_of" "@w2") (asrt 164 "@sw2" "start_time" "2026-07-14T09:30:00")
+   (asrt 165 "@sw2" "end_time" "2026-07-14T10:30:00")])
+(def idx2 (k/build-index (:facts (fold/fold asserts2))))
+
+(def checks2
+  [;; (a) two agents open concurrently — each sees ONLY its own; a fresh agent is
+   ;;     unblocked (running-session-for = nil => clock start is allowed).
+   ["a1 running session is its own"              (= (clk/running-session-for idx2 "a1") "@sa")]
+   ["a2 running session is its own"              (= (clk/running-session-for idx2 "a2") "@sb")]
+   ["fresh agent never blocked (nil session)"    (nil? (clk/running-session-for idx2 "nobody"))]
+   ;; (b) a1 stop closes ONLY a1's — the selector distinguishes the two agents
+   ["per-agent selector separates a1 vs a2"      (not= (clk/running-session-for idx2 "a1")
+                                                       (clk/running-session-for idx2 "a2"))]
+   ;; (c) legacy session (no clocked_by) reads as user; explicit clocked_by wins
+   ["legacy session clocked-by = user"           (= (clk/clocked-by idx2 "@sl") "user")]
+   ["user selector finds the legacy session"     (= (clk/running-session-for idx2 "user") "@sl")]
+   ["explicit clocked_by is honored"             (= (clk/clocked-by idx2 "@sa") "a1")]
+   ;; open-sessions spans all agents; orphan-closed is excluded
+   ["open-sessions = the 3 open ones"            (= (set (clk/open-sessions idx2)) #{"@sa" "@sb" "@sl"})]
+   ["orphan-closed session is not open"          (not (contains? (set (clk/open-sessions idx2)) "@so"))]
+   ;; (f) orphan close stamps end_time + clock_orphaned: closed, flagged, still billed
+   ["orphaned session still billed (30m)"        (= (clk/actual-seconds idx2 "@to" iso->sec) 1800)]
+   ["clock_orphaned flag is readable"            (= (k/one-i idx2 "@so" "clock_orphaned") "true")]
+   ;; (e) wall-clock union: 09:00-10:00 ∪ 09:30-10:30 = 09:00-10:30 = 5400s, NOT 7200
+   ["wall-clock union merges the overlap (1.5h)" (= (clk/owner-wall-total idx2 "acme" iso->sec) 5400)]
+   ["attribution sums to 2h — the OTHER number"  (= (+ (clk/actual-seconds idx2 "@w1" iso->sec)
+                                                       (clk/actual-seconds idx2 "@w2" iso->sec)) 7200)]
+   ["per-day wall-clock: one day at 1.5h"        (= (mapv :secs (clk/owner-wall-by-day idx2 "acme" iso->sec)) [5400])]])
+
+(def all-checks (into checks checks2))
+
+(let [fails (remove second all-checks)]
+  (doseq [[nm ok] all-checks] (println (if ok "  [PASS] " "  [FAIL] ") nm))
   (if (empty? fails)
-    (println "\nclock:" (count checks) "/" (count checks) "PASS")
+    (println "\nclock:" (count all-checks) "/" (count all-checks) "PASS")
     (do (println "\nclock:" (count fails) "FAILED") (System/exit 1))))

@@ -10,6 +10,7 @@ import { notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
+import { clockStart, clockFinalize } from "./clock";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -61,6 +62,11 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
 
   console.log(`[dispatch] @${threadId} — ${posture.title}`);
   console.log(`[dispatch] posture: ${postureLabel}, tools: ${tools.join(",")}`);
+
+  // Auto-clock (per-agent): open a session on this thread as THIS worker, so its
+  // billable time attributes to the thread it actually worked — not one global
+  // clock. Closed on exit below (clean stop / orphan-close on crash).
+  clockStart(agentId, threadId);
 
   let result = "";
   let resultMsg: any = null;
@@ -169,6 +175,10 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
     const orphans = liveChildren(agentId);
     if (orphans.length) notifyEarlyExitChildren(agentId, orphans, { coordinator: coordHandle });
   } catch { /* never block finalize */ }
+
+  // Close the auto-clock: a crash (died/stalled) orphan-closes (end_time + flag);
+  // any other terminal (clean, turn-cap, budget) stops the session normally.
+  clockFinalize(agentId, outcome);
 
   // Spend is no longer charged to a counter here; it is summed from the @run
   // cost_usd fact this run records below (remaining() folds Σ over @run costs).

@@ -20,17 +20,26 @@
   (:require [fram.kernel :as k]
             [fram.fold :as fold]
             [fram.rt :as rt]
-            [clojure.string :as str])
-  (:import [java.time Instant]))
+            [north.clock :as clk]
+            [clojure.string :as str]))
 
 (def ^:private args *command-line-args*)
-(def ^:private OWNER (or (first args) "msa"))
-(def ^:private INV-FILTER (second args))                 ; nil = all invoices
+;; `--wall` / `--wallclock` adds the per-day union-merged wall-clock view; strip
+;; flags so the positional owner/invoice args keep working exactly as before.
+(def ^:private flags (set (filter #(str/starts-with? % "--") args)))
+(def ^:private pos (vec (remove #(str/starts-with? % "--") args)))
+(def ^:private OWNER (or (first pos) "msa"))
+(def ^:private INV-FILTER (second pos))                  ; nil = all invoices
+(def ^:private WALL? (boolean (or (flags "--wall") (flags "--wallclock"))))
 (def ^:private LOG (or (System/getenv "FRAM_LOG")
                        (str (System/getenv "HOME") "/.local/state/north/facts.log")))
 
 (defn- strip-at [s] (if (and s (str/starts-with? s "@")) (subs s 1) s))
-(defn- iso->sec [s] (.getEpochSecond (Instant/parse s)))
+;; Tolerant parse (fram.rt/iso-to-seconds): session timestamps are ZONE-LESS
+;; local ISO (fram.rt/now-iso), so the old (Instant/parse s) threw on every
+;; auto-clocked session. Delegate to the engine's parser, which honors a Z/offset
+;; when present and interprets zone-less stamps in the system zone.
+(defn- iso->sec [s] (rt/iso-to-seconds s))
 (defn- to-int [s] (try (Integer/parseInt (str/trim (str s))) (catch Exception _ 0)))
 (defn- csv-cell [s] (str "\"" (str/replace (str s) "\"" "\"\"") "\""))
 
@@ -97,4 +106,20 @@
                          inv (count rs) (double h) (double a) (:state (first rs))))))
     (let [H (reduce + (map :hours rows))
           A (reduce + (map :amount rows))]
-      (println (format "  %-18s %3d line(s)  %6.2fh  $%9.2f" "TOTAL" (count rows) (double H) (double A))))))
+      (println (format "  %-18s %3d line(s)  %6.2fh  $%9.2f" "TOTAL" (count rows) (double H) (double A))))
+    ;; Wall-clock view (--wall): parallel agents clock overlapping sessions on
+    ;; different threads, so the ATTRIBUTION total above double-counts real time.
+    ;; Union-merge each day's intervals to bill an elapsed hour once. Two labeled
+    ;; numbers; which one invoices is the owner's policy call, not this report's.
+    (when WALL?
+      (let [days       (clk/owner-wall-by-day idx OWNER iso->sec)
+            wall-total (clk/owner-wall-total idx OWNER iso->sec)
+            attr-h     (reduce + (map :hours rows))]
+        (println)
+        (println "  WALL-CLOCK (per-day union-merged; overlapping parallel sessions counted ONCE):")
+        (doseq [d days]
+          (println (format "    %-12s %7.2fh" (:day d) (/ (:secs d) 3600.0))))
+        (println (format "    %-12s %7.2fh" "WALL TOTAL" (/ wall-total 3600.0)))
+        (println (format "    (attribution %.2fh vs wall-clock %.2fh — attribution counts every"
+                         (double attr-h) (/ wall-total 3600.0)))
+        (println "     session; wall-clock counts real elapsed time. Which one bills is your policy.)")))))

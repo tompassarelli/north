@@ -13,6 +13,7 @@ import { activeLadder, tierIndexOf, decideEscalation, escalateInFlight } from ".
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
+import { clockStart, clockFinalize } from "./clock";
 
 interface SpawnOptions {
   prompt: string;
@@ -26,6 +27,7 @@ interface SpawnOptions {
   escalate?: boolean; // escalate-not-kill: climb the ladder on struggle instead of stopping
   role?: string;
   posture?: string;
+  thread?: string; // billable thread — when set, auto-clock this spawn like dispatch (bare id); ad-hoc spawns (no thread) never clock
   caveman?: "off" | "lite" | "full"; // per-spawn terse-output dial; overrides ambient AGENT_CAVEMAN
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   queryFn?: typeof query; // injection seam for tests; defaults to the real SDK query()
@@ -64,6 +66,10 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       `it stops only at the ladder ceiling. Set: north tell @swarm budget_total <usd>`);
   }
   console.log(`[spawn] @agent:${agentId} starting${escalate ? ` (escalate @ tier ${tier} ${rung().model}/${rung().effort})` : ""}`);
+
+  // Auto-clock only when this spawn carries a billable thread — ad-hoc spawns
+  // aren't billable by default. Same per-agent treatment as dispatch.
+  if (opts.thread) clockStart(agentId, opts.thread);
 
   let result = "", resultMsg: any = null, outcome = "ran";
   let runCost = 0, tierStartCost = 0;
@@ -216,6 +222,9 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     const orphans = liveChildren(agentId);
     if (orphans.length) notifyEarlyExitChildren(agentId, orphans, { coordinator: coordHandle });
   } catch { /* never block finalize */ }
+
+  // Close the auto-clock (only if this spawn opened one): crash -> orphan-close, else stop.
+  if (opts.thread) clockFinalize(agentId, outcome);
 
   recordRun({
     thread: "(ad-hoc)", agent: agentId, posture: "spawn",

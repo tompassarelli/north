@@ -3,8 +3,18 @@
             [north.projections :as proj]
             [clojure.string :as str]))
 
-(defn running-session [idx]
-  (reduce (fn [found s] (if (some? found) found (if (and (some? (k/one-i idx s "session_of")) (and (some? (k/one-i idx s "start_time")) (nil? (k/one-i idx s "end_time")))) s found))) nil (:subjects idx)))
+(defn ^String clocked-by [idx ^String sess]
+  (let [a (k/one-i idx sess "clocked_by")]
+  (if (some? a) a "user")))
+
+(defn ^Boolean open? [idx ^String s]
+  (and (some? (k/one-i idx s "session_of")) (and (some? (k/one-i idx s "start_time")) (nil? (k/one-i idx s "end_time")))))
+
+(defn open-sessions [idx]
+  (filterv (fn [s] (open? idx s)) (:subjects idx)))
+
+(defn running-session-for [idx ^String agent]
+  (reduce (fn [found s] (if (some? found) found (if (and (open? idx s) (= (clocked-by idx s) agent)) s found))) nil (:subjects idx)))
 
 (defn actual-seconds [idx ^String te iso->sec]
   (reduce (fn [acc s] (let [so (k/one-i idx s "session_of")
@@ -60,3 +70,47 @@
 
 (defn logged-rows [idx prefixes iso->sec]
   (filterv (fn [r] (> (:act-sec r) 0)) (mapv (fn [te] (->Row te 0 (actual-seconds-in idx te prefixes iso->sec) (proj/terminal-i? idx te))) (k/thread-ids-i idx))))
+
+(defrecord Iv [day start end])
+
+(defn iv-day [r] (:day r))
+
+(defn iv-start [r] (:start r))
+
+(defn iv-end [r] (:end r))
+
+(defn owner-intervals [idx ^String owner iso->sec]
+  (reduce (fn [acc s] (let [thr (k/one-i idx s "session_of")
+   st (k/one-i idx s "start_time")
+   en (k/one-i idx s "end_time")]
+  (if (and (some? thr) (some? st) (some? en)) (let [o (k/one-i idx thr "owner")]
+  (if (and (some? o) (= o owner)) (conj acc (->Iv (subs st 0 10) (iso->sec st) (iso->sec en))) acc)) acc))) [] (:subjects idx)))
+
+(defrecord Merge [open cs ce total])
+
+(defn merge-open [r] (:open r))
+
+(defn merge-cs [r] (:cs r))
+
+(defn merge-ce [r] (:ce r))
+
+(defn merge-total [r] (:total r))
+
+(defn union-seconds [ivs]
+  (let [sorted (vec (sort-by (fn [iv] (:start iv)) ivs))
+   m (reduce (fn [st iv] (if (:open st) (if (<= (:start iv) (:ce st)) (->Merge true (:cs st) (if (> (:end iv) (:ce st)) (:end iv) (:ce st)) (:total st)) (->Merge true (:start iv) (:end iv) (+ (:total st) (- (:ce st) (:cs st))))) (->Merge true (:start iv) (:end iv) (:total st)))) (->Merge false 0 0 0) sorted)]
+  (if (:open m) (+ (:total m) (- (:ce m) (:cs m))) (:total m))))
+
+(defrecord DayWall [day secs])
+
+(defn daywall-day [r] (:day r))
+
+(defn daywall-secs [r] (:secs r))
+
+(defn owner-wall-by-day [idx ^String owner iso->sec]
+  (let [ivs (owner-intervals idx owner iso->sec)
+   days (vec (sort (distinct (mapv (fn [iv] (:day iv)) ivs))))]
+  (mapv (fn [d] (->DayWall d (union-seconds (filterv (fn [iv] (= (:day iv) d)) ivs)))) days)))
+
+(defn owner-wall-total [idx ^String owner iso->sec]
+  (union-seconds (owner-intervals idx owner iso->sec)))

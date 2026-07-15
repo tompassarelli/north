@@ -14,16 +14,33 @@
 (require north.projections :as proj)
 (require clojure.string :as str)
 
-;; the single open session: has session_of + start_time, no end_time.
-(defn running-session [idx :- k/Index] :- String?
+;; --- per-agent sessions (clocks are per-agent, not a global singleton) -------
+;; A session's clocked_by names the agent that opened it. Legacy sessions
+;; (pre-per-agent) carry none and are treated as clocked_by=user everywhere,
+;; so old logs read consistently under the new model.
+(defn clocked-by [idx :- k/Index sess :- String] :- String
+  (let [a (k/one-i idx sess "clocked_by")] (if (some? a) a "user")))
+
+;; an OPEN session: session_of + start_time, no end_time (the clock still runs).
+(defn open? [idx :- k/Index s :- String] :- Bool
+  (and (some? (k/one-i idx s "session_of"))
+       (and (some? (k/one-i idx s "start_time"))
+            (nil? (k/one-i idx s "end_time")))))
+
+;; every currently-open session, ANY agent — the roster clock status folds over
+;; this to count concurrent agents.
+(defn open-sessions [idx :- k/Index] :- (Vec String)
+  (filterv (fn [s :- String] :- Bool (open? idx s)) (:subjects idx)))
+
+;; the open session for THIS agent, or nil. Per-agent: another agent's open
+;; session is invisible here, so `clock start` never blocks across agents and
+;; `clock stop` closes only the caller's own. Legacy (clocked_by absent) matches
+;; agent "user".
+(defn running-session-for [idx :- k/Index agent :- String] :- String?
   (reduce (fn [found :- String? s :- String] :- String?
             (if (some? found)
               found
-              (if (and (some? (k/one-i idx s "session_of"))
-                       (and (some? (k/one-i idx s "start_time"))
-                            (nil? (k/one-i idx s "end_time"))))
-                s
-                found)))
+              (if (and (open? idx s) (= (clocked-by idx s) agent)) s found)))
           nil
           (:subjects idx)))
 
@@ -104,3 +121,68 @@
            (mapv (fn [te :- String] :- Row
                    (->Row te 0 (actual-seconds-in idx te prefixes iso->sec) (proj/terminal-i? idx te)))
                  (k/thread-ids-i idx))))
+
+;; --- wall-clock union merge: bill parallel work honestly ---------------------
+;; Attribution (actual-seconds, per thread) SUMS every session, so two agents
+;; clocking overlapping hours on DIFFERENT threads report 2h against 1h of real
+;; wall-clock. For an invoice-facing wall-clock number, merge overlapping
+;; [start,end] intervals across ALL closed sessions on a given owner's threads,
+;; so an overlapped wall-clock second is counted once. Which number invoices —
+;; attribution or wall-clock — is the owner's policy call, not this code's.
+(defrecord Iv [day :- String start :- Int end :- Int])
+
+;; closed-session intervals (epoch seconds) for threads owned by `owner`, tagged
+;; with the session's START day. Orphaned sessions (end_time stamped at reap)
+;; carry an end_time, so they are included — the clock_orphaned flag distrusts
+;; the tail without dropping the time.
+(defn owner-intervals [idx :- k/Index owner :- String iso->sec :- [String -> Int]] :- (Vec Iv)
+  (reduce (fn [acc :- (Vec Iv) s :- String] :- (Vec Iv)
+            (let [thr (k/one-i idx s "session_of")
+                  st  (k/one-i idx s "start_time")
+                  en  (k/one-i idx s "end_time")]
+              (if (and (some? thr) (some? st) (some? en))
+                (let [o (k/one-i idx thr "owner")]
+                  (if (and (some? o) (= o owner))
+                    (conj acc (->Iv (subs st 0 10) (iso->sec st) (iso->sec en)))
+                    acc))
+                acc)))
+          []
+          (:subjects idx)))
+
+;; fold accumulator for the sweep-line union: whether an interval is open, its
+;; current [cs,ce] extent, and the total union seconds closed so far.
+(defrecord Merge [open :- Bool cs :- Int ce :- Int total :- Int])
+
+;; total union seconds of a set of intervals (overlaps + adjacency counted once).
+(defn union-seconds [ivs :- (Vec Iv)] :- Int
+  (let [sorted (vec (sort-by (fn [iv :- Iv] :- Int (:start iv)) ivs))
+        m (reduce (fn [st :- Merge iv :- Iv] :- Merge
+                    (if (:open st)
+                      (if (<= (:start iv) (:ce st))
+                        (->Merge true (:cs st)
+                                 (if (> (:end iv) (:ce st)) (:end iv) (:ce st))
+                                 (:total st))
+                        (->Merge true (:start iv) (:end iv)
+                                 (+ (:total st) (- (:ce st) (:cs st)))))
+                      (->Merge true (:start iv) (:end iv) (:total st))))
+                  (->Merge false 0 0 0)
+                  sorted)]
+    (if (:open m) (+ (:total m) (- (:ce m) (:cs m))) (:total m))))
+
+(defrecord DayWall [day :- String secs :- Int])
+
+;; per-day wall-clock: sessions grouped by START day, intra-day overlaps merged.
+;; A session that spans midnight lands wholly in its start day (rare, and short
+;; sessions never straddle it) — the exact global union is `union-seconds` over
+;; every interval, which owner-wall-total returns.
+(defn owner-wall-by-day [idx :- k/Index owner :- String iso->sec :- [String -> Int]] :- (Vec DayWall)
+  (let [ivs  (owner-intervals idx owner iso->sec)
+        days (vec (sort (distinct (mapv (fn [iv :- Iv] :- String (:day iv)) ivs))))]
+    (mapv (fn [d :- String] :- DayWall
+            (->DayWall d (union-seconds
+                          (filterv (fn [iv :- Iv] :- Bool (= (:day iv) d)) ivs))))
+          days)))
+
+;; exact global union across every one of owner's closed sessions (midnight-safe).
+(defn owner-wall-total [idx :- k/Index owner :- String iso->sec :- [String -> Int]] :- Int
+  (union-seconds (owner-intervals idx owner iso->sec)))

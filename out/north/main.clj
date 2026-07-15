@@ -448,27 +448,35 @@
 (defn- ^String fresh-sid [idx ^String seed]
   (if (k/vec-contains? (:subjects idx) (str "@" seed)) (fresh-sid idx (fram.rt/bump-id seed)) seed))
 
+(defn- ^String agent-id []
+  (let [a (fram.rt/getenv-or "NORTH_AGENT_ID" "")]
+  (if (not (str/blank? a)) a (let [b (fram.rt/getenv-or "AGENT_ID" "")]
+  (if (not (str/blank? b)) b "user")))))
+
 (defn cmd-clock-start [^String log ^String id]
   (let [idx (live-idx log)
    te (str "@" id)
-   run (clk/running-session idx)]
+   me (agent-id)
+   run (clk/running-session-for idx me)]
   (cond
   (nil? (k/one-i idx te "title")) (println (str "no such thread: " id))
-  (some? run) (println (str "already clocked in on " (short-id (session-thread idx run)) " (session " (short-id run) ") — `clock stop` first"))
+  (some? run) (println (str "already clocked in on " (short-id (session-thread idx run)) " (session " (short-id run) ", agent " me ") — `clock stop` first"))
   :else (let [port (fram.rt/coord-port)]
   (if (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — run `north up`") (let [sid (fresh-sid idx (fram.rt/now-id))
    ssub (str "@" sid)
    now (fram.rt/now-iso)
    r1 (tell-retry port "assert" ssub "session_of" te 5)
-   r2 (tell-retry port "assert" ssub "start_time" now 5)]
-  (if (and (str/starts-with? r1 "ok:") (str/starts-with? r2 "ok:")) (println (str "clocked in on " id " at " now "  (session " sid ")")) (println (str "clock start FAILED to record (" r1 "/" r2 ") — retry")))))))))
+   r2 (tell-retry port "assert" ssub "start_time" now 5)
+   r3 (tell-retry port "assert" ssub "clocked_by" me 5)]
+  (if (and (str/starts-with? r1 "ok:") (and (str/starts-with? r2 "ok:") (str/starts-with? r3 "ok:"))) (println (str "clocked in on " id " at " now "  (session " sid ", agent " me ")")) (println (str "clock start FAILED to record (" r1 "/" r2 "/" r3 ") — retry")))))))))
 
 (defn cmd-clock-stop [^String log]
   (let [idx (live-idx log)
-   run (clk/running-session idx)
+   me (agent-id)
+   run (clk/running-session-for idx me)
    port (fram.rt/coord-port)]
   (cond
-  (nil? run) (println "not clocked in")
+  (nil? run) (println (str "not clocked in (agent " me ")"))
   (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — run `north up` (still clocked in)")
   :else (let [now (fram.rt/now-iso)
    st (k/one-i idx run "start_time")
@@ -477,15 +485,36 @@
    resp (tell-retry port "assert" run "end_time" now 5)]
   (if (str/starts-with? resp "ok:") (println (str "clocked out of " (short-id te) " — this session " (fmt-hm dur))) (println (str "clock stop FAILED to record end_time (" resp ") — still clocked in, retry")))))))
 
+(defn cmd-clock-orphan [^String log ^String agent]
+  (let [idx (live-idx log)
+   run (clk/running-session-for idx agent)
+   port (fram.rt/coord-port)]
+  (cond
+  (nil? run) (println (str "no open session for agent " agent " — nothing to orphan"))
+  (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — run `north up`")
+  :else (let [now (fram.rt/now-iso)
+   te (session-thread idx run)
+   r1 (tell-retry port "assert" run "end_time" now 5)
+   r2 (tell-retry port "assert" run "clock_orphaned" "true" 5)]
+  (if (and (str/starts-with? r1 "ok:") (str/starts-with? r2 "ok:")) (println (str "orphan-closed " (short-id run) " on " (short-id te) " at " now "  (agent " agent ", clock_orphaned)")) (println (str "clock orphan FAILED (" r1 "/" r2 ") — retry")))))))
+
 (defn cmd-clock-status [^String log]
   (let [idx (live-idx log)
-   run (clk/running-session idx)]
-  (if (nil? run) (println "not clocked in") (let [now (fram.rt/now-iso)
+   me (agent-id)
+   run (clk/running-session-for idx me)
+   othern (let [n (count (clk/open-sessions idx))]
+  (if (some? run) (- n 1) n))]
+  (if (nil? run) (do
+  (println (str "not clocked in (agent " me ")"))
+  (if (> othern 0) (do
+  (println (str "  (" othern " other agent session(s) open)"))))) (let [now (fram.rt/now-iso)
    st (k/one-i idx run "start_time")
    te (session-thread idx run)
    dur (if (some? st) (- (fram.rt/iso-to-seconds now) (fram.rt/iso-to-seconds st)) 0)]
-  (println (str "clocked in on " (short-id te) "  " (trunc (title-of idx te) 40)))
-  (println (str "  since " (if (some? st) st "?") "  (" (fmt-hm dur) " elapsed)"))))))
+  (println (str "clocked in on " (short-id te) "  " (trunc (title-of idx te) 40) "  (agent " me ")"))
+  (println (str "  since " (if (some? st) st "?") "  (" (fmt-hm dur) " elapsed)"))
+  (if (> othern 0) (do
+  (println (str "  + " othern " other agent session(s) open"))))))))
 
 (defn cmd-clock-report [^String log]
   (let [idx (live-idx log)
@@ -941,6 +970,7 @@
   (cond
   (= sub "start") (if (>= (count args) 3) (cmd-clock-start log (nth args 2)) (println "usage: clock start <thread-id>"))
   (= sub "stop") (cmd-clock-stop log)
+  (= sub "orphan") (if (>= (count args) 3) (cmd-clock-orphan log (nth args 2)) (println "usage: clock orphan <agent-id>"))
   (= sub "status") (cmd-clock-status log)
   (= sub "report") (cmd-clock-report log)
   (= sub "today") (cmd-clock-today log)
@@ -949,8 +979,8 @@
   (= sub "map") (if (>= (count args) 4) (cf/cmd-map (fram.rt/time-dir) (nth args 2) (nth args 3)) (println "usage: clock map <owner> <project-id>"))
   (= sub "projects") (cf/cmd-projects)
   (= sub "workspaces") (cf/cmd-workspaces)
-  :else (println "usage: clock start <id> | stop | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed [--dry-run|--execute] | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <start|stop|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "usage: clock start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed [--dry-run|--execute] | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
 (defn -main [& args]
   (run (vec args) (fram.rt/threads-dir) (fram.rt/log-path)))
