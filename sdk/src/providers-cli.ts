@@ -1,6 +1,8 @@
 import { selectProvider } from "./provider-routing";
+import { refreshCodexEntitlementIfStale } from "./codex-entitlement";
 
 try {
+  await refreshCodexEntitlementIfStale();
   const d = selectProvider("auto");
   for (const p of d.availability) {
     console.log(`${p.provider.padEnd(10)} ${p.available ? "ready" : p.reason}${p.detail ? `  ${p.detail}` : ""}`);

@@ -10,7 +10,10 @@ import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchd
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
 import { clockStart, clockFinalize } from "./clock";
-import { routedQuery, selectProvider, type ProviderPreference } from "./providers";
+import {
+  refreshCodexEntitlementIfStale, routedQuery, selectProvider, shouldRefreshCodexEntitlement,
+  type ProviderPreference,
+} from "./providers";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import { canonicalRole, routingMetadataFromEnv } from "./routing-metadata";
 
@@ -64,7 +67,9 @@ export async function dispatch(threadId: string): Promise<DispatchResult> {
     `sdk-${threadId.replace(/[^a-z0-9]/gi, "").slice(-12)}`;
   const stream = new StreamWriter(agentId);
   const requestedTier = process.env.AGENT_TIER as SemanticTier | undefined;
-  const routing = selectProvider(process.env.AGENT_PROVIDER as ProviderPreference | undefined, undefined,
+  const providerPreference = process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
+  if (shouldRefreshCodexEntitlement(providerPreference)) await refreshCodexEntitlementIfStale();
+  const routing = selectProvider(providerPreference, undefined,
     { tier: requestedTier, stableKey: agentId });
   const resolved = resolveTier(routing.provider, requestedTier,
     process.env.AGENT_MODEL, process.env.AGENT_EFFORT as Effort | undefined);

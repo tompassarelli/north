@@ -13,7 +13,10 @@ import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchd
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
 import { clockStart, clockFinalize } from "./clock";
-import { routedQuery, selectProvider, type ProviderPreference } from "./providers";
+import {
+  refreshCodexEntitlementIfStale, routedQuery, selectProvider, shouldRefreshCodexEntitlement,
+  type ProviderPreference,
+} from "./providers";
 import type { AgentQuery } from "./providers/types";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import { canonicalRole, routingMetadataFromEnv, validateRoutingMetadata, type RoutingMetadata } from "./routing-metadata";
@@ -49,7 +52,11 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const agentId = opts.agentId ?? `lane-${Date.now().toString(36).slice(-8)}`;
   const stream = new StreamWriter(agentId);
   const requestedTier = opts.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
-  const routing = selectProvider(opts.provider, undefined, { tier: requestedTier, stableKey: agentId });
+  const providerPreference = opts.provider ?? process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
+  // Injected query functions own their entire provider boundary; keeping the
+  // refresh out of that path makes tests and alternative adapters hermetic.
+  if (!opts.queryFn && shouldRefreshCodexEntitlement(providerPreference)) await refreshCodexEntitlementIfStale();
+  const routing = selectProvider(providerPreference, undefined, { tier: requestedTier, stableKey: agentId });
   const resolved = resolveTier(routing.provider, requestedTier, opts.model, opts.effort);
   opts.model = resolved.model;
   opts.effort = resolved.effort;

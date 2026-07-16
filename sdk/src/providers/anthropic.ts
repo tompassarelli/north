@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentProvider, ProviderAvailability } from "./types";
 import { probeAnthropic } from "../provider-routing";
+import { observeAnthropicQuery } from "./anthropic-observations";
 
 export const anthropicProvider: AgentProvider = {
   id: "anthropic",
@@ -8,6 +9,6 @@ export const anthropicProvider: AgentProvider = {
     return probeAnthropic();
   },
   query(args) {
-    return query(args) as any;
+    return observeAnthropicQuery(query(args) as any);
   },
 };

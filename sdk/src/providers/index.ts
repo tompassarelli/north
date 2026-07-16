@@ -10,6 +10,11 @@ export {
   loadResourcePolicy, parseProviderUsageObservations, parseResourcePolicy,
   pressureFromUsageWindows,
 } from "../resource-policy";
+export { mergeProviderUsageObservations, writeProviderUsageObservations } from "../provider-observation-store";
+export {
+  normalizeCodexRateLimits, observeCodexEntitlement, readCodexEntitlementObservation,
+  refreshCodexEntitlementIfStale, shouldRefreshCodexEntitlement,
+} from "../codex-entitlement";
 
 const providers: Record<ProviderId, AgentProvider> = {
   anthropic: anthropicProvider,
