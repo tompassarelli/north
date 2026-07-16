@@ -281,6 +281,8 @@
                           :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
                           :tier {:type "string" :enum ["economy" "standard" "senior" "frontier"] :description "Provider-neutral capability tier"}
                           :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial (default ambient AGENT_CAVEMAN)"}
+                          :worktree {:type "boolean" :description "OPT-IN: run this lane in an isolated per-lane git worktree (own index+tree). Default off."}
+                          :setupCmd {:type "string" :minLength 1 :description "Optional repo-setup command run in the fresh worktree (e.g. 'bun install'); only with worktree=true"}
                           :coordinator {:type "string" :minLength 1 :description "Caller's north id; see dispatch.coordinator"}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
@@ -754,6 +756,8 @@
             topology (get args "topology")
             composition (get args "composition")
             caveman (get args "caveman")
+            worktree (get args "worktree")
+            setup-cmd (get args "setupCmd")
             agent-id (create-mcp-agent-id "spawn")
             cmd-env (cond-> (assoc env "AGENT_ID" agent-id)
                       model       (assoc "AGENT_MODEL" model)
@@ -769,6 +773,8 @@
                       topology    (assoc "AGENT_TOPOLOGY" topology)
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       caveman     (assoc "AGENT_CAVEMAN" caveman)
+                      worktree    (assoc "AGENT_WORKTREE" "1")
+                      setup-cmd   (assoc "AGENT_SETUP_CMD" setup-cmd)
                       coordinator (assoc "AGENT_COORDINATOR" coordinator))]
         (try
           (let [log (io/file (str (get parent-env "HOME") "/.local/state/north/agents/" agent-id ".log"))

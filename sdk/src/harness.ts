@@ -303,7 +303,7 @@ export interface HarnessOpts {
   /** A live run may change models in-place, so no exact-model delta can remain valid. */
   omitModelDeltaReason?: string;
   caveman?: string; // resolved terse-output mode (off|lite|full); fallback env-or-full when omitted
-  cwd?: string; // provider working directory; dispatch resolves this from thread repo facts
+  cwd?: string; // provider working directory; dispatch resolves this from thread repo facts, spawn from opt-in worktree provisioning
   /** Capability-bound delivery context reserved before provider execution. */
   deliveryRun?: {
     runId: string;

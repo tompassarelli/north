@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
 import { StreamWriter } from "./stream-writer";
 import {
-  harnessCompositionEvidence, harnessOptions, renewHarnessPresence,
+  DEFAULT_SYSTEM_PROMPT, harnessCompositionEvidence, harnessOptions, renewHarnessPresence,
   type Effort, type HarnessCompositionEvidence,
 } from "./harness";
+import { provisionWorktree, worktreeFinalize, worktreePayload } from "./worktree";
 import { normalizeUsage } from "./usage";
 import { newRunId, recordRun } from "./telemetry";
 import { deathReason, notifyDeath } from "./death";
@@ -87,6 +88,8 @@ export interface SpawnOptions {
   routingMetadata: RoutingRequest;
   project?: string;
   sessionId?: string;
+  worktree?: boolean; // OPT-IN: provision an isolated per-lane git worktree (own index+tree); default OFF => zero behavior change
+  setupCmd?: string; // optional repo-setup hook run in the fresh worktree (e.g. `bun install`); repo-specific, never baked into north
 }
 
 interface SpawnRuntime {
@@ -103,7 +106,7 @@ interface SpawnRuntime {
 const SPAWN_OPTION_FIELDS = new Set([
   "prompt", "agentId", "model", "effort", "tools", "systemPrompt", "maxTurns",
   "escalate", "role", "posture", "thread", "caveman", "coordinator", "provider",
-  "target", "tier", "routingMetadata", "project", "sessionId",
+  "target", "tier", "routingMetadata", "project", "sessionId", "worktree", "setupCmd",
 ]);
 
 function allowlistedSpawnOptions(value: SpawnOptions): SpawnOptions {
@@ -208,6 +211,22 @@ async function runSpawn(
   // env relabel this child as an alias or a different role.
   const identityRole = routingMetadata.role!;
   const composition = routingMetadata.composition!;
+  // OPT-IN per-lane git worktree. Default OFF => no cwd => SDK's process.cwd()
+  // => byte-identical to pre-worktree behavior. When on, the lane operates in
+  // its own worktree (own index + tree). Provisioning fails LOUD; a git failure
+  // must never brick a spawn, so we catch, shout, and fall back to the shared
+  // tree rather than dropping the whole lane.
+  const repoRoot = process.cwd();
+  let wt: { path: string; branch: string } | null = null;
+  if (opts.worktree ?? process.env.AGENT_WORKTREE === "1") {
+    try {
+      wt = provisionWorktree(agentId, { repoRoot, setupCmd: opts.setupCmd ?? process.env.AGENT_SETUP_CMD });
+      console.log(`[spawn] @agent:${agentId} worktree ${wt.path} on ${wt.branch}`);
+    } catch (err) {
+      console.error(`[spawn] @agent:${agentId} worktree provisioning FAILED — falling back to shared tree: ${(err as any)?.message ?? err}`);
+      wt = null;
+    }
+  }
   const identityBase = {
     kind: "lane" as const,
     role: identityRole,
@@ -227,6 +246,8 @@ async function runSpawn(
     repo: userAnchoredPath(process.cwd()),
     goal: goalFromPrompt(opts.prompt),
     coordinator: opts.coordinator,
+    worktree: wt?.path,
+    branch: wt?.branch,
   };
   const initialLiveInput = providerLiveInput(routing.provider);
   const ch = inputChannel(opts.prompt); // streaming-input mode -> unlocks q.setModel()
@@ -378,9 +399,16 @@ async function runSpawn(
     provider: routing.provider,
     routingMetadata,
     omitModelDeltaReason: escalate ? "cross_model_escalation_enabled" : undefined,
-    systemPrompt: opts.systemPrompt, maxTurns: opts.maxTurns,
+    // Worktree lane: run tools IN the worktree (cwd) and append the
+    // isolation+landing+verify protocol to the prompt. Composed HERE so
+    // harness.ts stays a thin cwd knob.
+    systemPrompt: wt
+      ? (opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
+        + worktreePayload({ path: wt.path, branch: wt.branch, mainReportsDir: repoRoot + "/docs/private" })
+      : opts.systemPrompt,
+    maxTurns: opts.maxTurns,
     role: opts.role, posture: opts.posture,
-    cwd: process.cwd(),
+    cwd: wt?.path ?? process.cwd(),
     deliveryRun: deliveryReservationReady ? runContext : undefined,
     // per-spawn dial wins over ambient env; env-or-full is the harness fallback
     caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
@@ -654,6 +682,11 @@ async function runSpawn(
     clockFinalize(agentId, outcome);
     clockLease.finalized = true;
   }
+
+  // Salvage-gated worktree cleanup (only if this spawn provisioned one): remove
+  // on a clean ran, KEEP + surface a worktree_orphaned fact on any
+  // crash/cap/dirty tail. Fail-open.
+  if (wt) worktreeFinalize(agentId, outcome, { path: wt.path, branch: wt.branch, repoRoot });
 
   // Commit the lane's process/delivery terminal (SYNC, digest marker last)
   // before exit so the reactor cannot mistake a completed lane for silence.

@@ -61,6 +61,8 @@ export interface ObservedAgentIdentity {
   // silent hard-kill (sweep-lanes! in north-reactor.clj), and `north health` folds it to
   // compute ping-loss (lanes that carried a coordinator but landed no COMPLETE/DEATH).
   coordinator?: string;
+  worktree?: string; // absolute path of this lane's git worktree (opt-in; null-skipped otherwise)
+  branch?: string; // the branch `git worktree add` created (lane-<id>)
 }
 
 /** Write-side contract for every North-managed provider lane. */
@@ -269,6 +271,8 @@ export function agentIdentityFacts(
     ["repo", f.repo],
     ["goal", f.goal],
     ["coordinator", f.coordinator],
+    ["worktree", f.worktree],
+    ["branch", f.branch],
     ["spawned_at", spawnedAt],
     ["display_name", renderDisplayName(agentId, f)],
   ];
