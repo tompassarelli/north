@@ -5,12 +5,69 @@ export type ProviderPreference = ProviderId | "auto";
 export type EntitlementPressure = "plenty" | "normal" | "low" | "exhausted" | "unknown";
 export type AllocationMode = "preferential" | "balanced" | "reserved";
 
+export interface RoutingTarget {
+  id: string;
+  provider: ProviderId;
+  /** Reserved for a future provider adapter account/profile selector. */
+  profile?: string;
+}
+
+export interface PressureObservation {
+  state: EntitlementPressure;
+  observedAt: string;
+  until?: string;
+}
+
+export interface ProviderUsageWindow {
+  limitId?: string;
+  usedPercent: number;
+  resetsAt: string;
+}
+
+export interface ProviderUsageObservation {
+  targetId: string;
+  provider: ProviderId;
+  observedAt: string;
+  until?: string;
+  /** Adapter-normalized state when the provider does not expose numeric windows. */
+  state?: EntitlementPressure;
+  windows?: ProviderUsageWindow[];
+}
+
+export interface ProviderUsageObservationStore {
+  version: 1;
+  observations: ProviderUsageObservation[];
+}
+
+export interface EnvelopeLimits {
+  runs?: number;
+  frontierRuns?: number;
+  retries?: number;
+  parallelism?: number;
+}
+
+export interface ResourceEnvelopes {
+  default?: EnvelopeLimits;
+  month?: EnvelopeLimits;
+  week?: EnvelopeLimits;
+  projects?: Record<string, EnvelopeLimits>;
+  sessions?: Record<string, EnvelopeLimits>;
+}
+
 export interface ResourcePolicy {
+  version?: 1;
   mode: AllocationMode;
+  targets?: RoutingTarget[];
+  targetOrder?: string[];
   providerOrder: ProviderId[];
   pressures: Partial<Record<ProviderId, EntitlementPressure>>;
   weights?: Partial<Record<ProviderId, number>>;
+  pressureObservations?: Record<string, PressureObservation>;
+  automatedPressureObservations?: Record<string, ProviderUsageObservation>;
+  targetWeights?: Record<string, number>;
+  reservedFrontierTarget?: string;
   reservedFrontierProvider?: ProviderId;
+  envelopes?: ResourceEnvelopes;
 }
 
 export interface ProviderAvailability {

@@ -18,7 +18,8 @@
 ;; and that enforcement can never disagree.
 
 (require '[clojure.string :as str]
-         '[clojure.java.io :as io])
+         '[clojure.java.io :as io]
+         '[cheshire.core :as json])
 
 (def home (System/getenv "HOME"))
 (def STATE           (str home "/.claude/my-config.state"))
@@ -27,6 +28,8 @@
 (def REGISTRY        (or (System/getenv "GRAPH_UPSTREAM_REGISTRY")
                          (str home "/.config/fram/graph-upstream-files")))
 (def SETTINGS        (str home "/code/nixos-config/dotfiles/claude/settings.json"))
+(def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
+                         (str home "/.config/north/routing-policy.json")))
 
 (defn- slurp' [f] (try (slurp f) (catch Exception _ nil)))
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
@@ -106,6 +109,220 @@
   (.format (java.time.LocalDate/now)
            (java.time.format.DateTimeFormatter/ofPattern "yyyy-MM-dd")))
 
+;; --- provider routing policy ---------------------------------------------
+;; This file is deliberately separate from the legacy key=value posture state:
+;; it is structured, provider-neutral input consumed by the SDK router. Named
+;; targets make account profiles representable without pretending the current
+;; adapters can select between profiles yet.
+(def default-routing-policy
+  {:schemaVersion 1
+   :mode "preferential"
+   :targets {"anthropic" {:provider "anthropic"}
+             "openai" {:provider "openai"}}
+   :order ["anthropic" "openai"]
+   :weights {"anthropic" 1 "openai" 1}
+   :reserve nil
+   :pressure {}
+   :envelopes {}})
+
+(defn- validate-routing [p]
+  (let [ids (set (keys (:targets p)))
+        refs (concat (:order p) (keys (:weights p)) (keys (:pressure p))
+                     (when-let [r (:reserve p)] [r]))
+        dangling (seq (remove ids refs))]
+    (when-not (= 1 (:schemaVersion p))
+      (throw (ex-info (str "unsupported schemaVersion " (:schemaVersion p)) {})))
+    (when-not (contains? #{"preferential" "balanced" "reserved"} (:mode p))
+      (throw (ex-info (str "invalid mode " (:mode p)) {})))
+    (when-let [[id target] (first (remove #(contains? #{"anthropic" "openai"} (:provider (val %))) (:targets p)))]
+      (throw (ex-info (str "target " id " has invalid provider " (:provider target)) {})))
+    (when dangling
+      (throw (ex-info (str "dangling target reference(s): " (str/join ", " dangling)) {})))
+    p))
+
+(defn- flatten-envelopes [value]
+  (let [limits (fn [m] (into {} (map (fn [[k v]] [(keyword k) v])) (or m {})))
+        direct (into {} (keep (fn [scope]
+                                (when-let [v (get value scope)] [scope (limits v)])))
+                     ["default" "month" "week"])
+        named (fn [kind]
+                (into {} (map (fn [[id v]] [(str kind ":" id) (limits v)]))
+                      (get value (str kind "s") {})))]
+    (merge direct (named "project") (named "session"))))
+
+(defn- nest-envelopes [value]
+  (let [direct (into {} (keep (fn [scope] (when-let [v (get value scope)] [(keyword scope) v])))
+                     ["default" "month" "week"])
+        named (fn [kind]
+                (into {} (keep (fn [[scope limits]]
+                                 (when (str/starts-with? scope (str kind ":"))
+                                   [(subs scope (inc (count kind))) limits]))) value))]
+    (cond-> direct
+      (seq (named "project")) (assoc :projects (named "project"))
+      (seq (named "session")) (assoc :sessions (named "session")))))
+
+(defn- routing-read []
+  (if-let [raw (slurp' ROUTING-POLICY)]
+    (try
+      (let [j (json/parse-string raw false)]
+        (validate-routing
+          (merge default-routing-policy
+               {:schemaVersion (get j "version" 1)
+                :mode (get j "mode" "preferential")
+                :targets (into {} (map (fn [v]
+                                         [(get v "id") (cond-> {:provider (get v "provider")}
+                                                         (get v "profile") (assoc :profile (get v "profile")))]))
+                               (get j "targets" []))
+                :order (vec (get j "targetOrder" (map #(get % "id") (get j "targets" []))))
+                :weights (get j "weights" {})
+                :reserve (get j "reservedFrontierTarget")
+                :pressure (into {} (map (fn [[id v]] [id (cond-> {:level (get v "level")
+                                                                   :observedAt (get v "observedAt")}
+                                                            (get v "until") (assoc :until (get v "until")))]))
+                                (into {} (map (fn [[id v]] [id (assoc v "level" (get v "state"))]))
+                                      (get j "pressures" {})))
+                :envelopes (flatten-envelopes (get j "envelopes" {}))})))
+      (catch Exception e
+        (die (str "invalid routing policy " ROUTING-POLICY ": " (.getMessage e)))))
+    default-routing-policy))
+
+(defn- routing-write! [policy]
+  (io/make-parents ROUTING-POLICY)
+  (let [dest (.toPath (io/file ROUTING-POLICY))
+        dir  (.getParent dest)
+        tmp  (java.nio.file.Files/createTempFile dir ".routing-policy." ".tmp"
+                                                  (make-array java.nio.file.attribute.FileAttribute 0))]
+    (try
+      (let [document (cond-> {:version 1
+                              :mode (:mode policy)
+                              :targets (mapv (fn [[id target]] (assoc target :id id))
+                                             (sort-by key (:targets policy)))
+                              :targetOrder (:order policy)
+                              :weights (:weights policy)
+                              :pressures (into {} (map (fn [[id observation]]
+                                                        [id (-> observation
+                                                                (assoc :state (:level observation))
+                                                                (dissoc :level))]))
+                                               (:pressure policy))
+                              :envelopes (nest-envelopes (:envelopes policy))}
+                       (:reserve policy) (assoc :reservedFrontierTarget (:reserve policy)))]
+        (spit (.toFile tmp) (str (json/generate-string document {:pretty true}) "\n")))
+      (java.nio.file.Files/move tmp dest
+        (into-array java.nio.file.CopyOption
+                    [java.nio.file.StandardCopyOption/ATOMIC_MOVE
+                     java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
+      (finally (java.nio.file.Files/deleteIfExists tmp)))))
+
+(defn- target? [p id] (contains? (:targets p) id))
+(defn- require-target! [p id]
+  (when-not (target? p id) (die (str "unknown routing target: " id " (add it with `north config routing target add …`)"))))
+(defn- positive-int [s label]
+  (try
+    (let [n (Long/parseLong (or s ""))]
+      (if (pos? n) n (throw (Exception.))))
+    (catch Exception _ (die (str label " must be a positive integer")))))
+(defn- now-iso [] (.toString (java.time.Instant/now)))
+(defn- require-iso! [s]
+  (try (java.time.OffsetDateTime/parse s)
+       (catch Exception _ (die "--until must be an ISO-8601 timestamp, for example 2026-08-01T00:00:00Z"))))
+
+(defn- routing-summary [p]
+  (let [reserve (or (:reserve p) "off")]
+    (str "mode " (:mode p)
+         " · order " (str/join " → " (:order p))
+         " · reserve " reserve
+         " · targets " (count (:targets p)))))
+
+(defn- pressure-label [observation]
+  (if-not observation
+    "none (automatic)"
+    (str (:level observation) " (manual; observed " (:observedAt observation)
+         (if-let [until (:until observation)] (str "; until " until) "; 24h TTL") ")")))
+
+(defn- print-routing [p]
+  (println (str "routing: " (routing-summary p)))
+  (println (str "  policy: " ROUTING-POLICY))
+  (doseq [[id {:keys [provider profile]}] (sort-by key (:targets p))]
+    (println (str "  target " id " → " provider (when profile (str " (profile " profile ")"))
+                  " · weight " (get (:weights p) id 1)
+                  " · pressure " (pressure-label (get-in p [:pressure id])))))
+  (when (seq (:envelopes p))
+    (println "  envelopes:")
+    (doseq [[scope limits] (sort-by key (:envelopes p))]
+      (println (str "    " scope " " (str/join " · " (map (fn [[k v]] (str (name k) "=" v)) (sort-by key limits)))))))
+  (println "  pressure status: automated provider usage is primary; manual observations are temporary overrides/fallbacks (24h unless --until is set).")
+  (println "  adapter status: provider selection is live; distinct named profiles are policy-only until provider adapters support profile selection."))
+
+(def routing-usage
+  "usage: north config routing [show|mode preferential|balanced|reserved|order <target...>|weight <target> <positive>|reserve <target|off>|pressure <target> <plenty|normal|low|exhausted|unknown> [--until ISO]|target add <id> <anthropic|openai> [profile]|target remove <id>|envelope set <month|week|default|project:<id>|session:<id>> <runs|frontierRuns|retries|parallelism> <positive>|envelope clear <scope> [limit]]")
+
+(defn cmd-routing [args]
+  (let [p (routing-read)
+        [verb & xs] args
+        save! (fn [next] (routing-write! next) (print-routing next))]
+    (case (or verb "show")
+      "show" (print-routing p)
+      "mode" (let [[mode & extra] xs]
+               (if (and (contains? #{"preferential" "balanced" "reserved"} mode) (empty? extra))
+                 (save! (assoc p :mode mode))
+                 (die routing-usage)))
+      "order" (do (when (empty? xs) (die routing-usage))
+                    (doseq [id xs] (require-target! p id))
+                    (when-not (= (count xs) (count (distinct xs))) (die "routing order contains duplicate targets"))
+                    (save! (assoc p :order (vec xs))))
+      "weight" (let [[id n & extra] xs]
+                 (when (or (nil? id) (nil? n) (seq extra)) (die routing-usage))
+                 (require-target! p id)
+                 (save! (assoc-in p [:weights id] (positive-int n "weight"))))
+      "reserve" (let [[id & extra] xs]
+                  (when (or (nil? id) (seq extra)) (die routing-usage))
+                  (when-not (= id "off") (require-target! p id))
+                  (save! (assoc p :reserve (when-not (= id "off") id))))
+      "pressure" (let [[id level flag until & extra] xs]
+                   (when (or (nil? id) (nil? level) (seq extra)
+                             (and flag (not= flag "--until"))
+                             (and (= flag "--until") (nil? until))) (die routing-usage))
+                   (require-target! p id)
+                   (when-not (contains? #{"plenty" "normal" "low" "exhausted" "unknown"} level)
+                     (die routing-usage))
+                   (when until (require-iso! until))
+                   (save! (assoc-in p [:pressure id]
+                                    (cond-> {:level level :observedAt (now-iso)}
+                                      until (assoc :until until)))))
+      "target" (let [[op id provider profile & extra] xs]
+                 (case op
+                   "add" (do (when (or (nil? id) (nil? provider) (seq extra)
+                                        (not (contains? #{"anthropic" "openai"} provider))) (die routing-usage))
+                              (when (target? p id) (die (str "routing target already exists: " id)))
+                              (save! (-> p
+                                         (assoc-in [:targets id] (cond-> {:provider provider} profile (assoc :profile profile)))
+                                         (assoc-in [:weights id] 1)
+                                         (update :order conj id))))
+                   "remove" (do (when (or (nil? id) provider profile (seq extra)) (die routing-usage))
+                                 (require-target! p id)
+                                 (when (= 1 (count (:targets p))) (die "cannot remove the final routing target"))
+                                 (save! (-> p
+                                            (update :targets dissoc id)
+                                            (update :weights dissoc id)
+                                            (update :pressure dissoc id)
+                                            (update :order #(vec (remove #{id} %)))
+                                            (update :reserve #(when-not (= % id) %)))))
+                   (die routing-usage)))
+      "envelope" (let [[op scope limit value & extra] xs
+                       valid-scope? #(or (contains? #{"month" "week" "default"} %)
+                                         (boolean (re-matches #"(project|session):.+" (or % ""))))
+                       valid-limit? #(contains? #{"runs" "frontierRuns" "retries" "parallelism"} %)]
+                   (case op
+                     "set" (do (when (or (seq extra) (not (valid-scope? scope)) (not (valid-limit? limit)) (nil? value)) (die routing-usage))
+                               (save! (assoc-in p [:envelopes scope (keyword limit)] (positive-int value "envelope limit"))))
+                     "clear" (do (when (or value (seq extra) (not (valid-scope? scope)) (and limit (not (valid-limit? limit)))) (die routing-usage))
+                                 (save! (if limit
+                                          (let [next (update-in p [:envelopes scope] dissoc (keyword limit))]
+                                            (if (empty? (get-in next [:envelopes scope])) (update next :envelopes dissoc scope) next))
+                                          (update p :envelopes dissoc scope))))
+                     (die routing-usage)))
+      (die routing-usage))))
+
 ;; --- the report -----------------------------------------------------------
 (defn banner []
   (let [rule  (apply str (repeat 66 "─"))
@@ -170,6 +387,12 @@
     " (wired "tripwire-guard") " tripwire            " (wired "racket-build-guard") " racket-build      " (wired "beagle-session-start") " beagle-session
     [live]   flip all → north config guards on|off   (persists, all sessions)
     [launch] one session → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
+
+ 6  ROUTING    provider targets + entitlement envelopes
+    " (routing-summary (routing-read)) "
+    pressure: automatic usage sensing; manual command is a temporary override/fallback
+    configure → north config routing
+    policy: " ROUTING-POLICY "
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] per-worker opt or inherited env, frozen at spawn
@@ -250,6 +473,19 @@
    them live. Env beats state. Semantics live in the shared lib sourced by
    every guard hook AND by this verb:
      ~/.claude/hooks/lib/authoring-killswitch.sh
+
+ 6 ROUTING — durable provider selection and subscription-entitlement policy.
+   Show everything with `north config routing`. Configure preferential,
+   balanced, or reserved allocation; provider/profile targets; and
+   month/week/project/session run envelopes. Provider adapters automatically
+   sense available subscription usage during normal operation. `routing
+   pressure` records a temporary manual override/fallback when sensing cannot
+   represent what you know; it expires after 24 hours unless --until is given.
+   The canonical atomic JSON file is ~/.config/north/routing-policy.json
+   (NORTH_ROUTING_POLICY overrides it for isolated tests/tools).
+   Named profiles are representable now, but current adapters select providers,
+   not distinct profiles. No API keys, credit balances, prices, or dollars live
+   in this policy.
 
  Elsewhere (owned by other CLIs, not duplicated here):
    system/nix composition → firn tag status · firn enable <tag>
@@ -363,7 +599,8 @@
       "coord"    (cmd-coord rest)
       "beagle"   (cmd-beagle rest)
       "guards"   (cmd-guards rest)
+      "routing"  (cmd-routing rest)
       ("help" "-h" "--help") (help)
-      (die "usage: north config [status|caveman|dispatch|coord|beagle|guards [on|off]|help]"))))
+      (die "usage: north config [status|caveman|dispatch|coord|beagle|guards|routing|help]"))))
 
 (apply -main *command-line-args*)

@@ -89,7 +89,8 @@ north — your one card. Type a command to do the thing next to it.
     north clock audit                  commits-vs-clock coverage drift report
 
   SETTINGS & HEALTH
-    north config                       posture toggles: dispatch, caveman, coord, guards
+    north config                       posture + routing policy in one report
+    north config routing               provider order, pressure, reserves, envelopes
     north providers                    provider readiness and auto-route decision
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
@@ -117,7 +118,7 @@ CARD
     # guard-hooks). Both teach the primitive they wrap. cli/dashboard-cli.clj.
     exec bb "$NORTH/cli/dashboard-cli.clj" "$@" ;;
   config)
-    # Personal-stack posture settings — caveman / dispatch / coord / beagle / guards
+    # Personal-stack posture + durable provider routing policy.
     # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)
     # 2026-07-10: north is the settings surface. State stays at
     # ~/.claude/my-config.state (guard hooks read it live). cli/config-cli.clj.

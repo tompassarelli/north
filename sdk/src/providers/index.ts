@@ -5,6 +5,11 @@ import type { AgentQuery } from "./types";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { resolveTier, type SemanticTier } from "./catalog";
 export { resourcePolicyFromEnv, selectProvider, selectProviderFromAvailability } from "../provider-routing";
+export {
+  applyProviderUsageObservations, automatedPressure, effectivePressure, loadProviderUsageObservations,
+  loadResourcePolicy, parseProviderUsageObservations, parseResourcePolicy,
+  pressureFromUsageWindows,
+} from "../resource-policy";
 
 const providers: Record<ProviderId, AgentProvider> = {
   anthropic: anthropicProvider,

@@ -8,6 +8,7 @@ import type {
   ResourcePolicy,
   RoutingDecision,
 } from "./providers/types";
+import { applyProviderUsageObservations, loadProviderUsageObservations, loadResourcePolicy } from "./resource-policy";
 
 const PROVIDERS: ProviderId[] = ["anthropic", "openai"];
 
@@ -36,19 +37,39 @@ function weights(value: string | undefined): Partial<Record<ProviderId, number>>
   return result;
 }
 
-export function resourcePolicyFromEnv(): ResourcePolicy {
+export function resourcePolicyFromEnv(
+  base: ResourcePolicy | undefined = loadResourcePolicy(),
+  observations = loadProviderUsageObservations(),
+): ResourcePolicy {
+  const foundation: ResourcePolicy = base ?? {
+    version: 1,
+    mode: "preferential",
+    targets: PROVIDERS.map((id) => ({ id, provider: id })),
+    targetOrder: PROVIDERS,
+    providerOrder: PROVIDERS,
+    pressures: {},
+    weights: {},
+  };
+  const observed = observations ? applyProviderUsageObservations(foundation, observations) : foundation;
   const rawMode = process.env.NORTH_ALLOCATION_MODE;
-  const mode = rawMode === "balanced" || rawMode === "reserved" ? rawMode : "preferential";
+  const mode = rawMode === "balanced" || rawMode === "reserved" || rawMode === "preferential" ? rawMode : observed?.mode ?? "preferential";
   const reserved = process.env.NORTH_RESERVED_FRONTIER_PROVIDER;
+  const envOrder = process.env.NORTH_PROVIDER_ORDER;
+  const envWeights = process.env.NORTH_PROVIDER_WEIGHTS;
+  const anthropicPressure = process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE;
+  const openaiPressure = process.env.NORTH_OPENAI_ENTITLEMENT_PRESSURE;
   return {
+    ...observed,
     mode,
-    providerOrder: providerList(process.env.NORTH_PROVIDER_ORDER),
+    providerOrder: envOrder === undefined ? observed?.providerOrder ?? PROVIDERS : providerList(envOrder),
     pressures: {
-      anthropic: pressure(process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE),
-      openai: pressure(process.env.NORTH_OPENAI_ENTITLEMENT_PRESSURE),
+      ...observed?.pressures,
+      ...(anthropicPressure === undefined ? {} : { anthropic: pressure(anthropicPressure) }),
+      ...(openaiPressure === undefined ? {} : { openai: pressure(openaiPressure) }),
     },
-    weights: weights(process.env.NORTH_PROVIDER_WEIGHTS),
-    reservedFrontierProvider: PROVIDERS.includes(reserved as ProviderId) ? reserved as ProviderId : undefined,
+    weights: envWeights === undefined ? observed?.weights ?? {} : weights(envWeights),
+    reservedFrontierProvider: PROVIDERS.includes(reserved as ProviderId)
+      ? reserved as ProviderId : observed?.reservedFrontierProvider,
   };
 }
 
