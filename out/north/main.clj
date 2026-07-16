@@ -99,6 +99,9 @@
   (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
   (if (= tlog "") (fram.rt/read-log log) (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
 
+(defn- retracted-sigs [ops]
+  (reduce (fn [m a] (if (= (:op a) "retract") (assoc m (str (:l a) "|" (:p a) "|" (:r a)) true) m)) {} ops))
+
 (defn- live-facts [^String log]
   (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
   (if (empty? warm) (:facts (fold/fold (read-logs-merged log))) warm)))
@@ -583,7 +586,7 @@
 (defn cmd-clock-week [^String log]
   (clock-window log (fram.rt/this-week-dates) "this week"))
 
-(defrecord Probe [up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind])
+(defrecord Probe [up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind tombstoned])
 
 (defn probe-up [r] (:up r))
 
@@ -609,6 +612,8 @@
 
 (defn probe-log-behind [r] (:log-behind r))
 
+(defn probe-tombstoned [r] (:tombstoned r))
+
 (defn- ^Boolean stale-projection? [idx c]
   (and (k/single? (:p c)) (let [v (k/one-i idx (:l c) (:p c))]
   (and (some? v) (not (= v (:r c)))))))
@@ -618,7 +623,8 @@
    status (fram.rt/coord-status port)
    up (not (= status "down"))
    serving (str/includes? status log)
-   f (fold/fold (read-logs-merged log))
+   ops (read-logs-merged log)
+   f (fold/fold ops)
    log-facts (:facts f)
    log-v (:version f)
    daemon-v (fram.rt/coord-version port)
@@ -631,8 +637,11 @@
    file-ahead (filterv (fn [c] (nil? (get tl-sigs (fact-sig c)))) file-facts)
    log-behind (filterv (fn [c] (nil? (get file-sigs (fact-sig c)))) thread-log)
    stale (filterv (fn [c] (stale-projection? idx c)) file-ahead)
-   hand (filterv (fn [c] (not (stale-projection? idx c))) file-ahead)]
-  (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind)))
+   non-stale (filterv (fn [c] (not (stale-projection? idx c))) file-ahead)
+   tomb-sigs (retracted-sigs ops)
+   tombstoned (filterv (fn [c] (some? (get tomb-sigs (fact-sig c)))) non-stale)
+   hand (filterv (fn [c] (nil? (get tomb-sigs (fact-sig c)))) non-stale)]
+  (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind tombstoned)))
 
 (defn- ^Boolean safe? [^Probe p]
   (and (:up p) (and (:serving p) (:fresh p))))
@@ -646,8 +655,9 @@
 (defn- ^String hygiene-line [^Probe p]
   (let [ns (count (:stale p))
    nh (count (:hand p))
-   nb (count (:log-behind p))]
-  (if (and (= ns 0) (and (= nh 0) (= nb 0))) "" (str "hygiene: " (+ ns nb) " stale/lagging projection fact(s) — run `north heal`" (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
+   nb (count (:log-behind p))
+   nt (count (:tombstoned p))]
+  (if (and (= ns 0) (and (= nh 0) (and (= nb 0) (= nt 0)))) "" (str "hygiene: " (+ ns (+ nb nt)) " stale/lagging projection fact(s) — run `north heal`" (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
 
 (defn cmd-doctor [^String threads-dir ^String log]
   (let [p (probe threads-dir log)]
@@ -660,10 +670,13 @@
   (println "  hygiene:")
   (let [ns (count (:stale p))
    nh (count (:hand p))
-   nb (count (:log-behind p))]
-  (if (and (= ns 0) (and (= nh 0) (= nb 0))) (println "    [ok]    files <-> fact log in sync") (do
+   nb (count (:log-behind p))
+   nt (count (:tombstoned p))]
+  (if (and (= ns 0) (and (= nh 0) (and (= nb 0) (= nt 0)))) (println "    [ok]    files <-> fact log in sync") (do
   (if (> ns 0) (do
   (println (str "    " ns " stale projection fact(s) — run `north heal`"))))
+  (if (> nt 0) (do
+  (println (str "    " nt " retracted-but-still-in-file fact(s) (tombstones) — run `north heal`"))))
   (if (> nh 0) (do
   (println (str "    " nh " genuinely-new file fact(s) (hand edits) — reconcile via tell or import"))))
   (if (> nb 0) (do
@@ -673,7 +686,7 @@
   (reduce (fn [acc x] (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
 
 (defn- heal-targets [^Probe p]
-  (distinct-ids (mapv (fn [c] (:l c)) (vec (concat (:stale p) (:log-behind p))))))
+  (distinct-ids (mapv (fn [c] (:l c)) (vec (concat (:stale p) (:log-behind p) (:tombstoned p))))))
 
 (defn- ^String file-subject [^String content]
   (let [lines (fram.rt/split-on content "\n")
@@ -755,18 +768,31 @@
   (println (str "  FAILED  " (short-id (:l c)) "  " (:p c) "  -> " r))
   (->AdoptResult (:adopted acc) (:skipped acc) (+ (:failed acc) 1) (:dropped acc))))))) (->AdoptResult 0 0 0 0) hand))
 
-(defn cmd-heal [^String threads-dir ^String log ^Boolean adopt]
+(defn- report-tombstoned [tombstoned]
+  (if (empty? tombstoned) nil (do
+  (println (str "retracted (stale projection) — skipped " (count tombstoned) " fact(s) net-dead in the log (re-rendered away, NOT resurrected; --resurrect to force-adopt):"))
+  (doseq [c tombstoned]
+  (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))))
+
+(defn cmd-heal [^String threads-dir ^String log ^Boolean adopt ^Boolean resurrect]
   (let [p (probe threads-dir log)
-   has-hand (not (empty? (:hand p)))]
+   adopt-list (if resurrect (vec (concat (:hand p) (:tombstoned p))) (:hand p))
+   has-hand (not (empty? (:hand p)))
+   has-adoptable (not (empty? adopt-list))]
   (cond
   (and has-hand (not adopt)) (do
   (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in the log " "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). " "Nothing was touched:"))
   (doseq [c (:hand p)]
-  (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))
-  :else (if (and adopt has-hand) (let [port (fram.rt/coord-port)]
-  (if (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — adopt needs the daemon to serialize writes. Run `north up`.") (let [res (adopt-hand-facts port (live-idx log) (:hand p))]
+  (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72))))
+  (report-tombstoned (:tombstoned p)))
+  :else (if (and adopt has-adoptable) (let [port (fram.rt/coord-port)]
+  (if (< (fram.rt/coord-version port) 0) (println "no coordinator on 127.0.0.1:7977 — adopt needs the daemon to serialize writes. Run `north up`.") (do
+  (if (not resurrect) (report-tombstoned (:tombstoned p)) nil)
+  (let [res (adopt-hand-facts port (live-idx log) adopt-list)]
   (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res) " skipped (log won), " (:dropped res) " dropped (parse artifact), " (:failed res) " failed via coordinator."))
-  (heal-project threads-dir (probe threads-dir log))))) (heal-project threads-dir p)))))
+  (heal-project threads-dir (probe threads-dir log)))))) (do
+  (report-tombstoned (:tombstoned p))
+  (heal-project threads-dir p))))))
 
 (defrecord EntryPoint [te note created])
 
@@ -1026,7 +1052,7 @@
   (= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))
   (= cmd "tools") (cmd-tools)
   (= cmd "doctor") (cmd-doctor threads-dir log)
-  (= cmd "heal") (cmd-heal threads-dir log (has-flag? args "--adopt"))
+  (= cmd "heal") (cmd-heal threads-dir log (has-flag? args "--adopt") (has-flag? args "--resurrect"))
   (= cmd "boot") (cmd-boot threads-dir log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) "") (has-flag? args "--all"))
   (= cmd "clock") (let [sub (if (> (count args) 1) (nth args 1) "status")]

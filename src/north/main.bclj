@@ -211,6 +211,21 @@
       (fram.rt/read-log log)
       (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
 
+;; Triples carrying a RETRACT op anywhere in log history: TOMBSTONES. A file-ahead
+;; fact whose exact (l,p,r) was retracted is stale projection residue (the .md was
+;; never re-rendered after the retract), NOT a genuine hand edit — re-adopting it
+;; RESURRECTS a deliberately-retracted fact (the heal --adopt loophole). A file-ahead
+;; fact is by construction absent from the live log, so ONE retract op in history is a
+;; sufficient net-dead signal: a later re-assert makes the triple live again and thus
+;; no longer file-ahead, so it never reaches this scan. Sigs match `fact-sig`; the scan
+;; reads read-logs-merged so BOTH the coordination + telemetry logs are seen.
+(defn- retracted-sigs [ops :- (Vec fold/FactOp)] :- (Map String Bool)
+  (reduce (fn [m :- (Map String Bool) a :- fold/FactOp] :- (Map String Bool)
+            (if (= (:op a) "retract")
+              (assoc m (str (:l a) "|" (:p a) "|" (:r a)) true)
+              m))
+          {} ops))
+
 (defn- live-facts [log :- String] :- (Vec k/Fact)
   (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
     (if (empty? warm)
@@ -923,7 +938,8 @@
    idx :- k/Index
    stale :- (Vec k/Fact)                           ; file-ahead, superseded projection
    hand :- (Vec k/Fact)                            ; file-ahead, genuinely-new (hand edit)
-   log-behind :- (Vec k/Fact)])                    ; thread-facts not yet rendered to files
+   log-behind :- (Vec k/Fact)                      ; thread-facts not yet rendered to files
+   tombstoned :- (Vec k/Fact)])                    ; file-ahead, RETRACTED-in-log residue (never re-adopt)
 
 ;; A file-ahead fact is a STALE PROJECTION (superseded, NOT a hand edit) iff its
 ;; predicate is single-valued (k/single? reads FRAM_SINGLE_VALUED, the same vocab
@@ -944,7 +960,8 @@
         ;; the daemon's global :next-seq — a coordination-only fold would lag
         ;; whenever the last write was telemetry and mis-report the daemon as
         ;; "ahead of the log". Hygiene below is unaffected (telemetry has no title).
-        f (fold/fold (read-logs-merged log))
+        ops (read-logs-merged log)
+        f (fold/fold ops)
         log-facts (:facts f)
         log-v (:version f)
         daemon-v (fram.rt/coord-version port)
@@ -963,8 +980,14 @@
         file-ahead (filterv (fn [c :- k/Fact] :- Bool (nil? (get tl-sigs (fact-sig c)))) file-facts)
         log-behind (filterv (fn [c :- k/Fact] :- Bool (nil? (get file-sigs (fact-sig c)))) thread-log)
         stale (filterv (fn [c :- k/Fact] :- Bool (stale-projection? idx c)) file-ahead)
-        hand (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)]
-    (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind)))
+        ;; non-stale file-ahead splits again: a retracted-in-log triple is a
+        ;; TOMBSTONE (stale projection residue, re-render away — never re-adopt);
+        ;; the rest is a genuine hand edit.
+        non-stale (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)
+        tomb-sigs (retracted-sigs ops)
+        tombstoned (filterv (fn [c :- k/Fact] :- Bool (some? (get tomb-sigs (fact-sig c)))) non-stale)
+        hand (filterv (fn [c :- k/Fact] :- Bool (nil? (get tomb-sigs (fact-sig c)))) non-stale)]
+    (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind tombstoned)))
 
 ;; SAFETY verdict: writes + warm reads are safe IFF the daemon is up, serving this
 ;; log, and current with it. Hygiene NEVER enters this — a stale .md is not a write hazard.
@@ -981,10 +1004,10 @@
 
 ;; One-line hygiene summary ("" when tidy) for the boot screen.
 (defn- hygiene-line [p :- Probe] :- String
-  (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p))]
-    (if (and (= ns 0) (and (= nh 0) (= nb 0)))
+  (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p)) nt (count (:tombstoned p))]
+    (if (and (= ns 0) (and (= nh 0) (and (= nb 0) (= nt 0))))
       ""
-      (str "hygiene: " (+ ns nb) " stale/lagging projection fact(s) — run `north heal`"
+      (str "hygiene: " (+ ns (+ nb nt)) " stale/lagging projection fact(s) — run `north heal`"
            (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
 
 ;; --- doctor: SAFETY handshake + HYGIENE report ------------------------------
@@ -1011,12 +1034,14 @@
       (println "  => DEGRADED: fix the warnings above"))
     ;; HYGIENE: is the file projection tidy? NEVER changes the verdict above.
     (println "  hygiene:")
-    (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p))]
-      (if (and (= ns 0) (and (= nh 0) (= nb 0)))
+    (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p)) nt (count (:tombstoned p))]
+      (if (and (= ns 0) (and (= nh 0) (and (= nb 0) (= nt 0))))
         (println "    [ok]    files <-> fact log in sync")
         (do
           (when (> ns 0)
             (println (str "    " ns " stale projection fact(s) — run `north heal`")))
+          (when (> nt 0)
+            (println (str "    " nt " retracted-but-still-in-file fact(s) (tombstones) — run `north heal`")))
           (when (> nh 0)
             (println (str "    " nh " genuinely-new file fact(s) (hand edits) — reconcile via tell or import")))
           (when (> nb 0)
@@ -1033,7 +1058,7 @@
 ;; yet rendered. (hand edits are handled separately — heal refuses if any exist.)
 (defn- heal-targets [p :- Probe] :- (Vec String)
   (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c))
-                      (vec (concat (:stale p) (:log-behind p))))))
+                      (vec (concat (:stale p) (:log-behind p) (:tombstoned p))))))
 
 ;; The @subject the importer would read from a file's head ("" if none/blank/before ---).
 (defn- file-subject [content :- String] :- String
@@ -1157,32 +1182,56 @@
    (->AdoptResult 0 0 0 0)
    hand))
 
-(defn cmd-heal [threads-dir :- String log :- String adopt :- Bool] :- Nil
+;; List the tombstoned file lines heal is dropping (net-dead in the log). They are
+;; NOT re-asserted — heal-project re-renders the file without them, honoring the
+;; retraction. `--resurrect` force-adopts them instead (rare: a human genuinely
+;; re-adding a once-retracted triple by editing the .md).
+(defn- report-tombstoned [tombstoned :- (Vec k/Fact)] :- Nil
+  (if (empty? tombstoned)
+    nil
+    (do
+      (println (str "retracted (stale projection) — skipped " (count tombstoned)
+                    " fact(s) net-dead in the log (re-rendered away, NOT resurrected; --resurrect to force-adopt):"))
+      (doseq [c tombstoned]
+        (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))))
+
+(defn cmd-heal [threads-dir :- String log :- String adopt :- Bool resurrect :- Bool] :- Nil
   (let [p (probe threads-dir log)
-        has-hand (not (empty? (:hand p)))]
+        ;; --resurrect folds tombstones back into the adopt set (force-reassert a
+        ;; deliberately-retracted triple); default off leaves them to re-render away.
+        adopt-list (if resurrect (vec (concat (:hand p) (:tombstoned p))) (:hand p))
+        has-hand (not (empty? (:hand p)))
+        has-adoptable (not (empty? adopt-list))]
     (cond
-      ;; Bare heal fails closed: a genuine hand edit is a human decision. This IS
-      ;; the dry run — it lists what `--adopt` would absorb, and touches nothing.
+      ;; Bare heal fails closed on GENUINE hand edits (a human decides). Tombstones
+      ;; are NOT hand edits — they fall through to heal-project and re-render away.
+      ;; This IS the dry run — it lists what `--adopt` would absorb, touches nothing.
       [(and has-hand (not adopt))
        (do
          (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in the log "
                        "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). "
                        "Nothing was touched:"))
          (doseq [c (:hand p)]
-           (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))]
+           (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72))))
+         (report-tombstoned (:tombstoned p)))]
       [:else
-       (if (and adopt has-hand)
-         ;; ADOPT: absorb the hand facts via the coordinator, then re-probe (the
-         ;; log now carries them) and run the normal projection pass to render.
+       (if (and adopt has-adoptable)
+         ;; ADOPT: absorb genuine (+ --resurrect'd) hand facts via the coordinator,
+         ;; then re-probe (the log now carries them) and run the projection pass.
+         ;; Tombstones NOT resurrected are reported + re-rendered away, never adopted.
          (let [port (fram.rt/coord-port)]
            (if (< (fram.rt/coord-version port) 0)
              (println "no coordinator on 127.0.0.1:7977 — adopt needs the daemon to serialize writes. Run `north up`.")
-             (let [res (adopt-hand-facts port (live-idx log) (:hand p))]
-               (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res)
-                             " skipped (log won), " (:dropped res) " dropped (parse artifact), "
-                             (:failed res) " failed via coordinator."))
-               (heal-project threads-dir (probe threads-dir log)))))
-         (heal-project threads-dir p))])))
+             (do
+               (if (not resurrect) (report-tombstoned (:tombstoned p)) nil)
+               (let [res (adopt-hand-facts port (live-idx log) adopt-list)]
+                 (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res)
+                               " skipped (log won), " (:dropped res) " dropped (parse artifact), "
+                               (:failed res) " failed via coordinator."))
+                 (heal-project threads-dir (probe threads-dir log))))))
+         (do
+           (report-tombstoned (:tombstoned p))
+           (heal-project threads-dir p)))])))
 
 ;; --- boot: the one-screen session-start view --------------------------------
 (defrecord EntryPoint [te :- String note :- String created :- String])
@@ -1546,7 +1595,7 @@
       [(= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))]
       [(= cmd "tools")    (cmd-tools)]
       [(= cmd "doctor")   (cmd-doctor threads-dir log)]
-      [(= cmd "heal")     (cmd-heal threads-dir log (has-flag? args "--adopt"))]
+      [(= cmd "heal")     (cmd-heal threads-dir log (has-flag? args "--adopt") (has-flag? args "--resurrect"))]
       [(= cmd "boot")     (cmd-boot threads-dir log)]
       [(= cmd "json")
        (cmd-json log (if (> (count args) 1) (nth args 1) "")
