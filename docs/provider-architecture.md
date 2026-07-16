@@ -23,6 +23,7 @@ north account login codex-personal
 north account status
 north account status claude-personal
 north account list
+north account list --verbose
 ```
 
 `add` creates the isolated home and appends the target to
@@ -31,8 +32,10 @@ north account list
 `~/.local/state/north/accounts/openai/<id>` with a separate `sqlite/` child.
 North links the safe shared instructions, skills, hooks, and configuration from
 `~/.claude` or `~/.codex`, while provider login state remains isolated. `status`
-checks the provider CLI in each target's own home; `list` shows the configured
-provider, profile, and root.
+and `list` group accounts under `Claude / Anthropic` and `Codex / OpenAI`, showing
+each account ID and its live login state. `status` exits nonzero when any selected
+account is not logged in; `list` is informational. `list --verbose` adds labeled
+provider, profile, and storage-root diagnostics without changing the default view.
 
 Without named accounts, the existing `~/.claude` and `~/.codex` homes are the
 ambient `anthropic` and `openai` targets. Named and ambient targets use the same

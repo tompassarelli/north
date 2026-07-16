@@ -95,7 +95,8 @@ north — your one card. Type a command to do the thing next to it.
   SETTINGS & HEALTH
     north config                       posture + routing policy in one report
     north config routing               provider order, pressure, reserves, envelopes
-    north account add|login|status|list isolated provider subscription accounts
+    north account add|login|status     manage provider subscription accounts
+    north account list [--verbose]    grouped accounts + live login state
     north providers                    provider readiness and auto-route decision
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD

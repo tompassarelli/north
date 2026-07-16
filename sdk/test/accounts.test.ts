@@ -209,21 +209,64 @@ test("login and status use disjoint provider homes and normalized account identi
   writeFileSync(join(home, ".codex/logged-in"), "ambient login must not count\n");
   const empty = run("status");
   expect(empty.status).toBe(1);
-  expect(empty.stdout).toContain("claude-work\tanthropic\tnot-logged-in");
-  expect(empty.stdout).toContain("codex-personal\topenai\tnot-logged-in");
+  expect(empty.stdout).toBe([
+    "Claude / Anthropic",
+    "  claude-work  not logged in",
+    "",
+    "Codex / OpenAI",
+    "  codex-personal  not logged in",
+    "",
+  ].join("\n"));
 
   expect(run("login", "claude-work").status).toBe(0);
   const split = run("status");
   expect(split.status).toBe(1);
-  expect(split.stdout).toContain("claude-work\tanthropic\tlogged-in");
-  expect(split.stdout).toContain("codex-personal\topenai\tnot-logged-in");
-  expect(run("login", "codex-personal").status).toBe(0);
-  expect(run("status").status).toBe(0);
+  expect(split.stdout).toBe([
+    "Claude / Anthropic",
+    "  claude-work  logged in",
+    "",
+    "Codex / OpenAI",
+    "  codex-personal  not logged in",
+    "",
+  ].join("\n"));
+  const one = run("status", "claude-work");
+  expect(one.status).toBe(0);
+  expect(one.stdout).toBe("Claude / Anthropic\n  claude-work  logged in\n");
 
   const listed = run("list");
   expect(listed.status).toBe(0);
-  expect(listed.stdout).toContain(`claude-work\tanthropic\tclaude-work\t${join(home, ".local/state/north/accounts/anthropic/claude-work")}`);
-  expect(listed.stdout).toContain(`codex-personal\topenai\tcodex-personal\t${join(home, ".local/state/north/accounts/openai/codex-personal")}`);
+  expect(listed.stdout).toBe([
+    "Claude / Anthropic",
+    "  claude-work  logged in",
+    "",
+    "Codex / OpenAI",
+    "  codex-personal  not logged in",
+    "",
+  ].join("\n"));
+  expect(listed.stdout).not.toContain("/accounts/");
+  expect(listed.stdout).not.toContain("\tanthropic\t");
+  expect(listed.stdout).not.toContain("\u001b[");
+
+  expect(run("login", "codex-personal").status).toBe(0);
+  const ready = run("status");
+  expect(ready.status).toBe(0);
+  expect(ready.stdout).toContain("  claude-work  logged in");
+  expect(ready.stdout).toContain("  codex-personal  logged in");
+
+  const verbose = run("list", "--verbose");
+  expect(verbose.status).toBe(0);
+  expect(verbose.stdout).toContain("Claude / Anthropic\n  claude-work  logged in");
+  expect(verbose.stdout).toContain("    provider: anthropic");
+  expect(verbose.stdout).toContain("    profile:  claude-work");
+  expect(verbose.stdout).toContain(`    root:     ${join(home, ".local/state/north/accounts/anthropic/claude-work")}`);
+  expect(verbose.stdout).toContain("Codex / OpenAI\n  codex-personal  logged in");
+  expect(verbose.stdout).toContain("    provider: openai");
+  expect(verbose.stdout).toContain("    profile:  codex-personal");
+  expect(verbose.stdout).toContain(`    root:     ${join(home, ".local/state/north/accounts/openai/codex-personal")}`);
+
+  const invalidList = run("list", "--raw");
+  expect(invalidList.status).toBe(2);
+  expect(invalidList.stderr).toContain("north account list [--verbose]");
 
   const calls = readFileSync(join(home, "calls.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
   expect(calls.every((call) => call.sensitiveEnvPresent === false)).toBe(true);
@@ -233,6 +276,14 @@ test("login and status use disjoint provider homes and normalized account identi
   expect(codexCalls.every((call) => call.argv.includes('cli_auth_credentials_store="file"'))).toBe(true);
   expect(codexCalls.every((call) => call.argv.includes('forced_login_method="chatgpt"'))).toBe(true);
   expect(codexCalls.every((call) => call.argv.includes('model_provider="openai"'))).toBe(true);
+});
+
+test("account help advertises the grouped list and verbose diagnostics", () => {
+  const { run } = fixture();
+  const help = run("--help");
+  expect(help.status).toBe(0);
+  expect(help.stdout).toContain("north account list [--verbose]   grouped accounts + live login state");
+  expect(help.stdout).toContain("--verbose  include provider, profile, and storage root diagnostics");
 });
 
 test("subscription targets deny hostile provider transports while preserving ordinary environment", () => {

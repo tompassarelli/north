@@ -13,14 +13,51 @@ const USAGE = `usage: north account <command>
   north account add <safe-id> <anthropic|openai>
   north account login <id>
   north account status [id]
-  north account list`;
+  north account list [--verbose]   grouped accounts + live login state
 
-function printAccount(account: ProviderAccount): void {
-  console.log(`${account.id}\t${account.provider}\t${account.profile}\t${account.root}`);
+Options:
+  --verbose  include provider, profile, and storage root diagnostics`;
+
+const ACCOUNT_GROUPS = [
+  { provider: "anthropic", label: "Claude / Anthropic" },
+  { provider: "openai", label: "Codex / OpenAI" },
+] as const;
+
+function authLabel(state: AccountAuthState): string {
+  switch (state) {
+    case "logged-in": return "logged in";
+    case "not-logged-in": return "not logged in";
+    case "unavailable": return "CLI unavailable";
+    case "error": return "auth check failed";
+  }
 }
 
-function printStatus(account: ProviderAccount, state: AccountAuthState): void {
-  console.log(`${account.id}\t${account.provider}\t${state}`);
+function accountStates(accounts: ProviderAccount[]): Map<string, AccountAuthState> {
+  return new Map(accounts.map((account) => [account.id, statusProviderAccount(account)]));
+}
+
+function printAccountList(
+  accounts: ProviderAccount[],
+  verbose: boolean,
+  states = accountStates(accounts),
+): void {
+  let firstGroup = true;
+  for (const group of ACCOUNT_GROUPS) {
+    const grouped = accounts.filter((account) => account.provider === group.provider);
+    if (!grouped.length) continue;
+    if (!firstGroup) console.log();
+    firstGroup = false;
+    console.log(group.label);
+    const width = Math.max(...grouped.map((account) => account.id.length));
+    for (const account of grouped) {
+      console.log(`  ${account.id.padEnd(width)}  ${authLabel(states.get(account.id)!)}`);
+      if (verbose) {
+        console.log(`    provider: ${account.provider}`);
+        console.log(`    profile:  ${account.profile}`);
+        console.log(`    root:     ${account.root}`);
+      }
+    }
+  }
 }
 
 export async function runAccountCli(args: string[]): Promise<number> {
@@ -50,22 +87,19 @@ export async function runAccountCli(args: string[]): Promise<number> {
           console.log("no isolated accounts configured");
           return 0;
         }
-        let ready = true;
-        for (const account of accounts) {
-          const state = statusProviderAccount(account);
-          printStatus(account, state);
-          if (state !== "logged-in") ready = false;
-        }
-        return ready ? 0 : 1;
+        const states = accountStates(accounts);
+        printAccountList(accounts, false, states);
+        return accounts.every((account) => states.get(account.id) === "logged-in") ? 0 : 1;
       }
       case "list": {
-        if (rest.length) throw new Error(USAGE);
+        const verbose = rest.length === 1 && rest[0] === "--verbose";
+        if (rest.length && !verbose) throw new Error(USAGE);
         const accounts = listProviderAccounts();
         if (!accounts.length) {
           console.log("no isolated accounts configured");
           return 0;
         }
-        for (const account of accounts) printAccount(account);
+        printAccountList(accounts, verbose);
         return 0;
       }
       case "help":
