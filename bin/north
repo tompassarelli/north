@@ -7,22 +7,22 @@
 #   engine: ~/code/fram   data: ~/code/north-data (XDG ~/.local/state/north)
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
 export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/facts.log}"
-# --- worlds: kind-routed telemetry segregation (OPT-IN; off => byte-identical) -
-# When enabled the coordinator splits persistence per world: coordination facts
+# --- the log split: kind-routed telemetry segregation (OPT-IN; off => byte-identical) -
+# When enabled the coordinator splits persistence per log: coordination facts
 # stay in coordination.log, telemetry (run/session/mine/guard_denial) peels off to
 # telemetry.log — same daemon, one unified in-memory store (A1). Opt-in is EITHER
 # an explicit FRAM_TELEMETRY_LOG in the caller's env, OR the mere PRESENCE of a
-# seeded coordination.log beside FRAM_LOG (the artifact `north-worlds-split
+# seeded coordination.log beside FRAM_LOG (the artifact `north-log-split
 # --execute` writes) — so the split IS the switch, and rollback is "restore
 # facts.log / remove coordination.log". Neither present => FRAM_TELEMETRY_LOG stays
-# unset and the engine reads the single FRAM_LOG, byte-identical to pre-worlds.
+# unset and the engine reads the single FRAM_LOG, byte-identical to pre-split.
 if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
-  _north_world_dir="$(dirname "$FRAM_LOG")"
-  if [ -f "$_north_world_dir/coordination.log" ]; then
-    export FRAM_LOG="$_north_world_dir/coordination.log"
-    export FRAM_TELEMETRY_LOG="$_north_world_dir/telemetry.log"
+  _north_log_dir="$(dirname "$FRAM_LOG")"
+  if [ -f "$_north_log_dir/coordination.log" ]; then
+    export FRAM_LOG="$_north_log_dir/coordination.log"
+    export FRAM_TELEMETRY_LOG="$_north_log_dir/telemetry.log"
   fi
-  unset _north_world_dir
+  unset _north_log_dir
 fi
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
 export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator}"

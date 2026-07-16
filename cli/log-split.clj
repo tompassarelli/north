@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
-;; worlds-split.clj — Phase-2 replay-filter compaction for the worlds split.
+;; log-split.clj — Phase-2 replay-filter compaction for the log split.
 ;;
-;; Reads a single coordination log and partitions every line into two per-world
-;; files by world-of(subject), preserving each line's original :tx (lines are
+;; Reads a single coordination log and partitions every line into two per-log
+;; files by log-for(subject), preserving each line's original :tx (lines are
 ;; copied VERBATIM — no re-serialization — so :tx and byte-shape are exact):
 ;;   coordination.log  the human-meaningful work graph + everything a live
 ;;                     consumer subscribes to (threads, concern, @agent, @lease,
@@ -10,17 +10,17 @@
 ;;   telemetry.log     high-volume machine output (run/session/mine/guard_denial)
 ;;
 ;; INVARIANT: line-count conservation — coord N + telem M == total T, dropped==0.
-;; Every input line routes to EXACTLY one world (an unparseable line routes to
+;; Every input line routes to EXACTLY one log (an unparseable line routes to
 ;; coordination, the engine's safe default), so nothing is ever lost.
 ;;
 ;; This is the SAME contract the coordinator routes writes by (fram
-;; coord_daemon.clj world-of/load-worlds-config!) — consumed verbatim, NOT
+;; coord_daemon.clj log-for/load-log-routing!) — consumed verbatim, NOT
 ;; re-derived: telemetry allow-list of KIND names, PRIMARY = a subject's stored
 ;; `kind` fact, FALLBACK = the structural @<token> prefix for kind-less subjects
 ;; (promotes @session, the biggest telemetry mass, which carries no kind fact).
 ;;
-;;   north-worlds-split [--dry-run|--execute] [--log PATH] [--coord PATH]
-;;                      [--telemetry PATH] [--force]
+;;   north-log-split [--dry-run|--execute] [--log PATH] [--coord PATH]
+;;                   [--telemetry PATH] [--force]
 ;;
 ;;   --dry-run (default)  print `coord N / telem M / total T`, assert the
 ;;                        invariant, write NOTHING.
@@ -32,20 +32,20 @@
 (require '[clojure.string :as str]
          '[clojure.edn :as edn])
 
-;; ---- the shared world-of contract (mirror of coord_daemon.clj) --------------
+;; ---- the shared log-for contract (mirror of coord_daemon.clj) ---------------
 
 (def DEFAULT-TELEMETRY-KINDS #{"run" "session" "mine" "guard_denial"})
 
 ;; @<token>:… → token between @ and the first colon, ONLY when a colon is present
-;; (bare @worlds / @run without a colon → nil). Exact mirror of subject-token.
+;; (bare @log-routing / @run without a colon → nil). Exact mirror of subject-token.
 (defn subject-token [s]
   (when (and (string? s) (> (count s) 1) (= \@ (.charAt ^String s 0)))
     (let [c (.indexOf ^String s ":")]
       (when (pos? c) (subs s 1 c)))))
 
-;; world-of: telemetry iff the subject's kind — or, kind-less, its @token — is in
+;; log-for: telemetry iff the subject's kind — or, kind-less, its @token — is in
 ;; the allow-list; everything else (incl. a nil subject) → coordination.
-(defn world-of [kindmap allow subject]
+(defn log-for [kindmap allow subject]
   (let [k (or (get kindmap subject) (subject-token subject))]
     (if (contains? allow k) :telemetry :coordination)))
 
@@ -70,13 +70,13 @@
                    (assoc m (:l op) (:r op))))
                {})))
 
-;; telemetry allow-list: fold @worlds telemetry_kind facts (multi-valued: assert
+;; telemetry allow-list: fold @log-routing telemetry_kind facts (multi-valued: assert
 ;; adds, retract removes) in :tx order; a non-empty result OVERRIDES the default
-;; (matches load-worlds-config!, which only replaces when `seq` is non-empty).
+;; (matches load-log-routing!, which only replaces when `seq` is non-empty).
 (defn build-allowlist [parsed]
   (let [ks (->> parsed
                 (keep :m)
-                (filter #(and (= "@worlds" (:l %)) (= "telemetry_kind" (:p %))))
+                (filter #(and (= "@log-routing" (:l %)) (= "telemetry_kind" (:p %))))
                 (sort-by #(or (:tx %) 0))
                 (reduce (fn [s op]
                           (if (= "retract" (:op op))
@@ -89,12 +89,12 @@
 
 (defn read-lines [path]
   (when-not (.exists (java.io.File. ^String path))
-    (binding [*out* *err*] (println (str "north-worlds-split: input log not found: " path)))
+    (binding [*out* *err*] (println (str "north-log-split: input log not found: " path)))
     (System/exit 2))
   (str/split-lines (slurp path)))
 
 (defn write-atomic! [path lines]
-  (let [tmp (str path ".tmp-worlds-split")]
+  (let [tmp (str path ".tmp-log-split")]
     (spit tmp (if (seq lines) (str (str/join "\n" lines) "\n") ""))
     (.renameTo (java.io.File. ^String tmp) (java.io.File. ^String path))))
 
@@ -112,7 +112,7 @@
           "--log"       (recur (rest more) (assoc m :log (first more)))
           "--coord"     (recur (rest more) (assoc m :coord (first more)))
           "--telemetry" (recur (rest more) (assoc m :telemetry (first more)))
-          (do (binding [*out* *err*] (println (str "north-worlds-split: unknown arg: " k)))
+          (do (binding [*out* *err*] (println (str "north-log-split: unknown arg: " k)))
               (System/exit 2)))))))
 
 (defn dir-of [path]
@@ -134,7 +134,7 @@
       kindmap (build-kindmap parsed)
       allow   (build-allowlist parsed)
       routed  (reduce (fn [acc {:keys [raw m]}]
-                        (update acc (world-of kindmap allow (:l m)) conj raw))
+                        (update acc (log-for kindmap allow (:l m)) conj raw))
                       {:coordination [] :telemetry []}
                       parsed)
       cl      (:coordination routed)
@@ -147,14 +147,14 @@
   ;; never a silent partial: abort loudly.
   (when-not (and (= (+ n mm) total) (= dropped 0))
     (binding [*out* *err*]
-      (println (str "north-worlds-split: INVARIANT VIOLATED — coord " n " + telem " mm
+      (println (str "north-log-split: INVARIANT VIOLATED — coord " n " + telem " mm
                     " = " (+ n mm) " != total " total " (dropped " dropped ")")))
     (System/exit 1))
 
   (println (str "coord " n " / telem " mm " / total " total))
   (println (str "  invariant OK: " n " + " mm " = " total ", dropped 0"))
   (println (str "  allow-list (telemetry kinds): " (str/join " " (sort allow))
-                (if (= allow DEFAULT-TELEMETRY-KINDS) "  (default)" "  (@worlds override)")))
+                (if (= allow DEFAULT-TELEMETRY-KINDS) "  (default)" "  (@log-routing override)")))
   (println (str "  input (read-only): " log))
 
   (case (:mode opts)
@@ -166,7 +166,7 @@
     (let [exists (filter #(.exists (java.io.File. ^String %)) [coord telem])]
       (when (and (seq exists) (not (:force opts)))
         (binding [*out* *err*]
-          (println (str "north-worlds-split: refusing to clobber existing output(s): "
+          (println (str "north-log-split: refusing to clobber existing output(s): "
                         (str/join " " exists) " — pass --force to overwrite")))
         (System/exit 3))
       (write-atomic! coord cl)

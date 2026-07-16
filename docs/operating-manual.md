@@ -198,7 +198,7 @@ fact wins; else a reserved namespace in the subject id (`concern-`, `agent:`,
 prefixes); else a `title` means `thread`; else a schema-as-facts subject is a
 `predicate`; else `other`. Buckets sort by fact count, so the biggest blobs name
 themselves — today the `session-telemetry` bulk dwarfs the work graph, which is
-the number that drives the worlds split below.
+the number that drives the log split below.
 
 The AI tool surface reflects this. `north tools` lists NORTH's **curated** verbs
 (the MCP surface: `ready`/`next`/`board`/…/`tell`/`show`/`dispatch`/`spawn`);
@@ -206,22 +206,22 @@ the fram engine core underneath is **10 tools** (`tell`/`retract`/`show`/`ask`/
 `validate` + 5 graph-edit verbs). Vocabulary is data, not tools — there is no
 per-predicate tool catalog to memorize; `north show <pred>` reveals a predicate.
 
-### Worlds: the coordination log is not a dumping ground
+### The log split — telemetry stays out of the coordination log
 
-Facts live in **worlds** — separate append logs. The coordination log (this
+Facts are written to one of **two append logs**. The coordination log (this
 directory's `facts.log`) holds work/intent threads and their schema. Experiment
-runs, telemetry, benchmark samples, and other high-volume machine output live in
-their **own** world log, never the coordination log. Mixing them would bury the
-work graph under machine noise and drag every fold/validate over data that isn't
-about coordination. Keep the coordination world small and human-meaningful; give
-each experiment or telemetry stream its own world.
+runs, telemetry, benchmark samples, and other high-volume machine output are
+routed to a **separate** telemetry log, never the coordination log. Mixing them
+would bury the work graph under machine noise and drag every fold/validate over
+data that isn't about coordination. Keep the coordination log small and
+human-meaningful; give telemetry its own log.
 
 Every new entity **self-identifies its kind at birth**: `north capture` stamps
 `kind thread` in the same coordinator write batch (`kind` is single-valued;
 concern-cli already stamps `kind concern`, telemetry writers `kind run`/`session`).
 No backfill — old subjects stay un-kinded and fall to the census's prefix
-heuristic; the kinded set grows forward. This is the seam the worlds split rides
-on: once entities carry their kind, `north schema` counts each world's mass
+heuristic; the kinded set grows forward. This is the seam the log split rides
+on: once entities carry their kind, `north schema` counts each log's mass
 exactly, and moving telemetry to its own log is a filter on a fact, not a guess.
 (One open overlap to reconcile: reflection entities also use `kind`
 document/decision/observation — see the reflections section — so a reflection

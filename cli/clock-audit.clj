@@ -178,7 +178,7 @@
 ;; Mirrors the guard_denial / recordRun idiom: kind-at-birth, minimal predicates,
 ;; titleless subject (queryable via fram show/ask, invisible to the work board).
 ;; The write path is DELIBERATELY one function — if this telemetry later moves
-;; worlds, re-aim the coordinator target HERE and nowhere else.
+;; logs, re-aim the coordinator target HERE and nowhere else.
 (defn- repo-root []
   ;; cli/clock-audit.clj -> cli -> repo root; bin/north lives under it.
   (-> (System/getProperty "babashka.file") fs/parent fs/parent))
