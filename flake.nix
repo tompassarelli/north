@@ -141,7 +141,7 @@
             cat > "$smoke/bin/claude" <<'EOF'
 #!${pkgs.bash}/bin/bash
 if [ "$1" = "--version" ]; then echo 'claude smoke'; exit 0; fi
-if [ "$1 $2 $3" = "auth status --json" ]; then echo '{"loggedIn":true}'; exit 0; fi
+if [ "$1 $2 $3" = "auth status --json" ]; then echo '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}'; exit 0; fi
 exit 2
 EOF
             cat > "$smoke/bin/codex" <<'EOF'
