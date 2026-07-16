@@ -61,7 +61,9 @@ north — your one card. Type a command to do the thing next to it.
     north agenda                       what's dated / overdue today
     north health                       coordination rollup: lanes ran/died, stale concerns
     north trace <id>                   diagnose one agent's lifecycle
-    north dials                        routing analytics — is the right model/effort in use
+    north routing report performance  operational routing + verification evidence coverage
+    north routing report usage        provider work usage (never dollars / API credits)
+    north routing report promotions   recurring bespoke roles for human review
     north schema                       the fact vocabulary in use
     web  http://127.0.0.1:8088         the browser cockpit (stakeholder view)
 
@@ -147,11 +149,14 @@ CARD
     # concerns, ping-loss, zombie forks, died-unreported). Read-only. cli/health-cli.clj.
     exec bb "$NORTH/cli/health-cli.clj" "${@:2}" ;;
   dials)
-    # Routing analytics — group @run telemetry by dial/model/effort/role and report
-    # n/Σcost/Σtokens/turns/wall/outcome-mix/escalation-rate. The RATE step of
-    # ESTIMATE→RATE→CALIBRATE: measures whether we route the right dial. Read-only.
-    # Args: [by-dial|by-model|by-effort|by-role]. cli/dials-cli.clj.
+    # Compatibility bridge to the evidence-aware report. Dollar-centric dial
+    # scoring is intentionally retired for subscription entitlement routing.
     exec bb "$NORTH/cli/dials-cli.clj" "${@:2}" ;;
+  routing)
+    # Empirical routing feedback joins run telemetry to current thread
+    # done_when/bar_evidence/outcome facts. It reports evidence coverage, never
+    # claims causal model quality, and bespoke recurrence never auto-promotes.
+    exec bb "$NORTH/cli/routing-report.clj" "${@:2}" ;;
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a north.main verb, so it execs directly.
