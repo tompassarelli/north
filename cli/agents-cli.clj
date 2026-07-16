@@ -8,13 +8,14 @@
 
 (require '[babashka.process :as p]
          '[clojure.string :as str]
-         '[clojure.java.io :as io])
+         '[clojure.java.io :as io]
+         '[cheshire.core :as json])
 
 (def HOME (System/getenv "HOME"))
 (def NORTH (str HOME "/code/north"))
 (def GAFFER (str HOME "/code/gaffer"))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
-(def DIAL-TABLE (str GAFFER "/docs/adapters/north.md"))
+(def GAFFER-AGENTS (str GAFFER "/agents"))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 
 (def color? (and (nil? (System/getenv "NO_COLOR"))
@@ -39,22 +40,22 @@
 
 (defn echo-cmd [& parts] (println (dim (str "» " (str/join " " parts)))))
 
-;; ---- gaffer dial table (parse the canonical block; never fork doctrine) -----
-;; `fable` joins the model alternation for the owner-ordered window (routing-overhaul
-;; PART 3) so a Fable row parses if one ever lands; the live Fable routing is the
-;; date-gated synthetic-roles override below, NOT a doctrine dial-table row.
-(defn dial-table []
-  (when (.exists (io/file DIAL-TABLE))
-    (->> (slurp DIAL-TABLE) str/split-lines
-         (keep (fn [ln]
-                 (when-let [[_ role tier model effort trole posture]
-                            (re-matches
-                             #"\s+([a-z]+)\s+(economy|standard|senior|frontier)\s+(sonnet|opus|haiku|fable)/(low|medium|high|xhigh|max)\s+(\S+)\s+(\S+)\s*"
-                             ln)]
-                   [role {:tier tier :model model :effort effort
-                          :north-role (when-not (#{"—" "-"} trole) trole)
-                          :posture posture}])))
-         (into {}))))
+;; ---- gaffer routing metadata (generated agent files are canonical) ----------
+(defn- agent-routing [f]
+  (let [text (slurp f)
+        payload (some-> (re-find #"<!-- GAFFER_ROUTING (\{.*\}) -->" text) second)]
+    (when payload
+      (let [routing (json/parse-string payload true)]
+        [(str/replace (.getName f) #"\.md$" "")
+         (assoc routing :gaffer-preset true)]))))
+
+(defn gaffer-routing []
+  (let [dir (io/file GAFFER-AGENTS)]
+    (when (.isDirectory dir)
+      (->> (.listFiles dir)
+           (filter #(and (.isFile %) (str/ends-with? (.getName %) ".md")))
+           (keep agent-routing)
+           (into {})))))
 
 ;; ---- Fable window — mechanical, owner-ordered, auto-expiring (routing-overhaul PART 3)
 ;; Cutoff 2026-07-13T00:00 Asia/Shanghai (system tz) = 2026-07-12T16:00:00Z. The Clojure
@@ -81,10 +82,11 @@
   (let [open? (fable-window-open?)]
     {"orchestrator" {:model (if open? "fable" "opus")
                      :effort (if open? "high" "xhigh")
-                     :north-role nil :posture nil}
+                     :posture nil}
      "worker"       {:model "opus"
                      :effort (if open? "xhigh" "high")
-                     :north-role "integrator" :posture "deliver"}}))
+                     :role "integrator"
+                     :posture "deliver"}}))
 
 ;; ---- agent identity facts (one log scan; single-valued predicates) ----------
 (defn agent-facts []
@@ -112,10 +114,10 @@
       (some-> (:out r) str/trim (str/split #"[/:]") last (str/replace #"\.git$" ""))
       (some-> (System/getProperty "user.dir") (str/split #"/") last))))
 
-(defn render-display-name [id {:strs [role kind repo model effort goal]}]
+(defn render-display-name [id {:strs [role kind repo tier model effort goal]}]
   (let [r (or role kind "agent")
         at (if repo (str "@" repo) "")
-        dial (str (or model "?") "-" (or effort "?"))
+        dial (if tier (str "tier:" tier) (str (or model "?") "-" (or effort "?")))
         g (when (seq goal) (str " — " (if (> (count goal) 40) (str (subs goal 0 37) "…") goal)))]
     (str r at " " dial g " (" id ")")))
 
@@ -160,35 +162,45 @@
   (let [dry? (some #{"--dry-run"} args)
         notify (second (drop-while #(not= "--notify" %) args))
         provider (second (drop-while #(not= "--provider" %) args))
-        [role prompt] (remove #(or (#{"--dry-run" "--notify" "--provider"} %) (= % notify) (= % provider)) args)
-        ;; gaffer squad roles from the canonical table + the date-gated two-tier synthetic
+        [invoked-role prompt] (remove #(or (#{"--dry-run" "--notify" "--provider"} %) (= % notify) (= % provider)) args)
+        ;; gaffer presets from generated metadata + the date-gated two-tier synthetic
         ;; roles (orchestrator/worker); synthetics win a name clash (there are none).
-        dt (merge (or (dial-table) {}) (synthetic-roles))]
+        dt (merge (or (gaffer-routing) {}) (synthetic-roles))]
     (cond
-      (or (nil? role) (nil? prompt))
+      (or (nil? invoked-role) (nil? prompt))
       (do (println (red "usage:") "north spawn <role> \"<prompt>\" [--provider auto|anthropic|openai] [--notify <peer>] [--dry-run]")
           (println "roles:" (str/join " " (sort (keys dt)))))
-      (not (dt role))
-      (do (println (red (str "unknown role: " role)))
+      (not (dt invoked-role))
+      (do (println (red (str "unknown role: " invoked-role)))
           (println "roles:" (str/join " " (sort (keys dt)))))
       :else
-      (let [{:keys [tier model effort north-role posture]} (dt role)
+      (let [{:keys [gaffer-preset taskGrade tier model effort role posture composition]} (dt invoked-role)
             aid (str "lane-" (subs (str (java.util.UUID/randomUUID)) 0 8))
-            env (cond-> {"AGENT_ID" aid "AGENT_TIER" tier "AGENT_MODEL" model "AGENT_EFFORT" effort}
+            env (cond-> {"AGENT_ID" aid}
+                  taskGrade  (assoc "AGENT_TASK_GRADE" taskGrade)
+                  tier       (assoc "AGENT_TIER" tier)
+                  role       (assoc "AGENT_ROLE" role)
+                  posture    (assoc "AGENT_POSTURE" posture)
+                  composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
+                  (and (not gaffer-preset) model)  (assoc "AGENT_MODEL" model)
+                  (and (not gaffer-preset) effort) (assoc "AGENT_EFFORT" effort)
                   provider   (assoc "AGENT_PROVIDER" provider)
-                  north-role (assoc "AGENT_ROLE" north-role)
-                  posture   (assoc "AGENT_POSTURE" posture)
                   notify    (assoc "AGENT_COORDINATOR" notify))
             spawn-ts (str NORTH "/sdk/src/spawn.ts")
             envs (str/join " " (map (fn [[k v]] (str k "=" v)) (sort env)))]
-        (println (dim "# gaffer dials for role") (bold role) (dim "->")
-                 (str "model=" model " effort=" effort
-                      (when north-role (str " role=" north-role))
+        (println (dim "# gaffer dials for role") (bold invoked-role) (dim "->")
+                 (str "grade=" taskGrade " tier=" tier
+                      (when-not gaffer-preset (str " model=" model " effort=" effort))
+                      (when role (str " role=" role))
                       (when posture (str " posture=" posture))))
         (echo-cmd envs "bun run" spawn-ts (str "\"" prompt "\""))
         (if dry?
-          (let [dn (render-display-name aid {"role" role "repo" (or (current-repo) "?")
-                                             "model" model "effort" effort "goal" (str/trim prompt)})]
+          (let [dn (render-display-name aid
+                                        (cond-> {"role" (or role invoked-role)
+                                                 "repo" (or (current-repo) "?")
+                                                 "goal" (str/trim prompt)}
+                                          gaffer-preset (assoc "tier" tier)
+                                          (not gaffer-preset) (assoc "model" model "effort" effort)))]
             (println (ylw "[dry-run]") "not executed. agent-id would be" (bold aid))
             (println (str "  display_name: " (bold dn))))
           (let [log (io/file AGENT-LOGDIR (str aid ".log"))]
