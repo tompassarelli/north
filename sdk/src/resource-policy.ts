@@ -13,11 +13,14 @@ import type {
   ResourceEnvelopes,
   ResourcePolicy,
   RoutingTarget,
+  TargetAuthMode,
 } from "./providers/types";
 
 const PROVIDERS: ProviderId[] = ["anthropic", "openai"];
 const PRESSURES: EntitlementPressure[] = ["plenty", "normal", "low", "exhausted", "unknown"];
 const MODES: AllocationMode[] = ["preferential", "balanced", "reserved"];
+const TARGET_AUTH_MODES: TargetAuthMode[] = ["ambient", "isolated"];
+const PORTABLE_PROFILE_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** Pressure observations are trustworthy for one day unless `until` is set. */
 export const PRESSURE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -91,11 +94,18 @@ function parseTargets(path: string, value: unknown): RoutingTarget[] {
   const targets = value.map((entry, index) => {
     const label = `targets[${index}]`;
     if (!object(entry)) fail(path, `${label} must be an object`);
-    keysOnly(path, label, entry, ["id", "provider", "profile"]);
+    keysOnly(path, label, entry, ["id", "provider", "authMode", "profile"]);
     if (typeof entry.id !== "string" || !entry.id.trim()) fail(path, `${label}.id must be a non-empty string`);
+    if (entry.authMode !== undefined && !TARGET_AUTH_MODES.includes(entry.authMode as TargetAuthMode))
+      fail(path, `${label}.authMode must be ambient or isolated`);
     if (entry.profile !== undefined && (typeof entry.profile !== "string" || !entry.profile.trim()))
       fail(path, `${label}.profile must be a non-empty string`);
-    return { id: entry.id, provider: provider(path, entry.provider, `${label}.provider`),
+    const authMode = (entry.authMode ?? "ambient") as TargetAuthMode;
+    if (authMode === "isolated" && typeof entry.profile !== "string")
+      fail(path, `${label}.profile is required when authMode is isolated`);
+    if (authMode === "isolated" && !PORTABLE_PROFILE_SLUG.test(entry.profile as string))
+      fail(path, `${label}.profile must be a portable slug (lowercase letters, digits, _ or -; max 64 characters)`);
+    return { id: entry.id, provider: provider(path, entry.provider, `${label}.provider`), authMode,
       ...(entry.profile === undefined ? {} : { profile: entry.profile }) } as RoutingTarget;
   });
   if (new Set(targets.map(({ id }) => id)).size !== targets.length) fail(path, "target ids must be unique");
@@ -233,8 +243,8 @@ export function loadProviderUsageObservations(
 
 /**
  * Overlay fresh automated observations onto fresh manual policy observations.
- * The runtime still selects providers rather than profiles, so only the first
- * ordered target for each provider is executable today.
+ * Every target remains executable data; provider pressures are the compatibility
+ * projection of the first ordered target for each provider.
  */
 export function applyProviderUsageObservations(
   policy: ResourcePolicy,
@@ -242,7 +252,8 @@ export function applyProviderUsageObservations(
   now = new Date(),
 ): ResourcePolicy {
   const targets = policy.targets ?? [];
-  const order = policy.targetOrder ?? targets.map(({ id }) => id);
+  const configuredOrder = policy.targetOrder ?? targets.map(({ id }) => id);
+  const order = [...configuredOrder, ...targets.map(({ id }) => id).filter((id) => !configuredOrder.includes(id))];
   const latest = new Map<string, ProviderUsageObservation>();
   for (const observation of store?.observations ?? []) {
     if (automatedPressure(observation, now) === undefined) continue;
@@ -253,20 +264,22 @@ export function applyProviderUsageObservations(
       latest.set(observation.targetId, observation);
   }
   const pressures: Partial<Record<ProviderId, EntitlementPressure>> = {};
+  const targetPressures: Record<string, EntitlementPressure> = {};
   const automatedPressureObservations: Record<string, ProviderUsageObservation> = {};
   for (const id of order) {
     const target = targets.find((candidate) => candidate.id === id);
-    if (!target || pressures[target.provider] !== undefined) continue;
+    if (!target) continue;
     const automated = latest.get(id);
     const manual = policy.pressureObservations?.[id];
     if (automated) {
-      pressures[target.provider] = automatedPressure(automated, now)!;
+      targetPressures[id] = automatedPressure(automated, now)!;
       automatedPressureObservations[id] = automated;
     } else {
-      pressures[target.provider] = effectivePressure(manual, now);
+      targetPressures[id] = effectivePressure(manual, now);
     }
+    if (pressures[target.provider] === undefined) pressures[target.provider] = targetPressures[id];
   }
-  return { ...policy, pressures, automatedPressureObservations };
+  return { ...policy, pressures, targetPressures, automatedPressureObservations };
 }
 
 export function parseResourcePolicy(input: unknown, path = "<memory>", now = new Date()): ResourcePolicy {
@@ -307,11 +320,14 @@ export function parseResourcePolicy(input: unknown, path = "<memory>", now = new
   // described now, but are deliberately collapsed to their provider until the
   // adapters can authenticate/select profiles truthfully.
   const pressureByProvider: Partial<Record<ProviderId, EntitlementPressure>> = {};
+  const targetPressures: Record<string, EntitlementPressure> = {};
   const weightByProvider: Partial<Record<ProviderId, number>> = {};
-  for (const id of targetOrder) {
+  const projectionOrder = [...targetOrder, ...targets.map(({ id }) => id).filter((id) => !targetOrder.includes(id))];
+  for (const id of projectionOrder) {
     const target = targets.find((candidate) => candidate.id === id)!;
+    targetPressures[id] = effectivePressure(pressureObservations[id], now);
     if (pressureByProvider[target.provider] === undefined)
-      pressureByProvider[target.provider] = effectivePressure(pressureObservations[id], now);
+      pressureByProvider[target.provider] = targetPressures[id];
     if (weightByProvider[target.provider] === undefined)
       weightByProvider[target.provider] = targetWeights[id] ?? 1;
   }
@@ -323,6 +339,7 @@ export function parseResourcePolicy(input: unknown, path = "<memory>", now = new
     providerOrder,
     pressures: pressureByProvider,
     weights: weightByProvider,
+    targetPressures,
     pressureObservations,
     targetWeights,
     ...(reserved === undefined ? {} : {

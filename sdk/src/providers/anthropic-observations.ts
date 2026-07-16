@@ -86,6 +86,10 @@ export function observeAnthropicQuery(
   return {
     interrupt: source.interrupt?.bind(source),
     setModel: source.setModel?.bind(source),
+    applyFlagSettings: source.applyFlagSettings?.bind(source),
+    supportsInFlightEscalation: () =>
+      typeof source.setModel === "function" && typeof source.applyFlagSettings === "function" &&
+      (source.supportsInFlightEscalation?.() ?? true),
     async *[Symbol.asyncIterator]() {
       for await (const message of source as AsyncIterable<any>) {
         if (message?.type === "rate_limit_event" && message.rate_limit_info) {

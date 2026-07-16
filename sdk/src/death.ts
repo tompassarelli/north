@@ -5,7 +5,7 @@
 // a first-class FACT (so it is queryable off the graph) plus a direct peer PING (so a
 // listening coordinator wakes at once) — fitting north's existing idioms:
 //   - `north tell @swarm agent_death "<line>"`   (@swarm is the coordinator-visible roster
-//     node — already where budget_total lives), and the driven thread if known;
+//     node, and the driven thread if known;
 //   - `msg-cli send <agentId> <coordinator> "AGENT DEATH" "<reason>"` for the direct ping.
 //
 // A dying path has two hard rules: it must FLUSH before the process exits (so writes are

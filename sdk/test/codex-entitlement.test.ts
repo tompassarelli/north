@@ -3,20 +3,28 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
+import { spawn } from "node:child_process";
 import {
   CODEX_OBSERVATION_TTL_MS, normalizeCodexRateLimits, observeCodexEntitlement,
-  readCodexEntitlementObservation, refreshCodexEntitlementIfStale, shouldRefreshCodexEntitlement,
+  readCodexEntitlementObservation, refreshCodexEntitlementIfStale,
+  refreshCodexEntitlementsIfStale, shouldRefreshCodexEntitlement,
 } from "../src/codex-entitlement";
 import { writeProviderUsageObservations } from "../src/provider-observation-store";
 
 const fixture = resolve(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
-const saved = { responses: process.env.FAKE_CODEX_RESPONSES, delay: process.env.FAKE_CODEX_DELAY_MS };
+const saved = {
+  responses: process.env.FAKE_CODEX_RESPONSES,
+  delay: process.env.FAKE_CODEX_DELAY_MS,
+  home: process.env.HOME,
+};
 const temporary: string[] = [];
 afterEach(() => {
   if (saved.responses === undefined) delete process.env.FAKE_CODEX_RESPONSES;
   else process.env.FAKE_CODEX_RESPONSES = saved.responses;
   if (saved.delay === undefined) delete process.env.FAKE_CODEX_DELAY_MS;
   else process.env.FAKE_CODEX_DELAY_MS = saved.delay;
+  if (saved.home === undefined) delete process.env.HOME;
+  else process.env.HOME = saved.home;
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -145,6 +153,60 @@ test("twenty parallel stale refreshes single-flight one entitlement probe", asyn
     refreshCodexEntitlementIfStale({ storePath, targetId: "codex-primary", now, observe })));
   expect(probes).toBe(1);
   expect(results.every((result) => result?.observedAt === replacement.observedAt)).toBe(true);
+});
+
+test("different Codex targets refresh concurrently with disjoint state and observations", async () => {
+  const home = mkdtempSync(join(tmpdir(), "north-codex-target-refresh-"));
+  temporary.push(home);
+  process.env.HOME = home;
+  process.env.FAKE_CODEX_RESPONSES = JSON.stringify(responses());
+  process.env.FAKE_CODEX_DELAY_MS = "60";
+  const storePath = join(home, "observations.json");
+  const policy = {
+    mode: "preferential" as const,
+    providerOrder: ["openai" as const],
+    pressures: {},
+    targets: [
+      { id: "codex-one", provider: "openai" as const, authMode: "isolated" as const, profile: "one" },
+      { id: "codex-two", provider: "openai" as const, authMode: "isolated" as const, profile: "two" },
+    ],
+    targetOrder: ["codex-one", "codex-two"],
+  };
+  const calls: Array<{ args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
+  let active = 0;
+  let maxActive = 0;
+  const spawnProcess = ((command: string, args: readonly string[], options: any) => {
+    calls.push({ args, env: options.env });
+    active++;
+    maxActive = Math.max(maxActive, active);
+    const child = spawn(command, args, options);
+    child.once("exit", () => { active--; });
+    return child;
+  }) as typeof spawn;
+  const observed = await refreshCodexEntitlementsIfStale({
+    policy,
+    storePath,
+    command: process.execPath,
+    commandArgs: [fixture],
+    timeoutMs: 1_000,
+    now: new Date("2026-07-16T12:00:00Z"),
+    spawnProcess,
+  });
+  expect(maxActive).toBe(2);
+  expect(observed.map((entry) => entry?.targetId).sort()).toEqual(["codex-one", "codex-two"]);
+  expect(JSON.parse(readFileSync(storePath, "utf8")).observations
+    .map((entry: { targetId: string }) => entry.targetId).sort()).toEqual(["codex-one", "codex-two"]);
+  expect(calls).toHaveLength(2);
+  const homes = calls.map((call) => call.env.CODEX_HOME).sort();
+  expect(homes).toEqual([
+    join(home, ".local/state/north/accounts/openai/one"),
+    join(home, ".local/state/north/accounts/openai/two"),
+  ]);
+  for (const call of calls) {
+    expect(call.env.CODEX_SQLITE_HOME).toBe(join(call.env.CODEX_HOME!, "sqlite"));
+    expect(call.args).toContain('cli_auth_credentials_store="file"');
+    expect(call.args).toContain('forced_login_method="chatgpt"');
+  }
 });
 
 test("refresh failure falls back to cached or unknown with a diagnostic", async () => {

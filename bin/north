@@ -25,7 +25,7 @@ if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
   unset _north_log_dir
 fi
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target requested_target fallback_target_path}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -95,6 +95,7 @@ north — your one card. Type a command to do the thing next to it.
   SETTINGS & HEALTH
     north config                       posture + routing policy in one report
     north config routing               provider order, pressure, reserves, envelopes
+    north account add|login|status|list isolated provider subscription accounts
     north providers                    provider readiness and auto-route decision
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
@@ -136,6 +137,10 @@ CARD
     exec bb "$NORTH/cli/config-cli.clj" "${@:2}" ;;
   providers)
     exec bun run "$NORTH/sdk/src/providers-cli.ts" "${@:2}" ;;
+  account)
+    # Isolated Claude Code / Codex subscription account homes. The TypeScript
+    # CLI owns path validation, allowlisted config links, and normalized auth.
+    exec bun run "$NORTH/sdk/src/account-cli.ts" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a
     # read-only plan; only an explicit `sync <thread> --apply` writes remotely.

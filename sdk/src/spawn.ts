@@ -2,21 +2,24 @@ import { resolve as pathResolve } from "node:path";
 const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, type Effort } from "./harness";
-import { tokensOf, costOf, remaining } from "./budget";
+import { normalizeUsage } from "./usage";
 import { recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
 import { inputChannel } from "./coordination";
-import { writeAgentFacts, writeAgentOutcome, goalFromPrompt } from "./identity";
+import { writeAgentFacts, writeAgentOutcome, updateAgentRoute, goalFromPrompt } from "./identity";
 import { makeStruggleState, updateStruggle, checkStruggle, resetStruggle } from "./struggle";
-import { activeLadder, tierIndexOf, decideEscalation, escalateInFlight } from "./ladder";
+import {
+  activeLadder, tierIndexOf, decideEscalation, escalateInFlight,
+  type AppliedEscalationRoute,
+} from "./ladder";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
 import { clockStart, clockFinalize } from "./clock";
 import {
-  refreshCodexEntitlementIfStale, routedQuery, selectProvider, shouldRefreshCodexEntitlement,
-  type ProviderPreference,
+  routedQuery, selectProvider, ProviderEscalationUnsupportedError, type ProviderPreference,
 } from "./providers";
+import { refreshCodexEntitlementsIfStale } from "./codex-entitlement";
 import type { AgentQuery } from "./providers/types";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import { canonicalRole, routingMetadataFromEnv, validateRoutingMetadata, type RoutingMetadata } from "./routing-metadata";
@@ -34,7 +37,6 @@ export interface SpawnOptions {
   tools?: string[];
   systemPrompt?: string;
   maxTurns?: number;
-  budgetUsd?: number; // per-run (or per-tier when escalating) USD spend cap (thread 019f1194-ca57)
   escalate?: boolean; // escalate-not-kill: climb the ladder on struggle instead of stopping
   role?: string;
   posture?: string;
@@ -42,6 +44,7 @@ export interface SpawnOptions {
   caveman?: "off" | "lite" | "full"; // per-spawn terse-output dial; overrides ambient AGENT_CAVEMAN
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   provider?: ProviderPreference;
+  target?: string;
   tier?: SemanticTier;
   routingMetadata?: RoutingMetadata;
   project?: string;
@@ -78,59 +81,82 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
   const routingMetadata = opts.routingMetadata;
-  const requested = { provider: opts.provider ?? process.env.AGENT_PROVIDER, tier: opts.tier ?? process.env.AGENT_TIER,
+  const requested = { provider: opts.provider ?? process.env.AGENT_PROVIDER, target: opts.target ?? process.env.AGENT_TARGET,
+    tier: opts.tier ?? process.env.AGENT_TIER,
     model: opts.model ?? process.env.AGENT_MODEL, effort: opts.effort ?? process.env.AGENT_EFFORT };
   const agentId = opts.agentId ?? `lane-${Date.now().toString(36).slice(-8)}`;
   const stream = new StreamWriter(agentId);
   const requestedTier = opts.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
   const providerPreference = opts.provider ?? process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
+  const targetPreference = opts.target ?? process.env.AGENT_TARGET;
+  const routingRequest = { provider: providerPreference, target: targetPreference };
   // Injected query functions own their entire provider boundary; keeping the
   // refresh out of that path makes tests and alternative adapters hermetic.
-  if (!opts.queryFn && shouldRefreshCodexEntitlement(providerPreference)) await refreshCodexEntitlementIfStale();
-  const routing = selectProvider(providerPreference, undefined, { tier: requestedTier, stableKey: agentId });
+  if (!opts.queryFn) await refreshCodexEntitlementsIfStale({ requested: routingRequest });
+  const routing = selectProvider(routingRequest, undefined,
+    { tier: requestedTier, stableKey: agentId });
   const resolved = resolveTier(routing.provider, requestedTier, opts.model, opts.effort);
   opts.model = resolved.model;
   opts.effort = resolved.effort;
-  writeAgentFacts(agentId, {
-    kind: "lane",
-    role: opts.role,
-    model: opts.model ?? process.env.AGENT_MODEL,
-    effort: (opts.effort ?? process.env.AGENT_EFFORT) as string | undefined,
+  const identityRole = process.env.AGENT_IDENTITY_ROLE ?? opts.role;
+  const identityBase = {
+    kind: "lane" as const,
+    role: identityRole,
+    compositionKind: routingMetadata.composition?.kind ?? "none" as const,
+    compositionId: routingMetadata.composition?.id,
     repo: process.cwd().split("/").pop(),
     goal: goalFromPrompt(opts.prompt),
     coordinator: opts.coordinator ?? process.env.AGENT_COORDINATOR,
+  };
+  writeAgentFacts(agentId, {
+    ...identityBase,
+    model: opts.model ?? process.env.AGENT_MODEL,
+    provider: routing.provider,
+    providerTarget: routing.target,
+    effort: (opts.effort ?? process.env.AGENT_EFFORT) as string | undefined,
   });
   const escalate = opts.escalate ?? process.env.AGENT_ESCALATE === "1";
-  const tierBudgetUsd = opts.budgetUsd ?? (Number(process.env.AGENT_BUDGET_USD) || Infinity);
-
   // escalate-not-kill (thread 019f1194-ca57): a struggling agent climbs the LADDER
   // in-flight (setModel on the live streaming-input query) instead of being killed at
   // a turn cap. Opt-in via opts.escalate / AGENT_ESCALATE; off => behaves as before.
   // Snapshot the active ladder once per run (includes the Fable rung iff the window is
   // open); tier indices below resolve against THIS array, matching decideEscalation.
   const ladder = activeLadder();
-  let tier = escalate ? tierIndexOf(opts.model, opts.effort) : -1; // -1 = fixed model (legacy)
+  let tier = escalate ? tierIndexOf(opts.model, opts.effort, ladder) : -1; // -1 = fixed model (legacy)
   const rung = () => (tier >= 0 ? ladder[tier] : { model: opts.model, effort: opts.effort });
+  let acceptedModel = opts.model;
+  let acceptedEffort = opts.effort;
+  const activeRoute = () => ({
+    provider: routing.provider,
+    providerTarget: routing.target,
+    model: routing.resolvedModel ?? acceptedModel,
+    effort: routing.resolvedEffort ?? acceptedEffort,
+  });
+  let identityRoute = `${routing.provider}|${routing.target}|${opts.model ?? ""}|${opts.effort ?? ""}`;
+  const refreshIdentityRoute = () => {
+    const route = activeRoute();
+    const next = `${route.provider}|${route.providerTarget}|${route.model ?? ""}|${route.effort ?? ""}`;
+    if (next === identityRoute) return;
+    updateAgentRoute(agentId, { ...identityBase, ...route });
+    identityRoute = next;
+  };
   const st = makeStruggleState();
   const ch = inputChannel(opts.prompt); // streaming-input mode -> unlocks q.setModel()
 
-  if (escalate && !Number.isFinite(await remaining())) {
-    console.warn(`[spawn] @agent:${agentId} escalation ON but no budget_total — no spend floor; ` +
-      `it stops only at the ladder ceiling. Set: north tell @swarm budget_total <usd>`);
-  }
-  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})${escalate ? ` (escalate @ tier ${tier} ${rung().model}/${rung().effort})` : ""}`);
+  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})${escalate ? ` (escalate from ${acceptedModel}/${acceptedEffort})` : ""}`);
 
   // Auto-clock only when this spawn carries a billable thread — ad-hoc spawns
   // aren't billable by default. Same per-agent treatment as dispatch.
   if (opts.thread) clockStart(agentId, opts.thread);
 
   let result = "", resultMsg: any = null, outcome = "ran";
-  let runCost = 0, tierStartCost = 0;
-  const escalations: Array<{ from: string; to: string; reason: string; atCost: number }> = [];
+  const terminalMessages: any[] = [];
+  const escalations: Array<{ from: string; to: string; reason: string }> = [];
   const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
 
   const queryFn = opts.queryFn ?? ((args: any) => routedQuery(
     routing, args, requestedTier, undefined, () => reserveResourceEnvelopeRetry(envelopeAdmission),
+    refreshIdentityRoute,
   ));
   const q = queryFn({
     prompt: ch.stream(),
@@ -144,6 +170,13 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
       caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
     }),
   });
+  const noteAppliedEscalation = (route: AppliedEscalationRoute) => {
+    if (route.model !== undefined) acceptedModel = route.model;
+    if (route.effort !== undefined) acceptedEffort = route.effort;
+  };
+  const interruptQuery = async () => {
+    try { await q.interrupt?.(); } catch { /* preserve the terminal provider error */ }
+  };
 
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) readMessages() THROWS exitError
@@ -174,55 +207,73 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   try {
   for await (const message of watched) {
     const msg = message as any;
+    // routedQuery mutates the decision before the first fallback-provider event.
+    // Refresh from that structured decision before the event is exposed.
+    refreshIdentityRoute();
     stream.writeSDKMessage(msg);
     if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
-    runCost += costOf(rung().model, msg.message?.usage ?? msg.usage); // price at the CURRENT tier
 
     if (escalate) {
       updateStruggle(msg, st);
-      let trigger: string | null = checkStruggle(st);
-      if (!trigger && runCost - tierStartCost >= tierBudgetUsd) trigger = "budget_exceeded";
+      const trigger = checkStruggle(st);
       if (trigger) {
-        const d = await decideEscalation(tier);
+        const d = decideEscalation(tier, ladder);
         if (d.kind === "escalate") {
           const from = `${rung().model}/${rung().effort}`;
+          try {
+            await escalateInFlight(q, ch, ladder[d.toTier], trigger, noteAppliedEscalation);
+          } catch (err) {
+            // setModel and effort are two provider controls, not an atomic API.
+            // Project any successful first control before preserving the second
+            // control's real error, then terminate the still-live child.
+            refreshIdentityRoute();
+            await interruptQuery();
+            if (err instanceof ProviderEscalationUnsupportedError) {
+              end("provider_escalation_unsupported");
+              break;
+            }
+            throw err;
+          }
           tier = d.toTier;
-          if (!q.setModel) { end("provider_escalation_unsupported"); break; }
-          await escalateInFlight(q as any, ch, ladder[tier], trigger);
-          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: trigger, atCost: runCost });
+          refreshIdentityRoute();
+          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: trigger });
           resetStruggle(st);
-          tierStartCost = runCost;
           continue; // same loop, smarter tier
         }
-        end(d.kind); // budget_exhausted | struggle_ceiling
-        try { await (q as any).interrupt?.(); } catch {}
+        end(d.kind);
+        await interruptQuery();
         break;
       }
-    } else if (runCost >= tierBudgetUsd) { // legacy fixed-model spend cap (df473b8)
-      end("budget_exceeded");
-      console.log(`[spawn] @agent:${agentId} hit budget $${tierBudgetUsd} (est $${runCost.toFixed(3)}) — stopping`);
-      try { await (q as any).interrupt?.(); } catch {}
-      break;
     }
 
-    if ("result" in msg) {
-      result = msg.result ?? "";
+    if (msg.type === "result") {
+      terminalMessages.push(msg);
+      if (typeof msg.result === "string") result = msg.result;
       resultMsg = msg;
       if (escalate && !result.trim()) { // terminal empty result -> escalate rather than give up
-        const d = await decideEscalation(tier);
+        const d = decideEscalation(tier, ladder);
         if (d.kind === "escalate") {
           const from = `${rung().model}/${rung().effort}`;
+          try {
+            await escalateInFlight(q, ch, ladder[d.toTier], "empty_result", noteAppliedEscalation);
+          } catch (err) {
+            refreshIdentityRoute();
+            await interruptQuery();
+            if (err instanceof ProviderEscalationUnsupportedError) {
+              end("provider_escalation_unsupported");
+              break;
+            }
+            throw err;
+          }
           tier = d.toTier;
-          if (!q.setModel) { end("provider_escalation_unsupported"); break; }
-          await escalateInFlight(q as any, ch, ladder[tier], "empty_result");
-          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: "empty_result", atCost: runCost });
+          refreshIdentityRoute();
+          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: "empty_result" });
           resetStruggle(st);
-          tierStartCost = runCost;
           continue;
         }
       }
       if (ch.pending() === 0) {
-        // Turn-cap ping (thread 019f4d54): a maxTurns / max-budget terminal arrives as a
+        // Turn-cap ping (thread 019f4d54): a provider-enforced terminal cap arrives as a
         // `result` with an error_max_* subtype. Ignoring it records outcome="ran" — a cap
         // masquerades as success. Detect it, mark the outcome, and ping the coordinator
         // with a partial-result note instead of stopping silently.
@@ -291,27 +342,33 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
 
   // Record the terminal outcome ON the lane entity (SYNC, before exit) so the reactor's
   // presence-lapse sweep never reaps a completed lane as died-unreported. `outcome` is
-  // final here (all terminal paths — ran/died/stalled/capped/budget — have settled it).
+  // final here (all terminal paths — ran/died/stalled/capped — have settled it).
+  refreshIdentityRoute();
   writeAgentOutcome(agentId, outcome);
 
+  const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
+  const finalRoute = activeRoute();
   recordRun({
     thread: opts.thread ?? "(ad-hoc)", agent: agentId, posture: "spawn",
     // Effective FINAL dial (rung() reflects any in-flight escalation); env-fallback
     // mirrors the identity write so a bare AGENT_MODEL spawn is still attributed.
-    model: routing.fallbackCount > 0 ? routing.resolvedModel : (rung().model ?? opts.model ?? process.env.AGENT_MODEL),
-    effort: routing.fallbackCount > 0 ? routing.resolvedEffort : (rung().effort ?? opts.effort ?? process.env.AGENT_EFFORT),
+    model: finalRoute.model ?? process.env.AGENT_MODEL,
+    effort: finalRoute.effort ?? process.env.AGENT_EFFORT,
     role: opts.role,
-    provider: routing.provider, providerReason: routing.reason,
-    requestedProvider: requested.provider, requestedTier: requested.tier,
+    provider: routing.provider, providerTarget: routing.target, providerReason: routing.selectionReason,
+    requestedProvider: routing.requestedProvider, requestedTarget: requested.target, requestedTier: requested.tier,
     requestedModel: requested.model, requestedEffort: requested.effort,
     allocationMode: routing.allocationMode, entitlementPressure: routing.entitlementPressure,
     fallbackCount: routing.fallbackCount, fallbackPath: routing.fallbackPath,
+    fallbackTargetPath: routing.fallbackTargetPath,
+    fallbackReasons: routing.fallbackReasons,
     envelopeScopes: envelopeAdmission?.scopes.map(({ id }) => id),
     envelopeRetries: envelopeAdmission?.retries,
     envelopeAdvisories: envelopeAdmission?.advisories,
     routingMetadata,
-    tokens: tokensOf(resultMsg), durationMs: resultMsg?.duration_ms ?? 0, outcome,
-    costUsd: resultMsg?.total_cost_usd ?? runCost, numTurns: resultMsg?.num_turns ?? 0,
+    tokenUsage,
+    durationMs: resultMsg?.duration_ms ?? 0, outcome,
+    numTurns: resultMsg?.num_turns ?? 0,
     errorCount: st.totalErrors, escalationTier: tier,
     escalations: escalations.length ? escalations : undefined,
   });
@@ -370,6 +427,7 @@ if (import.meta.main) {
     model: process.env.AGENT_MODEL,
     effort: process.env.AGENT_EFFORT as Effort | undefined,
     provider: process.env.AGENT_PROVIDER as ProviderPreference | undefined,
+    target: process.env.AGENT_TARGET,
     tier: process.env.AGENT_TIER as SemanticTier | undefined,
     routingMetadata: routingMetadataFromEnv(),
   })

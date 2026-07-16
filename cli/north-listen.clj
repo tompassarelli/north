@@ -22,62 +22,29 @@
 (def put!    north.coord/put!)
 (def rf      north.coord/resolved)
 (def rmany   north.coord/many)
-;; shared incremental-aggregate (coord.clj): budget Σ and the driver ceiling are
-;; the SAME fold quorum rides — two reducers, one substrate (roadmap F+G).
-(def agg-rows       north.coord/agg-rows)
-(def sum-rows       north.coord/sum-rows)
+;; The live-driver ceiling uses the same distinct-count fold as quorum.
 (def count-distinct north.coord/count-distinct)
 (defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id] (append! port id "acked_by" me))   ; acked_by is multi — append (coexist)
 
-;; --- swarm cost budget + derived concurrency ceiling -----------------------
-;; The REAL resource is spend, not concurrency: N agents looping forever still burn
-;; infinite credits. The binding limit is a declarative COST BUDGET: @swarm
-;; budget_total (a USD ceiling) set once. Spend is a DERIVED SUM — Σ(@run:* cost_usd),
-;; folded from the immutable per-run cost facts presence-cli already writes — never a
-;; mutated budget_spent cell or a :bump op (that counter duplicated derivable state and
-;; had to stay in sync with budget.ts). The reactor GATES on remaining()>0 before it
-;; shells a real agent. No budget_total set => unbounded.
-;; The fork-bomb backstop is likewise DERIVED, not a @swarm-slot counting semaphore:
-;; any concurrency ceiling = count(live drivers) vs NORTH_SWARM_MAX.
+;; --- derived concurrency backstop ------------------------------------------
+;; Command execution is subscription-backed, so a malformed producer could otherwise
+;; enqueue an unbounded number of spawns. The safety backstop is derived from live
+;; `driver` facts rather than a mutable slot counter: count(live drivers) vs the ceiling.
 (def driver-max (Integer/parseInt (or (System/getenv "NORTH_SWARM_MAX") "64")))
-;; MUST match sdk/src/budget.ts SUBJECT (same env var + default) so the gate reads the
-;; same budget the executors' costs roll up to.
-(def budget-subj (or (System/getenv "NORTH_BUDGET") "@swarm"))
-(defn spent-sum
-  "Σ(@run:* cost_usd) — live spend folded from immutable per-run cost facts via the
-   shared SUM reducer (coord/sum-rows). cost_usd subjects are scoped to @run: with a
-   client-side prefix the scan body can't express, then folded as [run cost] rows so
-   equal-cost runs stay distinct (a value-only fold would dedup + under-count)."
-  [port]
-  (->> (agg-rows port ["e" "v"] [{:rel "triple" :args [{:var "e"} "cost_usd" {:var "v"}]}])
-       (filter #(str/starts-with? (str (first %)) "@run:"))
-       sum-rows))
-(defn budget-remaining
-  "budget_total − Σ(@run cost_usd), or nil if no budget_total set (= unbounded)."
-  [port]
-  (when-let [total (parse-double (str (or (rf port budget-subj "budget_total") "")))]
-    (- total (spent-sum port))))
 (defn live-drivers
   "count-distinct subjects carrying a live `driver` fact — the derived concurrency
-   ceiling, replacing the @swarm-slot semaphore. The SAME count-distinct QUORUM
-   (coord.clj) north-map's K-of-N barrier folds: the ceiling is a quorum over drivers."
+   ceiling. The same count-distinct fold drives north-map's K-of-N barrier."
   [port]
   (count-distinct port ["s"] [{:rel "triple" :args [{:var "s"} "driver" {:var "a"}]}]))
-(defn with-guard
-  "Gate a blocking agent shell: skip if the cost budget is spent OR live drivers are at
-   the derived ceiling; else run. No slots, no semaphore — both limits are read-time folds."
-  [port self label thunk]
-  (let [rem  (budget-remaining port)
-        live (live-drivers port)]
-    (cond
-      (and rem (<= rem 0))
-      (println (str "   ⏸ BUDGET SPENT (remaining $" rem ") — backing off, not spawning " label))
-      (>= live driver-max)
+(defn with-driver-guard
+  "Run a blocking agent shell unless live drivers are already at the derived ceiling."
+  [port label thunk]
+  (let [live (live-drivers port)]
+    (if (>= live driver-max)
       (println (str "   ⏸ driver ceiling (" live "/" driver-max " live) — backing off " label))
-      :else
-      (do (println (str "   ⚙ run " label (when rem (str ", budget ~$" rem " left")) " (" live " live drivers)")) (flush)
+      (do (println (str "   ⚙ run " label " (" live " live drivers)")) (flush)
           (thunk)))))
 
 ;; --- Phase 1: the reactor — a forward-chaining rule over fact-patterns ------
@@ -93,13 +60,13 @@
 ;; real handle (not a generated sdk-* id) — required for multi-hop routing/acks.
 (defn react! [port self op cmd]
   (case op
-    "spawn"    (with-guard port self "spawn"
+    "spawn"    (with-driver-guard port "spawn"
                  (fn [] (let [prompt (rf port cmd "prompt") model (rf port cmd "model")]
                           (println (str "   ⚙ spawn: " (pr-str prompt)))
                           (proc/shell {:dir sdk :continue true
                                        :extra-env (cond-> {"AGENT_ID" self} model (assoc "AGENT_MODEL" (str model)))}
                                       "bun" "src/spawn.ts" (str prompt)))))
-    "dispatch" (with-guard port self "dispatch"
+    "dispatch" (with-driver-guard port "dispatch"
                  (fn [] (let [thread (rf port cmd "thread")]
                           (println (str "   ⚙ dispatch thread " thread))
                           (proc/shell {:dir sdk :continue true :extra-env {"AGENT_ID" self}}

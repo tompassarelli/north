@@ -201,10 +201,16 @@ function agent_detail_create(props) {
   el_11.textContent = props.active_workflow || '';
   const el_12 = document.createElement("div");
   el_12.className = "text-xs uppercase text-muted-foreground mt-2";
-  el_12.textContent = "Context";
+  el_12.textContent = "Context tokens";
   const el_13 = document.createElement("div");
   el_13.className = "text-sm text-foreground";
-  el_13.textContent = props.cost_usd || '';
+  el_13.textContent = props.context_tokens || '';
+  const el_14 = document.createElement("div");
+  el_14.className = "text-xs uppercase text-muted-foreground mt-2";
+  el_14.textContent = "Total tokens";
+  const el_15 = document.createElement("div");
+  el_15.className = "text-sm text-foreground";
+  el_15.textContent = props.total_tokens || '';
   el_3.appendChild(el_4);
   el_3.appendChild(el_5);
   el_3.appendChild(el_6);
@@ -215,6 +221,8 @@ function agent_detail_create(props) {
   el_3.appendChild(el_11);
   el_3.appendChild(el_12);
   el_3.appendChild(el_13);
+  el_3.appendChild(el_14);
+  el_3.appendChild(el_15);
   el_0.appendChild(el_1);
   el_0.appendChild(el_2);
   el_0.appendChild(el_3);
@@ -227,7 +235,8 @@ function agent_detail_create(props) {
     online(v) { el_7.textContent = v; },
     current_thread(v) { el_9.textContent = v; },
     active_workflow(v) { el_11.textContent = v; },
-    cost_usd(v) { el_13.textContent = v; }
+    context_tokens(v) { el_13.textContent = v; },
+    total_tokens(v) { el_15.textContent = v; }
     },
     nodes: {
     uuid: el_1,
@@ -236,7 +245,8 @@ function agent_detail_create(props) {
     online: el_7,
     current_thread: el_9,
     active_workflow: el_11,
-    cost_usd: el_13
+    context_tokens: el_13,
+    total_tokens: el_15
     },
     destroy() { el_0.remove(); }
   };

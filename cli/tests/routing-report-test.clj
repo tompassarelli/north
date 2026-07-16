@@ -32,7 +32,8 @@
 
 (doseq [[run thread provider outcome tokens] [["@run-a" "thread-a" "openai" "ran" "100"]
                                                ["@run-b" "thread-b" "anthropic" "ran" "200"]
-                                               ["@run-c" "(ad-hoc)" "openai" "died" "50"]]]
+                                               ["@run-c" "(ad-hoc)" "openai" "died" "50"]
+                                               ["@run-unknown" "(ad-hoc)" "anthropic" "died" nil]]]
   (fact telem run "kind" "run")
   (fact telem run "thread" thread)
   (fact telem run "provider" provider)
@@ -40,7 +41,7 @@
   (fact telem run "role" "migration-forensics")
   (fact telem run "task_grade" "staff")
   (fact telem run "outcome" outcome)
-  (fact telem run "tokens" tokens)
+  (when tokens (fact telem run "tokens" tokens))
   (fact telem run "duration_ms" "1000")
   (when (not= run "@run-c")
     (fact telem run "composition_kind" "bespoke")
@@ -55,13 +56,14 @@
       cohorts (:cohorts performance)
       candidate (first (:compositions promotions))]
   (check "performance separates operational runs from verified evidence"
-         (and (= 3 (:runs performance)) (= 2 (reduce + (map :verifiedEvidence cohorts)))
-              (= 3 (reduce + (map :runs cohorts)))))
+         (and (= 4 (:runs performance)) (= 2 (reduce + (map :verifiedEvidence cohorts)))
+              (= 4 (reduce + (map :runs cohorts)))))
   (check "performance carries an explicit non-causal quality disclaimer"
          (str/includes? (:claim performance) "not causal model quality"))
   (check "usage is subscription-safe and contains no dollar measure"
          (and (= "observed work, never dollars or API credits" (:unit usage))
-              (= 350 (reduce + (map :tokens (:providers usage))))
+              (= 350 (reduce + (keep :tokens (:providers usage))))
+              (= 3 (reduce + (map :tokenRuns (:providers usage))))
               (nil? (:cost usage))))
   (check "bespoke recurrence is surfaced only as a human review candidate"
          (and (= "migration-forensics" (:compositionId candidate))

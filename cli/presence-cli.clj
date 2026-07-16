@@ -34,8 +34,8 @@
 (def lease-of     north.coord/lease-of)
 
 (defn sessions [port]      ; -> [[session-entity handle] ...]  ONE row per uuid.
-  ;; `agent` is overloaded: it anchors @session:<h> (the session) AND every @run:<sid> (cost
-  ;; record). The raw query returns one row PER run -> the roster showed N rows per agent. Scope
+  ;; `agent` is overloaded: it anchors @session:<h> (the session) AND every @run:<sid>
+  ;; telemetry record. The raw query returns one row PER run -> the roster showed N rows per agent. Scope
   ;; to @session:* (the real anchor; exactly one per handle) and dedup by handle, so the roster is
   ;; latest-per-uuid, lease-judged. (Datalog can't prefix-filter the entity, so we filter here.)
   (let [rows (:ok (send-op port {:op :query
@@ -286,17 +286,11 @@
         (when-let [v (resolved port se p)] (retract! port se p v)))
       (prn (send-op port {:op :release-lease :res (str "session:" h) :holder h})))
 
-    "cost"                                  ; per-run real $ cost -> fact on the agent graph (per-task token tracking)
-    (let [[h sid c] args re (str "@run:" sid)]
-      (put! port re "agent" h)                     ; single (write-once on a fresh @run)
-      (put! port re "cost_usd" (or c "0"))         ; single
-      (put! port re "ended_at" (str (java.time.Instant/now)))  ; single
-      (prn {:recorded re :agent h :cost_usd c}))
-
     "runmeta"                               ; <uuid> <session_id> <json>  — full per-run telemetry tuple
     (let [[h sid json-str] args
           re (str "@run:" sid)
           m (json/parse-string json-str true)]
+      (put! port re "kind" "run")                  ; single; canonical run discovery
       (put! port re "agent" h)                     ; single (write-once on a fresh @run)
       (put! port re "ended_at" (str (java.time.Instant/now)))  ; single
       (doseq [[k v] m :when (some? v)]
@@ -334,7 +328,7 @@
               (when (seq (:err r)) (binding [*out* *err*] (println (:err r))))
               (System/exit (:exit r))))))
 
-    (do (println "usage: presence-cli.clj <port> {register|renew|task|focus|cost|forget  (session)")
+    (do (println "usage: presence-cli.clj <port> {register|renew|task|focus|forget|runmeta  (session/run)")
         (println "                                |identify|card  (agent card)")
         (println "                                |define-role|assign|unassign|roles|holders  (roles)")
         (println "                                |watch|unwatch|subscriptions  (thread subs)")

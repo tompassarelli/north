@@ -9,16 +9,12 @@
 (require north.fram :as fram)
 (require north.threads :as threads)
 (require north.dict :as d)
-(declare-extern Math Any)
 (declare-extern Promise Any)
 
 (def arms :- Any ["control" "graph"])
 
 (defn arm? [(a :- Any)] :- Bool
   (or (= a "control") (= a "graph")))
-
-(defn round2 [(x :- Float)] :- Float
-  (/ (.round Math (* x 100)) 100))
 
 (defn min-or-empty [(l :- Any)] :- Any
   (if (= (.-length l) 0) "" (reduce (fn [m v] (if (< v m) v m)) (nth l 0) l)))
@@ -29,7 +25,12 @@
 ;; One task tile: static attrs from the fold, dynamic facets fresh from daemon.
 (defn task-row [(port :- Int) (id :- String) (attrs :- Any)] :- (Promise Any)
   (let [state (js/await (fram/latest port id "state"))
-        cost (js/await (fram/latest port id "cost_usd"))
+        raw-tokens (js/await (fram/latest port id "tokens"))
+        usage-status (js/await (fram/latest port id "usage_total_status"))
+        parsed-tokens (fram/parseTokenCount raw-tokens)
+        tokens (if (and (some? parsed-tokens)
+                        (or (nil? usage-status) (= usage-status "exact")))
+                 parsed-tokens nil)
         wall (js/await (fram/latest port id "wall_s"))
         updated (js/await (fram/latest port id "updated"))]
     {"id" id
@@ -37,15 +38,34 @@
      "title" (d/dgetd attrs "title" "")
      "arm" (d/dget attrs "arm")
      "state" (if (nil? state) "pending" state)
-     "cost_usd" (if (nil? cost) "0" cost)
+     ;; Aggregate-only rows are historical exact telemetry. Missing, malformed,
+     ;; or explicitly non-exact usage remains unknown instead of becoming zero.
+     "tokens" tokens
+     "tokens_status" (if (some? tokens) "exact" "unknown")
      "wall_s" (if (nil? wall) "0" wall)
      "updated" (if (nil? updated) "" updated)}))
 
-(defn totals [(tasks :- Any)] :- Any
-  {"green" (.-length (.filter tasks (fn [t] (= (.-state t) "green"))))
-   "total" (.-length tasks)
-   "cost_usd" (round2 (reduce (fn [a t] (+ a (fram/parseFloatSafe (.-cost_usd t)))) 0.0 tasks))
-   "elapsed_s" (max-or-zero (.map tasks (fn [t] (fram/parseIntSafe (.-wall_s t)))))})
+(defn task-known-tokens [(t :- Any)] :- Any
+  (let [tokens (fram/parseTokenCount (.-tokens t))
+        status (.-tokens_status t)]
+    (if (and (some? tokens) (or (nil? status) (= status "exact"))) tokens nil)))
+
+(js/export (defn totals [(tasks :- Any)] :- Any
+  (let [known (reduce (fn [a t]
+                        (let [tokens (task-known-tokens t)]
+                          (if (some? tokens) (+ a tokens) a))) 0 tasks)
+        known-count (reduce (fn [a t] (+ a (if (some? (task-known-tokens t)) 1 0))) 0 tasks)
+        unknown-count (- (.-length tasks) known-count)
+        status (cond
+                 (= unknown-count 0) "exact"
+                 (> known-count 0) "incomplete"
+                 :else "unknown")]
+    {"green" (.-length (.filter tasks (fn [t] (= (.-state t) "green"))))
+     "total" (.-length tasks)
+     "tokens" (if (and (= status "unknown") (= known-count 0)) nil known)
+     "tokens_status" status
+     "unknown_usage" unknown-count
+     "elapsed_s" (max-or-zero (.map tasks (fn [t] (fram/parseIntSafe (.-wall_s t)))))})))
 
 (js/export (defn view [(exp-id :- String) (port :- Int)] :- (Promise Any)
   (let [f (js/await (threads/fold port))

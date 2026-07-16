@@ -1,10 +1,15 @@
 import { anthropicProvider } from "./anthropic";
 import { openaiProvider } from "./openai";
-import { ProviderRetrySafeError, type AgentProvider, type ProviderId, type ProviderPreference, type RoutingDecision } from "./types";
+import {
+  ProviderEscalationUnsupportedError, ProviderRetrySafeError,
+  type AgentProvider, type ProviderId, type ProviderPreference, type RoutingDecision,
+} from "./types";
 import type { AgentQuery } from "./types";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { resolveTier, type SemanticTier } from "./catalog";
-export { resourcePolicyFromEnv, selectProvider, selectProviderFromAvailability } from "../provider-routing";
+export {
+  ProviderSelectionError, resourcePolicyFromEnv, selectProvider, selectProviderFromAvailability,
+} from "../provider-routing";
 export {
   applyProviderUsageObservations, automatedPressure, effectivePressure, loadProviderUsageObservations,
   loadResourcePolicy, parseProviderUsageObservations, parseResourcePolicy,
@@ -51,15 +56,18 @@ function replayablePrompt(prompt: string | AsyncIterable<any>): string | AsyncIt
   };
 }
 
-// Automatic fallback is intentionally pre-side-effect only: if the primary has
-// emitted any event, North cannot prove that retrying is safe. A capacity/auth
-// failure before the first event may route to the next healthy provider.
+// Automatic fallback is intentionally proof-carrying and pre-side-effect only:
+// the adapter must raise ProviderRetrySafeError from a typed condition that
+// proves the request was never accepted. No event count or error prose can
+// establish that proof. The production Claude adapter currently forwards SDK
+// errors unchanged because that SDK exposes no such typed signal.
 export function routedQuery(
   decision: RoutingDecision,
   args: { prompt: string | AsyncIterable<any>; options: Options },
   tier?: SemanticTier,
   providerRegistry: Record<ProviderId, AgentProvider> = providers,
   beforeFallback?: () => Promise<void>,
+  onRoute?: (decision: RoutingDecision) => void,
 ): AgentQuery {
   let active: AgentQuery | undefined;
   const prompt = replayablePrompt(args.prompt);
@@ -74,32 +82,63 @@ export function routedQuery(
   };
   return {
     interrupt: async () => { await active?.interrupt?.(); },
+    supportsInFlightEscalation: () => Boolean(
+      active?.setModel && active?.applyFlagSettings &&
+      (active.supportsInFlightEscalation?.() ?? true),
+    ),
     setModel: async (model: string) => {
-      if (!active?.setModel) throw new Error(`provider ${decision.provider} does not support in-flight model escalation`);
+      if (!active?.setModel) throw new ProviderEscalationUnsupportedError(
+        `provider ${decision.provider} does not support in-flight model escalation`,
+      );
       await active.setModel(model);
+      decision.resolvedModel = model;
+    },
+    applyFlagSettings: async (settings) => {
+      if (!active?.applyFlagSettings) throw new ProviderEscalationUnsupportedError(
+        `provider ${decision.provider} does not support in-flight effort escalation`,
+      );
+      await active.applyFlagSettings(settings);
+      if (settings.effortLevel !== undefined && settings.effortLevel !== null) {
+        decision.resolvedEffort = settings.effortLevel;
+      }
     },
     async *[Symbol.asyncIterator]() {
       let emitted = 0;
       while (true) {
         try {
+          const options = optionsFor(decision.provider);
+          onRoute?.(decision);
           active = providerRegistry[decision.provider].query({
             prompt,
-            options: optionsFor(decision.provider),
+            options,
+            target: decision.routingTargets[decision.target],
           });
           for await (const event of active as AsyncIterable<any>) { emitted++; yield event; }
           return;
         } catch (err: any) {
-          const message = String(err?.message ?? err);
-          const fallback = decision.fallbackProviders[0];
-          if (decision.requested === "auto" && emitted === 0 && fallback && err instanceof ProviderRetrySafeError) {
+          const fallbackTarget = decision.fallbackTargets[0];
+          const fallbackProvider = decision.fallbackProviders[0];
+          if (decision.requestedTarget === undefined && emitted === 0 && fallbackTarget && fallbackProvider
+              && err instanceof ProviderRetrySafeError) {
             await beforeFallback?.();
+            decision.fallbackTargets.shift();
             decision.fallbackProviders.shift();
-            const previous = decision.provider;
-            decision.provider = fallback;
-            decision.entitlementPressure = decision.entitlementPressures[fallback] ?? "unknown";
+            const previousTarget = decision.target;
+            const previousProvider = decision.provider;
+            decision.target = fallbackTarget;
+            decision.provider = fallbackProvider;
+            decision.entitlementPressure = decision.targetEntitlementPressures[fallbackTarget] ?? "unknown";
             decision.fallbackCount++;
-            decision.fallbackPath.push(fallback);
-            decision.reason = `fallback ${decision.fallbackCount} before side effects: ${previous} -> ${fallback}; ${message.slice(0, 160)}`;
+            decision.fallbackTargetPath.push(fallbackTarget);
+            decision.fallbackPath.push(fallbackProvider);
+            decision.fallbackReasons.push(Object.freeze({
+              sequence: decision.fallbackCount,
+              reason: "provider_retry_safe_before_acceptance",
+              fromTarget: previousTarget,
+              fromProvider: previousProvider,
+              toTarget: fallbackTarget,
+              toProvider: fallbackProvider,
+            }));
             continue;
           }
           throw err;
@@ -108,5 +147,8 @@ export function routedQuery(
     },
   };
 }
-export { ProviderRetrySafeError } from "./types";
-export type { AgentProvider, AllocationMode, EntitlementPressure, ProviderId, ProviderPreference, ResourcePolicy, RoutingDecision } from "./types";
+export { ProviderEscalationUnsupportedError, ProviderRetrySafeError } from "./types";
+export type {
+  AgentProvider, AllocationMode, EntitlementPressure, ProviderId, ProviderPreference,
+  ResourcePolicy, RoutingDecision, RoutingFallbackReason, RoutingPreference, RoutingRequest,
+} from "./types";

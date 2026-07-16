@@ -18,10 +18,20 @@
     return e;
   }
 
-  // <1000 verbatim; otherwise one-decimal k. 22500 -> "22.5k".
+  // Preserve the provider's exact integer count; separators add legibility
+  // without turning usage into an estimate.
   function fmtTokens(n) {
-    n = Number(n) || 0;
-    return n < 1000 ? String(n) : (n / 1000).toFixed(1) + "k";
+    if (n == null || n === "") return null;
+    n = Number(n);
+    return Number.isSafeInteger(n) && n >= 0 ? n.toLocaleString("en-US") : null;
+  }
+
+  function fmtUsage(n, status) {
+    const exact = fmtTokens(n);
+    if (exact == null) return "unknown";
+    if (status === "exact" || status == null) return exact;
+    if (status === "incomplete") return `≥${exact} (incomplete)`;
+    return "unknown";
   }
 
   async function tell(id, pred, obj) {
@@ -66,7 +76,7 @@
 
     // context (active) / total (all-time) token figure
     const toks = el("span", `flex:0 0 auto;font-size:11px;color:${EF.star};`,
-      `${fmtTokens(a.context_tokens)}/${fmtTokens(a.total_tokens)}`);
+      `${fmtUsage(a.context_tokens, a.context_status)}/${fmtUsage(a.total_tokens, a.total_status)}`);
 
     const elapsed = el("span", `flex:0 0 auto;font-size:11px;color:${EF.muted};`, a.elapsed_str || "");
 
@@ -132,7 +142,7 @@
     if (a.thinking) {
       wrap.append(el("div",
         `padding:8px 14px;font-size:12px;font-style:italic;color:${EF.star};`,
-        `Deliberating… (${a.elapsed_str || "0s"} · ↑${fmtTokens(a.context_tokens)})`));
+        `Deliberating… (${a.elapsed_str || "0s"} · ↑${fmtUsage(a.context_tokens, a.context_status)})`));
     }
 
     chatEl.append(wrap);

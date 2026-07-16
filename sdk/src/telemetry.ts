@@ -1,17 +1,21 @@
 // Telemetry auto-capture — write each agent run's tuple as facts so the system
 // has a queryable feedback loop (calibrate estimates against actuals, see who ran
-// what at what cost). Records to a dedicated `run-<agent>-<ts>` subject that has
+// what and with how many observed tokens). Records to a dedicated
+// `run-<agent>-<ts>` subject that has
 // NO title, so runs never show up as threads on the board — they're queryable via
 // fram, invisible to the work views. Fire-and-forget: telemetry must NEVER block
 // or fail an agent run, so writes are async and all errors are swallowed.
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { RoutingMetadata } from "./routing-metadata";
+import type { NormalizedTokenUsage } from "./usage";
+import type { RoutingFallbackReason } from "./providers/types";
 
 export interface RunRecord {
   thread: string; // the thread driven, or "(ad-hoc)" for a bare spawn
   agent: string; // agent id / handle
-  tokens: number; // total tokens this run (from tokensOf)
+  tokens?: number; // legacy exact total for producers without structured terminal usage
+  tokenUsage?: NormalizedTokenUsage; // observed components plus terminal scope/status
   durationMs: number; // SDK result duration_ms
   posture: string; // unplanned | atomic | composite | spawn
   // Routing dials — the EFFECTIVE final dial the run finished at (escalation-aware:
@@ -23,8 +27,10 @@ export interface RunRecord {
   effort?: string; // low | medium | high | xhigh | max
   role?: string; // executor | implementer | integrator | designer | researcher | ...
   provider?: string; // anthropic | openai
+  providerTarget?: string; // exact account/target that executed the final route
   providerReason?: string; // explainable auto/explicit routing decision
   requestedProvider?: string;
+  requestedTarget?: string;
   requestedTier?: string;
   requestedModel?: string;
   requestedEffort?: string;
@@ -33,18 +39,19 @@ export interface RunRecord {
   entitlementPressure?: string;
   fallbackCount?: number;
   fallbackPath?: string[];
+  fallbackTargetPath?: string[];
+  fallbackReasons?: RoutingFallbackReason[];
   envelopeScopes?: string[];
   envelopeRetries?: number;
   envelopeAdvisories?: string[];
-  outcome: string; // "ran" | "error" | "resource_envelope_exceeded" | "budget_exceeded" | ...
+  outcome: string; // "ran" | "error" | "resource_envelope_exceeded" | ...
   // escalate-not-kill (thread 019f1194-ca57) — present only on escalation-enabled runs.
   // Option A yields ONE @run row per spawn with an internal escalation chain, NOT one
   // row per tier (north-reconcile.clj queries adapt in lockstep — follow-up).
-  costUsd?: number; // authoritative SDK total_cost_usd (falls back to the in-loop estimate)
   numTurns?: number; // SDKResultMessage.num_turns (was dropped before)
   errorCount?: number; // tool_result errors this run
   escalationTier?: number; // final ladder tier (omit / <0 = escalation off)
-  escalations?: Array<{ from: string; to: string; reason: string; atCost: number }>;
+  escalations?: Array<{ from: string; to: string; reason: string }>;
 }
 
 export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[string, string]> {
@@ -54,25 +61,54 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     ["kind", "run"],
     ["thread", rec.thread],
     ["agent", rec.agent],
-    ["tokens", String(Math.round(rec.tokens))],
+  ];
+  // Structured usage owns the aggregate whenever it is present. This prevents a
+  // caller from reintroducing zero/summed guesses alongside an unknown terminal
+  // status, or from drifting away from an adapter-computed exact total.
+  const exactTokens = rec.tokenUsage
+    ? rec.tokenUsage.totalStatus === "exact" ? rec.tokenUsage.total : undefined
+    : rec.tokens;
+  if (exactTokens != null) facts.push(["tokens", String(Math.round(exactTokens))]);
+  facts.push(
     ["duration_ms", String(Math.round(rec.durationMs))],
     ["posture", rec.posture],
     ["outcome", rec.outcome],
     ["at", at],
-  ];
+  );
   if (rec.model) facts.push(["model", rec.model]);
   if (rec.effort) facts.push(["effort", rec.effort]);
   if (rec.role) facts.push(["role", rec.role]);
   if (rec.provider) facts.push(["provider", rec.provider]);
+  if (rec.providerTarget) facts.push(["provider_target", rec.providerTarget]);
   if (rec.providerReason) facts.push(["provider_reason", rec.providerReason]);
   if (rec.requestedProvider) facts.push(["requested_provider", rec.requestedProvider]);
+  if (rec.requestedTarget) facts.push(["requested_target", rec.requestedTarget]);
   if (rec.requestedTier) facts.push(["requested_tier", rec.requestedTier]);
   if (rec.requestedModel) facts.push(["requested_model", rec.requestedModel]);
   if (rec.requestedEffort) facts.push(["requested_effort", rec.requestedEffort]);
   if (rec.allocationMode) facts.push(["allocation_mode", rec.allocationMode]);
   if (rec.entitlementPressure) facts.push(["entitlement_pressure", rec.entitlementPressure]);
+  if (rec.tokenUsage?.inputTokens != null)
+    facts.push(["input_tokens", String(rec.tokenUsage.inputTokens)]);
+  if (rec.tokenUsage?.outputTokens != null)
+    facts.push(["output_tokens", String(rec.tokenUsage.outputTokens)]);
+  if (rec.tokenUsage?.cacheCreateTokens != null)
+    facts.push(["cache_create_tokens", String(rec.tokenUsage.cacheCreateTokens)]);
+  if (rec.tokenUsage?.cacheReadTokens != null)
+    facts.push(["cache_read_tokens", String(rec.tokenUsage.cacheReadTokens)]);
+  if (rec.tokenUsage?.cachedInputTokens != null)
+    facts.push(["cached_input_tokens", String(rec.tokenUsage.cachedInputTokens)]);
+  if (rec.tokenUsage?.reasoningOutputTokens != null)
+    facts.push(["reasoning_output_tokens", String(rec.tokenUsage.reasoningOutputTokens)]);
+  if (rec.tokenUsage) {
+    facts.push(["usage_terminal_count", String(rec.tokenUsage.terminalCount)]);
+    if (rec.tokenUsage.terminalScope) facts.push(["usage_scope", rec.tokenUsage.terminalScope]);
+    facts.push(["usage_total_status", rec.tokenUsage.totalStatus]);
+  }
   if (rec.fallbackCount != null) facts.push(["fallback_count", String(rec.fallbackCount)]);
   if (rec.fallbackPath?.length) facts.push(["fallback_path", rec.fallbackPath.join(" -> ")]);
+  if (rec.fallbackTargetPath?.length) facts.push(["fallback_target_path", rec.fallbackTargetPath.join(" -> ")]);
+  for (const reason of rec.fallbackReasons ?? []) facts.push(["fallback_reason", JSON.stringify(reason)]);
   for (const scope of rec.envelopeScopes ?? []) facts.push(["envelope_scope", scope]);
   if (rec.envelopeRetries != null) facts.push(["envelope_retries", String(rec.envelopeRetries)]);
   for (const advisory of rec.envelopeAdvisories ?? []) facts.push(["envelope_advisory", advisory]);
@@ -92,7 +128,6 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     if (metadata.composition.promotionCandidate != null)
       facts.push(["promotion_candidate", String(metadata.composition.promotionCandidate)]);
   }
-  if (rec.costUsd != null) facts.push(["cost_usd", rec.costUsd.toFixed(4)]);
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
   if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);
   if (rec.escalationTier != null && rec.escalationTier >= 0)

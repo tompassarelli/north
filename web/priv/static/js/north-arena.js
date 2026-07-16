@@ -2,7 +2,7 @@
 //
 // One experiment (?exp=<exp_id>), two columns side by side, ONE shared wall
 // clock, task tiles that change colour as their `state` fact moves. Data comes
-// from /api/arena?exp=…; the changing facets (state/cost/wall) are read fresh
+// from /api/arena?exp=…; the changing facets (state/tokens/wall) are read fresh
 // server-side each request, so a refetch is always current. Refreshes are PUSH:
 // the /live WebSocket fires on every board commit (coalesced), with a 1.5s
 // backstop poll — comfortably inside the demo's ≤2s liveness target.
@@ -110,7 +110,7 @@
       `display:flex;justify-content:space-between;font-size:1.25rem;font-weight:700;` +
       `font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:${EF.ink};margin-top:2px;`);
     foot.append(
-      el("span", `color:${EF.amber};`, "$" + fmtMoney(t.cost_usd)),
+      el("span", `color:${EF.amber};`, fmtUsage(t.tokens, t.tokens_status)),
       el("span", `color:${EF.muted};`, fmtDur(parseInt(t.wall_s, 10) || 0))
     );
 
@@ -118,9 +118,18 @@
     return k;
   }
 
-  function fmtMoney(v) {
-    const n = parseFloat(v);
-    return isNaN(n) ? "0.00" : n.toFixed(2);
+  function fmtTokens(v) {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isSafeInteger(n) && n >= 0 ? n.toLocaleString("en-US") : null;
+  }
+
+  function fmtUsage(v, status) {
+    const exact = fmtTokens(v);
+    if (exact == null) return "unknown";
+    if (status === "exact" || status == null) return exact;
+    if (status === "incomplete") return `≥${exact} (incomplete)`;
+    return "unknown";
   }
 
   function column(arm, col, accent) {
@@ -134,7 +143,9 @@
       el("span", `font-size:2.1rem;font-weight:800;letter-spacing:.04em;color:${accent};`, ARM_LABEL[arm] || arm.toUpperCase())
     );
 
-    const tot = (col && col.totals) || { green: 0, total: 0, cost_usd: 0, elapsed_s: 0 };
+    const tot = (col && col.totals) || {
+      green: 0, total: 0, tokens: 0, tokens_status: "exact", unknown_usage: 0, elapsed_s: 0,
+    };
     const stats = el("div", "display:flex;gap:26px;align-items:baseline;");
     const stat = (val, lbl, color) => {
       const w = el("div", "display:flex;flex-direction:column;align-items:flex-end;line-height:1.05;");
@@ -146,7 +157,7 @@
     };
     stats.append(
       stat(tot.green + "/" + tot.total, "GREEN", EF.green),
-      stat("$" + fmtMoney(tot.cost_usd), "COST", EF.amber),
+      stat(fmtUsage(tot.tokens, tot.tokens_status), "TOKENS", EF.amber),
       stat(fmtDur(tot.elapsed_s), "ARM", EF.muted)
     );
     head.append(stats);

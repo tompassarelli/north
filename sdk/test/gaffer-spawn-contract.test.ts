@@ -86,7 +86,9 @@ test("North MCP advertises the complete composition contract", () => {
   expect(result.status).toBe(0);
   const response = JSON.parse(result.stdout.trim());
   const spawn = response.result.tools.find((tool: any) => tool.name === "spawn");
-  for (const field of ["role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition"])
+  for (const field of ["role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition", "target"])
     expect(spawn.inputSchema.properties[field]).toBeDefined();
+  const dispatch = response.result.tools.find((tool: any) => tool.name === "dispatch");
+  expect(dispatch.inputSchema.properties.target).toBeDefined();
   expect(spawn.inputSchema.properties.reasoning.enum).toContain("xhigh");
 });

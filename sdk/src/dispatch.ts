@@ -3,18 +3,18 @@ import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, DEFAULT_SYSTEM_PROMPT, type Effort } from "./harness";
 import { inputChannel, subscribeFeed } from "./coordination";
-import { tokensOf } from "./budget";
+import { normalizeUsage } from "./usage";
 import { recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
-import { writeAgentOutcome } from "./identity";
+import { writeAgentFacts, writeAgentOutcome, updateAgentRoute } from "./identity";
 import { clockStart, clockFinalize } from "./clock";
 import {
-  refreshCodexEntitlementIfStale, routedQuery, selectProvider, shouldRefreshCodexEntitlement,
-  type ProviderPreference,
+  routedQuery, selectProvider, type ProviderPreference,
 } from "./providers";
+import { refreshCodexEntitlementsIfStale } from "./codex-entitlement";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import { routingMetadataFromEnv, validateRoutingMetadata } from "./routing-metadata";
 import { applyGafferStaffing } from "./gaffer-staffing";
@@ -78,14 +78,38 @@ async function runDispatch(
   const stream = new StreamWriter(agentId);
   const requestedTier = routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
   const providerPreference = process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
-  if (shouldRefreshCodexEntitlement(providerPreference)) await refreshCodexEntitlementIfStale();
-  const routing = selectProvider(providerPreference, undefined,
+  const targetPreference = process.env.AGENT_TARGET;
+  const routingRequest = { provider: providerPreference, target: targetPreference };
+  await refreshCodexEntitlementsIfStale({ requested: routingRequest });
+  const routing = selectProvider(routingRequest, undefined,
     { tier: requestedTier, stableKey: agentId });
   const resolved = resolveTier(routing.provider, requestedTier,
     process.env.AGENT_MODEL, (routingMetadata.reasoning ?? process.env.AGENT_EFFORT) as Effort | undefined);
+  const identityBase = {
+    kind: "lane",
+    role,
+    compositionKind: routingMetadata.composition?.kind ?? "none",
+    compositionId: routingMetadata.composition?.id,
+    repo: process.cwd().split("/").pop(),
+    goal: posture.title,
+    coordinator: process.env.AGENT_COORDINATOR,
+  } as const;
+  writeAgentFacts(agentId, { ...identityBase, model: resolved.model,
+    provider: routing.provider, providerTarget: routing.target, effort: resolved.effort });
+  let identityRoute = `${routing.provider}|${routing.target}|${resolved.model ?? ""}|${resolved.effort ?? ""}`;
+  const refreshIdentityRoute = () => {
+    const route = { provider: routing.provider,
+      providerTarget: routing.target,
+      model: routing.resolvedModel ?? resolved.model,
+      effort: routing.resolvedEffort ?? resolved.effort };
+    const next = `${route.provider}|${route.providerTarget}|${route.model ?? ""}|${route.effort ?? ""}`;
+    if (next === identityRoute) return;
+    updateAgentRoute(agentId, { ...identityBase, ...route });
+    identityRoute = next;
+  };
 
   console.log(`[dispatch] @${threadId} — ${posture.title}`);
-  console.log(`[dispatch] posture: ${postureLabel}, provider: ${routing.provider} (${routing.reason}), tools: ${tools.join(",")}`);
+  console.log(`[dispatch] posture: ${postureLabel}, provider: ${routing.provider}, target: ${routing.target} (${routing.reason}), tools: ${tools.join(",")}`);
 
   // Auto-clock (per-agent): open a session on this thread as THIS worker, so its
   // billable time attributes to the thread it actually worked — not one global
@@ -94,6 +118,7 @@ async function runDispatch(
 
   let result = "";
   let resultMsg: any = null;
+  const terminalMessages: any[] = [];
   let outcome = "ran";
 
   // Real-time coordination: run the prompt in streaming-input mode so peers can inject
@@ -130,7 +155,8 @@ async function runDispatch(
         posture: routingMetadata.posture,
         systemPrompt: `You are a north worker agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
       }),
-    }, requestedTier, undefined, () => reserveResourceEnvelopeRetry(envelopeAdmission));
+    }, requestedTier, undefined, () => reserveResourceEnvelopeRetry(envelopeAdmission),
+    refreshIdentityRoute);
     const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
       stallMs: window,
       onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
@@ -138,14 +164,16 @@ async function runDispatch(
     });
     for await (const message of watched) {
       const msg = message as any;
+      refreshIdentityRoute();
       stream.writeSDKMessage(msg);
       if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
 
-      if ("result" in msg) {
-        result = msg.result;
+      if (msg.type === "result") {
+        terminalMessages.push(msg);
+        if (typeof msg.result === "string") result = msg.result;
         resultMsg = msg;
         if (ch.pending() === 0) {
-          // Turn-cap ping (thread 019f4d54): a maxTurns/max-budget terminal arrives as a
+          // Turn-cap ping (thread 019f4d54): a provider-enforced terminal cap arrives as a
           // `result` with an error_max_* subtype; recording it as a clean finish hides the
           // cap. Mark the outcome and ping the coordinator with a partial-result note.
           const cap = typeof msg.subtype === "string" && msg.subtype.startsWith("error_max") ? msg.subtype : null;
@@ -208,21 +236,22 @@ async function runDispatch(
   } catch { /* never block finalize */ }
 
   // Close the auto-clock: a crash (died/stalled) orphan-closes (end_time + flag);
-  // any other terminal (clean, turn-cap, budget) stops the session normally.
+  // any other terminal (clean or provider-capped) stops the session normally.
   clockFinalize(agentId, outcome);
 
   // Record the terminal outcome ON the lane entity (SYNC, before exit) so the reactor's
   // presence-lapse sweep never reaps a completed dispatch as died-unreported. Mirrors the
   // spawn.ts finalize — same reap-avoidance seam, same reason.
+  refreshIdentityRoute();
   writeAgentOutcome(agentId, outcome);
 
-  // Spend is no longer charged to a counter here; it is summed from the @run
-  // cost_usd fact this run records below (remaining() folds Σ over @run costs).
-  recordRun({ thread: threadId, agent: agentId, tokens: tokensOf(resultMsg),
+  const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
+  recordRun({ thread: threadId, agent: agentId, tokenUsage,
               model: routing.resolvedModel ?? resolved.model, effort: routing.resolvedEffort ?? resolved.effort,
               role,
-              provider: routing.provider, providerReason: routing.reason,
-              requestedProvider: process.env.AGENT_PROVIDER,
+              provider: routing.provider, providerTarget: routing.target, providerReason: routing.selectionReason,
+              requestedProvider: routing.requestedProvider,
+              requestedTarget: targetPreference,
               requestedTier,
               requestedModel: process.env.AGENT_MODEL,
               requestedEffort: routingMetadata.reasoning ?? process.env.AGENT_EFFORT,
@@ -230,6 +259,8 @@ async function runDispatch(
               entitlementPressure: routing.entitlementPressure,
               fallbackCount: routing.fallbackCount,
               fallbackPath: routing.fallbackPath,
+              fallbackTargetPath: routing.fallbackTargetPath,
+              fallbackReasons: routing.fallbackReasons,
               envelopeScopes: envelopeAdmission?.scopes.map(({ id }) => id),
               envelopeRetries: envelopeAdmission?.retries,
               envelopeAdvisories: envelopeAdmission?.advisories,

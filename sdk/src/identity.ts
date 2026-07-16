@@ -1,7 +1,8 @@
 // Agent identity facts — ids stay meaningless + immutable; everything meaningful
 // is a FACT on @agent:<id> in the coordination log (design: thread 019f40f8).
 // Predicates (single-valued, declared via the schema-write gate): kind role model
-// vendor effort goal spawned_at display_name; repo stays multi (threads span repos).
+// provider provider_target effort composition_kind composition_id goal spawned_at display_handle
+// display_name; repo stays multi (threads span repos).
 // Writes shell to the installed `north tell` (the proven serialized OCC path) and
 // are NON-FATAL: a facts failure must never kill a spawn.
 import { execFileSync } from "node:child_process";
@@ -19,8 +20,11 @@ export interface AgentIdentity {
   kind: "lane" | "session" | "cron";
   role?: string;
   model?: string; // tier name as spawned (opus|sonnet|haiku); SDK resolves the full id
-  vendor?: string;
+  provider?: string;
+  providerTarget?: string;
   effort?: string;
+  compositionKind?: "preset" | "bespoke" | "none";
+  compositionId?: string;
   repo?: string;
   goal?: string;
   // spawning coordinator handle. Persisted (not just held at ping time) so it survives
@@ -30,14 +34,58 @@ export interface AgentIdentity {
   coordinator?: string;
 }
 
-const shortModel = (m?: string) => (m ?? "?").replace(/^claude-/, "");
+const component = (value?: string) => {
+  const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return normalized || "unknown";
+};
+const shortModel = (m?: string) => {
+  const normalized = component(m);
+  for (const family of ["opus", "sonnet", "haiku", "fable", "sol", "terra", "luna"])
+    if (normalized.split("-").includes(family)) return family;
+  return normalized;
+};
+const idSuffix = (id: string) => component(id.split("-").at(-1));
+
+export function gafferProvenance(f: AgentIdentity): string {
+  if (f.compositionKind === "preset") return `gaffer:${f.compositionId ? component(f.compositionId) : "unknown"}`;
+  if (f.compositionKind === "bespoke") return `gaffer:bespoke(${f.compositionId ? component(f.compositionId) : "unknown"})`;
+  if (f.compositionKind === "none" || f.kind === "session") return "gaffer:none";
+  return "gaffer:unknown";
+}
+
+/** Preserve an unknown native session as provider-only; managed routes always supply providerTarget. */
+export function providerTargetLabel(f: AgentIdentity): string {
+  const provider = f.provider?.trim() || "unknown";
+  const target = f.providerTarget?.trim();
+  if (!target) return provider;
+  return `${provider}:${target === provider || target === "ambient" ? "ambient" : target}`;
+}
+
+export function semanticHandle(id: string, f: AgentIdentity): string {
+  const composition = f.compositionKind === "none" || f.kind === "session"
+    ? "native"
+    : component(f.compositionId);
+  return [component(providerTargetLabel(f)), shortModel(f.model), component(f.effort), composition, idSuffix(id)].join("-");
+}
 
 export function renderDisplayName(id: string, f: AgentIdentity): string {
-  const role = f.role ?? f.kind;
-  const at = f.repo ? `@${f.repo}` : "";
-  const dial = `${shortModel(f.model)}-${f.effort ?? "?"}`;
   const goal = f.goal ? ` — ${f.goal.length > 40 ? f.goal.slice(0, 37) + "…" : f.goal}` : "";
-  return `${role}${at} ${dial}${goal} (${id})`;
+  if (f.providerTarget) {
+    const task = f.goal ? (f.goal.length > 40 ? f.goal.slice(0, 37) + "…" : f.goal) : "unknown";
+    return `${providerTargetLabel(f)} · ${shortModel(f.model)} · ${component(f.effort)} · ${gafferProvenance(f)} · ${task}`;
+  }
+  return `${semanticHandle(id, f)}${goal}`;
+}
+
+export function agentRouteFacts(agentId: string, f: AgentIdentity): Array<[string, string | undefined]> {
+  return [
+    ["provider", f.provider],
+    ["provider_target", f.providerTarget],
+    ["model", f.model],
+    ["effort", f.effort],
+    ["display_handle", semanticHandle(agentId, f)],
+    ["display_name", renderDisplayName(agentId, f)],
+  ];
 }
 
 function tell(subject: string, pred: string, value: string) {
@@ -73,10 +121,14 @@ export function writeAgentFacts(agentId: string, f: AgentIdentity): void {
   clearAgentOutcome(agentId);
   const facts: Array<[string, string | undefined]> = [
     ["kind", f.kind],
+    ["display_handle", semanticHandle(agentId, f)],
     ["role", f.role],
     ["model", f.model],
-    ["vendor", f.vendor ?? (f.model ? "anthropic" : undefined)],
+    ["provider", f.provider],
+    ["provider_target", f.providerTarget],
     ["effort", f.effort],
+    ["composition_kind", f.compositionKind],
+    ["composition_id", f.compositionId],
     ["repo", f.repo],
     ["goal", f.goal],
     ["coordinator", f.coordinator],
@@ -90,6 +142,17 @@ export function writeAgentFacts(agentId: string, f: AgentIdentity): void {
     } catch {
       // non-fatal by design; presence falls back to the bare id
     }
+  }
+}
+
+// Refresh the route projection without resetting generation identity. This is
+// used when a pre-side-effect provider fallback activates or an in-flight
+// escalation changes model/effort. The control key and spawned_at stay stable.
+export function updateAgentRoute(agentId: string, f: AgentIdentity): void {
+  for (const [predicate, value] of agentRouteFacts(agentId, f)) {
+    if (!value) continue;
+    try { tell(`agent:${agentId}`, predicate, value); }
+    catch { /* identity telemetry is non-fatal */ }
   }
 }
 
@@ -114,7 +177,8 @@ export function writeAgentOutcome(agentId: string, outcome: string): void {
 
 // First sentence (or first 100 chars) of a spawn prompt — the goal fact seed.
 export function goalFromPrompt(prompt: string): string {
-  const firstLine = prompt.split("\n", 1)[0] ?? "";
+  const delegated = prompt.match(/(?:^|\n)DELEGATE TASK:\s*([^\n]+)/)?.[1]?.trim();
+  const firstLine = delegated ?? prompt.split("\n", 1)[0] ?? "";
   const sentence = firstLine.split(/(?<=[.!?])\s/, 1)[0] ?? firstLine;
   return sentence.length > 100 ? sentence.slice(0, 97) + "…" : sentence;
 }

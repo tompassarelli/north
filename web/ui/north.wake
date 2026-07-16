@@ -22,7 +22,8 @@
   (online : String)
   (current_thread : String)
   (active_workflow : String)
-  (cost_usd : String))
+  (context_tokens : String)
+  (total_tokens : String))
 
 (component agent-row
   :props [uuid roles online]
@@ -33,7 +34,7 @@
     (div :class "text-xs text-muted-foreground mt-1" :text roles)))
 
 (component agent-detail
-  :props [uuid roles model online current_thread active_workflow cost_usd]
+  :props [uuid roles model online current_thread active_workflow context_tokens total_tokens]
   (div :class "p-6 flex flex-col gap-3"
     (h2 :class "text-lg font-semibold text-foreground" :text uuid)
     (div :class "text-sm text-muted-foreground" :text roles)
@@ -46,8 +47,10 @@
       (div :class "text-sm text-foreground" :text current_thread)
       (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Workflow")
       (div :class "text-sm text-foreground" :text active_workflow)
-      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Context")
-      (div :class "text-sm text-foreground" :text cost_usd))))
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Context tokens")
+      (div :class "text-sm text-foreground" :text context_tokens)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Total tokens")
+      (div :class "text-sm text-foreground" :text total_tokens))))
 
 (view agents
   :entity agent :each agent-row

@@ -2,7 +2,7 @@
 // and no command: pull ready threads off the fact graph, ATOMICALLY acquire the
 // driver (fram-1's P3 lease — race-proof, so N agents never double-drive the same
 // thread), dispatch it through the harness, release. Jittered exponential backoff
-// on empty/contended rounds so a swarm desyncs instead of thundering an empty queue.
+// on empty/contended rounds so agents desynchronize instead of thundering an empty queue.
 //
 // This is the pull side of the loop: P1 (reactor) reacts to commands addressed to
 // an agent; discover lets an idle agent SELECT its own work. Together: a thread is
@@ -10,13 +10,13 @@
 import { execSync, execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { dispatch } from "./dispatch";
-import { remaining } from "./budget";
+import { ProviderSelectionError } from "./provider-routing";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ACQUIRE_CLI = `${REPO}/cli/acquire-cli.clj`;
 const PORT = process.env.NORTH_PORT ?? "7977";
 
-interface ReadyThread {
+export interface ReadyThread {
   id: string;
   title: string;
   condition: string;
@@ -53,47 +53,81 @@ function releaseDriver(thread: string, holder: string): void {
 
 export interface DiscoverOpts {
   maxTasks?: number; // stop after N completed (default: unbounded)
-  maxEmptyRounds?: number; // stop after N consecutive empty/contended rounds (default 5)
+  maxEmptyRounds?: number; // stop after N consecutive unsuccessful rounds (default 5)
+}
+
+export interface DiscoverDependencies {
+  readyThreads: () => ReadyThread[];
+  acquireDriver: (thread: string, holder: string) => boolean;
+  releaseDriver: (thread: string, holder: string) => void;
+  dispatch: (thread: string) => Promise<unknown>;
+  sleep: (ms: number) => Promise<void>;
+  random: () => number;
+}
+
+const defaultDependencies: DiscoverDependencies = {
+  readyThreads,
+  acquireDriver,
+  releaseDriver,
+  dispatch,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  random: Math.random,
+};
+
+function dispatchFailureReason(error: unknown): string {
+  if (error instanceof ProviderSelectionError)
+    return `provider routing ${error.kind.replaceAll("_", " ")} before side effects`;
+  return "dispatch failed";
+}
+
+function errorSummary(error: unknown): string {
+  return String(error instanceof Error ? error.message : error)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500) || "unknown error";
 }
 
 // The pull loop. Returns the thread ids it drove to completion.
-export async function discover(self: string, opts: DiscoverOpts = {}): Promise<string[]> {
+export async function discover(
+  self: string,
+  opts: DiscoverOpts = {},
+  overrides: Partial<DiscoverDependencies> = {},
+): Promise<string[]> {
+  const dependencies = { ...defaultDependencies, ...overrides };
   const maxTasks = opts.maxTasks ?? Infinity;
   const maxEmpty = opts.maxEmptyRounds ?? 5;
   const done: string[] = [];
-  let empty = 0;
+  let unsuccessfulRounds = 0;
 
   const backoff = async (why: string) => {
-    empty++;
-    const base = Math.min(30_000, 1_000 * 2 ** empty);
-    const ms = Math.round(base * (0.5 + Math.random())); // jitter desyncs the swarm
-    console.log(`[discover] ${self} ${why} (${empty}/${maxEmpty}) — backoff ${ms}ms`);
-    await new Promise((r) => setTimeout(r, ms));
+    unsuccessfulRounds++;
+    const base = Math.min(30_000, 1_000 * 2 ** unsuccessfulRounds);
+    const ms = Math.round(base * (0.5 + dependencies.random()));
+    console.log(`[discover] ${self} ${why} (${unsuccessfulRounds}/${maxEmpty}) — backoff ${ms}ms`);
+    await dependencies.sleep(ms);
   };
 
-  while (done.length < maxTasks && empty < maxEmpty) {
-    // Budget gate: stop pulling work once the token budget is spent. Bounds spend,
-    // not concurrency — fan out freely, cost is the only ceiling. No budget set =>
-    // remaining() is Infinity (unbounded, opt-in).
-    if ((await remaining()) <= 0) {
-      await backoff("token budget spent");
-      continue;
-    }
+  while (done.length < maxTasks && unsuccessfulRounds < maxEmpty) {
     let acquired = false;
-    for (const t of readyThreads()) {
-      if (!acquireDriver(t.id, self)) continue; // peer got it — try the next ready thread
+    for (const t of dependencies.readyThreads()) {
+      if (!dependencies.acquireDriver(t.id, self)) continue; // peer got it — try the next ready thread
       acquired = true;
-      empty = 0;
       console.log(`[discover] ${self} acquired ${t.id} — ${t.title}`);
+      let failure: unknown;
+      let failed = false;
       try {
-        await dispatch(t.id); // dispatch bills its token usage to the budget
+        await dependencies.dispatch(t.id);
         done.push(t.id);
+        unsuccessfulRounds = 0;
         console.log(`[discover] ${self} finished ${t.id} (${done.length} total)`);
       } catch (e) {
-        console.error(`[discover] ${self} dispatch of ${t.id} failed:`, e);
+        failed = true;
+        failure = e;
+        console.error(`[discover] ${self} dispatch of ${t.id} failed: ${errorSummary(e)}`);
       } finally {
-        releaseDriver(t.id, self);
+        dependencies.releaseDriver(t.id, self);
       }
+      if (failed) await backoff(dispatchFailureReason(failure));
       break; // re-poll fresh — the graph moved
     }
     if (!acquired) await backoff("no acquirable work");

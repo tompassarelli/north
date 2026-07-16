@@ -52,9 +52,30 @@ test("loads schema v1 and projects target policy onto today's provider boundary"
   expect(parsed.targetOrder).toEqual(["codex-primary", "claude-primary"]);
   expect(parsed.providerOrder).toEqual(["openai", "anthropic"]);
   expect(parsed.pressures).toEqual({ openai: "low", anthropic: "plenty" });
+  expect(parsed.targetPressures).toEqual({ "codex-primary": "low", "claude-primary": "plenty" });
   expect(parsed.weights).toEqual({ openai: 2, anthropic: 3 });
+  expect(parsed.targets).toEqual([
+    { id: "claude-primary", provider: "anthropic", authMode: "ambient", profile: "personal" },
+    { id: "codex-primary", provider: "openai", authMode: "ambient" },
+  ]);
   expect(parsed.reservedFrontierProvider).toBe("anthropic");
   expect(parsed.envelopes?.projects?.north).toEqual({ runs: 80, retries: 0 });
+});
+
+test("isolated target auth requires a strict portable profile slug", () => {
+  const base = {
+    version: 1, mode: "preferential", targetOrder: ["claude-work"],
+    targets: [{ id: "claude-work", provider: "anthropic", authMode: "isolated", profile: "work_2" }],
+  };
+  expect(parseResourcePolicy(base).targets?.[0]).toEqual({
+    id: "claude-work", provider: "anthropic", authMode: "isolated", profile: "work_2",
+  });
+  expect(() => parseResourcePolicy({ ...base, targets: [{ id: "claude-work", provider: "anthropic", authMode: "isolated" }] }))
+    .toThrow("targets[0].profile is required when authMode is isolated");
+  for (const profile of ["../work", "work/team", "work\\team", ".", "Work"]) {
+    expect(() => parseResourcePolicy({ ...base, targets: [{ ...base.targets[0], profile }] }))
+      .toThrow("targets[0].profile must be a portable slug");
+  }
 });
 
 test("pressure becomes unknown after 24 hours while until overrides that TTL", () => {
@@ -93,10 +114,15 @@ test("a missing policy file retains historical defaults", () => {
   delete process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE;
   delete process.env.NORTH_OPENAI_ENTITLEMENT_PRESSURE;
   expect(loadResourcePolicy()).toBeUndefined();
-  expect(resourcePolicyFromEnv()).toMatchObject({
+  const defaults = resourcePolicyFromEnv();
+  expect(defaults).toMatchObject({
     mode: "preferential", providerOrder: ["anthropic", "openai"],
     pressures: {}, weights: {},
   });
+  expect(defaults.targets).toEqual([
+    { id: "anthropic", provider: "anthropic", authMode: "ambient" },
+    { id: "openai", provider: "openai", authMode: "ambient" },
+  ]);
 });
 
 test("loaded target order drives pure provider selection", () => {
@@ -145,6 +171,35 @@ test("latest fresh automated target observation wins and target/provider mismatc
   expect(result.automatedPressureObservations?.["claude-primary"]?.observedAt).toBe("2026-07-16T11:00:00Z");
 });
 
+test("same-provider targets retain independent manual and automated pressures", () => {
+  const now = new Date("2026-07-16T12:00:00Z");
+  const manual = parseResourcePolicy({
+    version: 1,
+    mode: "preferential",
+    targets: [
+      { id: "claude-personal", provider: "anthropic" },
+      { id: "claude-work", provider: "anthropic", authMode: "isolated", profile: "work" },
+    ],
+    targetOrder: ["claude-personal", "claude-work"],
+    pressures: {
+      "claude-personal": { state: "normal", observedAt: "2026-07-16T11:00:00Z" },
+      "claude-work": { state: "low", observedAt: "2026-07-16T11:00:00Z" },
+    },
+  }, "test-policy", now);
+  expect(manual.targetPressures).toEqual({ "claude-personal": "normal", "claude-work": "low" });
+  expect(manual.pressures.anthropic).toBe("normal");
+
+  const store = parseProviderUsageObservations({ version: 1, observations: [
+    { targetId: "claude-personal", provider: "anthropic", state: "low", observedAt: "2026-07-16T11:30:00Z" },
+    { targetId: "claude-work", provider: "anthropic", state: "exhausted", observedAt: "2026-07-16T11:30:00Z" },
+  ] });
+  const observed = applyProviderUsageObservations(manual, store, now);
+  expect(observed.targetPressures).toEqual({ "claude-personal": "low", "claude-work": "exhausted" });
+  expect(observed.pressures.anthropic).toBe("low");
+  expect(Object.keys(observed.automatedPressureObservations ?? {}).sort())
+    .toEqual(["claude-personal", "claude-work"]);
+});
+
 test("numeric usage windows derive pressure from the worst live provider window", () => {
   const now = new Date("2026-07-16T12:00:00Z");
   expect(pressureFromUsageWindows([
@@ -186,7 +241,9 @@ test("explicit environment pressure overrides fresh automated and manual observa
     targetId: "claude-primary", provider: "anthropic", state: "exhausted", observedAt: "2026-07-16T11:00:00Z",
   }] });
   process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE = "low";
-  expect(resourcePolicyFromEnv(manual, store).pressures.anthropic).toBe("low");
+  const policy = resourcePolicyFromEnv(manual, store);
+  expect(policy.pressures.anthropic).toBe("low");
+  expect(policy.targetPressures?.["claude-primary"]).toBe("low");
 });
 
 test("automated observations drive default routing even before a manual policy file exists", () => {

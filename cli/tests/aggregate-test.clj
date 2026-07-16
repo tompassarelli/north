@@ -1,6 +1,6 @@
 ;; aggregate-test.clj — the incremental-aggregate primitive (coord.clj) against a
 ;; LIVE :7977 daemon. Proves ONE fold + two reducers: count-distinct (quorum) and
-;; Σ (budget), each commutative + idempotent.
+;; Σ (numeric usage), each commutative + idempotent.
 ;;   bb cli/tests/aggregate-test.clj [port]
 (require '[clojure.java.io :as io])
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/../coord.clj"))
@@ -14,9 +14,9 @@
       ;; quorum body: distinct workers that emitted DONE against this test batch
       done-body [{:rel "triple" :args [{:var "d"} "agg_done_batch" b]}
                  {:rel "triple" :args [{:var "d"} "agg_done_worker" {:var "w"}]}]
-      ;; budget body: every charge booked to this test batch (append-only @charge:*)
-      charge-body [{:rel "triple" :args [{:var "c"} "agg_charged_to" b]}
-                   {:rel "triple" :args [{:var "c"} "agg_charge_tokens" {:var "n"}]}]]
+      ;; usage body: every run booked to this test batch
+      usage-body [{:rel "triple" :args [{:var "c"} "agg_run_batch" b]}
+                  {:rel "triple" :args [{:var "c"} "agg_run_tokens" {:var "n"}]}]]
 
   ;; --- COUNT-DISTINCT (quorum). 3 distinct workers; w2 reports TWICE. ---------
   (doseq [[d w] [["d1" "w1"] ["d2" "w2"] ["d2b" "w2"] ["d3" "w3"]]]
@@ -34,23 +34,20 @@
            (co/put! port (str b ":d2c") "agg_done_worker" "w2")
            (= 3 (co/count-distinct port ["w"] done-body))))
 
-  ;; --- Σ (budget). Append-only charges; spend is the fold, never a cell. r4 has
+  ;; --- Σ (numeric usage). Append-only samples; the total is a fold, never a cell. r4 has
   ;; the SAME value as r1 (100) — the dedup trap: a value-only projection would
   ;; collapse them and under-count. [key val] keeps them distinct. -------------
   (doseq [[c n] [["r1" 100] ["r2" 250] ["r3" 50.5] ["r4" 100]]]
-    (let [ce (str b ":charge:" c)]
-      (co/put! port ce "agg_charged_to" b)
-      (co/put! port ce "agg_charge_tokens" n)))
+    (let [ce (str b ":run:" c)]
+      (co/put! port ce "agg_run_batch" b)
+      (co/put! port ce "agg_run_tokens" n)))
   (chk "sum-of Σ's [key val] rows (100+250+50.5+100), equal-valued addends NOT deduped"
-       (== 500.5 (co/sum-of port ["c" "n"] charge-body)))
-  (let [total 600 spent (co/sum-of port ["c" "n"] charge-body)]
-    (chk "budget gate: remaining = cap - Σ(charges), still under"
-         (and (> (- total spent) 0) (== 99.5 (- total spent)))))
+       (== 500.5 (co/sum-of port ["c" "n"] usage-body)))
   ;; the ROW SEAM: scope rows with a client-side predicate the scan body can't
   ;; express (here: drop r3), then fold through the SAME shared reducer. This is
-  ;; how the swarm gate's @run:-prefix Σ rides coord/sum-rows.
+  ;; how callers can narrow a numeric fold without reimplementing the reducer.
   (chk "sum-rows folds pre-filtered rows (drop r3=50.5 -> 100+250+100)"
-       (== 450.0 (co/sum-rows (->> (co/agg-rows port ["c" "n"] charge-body)
+       (== 450.0 (co/sum-rows (->> (co/agg-rows port ["c" "n"] usage-body)
                                    (remove #(= "50.5" (str (second %))))))))
 
   (let [results @checks pass (count (filter second results))]

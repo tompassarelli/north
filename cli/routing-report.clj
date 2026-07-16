@@ -47,6 +47,7 @@
 (defn one [facts entity pred] (last (get-in facts [entity pred])))
 (defn many [facts entity pred] (get-in facts [entity pred] []))
 (defn long' [value] (try (parse-long (str value)) (catch Exception _ 0)))
+(defn maybe-long [value] (when (some? value) (try (parse-long (str value)) (catch Exception _ nil))))
 (defn thread-ref [value]
   (when (and value (not= value "(ad-hoc)"))
     (if (str/starts-with? value "@") value (str "@" value))))
@@ -79,7 +80,7 @@
        :provider (get' "provider" "?") :tier (get' "requested_tier" "?")
        :model (get' "model" "?") :effort (get' "effort" "?")
        :role (get' "role" "?") :taskGrade (get' "task_grade" "?")
-       :outcome (get' "outcome" "?") :tokens (long' (get' "tokens" 0))
+       :outcome (get' "outcome" "?") :tokens (maybe-long (get' "tokens" nil))
        :durationMs (long' (get' "duration_ms" 0)) :turns (long' (get' "num_turns" 0))
        :fallbacks (long' (get' "fallback_count" 0))
        :escalations (long' (get' "escalation_count" 0))
@@ -108,10 +109,12 @@
    :cohorts (->> rows (group-by cohort-label) (map performance-row) (sort-by :cohort) vec)})
 
 (defn usage-row [[provider rows]]
-  {:provider provider :runs (count rows) :tokens (reduce + (map :tokens rows))
-   :wallSeconds (long (/ (reduce + (map :durationMs rows)) 1000))
-   :turns (reduce + (map :turns rows)) :fallbacks (reduce + (map :fallbacks rows))
-   :escalatedRuns (count (filter #(pos? (:escalations %)) rows))})
+  (let [tokens (keep :tokens rows)]
+    {:provider provider :runs (count rows)
+     :tokens (when (seq tokens) (reduce + tokens)) :tokenRuns (count tokens)
+     :wallSeconds (long (/ (reduce + (map :durationMs rows)) 1000))
+     :turns (reduce + (map :turns rows)) :fallbacks (reduce + (map :fallbacks rows))
+     :escalatedRuns (count (filter #(pos? (:escalations %)) rows))}))
 
 (defn usage-report [rows]
   {:report "usage" :unit "observed work, never dollars or API credits"
@@ -162,8 +165,9 @@
     (do (println "ROUTING USAGE — observed work (never dollars or API credits)")
         (println (format "%-12s %6s %12s %10s %8s %9s %9s" "PROVIDER" "runs" "tokens" "wall-s" "turns" "fallbacks" "escalated"))
         (doseq [row (:providers data)]
-          (println (format "%-12s %6d %12d %10d %8d %9d %9d" (:provider row) (:runs row)
-                           (:tokens row) (:wallSeconds row) (:turns row) (:fallbacks row) (:escalatedRuns row)))))
+          (println (format "%-12s %6d %12s %10d %8d %9d %9d" (:provider row) (:runs row)
+                           (if (some? (:tokens row)) (str (:tokens row)) "?")
+                           (:wallSeconds row) (:turns row) (:fallbacks row) (:escalatedRuns row)))))
     "promotions"
     (do (println "ROUTING PROMOTIONS — bespoke recurrence for human review")
         (println "This report never changes Gaffer's standard library.")

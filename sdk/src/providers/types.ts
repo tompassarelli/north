@@ -1,14 +1,23 @@
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import type { Effort } from "../harness";
 
 export type ProviderId = "anthropic" | "openai";
 export type ProviderPreference = ProviderId | "auto";
+export interface RoutingRequest {
+  provider?: ProviderPreference;
+  /** Exact target pin. Exact pins never fall back to another target. */
+  target?: string;
+}
+export type RoutingPreference = ProviderPreference | RoutingRequest;
 export type EntitlementPressure = "plenty" | "normal" | "low" | "exhausted" | "unknown";
 export type AllocationMode = "preferential" | "balanced" | "reserved";
+export type TargetAuthMode = "ambient" | "isolated";
 
 export interface RoutingTarget {
   id: string;
   provider: ProviderId;
-  /** Reserved for a future provider adapter account/profile selector. */
+  /** Missing means ambient for policies written before per-target auth existed. */
+  authMode?: TargetAuthMode;
   profile?: string;
 }
 
@@ -62,6 +71,8 @@ export interface ResourcePolicy {
   providerOrder: ProviderId[];
   pressures: Partial<Record<ProviderId, EntitlementPressure>>;
   weights?: Partial<Record<ProviderId, number>>;
+  /** Executable pressure keyed by routing target; provider pressures are a compatibility projection. */
+  targetPressures?: Record<string, EntitlementPressure>;
   pressureObservations?: Record<string, PressureObservation>;
   automatedPressureObservations?: Record<string, ProviderUsageObservation>;
   targetWeights?: Record<string, number>;
@@ -72,6 +83,8 @@ export interface ResourcePolicy {
 
 export interface ProviderAvailability {
   provider: ProviderId;
+  /** Present when the probe was run in a routing target's authentication context. */
+  targetId?: string;
   installed?: boolean;
   authenticated?: boolean;
   available: boolean;
@@ -86,6 +99,17 @@ export interface AgentQuery {
   [Symbol.asyncIterator](): AsyncIterator<any>;
   interrupt?(): Promise<void>;
   setModel?(model: string): Promise<void> | void;
+  applyFlagSettings?(settings: { effortLevel?: Effort | null }): Promise<void> | void;
+  /** True only when both model and effort can be changed on the active run. */
+  supportsInFlightEscalation?(): boolean;
+}
+
+export class ProviderEscalationUnsupportedError extends Error {
+  readonly code = "provider_escalation_unsupported";
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderEscalationUnsupportedError";
+  }
 }
 
 /**
@@ -101,22 +125,49 @@ export class ProviderRetrySafeError extends Error {
   }
 }
 
+export interface RoutingFallbackReason {
+  sequence: number;
+  reason: "provider_retry_safe_before_acceptance";
+  fromTarget: string;
+  fromProvider: ProviderId;
+  toTarget: string;
+  toProvider: ProviderId;
+}
+
 export interface AgentProvider {
   id: ProviderId;
-  probe(): ProviderAvailability;
-  query(args: { prompt: string | AsyncIterable<any>; options: Options }): AgentQuery;
+  probe(target?: RoutingTarget): ProviderAvailability;
+  query(args: { prompt: string | AsyncIterable<any>; options: Options; target?: RoutingTarget }): AgentQuery;
 }
 
 export interface RoutingDecision {
+  /** Compatibility alias for requestedProvider. */
   requested: ProviderPreference;
+  requestedProvider: ProviderPreference;
+  requestedTarget?: string;
+  target: string;
   provider: ProviderId;
-  reason: string;
+  /** Immutable target metadata used by provider adapters for target-scoped auth. */
+  routingTargets: Record<string, RoutingTarget>;
+  /** Initial allocation explanation. Never replaced by execution fallback detail. */
+  readonly selectionReason: string;
+  /** Compatibility alias for selectionReason. */
+  readonly reason: string;
   availability: ProviderAvailability[];
+  /** Remaining eligible target IDs, in retry order. */
+  fallbackTargets: string[];
+  /** Append-only target IDs actually attempted, beginning with the selected target. */
+  readonly fallbackTargetPath: string[];
+  /** Provider projection of fallbackTargets; duplicate providers are meaningful. */
   fallbackProviders: ProviderId[];
   fallbackCount: number;
-  fallbackPath: ProviderId[];
+  /** Append-only provider projection of fallbackTargetPath. */
+  readonly fallbackPath: ProviderId[];
+  /** Append-only redacted, structured fallback decisions in occurrence order. */
+  readonly fallbackReasons: RoutingFallbackReason[];
   allocationMode: AllocationMode;
   entitlementPressure: EntitlementPressure;
+  targetEntitlementPressures: Record<string, EntitlementPressure>;
   entitlementPressures: Partial<Record<ProviderId, EntitlementPressure>>;
   /** Actual model/effort used by the currently active provider route. */
   resolvedModel?: string;

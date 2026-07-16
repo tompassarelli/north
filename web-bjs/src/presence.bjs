@@ -19,11 +19,6 @@
   (export (function parseIntSafe (v)
     (const n (parseInt (String v) 10))
     (return (? (isNaN n) 0 n))))
-  ;; Float.round(n/1e6, 2) + "M", keeping a trailing .0 like Elixir's float inspect
-  (export (function fmtM (n)
-    (const r (/ (.round Math (* (/ n 1000000) 100)) 100))
-    (const s (String r))
-    (return (? (.includes s ".") (tpl "" s "M") (tpl "" s ".0M")))))
   (export (function fdiv (a b) (return (.floor Math (/ a b)))))
   (export (function frem (a b) (return (% a b))))
   ;; ISO-8601 -> epoch ms, or -1 when unparseable
@@ -41,7 +36,6 @@
 (declare-extern nowMs [-> Int])
 (declare-extern strCmp [String String -> Int])
 (declare-extern parseIntSafe [Any -> Int])
-(declare-extern fmtM [Int -> String])
 (declare-extern fdiv [Int Int -> Int])
 (declare-extern frem [Int Int -> Int])
 (declare-extern parseEpochMs [String -> Int])
@@ -52,12 +46,35 @@
 
 ;; ---- display formatting -----------------------------------------------------
 
-;; token count -> display string: >=1e6 "X.XXM", >=1e3 "Nk", else "N".
-(defn fmt-tokens [(n :- Int)] :- String
+;; Keep the provider's exact integer visible. Approximate k/M abbreviations make
+;; an exact fact look estimated and cannot represent lower-bound coverage.
+(defn fmt-tokens [(n :- Any)] :- String (str n))
+
+(js/export (defn usage-display [(n :- Any) (status :- String)] :- String
   (cond
-    (>= n 1000000) (fmtM n)
-    (>= n 1000) (str (fdiv n 1000) "k")
-    :else (str n)))
+    (nil? n) "unknown"
+    (= status "exact") (fmt-tokens n)
+    (= status "incomplete") (str ">=" (fmt-tokens n) " (incomplete)")
+    :else "unknown")))
+
+;; Normalize nullable usage + coverage once, before it reaches any frontend.
+(js/export (defn usage-projection [(tok :- Any)] :- Any
+  (let [ctx (fram/parseTokenCount (get tok "context"))
+        total (fram/parseTokenCount (get tok "total"))
+        raw-ctx-status (get tok "context_status")
+        raw-total-status (get tok "total_status")
+        ctx-status (if (and (some? ctx) (= raw-ctx-status "exact")) "exact" "unknown")
+        total-status (cond
+                       (nil? total) "unknown"
+                       (= raw-total-status "exact") "exact"
+                       (= raw-total-status "incomplete") "incomplete"
+                       :else "unknown")]
+    {"context" ctx
+     "context_status" ctx-status
+     "total" total
+     "total_status" total-status
+     "context_display" (usage-display ctx ctx-status)
+     "total_display" (usage-display total total-status)})))
 
 ;; whole-second elapsed -> "Xh Ym" / "Xm Ys" / "Xs"
 (defn fmt-duration [(s :- Int)] :- String
@@ -107,7 +124,8 @@
 (defrecord Row
   [(uuid :- String) (online :- Bool) (expires-s :- Any) (roles :- Any)
    (model :- Any) (effort :- Any) (lifecycle :- Any) (current-thread :- Any)
-   (active-workflow :- Any) (task :- Any) (context-tokens :- Int) (total-tokens :- Int)
+   (active-workflow :- Any) (task :- Any) (context-tokens :- Any) (total-tokens :- Any)
+   (context-status :- String) (total-status :- String)
    (focus :- Bool) (spawned-at :- Any) (thinking :- Bool) (elapsed-str :- String)
    (roles-str :- String) (model-str :- Any) (ctx-str :- String)
    (total-str :- String) (focus-str :- Any)])
@@ -125,12 +143,15 @@
         lifecycle (js/await (fram/resolved port (str "@agent:" h) "lifecycle"))
         spawned (js/await (fram/resolved port (str "@agent:" h) "spawned_at"))
         tok (get tokens h {})
-        ctx (parseIntSafe (get tok "context" 0))
-        tot (parseIntSafe (get tok "total" 0))
+        usage (usage-projection tok)
+        ctx (get usage "context")
+        tot (get usage "total")
+        ctx-status (get usage "context_status")
+        total-status (get usage "total_status")
         focus (or (some? active-workflow) (some? current-thread) (some? task))]
     (->Row h online expires rls model effort lifecycle current-thread active-workflow task
-           ctx tot focus spawned (and online focus) (elapsed-str spawned now)
-           (join-comma rls) (or model "") (fmt-tokens ctx) (fmt-tokens tot)
+           ctx tot ctx-status total-status focus spawned (and online focus) (elapsed-str spawned now)
+           (join-comma rls) (or model "") (get usage "context_display") (get usage "total_display")
            (or active-workflow current-thread task ""))))
 
 ;; ---- sort key: online-first, then focus, then handle ------------------------
@@ -175,10 +196,25 @@
     (mkSet refs))))
 
 ;; ---- swarm totals -----------------------------------------------------------
-(defrecord Swarm [(context :- String) (total :- String)])
+(defrecord Swarm
+  [(context :- String) (total :- String)
+   (context-status :- String) (total-status :- String)])
 
 ;; Swarm token totals for the status line: {context, total} as display strings.
 (js/export (defn swarm-tokens [(roster :- Any)] :- Any
-  (let [ctx (reduce (fn [acc r] (+ acc (.-context-tokens r))) 0 roster)
-        tot (reduce (fn [acc r] (+ acc (.-total-tokens r))) 0 roster)]
-    (->Swarm (fmt-tokens ctx) (fmt-tokens tot)))))
+  (let [ctx (reduce (fn [acc r]
+                      (if (some? (.-context-tokens r))
+                        (+ acc (.-context-tokens r)) acc)) 0 roster)
+        tot (reduce (fn [acc r]
+                      (if (some? (.-total-tokens r))
+                        (+ acc (.-total-tokens r)) acc)) 0 roster)
+        ctx-known (reduce (fn [acc r] (+ acc (if (some? (.-context-tokens r)) 1 0))) 0 roster)
+        tot-known (reduce (fn [acc r] (+ acc (if (some? (.-total-tokens r)) 1 0))) 0 roster)
+        ctx-missing (reduce (fn [acc r] (+ acc (if (= (.-context-status r) "exact") 0 1))) 0 roster)
+        tot-missing (reduce (fn [acc r] (+ acc (if (= (.-total-status r) "exact") 0 1))) 0 roster)
+        ctx-status (if (> ctx-missing 0) (if (> ctx-known 0) "incomplete" "unknown") "exact")
+        tot-status (if (> tot-missing 0) (if (> tot-known 0) "incomplete" "unknown") "exact")
+        ctx-value (if (and (= ctx-status "unknown") (= ctx-known 0)) nil ctx)
+        tot-value (if (and (= tot-status "unknown") (= tot-known 0)) nil tot)]
+    (->Swarm (usage-display ctx-value ctx-status) (usage-display tot-value tot-status)
+             ctx-status tot-status))))

@@ -180,6 +180,7 @@
                           :role {:type "string" :minLength 1 :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
                           :posture {:type "string" :description "explore|deliver|preserve"}
                           :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
+                          :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
                           :tier {:type "string" :enum ["economy" "standard" "senior" "frontier"] :description "Provider-neutral capability tier"}
                           :coordinator {:type "string" :description "Caller's north id; the lane pings it on done/death + records a `coordinator` fact. Omit to inherit from AGENT_ID/NORTH_AGENT_ID env; pass explicitly from an interactive session."}
                           :taskGrade (:taskGrade routing-properties)
@@ -197,6 +198,7 @@
                           :role {:type "string" :minLength 1 :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
                           :posture {:type "string" :description "explore|deliver|preserve"}
                           :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
+                          :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
                           :tier {:type "string" :enum ["economy" "standard" "senior" "frontier"] :description "Provider-neutral capability tier"}
                           :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial (default ambient AGENT_CAVEMAN)"}
                           :coordinator {:type "string" :description "Caller's north id; see dispatch.coordinator"}
@@ -222,16 +224,65 @@
       (not-empty (get env "AGENT_ID"))
       (not-empty (System/getenv "NORTH_AGENT_ID"))))
 
+(defn semantic-segment [value]
+  (let [s (some-> value str str/trim str/lower-case
+                  (str/replace #"[^a-z0-9]+" "-")
+                  (str/replace #"(^-|-$)" ""))]
+    (if (seq s) s "unknown")))
+
+(defn semantic-model [value]
+  (let [model (semantic-segment value)
+        parts (set (str/split model #"-"))]
+    (or (some #(when (parts %) %) ["opus" "sonnet" "haiku" "fable" "sol" "terra" "luna"])
+        model)))
+
+(defn fallback-display-handle [agent-id args]
+  (let [provider (get args "provider")
+        provider (when (and provider (not= provider "auto")) provider)
+        target (get args "target")
+        provider-axis (if target (str (or provider "unknown") ":" target) provider)
+        effort (or (get args "reasoning") (get args "effort"))
+        composition (get args "composition")
+        composition-segment (cond
+                              (= "none" (get composition "kind")) "native"
+                              (seq (get composition "id")) (get composition "id")
+                              :else "unknown")
+        suffix (last (str/split agent-id #"-"))]
+    (str/join "-" [(semantic-segment provider-axis) (semantic-model (get args "model"))
+                    (semantic-segment effort) (semantic-segment composition-segment)
+                    (semantic-segment suffix)])))
+
+(defn observed-display-handle [agent-id]
+  (try
+    (let [{:keys [out exit]} (proc/sh engine "json" "show" (str "agent:" agent-id))]
+      (when (zero? exit)
+        (some (fn [fact]
+                (when (= "display_handle" (get fact "predicate"))
+                  (not-empty (get fact "value"))))
+              (json/parse-string out))))
+    (catch Exception _ nil)))
+
+(defn await-display-handle [agent-id args]
+  ;; The SDK writes this synchronously immediately after selecting a route.
+  ;; Fall back to explicit unknown segments; never scrape the process log.
+  (loop [attempt 0]
+    (if-let [handle (observed-display-handle agent-id)]
+      handle
+      (if (>= attempt 20)
+        (fallback-display-handle agent-id args)
+        (do (Thread/sleep 100) (recur (inc attempt)))))))
+
 (defn invalid-routing [args]
   (let [grade (get args "taskGrade") topology (get args "topology") role (get args "role")
         domains (get args "domainRequirements") composition (get args "composition")
-        reasoning (get args "reasoning") effort (get args "effort")]
+        reasoning (get args "reasoning") effort (get args "effort") target (get args "target")]
     (cond
       (and role (or (not (string? role)) (str/blank? role))) "role must be a non-empty string"
       (and grade (not (some #{grade} task-grade-values))) "invalid taskGrade"
       (and topology (not (some #{topology} topology-values))) "invalid topology"
       (and reasoning (not (some #{reasoning} reasoning-values))) "invalid reasoning"
       (and reasoning effort (not= reasoning effort)) "reasoning and compatibility effort disagree"
+      (and target (or (not (string? target)) (str/blank? target))) "target must be a non-empty string"
       (and domains (or (not (sequential? domains)) (some #(or (not (string? %)) (str/blank? %)) domains))) "domainRequirements must contain non-empty strings"
       (and composition (not (map? composition))) "composition must be an object"
       (and composition (not (some #{(get composition "kind")} ["preset" "bespoke"]))) "invalid composition.kind"
@@ -257,6 +308,7 @@
             role (get args "role")
             posture (get args "posture")
             provider (get args "provider")
+            target (get args "target")
             tier (get args "tier")
             task-grade (get args "taskGrade")
             domains (get args "domainRequirements")
@@ -267,8 +319,10 @@
                       model       (assoc "AGENT_MODEL" model)
                       reasoning   (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
                       role        (assoc "AGENT_ROLE" role)
+                      role        (assoc "AGENT_IDENTITY_ROLE" role)
                       posture     (assoc "AGENT_POSTURE" posture)
                       provider    (assoc "AGENT_PROVIDER" provider)
+                      target      (assoc "AGENT_TARGET" target)
                       tier        (assoc "AGENT_TIER" tier)
                       task-grade  (assoc "AGENT_TASK_GRADE" task-grade)
                       domains     (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string domains))
@@ -279,10 +333,12 @@
           (.mkdirs (.getParentFile log))
           (proc/process {:env cmd-env :out log :err log}
                         bun "run" (str sdk-dir "/dispatch.ts") id))
-        {:content [{:type "text" :text (str "dispatched @agent:" agent-id " for thread @" id
+        {:content [{:type "text" :text (str "dispatched " (await-display-handle agent-id args) " for thread @" id
                                             (when model (str " model=" model))
+                                            (when target (str " target=" target))
                                             (when coordinator (str " coordinator=" coordinator))
                                             "\nAgent is running in the background. "
+                                            "Control key: @agent:" agent-id ". "
                                             "Watch via web client (:8088) or `show` the thread.")}]})
 
       "spawn"
@@ -293,6 +349,7 @@
             role (get args "role")
             posture (get args "posture")
             provider (get args "provider")
+            target (get args "target")
             tier (get args "tier")
             task-grade (get args "taskGrade")
             domains (get args "domainRequirements")
@@ -304,8 +361,10 @@
                       model       (assoc "AGENT_MODEL" model)
                       reasoning   (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
                       role        (assoc "AGENT_ROLE" role)
+                      role        (assoc "AGENT_IDENTITY_ROLE" role)
                       posture     (assoc "AGENT_POSTURE" posture)
                       provider    (assoc "AGENT_PROVIDER" provider)
+                      target      (assoc "AGENT_TARGET" target)
                       tier        (assoc "AGENT_TIER" tier)
                       task-grade  (assoc "AGENT_TASK_GRADE" task-grade)
                       domains     (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string domains))
@@ -317,10 +376,12 @@
           (.mkdirs (.getParentFile log))
           (proc/process {:env cmd-env :out log :err log}
                         bun "run" (str sdk-dir "/spawn.ts") prompt))
-        {:content [{:type "text" :text (str "spawned @agent:" agent-id
+        {:content [{:type "text" :text (str "spawned " (await-display-handle agent-id args)
                                             (when model (str " model=" model))
+                                            (when target (str " target=" target))
                                             (when coordinator (str " coordinator=" coordinator))
                                             "\nAgent is running in the background. "
+                                            "Control key: @agent:" agent-id ". "
                                             "Watch via web client (:8088).")}]})))))
 
 ;; `untell` is an accepted legacy alias for `retract` — route it to the same tool.

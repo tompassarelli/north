@@ -38,7 +38,7 @@ export function clockCommand(
 }
 
 // PURE: the terminal clock action for a finalized run — crash outcomes orphan-close
-// (flag the untrustworthy tail), everything else (clean, turn-capped, budget-stopped)
+// (flag the untrustworthy tail), everything else (clean or turn-capped)
 // closes normally so real time still bills.
 export function finalizeAction(outcome: string): ClockAction {
   return outcome === "died" || outcome === "stalled" ? "orphan" : "stop";

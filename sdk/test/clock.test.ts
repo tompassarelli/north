@@ -32,10 +32,9 @@ describe("finalizeAction", () => {
     expect(finalizeAction("stalled")).toBe("orphan");
   });
 
-  test("clean / turn-capped / budget-stopped close normally (real time bills)", () => {
+  test("clean and turn-capped runs close normally (real time bills)", () => {
     expect(finalizeAction("ran")).toBe("stop");
     expect(finalizeAction("max_turns")).toBe("stop");
     expect(finalizeAction("capped")).toBe("stop");
-    expect(finalizeAction("budget_exceeded")).toBe("stop");
   });
 });

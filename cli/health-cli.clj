@@ -5,7 +5,7 @@
 ;; ("everything countable is a fold over an append-only log, never a mutated cell").
 ;; It surfaces the four durable failure families the coordination-v2 work already
 ;; lands on :7977, so failures show even when the spawning session is long gone:
-;;   1. lane outcomes      run-<agent>-<ts>  kind=run  outcome=ran|died|budget_*   (telemetry.recordRun)
+;;   1. lane outcomes      run-<agent>-<ts>  kind=run  outcome=ran|died|resource_envelope_exceeded|error
 ;;   2. reported deaths     @swarm            agent_death "<id> | <reason> | <ts>"  (death.notifyDeath)
 ;;   3. silent hard-kills   @agent:<id>       outcome=died-unreported               (reactor.sweep-lanes!)
 ;;   4. stale/handoff concerns  (composed over `concern ls` — its own liveness DECAY, not re-derived)

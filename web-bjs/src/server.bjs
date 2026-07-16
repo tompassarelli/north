@@ -104,16 +104,19 @@
     {"agents" roster "swarm" (presence/swarm-tokens roster)})))
 
 ;; Flat array in the shape wake's agents.wake expects (all string fields).
+(js/export (defn wake-presence-row [(r :- Any)] :- Any
+  {"uuid" (.-uuid r)
+   "roles" (.-roles_str r)
+   "model" (.-model_str r)
+   "online" (if (.-online r) "online" "offline")
+   "current_thread" (or (.-current_thread r) "")
+   "active_workflow" (or (.-active_workflow r) "")
+   "context_tokens" (.-ctx_str r)
+   "total_tokens" (.-total_str r)}))
+
 (js/export (defn api-wake-presence [(port :- Int)] :- (Promise Any)
   (let [roster (js/await (presence/roster port))]
-    (.map roster (fn [r]
-      {"uuid" (.-uuid r)
-       "roles" (.-roles_str r)
-       "model" (.-model_str r)
-       "online" (if (.-online r) "online" "offline")
-       "current_thread" (or (.-current_thread r) "")
-       "active_workflow" (or (.-active_workflow r) "")
-       "cost_usd" (.-ctx_str r)})))))
+    (.map roster wake-presence-row))))
 
 (js/export (defn api-agent-stream [(handle :- String)] :- (Promise Any)
   (let [msgs (js/await (stream/messages handle))] {"handle" handle "messages" msgs})))
@@ -170,14 +173,14 @@
         (if (not= (.-status r1) "ok")
           (write-http r1)
           (let [r2 (js/await (fram/assert! port tid "created_at" now))]
-            (js/await (assert-optional port tid "handle" (d/dget body "handle")))
-            (js/await (assert-optional-ref port tid "part_of" (d/dget body "part_of") port))
+            (js/await (assert-optional! port tid "handle" (d/dget body "handle")))
+            (js/await (assert-optional-ref! port tid "part_of" (d/dget body "part_of") port))
             {"http" 200 "body" {"ok" (.-value r2) "id" tid}})))))))
 
-(defn assert-optional [(port :- Int) (tid :- String) (pred :- String) (v :- Any)] :- (Promise Any)
+(defn assert-optional! [(port :- Int) (tid :- String) (pred :- String) (v :- Any)] :- (Promise Any)
   (if (or (nil? v) (= v "")) nil (fram/assert! port tid pred v)))
 
-(defn assert-optional-ref [(port :- Int) (tid :- String) (pred :- String) (v :- Any) (rport :- Int)] :- (Promise Any)
+(defn assert-optional-ref! [(port :- Int) (tid :- String) (pred :- String) (v :- Any) (rport :- Int)] :- (Promise Any)
   (if (or (nil? v) (= v ""))
     nil
     (let [resolved (js/await (threads/resolve (at v) rport))]

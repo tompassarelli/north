@@ -117,13 +117,16 @@
 (def default-routing-policy
   {:schemaVersion 1
    :mode "preferential"
-   :targets {"anthropic" {:provider "anthropic"}
-             "openai" {:provider "openai"}}
+   :targets {"anthropic" {:provider "anthropic" :authMode "ambient"}
+             "openai" {:provider "openai" :authMode "ambient"}}
    :order ["anthropic" "openai"]
    :weights {"anthropic" 1 "openai" 1}
    :reserve nil
    :pressure {}
    :envelopes {}})
+
+(defn- portable-profile-slug? [value]
+  (boolean (re-matches #"[a-z0-9][a-z0-9_-]{0,63}" (or value ""))))
 
 (defn- validate-routing [p]
   (let [ids (set (keys (:targets p)))
@@ -136,6 +139,12 @@
       (throw (ex-info (str "invalid mode " (:mode p)) {})))
     (when-let [[id target] (first (remove #(contains? #{"anthropic" "openai"} (:provider (val %))) (:targets p)))]
       (throw (ex-info (str "target " id " has invalid provider " (:provider target)) {})))
+    (when-let [[id target] (first (remove #(contains? #{nil "ambient" "isolated"} (:authMode (val %))) (:targets p)))]
+      (throw (ex-info (str "target " id " has invalid authMode " (:authMode target)) {})))
+    (when-let [[id target] (first (filter #(and (= "isolated" (:authMode (val %)))
+                                                (not (portable-profile-slug? (:profile (val %)))))
+                                          (:targets p)))]
+      (throw (ex-info (str "target " id " requires a portable profile slug when authMode is isolated") {})))
     (when dangling
       (throw (ex-info (str "dangling target reference(s): " (str/join ", " dangling)) {})))
     p))
@@ -171,6 +180,7 @@
                 :mode (get j "mode" "preferential")
                 :targets (into {} (map (fn [v]
                                          [(get v "id") (cond-> {:provider (get v "provider")}
+                                                         (get v "authMode") (assoc :authMode (get v "authMode"))
                                                          (get v "profile") (assoc :profile (get v "profile")))]))
                                (get j "targets" []))
                 :order (vec (get j "targetOrder" (map #(get % "id") (get j "targets" []))))
@@ -242,8 +252,9 @@
 (defn- print-routing [p]
   (println (str "routing: " (routing-summary p)))
   (println (str "  policy: " ROUTING-POLICY))
-  (doseq [[id {:keys [provider profile]}] (sort-by key (:targets p))]
-    (println (str "  target " id " → " provider (when profile (str " (profile " profile ")"))
+  (doseq [[id {:keys [provider authMode profile]}] (sort-by key (:targets p))]
+    (println (str "  target " id " → " provider " · auth " (or authMode "ambient")
+                  (when profile (str " (profile " profile ")"))
                   " · weight " (get (:weights p) id 1)
                   " · pressure " (pressure-label (get-in p [:pressure id])))))
   (when (seq (:envelopes p))
@@ -254,7 +265,7 @@
   (println "  adapter status: provider selection is live; distinct named profiles are policy-only until provider adapters support profile selection."))
 
 (def routing-usage
-  "usage: north config routing [show|mode preferential|balanced|reserved|order <target...>|weight <target> <positive>|reserve <target|off>|pressure <target> <plenty|normal|low|exhausted|unknown> [--until ISO]|target add <id> <anthropic|openai> [profile]|target remove <id>|envelope set <month|week|default|project:<id>|session:<id>> <runs|frontierRuns|retries|parallelism> <positive>|envelope clear <scope> [limit]]")
+  "usage: north config routing [show|mode preferential|balanced|reserved|order <target...>|weight <target> <positive>|reserve <target|off>|pressure <target> <plenty|normal|low|exhausted|unknown> [--until ISO]|target add <id> <anthropic|openai> [profile] [--auth-mode ambient|isolated]|target remove <id>|envelope set <month|week|default|project:<id>|session:<id>> <runs|frontierRuns|retries|parallelism> <positive>|envelope clear <scope> [limit]]")
 
 (defn cmd-routing [args]
   (let [p (routing-read)
@@ -289,16 +300,30 @@
                    (save! (assoc-in p [:pressure id]
                                     (cond-> {:level level :observedAt (now-iso)}
                                       until (assoc :until until)))))
-      "target" (let [[op id provider profile & extra] xs]
+      "target" (let [[op id provider & target-args] xs]
                  (case op
-                   "add" (do (when (or (nil? id) (nil? provider) (seq extra)
-                                        (not (contains? #{"anthropic" "openai"} provider))) (die routing-usage))
-                              (when (target? p id) (die (str "routing target already exists: " id)))
-                              (save! (-> p
-                                         (assoc-in [:targets id] (cond-> {:provider provider} profile (assoc :profile profile)))
-                                         (assoc-in [:weights id] 1)
-                                         (update :order conj id))))
-                   "remove" (do (when (or (nil? id) provider profile (seq extra)) (die routing-usage))
+                   "add" (let [[profile auth-mode]
+                               (cond
+                                 (empty? target-args) [nil nil]
+                                 (= 1 (count target-args)) [(first target-args) nil]
+                                 (and (= 2 (count target-args)) (= "--auth-mode" (first target-args)))
+                                 [nil (second target-args)]
+                                 (and (= 3 (count target-args)) (= "--auth-mode" (second target-args)))
+                                 [(first target-args) (nth target-args 2)]
+                                 :else (die routing-usage))]
+                           (when (or (nil? id) (nil? provider)
+                                     (not (contains? #{"anthropic" "openai"} provider))) (die routing-usage))
+                           (when (and auth-mode (not (contains? #{"ambient" "isolated"} auth-mode))) (die routing-usage))
+                           (when (and (= auth-mode "isolated") (not (portable-profile-slug? profile)))
+                             (die "isolated routing targets require a portable profile slug (lowercase letters, digits, _ or -; max 64 characters)"))
+                           (when (target? p id) (die (str "routing target already exists: " id)))
+                           (save! (-> p
+                                      (assoc-in [:targets id] (cond-> {:provider provider}
+                                                               auth-mode (assoc :authMode auth-mode)
+                                                               profile (assoc :profile profile)))
+                                      (assoc-in [:weights id] 1)
+                                      (update :order conj id))))
+                   "remove" (do (when (or (nil? id) provider (seq target-args)) (die routing-usage))
                                  (require-target! p id)
                                  (when (= 1 (count (:targets p))) (die "cannot remove the final routing target"))
                                  (save! (-> p

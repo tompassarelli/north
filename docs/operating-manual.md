@@ -636,18 +636,39 @@ north             # THE CARD: one screen of every significant incantation, group
 north dashboard   # the cockpit: live agents, concerns by repo, board counts,
                   # daemon health, condensed `north health`, profile rung per layer
 north doctor      # is everything healthy (the health sweep above)
+north account status      # provider-owned subscription login, per isolated target
+north account list        # named account targets and their isolated CLI homes
+north config routing      # allocation mode, order, reserve, pressure, envelopes
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
-**division of labor** the fold preserves: **gaffer answers WHO does the work**
-(role → model/effort dials, doctrine injected at SessionStart); **north's cockpit
-answers HOW you see and drive it** (dashboard, spawn, watch, steer, profile). The
-cockpit NEVER re-derives doctrine — `north spawn` reads Gaffer's canonical
-machine staffing catalog (`~/code/gaffer/staffing/catalog.json`) at runtime.
-Generated agent markdown and `~/code/gaffer/docs/adapters/north.md` remain
-provider-adapter artifacts, never North's metadata source. Explicit spawn axes
-override their catalog defaults independently, so a staffing change in Gaffer is
-a staffing change here with no North edit.
+**division of labor** the fold preserves: **Gaffer answers WHO does the work**
+(role, composition, semantic tier, reasoning, and posture); **North answers WHERE
+it runs and HOW you see and drive it** (account target, subscription pressure,
+dashboard, spawn, watch, steer, profile). Gaffer is account-blind. `north spawn`
+reads `~/code/gaffer/staffing/catalog.json`, then North selects an eligible target
+and resolves the semantic tier through that provider's catalog. Generated agent
+markdown and `~/code/gaffer/docs/adapters/north.md` remain provider-adapter
+artifacts, never North's metadata source.
+
+`north account add|login|status|list` manages provider-owned subscription login
+inside isolated homes under `~/.local/state/north/accounts`. `--target <id>` is
+an exact account pin with no fallback. `--provider <name>` permits only sibling
+accounts of that provider; the default auto route may use any eligible target.
+Preferential mode follows target order, balanced mode applies stable weighted
+distribution adjusted by per-target pressure, and reserved mode preserves a
+configured target for frontier work. A runtime fallback requires typed proof
+that the provider never accepted the request and occurs before any emitted event;
+North never decides replay safety from exception text. Agent/run facts preserve
+the requested target, resolved target, selection reason, pressure, and fallback
+path. Token reports likewise preserve evidence: exact totals remain exact,
+unknown coverage never becomes zero, and mixed coverage is labeled as a known
+lower bound plus incomplete coverage. Full contract:
+`~/code/north/docs/provider-architecture.md`.
+
+Explicit spawn axes override Gaffer defaults independently, so a staffing change
+in Gaffer requires no North edit and an account-policy change requires no Gaffer
+edit.
 
 **Ownership rule** (2026-07-09): a cockpit verb earns its place ONLY when it
 COMPOSES multiple tools (`dashboard`, `doctor`, `profile`, `spawn` = gaffer dials

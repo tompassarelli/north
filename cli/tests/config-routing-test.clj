@@ -23,10 +23,12 @@
   (let [show (run!)]
     (check "no-arg show exposes obvious defaults" (and (zero? (:exit show))
                                                         (str/includes? (:out show) "mode preferential")
-                                                        (str/includes? (:out show) "anthropic → openai"))))
+                                                        (str/includes? (:out show) "anthropic → openai")
+                                                        (str/includes? (:out show) "anthropic · auth ambient"))))
 
   (doseq [args [["mode" "balanced"]
                 ["target" "add" "claude-work" "anthropic" "work"]
+                ["target" "add" "claude-isolated" "anthropic" "work_2" "--auth-mode" "isolated"]
                 ["order" "claude-work" "openai"]
                 ["weight" "claude-work" "3"]
                 ["reserve" "claude-work"]
@@ -39,6 +41,12 @@
     (check "round-trip mode" (= "balanced" (get j "mode")))
     (check "round-trip target profile" (some #(= {"id" "claude-work" "provider" "anthropic" "profile" "work"} %)
                                               (get j "targets")))
+    (check "legacy profile does not imply isolated auth" (some #(and (= "claude-work" (get % "id"))
+                                                                      (not (contains? % "authMode")))
+                                                                (get j "targets")))
+    (check "isolated auth mode round trips losslessly" (some #(= {"id" "claude-isolated" "provider" "anthropic"
+                                                                   "authMode" "isolated" "profile" "work_2"} %)
+                                                           (get j "targets")))
     (check "round-trip order" (= ["claude-work" "openai"] (get j "targetOrder")))
     (check "round-trip weight/reserve" (and (= 3 (get-in j ["weights" "claude-work"]))
                                              (= "claude-work" (get j "reservedFrontierTarget"))))
@@ -53,7 +61,9 @@
   ;; by the Clojure CLI, rather than a separately maintained fixture.
   (let [script (str "import { loadResourcePolicy } from '" root "/sdk/src/resource-policy.ts';"
                     "const p=loadResourcePolicy();"
-                    "if(p?.targetOrder[0]!=='claude-work'||p?.envelopes?.projects?.north?.frontierRuns!==8)process.exit(9);")
+                    "const legacy=p?.targets?.find(t=>t.id==='claude-work');"
+                    "const isolated=p?.targets?.find(t=>t.id==='claude-isolated');"
+                    "if(p?.targetOrder[0]!=='claude-work'||p?.envelopes?.projects?.north?.frontierRuns!==8||legacy?.authMode!=='ambient'||isolated?.authMode!=='isolated')process.exit(9);")
         loaded (p/shell {:out :string :err :string :continue true
                          :extra-env {"NORTH_ROUTING_POLICY" policy}}
                         "bun" "-e" script)]
@@ -64,6 +74,9 @@
                           ["zero weight rejected" ["weight" "claude-work" "0"]]
                           ["bad pressure rejected" ["pressure" "claude-work" "empty"]]
                           ["bad expiry rejected" ["pressure" "claude-work" "low" "--until" "tomorrow"]]
+                          ["isolated target without profile rejected" ["target" "add" "missing-profile" "anthropic" "--auth-mode" "isolated"]]
+                          ["isolated target traversal rejected" ["target" "add" "traversal" "anthropic" "../work" "--auth-mode" "isolated"]]
+                          ["isolated target path rejected" ["target" "add" "path" "anthropic" "work/team" "--auth-mode" "isolated"]]
                           ["bad envelope scope rejected" ["envelope" "set" "day" "runs" "2"]]]]
       (let [r (apply run! args)]
         (check label (not (zero? (:exit r))))

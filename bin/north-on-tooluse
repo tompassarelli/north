@@ -8,6 +8,9 @@ set -uo pipefail
 IN="$(cat 2>/dev/null || true)"
 # pull a flat JSON string field without jq
 jget() { printf '%s' "$IN" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1; }
+jget_effort() {
+  printf '%s' "$IN" | sed -n 's/.*"effort"[[:space:]]*:[[:space:]]*{[^}]*"level"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
 cwd="$(jget cwd)"; [ -z "$cwd" ] && cwd="$PWD"
 sid="$(jget session_id)"
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
@@ -20,6 +23,7 @@ RN="$(basename "$REPO")"
 # as a fallback for a process whose spawn hook never fired (e.g. SDK-dispatched).
 # Deriving from each tool call's cwd minted a phantom agent per repo (flood 2026-07-02).
 CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$sid"
+ROUTE_CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes/$sid"
 ID=""
 if [ -n "$sid" ] && [ -r "$CACHE" ]; then
   ID="$(cat "$CACHE" 2>/dev/null || true)"
@@ -27,6 +31,40 @@ fi
 [ -z "$ID" ] && ID="${NORTH_AGENT_ID:-}"
 [ -z "$ID" ] && ID="session-$RN-${sid:0:8}"
 [ "$ID" = "session-$RN-" ] && ID="session-$RN-$RANDOM"
+
+# PostToolUse receives the effective effort used for the turn, both as the
+# structured input field and CLAUDE_EFFORT. It does not receive the active model,
+# so the per-session route cache carries only the last exact SessionStart model;
+# never infer one from tool input or ambient ANTHROPIC_MODEL.
+EFFORT="$(jget_effort)"; [ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-}"
+cached_provider=""; cached_model=""; cached_effort=""
+if [ -n "$sid" ] && [ -r "$ROUTE_CACHE" ]; then
+  cached_provider="$(sed -n '1p' "$ROUTE_CACHE" 2>/dev/null || true)"
+  cached_model="$(sed -n '2p' "$ROUTE_CACHE" 2>/dev/null || true)"
+  cached_effort="$(sed -n '3p' "$ROUTE_CACHE" 2>/dev/null || true)"
+fi
+if [ -n "$EFFORT" ] && [ "$EFFORT" != "$cached_effort" ]; then
+  NORTHBIN="$HOME/code/north/bin/north"
+  projection_ok=1
+  timeout 4 "$NORTHBIN" tell "agent:$ID" effort "$EFFORT" >/dev/null 2>&1 || projection_ok=0
+  if [ -r "$ROUTE_CACHE" ]; then
+    slug() {
+      printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
+    }
+    provider_segment="$(slug "${cached_provider:-unknown}")"; [ -n "$provider_segment" ] || provider_segment="unknown"
+    model_segment="$(slug "${cached_model:-unknown}")"; [ -n "$model_segment" ] || model_segment="unknown"
+    effort_segment="$(slug "$EFFORT")"; [ -n "$effort_segment" ] || effort_segment="unknown"
+    display_handle="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
+    timeout 4 "$NORTHBIN" tell "agent:$ID" display_handle "$display_handle" >/dev/null 2>&1 || projection_ok=0
+    timeout 4 "$NORTHBIN" tell "agent:$ID" display_name "$display_handle" >/dev/null 2>&1 || projection_ok=0
+  fi
+  if [ "$projection_ok" -eq 1 ] && [ -r "$ROUTE_CACHE" ]; then
+    route_tmp="$ROUTE_CACHE.$$.tmp"
+    if printf '%s\n%s\n%s\n' "$cached_provider" "$cached_model" "$EFFORT" > "$route_tmp" 2>/dev/null; then
+      mv -f "$route_tmp" "$ROUTE_CACHE" 2>/dev/null || rm -f "$route_tmp" 2>/dev/null || true
+    fi
+  fi
+fi
 
 # renew presence = ACTIVITY HEARTBEAT. A renewal MEANS "this agent ran a tool just now"
 # (IS-WORKING), so the 30min lease expiring becomes a real death signal, not just

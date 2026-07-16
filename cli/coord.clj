@@ -105,24 +105,23 @@
 ;; ============================================================================
 ;; INCREMENTAL AGGREGATE — the completion DUAL of mutual exclusion.
 ;;
-;; Roadmap tier F (quorum) + G (budget), decision 6: "EVERYTHING COUNTABLE IS A
+;; Roadmap tier F, decision 6: "EVERYTHING COUNTABLE IS A
 ;; FOLD OVER AN APPEND-ONLY LOG, NEVER A MUTATED CELL." Where mutual exclusion
 ;; REJECTS the second writer, completion ACCEPTS every writer and DERIVES the
 ;; answer by folding the log at READ time — so the completion half of
 ;; coordination needs no write-time convergence at all.
 ;;
-;; ONE primitive, two reducers — the proof that quorum and budget are the same
-;; shape seen through different folds:
+;; ONE primitive, two reducers for common aggregation shapes:
 ;;   quorum = count-distinct(worker) >= K   — north-map's K-of-N barrier
-;;   budget = Σ(charge)              <  cap  — the swarm gate's spend ceiling
-;; Both fold a monotone reducer over the rows a Datalog BODY binds against the
+;;   usage  = Σ(measurement)               — telemetry and experiment totals
+;; Both fold a reducer over the rows a Datalog BODY binds against the
 ;; scan engine. Both are commutative and idempotent (set semantics collapse a
 ;; double-reported worker; Σ rides write-once @charge/@run subjects), so retry,
 ;; double-report, and racing writers all converge with ZERO coordination. Each
 ;; fold is a pure, recomputable function of the log prefix — never a cached cell
-;; that can silently diverge from its own source (the two-budgets bug, killed at
-;; the root). The total order earliest-cid that makes other derivations agree is
-;; not even needed here: + and set-union are order-independent.
+;; that can silently diverge from its own source. The total order earliest-cid
+;; that makes other derivations agree is not even needed here: + and set-union
+;; are order-independent.
 
 ;; A REDUCER is {:init :step :final}: fold :step from :init over the rows, finalize.
 ;; The two production reducers — the only two coordination has ever needed:
@@ -133,10 +132,10 @@
   {:init #{} :step (fn [s row] (conj s (first row))) :final identity})
 
 (def sum-reducer
-  "Budget reducer: Σ the numeric SECOND projection of each row (non-numeric -> 0).
+  "Sum reducer: Σ the numeric SECOND projection of each row (non-numeric -> 0).
    Rows MUST carry a distinct key in the FIRST position (the @run/@charge subject):
    the engine's derived head is a SET of tuples, so a value-only projection would
-   collapse two equal-valued addends (two equal-cost runs) and UNDER-count. The key
+   collapse two equal-valued addends and UNDER-count. The key
    keeps equal values distinct — the exact dual of count-distinct, which WANTS the
    collapse. This asymmetry is why Σ projects [key val] and count-distinct [key]."
   {:init 0 :step (fn [n row] (+ n (or (parse-double (str (second row))) 0))) :final identity})
@@ -152,13 +151,12 @@
 ;; Apply a REDUCER to a row-seq you already hold. The seam for callers that must
 ;; scope rows with a predicate the scan body can't express (e.g. an entity-id
 ;; PREFIX like "@run:") — they fold the pre-filtered rows through the SAME reducer,
-;; so the reducer (not the query) is the shared substrate budget and quorum split on.
+;; so every caller uses the same numeric reducer.
 (defn reduce-rows [{:keys [init step final]} rows] (final (reduce step init rows)))
 (defn sum-rows      [rows] (reduce-rows sum-reducer rows))       ; Σ the [key val] rows
 (defn distinct-rows [rows] (reduce-rows distinct-reducer rows))  ; SET of the [key] rows
 
-;; THE primitive. Quorum and budget are THIS fn with a different reducer — that
-;; identity is the whole point. Pure read; recomputable from the log.
+;; THE primitive. Pure read; recomputable from the log.
 (defn aggregate [port project body reducer]
   (reduce-rows reducer (agg-rows port project body)))
 
@@ -172,7 +170,7 @@
 (defn sum-of
   "Σ of a numeric projection over BODY. PROJECT must be [key-var val-var]: the key
    (the @run/@charge subject) keeps equal values distinct so they are not deduped
-   away; the val is summed. The budget/spend fold."
+   away; the val is summed."
   [port project body] (aggregate port project body sum-reducer))
 
 ;; --- gates (a gate is just a threshold predicate over a fold) ---------------

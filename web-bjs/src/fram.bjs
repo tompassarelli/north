@@ -57,18 +57,69 @@
   (export (function parseIntSafe (v)
     (const n (parseInt (String v) 10))
     (return (? (isNaN n) 0 n))))
+  ;; Provider token facts are non-negative safe integers. Keep malformed or
+  ;; absent facts nullable so reporting never turns unknown usage into zero.
+  (export (function parseTokenCount (v)
+    (if (=== v null) (return null))
+    (if (=== v undefined) (return null))
+    (if (=== v "") (return null))
+    (const n (Number v))
+    (if (.isSafeInteger Number n)
+      (if (>= n 0) (return n)))
+    (return null)))
   (export (function parseFloatSafe (v)
     (const n (parseFloat (String v)))
     (return (? (isNaN n) 0 n))))
   ;; lexical >= for ISO-8601 strings (Beagle >= is numeric).
   (export (function strGte (a b)
-    (return (>= a b)))))
+    (return (>= a b))))
+  ;; The coordinator's generic all-triples projection intentionally omits
+  ;; split-log run telemetry. Fold the two append logs mechanically instead;
+  ;; no model turn and no price reconstruction. Highest tx wins per run/pred.
+  (let runUsageCache (object sig "" triples (array)))
+  (export (async function runUsageTriplesFromLogs ()
+    (const home (or (dot (dot process env) HOME) ""))
+    (const configured (array
+      (or (bracket (dot process env) "FRAM_LOG") (tpl "" home "/.local/state/north/coordination.log"))
+      (or (bracket (dot process env) "FRAM_TELEMETRY_LOG") (tpl "" home "/.local/state/north/telemetry.log"))))
+    (const paths (.from Array (new Set configured)))
+    (const files (.map paths (=> (path) (.file Bun path))))
+    (const sig (.join (.map files (=> (f i) (tpl "" (bracket paths i) ":" (dot f size) ":" (dot f lastModified)))) "|"))
+    (if (=== sig (dot runUsageCache sig)) (return (dot runUsageCache triples)))
+    (const texts (await (.all Promise (.map files (=> (f)
+      ((bracket (.text f) "catch") (=> (e) "")))))))
+    (const latest (new Map))
+    (const re (new RegExp ":tx\\s+(\\d+).*?:op\\s+\"([^\"]+)\".*?:l\\s+\"(@run[:-][^\"]+)\".*?:p\\s+\"(agent|tokens|input_tokens|output_tokens|cache_create_tokens|cache_read_tokens|cached_input_tokens|reasoning_output_tokens|usage_terminal_count|usage_scope|usage_total_status|at|ended_at)\".*?:r\\s+\"((?:\\\\.|[^\"])*)\""))
+    (.forEach texts (=> (text)
+      (.forEach (.split text "\n") (=> (line)
+        (const m (.match line re))
+        (if m
+          (const tx (parseInt (bracket m 1) 10))
+          (const op (bracket m 2))
+          (const s (bracket m 3))
+          (const p (bracket m 4))
+          (const raw (bracket m 5))
+          (let value null)
+          (try (= value (.parse JSON (tpl "\"" raw "\"")))
+            (catch e (= value null)))
+          (const key (tpl "" s "\u0000" p))
+          (const prev (.get latest key))
+          (if (and (!== value null) (or (! prev) (> tx (dot prev tx))))
+            (if (=== op "retract")
+              ((bracket latest "delete") key)
+              (.set latest key (object tx tx s s p p o value)))))))))
+    (const triples (.map (.from Array (.values latest)) (=> (x) (array (dot x s) (dot x p) (dot x o)))))
+    (= runUsageCache (object sig sig triples triples))
+    (return triples))))
 
 (declare-extern framRequestRaw [Int String -> (Promise String)])
 (declare-extern safeParse [String -> Any])
 (declare-extern parseIntSafe [Any -> Int])
+(declare-extern parseTokenCount [Any -> Any])
 (declare-extern parseFloatSafe [Any -> Float])
 (declare-extern strGte [String String -> Bool])
+(declare-extern runUsageTriplesFromLogs [-> (Promise Any)])
+(declare-extern process Any)
 
 ;; ---- ports ------------------------------------------------------------------
 
@@ -131,9 +182,6 @@
 (def roster-op :- String
   "{:op :query :query {:find \"s\" :rules [{:head {:rel \"s\" :args [{:var \"e\"} {:var \"h\"}]} :body [{:rel \"triple\" :args [{:var \"e\"} \"agent\" {:var \"h\"}]}]}]}}")
 
-(def costs-op :- String
-  "{:op :query :query {:find \"r\" :rules [{:head {:rel \"r\" :args [{:var \"run\"} {:var \"a\"} {:var \"c\"}]} :body [{:rel \"triple\" :args [{:var \"run\"} \"agent\" {:var \"a\"}]} {:rel \"triple\" :args [{:var \"run\"} \"cost_usd\" {:var \"c\"}]}]}]}}")
-
 (def all-triples-op :- String
   "{:op :query :query {:find \"t\" :rules [{:head {:rel \"t\" :args [{:var \"s\"} {:var \"p\"} {:var \"o\"}]} :body [{:rel \"triple\" :args [{:var \"s\"} {:var \"p\"} {:var \"o\"}]}]}]}}")
 
@@ -152,16 +200,6 @@
       (let [sess (filterv (fn [row] (.startsWith (nth row 0) "@session:")) (.-ok resp))
             m (reduce (fn [acc row] (assoc acc (nth row 1) row)) {} sess)]
         (vals m))))))
-
-;; {handle => summed cost_usd} across all @run:* records.
-(js/export (defn agent-costs [(port :- Int)] :- (Promise Any)
-  (let [resp (js/await (query port costs-op))]
-    (if (or (nil? resp) (nil? (.-ok resp)))
-      {}
-      (reduce (fn [acc row]
-                (let [a (nth row 1) c (parseFloatSafe (nth row 2))]
-                  (assoc acc a (+ (get acc a 0.0) c))))
-              {} (.-ok resp))))))
 
 ;; Single resolved value for entity+predicate, or nil.
 (js/export (defn resolved [(port :- Int) (te :- String) (pred :- String)] :- (Promise Any)
@@ -198,36 +236,88 @@
 
 (defn token-pred? [(p :- String)] :- Bool
   (or (= p "input_tokens") (= p "output_tokens")
-      (= p "cache_create_tokens") (= p "cache_read_tokens")))
+      (= p "cache_create_tokens") (= p "cache_read_tokens")
+      (= p "cached_input_tokens") (= p "reasoning_output_tokens")
+      (= p "tokens")))
 
-(defn run-tot [(r :- Any)] :- Int
-  (+ (parseIntSafe (get r "input_tokens" "0"))
-     (+ (parseIntSafe (get r "output_tokens" "0"))
-        (+ (parseIntSafe (get r "cache_create_tokens" "0"))
-           (parseIntSafe (get r "cache_read_tokens" "0"))))))
+(defn usage-meta-pred? [(p :- String)] :- Bool
+  (or (= p "usage_terminal_count") (= p "usage_scope")
+      (= p "usage_total_status")))
+
+(defn run-subject? [(s :- String)] :- Bool
+  (or (.startsWith s "@run:") (.startsWith s "@run-")))
+
+(defn legacy-component-total [(r :- Any)] :- Any
+  (let [input (parseTokenCount (get r "input_tokens"))
+        output (parseTokenCount (get r "output_tokens"))
+        cache-create (parseTokenCount (get r "cache_create_tokens"))
+        cache-read (parseTokenCount (get r "cache_read_tokens"))]
+    ;; Historical Anthropic runs predate usage_total_status but recorded all
+    ;; four disjoint terminal categories. A partial component row is ambiguous.
+    (if (and (some? input) (some? output)
+             (some? cache-create) (some? cache-read))
+      (+ input (+ output (+ cache-create cache-read)))
+      nil)))
+
+(js/export (defn run-tot [(r :- Any)] :- Any
+  (let [status (get r "usage_total_status")
+        aggregate (parseTokenCount (get r "tokens"))]
+    (cond
+      ;; Once structured status exists it owns truth: only exact + aggregate is
+      ;; a total. Component subsets remain observable but are never summed.
+      (some? status) (if (and (= status "exact") (some? aggregate)) aggregate nil)
+      ;; Aggregate-only rows are historical exact telemetry.
+      (some? aggregate) aggregate
+      :else (legacy-component-total r)))))
+
+(js/export (defn run-context [(r :- Any)] :- Any
+  (parseTokenCount (get r "input_tokens"))))
+
+(js/export (defn run-ended [(r :- Any)] :- String
+  (get r "at" (get r "ended_at" ""))))
 
 (defn fold-run [(out :- Any) (r :- Any)] :- Any
   (let [h (get r "agent")]
     (if (nil? h)
       out
       (let [tot (run-tot r)
-            ctx (parseIntSafe (get r "input_tokens" "0"))
-            ended (get r "ended_at" "")
+            ctx (run-context r)
+            ended (run-ended r)
+            exact (some? tot)
             prev (get out h)]
         (if (nil? prev)
-          (assoc out h {"context" ctx "total" tot "ended" ended})
+          (assoc out h {"context" ctx
+                        "context_status" (if (some? ctx) "exact" "unknown")
+                        "total" tot
+                        "total_status" (if exact "exact" "unknown")
+                        "exact_runs" (if exact 1 0)
+                        "unknown_runs" (if exact 0 1)
+                        "ended" ended})
           (let [newer (strGte ended (get prev "ended" ""))]
-            (assoc out h {"context" (if newer ctx (get prev "context"))
-                          "total"   (+ (get prev "total") tot)
-                          "ended"   (if newer ended (get prev "ended"))})))))))
+            (let [exact-runs (+ (get prev "exact_runs") (if exact 1 0))
+                  unknown-runs (+ (get prev "unknown_runs") (if exact 0 1))
+                  prev-total (get prev "total")
+                  known-total (+ (if (some? prev-total) prev-total 0) (if exact tot 0))]
+              (assoc out h {"context" (if newer ctx (get prev "context"))
+                            "context_status" (if newer
+                                               (if (some? ctx) "exact" "unknown")
+                                               (get prev "context_status"))
+                            "total" (if (> exact-runs 0) known-total nil)
+                            "total_status" (cond
+                                             (> unknown-runs 0) (if (> exact-runs 0) "incomplete" "unknown")
+                                             :else "exact")
+                            "exact_runs" exact-runs
+                            "unknown_runs" unknown-runs
+                            "ended" (if newer ended (get prev "ended"))}))))))))
 
 ;; Per-handle token usage: {handle => {context: latest_input_tokens, total: sum}}.
 (js/export (defn agent-tokens [(port :- Int)] :- (Promise Any)
-  (let [trips (js/await (all-triples port))
+  (let [trips (js/await (runUsageTriplesFromLogs))
         runs (reduce (fn [acc t]
                        (let [s (nth t 0) p (nth t 1) o (nth t 2)]
-                         (if (and (.startsWith s "@run:")
-                                  (or (= p "agent") (= p "ended_at") (token-pred? p)))
+                         (if (and (run-subject? s)
+                                  (or (= p "agent") (= p "at") (= p "ended_at")
+                                      (token-pred? p) (usage-meta-pred? p)))
                            (assoc acc s (assoc (get acc s {}) p o))
                            acc)))
                      {} trips)]

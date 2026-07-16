@@ -19,6 +19,7 @@ let log: string;
 const MANAGED_ENV = [
   "PATH", "NORTH_BIN", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT",
+  "AGENT_IDENTITY_ROLE", "AGENT_TARGET",
   "AGENT_TIER", "AGENT_REASONING", "AGENT_POSTURE", "AGENT_TOPOLOGY", "AGENT_TASK_GRADE",
   "AGENT_DOMAIN_REQUIREMENTS", "AGENT_COMPOSITION", "NORTH_FABLE_NOW",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
@@ -56,6 +57,7 @@ beforeAll(() => {
   delete process.env.NORTH_AGENT_ID;
   delete process.env.AGENT_MODEL;
   delete process.env.AGENT_ROLE;
+  delete process.env.AGENT_IDENTITY_ROLE;
   delete process.env.AGENT_EFFORT;
   delete process.env.AGENT_TIER;
   delete process.env.AGENT_REASONING;
@@ -64,6 +66,7 @@ beforeAll(() => {
   delete process.env.AGENT_TASK_GRADE;
   delete process.env.AGENT_DOMAIN_REQUIREMENTS;
   delete process.env.AGENT_COMPOSITION;
+  delete process.env.AGENT_TARGET;
   process.env.AGENT_COORDINATOR = TEST_COORDINATOR;
 });
 
@@ -115,6 +118,49 @@ test("a lane that dies mid-stream records outcome=died ON the lane entity (repor
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell agent:test-done-died outcome died");
   expect(logged).toContain("tell @swarm agent_death"); // death path still fires
+});
+
+test("an Anthropic error terminal still records its authoritative usage", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  const queryFn: any = () => (async function* () {
+    yield {
+      type: "result", subtype: "error_during_execution", is_error: true,
+      duration_ms: 1, num_turns: 1,
+      usage: { input_tokens: 11, output_tokens: 3,
+        cache_creation_input_tokens: 2, cache_read_input_tokens: 5 },
+    };
+  })();
+
+  await spawn({ prompt: "terminal error usage", agentId: "test-terminal-error",
+    provider: "anthropic", queryFn });
+  await waitForLog("tell run-test-terminal-error-");
+  await waitForLog("usage_total_status exact");
+  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-terminal-error-"));
+  expect(lines.some((line) => line.endsWith(" tokens 21"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" usage_terminal_count 1"))).toBe(true);
+});
+
+test("repeated Anthropic terminals record ambiguity without a selected or summed usage", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  const queryFn: any = () => (async function* () {
+    yield { type: "system", subtype: "task_started", task_id: "bg-1" };
+    yield { type: "result", subtype: "success", result: "first", duration_ms: 1, num_turns: 1,
+      usage: { input_tokens: 10, output_tokens: 2,
+        cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } };
+    yield { type: "system", subtype: "task_notification", task_id: "bg-1", status: "completed" };
+    yield { type: "result", subtype: "success", result: "second", duration_ms: 2, num_turns: 2,
+      usage: { input_tokens: 20, output_tokens: 4,
+        cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } };
+  })();
+
+  await spawn({ prompt: "two terminal scopes", agentId: "test-repeated-terminals",
+    provider: "anthropic", queryFn });
+  await waitForLog("usage_total_status unknown_repeated_terminal");
+  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-repeated-terminals-"));
+  expect(lines.some((line) => line.endsWith(" usage_terminal_count 2"))).toBe(true);
+  expect(lines.some((line) => / (tokens|input_tokens|output_tokens) /.test(line))).toBe(false);
 });
 
 async function waitForLog(needle: string): Promise<string> {
@@ -177,6 +223,188 @@ test("public role-only integrator spawn hydrates the complete Gaffer recipe", as
     "task_grade senior", "topology worker", "routing_tier senior",
     "requested_reasoning high", "routing_posture deliver",
   ]) expect(logged).toContain(fact);
+  for (const fact of [
+    "tell agent:test-role-only-integrator provider anthropic",
+    "tell agent:test-role-only-integrator provider_target anthropic",
+    "tell agent:test-role-only-integrator model opus",
+    "tell agent:test-role-only-integrator effort high",
+    "tell agent:test-role-only-integrator composition_kind preset",
+    "tell agent:test-role-only-integrator composition_id integrator",
+    "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-integrator-integrator",
+  ]) expect(logged).toContain(fact);
+});
+
+test("tier-routed OpenAI identity records the resolved Sol route, not requested blanks", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  let queryOptions: any;
+  const queryFn: any = (args: any) => {
+    queryOptions = args.options;
+    return (async function* () {
+      yield { type: "result", subtype: "success", result: "routed", duration_ms: 1, num_turns: 1 };
+    })();
+  };
+
+  await spawn({ prompt: "route with OpenAI", agentId: "test-openai-designer",
+    role: "designer", provider: "openai", queryFn });
+
+  expect(queryOptions.model).toBe("gpt-5.6-sol");
+  expect(queryOptions.effort).toBe("xhigh");
+  const logged = readFileSync(log, "utf8");
+  for (const fact of [
+    "tell agent:test-openai-designer provider openai",
+    "tell agent:test-openai-designer provider_target openai",
+    "tell agent:test-openai-designer model gpt-5.6-sol",
+    "tell agent:test-openai-designer effort xhigh",
+    "tell agent:test-openai-designer display_handle openai-ambient-sol-xhigh-designer-designer",
+  ]) expect(logged).toContain(fact);
+});
+
+test("public SpawnOptions target and Gaffer role land on exact account identity", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  const policyPath = process.env.NORTH_ROUTING_POLICY!;
+  writeFileSync(policyPath, JSON.stringify({
+    version: 1,
+    mode: "preferential",
+    targets: [
+      { id: "claude-work", provider: "anthropic", authMode: "ambient" },
+      { id: "openai", provider: "openai", authMode: "ambient" },
+    ],
+    targetOrder: ["claude-work", "openai"],
+  }));
+  try {
+    await spawn({
+      prompt: "design on the work account", agentId: "test-target-designer",
+      role: "designer", provider: "anthropic", target: "claude-work",
+      queryFn: () => (async function* () {
+        yield { type: "result", subtype: "success", result: "designed", duration_ms: 1, num_turns: 1 };
+      })(),
+    });
+    const logged = await waitForLog("requested_target claude-work");
+    expect(logged).toContain("tell agent:test-target-designer provider_target claude-work");
+    expect(logged).toContain("tell agent:test-target-designer composition_id designer");
+    expect(logged).toContain("tell agent:test-target-designer display_name anthropic:claude-work");
+    expect(logged).toContain("provider_target claude-work");
+    expect(logged).toContain("requested_target claude-work");
+  } finally {
+    rmSync(policyPath, { force: true });
+  }
+});
+
+test("in-flight escalation refreshes model, effort, and semantic handle without resetting identity", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  const models: string[] = [];
+  const queryFn: any = () => ({
+    setModel: async (model: string) => { models.push(model); },
+    applyFlagSettings: async () => {},
+    async *[Symbol.asyncIterator]() {
+      for (let i = 0; i < 3; i++) {
+        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `t${i}`, name: "Bash", input: { i } }] } };
+        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `t${i}`, is_error: true }] } };
+      }
+      yield { type: "result", subtype: "success", result: "recovered", duration_ms: 1, num_turns: 4 };
+    },
+  });
+
+  await spawn({ prompt: "recover from errors", agentId: "test-escalated-integrator",
+    role: "integrator", provider: "anthropic", escalate: true, queryFn });
+
+  expect(models.length).toBeGreaterThan(0);
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain("tell agent:test-escalated-integrator effort xhigh");
+  expect(logged).toContain("tell agent:test-escalated-integrator display_handle anthropic-ambient-opus-xhigh-integrator-integrator");
+  expect(logged.match(/tell agent:test-escalated-integrator spawned_at/g)?.length).toBe(1);
+});
+
+test("unsupported in-flight escalation is explicit and does not fabricate a higher route", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  let interrupts = 0;
+  const queryFn: any = () => ({
+    interrupt: async () => { interrupts++; },
+    async *[Symbol.asyncIterator]() {
+      for (let i = 0; i < 3; i++) {
+        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `u${i}`, name: "Bash", input: { i } }] } };
+        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `u${i}`, is_error: true }] } };
+      }
+      yield { type: "result", subtype: "success", result: "must not reach", duration_ms: 1, num_turns: 4 };
+    },
+  });
+
+  await spawn({ prompt: "unsupported escalation", agentId: "test-escalation-unsupported",
+    role: "integrator", provider: "openai", escalate: true, queryFn });
+
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain("tell agent:test-escalation-unsupported outcome provider_escalation_unsupported");
+  expect(logged).toContain("tell agent:test-escalation-unsupported model gpt-5.6-sol");
+  expect(logged).toContain("tell agent:test-escalation-unsupported effort high");
+  expect(logged).not.toContain("tell agent:test-escalation-unsupported model sonnet");
+  expect(logged).not.toContain("tell agent:test-escalation-unsupported effort medium");
+  expect(logged).not.toContain("tell agent:test-escalation-unsupported effort xhigh");
+  expect(logged).not.toContain("tell @swarm agent_death");
+  expect(interrupts).toBe(1);
+});
+
+test("a failed effort escalation records the applied model and interrupts before death", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  const effortFailure = new Error("effort control rejected");
+  let interrupts = 0;
+  const queryFn: any = () => ({
+    setModel: async () => {},
+    applyFlagSettings: async () => { throw effortFailure; },
+    interrupt: async () => { interrupts++; },
+    async *[Symbol.asyncIterator]() {
+      for (let i = 0; i < 3; i++) {
+        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `p${i}`, name: "Bash", input: { i } }] } };
+        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `p${i}`, is_error: true }] } };
+      }
+      yield { type: "result", subtype: "success", result: "must not reach", duration_ms: 1, num_turns: 4 };
+    },
+  });
+
+  await spawn({ prompt: "partial escalation", agentId: "test-escalation-partial",
+    role: "integrator", provider: "anthropic", escalate: true, queryFn });
+
+  const logged = readFileSync(log, "utf8");
+  expect(interrupts).toBe(1);
+  expect(logged).toContain("tell agent:test-escalation-partial model claude-opus-4-8");
+  expect(logged).toContain("tell agent:test-escalation-partial effort high");
+  expect(logged).not.toContain("tell agent:test-escalation-partial effort xhigh");
+  expect(logged).toContain("tell agent:test-escalation-partial outcome died");
+  expect(logged).toContain("effort control rejected");
+});
+
+test("the escalation ceiling interrupts the active child before reporting completion", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  process.env.NORTH_FABLE_NOW = "2026-07-20T07:00:00Z";
+  let interrupts = 0;
+  const models: string[] = [];
+  const queryFn: any = () => ({
+    setModel: async (model: string) => { models.push(model); },
+    applyFlagSettings: async () => {},
+    interrupt: async () => { interrupts++; },
+    async *[Symbol.asyncIterator]() {
+      for (let i = 0; i < 6; i++) {
+        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `c${i}`, name: "Bash", input: { i } }] } };
+        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `c${i}`, is_error: true }] } };
+      }
+      yield { type: "result", subtype: "success", result: "must not reach", duration_ms: 1, num_turns: 7 };
+    },
+  });
+
+  await spawn({ prompt: "reach escalation ceiling", agentId: "test-escalation-ceiling",
+    role: "integrator", provider: "anthropic", escalate: true, queryFn });
+
+  const logged = readFileSync(log, "utf8");
+  expect(models).toEqual(["claude-opus-4-8"]);
+  expect(interrupts).toBe(1);
+  expect(logged).toContain("tell agent:test-escalation-ceiling effort xhigh");
+  expect(logged).toContain("tell agent:test-escalation-ceiling outcome struggle_ceiling");
+  expect(logged).not.toContain("tell @swarm agent_death");
 });
 
 test("recipe-hydrated Anthropic frontier promotes to Fable without losing requested reasoning", async () => {

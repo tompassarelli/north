@@ -8,12 +8,19 @@ set -uo pipefail
 IN="$(cat 2>/dev/null || true)"
 # pull a flat JSON string field without jq
 jget() { printf '%s' "$IN" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1; }
+# `effort` is a structured common hook field: {"level":"xhigh"}. Restrict
+# extraction to that object so an unrelated nested `level` can never become an
+# identity claim.
+jget_effort() {
+  printf '%s' "$IN" | sed -n 's/.*"effort"[[:space:]]*:[[:space:]]*{[^}]*"level"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
 cwd="$(jget cwd)"; [ -z "$cwd" ] && cwd="$PWD"
 sid="$(jget session_id)"
 evt="$(jget hook_event_name)"; [ -z "$evt" ] && evt="SessionStart"
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
 IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
+ROUTEDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes"
 DERIVED="session-$RN-${sid:0:8}"
 
 # Identity, de-aliased. INVARIANT: one live actor == one id; an id is only
@@ -56,9 +63,47 @@ timeout 5 bb "$HOME/code/north/cli/presence-cli.clj" "${NORTH_PORT:-7977}" regis
 # identity facts on @agent:<id> — ids stay meaningless; meaning lives in facts.
 # Best-effort + bounded: a fact write must never wedge a spawn.
 NORTHBIN="$HOME/code/north/bin/north"
+PROVIDER=""
+if [ -n "${CODEX_THREAD_ID:-}" ]; then
+  PROVIDER="openai"
+elif [ -n "${CLAUDECODE:-}" ]; then
+  PROVIDER="anthropic"
+fi
+# SessionStart is the only Claude hook whose input may carry the active model.
+# Prefer exact hook observations over adapter env, retain AGENT_* only for SDK-
+# dispatched sessions, and leave missing dials blank rather than inferring them.
+MODEL="$(jget model)"; [ -n "$MODEL" ] || MODEL="${AGENT_MODEL:-}"
+EFFORT="$(jget_effort)"
+[ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-${AGENT_REASONING:-${AGENT_EFFORT:-}}}"
+slug() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
+}
+provider_segment="$(slug "${PROVIDER:-unknown}")"; [ -n "$provider_segment" ] || provider_segment="unknown"
+model_segment="$(slug "${MODEL:-unknown}")"; [ -n "$model_segment" ] || model_segment="unknown"
+effort_segment="$(slug "${EFFORT:-unknown}")"; [ -n "$effort_segment" ] || effort_segment="unknown"
+DISPLAY_HANDLE="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
 timeout 4 "$NORTHBIN" tell "agent:$ID" kind session >/dev/null 2>&1 || true
 timeout 4 "$NORTHBIN" tell "agent:$ID" repo "$RN" >/dev/null 2>&1 || true
-timeout 4 "$NORTHBIN" tell "agent:$ID" display_name "session@$RN ($ID)" >/dev/null 2>&1 || true
+timeout 4 "$NORTHBIN" tell "agent:$ID" composition_kind none >/dev/null 2>&1 || true
+[ -z "$PROVIDER" ] || timeout 4 "$NORTHBIN" tell "agent:$ID" provider "$PROVIDER" >/dev/null 2>&1 || true
+[ -z "$MODEL" ] || timeout 4 "$NORTHBIN" tell "agent:$ID" model "$MODEL" >/dev/null 2>&1 || true
+projection_ok=1
+if [ -n "$EFFORT" ]; then
+  timeout 4 "$NORTHBIN" tell "agent:$ID" effort "$EFFORT" >/dev/null 2>&1 || projection_ok=0
+fi
+timeout 4 "$NORTHBIN" tell "agent:$ID" display_handle "$DISPLAY_HANDLE" >/dev/null 2>&1 || projection_ok=0
+timeout 4 "$NORTHBIN" tell "agent:$ID" display_name "$DISPLAY_HANDLE" >/dev/null 2>&1 || projection_ok=0
+# The route cache is change detection, not a source of inferred identity. Write
+# it only after the effort + stored projections converged, so a failed write is
+# retried by the next PostToolUse instead of being hidden by a premature cache hit.
+if [ "$projection_ok" -eq 1 ] && [ -n "$sid" ]; then
+  route_cache="$ROUTEDIR/$sid"
+  route_tmp="$ROUTEDIR/.$sid.$$.tmp"
+  if mkdir -p "$ROUTEDIR" 2>/dev/null &&
+      printf '%s\n%s\n%s\n' "$PROVIDER" "$MODEL" "$EFFORT" > "$route_tmp" 2>/dev/null; then
+    mv -f "$route_tmp" "$route_cache" 2>/dev/null || rm -f "$route_tmp" 2>/dev/null || true
+  fi
+fi
 
 CTX="$(cat <<EOF
 [north coordination active — you are agent "$ID" in repo "$RN"]

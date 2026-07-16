@@ -62,6 +62,22 @@
                     acc))
                 roles aliases))))
 
+(declare fable-window-open?)
+
+(defn dry-resolved-route [provider tier explicit-model reasoning]
+  (when (and provider (not= provider "auto"))
+    (try
+      (let [entry (get-in (json/parse-string
+                           (slurp (io/file GAFFER "providers" (str provider ".json"))) true)
+                          [:tiers (keyword tier)])
+            temporary-fable (and (= provider "anthropic") (= tier "frontier")
+                                 (nil? explicit-model) (fable-window-open?))]
+        {:provider provider
+         :model (cond temporary-fable "fable" explicit-model explicit-model :else (:model entry))
+         :effort (if temporary-fable "high"
+                   (or reasoning (:defaultEffort entry) (:defaultReasoning entry)))})
+      (catch Exception _ {:provider provider :model explicit-model :effort reasoning}))))
+
 ;; ---- Fable window — mechanical, owner-ordered, auto-expiring (routing-overhaul PART 3)
 ;; Promotion ends 2026-07-19T23:59:59 PDT (UTC-7); clean exclusive cutoff is
 ;; 2026-07-20T07:00:00Z (= 2026-07-20 15:00 Asia/Taipei). The Clojure
@@ -99,18 +115,105 @@
                 {} (json/parse-string (:out r) true))
         (catch Exception _ {})))))
 
+(declare known semantic-handle)
+
+(defn- agent-facts-one [id]
+  (let [r (run [(str NORTH "/bin/north") "json" "show" (str "agent:" id)] :timeout 3000)]
+    (when (:ok r)
+      (try
+        (reduce (fn [acc {:keys [predicate value]}] (assoc acc predicate value))
+                {} (json/parse-string (:out r) true))
+        (catch Exception _ nil)))))
+
+(defn- await-agent-handle [id fallback-facts]
+  ;; Identity is the first synchronous SDK write after route selection. Poll the
+  ;; structured fact briefly; never scrape a log line or display_name.
+  (loop [attempt 0]
+    (let [facts (agent-facts-one id)
+          handle (known (get facts "display_handle"))]
+      (cond handle handle
+            (>= attempt 20) (semantic-handle id fallback-facts)
+            :else (do (Thread/sleep 100) (recur (inc attempt)))))))
+
 (defn current-repo []
   (let [r (run ["git" "remote" "get-url" "origin"] :timeout 1500)]
     (if (:ok r)
       (some-> (:out r) str/trim (str/split #"[/:]") last (str/replace #"\.git$" ""))
       (some-> (System/getProperty "user.dir") (str/split #"/") last))))
 
-(defn render-display-name [id {:strs [role kind repo tier model effort goal]}]
-  (let [r (or role kind "agent")
-        at (if repo (str "@" repo) "")
-        dial (if tier (str "tier:" tier) (str (or model "?") "-" (or effort "?")))
-        g (when (seq goal) (str " — " (if (> (count goal) 40) (str (subs goal 0 37) "…") goal)))]
-    (str r at " " dial g " (" id ")")))
+(defn- known [value]
+  (let [s (some-> value str str/trim)] (when (seq s) s)))
+
+(defn- slug [value]
+  (or (some-> (known value) str/lower-case
+              (str/replace #"[^a-z0-9]+" "-")
+              (str/replace #"(^-|-$)" "")
+              known)
+      "unknown"))
+
+(defn- model-display [model]
+  (let [m (slug model)
+        parts (set (str/split m #"-"))]
+    (or (some #(when (parts %) %) ["opus" "sonnet" "haiku" "fable" "sol" "terra" "luna"])
+        m)))
+
+(defn- meaningful-task [value]
+  (let [task (known value)]
+    (when-not (#{"CONTEXT BRIEF:" "DELEGATE TASK:" "TASK:"} task) task)))
+
+(defn- gaffer-provenance [{:strs [kind composition_kind composition_id]}]
+  (case composition_kind
+    "preset"  (str "gaffer:" (if (known composition_id) (slug composition_id) "unknown"))
+    "bespoke" (str "gaffer:bespoke(" (if (known composition_id) (slug composition_id) "unknown") ")")
+    "none"    "gaffer:none"
+    (if (= kind "session") "gaffer:none" "gaffer:unknown")))
+
+(defn- provider-target-label [facts]
+  (let [provider (or (known (get facts "provider")) (known (get facts "vendor")) "unknown")
+        target (known (get facts "provider_target"))]
+    (if target
+      (str provider ":" (if (or (= target provider) (= target "ambient")) "ambient" target))
+      provider)))
+
+(defn semantic-handle [id facts]
+  (let [provider-axis (provider-target-label facts)
+        composition (cond
+                      (= "none" (get facts "composition_kind")) "native"
+                      (known (get facts "composition_id")) (get facts "composition_id")
+                      (= "session" (get facts "kind")) "native"
+                      :else "unknown")
+        suffix (last (str/split (str id) #"-"))]
+    ;; `display_handle` is a write-time projection and can lag live route facts.
+    ;; The roster derives its visible identity from the canonical axes every read.
+    (str/join "-" [(slug provider-axis) (model-display (get facts "model"))
+                    (slug (get facts "effort")) (slug composition) (slug suffix)])))
+
+(defn render-display-name [id facts]
+  (let [goal (known (get facts "goal"))
+        g (when goal (str " — " (if (> (count goal) 40) (str (subs goal 0 37) "…") goal)))]
+    (str (semantic-handle id facts) g)))
+
+(defn agent-primary-line [presence facts]
+  (let [provider-axis (provider-target-label facts)
+        model (or (known (get facts "model")) "unknown")
+        effort (or (known (get facts "effort")) "unknown")
+        task (or (meaningful-task (get facts "current_thread"))
+                 (meaningful-task (get facts "active_workflow"))
+                 (meaningful-task (get facts "task"))
+                 (meaningful-task (get facts "goal"))
+                 (meaningful-task (:focus presence))
+                 "unknown")
+        state (cond
+                (known (get facts "outcome")) (str "finished(" (get facts "outcome") ")")
+                (known (get facts "stalled")) "stalled"
+                (:online presence) "working"
+                :else "offline")
+        gaffer (gaffer-provenance facts)
+        role-axis (when (and (known (get facts "role"))
+                             (#{"gaffer:none" "gaffer:unknown"} gaffer))
+                    (str " · role:" (slug (get facts "role"))))]
+    (str provider-axis " · " (model-display model) " · " (slug effort) " · "
+         gaffer role-axis " · " state ": " task)))
 
 ;; ---- presence ---------------------------------------------------------------
 (defn presence-rows []
@@ -140,17 +243,13 @@
       (let [live (filter :online (:agents pr))]
         (println (bold (str (count live) " live agents")))
         (doseq [a live]
-          (let [dn (get-in af [(:id a) "display_name"])
-                ;; display_name already ends with "(id)" — only append when absent
-                label (if dn (str (format "%-40s" dn)
-                                  (when-not (str/includes? dn (:id a)) (dim (str " (" (:id a) ")"))))
-                          (format "%-22s" (:id a)))]
-            (println (str "  " (grn "●") " " label
-                          (dim (str "  ttl " (:expires a)))
-                          (when (:focus a) (str "  " (:focus a)))))))))))
+          (let [facts (get af (:id a) {})
+                handle (semantic-handle (:id a) facts)]
+            (println (str "  " (grn "●") " " (agent-primary-line a facts)))
+            (println (dim (str "    " handle " · control " (:id a) " · ttl " (:expires a))))))))))
 
 (def spawn-flags
-  {"--notify" :notify "--provider" :provider "--taskGrade" :taskGrade "--task-grade" :taskGrade
+  {"--notify" :notify "--provider" :provider "--target" :target "--taskGrade" :taskGrade "--task-grade" :taskGrade
    "--domain" :domain "--topology" :topology "--tier" :tier "--reasoning" :reasoning
    "--deliberation" :reasoning "--posture" :posture "--composition" :composition
    "--rationale" :rationale "--nearest" :nearest})
@@ -173,7 +272,7 @@
       (assoc opts :positionals positionals))))
 
 (defn cmd-spawn [args]
-  (let [{:keys [dry? nominate? notify provider taskGrade domains topology tier reasoning posture composition rationale nearest positionals]}
+  (let [{:keys [dry? nominate? notify provider target taskGrade domains topology tier reasoning posture composition rationale nearest positionals]}
         (parse-spawn-args args)
         [invoked-role prompt & extra] positionals
         ;; Gaffer presets from staffing/catalog.json + date-gated two-tier synthetic
@@ -192,13 +291,15 @@
         base (or canonical nearest-template (:defaults catalog))]
     (cond
       (or (nil? invoked-role) (nil? prompt) (seq extra))
-      (do (println (red "usage:") "north spawn <role> \"<prompt>\" [--taskGrade G] [--domain D] [--topology T] [--tier T] [--reasoning R] [--posture P] [--composition JSON] [--rationale WHY] [--provider P] [--notify PEER] [--dry-run]")
+      (do (println (red "usage:") "north spawn <role> \"<prompt>\" [--taskGrade G] [--domain D] [--topology T] [--tier T] [--reasoning R] [--posture P] [--composition JSON] [--rationale WHY] [--provider P] [--target ACCOUNT] [--notify PEER] [--dry-run]")
           (println "roles:" (str/join " " (sort (keys dt)))))
       (and bespoke? (str/blank? bespoke-reason))
       (do (println (red (str "bespoke role " invoked-role " requires --rationale or composition.bespokeReason")))
           (println "roles:" (str/join " " (sort (keys dt)))))
       (and nearest (nil? nearest-template))
       (println (red (str "unknown nearest preset: " nearest)))
+      (and target (str/blank? target))
+      (println (red "--target requires a non-empty account target"))
       :else
       (let [{preset-grade :taskGrade preset-tier :tier model :model synthetic-effort :effort synthetic-reasoning :reasoning
              preset-role :role preset-posture :posture preset-topology :topology preset-composition :composition
@@ -216,6 +317,7 @@
                                 nearest-role (assoc :nearestPreset nearest-role))))
             aid (str "lane-" (subs (str (java.util.UUID/randomUUID)) 0 8))
             env (cond-> {"AGENT_ID" aid}
+                  invoked-role (assoc "AGENT_IDENTITY_ROLE" invoked-role)
                   taskGrade  (assoc "AGENT_TASK_GRADE" taskGrade)
                   (seq domains) (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string (vec (distinct domains))))
                   topology   (assoc "AGENT_TOPOLOGY" topology)
@@ -226,31 +328,43 @@
                   (and (not semantic) (not gaffer-preset) model)  (assoc "AGENT_MODEL" model)
                   reasoning (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
                   provider   (assoc "AGENT_PROVIDER" provider)
+                  target     (assoc "AGENT_TARGET" target)
                   notify    (assoc "AGENT_COORDINATOR" notify))
             spawn-ts (str NORTH "/sdk/src/spawn.ts")
-            envs (str/join " " (map (fn [[k v]] (str k "=" v)) (sort env)))]
+            envs (str/join " " (map (fn [[k v]] (str k "=" v)) (sort env)))
+            dry-route (dry-resolved-route provider tier
+                                          (when (and (not semantic) (not gaffer-preset)) model)
+                                          reasoning)
+            fallback-facts (into {} (remove (comp nil? val)
+                                           {"kind" "lane" "role" invoked-role
+                                            "provider" (:provider dry-route)
+                                            "provider_target" target
+                                            "model" (:model dry-route)
+                                            "effort" (:effort dry-route)
+                                            "composition_kind" (or (:kind composition) "none")
+                                            "composition_id" (:id composition)}))]
         (println (dim "# gaffer dials for role") (bold invoked-role) (dim "->")
                  (str "grade=" taskGrade " tier=" tier " reasoning=" reasoning
                       (when (and (not semantic) (not gaffer-preset)) (str " model=" model))
                       (when role (str " role=" role))
+                      (when target (str " target=" target))
                       (when posture (str " posture=" posture))
                       (when topology (str " topology=" topology))
                       (when (seq domains) (str " domains=" (str/join "," domains)))))
         (echo-cmd envs "bun run" spawn-ts (str "\"" prompt "\""))
         (if dry?
-          (let [dn (render-display-name aid
-                                        (cond-> {"role" (or role invoked-role)
-                                                 "repo" (or (current-repo) "?")
-                                                 "goal" (str/trim prompt)}
-                                          (or gaffer-preset semantic) (assoc "tier" tier)
-                                          (and (not semantic) (not gaffer-preset)) (assoc "model" model "effort" reasoning)))]
-            (println (ylw "[dry-run]") "not executed. agent-id would be" (bold aid))
-            (println (str "  display_name: " (bold dn))))
+          (do
+            (println (ylw "[dry-run]") "not executed. semantic handle would be"
+                     (bold (semantic-handle aid fallback-facts)))
+            (println "control:" (dim aid))
+            (when (and tier (nil? dry-route))
+              (println "selected semantic tier:" (bold tier) (dim "(provider:auto resolves at spawn)"))))
           (let [log (io/file AGENT-LOGDIR (str aid ".log"))]
             (.mkdirs (.getParentFile log))
             (p/process (into [] ["bun" "run" spawn-ts prompt])
                        {:extra-env env :out :write :err :write :out-file log :err-file log})
-            (println (grn "spawned") (bold aid))
+            (println (grn "spawned") (bold (await-agent-handle aid fallback-facts)))
+            (println "control:" (dim aid))
             (println "watch:" (cyn (str "north watch " aid)))))))))
 
 ;; delegate = the ONE delegation verb; whether to carry context is BINARY (y/n),
@@ -365,7 +479,8 @@
               (println (str/trim (str (:out r) (:err r))))))))))
 
 ;; ---- dispatch ------------------------------------------------------------------
-(when-not (= (System/getenv "NORTH_AGENTS_LIB") "1")
+(when-not (or (= (System/getenv "NORTH_AGENTS_LIB") "1")
+              (= (System/getProperty "north.agents.lib") "1"))
   (let [[cmd & args] *command-line-args*]
     (case cmd
       "agents"  (cmd-agents args)

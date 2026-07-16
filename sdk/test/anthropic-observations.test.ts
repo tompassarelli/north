@@ -47,8 +47,12 @@ test("observes rate-limit messages without extra turns and preserves the stream"
     { type: "result", subtype: "success" },
   ];
   let interrupted = false;
+  const models: string[] = [];
+  const efforts: Array<string | null | undefined> = [];
   const source: AgentQuery = {
     interrupt: async () => { interrupted = true; },
+    setModel: async (model) => { models.push(model); },
+    applyFlagSettings: async (settings) => { efforts.push(settings.effortLevel); },
     async *[Symbol.asyncIterator]() { yield* messages; },
   };
   const written: ProviderUsageObservation[] = [];
@@ -60,6 +64,8 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   const received: any[] = [];
   for await (const message of observed) received.push(message);
   await observed.interrupt?.();
+  await observed.setModel?.("claude-opus-4-8");
+  await observed.applyFlagSettings?.({ effortLevel: "xhigh" });
 
   expect(received).toEqual(messages);
   expect(written).toHaveLength(1);
@@ -69,6 +75,9 @@ test("observes rate-limit messages without extra turns and preserves the stream"
     windows: [{ limitId: "seven_day", usedPercent: 72 }],
   });
   expect(interrupted).toBe(true);
+  expect(observed.supportsInFlightEscalation?.()).toBe(true);
+  expect(models).toEqual(["claude-opus-4-8"]);
+  expect(efforts).toEqual(["xhigh"]);
 });
 
 test("observation persistence failures never interrupt Claude output", async () => {

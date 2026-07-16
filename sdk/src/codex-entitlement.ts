@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderUsageObservation, ProviderUsageWindow } from "./providers/types";
 import { writeProviderUsageObservations } from "./provider-observation-store";
 import { DEFAULT_PROVIDER_OBSERVATIONS_PATH, loadProviderUsageObservations, loadResourcePolicy } from "./resource-policy";
-import type { ProviderPreference } from "./providers/types";
+import type { ResourcePolicy, RoutingPreference, RoutingTarget } from "./providers/types";
 import { withFileLease } from "./file-lease";
+import { codexConfigArguments, providerEnvironmentForTarget } from "./accounts";
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 export const CODEX_OBSERVATION_TTL_MS = 5 * 60 * 1000;
@@ -22,6 +24,8 @@ interface AppServerOptions {
   commandArgs?: string[];
   timeoutMs?: number;
   targetId?: string;
+  target?: RoutingTarget;
+  env?: NodeJS.ProcessEnv;
   now?: Date;
   spawnProcess?: typeof spawn;
 }
@@ -108,8 +112,17 @@ export function normalizeCodexRateLimits(value: unknown): ProviderUsageWindow[] 
 
 /** Read ChatGPT/Codex subscription headroom without sending a model turn. */
 export async function readCodexEntitlementObservation(options: AppServerOptions = {}): Promise<ProviderUsageObservation> {
-  const command = options.command ?? process.env.NORTH_CODEX_BIN ?? "codex";
-  const child = (options.spawnProcess ?? spawn)(command, [...(options.commandArgs ?? []), "app-server", "--stdio"], {
+  if (options.target && options.targetId && options.target.id !== options.targetId)
+    throw new Error(`Codex entitlement target mismatch: ${options.target.id} != ${options.targetId}`);
+  const env = providerEnvironmentForTarget("openai", options.target, { env: options.env });
+  const command = options.command ?? env.NORTH_CODEX_BIN ?? "codex";
+  const child = (options.spawnProcess ?? spawn)(command, [
+    ...(options.commandArgs ?? []),
+    "app-server",
+    ...codexConfigArguments(env),
+    "--stdio",
+  ], {
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const pending = new Map<number, { method: string; resolve(value: unknown): void; reject(error: Error): void }>();
@@ -170,7 +183,7 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
     const windows = normalizeCodexRateLimits(limits);
     if (!windows.length) throw new Error("Codex shared subscription bucket has no usable reset windows");
     return {
-      targetId: options.targetId ?? "openai",
+      targetId: options.target?.id ?? options.targetId ?? "openai",
       provider: "openai",
       observedAt: (options.now ?? new Date()).toISOString(),
       windows,
@@ -192,16 +205,18 @@ export async function observeCodexEntitlement(options: ObserveOptions = {}): Pro
   return observation;
 }
 
-function defaultCodexTargetId(): string {
-  const policy = loadResourcePolicy();
-  const targets = policy?.targets ?? [];
-  const order = policy?.targetOrder ?? targets.map(({ id }) => id);
-  return order.map((id) => targets.find((target) => target.id === id))
-    .find((target) => target?.provider === "openai")?.id ?? "openai";
+function orderedCodexTargets(policy: ResourcePolicy | undefined): RoutingTarget[] {
+  const targets = policy?.targets?.length
+    ? policy.targets
+    : [{ id: "openai", provider: "openai", authMode: "ambient" } as const];
+  const byId = new Map(targets.map((target) => [target.id, target]));
+  const order = [...new Set([...(policy?.targetOrder ?? []), ...targets.map(({ id }) => id)])];
+  return order.map((id) => byId.get(id)).filter((target): target is RoutingTarget => target?.provider === "openai");
 }
 
-export function shouldRefreshCodexEntitlement(requested: ProviderPreference | undefined): boolean {
-  return (requested ?? "auto") !== "anthropic";
+export function shouldRefreshCodexEntitlement(requested: RoutingPreference | undefined): boolean {
+  const provider = typeof requested === "string" ? requested : requested?.provider;
+  return (provider ?? "auto") !== "anthropic";
 }
 
 function cachedCodexObservation(storePath: string | undefined, targetId: string): ProviderUsageObservation | undefined {
@@ -216,10 +231,12 @@ function observationFresh(cached: ProviderUsageObservation | undefined, now: Dat
   return Boolean(freshByAge && hasLiveWindow);
 }
 
-/** Refresh at most once per five minutes; failures preserve cached/unknown routing. */
-export async function refreshCodexEntitlementIfStale(options: RefreshOptions = {}): Promise<ProviderUsageObservation | undefined> {
+async function refreshOneCodexEntitlement(options: RefreshOptions): Promise<ProviderUsageObservation | undefined> {
   const now = options.now ?? new Date();
-  const targetId = options.targetId ?? defaultCodexTargetId();
+  const configuredTarget = options.target ?? (options.targetId
+    ? orderedCodexTargets(loadResourcePolicy()).find(({ id }) => id === options.targetId)
+    : undefined);
+  const targetId = configuredTarget?.id ?? options.targetId ?? "openai";
   const storePath = options.storePath ?? process.env.NORTH_PROVIDER_OBSERVATIONS ?? DEFAULT_PROVIDER_OBSERVATIONS_PATH;
   const key = `${storePath}\u0000${targetId}`;
   const running = refreshes.get(key);
@@ -229,11 +246,14 @@ export async function refreshCodexEntitlementIfStale(options: RefreshOptions = {
     try {
       cached = cachedCodexObservation(storePath, targetId);
       if (observationFresh(cached, now)) return cached;
-      const lockPath = `${storePath}.refresh.lock`;
+      const targetLock = createHash("sha256").update(targetId).digest("hex").slice(0, 16);
+      const lockPath = `${storePath}.refresh.${targetLock}.lock`;
       return await withFileLease(lockPath, async () => {
         const afterWait = cachedCodexObservation(storePath, targetId);
         if (observationFresh(afterWait, now)) return afterWait;
-        return (options.observe ?? observeCodexEntitlement)({ ...options, storePath, targetId, now });
+        return (options.observe ?? observeCodexEntitlement)({
+          ...options, storePath, target: configuredTarget, targetId, now,
+        });
       });
     } catch (error) {
       (options.onDiagnostic ?? console.warn)(
@@ -245,4 +265,26 @@ export async function refreshCodexEntitlementIfStale(options: RefreshOptions = {
   refreshes.set(key, refresh);
   try { return await refresh; }
   finally { if (refreshes.get(key) === refresh) refreshes.delete(key); }
+}
+
+interface RefreshAllOptions extends Omit<RefreshOptions, "target" | "targetId"> {
+  requested?: RoutingPreference;
+  policy?: ResourcePolicy;
+}
+
+/** Refresh every candidate Codex account concurrently; each target retains its own cache/single-flight key. */
+export async function refreshCodexEntitlementsIfStale(
+  options: RefreshAllOptions = {},
+): Promise<Array<ProviderUsageObservation | undefined>> {
+  const request = typeof options.requested === "string" ? { provider: options.requested } : options.requested ?? {};
+  if (request.provider === "anthropic") return [];
+  const targets = orderedCodexTargets(options.policy ?? loadResourcePolicy())
+    .filter((target) => request.target === undefined || target.id === request.target);
+  return Promise.all(targets.map((target) => refreshOneCodexEntitlement({ ...options, target, targetId: target.id })));
+}
+
+/** Refresh at most once per five minutes; an unpinned call refreshes every configured Codex target. */
+export async function refreshCodexEntitlementIfStale(options: RefreshOptions = {}): Promise<ProviderUsageObservation | undefined> {
+  if (options.target || options.targetId) return refreshOneCodexEntitlement(options);
+  return (await refreshCodexEntitlementsIfStale(options))[0];
 }
