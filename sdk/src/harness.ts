@@ -17,6 +17,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveGuard, evaluateGuards } from "./authoring-guards";
+import { recordDenial } from "./guard-log";
 
 // sdk/src/harness.ts -> repo root (~/code/north).
 const REPO = resolve(import.meta.dir, "../..");
@@ -309,10 +310,14 @@ const BASH_GUARDS = ["tripwire-guard.sh", "firn-guard.sh", "north-clock-guard.sh
 // but does NOT halt the agent (`continue` stays default-true) — the worker sees the
 // reason and can clock in + retry, exactly like the interactive deny. Fail-open on any
 // internal error so a broken guard never bricks a worker.
-async function guardHook(scripts: string[], input: unknown) {
+async function guardHook(self: string, scripts: string[], input: unknown) {
   try {
     const d = await evaluateGuards(scripts, input);
     if (d.decision === "deny") {
+      // Durable trail: record the denial as a `kind guard_denial` fact so a worker
+      // block is learnable after the fact (which agent, which guard, what target).
+      // Fire-and-forget — never delay or break the tool call the guard decided.
+      recordDenial(self, d.reason, input);
       return {
         hookSpecificOutput: {
           hookEventName: "PreToolUse" as const,
@@ -346,8 +351,8 @@ export function harnessOptions(o: HarnessOpts): Options {
       // ZERO guards (north-clock-guard never fired for a worker edit). Matchers +
       // guard chains mirror settings.json; first deny in a chain blocks the tool.
       PreToolUse: [
-        { matcher: "Edit|Write|MultiEdit", hooks: [async (input: unknown) => guardHook(EDIT_GUARDS, input)] },
-        { matcher: "Bash", hooks: [async (input: unknown) => guardHook(BASH_GUARDS, input)] },
+        { matcher: "Edit|Write|MultiEdit", hooks: [async (input: unknown) => guardHook(o.self, EDIT_GUARDS, input)] },
+        { matcher: "Bash", hooks: [async (input: unknown) => guardHook(o.self, BASH_GUARDS, input)] },
       ],
       // Presence heartbeat: renew the lease on tool activity (F2). Fire-and-forget +
       // never block/fail the tool call; always continue. PRESERVED exactly.

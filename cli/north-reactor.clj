@@ -213,17 +213,23 @@
 (def last-commit (atom 0))   ; wall-clock of the most recent projected-relevant commit
 (def dirty       (atom false))
 (def running     (atom false))
+(def last-heal-out (atom nil))  ; last heal output line — dedup repeated identical output
 
 (defn heal! []
   ;; Shell the SAME `north heal` a human runs — byte-identical projection, fail-closed
   ;; on hand edits, reads the flat log directly (no daemon dependency). FRAM_LOG/
   ;; FRAM_THREADS/FRAM_PORT are inherited from our env, pinning the target state.
+  ;; NOISE FIX: a permanent hand-edit refusal re-prints "heal REFUSED …" on EVERY flush,
+  ;; so a single unresolved conflict grew reactor-7977.log to 642KB of one repeated line —
+  ;; burying real events. Dedup: log heal output only when it CHANGES from the last line.
+  ;; A resolved conflict (output goes empty/different) prints again, so no signal is lost.
   (try
-    (let [r   (proc/shell {:out :string :err :string :continue true} north-bin "heal")
-          out (str/trim (str (:out r) (when (seq (:err r)) (str "\n" (:err r)))))]
-      (when (seq out)
-        (println (str "[reactor] " (str/replace out #"\n+" " | ")))
-        (flush)))
+    (let [r    (proc/shell {:out :string :err :string :continue true} north-bin "heal")
+          out  (str/trim (str (:out r) (when (seq (:err r)) (str "\n" (:err r)))))
+          line (when (seq out) (str "[reactor] " (str/replace out #"\n+" " | ")))]
+      (when (and line (not= line @last-heal-out))
+        (println line) (flush))
+      (reset! last-heal-out line))
     (catch Throwable t
       (println (str "[reactor] heal error: " (.getMessage t))) (flush))))
 
