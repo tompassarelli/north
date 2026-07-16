@@ -1,4 +1,4 @@
-import { selectProvider } from "./providers";
+import { selectProvider } from "./provider-routing";
 
 try {
   const d = selectProvider("auto");

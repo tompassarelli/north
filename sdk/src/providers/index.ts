@@ -3,26 +3,12 @@ import { openaiProvider } from "./openai";
 import type { AgentProvider, ProviderId, ProviderPreference, RoutingDecision } from "./types";
 import type { AgentQuery } from "./types";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
+export { selectProvider } from "../provider-routing";
 
 const providers: Record<ProviderId, AgentProvider> = {
   anthropic: anthropicProvider,
   openai: openaiProvider,
 };
-
-export function selectProvider(requested?: ProviderPreference): RoutingDecision {
-  const preference = requested ?? (process.env.AGENT_PROVIDER as ProviderPreference | undefined) ?? "auto";
-  const availability = [anthropicProvider.probe(), openaiProvider.probe()];
-  if (preference !== "auto") {
-    const state = availability.find((x) => x.provider === preference)!;
-    if (!state.available) throw new Error(`provider ${preference} unavailable: ${state.reason}${state.detail ? ` (${state.detail})` : ""}`);
-    return { requested: preference, provider: preference, reason: "explicit provider", availability };
-  }
-  const order = (process.env.NORTH_PROVIDER_ORDER ?? "anthropic,openai")
-    .split(",").map((x) => x.trim()).filter((x): x is ProviderId => x === "anthropic" || x === "openai");
-  const chosen = order.find((id) => availability.find((x) => x.provider === id)?.available);
-  if (!chosen) throw new Error(`no agent provider available: ${availability.map((x) => `${x.provider}=${x.reason}`).join(", ")}`);
-  return { requested: "auto", provider: chosen, reason: `first available in ${order.join(" -> ")}`, availability };
-}
 
 export function providerFor(id: ProviderId): AgentProvider { return providers[id]; }
 

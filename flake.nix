@@ -32,6 +32,7 @@
           pkgs.babashka
           pkgs.coreutils
           pkgs.bash
+          pkgs.bun
           pkgs.iproute2
           pkgs.util-linux
         ];
@@ -74,12 +75,14 @@
           dontBuild = true;
           installPhase = ''
             runHook preInstall
-            mkdir -p $out/bin $out/out
+            mkdir -p $out/bin $out/out $out/sdk/src/providers
             cp -r out/. $out/out/
             # bb-verb CLIs (agents/watch/trace/health/dials/dashboard/config/...)
             # route through $root/cli — without this every non-engine verb dies
             # on the packaged binary with "File does not exist: .../cli/*.clj".
             cp -r cli $out/cli
+            cp sdk/src/providers-cli.ts sdk/src/provider-routing.ts $out/sdk/src/
+            cp sdk/src/providers/types.ts $out/sdk/src/providers/
             cp bin/north bin/north-mcp bin/concern $out/bin/
 
             wrapProgram $out/bin/north \

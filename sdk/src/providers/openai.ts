@@ -1,16 +1,12 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { AgentProvider, AgentQuery, ProviderAvailability } from "./types";
+import { probeOpenAI } from "../provider-routing";
 
 function command(): string { return process.env.NORTH_CODEX_BIN ?? "codex"; }
 
 export function probeCodex(): ProviderAvailability {
-  if (process.env.NORTH_DISABLE_OPENAI === "1")
-    return { provider: "openai", available: false, reason: "disabled" };
-  const r = spawnSync(command(), ["--version"], { encoding: "utf8", timeout: 3000 });
-  if (r.error || r.status !== 0)
-    return { provider: "openai", available: false, reason: "command_missing", detail: r.error?.message ?? r.stderr };
-  return { provider: "openai", available: true, reason: "ready", detail: r.stdout.trim() };
+  return probeOpenAI();
 }
 
 async function initialPrompt(value: string | AsyncIterable<any>): Promise<string> {
