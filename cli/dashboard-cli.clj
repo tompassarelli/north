@@ -148,10 +148,19 @@
 ;; One file scan, not N shell-outs.  All agent predicates are single-valued.
 ;; Returns {id {pred val}} for every @agent:<id> subject seen.
 (defn agent-facts-from-log []
-  (let [log-path (str HOME "/.local/state/north/facts.log")]
-    (when (.exists (io/file log-path))
+  ;; Honor FRAM_LOG (worlds renames the coordination log to coordination.log) and,
+  ;; when worlds routing is on, FOLD THE UNION of both world logs — @agent:session-*
+  ;; carry kind=session and route to telemetry.log, so a coordination-only read
+  ;; would under-count agents. Safe to concat then fold: every @agent subject lives
+  ;; entirely in ONE world, so no id's assert/retract sequence crosses logs.
+  (let [paths (->> [(or (System/getenv "FRAM_LOG")
+                        (str HOME "/.local/state/north/facts.log"))
+                    (System/getenv "FRAM_TELEMETRY_LOG")]
+                   (remove nil?)
+                   (filter #(.exists (io/file %))))]
+    (when (seq paths)
       (try
-        (->> (str/split-lines (slurp log-path))
+        (->> (mapcat #(str/split-lines (slurp %)) paths)
              (filter #(str/includes? % "\"@agent:"))   ; cheap pre-filter
              (keep (fn [ln]
                      (when-let [[_ subj] (re-find #":l\s+\"(@agent:[^\"]+)\"" ln)]

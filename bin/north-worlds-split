@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# north-worlds-split — Phase-2 replay-filter compaction for the worlds split.
+# Partitions a single coordination log into per-world coordination.log +
+# telemetry.log by the SAME world-of contract the coordinator routes writes by,
+# preserving each line's :tx. Line-count conservation (coord+telem==total,
+# dropped==0) is the invariant. Input log is read-only (rollback pre-image).
+#   north-worlds-split [--dry-run|--execute] [--log PATH] [--coord PATH] [--telemetry PATH] [--force]
+exec bb "$HOME/code/north/cli/worlds-split.clj" "$@"

@@ -95,9 +95,13 @@
 (defn- sig-member-map [facts]
   (reduce (fn [m c] (assoc m (fact-sig c) true)) {} facts))
 
+(defn- read-worlds-merged [^String log]
+  (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
+  (if (= tlog "") (fram.rt/read-log log) (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
+
 (defn- live-facts [^String log]
   (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
-  (if (empty? warm) (:facts (fold/fold (fram.rt/read-log log))) warm)))
+  (if (empty? warm) (:facts (fold/fold (read-worlds-merged log))) warm)))
 
 (defn- live-idx [^String log]
   (k/build-index (live-facts log)))
@@ -614,7 +618,7 @@
    status (fram.rt/coord-status port)
    up (not (= status "down"))
    serving (str/includes? status log)
-   f (fold/fold (fram.rt/read-log log))
+   f (fold/fold (read-worlds-merged log))
    log-facts (:facts f)
    log-v (:version f)
    daemon-v (fram.rt/coord-version port)
@@ -989,6 +993,14 @@
   (doseq [ks stats]
   (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
   (println (str "  " (padr "predicate-meta" 20) " " (count pred-subs) " predicate(s) carry declared cardinality/value_kind/acyclic"))
+  (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
+  (if (not (str/blank? tlog)) (do
+  (let [coord-n (count (fram.rt/read-log log))
+   telem-n (count (fram.rt/read-log tlog))]
+  (println (str "  ── worlds (on-disk fact-ops; unified in-store above) ──"))
+  (println (str "  " (padr "coordination" 20) " " coord-n " fact-ops  " log))
+  (println (str "  " (padr "telemetry" 20) " " telem-n " fact-ops  " tlog))
+  (println (str "  " (padr "total on-disk" 20) " " (+ coord-n telem-n) " fact-ops boot-merged by :tx"))))))
   (println "→ north schema <kind> for the field spec — required vs optional preds, coverage %, who writes it")))))
 
 (defn- ^Boolean has-flag? [args ^String f]

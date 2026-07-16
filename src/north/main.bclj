@@ -197,10 +197,24 @@
 ;; post-write render (the .md is defined as a projection OF THE LOG), and
 ;; needs-review (reads fold-latest — per-assertion tx/frame provenance the live
 ;; view doesn't carry; a candidate for plan (b)'s snapshot surface).
+;; worlds: north-side mirror of the coordinator's read-worlds-merged
+;; (coord_daemon.clj) for COLD reads. The warm store is already unified (A1), so
+;; live-facts' warm path sees every world for free; this matters ONLY when the
+;; daemon is down (cold fallback) and for the deliberately-cold doctor/schema
+;; paths. FRAM_TELEMETRY_LOG unset => the single coordination log, byte-identical
+;; to pre-worlds. The fold is order-independent across worlds (disjoint subject
+;; keys, keyed-latest by max :tx), so a plain concat folds identically to the
+;; coordinator's :tx-sorted merge — no sort needed.
+(defn- read-worlds-merged [log :- String] :- (Vec fold/FactOp)
+  (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
+    (if (= tlog "")
+      (fram.rt/read-log log)
+      (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
+
 (defn- live-facts [log :- String] :- (Vec k/Fact)
   (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
     (if (empty? warm)
-      (:facts (fold/fold (fram.rt/read-log log)))
+      (:facts (fold/fold (read-worlds-merged log)))
       warm)))
 
 (defn- live-idx [log :- String] :- k/Index
@@ -926,7 +940,11 @@
         status (fram.rt/coord-status port)
         up (not (= status "down"))
         serving (str/includes? status log)
-        f (fold/fold (fram.rt/read-log log))
+        ;; worlds: fold the UNION so log-v (max :tx across BOTH world logs) tracks
+        ;; the daemon's global :next-seq — a coordination-only fold would lag
+        ;; whenever the last write was telemetry and mis-report the daemon as
+        ;; "ahead of the log". Hygiene below is unaffected (telemetry has no title).
+        f (fold/fold (read-worlds-merged log))
         log-facts (:facts f)
         log-v (:version f)
         daemon-v (fram.rt/coord-version port)
@@ -1479,6 +1497,20 @@
           (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
         (println (str "  " (padr "predicate-meta" 20) " " (count pred-subs)
                       " predicate(s) carry declared cardinality/value_kind/acyclic"))
+        ;; worlds steel thread: when telemetry is split to its own log, report
+        ;; each world's ON-DISK fact-op mass so it reads against the in-store kind
+        ;; census above — proof the kind-routing landed on disk. Both logs boot-
+        ;; merge into the ONE unified store the census counts, so the on-disk
+        ;; split is pure hygiene, never a read gap.
+        (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
+          (when (not (str/blank? tlog))
+            (let [coord-n (count (fram.rt/read-log log))
+                  telem-n (count (fram.rt/read-log tlog))]
+              (println (str "  ── worlds (on-disk fact-ops; unified in-store above) ──"))
+              (println (str "  " (padr "coordination" 20) " " coord-n " fact-ops  " log))
+              (println (str "  " (padr "telemetry" 20) " " telem-n " fact-ops  " tlog))
+              (println (str "  " (padr "total on-disk" 20) " " (+ coord-n telem-n)
+                            " fact-ops boot-merged by :tx")))))
         (println "→ north schema <kind> for the field spec — required vs optional preds, coverage %, who writes it")))))
 
 ;; --- dispatch (life verbs; engine verbs are routed to fram by the wrapper) ---
