@@ -20,44 +20,26 @@
 (def here (-> *file* io/file .getCanonicalFile .getParentFile))
 (def engine (or (System/getenv "NORTH_BIN") (str here "/north")))
 
+;; The `instructions` block teaches the FACT MODEL + cross-tool norms ONCE —
+;; things no single tool description can carry. Per-verb "what it does" lives in
+;; each tool's own description (tools/list), so it is NOT repeated here; doing so
+;; paid the same bytes twice on every request.
 (def cheatsheet
   (str
-   "North is a fact-native substrate for coordinating work and life. A "
-   "\"thread\" is a unit of work or thought; under the hood every fact is a "
-   "triple (subject predicate object), and a thread is any id that has a `title`. "
-   "Lifecycle is DERIVED from facts, never a stored status: committed (accepted), "
-   "outcome (done), abandoned (canceled), driver (active now), depends_on (blocked).\n\n"
-   "Facts record what was asserted, not what is verified — supersession, "
-   "retraction, and views handle disagreement.\n\n"
-   "Refs to other threads are written as @<id> (e.g. depends_on @2026-06-16-101500); "
+   "North is a fact-native substrate for coordinating work and life. Every fact "
+   "is a triple (subject predicate object); a thread is any id that has a `title`. "
+   "Lifecycle is DERIVED from facts, never stored: committed=accepted, outcome=done, "
+   "abandoned=canceled, driver=active, depends_on=blocked. Facts record what was "
+   "ASSERTED, not verified — supersession, retraction, and views handle disagreement.\n\n"
+   "Refs to other threads are written @<id> (e.g. depends_on @2026-06-16-101500); "
    "everything else is a literal. ids look like 2026-06-16-101500.\n\n"
-   "How to work with it:\n"
-   "- capture: turn a thought/task into a thread.\n"
-   "- tell / retract: add or remove a single fact about a thread — tell "
-   "asserts, retract removes (untell accepted as a legacy alias) "
-   "(e.g. tell <id> depends_on <other-id>, tell <id> estimate_hours 4, "
-   "tell <id> do_on 2026-06-20, tell <id> outcome shipped).\n"
-   "- ready / next / board / blocked / agenda / leverage: see what to work on.\n"
-   "- needs-review: judgments whose inputs moved (stale estimates, expired dates, "
-   "edges to abandoned threads) + uncommitted drafts that grew real structure.\n"
-   "- show: read one thread's facts.\n"
-   "- clock start/stop/status/report: log real time against a thread so estimates "
-   "calibrate against actuals over time.\n"
-   "- validate: integrity check.\n"
-   "- presentation: the effective emoji map (condition -> glyph).\n\n"
-   "PRESENTATION CONTRACT: the list tools return an `emoji` field per item, resolved "
-   "from the user's configurable map. Render each item using its given `emoji` as the "
-   "status glyph; do NOT invent your own emoji or decoration. Keep it terse, group by "
-   "project, lead with active work. The user owns the map — to change a glyph: "
-   "tell @ui emoji_<condition> \"<glyph>\" (conditions: active/ready/blocked/draft).\n\n"
-   "Prefer capture for new work and tell/retract for changes; the system serializes "
-   "and rule-checks every write, so just state facts and let it enforce integrity.\n\n"
-   "DRIVING AGENTS (multi-agent work): use `dispatch` to spawn an agent for a thread — "
-   "it reads thread facts, derives posture (unplanned/atomic/composite), and dispatches via "
-   "Claude Agent SDK. For ad-hoc tasks without a thread, use `spawn`. The canonical flow is: "
-   "capture a thread → tell it facts (model, dependencies) → dispatch it. "
-   "Work queue on :7977 (ready/next/leverage; acquire with `driver @agent`); "
-   "web client (:8088) watches + steers live."))
+   "Prefer `capture` for new work and `tell`/`retract` for changes; every write is "
+   "serialized and rule-checked, so just state facts and let the engine enforce integrity. "
+   "The canonical multi-agent flow: capture a thread -> tell it facts -> dispatch it.\n\n"
+   "PRESENTATION CONTRACT: list tools return an `emoji` field per item. Render each item "
+   "with its given `emoji`; do NOT invent your own. Keep it terse, group by project, lead "
+   "with active work. To change a glyph: tell @ui emoji_<condition> \"<glyph>\" "
+   "(conditions: active/ready/blocked/draft)."))
 
 ;; tool name -> {desc, schema, argv}. argv maps the JSON arguments map (string
 ;; keys) to the engine argument vector.
@@ -107,8 +89,9 @@
     :schema {:type "object" :properties {}} :argv (fn [_] ["clock" "stop"])}
    {:name "clock_status" :desc "Show the running session + elapsed."
     :schema {:type "object" :properties {}} :argv (fn [_] ["clock" "status"])}
-   {:name "clock_report" :desc "Estimate vs actual per thread + calibration %. Returns JSON {rows:[{id,title,est_h,actual_sec,done}],calibration:{pct,sample}}."
-    :schema {:type "object" :properties {}} :argv (fn [_] ["json" "clock-report"])}
+   {:name "clock_report" :desc "Estimate vs actual per thread + calibration %. Default: summary + top rows by logged time (rows with no logged time omitted). Pass full=true for every thread. Returns JSON {summary,calibration,rows[]} or, with full, {calibration,rows[]}."
+    :schema {:type "object" :properties {:full {:type "boolean" :description "return every thread (default false: summary + top-N logged)"}}}
+    :argv (fn [_] ["json" "clock-report"])}
    {:name "presentation" :desc "The effective emoji map (condition -> glyph), engine defaults + user overrides. Returns JSON {active,ready,blocked,draft}."
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "presentation"])}])
 
@@ -118,25 +101,25 @@
 
 (def sdk-tools
   [{:name "dispatch"
-    :desc "Dispatch an agent for a thread. Reads thread facts to derive posture (unplanned/atomic/composite), then spawns via Claude Agent SDK. The thread must exist (use capture first). Returns the agent ID."
+    :desc "Dispatch an agent for a thread (must exist — capture first). Reads thread facts to derive posture, spawns via Claude Agent SDK. Returns the agent ID."
     :schema {:type "object"
              :properties {:id {:type "string" :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
-                          :model {:type "string" :description "Model tier: opus, sonnet, haiku, fable (default: sonnet). fable routes only inside the owner-ordered window (until 2026-07-12T16:00Z); orchestrator forks use it, workers escalate to it above opus/xhigh."}
-                          :effort {:type "string" :description "Reasoning effort: low, medium, high, xhigh (default: high)"}
-                          :role {:type "string" :description "Praxis role block: executor|implementer|integrator|designer|researcher (optional)"}
-                          :posture {:type "string" :description "Praxis posture block: explore|deliver|preserve (optional)"}
-                          :coordinator {:type "string" :description "Calling session's north id — the spawned lane pings it on completion/death and records a `coordinator` fact for it. Omit and it's inherited from the caller's AGENT_ID / NORTH_AGENT_ID env; pass it explicitly from an interactive session (no such env), e.g. the id from your 'you are agent \"…\"' context."}}
+                          :model {:type "string" :description "opus|sonnet|haiku|fable (default sonnet)"}
+                          :effort {:type "string" :description "low|medium|high|xhigh (default high)"}
+                          :role {:type "string" :description "executor|implementer|integrator|designer|researcher"}
+                          :posture {:type "string" :description "explore|deliver|preserve"}
+                          :coordinator {:type "string" :description "Caller's north id; the lane pings it on done/death + records a `coordinator` fact. Omit to inherit from AGENT_ID/NORTH_AGENT_ID env; pass explicitly from an interactive session."}}
              :required ["id"]}}
    {:name "spawn"
-    :desc "Spawn an ad-hoc agent with a prompt (no pre-existing thread needed). For thread-driven work, prefer capture + dispatch instead. Returns the agent ID."
+    :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). Returns the agent ID."
     :schema {:type "object"
-             :properties {:prompt {:type "string" :description "The task prompt for the agent"}
-                          :model {:type "string" :description "Model tier: opus, sonnet, haiku, fable (default: sonnet). fable routes only inside the owner-ordered window (until 2026-07-12T16:00Z); orchestrator forks use it, workers escalate to it above opus/xhigh."}
-                          :effort {:type "string" :description "Reasoning effort: low, medium, high, xhigh (default: high)"}
-                          :role {:type "string" :description "Praxis role block: executor|implementer|integrator|designer|researcher (optional)"}
-                          :posture {:type "string" :description "Praxis posture block: explore|deliver|preserve (optional)"}
-                          :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial for the spawned agent: off|lite|full (default: full, or ambient AGENT_CAVEMAN). Overrides the spawning process's env."}
-                          :coordinator {:type "string" :description "Calling session's north id — the spawned lane pings it on completion/death and records a `coordinator` fact for it. Omit and it's inherited from the caller's AGENT_ID / NORTH_AGENT_ID env; pass it explicitly from an interactive session (no such env), e.g. the id from your 'you are agent \"…\"' context."}}
+             :properties {:prompt {:type "string" :description "The task prompt"}
+                          :model {:type "string" :description "opus|sonnet|haiku|fable (default sonnet)"}
+                          :effort {:type "string" :description "low|medium|high|xhigh (default high)"}
+                          :role {:type "string" :description "executor|implementer|integrator|designer|researcher"}
+                          :posture {:type "string" :description "explore|deliver|preserve"}
+                          :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial (default ambient AGENT_CAVEMAN)"}
+                          :coordinator {:type "string" :description "Caller's north id; see dispatch.coordinator"}}
              :required ["prompt"]}}])
 
 ;; Attribution (routing-overhaul PART 1): the spawned lane inherits AGENT_COORDINATOR
@@ -212,6 +195,47 @@
 (defn find-tool [nm] (let [nm (get tool-aliases nm nm)] (first (filter #(= (:name %) nm) tools))))
 (defn find-sdk-tool [nm] (first (filter #(= (:name %) nm) sdk-tools)))
 
+;; Result diet — the MCP is the AI-facing edge, so we slim results for the model
+;; without touching engine output the CLI/humans rely on. Cuts BYTES, never facts.
+(def clock-report-top-n 15)
+
+(defn slim-clock-report
+  "Default clock_report: calibration + a compact summary + the top-N threads by
+   logged time (threads with zero logged time are omitted — they carry no signal).
+   full=true short-circuits this and returns every row. Fails open to raw text."
+  [text full?]
+  (if full?
+    text
+    (try
+      (let [d (json/parse-string text)
+            rows (get d "rows")
+            logged (->> rows (filter #(pos? (or (get % "actual_sec") 0)))
+                        (sort-by #(- (get % "actual_sec"))))
+            total-sec (reduce + 0 (map #(get % "actual_sec") rows))
+            top (vec (take clock-report-top-n logged))]
+        (json/generate-string
+         {:summary {:threads (count rows)
+                    :with_logged_time (count logged)
+                    :total_logged_h (Double/parseDouble (format "%.1f" (/ total-sec 3600.0)))
+                    :shown (count top)
+                    :omitted (- (count logged) (count top))
+                    :note "top threads by logged time; pass full=true for every thread"}
+          :calibration (get d "calibration")
+          :rows top}))
+      (catch Exception _ text))))
+
+(defn slim-capture
+  "capture ack keeps the id+title line; drops the local file path and the
+   `Next:` hint (the AI drives via tell, not the .md projection)."
+  [text]
+  (or (first (str/split-lines text)) text))
+
+(defn slim-output [nm args text]
+  (case nm
+    "clock_report" (slim-clock-report text (boolean (get args "full")))
+    "capture"      (slim-capture text)
+    text))
+
 (defn call-tool [nm args]
   (if-let [st (find-sdk-tool nm)]
     (call-sdk nm (or args {}))
@@ -219,7 +243,8 @@
       (let [argv (mapv str ((:argv t) (or args {})))
             {:keys [out err exit]} (apply proc/sh engine argv)
             errs (str/trim (or err ""))
-            text (str/trim (str out (when (seq errs) (str "\n[stderr] " errs))))]
+            raw (str/trim (str out (when (seq errs) (str "\n[stderr] " errs))))
+            text (if (zero? exit) (slim-output nm (or args {}) raw) raw)]
         {:content [{:type "text" :text (if (str/blank? text) (str "(done; exit " exit ")") text)}]
          :isError (not (zero? exit))})
       {:content [{:type "text" :text (str "unknown tool: " nm)}] :isError true})))
