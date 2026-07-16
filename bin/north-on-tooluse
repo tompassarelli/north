@@ -24,7 +24,7 @@ ID=""
 if [ -n "$sid" ] && [ -r "$CACHE" ]; then
   ID="$(cat "$CACHE" 2>/dev/null || true)"
 fi
-[ -z "$ID" ] && ID="${NORTH_AGENT_ID:-${TERN_AGENT_ID:-}}"  # TERN_AGENT_ID: transitional fallback, remove post-cutover
+[ -z "$ID" ] && ID="${NORTH_AGENT_ID:-}"
 [ -z "$ID" ] && ID="cc-$RN-${sid:0:8}"
 [ "$ID" = "cc-$RN-" ] && ID="cc-$RN-$RANDOM"
 

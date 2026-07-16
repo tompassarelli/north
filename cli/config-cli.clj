@@ -128,8 +128,8 @@
       "       (none)")))
 
 (defn status []
-  (let [d  (let [d (get' "dispatch" "north")] (if (= d "tern") "north" d))
-        c  (let [c (get' "coord" "north")]    (if (= c "tern") "north" c))
+  (let [d  (get' "dispatch" "north")
+        c  (get' "coord" "north")
         cv (caveman-lvl)
         cd (caveman-default)
         ac (or (System/getenv "AGENT_CAVEMAN") "full (SDK default)")]
@@ -293,27 +293,27 @@
 
 (defn cmd-dispatch [[sub]]
   (cond
-    (#{"north" "tern" "warn" "native"} sub)
-    (let [v (if (= sub "tern") "north" sub)]
-      (put' "dispatch" v)
-      (println (str "dispatch → " v " "
-                    (cond (= v "north") "(native Agent/Workflow now DENIED → north SDK)"
-                          (= v "warn")  "(native allowed, nudged)"
-                          :else         "(native allowed, silent)"))))
+    (#{"north" "warn" "native"} sub)
+    (do
+      (put' "dispatch" sub)
+      (println (str "dispatch → " sub " "
+                    (cond (= sub "north") "(native Agent/Workflow now DENIED → north SDK)"
+                          (= sub "warn")  "(native allowed, nudged)"
+                          :else           "(native allowed, silent)"))))
     (nil? sub)
-    (let [d (let [d (get' "dispatch" "north")] (if (= d "tern") "north" d))]
+    (let [d (get' "dispatch" "north")]
       (println (str "dispatch = " d "   (north config dispatch north|warn|native)")))
     :else
     (die "usage: north config dispatch [north|warn|native]")))
 
 (defn cmd-coord [[sub]]
   (cond
-    (#{"north" "tern" "linear" "both"} sub)
-    (let [v (if (= sub "tern") "north" sub)]
-      (put' "coord" v)
-      (println (str "coord → " v " (declarative; agents read it from the north config report)")))
+    (#{"north" "linear" "both"} sub)
+    (do
+      (put' "coord" sub)
+      (println (str "coord → " sub " (declarative; agents read it from the north config report)")))
     (nil? sub)
-    (let [c (let [c (get' "coord" "north")] (if (= c "tern") "north" c))]
+    (let [c (get' "coord" "north")]
       (println (str "coord = " c "   (north config coord north|linear|both)")))
     :else
     (die "usage: north config coord [north|linear|both]")))

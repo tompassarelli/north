@@ -17,7 +17,7 @@
 // FAIL-OPEN: a query hiccup must never block or throw out of a finalizing lane.
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { getThreadFacts } from "./tern-client";
+import { getThreadFacts } from "./north-client";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;

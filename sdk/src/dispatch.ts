@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { getThreadFacts, getChildren } from "./tern-client";
+import { getThreadFacts, getChildren } from "./north-client";
 import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import { harnessOptions, DEFAULT_SYSTEM_PROMPT, type Effort } from "./harness";

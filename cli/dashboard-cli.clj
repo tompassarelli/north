@@ -246,8 +246,7 @@
         canon (some-> (get cs "canonical") parse-long)
         owned (graph-upstream-count)
         ;; coordination layer (P1): north dispatch mode + coordinator up.
-        ;; ("north" is the live dispatch value; "tern" kept for pre-rename state.)
-        p1?   (and (#{"north" "tern" "warn"} mode) (:north dh))
+        p1?   (and (#{"north" "warn"} mode) (:north dh))
         ;; code-as-facts layer (P2): code-as-facts flipped for cwd repo
         p2?   (and level (>= level 3) (or (and canon (pos? canon)) (pos? owned)))
         rung  (cond p2? "P2" p1? "P1" :else "P0")]

@@ -25,7 +25,7 @@ DERIVED="session-$RN-${sid:0:8}"
 # id (2026-07-03: cc-fram-* had 3 workstreams + mail answered by the wrong actor).
 # When the pin is already owned elsewhere, derive a distinct id from our own sid.
 ID=""
-pin="${NORTH_AGENT_ID:-${TERN_AGENT_ID:-}}"  # TERN_AGENT_ID: transitional fallback, remove post-cutover
+pin="${NORTH_AGENT_ID:-}"
 if [ -n "$pin" ]; then
   owned_by_other=0
   if [ -d "$IDDIR" ]; then

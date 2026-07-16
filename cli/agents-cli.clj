@@ -273,7 +273,7 @@
         dry? (some #{"--dry-run"} args)
         from-idx (.indexOf rest0 "--from")
         from (if (>= from-idx 0) (nth rest0 (inc from-idx) nil)
-                 (or (System/getenv "NORTH_AGENT_ID") (System/getenv "TERN_AGENT_ID") "north-cli"))  ;; TERN_AGENT_ID: transitional fallback, remove post-cutover
+                 (or (System/getenv "NORTH_AGENT_ID") "north-cli"))
         pos (if (>= from-idx 0)
               (keep-indexed #(when-not (#{from-idx (inc from-idx)} %1) %2) rest0)
               rest0)
