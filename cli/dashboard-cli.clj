@@ -98,39 +98,62 @@
      :ports ports}))
 
 ;; ---- presence: live agents --------------------------------------------------
+;; CACHED 20s. presence-cli queries the SHARED single-threaded coordinator, so it is
+;; starved not just by our own co-scheduled probes (the serial group fixes those) but
+;; by EVERY other agent's heavy query: measured ~3s idle, but spiking to 21s+ under a
+;; live multi-agent load (26 clients, loadavg 7). No dashboard-side timeout survives
+;; unbounded external contention, so insulate instead: a 20s cache means back-to-back
+;; renders and renders during someone else's heavy fold hit the cache, not the daemon.
+;; Liveness stays a fresh snapshot — the per-agent `ttl` field already signals age, and
+;; agent leases run tens of seconds, so ≤20s staleness is invisible; a 20s-stale live
+;; list is strictly better than the "0 live — timed out" lie it replaces. Cold miss gets
+;; 25s (outlasts one competing heavy query); only successful reads are cached.
 (defn presence-rows []
-  (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "presence"] :timeout 6000)]
-    (cond
-      (:timeout r) {:err "presence probe timed out"}
-      (not (:ok r)) {:err "presence unavailable"}
-      :else
-      (let [lines (->> (str/split-lines (:out r))
-                       (drop 1)                       ; header
-                       (remove str/blank?))]
-        {:agents
-         ;; PIN column is blank in data rows, so parse by semantics not position:
-         ;; online = the yes|no token, expires = the <n>s|lapsed token.
-         (for [ln lines
-               :let [toks (str/split (str/trim ln) #"\s+")
-                     agent (first toks)
-                     online (some #{"yes" "no"} toks)
-                     expires (some #(when (re-matches #"\d+s|lapsed" %) %) toks)
-                     focus (last toks)]
-               :when (and agent (seq agent))]
-           {:id agent :online (= online "yes") :expires (or expires "?")
-            :focus (when-not (#{"-" online expires} focus) focus)})}))))
+  (or (cache-get "presence.edn" 20000)
+      (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "presence"] :timeout 25000)]
+        (cond
+          (:timeout r) {:err "presence probe timed out"}
+          (not (:ok r)) {:err "presence unavailable"}
+          :else
+          (let [lines (->> (str/split-lines (:out r))
+                           (drop 1)                       ; header
+                           (remove str/blank?))]
+            (cache-put! "presence.edn"
+              {:agents
+               ;; PIN column is blank in data rows, so parse by semantics not position:
+               ;; online = the yes|no token, expires = the <n>s|lapsed token.
+               (doall
+                (for [ln lines
+                      :let [toks (str/split (str/trim ln) #"\s+")
+                            agent (first toks)
+                            online (some #{"yes" "no"} toks)
+                            expires (some #(when (re-matches #"\d+s|lapsed" %) %) toks)
+                            focus (last toks)]
+                      :when (and agent (seq agent))]
+                  {:id agent :online (= online "yes") :expires (or expires "?")
+                   :focus (when-not (#{"-" online expires} focus) focus)}))}))))))
 
 ;; ---- concerns: active, grouped by repo --------------------------------------
-(defn concern-rows []
-  ;; decay projection probes owner leases — ~2s warm; 3s flaked under load
-  (let [r (run [(str NORTH "/bin/concern") "ls" "--all"] :timeout 8000)]
-    (if (or (:timeout r) (not (:out r)))
-      {:err "concern probe unavailable"}
-      {:concerns
-       (for [ln (str/split-lines (:out r))
-             :let [m (re-matches #"\s+@(\S+)\s+(\S+)\s+(\S+)\s+\{.*" ln)]
-             :when m]
-         (let [[_ id status repo] m] {:id id :status status :repo repo}))})))
+(defn concern-rows
+  "Active concerns grouped by repo. CACHED 90s. `concern ls --all` runs a decay
+   projection over owner leases ON the coordinator — measured 12-24s on the current
+   large log (NOT the ~2s an older comment assumed; log GROWTH pushed it past the
+   old 8s timeout, so it timed out every render). Active concerns move slowly, so a
+   point-in-time dashboard tolerates ~90s staleness. Cache miss runs with a 30s
+   budget — it MUST exceed real cost or the probe can never seed. Only successful
+   reads are cached; a timeout/error returns fresh and retries next run."
+  []
+  (or (cache-get "concerns.edn" 90000)
+      (let [r (run [(str NORTH "/bin/concern") "ls" "--all"] :timeout 30000)]
+        (if (or (:timeout r) (not (:out r)))
+          {:err "concern probe unavailable"}
+          (cache-put! "concerns.edn"
+            {:concerns
+             (doall
+              (for [ln (str/split-lines (:out r))
+                    :let [m (re-matches #"\s+@(\S+)\s+(\S+)\s+(\S+)\s+\{.*" ln)]
+                    :when m]
+                (let [[_ id status repo] m] {:id id :status status :repo repo})))})))))
 
 ;; ---- board / ready counts ---------------------------------------------------
 (defn board-counts []
@@ -217,14 +240,16 @@
 
 (defn dashboard-health
   "Health for the dashboard hot path: cached 300s (slow-moving 24h aggregates +
-   STALE concern count). Cache miss runs with a generous 8s budget so it beats
-   coordinator contention and actually seeds — one slow run reseeds, then health
-   leaves the probe burst for 5 min and every other pane speeds up too. Only
-   successful reads are cached; a timeout/error returns fresh and retries next
-   run. Doctor keeps the uncached, default-budget `(north-health)` path."
+   STALE concern count). Cache miss runs with a 30s budget — `north health` folds
+   the whole log with multi-clause Datalog and measures 21-24s on the current large
+   log, so the old 8s budget ALWAYS timed out and NEVER seeded (every render lied
+   'timed out'). The budget must EXCEED real cost or the cache can never warm; one
+   slow seed reseeds for 5 min and every other pane speeds up too. Only successful
+   reads are cached; a timeout/error returns fresh and retries next run. Doctor keeps
+   the uncached, default-budget `(north-health)` path."
   []
   (or (cache-get "health.edn" 300000)
-      (let [h (parse-health (north-health 8000))]
+      (let [h (parse-health (north-health 30000))]
         (if (:err h) h (cache-put! "health.edn" h)))))
 
 ;; ---- profile: rung per layer ------------------------------------------------
@@ -267,18 +292,28 @@
 ;; ============================================================================
 
 (defn cmd-dashboard [_]
-  ;; parallelize every probe: total render bounded by the slowest, never summed.
-  ;; agent-facts joins alongside presence — no added serial latency.
+  ;; Two probe classes, sized to where the work actually happens:
+  ;;   NON-coordinator probes parallelize freely — ss (daemon-health), a log-file
+  ;;   read (agent-facts), fram-code-status (profile). None touches :7977, so futures
+  ;;   genuinely run at once.
+  ;;   COORDINATOR-bound probes (board, presence, concern, health) all hit the SINGLE-
+  ;;   THREADED daemon, which serializes them regardless. Firing them as concurrent
+  ;;   futures therefore parallelizes NOTHING — it only randomizes queue order and
+  ;;   inflates the tail (measured 2026-07-16: presence 3s alone -> 32s when fanned
+  ;;   out behind concern+health). Run them ONE AT A TIME: identical wall-time under
+  ;;   serialization, but each runs alone so its latency is bounded and fits a tight
+  ;;   timeout instead of timing out. concern (90s) and health (300s) are cached, so
+  ;;   steady-state this group is just board+presence (~4s); only a cold cache pays
+  ;;   the one-time seed cost, and the seed no longer strangles presence.
   (let [f-daemon  (future (daemon-health))
-        f-present (future (presence-rows))
-        f-concern (future (concern-rows))
-        f-board   (future (board-counts))
         f-profile (future (profile-status))
         f-agfacts (future (agent-facts-from-log))
-        f-health  (future (dashboard-health))
-        dh @f-daemon, pr @f-present, cr @f-concern, bc @f-board, pf @f-profile
-        agfacts (or @f-agfacts {})
-        health @f-health]
+        bc     (board-counts)     ; ~1s, cheap coordinator header fetch
+        pr     (presence-rows)    ; cached 20s; cold seed runs alone, no inflation
+        cr     (concern-rows)     ; cached 90s; cold seed alone, not behind presence
+        health (dashboard-health) ; cached 300s; cold seed alone
+        dh @f-daemon, pf @f-profile
+        agfacts (or @f-agfacts {})]
     (println (bold "north dashboard") (dim "— the cockpit over fram · north · gaffer"))
     (println)
     ;; agents (lead with active work)
@@ -365,10 +400,14 @@
       (let [up (get dh k)]
         (println (str "    " (if up (grn "[ok]  ") (if crit (red "[ERR] ") (ylw "[warn]")))
                       " " label " " (ok-x up))))))
-  ;; health — lane activity + stale concerns from north health
+  ;; health — lane activity + stale concerns from north health. LIVE (uncached, unlike
+  ;; the dashboard's cached hot path) but with a budget that matches reality: `north
+  ;; health` folds the whole log and takes ~21-24s, so the old 4s default always warned
+  ;; "timed out". Doctor is a deliberate, occasional live check — eating one honest 30s
+  ;; fold beats reporting a false timeout on a healthy coordinator.
   (println (bold "  health"))
   (echo-cmd (str NORTH "/bin/north") "health")
-  (let [h (parse-health (north-health))]
+  (let [h (parse-health (north-health 30000))]
     (if (:err h)
       (println (str "    " (ylw "[warn] ") " north health " (:err h)))
       (let [{:keys [lanes-ran-24h lanes-died-24h concerns-active concerns-stale]} h
