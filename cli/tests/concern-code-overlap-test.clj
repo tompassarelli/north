@@ -37,6 +37,7 @@
 (def cport (some #(when (port-free? %) %) [37610 37611 37612]))
 (def spine-log (str (System/getProperty "java.io.tmpdir") "/concern-cli-spine-" (System/nanoTime) ".log"))
 (def code-cpy  (str (System/getProperty "java.io.tmpdir") "/concern-cli-code-"  (System/nanoTime) ".log"))
+(def hot-file  (str (System/getProperty "java.io.tmpdir") "/concern-cli-hot-"   (System/nanoTime) ".edn"))
 (io/copy (io/file code-log) (io/file code-cpy))
 (spit spine-log "")
 
@@ -44,10 +45,27 @@
   (p/process {:dir fram :out (io/file (System/getProperty "java.io.tmpdir") (str "concern-cli-" tag ".out"))
               :err :out}
              "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log))
+(def code-daemon-expr
+  (str "(do "
+       "(binding [*command-line-args* []] (load-file \"coord_daemon.clj\")) "
+       "(boot-flat! (System/getenv \"NORTH_TEST_CODE_LOG\")) "
+       "(let [{:keys [blast]} (ensure-calls!) "
+       "      [node callers] (first (sort-by (comp count val) > blast))] "
+       "  (spit (System/getenv \"NORTH_TEST_HOT_FILE\") "
+       "        (pr-str {:node node :blast (vec callers) :count (count callers)}))) "
+       "(serve (Integer/parseInt (System/getenv \"NORTH_TEST_CODE_PORT\"))))"))
+(defn spawn-code [port log]
+  (p/process {:dir fram
+              :extra-env {"NORTH_TEST_CODE_LOG" log
+                          "NORTH_TEST_HOT_FILE" hot-file
+                          "NORTH_TEST_CODE_PORT" (str port)}
+              :out (io/file (System/getProperty "java.io.tmpdir") "concern-cli-code.out")
+              :err :out}
+             "bb" "-cp" "out" "-e" code-daemon-expr))
 (println "booting spine" spine "+ code" cport "concurrently (folding fram corpus — up to ~3 min)…")
 ;; spawn BOTH first so their folds overlap, then wait on both with one budget.
 (def sp (spawn spine spine-log "spine"))
-(def cp (spawn cport code-cpy "code"))
+(def cp (spawn-code cport code-cpy))
 (def procs [sp cp])
 (defn killall [] (doseq [pr procs] (try (p/destroy-tree pr) (catch Throwable _ nil))))
 (.addShutdownHook (Runtime/getRuntime) (Thread. killall))
@@ -67,13 +85,13 @@
              "bb" "cli/concern-cli.clj" (str spine) args)
       deref :out))
 
-;; warm the call graph + pick a hot node and one of its callers
-(def hot (->> (op cport {:op :concern-overlap :te "@nobody"}) :version some?))   ; touch the daemon
-(def some-blast (op cport {:op :blast :te "@kernel#163"}))
+;; The code-daemon wrapper discovers the hottest node from the same warm cache
+;; it serves. Ingestion-local node integers never become fixtures.
+(def some-blast (edn/read-string (slurp hot-file)))
 (def node (:node some-blast))
 (def caller (first (:blast some-blast)))
 (println "hot node" node "->" (:count some-blast) "callers; using caller" caller)
-(check "warm daemon resolves a code node with callers" (and node caller (pos? (:count some-blast))))
+(check "warm daemon resolves a code node with callers" (and node caller (pos? (:count some-blast 0))))
 
 (def env {"NORTH_CODE_PORT" (str cport)})
 (def outA (cli env "declare" "alice" "~/code/fram" "rework kernel ctor" node))

@@ -19,6 +19,8 @@
 
 (def here (-> *file* io/file .getCanonicalFile .getParentFile))
 (def engine (or (System/getenv "NORTH_BIN") (str here "/north")))
+(load-file (str (.getParentFile here) "/cli/managed-child-env.clj"))
+(load-file (str (.getParentFile here) "/cli/gaffer-staffing.clj"))
 
 ;; The `instructions` block teaches the FACT MODEL + cross-tool norms ONCE —
 ;; things no single tool description can carry. Per-verb "what it does" lives in
@@ -146,26 +148,82 @@
                     (get a "server") (conj "--server" (get a "server"))))}])
 
 ;; --- SDK agent tools (dispatch/spawn) — shell out to bun, not the engine ----
-(def sdk-dir (str (.getParent (io/file (str here))) "/sdk/src"))
-(def bun "/run/current-system/sw/bin/bun")
+(def root (str (.getParent (io/file (str here)))))
+(load-file (str root "/cli/spawn-process.clj"))
+(load-file (str root "/cli/topology-authority.clj"))
+(def sdk-dir (str root "/sdk/src"))
+(def bun (or (System/getenv "NORTH_MCP_BUN") "/run/current-system/sw/bin/bun"))
+(def driver-bb (or (System/getenv "NORTH_MCP_BB") "/run/current-system/sw/bin/bb"))
+(def driver-cli (str root "/cli/acquire-cli.clj"))
+(def north-port (or (System/getenv "NORTH_PORT") "7977"))
+(def route-preflight (str sdk-dir "/mcp-route-preflight.ts"))
+(def gaffer-staffing-path
+  (or (System/getenv "GAFFER_STAFFING_CATALOG")
+      (str (or (System/getenv "GAFFER_HOME")
+               (str (System/getProperty "user.home") "/code/gaffer"))
+           "/staffing/catalog.json")))
+(def gaffer-staffing
+  (try (north.gaffer-staffing/load-catalog gaffer-staffing-path)
+       (catch Exception _ nil)))
+(def gaffer-role-names
+  (set (keep #(get % "name") (get gaffer-staffing "presets"))))
+(def gaffer-role-aliases
+  (into {} (keep (fn [entry]
+                   (when (and (get entry "name") (get entry "target"))
+                     [(get entry "name") (get entry "target")])))
+        (get gaffer-staffing "aliases")))
+(def gaffer-presets-by-name
+  (north.gaffer-staffing/presets-by-name gaffer-staffing))
 
 (def task-grade-values ["novice" "junior" "mid" "senior" "staff" "principal" "research-grade"])
-(def topology-values ["worker" "verifier" "orchestrator"])
+(def topology-values ["worker" "orchestrator"])
+(def tier-values ["economy" "standard" "senior" "frontier"])
 (def reasoning-values ["low" "medium" "high" "xhigh" "max"])
-(def composition-schema
+(def posture-values ["explore" "deliver" "preserve"])
+(def role-id-pattern "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+(def capability-values
+  (vec (or (get-in gaffer-staffing ["vocabulary" "capabilities"]) [])))
+(def capabilities-schema
+  {:type "array" :minItems 1 :uniqueItems true
+   :items {:type "string" :enum capability-values}})
+(def non-empty-strings-schema
+  {:type "array" :minItems 1 :uniqueItems true :items {:type "string" :minLength 1}})
+(def bespoke-contract-schema
   {:type "object"
-   :properties {:kind {:type "string" :enum ["preset" "bespoke"]}
-                :id {:type "string" :minLength 1}
-                :nearestPreset {:type "string" :minLength 1}
-                :bespokeReason {:type "string" :minLength 1}
-                :promotionCandidate {:type "boolean"}}
-   :required ["kind" "id"]
-   :allOf [{:if {:properties {:kind {:const "bespoke"}} :required ["kind"]}
-            :then {:required ["bespokeReason"]}}]
+   :properties {:responsibility {:type "string" :minLength 1}
+                :deliverable {:type "string" :minLength 1}
+                :capabilities capabilities-schema
+                :mayDecide non-empty-strings-schema
+                :mustEscalate non-empty-strings-schema
+                :doneWhen non-empty-strings-schema
+                :report {:type "string" :minLength 1}}
+   :required ["responsibility" "deliverable" "capabilities" "mayDecide" "mustEscalate" "doneWhen" "report"]
    :additionalProperties false})
+(def composition-schema
+  {:oneOf
+   [{:type "object"
+     :properties {:kind {:const "preset"}
+                  :id {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
+                  :overrides {:type "array" :uniqueItems true
+                              :items {:type "string" :enum ["taskGrade" "domainRequirements" "topology" "tier" "reasoning" "posture"]}}
+                  :overrideReason {:type "string" :minLength 1}}
+     :required ["kind" "id" "overrides"]
+     :allOf [{:if {:properties {:overrides {:minItems 1}} :required ["overrides"]}
+              :then {:required ["overrideReason"]}
+              :else {:not {:required ["overrideReason"]}}}]
+     :additionalProperties false}
+    {:type "object"
+     :properties {:kind {:const "bespoke"}
+                  :id {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
+                  :nearestPreset {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
+                  :bespokeReason {:type "string" :minLength 1}
+                  :promotionCandidate {:type "boolean"}
+                  :contract bespoke-contract-schema}
+     :required ["kind" "id" "bespokeReason" "promotionCandidate" "contract"]
+     :additionalProperties false}]})
 (def routing-properties
   {:taskGrade {:type "string" :enum task-grade-values :description "Real-world work grade; independent of model tier"}
-   :domainRequirements {:type "array" :items {:type "string" :minLength 1} :description "Domain expertise/context the lane must load"}
+   :domainRequirements {:type "array" :uniqueItems true :items {:type "string" :minLength 1} :description "Expertise/context the brief or adapter must supply; metadata alone loads nothing"}
    :topology {:type "string" :enum topology-values :description "Lane's coordination position"}
    :composition composition-schema})
 
@@ -173,40 +231,42 @@
   [{:name "dispatch"
     :desc "Dispatch an agent for a thread (must exist — capture first). North derives posture and routes to an available provider. Returns the agent ID."
     :schema {:type "object"
-             :properties {:id {:type "string" :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
-                          :model {:type "string" :description "opus|sonnet|haiku|fable (default sonnet)"}
-                          :effort {:type "string" :description "Compatibility alias for reasoning"}
+             :properties {:id {:type "string" :minLength 1 :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
+                          :model {:type "string" :minLength 1 :description "Provider model override; normally omit and let the semantic tier resolve it"}
+                          :effort {:type "string" :enum reasoning-values :description "Compatibility alias for reasoning"}
                           :reasoning {:type "string" :enum reasoning-values :description "Provider-neutral deliberation; independent of role and tier"}
-                          :role {:type "string" :minLength 1 :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
-                          :posture {:type "string" :description "explore|deliver|preserve"}
+                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
+                          :posture {:type "string" :enum posture-values}
                           :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
                           :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
                           :tier {:type "string" :enum ["economy" "standard" "senior" "frontier"] :description "Provider-neutral capability tier"}
-                          :coordinator {:type "string" :description "Caller's north id; the lane pings it on done/death + records a `coordinator` fact. Omit to inherit from AGENT_ID/NORTH_AGENT_ID env; pass explicitly from an interactive session."}
+                          :coordinator {:type "string" :minLength 1 :description "Caller's north id; the lane pings it on done/death + records a `coordinator` fact. Omit to inherit from AGENT_ID/NORTH_AGENT_ID env; pass explicitly from an interactive session."}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
                           :composition (:composition routing-properties)}
-             :required ["id"]}}
+             :required ["id" "role"]
+             :additionalProperties false}}
    {:name "spawn"
     :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). Returns the agent ID."
     :schema {:type "object"
-             :properties {:prompt {:type "string" :description "The task prompt"}
-                          :model {:type "string" :description "opus|sonnet|haiku|fable (default sonnet)"}
-                          :effort {:type "string" :description "Compatibility alias for reasoning"}
+             :properties {:prompt {:type "string" :minLength 1 :description "The task prompt"}
+                          :model {:type "string" :minLength 1 :description "Provider model override; normally omit and let the semantic tier resolve it"}
+                          :effort {:type "string" :enum reasoning-values :description "Compatibility alias for reasoning"}
                           :reasoning {:type "string" :enum reasoning-values :description "Provider-neutral deliberation; independent of role and tier"}
-                          :role {:type "string" :minLength 1 :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
-                          :posture {:type "string" :description "explore|deliver|preserve"}
+                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
+                          :posture {:type "string" :enum posture-values}
                           :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
                           :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
                           :tier {:type "string" :enum ["economy" "standard" "senior" "frontier"] :description "Provider-neutral capability tier"}
                           :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial (default ambient AGENT_CAVEMAN)"}
-                          :coordinator {:type "string" :description "Caller's north id; see dispatch.coordinator"}
+                          :coordinator {:type "string" :minLength 1 :description "Caller's north id; see dispatch.coordinator"}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
                           :composition (:composition routing-properties)}
-             :required ["prompt"]}}])
+             :required ["prompt" "role"]
+             :additionalProperties false}}])
 
 ;; Attribution (routing-overhaul PART 1): the spawned lane inherits AGENT_COORDINATOR
 ;; so it records a `coordinator` fact + pings that id on completion/death — otherwise
@@ -224,6 +284,10 @@
       (not-empty (get env "AGENT_ID"))
       (not-empty (System/getenv "NORTH_AGENT_ID"))))
 
+;; A child request owns every managed routing axis. Starting from the parent
+;; process environment without removing these lets a director's composition or
+;; account pin contaminate a role-only worker request. Capture coordinator
+;; attribution first, then construct the child from this scrubbed base.
 (defn semantic-segment [value]
   (let [s (some-> value str str/trim str/lower-case
                   (str/replace #"[^a-z0-9]+" "-")
@@ -236,76 +300,273 @@
     (or (some #(when (parts %) %) ["opus" "sonnet" "haiku" "fable" "sol" "terra" "luna"])
         model)))
 
-(defn fallback-display-handle [agent-id args]
-  (let [provider (get args "provider")
-        provider (when (and provider (not= provider "auto")) provider)
-        target (get args "target")
-        provider-axis (if target (str (or provider "unknown") ":" target) provider)
-        effort (or (get args "reasoning") (get args "effort"))
-        composition (get args "composition")
-        composition-segment (cond
-                              (= "none" (get composition "kind")) "native"
-                              (seq (get composition "id")) (get composition "id")
-                              :else "unknown")
-        suffix (last (str/split agent-id #"-"))]
-    (str/join "-" [(semantic-segment provider-axis) (semantic-model (get args "model"))
-                    (semantic-segment effort) (semantic-segment composition-segment)
-                    (semantic-segment suffix)])))
-
-(defn observed-display-handle [agent-id]
+(defn observed-agent-facts [agent-id]
   (try
     (let [{:keys [out exit]} (proc/sh engine "json" "show" (str "agent:" agent-id))]
       (when (zero? exit)
-        (some (fn [fact]
-                (when (= "display_handle" (get fact "predicate"))
-                  (not-empty (get fact "value"))))
-              (json/parse-string out))))
+        (reduce (fn [facts fact]
+                  (if-let [predicate (not-empty (get fact "predicate"))]
+                    (north.agent-provenance/fold-fact facts predicate (get fact "value"))
+                    facts))
+                {} (json/parse-string out))))
     (catch Exception _ nil)))
 
-(defn await-display-handle [agent-id args]
-  ;; The SDK writes this synchronously immediately after selecting a route.
-  ;; Fall back to explicit unknown segments; never scrape the process log.
-  (loop [attempt 0]
-    (if-let [handle (observed-display-handle agent-id)]
-      handle
-      (if (>= attempt 20)
-        (fallback-display-handle agent-id args)
-        (do (Thread/sleep 100) (recur (inc attempt)))))))
+(defn mcp-agent-online? [agent-id]
+  (try
+    (let [{:keys [out exit]} (proc/sh {:out :string :err :string}
+                                      driver-bb (str root "/cli/presence-cli.clj")
+                                      north-port "presence-online")]
+      (and (zero? exit)
+           (boolean
+            (some (fn [line]
+                    (let [tokens (str/split (str/trim line) #"\s+")]
+                      (and (= agent-id (first tokens)) (some #{"yes"} tokens))))
+                  (str/split-lines out)))))
+    (catch Exception _ false)))
 
-(defn invalid-routing [args]
-  (let [grade (get args "taskGrade") topology (get args "topology") role (get args "role")
-        domains (get args "domainRequirements") composition (get args "composition")
-        reasoning (get args "reasoning") effort (get args "effort") target (get args "target")]
+(defn launch-sdk! [command cmd-env log]
+  (north.spawn-process/launch-detached! command cmd-env log))
+
+(defn await-sdk-startup [process agent-id log]
+  (north.spawn-process/await-startup
+   process agent-id log observed-agent-facts mcp-agent-online?))
+
+(defn startup-success? [startup]
+  (contains? #{:ready :completed} (:status startup)))
+
+(defn startup-summary [verb startup suffix]
+  (if (= :completed (:status startup))
+    (str "completed " (:handle startup) suffix
+         "\nAgent reached outcome=" (:outcome startup) " during startup acknowledgement. "
+         "Control key: @agent:" (:agent-id startup) ".")
+    (str verb " " (:handle startup) suffix
+         "\nAgent is running in the background. "
+         "Control key: @agent:" (:agent-id startup) ".")))
+
+(defn create-mcp-agent-id [thread]
+  (let [segment (semantic-segment thread)
+        fragment (subs segment (max 0 (- (count segment) 12)))]
+    (north.spawn-process/create-agent-id (str "sdk-" fragment))))
+
+(defn driver-command [verb thread agent-id]
+  (try
+    (:exit (proc/sh {:out :string :err :string}
+                    driver-bb driver-cli north-port verb thread agent-id))
+    (catch Exception _ nil)))
+
+(defn claim-driver-problem [thread agent-id]
+  (case (driver-command "claim" thread agent-id)
+    0 nil
+    3 (str "thread @" thread " already has an active driver")
+    (str "could not establish the active driver for thread @" thread)))
+
+(defn release-driver! [thread agent-id]
+  ;; The child releases on every normal terminal path. This duplicate release is
+  ;; intentional: it also covers construction failure and abrupt child exit.
+  (driver-command "release" thread agent-id)
+  nil)
+
+(defn watch-driver-release! [process thread agent-id]
+  (future
+    (try
+      @process
+      (catch Exception _ nil)
+      (finally (release-driver! thread agent-id)))))
+
+(def sdk-argument-keys
+  {"dispatch" #{"id" "model" "effort" "reasoning" "role" "posture" "provider" "target" "tier"
+                 "coordinator" "taskGrade" "domainRequirements" "topology" "composition"}
+   "spawn" #{"prompt" "model" "effort" "reasoning" "role" "posture" "provider" "target" "tier"
+              "caveman" "coordinator" "taskGrade" "domainRequirements" "topology" "composition"}})
+
+(def routing-override-fields
+  #{"taskGrade" "domainRequirements" "topology" "tier" "reasoning" "posture"})
+(def bespoke-contract-fields
+  #{"responsibility" "deliverable" "capabilities" "mayDecide" "mustEscalate" "doneWhen" "report"})
+
+(defn valid-string-list? [value require-items?]
+  (and (sequential? value)
+       (or (not require-items?) (seq value))
+       (every? #(and (string? %) (not (str/blank? %))) value)
+       (= (count value) (count (set value)))))
+
+(defn non-empty-string? [value]
+  (and (string? value) (not (str/blank? value))))
+
+(defn safe-role-id? [value]
+  (and (string? value) (boolean (re-matches (re-pattern role-id-pattern) value))))
+
+(defn topology-capability-problem [topology capabilities]
+  (let [caps (set capabilities)]
     (cond
-      (and role (or (not (string? role)) (str/blank? role))) "role must be a non-empty string"
-      (and grade (not (some #{grade} task-grade-values))) "invalid taskGrade"
-      (and topology (not (some #{topology} topology-values))) "invalid topology"
-      (and reasoning (not (some #{reasoning} reasoning-values))) "invalid reasoning"
-      (and reasoning effort (not= reasoning effort)) "reasoning and compatibility effort disagree"
-      (and target (or (not (string? target)) (str/blank? target))) "target must be a non-empty string"
-      (and domains (or (not (sequential? domains)) (some #(or (not (string? %)) (str/blank? %)) domains))) "domainRequirements must contain non-empty strings"
-      (and composition (not (map? composition))) "composition must be an object"
-      (and composition (not (some #{(get composition "kind")} ["preset" "bespoke"]))) "invalid composition.kind"
-      (and composition (let [v (get composition "id")] (or (not (string? v)) (str/blank? v)))) "composition.id is required"
-      (and composition (contains? composition "nearestPreset")
-           (let [v (get composition "nearestPreset")] (or (not (string? v)) (str/blank? v)))) "composition.nearestPreset must be a non-empty string"
-      (and composition (contains? composition "promotionCandidate") (not (boolean? (get composition "promotionCandidate")))) "composition.promotionCandidate must be boolean"
-      (and (= "bespoke" (get composition "kind"))
-           (let [v (get composition "bespokeReason")] (or (not (string? v)) (str/blank? v)))) "bespoke composition requires bespokeReason"
+      (and (caps "shell") (caps "shell.readonly"))
+      "shell and shell.readonly are mutually exclusive"
+      (and (= topology "orchestrator") (not (caps "coordination")))
+      "orchestrator topology requires coordination capability"
+      (and (= topology "orchestrator") (caps "filesystem.write"))
+      "orchestrator topology forbids filesystem.write capability"
+      (and (= topology "orchestrator") (caps "shell"))
+      "orchestrator topology forbids unrestricted shell capability"
+      (and (= topology "worker") (caps "coordination"))
+      "worker topology forbids coordination capability"
       :else nil)))
 
+(defn invalid-routing [nm args]
+  (if-not (map? args)
+    "arguments must be an object"
+    (let [grade (get args "taskGrade") topology (get args "topology") role (get args "role")
+        domains (get args "domainRequirements") composition (get args "composition")
+        reasoning (get args "reasoning") effort (get args "effort") effective-reasoning (or reasoning effort)
+        tier (get args "tier") posture (get args "posture") provider (get args "provider")
+        target (get args "target") model (get args "model") coordinator (get args "coordinator")
+        id (get args "id") prompt (get args "prompt") caveman (get args "caveman")
+        unknown (seq (sort (remove (get sdk-argument-keys nm #{}) (keys args))))
+        kind (when (map? composition) (get composition "kind"))
+        composition-keys (case kind
+                           "preset" #{"kind" "id" "overrides" "overrideReason"}
+                           "bespoke" #{"kind" "id" "nearestPreset" "bespokeReason" "promotionCandidate" "contract"}
+                           #{"kind" "id" "overrides" "overrideReason" "nearestPreset" "bespokeReason" "promotionCandidate" "contract"})
+        unknown-composition (when (map? composition)
+                              (seq (sort (remove composition-keys (keys composition)))))
+        contract (when (map? composition) (get composition "contract"))
+        contract-capabilities (when (map? contract) (get contract "capabilities"))
+        unknown-contract (when (map? contract)
+                           (seq (sort (remove bespoke-contract-fields (keys contract)))))
+        canonical-role (get gaffer-role-aliases role role)
+        known-role? (contains? gaffer-role-names canonical-role)
+        preset (get gaffer-presets-by-name canonical-role)
+        effective-capabilities (if known-role? (get preset "capabilities") contract-capabilities)
+        effective-topology (or topology (get preset "topology"))
+        capability-problem (when (and effective-topology (sequential? effective-capabilities))
+                             (topology-capability-problem effective-topology effective-capabilities))
+        base-posture (or (get preset "posture") (get-in gaffer-staffing ["defaults" "posture"]))
+        actual-overrides (set (keep (fn [[field supplied base]]
+                                      (when (and (some? supplied) (not= supplied base)) field))
+                                    [["taskGrade" grade (get preset "taskGrade")]
+                                     ["domainRequirements" domains []]
+                                     ["topology" topology (get preset "topology")]
+                                     ["tier" tier (get preset "tier")]
+                                     ["reasoning" effective-reasoning (get preset "deliberation")]
+                                     ["posture" posture base-posture]]))
+        declared-overrides (when (= kind "preset") (get composition "overrides"))
+        missing-bespoke-axes (when (and role (not known-role?))
+                               (seq (keep (fn [[label value]] (when (nil? value) label))
+                                          [["taskGrade" grade] ["domainRequirements" domains]
+                                           ["topology" topology] ["tier" tier]
+                                           ["reasoning" effective-reasoning] ["posture" posture]])))]
+    (cond
+      unknown (str "unknown " nm " routing field(s): " (str/join ", " unknown))
+      (and (= nm "dispatch") (not (non-empty-string? id))) "dispatch id must be a non-empty string"
+      (and (= nm "spawn") (not (non-empty-string? prompt))) "spawn prompt must be a non-empty string"
+      (and (#{"dispatch" "spawn"} nm) (not (non-empty-string? role)))
+      (str "managed " nm " requires role selecting a canonical Gaffer preset or a complete bespoke composition")
+      (and (some? model) (not (non-empty-string? model))) "model must be a non-empty string"
+      (and (some? coordinator) (not (non-empty-string? coordinator))) "coordinator must be a non-empty string"
+      (and (some? caveman) (not (some #{caveman} ["off" "lite" "full"]))) "invalid caveman mode"
+      (and role (or (not (string? role)) (str/blank? role))) "role must be a non-empty string"
+      (and role (not (safe-role-id? role))) "role must be a lowercase kebab-case Gaffer role id"
+      (= role "researcher") "role researcher is retired because it was ambiguous; use scout, analyst, or research-scientist"
+      (#{"worker" "orchestrator"} role) (str role " is a topology, not a role; use director for orchestration or a functional worker role")
+      (and role (nil? gaffer-staffing)) (str "Gaffer staffing catalog unavailable: " gaffer-staffing-path)
+      (and grade (not (some #{grade} task-grade-values))) "invalid taskGrade"
+      (and topology (not (some #{topology} topology-values))) "invalid topology"
+      (and (= canonical-role "director") (= topology "worker")) "director cannot use worker topology; choose a worker role for atomic work"
+      (and tier (not (some #{tier} tier-values))) "invalid tier"
+      (and effective-reasoning (not (some #{effective-reasoning} reasoning-values))) "invalid reasoning"
+      (and posture (not (some #{posture} posture-values))) "invalid posture"
+      (and provider (not (some #{provider} ["auto" "anthropic" "openai"]))) "invalid provider"
+      (and reasoning effort (not= reasoning effort)) "reasoning and compatibility effort disagree"
+      (and target (or (not (string? target)) (str/blank? target))) "target must be a non-empty string"
+      (and domains (not (valid-string-list? domains false))) "domainRequirements must contain unique non-empty strings"
+      (and composition (not (map? composition))) "composition must be an object"
+      unknown-composition (str "unknown composition field(s): " (str/join ", " unknown-composition))
+      (and composition (not (#{"preset" "bespoke"} kind))) "invalid composition.kind"
+      (and composition (let [v (get composition "id")] (or (not (string? v)) (str/blank? v)))) "composition.id is required"
+      (and composition (not (safe-role-id? (get composition "id"))))
+      "composition.id must be a lowercase kebab-case Gaffer role id"
+      (and composition (nil? role)) "composition requires role"
+
+      (and (= kind "preset") (not (valid-string-list? declared-overrides false)))
+      "preset composition.overrides must be an array of unique routing-axis names"
+      (and (= kind "preset") (some #(not (routing-override-fields %)) declared-overrides))
+      "composition.overrides contains an invalid routing axis"
+      (and (= kind "preset") (not= actual-overrides (set declared-overrides)))
+      (str "composition.overrides must exactly record changed preset axes: "
+           (if (seq actual-overrides) (str/join ", " (sort actual-overrides)) "none"))
+      (and (= kind "preset") (seq declared-overrides)
+           (let [v (get composition "overrideReason")] (or (not (string? v)) (str/blank? v))))
+      "preset axis overrides require composition.overrideReason"
+      (and (= kind "preset") (empty? declared-overrides) (contains? composition "overrideReason"))
+      "unchanged preset must omit composition.overrideReason"
+      (and role known-role? (seq actual-overrides) (nil? composition))
+      (str "known role " canonical-role " overrides " (str/join ", " (sort actual-overrides))
+           "; supply preset composition.overrides and composition.overrideReason")
+      (and role known-role? composition
+           (or (not= "preset" kind) (not= canonical-role (get composition "id"))))
+      (str "known role " canonical-role " requires preset composition id " canonical-role)
+
+      (and (= kind "bespoke") (contains? composition "nearestPreset")
+           (let [v (get composition "nearestPreset")] (or (not (string? v)) (str/blank? v))))
+      "bespoke composition.nearestPreset must be a non-empty string when supplied"
+      (and (= kind "bespoke") (some? (get composition "nearestPreset"))
+           (not (contains? gaffer-role-names (get composition "nearestPreset"))))
+      "bespoke composition.nearestPreset must name a canonical preset"
+      (and (= kind "bespoke")
+           (let [v (get composition "bespokeReason")] (or (not (string? v)) (str/blank? v))))
+      "bespoke composition requires bespokeReason"
+      (and (= kind "bespoke") (not (boolean? (get composition "promotionCandidate"))))
+      "bespoke composition.promotionCandidate must be explicit boolean"
+      (and (= kind "bespoke") (not (map? contract))) "bespoke composition.contract must be an object"
+      unknown-contract (str "unknown composition.contract field(s): " (str/join ", " unknown-contract))
+      (and (= kind "bespoke")
+           (some (fn [field]
+                   (let [v (get contract field)] (or (not (string? v)) (str/blank? v))))
+                 ["responsibility" "deliverable" "report"]))
+      "bespoke composition.contract requires responsibility, deliverable, and report"
+      (and (= kind "bespoke")
+           (some #(not (valid-string-list? (get contract %) true)) ["mayDecide" "mustEscalate" "doneWhen"]))
+      "bespoke composition.contract requires non-empty unique mayDecide, mustEscalate, and doneWhen lists"
+      (and (= kind "bespoke")
+           (or (not (valid-string-list? contract-capabilities true))
+               (some #(not (some #{%} capability-values)) contract-capabilities)))
+      "bespoke composition.contract capabilities must be non-empty, unique, and canonical"
+      capability-problem capability-problem
+      (and role (not known-role?)
+           (or (not= "bespoke" kind) (not= role (get composition "id")) missing-bespoke-axes))
+      (str "unknown role " role " requires complete bespoke composition"
+           (when missing-bespoke-axes (str "; missing: " (str/join ", " missing-bespoke-axes))))
+      :else nil))))
+
+(defn preflight-exact-target [args]
+  (when-let [target (not-empty (get args "target"))]
+    (let [provider (or (not-empty (get args "provider")) "auto")
+          tier (not-empty (get args "tier"))
+          reasoning (or (not-empty (get args "reasoning")) (not-empty (get args "effort")))
+          model (not-empty (get args "model"))
+          argv [bun "run" route-preflight target provider
+                (or tier "-") (or reasoning "-") (or model "-")]
+          {:keys [out err exit]} (apply proc/sh argv)]
+      (when-not (zero? exit)
+        (let [message (str/trim (str err (when (and (seq err) (seq out)) "\n") out))]
+          (if (str/blank? message) "exact routing target preflight failed" message))))))
+
 (defn call-sdk [nm args]
-  (if-let [problem (invalid-routing args)]
+  (if-let [problem (north.topology-authority/authority-problem nm)]
     {:content [{:type "text" :text problem}] :isError true}
-    (let [env (into {} (System/getenv))
-        coordinator (resolve-coordinator env args)]
-    (case nm
-      "dispatch"
-      (let [id (get args "id")
+    (if-let [problem (invalid-routing nm args)]
+    {:content [{:type "text" :text problem}] :isError true}
+    (if-let [problem (preflight-exact-target args)]
+      {:content [{:type "text" :text problem}] :isError true}
+      (let [parent-env (into {} (System/getenv))
+            coordinator (resolve-coordinator parent-env args)
+            env (north.managed-child-env/scrub parent-env)]
+        (case nm
+          "dispatch"
+          (let [id (get args "id")
             model (get args "model")
             effort (get args "effort")
             reasoning (or (get args "reasoning") effort)
-            role (get args "role")
+            role (get gaffer-role-aliases (get args "role") (get args "role"))
             posture (get args "posture")
             provider (get args "provider")
             target (get args "target")
@@ -314,8 +575,10 @@
             domains (get args "domainRequirements")
             topology (get args "topology")
             composition (get args "composition")
-            agent-id (str "sdk-" (subs (str (java.util.UUID/randomUUID)) 0 8))
-            cmd-env (cond-> (assoc env "AGENT_ID" agent-id)
+            agent-id (create-mcp-agent-id id)
+            cmd-env (cond-> (assoc env
+                              "AGENT_ID" agent-id
+                              "NORTH_DISPATCH_DRIVER_PRECLAIMED" "1")
                       model       (assoc "AGENT_MODEL" model)
                       reasoning   (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
                       role        (assoc "AGENT_ROLE" role)
@@ -329,24 +592,37 @@
                       topology    (assoc "AGENT_TOPOLOGY" topology)
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       coordinator (assoc "AGENT_COORDINATOR" coordinator))]
-        (let [log (io/file (str (System/getenv "HOME") "/.local/state/north/agents/" agent-id ".log"))]
-          (.mkdirs (.getParentFile log))
-          (proc/process {:env cmd-env :out log :err log}
-                        bun "run" (str sdk-dir "/dispatch.ts") id))
-        {:content [{:type "text" :text (str "dispatched " (await-display-handle agent-id args) " for thread @" id
-                                            (when model (str " model=" model))
-                                            (when target (str " target=" target))
-                                            (when coordinator (str " coordinator=" coordinator))
-                                            "\nAgent is running in the background. "
-                                            "Control key: @agent:" agent-id ". "
-                                            "Watch via web client (:8088) or `show` the thread.")}]})
+        (if-let [problem (claim-driver-problem id agent-id)]
+          {:content [{:type "text" :text problem}] :isError true}
+          (try
+            (let [log (io/file (str (System/getenv "HOME") "/.local/state/north/agents/" agent-id ".log"))
+                  process (launch-sdk! [bun "run" (str sdk-dir "/dispatch.ts") id] cmd-env log)
+                  _ (watch-driver-release! process id agent-id)
+                  startup (await-sdk-startup process agent-id log)
+                  suffix (str " for thread @" id
+                              (when model (str " model=" model))
+                              (when target (str " target=" target))
+                              (when coordinator (str " coordinator=" coordinator)))]
+              (if (startup-success? startup)
+                {:content [{:type "text"
+                            :text (str (startup-summary "dispatched" startup suffix)
+                                       (when (= :ready (:status startup))
+                                         " Watch via web client (:8088) or `show` the thread."))}]}
+                (do
+                  (release-driver! id agent-id)
+                  {:content [{:type "text" :text (north.spawn-process/failure-message startup)}]
+                   :isError true})))
+            (catch Exception _
+              (release-driver! id agent-id)
+              {:content [{:type "text" :text (str "could not start an agent for thread @" id)}]
+               :isError true}))))
 
-      "spawn"
-      (let [prompt (get args "prompt")
+          "spawn"
+          (let [prompt (get args "prompt")
             model (get args "model")
             effort (get args "effort")
             reasoning (or (get args "reasoning") effort)
-            role (get args "role")
+            role (get gaffer-role-aliases (get args "role") (get args "role"))
             posture (get args "posture")
             provider (get args "provider")
             target (get args "target")
@@ -356,7 +632,7 @@
             topology (get args "topology")
             composition (get args "composition")
             caveman (get args "caveman")
-            agent-id (str "sdk-" (subs (str (java.util.UUID/randomUUID)) 0 8))
+            agent-id (create-mcp-agent-id "spawn")
             cmd-env (cond-> (assoc env "AGENT_ID" agent-id)
                       model       (assoc "AGENT_MODEL" model)
                       reasoning   (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
@@ -372,17 +648,23 @@
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       caveman     (assoc "AGENT_CAVEMAN" caveman)
                       coordinator (assoc "AGENT_COORDINATOR" coordinator))]
-        (let [log (io/file (str (System/getenv "HOME") "/.local/state/north/agents/" agent-id ".log"))]
-          (.mkdirs (.getParentFile log))
-          (proc/process {:env cmd-env :out log :err log}
-                        bun "run" (str sdk-dir "/spawn.ts") prompt))
-        {:content [{:type "text" :text (str "spawned " (await-display-handle agent-id args)
-                                            (when model (str " model=" model))
-                                            (when target (str " target=" target))
-                                            (when coordinator (str " coordinator=" coordinator))
-                                            "\nAgent is running in the background. "
-                                            "Control key: @agent:" agent-id ". "
-                                            "Watch via web client (:8088).")}]})))))
+        (try
+          (let [log (io/file (str (System/getenv "HOME") "/.local/state/north/agents/" agent-id ".log"))
+                process (launch-sdk! [bun "run" (str sdk-dir "/spawn.ts") prompt] cmd-env log)
+                startup (await-sdk-startup process agent-id log)
+                suffix (str (when model (str " model=" model))
+                            (when target (str " target=" target))
+                            (when coordinator (str " coordinator=" coordinator)))]
+            (if (startup-success? startup)
+              {:content [{:type "text"
+                          :text (str (startup-summary "spawned" startup suffix)
+                                     (when (= :ready (:status startup))
+                                       " Watch via web client (:8088)."))}]}
+              {:content [{:type "text" :text (north.spawn-process/failure-message startup)}]
+               :isError true}))
+          (catch Exception _
+            {:content [{:type "text" :text "could not start an ad-hoc agent"}]
+             :isError true})))))))))
 
 ;; `untell` is an accepted legacy alias for `retract` — route it to the same tool.
 (def tool-aliases {"untell" "retract"})

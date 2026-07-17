@@ -247,9 +247,12 @@
           ;; fram's export strip the wrong char. Old bare-id concerns are tolerated, not rewritten.
           id (str "@concern-" (System/currentTimeMillis) "-" (subs (str (java.util.UUID/randomUUID)) 0 4))]
       ;; spine on the :7977 board (low-frequency declare/maturity); footprint NEVER lands here.
-      ;; mint the agent's person node first — a driver ref to a node without a
-      ;; display_name is a validate violation the agent can't see from here.
-      (put! port (str "@" agent) "display_name" agent)
+      ;; Mint a missing person label, but never overwrite a managed lane's
+      ;; publisher-owned identity cache. Roster names are derived from axes.
+      (let [agent-e (str "@" agent)]
+        (when (and (nil? (resolved port agent-e "identity_manifest_sha256"))
+                   (nil? (resolved port agent-e "display_name")))
+          (put! port agent-e "display_name" agent)))
       (put! port id "title"  (str "[" repo "] " intent))   ; single
       (put! port id "kind"   "concern")                    ; single
       (put! port id "agent"  (str "@" agent))              ; single

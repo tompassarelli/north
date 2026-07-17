@@ -17,9 +17,10 @@ function statuslineWindow(limitId: string, value: unknown): ProviderUsageWindow 
 /** Normalize the subscriber limits Claude Code already sends to its statusline. */
 export function observationFromClaudeStatusline(
   payload: unknown,
-  targetId = anthropicTargetId(),
+  targetId: string | undefined,
   now = new Date(),
 ): ProviderUsageObservation | undefined {
+  if (!targetId) return undefined;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
   const rateLimits = (payload as Record<string, unknown>).rate_limits;
   if (!rateLimits || typeof rateLimits !== "object" || Array.isArray(rateLimits)) return undefined;
@@ -29,7 +30,7 @@ export function observationFromClaudeStatusline(
     statuslineWindow("seven_day", limits.seven_day),
   ].filter((window): window is ProviderUsageWindow => window !== undefined);
   if (!windows.length) return undefined;
-  return { targetId, provider: "anthropic", observedAt: now.toISOString(), windows };
+  return { targetId, provider: "anthropic", source: "claude-code:statusline", observedAt: now.toISOString(), windows };
 }
 
 /** Best-effort ingestion: malformed/missing telemetry is deliberately a no-op. */
@@ -37,11 +38,14 @@ export async function ingestClaudeStatusline(
   payload: unknown,
   options: {
     targetId?: string;
+    resolveTarget?: () => string | undefined;
     now?: Date;
     write?: (observation: ProviderUsageObservation) => Promise<unknown>;
   } = {},
 ): Promise<boolean> {
-  const observation = observationFromClaudeStatusline(payload, options.targetId, options.now);
+  const targetId = options.targetId
+    ?? (options.resolveTarget ? options.resolveTarget() : anthropicTargetId());
+  const observation = observationFromClaudeStatusline(payload, targetId, options.now);
   if (!observation) return false;
   try {
     await (options.write ?? writeProviderUsageObservations)(observation);

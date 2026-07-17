@@ -21,10 +21,20 @@ north linear sync <north-id>
 north linear sync <north-id> --apply
 ```
 
-`doctor`, `get`, `--dry-run`, `plan`, and `sync` without `--apply` are read-only.
-Only `sync --apply` writes Linear. `--server <name>` may select a server during
-get/import; an existing link remembers its server, so later plan/sync commands
-do not depend on ambiguous auto-discovery.
+`get`, `--dry-run`, `plan`, and `sync` without `--apply` are read-only. `doctor`
+never writes Linear, but it deterministically seeds any missing adapter-owned
+schema facts in North. Repeating it is a no-op; conflicting pre-existing schema
+facts are reported and never overwritten. Only `sync --apply` writes Linear.
+`--server <name>` may select a server during get/import; an existing link
+remembers its server, so later plan/sync commands do not depend on ambiguous
+auto-discovery.
+
+The mechanical verification sequence is `doctor` → `get` → `import` → `plan` →
+`sync --apply` → `plan`. The final plan must report `state: "in-sync"` with no
+actions. Repeating `import` must return the same thread and integration-link
+identity; if concurrent importers race, the identity lease serializes them and
+the later caller reports that it reused the post-lease link. None of these paths
+starts a model turn (`doctor` reports `modelTurn: false`).
 
 Import creates one deterministic integration-link entity and either adopts the
 explicit North thread or deterministically creates one. The thread retains a
@@ -77,6 +87,7 @@ closed.
 Remote edits inside North-owned fields are reported as drift/divergence; they
 are never timestamp-resolved or overwritten partially. Inspect with `north
 linear plan <thread>`. Resolve the conflict deliberately in North or Linear,
-then plan again. `north linear doctor` reports OAuth/tool readiness and whether
-the graph's schema-as-facts metadata has been seeded; it does not mutate either
-store.
+then plan again. `north linear doctor` reports OAuth/tool readiness and ensures
+the graph's adapter-owned schema-as-facts metadata is seeded. This local
+bootstrap is the only doctor mutation; it never writes Linear or starts a model
+turn.

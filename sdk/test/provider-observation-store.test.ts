@@ -29,6 +29,28 @@ test("pure merge preserves other targets and keeps the newest target/provider ob
   expect(merged.observations).toEqual([newClaude, codex]);
 });
 
+test("distinct telemetry sources cannot overwrite richer windows for the same target", () => {
+  const structured: ProviderUsageObservation = {
+    targetId: "claude", provider: "anthropic",
+    source: "claude-agent-sdk:usage-control-experimental", observedAt: "2026-07-16T11:00:00Z",
+    windows: [
+      { limitId: "claude:seven_day", usedPercent: 40, resetsAt: "2026-07-18T12:00:00Z" },
+      { limitId: "claude:model:fable", usedPercent: 38, resetsAt: "2026-07-18T12:00:00Z" },
+    ],
+  };
+  const event: ProviderUsageObservation = {
+    targetId: "claude", provider: "anthropic",
+    source: "claude-agent-sdk:rate-limit-event", observedAt: "2026-07-16T11:01:00Z",
+    windows: [{ limitId: "seven_day", usedPercent: 39, resetsAt: "2026-07-18T12:00:00Z" }],
+  };
+  const newerStructured = { ...structured, observedAt: "2026-07-16T11:02:00Z" };
+  const merged = mergeProviderUsageObservations(
+    { version: 1, observations: [structured] }, [event, newerStructured],
+    new Date("2026-07-16T11:03:00Z"),
+  );
+  expect(merged.observations).toEqual([newerStructured, event]);
+});
+
 test("future timestamp poisoning is discarded instead of shadowing a current observation", () => {
   const poisoned = { ...observation("claude", "anthropic", "2099-01-01T00:00:00Z"), state: "exhausted" as const };
   const current = { ...observation("claude", "anthropic", "2026-07-16T12:00:00Z"), state: "plenty" as const };

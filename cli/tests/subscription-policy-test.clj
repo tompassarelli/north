@@ -18,11 +18,10 @@
       reconcile (read-source "cli/north-reconcile.clj")
       arena (read-source "bin/arena-seed")
       retired [(str "budget" "_total") (str "cost" "_usd") "NORTH_BUDGET" "BUDGET SPENT"]]
-  (check "listener has no retired dollar gate"
+  (check "listener has no retired dollar gate and fails closed peer child operations"
          (and (not-any? #(str/includes? listener %) retired)
-              (str/includes? listener "with-driver-guard")
-              (str/includes? listener "driver ceiling")
-              (str/includes? listener "proc/shell")))
+              (str/includes? listener "peer spawn is unsupported")
+              (str/includes? listener "peer dispatch is unsupported")))
   (check "predicate registry omits retired policy facts"
          (and (not-any? #(str/includes? predicates %) retired)
               (str/includes? predicates "[\"tokens\"")))

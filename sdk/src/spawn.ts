@@ -1,12 +1,20 @@
 import { resolve as pathResolve } from "node:path";
+import { randomUUID } from "node:crypto";
 const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
 import { StreamWriter } from "./stream-writer";
-import { harnessOptions, type Effort } from "./harness";
+import {
+  harnessCompositionEvidence, harnessOptions,
+  type Effort, type HarnessCompositionEvidence,
+} from "./harness";
 import { normalizeUsage } from "./usage";
 import { recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
 import { inputChannel } from "./coordination";
-import { writeAgentFacts, writeAgentOutcome, updateAgentRoute, goalFromPrompt } from "./identity";
+import {
+  bespokeContractFingerprint, writeAgentFacts, writeAgentOutcome, updateAgentRoute, goalFromPrompt,
+  userAnchoredPath,
+} from "./identity";
+import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
 import { makeStruggleState, updateStruggle, checkStruggle, resetStruggle } from "./struggle";
 import {
   activeLadder, tierIndexOf, decideEscalation, escalateInFlight,
@@ -23,11 +31,15 @@ import { refreshCodexEntitlementsIfStale } from "./codex-entitlement";
 import type { AgentQuery } from "./providers/types";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import { canonicalRole, routingMetadataFromEnv, validateRoutingMetadata, type RoutingMetadata } from "./routing-metadata";
-import { applyGafferStaffing } from "./gaffer-staffing";
+import {
+  applyGafferStaffing, gafferCapabilities, requireManagedGafferSelection,
+} from "./gaffer-staffing";
+import { refreshAccountUsages } from "./account-usage";
 import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
 } from "./resource-envelopes";
+import { assertCoordinationAuthority } from "./topology-authority";
 
 export interface SpawnOptions {
   prompt: string;
@@ -38,7 +50,7 @@ export interface SpawnOptions {
   systemPrompt?: string;
   maxTurns?: number;
   escalate?: boolean; // escalate-not-kill: climb the ladder on struggle instead of stopping
-  role?: string;
+  role: string;
   posture?: string;
   thread?: string; // billable thread — when set, auto-clock this spawn like dispatch (bare id); ad-hoc spawns (no thread) never clock
   caveman?: "off" | "lite" | "full"; // per-spawn terse-output dial; overrides ambient AGENT_CAVEMAN
@@ -50,12 +62,16 @@ export interface SpawnOptions {
   project?: string;
   sessionId?: string;
   queryFn?: (args: any) => AgentQuery; // injection seam for tests; bypasses provider selection
-  // Known limitation: on escalate path the system prompt is built once at the starting tier,
-  // so a mid-flight model change does not swap the model-delta block.
+}
+
+export function createSpawnAgentId(now = Date.now(), uuid = randomUUID()): string {
+  return `lane-${now.toString(36)}-${uuid}`;
 }
 
 function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & { routingMetadata: RoutingMetadata } {
-  const requestedMetadata = opts.routingMetadata ? validateRoutingMetadata(opts.routingMetadata) : routingMetadataFromEnv();
+  // Library calls are request-owned. Only the CLI adapter below explicitly
+  // imports its already-scrubbed child environment into RoutingMetadata.
+  const requestedMetadata = opts.routingMetadata ? validateRoutingMetadata(opts.routingMetadata) : {};
   // The public spawn dials are part of the composition request, not a second
   // overlay after staffing. Merge them first so a role-only request can hydrate
   // from Gaffer while every explicitly supplied axis wins independently.
@@ -66,11 +82,14 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & { routingMetada
     ...(opts.effort != null ? { reasoning: opts.effort } : {}),
     ...(opts.posture != null ? { posture: opts.posture as RoutingMetadata["posture"] } : {}),
   });
-  const routingMetadata = validateRoutingMetadata(applyGafferStaffing(explicitMetadata));
+  const routingMetadata = requireManagedGafferSelection(
+    validateRoutingMetadata(applyGafferStaffing(explicitMetadata)),
+    "managed North spawn",
+  );
   return {
     ...opts,
     routingMetadata,
-    role: canonicalRole(routingMetadata.role),
+    role: canonicalRole(routingMetadata.role)!,
     tier: routingMetadata.tier,
     effort: routingMetadata.reasoning as Effort | undefined,
     posture: routingMetadata.posture,
@@ -81,39 +100,60 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
   const routingMetadata = opts.routingMetadata;
-  const requested = { provider: opts.provider ?? process.env.AGENT_PROVIDER, target: opts.target ?? process.env.AGENT_TARGET,
-    tier: opts.tier ?? process.env.AGENT_TIER,
-    model: opts.model ?? process.env.AGENT_MODEL, effort: opts.effort ?? process.env.AGENT_EFFORT };
-  const agentId = opts.agentId ?? `lane-${Date.now().toString(36).slice(-8)}`;
+  const capabilities = gafferCapabilities(routingMetadata);
+  const requested = { provider: opts.provider, target: opts.target,
+    tier: opts.tier, model: opts.model, effort: opts.effort };
+  const agentId = opts.agentId ?? createSpawnAgentId();
   const stream = new StreamWriter(agentId);
-  const requestedTier = opts.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
-  const providerPreference = opts.provider ?? process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
-  const targetPreference = opts.target ?? process.env.AGENT_TARGET;
+  const requestedTier = opts.tier;
+  const requestedReasoning = opts.effort;
+  const providerPreference = opts.provider ?? "auto";
+  const targetPreference = opts.target;
   const routingRequest = { provider: providerPreference, target: targetPreference };
   // Injected query functions own their entire provider boundary; keeping the
   // refresh out of that path makes tests and alternative adapters hermetic.
-  if (!opts.queryFn) await refreshCodexEntitlementsIfStale({ requested: routingRequest });
+  if (!opts.queryFn) {
+    try { await refreshAccountUsages({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
+    try { await refreshCodexEntitlementsIfStale({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
+  }
   const routing = selectProvider(routingRequest, undefined,
-    { tier: requestedTier, stableKey: agentId });
+    {
+      tier: requestedTier, reasoning: requestedReasoning, model: opts.model,
+      stableKey: agentId, capabilities,
+    });
   const resolved = resolveTier(routing.provider, requestedTier, opts.model, opts.effort);
   opts.model = resolved.model;
   opts.effort = resolved.effort;
-  const identityRole = process.env.AGENT_IDENTITY_ROLE ?? opts.role;
+  // The hydrated Gaffer selection is canonical. Never let an inherited parent
+  // env relabel this child as an alias or a different role.
+  const identityRole = routingMetadata.role!;
+  const composition = routingMetadata.composition!;
   const identityBase = {
     kind: "lane" as const,
     role: identityRole,
-    compositionKind: routingMetadata.composition?.kind ?? "none" as const,
-    compositionId: routingMetadata.composition?.id,
-    repo: process.cwd().split("/").pop(),
+    compositionKind: composition.kind,
+    compositionId: composition.id,
+    compositionOverrides: composition.kind === "preset" ? composition.overrides : undefined,
+    compositionOverrideReason: composition.kind === "preset" ? composition.overrideReason : undefined,
+    compositionNearestPreset: composition.kind === "bespoke" ? composition.nearestPreset : undefined,
+    compositionBespokeReason: composition.kind === "bespoke" ? composition.bespokeReason : undefined,
+    compositionPromotionCandidate: composition.kind === "bespoke" ? composition.promotionCandidate : undefined,
+    compositionContractFingerprint: composition.kind === "bespoke"
+      ? bespokeContractFingerprint(composition.contract) : undefined,
+    compositionContractFingerprintVersion: composition.kind === "bespoke"
+      ? BESPOKE_FINGERPRINT_VERSION : undefined,
+    compositionContractFingerprintDomain: composition.kind === "bespoke"
+      ? BESPOKE_FINGERPRINT_DOMAIN : undefined,
+    repo: userAnchoredPath(process.cwd()),
     goal: goalFromPrompt(opts.prompt),
-    coordinator: opts.coordinator ?? process.env.AGENT_COORDINATOR,
+    coordinator: opts.coordinator,
   };
   writeAgentFacts(agentId, {
     ...identityBase,
-    model: opts.model ?? process.env.AGENT_MODEL,
+    model: opts.model,
     provider: routing.provider,
     providerTarget: routing.target,
-    effort: (opts.effort ?? process.env.AGENT_EFFORT) as string | undefined,
+    effort: opts.effort,
   });
   const escalate = opts.escalate ?? process.env.AGENT_ESCALATE === "1";
   // escalate-not-kill (thread 019f1194-ca57): a struggling agent climbs the LADDER
@@ -121,8 +161,8 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // a turn cap. Opt-in via opts.escalate / AGENT_ESCALATE; off => behaves as before.
   // Snapshot the active ladder once per run (includes the Fable rung iff the window is
   // open); tier indices below resolve against THIS array, matching decideEscalation.
-  const ladder = activeLadder();
-  let tier = escalate ? tierIndexOf(opts.model, opts.effort, ladder) : -1; // -1 = fixed model (legacy)
+  const ladder = activeLadder(routing.provider);
+  let tier = escalate ? tierIndexOf(routing.provider, opts.model, opts.effort, ladder) : -1; // -1 = fixed model (legacy)
   const rung = () => (tier >= 0 ? ladder[tier] : { model: opts.model, effort: opts.effort });
   let acceptedModel = opts.model;
   let acceptedEffort = opts.effort;
@@ -133,12 +173,16 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     effort: routing.resolvedEffort ?? acceptedEffort,
   });
   let identityRoute = `${routing.provider}|${routing.target}|${opts.model ?? ""}|${opts.effort ?? ""}`;
-  const refreshIdentityRoute = () => {
+  const refreshIdentityRoute = (required = false) => {
     const route = activeRoute();
     const next = `${route.provider}|${route.providerTarget}|${route.model ?? ""}|${route.effort ?? ""}`;
     if (next === identityRoute) return;
-    updateAgentRoute(agentId, { ...identityBase, ...route });
-    identityRoute = next;
+    try {
+      updateAgentRoute(agentId, { ...identityBase, ...route });
+      identityRoute = next;
+    } catch (error) {
+      if (required) throw error;
+    }
   };
   const st = makeStruggleState();
   const ch = inputChannel(opts.prompt); // streaming-input mode -> unlocks q.setModel()
@@ -154,27 +198,23 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   const escalations: Array<{ from: string; to: string; reason: string }> = [];
   const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
 
+  let compositionEvidence: HarnessCompositionEvidence | undefined;
   const queryFn = opts.queryFn ?? ((args: any) => routedQuery(
     routing, args, requestedTier, undefined, () => reserveResourceEnvelopeRetry(envelopeAdmission),
-    refreshIdentityRoute,
+    (_decision, evidence) => {
+      refreshIdentityRoute(true);
+      if (evidence) compositionEvidence = evidence;
+    },
   ));
-  const q = queryFn({
-    prompt: ch.stream(),
-    options: harnessOptions({
-      self: agentId,
-      extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
-      model: rung().model, effort: rung().effort,
-      systemPrompt: opts.systemPrompt, maxTurns: opts.maxTurns,
-      role: opts.role, posture: opts.posture,
-      // per-spawn dial wins over ambient env; env-or-full is the harness fallback
-      caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
-    }),
-  });
   const noteAppliedEscalation = (route: AppliedEscalationRoute) => {
     if (route.model !== undefined) acceptedModel = route.model;
     if (route.effort !== undefined) acceptedEffort = route.effort;
   };
+  let q: AgentQuery | undefined;
+  let queryInterrupted = false;
   const interruptQuery = async () => {
+    if (queryInterrupted || !q) return;
+    queryInterrupted = true;
     try { await q.interrupt?.(); } catch { /* preserve the terminal provider error */ }
   };
 
@@ -188,7 +228,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // query is open) is otherwise INVISIBLE — the iterator neither yields nor throws, so
   // the catch below never fires. Wrap the iterator: N min silence -> stalled fact +
   // coordinator ping (surface); 2N -> abort + outcome=stalled + notifyDeath (terminal).
-  const coordHandle = opts.coordinator ?? process.env.AGENT_COORDINATOR;
+  const coordHandle = opts.coordinator;
   const window = stallMs();
   let stallAborted = false;
   // Background-task refusal (thread 019f4ed2): a lane that ends its turn while a
@@ -198,13 +238,30 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // counts CONSECUTIVE no-progress refusals (reset on settlement) for the stuck-lane cap.
   const bgTracker = makeBgTracker();
   let bgContinuations = 0;
-  const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
+  try {
+  const agentOptions = harnessOptions({
+    self: agentId,
+    extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
+    model: rung().model, effort: rung().effort,
+    provider: routing.provider,
+    routingMetadata,
+    omitModelDeltaReason: escalate ? "cross_model_escalation_enabled" : undefined,
+    systemPrompt: opts.systemPrompt, maxTurns: opts.maxTurns,
+    role: opts.role, posture: opts.posture,
+    // per-spawn dial wins over ambient env; env-or-full is the harness fallback
+    caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
+  });
+  compositionEvidence = harnessCompositionEvidence(agentOptions);
+  const activeQuery = queryFn({
+    prompt: ch.stream(),
+    options: agentOptions,
+  });
+  q = activeQuery;
+  const watched = withStallWatchdog((activeQuery as AsyncIterable<any>)[Symbol.asyncIterator](), {
     stallMs: window,
     onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
     onAbort: () => { stallAborted = true; },
   });
-
-  try {
   for await (const message of watched) {
     const msg = message as any;
     // routedQuery mutates the decision before the first fallback-provider event.
@@ -221,7 +278,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
         if (d.kind === "escalate") {
           const from = `${rung().model}/${rung().effort}`;
           try {
-            await escalateInFlight(q, ch, ladder[d.toTier], trigger, noteAppliedEscalation);
+            await escalateInFlight(routing.provider, activeQuery, ch, ladder[d.toTier], trigger, noteAppliedEscalation);
           } catch (err) {
             // setModel and effort are two provider controls, not an atomic API.
             // Project any successful first control before preserving the second
@@ -255,7 +312,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
         if (d.kind === "escalate") {
           const from = `${rung().model}/${rung().effort}`;
           try {
-            await escalateInFlight(q, ch, ladder[d.toTier], "empty_result", noteAppliedEscalation);
+            await escalateInFlight(routing.provider, activeQuery, ch, ladder[d.toTier], "empty_result", noteAppliedEscalation);
           } catch (err) {
             refreshIdentityRoute();
             await interruptQuery();
@@ -311,7 +368,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     // outcome=stalled, and fire the death path (agent_death fact + coordinator ping) so a
     // stall is never a silent hang again.
     outcome = "stalled";
-    try { await (q as any).interrupt?.(); } catch {}
+    await interruptQuery();
     notifyDeath(agentId, new Error(`stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`),
       { thread: undefined, coordinator: coordHandle });
   }
@@ -321,10 +378,14 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
       console.error(`[envelope] @agent:${agentId} ${err.message}`);
     } else {
       outcome = "died";
-      notifyDeath(agentId, err, { thread: undefined, coordinator: opts.coordinator ?? process.env.AGENT_COORDINATOR });
+      notifyDeath(agentId, err, { thread: undefined, coordinator: opts.coordinator });
     }
   } finally {
     end(outcome); // idempotent: close the channel so the query + any leak unwinds
+    // A terminal SDK result does not guarantee the provider subprocess has
+    // exited while streaming input remains open. Interrupt exactly once after
+    // closing input so a completed lane cannot retain its Bun/CLI process tree.
+    await interruptQuery();
   }
 
   // Early exit with live children (thread 019f4ed2, half b): on TRUE finalize (any
@@ -352,13 +413,14 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     thread: opts.thread ?? "(ad-hoc)", agent: agentId, posture: "spawn",
     // Effective FINAL dial (rung() reflects any in-flight escalation); env-fallback
     // mirrors the identity write so a bare AGENT_MODEL spawn is still attributed.
-    model: finalRoute.model ?? process.env.AGENT_MODEL,
-    effort: finalRoute.effort ?? process.env.AGENT_EFFORT,
+    model: finalRoute.model,
+    effort: finalRoute.effort,
     role: opts.role,
     provider: routing.provider, providerTarget: routing.target, providerReason: routing.selectionReason,
     requestedProvider: routing.requestedProvider, requestedTarget: requested.target, requestedTier: requested.tier,
     requestedModel: requested.model, requestedEffort: requested.effort,
     allocationMode: routing.allocationMode, entitlementPressure: routing.entitlementPressure,
+    allocationEvidence: routing.allocationEvidenceByTarget,
     fallbackCount: routing.fallbackCount, fallbackPath: routing.fallbackPath,
     fallbackTargetPath: routing.fallbackTargetPath,
     fallbackReasons: routing.fallbackReasons,
@@ -366,6 +428,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     envelopeRetries: envelopeAdmission?.retries,
     envelopeAdvisories: envelopeAdmission?.advisories,
     routingMetadata,
+    promptComposition: compositionEvidence,
     tokenUsage,
     durationMs: resultMsg?.duration_ms ?? 0, outcome,
     numTurns: resultMsg?.num_turns ?? 0,
@@ -376,7 +439,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // Suppress it for outcomes that already fired a dedicated ping (died -> AGENT DEATH,
   // stalled -> AGENT DEATH via notifyDeath, max_turns/capped -> TURN CAP) — one terminal
   // event, one ping, no contradictory "COMPLETE outcome=stalled" noise.
-  const coord = opts.coordinator ?? process.env.AGENT_COORDINATOR;
+  const coord = opts.coordinator;
   const alreadySignaled = new Set(["died", "stalled", "max_turns", "capped"]);
   if (coord && !alreadySignaled.has(outcome)) {
     try {
@@ -391,10 +454,11 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
 }
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
+  assertCoordinationAuthority("spawn");
   const composed = composeSpawnOptions(opts);
   const context = envelopeContextFromEnv();
   const requestedTier = composed.tier;
-  const agentId = composed.agentId ?? `lane-${Date.now().toString(36).slice(-8)}`;
+  const agentId = composed.agentId ?? createSpawnAgentId();
   // Pin the generated id so admission, telemetry, and the provider run name the
   // same lane. Admission completes before entitlement refresh or provider query.
   composed.agentId = agentId;
@@ -411,6 +475,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
 export async function spawnParallel(
   tasks: SpawnOptions[]
 ): Promise<string[]> {
+  assertCoordinationAuthority("spawnParallel");
   return Promise.all(tasks.map((t) => spawn(t)));
 }
 
@@ -418,6 +483,13 @@ if (import.meta.main) {
   const prompt = process.argv.slice(2).join(" ");
   if (!prompt) {
     console.error("usage: bun run src/spawn.ts <prompt>");
+    process.exit(1);
+  }
+  const role = process.env.AGENT_ROLE;
+  if (!role) {
+    console.error(
+      "managed North spawn requires AGENT_ROLE selecting a canonical Gaffer preset or complete bespoke composition",
+    );
     process.exit(1);
   }
 
@@ -429,6 +501,8 @@ if (import.meta.main) {
     provider: process.env.AGENT_PROVIDER as ProviderPreference | undefined,
     target: process.env.AGENT_TARGET,
     tier: process.env.AGENT_TIER as SemanticTier | undefined,
+    role,
+    coordinator: process.env.AGENT_COORDINATOR,
     routingMetadata: routingMetadataFromEnv(),
   })
     .then((result) => console.log(result))

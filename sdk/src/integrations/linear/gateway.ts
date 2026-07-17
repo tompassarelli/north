@@ -172,10 +172,6 @@ function validateArguments(tool: McpToolDefinition, arguments_: Record<string, u
   validateValue(schemaObject(tool), arguments_, tool.name);
 }
 
-function safeText(value: string): string {
-  return value.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 512);
-}
-
 function textContent(result: McpToolResult): string[] {
   return result.content.flatMap((entry) => {
     if (!record(entry) || entry.type !== "text" || typeof entry.text !== "string") return [];
@@ -186,7 +182,7 @@ function textContent(result: McpToolResult): string[] {
 /** Normalize MCP output mechanically; no model is involved. */
 export function normalizeLinearResult(result: McpToolResult): unknown {
   const text = textContent(result);
-  if (result.isError) throw new Error(`Linear MCP tool failed${text.length ? `: ${safeText(text.join("\n"))}` : ""}`);
+  if (result.isError) throw new Error("Linear MCP tool failed");
   if (result.structuredContent !== undefined) return result.structuredContent;
   if (!text.length) throw new Error("Linear MCP tool returned neither structuredContent nor JSON text");
   try { return JSON.parse(text.join("\n")); }

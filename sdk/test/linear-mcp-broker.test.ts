@@ -66,24 +66,30 @@ function linearServer(name = "linear-mcp-test") {
   return { name, authStatus: "oAuth", tools: toolSchemas() };
 }
 
-function harness(config: Record<string, unknown>, timeoutMs = 500, onNotification?: (method: string) => void) {
+function harness(
+  config: Record<string, unknown>, timeoutMs = 500,
+  onNotification?: (method: string) => void, extraEnv: NodeJS.ProcessEnv = {},
+) {
   const directory = mkdtempSync(join(tmpdir(), "north-linear-broker-"));
   temporary.push(directory);
   const log = join(directory, "requests.jsonl");
   const reaped = join(directory, "reaped");
+  const startup = join(directory, "startup.json");
   const broker = new AppServerMcpBroker({
     command: process.execPath,
     commandArgs: [fixture],
     timeoutMs,
     env: {
       ...process.env,
+      ...extraEnv,
       FAKE_LINEAR_APP_SERVER: JSON.stringify(config),
       FAKE_LINEAR_REQUEST_LOG: log,
       FAKE_LINEAR_REAPED: reaped,
+      FAKE_LINEAR_STARTUP_LOG: startup,
     },
     onNotification: (method) => onNotification?.(method),
   });
-  return { broker, log, reaped };
+  return { broker, log, reaped, startup };
 }
 
 function requests(path: string): any[] {
@@ -125,6 +131,35 @@ test("uses stable app-server MCP calls without starting a model turn", async () 
   });
   expect(notifications.length).toBeGreaterThan(0);
   expect(readFileSync(reaped, "utf8")).toBe("SIGTERM");
+});
+
+test("forces ChatGPT file auth and strips hostile API transport environment", async () => {
+  const canary = "must-not-reach-codex-child";
+  const { broker, startup } = harness({ servers: [linearServer()] }, 500, undefined, {
+    OPENAI_API_KEY: canary,
+    OPENAI_BASE_URL: `https://${canary}.invalid`,
+    CHATGPT_BASE_URL: `https://${canary}.invalid/chatgpt`,
+    OPENAI_PROJECT: canary,
+    CODEX_HOME: `/tmp/${canary}/codex`,
+    CODEX_SQLITE_HOME: `/tmp/${canary}/sqlite`,
+  });
+  const gateway = await openLinearGateway(broker);
+  await gateway.close();
+
+  const started = JSON.parse(readFileSync(startup, "utf8")) as {
+    argv: string[]; env: Record<string, string | undefined>;
+  };
+  expect(started.argv).toContain('cli_auth_credentials_store="file"');
+  expect(started.argv).toContain('forced_login_method="chatgpt"');
+  expect(started.argv).toContain('model_provider="openai"');
+  expect(started.argv.slice(-2)).toEqual(["app-server", "--stdio"]);
+  expect(started.env.OPENAI_API_KEY).toBeUndefined();
+  expect(started.env.OPENAI_BASE_URL).toBeUndefined();
+  expect(started.env.CHATGPT_BASE_URL).toBeUndefined();
+  expect(started.env.OPENAI_PROJECT).toBeUndefined();
+  expect(started.env.CODEX_HOME).not.toContain(canary);
+  expect(started.env.CODEX_SQLITE_HOME).not.toContain(canary);
+  expect(JSON.stringify(started)).not.toContain(canary);
 });
 
 test("requires an unambiguous capability match unless a server is explicit", async () => {
@@ -172,8 +207,15 @@ test("rejects malformed output and bounded timeouts", async () => {
 });
 
 test("reports child death before handshake completes", async () => {
-  await expect(openLinearGateway(harness({ action: { method: "initialize", type: "exit" } }).broker))
-    .rejects.toThrow("exited (17)");
+  const canary = "canary-secret raw app-server stderr";
+  try {
+    await openLinearGateway(harness({ action: { method: "initialize", type: "exit", stderr: canary } }).broker);
+    throw new Error("expected app-server transport failure");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Codex app-server transport exited unexpectedly");
+    expect(String(error)).not.toContain(canary);
+  }
 });
 
 test("does not retry MCP tool errors", async () => {
@@ -182,13 +224,25 @@ test("does not retry MCP tool errors", async () => {
     results: { get_issue: { isError: true, content: [{ type: "text", text: "sanitized fake tool failure" }] } },
   });
   const gateway = await openLinearGateway(first.broker);
-  await expect(gateway.readIssue({ id: "MSA-123" })).rejects.toThrow("sanitized fake tool failure");
+  try {
+    await gateway.readIssue({ id: "MSA-123" });
+    throw new Error("expected MCP tool failure");
+  } catch (error) {
+    expect((error as Error).message).toBe("Linear MCP tool failed");
+    expect(String(error)).not.toContain("sanitized fake tool failure");
+  }
   await gateway.close();
   expect(requests(first.log).filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(1);
 
-  const second = harness({ servers: [linearServer()], rpcToolError: true });
+  const second = harness({ servers: [linearServer()], rpcToolError: "canary-secret raw RPC failure" });
   const rpcGateway = await openLinearGateway(second.broker);
-  await expect(rpcGateway.readIssue({ id: "MSA-123" })).rejects.toThrow("sanitized fake RPC failure");
+  try {
+    await rpcGateway.readIssue({ id: "MSA-123" });
+    throw new Error("expected app-server RPC failure");
+  } catch (error) {
+    expect((error as Error).message).toBe("Codex app-server mcpServer/tool/call failed");
+    expect(String(error)).not.toContain("canary-secret");
+  }
   await rpcGateway.close();
   expect(requests(second.log).filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(1);
 });
@@ -199,6 +253,6 @@ test("rejects server requests and MCP elicitation instead of answering them", as
     action: { method: "mcpServer/tool/call", type: "serverRequest" },
   });
   const gateway = await openLinearGateway(broker);
-  await expect(gateway.readIssue({ id: "MSA-123" })).rejects.toThrow("unsupported server request mcpServer/elicitation/request");
+  await expect(gateway.readIssue({ id: "MSA-123" })).rejects.toThrow("unsupported server request; request rejected");
   await gateway.close();
 });

@@ -66,3 +66,56 @@
 (if (seq fails)
   (do (println "\nreap:" (count fails) "FAILED") (System/exit 1))
   (println "\nreap: all" (count cases) "passed"))
+
+(let [drivers [["@thread-a" "@sdk-dead"]
+               ["@thread-b" "@sdk-live"]
+               ["@thread-c" "@sdk-dead"]
+               ["@thread-a" "@sdk-dead"]]
+      got (north.reap/orphaned-driver-subjects "sdk-dead" drivers)
+      want ["@thread-a" "@thread-c"]]
+  (println (if (= got want) "  ok  " " FAIL ")
+           "reaped lane releases only its exact driver refs => got" got)
+  (when-not (= got want) (System/exit 1)))
+
+;; A dispatch can be hard-killed after atomically claiming `driver` but before
+;; publishing kind=lane/spawned_at. Current SDK IDs carry the only trustworthy
+;; age axis for that gap. Pin the fail-safe boundary and refuse every old shape.
+(let [clock-now (.toEpochMilli (java.time.Instant/parse "2026-07-17T12:00:00Z"))
+      uuid "123e4567-e89b-42d3-a456-426614174000"
+      id-at (fn [ms] (str "sdk-thread-fragment-" (Long/toString ms 36) "-" uuid))
+      exact-id (id-at (- clock-now STALE))
+      recent-id (id-at (- clock-now (dec STALE)))
+      future-id (id-at (+ clock-now 60000))
+      old-id (id-at (dec north.reap/SDK-AGENT-ID-EPOCH-FLOOR-MS))
+      malformed-id (str "sdk-thread-fragment-not!base36-" uuid)
+      legacy-id "sdk-a70c74e0"
+      drivers [["@thread-exact" (str "@" exact-id)]
+               ["@thread-exact" (str "@" exact-id)] ; duplicate scan row: one retraction
+               ["@thread-recent" (str "@" recent-id)]
+               ["@thread-future" (str "@" future-id)]
+               ["@thread-old" (str "@" old-id)]
+               ["@thread-malformed" (str "@" malformed-id)]
+               ["@thread-legacy" (str "@" legacy-id)]
+               ["@thread-unsigiled" exact-id]]
+      got (north.reap/orphaned-unpublished-driver-pairs clock-now #{} drivers)
+      want [["@thread-exact" (str "@" exact-id)]]
+      known-got (north.reap/orphaned-unpublished-driver-pairs clock-now #{exact-id} drivers)
+      remaining (remove (set got) drivers)
+      second-pass (north.reap/orphaned-unpublished-driver-pairs clock-now #{} remaining)
+      mint-got (north.reap/sdk-agent-mint-ms exact-id)
+      selected-refs (set (map second got))
+      checks [["current ID exposes its exact mint time" (= mint-got (- clock-now STALE))]
+              ["exactly 30min unpublished is recoverable" (= got want)]
+              ["one millisecond before 30min is never released" (not (contains? selected-refs (str "@" recent-id)))]
+              ["future-minted driver is never released" (not (contains? selected-refs (str "@" future-id)))]
+              ["known/live lane is never handled by unpublished recovery" (empty? known-got)]
+              ["recovery is idempotent after exact pair removal" (empty? second-pass)]
+              ["legacy short ID fails safe" (nil? (north.reap/sdk-agent-mint-ms legacy-id))]
+              ["malformed timestamp fails safe" (nil? (north.reap/sdk-agent-mint-ms malformed-id))]
+              ["pre-format old timestamp fails safe" (nil? (north.reap/sdk-agent-mint-ms old-id))]]
+      failed (remove second checks)]
+  (doseq [[label ok?] checks]
+    (println (if ok? "  ok  " " FAIL ") label))
+  (when (seq failed)
+    (println "\nunpublished driver recovery:" (count failed) "FAILED")
+    (System/exit 1)))

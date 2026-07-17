@@ -41,6 +41,25 @@ export NORTH_PROPOSED_BY="${NORTH_PROPOSED_BY:-tom_passarelli}"
 FRAM="${FRAM_HOME:-$HOME/code/fram}"
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
 
+# A worker still needs ordinary THREAD fact writes. Agent identity/lifecycle is
+# harness evidence, not agent-authored data: generic fact verbs may not mutate
+# any agent subject (self or peer). Trusted harness writes use a subprocess-only
+# private writer not routed by this CLI; peer control remains an orchestrator
+# operation. This is an application boundary, not same-UID hostile-code isolation.
+# Run this before subject resolution: even a read/daemon failure is too late for
+# an authorization boundary, and installed MCP `tell`/`retract` routes here too.
+deny_worker_agent_mutation() {
+  case "${AGENT_TOPOLOGY:-}" in ""|orchestrator) return 0 ;; esac
+  case "${1:-}" in tell|retract|untell) ;; *) return 0 ;; esac
+  local subject="${2:-}" predicate="${3:-}"
+  subject="${subject#@}"
+  case "$subject" in agent:*) ;; *) return 0 ;; esac
+  echo "north: $1 REFUSED — worker topology cannot mutate agent identity or authority via generic facts ($subject $predicate); report work on the thread or return control to the orchestrator" >&2
+  return 1
+}
+
+deny_worker_agent_mutation "$@" || exit 1
+
 case "${1:-}" in
   ""|help|-h|--help)
     # THE CARD — one screen, grouped, "type this → do this". Bare `north` and
@@ -70,7 +89,8 @@ north — your one card. Type a command to do the thing next to it.
   HAND OFF WORK   (starts a new lane — your own channel never blocks)
     /delegate "<thing>" [--new]        chat: delegate; session context rides by
                                        default · --new = empty-context lane
-    north delegate "<task>" [--context <file>]   shell: --context attaches a brief
+    north delegate "<task>" (--role <worker> | --composite)
+                                       shell: intake must classify atomic vs composite
 
   DRIVE AGENTS
     north agents                       who's live now + heartbeat
@@ -96,6 +116,7 @@ north — your one card. Type a command to do the thing next to it.
     north config                       posture + routing policy in one report
     north config routing               provider order, pressure, reserves, envelopes
     north account add|login|status     manage provider subscription accounts
+    north account usage [id]           subscription windows, resets, and unknown reasons
     north account list [--verbose]    grouped accounts + live login state
     north providers                    provider readiness and auto-route decision
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
@@ -133,8 +154,9 @@ CARD
   config)
     # Personal-stack posture + durable provider routing policy.
     # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)
-    # 2026-07-10: north is the settings surface. State stays at
-    # ~/.claude/my-config.state (guard hooks read it live). cli/config-cli.clj.
+    # 2026-07-10: north is the settings surface. Provider-neutral state lives at
+    # ~/.local/state/north/harness.conf; the Claude-era path is a read-only
+    # migration fallback. cli/config-cli.clj.
     exec bb "$NORTH/cli/config-cli.clj" "${@:2}" ;;
   providers)
     exec bun run "$NORTH/sdk/src/providers-cli.ts" "${@:2}" ;;

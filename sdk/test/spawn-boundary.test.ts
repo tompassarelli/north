@@ -21,7 +21,7 @@ let log: string;
 // sweep (~50s). We scrub identity and pin a SYNTHETIC coordinator so any fact/ping the
 // harness emits routes nowhere real, even if a future edit lets a write escape the fake.
 const MANAGED_ENV = [
-  "PATH", "NORTH_BIN", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
+  "PATH", "NORTH_BIN", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_PROVIDER_OBSERVATIONS", "NORTH_ALLOCATION_MODE", "NORTH_PROVIDER_ORDER",
@@ -31,9 +31,8 @@ const MANAGED_ENV = [
 const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
 
-// Synthetic coordinator handle: names a session that does not exist, so a death/stall ping
-// lands in a graveyard inbox instead of a live coordinator. pid keeps it unique per run.
-const TEST_COORDINATOR = `test-coordinator-${process.pid}`;
+// Poison coordinator: library spawn must not import it from ambient process state.
+const POISON_COORDINATOR = `poison-coordinator-${process.pid}`;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "north-death-"));
@@ -48,6 +47,7 @@ beforeAll(() => {
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;
+  process.env.NORTH_IDENTITY_TEST_REDIRECT = "1";
   process.env.NORTH_PORT = "59999"; // unused -> presence/any bb write silently no-ops
   process.env.NORTH_STREAM_DIR = dir; // keep stream jsonl out of ~/code/agent-data
   process.env.AGENT_LAWS = "off"; // trim system-prompt file reads; irrelevant to the boundary
@@ -68,7 +68,7 @@ beforeAll(() => {
   delete process.env.AGENT_ROLE;
   delete process.env.AGENT_EFFORT;
   delete process.env.AGENT_TARGET;
-  process.env.AGENT_COORDINATOR = TEST_COORDINATOR; // pin the graveyard coordinator
+  process.env.AGENT_COORDINATOR = POISON_COORDINATOR;
 });
 
 afterAll(() => {
@@ -93,7 +93,8 @@ test("a query that dies mid-stream -> partial return + agent_death notification"
   let result: string | undefined;
   let threw = false;
   try {
-    result = await spawn({ prompt: "run a long gate", agentId: "test-dead-W3", queryFn: dyingQuery });
+    result = await spawn({ prompt: "run a long gate", agentId: "test-dead-W3",
+      routingMetadata: { role: "integrator" }, queryFn: dyingQuery });
   } catch {
     threw = true;
   }
@@ -109,12 +110,54 @@ test("a query that dies mid-stream -> partial return + agent_death notification"
   expect(logged).toContain("test-dead-W3");
   expect(logged).toContain("signal 9");
 
-  // 3. Identity is scrubbed: writeAgentFacts routed through the fake (NORTH_BIN honored,
-  //    not a bare-`north` escape) and stamped the SYNTHETIC coordinator — proving no test
-  //    spawn adopts the invoking session's real coordinator id.
-  expect(logged).toContain(`coordinator ${TEST_COORDINATOR}`);
+  // 3. Identity is request-owned: writeAgentFacts routes through the fake
+  //    (NORTH_BIN honored, not a bare-`north` escape) and does not import an
+  //    ambient coordinator. Callers that need attribution pass it explicitly.
+  expect(logged).not.toContain(`coordinator ${POISON_COORDINATOR}`);
   const inheritedCoord = origEnv.AGENT_COORDINATOR;
   if (inheritedCoord) expect(logged).not.toContain(inheritedCoord);
+});
+
+test("public spawn mints one full-entropy ID across admission, harness, and identity", async () => {
+  const { spawn } = await import("../src/spawn");
+  const policy = join(dir, "generated-id-policy.json");
+  const accounting = join(dir, "generated-id-accounting.json");
+  writeFileSync(policy, JSON.stringify({
+    version: 1, mode: "preferential",
+    targets: [{ id: "anthropic", provider: "anthropic" }, { id: "openai", provider: "openai" }],
+    targetOrder: ["anthropic", "openai"],
+    envelopes: { month: { runs: 10 } },
+  }));
+  const previousPolicy = process.env.NORTH_ROUTING_POLICY;
+  const previousAccounting = process.env.NORTH_ENVELOPE_ACCOUNTING;
+  let harnessId = "";
+  try {
+    writeFileSync(log, "");
+    process.env.NORTH_ROUTING_POLICY = policy;
+    process.env.NORTH_ENVELOPE_ACCOUNTING = accounting;
+    const result = await spawn({
+      prompt: "exercise generated identity",
+      routingMetadata: { role: "integrator" },
+      queryFn: ({ options }: any) => {
+        harnessId = options.mcpServers.north.env.AGENT_ID;
+        return (async function* () {
+          yield { type: "result", subtype: "success", result: "ok", duration_ms: 1, num_turns: 1 };
+        })() as any;
+      },
+    });
+    expect(result).toBe("ok");
+    expect(harnessId).toMatch(/^lane-[a-z0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const logged = readFileSync(log, "utf8");
+    expect(logged).toContain(`tell agent:${harnessId} kind lane`);
+    expect(logged).toContain(`tell agent:${harnessId} outcome ran`);
+    const envelopeState = JSON.parse(readFileSync(accounting, "utf8"));
+    expect(Object.values(envelopeState.scopes)[0]).toMatchObject({ runs: 1, active: {} });
+  } finally {
+    if (previousPolicy === undefined) delete process.env.NORTH_ROUTING_POLICY;
+    else process.env.NORTH_ROUTING_POLICY = previousPolicy;
+    if (previousAccounting === undefined) delete process.env.NORTH_ENVELOPE_ACCOUNTING;
+    else process.env.NORTH_ENVELOPE_ACCOUNTING = previousAccounting;
+  }
 });
 
 test("an exhausted run envelope rejects before an injected provider boundary is called", async () => {
@@ -133,6 +176,7 @@ test("an exhausted run envelope rejects before an injected provider boundary is 
     let providerCalls = 0;
     await expect((await import("../src/spawn")).spawn({
       prompt: "must not run", agentId: "denied-before-provider",
+      routingMetadata: { role: "integrator" },
       queryFn: () => { providerCalls++; return { async *[Symbol.asyncIterator]() {} } as any; },
     })).rejects.toThrow("runs 0/0");
     expect(providerCalls).toBe(0);

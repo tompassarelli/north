@@ -9,7 +9,9 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { RoutingMetadata } from "./routing-metadata";
 import type { NormalizedTokenUsage } from "./usage";
-import type { RoutingFallbackReason } from "./providers/types";
+import type { AllocationEvidence, RoutingFallbackReason } from "./providers/types";
+import type { HarnessCompositionEvidence } from "./harness";
+import { GAFFER_CAPABILITIES } from "./gaffer-capabilities";
 
 export interface RunRecord {
   thread: string; // the thread driven, or "(ad-hoc)" for a bare spawn
@@ -35,8 +37,11 @@ export interface RunRecord {
   requestedModel?: string;
   requestedEffort?: string;
   routingMetadata?: RoutingMetadata;
+  /** Redacted identifiers proving which operational prompt/tool contracts were applied. */
+  promptComposition?: HarnessCompositionEvidence;
   allocationMode?: string;
   entitlementPressure?: string;
+  allocationEvidence?: Record<string, AllocationEvidence>;
   fallbackCount?: number;
   fallbackPath?: string[];
   fallbackTargetPath?: string[];
@@ -88,6 +93,8 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.requestedEffort) facts.push(["requested_effort", rec.requestedEffort]);
   if (rec.allocationMode) facts.push(["allocation_mode", rec.allocationMode]);
   if (rec.entitlementPressure) facts.push(["entitlement_pressure", rec.entitlementPressure]);
+  for (const [target, evidence] of Object.entries(rec.allocationEvidence ?? {}))
+    facts.push(["allocation_evidence", JSON.stringify({ target, ...evidence })]);
   if (rec.tokenUsage?.inputTokens != null)
     facts.push(["input_tokens", String(rec.tokenUsage.inputTokens)]);
   if (rec.tokenUsage?.outputTokens != null)
@@ -123,10 +130,54 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (metadata?.composition) {
     facts.push(["composition_kind", metadata.composition.kind]);
     facts.push(["composition_id", metadata.composition.id]);
-    if (metadata.composition.nearestPreset) facts.push(["nearest_preset", metadata.composition.nearestPreset]);
-    if (metadata.composition.bespokeReason) facts.push(["bespoke_reason", metadata.composition.bespokeReason]);
-    if (metadata.composition.promotionCandidate != null)
+    if (metadata.composition.kind === "preset") {
+      for (const field of metadata.composition.overrides) facts.push(["composition_override", field]);
+      if (metadata.composition.overrideReason)
+        facts.push(["composition_override_reason", metadata.composition.overrideReason]);
+    } else {
+      if (metadata.composition.nearestPreset)
+        facts.push(["nearest_preset", metadata.composition.nearestPreset]);
+      facts.push(["bespoke_reason", metadata.composition.bespokeReason]);
       facts.push(["promotion_candidate", String(metadata.composition.promotionCandidate)]);
+    }
+  }
+  const applied = rec.promptComposition;
+  if (applied) {
+    facts.push(["prompt_composition_applied", "true"]);
+    if (applied.roleKind && applied.roleId)
+      facts.push(["applied_role_contract", `${applied.roleKind}:${applied.roleId}`]);
+    if (applied.bespokeContractHash)
+      facts.push(["applied_bespoke_contract_sha256", applied.bespokeContractHash]);
+    if (applied.bespokeContractFingerprintVersion)
+      facts.push(["applied_bespoke_contract_fingerprint_version", applied.bespokeContractFingerprintVersion]);
+    if (applied.bespokeContractFingerprintDomain)
+      facts.push(["applied_bespoke_contract_fingerprint_domain", applied.bespokeContractFingerprintDomain]);
+    for (const field of applied.presetOverrides ?? []) facts.push(["applied_preset_override", field]);
+    if (applied.presetOverrideReasonHash)
+      facts.push(["applied_preset_override_reason_sha256", applied.presetOverrideReasonHash]);
+    const capabilityOrder = new Map(GAFFER_CAPABILITIES.map((capability, index) => [capability, index]));
+    for (const capability of [...(applied.capabilities ?? [])]
+      .sort((left, right) => capabilityOrder.get(left)! - capabilityOrder.get(right)!))
+      facts.push(["applied_capability", capability]);
+    if (applied.commsContractHash)
+      facts.push(["applied_comms_contract_sha256", applied.commsContractHash]);
+    if (applied.taskGrade) facts.push(["applied_task_grade", applied.taskGrade]);
+    if (applied.topology) facts.push(["applied_topology", applied.topology]);
+    if (applied.tier) facts.push(["applied_routing_tier", applied.tier]);
+    if (applied.reasoning) facts.push(["applied_reasoning", applied.reasoning]);
+    if (applied.posture) facts.push(["applied_posture", applied.posture]);
+    for (const domain of applied.domainRequirements ?? []) facts.push(["applied_domain_requirement", domain]);
+    // Zero is evidence: an explicitly empty applied domain axis must remain
+    // distinguishable from historical telemetry that never recorded the axis.
+    facts.push(["applied_domain_requirement_count", String(applied.domainRequirements?.length ?? 0)]);
+    const delta = applied.modelDelta;
+    if (delta) {
+      if (delta.provider) facts.push(["model_delta_provider", delta.provider]);
+      if (delta.model) facts.push(["model_delta_model", delta.model]);
+      facts.push(["model_delta_kind", delta.kind]);
+      if (delta.path) facts.push(["model_delta_path", delta.path]);
+      if (delta.reason) facts.push(["model_delta_reason", delta.reason]);
+    }
   }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
   if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);

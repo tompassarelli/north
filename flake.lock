@@ -21,11 +21,11 @@
     "fram": {
       "flake": false,
       "locked": {
-        "lastModified": 1782670428,
-        "narHash": "sha256-W8WoiIiO9Q4MWtK4/3TcaM3kNrS83lbR5JJggJKdX/I=",
+        "lastModified": 1784247632,
+        "narHash": "sha256-Rcq6eW9Z/Q1Chidgg9TVm8D4pWeNv9DSMP13GH952TY=",
         "owner": "tompassarelli",
         "repo": "fram",
-        "rev": "650e27604b4100b50d9c49a4d7ea82147fef0cb6",
+        "rev": "fe60d283b410355d25e857be3caa12b58563baed",
         "type": "github"
       },
       "original": {
@@ -37,11 +37,11 @@
     "gaffer": {
       "flake": false,
       "locked": {
-        "lastModified": 1784206922,
-        "narHash": "sha256-bfxWUsUAvYRuE8zeVcBiuFEbvva08cid8Rhb1p5H+TM=",
+        "lastModified": 1784253813,
+        "narHash": "sha256-M06wMGEF/sQN5/LoqTLyzC+6GFPcNzf7nB92NhiAHr0=",
         "owner": "tompassarelli",
         "repo": "gaffer",
-        "rev": "e142af0c272e7ad5e5686ee56491a0dc5712f3fd",
+        "rev": "30fa0076dce9bf3f7a67be8ee3943181e2bf7b74",
         "type": "github"
       },
       "original": {

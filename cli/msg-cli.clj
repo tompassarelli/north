@@ -3,7 +3,8 @@
 ;; each a separate fact, NEVER an opaque {:op :args} body blob). ack = a fact (acked_by);
 ;; inbox/done/pending = DERIVED queries. The coordinator STORES + (with scoped-subscribe)
 ;; NOTIFIES; it never ROUTES. Wire (daemon): :assert / :version / :query / :resolved.
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
+(require '[cheshire.core :as json]
+         '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
 ;; Reply-schema sidecar (the old rec4 JSON-Schema field + `validate` verb + schema-validate.clj)
 ;; is GONE (assessment §3.3): it reimplemented a JSON-Schema engine duplicating the coordinator's
@@ -14,6 +15,7 @@
 ;; pending rule (move-C) live once in cli/coord.clj. append! = MULTI coexist; put! =
 ;; SINGLE last-writer-wins; pending-cmds = the single Datalog rule the reactor shares.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def put!    north.coord/put!)
@@ -40,27 +42,36 @@
 ;; per arg, so the graph can query/supersede/attach-provenance to each, and the reactor
 ;; drives off fact-patterns (a Datalog rule), never a string parse.
 ;;
-;; CONTENT-ADDRESSED id = SHA-256(op, args, target) → a re-send is the SAME @cmd:<id>, so
-;; re-asserting identical facts is an engine no-op (commit! idempotency): exactly-once
-;; intake with zero dedup bookkeeping.
+;; Every invocation mints a fresh command id: two legitimate identical commands
+;; are two executions. An optional explicit idempotency key derives a stable id
+;; only for transport-level retry. `retry` reactivates the same command entity.
 ;;
 ;; known-ops = a CLOSED VOCAB held as facts (@cmd:vocab known_op …), validated at intake —
 ;; single-source + queryable, not a #{…} set duplicated in two files.
 (def vocab-subj  "@cmd:vocab")
-(def default-ops ["dispatch" "spawn" "tell" "acquire"])
+(def default-ops ["tell" "acquire"])
+(def supported-ops (set default-ops))
 (defn known-ops [port] (set (many port vocab-subj "known_op")))
-(defn ensure-vocab! [port]   ; idempotent seed: append! is a no-op once the vocab fact exists
-  (when-not (seq (known-ops port))
-    (doseq [op default-ops] (append! port vocab-subj "known_op" op)))
-  (known-ops port))
+(defn ensure-vocab! [port]
+  ;; Converge stale live vocab facts too. Older generations advertised peer
+  ;; spawn/dispatch; code-owned support must fail closed even before this cleanup.
+  (let [known (known-ops port)]
+    (doseq [op (remove supported-ops known)]
+      (north.coord/retract! port vocab-subj "known_op" op))
+    (doseq [op (remove known default-ops)] (append! port vocab-subj "known_op" op))
+    supported-ops))
 
 (defn content-id
-  "Stable @cmd id = first 16 hex of SHA-256(op | canonical-args | target). A re-send of the
-   same (op,args,target) hashes identically → idempotent exactly-once intake."
-  [op args target]
-  (let [canon (str op " " (pr-str (into (sorted-map) args)) " " target)
+  "Stable id only when a caller explicitly supplies an idempotency key."
+  [op args target idempotency-key]
+  (let [canon (str idempotency-key " " op " " (pr-str (into (sorted-map) args)) " " target)
         bs    (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes canon "UTF-8"))]
     (apply str (map #(format "%02x" %) (take 8 bs)))))
+
+(defn command-id [op args target idempotency-key]
+  (if (str/blank? (str idempotency-key))
+    (str (java.util.UUID/randomUUID))
+    (content-id op args target idempotency-key)))
 
 (defn arg-pred [k] (str/replace (name k) "-" "_"))   ; :ttl-ms -> "ttl_ms"
 
@@ -69,8 +80,30 @@
    valid north refs but not EDN (edn rejects a leading @), so quote bare @-tokens first;
    the @-string value is then stored as a fact and the engine's ref-shape makes it a link."
   [s]
-  (try (edn/read-string (str/replace (str s) #"@[^\s,}\]]+" #(str \" % \")))
-       (catch Exception _ ::bad)))
+  ;; Parse valid EDN first. Rewriting first corrupted already-quoted refs such as
+  ;; `"@thread:x"` by consuming their closing quote and double-quoting them.
+  (try
+    (edn/read-string (str s))
+    (catch Exception _
+      (try (edn/read-string (str/replace (str s) #"@[^\s,}\]]+" #(str \" % \")))
+           (catch Exception _ ::bad)))))
+
+(defn encoded-arg [value]
+  ;; Structured staffing values cross the fact bus as canonical JSON. `(str v)`
+  ;; produced EDN maps/vectors that routingMetadataFromEnv could not parse.
+  (cond
+    (or (map? value) (sequential? value) (set? value)) (json/generate-string value)
+    (keyword? value) (name value)
+    :else (str value)))
+
+(defn wake-command! [port command target]
+  ;; Fram's scoped subscription contract routes only commits whose predicate is
+  ;; `to` or `target`. A fresh wake subject preserves command history while its
+  ;; target fact supplies the address-bearing activation edge.
+  (let [wake (str "@cmd-wake:" (java.util.UUID/randomUUID))]
+    (put! port wake "retry_command" command)
+    (put! port wake "target" target)
+    wake))
 
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
@@ -78,6 +111,11 @@
     "send"        ; <from> <to> "<subject>" "<body>"  — human mail
     (let [[from to subj body] args
           e (str "@msg:" (fresh-id from))]
+      ;; `north steer` labels its control message exactly `steer`. Ordinary
+      ;; worker -> coordinator completion/death mail remains legal; peer control
+      ;; does not become legal merely because the producer bypassed agents-cli.
+      (when (= "steer" (some-> subj str str/trim str/lower-case))
+        (north.topology-authority/require-coordination! "steer"))
       ;; write content facts first, `to` LAST: the listener triggers on `to`, so landing it
       ;; last means from/subject/body are already visible — no settle race, no sleep.
       (put! port e "from" from)              ; single — all message fields are write-once on a fresh @msg
@@ -106,8 +144,12 @@
       (put!    port e "acked_at" (str (java.time.Instant/now))) ; single
       (println (str me " acked " e)))
 
-    "send-cmd"    ; <from> <target> <op> "<args-edn>"  — assert a command as FACTS on @cmd:<id>
-    (let [[from target op args-edn] args
+    "send-cmd"    ; <from> <target> <op> "<args-edn>" [idempotency-key]
+    (do
+      ;; This is the lowest command producer. Guard before ensure-vocab!: that
+      ;; helper can itself seed facts, so even its idempotent write is too late.
+      (north.topology-authority/require-coordination! "send-cmd")
+      (let [[from target op args-edn idempotency-key] args
           ops  (ensure-vocab! port)
           argm (parse-args (or args-edn "{}"))]
       (cond
@@ -118,15 +160,56 @@
         (not (map? argm))
         (do (println "REJECTED: <args-edn> must be an EDN map") (System/exit 2))
         :else
-        (let [e (str "@cmd:" (content-id op argm target))]
+        (let [e (str "@cmd:" (command-id op argm target idempotency-key))]
           ;; arg facts + provenance + op first; `target` (the routing key the reactor
           ;; triggers on) LAST → op/args already visible when it lands (no settle race).
           ;; All write-once (put!): a re-send re-asserts identical facts = idempotent no-op.
-          (doseq [[k v] argm] (put! port e (arg-pred k) (str v)))
+          (doseq [[k v] argm] (put! port e (arg-pred k) (encoded-arg v)))
           (put! port e "from" from)
           (put! port e "op" op)
           (put! port e "target" target)
-          (println (str "sent cmd " e " op=" op " -> " target "  args=" (pr-str argm))))))
+          (println (str "sent cmd " e " op=" op " -> " target "  args=" (pr-str argm)))))))
+
+    "retry"       ; <cmd-id> — explicit reactivation of a terminal failed command
+    (do
+      (north.topology-authority/require-coordination! "retry command")
+      (let [[id] args
+            e (if (str/starts-with? (str id) "@cmd:") id (str "@cmd:" id))
+            failures (many port e "failed_by")
+            retryable (one port e "retryable")
+            target (one port e "target")
+            requested (many port e "retry_requested")
+            acknowledged (many port e "acked_by")]
+        (cond
+          (and (not (seq failures)) (seq requested) (not (seq acknowledged)) target)
+          (do
+            ;; Recovery for a producer that cleared failed_by and died before
+            ;; publishing the addressed wake below. A repeated retry completes
+            ;; the same activation rather than rejecting a now-markerless cmd.
+            (wake-command! port e target)
+            (println (str "retry wake replayed for " e)))
+          (not (seq failures))
+          (do (println (str "REJECTED: " e " is not terminal-failed")) (System/exit 2))
+          (not= "true" retryable)
+          (do (println (str "REJECTED: " e " is terminal non-retryable")) (System/exit 2))
+          (str/blank? (str target))
+          (do (println (str "REJECTED: " e " has no routing target")) (System/exit 2))
+          :else
+          (do
+            ;; Durable retry intent first. If this process dies while failed_by
+            ;; remains, the command stays terminal. If it dies after clearing
+            ;; failed_by, the recovery branch above republishes the wake.
+            (append! port e "retry_requested" (str (java.time.Instant/now)))
+            (doseq [predicate ["execution_status" "failed_at" "retryable" "reply"]
+                    value (many port e predicate)]
+              (north.coord/retract! port e predicate value))
+            (doseq [value failures]
+              (north.coord/retract! port e "failed_by" value))
+            ;; Scoped subscribers match addresses on the commit itself; a
+            ;; failed_by retraction carries no address and cannot wake them.
+            ;; Publish an explicit addressed activation edge LAST.
+            (wake-command! port e target)
+            (println (str "retry requested for " e))))))
 
     "cmd"         ; <cmd-id>  — show ALL facts on a command (it is a queryable subject now)
     (let [[id] args, e (str "@cmd:" id)
@@ -146,4 +229,4 @@
         (when (or (nil? tgt) (= t tgt))
           (println (format "%-24s %-10s %s" c op t)))))
 
-    (do (println "usage: msg-cli.clj <port> {send|send-cmd|cmd|cmds|inbox|thread|ack}") (System/exit 2))))
+    (do (println "usage: msg-cli.clj <port> {send|send-cmd|retry|cmd|cmds|inbox|thread|ack}") (System/exit 2))))

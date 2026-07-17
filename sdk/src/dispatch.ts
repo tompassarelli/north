@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { getThreadFacts, getChildren } from "./north-client";
 import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
-import { harnessOptions, DEFAULT_SYSTEM_PROMPT, type Effort } from "./harness";
+import {
+  harnessCompositionEvidence, harnessOptions, DEFAULT_SYSTEM_PROMPT,
+  type Effort, type HarnessCompositionEvidence,
+} from "./harness";
 import { inputChannel, subscribeFeed } from "./coordination";
 import { normalizeUsage } from "./usage";
 import { recordRun } from "./telemetry";
@@ -9,19 +13,29 @@ import { notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import { liveChildren, notifyEarlyExitChildren } from "./children";
-import { writeAgentFacts, writeAgentOutcome, updateAgentRoute } from "./identity";
+import {
+  bespokeContractFingerprint, writeAgentFacts, writeAgentOutcome, updateAgentRoute,
+  userAnchoredPath,
+} from "./identity";
+import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
 import { clockStart, clockFinalize } from "./clock";
 import {
   routedQuery, selectProvider, type ProviderPreference,
 } from "./providers";
 import { refreshCodexEntitlementsIfStale } from "./codex-entitlement";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
-import { routingMetadataFromEnv, validateRoutingMetadata } from "./routing-metadata";
-import { applyGafferStaffing } from "./gaffer-staffing";
+import { routingMetadataFromEnv, validateRoutingMetadata, type RoutingMetadata } from "./routing-metadata";
+import {
+  applyGafferStaffing, gafferCapabilities, requireManagedGafferSelection,
+} from "./gaffer-staffing";
+import { refreshAccountUsages } from "./account-usage";
+import { resolveDispatchWorkingDirectory } from "./dispatch-context";
+import { claimDispatchDriver, type DispatchDriverOptions } from "./dispatch-driver";
 import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
 } from "./resource-envelopes";
+import { assertCoordinationAuthority } from "./topology-authority";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -33,13 +47,41 @@ interface DispatchResult {
   result: string;
 }
 
+export interface DispatchDependencies {
+  claimDriver?: typeof claimDispatchDriver;
+  driverOptions?: DispatchDriverOptions;
+  /** Explicit staffing request for programmatic callers; CLI/MCP adapters use env. */
+  routingMetadata?: RoutingMetadata;
+  /** Explicit child identity for a programmatic handoff; never inferred from a parent. */
+  agentId?: string;
+}
+
+export function createDispatchAgentId(threadId: string, now = Date.now(), uuid = randomUUID()): string {
+  const threadFragment = threadId.replace(/[^a-z0-9]/gi, "").slice(-12) || "thread";
+  return `sdk-${threadFragment}-${now.toString(36)}-${uuid}`;
+}
+
+export function selectDispatchAgentId(
+  threadId: string,
+  dependencies: DispatchDependencies = {},
+): string {
+  if (dependencies.agentId) return dependencies.agentId;
+  const preclaimed = dependencies.driverOptions?.preclaimed
+    ?? process.env.NORTH_DISPATCH_DRIVER_PRECLAIMED === "1";
+  if (preclaimed && process.env.AGENT_ID) return process.env.AGENT_ID;
+  return createDispatchAgentId(threadId);
+}
+
 async function runDispatch(
   threadId: string,
   envelopeAdmission?: EnvelopeAdmission,
   hydratedMetadata?: ReturnType<typeof routingMetadataFromEnv>,
+  hydratedWorkingDirectory?: string,
+  hydratedAgentId?: string,
 ): Promise<DispatchResult> {
   const routingMetadata = hydratedMetadata ?? validateRoutingMetadata(applyGafferStaffing(routingMetadataFromEnv()));
-  const role = routingMetadata.role;
+  const role = routingMetadata.role!;
+  const capabilities = gafferCapabilities(routingMetadata);
   const facts = getThreadFacts(threadId);
   if (!facts.length) {
     throw new Error(`Thread @${threadId} not found or has no facts`);
@@ -59,6 +101,8 @@ async function runDispatch(
     return { threadId, posture: "atomic", result: "already done" };
   }
 
+  const workingDirectory = hydratedWorkingDirectory ?? resolveDispatchWorkingDirectory(facts);
+
   const prompt = buildPrompt(threadId, posture, facts);
   const tools = posture.atomic
     ? EXEC_TOOLS
@@ -72,40 +116,57 @@ async function runDispatch(
       ? "atomic"
       : "composite";
 
-  const agentId =
-    process.env.AGENT_ID ??
-    `sdk-${threadId.replace(/[^a-z0-9]/gi, "").slice(-12)}`;
+  const agentId = hydratedAgentId ?? createDispatchAgentId(threadId);
   const stream = new StreamWriter(agentId);
   const requestedTier = routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
+  const requestedReasoning = (routingMetadata.reasoning ?? process.env.AGENT_EFFORT) as Effort | undefined;
   const providerPreference = process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
   const targetPreference = process.env.AGENT_TARGET;
   const routingRequest = { provider: providerPreference, target: targetPreference };
-  await refreshCodexEntitlementsIfStale({ requested: routingRequest });
+  try { await refreshAccountUsages({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
+  try { await refreshCodexEntitlementsIfStale({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
   const routing = selectProvider(routingRequest, undefined,
-    { tier: requestedTier, stableKey: agentId });
+    { tier: requestedTier, reasoning: requestedReasoning,
+      model: process.env.AGENT_MODEL, stableKey: agentId, capabilities });
   const resolved = resolveTier(routing.provider, requestedTier,
-    process.env.AGENT_MODEL, (routingMetadata.reasoning ?? process.env.AGENT_EFFORT) as Effort | undefined);
+    process.env.AGENT_MODEL, requestedReasoning);
+  const composition = routingMetadata.composition!;
   const identityBase = {
     kind: "lane",
     role,
-    compositionKind: routingMetadata.composition?.kind ?? "none",
-    compositionId: routingMetadata.composition?.id,
-    repo: process.cwd().split("/").pop(),
+    compositionKind: composition.kind,
+    compositionId: composition.id,
+    compositionOverrides: composition.kind === "preset" ? composition.overrides : undefined,
+    compositionOverrideReason: composition.kind === "preset" ? composition.overrideReason : undefined,
+    compositionNearestPreset: composition.kind === "bespoke" ? composition.nearestPreset : undefined,
+    compositionBespokeReason: composition.kind === "bespoke" ? composition.bespokeReason : undefined,
+    compositionPromotionCandidate: composition.kind === "bespoke" ? composition.promotionCandidate : undefined,
+    compositionContractFingerprint: composition.kind === "bespoke"
+      ? bespokeContractFingerprint(composition.contract) : undefined,
+    compositionContractFingerprintVersion: composition.kind === "bespoke"
+      ? BESPOKE_FINGERPRINT_VERSION : undefined,
+    compositionContractFingerprintDomain: composition.kind === "bespoke"
+      ? BESPOKE_FINGERPRINT_DOMAIN : undefined,
+    repo: userAnchoredPath(workingDirectory),
     goal: posture.title,
     coordinator: process.env.AGENT_COORDINATOR,
   } as const;
   writeAgentFacts(agentId, { ...identityBase, model: resolved.model,
     provider: routing.provider, providerTarget: routing.target, effort: resolved.effort });
   let identityRoute = `${routing.provider}|${routing.target}|${resolved.model ?? ""}|${resolved.effort ?? ""}`;
-  const refreshIdentityRoute = () => {
+  const refreshIdentityRoute = (required = false) => {
     const route = { provider: routing.provider,
       providerTarget: routing.target,
       model: routing.resolvedModel ?? resolved.model,
       effort: routing.resolvedEffort ?? resolved.effort };
     const next = `${route.provider}|${route.providerTarget}|${route.model ?? ""}|${route.effort ?? ""}`;
     if (next === identityRoute) return;
-    updateAgentRoute(agentId, { ...identityBase, ...route });
-    identityRoute = next;
+    try {
+      updateAgentRoute(agentId, { ...identityBase, ...route });
+      identityRoute = next;
+    } catch (error) {
+      if (required) throw error;
+    }
   };
 
   console.log(`[dispatch] @${threadId} — ${posture.title}`);
@@ -137,6 +198,14 @@ async function runDispatch(
   // `result` while a harness-tracked background task is live — see bgtasks.ts.
   const bgTracker = makeBgTracker();
   let bgContinuations = 0;
+  let q: ReturnType<typeof routedQuery> | undefined;
+  let compositionEvidence: HarnessCompositionEvidence | undefined;
+  let queryInterrupted = false;
+  const interruptQuery = async () => {
+    if (queryInterrupted || !q) return;
+    queryInterrupted = true;
+    try { await q.interrupt?.(); } catch { /* cleanup must not replace the terminal outcome */ }
+  };
 
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) the generator THROWS exitError
@@ -144,19 +213,27 @@ async function runDispatch(
   // peer ping to the coordinator); finally -> ALWAYS stop the feed, close the channel, and
   // record the run so the coordinator learns of the death instead of noticing silence.
   try {
-    const q = routedQuery(routing, {
+    const agentOptions = harnessOptions({
+      self: agentId,
+      extraTools: tools,
+      model: resolved.model,
+      effort: resolved.effort,
+      provider: routing.provider,
+      routingMetadata,
+      role,
+      posture: routingMetadata.posture,
+      cwd: workingDirectory,
+      systemPrompt: `You are a north agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
+    });
+    compositionEvidence = harnessCompositionEvidence(agentOptions);
+    q = routedQuery(routing, {
       prompt: ch.stream(),
-      options: harnessOptions({
-        self: agentId,
-        extraTools: tools,
-        model: resolved.model,
-        effort: resolved.effort,
-        role,
-        posture: routingMetadata.posture,
-        systemPrompt: `You are a north worker agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
-      }),
+      options: agentOptions,
     }, requestedTier, undefined, () => reserveResourceEnvelopeRetry(envelopeAdmission),
-    refreshIdentityRoute);
+    (_decision, evidence) => {
+      refreshIdentityRoute(true);
+      if (evidence) compositionEvidence = evidence;
+    });
     const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
       stallMs: window,
       onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
@@ -211,7 +288,7 @@ async function runDispatch(
       // 2N of silence: interrupt the hung query, mark outcome=stalled, and fire the death
       // path so a stall is terminal + visible instead of a silent hang.
       outcome = "stalled";
-      try { await (q as any).interrupt?.(); } catch {}
+      await interruptQuery();
       notifyDeath(agentId, new Error(`stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`),
         { thread: threadId, coordinator: coordHandle });
     }
@@ -226,6 +303,10 @@ async function runDispatch(
   } finally {
     stopFeed();
     try { ch.end(); } catch { /* already closed */ }
+    // Streaming input can keep the provider subprocess alive even after it has
+    // emitted a terminal result. Close the active query exactly once so Bun and
+    // the provider CLI cannot survive a completed dispatch.
+    await interruptQuery();
   }
 
   // Early exit with live children (thread 019f4ed2, half b): flag orphaned spawned
@@ -257,6 +338,7 @@ async function runDispatch(
               requestedEffort: routingMetadata.reasoning ?? process.env.AGENT_EFFORT,
               allocationMode: routing.allocationMode,
               entitlementPressure: routing.entitlementPressure,
+              allocationEvidence: routing.allocationEvidenceByTarget,
               fallbackCount: routing.fallbackCount,
               fallbackPath: routing.fallbackPath,
               fallbackTargetPath: routing.fallbackTargetPath,
@@ -265,33 +347,54 @@ async function runDispatch(
               envelopeRetries: envelopeAdmission?.retries,
               envelopeAdvisories: envelopeAdmission?.advisories,
               routingMetadata,
+              promptComposition: compositionEvidence,
               durationMs: resultMsg?.duration_ms ?? 0, posture: postureLabel, outcome });
   console.log(`\n[dispatch] @${threadId} ${outcome === "died" ? "DIED" : "complete"}`);
   return { threadId, posture: postureLabel, result };
 }
 
-export async function dispatch(threadId: string): Promise<DispatchResult> {
+export async function dispatch(
+  threadId: string,
+  dependencies: DispatchDependencies = {},
+): Promise<DispatchResult> {
+  assertCoordinationAuthority("dispatch");
   // Avoid charging an admission for an unknown or already-completed thread.
   const facts = getThreadFacts(threadId);
   if (!facts.length) return runDispatch(threadId);
   const preflight = derivePosture(facts, getChildren(threadId).length > 0);
   if (preflight.hasOutcome) return runDispatch(threadId);
-  const agentId = process.env.AGENT_ID ?? `sdk-${threadId.replace(/[^a-z0-9]/gi, "").slice(-12)}`;
-  const routingMetadata = validateRoutingMetadata(applyGafferStaffing(routingMetadataFromEnv()));
-  const context = envelopeContextFromEnv();
-  const admission = await admitResourceEnvelope({
-    agentId, tier: routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined,
-    project: context.project, sessionId: context.sessionId,
-  });
-  for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
-  try { return await runDispatch(threadId, admission, routingMetadata); }
-  finally { await completeResourceEnvelope(admission); }
+  const workingDirectory = resolveDispatchWorkingDirectory(facts);
+  const agentId = selectDispatchAgentId(threadId, dependencies);
+  const routingMetadata = requireManagedGafferSelection(
+    validateRoutingMetadata(applyGafferStaffing(
+      dependencies.routingMetadata ?? routingMetadataFromEnv(),
+    )),
+    "managed North dispatch",
+  );
+  const driver = (dependencies.claimDriver ?? claimDispatchDriver)(threadId, agentId, dependencies.driverOptions);
+  let admission: EnvelopeAdmission | undefined;
+  try {
+    const context = envelopeContextFromEnv(workingDirectory);
+    admission = await admitResourceEnvelope({
+      agentId, tier: routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined,
+      project: context.project, sessionId: context.sessionId,
+    });
+    for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
+    return await runDispatch(threadId, admission, routingMetadata, workingDirectory, agentId);
+  } finally {
+    try { await completeResourceEnvelope(admission); }
+    finally { driver.release(); }
+  }
 }
 
 export async function dispatchParallel(
-  threadIds: string[]
+  threadIds: string[],
+  dependencies: DispatchDependencies = {},
 ): Promise<DispatchResult[]> {
-  return Promise.all(threadIds.map((id) => dispatch(id)));
+  assertCoordinationAuthority("dispatchParallel");
+  if (dependencies.agentId && threadIds.length > 1)
+    throw new Error("dispatchParallel cannot reuse one explicit agentId across multiple children");
+  return Promise.all(threadIds.map((id) => dispatch(id, dependencies)));
 }
 
 if (import.meta.main) {
@@ -300,8 +403,17 @@ if (import.meta.main) {
     console.error("usage: bun run src/dispatch.ts <thread-id>");
     process.exit(1);
   }
+  if (!process.env.AGENT_ROLE) {
+    console.error(
+      "managed North dispatch requires AGENT_ROLE selecting a canonical Gaffer preset or complete bespoke composition",
+    );
+    process.exit(1);
+  }
 
-  dispatch(threadId)
+  dispatch(threadId, {
+    agentId: process.env.AGENT_ID,
+    routingMetadata: routingMetadataFromEnv(),
+  })
     .then((result) => {
       console.log(JSON.stringify(result, null, 2));
     })

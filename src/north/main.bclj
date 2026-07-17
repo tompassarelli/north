@@ -739,7 +739,15 @@
        (println (fram.rt/to-json
                  (mapv (fn [c :- k/Fact] :- JAgentFact
                          (->JAgentFact (subs (:l c) (count "@agent:")) (:p c) (:r c)))
-                       (filterv (fn [c :- k/Fact] :- Bool (str/starts-with? (:l c) "@agent:")) facts))))]
+                       ;; The coordinator's unified warm view can contain
+                       ;; lease-only/tombstone-shaped rows with no subject. They
+                       ;; are not agent facts. One such row must not crash the
+                       ;; whole bulk identity projection and erase every valid
+                       ;; agent card from `north agents`.
+                       (filterv (fn [c :- k/Fact] :- Bool
+                                  (let [l (:l c)]
+                                    (and (some? l) (str/starts-with? l "@agent:"))))
+                                facts))))]
       [(= what "presentation")
        (println (fram.rt/to-json
                  (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready")

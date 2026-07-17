@@ -15,6 +15,7 @@ test("normalizes Claude subscriber statusline windows", () => {
   }, "claude-primary", new Date("2026-07-16T12:00:00Z"))).toEqual({
     targetId: "claude-primary",
     provider: "anthropic",
+    source: "claude-code:statusline",
     observedAt: "2026-07-16T12:00:00.000Z",
     windows: [
       { limitId: "five_hour", usedPercent: 23.5, resetsAt: "2025-02-01T16:00:00.000Z" },
@@ -44,4 +45,15 @@ test("ingestion is fail-open and writes only the normalized observation", async 
   expect(await ingestClaudeStatusline({ rate_limits: {
     five_hour: { used_percentage: 80, resets_at: 1_738_425_600 },
   } }, { targetId: "claude", write: async () => { throw new Error("disk unavailable"); } })).toBe(false);
+});
+
+test("unattributed ambient statusline telemetry is dropped rather than guessed", async () => {
+  let writes = 0;
+  expect(await ingestClaudeStatusline({ rate_limits: {
+    five_hour: { used_percentage: 80, resets_at: 4_102_444_800 },
+  } }, {
+    resolveTarget: () => undefined,
+    write: async () => { writes++; },
+  })).toBe(false);
+  expect(writes).toBe(0);
 });

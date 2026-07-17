@@ -11,18 +11,21 @@
 ;; top-level settings surface. Output contract is byte-faithful to the bash tool
 ;; (self-references now read `north config`); the slash command renders it verbatim.
 ;;
-;; State file STAYS at ~/.claude/my-config.state — the guard hooks
-;; (agent-spawn-guard.sh, north-clock-guard.sh) and the kill-switch lib read it
-;; live; changing the path breaks enforcement. The kill-switch precedence below
-;; is a faithful inline copy of hooks/lib/authoring-killswitch.sh so this report
-;; and that enforcement can never disagree.
+;; Provider-neutral posture state lives at ~/.local/state/north/harness.conf.
+;; ~/.claude/my-config.state is a read-only migration fallback until the first
+;; canonical write. The kill-switch precedence below is a faithful inline copy
+;; of hooks/lib/authoring-killswitch.sh so report and enforcement agree.
 
 (require '[clojure.string :as str]
          '[clojure.java.io :as io]
          '[cheshire.core :as json])
 
 (def home (System/getenv "HOME"))
-(def STATE           (str home "/.claude/my-config.state"))
+(load-file (str (or (System/getenv "NORTH_HOME")
+                    (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
+                "/cli/harness-state.clj"))
+(def STATE           (north.harness-state/canonical-path home))
+(def LEGACY-STATE    (north.harness-state/legacy-path home))
 (def CAVEMAN-STATE   (str home "/.claude/.caveman-active"))
 (def CAVEMAN-DEFAULT (str home "/code/nixos-config/dotfiles/caveman/config.json"))
 (def REGISTRY        (or (System/getenv "GRAPH_UPSTREAM_REGISTRY")
@@ -35,24 +38,12 @@
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
 (defn- die [& xs] (apply eprintln xs) (System/exit 1))
 
-;; --- state accessors (STATE = key=value lines; last wins) -----------------
+;; --- state accessors (key=value lines; last wins) --------------------------
 (defn get' [k default]
-  (let [prefix (str k "=")]
-    (if-let [c (slurp' STATE)]
-      (if-let [line (->> (str/split-lines c)
-                         (filter #(str/starts-with? % prefix))
-                         last)]
-        (subs line (count prefix))
-        default)
-      default)))
+  (north.harness-state/get-value home k default))
 
 (defn put' [k v]
-  (io/make-parents STATE)
-  (let [c (or (slurp' STATE) "")
-        prefix (str k "=")
-        lines (if (str/blank? c) [] (str/split-lines c))
-        kept  (remove #(str/starts-with? % prefix) lines)]
-    (spit STATE (str (str/join "\n" (concat kept [(str k "=" v)])) "\n"))))
+  (north.harness-state/put-value! home k v))
 
 (defn mark [a b] (if (= a b) "●" "○")) ; ● / ○
 
@@ -116,7 +107,7 @@
 ;; adapters can select between profiles yet.
 (def default-routing-policy
   {:schemaVersion 1
-   :mode "preferential"
+   :mode "balanced"
    :targets {"anthropic" {:provider "anthropic" :authMode "ambient"}
              "openai" {:provider "openai" :authMode "ambient"}}
    :order ["anthropic" "openai"]
@@ -132,6 +123,12 @@
   (let [ids (set (keys (:targets p)))
         refs (concat (:order p) (keys (:weights p)) (keys (:pressure p))
                      (when-let [r (:reserve p)] [r]))
+        isolated-roots (for [[_ {:keys [provider authMode profile]}] (:targets p)
+                             :when (= "isolated" authMode)]
+                         [provider profile])
+        ambient-providers (for [[_ {:keys [provider authMode]}] (:targets p)
+                                :when (not= "isolated" authMode)]
+                            provider)
         dangling (seq (remove ids refs))]
     (when-not (= 1 (:schemaVersion p))
       (throw (ex-info (str "unsupported schemaVersion " (:schemaVersion p)) {})))
@@ -145,6 +142,10 @@
                                                 (not (portable-profile-slug? (:profile (val %)))))
                                           (:targets p)))]
       (throw (ex-info (str "target " id " requires a portable profile slug when authMode is isolated") {})))
+    (when (some #(> (val %) 1) (frequencies isolated-roots))
+      (throw (ex-info "isolated targets must not reuse the same provider/profile root" {})))
+    (when (some #(> (val %) 1) (frequencies ambient-providers))
+      (throw (ex-info "ambient targets must not reuse the same provider account" {})))
     (when dangling
       (throw (ex-info (str "dangling target reference(s): " (str/join ", " dangling)) {})))
     p))
@@ -177,7 +178,7 @@
         (validate-routing
           (merge default-routing-policy
                {:schemaVersion (get j "version" 1)
-                :mode (get j "mode" "preferential")
+                :mode (get j "mode" "balanced")
                 :targets (into {} (map (fn [v]
                                          [(get v "id") (cond-> {:provider (get v "provider")}
                                                          (get v "authMode") (assoc :authMode (get v "authMode"))
@@ -239,19 +240,40 @@
 (defn- routing-summary [p]
   (let [reserve (or (:reserve p) "off")]
     (str "mode " (:mode p)
-         " · order " (str/join " → " (:order p))
          " · reserve " reserve
          " · targets " (count (:targets p)))))
 
+(defn- print-target-selection [p]
+  (let [targets (:order p)]
+    (case (:mode p)
+      "balanced"
+      (do
+        (println (str "  configured candidate target set (unordered): " (str/join " · " targets)))
+        (println "  eligibility: live authentication/headroom is evaluated by `north providers`")
+        (println "  allocation: usage/headroom-weighted stable distribution; `north providers` shows current approximate shares"))
+
+      "preferential"
+      (do
+        (println (str "  target priority: " (str/join " → " targets)))
+        (println "  allocation: first eligible target, then retries in priority order"))
+
+      "reserved"
+      (do
+        (println (str "  non-reserve target order: " (str/join " → " targets)))
+        (println "  allocation: preserve the configured reserve outside eligible frontier work"))
+
+      (println (str "  configured targets: " (str/join " · " targets))))))
+
 (defn- pressure-label [observation]
   (if-not observation
-    "none (automatic)"
-    (str (:level observation) " (manual; observed " (:observedAt observation)
+    "automatic"
+    (str "manual " (:level observation) " (observed " (:observedAt observation)
          (if-let [until (:until observation)] (str "; until " until) "; 24h TTL") ")")))
 
 (defn- print-routing [p]
   (println (str "routing: " (routing-summary p)))
   (println (str "  policy: " ROUTING-POLICY))
+  (print-target-selection p)
   (doseq [[id {:keys [provider authMode profile]}] (sort-by key (:targets p))]
     (println (str "  target " id " → " provider " · auth " (or authMode "ambient")
                   (when profile (str " (profile " profile ")"))
@@ -261,8 +283,9 @@
     (println "  envelopes:")
     (doseq [[scope limits] (sort-by key (:envelopes p))]
       (println (str "    " scope " " (str/join " · " (map (fn [[k v]] (str (name k) "=" v)) (sort-by key limits)))))))
-  (println "  pressure status: automated provider usage is primary; manual observations are temporary overrides/fallbacks (24h unless --until is set).")
-  (println "  adapter status: provider selection is live; distinct named profiles are policy-only until provider adapters support profile selection."))
+  (println "  live pressure: `north providers` for categorized routing status · `north account usage` for per-account windows and resets.")
+  (println "  policy pressure: automatic unless a temporary manual override is shown (24h unless --until is set).")
+  (println "  adapter status: provider selection and exact named-account execution are live; an explicit target is pinned with no fallback."))
 
 (def routing-usage
   "usage: north config routing [show|mode preferential|balanced|reserved|order <target...>|weight <target> <positive>|reserve <target|off>|pressure <target> <plenty|normal|low|exhausted|unknown> [--until ISO]|target add <id> <anthropic|openai> [profile] [--auth-mode ambient|isolated]|target remove <id>|envelope set <month|week|default|project:<id>|session:<id>> <runs|frontierRuns|retries|parallelism> <positive>|envelope clear <scope> [limit]]")
@@ -270,7 +293,10 @@
 (defn cmd-routing [args]
   (let [p (routing-read)
         [verb & xs] args
-        save! (fn [next] (routing-write! next) (print-routing next))]
+        save! (fn [next]
+                (let [validated (validate-routing next)]
+                  (routing-write! validated)
+                  (print-routing validated)))]
     (case (or verb "show")
       "show" (print-routing p)
       "mode" (let [[mode & extra] xs]
@@ -388,8 +414,9 @@
  2  DISPATCH   who runs agents                 [guard: " (wired "agent-spawn-guard") "]
     " (mark d "north") " north    SDK workers — persistent, steerable, fact trail;
                model, effort, caveman all have per-spawn opts on mcp__north__spawn;
-               without them, workers inherit AGENT_MODEL + AGENT_CAVEMAN from the
-               spawning session's env ([spawn] — inherited at spawn, frozen)
+               model/effort resolve from the requested Gaffer composition and
+               provider catalog; caveman alone inherits ambient AGENT_CAVEMAN
+               when omitted ([spawn] — frozen for the worker lifetime)
     " (mark d "warn") " warn     native Agent/Workflow allowed, nudged toward north
     " (mark d "native") " native   raw Claude Code spawns, no interference
     flip → north config dispatch north|warn|native
@@ -420,8 +447,8 @@
     policy: " ROUTING-POLICY "
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
- dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] per-worker opt or inherited env, frozen at spawn
- state: ~/.claude/my-config.state · descriptions + advice: north config help"))))
+ dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; caveman may inherit ambient env
+ state: ~/.local/state/north/harness.conf · legacy read fallback: ~/.claude/my-config.state · descriptions + advice: north config help"))))
 
 (defn help []
   (println "north config — every personal-stack posture setting, one entry point.
@@ -456,9 +483,11 @@
            (ad-hoc) / mcp__north__dispatch (thread-driven). SDK workers are
            persistent, dormant-until-pinged, observable (web :8088),
            steerable (msg-cli :7977). Model, effort, and caveman all have
-           per-spawn opts on mcp__north__spawn; without them, workers inherit
-           AGENT_MODEL + AGENT_CAVEMAN from the spawning session's env
-           ([spawn] — inherited at spawn, frozen for each worker's lifetime).
+           per-spawn opts on mcp__north__spawn. Managed children scrub ambient
+           routing/staffing variables: model and effort come from the request's
+           Gaffer composition and provider catalog unless explicitly pinned.
+           Caveman alone may inherit ambient AGENT_CAVEMAN when omitted and is
+           frozen for each worker's lifetime.
    warn    native spawns allowed; the hook injects a reminder instead.
    native  no interference. For A/B baselines against stock Claude Code.
    Advice: stay on north. Drop to warn only when the daemon is down.
@@ -486,7 +515,7 @@
 
    [live] state flip (primary — effective immediately across ALL sessions,
    no relaunch; hooks re-read state on every call):
-     north config guards off   → writes guards=off to ~/.claude/my-config.state
+     north config guards off   → writes guards=off to ~/.local/state/north/harness.conf
      north config guards on    → removes that line (or writes guards=on)
 
    [launch] env override — single session, launch ONLY; mid-session flip
@@ -500,16 +529,17 @@
      ~/.claude/hooks/lib/authoring-killswitch.sh
 
  6 ROUTING — durable provider selection and subscription-entitlement policy.
-   Show everything with `north config routing`. Configure preferential,
-   balanced, or reserved allocation; provider/profile targets; and
+   Show everything with `north config routing`. Balanced allocation is the
+   default; preferential and reserved remain explicit choices. Configure
+   provider/profile targets and
    month/week/project/session run envelopes. Provider adapters automatically
    sense available subscription usage during normal operation. `routing
    pressure` records a temporary manual override/fallback when sensing cannot
    represent what you know; it expires after 24 hours unless --until is given.
    The canonical atomic JSON file is ~/.config/north/routing-policy.json
    (NORTH_ROUTING_POLICY overrides it for isolated tests/tools).
-   Named profiles are representable now, but current adapters select providers,
-   not distinct profiles. No API keys, credit balances, prices, or dollars live
+   Named profiles are executable account targets with isolated subscription
+   sessions. No API keys, credit balances, prices, or dollars live
    in this policy.
 
  Elsewhere (owned by other CLIs, not duplicated here):

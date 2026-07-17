@@ -158,9 +158,9 @@ async function resolveLinkedIssue(gateway: LinearGateway, link: LinearLinkState)
     if (link.manifest.evidence.markerBound && !issue.description.includes(markerForThread(link.threadId)))
       throw new Error("managed backlink is missing from the stored key");
     return issue;
-  } catch (directError) {
+  } catch {
     if (!link.manifest.evidence.markerBound)
-      throw new Error(`stored Linear key could not be verified before backlink adoption: ${directError instanceof Error ? directError.message : String(directError)}`);
+      throw new Error("stored Linear key could not be verified before backlink adoption");
     return searchByManagedBacklink(gateway, link);
   }
 }
@@ -281,7 +281,10 @@ async function importIssue(
     await deps.graph.put(link.threadId, "linear_link", `@${link.subject}`);
     if (link.manifest.phase !== "adopted")
       await writeManifest(deps.graph, link, { ...link.manifest, phase: "adopted" });
-    return { command: "import", dryRun: false, reused: partial.exists, createdThread, server: gateway.server, key: freshIssue.key, identity, link: `@${link.subject}`, thread: `@${link.threadId}` };
+    // `partial` was observed before acquiring the identity lease. Another
+    // importer may have completed while this caller waited, so public reuse
+    // truth must come from the serialized, post-lease observation.
+    return { command: "import", dryRun: false, reused: partialNow.exists, createdThread, server: gateway.server, key: freshIssue.key, identity, link: `@${link.subject}`, thread: `@${link.threadId}` };
   } finally { await lease.release(); }
 }
 
@@ -341,9 +344,9 @@ function commentOperationSatisfied(pending: NonNullable<LinearSyncManifest["pend
 
 async function confirmOrRefusePending(
   gateway: LinearGateway, graph: GraphStore, link: LinearLinkState, now: Date,
-): Promise<void> {
+): Promise<LinearSyncManifest> {
   const pending = link.manifest.pending;
-  if (!pending) return;
+  if (!pending) return link.manifest;
   const { issue, comments } = await readRemote(gateway, link);
   const remoteId = pending.kind === "issue"
     ? issueOperationSatisfied(pending, issue) ? issue.key : undefined
@@ -351,20 +354,23 @@ async function confirmOrRefusePending(
   if (!remoteId) throw new Error(`prior ${pending.kind} write has unknown outcome and is not observable; refusing to retry`);
   const receipts = { ...(link.manifest.receipts ?? {}), [pending.key]: { confirmedAt: now.toISOString(), remoteId } };
   const markerAdopted = pending.kind === "issue" && pending.descriptionHash !== undefined;
-  await writeManifest(graph, link, {
+  const confirmed: LinearSyncManifest = {
     ...link.manifest, pending: undefined, receipts,
     ...(pending.baselineAfter ? { baseline: pending.baselineAfter } : {}),
     ...(markerAdopted ? { evidence: { ...link.manifest.evidence, markerBound: true, adoptRawDescription: false } } : {}),
-  });
+  };
+  await writeManifest(graph, link, confirmed);
+  return confirmed;
 }
 
 async function applyOperation(
   gateway: LinearGateway, graph: GraphStore, lease: SyncLease, link: LinearLinkState,
+  manifest: LinearSyncManifest,
   kind: "issue" | "comment", key: string, payload: Record<string, unknown>, marker: string | undefined,
   now: Date,
   onConfirmed?: (manifest: LinearSyncManifest) => LinearSyncManifest,
   baselineAfter?: LinearApplyPlan["expectedBaseline"],
-): Promise<string | undefined> {
+): Promise<{ remoteId: string; manifest: LinearSyncManifest }> {
   const pending = {
     key, kind, payloadHash: sha256Canonical(payload),
     ...(typeof payload.title === "string" ? { titleHash: sha256Canonical(payload.title) } : {}),
@@ -373,25 +379,25 @@ async function applyOperation(
     ...(baselineAfter ? { baselineAfter } : {}),
     ...(marker ? { marker } : {}), startedAt: now.toISOString(),
   } as const;
-  await writeManifest(graph, link, { ...link.manifest, pending });
+  const prepared: LinearSyncManifest = { ...manifest, pending };
+  await writeManifest(graph, link, prepared);
   await lease.fence();
-  let callError: string | undefined;
   try {
     if (kind === "issue") await gateway.writeIssue({ id: link.remoteKey, ...payload });
     else await gateway.writeComment(payload);
-  } catch (error) {
+  } catch {
     // The call may have committed remotely before transport failure. Reconcile, never retry.
-    callError = (error instanceof Error ? error.message : String(error)).replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 300);
   }
   const { issue, comments } = await readRemote(gateway, link);
   const remoteId = kind === "issue"
     ? issueOperationSatisfied(pending, issue) ? issue.key : undefined
     : commentOperationSatisfied(pending, comments);
-  if (!remoteId) throw new Error(`${kind} write outcome is unknown and not observable; intent retained, retry refused${callError ? ` (${callError})` : ""}`);
-  const receipts = { ...(link.manifest.receipts ?? {}), [key]: { confirmedAt: now.toISOString(), remoteId } };
-  const confirmed = { ...link.manifest, pending: undefined, receipts };
-  await writeManifest(graph, link, onConfirmed ? onConfirmed(confirmed) : confirmed);
-  return remoteId;
+  if (!remoteId) throw new Error(`${kind} write outcome is unknown and not observable; intent retained, retry refused`);
+  const receipts = { ...(prepared.receipts ?? {}), [key]: { confirmedAt: now.toISOString(), remoteId } };
+  const confirmed: LinearSyncManifest = { ...prepared, pending: undefined, receipts };
+  const nextManifest = onConfirmed ? onConfirmed(confirmed) : confirmed;
+  await writeManifest(graph, link, nextManifest);
+  return { remoteId, manifest: nextManifest };
 }
 
 async function applySync(thread: string, gateway: LinearGateway, deps: LinearCliDependencies): Promise<unknown> {
@@ -400,7 +406,7 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
   try {
     await ensureLinearSchema(deps.graph);
     const link = await loadLinkForThread(deps.graph, thread);
-    await confirmOrRefusePending(gateway, deps.graph, link, deps.now());
+    let manifest = await confirmOrRefusePending(gateway, deps.graph, link, deps.now());
     const planned = await computePlan(thread, gateway, deps.graph);
     if (planned.reconciliation.conflicts.length)
       throw new Error(`Linear sync conflict: ${planned.reconciliation.conflicts.map(({ field, category }) => `${field}:${category}`).join(", ")}`);
@@ -415,28 +421,34 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
     let writes = 0;
     if (planned.plan && Object.keys(planned.plan.issue).length) {
       const adoptsMarker = planned.plan.issue.description !== undefined;
-      await applyOperation(
-        gateway, deps.graph, lease, link, "issue", `${planned.plan.hash}:issue`, { ...planned.plan.issue }, undefined, deps.now(),
+      const applied = await applyOperation(
+        gateway, deps.graph, lease, link, manifest, "issue", `${planned.plan.hash}:issue`, { ...planned.plan.issue }, undefined, deps.now(),
         (manifest) => adoptsMarker ? {
           ...manifest, baseline: planned.plan!.expectedBaseline,
           evidence: { ...manifest.evidence, markerBound: true, adoptRawDescription: false },
         } : manifest,
         planned.plan.expectedBaseline,
       );
+      manifest = applied.manifest;
       writes++;
     }
     for (const [index, comment] of (planned.plan?.comments ?? []).entries()) {
       const payload = comment.action === "create"
         ? { issueId: link.remoteKey, body: comment.body }
         : { id: comment.commentId, body: comment.body };
-      await applyOperation(gateway, deps.graph, lease, link, "comment", `${planned.plan!.hash}:comment:${index}`, payload, comment.marker, deps.now());
+      const applied = await applyOperation(
+        gateway, deps.graph, lease, link, manifest, "comment",
+        `${planned.plan!.hash}:comment:${index}`, payload, comment.marker, deps.now(),
+      );
+      manifest = applied.manifest;
       writes++;
     }
     const baseline = createLinearSyncBaseline(link.identity, link.threadId, planned.local.fields);
-    await writeManifest(deps.graph, link, {
-      ...link.manifest, phase: "adopted", baseline, pending: undefined,
-      evidence: { ...link.manifest.evidence, markerBound: link.manifest.evidence.markerBound || Boolean(planned.plan?.issue.description) },
-    });
+    const finalized: LinearSyncManifest = {
+      ...manifest, phase: "adopted", baseline, pending: undefined,
+      evidence: { ...manifest.evidence, markerBound: manifest.evidence.markerBound || Boolean(planned.plan?.issue.description) },
+    };
+    await writeManifest(deps.graph, link, finalized);
     await deps.graph.put(link.subject, "last_synced_at", deps.now().toISOString());
     return { command: "sync", applied: true, thread: `@${link.threadId}`, link: `@${link.subject}`, writes, state: "in-sync", planHash: planned.plan?.hash ?? null };
   } finally { await lease.release(); }
@@ -475,10 +487,22 @@ export async function runLinearCommand(argv: readonly string[], dependencies: Pa
   const gateway = await deps.openGateway({ server });
   try {
     if (verb === "doctor") {
-      const schema = await inspectLinearSchema(deps.graph);
+      const schemaBefore = await inspectLinearSchema(deps.graph);
+      // Schema-as-facts is adapter-owned infrastructure, not user data. A
+      // fresh North graph must become usable from the same command that
+      // diagnoses it; requiring a separate hand-seeding incantation makes the
+      // bridge depend on hidden setup state. Conflicts remain diagnostic and
+      // are never overwritten.
+      if (!schemaBefore.conflicting.length) await ensureLinearSchema(deps.graph);
+      const schema = schemaBefore.ok || schemaBefore.conflicting.length
+        ? schemaBefore : await inspectLinearSchema(deps.graph);
       return {
         command: "doctor", server: gateway.server, oauth: true, modelTurn: false,
         identityMode: "mcp-bootstrap-v1", identityLimitation: "connector omits native workspace and issue UUIDs; managed backlink + createdAt fingerprint",
+        graphSchemaBootstrap: {
+          applied: !schemaBefore.ok && !schemaBefore.conflicting.length,
+          assertions: schemaBefore.conflicting.length ? 0 : schemaBefore.missing.length,
+        },
         graphSchema: schema,
       };
     }

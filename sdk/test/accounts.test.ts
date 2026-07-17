@@ -125,6 +125,18 @@ test("add preserves routing fields, isolates roots, and links only allowlisted c
   ]) expect(() => lstatSync(forbidden)).toThrow();
 });
 
+test("the first account creates a balanced routing policy", () => {
+  const { policy, run } = fixture();
+  rmSync(policy, { force: true });
+  expect(run("add", "claude-personal", "anthropic").status).toBe(0);
+  expect(JSON.parse(readFileSync(policy, "utf8"))).toMatchObject({
+    version: 1,
+    mode: "balanced",
+    targets: [{ id: "claude-personal", provider: "anthropic", authMode: "isolated" }],
+    targetOrder: ["claude-personal"],
+  });
+});
+
 test("concurrent adds serialize the read-append-replace transaction", async () => {
   const { home, policy } = fixture();
   const env = {
@@ -198,6 +210,23 @@ test("unsafe ids are rejected without changing policy or escaping the account ro
     expect(readFileSync(policy, "utf8")).toBe(before);
   }
   expect(() => lstatSync(join(home, ".local/state/north/escape"))).toThrow();
+});
+
+test("two target ids cannot double-count one isolated subscription profile", () => {
+  const { policy, run } = fixture();
+  writeFileSync(policy, JSON.stringify({
+    version: 1, mode: "balanced",
+    targets: [
+      { id: "claude-first", provider: "anthropic", authMode: "isolated", profile: "shared-claude" },
+      { id: "claude-second", provider: "anthropic", authMode: "isolated", profile: "shared-claude" },
+    ],
+    targetOrder: ["claude-first", "claude-second"],
+  }));
+
+  const listed = run("list");
+  expect(listed.status).toBe(2);
+  expect(listed.stderr).toContain("share provider profile/root anthropic/shared-claude");
+  expect(listed.stdout).toBe("");
 });
 
 test("login and status use disjoint provider homes and normalized account identity", () => {
@@ -283,7 +312,63 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
   const help = run("--help");
   expect(help.status).toBe(0);
   expect(help.stdout).toContain("north account list [--verbose]   grouped accounts + live login state");
+  expect(help.stdout).toContain("north account usage [id] [--refresh]  subscription windows + reset metadata");
+  expect(help.stdout).toContain("--refresh  bypass the five-minute authoritative usage cache");
   expect(help.stdout).toContain("--verbose  include provider, profile, and storage root diagnostics");
+});
+
+test("account usage groups cached per-account windows with source and reset metadata", () => {
+  const { home, run } = fixture();
+  expect(run("add", "claude-gmail", "anthropic").status).toBe(0);
+  expect(run("add", "codex-proton", "openai").status).toBe(0);
+  const observedAt = new Date().toISOString();
+  const resetsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const observations = join(home, ".local/state/north/provider-usage-observations.json");
+  mkdirSync(join(home, ".local/state/north"), { recursive: true });
+  writeFileSync(observations, `${JSON.stringify({ version: 1, observations: [
+    { targetId: "claude-gmail", provider: "anthropic", observedAt,
+      source: "claude-agent-sdk:usage-control-experimental",
+      windows: [{ limitId: "claude:seven_day", usedPercent: 40, resetsAt }] },
+    { targetId: "codex-proton", provider: "openai", observedAt,
+      source: "codex-app-server:account-rate-limits",
+      windows: [{ limitId: "codex:primary", usedPercent: 55, resetsAt }] },
+  ] })}\n`);
+
+  const usage = run("usage");
+  expect(usage.status).toBe(0);
+  expect(usage.stdout).toContain("Claude / Anthropic\n  claude-gmail");
+  expect(usage.stdout).toContain("headroom: plenty (observed, cached)");
+  expect(usage.stdout).toContain("source:   claude-agent-sdk:usage-control-experimental");
+  expect(usage.stdout).toContain(`usage evidence:  ${observedAt} (cached)`);
+  expect(usage.stdout).not.toContain("    observed:");
+  expect(usage.stdout).toContain(`claude:seven_day: 40% used · resets ${resetsAt}`);
+  expect(usage.stdout).toContain("Codex / OpenAI\n  codex-proton");
+  expect(usage.stdout).toContain("headroom: normal (observed, cached)");
+  expect(usage.stdout).toContain("source:   codex-app-server:account-rate-limits");
+  expect(usage.stdout).toContain(`codex:primary: 55% used · resets ${resetsAt}`);
+});
+
+test("account usage keeps proven exhaustion visible while a failed refresh is negatively cached", () => {
+  const { home, run } = fixture();
+  expect(run("add", "claude-gmail", "anthropic").status).toBe(0);
+  const observedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const failedAt = new Date().toISOString();
+  const resetsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const observations = join(home, ".local/state/north/provider-usage-observations.json");
+  mkdirSync(join(home, ".local/state/north"), { recursive: true });
+  writeFileSync(observations, `${JSON.stringify({ version: 1, observations: [{
+    targetId: "claude-gmail", provider: "anthropic",
+    source: "claude-agent-sdk:usage-control-experimental", observedAt,
+    windows: [{ limitId: "claude:seven_day", usedPercent: 100, resetsAt }],
+    collectionFailure: { observedAt: failedAt, reason: "anthropic_usage_probe_timed_out" },
+  }] })}\n`);
+
+  const usage = run("usage");
+  expect(usage.status).toBe(1);
+  expect(usage.stdout).toContain("headroom: exhausted (unavailable, cached)");
+  expect(usage.stdout).toContain(`usage evidence:  ${observedAt} (cached)`);
+  expect(usage.stdout).toContain(`collection tried: ${failedAt}`);
+  expect(usage.stdout).toContain("Claude usage control probe timed out (anthropic_usage_probe_timed_out)");
 });
 
 test("subscription targets deny hostile provider transports while preserving ordinary environment", () => {

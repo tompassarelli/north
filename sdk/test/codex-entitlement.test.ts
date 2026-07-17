@@ -59,6 +59,7 @@ test("reads only authenticated ChatGPT subscription windows without a model turn
   const observation = await observe();
   expect(observation).toEqual({
     targetId: "codex-primary", provider: "openai", observedAt: "2026-07-16T12:00:00.000Z",
+    source: "codex-app-server:account-rate-limits",
     windows: [
       { limitId: "codex:primary", usedPercent: 61, resetsAt: "2027-01-15T08:00:00.000Z" },
       { limitId: "codex:secondary", usedPercent: 81, resetsAt: "2027-01-16T08:00:00.000Z" },
@@ -79,27 +80,46 @@ test("atomically updates the shared observation store", async () => {
 });
 
 test("ignores model-specific and credit fields", () => {
-  expect(normalizeCodexRateLimits(responses()["account/rateLimits/read"])).toEqual([
+  const limits = responses()["account/rateLimits/read"];
+  limits.rateLimitsByLimitId.codex.limitId = "canary-secret provider-controlled label";
+  expect(normalizeCodexRateLimits(limits)).toEqual([
     { limitId: "codex:primary", usedPercent: 61, resetsAt: "2027-01-15T08:00:00.000Z" },
     { limitId: "codex:secondary", usedPercent: 81, resetsAt: "2027-01-16T08:00:00.000Z" },
   ]);
+  expect(JSON.stringify(normalizeCodexRateLimits(limits))).not.toContain("canary-secret");
 });
 
 test("rejects API-key and missing authentication", async () => {
-  await expect(observe(responses({ type: "apiKey" }))).rejects.toThrow("not authenticated through a ChatGPT subscription");
-  await expect(observe(responses(null))).rejects.toThrow("not authenticated through a ChatGPT subscription");
+  await expect(observe(responses({ type: "apiKey" }))).rejects.toThrow("codex_usage_subscription_auth_required");
+  await expect(observe(responses(null))).rejects.toThrow("codex_usage_subscription_auth_required");
 });
 
 test("fails within the configured timeout", async () => {
   const payload = responses();
   payload.initialize = "never" as any;
-  await expect(observe(payload, 40)).rejects.toThrow("timed out after 40ms");
+  await expect(observe(payload, 40)).rejects.toThrow("codex_usage_probe_timed_out");
 });
 
 test("fails clearly when the shared Codex bucket is absent", async () => {
   const payload = responses();
   payload["account/rateLimits/read"] = { rateLimitsByLimitId: { other: {} } } as any;
-  await expect(observe(payload)).rejects.toThrow("no shared codex rate-limit bucket");
+  await expect(observe(payload)).rejects.toThrow("codex_usage_windows_unavailable");
+});
+
+test("provider RPC diagnostics are normalized before crossing the adapter boundary", async () => {
+  const payload = responses();
+  payload.initialize = {
+    $error: { code: -32_000, message: "canary-secret raw provider error" },
+    $stderr: "canary-secret raw stderr",
+  } as any;
+  try {
+    await observe(payload);
+    throw new Error("expected the probe to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("codex_usage_transport_failed");
+    expect(String(error)).not.toContain("canary-secret");
+  }
 });
 
 test("fresh cached observation skips the app-server probe", async () => {
@@ -107,7 +127,8 @@ test("fresh cached observation skips the app-server probe", async () => {
   temporary.push(directory);
   const storePath = join(directory, "observations.json");
   const now = new Date("2026-07-16T12:00:00Z");
-  const cached = { targetId: "codex-primary", provider: "openai" as const, observedAt: now.toISOString(),
+  const cached = { targetId: "codex-primary", provider: "openai" as const,
+    source: "codex-app-server:account-rate-limits" as const, observedAt: now.toISOString(),
     windows: [{ limitId: "codex:primary", usedPercent: 10, resetsAt: "2026-07-20T00:00:00Z" }] };
   await writeProviderUsageObservations(cached, storePath);
   let probes = 0;
@@ -123,6 +144,7 @@ test("stale cached observation refreshes and persists the replacement", async ()
   const storePath = join(directory, "observations.json");
   const now = new Date("2026-07-16T12:00:00Z");
   const stale = { targetId: "codex-primary", provider: "openai" as const,
+    source: "codex-app-server:account-rate-limits" as const,
     observedAt: new Date(now.getTime() - CODEX_OBSERVATION_TTL_MS - 1).toISOString(), state: "normal" as const };
   const replacement = { ...stale, observedAt: now.toISOString(), state: "low" as const };
   await writeProviderUsageObservations(stale, storePath);
@@ -141,6 +163,7 @@ test("twenty parallel stale refreshes single-flight one entitlement probe", asyn
   const storePath = join(directory, "observations.json");
   const now = new Date("2026-07-16T12:00:00Z");
   const replacement = { targetId: "codex-primary", provider: "openai" as const,
+    source: "codex-app-server:account-rate-limits" as const,
     observedAt: now.toISOString(), state: "normal" as const };
   let probes = 0;
   const observe = async ({ storePath: destination }: { storePath?: string }) => {
@@ -209,22 +232,29 @@ test("different Codex targets refresh concurrently with disjoint state and obser
   }
 });
 
-test("refresh failure falls back to cached or unknown with a diagnostic", async () => {
+test("refresh failure replaces stale pressure with explicit unknown and a fixed diagnostic", async () => {
   const directory = mkdtempSync(join(tmpdir(), "north-codex-refresh-"));
   temporary.push(directory);
   const storePath = join(directory, "observations.json");
   const now = new Date("2026-07-16T12:00:00Z");
   const stale = { targetId: "codex-primary", provider: "openai" as const,
+    source: "codex-app-server:account-rate-limits" as const,
     observedAt: "2026-07-15T00:00:00Z", state: "low" as const };
   await writeProviderUsageObservations(stale, storePath);
   const diagnostics: string[] = [];
   const failed = { storePath, targetId: "codex-primary", now,
     observe: async () => { throw new Error("probe failed"); }, onDiagnostic: (message: string) => diagnostics.push(message) };
-  expect(await refreshCodexEntitlementIfStale(failed)).toEqual(stale);
+  const unknown = { targetId: "codex-primary", provider: "openai" as const,
+    source: "codex-app-server:account-rate-limits" as const,
+    observedAt: now.toISOString(), state: "unknown" as const,
+    collectionFailure: { observedAt: now.toISOString(), reason: "codex_usage_probe_failed" as const } };
+  expect(await refreshCodexEntitlementIfStale(failed)).toEqual(unknown);
+  expect(JSON.parse(readFileSync(storePath, "utf8")).observations).toEqual([unknown]);
   rmSync(storePath);
-  expect(await refreshCodexEntitlementIfStale(failed)).toBeUndefined();
-  expect(diagnostics.join("\n")).toContain("cached observation");
-  expect(diagnostics.join("\n")).toContain("unknown pressure");
+  expect(await refreshCodexEntitlementIfStale(failed)).toEqual(unknown);
+  expect(diagnostics.join("\n")).toContain("pressure is unknown");
+  expect(diagnostics.join("\n")).toContain("codex_usage_probe_failed");
+  expect(diagnostics.join("\n")).not.toContain("probe failed");
 });
 
 test("only auto and explicit OpenAI routing refresh Codex headroom", () => {

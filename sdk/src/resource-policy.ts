@@ -9,6 +9,9 @@ import type {
   ProviderId,
   ProviderUsageObservation,
   ProviderUsageObservationStore,
+  ProviderUsageCollectionFailureReason,
+  ProviderUsageSource,
+  ProviderUsageUnavailableComponent,
   ProviderUsageWindow,
   ResourceEnvelopes,
   ResourcePolicy,
@@ -18,13 +21,38 @@ import type {
 
 const PROVIDERS: ProviderId[] = ["anthropic", "openai"];
 const PRESSURES: EntitlementPressure[] = ["plenty", "normal", "low", "exhausted", "unknown"];
+const PRESSURE_RANK: Record<EntitlementPressure, number> = {
+  exhausted: 4, low: 3, normal: 2, plenty: 1, unknown: 0,
+};
 const MODES: AllocationMode[] = ["preferential", "balanced", "reserved"];
 const TARGET_AUTH_MODES: TargetAuthMode[] = ["ambient", "isolated"];
+const USAGE_SOURCES: ProviderUsageSource[] = [
+  "claude-agent-sdk:usage-control-experimental",
+  "claude-agent-sdk:rate-limit-event",
+  "claude-code:statusline",
+  "codex-app-server:account-rate-limits",
+];
+const COLLECTION_FAILURE_REASONS: ProviderUsageCollectionFailureReason[] = [
+  "anthropic_usage_capability_unavailable",
+  "anthropic_usage_probe_failed",
+  "anthropic_usage_probe_timed_out",
+  "anthropic_usage_rate_limits_unavailable",
+  "anthropic_usage_response_schema_changed",
+  "anthropic_usage_windows_unavailable",
+  "codex_usage_command_unavailable",
+  "codex_usage_probe_failed",
+  "codex_usage_probe_timed_out",
+  "codex_usage_response_schema_changed",
+  "codex_usage_subscription_auth_required",
+  "codex_usage_transport_failed",
+  "codex_usage_windows_unavailable",
+];
 const PORTABLE_PROFILE_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** Pressure observations are trustworthy for one day unless `until` is set. */
 export const PRESSURE_TTL_MS = 24 * 60 * 60 * 1000;
 export const OBSERVATION_CLOCK_SKEW_MS = 5 * 60 * 1000;
+export const COLLECTION_FAILURE_TTL_MS = 5 * 60 * 1000;
 export const DEFAULT_ROUTING_POLICY_PATH = resolve(homedir(), ".config/north/routing-policy.json");
 export const DEFAULT_PROVIDER_OBSERVATIONS_PATH = resolve(homedir(), ".local/state/north/provider-usage-observations.json");
 
@@ -109,6 +137,16 @@ function parseTargets(path: string, value: unknown): RoutingTarget[] {
       ...(entry.profile === undefined ? {} : { profile: entry.profile }) } as RoutingTarget;
   });
   if (new Set(targets.map(({ id }) => id)).size !== targets.length) fail(path, "target ids must be unique");
+  const isolatedRoots = targets
+    .filter(({ authMode }) => authMode === "isolated")
+    .map(({ provider, profile }) => `${provider}\u0000${profile}`);
+  if (new Set(isolatedRoots).size !== isolatedRoots.length)
+    fail(path, "isolated targets must not reuse the same provider/profile root");
+  const ambientProviders = targets
+    .filter(({ authMode }) => authMode === "ambient")
+    .map(({ provider }) => provider);
+  if (new Set(ambientProviders).size !== ambientProviders.length)
+    fail(path, "ambient targets must not reuse the same provider account");
   return targets;
 }
 
@@ -161,9 +199,41 @@ export function automatedPressure(
   observation: ProviderUsageObservation | undefined,
   now = new Date(),
 ): EntitlementPressure | undefined {
-  if (!pressureObservationIsFresh(observation, now)) return undefined;
-  if (observation?.windows?.length) return pressureFromUsageWindows(observation.windows, now);
+  if (collectionFailureIsFresh(observation, now)) {
+    const windowPressure = observation?.windows?.length
+      ? pressureFromUsageWindows(observation.windows, now)
+      : undefined;
+    const priorPressure = [windowPressure, observation?.state]
+      .filter((value): value is EntitlementPressure => value !== undefined)
+      .sort((left, right) => PRESSURE_RANK[right] - PRESSURE_RANK[left])[0];
+    return priorPressure === "exhausted" ? "exhausted" : "unknown";
+  }
+  if (!pressureObservationIsFresh(observation, now)) {
+    const liveWindowPressure = observation?.windows?.length
+      ? pressureFromUsageWindows(observation.windows, now)
+      : undefined;
+    // A proven rejection/exhaustion is monotonic through its provider reset.
+    // Lesser stale percentages are not precise enough to steer new work.
+    return liveWindowPressure === "exhausted" ? "exhausted" : undefined;
+  }
+  if (observation?.windows?.length) {
+    const windowPressure = pressureFromUsageWindows(observation.windows, now);
+    return [windowPressure, observation.state]
+      .filter((value): value is EntitlementPressure => value !== undefined)
+      .sort((left, right) => PRESSURE_RANK[right] - PRESSURE_RANK[left])[0];
+  }
   return observation?.state;
+}
+
+export function collectionFailureIsFresh(
+  observation: ProviderUsageObservation | undefined,
+  now = new Date(),
+): boolean {
+  const failureAt = observation?.collectionFailure?.observedAt;
+  return failureAt !== undefined
+    && Number.isFinite(Date.parse(failureAt))
+    && Date.parse(failureAt) <= now.getTime() + OBSERVATION_CLOCK_SKEW_MS
+    && now.getTime() - Date.parse(failureAt) <= COLLECTION_FAILURE_TTL_MS;
 }
 
 export function parseProviderUsageObservations(input: unknown, path = "<memory>"): ProviderUsageObservationStore {
@@ -175,12 +245,19 @@ export function parseProviderUsageObservations(input: unknown, path = "<memory>"
   const observations = input.observations.map((entry, index) => {
     const label = `observations[${index}]`;
     if (!object(entry)) failObservations(path, `${label} must be an object`);
-    const unknownFields = Object.keys(entry).filter((key) => !["targetId", "provider", "state", "windows", "observedAt", "until"].includes(key));
+    const unknownFields = Object.keys(entry).filter((key) => !["targetId", "provider", "source", "state", "windows", "unavailableComponents", "collectionFailure", "observedAt", "until"].includes(key));
     if (unknownFields.length) failObservations(path, `${label} has unknown field(s): ${unknownFields.join(", ")}`);
     if (typeof entry.targetId !== "string" || !entry.targetId.trim())
       failObservations(path, `${label}.targetId must be a non-empty string`);
     if (!PROVIDERS.includes(entry.provider as ProviderId))
       failObservations(path, `${label}.provider must be anthropic or openai`);
+    if (entry.source !== undefined && !USAGE_SOURCES.includes(entry.source as ProviderUsageSource))
+      failObservations(path, `${label}.source is not a recognized provider usage source`);
+    if (entry.source !== undefined) {
+      const sourceProvider: ProviderId = String(entry.source).startsWith("codex-") ? "openai" : "anthropic";
+      if (entry.provider !== sourceProvider)
+        failObservations(path, `${label}.source does not belong to provider ${entry.provider}`);
+    }
     if (entry.state !== undefined && !PRESSURES.includes(entry.state as EntitlementPressure))
       failObservations(path, `${label}.state must be plenty, normal, low, exhausted, or unknown`);
     let windows: ProviderUsageWindow[] | undefined;
@@ -204,15 +281,54 @@ export function parseProviderUsageObservations(input: unknown, path = "<memory>"
         } as ProviderUsageWindow;
       });
     }
+    let unavailableComponents: ProviderUsageUnavailableComponent[] | undefined;
+    if (entry.unavailableComponents !== undefined) {
+      if (!Array.isArray(entry.unavailableComponents) || entry.unavailableComponents.length === 0)
+        failObservations(path, `${label}.unavailableComponents must be a non-empty array`);
+      unavailableComponents = entry.unavailableComponents.map((component, componentIndex) => {
+        const componentLabel = `${label}.unavailableComponents[${componentIndex}]`;
+        if (!object(component)) failObservations(path, `${componentLabel} must be an object`);
+        const unknownComponentFields = Object.keys(component).filter((key) => !["limitId", "reason"].includes(key));
+        if (unknownComponentFields.length)
+          failObservations(path, `${componentLabel} has unknown field(s): ${unknownComponentFields.join(", ")}`);
+        if (typeof component.limitId !== "string" || !component.limitId.trim())
+          failObservations(path, `${componentLabel}.limitId must be a non-empty string`);
+        if (!["reset_unavailable", "utilization_unavailable", "component_schema_changed"].includes(component.reason as string))
+          failObservations(path, `${componentLabel}.reason is not recognized`);
+        return { limitId: component.limitId, reason: component.reason } as ProviderUsageUnavailableComponent;
+      });
+    }
+    let collectionFailure: ProviderUsageObservation["collectionFailure"];
+    if (entry.collectionFailure !== undefined) {
+      const failureLabel = `${label}.collectionFailure`;
+      if (!object(entry.collectionFailure)) failObservations(path, `${failureLabel} must be an object`);
+      const unknownFailureFields = Object.keys(entry.collectionFailure)
+        .filter((key) => !["observedAt", "reason"].includes(key));
+      if (unknownFailureFields.length)
+        failObservations(path, `${failureLabel} has unknown field(s): ${unknownFailureFields.join(", ")}`);
+      if (!COLLECTION_FAILURE_REASONS.includes(entry.collectionFailure.reason as ProviderUsageCollectionFailureReason))
+        failObservations(path, `${failureLabel}.reason is not recognized`);
+      const reasonProvider: ProviderId = String(entry.collectionFailure.reason).startsWith("codex_")
+        ? "openai" : "anthropic";
+      if (entry.provider !== reasonProvider)
+        failObservations(path, `${failureLabel}.reason does not belong to provider ${entry.provider}`);
+      collectionFailure = {
+        observedAt: observationTimestamp(path, entry.collectionFailure.observedAt, `${failureLabel}.observedAt`),
+        reason: entry.collectionFailure.reason as ProviderUsageCollectionFailureReason,
+      };
+    }
     if (entry.state === undefined && windows === undefined)
       failObservations(path, `${label} must contain state or windows`);
     const observedAt = observationTimestamp(path, entry.observedAt, `${label}.observedAt`);
     return {
       targetId: entry.targetId,
       provider: entry.provider as ProviderId,
+      ...(entry.source === undefined ? {} : { source: entry.source as ProviderUsageSource }),
       observedAt,
       ...(entry.state === undefined ? {} : { state: entry.state as EntitlementPressure }),
       ...(windows === undefined ? {} : { windows }),
+      ...(unavailableComponents === undefined ? {} : { unavailableComponents }),
+      ...(collectionFailure === undefined ? {} : { collectionFailure }),
       ...(entry.until === undefined ? {} : { until: observationTimestamp(path, entry.until, `${label}.until`) }),
     } as ProviderUsageObservation;
   });
@@ -254,32 +370,67 @@ export function applyProviderUsageObservations(
   const targets = policy.targets ?? [];
   const configuredOrder = policy.targetOrder ?? targets.map(({ id }) => id);
   const order = [...configuredOrder, ...targets.map(({ id }) => id).filter((id) => !configuredOrder.includes(id))];
-  const latest = new Map<string, ProviderUsageObservation>();
+  const latestByTargetSource = new Map<string, ProviderUsageObservation>();
   for (const observation of store?.observations ?? []) {
     if (automatedPressure(observation, now) === undefined) continue;
     const target = targets.find(({ id }) => id === observation.targetId);
     if (!target || target.provider !== observation.provider) continue;
-    const previous = latest.get(observation.targetId);
+    const key = `${observation.targetId}\u0000${observation.source ?? "legacy"}`;
+    const previous = latestByTargetSource.get(key);
     if (!previous || Date.parse(observation.observedAt) > Date.parse(previous.observedAt))
-      latest.set(observation.targetId, observation);
+      latestByTargetSource.set(key, observation);
+  }
+  const candidates = new Map<string, ProviderUsageObservation[]>();
+  for (const observation of latestByTargetSource.values())
+    candidates.set(observation.targetId, [...(candidates.get(observation.targetId) ?? []), observation]);
+  // Source-less observations are a migration format. Once a target has any
+  // explicit-source sample, keeping the legacy lane as an independent sensor
+  // can let duplicate stale data conservatively override newer telemetry.
+  for (const [targetId, observations] of candidates) {
+    if (observations.some((observation) =>
+      observation.source !== undefined && automatedPressure(observation, now) !== "unknown"))
+      candidates.set(targetId, observations.filter(({ source }) => source !== undefined));
   }
   const pressures: Partial<Record<ProviderId, EntitlementPressure>> = {};
   const targetPressures: Record<string, EntitlementPressure> = {};
   const automatedPressureObservations: Record<string, ProviderUsageObservation> = {};
+  const automatedPressureObservationSets: Record<string, ProviderUsageObservation[]> = {};
   for (const id of order) {
     const target = targets.find((candidate) => candidate.id === id);
     if (!target) continue;
-    const automated = latest.get(id);
+    const targetCandidates = candidates.get(id) ?? [];
+    if (targetCandidates.length)
+      automatedPressureObservationSets[id] = [...targetCandidates]
+        .sort((left, right) => Date.parse(right.observedAt) - Date.parse(left.observedAt));
+    const knownCandidates = targetCandidates.filter((candidate) => automatedPressure(candidate, now) !== "unknown");
+    const usableCandidates = knownCandidates.length ? knownCandidates : targetCandidates;
+    const pressureRank: Record<EntitlementPressure, number> = {
+      exhausted: 4, low: 3, normal: 2, plenty: 1, unknown: 0,
+    };
+    const automated = usableCandidates.sort((left, right) => {
+      const pressureDifference = pressureRank[automatedPressure(right, now)!] - pressureRank[automatedPressure(left, now)!];
+      return pressureDifference || Date.parse(right.observedAt) - Date.parse(left.observedAt);
+    })[0];
     const manual = policy.pressureObservations?.[id];
     if (automated) {
-      targetPressures[id] = automatedPressure(automated, now)!;
+      const observedPressure = automatedPressure(automated, now)!;
+      const manualPressure = effectivePressure(manual, now);
+      // A failed/partial usage probe is absence of knowledge. It must never
+      // turn a known manual exhaustion into an eligible account.
+      targetPressures[id] = observedPressure === "unknown" ? manualPressure : observedPressure;
       automatedPressureObservations[id] = automated;
     } else {
       targetPressures[id] = effectivePressure(manual, now);
     }
     if (pressures[target.provider] === undefined) pressures[target.provider] = targetPressures[id];
   }
-  return { ...policy, pressures, targetPressures, automatedPressureObservations };
+  return {
+    ...policy,
+    pressures,
+    targetPressures,
+    automatedPressureObservations,
+    automatedPressureObservationSets,
+  };
 }
 
 export function parseResourcePolicy(input: unknown, path = "<memory>", now = new Date()): ResourcePolicy {
@@ -316,9 +467,9 @@ export function parseResourcePolicy(input: unknown, path = "<memory>", now = new
   if (reserved !== undefined && (typeof reserved !== "string" || !ids.has(reserved)))
     fail(path, "reservedFrontierTarget must reference a declared target");
 
-  // Provider routing is today's executable boundary. Multiple profiles may be
-  // described now, but are deliberately collapsed to their provider until the
-  // adapters can authenticate/select profiles truthfully.
+  // Targets are the executable account boundary. Provider-level pressure and
+  // weight remain only compatibility projections for older callers; selection,
+  // authentication, usage evidence, and fallback all operate per target.
   const pressureByProvider: Partial<Record<ProviderId, EntitlementPressure>> = {};
   const targetPressures: Record<string, EntitlementPressure> = {};
   const weightByProvider: Partial<Record<ProviderId, number>> = {};

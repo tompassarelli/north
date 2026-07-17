@@ -17,7 +17,7 @@ let dir: string;
 let log: string;
 
 const MANAGED_ENV = [
-  "PATH", "NORTH_BIN", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
+  "PATH", "NORTH_BIN", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT",
   "AGENT_IDENTITY_ROLE", "AGENT_TARGET",
   "AGENT_TIER", "AGENT_REASONING", "AGENT_POSTURE", "AGENT_TOPOLOGY", "AGENT_TASK_GRADE",
@@ -41,6 +41,7 @@ beforeAll(() => {
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;
+  process.env.NORTH_IDENTITY_TEST_REDIRECT = "1";
   process.env.NORTH_PORT = "59999"; // unused -> any stray bb write silently no-ops
   process.env.NORTH_STREAM_DIR = dir;
   process.env.AGENT_LAWS = "off";
@@ -80,17 +81,23 @@ afterAll(() => {
 
 test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>)", async () => {
   const { spawn } = await import("../src/spawn");
+  let interrupts = 0;
 
   // Fake SDK query: one assistant turn, then a terminal `result` (subtype success) — the
   // clean-finish shape. spawn finalizes outcome=ran and must stamp it on @agent:<id>.
-  const cleanQuery: any = () =>
-    (async function* () {
+  const cleanQuery: any = () => ({
+    interrupt: async () => { interrupts++; },
+    async *[Symbol.asyncIterator]() {
       yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "working" }] } };
       yield { type: "result", subtype: "success", result: "task done", duration_ms: 1, num_turns: 1 };
-    })();
+    },
+  });
 
-  const result = await spawn({ prompt: "do a bounded task", agentId: "test-done-ok", queryFn: cleanQuery });
+  const result = await spawn({
+    prompt: "do a bounded task", agentId: "test-done-ok", role: "integrator", queryFn: cleanQuery,
+  });
   expect(result).toBe("task done");
+  expect(interrupts).toBe(1);
 
   expect(existsSync(log)).toBe(true);
   const logged = readFileSync(log, "utf8");
@@ -113,11 +120,31 @@ test("a lane that dies mid-stream records outcome=died ON the lane entity (repor
       throw new Error("Claude Code process terminated by signal 9");
     })();
 
-  await spawn({ prompt: "dies", agentId: "test-done-died", queryFn: dyingQuery });
+  await spawn({ prompt: "dies", agentId: "test-done-died", role: "integrator", queryFn: dyingQuery });
 
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell agent:test-done-died outcome died");
   expect(logged).toContain("tell @swarm agent_death"); // death path still fires
+});
+
+test("a synchronous provider-construction failure closes lifecycle state and the billable clock", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+
+  const result = await spawn({
+    prompt: "fail while constructing the provider query",
+    agentId: "test-sync-construction-failure",
+    role: "integrator",
+    thread: "thread-sync-construction",
+    queryFn: () => { throw new Error("synchronous adapter construction failure"); },
+  });
+
+  expect(result).toBe("");
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain("clock start thread-sync-construction");
+  expect(logged).toContain("tell @swarm agent_death");
+  expect(logged).toContain("tell agent:test-sync-construction-failure outcome died");
+  expect(logged).toContain("clock orphan test-sync-construction-failure");
 });
 
 test("an Anthropic error terminal still records its authoritative usage", async () => {
@@ -133,7 +160,7 @@ test("an Anthropic error terminal still records its authoritative usage", async 
   })();
 
   await spawn({ prompt: "terminal error usage", agentId: "test-terminal-error",
-    provider: "anthropic", queryFn });
+    role: "integrator", provider: "anthropic", queryFn });
   await waitForLog("tell run-test-terminal-error-");
   await waitForLog("usage_total_status exact");
   const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-terminal-error-"));
@@ -156,7 +183,7 @@ test("repeated Anthropic terminals record ambiguity without a selected or summed
   })();
 
   await spawn({ prompt: "two terminal scopes", agentId: "test-repeated-terminals",
-    provider: "anthropic", queryFn });
+    role: "integrator", provider: "anthropic", queryFn });
   await waitForLog("usage_total_status unknown_repeated_terminal");
   const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-repeated-terminals-"));
   expect(lines.some((line) => line.endsWith(" usage_terminal_count 2"))).toBe(true);
@@ -172,10 +199,10 @@ async function waitForLog(needle: string): Promise<string> {
   throw new Error(`timed out waiting for telemetry fact: ${needle}`);
 }
 
-test("public spawn composes explicit axes before Gaffer hydration", async () => {
+test("public spawn composes justified explicit axes before Gaffer hydration", async () => {
   const { spawn } = await import("../src/spawn");
   writeFileSync(log, "");
-  process.env.NORTH_FABLE_NOW = "2026-07-20T07:00:00Z";
+  process.env.NORTH_FABLE_NOW = "2026-07-20T04:00:00Z";
   let queryOptions: any;
   const queryFn: any = (args: any) => {
     queryOptions = args.options;
@@ -185,24 +212,29 @@ test("public spawn composes explicit axes before Gaffer hydration", async () => 
   };
 
   await spawn({
-    prompt: "exercise the real composition boundary", agentId: "test-composed-integrator",
-    role: "integrator", tier: "economy", effort: "low", posture: "preserve",
-    routingMetadata: { topology: "orchestrator" }, provider: "anthropic", queryFn,
+    prompt: "exercise the real composition boundary", agentId: "test-composed-director",
+    role: "director", tier: "economy", effort: "low", posture: "preserve",
+    routingMetadata: {
+      role: "director", topology: "orchestrator",
+      composition: { kind: "preset", id: "director",
+        overrides: ["tier", "reasoning", "posture"],
+        overrideReason: "exercise the explicit public-dial composition boundary" },
+    }, provider: "anthropic", queryFn,
   });
 
-  expect(queryOptions.model).toBe("claude-sonnet-4-6");
+  expect(queryOptions.model).toBe("claude-sonnet-5");
   expect(queryOptions.effort).toBe("low");
   const logged = await waitForLog("topology orchestrator");
   for (const fact of [
-    "requested_role integrator", "task_grade senior", "topology orchestrator",
+    "requested_role director", "task_grade staff", "topology orchestrator",
     "routing_tier economy", "requested_reasoning low", "routing_posture preserve",
   ]) expect(logged).toContain(fact);
 });
 
-test("public role-only integrator spawn hydrates the complete Gaffer recipe", async () => {
+test("public role-only integrator spawn hydrates the complete Gaffer preset", async () => {
   const { spawn } = await import("../src/spawn");
   writeFileSync(log, "");
-  process.env.NORTH_FABLE_NOW = "2026-07-20T07:00:00Z";
+  process.env.NORTH_FABLE_NOW = "2026-07-20T04:00:00Z";
   let queryOptions: any;
   const queryFn: any = (args: any) => {
     queryOptions = args.options;
@@ -226,11 +258,11 @@ test("public role-only integrator spawn hydrates the complete Gaffer recipe", as
   for (const fact of [
     "tell agent:test-role-only-integrator provider anthropic",
     "tell agent:test-role-only-integrator provider_target anthropic",
-    "tell agent:test-role-only-integrator model opus",
+    "tell agent:test-role-only-integrator model claude-opus-4-8",
     "tell agent:test-role-only-integrator effort high",
     "tell agent:test-role-only-integrator composition_kind preset",
     "tell agent:test-role-only-integrator composition_id integrator",
-    "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-integrator-integrator",
+    "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-gaffer-integrator-integrator",
   ]) expect(logged).toContain(fact);
 });
 
@@ -256,7 +288,7 @@ test("tier-routed OpenAI identity records the resolved Sol route, not requested 
     "tell agent:test-openai-designer provider_target openai",
     "tell agent:test-openai-designer model gpt-5.6-sol",
     "tell agent:test-openai-designer effort xhigh",
-    "tell agent:test-openai-designer display_handle openai-ambient-sol-xhigh-designer-designer",
+    "tell agent:test-openai-designer display_handle openai-ambient-sol-xhigh-gaffer-designer-designer",
   ]) expect(logged).toContain(fact);
 });
 
@@ -314,7 +346,7 @@ test("in-flight escalation refreshes model, effort, and semantic handle without 
   expect(models.length).toBeGreaterThan(0);
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell agent:test-escalated-integrator effort xhigh");
-  expect(logged).toContain("tell agent:test-escalated-integrator display_handle anthropic-ambient-opus-xhigh-integrator-integrator");
+  expect(logged).toContain("tell agent:test-escalated-integrator display_handle anthropic-ambient-opus-xhigh-gaffer-integrator-integrator");
   expect(logged.match(/tell agent:test-escalated-integrator spawned_at/g)?.length).toBe(1);
 });
 
@@ -380,7 +412,7 @@ test("a failed effort escalation records the applied model and interrupts before
 test("the escalation ceiling interrupts the active child before reporting completion", async () => {
   const { spawn } = await import("../src/spawn");
   writeFileSync(log, "");
-  process.env.NORTH_FABLE_NOW = "2026-07-20T07:00:00Z";
+  process.env.NORTH_FABLE_NOW = "2026-07-20T04:00:00Z";
   let interrupts = 0;
   const models: string[] = [];
   const queryFn: any = () => ({
@@ -407,7 +439,7 @@ test("the escalation ceiling interrupts the active child before reporting comple
   expect(logged).not.toContain("tell @swarm agent_death");
 });
 
-test("recipe-hydrated Anthropic frontier promotes to Fable without losing requested reasoning", async () => {
+test("preset-hydrated Anthropic frontier promotes to Fable without losing requested reasoning", async () => {
   const { spawn } = await import("../src/spawn");
   writeFileSync(log, "");
   process.env.NORTH_FABLE_NOW = "2026-07-19T00:00:00Z";
@@ -420,14 +452,14 @@ test("recipe-hydrated Anthropic frontier promotes to Fable without losing reques
   };
 
   await spawn({
-    prompt: "frontier recipe", agentId: "test-fable-designer",
+    prompt: "frontier preset", agentId: "test-fable-designer",
     role: "designer", provider: "anthropic", queryFn,
   });
 
   expect(queryOptions.model).toBe("claude-fable-5");
-  expect(queryOptions.effort).toBe("high");
+  expect(queryOptions.effort).toBe("xhigh");
   const logged = await waitForLog("requested_reasoning xhigh");
   expect(logged).toContain("requested_role designer");
   expect(logged).toContain("routing_tier frontier");
-  expect(logged).toContain("effort high");
+  expect(logged).toContain("effort xhigh");
 });

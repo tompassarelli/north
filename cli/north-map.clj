@@ -22,7 +22,7 @@
 ;;   bb north-map.clj <port> list                                    — known batches
 ;; env: MAP_SPAWN=0 registers the batch + records worker handles but skips the real
 ;;      SDK spawn (deterministic test path; DONEs then simulated via the `done` verb).
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
+(require '[cheshire.core :as json] '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[clojure.java.shell :refer [sh]])
 
 ;; rec4: schema-validated structured output. Load the sibling validator so a batch can carry a JSON
@@ -30,6 +30,9 @@
 ;; invalid => reject + retry, the K-of-N barrier does NOT advance. Sibling-relative; load-file leaves
 ;; the validator's own CLI dormant (main-guard).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/managed-child-env.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/gaffer-staffing.clj"))
 
 ;; shared coord substrate: cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
@@ -40,6 +43,22 @@
 (def one        north.coord/resolved)
 (def many       north.coord/many)
 (def distinct-of north.coord/distinct-of)   ; count-distinct quorum, set form
+
+(defn canonical-worker-preset [role]
+  (let [path (or (System/getenv "GAFFER_STAFFING_CATALOG")
+                 (str (or (System/getenv "GAFFER_HOME")
+                          (str (System/getenv "HOME") "/code/gaffer"))
+                      "/staffing/catalog.json"))]
+    (try
+      (let [catalog (north.gaffer-staffing/load-catalog path)
+            preset (get (north.gaffer-staffing/presets-by-name catalog) role)]
+        (cond
+          (nil? preset) {:error (str "unknown Gaffer worker preset: " role)}
+          (not= "worker" (get preset "topology"))
+          {:error (str "north map requires a terminal worker preset; " role " is " (get preset "topology"))}
+          :else {:preset preset}))
+      (catch Exception e
+        {:error (str "Gaffer staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
 
 (defn q [port query] (:ok (send-op port {:op :query :query query})))
 
@@ -80,7 +99,13 @@
   (case verb
 
     "map"          ; <role-template> <N> <task> [K] [<json-schema>]  — register @batch + fan out N workers
-    (let [[tmpl n-s task k-s schema] args
+    (do
+      (north.topology-authority/require-coordination! "map")
+      (let [[tmpl n-s task k-s schema] args
+          role-check (canonical-worker-preset tmpl)
+          _ (when-let [problem (:error role-check)]
+              (binding [*out* *err*] (println problem))
+              (System/exit 1))
           n (Integer/parseInt n-s)
           k (if (and k-s (seq k-s)) (Integer/parseInt k-s) n)
           has-schema (and schema (seq (str/trim schema)))
@@ -111,12 +136,16 @@
                                      (str "\nThe payload is schema-validated on acceptance; a non-conforming payload is "
                                           "REJECTED (nonzero exit) and you must re-run the line with a conforming result.")))]
               (sh "/run/current-system/sw/bin/bun" "run" (str home "/code/north/sdk/src/spawn.ts") full-prompt
-                  :env (assoc (into {} (System/getenv))
-                              "AGENT_ID" slug
-                              "AGENT_LIFECYCLE" "ephemeral"))))))
-      (println (str "batch " e "  N=" n " K=" k " role=" tmpl
-                    (when has-schema "  +schema")
-                    (if spawn? "  (spawned via SDK)" "  (registered only, MAP_SPAWN=0)"))))
+                  :env (north.managed-child-env/child
+                        (into {} (System/getenv))
+                        (or (System/getenv "AGENT_ID") "north-map")
+                        {"AGENT_ID" slug
+                         "AGENT_ROLE" tmpl
+                         "AGENT_IDENTITY_ROLE" tmpl
+                         "AGENT_LIFECYCLE" "ephemeral"}))))))
+        (println (str "batch " e "  N=" n " K=" k " role=" tmpl
+                      (when has-schema "  +schema")
+                      (if spawn? "  (spawned via SDK)" "  (registered only, MAP_SPAWN=0)")))))
 
     "done"         ; <batch-id> <worker> <payload>  — a worker reports DONE against the batch
     (let [[id worker payload] args

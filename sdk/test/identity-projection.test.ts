@@ -6,20 +6,21 @@ import {
 test("semantic handles keep provider-specific model families and stable control suffixes", () => {
   expect(semanticHandle("sdk-a205e9ce", {
     kind: "lane", provider: "openai", model: "gpt-5.6-sol", effort: "xhigh",
-    compositionKind: "preset", compositionId: "designer",
-  })).toBe("openai-sol-xhigh-designer-a205e9ce");
+    role: "designer", compositionKind: "preset", compositionId: "designer", compositionOverrides: [],
+  })).toBe("openai-sol-xhigh-gaffer-designer-a205e9ce");
 });
 
 test("managed identity exposes the exact account target and Gaffer template", () => {
   const identity = {
     kind: "lane" as const, provider: "openai", providerTarget: "codex-work",
     model: "gpt-5.6-sol", effort: "xhigh", compositionKind: "preset" as const,
-    compositionId: "designer", goal: "Build the account-aware roster",
+    role: "designer", compositionId: "designer", compositionOverrides: [],
+    goal: "Build the account-aware roster",
   };
   expect(providerTargetLabel(identity)).toBe("openai:codex-work");
   expect(renderDisplayName("lane-a205e9ce", identity))
     .toBe("openai:codex-work · sol · xhigh · gaffer:designer · Build the account-aware roster");
-  expect(semanticHandle("lane-a205e9ce", identity)).toBe("openai-codex-work-sol-xhigh-designer-a205e9ce");
+  expect(semanticHandle("lane-a205e9ce", identity)).toBe("openai-codex-work-sol-xhigh-gaffer-designer-a205e9ce");
   expect(providerTargetLabel({ kind: "lane", provider: "anthropic", providerTarget: "anthropic" }))
     .toBe("anthropic:ambient");
   expect(providerTargetLabel({ kind: "session", provider: "anthropic" })).toBe("anthropic");
@@ -28,7 +29,7 @@ test("managed identity exposes the exact account target and Gaffer template", ()
 test("fallback route facts replace provider target and refresh public identity", () => {
   const base = {
     kind: "lane" as const, model: "opus", effort: "high", compositionKind: "preset" as const,
-    compositionId: "integrator", goal: "Integrate the change",
+    role: "integrator", compositionId: "integrator", compositionOverrides: [], goal: "Integrate the change",
   };
   const initial = Object.fromEntries(agentRouteFacts("lane-route", {
     ...base, provider: "anthropic", providerTarget: "claude-personal",
@@ -41,13 +42,43 @@ test("fallback route facts replace provider target and refresh public identity",
   expect(fallback.display_name).toContain("openai:codex-work · sol · xhigh · gaffer:integrator");
 });
 
-test("Gaffer provenance distinguishes preset, bespoke, native, and unknown", () => {
-  expect(gafferProvenance({ kind: "lane", compositionKind: "preset", compositionId: "designer" }))
+test("Gaffer provenance distinguishes exact, overridden, bespoke, native, and legacy debt", () => {
+  expect(gafferProvenance({
+    kind: "lane", role: "designer", compositionKind: "preset",
+    compositionId: "designer", compositionOverrides: [],
+  }))
     .toBe("gaffer:designer");
-  expect(gafferProvenance({ kind: "lane", compositionKind: "bespoke", compositionId: "migration-forensics" }))
-    .toBe("gaffer:bespoke(migration-forensics)");
-  expect(gafferProvenance({ kind: "session", compositionKind: "none" })).toBe("gaffer:none");
-  expect(gafferProvenance({ kind: "lane" })).toBe("gaffer:unknown");
+  expect(gafferProvenance({
+    kind: "lane", role: "integrator", compositionKind: "preset", compositionId: "integrator",
+    compositionOverrides: ["tier", "reasoning"], compositionOverrideReason: "high leverage seam",
+  })).toBe("gaffer:integrator+override(tier,reasoning)");
+  expect(gafferProvenance({
+    kind: "lane", role: "migration-forensics", compositionKind: "bespoke",
+    compositionId: "migration-forensics", compositionBespokeReason: "one-off provenance analysis",
+    compositionPromotionCandidate: false, compositionContractFingerprint: "a".repeat(64),
+    compositionContractFingerprintVersion: "v1",
+    compositionContractFingerprintDomain: "north:bespoke-contract:v1",
+  }))
+    .toBe("gaffer:bespoke:migration-forensics");
+  expect(gafferProvenance({ kind: "session" }))
+    .toBe("gaffer:not-selected");
+  expect(gafferProvenance({ kind: "lane" })).toBe("gaffer:legacy-debt");
+  expect(gafferProvenance({
+    kind: "lane", compositionKind: "preset", compositionId: "integrator",
+    compositionOverrides: ["tier"],
+  })).toBe("gaffer:legacy-debt");
+});
+
+test("managed missing composition and historical none are decode-only legacy debt", () => {
+  expect(semanticHandle("lane-legacy", {
+    kind: "lane", provider: "openai", providerTarget: "codex-work",
+    model: "gpt-5.6-sol", effort: "high",
+  })).toBe("openai-codex-work-sol-high-gaffer-legacy-debt-legacy");
+  // Migration compatibility only: current native writers omit composition_kind.
+  expect(semanticHandle("session-native", {
+    kind: "session", provider: "openai", model: "gpt-5.6-sol", effort: "unobserved",
+    compositionKind: "none",
+  })).toBe("openai-sol-unobserved-gaffer-not-selected-native");
 });
 
 test("delegated prompt scaffolding yields the actual delegated task", () => {

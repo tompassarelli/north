@@ -22,11 +22,26 @@
 (try
   (let [show (run!)]
     (check "no-arg show exposes obvious defaults" (and (zero? (:exit show))
-                                                        (str/includes? (:out show) "mode preferential")
-                                                        (str/includes? (:out show) "anthropic → openai")
-                                                        (str/includes? (:out show) "anthropic · auth ambient"))))
+                                                        (str/includes? (:out show) "mode balanced")
+                                                        (str/includes? (:out show) "configured candidate target set (unordered): anthropic · openai")
+                                                        (str/includes? (:out show) "eligibility: live authentication/headroom")
+                                                        (str/includes? (:out show) "usage/headroom-weighted stable distribution")
+                                                        (not (str/includes? (:out show) "configured target order"))
+                                                        (not (str/includes? (:out show) "target priority"))
+                                                        (not (str/includes? (:out show) "fallback order"))
+                                                        (str/includes? (:out show) "anthropic · auth ambient")
+                                                        (str/includes? (:out show) "pressure automatic")
+                                                        (not (str/includes? (:out show) "pressure none"))))
+    (check "routing policy points to categorized live telemetry surfaces"
+           (and (str/includes? (:out show) "`north providers`")
+                (str/includes? (:out show) "`north account usage`")))
+    (check "routing report states exact named-account execution is live"
+           (and (str/includes? (:out show) "exact named-account execution are live")
+                (str/includes? (:out show) "explicit target is pinned with no fallback")
+                (not (str/includes? (:out show) "policy-only")))))
 
   (doseq [args [["mode" "balanced"]
+                ["target" "remove" "anthropic"]
                 ["target" "add" "claude-work" "anthropic" "work"]
                 ["target" "add" "claude-isolated" "anthropic" "work_2" "--auth-mode" "isolated"]
                 ["order" "claude-work" "openai"]
@@ -57,6 +72,10 @@
     (check "nested envelopes persist" (and (= 40 (get-in j ["envelopes" "month" "runs"]))
                                             (= 8 (get-in j ["envelopes" "projects" "north" "frontierRuns"])))))
 
+  (let [show (run!)]
+    (check "manual pressure is labeled as an override, not live automatic telemetry"
+           (str/includes? (:out show) "pressure manual low")))
+
   ;; True boundary test: the TypeScript loader consumes the exact file emitted
   ;; by the Clojure CLI, rather than a separately maintained fixture.
   (let [script (str "import { loadResourcePolicy } from '" root "/sdk/src/resource-policy.ts';"
@@ -77,6 +96,8 @@
                           ["isolated target without profile rejected" ["target" "add" "missing-profile" "anthropic" "--auth-mode" "isolated"]]
                           ["isolated target traversal rejected" ["target" "add" "traversal" "anthropic" "../work" "--auth-mode" "isolated"]]
                           ["isolated target path rejected" ["target" "add" "path" "anthropic" "work/team" "--auth-mode" "isolated"]]
+                          ["duplicate ambient provider rejected" ["target" "add" "claude-alias" "anthropic"]]
+                          ["duplicate isolated provider profile rejected" ["target" "add" "claude-isolated-alias" "anthropic" "work_2" "--auth-mode" "isolated"]]
                           ["bad envelope scope rejected" ["envelope" "set" "day" "runs" "2"]]]]
       (let [r (apply run! args)]
         (check label (not (zero? (:exit r))))

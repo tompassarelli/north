@@ -1,10 +1,20 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SDKRateLimitEvent } from "@anthropic-ai/claude-agent-sdk";
 import {
   observationFromAnthropicRateLimit,
+  anthropicTargetId,
   observeAnthropicQuery,
 } from "../src/providers/anthropic-observations";
 import type { AgentQuery, ProviderUsageObservation } from "../src/providers/types";
+import { balancedAllocationEstimates } from "../src/provider-routing";
+
+const temporary: string[] = [];
+afterEach(() => {
+  for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
+});
 
 function event(info: Partial<SDKRateLimitEvent["rate_limit_info"]>): SDKRateLimitEvent {
   return {
@@ -23,6 +33,7 @@ test("normalizes fractional Claude utilization into an expiring usage window", (
   }), "claude-primary", new Date("2026-07-16T12:00:00Z"))).toEqual({
     targetId: "claude-primary",
     provider: "anthropic",
+    source: "claude-agent-sdk:rate-limit-event",
     observedAt: "2026-07-16T12:00:00.000Z",
     windows: [{ limitId: "five_hour", usedPercent: 83, resetsAt: "2026-07-17T00:00:00.000Z" }],
   });
@@ -30,9 +41,43 @@ test("normalizes fractional Claude utilization into an expiring usage window", (
 
 test("normalizes terminal/warning status when Claude omits numeric utilization", () => {
   expect(observationFromAnthropicRateLimit(event({ status: "rejected", resetsAt: Date.parse("2026-07-17T00:00:00Z") / 1_000 }), "anthropic",
-    new Date("2026-07-16T12:00:00Z"))).toMatchObject({ state: "exhausted", until: "2026-07-17T00:00:00.000Z" });
+    new Date("2026-07-16T12:00:00Z"))).toMatchObject({
+      windows: [{ usedPercent: 100, resetsAt: "2026-07-17T00:00:00.000Z" }],
+    });
   expect(observationFromAnthropicRateLimit(event({ status: "allowed_warning" }), "anthropic",
     new Date("2026-07-16T12:00:00Z"))).toMatchObject({ state: "low" });
+});
+
+test("status-only model rejection remains scoped and unknown type text stays private", () => {
+  const now = new Date();
+  const resetsAt = Date.now() / 1_000 + 60_000;
+  const opus = observationFromAnthropicRateLimit(event({
+    status: "rejected", resetsAt, rateLimitType: "seven_day_opus",
+  }), "claude", now);
+  const policy = {
+    mode: "balanced" as const,
+    targets: [{ id: "claude", provider: "anthropic" as const, authMode: "ambient" as const }],
+    targetOrder: ["claude"], providerOrder: ["anthropic" as const], pressures: {},
+    automatedPressureObservationSets: { claude: [opus] },
+  };
+  const availability = [{ targetId: "claude", provider: "anthropic" as const,
+    available: true, reason: "ready" as const }];
+  expect(balancedAllocationEstimates(
+    availability, policy, "standard", "medium", "claude-sonnet-5",
+  )[0]).toMatchObject({ pressure: "unknown", eligible: true });
+  expect(balancedAllocationEstimates(
+    availability, policy, "senior", "high", "claude-opus-4-8",
+  )[0]).toMatchObject({ pressure: "exhausted", eligible: false });
+
+  const opaque = observationFromAnthropicRateLimit(event({
+    status: "rejected", resetsAt, rateLimitType: "secret-canary-model-bucket" as any,
+  }), "claude", now);
+  expect(opaque.windows?.[0].limitId).toBe("claude:model:opaque-event");
+  expect(JSON.stringify(opaque)).not.toContain("secret-canary");
+  const opaquePolicy = { ...policy, automatedPressureObservationSets: { claude: [opaque] } };
+  expect(balancedAllocationEstimates(
+    availability, opaquePolicy, "standard", "medium", "claude-sonnet-5",
+  )[0]).toMatchObject({ pressure: "unknown", eligible: true });
 });
 
 test("an allowed event without utilization remains unknown", () => {
@@ -87,4 +132,28 @@ test("observation persistence failures never interrupt Claude output", async () 
   const received: any[] = [];
   for await (const value of observed) received.push(value);
   expect(received).toEqual([message]);
+});
+
+test("interactive statusline attribution requires one verified isolated Claude config root", () => {
+  const home = mkdtempSync(join(tmpdir(), "north-anthropic-attribution-"));
+  temporary.push(home);
+  const policy = join(home, "routing-policy.json");
+  const first = join(home, ".local/state/north/accounts/anthropic/claude-first");
+  const second = join(home, ".local/state/north/accounts/anthropic/claude-second");
+  mkdirSync(first, { recursive: true });
+  mkdirSync(second, { recursive: true });
+  writeFileSync(policy, JSON.stringify({
+    version: 1, mode: "balanced",
+    targets: [
+      { id: "claude-first", provider: "anthropic", authMode: "isolated", profile: "claude-first" },
+      { id: "claude-second", provider: "anthropic", authMode: "isolated", profile: "claude-second" },
+    ],
+    targetOrder: ["claude-first", "claude-second"],
+  }));
+  const base = { HOME: home, NORTH_ROUTING_POLICY: policy } as NodeJS.ProcessEnv;
+
+  expect(anthropicTargetId({ ...base, CLAUDE_CONFIG_DIR: second })).toBe("claude-second");
+  expect(anthropicTargetId({ ...base, CLAUDE_CONFIG_DIR: second, AGENT_TARGET: "claude-first" })).toBeUndefined();
+  expect(anthropicTargetId({ ...base, CLAUDE_CONFIG_DIR: home })).toBeUndefined();
+  expect(anthropicTargetId(base)).toBeUndefined();
 });

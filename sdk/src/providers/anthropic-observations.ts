@@ -1,9 +1,27 @@
 import type { SDKRateLimitEvent } from "@anthropic-ai/claude-agent-sdk";
+import { realpathSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { listProviderAccounts } from "../accounts";
 import { writeProviderUsageObservations } from "../provider-observation-store";
-import { resourcePolicyFromEnv } from "../provider-routing";
 import type { AgentQuery, EntitlementPressure, ProviderUsageObservation } from "./types";
 
 type RateLimitInfo = SDKRateLimitEvent["rate_limit_info"];
+
+const KNOWN_RATE_LIMIT_TYPES = new Set([
+  "five_hour", "seven_day", "seven_day_oauth_apps", "seven_day_opus", "seven_day_sonnet",
+  "seven_day_fable",
+  "claude:five_hour", "claude:seven_day", "claude:seven_day_oauth_apps",
+  "claude:seven_day_opus", "claude:seven_day_sonnet", "claude:seven_day_fable",
+]);
+
+function safeRateLimitType(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  if (value === "seven_day_fable" || value === "claude:seven_day_fable") return "claude:model:fable";
+  if (KNOWN_RATE_LIMIT_TYPES.has(value)) return value;
+  // Preserve the fact that a present unknown type is scoped without persisting
+  // provider-controlled text or turning it into generic account exhaustion.
+  return "claude:model:opaque-event";
+}
 
 function instant(value: number | undefined): string | undefined {
   if (value === undefined || !Number.isFinite(value)) return undefined;
@@ -40,18 +58,26 @@ export function observationFromAnthropicRateLimit(
   const info = event.rate_limit_info;
   const percent = usedPercent(info.utilization);
   const resetsAt = instant(info.resetsAt);
-  const common = { targetId, provider: "anthropic" as const, observedAt: now.toISOString() };
-  if (percent !== undefined && resetsAt) {
+  const normalizedState = state(info, percent);
+  const rateLimitType = safeRateLimitType(info.rateLimitType);
+  const common = { targetId, provider: "anthropic" as const,
+    source: "claude-agent-sdk:rate-limit-event" as const, observedAt: now.toISOString() };
+  if (resetsAt && (percent !== undefined || info.status === "rejected" || info.status === "allowed_warning")) {
+    const observedPercent = percent ?? (info.status === "rejected" ? 100 : 80);
     return {
       ...common,
       windows: [{
-        ...(info.rateLimitType ? { limitId: info.rateLimitType } : {}),
-        usedPercent: percent,
+        ...(rateLimitType ? { limitId: rateLimitType } : {}),
+        // Provider status is authoritative over a lagging utilization number,
+        // but the floor stays on this concrete window so a model-scoped Opus
+        // rejection cannot incorrectly exhaust a Sonnet route.
+        usedPercent: info.status === "rejected" ? 100
+          : info.status === "allowed_warning" ? Math.max(80, observedPercent)
+            : observedPercent,
         resetsAt,
       }],
     };
   }
-  const normalizedState = state(info, percent);
   return {
     ...common,
     ...(normalizedState === undefined ? { state: "unknown" as const } : { state: normalizedState }),
@@ -59,12 +85,28 @@ export function observationFromAnthropicRateLimit(
   };
 }
 
-export function anthropicTargetId(): string {
-  const policy = resourcePolicyFromEnv();
-  const order = policy.targetOrder ?? policy.targets?.map(({ id }) => id) ?? [];
-  return order
-    .map((id) => policy.targets?.find((target) => target.id === id))
-    .find((target) => target?.provider === "anthropic")?.id ?? "anthropic";
+/**
+ * Resolve an interactive Claude statusline to a verified isolated account.
+ * An ambient or ambiguous config root has no honest account attribution, so it
+ * is dropped instead of being assigned to whichever Claude target is listed
+ * first in policy.
+ */
+export function anthropicTargetId(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const configuredRoot = env.CLAUDE_CONFIG_DIR;
+  if (!configuredRoot || !isAbsolute(configuredRoot)) return undefined;
+  try {
+    const canonicalRoot = realpathSync(resolve(configuredRoot));
+    const matches = listProviderAccounts({ env }).filter((account) => {
+      if (account.provider !== "anthropic") return false;
+      try { return realpathSync(account.root) === canonicalRoot; }
+      catch { return false; }
+    });
+    const requested = env.AGENT_TARGET;
+    if (requested) return matches.some(({ id }) => id === requested) ? requested : undefined;
+    return matches.length === 1 ? matches[0]!.id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -80,7 +122,10 @@ export function observeAnthropicQuery(
     now?: () => Date;
   } = {},
 ): AgentQuery {
-  const targetId = options.targetId ?? anthropicTargetId;
+  // Provider queries always supply the selected target. The ambient fallback is
+  // only a compatibility identity for direct wrappers; unlike statusline
+  // ingestion it never guesses among configured isolated accounts.
+  const targetId = options.targetId ?? (() => "anthropic");
   const write = options.write ?? writeProviderUsageObservations;
   const now = options.now ?? (() => new Date());
   return {

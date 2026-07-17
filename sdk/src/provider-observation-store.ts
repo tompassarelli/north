@@ -8,11 +8,11 @@ import {
 import type { ProviderUsageObservation, ProviderUsageObservationStore } from "./providers/types";
 import { withFileLease } from "./file-lease";
 
-function observationKey({ targetId, provider }: ProviderUsageObservation): string {
-  return `${targetId}\u0000${provider}`;
+function observationKey({ targetId, provider, source }: ProviderUsageObservation): string {
+  return `${targetId}\u0000${provider}\u0000${source ?? "legacy"}`;
 }
 
-/** Keep one newest observation for each target/provider pair. */
+/** Keep one newest observation for each target/provider/source tuple. */
 export function mergeProviderUsageObservations(
   existing: ProviderUsageObservationStore | undefined,
   incoming: ProviderUsageObservation | ProviderUsageObservation[],

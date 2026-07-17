@@ -1,11 +1,11 @@
-;; acquire-cli.clj <port> {acquire|release|status} <thread> [holder]
+;; acquire-cli.clj <port> {claim|verify|acquire|release|status} <thread> [holder]
 ;; Atomic work acquisition WITHOUT a lease (thread 019f100f-eefe). The @lease:<thread>
 ;; work-acquire lease is DELETED: driving a thread is GRAPH-INTERNAL, so it collapses onto
 ;; DECLARED-SINGLE — `driver` is a single-valued cardinality fact, and the engine's own
 ;; per-(subject,predicate) base-version reject IS the mutual exclusion. Two agents racing
 ;; to drive the SAME thread both pass the empty-group base (0); the writer serialized first
 ;; wins, the second's now-stale base is rejected (:conflict). No @lease:, no epoch/ttl — a
-;; stuck driver is force-released (release) or re-acquired by derived liveness (thread G).
+;; stuck driver is force-released explicitly or retracted by the lane-liveness reaper.
 ;; acquire-lease!/lease-cli survive ONLY for EXTERNAL resources (build dir / external API),
 ;; never a graph-internal subject like @lease:<thread>.
 (require '[clojure.edn :as edn] '[clojure.java.io :as io])
@@ -17,9 +17,36 @@
 (defn- driver-of [port thread]
   (:value (send-op port {:op :resolved :te thread :p "driver"})))
 
+(defn- thread-exists? [port thread]
+  (some? (:value (send-op port {:op :resolved :te thread :p "title"}))))
+
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt ps)]
   (case verb
+    "claim"                              ; <thread> <holder> — fail if ANY driver exists
+    (let [[thread holder] args
+          me  (str "@" holder)
+          cur (driver-of port thread)]
+      (cond
+        (not (thread-exists? port thread))
+        (do (println (format "DENIED %s — thread does not exist" thread)) (System/exit 4))
+
+        (some? cur)
+        (do (println (format "DENIED %s — already driven" thread)) (System/exit 3))
+
+        :else
+        (let [r (send-op port {:op :assert :te thread :p "driver" :r me :base 0})]
+          (if (:reject r)
+            (do (println (format "DENIED %s — lost the race" thread)) (System/exit 3))
+            (println (format "CLAIMED %s by %s" thread holder))))))
+
+    "verify"                             ; <thread> <holder> — MCP pre-claim handoff
+    (let [[thread holder] args
+          me  (str "@" holder)]
+      (if (= me (driver-of port thread))
+        (println (format "VERIFIED %s by %s" thread holder))
+        (do (println (format "DENIED %s — driver handoff mismatch" thread)) (System/exit 3))))
+
     "acquire"                            ; <thread> <holder> — declared-single driver fact
     (let [[thread holder] args
           me  (str "@" holder)
@@ -54,4 +81,4 @@
     (let [[thread] args]
       (println (format "%s driver=%s" thread (or (driver-of port thread) "(none)"))))
 
-    (do (println "usage: acquire-cli.clj <port> {acquire|release|status} <thread> [holder]") (System/exit 2))))
+    (do (println "usage: acquire-cli.clj <port> {claim|verify|acquire|release|status} <thread> [holder]") (System/exit 2))))

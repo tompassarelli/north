@@ -357,6 +357,23 @@ Three independent dimensions:
   handle (`@claude-code`, `@claude`). **Presence of a `driver` is what makes a
   thread derive as active.**
 
+Canonical dispatch exclusively owns the automatic driver claim for dispatched
+agent work. It claims the declared-single `driver` fact atomically before
+admission or provider side effects, and releases it on every terminal path. A
+second dispatch of the same thread fails before side effects, even if it names
+the same agent. MCP claims
+before acknowledging a background launch and the SDK verifies that handoff;
+discovery calls dispatch directly and has no second lock. Parallel work belongs
+on child threads/spawns rather than multiple drivers on one thread. If a process
+is hard-killed before its `finally`, the liveness reaper marks the lane after the
+30-minute lapse bar and retracts only that dead lane's exact driver refs. There
+is one earlier crash window: MCP may commit the driver claim before the child has
+published its `kind=lane` identity. New SDK agent ids carry their mint timestamp
+and a full UUID, so the reactor can recover an unpublished claim only after the
+same 30-minute bar. It retracts the exact thread/holder pair; legacy, malformed,
+future-dated, and already-published lane ids fail closed and are never inferred
+dead from their spelling.
+
 Person/agent handles are `@`-refs to real person nodes (nodes with a `display_name` — `name` is reserved by the engine).
 Don't invent a handle inline; the node must exist. `north validate` rejects
 refs that don't resolve.
@@ -628,6 +645,12 @@ north listen <agent-id>   # arm the real-time interrupt listener, as a backgroun
                          # task; dormant until a peer pings you (alias: bin/north-arm)
 ```
 
+A listener is the coordinator of work it executes, not the identity of each
+child. Every spawn or dispatch command receives a fresh timestamped full-UUID
+SDK identity, while `AGENT_COORDINATOR` records the listener. Listener children
+never inherit `AGENT_ID` or an MCP preclaimed-driver marker; deeper MCP spawns
+receive the immediate child's identity from the harness environment.
+
 **Cockpit — see and drive the stack:**
 
 ```sh
@@ -638,7 +661,10 @@ north dashboard   # the cockpit: live agents, concerns by repo, board counts,
 north doctor      # is everything healthy (the health sweep above)
 north account status      # provider-owned subscription login, per isolated target
 north account list        # named account targets and their isolated CLI homes
-north config routing      # allocation mode, order, reserve, pressure, envelopes
+north account usage       # per-account subscription windows, resets, fixed failures
+north providers           # auth/headroom + approximate balanced routing shares
+north providers --json    # stable machine status; automation uses this, not prose
+north config routing      # allocation mode, configured order, reserve, pressure, envelopes
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
@@ -651,12 +677,16 @@ and resolves the semantic tier through that provider's catalog. Generated agent
 markdown and `~/code/gaffer/docs/adapters/north.md` remain provider-adapter
 artifacts, never North's metadata source.
 
-`north account add|login|status|list` manages provider-owned subscription login
+`north account add|login|status|list|usage` manages provider-owned subscription login
 inside isolated homes under `~/.local/state/north/accounts`. `--target <id>` is
 an exact account pin with no fallback. `--provider <name>` permits only sibling
 accounts of that provider; the default auto route may use any eligible target.
-Preferential mode follows target order, balanced mode applies stable weighted
-distribution adjusted by per-target pressure, and reserved mode preserves a
+Preferential mode follows target priority. In balanced mode the report presents
+the accounts as an **unordered configured candidate set**, because the policy file's
+shared `targetOrder` storage field is not selection priority in that mode.
+Balanced mode re-ranks both primary and retry targets per run key, applies
+stable weighted distribution adjusted by per-target numeric headroom, and
+prints each eligible account's normalized approximate share; reserved mode preserves a
 configured target for frontier work. A runtime fallback requires typed proof
 that the provider never accepted the request and occurs before any emitted event;
 North never decides replay safety from exception text. Agent/run facts preserve
@@ -666,9 +696,26 @@ unknown coverage never becomes zero, and mixed coverage is labeled as a known
 lower bound plus incomplete coverage. Full contract:
 `~/code/north/docs/provider-architecture.md`.
 
+The final `north providers` route probe uses one fixed diagnostic key. It is a
+health check, not a provider preference and not the next route prediction.
+
 Explicit spawn axes override Gaffer defaults independently, so a staffing change
 in Gaffer requires no North edit and an account-policy change requires no Gaffer
 edit.
+
+Delegation intake makes dependency shape explicit without asking North to guess
+from prose. An intelligent chat adapter maps the single user-facing `/delegate`
+verb to exactly one mechanical form:
+
+```sh
+north delegate "<task>" --role <worker-role> [spawn options]  # atomic
+north delegate "<task>" --composite [spawn options]           # 2+ independent pieces
+```
+
+There is no unclassified default. Atomic handoff forwards every normal spawn
+axis and bespoke-composition option, so it starts exactly one selected terminal
+worker. Composite handoff alone hydrates the director, which then owns fan-out
+and reduction. Context carriage remains orthogonal via `--context <file>`.
 
 **Ownership rule** (2026-07-09): a cockpit verb earns its place ONLY when it
 COMPOSES multiple tools (`dashboard`, `doctor`, `profile`, `spawn` = gaffer dials
@@ -734,7 +781,10 @@ an owner dies without running `concern done`:
    presence lapsed **>30min** with no `outcome` fact → writes
    `outcome=died-unreported`, prefixes `display_name` with `✝ `, and pings the
    lane's coordinator (if any) over the fact feed. Zombie forks surface instead
-   of lingering.
+   of lingering. It also retracts an exact SDK driver claim whose timestamped
+   full-UUID holder was minted at least 30 minutes ago but never published a lane
+   identity. This closes the claim-before-identity crash window without guessing
+   about older id formats.
 
 The **activity heartbeat** that powers all of the above: the `north-on-tooluse`
 PostToolUse hook renews the owner's presence lease on tool calls, **throttled to

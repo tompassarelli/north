@@ -1,17 +1,16 @@
-;; pred-cli.clj — the @pred:* PREDICATE REGISTRY (Foundation thread 019f100f
-;; Part C / roadmap decision 10). Predicates become first-class @pred:<name>
-;; entities carrying cardinality / value_kind / doc / minted_by / minted_at as
-;; facts, with same_as ALIAS edges so a content-addressed rename never orphans
-;; history. The registry is the substrate the cardinality keystone (thread B)
-;; reads from: it is grounded in the SAME single|multi / literal|ref vocabulary
-;; the engine schema uses (fram.schema setup! / def-predicate!).
+;; pred-cli.clj — North's DESCRIPTIVE @pred:* predicate catalog. Predicates
+;; become first-class @pred:<name> entities carrying pred_cardinality /
+;; pred_value_kind / doc / minted_by / minted_at facts, with same_as alias edges
+;; so a content-addressed rename never orphans history. The values intentionally
+;; reuse Fram's single|multi / literal|ref vocabulary, but the catalog is not
+;; Fram's executable schema.
 ;;
-;; SCOPE NOTE: the registry lives as @pred:* FACTS over the canonical :7977 wire
-;; (the north analogue of s/setup!), NOT as an edit to the engine. Engine
-;; fram/schema.bclj is @graph-upstream (text edits forbidden) and folding the
-;; registry into the daemon's bootstrap is thread B's step — explicitly gated on
-;; B owning what 'single' means. This thread builds the registry + the lint guard;
-;; it does NOT touch engine code.
+;; SCOPE NOTE: seeding or defining an @pred:* row does NOT declare cardinality or
+;; reference integrity to Fram. Executable schema is authored separately as
+;; @<predicate> cardinality/value_kind facts (or supplied by an explicit legacy
+;; fallback). Writers that require replacement semantics must therefore use an
+;; executable declaration or explicitly retract old values. This catalog records
+;; North's intended public semantics and drives documentation/drift checks only.
 ;;
 ;; usage:
 ;;   bb pred-cli.clj <port> seed                                  register the whole vocabulary ONCE
@@ -19,7 +18,7 @@
 ;;   bb pred-cli.clj <port> alias  <old-name> <new-name>          @pred:<old> same_as @pred:<new>
 ;;   bb pred-cli.clj <port> ls                                    every registered predicate
 ;;   bb pred-cli.clj <port> show   <name>                         one predicate (alias-resolved)
-;;   bb pred-cli.clj <port> lint   [--strict]                     flag cli/*.clj predicate literals with no registry entry
+;;   bb pred-cli.clj <port> lint   [--strict]                     flag production cli/*.clj predicate literals with no registry entry
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str] '[clojure.walk :as walk])
 
 ;; shared coord substrate (Foundation Part B): the wire helpers live once in cli/coord.clj.
@@ -45,18 +44,16 @@
 
 ;; ============================================================================
 ;; VOCAB — the authoritative registry definition, seeded ONCE. [name card kind doc]
-;; Drawn from the structural inventory of every predicate the *-cli.clj scripts mint
-;; (55), plus the registry's own meta-predicates (6) and the @run telemetry set.
+;; Drawn from the cross-language writer inventory: Clojure coordination CLIs,
+;; SDK identity/run/lifecycle telemetry, native hooks, and the Linear bridge.
 ;; ref = the object is an @-ref to another entity; literal = an interned value.
 ;; ============================================================================
 (def VOCAB
   [;; --- registry meta-predicates (the registry describes itself) ---
-   ;; NOTE: stored under pred_cardinality / pred_value_kind, NOT the bare
-   ;; cardinality / value_kind. The engine RESERVES those four names
-   ;; (#{name cardinality value_kind store-supersedes}) and FILTERS any domain
-   ;; fact using them out of the flat-log replay (coord_daemon L1468/L1474),
-   ;; so an @pred:X cardinality fact is silently dropped on the next reload. The
-   ;; grounding is the VALUE vocabulary (single|multi, literal|ref), unchanged.
+   ;; NOTE: stored under pred_cardinality / pred_value_kind, NOT bare
+   ;; cardinality / value_kind. Those are executable Fram schema writes; using
+   ;; them here would declare the catalog entity `pred:X`, not describe North's
+   ;; domain predicate X. The value vocabulary is intentionally the same.
    ["pred_cardinality" "single" "literal" "single|multi — is this predicate single-valued?"]
    ["pred_value_kind"  "single" "literal" "literal|ref — interned value vs @-ref object"]
    ["doc"         "single" "literal" "human description of a predicate"]
@@ -74,8 +71,22 @@
    ["effort"         "single" "literal" "reasoning-effort knob"]
    ["provider_target" "single" "literal" "exact provider account/target active for an agent or run"]
    ["display_handle" "single" "literal" "stable human-facing semantic agent handle"]
-   ["composition_kind" "single" "literal" "Gaffer composition kind (preset|bespoke|none)"]
+   ["display_name"   "single" "literal" "human-facing agent or entity label"]
+   ["composition_kind" "single" "literal" "managed Gaffer composition kind (preset|bespoke); absent on native sessions"]
    ["composition_id" "single" "literal" "Gaffer preset or bespoke composition id"]
+   ["composition_overrides" "single" "literal" "JSON array of preset axes deliberately overridden"]
+   ["composition_override_reason" "single" "literal" "full rationale for a preset override"]
+   ["nearest_preset" "single" "literal" "nearest catalog preset considered for a bespoke composition"]
+   ["bespoke_reason" "single" "literal" "why no catalog preset honestly fits a bespoke composition"]
+   ["promotion_candidate" "single" "literal" "whether a bespoke composition should be considered for promotion"]
+   ["composition_contract_sha256" "single" "literal" "SHA-256 fingerprint of a bespoke Gaffer authority contract"]
+   ["composition_contract_fingerprint_version" "single" "literal" "canonical bespoke-contract fingerprint algorithm version"]
+   ["composition_contract_fingerprint_domain" "single" "literal" "domain separator for the canonical bespoke-contract fingerprint"]
+   ["identity_manifest_sha256" "single" "literal" "commit marker for an exact read-back-acknowledged managed identity projection"]
+   ["goal"           "single" "literal" "bounded objective currently assigned to a managed agent"]
+   ["coordinator"    "single" "literal" "spawning coordinator handle for a managed agent"]
+   ["applied_capability" "multi" "literal" "canonical Gaffer capability actually enforced for a run"]
+   ["applied_comms_contract_sha256" "single" "literal" "SHA-256 fingerprint of the Gaffer communications contract applied to a run"]
    ["context_tokens" "single" "literal" "agent context window size"]
    ["lifecycle"      "single" "literal" "agent lifecycle (standing|ephemeral|…)"]
    ["supervisor"     "single" "literal" "supervising agent handle"]
@@ -92,7 +103,23 @@
    ["exclusivity"    "single" "literal" "exclusive|inclusive role occupancy"]
    ["holds"          "multi"  "ref"     "roles (@role:*) an agent holds"]
    ["watches"        "multi"  "ref"     "threads (@…) an agent subscribes to"]
+   ["lease"          "single" "literal" "coordinator-issued holder, expiry, and epoch lease tuple"]
+   ["stalled"        "multi"  "literal" "observed agent stream-stall event"]
+   ["turn_capped"    "multi"  "literal" "observed agent turn-cap event"]
+   ["early_exit_children" "multi" "literal" "agent exit event naming children still live"]
+   ["agent_death"    "multi"  "literal" "agent-death event recorded on a thread or shared roster"]
+   ["outcome"        "single" "literal" "terminal result for a thread, agent, or run"]
    ["learning"       "multi"  "literal" "playbook learnings accumulated on a thread"]
+   ["progress"       "multi"  "literal" "append-only progress update on a thread"]
+   ["done_when"      "multi"  "literal" "probe and expected result that define completion"]
+   ["bar_evidence"   "multi"  "literal" "observed result satisfying a done_when bar"]
+   ["owner"          "single" "literal" "organizational owner of a thread"]
+   ["source"         "single" "literal" "system from which an entity originated"]
+   ["created_by"     "single" "ref"     "person or agent that created an entity"]
+   ["lead"           "single" "ref"     "person or agent accountable for an entity"]
+   ["proposed_by"    "multi"  "ref"     "people or agents that proposed an entity"]
+   ["updated_at"     "single" "literal" "most recent externally meaningful update date"]
+   ["committed"      "single" "literal" "date a thread became committed work"]
    ;; --- messaging (msg-cli, inbox-peek, north-listen) ---
    ["from"     "single" "literal" "sender handle of a message"]
    ["to"       "single" "literal" "recipient handle/role/wildcard of a message"]
@@ -102,11 +129,26 @@
    ["schema"   "single" "literal" "JSON schema a message's reply must satisfy"]
    ["acked_at" "single" "literal" "instant a message was acked"]
    ["acked_by" "multi"  "literal" "handles that have acked this message"]
+   ["known_op" "multi" "literal" "peer command operations currently admitted by the reactor"]
+   ["op"       "single" "literal" "operation carried by a peer command"]
+   ["target"   "single" "literal" "peer-command routing address or guard target"]
+   ["id"       "single" "literal" "subject argument carried by a peer tell command"]
+   ["pred"     "single" "literal" "predicate argument carried by a peer tell command"]
+   ["value"    "single" "literal" "value argument carried by a peer tell command"]
+   ["resource" "single" "literal" "resource argument carried by a peer acquire command"]
+   ["holder"   "single" "literal" "holder argument carried by a peer acquire command"]
+   ["retry_command" "single" "ref" "command reactivated by a retry wake entity"]
+   ["retry_requested" "multi" "literal" "instant an explicit command retry was requested"]
+   ["execution_status" "multi" "literal" "peer-command execution status event; rival terminal reports may coexist"]
+   ["reply"     "multi" "literal" "peer-command execution diagnostic"]
+   ["retryable" "single" "literal" "whether the current peer-command failure may be retried"]
+   ["failed_at" "multi" "literal" "instant of a peer-command failure report"]
+   ["failed_by" "multi"  "literal" "handles that reported a terminal command failure"]
    ;; --- concerns (concern-cli) ---
    ["title"   "single" "literal" "human-readable title (presence ⇒ a thread)"]
    ["kind"    "single" "literal" "structural kind tag (e.g. concern)"]
    ["intent"  "single" "literal" "what a concern is building"]
-   ["repo"    "single" "literal" "repo a concern touches"]
+   ["repo"    "multi"  "literal" "repository associated with an entity; threads may span repositories"]
    ["status"  "single" "literal" "DERIVED concern status (max `reached` level); legacy single-write retained for lint only"]
    ["reached" "multi"  "literal" "monotone maturity level a concern has reached (exploring|building|likely-to-land|landed); status = max level (decision 8: status is derived, never set)"]
    ["driver"  "single" "ref"     "the @handle currently driving a thread/concern (presence ⇒ active)"]
@@ -142,16 +184,109 @@
    ["duration_ms"    "single" "literal" "run wall duration (ms)"]
    ["num_turns"      "single" "literal" "agent turns in a run"]
    ["provider"       "single" "literal" "provider that executed a run"]
+   ["thread"         "single" "literal" "thread handle driven by a run, or (ad-hoc)"]
+   ["posture"        "single" "literal" "execution posture recorded for a run"]
+   ["provider_reason" "single" "literal" "explanation for the provider route selected"]
+   ["requested_provider" "single" "literal" "provider preference originally requested"]
    ["requested_target" "single" "literal" "exact provider target requested for a run"]
+   ["requested_tier" "single" "literal" "semantic model tier originally requested"]
+   ["requested_model" "single" "literal" "provider model originally requested"]
+   ["requested_effort" "single" "literal" "reasoning effort originally requested"]
+   ["allocation_mode" "single" "literal" "account allocation policy active for a run"]
+   ["entitlement_pressure" "single" "literal" "subscription entitlement pressure observed for the selected route"]
+   ["allocation_evidence" "multi" "literal" "JSON allocation evidence for one candidate provider target"]
    ["fallback_count" "single" "literal" "provider fallbacks before side effects"]
    ["fallback_path"  "single" "literal" "provider path attempted by a run"]
    ["fallback_target_path" "single" "literal" "provider target path attempted by a run"]
+   ["fallback_reason" "multi" "literal" "JSON reason for one pre-side-effect route fallback"]
+   ["envelope_scope" "multi" "literal" "resource-envelope scope charged by a run"]
+   ["envelope_retries" "single" "literal" "resource-envelope retries consumed by a run"]
+   ["envelope_advisory" "multi" "literal" "non-blocking resource-envelope advisory"]
+   ["requested_role" "single" "literal" "Gaffer role requested in routing metadata"]
+   ["routing_tier" "single" "literal" "semantic tier requested in routing metadata"]
+   ["requested_reasoning" "single" "literal" "reasoning level requested in routing metadata"]
+   ["routing_posture" "single" "literal" "delivery posture requested in routing metadata"]
+   ["task_grade" "single" "literal" "real-world task seniority grade used for routing"]
+   ["topology" "single" "literal" "worker or orchestrator topology requested for a run"]
+   ["domain_requirement" "multi" "literal" "domain capability requested for a run"]
+   ["composition_override" "multi" "literal" "one Gaffer preset axis overridden for a run"]
+   ["prompt_composition_applied" "single" "literal" "whether a Gaffer prompt composition was applied"]
+   ["applied_role_contract" "single" "literal" "Gaffer role contract actually applied to a run"]
+   ["applied_bespoke_contract_sha256" "single" "literal" "SHA-256 of the bespoke Gaffer contract actually applied"]
+   ["applied_bespoke_contract_fingerprint_version" "single" "literal" "canonical bespoke-contract fingerprint version actually applied"]
+   ["applied_bespoke_contract_fingerprint_domain" "single" "literal" "bespoke-contract fingerprint domain separator actually applied"]
+   ["applied_preset_override" "multi" "literal" "one preset axis actually overridden in the applied prompt"]
+   ["applied_preset_override_reason_sha256" "single" "literal" "SHA-256 of the applied preset-override rationale"]
+   ["applied_task_grade" "single" "literal" "task grade actually applied to the prompt"]
+   ["applied_topology" "single" "literal" "topology actually applied to the prompt"]
+   ["applied_routing_tier" "single" "literal" "semantic tier actually applied to the prompt"]
+   ["applied_reasoning" "single" "literal" "reasoning level actually applied to the prompt"]
+   ["applied_posture" "single" "literal" "delivery posture actually applied to the prompt"]
+   ["applied_domain_requirement" "multi" "literal" "domain capability actually applied to the prompt"]
+   ["applied_domain_requirement_count" "single" "literal" "number of applied domain requirements, including explicit zero"]
+   ["model_delta_provider" "single" "literal" "provider named by an applied model-delta contract"]
+   ["model_delta_model" "single" "literal" "model named by an applied model-delta contract"]
+   ["model_delta_kind" "single" "literal" "kind of applied model delta"]
+   ["model_delta_path" "single" "literal" "source path of an applied model-delta contract"]
+   ["model_delta_reason" "single" "literal" "rationale from an applied model-delta contract"]
+   ["error_count" "single" "literal" "tool-result errors observed during a run or mined session"]
+   ["escalation_tier" "single" "literal" "final escalation ladder tier reached"]
+   ["escalation_count" "single" "literal" "number of model escalations within a run"]
+   ["escalation_path" "single" "literal" "ordered model escalation path"]
+   ["escalation_reasons" "single" "literal" "summarized reasons for a run's escalations"]
    ["stop_reason"    "single" "literal" "why a run stopped"]
    ["wall_s"         "single" "literal" "run wall duration (s)"]
    ["estimate_output_tokens" "single" "literal" "predicted output tokens"]
    ["confidence"     "single" "literal" "agent self-reported confidence"]
    ["caveman"        "single" "literal" "caveman-mode flag for a run"]
-   ["timed_out"      "single" "literal" "flag: a run hit its time budget"]])
+   ["timed_out"      "single" "literal" "flag: a run hit its time budget"]
+   ;; --- Linear synchronization bridge ---
+   ["linked_thread" "single" "ref" "canonical North thread owned by an integration link"]
+   ["remote_uuid" "single" "literal" "immutable remote issue UUID"]
+   ["remote_workspace" "single" "literal" "immutable remote workspace UUID"]
+   ["remote_fingerprint" "single" "literal" "bootstrap identity fingerprint when remote UUIDs are unavailable"]
+   ["remote_workspace_slug" "single" "literal" "current human-readable remote workspace slug"]
+   ["remote_scope" "single" "literal" "current remote team or project scope"]
+   ["remote_key" "single" "literal" "current human-readable remote issue key"]
+   ["remote_server" "single" "literal" "connector or server that owns the remote record"]
+   ["identity_kind" "single" "literal" "identity strategy used by an integration link"]
+   ["sync_policy" "single" "literal" "authority policy governing an integration link"]
+   ["sync_schema" "single" "literal" "versioned synchronization projection contract"]
+   ["sync_manifest" "single" "literal" "canonical JSON synchronization baseline and transaction manifest"]
+   ["last_synced_at" "single" "literal" "instant a synchronization completed"]
+   ["remote_missing_at" "single" "literal" "reserved instant at which a linked remote record was first observed missing"]
+   ["unlinked_at" "single" "literal" "reserved instant at which an integration link was intentionally severed"]
+   ["linear_link" "single" "ref" "canonical Linear integration-link entity for a North thread"]
+   ["conflict_field" "multi" "literal" "reserved field carrying a synchronization conflict"]
+   ["linear" "single" "literal" "legacy human-readable Linear issue-key alias"]
+   ;; --- operational telemetry outside @run ---
+   ["guard" "single" "literal" "authoring guard that denied an operation"]
+   ["tool" "single" "literal" "tool denied by an authoring guard"]
+   ["reason" "single" "literal" "bounded diagnostic reason"]
+   ["note" "multi" "literal" "mined observation attached to a session summary"]
+   ["verb_vote" "multi" "literal" "mined suggestion for a repeated workflow verb"]
+   ["run_at" "single" "literal" "instant an operational audit ran"]
+   ["window" "single" "literal" "date window covered by an operational audit"]
+   ["uncovered_count" "single" "literal" "uncovered commit count from a clock audit"]
+   ["repo_summary" "multi" "literal" "per-repository summary emitted by an operational audit"]])
+
+;; These are deliberately open predicate-authoring surfaces. Internal transports
+;; with variable names (runFacts -> recordRun, identity projection -> scoped
+;; writer, Linear GraphStore.put) are NOT open: their fixed producer tuples must
+;; remain covered by VOCAB and the parity test.
+(def DYNAMIC-PREDICATE-SURFACES
+  [{:id "cli-tell" :path "bin/north"
+    :reason "north tell/retract accepts user-authored graph predicates"}
+   {:id "mcp-tell" :path "bin/north-mcp"
+    :reason "the generic MCP tell tool accepts a caller-supplied predicate"}
+   {:id "peer-tell" :path "sdk/src/harness.ts"
+    :reason "peer tell carries a caller-supplied predicate to a non-agent subject"}
+   {:id "peer-command-args" :path "cli/msg-cli.clj"
+    :reason "extensible peer command argument keys become fact predicates"}
+   {:id "legacy-runmeta" :path "cli/presence-cli.clj"
+    :reason "legacy runmeta accepts extension fields; fixed SDK run telemetry does not"}
+   {:id "registry-define" :path "cli/pred-cli.clj"
+    :reason "operators may explicitly register an additional descriptive predicate"}])
 
 (def VOCAB-CARD (into {} (map (fn [[n c k d]] [n {:card c :kind k :doc d}]) VOCAB)))
 
@@ -194,7 +329,8 @@
         (try (graph-pred-names port) (catch Exception _ #{}))))
 
 ;; ============================================================================
-;; structural predicate extraction — the lint engine. Read each cli/*.clj with the
+;; structural predicate extraction — the local lint engine. Read each production
+;; cli/*.clj with the
 ;; babashka reader (no regex fragility) and walk for predicate-POSITION string
 ;; literals: the 3rd arg of a wire helper, a :p map key, and the middle of a
 ;; datalog `triple` arg-vector. Returns {predicate -> #{files}}.
@@ -227,6 +363,7 @@
 (defn lint-files []
   (->> (file-seq (io/file (str (.getParent (io/file (System/getProperty "babashka.file"))))))
        (filter #(str/ends-with? (.getName %) ".clj"))
+       (remove #(some #{"tests"} (str/split (.getPath %) #"[/\\]")))
        ;; the wire substrate + the pure validator carry no domain predicates.
        (remove #(#{"coord.clj" "schema-validate.clj"} (.getName %)))
        (sort-by #(.getName %))))

@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { codexConfigArguments, providerEnvironmentForTarget } from "../../accounts";
+import type { RoutingTarget } from "../../providers/types";
 import type {
   McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
   McpToolCall, McpToolDefinition, McpToolResult,
@@ -6,7 +8,6 @@ import type {
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_LINE_BYTES = 1024 * 1024;
-const MAX_STDERR_BYTES = 4096;
 
 type RpcId = number | string;
 type SpawnProcess = typeof spawn;
@@ -16,6 +17,8 @@ export interface AppServerBrokerOptions {
   /** Arguments inserted before `app-server --stdio`; useful for wrappers and tests. */
   commandArgs?: string[];
   env?: NodeJS.ProcessEnv;
+  /** Account whose ChatGPT subscription owns the model-free MCP transport. */
+  target?: RoutingTarget;
   timeoutMs?: number;
   spawnProcess?: SpawnProcess;
   onNotification?: (method: string, params: unknown) => void;
@@ -32,18 +35,9 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function safeDetail(value: string): string {
-  return value.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(-512);
-}
-
-function errorMessage(error: unknown): string {
-  if (!record(error)) return "invalid error response";
-  return typeof error.message === "string" ? safeDetail(error.message) : "unspecified error";
-}
-
 function toolDefinition(name: string, value: unknown): McpToolDefinition {
   if (!record(value) || typeof value.name !== "string" || value.name !== name || !("inputSchema" in value))
-    throw new Error(`Codex app-server returned an invalid schema for MCP tool ${name}`);
+    throw new Error("Codex app-server returned an invalid MCP tool schema");
   return {
     name,
     ...(typeof value.description === "string" ? { description: value.description } : {}),
@@ -57,7 +51,6 @@ class JsonlRpcClient {
   private nextId = 0;
   private pending = new Map<RpcId, PendingRequest>();
   private buffer = "";
-  private stderr = "";
   private terminalError?: Error;
   private closed = false;
 
@@ -69,13 +62,11 @@ class JsonlRpcClient {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.onStdout(chunk));
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      this.stderr = (this.stderr + chunk).slice(-MAX_STDERR_BYTES);
-    });
-    child.on("error", (error) => this.fail(new Error(`could not start Codex app-server: ${safeDetail(error.message)}`)));
-    child.on("exit", (code, signal) => {
+    child.stderr.on("data", () => { /* drain only; provider diagnostics may contain secrets */ });
+    child.on("error", () => this.fail(new Error("could not start Codex app-server")));
+    child.on("exit", () => {
       if (!this.closed && !this.terminalError)
-        this.fail(new Error(`Codex app-server exited (${signal ?? code ?? "unknown"})${this.stderr.trim() ? `: ${safeDetail(this.stderr)}` : ""}`));
+        this.fail(new Error("Codex app-server transport exited unexpectedly"));
     });
   }
 
@@ -90,10 +81,10 @@ class JsonlRpcClient {
     if (!this.closed && this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGTERM");
   }
 
-  private rejectServerRequest(id: RpcId, method: string): void {
+  private rejectServerRequest(id: RpcId, _method: string): void {
     const response = { id, error: { code: -32601, message: "North's model-free MCP broker does not accept server requests" } };
     this.child.stdin.write(`${JSON.stringify(response)}\n`, () => {});
-    this.fail(new Error(`Codex app-server sent unsupported server request ${safeDetail(method)}; request rejected`));
+    this.fail(new Error("Codex app-server sent an unsupported server request; request rejected"));
   }
 
   private onLine(line: string): void {
@@ -120,7 +111,7 @@ class JsonlRpcClient {
     if (!pending) return;
     this.pending.delete(message.id);
     clearTimeout(pending.timer);
-    if ("error" in message) pending.reject(new Error(`Codex app-server ${pending.method} failed: ${errorMessage(message.error)}`));
+    if ("error" in message) pending.reject(new Error(`Codex app-server ${pending.method} failed`));
     else if ("result" in message) pending.resolve(message.result);
     else pending.reject(new Error(`Codex app-server ${pending.method} returned neither result nor error`));
   }
@@ -158,7 +149,7 @@ class JsonlRpcClient {
       this.pending.set(id, { method, timer, resolve, reject });
       this.child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, (error) => {
         if (!error) return;
-        this.fail(new Error(`Codex app-server ${method} write failed: ${safeDetail(error.message)}`));
+        this.fail(new Error(`Codex app-server ${method} write failed`));
       });
     });
   }
@@ -168,7 +159,7 @@ class JsonlRpcClient {
     if (this.closed) throw new Error("Codex app-server broker is closed");
     const notification = params === undefined ? { method } : { method, params };
     this.child.stdin.write(`${JSON.stringify(notification)}\n`, (error) => {
-      if (error) this.fail(new Error(`Codex app-server ${method} notification failed: ${safeDetail(error.message)}`));
+      if (error) this.fail(new Error(`Codex app-server ${method} notification failed`));
     });
   }
 
@@ -250,7 +241,7 @@ function awaitSpawn(child: ChildProcessWithoutNullStreams, timeoutMs: number): P
     const timer = setTimeout(() => reject(new Error(`Codex app-server spawn timed out after ${timeoutMs}ms`)), timeoutMs);
     timer.unref?.();
     child.once("spawn", () => { clearTimeout(timer); resolve(); });
-    child.once("error", (error) => { clearTimeout(timer); reject(new Error(`could not start Codex app-server: ${safeDetail(error.message)}`)); });
+    child.once("error", () => { clearTimeout(timer); reject(new Error("could not start Codex app-server")); });
   });
 }
 
@@ -259,12 +250,15 @@ export class AppServerMcpBroker implements McpBroker {
   constructor(private options: AppServerBrokerOptions = {}) {}
 
   async open(options: McpBrokerOpenOptions = {}): Promise<McpBrokerSession> {
-    const command = this.options.command ?? process.env.NORTH_CODEX_BIN ?? "codex";
+    const env = providerEnvironmentForTarget("openai", this.options.target, {
+      env: this.options.env ?? process.env,
+    });
+    const command = this.options.command ?? env.NORTH_CODEX_BIN ?? "codex";
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const child = (this.options.spawnProcess ?? spawn)(
       command,
-      [...(this.options.commandArgs ?? []), "app-server", "--stdio"],
-      { cwd: options.cwd ?? process.cwd(), env: this.options.env ?? process.env, stdio: ["pipe", "pipe", "pipe"] },
+      [...(this.options.commandArgs ?? []), ...codexConfigArguments(env), "app-server", "--stdio"],
+      { cwd: options.cwd ?? process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] },
     );
     const rpc = new JsonlRpcClient(child, timeoutMs, this.options.onNotification);
     try {

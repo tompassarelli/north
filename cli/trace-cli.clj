@@ -4,14 +4,16 @@
 ;; READ-ONLY. Walks the INVARIANT SPINE checklist (workflow-map §2) for ONE id and
 ;; flags the FIRST failing stage, printing the exact confirm command per stage. It is
 ;; LINEAGE-AWARE and TERMINALITY-AWARE — an absence that is EXPECTED for a lineage is
-;; marked `·` not `✗` (dispatch lanes legitimately have no identity facts; a cleanly
-;; FINISHED lane legitimately holds a lapsed lease). The verdict maps the failure to a
+;; marked `·` not `✗` (native sessions have partial identity; a cleanly FINISHED lane
+;; legitimately holds a lapsed lease). Managed dispatch and spawn lanes both require the
+;; same committed identity projection. The verdict maps the failure to a
 ;; workflow-map F-mode (F1–F7) with the remedy.
 ;;
 ;;   ✓ present/healthy   · expected-absent / n-a   ✗ genuine failure
 ;;   usage: north trace <agent-id>
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (def send-op  north.coord/send-op)
 (def resolved north.coord/resolved)
 (def many     north.coord/many)
@@ -36,6 +38,17 @@
 
 ;; ---- per-id reads ------------------------------------------------------------
 (defn afact [id p] (resolved PORT (str "@agent:" id) p))
+(defn agent-facts [id]
+  (let [subject (str "@agent:" id)
+        rows (:ok (send-op PORT {:op :query
+                                 :query {:find "trace_identity"
+                                         :rules [{:head {:rel "trace_identity"
+                                                         :args [{:var "p"} {:var "r"}]}
+                                                  :body [{:rel "triple"
+                                                          :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+    (reduce (fn [facts [predicate value]]
+              (north.agent-provenance/fold-fact facts predicate value))
+            {} rows)))
 (defn lease [id] (lease-of PORT (str "session:" id)))
 (defn q [project body]
   (:ok (send-op PORT {:op :query
@@ -85,22 +98,26 @@
           probe (try (send-op PORT {:op :version}) (catch Exception _ ::down))]
       (when (= probe ::down)
         (println (red (str "north trace — coordinator :" PORT " unreachable"))) (System/exit 1))
-      (let [kind (afact id "kind")
+      (let [facts (agent-facts id)
+            kind (get facts "kind")
             l (lease id)
             online (boolean (and l (> (:exp l) NOW)))
             lapse (when (and l (not online)) (- NOW (:exp l)))
             sess-agent (resolved PORT (str "@session:" id) "agent")
             on-roster (boolean (or kind sess-agent l))
-            ;; identity fullness
-            idfull (and (afact id "role") (afact id "model"))
+            ;; managed identity is valid only after exact readback + marker commit
+            identity-defects (when (= kind "lane")
+                               (north.agent-provenance/identity-defects facts))
+            idfull (and (= kind "lane") (empty? identity-defects))
             ;; lineage
             lineage (cond (= kind "session") :session
                           (= kind "lane")    :sdk-lane
                           (= kind "cron")    :cron
-                          (and on-roster (nil? kind)) :dispatch
+                          (and on-roster (nil? kind)) :corrupt-managed
                           :else :unknown)
-            id-expect (case lineage :sdk-lane "full" :session "partial (kind+repo)"
-                            :dispatch "none (dispatch writes no identity — expected)"
+            id-expect (case lineage :sdk-lane "committed full projection"
+                            :session "partial native (kind+repo)"
+                            :corrupt-managed "CORRUPT (rostered without kind/manifest)"
                             :cron "partial" "unknown")
             ;; work
             concerns (owned-concerns id)
@@ -110,7 +127,7 @@
             runs (agent-runs id)
             last-run (last runs)
             deaths (deaths-for id)
-            du (= "died-unreported" (afact id "outcome"))
+            du (= "died-unreported" (get facts "outcome"))
             terminal? (boolean (or last-run (seq deaths) du))
             terminal-kind (cond du :died-unreported
                                 (seq deaths) :died
@@ -120,7 +137,7 @@
             inbox (inbox-to id)]
         ;; header
         (println (str (bold "north trace ") (bold id) "  ·  :" PORT))
-        (println (str "lineage  " (name lineage) "   " (dim (str "(identity: " id-expect ")"))))
+        (println (str "lineage  " (name lineage) "   " (dim (str "(expects: " id-expect ")"))))
         (println)
         ;; 1 ROSTER
         (println (stage 1 (if on-roster :ok :fail) "1 ROSTER"
@@ -129,15 +146,33 @@
                         "north agents"))
         ;; 2 IDENTITY
         (let [mark (cond idfull :ok
-                         (= lineage :sdk-lane) :fail          ; a lane MUST have full identity
+                         (= lineage :sdk-lane) :fail
+                         (= lineage :corrupt-managed) :fail
                          :else :na)
-              detail (cond idfull (str "kind=" kind " role=" (afact id "role") " model=" (afact id "model")
-                                       "-" (or (afact id "effort") "?")
-                                       (when-let [co (afact id "coordinator")] (str " coord=" co)))
-                           (= kind "session") (str "kind=session repo=" (or (afact id "repo") "?") " (partial — expected)")
-                           (= lineage :dispatch) "none — dispatch lineage writes no @agent facts (expected)"
+              provenance (north.agent-provenance/provenance-detail facts)
+              detail (cond idfull (str "kind=" kind " role=" (get facts "role")
+                                       " model=" (get facts "model") "-" (or (get facts "effort") "?")
+                                       " " (:label provenance)
+                                       (when-let [co (get facts "coordinator")] (str " coord=" co)))
+                           (= lineage :sdk-lane) (str "CORRUPT: " (str/join ", " identity-defects))
+                           (= kind "session") (str "kind=session repo=" (or (get facts "repo") "?")
+                                                   " gaffer:not-selected (native — expected)")
+                           (= lineage :corrupt-managed) "CORRUPT: roster evidence without managed identity kind"
                            :else "absent")]
-          (println (stage 2 mark "2 IDENTITY" detail (str "north show @agent:" id))))
+          (println (stage 2 mark "2 IDENTITY" detail (str "north show @agent:" id)))
+          (when (= lineage :sdk-lane)
+            (println (str "    composition  " (:label provenance)))
+            (case (:kind provenance)
+              "preset" (when (seq (:overrides provenance))
+                         (println (str "    override     " (str/join "," (:overrides provenance))
+                                       " · why: " (:override-reason provenance))))
+              "bespoke" (do
+                          (println (str "    why          " (or (:why provenance) "MISSING")))
+                          (when-let [nearest (:nearest-reference-only provenance)]
+                            (println (str "    nearest      gaffer:" nearest " (reference only; no inherited authority)")))
+                          (println (str "    promotion    " (or (:promotion-candidate provenance) "MISSING")))
+                          (println (str "    contract     sha256:" (or (:contract-sha256 provenance) "MISSING"))))
+              nil)))
         ;; 3 PRESENCE — lapsed is a FAILURE only if the agent is NOT terminal (still supposed to be alive)
         (let [mark (cond online :ok
                          (nil? l) (if terminal? :na :fail)

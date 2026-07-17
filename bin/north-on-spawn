@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# north-on-spawn — Claude Code SessionStart / SubagentSessionStart hook.
+# north-on-spawn — Claude Code / Codex SessionStart + SubagentStart hook.
 # Registers the agent's presence on the north roster and injects the concern-
 # coordination protocol into the new session via hookSpecificOutput.additionalContext
 # — so an agent coordinates the moment it spawns, no human pasting anything.
@@ -16,12 +16,27 @@ jget_effort() {
 }
 cwd="$(jget cwd)"; [ -z "$cwd" ] && cwd="$PWD"
 sid="$(jget session_id)"
+agent_id="$(jget agent_id)"
 evt="$(jget hook_event_name)"; [ -z "$evt" ] && evt="SessionStart"
+# SubagentStart carries a provider-owned `agent_id`; on Codex its session_id is
+# explicitly the PARENT session. Keying presence/cache by that parent would
+# collapse every native subagent onto one row. Prefer the actor id when present.
+if [ "$evt" = "SubagentStart" ]; then
+  identity_sid="${agent_id:-$sid}"
+else
+  identity_sid="$sid"
+fi
+if [ -z "$identity_sid" ] && [ -z "${NORTH_AGENT_ID:-}" ]; then
+  exit 0
+fi
+identity_key_source="${identity_sid:-managed-${NORTH_AGENT_ID:-}}"
+identity_key="$(printf '%s' "$identity_key_source" | sed 's/[^A-Za-z0-9._-]/_/g')"
+identity_seed="${identity_key_source#agent-}"
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
 IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
 ROUTEDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes"
-DERIVED="session-$RN-${sid:0:8}"
+DERIVED="session-$RN-${identity_seed:0:8}"
 
 # Identity, de-aliased. INVARIANT: one live actor == one id; an id is only
 # renewed/registered by the session that FIRST acquired it. An env pin
@@ -38,22 +53,21 @@ if [ -n "$pin" ]; then
   if [ -d "$IDDIR" ]; then
     for f in "$IDDIR"/*; do
       [ -e "$f" ] || continue                        # empty dir -> literal glob, skip
-      [ "${f##*/}" = "$sid" ] && continue            # our own prior acquisition doesn't count
+      [ "${f##*/}" = "$identity_key" ] && continue   # our own prior acquisition doesn't count
       [ "$(cat "$f" 2>/dev/null)" = "$pin" ] && { owned_by_other=1; break; }
     done
   fi
   [ "$owned_by_other" = 0 ] && ID="$pin"             # legit: fresh/first acquirer
 fi
 [ -z "$ID" ] && ID="$DERIVED"                        # inherited pin, or no pin at all
-[ "$ID" = "session-$RN-" ] && ID="session-$RN-$RANDOM"         # no sid -> can't derive; randomize
 
 # pin identity for the session's lifetime: tooluse renews THIS id, whatever cwd later
 # tool calls run in. Without the pin, identity flapped per (cwd-repo x session) and the
 # roster flooded with phantoms (188 cc-after-text-* ghosts, 2026-07-02). Writing our
 # OWN sid's file also stakes the acquisition, so a concurrent sibling subagent that reads
 # the dir sees this id already owned and derives its own instead of aliasing.
-if [ -n "$sid" ]; then
-  mkdir -p "$IDDIR" 2>/dev/null && printf '%s' "$ID" > "$IDDIR/$sid" 2>/dev/null || true
+if [ -n "$identity_key" ]; then
+  mkdir -p "$IDDIR" 2>/dev/null && printf '%s' "$ID" > "$IDDIR/$identity_key" 2>/dev/null || true
 fi
 
 # register presence — best-effort, bounded; must never wedge a spawn.
@@ -64,43 +78,60 @@ timeout 5 bb "$HOME/code/north/cli/presence-cli.clj" "${NORTH_PORT:-7977}" regis
 # Best-effort + bounded: a fact write must never wedge a spawn.
 NORTHBIN="$HOME/code/north/bin/north"
 PROVIDER=""
-if [ -n "${CODEX_THREAD_ID:-}" ]; then
+case "${AGENT_PROVIDER:-}" in
+  anthropic|openai) PROVIDER="$AGENT_PROVIDER" ;; # explicit SDK/provider boundary
+esac
+if [ -z "$PROVIDER" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_CI:-}" ]; }; then
   PROVIDER="openai"
-elif [ -n "${CLAUDECODE:-}" ]; then
+elif [ -z "$PROVIDER" ] && [ -n "${CLAUDECODE:-}" ]; then
   PROVIDER="anthropic"
 fi
-# SessionStart is the only Claude hook whose input may carry the active model.
-# Prefer exact hook observations over adapter env, retain AGENT_* only for SDK-
-# dispatched sessions, and leave missing dials blank rather than inferring them.
+# SessionStart carries the active model on both provider surfaces. Claude
+# tool-context hooks also expose effective effort; Codex hooks currently do not.
+# Prefer exact hook observations over adapter env. `unobserved` is an explicit
+# epistemic state, never an inferred model/effort/provider claim.
 MODEL="$(jget model)"; [ -n "$MODEL" ] || MODEL="${AGENT_MODEL:-}"
 EFFORT="$(jget_effort)"
 [ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-${AGENT_REASONING:-${AGENT_EFFORT:-}}}"
+PROVIDER_OBS="${PROVIDER:-unobserved}"
+MODEL_OBS="${MODEL:-unobserved}"
+EFFORT_OBS="${EFFORT:-unobserved}"
+# Preserve the exact SessionStart observations independently from the route
+# cache. The route cache is a convergence marker and must stay absent when any
+# graph projection fails; this seed is evidence for the PostToolUse repair path,
+# so Codex does not lose its observed provider merely because its later hook has
+# no CODEX_* marker. It is never inferred from a model name.
+if [ -n "$identity_key" ]; then
+  route_seed="$ROUTEDIR/$identity_key.seed"
+  seed_tmp="$ROUTEDIR/.$identity_key.$$.seed.tmp"
+  if mkdir -p "$ROUTEDIR" 2>/dev/null &&
+      printf '%s\n%s\n%s\n' "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" > "$seed_tmp" 2>/dev/null; then
+    mv -f "$seed_tmp" "$route_seed" 2>/dev/null || rm -f "$seed_tmp" 2>/dev/null || true
+  fi
+fi
 slug() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
 }
-provider_segment="$(slug "${PROVIDER:-unknown}")"; [ -n "$provider_segment" ] || provider_segment="unknown"
-model_segment="$(slug "${MODEL:-unknown}")"; [ -n "$model_segment" ] || model_segment="unknown"
-effort_segment="$(slug "${EFFORT:-unknown}")"; [ -n "$effort_segment" ] || effort_segment="unknown"
+provider_segment="$(slug "$PROVIDER_OBS")"; [ -n "$provider_segment" ] || provider_segment="unobserved"
+model_segment="$(slug "$MODEL_OBS")"; [ -n "$model_segment" ] || model_segment="unobserved"
+effort_segment="$(slug "$EFFORT_OBS")"; [ -n "$effort_segment" ] || effort_segment="unobserved"
 DISPLAY_HANDLE="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
-timeout 4 "$NORTHBIN" tell "agent:$ID" kind session >/dev/null 2>&1 || true
-timeout 4 "$NORTHBIN" tell "agent:$ID" repo "$RN" >/dev/null 2>&1 || true
-timeout 4 "$NORTHBIN" tell "agent:$ID" composition_kind none >/dev/null 2>&1 || true
-[ -z "$PROVIDER" ] || timeout 4 "$NORTHBIN" tell "agent:$ID" provider "$PROVIDER" >/dev/null 2>&1 || true
-[ -z "$MODEL" ] || timeout 4 "$NORTHBIN" tell "agent:$ID" model "$MODEL" >/dev/null 2>&1 || true
 projection_ok=1
-if [ -n "$EFFORT" ]; then
-  timeout 4 "$NORTHBIN" tell "agent:$ID" effort "$EFFORT" >/dev/null 2>&1 || projection_ok=0
-fi
+timeout 4 "$NORTHBIN" tell "agent:$ID" kind session >/dev/null 2>&1 || projection_ok=0
+timeout 4 "$NORTHBIN" tell "agent:$ID" repo "$RN" >/dev/null 2>&1 || projection_ok=0
+timeout 4 "$NORTHBIN" tell "agent:$ID" provider "$PROVIDER_OBS" >/dev/null 2>&1 || projection_ok=0
+timeout 4 "$NORTHBIN" tell "agent:$ID" model "$MODEL_OBS" >/dev/null 2>&1 || projection_ok=0
+timeout 4 "$NORTHBIN" tell "agent:$ID" effort "$EFFORT_OBS" >/dev/null 2>&1 || projection_ok=0
 timeout 4 "$NORTHBIN" tell "agent:$ID" display_handle "$DISPLAY_HANDLE" >/dev/null 2>&1 || projection_ok=0
 timeout 4 "$NORTHBIN" tell "agent:$ID" display_name "$DISPLAY_HANDLE" >/dev/null 2>&1 || projection_ok=0
 # The route cache is change detection, not a source of inferred identity. Write
 # it only after the effort + stored projections converged, so a failed write is
 # retried by the next PostToolUse instead of being hidden by a premature cache hit.
-if [ "$projection_ok" -eq 1 ] && [ -n "$sid" ]; then
-  route_cache="$ROUTEDIR/$sid"
-  route_tmp="$ROUTEDIR/.$sid.$$.tmp"
+if [ "$projection_ok" -eq 1 ] && [ -n "$identity_key" ]; then
+  route_cache="$ROUTEDIR/$identity_key"
+  route_tmp="$ROUTEDIR/.$identity_key.$$.tmp"
   if mkdir -p "$ROUTEDIR" 2>/dev/null &&
-      printf '%s\n%s\n%s\n' "$PROVIDER" "$MODEL" "$EFFORT" > "$route_tmp" 2>/dev/null; then
+      printf '%s\n%s\n%s\n' "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" > "$route_tmp" 2>/dev/null; then
     mv -f "$route_tmp" "$route_cache" 2>/dev/null || rm -f "$route_tmp" 2>/dev/null || true
   fi
 fi

@@ -24,6 +24,10 @@ north account status
 north account status claude-personal
 north account list
 north account list --verbose
+north account usage
+north account usage claude-personal --refresh
+north providers
+north providers --json
 ```
 
 `add` creates the isolated home and appends the target to
@@ -36,10 +40,24 @@ and `list` group accounts under `Claude / Anthropic` and `Codex / OpenAI`, showi
 each account ID and its live login state. `status` exits nonzero when any selected
 account is not logged in; `list` is informational. `list --verbose` adds labeled
 provider, profile, and storage-root diagnostics without changing the default view.
+`usage` shows normalized subscription windows, resets, observation source, and
+fixed unavailability reasons per account. A failed collection is printed with
+its attempt timestamp separately from the last successful usage evidence, so a
+fresh failure never makes stale evidence look fresh. `providers` combines authentication,
+routing eligibility, headroom, and (in balanced mode) each eligible account's
+effective weight and approximate normalized auto-route share. The share is a
+routing estimate, never a provider quota. The human report labels that estimate
+route-unspecified: model-scoped windows can change the actual share for a
+specific tier/reasoning route. `providers --json` is the stable
+machine-readable status boundary; automation must not parse the human report.
+Its `diagnosticRouteProbe` is one deterministic health probe for a fixed key,
+not a preferred provider/account and not a prediction of the next run.
 
 Without named accounts, the existing `~/.claude` and `~/.codex` homes are the
 ambient `anthropic` and `openai` targets. Named and ambient targets use the same
-routing contract.
+routing contract. Because one ambient home is one physical subscription, North
+rejects multiple ambient targets for the same provider; otherwise a single
+account could be double-counted as independent allocation capacity.
 
 ## Selection and pins
 
@@ -78,8 +96,10 @@ north config routing reserve claude-personal
 The allocation modes are:
 
 - **preferential** — choose the first eligible target in configured order.
-- **balanced** — deterministically distribute stable run keys using target
-  weights adjusted by each target's current subscription pressure.
+- **balanced** (default) — deterministically distribute stable run keys using
+  target weights adjusted by each account's observed subscription headroom.
+  Weighted rendezvous hashing gives every run a stable first choice and retry
+  order without maintaining a fragile shared round-robin counter.
 - **reserved** — preserve the configured target for `frontier` work when an
   alternative can handle lower tiers; use the reserve for frontier work when it
   is eligible.
@@ -87,7 +107,16 @@ The allocation modes are:
 Pressure is per target, not merely per provider. The states are `plenty`,
 `normal`, `low`, `exhausted`, and `unknown`. Automatic observations from each
 provider's subscription-usage surface are primary. An `exhausted` target is
-ineligible; balanced routing reduces the effective weight of `low` targets.
+ineligible; balanced routing uses numeric remaining headroom when available and
+falls back to the categorized pressure weight when it is not. Provider/model-
+specific windows constrain only routes that use that model. Failed or unknown
+automatic telemetry never erases a known manual exhaustion. Successful and
+failed probes are cached for five minutes per account, so concurrent spawns do
+not stampede provider usage surfaces. A failed refresh is explicit unknown
+knowledge and cannot revive a still-live proven exhaustion; once that exhausted
+window resets it becomes unknown until a successful refresh. Categorical
+fallback weights use the same zero-to-one scale as numeric remaining headroom,
+so telemetry loss is never rewarded with an oversized allocation weight.
 Temporary manual observations are available when the automatic view is missing
 context:
 
@@ -134,6 +163,29 @@ telemetry records the requested and resolved route separately:
 - `fallback_count`, `fallback_path`, and `fallback_target_path` preserve every
   proof-authorized route change.
 
+Roster composition provenance has five deliberate states:
+
+- `gaffer:<id>` — the named Gaffer preset was selected unchanged.
+- `gaffer:<id>+override(tier,reasoning)` — the named preset was selected with
+  deliberate axis changes. The ordered axes and full rationale remain separate
+  facts (`composition_overrides`, `composition_override_reason`); the display
+  label is only their compact projection.
+- `gaffer:bespoke:<id>` — a first-class bespoke composition was selected. It
+  carries responsibility, deliverable, canonical capabilities,
+  authority/escalation bounds, done-bars, and report contract. `nearestPreset`
+  is optional reference provenance, never a
+  requirement to pretend a novel composition resembles an existing preset.
+- `gaffer:not-selected` — a provider-native Claude Code or Codex session did
+  not pass through North staffing. This state is valid only for native sessions.
+- `gaffer:legacy-debt` — a historical or malformed managed lane lacks enough
+  structured facts to prove its staffing selection. The roster never guesses
+  provenance by parsing an old display label.
+
+Every bespoke run records `promotionCandidate` (false by default; nomination is
+explicit). Recurrence is visible independently of nomination. Promotion reports
+only surface evidence for review; they never mutate Gaffer's library or promote
+a composition without an explicit source-control change.
+
 This division keeps Gaffer reusable across account layouts. Gaffer's canonical
 staffing catalog at `~/code/gaffer/staffing/catalog.json` names roles and semantic
 tiers; it contains no personal account IDs or subscription state.
@@ -167,3 +219,28 @@ uses the Claude Agent SDK; OpenAI uses the authenticated Codex CLI and its ChatG
 subscription. Both receive the target-specific environment and shared North
 supervision. Live mid-run steering and model escalation remain capability-checked:
 unsupported escalation fails visibly rather than pretending it succeeded.
+
+The escalation ladder is provider-local and projected from Gaffer's tier
+catalog at run admission. It contains concrete model IDs and declared
+reasoning levels only; repeated tier boundaries are deduplicated. North then
+applies the active transport's live-control ceiling (the current Claude Agent
+SDK cannot set `max` in flight). An unknown or pinned route is treated as a
+ceiling, never silently mapped down to a cheaper default. The temporary Fable
+promotion is a bounded Anthropic runtime rung and disappears at its clock gate.
+An in-flight escalation can never change providers or accounts.
+
+## Coordination authority boundary
+
+Topology authority is enforced on every supported North control surface: the
+TypeScript SDK, `north spawn`/`dispatch`/`delegate`/`steer`/`retask`, MCP,
+peer-command publication, listener reaction, map fan-out, and presence control.
+A managed `worker` cannot create or command another agent, and a requested child
+topology cannot elevate its caller. Ordinary completion/death mail and thread
+facts remain writable because workers need to report outcomes.
+
+This is an application authorization boundary, not a same-UID security sandbox.
+Code already holding an unrestricted user shell can bypass an application by
+invoking Fram's coordinator protocol directly, opening North's sockets, or
+editing user-owned state. Those are unsupported integrity violations and may be
+detected by audit/validation; North does not claim to make them impossible.
+Hostile-code isolation requires an OS/container boundary outside this harness.

@@ -163,6 +163,77 @@ test("import dry-run is stable and read-only", async () => {
   expect(h.graph.writes).toHaveLength(before);
 });
 
+test("representative mechanical lifecycle converges, no-ops, and recovers from conflict", async () => {
+  const h = harness();
+  const doctorBefore = await runLinearCommand(["doctor"], h.dependencies) as {
+    modelTurn: boolean; oauth: boolean; graphSchema: { ok: boolean };
+    graphSchemaBootstrap: { applied: boolean; assertions: number };
+  };
+  expect(doctorBefore).toMatchObject({
+    modelTurn: false, oauth: true, graphSchema: { ok: true, missing: [], conflicting: [] },
+    graphSchemaBootstrap: { applied: true, assertions: 19 },
+  });
+  const fetched = await runLinearCommand(["get", "MSA-236"], h.dependencies) as {
+    issue: { key: string }; identity: unknown;
+  };
+  expect(fetched.issue.key).toBe("MSA-236");
+  expect(h.gateway.issueWrites).toBe(0);
+  expect(h.gateway.commentWrites).toBe(0);
+
+  const imported = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    thread: string; link: string; identity: unknown; reused: boolean;
+  };
+  const thread = imported.thread.replace(/^@/, "");
+  expect(imported.reused).toBe(false);
+  expect(await runLinearCommand(["doctor"], h.dependencies)).toMatchObject({
+    modelTurn: false, graphSchema: { ok: true, missing: [], conflicting: [] },
+  });
+  await h.graph.put(thread, "progress", "Projection wired.");
+
+  const plan = await runLinearCommand(["plan", thread], h.dependencies) as {
+    state: string; actions: { issue: string[]; comments: unknown[]; descriptionAdoption: boolean; hash: string };
+  };
+  expect(plan).toMatchObject({
+    state: "local-ahead",
+    actions: { issue: ["description"], descriptionAdoption: true, comments: [{ action: "create" }] },
+  });
+  expect(await runLinearCommand(["sync", thread], h.dependencies)).toEqual(plan);
+  expect(h.gateway.issueWrites).toBe(0);
+  expect(h.gateway.commentWrites).toBe(0);
+
+  const applied = await runLinearCommand(["sync", thread, "--apply"], h.dependencies) as {
+    writes: number; state: string;
+  };
+  expect(applied).toMatchObject({ writes: 2, state: "in-sync" });
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
+    state: "in-sync", conflicts: [], actions: [],
+  });
+
+  const duplicate = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    thread: string; link: string; identity: unknown; reused: boolean;
+  };
+  expect(duplicate).toMatchObject({
+    thread: imported.thread, link: imported.link, identity: imported.identity, reused: true,
+  });
+  expect((await h.graph.show(thread)).filter(({ predicate }) => predicate === "linear_link")).toHaveLength(1);
+
+  h.gateway.issue.title = "Remote title drift";
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
+    state: "remote-drift", conflicts: [{ field: "title", category: "remote-drift" }], actions: [],
+  });
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("Linear sync conflict: title:remote-drift");
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+
+  h.gateway.issue.title = "Mechanical Linear bridge";
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
+    state: "in-sync", conflicts: [], actions: [],
+  });
+});
+
 test("repeated import converges on one deterministic thread and singleton manifest", async () => {
   const h = harness();
   const first = await importThread(h);
@@ -171,6 +242,21 @@ test("repeated import converges on one deterministic thread and singleton manife
   const threadFacts = await h.graph.show(first);
   expect(threadFacts.filter(({ predicate }) => predicate === "title")).toHaveLength(1);
   const link = threadFacts.find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  expect((await h.graph.show(link)).filter(({ predicate }) => predicate === "sync_manifest")).toHaveLength(1);
+});
+
+test("concurrent imports deduplicate identity and report the post-lease reuse truth", async () => {
+  const h = harness();
+  const results = await Promise.all([
+    runLinearCommand(["import", "MSA-236"], h.dependencies),
+    runLinearCommand(["import", "MSA-236"], h.dependencies),
+  ]) as Array<{ thread: string; link: string; reused: boolean }>;
+  expect(new Set(results.map(({ thread }) => thread)).size).toBe(1);
+  expect(new Set(results.map(({ link }) => link)).size).toBe(1);
+  expect(results.map(({ reused }) => reused).sort()).toEqual([false, true]);
+  const thread = results[0]!.thread.replace(/^@/, "");
+  const link = results[0]!.link.replace(/^@/, "");
+  expect((await h.graph.show(thread)).filter(({ predicate }) => predicate === "linear_link")).toHaveLength(1);
   expect((await h.graph.show(link)).filter(({ predicate }) => predicate === "sync_manifest")).toHaveLength(1);
 });
 
@@ -247,6 +333,38 @@ test("crash after issue commit but before confirmed manifest recovers persisted 
   const manifest = JSON.parse((await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value);
   expect(manifest.pending).toBeUndefined();
   expect(manifest.evidence.markerBound).toBe(true);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({ state: "in-sync", actions: [] });
+});
+
+test("multi-operation apply carries all receipts through a crash and retry", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await h.graph.put(thread, "progress", "One durable update.");
+  const link = (await h.graph.show(thread)).find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+
+  // issue pending + issue confirmed + comment pending succeed; the confirmed
+  // comment manifest crashes after the remote comment is already durable.
+  h.graph.failSubjectPrefix = link;
+  h.graph.failPredicate = "sync_manifest";
+  h.graph.failAfter = 3;
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies)).rejects.toThrow("injected graph crash");
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(h.gateway.comments).toHaveLength(1);
+
+  const interrupted = JSON.parse((await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value);
+  expect(interrupted.pending).toMatchObject({ kind: "comment" });
+  expect(Object.keys(interrupted.receipts ?? {})).toHaveLength(1);
+
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(h.gateway.comments).toHaveLength(1);
+  const recovered = JSON.parse((await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value);
+  expect(recovered.pending).toBeUndefined();
+  expect(Object.keys(recovered.receipts ?? {})).toHaveLength(2);
+  expect(recovered.evidence.markerBound).toBe(true);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({ state: "in-sync", actions: [] });
 });
 
 test("persisted comment intent reconciles a lost response without duplicate comment", async () => {
@@ -265,6 +383,7 @@ test("persisted comment intent reconciles a lost response without duplicate comm
   await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
   expect(h.gateway.commentWrites).toBe(1);
   expect(h.gateway.comments).toHaveLength(1);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({ state: "in-sync", actions: [] });
 });
 
 test("concurrent apply serializes and emits one remote issue mutation", async () => {
@@ -314,13 +433,36 @@ test("marker relocation rejects duplicate exact matches", async () => {
   await expect(runLinearCommand(["plan", thread], h.dependencies)).rejects.toThrow("found 2 exact issue");
 });
 
-test("doctor/get are graph read-only and irrelevant flags fail closed", async () => {
+test("doctor bootstraps graph schema exactly once; get stays read-only and irrelevant flags fail closed", async () => {
   const h = harness();
-  await runLinearCommand(["doctor"], h.dependencies);
+  const first = await runLinearCommand(["doctor"], h.dependencies);
+  expect(first).toMatchObject({
+    graphSchema: { ok: true, missing: [], conflicting: [] },
+    graphSchemaBootstrap: { applied: true, assertions: 19 },
+  });
+  expect(h.graph.writes).toHaveLength(19);
+  const second = await runLinearCommand(["doctor"], h.dependencies);
+  expect(second).toMatchObject({
+    graphSchema: { ok: true, missing: [], conflicting: [] },
+    graphSchemaBootstrap: { applied: false, assertions: 0 },
+  });
+  expect(h.graph.writes).toHaveLength(19);
+  const beforeGet = h.graph.writes.length;
   await runLinearCommand(["get", "MSA-236"], h.dependencies);
-  expect(h.graph.writes).toHaveLength(0);
+  expect(h.graph.writes).toHaveLength(beforeGet);
   await expect(runLinearCommand(["get", "MSA-236", "--apply"], h.dependencies)).rejects.toThrow("accepts only --server");
   await expect(runLinearCommand(["plan", "x", "--dry-run"], h.dependencies)).rejects.toThrow("accepts only --server");
+});
+
+test("doctor reports schema conflicts without overwriting them", async () => {
+  const h = harness();
+  h.graph.seed("linked_thread", "cardinality", "multi");
+  const result = await runLinearCommand(["doctor"], h.dependencies);
+  expect(result).toMatchObject({
+    graphSchema: { ok: false, conflicting: ["@linked_thread cardinality: multi"] },
+    graphSchemaBootstrap: { applied: false, assertions: 0 },
+  });
+  expect(h.graph.writes).toHaveLength(0);
 });
 
 test("corrupted partial manifest evidence fails closed instead of being healed", async () => {

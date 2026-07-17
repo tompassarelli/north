@@ -15,14 +15,24 @@ function composed(...args: string[]): any {
   return JSON.parse(result.stdout);
 }
 
+const contract = JSON.stringify({
+  responsibility: "reconstruct migration provenance", deliverable: "evidence-linked timeline",
+  capabilities: ["filesystem.read", "filesystem.search", "shell.readonly"],
+  mayDecide: ["read-only traces"], mustEscalate: ["destructive recovery"],
+  doneWhen: ["every transition is sourced"], report: "timeline, contradictions, and gaps",
+});
+
 test("Gaffer composition survives North validation into complete run telemetry", () => {
   const request = composed("integrator", "--taskGrade", "staff", "--domain", "Nix,Beagle",
-    "--topology", "orchestrator", "--tier", "frontier", "--deliberation", "xhigh", "--posture", "preserve");
+    "--tier", "frontier", "--deliberation", "xhigh", "--posture", "preserve",
+    "--override-reason", "cross-provider foundational contract");
   const metadata = validateRoutingMetadata(request);
   expect(metadata).toEqual({
     role: "integrator", taskGrade: "staff", domainRequirements: ["Nix", "Beagle"],
-    topology: "orchestrator", tier: "frontier", reasoning: "xhigh", posture: "preserve",
-    composition: { kind: "preset", id: "integrator" },
+    topology: "worker", tier: "frontier", reasoning: "xhigh", posture: "preserve",
+    composition: { kind: "preset", id: "integrator",
+      overrides: ["taskGrade", "domainRequirements", "tier", "reasoning", "posture"],
+      overrideReason: "cross-provider foundational contract" },
   });
 
   const facts = runFacts({
@@ -34,7 +44,7 @@ test("Gaffer composition survives North validation into complete run telemetry",
   for (const fact of [
     ["requested_role", "integrator"], ["task_grade", "staff"],
     ["domain_requirement", "Nix"], ["domain_requirement", "Beagle"],
-    ["topology", "orchestrator"], ["routing_tier", "frontier"],
+    ["topology", "worker"], ["routing_tier", "frontier"],
     ["requested_reasoning", "xhigh"], ["routing_posture", "preserve"],
     ["composition_kind", "preset"], ["composition_id", "integrator"],
   ]) expect(facts).toContainEqual(fact);
@@ -42,42 +52,68 @@ test("Gaffer composition survives North validation into complete run telemetry",
 
 test("SDK role-only spawns inherit catalog axes while explicit axes win independently", () => {
   const catalog = loadGafferStaffing(resolve(gaffer, "staffing/catalog.json"));
-  expect(applyGafferStaffing({ role: "integrator", tier: "frontier", topology: "orchestrator" }, catalog)).toEqual({
-    role: "integrator", taskGrade: "senior", domainRequirements: [], topology: "orchestrator",
+  expect(() => applyGafferStaffing({ role: "integrator", tier: "frontier" }, catalog))
+    .toThrow("supply preset composition.overrides");
+  expect(applyGafferStaffing({ role: "integrator", tier: "frontier",
+    composition: { kind: "preset", id: "integrator", overrides: ["tier"],
+      overrideReason: "cross-seam direction" } }, catalog)).toEqual({
+    role: "integrator", taskGrade: "senior", domainRequirements: [], topology: "worker",
     tier: "frontier", reasoning: "high", posture: "deliver",
-    composition: { kind: "preset", id: "integrator" },
+    composition: { kind: "preset", id: "integrator", overrides: ["tier"],
+      overrideReason: "cross-seam direction" },
   });
-  expect(applyGafferStaffing({ role: "researcher" }, catalog)).toMatchObject({
-    role: "scout", taskGrade: "junior", tier: "economy", reasoning: "low",
+  expect(applyGafferStaffing({ role: "director" }, catalog)).toEqual({
+    role: "director", taskGrade: "staff", domainRequirements: [], topology: "orchestrator",
+    tier: "frontier", reasoning: "xhigh", posture: "deliver",
+    composition: { kind: "preset", id: "director", overrides: [] },
   });
+  expect(() => applyGafferStaffing({ role: "researcher" }, catalog))
+    .toThrow("role researcher is retired because it was ambiguous");
 });
 
 test("North CLI reads staffing/catalog.json and carries independent overrides", () => {
   const result = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "scout", "contract probe",
-    "--dry-run", "--taskGrade", "principal", "--domain", "computer-science", "--topology", "verifier",
-    "--tier", "frontier", "--reasoning", "xhigh", "--posture", "preserve"], {
+    "--dry-run", "--taskGrade", "principal", "--domain", "computer-science",
+    "--tier", "frontier", "--reasoning", "xhigh", "--posture", "preserve",
+    "--override-reason", "principal research direction"], {
     encoding: "utf8",
     env: { ...process.env, NO_COLOR: "1", GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
   });
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");
   expect(result.stdout).toContain("AGENT_DOMAIN_REQUIREMENTS=[\"computer-science\"]");
-  expect(result.stdout).toContain("AGENT_TOPOLOGY=verifier");
-  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"preset\",\"id\":\"scout\"}");
+  expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
+  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"preset\",\"id\":\"scout\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal research direction\"}");
+});
+
+test("North rejects unlogged bespoke roles and composition identity mismatches", () => {
+  const catalog = loadGafferStaffing(resolve(gaffer, "staffing/catalog.json"));
+  expect(() => applyGafferStaffing({ role: "special" }, catalog))
+    .toThrow("unknown Gaffer role special requires composition.kind=bespoke");
+  expect(() => validateRoutingMetadata({
+    role: "integrator", composition: { kind: "preset", id: "scout", overrides: [] },
+  })).toThrow("composition.id must match canonical role integrator");
+  expect(() => applyGafferStaffing({
+    role: "special", taskGrade: "staff", domainRequirements: [], topology: "worker",
+    tier: "frontier", reasoning: "xhigh", posture: "explore",
+    composition: { kind: "bespoke", id: "special", nearestPreset: "analyst",
+      bespokeReason: "novel one-off", promotionCandidate: false, contract: JSON.parse(contract) },
+  }, catalog)).not.toThrow();
 });
 
 test("bespoke Gaffer composition rationale reaches North telemetry", () => {
-  const request = composed("migration-forensics", "--nearest", "analyst", "--rationale",
-    "provenance tracing plus schema recovery");
+  const request = composed("migration-forensics", "--rationale",
+    "provenance tracing plus schema recovery", "--contract", contract, "--no-promotion-candidate");
   const metadata = validateRoutingMetadata(request);
   expect(metadata.composition).toMatchObject({
-    kind: "bespoke", id: "migration-forensics", nearestPreset: "analyst",
+    kind: "bespoke", id: "migration-forensics",
     bespokeReason: "provenance tracing plus schema recovery", promotionCandidate: false,
   });
   const facts = runFacts({ thread: "(ad-hoc)", agent: "lane-bespoke", tokens: 0, durationMs: 0,
     posture: "spawn", outcome: "ran", routingMetadata: metadata });
   expect(facts).toContainEqual(["bespoke_reason", "provenance tracing plus schema recovery"]);
   expect(facts).toContainEqual(["promotion_candidate", "false"]);
+  expect(facts.some(([predicate]) => predicate === "nearest_preset")).toBe(false);
 });
 
 test("North MCP advertises the complete composition contract", () => {
@@ -90,5 +126,8 @@ test("North MCP advertises the complete composition contract", () => {
     expect(spawn.inputSchema.properties[field]).toBeDefined();
   const dispatch = response.result.tools.find((tool: any) => tool.name === "dispatch");
   expect(dispatch.inputSchema.properties.target).toBeDefined();
+  expect(spawn.inputSchema.required).toEqual(["prompt", "role"]);
+  expect(dispatch.inputSchema.required).toEqual(["id", "role"]);
   expect(spawn.inputSchema.properties.reasoning.enum).toContain("xhigh");
+  expect(spawn.inputSchema.properties.composition.oneOf).toHaveLength(2);
 });

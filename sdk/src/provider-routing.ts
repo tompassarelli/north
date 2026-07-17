@@ -1,7 +1,18 @@
 import { spawnSync } from "node:child_process";
-import type { SemanticTier } from "./providers/catalog";
+import { createHash } from "node:crypto";
+import {
+  modelFamily,
+  modelFamilies,
+  providerSupportsModel,
+  providerSupportsRoute,
+  resolveTier,
+  supportedReasoning,
+  type SemanticTier,
+} from "./providers/catalog";
+import type { Effort } from "./harness";
 import type {
   EntitlementPressure,
+  AllocationEvidence,
   ProviderAvailability,
   ProviderId,
   ProviderPreference,
@@ -10,14 +21,28 @@ import type {
   RoutingDecision,
   RoutingTarget,
 } from "./providers/types";
-import { applyProviderUsageObservations, loadProviderUsageObservations, loadResourcePolicy } from "./resource-policy";
+import {
+  applyProviderUsageObservations,
+  automatedPressure,
+  collectionFailureIsFresh,
+  effectivePressure,
+  loadProviderUsageObservations,
+  pressureObservationIsFresh,
+  loadResourcePolicy,
+  pressureFromUsageWindows,
+} from "./resource-policy";
+import type { ProviderUsageObservation, ProviderUsageWindow } from "./providers/types";
 import { codexConfigArguments, isClaudeSubscriptionStatus, providerEnvironmentForTarget } from "./accounts";
+import {
+  providerSupportsCapabilities, type GafferCapability,
+} from "./gaffer-capabilities";
 
 const PROVIDERS: ProviderId[] = ["anthropic", "openai"];
 
 export type ProviderSelectionFailure =
   | "provider_unavailable"
   | "entitlement_exhausted"
+  | "route_unresolvable"
   | "no_provider_available";
 
 // Provider selection happens before a provider query is constructed, so this
@@ -79,11 +104,14 @@ function targetOrderForProviders(policy: ResourcePolicy, providers: ProviderId[]
 
 export function resourcePolicyFromEnv(
   base: ResourcePolicy | undefined = loadResourcePolicy(),
-  observations = loadProviderUsageObservations(),
+  observations = (() => {
+    try { return loadProviderUsageObservations(); }
+    catch { return undefined; }
+  })(),
 ): ResourcePolicy {
   const foundation: ResourcePolicy = base ?? {
     version: 1,
-    mode: "preferential",
+    mode: "balanced",
     targets: PROVIDERS.map((id) => ({ id, provider: id, authMode: "ambient" })),
     targetOrder: PROVIDERS,
     providerOrder: PROVIDERS,
@@ -92,7 +120,7 @@ export function resourcePolicyFromEnv(
   };
   const observed = observations ? applyProviderUsageObservations(foundation, observations) : foundation;
   const rawMode = process.env.NORTH_ALLOCATION_MODE;
-  const mode = rawMode === "balanced" || rawMode === "reserved" || rawMode === "preferential" ? rawMode : observed?.mode ?? "preferential";
+  const mode = rawMode === "balanced" || rawMode === "reserved" || rawMode === "preferential" ? rawMode : observed?.mode ?? "balanced";
   const reserved = process.env.NORTH_RESERVED_FRONTIER_PROVIDER;
   const envOrder = process.env.NORTH_PROVIDER_ORDER;
   const envWeights = process.env.NORTH_PROVIDER_WEIGHTS;
@@ -121,6 +149,16 @@ export function resourcePolicyFromEnv(
   const reservedTarget = PROVIDERS.includes(reserved as ProviderId)
     ? targets.find((target) => target.provider === reserved)?.id
     : observed.reservedFrontierTarget;
+  const providerWeights = envWeights === undefined ? observed?.weights ?? {} : weights(envWeights);
+  const targetWeights = envWeights === undefined ? observed.targetWeights : Object.fromEntries(
+    targets.map((target) => [target.id, providerWeights[target.provider] ?? 1]),
+  );
+  const overriddenTargets = new Set(targets
+    .filter((target) => providerPressureOverrides[target.provider] !== undefined)
+    .map(({ id }) => id));
+  const withoutOverriddenEvidence = <T>(values: Record<string, T> | undefined) => values === undefined
+    ? undefined
+    : Object.fromEntries(Object.entries(values).filter(([id]) => !overriddenTargets.has(id)));
   return {
     ...observed,
     targets,
@@ -129,7 +167,10 @@ export function resourcePolicyFromEnv(
     mode,
     providerOrder: envOrder === undefined ? observed?.providerOrder ?? PROVIDERS : providerList(envOrder),
     pressures: { ...observed.pressures, ...projectedPressures, ...providerPressureOverrides },
-    weights: envWeights === undefined ? observed?.weights ?? {} : weights(envWeights),
+    weights: providerWeights,
+    targetWeights,
+    automatedPressureObservations: withoutOverriddenEvidence(observed.automatedPressureObservations),
+    automatedPressureObservationSets: withoutOverriddenEvidence(observed.automatedPressureObservationSets),
     reservedFrontierProvider: reservedProvider,
     reservedFrontierTarget: reservedTarget,
   };
@@ -186,22 +227,311 @@ export function probeOpenAI(target?: RoutingTarget): ProviderAvailability {
     reason: disabled ? "disabled" : "ready" };
 }
 
-function stableHash(value: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i++) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
+function stableUnit(value: string): number {
+  // Target IDs often share long prefixes. A 32-bit non-cryptographic hash
+  // correlated those suffixes badly enough to turn equal a/b/c weights into an
+  // observed ~50/25/25 split. SHA-256 supplies independent deterministic bits;
+  // use its top 53 so conversion to Number remains exact.
+  const bits = createHash("sha256").update(value).digest().readBigUInt64BE(0) >> 11n;
+  return (Number(bits) + 1) / (0x20_0000_0000_0000 + 1);
+}
+
+function routeObservations(target: RoutingTarget, policy: ResourcePolicy): ProviderUsageObservation[] {
+  return policy.automatedPressureObservationSets?.[target.id]
+    ?? (policy.automatedPressureObservations?.[target.id]
+      ? [policy.automatedPressureObservations[target.id]!]
+      : []);
+}
+
+function routeUsageWindows(
+  target: RoutingTarget,
+  observation: ProviderUsageObservation,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+) : ProviderUsageWindow[] | undefined {
+  if (!observation.windows?.length) return undefined;
+  if (target.provider !== "anthropic") return observation.windows;
+  if (!providerSupportsRoute(target.provider, tier, reasoning)) return [];
+  const family = modelFamily(target.provider,
+    model ? resolveTier(target.provider, tier, model, reasoning).model
+      : tier ? resolveTier(target.provider, tier, undefined, reasoning).model
+        : undefined);
+  return observation.windows.filter(({ limitId }) => {
+    const id = limitId?.toLowerCase() ?? "";
+    if (id.includes("seven_day_opus")) return family === "opus";
+    if (id.includes("seven_day_sonnet")) return family === "sonnet";
+    if (id.startsWith("claude:model:")) {
+      const scopedFamily = id.slice("claude:model:".length);
+      // Model-scoped data stays route-dependent even when its provider label is
+      // opaque. A route-unspecified scalar excludes it; a concrete known family
+      // includes only its own catalog-declared bucket.
+      return scopedFamily === family;
+    }
+    return true;
+  });
+}
+
+const pressureRank: Record<EntitlementPressure, number> = {
+  exhausted: 4, low: 3, normal: 2, plenty: 1, unknown: 0,
+};
+
+interface RouteObservationEvidence {
+  observation: ProviderUsageObservation;
+  windows?: ProviderUsageWindow[];
+  pressure?: EntitlementPressure;
+  pressureKind?: "windows" | "state" | "failure";
+}
+
+function routeObservationEvidence(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+  now = new Date(),
+): RouteObservationEvidence[] {
+  if (model && !providerSupportsModel(target.provider, model)) return [];
+  return routeObservations(target, policy).map((observation) => {
+    const windows = routeUsageWindows(target, observation, tier, reasoning, model);
+    let routePressure: EntitlementPressure | undefined;
+    let pressureKind: RouteObservationEvidence["pressureKind"];
+    if (collectionFailureIsFresh(observation, now)) {
+      // Failed collection is absence of knowledge. Retain only a still-live,
+      // route-matching exhaustion; never reward stale partial headroom.
+      routePressure = windows?.length && pressureFromUsageWindows(windows, now) === "exhausted"
+        ? "exhausted"
+        : "unknown";
+      pressureKind = "failure";
+    } else if (!pressureObservationIsFresh(observation, now)) {
+      const staleWindowPressure = windows?.length ? pressureFromUsageWindows(windows, now) : undefined;
+      routePressure = staleWindowPressure === "exhausted" ? "exhausted" : undefined;
+      pressureKind = routePressure ? "windows" : undefined;
+    } else if (windows !== undefined) {
+      const windowPressure = windows.length ? pressureFromUsageWindows(windows, now) : undefined;
+      if (observation.state !== undefined
+          && (windowPressure === undefined || pressureRank[observation.state] > pressureRank[windowPressure])) {
+        routePressure = observation.state;
+        pressureKind = "state";
+      } else {
+        routePressure = windowPressure;
+        pressureKind = windowPressure === undefined ? undefined : "windows";
+      }
+    } else {
+      routePressure = observation.state;
+      pressureKind = observation.state === undefined ? undefined : "state";
+    }
+    return { observation, windows, pressure: routePressure, pressureKind };
+  });
+}
+
+function numericHeadroomEvidence(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+  now = new Date(),
+): { headroom: number; evidence: AllocationEvidence } | undefined {
+  const candidates = routeObservationEvidence(target, policy, tier, reasoning, model, now)
+    .filter(({ observation }) => collectionFailureIsFresh(observation, now)
+      || pressureObservationIsFresh(observation, now))
+    .flatMap(({ observation, windows }) => (windows ?? [])
+      .filter(({ resetsAt }) => Date.parse(resetsAt) > now.getTime())
+      .map((window) => ({ observation, window })));
+  const driving = candidates.sort((left, right) =>
+    right.window.usedPercent - left.window.usedPercent
+      || Date.parse(right.observation.observedAt) - Date.parse(left.observation.observedAt))[0];
+  if (!driving) return undefined;
+  return {
+    headroom: Math.min(
+      driving.observation.collectionFailure ? pressureWeight.unknown : 1,
+      Math.max(0.001, (100 - Math.min(100, driving.window.usedPercent)) / 100),
+    ),
+    evidence: {
+      kind: "numeric-headroom",
+      source: driving.observation.source ?? "legacy-observation",
+      observedAt: driving.observation.observedAt,
+      ...(driving.window.limitId ? { limitId: driving.window.limitId } : {}),
+      usedPercent: driving.window.usedPercent,
+      resetsAt: driving.window.resetsAt,
+      ...(driving.observation.collectionFailure
+        ? { collectionFailure: driving.observation.collectionFailure }
+        : {}),
+    },
+  };
+}
+
+function observedHeadroom(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+): number | undefined {
+  return numericHeadroomEvidence(target, policy, tier, reasoning, model)?.headroom;
+}
+
+function categoricalAllocationEvidence(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+): { pressure: EntitlementPressure; evidence: AllocationEvidence } | undefined {
+  const driving = routeObservationEvidence(target, policy, tier, reasoning, model)
+    .filter((entry): entry is RouteObservationEvidence & { pressure: EntitlementPressure } =>
+      entry.pressureKind === "state" && entry.pressure !== undefined && entry.pressure !== "unknown")
+    .sort((left, right) => pressureRank[right.pressure] - pressureRank[left.pressure]
+      || Date.parse(right.observation.observedAt) - Date.parse(left.observation.observedAt))[0];
+  if (!driving) return undefined;
+  return {
+    pressure: driving.pressure,
+    evidence: {
+      kind: "categorical-pressure",
+      source: driving.observation.source ?? "legacy-observation",
+      observedAt: driving.observation.observedAt,
+    },
+  };
+}
+
+function decisiveAllocationEvidence(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+): AllocationEvidence | undefined {
+  const now = new Date();
+  const driving = routeObservationEvidence(target, policy, tier, reasoning, model)
+    .filter((entry): entry is RouteObservationEvidence & { pressure: EntitlementPressure } =>
+      entry.pressure !== undefined && entry.pressure !== "unknown")
+    .sort((left, right) => pressureRank[right.pressure] - pressureRank[left.pressure]
+      || Date.parse(right.observation.observedAt) - Date.parse(left.observation.observedAt))[0];
+  if (!driving) return undefined;
+  const liveWindow = driving.pressureKind === "state" ? undefined : [...(driving.windows ?? [])]
+    .filter(({ resetsAt }) => Date.parse(resetsAt) > now.getTime())
+    .sort((left, right) => right.usedPercent - left.usedPercent)[0];
+  return {
+    kind: liveWindow ? "numeric-headroom" : "categorical-pressure",
+    source: driving.observation.source ?? "legacy-observation",
+    observedAt: driving.observation.observedAt,
+    ...(liveWindow?.limitId ? { limitId: liveWindow.limitId } : {}),
+    ...(liveWindow ? {
+      usedPercent: liveWindow.usedPercent,
+      resetsAt: liveWindow.resetsAt,
+    } : {}),
+    ...(driving.observation.collectionFailure
+      ? { collectionFailure: driving.observation.collectionFailure }
+      : {}),
+  };
+}
+
+function routePressure(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+): EntitlementPressure {
+  const evidence = routeObservationEvidence(target, policy, tier, reasoning, model);
+  const known = evidence
+    .map(({ pressure }) => pressure)
+    .filter((value): value is EntitlementPressure => value !== undefined && value !== "unknown")
+    .sort((left, right) => pressureRank[right] - pressureRank[left])[0];
+  if (known) return known;
+  // Unknown automated evidence is absence of knowledge. Preserve an explicit
+  // manual pressure (especially exhaustion) rather than manufacturing plenty.
+  if (evidence.length)
+    return effectivePressure(policy.pressureObservations?.[target.id]);
+  return policy.targetPressures?.[target.id] ?? policy.pressures[target.provider] ?? "unknown";
 }
 
 const pressureWeight: Record<EntitlementPressure, number> = {
-  plenty: 4,
-  normal: 2,
-  unknown: 1,
-  low: 0.25,
+  // Keep categorical fallbacks on the same 0..1 scale as numeric remaining
+  // headroom. Otherwise an unknown account (formerly weight 1) could outweigh
+  // a known account with 80% remaining (weight .8), rewarding telemetry loss.
+  plenty: 1,
+  normal: 0.5,
+  unknown: 0.5,
+  low: 0.1,
   exhausted: 0,
 };
+
+export interface BalancedAllocationEstimate {
+  target: string;
+  provider: ProviderId;
+  eligible: boolean;
+  pressure: EntitlementPressure;
+  effectiveWeight: number;
+  /** Normalized long-run routing estimate, not a provider quota. */
+  approximateShare: number;
+  /** Exact observation or policy fallback that produced `effectiveWeight`. */
+  allocationEvidence: AllocationEvidence;
+}
+
+function effectiveTargetWeight(
+  target: RoutingTarget,
+  policy: ResourcePolicy,
+  targetPressure: EntitlementPressure,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+): number {
+  const configured = policy.targetWeights?.[target.id] ?? policy.weights?.[target.provider] ?? 1;
+  const numeric = observedHeadroom(target, policy, tier, reasoning, model);
+  const categorical = categoricalAllocationEvidence(target, policy, tier, reasoning, model);
+  const factor = numeric === undefined
+    ? pressureWeight[targetPressure]
+    : categorical ? Math.min(numeric, pressureWeight[categorical.pressure]) : numeric;
+  return Math.max(0.001, configured * factor);
+}
+
+/** Explain the proportional long-run auto-route implied by current balanced inputs. */
+export function balancedAllocationEstimates(
+  availability: ProviderAvailability[],
+  policy: ResourcePolicy,
+  tier?: SemanticTier,
+  reasoning?: Effort,
+  model?: string,
+  capabilities?: readonly GafferCapability[],
+): BalancedAllocationEstimate[] {
+  const estimates = orderedTargets(policy).map((target) => {
+    const targetPressure = routePressure(target, policy, tier, reasoning, model);
+    const numeric = numericHeadroomEvidence(target, policy, tier, reasoning, model);
+    const categorical = categoricalAllocationEvidence(target, policy, tier, reasoning, model);
+    const eligible = providerSupportsRoute(target.provider, tier, reasoning)
+      && providerSupportsModel(target.provider, model)
+      && providerSupportsCapabilities(target.provider, capabilities)
+      && stateOfTarget(availability, target).available
+      && targetPressure !== "exhausted";
+    const manual = policy.pressureObservations?.[target.id];
+    const categoricalFactor = categorical ? pressureWeight[categorical.pressure] : undefined;
+    const fallbackEvidence = categorical?.evidence ?? {
+        kind: "categorical-pressure" as const,
+        source: manual && pressureObservationIsFresh(manual) ? "manual-policy" as const : "policy-default" as const,
+        ...(manual && pressureObservationIsFresh(manual) ? { observedAt: manual.observedAt } : {}),
+      };
+    const allocationEvidence = targetPressure === "exhausted"
+      ? decisiveAllocationEvidence(target, policy, tier, reasoning, model) ?? fallbackEvidence
+      : numeric && (categoricalFactor === undefined || numeric.headroom <= categoricalFactor)
+        ? numeric.evidence
+        : fallbackEvidence;
+    return {
+      target: target.id,
+      provider: target.provider,
+      eligible,
+      pressure: targetPressure,
+      effectiveWeight: eligible ? effectiveTargetWeight(target, policy, targetPressure, tier, reasoning, model) : 0,
+      approximateShare: 0,
+      allocationEvidence,
+    };
+  });
+  const total = estimates.reduce((sum, { effectiveWeight }) => sum + effectiveWeight, 0);
+  for (const estimate of estimates)
+    estimate.approximateShare = total > 0 ? estimate.effectiveWeight / total : 0;
+  return estimates;
+}
 
 function stateOf(availability: ProviderAvailability[], id: ProviderId): ProviderAvailability {
   return availability.find((entry) => entry.provider === id && entry.targetId === undefined) ?? {
@@ -225,16 +555,32 @@ export function selectProviderFromAvailability(
   policy: ResourcePolicy,
   tier?: SemanticTier,
   stableKey = "default",
+  reasoning?: Effort,
+  model?: string,
+  capabilities?: readonly GafferCapability[],
 ): RoutingDecision {
   const request = typeof requested === "string" ? { provider: requested } : requested;
   const requestedProvider = request.provider ?? "auto";
   const requestedTarget = request.target;
   const targets = orderedTargets(policy);
+  const routeCompatible = (target: RoutingTarget) => providerSupportsRoute(target.provider, tier, reasoning)
+    && providerSupportsModel(target.provider, model)
+    && providerSupportsCapabilities(target.provider, capabilities);
   const targetPressures = Object.fromEntries(targets.map((target) => [
-    target.id, policy.targetPressures?.[target.id] ?? policy.pressures[target.provider] ?? "unknown",
+    target.id, routePressure(target, policy, tier, reasoning, model),
   ])) as Record<string, EntitlementPressure>;
   const targetAvailable = (target: RoutingTarget) => stateOfTarget(availability, target).available;
-  const eligible = (target: RoutingTarget) => targetAvailable(target) && targetPressures[target.id] !== "exhausted";
+  const eligible = (target: RoutingTarget) => routeCompatible(target)
+    && targetAvailable(target) && targetPressures[target.id] !== "exhausted";
+  const routeFailure = (providers: ProviderId[]) => {
+    const support = [...new Set(providers)].map((provider) =>
+      `${provider}=[${tier ? supportedReasoning(provider, tier).join(",") : "provider default"}]`).join("; ");
+    return new ProviderSelectionError(
+      "route_unresolvable",
+      `no eligible provider resolves tier=${tier ?? "default"} reasoning=${reasoning ?? "default"}`
+      + `${capabilities ? ` capabilities=[${capabilities.join(",")}]` : ""}; ${support}`,
+    );
+  };
 
   let candidates: RoutingTarget[];
   if (requestedTarget !== undefined) {
@@ -244,6 +590,7 @@ export function selectProviderFromAvailability(
     if (requestedProvider !== "auto" && target.provider !== requestedProvider)
       throw new ProviderSelectionError("provider_unavailable",
         `routing target ${requestedTarget} belongs to ${target.provider}, not requested provider ${requestedProvider}`);
+    if (!routeCompatible(target)) throw routeFailure([target.provider]);
     const state = stateOfTarget(availability, target);
     if (!state.available)
       throw new ProviderSelectionError("provider_unavailable",
@@ -255,14 +602,16 @@ export function selectProviderFromAvailability(
     const providerTargets = targets.filter((target) => target.provider === requestedProvider);
     if (!providerTargets.length)
       throw new ProviderSelectionError("provider_unavailable", `provider ${requestedProvider} has no configured routing target`);
-    candidates = providerTargets.filter(eligible);
-    if (!candidates.length && providerTargets.every((target) => !targetAvailable(target))) {
-      if (providerTargets.length === 1) {
-        const state = stateOfTarget(availability, providerTargets[0]);
+    const compatibleTargets = providerTargets.filter(routeCompatible);
+    if (!compatibleTargets.length) throw routeFailure([requestedProvider]);
+    candidates = compatibleTargets.filter(eligible);
+    if (!candidates.length && compatibleTargets.every((target) => !targetAvailable(target))) {
+      if (compatibleTargets.length === 1) {
+        const state = stateOfTarget(availability, compatibleTargets[0]);
         throw new ProviderSelectionError("provider_unavailable",
           `provider ${requestedProvider} unavailable: ${state.reason}`);
       }
-      const states = providerTargets.map((target) => `${target.id}=${stateOfTarget(availability, target).reason}`).join(", ");
+      const states = compatibleTargets.map((target) => `${target.id}=${stateOfTarget(availability, target).reason}`).join(", ");
       throw new ProviderSelectionError("provider_unavailable",
         `provider ${requestedProvider} unavailable across routing targets: ${states}`);
     }
@@ -270,6 +619,7 @@ export function selectProviderFromAvailability(
       throw new ProviderSelectionError("entitlement_exhausted",
         `provider ${requestedProvider} entitlement exhausted (all routing targets)`);
   } else {
+    if (!targets.some(routeCompatible)) throw routeFailure(targets.map(({ provider }) => provider));
     candidates = targets.filter(eligible);
   }
 
@@ -287,34 +637,46 @@ export function selectProviderFromAvailability(
   } else if (policy.mode === "reserved" && reserve) {
     const reservedTarget = candidates.find(({ id }) => id === reserve);
     if (tier === "frontier" && reservedTarget) {
+      candidates = [reservedTarget, ...candidates.filter(({ id }) => id !== reserve)];
       chosen = reservedTarget;
       detail = `frontier reserve=${reserve}`;
     } else {
       const alternatives = candidates.filter(({ id }) => id !== reserve);
+      // Preserve the reserve through retries too: exhaust all non-reserve
+      // accounts before admitting the reserved target as the final fallback.
+      candidates = [...alternatives, ...(reservedTarget ? [reservedTarget] : [])];
       chosen = alternatives[0] ?? candidates[0];
       detail = tier === "frontier" ? `reserve=${reserve} unavailable` : `preserving frontier reserve=${reserve}`;
     }
   } else if (policy.mode === "balanced") {
     const weighted = candidates.map((target) => ({
       target,
-      weight: Math.max(0.001, (policy.targetWeights?.[target.id] ?? policy.weights?.[target.provider] ?? 1)
-        * pressureWeight[targetPressures[target.id]]),
+      headroom: observedHeadroom(target, policy, tier, reasoning, model),
+      weight: effectiveTargetWeight(target, policy, targetPressures[target.id], tier, reasoning, model),
     }));
-    const total = weighted.reduce((sum, item) => sum + item.weight, 0);
-    let slot = (stableHash(stableKey) / 0x1_0000_0000) * total;
-    chosen = weighted[weighted.length - 1].target;
-    for (const item of weighted) {
-      slot -= item.weight;
-      if (slot < 0) { chosen = item.target; break; }
-    }
-    detail = `stable-key=${stableKey}; effective-weights=${weighted.map(({ target, weight }) => `${target.id}:${weight}`).join(",")}`;
+    const ranked = weighted.map((item) => {
+      // Weighted rendezvous hashing gives a stable proportional choice plus a
+      // complete retry order, without a shared mutable round-robin counter.
+      const unit = stableUnit(`${stableKey}\u0000${item.target.id}`);
+      return { ...item, score: -Math.log(unit) / item.weight };
+    }).sort((left, right) => left.score - right.score);
+    candidates = ranked.map(({ target }) => target);
+    chosen = candidates[0];
+    detail = `stable-key=${stableKey}; effective-weights=${weighted.map(({ target, weight }) => `${target.id}:${Number(weight.toFixed(3))}`).join(",")}`;
   } else {
     chosen = candidates[0];
-    detail = `order=${targets.map(({ id }) => id).join(" -> ")}`;
+    detail = `order=${targets.filter(routeCompatible).map(({ id }) => id).join(" -> ")}`;
   }
 
   const fallbacks = requestedTarget === undefined ? candidates.filter(({ id }) => id !== chosen.id) : [];
-  const selectionReason = `${requestedProvider === "auto" ? "" : `explicit provider=${requestedProvider}; `}mode=${policy.mode}; target=${chosen.id}; pressure=${targetPressures[chosen.id]}; ${detail}`;
+  const routeReason = tier && reasoning ? `route=${tier}/${reasoning}; ` : "";
+  const selectionReason = `${requestedProvider === "auto" ? "" : `explicit provider=${requestedProvider}; `}${routeReason}mode=${policy.mode}; target=${chosen.id}; pressure=${targetPressures[chosen.id]}; ${detail}`;
+  const allocationEvidenceByTarget = policy.mode === "balanced"
+    ? Object.fromEntries(balancedAllocationEstimates(
+      availability, policy, tier, reasoning, model,
+      capabilities,
+    ).map((estimate) => [estimate.target, estimate.allocationEvidence]))
+    : undefined;
   const decision: RoutingDecision = {
     requested: requestedProvider,
     requestedProvider,
@@ -335,6 +697,7 @@ export function selectProviderFromAvailability(
     entitlementPressure: targetPressures[chosen.id],
     targetEntitlementPressures: targetPressures,
     entitlementPressures: policy.pressures,
+    ...(allocationEvidenceByTarget ? { allocationEvidenceByTarget } : {}),
   };
   // RoutingDecision remains live for final provider/model/pressure attribution,
   // but the explanation of the original allocator choice is provenance. Make
@@ -349,12 +712,39 @@ export function selectProviderFromAvailability(
 export function selectProvider(
   requested?: RoutingPreference,
   policy: ResourcePolicy = resourcePolicyFromEnv(),
-  context: { tier?: SemanticTier; stableKey?: string } = {},
+  context: {
+    tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string;
+    capabilities?: readonly GafferCapability[];
+  } = {},
+  dependencies: {
+    probeAnthropic?: typeof probeAnthropic;
+    probeOpenAI?: typeof probeOpenAI;
+  } = {},
 ): RoutingDecision {
   const preference = requested ?? (process.env.AGENT_PROVIDER as ProviderPreference | undefined) ?? "auto";
-  const availability = orderedTargets(policy).map((target) => ({
-    ...(target.provider === "anthropic" ? probeAnthropic(target) : probeOpenAI(target)),
-    targetId: target.id,
-  }));
-  return selectProviderFromAvailability(preference, availability, policy, context.tier, context.stableKey);
+  const request = typeof preference === "string" ? { provider: preference } : preference;
+  const requestedProvider = request.provider ?? "auto";
+  const probeTargets = orderedTargets(policy).filter((target) =>
+    request.target !== undefined ? target.id === request.target
+      : requestedProvider !== "auto" ? target.provider === requestedProvider
+        : true);
+  const availability = probeTargets.map((target) => {
+    try {
+      return {
+        ...(target.provider === "anthropic"
+          ? (dependencies.probeAnthropic ?? probeAnthropic)(target)
+          : (dependencies.probeOpenAI ?? probeOpenAI)(target)),
+        targetId: target.id,
+      };
+    } catch {
+      return {
+        targetId: target.id, provider: target.provider, installed: false,
+        authenticated: false, available: false, reason: "unknown" as const,
+      };
+    }
+  });
+  const reasoning = context.reasoning
+    ?? (process.env.AGENT_REASONING ?? process.env.AGENT_EFFORT) as Effort | undefined;
+  return selectProviderFromAvailability(preference, availability, policy,
+    context.tier, context.stableKey, reasoning, context.model, context.capabilities);
 }

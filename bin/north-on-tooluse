@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# north-on-tooluse — Claude Code PostToolUse "mail heartbeat".
+# north-on-tooluse — Claude Code / Codex PostToolUse "mail heartbeat".
 # After EVERY tool call, surface any new north peer-messages for this agent via
 # hookSpecificOutput.additionalContext — no background task, no re-arm. Must NEVER block
 # or error out a tool call: bounded by `timeout`, swallows errors, always exits 0. jq-free
@@ -13,6 +13,26 @@ jget_effort() {
 }
 cwd="$(jget cwd)"; [ -z "$cwd" ] && cwd="$PWD"
 sid="$(jget session_id)"
+agent_id="$(jget agent_id)"
+IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
+# `agent_id` is ambiguous across provider hook surfaces: SubagentStart uses it
+# as the native actor id, while some PostToolUse emitters use an invocation-local
+# id that changes every call. It is actor evidence only when north-on-spawn has
+# already staked that exact key. Otherwise the stable session owns this tool
+# event. An unseen agent_id is never allowed to mint a roster row.
+agent_key="$(printf '%s' "$agent_id" | sed 's/[^A-Za-z0-9._-]/_/g')"
+spawn_staked_agent=0
+if [ -n "$agent_id" ] && [ -r "$IDDIR/$agent_key" ]; then
+  identity_key_source="$agent_id"
+  spawn_staked_agent=1
+elif [ -n "$sid" ]; then
+  identity_key_source="$sid"
+elif [ -n "${NORTH_AGENT_ID:-}" ]; then
+  identity_key_source="managed-${NORTH_AGENT_ID:-}"
+else
+  exit 0
+fi
+identity_key="$(printf '%s' "$identity_key_source" | sed 's/[^A-Za-z0-9._-]/_/g')"
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
 # identity resolution: per-session cache (written by north-on-spawn — the per-sid
@@ -22,27 +42,82 @@ RN="$(basename "$REPO")"
 # wrong actor). The cache is keyed by session_id, so it cannot alias. Env stays only
 # as a fallback for a process whose spawn hook never fired (e.g. SDK-dispatched).
 # Deriving from each tool call's cwd minted a phantom agent per repo (flood 2026-07-02).
-CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$sid"
-ROUTE_CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes/$sid"
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$identity_key"
+ROUTE_CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes/$identity_key"
+ROUTE_SEED="$ROUTE_CACHE.seed"
 ID=""
-if [ -n "$sid" ] && [ -r "$CACHE" ]; then
+if [ -r "$CACHE" ]; then
   ID="$(cat "$CACHE" 2>/dev/null || true)"
 fi
+[ "$spawn_staked_agent" -eq 1 ] && [ -z "$ID" ] && exit 0
 [ -z "$ID" ] && ID="${NORTH_AGENT_ID:-}"
 [ -z "$ID" ] && ID="session-$RN-${sid:0:8}"
-[ "$ID" = "session-$RN-" ] && ID="session-$RN-$RANDOM"
 
-# PostToolUse receives the effective effort used for the turn, both as the
-# structured input field and CLAUDE_EFFORT. It does not receive the active model,
+# Claude PostToolUse receives the effective effort used for the turn, both as
+# the structured input field and CLAUDE_EFFORT; Codex does not currently expose
+# effort to hooks. Neither surface sends the active model at PostToolUse,
 # so the per-session route cache carries only the last exact SessionStart model;
 # never infer one from tool input or ambient ANTHROPIC_MODEL.
 EFFORT="$(jget_effort)"; [ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-}"
 cached_provider=""; cached_model=""; cached_effort=""
-if [ -n "$sid" ] && [ -r "$ROUTE_CACHE" ]; then
+if [ -r "$ROUTE_CACHE" ]; then
   cached_provider="$(sed -n '1p' "$ROUTE_CACHE" 2>/dev/null || true)"
   cached_model="$(sed -n '2p' "$ROUTE_CACHE" 2>/dev/null || true)"
   cached_effort="$(sed -n '3p' "$ROUTE_CACHE" 2>/dev/null || true)"
 fi
+seed_provider=""; seed_model=""; seed_effort=""
+if [ ! -r "$ROUTE_CACHE" ] && [ -r "$ROUTE_SEED" ]; then
+  seed_provider="$(sed -n '1p' "$ROUTE_SEED" 2>/dev/null || true)"
+  seed_model="$(sed -n '2p' "$ROUTE_SEED" 2>/dev/null || true)"
+  seed_effort="$(sed -n '3p' "$ROUTE_SEED" 2>/dev/null || true)"
+fi
+
+# SessionStart deliberately publishes presence and identity best-effort. Under
+# coordinator contention the lease can land while one of the identity writes
+# times out; without repair that creates an online but unclassified roster row
+# for the full 30-minute lease. The route cache is committed only after every
+# SessionStart identity fact lands, so its absence is the retry signal. Rebuild
+# an honest minimal projection before renewing presence: provider may be known
+# from an exact runtime marker, while model/effort remain explicitly unobserved
+# unless this hook exposes effort. A later exact hook observation supersedes it.
+if [ ! -r "$ROUTE_CACHE" ]; then
+  NORTHBIN="$HOME/code/north/bin/north"
+  PROVIDER="$seed_provider"
+  case "${AGENT_PROVIDER:-}" in
+    anthropic|openai) PROVIDER="$AGENT_PROVIDER" ;;
+  esac
+  if [ -z "$PROVIDER" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_CI:-}" ]; }; then
+    PROVIDER="openai"
+  elif [ -z "$PROVIDER" ] && [ -n "${CLAUDECODE:-}" ]; then
+    PROVIDER="anthropic"
+  fi
+  cached_provider="${PROVIDER:-unobserved}"
+  cached_model="${seed_model:-unobserved}"
+  cached_effort="${EFFORT:-${seed_effort:-unobserved}}"
+  slug() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
+  }
+  provider_segment="$(slug "$cached_provider")"; [ -n "$provider_segment" ] || provider_segment="unobserved"
+  model_segment="$(slug "$cached_model")"; [ -n "$model_segment" ] || model_segment="unobserved"
+  effort_segment="$(slug "$cached_effort")"; [ -n "$effort_segment" ] || effort_segment="unobserved"
+  display_handle="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
+  projection_ok=1
+  timeout 4 "$NORTHBIN" tell "agent:$ID" kind session >/dev/null 2>&1 || projection_ok=0
+  timeout 4 "$NORTHBIN" tell "agent:$ID" repo "$RN" >/dev/null 2>&1 || projection_ok=0
+  timeout 4 "$NORTHBIN" tell "agent:$ID" provider "$cached_provider" >/dev/null 2>&1 || projection_ok=0
+  timeout 4 "$NORTHBIN" tell "agent:$ID" model "$cached_model" >/dev/null 2>&1 || projection_ok=0
+  timeout 4 "$NORTHBIN" tell "agent:$ID" effort "$cached_effort" >/dev/null 2>&1 || projection_ok=0
+  timeout 4 "$NORTHBIN" tell "agent:$ID" display_handle "$display_handle" >/dev/null 2>&1 || projection_ok=0
+  timeout 4 "$NORTHBIN" tell "agent:$ID" display_name "$display_handle" >/dev/null 2>&1 || projection_ok=0
+  if [ "$projection_ok" -eq 1 ]; then
+    route_tmp="$ROUTE_CACHE.$$.tmp"
+    if mkdir -p "$(dirname "$ROUTE_CACHE")" 2>/dev/null &&
+        printf '%s\n%s\n%s\n' "$cached_provider" "$cached_model" "$cached_effort" > "$route_tmp" 2>/dev/null; then
+      mv -f "$route_tmp" "$ROUTE_CACHE" 2>/dev/null || rm -f "$route_tmp" 2>/dev/null || true
+    fi
+  fi
+fi
+
 if [ -n "$EFFORT" ] && [ "$EFFORT" != "$cached_effort" ]; then
   NORTHBIN="$HOME/code/north/bin/north"
   projection_ok=1

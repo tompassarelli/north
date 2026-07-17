@@ -49,19 +49,25 @@ bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n     expected [%s] got [%s]\n' "$1
 eq()   { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "$2" "$3"; fi; }
 ne()   { if [ "$2" != "$3" ]; then ok "$1"; else bad "$1" "not $2" "$3"; fi; }
 
-json() { printf '{"session_id":"%s","cwd":"%s","hook_event_name":"%s"}' "$1" "$2" "$3"; }
+json() {
+  if [ -n "${4:-}" ]; then
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"%s","agent_id":"%s"}' "$1" "$2" "$3" "$4"
+  else
+    printf '{"session_id":"%s","cwd":"%s","hook_event_name":"%s"}' "$1" "$2" "$3"
+  fi
+}
 
 # run a hook with a controlled env; returns the id it registered (via the shim).
-# usage: reg=$(run_hook <hookpath> <sid> <evt> [PIN])
+# usage: reg=$(run_hook <hookpath> <sid> <evt> [PIN] [AGENT_ID])
 run_hook() {
-  local hook="$1" sid="$2" evt="$3" pin="${4:-}"
+  local hook="$1" sid="$2" evt="$3" pin="${4:-}" agent_id="${5:-}"
   : > "$BB_REG_LOG"
   if [ -n "$pin" ]; then
-    json "$sid" "$REPO_DIR" "$evt" | env -i HOME="$HOME" PATH="$SHIM:$PATH" \
+    json "$sid" "$REPO_DIR" "$evt" "$agent_id" | env -i HOME="$HOME" PATH="$SHIM:$PATH" \
       XDG_RUNTIME_DIR="$XDG" BB_REG_LOG="$BB_REG_LOG" NORTH_PORT=1 \
       NORTH_AGENT_ID="$pin" bash "$hook" >/dev/null 2>&1
   else
-    json "$sid" "$REPO_DIR" "$evt" | env -i HOME="$HOME" PATH="$SHIM:$PATH" \
+    json "$sid" "$REPO_DIR" "$evt" "$agent_id" | env -i HOME="$HOME" PATH="$SHIM:$PATH" \
       XDG_RUNTIME_DIR="$XDG" BB_REG_LOG="$BB_REG_LOG" NORTH_PORT=1 \
       bash "$hook" >/dev/null 2>&1
   fi
@@ -88,6 +94,14 @@ ne "subagent does NOT alias parent id"  "session-fram-d5523b3b" "$reg"
 eq "subagent gets own derived id"       "session-fram-aaaa1111" "$reg"
 eq "subagent cache file == own id"      "session-fram-aaaa1111" "$(cache_of "$SUB")"
 eq "parent cache untouched"             "session-fram-d5523b3b" "$(cache_of "$PARENT")"
+
+echo "== 2b. provider SubagentStart parent session_id + unique agent_id stays distinct =="
+NATIVE_AGENT="agent-eeee5555-0000-4000-8000-000000000005"
+reg="$(run_hook "$SPAWN" "$PARENT" SubagentStart "session-fram-d5523b3b" "$NATIVE_AGENT")"
+eq "native subagent derives from agent_id, not parent session_id" "session-fram-eeee5555" "$reg"
+eq "native subagent cache is keyed by agent_id" "session-fram-eeee5555" "$(cache_of "$NATIVE_AGENT")"
+reg="$(run_hook "$TOOLUSE" "$PARENT" PostToolUse "session-fram-d5523b3b" "$NATIVE_AGENT")"
+eq "native subagent tooluse renews its agent_id row" "session-fram-eeee5555" "$reg"
 
 echo "== 3. dispatch-style fresh process: env pin, NO prior owner -> keeps pin =="
 reg="$(run_hook "$SPAWN" "$FRESH" SessionStart "sdk-custom-xyz")"

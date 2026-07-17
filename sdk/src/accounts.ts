@@ -108,7 +108,7 @@ function readRoutingDocument(path: string): RoutingDocument {
   if (!existsSync(path)) {
     return {
       version: 1,
-      mode: "preferential",
+      mode: "balanced",
       targets: [],
       targetOrder: [],
       providerOrder: ["anthropic", "openai"],
@@ -257,7 +257,7 @@ export async function addProviderAccount(
 export function listProviderAccounts(context: AccountContext = {}): ProviderAccount[] {
   const path = routingPolicyPath(context);
   const document = readRoutingDocument(path);
-  return targetsOf(document, path).flatMap((target, index) => {
+  const accounts = targetsOf(document, path).flatMap<ProviderAccount>((target, index) => {
     if (target.authMode !== "isolated") return [];
     if (typeof target.id !== "string" || typeof target.profile !== "string" || typeof target.provider !== "string")
       throw new Error(`isolated routing target at targets[${index}] is incomplete`);
@@ -272,6 +272,16 @@ export function listProviderAccounts(context: AccountContext = {}): ProviderAcco
       root: accountRoot(target.provider, target.profile, context),
     }];
   });
+  const ownerByRoot = new Map<string, string>();
+  for (const account of accounts) {
+    const previous = ownerByRoot.get(account.root);
+    if (previous)
+      throw new Error(
+        `isolated routing targets ${previous} and ${account.id} share provider profile/root ${account.provider}/${account.profile}`,
+      );
+    ownerByRoot.set(account.root, account.id);
+  }
+  return accounts;
 }
 
 export function requireProviderAccount(id: string, context: AccountContext = {}): ProviderAccount {

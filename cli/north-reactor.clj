@@ -146,6 +146,12 @@
   (when-let [ts (north.coord/resolved port e "spawned_at")]
     (try (.toEpochMilli (java.time.Instant/parse ts)) (catch Throwable _ nil))))
 
+(defn driver-pairs []
+  (:ok (north.coord/send-op port {:op :query
+        :query {:find "row"
+                :rules [{:head {:rel "row" :args [{:var "e"} {:var "driver"}]}
+                         :body [{:rel "triple" :args [{:var "e"} "driver" {:var "driver"}]}]}]}})))
+
 ;; Crash-honesty: a reaped lane may have left a clock session open (SDK death path
 ;; never ran — hard kill). Close it via the SAME `north clock orphan` the SDK uses:
 ;; stamps end_time at detection + clock_orphaned so a silent death never leaves a
@@ -159,6 +165,34 @@
                 "clock" "orphan" h)
     (catch Throwable _ nil)))
 
+(defn release-orphaned-drivers! [h]
+  ;; A hard-killed dispatch cannot run its finally/release. Once the SAME lane
+  ;; crosses the 30-minute reap bar, retract only exact @<handle> driver refs.
+  ;; A successor that won between query and retract has a different object and
+  ;; is therefore untouched by the exact-value retraction.
+  (let [driver-ref (str "@" h)
+        threads (q-col [{:rel "triple" :args [{:var "e"} "driver" driver-ref]}])]
+    (doseq [thread threads]
+      (north.coord/retract! port thread "driver" driver-ref))))
+
+(defn sweep-unpublished-driver-claims! [dry?]
+  ;; Claim is intentionally the first dispatch side effect. A hard kill before
+  ;; identity publication therefore leaves no kind=lane row for sweep-lanes!.
+  ;; Current SDK IDs encode a mint timestamp; after the same 30-minute bar, an
+  ;; unpublished holder is unrecoverable and its exact driver ref can be retired.
+  ;; Legacy/malformed IDs have no trusted clock and are never guessed at.
+  (let [now (System/currentTimeMillis)
+        lanes (->> (q-col [{:rel "triple" :args [{:var "e"} "kind" "lane"]}])
+                   (map #(strip-sigil % "@agent:"))
+                   set)
+        hits (north.reap/orphaned-unpublished-driver-pairs now lanes (driver-pairs))]
+    (doseq [[thread driver-ref] hits]
+      (when-not dry? (north.coord/retract! port thread "driver" driver-ref))
+      (println (str "[sweep] " (if dry? "WOULD release" "released")
+                    " unpublished driver " driver-ref " from " thread
+                    "  age >=30min")))
+    (count hits)))
+
 (defn sweep-lanes! [dry?]
   (let [lanes (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "lane"]}]))
         now   (System/currentTimeMillis)
@@ -167,16 +201,16 @@
                           lane-oc  (north.coord/many port e "outcome")
                           l        (north.coord/lease-of port (str "session:" h))
                           lease-exp (:exp l)
-                          sp       (spawned-ms e)]
+                          sp       (or (spawned-ms e) (north.reap/sdk-agent-mint-ms h))]
                    :when (north.reap/reap-lane? now lane-oc (lane-resolved?* h) lease-exp sp)]
                {:e e :h h :lapse (north.reap/lane-lapse-ms now lease-exp sp)})]
     (doseq [{:keys [e h lapse]} hits]
       (when-not dry?
         (north.coord/put! port e "outcome" "died-unreported")
         (orphan-clock! h)                                                  ; close any orphan clock session the dead lane left open
-        (let [dn (north.coord/resolved port e "display_name")]
-          (when (and dn (not (str/starts-with? dn "✝ ")))
-            (north.coord/put! port e "display_name" (str "✝ " dn))))       ; recompute the projected name
+        (release-orphaned-drivers! h)                                      ; unblock threads held by the hard-killed lane
+        ;; Death is an outcome fact, not a mutation of identity/name caches.
+        ;; Every UI derives the terminal decoration from outcome.
         (let [coord (or (north.coord/resolved port e "coordinator")
                         (north.coord/resolved port e "supervisor"))]
           (when (and coord (seq coord)) (ping-coordinator coord h))))
@@ -240,7 +274,7 @@
 ;;       the stale head is dropped). Independent of outcome — a runaway log is bounded
 ;;       even while its agent is live.
 ;; The expensive terminal-outcome query is gated behind the cheap mtime filter, so a
-;; fleet of young logs costs zero coordinator round-trips. --dry-run prints WOULD-prune/
+;; set of young logs costs zero coordinator round-trips. --dry-run prints WOULD-prune/
 ;; WOULD-cap without writing. Dir override NORTH_AGENT_LOGS_DIR (tests only), mirroring
 ;; TRIPWIRE_LOG_DIR / sweep-repo.
 (def AGENT-LOG-STALE-MS (* 30 24 60 60 1000))    ; 30 days terminal -> prunable
@@ -301,14 +335,15 @@
 
 (defn sweep! [dry?]
   (let [nc (sweep-concerns! dry?) nl (sweep-lanes! dry?)
+        nd (sweep-unpublished-driver-claims! dry?)
         al (sweep-agent-logs! dry?)
         ca (maybe-clock-audit! dry?)]
     (println (str "[sweep] " (when dry? "(dry-run) ") "concerns abandoned=" nc
-                  " lanes reaped=" nl
+                  " lanes reaped=" nl " unpublished drivers released=" nd
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
                   " clock-audit=" (name ca)))
     (flush)
-    {:concerns nc :lanes nl :agent-logs al :clock-audit ca}))
+    {:concerns nc :lanes nl :unpublished-drivers nd :agent-logs al :clock-audit ca}))
 
 (defn sweep-loop []
   (loop []

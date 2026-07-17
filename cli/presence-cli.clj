@@ -14,6 +14,7 @@
 ;;   bb presence-cli.clj <port> renew    <handle>                     ; the new heartbeat
 ;;   bb presence-cli.clj <port> task     <handle> "<task>"
 ;;   bb presence-cli.clj <port> presence                             ; projection (replaces ls presence/ + age math)
+;;   bb presence-cli.clj <port> presence-online                      ; bounded live-only projection for cockpit/roster
 ;;   bb presence-cli.clj <port> slackers [minutes]                   ; derived: online + holds no work-lease
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[cheshire.core :as json] '[clojure.java.shell])
@@ -25,6 +26,7 @@
 ;; decode-lease/lease-of/online? — the renewable-lease liveness rule — ALSO live there
 ;; now, so this roster and concern-cli judge "online" by the exact same definition.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (def send-op  north.coord/send-op)
 (def append!  north.coord/append!)
 (def put!     north.coord/put!)
@@ -47,6 +49,50 @@
          (reduce (fn [m [e h]] (assoc m h [e h])) {})   ; one row per handle
          vals
          vec)))
+
+(def lease-session-prefix "@lease:session:")
+
+(defn online-sessions
+  "Return only unexpired session leases using one indexed graph query. The full
+   historical session registry contains thousands of lapsed rows, so enriching
+   all of it and filtering later makes live rosters grow without bound."
+  [port now]
+  (let [rows (:ok (send-op port {:op :query
+                                 :query {:find "lease"
+                                         :rules [{:head {:rel "lease" :args [{:var "e"} {:var "v"}]}
+                                                  :body [{:rel "triple" :args [{:var "e"} "lease" {:var "v"}]}]}]}}))]
+    (->> (or rows [])
+         (keep (fn [[entity value]]
+                 (let [entity (str entity)
+                       lease (decode-lease value)]
+                   (when (and (str/starts-with? entity lease-session-prefix)
+                              lease (> (:exp lease) now))
+                     (let [handle (subs entity (count lease-session-prefix))]
+                       {:entity (str "@session:" handle) :handle handle :lease lease})))))
+         (reduce (fn [by-handle session] (assoc by-handle (:handle session) session)) {})
+         vals
+         vec)))
+
+(defn print-presence!
+  [port now session-rows]
+  (let [enriched (mapv (fn [{:keys [entity handle lease]}]
+                         (let [ae (str "@agent:" handle)
+                               l (or lease (lease-of port (str "session:" handle)))
+                               on (boolean (and l (> (:exp l) now)))
+                               pinned (= "true" (resolved port ae "pinned"))
+                               exp (if (and l on) (str (int (/ (- (:exp l) now) 1000)) "s") "lapsed")
+                               rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
+                               resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
+                               focus (or (resolved port entity "active_workflow")
+                                         (resolved port entity "current_thread")
+                                         (resolved port entity "task") "-")]
+                           {:h handle :on on :pinned pinned :exp exp :roles resp :focus focus}))
+                       session-rows)
+        sorted (sort-by (fn [r] [(not (:pinned r)) (not (:on r)) (:h r)]) enriched)]
+    (println (format "%-14s %-4s %-6s %-7s %-26s %s" "AGENT" "PIN" "ONLINE" "EXPIRES" "ROLES" "FOCUS"))
+    (doseq [r sorted]
+      (println (format "%-14s %-4s %-6s %-7s %-26s %s"
+                       (:h r) (if (:pinned r) " *" "") (if (:on r) "yes" "no") (:exp r) (:roles r) (:focus r))))))
 
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)
@@ -92,6 +138,11 @@
     ;; here is presently wire-identical to a bare append; the LWW becomes native once
     ;; thread B folds these into the engine cardinality FACT. Verb names the intent.
     (let [[h model effort ctx life sup] args, ae (str "@agent:" h)]
+      (north.topology-authority/require-self-agent! "identify peer agent" h)
+      (when (and (resolved port ae "identity_manifest_sha256")
+                 (or (and model (seq model)) (and effort (seq effort))))
+        (throw (ex-info "managed lane route identity is publisher-owned; presence identify may not rewrite model/effort"
+                        {:north/authority-denied true :agent h})))
       (when (and model  (seq model))  (put! port ae "model" model))           ; single
       (when (and effort (seq effort)) (put! port ae "effort" effort))         ; single
       (when (and ctx    (seq ctx))    (put! port ae "context_tokens" ctx))    ; single
@@ -121,21 +172,24 @@
     ;; wins — `holders` lists them in election order). A loser sees it lost on its next read and
     ;; yields — dup is cheaper than coordination. (Lease survives only for EXTERNAL resources.)
     "assign"                                ; <uuid> <slug>  — agent takes a role (coexist-elect)
-    (let [[h slug] args, ae (str "@agent:" h), re (str "@role:" slug)
-          excl (resolved port re "exclusivity")
-          prior (->> (send-op port {:op :query :query {:find "a"
-                       :rules [{:head {:rel "a" :args [{:var "a"}]}
-                                :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]}})
-                     :ok (mapv first) (remove #(= ae %)) vec)]
-      (append! port ae "holds" re)          ; coexist — both land, no lease
-      (if (= excl "exclusive")
-        (prn {:assigned re :to h :exclusive true :coexist true
-              :prior-holders prior
-              :note "exclusive resolved by coexist-elect (earliest holder wins; see `holders`)"})
-        (prn {:assigned re :to h :exclusive false})))
+    (let [[h slug] args]
+      (north.topology-authority/require-self-agent! "assign peer agent" h)
+      (let [ae (str "@agent:" h), re (str "@role:" slug)
+            excl (resolved port re "exclusivity")
+            prior (->> (send-op port {:op :query :query {:find "a"
+                         :rules [{:head {:rel "a" :args [{:var "a"}]}
+                                  :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]}})
+                       :ok (mapv first) (remove #(= ae %)) vec)]
+        (append! port ae "holds" re)          ; coexist — both land, no lease
+        (if (= excl "exclusive")
+          (prn {:assigned re :to h :exclusive true :coexist true
+                :prior-holders prior
+                :note "exclusive resolved by coexist-elect (earliest holder wins; see `holders`)"})
+          (prn {:assigned re :to h :exclusive false}))))
 
     "unassign"                              ; <uuid> <slug>  — drop the holds fact (no lease)
     (let [[h slug] args, ae (str "@agent:" h), re (str "@role:" slug)]
+      (north.topology-authority/require-self-agent! "unassign peer agent" h)
       (retract! port ae "holds" re)
       (prn {:unassigned re :from h}))
 
@@ -160,23 +214,11 @@
       (prn {:focus se :current_thread ct :active_workflow wf}))
 
     "presence"                              ; THE PROJECTION — agents + held roles + focus. Pinned first, then online, then rest.
-    (let [ss (or (sessions port) [])
-          enriched (mapv (fn [[e h]]
-                          (let [ae (str "@agent:" h)
-                                l (lease-of port (str "session:" h))
-                                on (boolean (and l (> (:exp l) now)))
-                                pinned (= "true" (resolved port ae "pinned"))
-                                exp (if (and l on) (str (int (/ (- (:exp l) now) 1000)) "s") "lapsed")
-                                rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
-                                resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
-                                focus (or (resolved port e "active_workflow") (resolved port e "current_thread") (resolved port e "task") "-")]
-                            {:h h :on on :pinned pinned :exp exp :roles resp :focus focus}))
-                        ss)
-          sorted (sort-by (fn [r] [(not (:pinned r)) (not (:on r)) (:h r)]) enriched)]
-      (println (format "%-14s %-4s %-6s %-7s %-26s %s" "AGENT" "PIN" "ONLINE" "EXPIRES" "ROLES" "FOCUS"))
-      (doseq [r sorted]
-        (println (format "%-14s %-4s %-6s %-7s %-26s %s"
-                         (:h r) (if (:pinned r) " *" "") (if (:on r) "yes" "no") (:exp r) (:roles r) (:focus r)))))
+    (print-presence! port now (mapv (fn [[entity handle]] {:entity entity :handle handle})
+                                    (or (sessions port) [])))
+
+    "presence-online"                       ; bounded projection used by live-only UIs
+    (print-presence! port now (online-sessions port now))
 
     "slackers"                              ; derived; replaces the polling slacker-detector/reaper
     (let [_mins (if (seq args) (parse-long (first args)) 10)
@@ -301,10 +343,14 @@
     ;; subject = the agent's self node @<handle> (its self-reference channel is implicit; this
     ;; ADDS threads beyond it). multi-valued: an agent watches many threads.
     "watch"                                 ; <uuid> <thread-ref>  — subscribe to a thread
-    (let [[h t] args] (prn (append! port (str "@agent:" h) "watches" t)))   ; multi (watches many threads)
+    (let [[h t] args]
+      (north.topology-authority/require-self-agent! "watch for peer agent" h)
+      (prn (append! port (str "@agent:" h) "watches" t)))   ; multi (watches many threads)
 
     "unwatch"                               ; <uuid> <thread-ref>  — drop a subscription
-    (let [[h t] args] (prn (retract! port (str "@agent:" h) "watches" t)))
+    (let [[h t] args]
+      (north.topology-authority/require-self-agent! "unwatch for peer agent" h)
+      (prn (retract! port (str "@agent:" h) "watches" t)))
 
     "subscriptions"                         ; <uuid>  — channel = uuid ∪ held roles ∪ watched threads
     (let [[h] args, ae (str "@agent:" h)
@@ -315,18 +361,19 @@
       (doseq [t (sort ws)] (println (str "  watches " t))))
 
     "compact"                               ; <uuid> — trigger context rotation for an agent
-    (let [[h] args
-          ae (str "@agent:" h)
-          roles (:values (send-op port {:op :resolved :te ae :p "holds"}))]
-      (if (empty? roles)
-        (do (println (str "no roles for " h " — nothing to rotate")) (System/exit 1))
-        (do (println (str "triggering compact for " h " roles=" (pr-str (map #(subs % 6) roles))))
-            (put! port ae "needs_rotation" "true")   ; single (flag; LWW intent)
-            (let [r (clojure.java.shell/sh "bash"
-                      (str (System/getenv "HOME") "/code/north/sdk/src/compact.sh") h)]
-              (println (:out r))
-              (when (seq (:err r)) (binding [*out* *err*] (println (:err r))))
-              (System/exit (:exit r))))))
+    (let [[h] args]
+      (north.topology-authority/require-self-agent! "compact peer agent" h)
+      (let [ae (str "@agent:" h)
+            roles (:values (send-op port {:op :resolved :te ae :p "holds"}))]
+        (if (empty? roles)
+          (do (println (str "no roles for " h " — nothing to rotate")) (System/exit 1))
+          (do (println (str "triggering compact for " h " roles=" (pr-str (map #(subs % 6) roles))))
+              (put! port ae "needs_rotation" "true")   ; single (flag; LWW intent)
+              (let [r (clojure.java.shell/sh "bash"
+                        (str (System/getenv "HOME") "/code/north/sdk/src/compact.sh") h)]
+                (println (:out r))
+                (when (seq (:err r)) (binding [*out* *err*] (println (:err r))))
+                (System/exit (:exit r)))))))
 
     (do (println "usage: presence-cli.clj <port> {register|renew|task|focus|forget|runmeta  (session/run)")
         (println "                                |identify|card  (agent card)")

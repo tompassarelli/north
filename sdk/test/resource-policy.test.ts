@@ -3,10 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  applyProviderUsageObservations, effectivePressure, loadProviderUsageObservations, loadResourcePolicy,
-  parseProviderUsageObservations, parseResourcePolicy, pressureFromUsageWindows, PRESSURE_TTL_MS,
+  applyProviderUsageObservations, automatedPressure, COLLECTION_FAILURE_TTL_MS, effectivePressure,
+  loadProviderUsageObservations, loadResourcePolicy, parseProviderUsageObservations, parseResourcePolicy,
+  pressureFromUsageWindows, PRESSURE_TTL_MS,
 } from "../src/resource-policy";
-import { resourcePolicyFromEnv, selectProviderFromAvailability } from "../src/provider-routing";
+import { balancedAllocationEstimates, resourcePolicyFromEnv, selectProviderFromAvailability } from "../src/provider-routing";
 import type { ProviderAvailability } from "../src/providers/types";
 
 const savedEnv = { ...process.env };
@@ -78,6 +79,28 @@ test("isolated target auth requires a strict portable profile slug", () => {
   }
 });
 
+test("isolated targets cannot double-count the same provider profile", () => {
+  expect(() => parseResourcePolicy({
+    version: 1,
+    mode: "balanced",
+    targets: [
+      { id: "claude-a", provider: "anthropic", authMode: "isolated", profile: "shared" },
+      { id: "claude-b", provider: "anthropic", authMode: "isolated", profile: "shared" },
+    ],
+  })).toThrow("isolated targets must not reuse the same provider/profile root");
+});
+
+test("ambient targets cannot double-count one physical provider account", () => {
+  expect(() => parseResourcePolicy({
+    version: 1,
+    mode: "balanced",
+    targets: [
+      { id: "claude-a", provider: "anthropic", authMode: "ambient" },
+      { id: "claude-b", provider: "anthropic", authMode: "ambient" },
+    ],
+  })).toThrow("ambient targets must not reuse the same provider account");
+});
+
 test("pressure becomes unknown after 24 hours while until overrides that TTL", () => {
   const observedAt = "2026-07-15T12:00:00Z";
   expect(effectivePressure({ state: "low", observedAt }, new Date(Date.parse(observedAt) + PRESSURE_TTL_MS))).toBe("low");
@@ -106,7 +129,7 @@ test("NORTH_ROUTING_POLICY selects a file and environment values override it", (
   expect(policy.envelopes?.month?.runs).toBe(1000);
 });
 
-test("a missing policy file retains historical defaults", () => {
+test("a missing policy file defaults to balanced allocation", () => {
   process.env.NORTH_ROUTING_POLICY = join(tmpdir(), "definitely-absent-north-policy.json");
   delete process.env.NORTH_ALLOCATION_MODE;
   delete process.env.NORTH_PROVIDER_ORDER;
@@ -116,13 +139,27 @@ test("a missing policy file retains historical defaults", () => {
   expect(loadResourcePolicy()).toBeUndefined();
   const defaults = resourcePolicyFromEnv();
   expect(defaults).toMatchObject({
-    mode: "preferential", providerOrder: ["anthropic", "openai"],
+    mode: "balanced", providerOrder: ["anthropic", "openai"],
     pressures: {}, weights: {},
   });
   expect(defaults.targets).toEqual([
     { id: "anthropic", provider: "anthropic", authMode: "ambient" },
     { id: "openai", provider: "openai", authMode: "ambient" },
   ]);
+});
+
+test("malformed advisory observation store cannot abort policy loading or selection", () => {
+  const broken = policyFile("placeholder");
+  writeFileSync(broken, "{");
+  process.env.NORTH_PROVIDER_OBSERVATIONS = broken;
+  process.env.NORTH_ROUTING_POLICY = join(tmpdir(), "north-absent-policy.json");
+  const policy = resourcePolicyFromEnv();
+  const availability: ProviderAvailability[] = [
+    { targetId: "anthropic", provider: "anthropic", available: true, reason: "ready" },
+    { targetId: "openai", provider: "openai", available: true, reason: "ready" },
+  ];
+  expect(() => selectProviderFromAvailability("auto", availability, policy, "standard", "broken-store", "medium"))
+    .not.toThrow();
 });
 
 test("loaded target order drives pure provider selection", () => {
@@ -169,6 +206,73 @@ test("latest fresh automated target observation wins and target/provider mismatc
   const result = applyProviderUsageObservations(manual, store, now);
   expect(result.pressures.anthropic).toBe("normal");
   expect(result.automatedPressureObservations?.["claude-primary"]?.observedAt).toBe("2026-07-16T11:00:00Z");
+});
+
+test("routing combines live telemetry sources conservatively without letting unknown erase known", () => {
+  const now = new Date("2026-07-16T12:00:00Z");
+  const manual = parseResourcePolicy(complete, "test-policy", now);
+  const knownAndUnknown = parseProviderUsageObservations({ version: 1, observations: [
+    { targetId: "claude-primary", provider: "anthropic",
+      source: "claude-agent-sdk:usage-control-experimental", observedAt: "2026-07-16T11:00:00Z",
+      windows: [{ limitId: "claude:seven_day", usedPercent: 55, resetsAt: "2026-07-18T12:00:00Z" }] },
+    { targetId: "claude-primary", provider: "anthropic",
+      source: "claude-agent-sdk:rate-limit-event", observedAt: "2026-07-16T11:30:00Z", state: "unknown" },
+    { targetId: "claude-primary", provider: "anthropic",
+      source: "claude-code:statusline", observedAt: "2026-07-16T11:45:00Z",
+      windows: [{ limitId: "seven_day", usedPercent: 20, resetsAt: "2026-07-18T12:00:00Z" }] },
+  ] });
+  const result = applyProviderUsageObservations(manual, knownAndUnknown, now);
+  expect(result.pressures.anthropic).toBe("normal");
+  expect(result.automatedPressureObservations?.["claude-primary"]?.source)
+    .toBe("claude-agent-sdk:usage-control-experimental");
+
+  const exhaustedEvent = parseProviderUsageObservations({ version: 1, observations: [
+    ...knownAndUnknown.observations,
+    { targetId: "claude-primary", provider: "anthropic",
+      source: "claude-agent-sdk:rate-limit-event", observedAt: "2026-07-16T11:50:00Z", state: "exhausted" },
+  ] });
+  const exhausted = applyProviderUsageObservations(manual, exhaustedEvent, now);
+  expect(exhausted.pressures.anthropic).toBe("exhausted");
+  expect(exhausted.automatedPressureObservations?.["claude-primary"]?.source)
+    .toBe("claude-agent-sdk:rate-limit-event");
+});
+
+test("usage observation source is optional for legacy v1 stores but unknown provenance is rejected", () => {
+  expect(parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "claude-primary", provider: "anthropic", observedAt: "2026-07-16T11:00:00Z", state: "normal",
+  }] }).observations[0].source).toBeUndefined();
+  expect(() => parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "claude-primary", provider: "anthropic", source: "provider:raw-diagnostic",
+    observedAt: "2026-07-16T11:00:00Z", state: "normal",
+  }] })).toThrow("source is not a recognized provider usage source");
+});
+
+test("fresh collection failure preserves only a still-live proven exhaustion", () => {
+  const now = new Date("2026-07-16T12:00:00Z");
+  const failure = { observedAt: "2026-07-16T11:59:00Z", reason: "anthropic_usage_probe_failed" as const };
+  const exhausted = parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "claude-primary", provider: "anthropic", source: "claude-agent-sdk:usage-control-experimental",
+    observedAt: "2026-07-10T00:00:00Z",
+    windows: [{ usedPercent: 100, resetsAt: "2026-07-17T00:00:00Z" }],
+    collectionFailure: failure,
+  }] }).observations[0];
+  expect(automatedPressure(exhausted, now)).toBe("exhausted");
+
+  const normal = { ...exhausted, windows: [{ usedPercent: 60, resetsAt: "2026-07-17T00:00:00Z" }] };
+  expect(automatedPressure(normal, now)).toBe("unknown");
+  expect(automatedPressure(normal, new Date(now.getTime() + COLLECTION_FAILURE_TTL_MS + 1))).toBeUndefined();
+});
+
+test("collection failure schema is fixed and rejects provider-controlled reasons", () => {
+  const parsed = parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "codex-primary", provider: "openai", observedAt: "2026-07-16T11:00:00Z", state: "unknown",
+    collectionFailure: { observedAt: "2026-07-16T11:30:00Z", reason: "codex_usage_probe_timed_out" },
+  }] });
+  expect(parsed.observations[0].collectionFailure?.reason).toBe("codex_usage_probe_timed_out");
+  expect(() => parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "codex-primary", provider: "openai", observedAt: "2026-07-16T11:00:00Z", state: "unknown",
+    collectionFailure: { observedAt: "2026-07-16T11:30:00Z", reason: "provider says secret stuff" },
+  }] })).toThrow("collectionFailure.reason is not recognized");
 });
 
 test("same-provider targets retain independent manual and automated pressures", () => {
@@ -225,13 +329,127 @@ test("expired automated windows do not mask a fresh manual policy observation", 
   expect(applyProviderUsageObservations(manual, store, now).pressures.anthropic).toBe("plenty");
 });
 
-test("a fresh automated unknown is an observation and overrides a manual state", () => {
+test("a fresh automated unknown cannot erase a known manual pressure", () => {
   const now = new Date("2026-07-16T12:00:00Z");
   const manual = parseResourcePolicy(complete, "test-policy", now);
   const store = parseProviderUsageObservations({ version: 1, observations: [{
     targetId: "claude-primary", provider: "anthropic", state: "unknown", observedAt: "2026-07-16T11:00:00Z",
   }] });
-  expect(applyProviderUsageObservations(manual, store, now).pressures.anthropic).toBe("unknown");
+  expect(applyProviderUsageObservations(manual, store, now).pressures.anthropic).toBe("plenty");
+});
+
+test("manual exhaustion remains in force when automated telemetry is unknown", () => {
+  const now = new Date("2026-07-16T12:00:00Z");
+  const manual = parseResourcePolicy({
+    version: 1,
+    mode: "balanced",
+    targets: [{ id: "claude-primary", provider: "anthropic" }],
+    pressures: {
+      "claude-primary": { state: "exhausted", observedAt: "2026-07-16T11:00:00Z" },
+    },
+  }, "test-policy", now);
+  const store = parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "claude-primary", provider: "anthropic",
+    source: "claude-agent-sdk:rate-limit-event", state: "unknown",
+    observedAt: "2026-07-16T11:30:00Z",
+  }] });
+  const observed = applyProviderUsageObservations(manual, store, now);
+  expect(observed.targetPressures?.["claude-primary"]).toBe("exhausted");
+  expect(observed.pressures.anthropic).toBe("exhausted");
+});
+
+test("explicit-source telemetry suppresses duplicate source-less migration observations", () => {
+  const now = new Date("2026-07-16T12:00:00Z");
+  const manual = parseResourcePolicy(complete, "test-policy", now);
+  const store = parseProviderUsageObservations({ version: 1, observations: [
+    { targetId: "claude-primary", provider: "anthropic", state: "exhausted",
+      observedAt: "2026-07-16T11:45:00Z" },
+    { targetId: "claude-primary", provider: "anthropic",
+      source: "claude-agent-sdk:usage-control-experimental", state: "plenty",
+      observedAt: "2026-07-16T11:30:00Z" },
+  ] });
+  const observed = applyProviderUsageObservations(manual, store, now);
+  expect(observed.targetPressures?.["claude-primary"]).toBe("plenty");
+  expect(observed.automatedPressureObservations?.["claude-primary"]?.source)
+    .toBe("claude-agent-sdk:usage-control-experimental");
+});
+
+test("explicit unknown telemetry cannot suppress a live legacy exhaustion", () => {
+  const now = new Date("2026-07-16T12:00:00Z");
+  const manual = parseResourcePolicy(complete, "test-policy", now);
+  const store = parseProviderUsageObservations({ version: 1, observations: [
+    { targetId: "claude-primary", provider: "anthropic", state: "exhausted",
+      observedAt: "2026-07-16T11:00:00Z" },
+    { targetId: "claude-primary", provider: "anthropic",
+      source: "claude-agent-sdk:rate-limit-event", state: "unknown",
+      observedAt: "2026-07-16T11:30:00Z" },
+  ] });
+  const observed = applyProviderUsageObservations(manual, store, now);
+  expect(observed.targetPressures?.["claude-primary"]).toBe("exhausted");
+});
+
+test("provider usage provenance rejects cross-provider sources and failure reasons", () => {
+  expect(() => parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "claude", provider: "anthropic", source: "codex-app-server:account-rate-limits",
+    observedAt: "2026-07-16T11:00:00Z", state: "normal",
+  }] })).toThrow("source does not belong to provider anthropic");
+  expect(() => parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "codex", provider: "openai", source: "codex-app-server:account-rate-limits",
+    observedAt: "2026-07-16T11:00:00Z", state: "unknown",
+    collectionFailure: { observedAt: "2026-07-16T11:00:00Z", reason: "anthropic_usage_probe_failed" },
+  }] })).toThrow("reason does not belong to provider openai");
+});
+
+test("proven exhaustion survives observation TTL until its provider reset", () => {
+  const observedAt = "2026-07-10T00:00:00Z";
+  const reset = "2026-07-20T00:00:00Z";
+  const observation = parseProviderUsageObservations({ version: 1, observations: [{
+    targetId: "claude", provider: "anthropic",
+    source: "claude-agent-sdk:usage-control-experimental", observedAt,
+    windows: [{ limitId: "claude:seven_day", usedPercent: 100, resetsAt: reset }],
+  }] }).observations[0];
+  expect(automatedPressure(observation, new Date("2026-07-16T12:00:00Z"))).toBe("exhausted");
+  expect(automatedPressure(observation, new Date("2026-07-21T00:00:00Z"))).toBeUndefined();
+});
+
+test("explicit environment pressure and weights dominate automated/file policy at selection", () => {
+  const now = new Date();
+  const base: any = {
+    version: 1, mode: "balanced",
+    targets: [
+      { id: "claude", provider: "anthropic", authMode: "ambient" },
+      { id: "codex", provider: "openai", authMode: "ambient" },
+    ],
+    targetOrder: ["claude", "codex"], providerOrder: ["anthropic", "openai"],
+    pressures: {}, weights: { anthropic: 3, openai: 2 },
+    targetWeights: { claude: 3, codex: 2 },
+    targetPressures: { claude: "plenty", codex: "plenty" },
+    automatedPressureObservationSets: {
+      claude: [{ targetId: "claude", provider: "anthropic",
+        source: "claude-agent-sdk:usage-control-experimental", observedAt: now.toISOString(),
+        windows: [{ usedPercent: 10, resetsAt: "2099-01-01T00:00:00Z" }] }],
+    },
+  };
+  const availability: ProviderAvailability[] = [
+    { targetId: "claude", provider: "anthropic", available: true, reason: "ready" },
+    { targetId: "codex", provider: "openai", available: true, reason: "ready" },
+  ];
+  process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE = "exhausted";
+  const emptyStore = { version: 1 as const, observations: [] };
+  const pressureOverride = resourcePolicyFromEnv(base, emptyStore);
+  expect(selectProviderFromAvailability(
+    "auto", availability, pressureOverride, "standard", "operator-pressure", "medium",
+  ).target).toBe("codex");
+
+  delete process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE;
+  process.env.NORTH_PROVIDER_WEIGHTS = "anthropic=100,openai=1";
+  const weightOverride = resourcePolicyFromEnv(base, emptyStore);
+  const estimates = balancedAllocationEstimates(availability, weightOverride, "standard", "medium");
+  expect(weightOverride.targetWeights).toEqual({ claude: 100, codex: 1 });
+  const claude = estimates.find(({ target }) => target === "claude")!;
+  const codex = estimates.find(({ target }) => target === "codex")!;
+  expect(claude.effectiveWeight / codex.effectiveWeight).toBe(100);
+  expect(claude.approximateShare).toBeCloseTo(100 / 101, 6);
 });
 
 test("explicit environment pressure overrides fresh automated and manual observations", () => {

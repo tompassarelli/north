@@ -57,13 +57,15 @@ export function runGuardScript(
   scriptPath: string,
   hookInput: unknown,
   timeoutMs = 10000,
+  env?: NodeJS.ProcessEnv,
 ): Promise<GuardDecision> {
   return new Promise((resolveP) => {
     let child;
     try {
-      // Execute the script directly so its shebang picks the interpreter. env is
-      // inherited (no `env` option = default = parent env passthrough).
-      child = spawn(scriptPath, [], { stdio: ["pipe", "pipe", "pipe"] });
+      // Execute the script directly so its shebang picks the interpreter. Callers
+      // may add per-lane topology without mutating shared process.env; otherwise
+      // Node inherits the parent environment unchanged.
+      child = spawn(scriptPath, [], { stdio: ["pipe", "pipe", "pipe"], ...(env ? { env } : {}) });
     } catch {
       return resolveP(ALLOW); // spawn threw synchronously -> fail-open
     }
@@ -136,9 +138,10 @@ export async function evaluateGuards(
   scriptPaths: string[],
   hookInput: unknown,
   timeoutMs = 10000,
+  env?: NodeJS.ProcessEnv,
 ): Promise<GuardDecision> {
   for (const p of scriptPaths) {
-    const d = await runGuardScript(p, hookInput, timeoutMs);
+    const d = await runGuardScript(p, hookInput, timeoutMs, env);
     if (d.decision === "deny") return d;
   }
   return ALLOW;

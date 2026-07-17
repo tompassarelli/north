@@ -9,5 +9,9 @@ rl.on("line", (line) => {
   const result = fixture[request.method];
   if (result === "exit") return process.exit(9);
   if (result === "never") return;
+  if (result?.$error) {
+    if (typeof result.$stderr === "string") process.stderr.write(result.$stderr);
+    return setTimeout(() => process.stdout.write(`${JSON.stringify({ id: request.id, error: result.$error })}\n`), delay);
+  }
   setTimeout(() => process.stdout.write(`${JSON.stringify({ id: request.id, result })}\n`), delay);
 });

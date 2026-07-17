@@ -1,12 +1,20 @@
 // Agent identity facts — ids stay meaningless + immutable; everything meaningful
 // is a FACT on @agent:<id> in the coordination log (design: thread 019f40f8).
 // Predicates (single-valued, declared via the schema-write gate): kind role model
-// provider provider_target effort composition_kind composition_id goal spawned_at display_handle
-// display_name; repo stays multi (threads span repos).
-// Writes shell to the installed `north tell` (the proven serialized OCC path) and
-// are NON-FATAL: a facts failure must never kill a spawn.
+// provider provider_target effort composition_kind composition_id composition_overrides
+// composition_override_reason goal spawned_at display_handle display_name; repo stays
+// multi (threads span repos).
+// Initial publication is a hard pre-provider gate. The scoped writer clears any
+// prior generation, writes the exact projection, reads it back, and commits a
+// manifest marker last. Route refresh and terminal outcome remain lifecycle
+// telemetry, with required-vs-advisory behavior chosen by their callers.
 import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
+import {
+  BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION,
+} from "./bespoke-contract";
+export { bespokeContractFingerprint } from "./bespoke-contract";
 
 // NORTH_BIN override mirrors death.ts/clock.ts/children.ts/watchdog.ts, so the whole
 // coordinator-writing surface resolves the SAME engine — and a hermetic test that points
@@ -15,8 +23,10 @@ import { resolve } from "node:path";
 // port) and wrote test agents into the production graph.
 const REPO = resolve(import.meta.dir, "..", "..");
 const northBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
+const internalWriter = resolve(REPO, "cli/agent-fact-internal.clj");
 
-export interface AgentIdentity {
+/** Read-side projection. `none` is accepted only for historical native rows. */
+export interface ObservedAgentIdentity {
   kind: "lane" | "session" | "cron";
   role?: string;
   model?: string; // tier name as spawned (opus|sonnet|haiku); SDK resolves the full id
@@ -25,6 +35,14 @@ export interface AgentIdentity {
   effort?: string;
   compositionKind?: "preset" | "bespoke" | "none";
   compositionId?: string;
+  compositionOverrides?: string[];
+  compositionOverrideReason?: string;
+  compositionNearestPreset?: string;
+  compositionBespokeReason?: string;
+  compositionPromotionCandidate?: boolean;
+  compositionContractFingerprint?: string;
+  compositionContractFingerprintVersion?: string;
+  compositionContractFingerprintDomain?: string;
   repo?: string;
   goal?: string;
   // spawning coordinator handle. Persisted (not just held at ping time) so it survives
@@ -33,6 +51,16 @@ export interface AgentIdentity {
   // compute ping-loss (lanes that carried a coordinator but landed no COMPLETE/DEATH).
   coordinator?: string;
 }
+
+/** Write-side contract for every North-managed provider lane. */
+export interface ManagedLaneIdentity extends ObservedAgentIdentity {
+  kind: "lane";
+  role: string;
+  compositionKind: "preset" | "bespoke";
+  compositionId: string;
+}
+
+export type AgentIdentity = ObservedAgentIdentity;
 
 const component = (value?: string) => {
   const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -45,12 +73,50 @@ const shortModel = (m?: string) => {
   return normalized;
 };
 const idSuffix = (id: string) => component(id.split("-").at(-1));
+const ROUTING_OVERRIDE_FIELDS = new Set([
+  "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture",
+]);
+const SAFE_ROLE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+
+export function userAnchoredPath(path: string): string {
+  const home = homedir().replace(/\/+$/, "");
+  return path === home ? "~" : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+function validPresetOverrides(f: AgentIdentity): string[] | undefined {
+  if (f.compositionOverrides === undefined) return undefined;
+  const overrides = f.compositionOverrides;
+  if (new Set(overrides).size !== overrides.length
+      || overrides.some((field) => !ROUTING_OVERRIDE_FIELDS.has(field))) return undefined;
+  if (overrides.length > 0 !== Boolean(f.compositionOverrideReason?.trim())) return undefined;
+  return overrides;
+}
 
 export function gafferProvenance(f: AgentIdentity): string {
-  if (f.compositionKind === "preset") return `gaffer:${f.compositionId ? component(f.compositionId) : "unknown"}`;
-  if (f.compositionKind === "bespoke") return `gaffer:bespoke(${f.compositionId ? component(f.compositionId) : "unknown"})`;
-  if (f.compositionKind === "none" || f.kind === "session") return "gaffer:none";
-  return "gaffer:unknown";
+  // A provider-native session did not pass through North staffing. Managed
+  // lanes never borrow that honest label: missing or malformed composition
+  // facts are migration debt, not an unselected current routing decision.
+  if (f.kind === "session") return "gaffer:not-selected";
+  const role = f.role?.trim();
+  const compositionId = f.compositionId?.trim();
+  if (!role || !compositionId || !SAFE_ROLE_ID.test(role)
+      || !SAFE_ROLE_ID.test(compositionId) || role !== compositionId)
+    return "gaffer:legacy-debt";
+  if (f.compositionKind === "preset") {
+    const overrides = validPresetOverrides(f);
+    if (!overrides) return "gaffer:legacy-debt";
+    const base = `gaffer:${compositionId}`;
+    return overrides.length ? `${base}+override(${overrides.map(component).join(",")})` : base;
+  }
+  if (f.compositionKind === "bespoke"
+      && Boolean(f.compositionBespokeReason?.trim())
+      && typeof f.compositionPromotionCandidate === "boolean"
+      && SHA256.test(f.compositionContractFingerprint ?? "")
+      && f.compositionContractFingerprintVersion === BESPOKE_FINGERPRINT_VERSION
+      && f.compositionContractFingerprintDomain === BESPOKE_FINGERPRINT_DOMAIN)
+    return `gaffer:bespoke:${compositionId}`;
+  return "gaffer:legacy-debt";
 }
 
 /** Preserve an unknown native session as provider-only; managed routes always supply providerTarget. */
@@ -62,9 +128,7 @@ export function providerTargetLabel(f: AgentIdentity): string {
 }
 
 export function semanticHandle(id: string, f: AgentIdentity): string {
-  const composition = f.compositionKind === "none" || f.kind === "session"
-    ? "native"
-    : component(f.compositionId);
+  const composition = component(gafferProvenance(f));
   return [component(providerTargetLabel(f)), shortModel(f.model), component(f.effort), composition, idSuffix(id)].join("-");
 }
 
@@ -88,38 +152,47 @@ export function agentRouteFacts(agentId: string, f: AgentIdentity): Array<[strin
   ];
 }
 
-function tell(subject: string, pred: string, value: string) {
-  execFileSync(northBin(), ["tell", subject, pred, value], { stdio: "ignore", timeout: 10_000 });
-}
-
-/**
- * A deterministic lane id may be reused sequentially (dispatch ids are derived
- * from thread ids). Remove the prior generation's terminal marker before
- * publishing the new identity, otherwise a hard death in the new generation is
- * hidden forever by the old outcome. Simultaneous reuse remains unsupported:
- * callers must not run two live generations under one agent id concurrently.
- */
-export function clearAgentOutcome(agentId: string): void {
-  const subject = `agent:${agentId}`;
-  try {
-    const raw = execFileSync(northBin(), ["json", "show", subject], {
-      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000,
-    });
-    const facts = JSON.parse(raw) as Array<{ predicate?: string; value?: string }>;
-    for (const fact of facts) {
-      if (fact.predicate === "outcome" && fact.value)
-        execFileSync(northBin(), ["retract", subject, "outcome", fact.value], { stdio: "ignore", timeout: 10_000 });
+function writeHarnessAgentOperation(operation: "publish" | "route" | "outcome", subject: string, value: string) {
+  if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") {
+    // Hermetic tests point NORTH_BIN at a tiny capture engine. Preserve the
+    // ordinary fact-verb shape there so existing lifecycle assertions stay
+    // readable, while every production publication goes through the scoped
+    // readback/commit protocol below.
+    if (operation === "outcome") {
+      execFileSync(northBin(), ["tell", subject, "outcome", value], { stdio: "ignore", timeout: 10_000 });
+      return;
     }
-  } catch {
-    // Non-fatal like identity writes. A failed clear leaves the conservative
-    // terminal marker in place rather than blocking the worker from starting.
+    if (operation === "publish") {
+      try {
+        const raw = execFileSync(northBin(), ["json", "show", subject], {
+          encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000,
+        });
+        const current = JSON.parse(raw) as Array<{ predicate?: string; value?: string }>;
+        for (const fact of current) {
+          if (fact.predicate && fact.value)
+            execFileSync(northBin(), ["retract", subject, fact.predicate, fact.value], { stdio: "ignore", timeout: 10_000 });
+        }
+      } catch {
+        // A capture-only fake may not implement reads. Production never takes
+        // this branch; dedicated coordinator integration tests cover readback.
+      }
+    }
+    const facts = JSON.parse(value) as Record<string, string>;
+    for (const [predicate, factValue] of Object.entries(facts))
+      execFileSync(northBin(), ["tell", subject, predicate, factValue], { stdio: "ignore", timeout: 10_000 });
+    return;
   }
+  execFileSync("bb", [internalWriter, process.env.NORTH_PORT ?? "7977", operation, subject, value], {
+    stdio: "ignore", timeout: 10_000,
+  });
 }
 
-export function writeAgentFacts(agentId: string, f: AgentIdentity): void {
-  const subject = `agent:${agentId}`; // north tell @-prefixes bare ids
-  clearAgentOutcome(agentId);
-  const facts: Array<[string, string | undefined]> = [
+export function agentIdentityFacts(
+  agentId: string,
+  f: ManagedLaneIdentity,
+  spawnedAt = new Date().toISOString(),
+): Array<[string, string | undefined]> {
+  return [
     ["kind", f.kind],
     ["display_handle", semanticHandle(agentId, f)],
     ["role", f.role],
@@ -129,31 +202,38 @@ export function writeAgentFacts(agentId: string, f: AgentIdentity): void {
     ["effort", f.effort],
     ["composition_kind", f.compositionKind],
     ["composition_id", f.compositionId],
+    ["composition_overrides", f.compositionOverrides === undefined
+      ? undefined : JSON.stringify(f.compositionOverrides)],
+    ["composition_override_reason", f.compositionOverrideReason],
+    ["nearest_preset", f.compositionNearestPreset],
+    ["bespoke_reason", f.compositionBespokeReason],
+    ["promotion_candidate", f.compositionPromotionCandidate === undefined
+      ? undefined : String(f.compositionPromotionCandidate)],
+    ["composition_contract_sha256", f.compositionContractFingerprint],
+    ["composition_contract_fingerprint_version", f.compositionContractFingerprintVersion],
+    ["composition_contract_fingerprint_domain", f.compositionContractFingerprintDomain],
     ["repo", f.repo],
     ["goal", f.goal],
     ["coordinator", f.coordinator],
-    ["spawned_at", new Date().toISOString()],
+    ["spawned_at", spawnedAt],
     ["display_name", renderDisplayName(agentId, f)],
   ];
-  for (const [p, v] of facts) {
-    if (!v) continue;
-    try {
-      tell(subject, p, v);
-    } catch {
-      // non-fatal by design; presence falls back to the bare id
-    }
-  }
+}
+
+export function writeAgentFacts(agentId: string, f: ManagedLaneIdentity): void {
+  const subject = `agent:${agentId}`; // north tell @-prefixes bare ids
+  const facts = agentIdentityFacts(agentId, f);
+  const projection = Object.fromEntries(facts.filter((fact): fact is [string, string] => fact[1] !== undefined && fact[1] !== ""));
+  writeHarnessAgentOperation("publish", subject, JSON.stringify(projection));
 }
 
 // Refresh the route projection without resetting generation identity. This is
 // used when a pre-side-effect provider fallback activates or an in-flight
 // escalation changes model/effort. The control key and spawned_at stay stable.
 export function updateAgentRoute(agentId: string, f: AgentIdentity): void {
-  for (const [predicate, value] of agentRouteFacts(agentId, f)) {
-    if (!value) continue;
-    try { tell(`agent:${agentId}`, predicate, value); }
-    catch { /* identity telemetry is non-fatal */ }
-  }
+  const route = Object.fromEntries(agentRouteFacts(agentId, f)
+    .filter((fact): fact is [string, string] => fact[1] !== undefined && fact[1] !== ""));
+  writeHarnessAgentOperation("route", `agent:${agentId}`, JSON.stringify(route));
 }
 
 // Terminal-outcome fact on the agent entity ITSELF (@agent:<id>). The reactor's
@@ -169,7 +249,7 @@ export function updateAgentRoute(agentId: string, f: AgentIdentity): void {
 export function writeAgentOutcome(agentId: string, outcome: string): void {
   if (!outcome) return;
   try {
-    tell(`agent:${agentId}`, "outcome", outcome); // north tell @-prefixes the bare id -> @agent:<id>
+    writeHarnessAgentOperation("outcome", `agent:${agentId}`, outcome);
   } catch {
     // non-fatal; presence-lapse reap still catches a truly silent death
   }

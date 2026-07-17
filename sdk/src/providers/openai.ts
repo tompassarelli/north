@@ -5,8 +5,42 @@ import type { RoutingTarget } from "./types";
 import { probeOpenAI } from "../provider-routing";
 import type { AdapterUsageMetadata, TerminalTokenUsage, TokenTotalStatus } from "../usage";
 import { codexConfigArguments, providerEnvironmentForTarget } from "../accounts";
+import {
+  providerSupportsCapabilities, requireGafferCapabilities, type GafferCapability,
+} from "../gaffer-capabilities";
 
 function command(env: NodeJS.ProcessEnv): string { return env.NORTH_CODEX_BIN ?? "codex"; }
+
+const WORKER_NORTH_TOOLS = ["capture", "tell", "show", "ready", "next", "board", "plate"];
+
+/** Per-invocation Codex restrictions derived from the provider-neutral harness contract. */
+export function codexHarnessArguments(options: any): string[] {
+  const denied = new Set(Array.isArray(options?.disallowedTools) ? options.disallowedTools : []);
+  const args: string[] = [];
+  if (["Agent", "Task", "Workflow"].some((tool) => denied.has(tool))) {
+    // North is the canonical two-tier spawn surface; native Codex subagents would
+    // create an unobserved third authority path even for orchestrators.
+    args.push("--disable", "multi_agent");
+  }
+  if (denied.has("mcp__north__spawn") || denied.has("mcp__north__dispatch")) {
+    args.push("--config", `mcp_servers.north.enabled_tools=${JSON.stringify(WORKER_NORTH_TOOLS)}`);
+  }
+  const capabilities = codexCapabilities(options);
+  if (capabilities) {
+    args.push("--sandbox", capabilities.includes("shell.readonly") ? "read-only" : "workspace-write");
+    if (!capabilities.includes("web")) args.push("--config", 'web_search="disabled"');
+  }
+  return args;
+}
+
+function codexCapabilities(options: any): GafferCapability[] | undefined {
+  if (options?.northCapabilities === undefined) return undefined;
+  return requireGafferCapabilities(options.northCapabilities, "northCapabilities");
+}
+
+export function codexGlobalArguments(options: any): string[] {
+  return codexCapabilities(options)?.includes("web") ? ["--search"] : [];
+}
 
 export function probeCodex(target?: RoutingTarget): ProviderAvailability {
   return probeOpenAI(target);
@@ -96,12 +130,19 @@ class CodexQuery implements AgentQuery {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<any> {
+    const capabilities = codexCapabilities(this.options);
+    if (capabilities && !providerSupportsCapabilities("openai", capabilities))
+      throw new ProviderRetrySafeError("openai_adapter_cannot_enforce_gaffer_capabilities");
     const task = await initialPrompt(this.prompt);
     const prompt = this.options.systemPrompt
       ? `${this.options.systemPrompt}\n\n## Task\n${task}`
       : task;
     const env = providerEnvironmentForTarget("openai", this.target, { env: this.options.env });
-    const args = ["exec", ...codexConfigArguments(env), "--json", "--color", "never", "--skip-git-repo-check"];
+    const args = [
+      ...codexGlobalArguments(this.options),
+      "exec", ...codexConfigArguments(env), ...codexHarnessArguments(this.options),
+      "--json", "--color", "never", "--skip-git-repo-check",
+    ];
     const model = modelForCodex(this.options.model);
     if (model) args.push("--model", model);
     if (this.options.effort) args.push("--config", `model_reasoning_effort=${JSON.stringify(this.options.effort)}`);

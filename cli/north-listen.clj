@@ -17,72 +17,58 @@
 ;; shared coord substrate (Foundation Part B): wire helpers live once in cli/coord.clj
 ;; (rf/rmany = the single/multi resolved variants — semantics unchanged).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
-(def put!    north.coord/put!)
 (def rf      north.coord/resolved)
 (def rmany   north.coord/many)
-;; The live-driver ceiling uses the same distinct-count fold as quorum.
-(def count-distinct north.coord/count-distinct)
 (defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id] (append! port id "acked_by" me))   ; acked_by is multi — append (coexist)
-
-;; --- derived concurrency backstop ------------------------------------------
-;; Command execution is subscription-backed, so a malformed producer could otherwise
-;; enqueue an unbounded number of spawns. The safety backstop is derived from live
-;; `driver` facts rather than a mutable slot counter: count(live drivers) vs the ceiling.
-(def driver-max (Integer/parseInt (or (System/getenv "NORTH_SWARM_MAX") "64")))
-(defn live-drivers
-  "count-distinct subjects carrying a live `driver` fact — the derived concurrency
-   ceiling. The same count-distinct fold drives north-map's K-of-N barrier."
-  [port]
-  (count-distinct port ["s"] [{:rel "triple" :args [{:var "s"} "driver" {:var "a"}]}]))
-(defn with-driver-guard
-  "Run a blocking agent shell unless live drivers are already at the derived ceiling."
-  [port label thunk]
-  (let [live (live-drivers port)]
-    (if (>= live driver-max)
-      (println (str "   ⏸ driver ceiling (" live "/" driver-max " live) — backing off " label))
-      (do (println (str "   ⚙ run " label " (" live " live drivers)")) (flush)
-          (thunk)))))
 
 ;; --- Phase 1: the reactor — a forward-chaining rule over fact-patterns ------
 ;; The reactor NO LONGER string-parses a command envelope (the parse-envelope copy that
 ;; "MUST stay in sync" with msg-cli is DELETED). A command is FACTS on @cmd:<id>; the
 ;; reactor matches PENDING ones (op+target, NOT acked_by) via the shared Datalog rule
 ;; (coord/pending-cmds) and reads each arg as a fact with rf — no parsing, no settle sleep.
-(def sdk (or (System/getenv "NORTH_SDK") (str (System/getenv "HOME") "/code/north/sdk")))
+(def acquire-cli
+  (str (.getParent (io/file (System/getProperty "babashka.file"))) "/acquire-cli.clj"))
 
-;; EXECUTE one command (cmd = @cmd:<id>): REUSE dispatch.ts/spawn.ts as the executor. Args are
-;; read off the command's facts, not an envelope map. `self` = the reactor's handle (its uuid),
-;; passed as AGENT_ID so any command_peer a spawned/dispatched agent emits is attributed to the
-;; real handle (not a generated sdk-* id) — required for multi-hop routing/acks.
+;; Execute only operations whose effect is safely repeatable across listener
+;; crash/replay and rival subscribers. Peer spawn/dispatch require an atomic
+;; claim + child reconciliation protocol and are fail-closed this release; the
+;; canonical MCP/CLI spawn surfaces remain available.
 (defn react! [port self op cmd]
+  (north.topology-authority/require-coordination! "listen --react")
   (case op
-    "spawn"    (with-driver-guard port "spawn"
-                 (fn [] (let [prompt (rf port cmd "prompt") model (rf port cmd "model")]
-                          (println (str "   ⚙ spawn: " (pr-str prompt)))
-                          (proc/shell {:dir sdk :continue true
-                                       :extra-env (cond-> {"AGENT_ID" self} model (assoc "AGENT_MODEL" (str model)))}
-                                      "bun" "src/spawn.ts" (str prompt)))))
-    "dispatch" (with-driver-guard port "dispatch"
-                 (fn [] (let [thread (rf port cmd "thread")]
-                          (println (str "   ⚙ dispatch thread " thread))
-                          (proc/shell {:dir sdk :continue true :extra-env {"AGENT_ID" self}}
-                                      "bun" "src/dispatch.ts" (str thread)))))
+    "spawn"    {:ok false :retryable false
+                 :message "peer spawn is unsupported until atomic command claim + child reconciliation land; use North MCP/CLI spawn"}
+    "dispatch" {:ok false :retryable false
+                 :message "peer dispatch is unsupported until atomic command claim + child reconciliation land; use North MCP/CLI dispatch"}
     ;; tell — the most fact-native op: assert a single fact (id pred value). No executor.
     "tell"     (let [id (rf port cmd "id") pred (rf port cmd "pred") value (rf port cmd "value")]
-                 (append! port id pred value)
-                 (println (str "   ✓ told " id " " pred " " value)))
-    ;; acquire — work-acquire WITHOUT a reactor lease (the @lease:<thread> acquire-lease is DELETED,
-    ;; roadmap tier I + §3.5). A `driver` fact on the resource IS the lock (declared-single,
-    ;; last-writer-wins): graph-internal mutual exclusion collapses onto a fact, no parallel lease.
+                 (cond
+                   (some #(str/blank? (str %)) [id pred value])
+                   {:ok false :retryable false :message "tell requires id, pred, and value"}
+                   (str/starts-with? (str/replace-first (str id) #"^@" "") "agent:")
+                   {:ok false :retryable false :message "peer tell cannot mutate harness-owned @agent identity"}
+                   :else
+                   (let [result (append! port id pred value)]
+                     (if (:reject result)
+                       {:ok false :retryable true :message (str "coordinator rejected tell " id " " pred)}
+                       {:ok true :retryable false :message (str "told " id " " pred)}))))
+    ;; acquire — route every automatic pickup through the same OCC driver command
+    ;; as SDK dispatch. A no-base put! would be LWW and could silently steal a
+    ;; live dispatch's thread; acquire-cli denies a different holder instead.
     "acquire"  (let [res (rf port cmd "resource") holder (or (rf port cmd "holder") (rf port cmd "from") self)
-                     subj (if (str/starts-with? (str res) "@") res (str "@" res))]
-                 (put! port subj "driver" holder)
-                 (println (str "   ✓ acquired " subj " driver=" holder)))
-    (println (str "   ⚠ op " op " not wired in the reactor"))))
+                     subj (if (str/starts-with? (str res) "@") res (str "@" res))
+                     bare-holder (str/replace-first (str holder) #"^@" "")
+                     result (proc/sh {:out :string :err :string :continue true}
+                                     "bb" acquire-cli (str port) "acquire" subj bare-holder)]
+                 (if (zero? (:exit result))
+                   {:ok true :retryable false :message (str "acquired " subj " driver=@" bare-holder)}
+                   {:ok false :retryable true :message (str "acquire denied for " subj " — already driven")}))
+    {:ok false :retryable false :message (str "op " op " not wired in the reactor")}))
 
 ;; The forward-chaining loop: every PENDING command targeting one of my addrs -> execute,
 ;; ack (acked_by removes it from the pending set — exactly-once), and reply with a FACT
@@ -90,18 +76,43 @@
 (defn react-pending! [port self addrs]
   (doseq [[cmd op tgt] (sort (or (north.coord/pending-cmds port) []))]
     (when (contains? addrs tgt)
-      (println (format "⚙  REACT %s  op=%s  (target %s, from %s)" cmd op tgt (or (rf port cmd "from") "?"))) (flush)
-      (react! port self op cmd)
-      (ack! port self cmd)
-      (append! port cmd "reply" (str op " executed by " self))   ; reply = a fact
-      (println (str "   ↳ executed + acked_by " self)) (flush))))
+      (println (format "⚙  REACT %s  op=%s  (target %s, from %s)"
+                       cmd op tgt (or (rf port cmd "from") "?")))
+      (flush)
+      (let [result (try (react! port self op cmd)
+                        (catch Exception error
+                          {:ok false :retryable false :message (.getMessage error)}))]
+        (if (:ok result)
+          (do
+            (append! port cmd "execution_status" "succeeded")
+            (append! port cmd "reply" (str op " succeeded by " self ": " (:message result)))
+            ;; Terminal success marker LAST.
+            (ack! port self cmd)
+            (println (str "   ↳ succeeded + acked_by " self)))
+          (do
+            (append! port cmd "execution_status" "failed")
+            (doseq [prior (rmany port cmd "retryable")]
+              (north.coord/retract! port cmd "retryable" prior))
+            (append! port cmd "retryable" (str (boolean (:retryable result))))
+            (append! port cmd "failed_at" (str (java.time.Instant/now)))
+            (append! port cmd "reply" (str op " failed by " self
+                                           " retryable=" (boolean (:retryable result))
+                                           ": " (:message result)))
+            ;; Terminal failure marker LAST.
+            (append! port cmd "failed_by" self)
+            (println (str "   ↳ FAILED (not acknowledged) by " self
+                          " · retryable=" (boolean (:retryable result))))))
+        (flush)))))
 
 (let [[ps uuid & flags] *command-line-args*
       port    (Integer/parseInt ps)
       node    (str "@agent:" uuid)
       once?   (boolean (some #{"--once"} flags))
       ack?    (boolean (some #{"--ack"} flags))
-      react?  (boolean (some #{"--react"} flags))   ; Phase 1: execute command-envelope mail (spawn/dispatch) + ack
+      react?  (boolean (some #{"--react"} flags))   ; execute repeat-safe tell/acquire commands + terminal marker
+      _       (when-let [problem (and react? (north.topology-authority/authority-problem "listen --react"))]
+                (binding [*out* *err*] (println problem))
+                (System/exit 1))
       scoped? (boolean (some #{"--scoped"} flags))  ; P5: server-side scoped subscribe (daemon pushes only my commits)
       addrs   (atom (into #{uuid "*"} (keep role-slug (rmany port node "holds"))))  ; uuid ∪ held roles
       watched (atom (set (rmany port node "watches")))]
@@ -120,6 +131,9 @@
           (println (format "● @agent:%s listening%s — addrs %s + %d watched thread(s)%s"
                            uuid (if scoped? " [scoped]" "") (pr-str (sort @addrs)) (count @watched) (if once? "  [--once]" "")))
           (flush)
+          ;; Replay any repeat-safe command whose effect/diagnostics landed
+          ;; before its terminal marker when a prior listener crashed.
+          (when react? (react-pending! port uuid @addrs))
           (loop []
             (when-let [line (.readLine r)]
               (let [ev (try (edn/read-string line) (catch Exception _ nil))]
@@ -159,6 +173,14 @@
                             (react-pending! port uuid @addrs)   ; --react: execute + ack + reply
                             (println (format "⌘  COMMAND %s  op=%s  (target %s)" l (rf port l "op") r))) (flush)
                           (when once? (System/exit 0)))
+
+                      ;; Backward-compatible recovery for unscoped listeners and
+                      ;; historical producers that used failed_by retraction as
+                      ;; their activation edge.
+                      (and (= op "retract") (= p "failed_by")
+                           (str/starts-with? (str l) "@cmd:")
+                           (contains? @addrs (rf port l "target")))
+                      (do (when react? (react-pending! port uuid @addrs)) (flush))
 
                       ;; (d) watched-thread activity
                       (and (= op "assert") (contains? @watched l))

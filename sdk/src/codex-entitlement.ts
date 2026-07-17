@@ -3,14 +3,37 @@ import { createHash } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderUsageObservation, ProviderUsageWindow } from "./providers/types";
 import { writeProviderUsageObservations } from "./provider-observation-store";
-import { DEFAULT_PROVIDER_OBSERVATIONS_PATH, loadProviderUsageObservations, loadResourcePolicy } from "./resource-policy";
+import {
+  automatedPressure,
+  collectionFailureIsFresh,
+  DEFAULT_PROVIDER_OBSERVATIONS_PATH,
+  loadProviderUsageObservations,
+  loadResourcePolicy,
+} from "./resource-policy";
 import type { ResourcePolicy, RoutingPreference, RoutingTarget } from "./providers/types";
 import { withFileLease } from "./file-lease";
 import { codexConfigArguments, providerEnvironmentForTarget } from "./accounts";
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 export const CODEX_OBSERVATION_TTL_MS = 5 * 60 * 1000;
+export const CODEX_USAGE_SOURCE = "codex-app-server:account-rate-limits";
 const MAX_LINE_BYTES = 1024 * 1024;
+
+export type CodexUsageUnavailableReason =
+  | "codex_usage_command_unavailable"
+  | "codex_usage_probe_failed"
+  | "codex_usage_probe_timed_out"
+  | "codex_usage_response_schema_changed"
+  | "codex_usage_subscription_auth_required"
+  | "codex_usage_transport_failed"
+  | "codex_usage_windows_unavailable";
+
+export class CodexUsageUnavailableError extends Error {
+  constructor(readonly reason: CodexUsageUnavailableReason) {
+    super(reason);
+    this.name = "CodexUsageUnavailableError";
+  }
+}
 
 interface RpcResponse {
   id?: number;
@@ -57,9 +80,8 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function responseError(response: RpcResponse, method: string): Error {
-  const detail = response.error?.message ?? "missing result";
-  return new Error(`Codex app-server ${method} failed: ${detail}`);
+function responseError(_response: RpcResponse, _method: string): Error {
+  return new CodexUsageUnavailableError("codex_usage_transport_failed");
 }
 
 function request(
@@ -71,10 +93,10 @@ function request(
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     pending.set(id, { method, resolve, reject });
-    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, (error) => {
-      if (!error) return;
+    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, (writeError) => {
+      if (!writeError) return;
       pending.delete(id);
-      reject(new Error(`Codex app-server ${method} write failed: ${error.message}`));
+      reject(new CodexUsageUnavailableError("codex_usage_transport_failed"));
     });
   });
 }
@@ -96,7 +118,7 @@ function normalizedWindow(limitId: string, name: "primary" | "secondary", value:
  * provider headroom: exhausting one must not disable every OpenAI model.
  */
 export function normalizeCodexRateLimits(value: unknown): ProviderUsageWindow[] {
-  if (!record(value)) throw new Error("Codex app-server returned an invalid rate-limit response");
+  if (!record(value)) throw new CodexUsageUnavailableError("codex_usage_response_schema_changed");
   let snapshot: RateLimitSnapshot | undefined;
   const byId = value.rateLimitsByLimitId;
   if (record(byId) && record(byId.codex)) snapshot = byId.codex as RateLimitSnapshot;
@@ -104,9 +126,10 @@ export function normalizeCodexRateLimits(value: unknown): ProviderUsageWindow[] 
     const fallback = value.rateLimits as RateLimitSnapshot;
     if (fallback.limitId == null || fallback.limitId === "codex") snapshot = fallback;
   }
-  if (!snapshot) throw new Error("Codex app-server returned no shared codex rate-limit bucket");
-  const limitId = typeof snapshot.limitId === "string" && snapshot.limitId ? snapshot.limitId : "codex";
-  return [normalizedWindow(limitId, "primary", snapshot.primary), normalizedWindow(limitId, "secondary", snapshot.secondary)]
+  if (!snapshot) throw new CodexUsageUnavailableError("codex_usage_windows_unavailable");
+  // The selected bucket is already the shared `codex` subscription bucket;
+  // never echo its provider-controlled label into persisted or displayed IDs.
+  return [normalizedWindow("codex", "primary", snapshot.primary), normalizedWindow("codex", "secondary", snapshot.secondary)]
     .filter((window): window is ProviderUsageWindow => window !== undefined);
 }
 
@@ -127,7 +150,6 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
   });
   const pending = new Map<number, { method: string; resolve(value: unknown): void; reject(error: Error): void }>();
   let buffer = "";
-  let stderr = "";
   let terminalError: Error | undefined;
 
   const rejectAll = (error: Error) => {
@@ -139,7 +161,7 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
   child.stdout.on("data", (chunk: string) => {
     buffer += chunk;
     if (Buffer.byteLength(buffer) > MAX_LINE_BYTES) {
-      rejectAll(new Error("Codex app-server response exceeded 1 MiB"));
+      rejectAll(new CodexUsageUnavailableError("codex_usage_response_schema_changed"));
       child.kill("SIGKILL");
       return;
     }
@@ -161,16 +183,20 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
     }
   });
   child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-4096); });
-  child.on("error", (error) => rejectAll(new Error(`could not start Codex app-server: ${error.message}`)));
-  child.on("exit", (code, signal) => {
+  child.stderr.on("data", () => { /* drain only; provider diagnostics may contain secrets */ });
+  child.on("error", (error) => rejectAll(new CodexUsageUnavailableError(
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? "codex_usage_command_unavailable"
+      : "codex_usage_transport_failed",
+  )));
+  child.on("exit", () => {
     if (pending.size && !terminalError)
-      rejectAll(new Error(`Codex app-server exited before replying (${signal ?? code ?? "unknown"})${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+      rejectAll(new CodexUsageUnavailableError("codex_usage_transport_failed"));
   });
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timeout = setTimeout(() => {
-    rejectAll(new Error(`Codex app-server entitlement probe timed out after ${timeoutMs}ms`));
+    rejectAll(new CodexUsageUnavailableError("codex_usage_probe_timed_out"));
     child.kill("SIGKILL");
   }, timeoutMs);
   timeout.unref?.();
@@ -178,19 +204,20 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
     await request(child, pending, 1, "initialize", { clientInfo: { name: "north", version: "1" } });
     const account = await request(child, pending, 2, "account/read", {});
     if (!record(account) || !record(account.account) || account.account.type !== "chatgpt")
-      throw new Error("Codex is not authenticated through a ChatGPT subscription");
+      throw new CodexUsageUnavailableError("codex_usage_subscription_auth_required");
     const limits = await request(child, pending, 3, "account/rateLimits/read", null);
     const windows = normalizeCodexRateLimits(limits);
-    if (!windows.length) throw new Error("Codex shared subscription bucket has no usable reset windows");
+    if (!windows.length) throw new CodexUsageUnavailableError("codex_usage_windows_unavailable");
     return {
       targetId: options.target?.id ?? options.targetId ?? "openai",
       provider: "openai",
+      source: CODEX_USAGE_SOURCE,
       observedAt: (options.now ?? new Date()).toISOString(),
       windows,
     };
   } finally {
     clearTimeout(timeout);
-    for (const waiter of pending.values()) waiter.reject(new Error("Codex app-server entitlement probe closed"));
+    for (const waiter of pending.values()) waiter.reject(new CodexUsageUnavailableError("codex_usage_transport_failed"));
     pending.clear();
     child.kill("SIGTERM");
     const force = setTimeout(() => child.kill("SIGKILL"), 250);
@@ -221,11 +248,12 @@ export function shouldRefreshCodexEntitlement(requested: RoutingPreference | und
 
 function cachedCodexObservation(storePath: string | undefined, targetId: string): ProviderUsageObservation | undefined {
   return loadProviderUsageObservations(storePath)?.observations
-    .filter((entry) => entry.provider === "openai" && entry.targetId === targetId)
+    .filter((entry) => entry.provider === "openai" && entry.targetId === targetId && entry.source === CODEX_USAGE_SOURCE)
     .sort((left, right) => Date.parse(right.observedAt) - Date.parse(left.observedAt))[0];
 }
 
 function observationFresh(cached: ProviderUsageObservation | undefined, now: Date): boolean {
+  if (collectionFailureIsFresh(cached, now)) return true;
   const freshByAge = cached && now.getTime() - Date.parse(cached.observedAt) <= CODEX_OBSERVATION_TTL_MS;
   const hasLiveWindow = cached?.windows?.some(({ resetsAt }) => Date.parse(resetsAt) > now.getTime()) ?? cached?.state !== undefined;
   return Boolean(freshByAge && hasLiveWindow);
@@ -256,10 +284,28 @@ async function refreshOneCodexEntitlement(options: RefreshOptions): Promise<Prov
         });
       });
     } catch (error) {
+      const reason = error instanceof CodexUsageUnavailableError
+        ? error.reason
+        : "codex_usage_probe_failed";
+      const failed: ProviderUsageObservation = automatedPressure(cached, now) === "exhausted"
+        ? {
+            ...cached!,
+            collectionFailure: { observedAt: now.toISOString(), reason },
+          }
+        : {
+            targetId,
+            provider: "openai",
+            source: CODEX_USAGE_SOURCE,
+            observedAt: now.toISOString(),
+            state: "unknown",
+            collectionFailure: { observedAt: now.toISOString(), reason },
+          };
+      try { await writeProviderUsageObservations(failed, storePath); }
+      catch { /* the fixed diagnostic below still reports an unavailable observation path */ }
       (options.onDiagnostic ?? console.warn)(
-        `[north] Codex subscription headroom refresh unavailable; using ${cached ? "cached observation" : "unknown pressure"}: ${error instanceof Error ? error.message : String(error)}`,
+        `[north] Codex subscription headroom unavailable; pressure is unknown (${reason})`,
       );
-      return cached;
+      return failed;
     }
   })();
   refreshes.set(key, refresh);

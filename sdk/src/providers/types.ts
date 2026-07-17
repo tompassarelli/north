@@ -33,19 +33,66 @@ export interface ProviderUsageWindow {
   resetsAt: string;
 }
 
+export type ProviderUsageSource =
+  | "claude-agent-sdk:usage-control-experimental"
+  | "claude-agent-sdk:rate-limit-event"
+  | "claude-code:statusline"
+  | "codex-app-server:account-rate-limits";
+
+export interface ProviderUsageUnavailableComponent {
+  limitId: string;
+  reason: "reset_unavailable" | "utilization_unavailable" | "component_schema_changed";
+}
+
+export type ProviderUsageCollectionFailureReason =
+  | "anthropic_usage_capability_unavailable"
+  | "anthropic_usage_probe_failed"
+  | "anthropic_usage_probe_timed_out"
+  | "anthropic_usage_rate_limits_unavailable"
+  | "anthropic_usage_response_schema_changed"
+  | "anthropic_usage_windows_unavailable"
+  | "codex_usage_command_unavailable"
+  | "codex_usage_probe_failed"
+  | "codex_usage_probe_timed_out"
+  | "codex_usage_response_schema_changed"
+  | "codex_usage_subscription_auth_required"
+  | "codex_usage_transport_failed"
+  | "codex_usage_windows_unavailable";
+
+export interface ProviderUsageCollectionFailure {
+  observedAt: string;
+  reason: ProviderUsageCollectionFailureReason;
+}
+
 export interface ProviderUsageObservation {
   targetId: string;
   provider: ProviderId;
+  /** Missing only on v1 observations written before source provenance existed. */
+  source?: ProviderUsageSource;
   observedAt: string;
   until?: string;
   /** Adapter-normalized state when the provider does not expose numeric windows. */
   state?: EntitlementPressure;
   windows?: ProviderUsageWindow[];
+  /** Fixed, non-secret reasons that a provider-exposed component was omitted. */
+  unavailableComponents?: ProviderUsageUnavailableComponent[];
+  /** A failed refresh attached to the last trustworthy observation. */
+  collectionFailure?: ProviderUsageCollectionFailure;
 }
 
 export interface ProviderUsageObservationStore {
   version: 1;
   observations: ProviderUsageObservation[];
+}
+
+export interface AllocationEvidence {
+  kind: "numeric-headroom" | "categorical-pressure";
+  source: ProviderUsageSource | "legacy-observation" | "manual-policy" | "policy-default";
+  observedAt?: string;
+  limitId?: string;
+  usedPercent?: number;
+  resetsAt?: string;
+  collectionFailure?: ProviderUsageCollectionFailure;
 }
 
 export interface EnvelopeLimits {
@@ -74,7 +121,14 @@ export interface ResourcePolicy {
   /** Executable pressure keyed by routing target; provider pressures are a compatibility projection. */
   targetPressures?: Record<string, EntitlementPressure>;
   pressureObservations?: Record<string, PressureObservation>;
+  /**
+   * Compatibility projection of the most constraining provider observation per
+   * target. Route selection uses `automatedPressureObservationSets` so a
+   * model-scoped window cannot discard independent generic evidence.
+   */
   automatedPressureObservations?: Record<string, ProviderUsageObservation>;
+  /** Latest usable observation from every independent source, keyed by target. */
+  automatedPressureObservationSets?: Record<string, ProviderUsageObservation[]>;
   targetWeights?: Record<string, number>;
   reservedFrontierTarget?: string;
   reservedFrontierProvider?: ProviderId;
@@ -169,6 +223,8 @@ export interface RoutingDecision {
   entitlementPressure: EntitlementPressure;
   targetEntitlementPressures: Record<string, EntitlementPressure>;
   entitlementPressures: Partial<Record<ProviderId, EntitlementPressure>>;
+  /** Immutable allocator inputs captured at decision time for later replay/audit. */
+  allocationEvidenceByTarget?: Record<string, AllocationEvidence>;
   /** Actual model/effort used by the currently active provider route. */
   resolvedModel?: string;
   resolvedEffort?: string;

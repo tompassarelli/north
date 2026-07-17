@@ -7,6 +7,10 @@ import {
 import type { AgentQuery } from "./types";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { resolveTier, type SemanticTier } from "./catalog";
+import {
+  applyHarnessRoute, harnessRouteSeed,
+  type Effort, type HarnessCompositionEvidence,
+} from "../harness";
 export {
   ProviderSelectionError, resourcePolicyFromEnv, selectProvider, selectProviderFromAvailability,
 } from "../provider-routing";
@@ -67,18 +71,30 @@ export function routedQuery(
   tier?: SemanticTier,
   providerRegistry: Record<ProviderId, AgentProvider> = providers,
   beforeFallback?: () => Promise<void>,
-  onRoute?: (decision: RoutingDecision) => void,
+  onRoute?: (decision: RoutingDecision, evidence?: HarnessCompositionEvidence) => void,
 ): AgentQuery {
   let active: AgentQuery | undefined;
   const prompt = replayablePrompt(args.prompt);
-  const optionsFor = (provider: ProviderId): Options => {
-    const resolved = provider === decision.fallbackPath[0] ? undefined : resolveTier(provider, tier);
-    const options = resolved
-      ? { ...args.options, model: resolved.model, effort: resolved.effort }
-      : args.options;
-    decision.resolvedModel = options.model;
+  const requestedReasoning = args.options.effort as Effort | undefined;
+  const seed = harnessRouteSeed(args.options);
+  const optionsFor = (provider: ProviderId): { options: Options; evidence?: HarnessCompositionEvidence } => {
+    // Preserve an explicit model across sibling accounts of the same provider.
+    // A cross-provider fallback resolves the semantic tier afresh for that provider.
+    const preserveSeed = decision.fallbackCount === 0 || seed?.provider === provider;
+    const resolved = preserveSeed
+      ? { model: seed?.model, effort: requestedReasoning }
+      : resolveTier(provider, tier, undefined, requestedReasoning);
+    // applyHarnessRoute looks up immutable composition state by object identity;
+    // start from the original harness object and overlay route capacity afterwards.
+    const rebuilt = applyHarnessRoute(args.options, provider, resolved.model);
+    const options = {
+      ...rebuilt.options,
+      ...(rebuilt.options === args.options && resolved.model ? { model: resolved.model } : {}),
+      ...(resolved.effort ? { effort: resolved.effort } : {}),
+    } as Options;
+    decision.resolvedModel = options.model ?? resolved.model;
     decision.resolvedEffort = options.effort;
-    return options;
+    return { options, evidence: rebuilt.evidence };
   };
   return {
     interrupt: async () => { await active?.interrupt?.(); },
@@ -106,8 +122,9 @@ export function routedQuery(
       let emitted = 0;
       while (true) {
         try {
-          const options = optionsFor(decision.provider);
-          onRoute?.(decision);
+          const route = optionsFor(decision.provider);
+          const options = route.options;
+          onRoute?.(decision, route.evidence);
           active = providerRegistry[decision.provider].query({
             prompt,
             options,

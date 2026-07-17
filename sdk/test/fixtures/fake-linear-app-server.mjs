@@ -4,6 +4,19 @@ import readline from "node:readline";
 const config = JSON.parse(process.env.FAKE_LINEAR_APP_SERVER ?? "{}");
 const logPath = process.env.FAKE_LINEAR_REQUEST_LOG;
 const reapedPath = process.env.FAKE_LINEAR_REAPED;
+const startupPath = process.env.FAKE_LINEAR_STARTUP_LOG;
+
+if (startupPath) writeFileSync(startupPath, JSON.stringify({
+  argv: process.argv.slice(2),
+  env: {
+    CODEX_HOME: process.env.CODEX_HOME,
+    CODEX_SQLITE_HOME: process.env.CODEX_SQLITE_HOME,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    CHATGPT_BASE_URL: process.env.CHATGPT_BASE_URL,
+    OPENAI_PROJECT: process.env.OPENAI_PROJECT,
+  },
+}));
 
 function log(value) {
   if (logPath) appendFileSync(logPath, `${JSON.stringify(value)}\n`);
@@ -24,7 +37,10 @@ input.on("line", (line) => {
   log(request);
   if (request.method === config.action?.method) {
     if (config.action.type === "never") return;
-    if (config.action.type === "exit") return process.exit(17);
+    if (config.action.type === "exit") {
+      if (typeof config.action.stderr === "string") process.stderr.write(config.action.stderr);
+      return process.exit(17);
+    }
     if (config.action.type === "malformed") return process.stdout.write("not-json\n");
     if (config.action.type === "serverRequest") {
       send({ id: "server-request-1", method: "mcpServer/elicitation/request", params: { message: "do not answer" } });
@@ -38,7 +54,10 @@ input.on("line", (line) => {
   if (request.method === "mcpServerStatus/list")
     return send({ id: request.id, result: { data: config.servers ?? [], nextCursor: null } });
   if (request.method === "mcpServer/tool/call") {
-    if (config.rpcToolError) return send({ id: request.id, error: { code: -32000, message: "sanitized fake RPC failure" } });
+    if (config.rpcToolError) return send({ id: request.id, error: {
+      code: -32000,
+      message: typeof config.rpcToolError === "string" ? config.rpcToolError : "fake RPC failure",
+    } });
     const result = config.results?.[request.params.tool] ?? { content: [{ type: "text", text: "{}" }] };
     return send({ id: request.id, result });
   }

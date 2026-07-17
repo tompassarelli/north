@@ -6,7 +6,7 @@
 ;; the tool, don't hide it. Never re-derives doctrine, never owns state beyond
 ;; ~/.cache/north.
 ;;
-;; Vocabulary law: facts (never claims), lanes/agents (never fleet).
+;; Vocabulary law: facts (never claims), lanes/agents throughout.
 ;;
 ;;   north dashboard   → cmd-dashboard   (agents, concerns, board, daemons, health, profile)
 ;;   north doctor      → cmd-doctor      (coordinator handshake, daemons, health, rev skew, env, guard hooks)
@@ -22,7 +22,7 @@
 (def FRAM (str HOME "/code/fram"))
 (def NIXCFG (str HOME "/code/nixos-config"))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
-(def MYCONFIG (str HOME "/.claude/my-config.state"))
+(load-file (str NORTH "/cli/harness-state.clj"))
 (def CACHE-DIR (str HOME "/.cache/north"))
 (def PORT "7977")
 (def CACHE-SCOPE (str (hash (str (or (System/getenv "FRAM_LOG") "default") "|"
@@ -107,19 +107,13 @@
      :ports ports}))
 
 ;; ---- presence: live agents --------------------------------------------------
-;; CACHED 20s. presence-cli queries the SHARED single-threaded coordinator, so it is
-;; starved not just by our own co-scheduled probes (the serial group fixes those) but
-;; by EVERY other agent's heavy query: measured ~3s idle, but spiking to 21s+ under a
-;; live multi-agent load (26 clients, loadavg 7). No dashboard-side timeout survives
-;; unbounded external contention, so insulate instead: a 20s cache means back-to-back
-;; renders and renders during someone else's heavy fold hit the cache, not the daemon.
-;; Liveness stays a fresh snapshot — the per-agent `ttl` field already signals age, and
-;; agent leases run tens of seconds, so ≤20s staleness is invisible; a 20s-stale live
-;; list is strictly better than the "0 live — timed out" lie it replaces. Cold miss gets
-;; 25s (outlasts one competing heavy query); only successful reads are cached.
+;; CACHED 20s. `presence-online` starts from the bounded set of unexpired lease
+;; facts and enriches only those rows; it never walks the lifetime registry of
+;; lapsed sessions. The cache still insulates back-to-back dashboard renders and
+;; brief contention on the shared coordinator. Only successful reads are cached.
 (defn presence-rows []
   (or (cache-get "presence.edn" 20000)
-      (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "presence"] :timeout 25000)]
+      (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "presence-online"] :timeout 6000)]
         (cond
           (:timeout r) {:err "presence probe timed out"}
           (not (:ok r)) {:err "presence unavailable"}
@@ -263,10 +257,7 @@
 
 ;; ---- profile: rung per layer ------------------------------------------------
 (defn dispatch-mode []
-  (when (.exists (io/file MYCONFIG))
-    (some->> (str/split-lines (slurp MYCONFIG))
-             (keep #(second (re-matches #"dispatch=(\S+)" %)))
-             last)))
+  (north.harness-state/get-value HOME "dispatch" nil))
 
 (defn code-status
   "fram-code-status for cwd -> parsed key=val map (level, canonical, coord...)."

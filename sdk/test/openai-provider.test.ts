@@ -182,3 +182,35 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
     expect(argv).toContain(`sqlite_home="${join(root, "sqlite")}"`);
   }
 });
+
+test("Codex capability flags are global-before-exec and fail closed before process spawn", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-codex-capabilities-"));
+  temporary.push(directory);
+  const command = join(directory, "fake-codex");
+  const argvPath = join(directory, "argv");
+  writeFileSync(command, `#!/usr/bin/env bash
+printf '%s\n' "$@" > "${argvPath}"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+`);
+  chmodSync(command, 0o700);
+  process.env.NORTH_CODEX_BIN = command;
+  const options = {
+    northCapabilities: ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+    disallowedTools: ["Agent", "Task", "Workflow", "Edit", "Write", "MultiEdit", "NotebookEdit"],
+  } as any;
+  for await (const _ of openaiProvider.query({ prompt: "x", options }) as AsyncIterable<any>) {}
+  const argv = readFileSync(argvPath, "utf8").trim().split("\n");
+  expect(argv.slice(0, 2)).toEqual(["--search", "exec"]);
+  expect(argv).toEqual(expect.arrayContaining(["--sandbox", "read-only", "--disable", "multi_agent"]));
+  expect(argv).not.toContain('web_search="disabled"');
+
+  rmSync(argvPath, { force: true });
+  const unsupported = openaiProvider.query({
+    prompt: "x",
+    options: { northCapabilities: ["filesystem.read"] } as any,
+  });
+  await expect(async () => {
+    for await (const _ of unsupported as AsyncIterable<any>) {}
+  }).toThrow("openai_adapter_cannot_enforce_gaffer_capabilities");
+  expect(existsSync(argvPath)).toBe(false);
+});
