@@ -11,7 +11,9 @@ import type {
   GraphStore, LinearIssueDocument, LinearLinkState, LinearSyncManifest, SyncLease,
   SyncLeaseManager,
 } from "./north-state";
-import { canonicalJson, normalizeBody, sha256Canonical, sha256Text } from "./normalize";
+import {
+  canonicalJson, linearIdentityKey, normalizeBody, normalizeThreadId, sha256Canonical, sha256Text,
+} from "./normalize";
 import {
   indexManagedLinearComments, managedLinearDescriptionReceiptHash, projectNorthThread,
   replaceManagedLinearDescription,
@@ -220,12 +222,50 @@ async function readRemote(gateway: LinearGateway, link: LinearLinkState, lease?:
   return { issue, comments: await allComments(gateway, issue.key, heartbeat) };
 }
 
-function leaseResource(link: LinearLinkState): string {
-  return leaseResourceForIdentity(link.remoteServer, link.identity);
+function identityLeaseResource(identity: LinearIssueIdentity): string {
+  return `linear-sync:identity:${encodeURIComponent(linearIdentityKey(identity))}`;
 }
 
-function leaseResourceForIdentity(server: string, identity: LinearIssueIdentity): string {
-  return `linear-sync:${encodeURIComponent(server)}:${identity.identityKind === "linear-uuid" ? identity.issueId : identity.fingerprint}`;
+function threadLeaseResource(threadId: string): string {
+  return `linear-sync:thread:${encodeURIComponent(normalizeThreadId(threadId))}`;
+}
+
+interface EndpointLeaseScope {
+  readonly rawIdentity: SyncLease;
+  readonly rawThread: SyncLease;
+  readonly identity: SyncLease;
+  readonly thread: SyncLease;
+  renew(): Promise<void>;
+}
+
+function endpointLeaseScope(rawIdentity: SyncLease, rawThread: SyncLease): EndpointLeaseScope {
+  const renew = async () => {
+    await rawIdentity.renew();
+    await rawThread.renew();
+  };
+  const guarded = (primary: SyncLease): SyncLease => ({
+    get resource() { return primary.resource; },
+    get holder() { return primary.holder; },
+    get epoch() { return primary.epoch; },
+    renew,
+    fence: () => primary.fence(),
+    release: () => primary.release(),
+  });
+  return {
+    rawIdentity, rawThread, renew,
+    identity: guarded(rawIdentity),
+    thread: guarded(rawThread),
+  };
+}
+
+async function leaseBoundary<T>(
+  scope: Pick<EndpointLeaseScope, "renew">,
+  action: () => Promise<T>,
+): Promise<T> {
+  await scope.renew();
+  const result = await action();
+  await scope.renew();
+  return result;
 }
 
 async function renewAndPut(
@@ -239,11 +279,41 @@ async function renewAndPut(
   await graph.putFenced(lease, subject, predicate, value);
 }
 
-async function releaseLeaseWithoutMaskingFailure(lease: SyncLease, operationCompleted: boolean): Promise<void> {
-  try { await lease.release(); }
-  catch (error) {
-    if (operationCompleted) throw error;
+async function releaseLeasesWithoutMaskingFailure(
+  leases: readonly SyncLease[],
+  operationCompleted: boolean,
+): Promise<void> {
+  let cleanupFailure: unknown;
+  for (const lease of [...leases].reverse()) {
+    try { await lease.release(); }
+    catch (error) {
+      cleanupFailure ??= error;
+    }
   }
+  if (operationCompleted && cleanupFailure) throw cleanupFailure;
+}
+
+function assertSameLockedEndpoint(
+  before: LinearLinkState,
+  after: LinearLinkState,
+  gateway: LinearGateway,
+): void {
+  const beforeEndpoint = {
+    subject: before.subject,
+    identity: linearIdentityKey(before.identity),
+    threadId: before.threadId,
+    remoteServer: before.remoteServer,
+  };
+  const afterEndpoint = {
+    subject: after.subject,
+    identity: linearIdentityKey(after.identity),
+    threadId: after.threadId,
+    remoteServer: after.remoteServer,
+  };
+  if (canonicalJson(beforeEndpoint) !== canonicalJson(afterEndpoint))
+    throw new Error("canonical Linear identity/thread endpoint changed while its leases were being acquired");
+  if (after.remoteServer !== gateway.server)
+    throw new Error(`Linear link requires MCP server ${after.remoteServer}, not ${gateway.server}`);
 }
 
 function verifyPreparedManifest(
@@ -268,12 +338,11 @@ async function importIssue(
   const issue = normalizeLinearIssueDocument(await gateway.readIssue({ id: key }));
   const identity = identityForIssue(issue, gateway.server);
   const subject = linkSubject(identity);
-  const partial = await inspectPartialLinearLink(deps.graph, subject);
-  if (partial.manifest && partial.threadId)
-    verifyPreparedManifest(partial.manifest, identity, partial.threadId, issue, gateway.server);
-  let existing: LinearLinkState | null = null;
-  if (partial.complete) existing = await loadLinkBySubject(deps.graph, subject);
   if (options.dryRun) {
+    const partial = await inspectPartialLinearLink(deps.graph, subject);
+    if (partial.manifest && partial.threadId)
+      verifyPreparedManifest(partial.manifest, identity, partial.threadId, issue, gateway.server);
+    const existing = partial.complete ? await loadLinkBySubject(deps.graph, subject) : null;
     return {
       command: "import", dryRun: true, server: gateway.server, key: issue.key, identity,
       link: `@${subject}`, thread: `@${existing?.threadId ?? partial.threadId ?? options.thread ?? deps.mintThreadId(identity)}`,
@@ -282,19 +351,40 @@ async function importIssue(
     };
   }
 
-  const lease = await deps.leases.acquire(leaseResourceForIdentity(gateway.server, identity));
+  const identityLease = await deps.leases.acquire(identityLeaseResource(identity));
+  let threadLease: SyncLease | undefined;
   let operationCompleted = false;
   try {
-    await ensureLinearSchema(deps.graph);
-    await lease.renew();
-    const freshIssue = normalizeLinearIssueDocument(await gateway.readIssue({ id: key }));
+    await identityLease.renew();
+    const partialUnderIdentity = await inspectPartialLinearLink(deps.graph, subject);
+    const chosenThread = partialUnderIdentity.threadId ?? options.thread ?? deps.mintThreadId(identity);
+    if (options.thread && chosenThread !== options.thread)
+      throw new Error(`Linear issue is already prepared for @${chosenThread}, not @${options.thread}`);
+
+    // Fixed acquisition order is identity -> thread. The prefixes make that
+    // order lexical as well as explicit, which keeps every importer/sync caller
+    // on the same deadlock-free path.
+    threadLease = await deps.leases.acquire(threadLeaseResource(chosenThread));
+    const scope = endpointLeaseScope(identityLease, threadLease);
+    const freshIssue = normalizeLinearIssueDocument(await leaseBoundary(
+      scope, () => gateway.readIssue({ id: key }),
+    ));
     const freshIdentity = identityForIssue(freshIssue, gateway.server);
-    if (canonicalJson(freshIdentity) !== canonicalJson(identity)) throw new Error("Linear issue identity changed during import");
-    const partialNow = await inspectPartialLinearLink(deps.graph, subject);
+    if (linearIdentityKey(freshIdentity) !== linearIdentityKey(identity))
+      throw new Error("Linear issue identity changed during import");
+
+    const partialNow = await leaseBoundary(
+      scope, () => inspectPartialLinearLink(deps.graph, subject),
+    );
     const threadId = partialNow.threadId ?? options.thread ?? deps.mintThreadId(identity);
+    if (threadId !== chosenThread)
+      throw new Error("canonical Linear identity/thread endpoint changed while its leases were being acquired");
     if (options.thread && threadId !== options.thread)
       throw new Error(`Linear issue is already prepared for @${threadId}, not @${options.thread}`);
-    const currentThread = await deps.graph.show(threadId);
+    if (partialNow.manifest)
+      verifyPreparedManifest(partialNow.manifest, identity, threadId, freshIssue, gateway.server);
+
+    const currentThread = await leaseBoundary(scope, () => deps.graph.show(threadId));
     const otherLinks = [...new Set(currentThread.filter((fact) => fact.predicate === "linear_link")
       .map((fact) => fact.value.replace(/^@/, "")))];
     if (otherLinks.length && (otherLinks.length !== 1 || otherLinks[0] !== subject))
@@ -326,45 +416,67 @@ async function importIssue(
       };
     }
     verifyPreparedManifest(manifest, identity, threadId, freshIssue, gateway.server);
+    const schema = await leaseBoundary(scope, () => inspectLinearSchema(deps.graph));
+    if (schema.conflicting.length && !isKnownLinearSchemaMigration(schema))
+      throw new Error(`Linear graph schema conflicts: ${schema.conflicting.join("; ")}`);
+
+    // This is the first mutation. The helper validates every reverse
+    // linked_thread claimant and the thread's canonical pointer, then commits
+    // this durable identity -> thread reservation against one global graph
+    // version and the exact identity fence. A crash from here is a healable
+    // prepared association, never an unowned thread.
+    await scope.renew();
+    await deps.graph.reserveLinearBinding(scope.identity, subject, threadId, gateway.server);
+    await scope.renew();
+    await leaseBoundary(scope, () => ensureLinearSchema(deps.graph, schema));
+
     const expected: LinearLinkState = {
       subject, identity, threadId, remoteKey: freshIssue.key, remoteScope: freshIssue.teamId ?? "",
       remoteWorkspaceSlug: freshIssue.workspace, remoteServer: gateway.server, manifest,
     };
-    // The prepared manifest is asserted first; ensureLinearLinkFacts heals any
-    // crash after an arbitrary subset of the remaining individual assertions.
-    await lease.renew();
-    const link = await ensureLinearLinkFacts(deps.graph, lease, expected);
+    // Within the remaining link projection, the prepared manifest is asserted
+    // first; ensureLinearLinkFacts heals any crash after an arbitrary subset.
+    await scope.renew();
+    const link = await ensureLinearLinkFacts(deps.graph, scope.identity, expected);
 
-    const threadFacts = await deps.graph.show(link.threadId);
+    const threadFacts = await leaseBoundary(scope, () => deps.graph.show(link.threadId));
     const threadHasTitle = threadFacts.some((fact) => fact.predicate === "title");
     if (link.manifest.evidence.createdThread
         && (link.manifest.phase === "prepared" || !threadHasTitle)) {
       if (!link.manifest.evidence.importedAt)
         throw new Error(`imported Linear link lacks the timestamp needed to recreate @${link.threadId}`);
-      await lease.renew();
+      await scope.renew();
       await createImportedThread(
-        deps.graph, lease, link.threadId, freshIssue, link.manifest.evidence.owner ?? "personal",
+        deps.graph, scope.thread, link.threadId, freshIssue, link.manifest.evidence.owner ?? "personal",
         new Date(link.manifest.evidence.importedAt),
       );
       createdThread = true;
     } else if (!threadHasTitle)
       throw new Error(`canonical link points to missing pre-existing thread @${link.threadId}`);
-    await renewAndPut(deps.graph, lease, link.threadId, "linear", freshIssue.key);
+    await renewAndPut(deps.graph, scope.thread, link.threadId, "linear", freshIssue.key);
     // Preserve the established opaque handle spelling as a true ref to the
     // fact-bearing integration-link entity; integration links are not threads.
-    await renewAndPut(deps.graph, lease, link.threadId, "linear_link", `@${link.subject}`);
+    await renewAndPut(deps.graph, scope.thread, link.threadId, "linear_link", `@${link.subject}`);
     if (link.manifest.phase !== "adopted") {
-      await lease.renew();
-      await writeManifest(deps.graph, lease, link, { ...link.manifest, phase: "adopted" });
+      await scope.renew();
+      await writeManifest(deps.graph, scope.identity, link, { ...link.manifest, phase: "adopted" });
     }
-    // `partial` was observed before acquiring the identity lease. Another
-    // importer may have completed while this caller waited, so public reuse
-    // truth must come from the serialized, post-lease observation.
-    const result = { command: "import", dryRun: false, reused: partialNow.exists, createdThread, server: gateway.server, key: freshIssue.key, identity, link: `@${link.subject}`, thread: `@${link.threadId}` };
+    // Public truth comes from the serialized, post-lease observation. A
+    // crash-partial association healed by this call is not a reused complete
+    // link, even though the durable reservation already existed.
+    const action = partialNow.complete ? "reuse-link" : partialNow.exists ? "heal-link" : "create-link";
+    const result = {
+      command: "import", dryRun: false, action, reused: partialNow.complete === true,
+      createdThread, server: gateway.server, key: freshIssue.key, identity,
+      link: `@${link.subject}`, thread: `@${link.threadId}`,
+    };
     operationCompleted = true;
     return result;
   } finally {
-    await releaseLeaseWithoutMaskingFailure(lease, operationCompleted);
+    await releaseLeasesWithoutMaskingFailure(
+      [identityLease, ...(threadLease ? [threadLease] : [])],
+      operationCompleted,
+    );
   }
 }
 
@@ -379,17 +491,19 @@ interface PlannedSync {
   descriptionMarkerPresent: boolean;
 }
 
-async function computePlan(
-  thread: string,
+async function computePlanForLink(
+  link: LinearLinkState,
   gateway: LinearGateway,
   graph: GraphStore,
   lease?: SyncLease,
 ): Promise<PlannedSync> {
-  const link = await loadLinkForThread(graph, thread);
   if (link.remoteServer !== gateway.server)
     throw new Error(`Linear link requires MCP server ${link.remoteServer}, not ${gateway.server}`);
   const { issue, comments } = await readRemote(gateway, link, lease);
-  const local = projectNorthThread(await loadNorthThread(graph, link.threadId));
+  const localSource = lease
+    ? await leaseBoundary(lease, () => loadNorthThread(graph, link.threadId))
+    : await loadNorthThread(graph, link.threadId);
+  const local = projectNorthThread(localSource);
   const reconciliation = reconcileLinearIssue({
     baseline: link.manifest.baseline, local, remote: issueSnapshot(issue, link.identity, comments),
     ensureDescriptionMarker: !link.manifest.evidence.markerBound,
@@ -402,6 +516,18 @@ async function computePlan(
     descriptionAdoption: Boolean(!link.manifest.evidence.markerBound && reconciliation.plan?.issue.description),
     descriptionMarkerPresent: issue.description.includes(markerForThread(link.threadId)),
   };
+}
+
+async function computePlan(
+  thread: string,
+  gateway: LinearGateway,
+  graph: GraphStore,
+  lease?: SyncLease,
+): Promise<PlannedSync> {
+  const link = lease
+    ? await leaseBoundary(lease, () => loadLinkForThread(graph, thread))
+    : await loadLinkForThread(graph, thread);
+  return computePlanForLink(link, gateway, graph, lease);
 }
 
 function publicPlan(planned: PlannedSync): unknown {
@@ -443,12 +569,15 @@ async function legacyNormalizedIssueOperationSatisfied(
   pending: NonNullable<LinearSyncManifest["pending"]>,
   issue: LinearIssueDocument,
   graph: GraphStore,
+  lease: SyncLease,
   link: LinearLinkState,
 ): Promise<boolean> {
   if (pending.descriptionReceiptHash || !pending.descriptionHash || !pending.baselineAfter) return false;
   if (pending.titleHash !== undefined && pending.titleHash !== sha256Canonical(issue.title)) return false;
   try {
-    const local = projectNorthThread(await loadNorthThread(graph, link.threadId));
+    const local = projectNorthThread(await leaseBoundary(
+      lease, () => loadNorthThread(graph, link.threadId),
+    ));
     const localBaseline = createLinearSyncBaseline(link.identity, link.threadId, local.fields);
     if (localBaseline.hash !== pending.baselineAfter.hash) return false;
     const reconstructedDescription = replaceManagedLinearDescription(
@@ -484,7 +613,7 @@ async function confirmOrRefusePending(
   const indexedComments = indexManagedLinearComments(comments);
   const issueSatisfied = pending.kind === "issue"
     && (issueOperationSatisfied(pending, issue)
-      || await legacyNormalizedIssueOperationSatisfied(pending, issue, graph, link));
+      || await legacyNormalizedIssueOperationSatisfied(pending, issue, graph, lease, link));
   const remoteId = pending.kind === "issue"
     ? issueSatisfied ? issue.key : undefined
     : commentOperationSatisfied(pending, indexedComments);
@@ -546,23 +675,43 @@ async function applyOperation(
 
 async function applySync(thread: string, gateway: LinearGateway, deps: LinearCliDependencies): Promise<unknown> {
   const initialLink = await loadLinkForThread(deps.graph, thread);
-  const lease = await deps.leases.acquire(leaseResource(initialLink));
+  if (initialLink.remoteServer !== gateway.server)
+    throw new Error(`Linear link requires MCP server ${initialLink.remoteServer}, not ${gateway.server}`);
+  const identityLease = await deps.leases.acquire(identityLeaseResource(initialLink.identity));
+  let threadLease: SyncLease | undefined;
   let operationCompleted = false;
   try {
-    await ensureLinearSchema(deps.graph);
-    const link = await loadLinkForThread(deps.graph, thread);
-    let manifest = await confirmOrRefusePending(gateway, deps.graph, lease, link, deps.now());
-    await lease.renew();
-    const planned = await computePlan(thread, gateway, deps.graph, lease);
-    await lease.renew();
+    threadLease = await deps.leases.acquire(threadLeaseResource(initialLink.threadId));
+    const scope = endpointLeaseScope(identityLease, threadLease);
+    const link = await leaseBoundary(scope, () => loadLinkForThread(deps.graph, thread));
+    assertSameLockedEndpoint(initialLink, link, gateway);
+
+    // Validate/repair the durable bijection before pending recovery, remote
+    // reads, remote writes, or any mutable link assertion.
+    await scope.renew();
+    await deps.graph.reserveLinearBinding(
+      scope.identity, link.subject, link.threadId, link.remoteServer,
+    );
+    await scope.renew();
+    await leaseBoundary(scope, () => ensureLinearSchema(deps.graph));
+
+    // The thread lease is the transaction fence for all apply state. The
+    // durable reservation makes identity -> thread immutable, while both raw
+    // endpoint leases remain held and every renewal validates both.
+    let manifest = await confirmOrRefusePending(
+      gateway, deps.graph, scope.thread, link, deps.now(),
+    );
+    await scope.renew();
+    const planned = await computePlanForLink(link, gateway, deps.graph, scope.thread);
+    await scope.renew();
     if (planned.reconciliation.conflicts.length)
       throw new Error(`Linear sync conflict: ${planned.reconciliation.conflicts.map(({ field, category }) => `${field}:${category}`).join(", ")}`);
     if (planned.issue.key !== link.remoteKey)
-      await renewAndPut(deps.graph, lease, link.subject, "remote_key", planned.issue.key);
+      await renewAndPut(deps.graph, scope.identity, link.subject, "remote_key", planned.issue.key);
     if (planned.issue.workspace !== link.remoteWorkspaceSlug)
-      await renewAndPut(deps.graph, lease, link.subject, "remote_workspace_slug", planned.issue.workspace);
+      await renewAndPut(deps.graph, scope.identity, link.subject, "remote_workspace_slug", planned.issue.workspace);
     if (planned.issue.teamId && planned.issue.teamId !== link.remoteScope)
-      await renewAndPut(deps.graph, lease, link.subject, "remote_scope", planned.issue.teamId);
+      await renewAndPut(deps.graph, scope.identity, link.subject, "remote_scope", planned.issue.teamId);
     link.remoteKey = planned.issue.key;
     link.remoteWorkspaceSlug = planned.issue.workspace;
     if (planned.issue.teamId) link.remoteScope = planned.issue.teamId;
@@ -570,7 +719,7 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
     if (planned.plan && Object.keys(planned.plan.issue).length) {
       const adoptsMarker = planned.plan.issue.description !== undefined;
       const applied = await applyOperation(
-        gateway, deps.graph, lease, link, manifest, "issue", `${planned.plan.hash}:issue`, { ...planned.plan.issue }, undefined, deps.now(),
+        gateway, deps.graph, scope.thread, link, manifest, "issue", `${planned.plan.hash}:issue`, { ...planned.plan.issue }, undefined, deps.now(),
         (manifest) => adoptsMarker ? {
           ...manifest, baseline: planned.plan!.expectedBaseline,
           evidence: { ...manifest.evidence, markerBound: true, adoptRawDescription: false },
@@ -585,7 +734,7 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
         ? { issueId: link.remoteKey, body: comment.body }
         : { id: comment.commentId, body: comment.body };
       const applied = await applyOperation(
-        gateway, deps.graph, lease, link, manifest, "comment",
+        gateway, deps.graph, scope.thread, link, manifest, "comment",
         `${planned.plan!.hash}:comment:${index}`, payload, comment.marker, deps.now(),
       );
       manifest = applied.manifest;
@@ -602,16 +751,19 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
       },
     };
     if (canonicalJson(finalized) !== canonicalJson(manifest)) {
-      await lease.renew();
-      await writeManifest(deps.graph, lease, link, finalized);
+      await scope.renew();
+      await writeManifest(deps.graph, scope.thread, link, finalized);
     }
     if (writes > 0)
-      await renewAndPut(deps.graph, lease, link.subject, "last_synced_at", deps.now().toISOString());
+      await renewAndPut(deps.graph, scope.identity, link.subject, "last_synced_at", deps.now().toISOString());
     const result = { command: "sync", applied: true, thread: `@${link.threadId}`, link: `@${link.subject}`, writes, state: "in-sync", planHash: planned.plan?.hash ?? null };
     operationCompleted = true;
     return result;
   } finally {
-    await releaseLeaseWithoutMaskingFailure(lease, operationCompleted);
+    await releaseLeasesWithoutMaskingFailure(
+      [identityLease, ...(threadLease ? [threadLease] : [])],
+      operationCompleted,
+    );
   }
 }
 

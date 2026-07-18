@@ -19,7 +19,7 @@ import type {
 
 const identity = {
   identityKind: "linear-uuid" as const,
-  workspaceId: "workspace-a",
+  workspaceId: "22222222-2222-8222-8222-222222222222",
   scopeId: "team-msa",
   issueId: "4D36E96E-E325-41CE-BFC0-8A6E548D41C8",
   identifier: "MSA-101",
@@ -436,7 +436,13 @@ test("duplicate and malformed reserved comment markers fail closed", () => {
 });
 
 test("human identifier and team/scope changes preserve workspace + UUID identity", () => {
-  const renamed = { ...identity, identifier: "PLATFORM-999", scopeId: "team-platform" };
+  const renamed = {
+    ...identity,
+    workspaceId: identity.workspaceId.toUpperCase(),
+    issueId: identity.issueId.toLowerCase(),
+    identifier: "PLATFORM-999",
+    scopeId: "team-platform",
+  };
   expect(sameLinearIdentity(identity, renamed)).toBe(true);
   expect(linearIdentityKey(identity)).toBe(linearIdentityKey(renamed));
   const local = projectNorthThread(source());

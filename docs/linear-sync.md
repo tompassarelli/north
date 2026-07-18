@@ -34,8 +34,10 @@ auto-discovery.
 The mechanical verification sequence is `doctor` → `get` → `import` → `plan` →
 `sync --apply` → `plan`. The final plan must report `state: "in-sync"` with no
 actions. Repeating `import` must return the same thread and integration-link
-identity; if concurrent importers race, the identity lease serializes them and
-the later caller reports that it reused the post-lease link. A second
+identity. Import acquires the canonical identity endpoint and then the North
+thread endpoint; concurrent callers for either endpoint serialize, and the
+later caller either reuses the post-lease link or fails with the conflicting
+canonical binding before creating another link. A second
 `sync --apply` in that state performs zero Linear writes and zero graph writes.
 
 Every transport-backed command returns a `transportReceipt`. It records the
@@ -71,6 +73,14 @@ fact-bearing integration-link entity, not a thread. Fram validates generic
 refs against any fact-bearing entity; North alone applies thread-only rules to
 its thread predicates. `north linear doctor` mechanically migrates the one
 adapter-owned legacy workaround from `linear_link value_kind literal` to `ref`.
+
+The identity lease key is the URI-component-encoded canonical identity key used
+by `linkSubject`: native identity is exactly workspace UUID + issue UUID, with
+both UUIDs validated and normalized to lowercase and no MCP server alias; the
+bootstrap identity includes the connector because the connector is part of
+that fallback identity. The thread lease key is the
+URI-component-encoded normalized North thread ID. Every writer acquires them in
+the fixed lexical order `identity` then `thread`.
 
 The current Linear MCP response omits native workspace and issue UUIDs. North
 therefore records an honest `mcp-bootstrap-v1` connector fingerprint over the
@@ -112,13 +122,44 @@ After adoption, text outside the managed block is preserved byte-for-byte.
 
 ## Conflicts and recovery
 
-Every apply acquires a coordinator lease for the immutable Linear identity.
+Every import/apply acquires coordinator leases for both the immutable Linear
+identity and canonical North thread, always identity first. After both are
+held, the bridge re-reads and exact-compares link subject, canonical identity
+key, thread, and stored server before pending recovery, graph writes, or remote
+work. A changed observation aborts rather than letting a lease for link A
+authorize work through link or gateway B.
 Renewal is an atomic coordinator operation: it succeeds only for the exact
 current holder and expected epoch while the lease remains unexpired, persists a
 new expiry, and returns a globally fresh epoch. Any lapse, takeover, stale
 epoch, or lost renewal response aborts the caller; it never silently reacquires
-and continues. Reads that may paginate or inspect multiple backlink candidates
-renew before each provider call.
+and continues. Both endpoint leases are renewed around load-bearing boundaries,
+including every provider call. Cleanup releases thread then identity and never
+masks the operation's primary failure; a cleanup failure still fails an
+otherwise successful operation.
+
+Two expiring leases alone would not make a cross-endpoint fact invariant.
+Before any import data/schema mutation, North therefore commits
+`@link:<canonical-identity> linked_thread @<thread>` through a global-version
+compare-and-set that validates, from the same graph version, all
+`linked_thread @<thread>` claimants (including partial links without `kind`) and
+the thread's `linear_link` pointer. The commit is atomically fenced by the exact
+identity token. This durable reservation enforces one identity ↔ one thread
+across crashes. An implicitly minted thread may still be absent after a crash,
+but its deterministic ID is already owned by the reservation; a later import
+heals that same thread, while another identity is refused. Link facts fence on
+the identity endpoint, thread facts and apply transaction state fence on the
+thread endpoint, and every operation retains both leases until reverse-order
+release.
+
+The durable reservation deliberately treats the identity fence as its ownership
+authority; the thread lease provides transaction exclusion. In the narrow race
+where the thread lease is taken after the final dual renewal but before the
+identity-fenced compare-and-set, the reservation may win and then the mandatory
+post-commit dual renewal aborts the stale caller. Nothing after the reservation
+(schema, link/thread projection, pending state, or Linear mutation) may run.
+That partial reservation is authoritative and healable only by the same
+identity; a competing identity does not steal it merely because it won the
+short-lived thread lease. This winner bias is intentional and deterministic.
 
 The production lease TTL is 300 seconds and every app-server request has a hard
 20-second timeout. Startup enforces at least a 10× lease-to-call margin (the
@@ -130,9 +171,10 @@ finalization is fenced out, and the persisted intent is left for successor
 reconciliation.
 
 Graph assertions made while synchronizing are fenced inside the same
-coordinator turn as the mutation. A stale holder therefore cannot publish a
+coordinator turn as the mutation. Together with the durable identity/thread
+reservation, a stale holder therefore cannot publish a
 pending intent, receipt, baseline, link fact, or synchronization timestamp
-after losing the lease. The bridge also renews on both sides of each Linear
+after losing the authorizing endpoint. The bridge also renews both endpoints on both sides of each Linear
 write and before final graph publication.
 
 A local coordinator lease cannot be atomic with a call to an external Linear
@@ -158,11 +200,11 @@ local baseline, a reconstruction of the original payload hash, and that same
 narrow scaffold receipt all agree; arbitrary whitespace, body, or unmanaged
 description drift still fails closed.
 
-Import is crash-healable too. The prepared manifest—deterministic thread ID,
-identity evidence, original hashes, and one stable import timestamp—lands before
-the remaining link and thread facts. A repeated import fills any missing facts
-without creating a second thread. Conflicting or malformed partial state fails
-closed.
+Import is crash-healable too. The atomic `linked_thread` reservation lands
+first. The prepared manifest then records the deterministic thread ID, identity
+evidence, original hashes, and one stable import timestamp before the remaining
+link and thread facts. A repeated import fills any missing facts without
+creating a second thread. Conflicting or malformed partial state fails closed.
 
 Remote edits inside North-owned fields are reported as drift/divergence; they
 are never timestamp-resolved or overwritten partially. Inspect with `north

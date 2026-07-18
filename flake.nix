@@ -461,7 +461,7 @@ EOF
             # The Linear route is spread across these load-bearing runtime
             # modules. Catch untracked/omitted flake sources before producing a
             # package whose `north linear` verb points at a missing entrypoint.
-            for f in cli.ts north-state.ts app-server-broker.ts; do
+            for f in cli.ts north-state.ts app-server-broker.ts reserve-link.clj; do
               test -f "$out/sdk/src/integrations/linear/$f"
             done
 
@@ -655,6 +655,44 @@ EOF
               $out/bin/north doctor > "$smoke/doctor.out"
             grep -Eq 'north  package rev [^? ]+' "$smoke/doctor.out"
             grep -Eq 'fram  package rev [^? ]+' "$smoke/doctor.out"
+            # The Linear identity↔thread invariant depends on the packaged
+            # global-version CAS helper, not merely the TypeScript entrypoint.
+            # Reserve one partial link, then prove a second identity cannot
+            # claim the same thread even though the first link has no kind fact.
+            linear_thread="package-linear-thread"
+            linear_link_a="link:linear:uuid:22222222-2222-8222-8222-222222222222:11111111-1111-8111-8111-111111111111"
+            linear_resource_a="linear-sync:identity:linear%3Auuid%3A22222222-2222-8222-8222-222222222222%3A11111111-1111-8111-8111-111111111111"
+            linear_holder_a="package-linear-a"
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb "$out/cli/lease-cli.clj" "$coord_port" --json \
+              acquire "$linear_resource_a" "$linear_holder_a" 300000 \
+              > "$smoke/linear-lease-a.json"
+            linear_epoch_a="$(${pkgs.jq}/bin/jq -er '.epoch' "$smoke/linear-lease-a.json")"
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb \
+              "$out/sdk/src/integrations/linear/reserve-link.clj" \
+              "$coord_port" "$linear_resource_a" "$linear_holder_a" "$linear_epoch_a" \
+              "$linear_link_a" "$linear_thread" "linear-package" \
+              > "$smoke/linear-reserve-a.json"
+            ${pkgs.jq}/bin/jq -e '.ok | numbers' "$smoke/linear-reserve-a.json" > /dev/null
+
+            linear_link_b="link:linear:uuid:22222222-2222-8222-8222-222222222222:33333333-3333-8333-8333-333333333333"
+            linear_resource_b="linear-sync:identity:linear%3Auuid%3A22222222-2222-8222-8222-222222222222%3A33333333-3333-8333-8333-333333333333"
+            linear_holder_b="package-linear-b"
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb "$out/cli/lease-cli.clj" "$coord_port" --json \
+              acquire "$linear_resource_b" "$linear_holder_b" 300000 \
+              > "$smoke/linear-lease-b.json"
+            linear_epoch_b="$(${pkgs.jq}/bin/jq -er '.epoch' "$smoke/linear-lease-b.json")"
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb \
+              "$out/sdk/src/integrations/linear/reserve-link.clj" \
+              "$coord_port" "$linear_resource_b" "$linear_holder_b" "$linear_epoch_b" \
+              "$linear_link_b" "$linear_thread" "linear-package" \
+              > "$smoke/linear-reserve-b.json"
+            ${pkgs.jq}/bin/jq -e \
+              '.reject | strings | contains("already reserved by")' \
+              "$smoke/linear-reserve-b.json" > /dev/null
             # North-managed daemons require the log-fence protocol. Exercise
             # the shared CLI seam against strict mode, then prove a mismatched
             # corpus and a raw bypass are both rejected without changing either

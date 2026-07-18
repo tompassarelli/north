@@ -23,6 +23,8 @@ class FakeGraph implements GraphStore {
   failPredicate?: string;
   failAfter = Infinity;
   afterPut?: (subject: string, predicate: string, value: string) => void;
+  beforeReservationPut?: () => void | Promise<void>;
+  reservations: { link: string; thread: string }[] = [];
   private matchingWrites = 0;
 
   async show(subject: string): Promise<readonly GraphFact[]> {
@@ -63,6 +65,36 @@ class FakeGraph implements GraphStore {
     await this.put(subject, predicate, value);
   }
 
+  async reserveLinearBinding(
+    lease: SyncLease, linkInput: string, threadInput: string, remoteServer: string,
+  ): Promise<void> {
+    await lease.fence();
+    const link = linkInput.replace(/^@/, "");
+    const thread = threadInput.replace(/^@/, "");
+    const threadRef = `@${thread}`;
+    const linkRef = `@${link}`;
+    const existing = new Set((this.rows.get(link) ?? [])
+      .filter(({ predicate }) => predicate === "linked_thread").map(({ value }) => value));
+    if (existing.size > 1 || (existing.size === 1 && !existing.has(threadRef)))
+      throw new Error("canonical Linear identity is already reserved for a different North thread");
+    const reverse = [...this.rows.entries()].filter(([subject, facts]) =>
+      subject !== link && facts.some(({ predicate, value }) =>
+        predicate === "linked_thread" && value === threadRef));
+    if (reverse.length)
+      throw new Error(`requested North thread is already reserved by @${reverse[0]![0]}`);
+    const threadLinks = new Set((this.rows.get(thread) ?? [])
+      .filter(({ predicate }) => predicate === "linear_link").map(({ value }) => value));
+    if (threadLinks.size > 1 || (threadLinks.size === 1 && !threadLinks.has(linkRef)))
+      throw new Error("requested North thread already has a different canonical Linear link");
+    const servers = new Set((this.rows.get(link) ?? [])
+      .filter(({ predicate }) => predicate === "remote_server").map(({ value }) => value));
+    if (servers.size > 1 || (servers.size === 1 && !servers.has(remoteServer)))
+      throw new Error("partial Linear link conflicts on remote_server");
+    await this.beforeReservationPut?.();
+    if (!existing.has(threadRef)) await this.put(link, "linked_thread", threadRef);
+    this.reservations.push({ link, thread });
+  }
+
   seed(subject: string, predicate: string, value: string) {
     const rows = this.rows.get(subject) ?? [];
     rows.push({ predicate, value });
@@ -77,6 +109,14 @@ class FakeLeases implements SyncLeaseManager {
   private loseAtRenewal?: number;
   private throwAtRenewal?: number;
   releaseFailure?: string;
+  failAcquireResource?: string;
+  onAcquired?: (resource: string) => void | Promise<void>;
+  readonly requestedResources: string[] = [];
+  readonly acquiredResources: string[] = [];
+
+  activeResources(): readonly string[] {
+    return [...this.active.keys()];
+  }
 
   loseOnNthNextRenewal(n: number): void {
     this.loseAtRenewal = this.renewalCount + n;
@@ -86,9 +126,10 @@ class FakeLeases implements SyncLeaseManager {
     this.throwAtRenewal = this.renewalCount + n;
   }
 
-  takeoverActive(): void {
+  takeoverActive(matching: (resource: string) => boolean = () => true): void {
     for (const [resource] of this.active)
-      this.active.set(resource, { holder: `successor:${resource}`, epoch: ++this.nextEpoch });
+      if (matching(resource))
+        this.active.set(resource, { holder: `successor:${resource}`, epoch: ++this.nextEpoch });
   }
 
   clearTakeovers(): void {
@@ -97,10 +138,17 @@ class FakeLeases implements SyncLeaseManager {
   }
 
   async acquire(resource: string): Promise<SyncLease> {
+    this.requestedResources.push(resource);
+    if (resource === this.failAcquireResource) {
+      this.failAcquireResource = undefined;
+      throw new Error(`injected acquire failure for ${resource}`);
+    }
     while (this.active.has(resource)) await new Promise((done) => setTimeout(done, 1));
     const holder = `fake:${resource}:${this.nextEpoch + 1}`;
     let epoch = ++this.nextEpoch;
     this.active.set(resource, { holder, epoch });
+    this.acquiredResources.push(resource);
+    await this.onAcquired?.(resource);
     let released = false;
     return {
       resource, holder,
@@ -180,6 +228,8 @@ class FakeGateway implements LinearGateway {
   malformedComment?: "blank-id" | "non-string-body";
   afterIssueWrite?: () => void;
   afterWrittenIssueRead?: () => void;
+  afterCommentPage?: () => void;
+  beforeFirstIssueRead?: () => Promise<void>;
   constructor(readonly server = "linear-test") {}
 
   async call(envelope: LinearCallEnvelope): Promise<unknown> {
@@ -190,6 +240,11 @@ class FakeGateway implements LinearGateway {
     return this.writeComment(envelope.arguments);
   }
   async readIssue(args: Record<string, unknown>): Promise<unknown> {
+    if (this.beforeFirstIssueRead) {
+      const before = this.beforeFirstIssueRead;
+      this.beforeFirstIssueRead = undefined;
+      await before();
+    }
     const key = String(args.id);
     if (key === this.issue.id || (!this.rejectOldKey && key === "MSA-236")) {
       const result = structuredClone(this.issue);
@@ -239,6 +294,7 @@ class FakeGateway implements LinearGateway {
       return { comments: [{ id: "comment-malformed", body: 42 }], hasNextPage: false };
     if (this.infiniteCommentPages) {
       const page = ++this.commentPageCalls;
+      this.afterCommentPage?.();
       return { comments: [], hasNextPage: true, nextCursor: `comments-${page}` };
     }
     if (this.oversizedCommentPage) {
@@ -405,13 +461,181 @@ test("concurrent imports deduplicate identity and report the post-lease reuse tr
   expect((await h.graph.show(link)).filter(({ predicate }) => predicate === "sync_manifest")).toHaveLength(1);
 });
 
+test("identity then thread acquisition is canonical, lexical, and reservation is the first mutation", async () => {
+  const h = harness();
+  const imported = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    link: string; thread: string;
+  };
+  const [identityResource, threadResource] = h.leases.requestedResources;
+  expect(identityResource).toStartWith("linear-sync:identity:");
+  expect(threadResource).toBe(`linear-sync:thread:${encodeURIComponent(imported.thread.replace(/^@/, ""))}`);
+  expect(identityResource! < threadResource!).toBe(true);
+  expect(identityResource).toContain("%3A");
+  expect(h.graph.writes[0]).toEqual({
+    subject: imported.link.replace(/^@/, ""),
+    predicate: "linked_thread",
+    value: imported.thread,
+  });
+});
+
+test("distinct Linear identities cannot concurrently reserve the same explicit North thread", async () => {
+  const graph = new FakeGraph();
+  const leases = new FakeLeases();
+  const thread = "shared-explicit-thread";
+  graph.seed(thread, "title", "Shared thread");
+  const first = new FakeGateway("linear-first");
+  const second = new FakeGateway("linear-second");
+  second.issue = {
+    ...issue("MSA-237"),
+    createdAt: "2026-07-16T14:09:20.639Z",
+    updatedAt: "2026-07-16T14:09:20.639Z",
+  };
+  const dependencies = (gateway: FakeGateway): Partial<LinearCliDependencies> => ({
+    graph, leases, mintThreadId: northThreadIdForIdentity,
+    now: () => new Date("2026-07-16T15:00:00.000Z"),
+    openGateway: async () => gateway,
+  });
+  const settled = await Promise.allSettled([
+    runLinearCommand(["import", "MSA-236", "--thread", thread], dependencies(first)),
+    runLinearCommand(["import", "MSA-237", "--thread", thread], dependencies(second)),
+  ]);
+  expect(settled.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+  expect(settled.filter(({ status }) => status === "rejected")).toHaveLength(1);
+  const claimants = [...graph.rows.entries()].filter(([, facts]) =>
+    facts.some(({ predicate, value }) => predicate === "linked_thread" && value === `@${thread}`));
+  expect(claimants).toHaveLength(1);
+  expect((await graph.show(thread)).filter(({ predicate }) => predicate === "linear_link")).toHaveLength(1);
+  expect(first.issueWrites + second.issueWrites).toBe(0);
+  expect(first.commentWrites + second.commentWrites).toBe(0);
+  expect(leases.activeResources()).toEqual([]);
+});
+
+test("reverse reservation includes partial links without a kind fact", async () => {
+  const h = harness();
+  const thread = "partial-claim-thread";
+  h.graph.seed(thread, "title", "Existing");
+  h.graph.seed("link:linear:partial-crash", "linked_thread", `@${thread}`);
+  const writesBefore = h.graph.writes.length;
+  await expect(runLinearCommand(
+    ["import", "MSA-236", "--thread", thread], h.dependencies,
+  )).rejects.toThrow("already reserved by");
+  expect(h.graph.writes).toHaveLength(writesBefore);
+  expect(h.gateway.issueWrites).toBe(0);
+});
+
+test("canonical UUID identity uses one alias-free lock across two server aliases", async () => {
+  const graph = new FakeGraph();
+  const leases = new FakeLeases();
+  const issueUuid = "11111111-1111-8111-8111-111111111111";
+  const workspaceUuid = "22222222-2222-8222-8222-222222222222";
+  const first = new FakeGateway("linear-alias-a");
+  const second = new FakeGateway("linear-alias-b");
+  first.issue = Object.assign(issue("MSA-236"), {
+    id: issueUuid, identifier: "MSA-236", workspaceId: workspaceUuid,
+  });
+  second.issue = Object.assign(structuredClone(first.issue), {
+    id: issueUuid.toUpperCase(),
+    workspaceId: workspaceUuid.toUpperCase(),
+  });
+  let arrived = 0;
+  let openGate!: () => void;
+  const gate = new Promise<void>((resolve) => { openGate = resolve; });
+  const rendezvous = async () => {
+    arrived++;
+    if (arrived === 2) openGate();
+    await gate;
+  };
+  first.beforeFirstIssueRead = rendezvous;
+  second.beforeFirstIssueRead = rendezvous;
+  const dependencies = (gateway: FakeGateway): Partial<LinearCliDependencies> => ({
+    graph, leases, mintThreadId: northThreadIdForIdentity,
+    now: () => new Date("2026-07-16T15:00:00.000Z"),
+    openGateway: async () => gateway,
+  });
+  const settled = await Promise.allSettled([
+    runLinearCommand(["import", "MSA-236"], dependencies(first)),
+    runLinearCommand(["import", "MSA-236"], dependencies(second)),
+  ]);
+  expect(settled.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+  expect(settled.filter(({ status }) => status === "rejected")).toHaveLength(1);
+  const identityRequests = leases.requestedResources.filter((resource) =>
+    resource.startsWith("linear-sync:identity:"));
+  expect(identityRequests).toHaveLength(2);
+  expect(new Set(identityRequests).size).toBe(1);
+  expect(identityRequests[0]).not.toContain("alias");
+  const canonicalLinks = [...graph.rows.entries()].filter(([subject, facts]) =>
+    subject.startsWith("link:linear:uuid:")
+      && facts.some(({ predicate }) => predicate === "linked_thread"));
+  expect(canonicalLinks).toHaveLength(1);
+  expect(first.issueWrites + second.issueWrites).toBe(0);
+  expect(leases.activeResources()).toEqual([]);
+});
+
+test("thread lease acquisition failure releases identity without graph or remote mutation", async () => {
+  const h = harness();
+  const thread = "acquire-failure-thread";
+  h.graph.seed(thread, "title", "Existing");
+  h.leases.failAcquireResource = `linear-sync:thread:${encodeURIComponent(thread)}`;
+  const writesBefore = h.graph.writes.length;
+  await expect(runLinearCommand(
+    ["import", "MSA-236", "--thread", thread], h.dependencies,
+  )).rejects.toThrow("injected acquire failure");
+  expect(h.graph.writes).toHaveLength(writesBefore);
+  expect(h.graph.reservations).toHaveLength(0);
+  expect(h.gateway.issueWrites).toBe(0);
+  expect(h.gateway.commentWrites).toBe(0);
+  expect(h.leases.activeResources()).toEqual([]);
+});
+
+test("thread takeover inside the identity-fenced reservation leaves only healable ownership", async () => {
+  const h = harness();
+  const preview = await runLinearCommand(
+    ["import", "MSA-236", "--dry-run"], h.dependencies,
+  ) as { link: string; thread: string };
+  const link = preview.link.replace(/^@/, "");
+  const thread = preview.thread.replace(/^@/, "");
+  const threadResource = `linear-sync:thread:${encodeURIComponent(thread)}`;
+  h.graph.beforeReservationPut = () => {
+    h.graph.beforeReservationPut = undefined;
+    h.leases.takeoverActive((resource) => resource === threadResource);
+  };
+
+  await expect(runLinearCommand(["import", "MSA-236"], h.dependencies))
+    .rejects.toThrow("lost fake lease");
+  expect((await h.graph.show(link))
+    .filter(({ predicate, value }) => predicate === "linked_thread" && value === `@${thread}`))
+    .toHaveLength(1);
+  expect(h.graph.writes).toEqual([
+    { subject: link, predicate: "linked_thread", value: `@${thread}` },
+  ]);
+  expect(h.gateway.issueWrites).toBe(0);
+  expect(h.gateway.commentWrites).toBe(0);
+  expect(h.leases.activeResources()).toEqual([threadResource]);
+
+  h.leases.clearTakeovers();
+  const recovered = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    link: string; thread: string; reused: boolean; action: string;
+  };
+  expect(recovered).toMatchObject({
+    link: `@${link}`, thread: `@${thread}`, reused: false, action: "heal-link",
+  });
+  expect((await h.graph.show(link))
+    .filter(({ predicate, value }) => predicate === "linked_thread" && value === `@${thread}`))
+    .toHaveLength(1);
+  expect(h.leases.activeResources()).toEqual([]);
+});
+
 test("partial link and partial thread crashes heal using the prepared identity and importedAt", async () => {
   const linkCrash = harness();
   linkCrash.graph.failSubjectPrefix = "link:linear:";
   linkCrash.graph.failAfter = 3;
   await expect(importThread(linkCrash)).rejects.toThrow("injected graph crash");
-  const healed = await importThread(linkCrash);
-  expect((await linkCrash.graph.show(healed)).some(({ predicate }) => predicate === "committed")).toBe(true);
+  const healed = await runLinearCommand(["import", "MSA-236"], linkCrash.dependencies) as {
+    thread: string; reused: boolean; action: string;
+  };
+  expect(healed).toMatchObject({ reused: false, action: "heal-link" });
+  expect((await linkCrash.graph.show(healed.thread.replace(/^@/, "")))
+    .some(({ predicate }) => predicate === "committed")).toBe(true);
 
   const threadCrash = harness();
   const preview = await runLinearCommand(["import", "MSA-236", "--dry-run"], threadCrash.dependencies) as { thread: string };
@@ -661,6 +885,76 @@ test("concurrent apply serializes and emits one remote issue mutation", async ()
   expect(h.gateway.issueWrites).toBe(1);
 });
 
+test("apply revalidates the exact locked endpoint before pending recovery or remote work", async () => {
+  const h = harness();
+  h.gateway.issue = Object.assign(issue("MSA-236"), {
+    id: "11111111-1111-8111-8111-111111111111",
+    identifier: "MSA-236",
+    workspaceId: "22222222-2222-8222-8222-222222222222",
+  });
+  const thread = await importThread(h);
+  const link = (await h.graph.show(thread))
+    .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  const writesBefore = h.graph.writes.length;
+  h.leases.onAcquired = (resource) => {
+    if (!resource.startsWith("linear-sync:identity:")) return;
+    const rows = h.graph.rows.get(link)!;
+    h.graph.rows.set(link, rows.map((fact) =>
+      fact.predicate === "remote_server" ? { ...fact, value: "linear-other" } : fact));
+  };
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("endpoint changed while its leases were being acquired");
+  expect(h.graph.writes).toHaveLength(writesBefore);
+  expect(h.gateway.issueWrites).toBe(0);
+  expect(h.gateway.commentWrites).toBe(0);
+  expect(h.leases.activeResources()).toEqual([]);
+});
+
+for (const endpoint of ["identity", "thread"] as const) {
+  test(`loss of ${endpoint} endpoint after pending intent prevents a remote side effect`, async () => {
+    const h = harness();
+    const thread = await importThread(h);
+    h.graph.afterPut = (_subject, predicate, value) => {
+      if (predicate !== "sync_manifest" || !JSON.parse(value).pending) return;
+      h.graph.afterPut = undefined;
+      h.leases.takeoverActive((resource) => resource.startsWith(`linear-sync:${endpoint}:`));
+    };
+    await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+      .rejects.toThrow("lost fake lease");
+    expect(h.gateway.issueWrites).toBe(0);
+    expect(h.gateway.commentWrites).toBe(0);
+    const link = (await h.graph.show(thread))
+      .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+    expect(JSON.parse((await h.graph.show(link))
+      .find(({ predicate }) => predicate === "sync_manifest")!.value).pending)
+      .toMatchObject({ kind: "issue" });
+    h.leases.clearTakeovers();
+  });
+
+  test(`loss of ${endpoint} endpoint after remote commit preserves intent for no-duplicate recovery`, async () => {
+    const h = harness();
+    const thread = await importThread(h);
+    h.gateway.afterIssueWrite = () => {
+      h.gateway.afterIssueWrite = undefined;
+      h.leases.takeoverActive((resource) => resource.startsWith(`linear-sync:${endpoint}:`));
+    };
+    await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+      .rejects.toThrow("lost fake lease");
+    expect(h.gateway.issueWrites).toBe(1);
+    const link = (await h.graph.show(thread))
+      .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+    expect(JSON.parse((await h.graph.show(link))
+      .find(({ predicate }) => predicate === "sync_manifest")!.value).pending)
+      .toMatchObject({ kind: "issue" });
+    h.leases.clearTakeovers();
+    await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+    expect(h.gateway.issueWrites).toBe(1);
+    expect(await runLinearCommand(["plan", thread], h.dependencies))
+      .toMatchObject({ state: "in-sync", actions: [] });
+  });
+}
+
 test("lease renewal advances the exact epoch and release uses only the latest token", async () => {
   const calls: string[][] = [];
   const manager = new CoordinatorSyncLeaseManager(
@@ -763,6 +1057,38 @@ test("fenced graph writes classify exact JSON success, lease loss, rejection, an
     .rejects.toThrow("invalid fenced-write response");
 });
 
+test("binding reservation accepts only exact coordinator envelopes", async () => {
+  const calls: string[][] = [];
+  const lease: SyncLease = {
+    resource: "linear-sync:identity:linear%3Auuid%3Aws%3A11111111-1111-8111-8111-111111111111",
+    holder: "holder", epoch: 10,
+    renew: async () => {}, fence: async () => {}, release: async () => {},
+  };
+  const response = { value: JSON.stringify({ ok: 11 }) };
+  const store = new NorthGraphStore(
+    "/unused/north", "/unused/fram", "/unused/lease-cli.clj", "7977", undefined,
+    "/unused/reserve-link.clj",
+    async (args) => {
+      calls.push([...args]);
+      return response.value;
+    },
+  );
+  await store.reserveLinearBinding(
+    lease, "link:linear:uuid:ws:11111111-1111-8111-8111-111111111111", "thread-a",
+    "linear-test",
+  );
+  expect(calls[0]).toEqual([
+    "7977", lease.resource, lease.holder, "10",
+    "link:linear:uuid:ws:11111111-1111-8111-8111-111111111111", "thread-a", "linear-test",
+  ]);
+  response.value = JSON.stringify({ reject: "reservation collision" });
+  await expect(store.reserveLinearBinding(lease, "link:x", "thread-a", "linear-test"))
+    .rejects.toThrow("reservation collision");
+  response.value = JSON.stringify({ ok: 12, surplus: true });
+  await expect(store.reserveLinearBinding(lease, "link:x", "thread-a", "linear-test"))
+    .rejects.toThrow("invalid reservation response");
+});
+
 test("lease configuration rejects hostile bounds and dominates every remote call", () => {
   expect(() => new CoordinatorSyncLeaseManager("7977", "/unused", 0, 1))
     .toThrow("TTL must be a positive safe integer");
@@ -834,11 +1160,11 @@ test("lease loss during paginated reads aborts before any remote or graph mutati
   const thread = await importThread(h);
   const graphWritesBeforeApply = h.graph.writes.length;
   h.gateway.infiniteCommentPages = true;
-  h.leases.loseOnNthNextRenewal(5);
+  h.gateway.afterCommentPage = () => h.leases.takeoverActive();
 
   await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
     .rejects.toThrow("lost fake lease");
-  expect(h.gateway.commentPageCalls).toBe(2);
+  expect(h.gateway.commentPageCalls).toBe(1);
   expect(h.gateway.issueWrites).toBe(0);
   expect(h.gateway.commentWrites).toBe(0);
   expect(h.graph.writes.length).toBe(graphWritesBeforeApply);
@@ -862,12 +1188,14 @@ test("release cleanup never masks a primary failure but still fails a successful
   primary.leases.releaseFailure = "release transport failed";
   await expect(runLinearCommand(["sync", primaryThread, "--apply"], primary.dependencies))
     .rejects.toThrow("Linear list_comments exceeded 20 pages");
+  expect(primary.leases.activeResources()).toEqual([]);
 
   const successful = harness();
   const successfulThread = await importThread(successful);
   successful.leases.releaseFailure = "release transport failed";
   await expect(runLinearCommand(["sync", successfulThread, "--apply"], successful.dependencies))
     .rejects.toThrow("release transport failed");
+  expect(successful.leases.activeResources()).toEqual([]);
 });
 
 for (const malformed of ["blank-id", "non-string-body"] as const) {

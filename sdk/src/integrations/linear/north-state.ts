@@ -24,6 +24,13 @@ export interface GraphStore {
   showMany?(subjects: readonly string[]): Promise<ReadonlyMap<string, readonly GraphFact[]>>;
   /** Coordinator-serialized graph assertion. Subject is bare; refs retain @. */
   put(subject: string, predicate: string, value: string): Promise<void>;
+  /**
+   * Atomically reserve the identity -> thread edge after validating the reverse
+   * thread endpoint against one global coordinator version.
+   */
+  reserveLinearBinding(
+    lease: SyncLease, linkSubject: string, threadId: string, remoteServer: string,
+  ): Promise<void>;
   /** Assertion whose lease check and graph mutation share one coordinator turn. */
   putFenced(lease: SyncLease, subject: string, predicate: string, value: string): Promise<void>;
 }
@@ -141,6 +148,8 @@ export class NorthGraphStore implements GraphStore {
     private leaseCli = resolve(NORTH_ROOT, "cli/lease-cli.clj"),
     private port = process.env.NORTH_PORT ?? "7977",
     private leaseInvokeOverride?: (args: readonly string[]) => Promise<string>,
+    private reservationCli = resolve(import.meta.dir, "reserve-link.clj"),
+    private reservationInvokeOverride?: (args: readonly string[]) => Promise<string>,
   ) {}
 
   async show(subject: string): Promise<readonly GraphFact[]> {
@@ -174,6 +183,23 @@ export class NorthGraphStore implements GraphStore {
     const output = await command(this.framBin, ["tell", bare, predicate, value]);
     if (!output.startsWith("committed via coordinator"))
       throw new Error(`coordinator rejected @${bare} ${predicate}: ${output || "no response"}`);
+  }
+
+  async reserveLinearBinding(
+    lease: SyncLease, linkSubject: string, threadId: string, remoteServer: string,
+  ): Promise<void> {
+    const args = [
+      this.port, lease.resource, lease.holder, String(lease.epoch),
+      linkSubject.replace(/^@/, ""), threadId.replace(/^@/, ""), remoteServer,
+    ];
+    const output = this.reservationInvokeOverride
+      ? await this.reservationInvokeOverride(args)
+      : await command("bb", [this.reservationCli, ...args]);
+    const response = coordinatorObject(output);
+    if (response && hasExactKeys(response, ["ok"]) && positiveSafeInteger(response.ok)) return;
+    if (response && hasExactKeys(response, ["reject"]) && typeof response.reject === "string" && response.reject)
+      throw new Error(response.reject);
+    throw new Error("Linear binding coordinator returned an invalid reservation response");
   }
 
   async putFenced(lease: SyncLease, subject: string, predicate: string, value: string): Promise<void> {
@@ -578,8 +604,12 @@ export async function ensureLinearLinkFacts(
     const mutable = ["remote_key", "remote_scope", "remote_workspace_slug"].includes(predicate);
     if (!mutable && values.some((found) => found !== value))
       throw new Error(`partial Linear link @${expected.subject} conflicts on ${predicate}`);
-    if (!values.includes(value)) await graph.putFenced(lease, expected.subject, predicate, value);
+    if (!values.includes(value)) {
+      await lease.renew();
+      await graph.putFenced(lease, expected.subject, predicate, value);
+    }
   }
+  await lease.renew();
   const loaded = await loadLinkBySubject(graph, expected.subject);
   if (!loaded) throw new Error(`failed to heal Linear link @${expected.subject}`);
   return loaded;
@@ -627,6 +657,7 @@ export async function loadLinkForThread(graph: GraphStore, threadId: string): Pr
 export async function writeManifest(
   graph: GraphStore, lease: SyncLease, link: LinearLinkState, manifest: LinearSyncManifest,
 ): Promise<void> {
+  await lease.renew();
   await graph.putFenced(lease, link.subject, "sync_manifest", canonicalJson(manifest));
   link.manifest = manifest;
 }
@@ -695,7 +726,10 @@ export async function createImportedThread(
     ["proposed_by", `@${proposed}`], ["created_at", now.toISOString()], ["updated_at", date],
     ["committed", date], ["body", issue.description],
   ];
-  for (const [predicate, value] of facts) await graph.putFenced(lease, threadId, predicate, value);
+  for (const [predicate, value] of facts) {
+    await lease.renew();
+    await graph.putFenced(lease, threadId, predicate, value);
+  }
 }
 
 export function assertImportableDescription(description: string): void {

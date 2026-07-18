@@ -53,9 +53,12 @@ function requireNonempty(name: string, value: Nullable<string>): string {
 
 export function normalizeLinearIdentity(value: LinearIssueReference): LinearIssueIdentity {
   if (value.identityKind === "linear-uuid") {
+    const workspaceId = requireNonempty("workspace UUID", value.workspaceId).toLowerCase();
     const issueId = requireNonempty("issue UUID", value.issueId).toLowerCase();
+    if (!UUID.test(workspaceId))
+      throw new Error(`Linear workspaceId must be a UUID, received ${JSON.stringify(value.workspaceId)}`);
     if (!UUID.test(issueId)) throw new Error(`Linear issueId must be a UUID, received ${JSON.stringify(value.issueId)}`);
-    return { identityKind: "linear-uuid", workspaceId: requireNonempty("workspaceId", value.workspaceId), issueId };
+    return { identityKind: "linear-uuid", workspaceId, issueId };
   }
   if (value.identityKind === "mcp-bootstrap-v1") {
     const fingerprint = requireNonempty("connector fingerprint", value.fingerprint).toLowerCase();
