@@ -127,6 +127,8 @@
    ;; --- messaging (msg-cli, inbox-peek, north-listen) ---
    ["from"     "single" "literal" "sender handle of a message"]
    ["to"       "single" "literal" "recipient handle/role/wildcard of a message"]
+   ["broadcast_audience_version" "single" "literal" "finite send-time broadcast audience contract version"]
+   ["broadcast_to" "multi" "literal" "concrete session handle included in a finite broadcast audience"]
    ["subject"  "single" "literal" "message subject line"]
    ["body"     "single" "literal" "message body (text or command envelope)"]
    ["sent_at"  "single" "literal" "instant a message was sent"]

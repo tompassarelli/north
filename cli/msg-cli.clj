@@ -16,19 +16,12 @@
 ;; SINGLE last-writer-wins; pending-cmds = the single Datalog rule the reactor shares.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def put!    north.coord/put!)
 (def one     north.coord/resolved)
 (def many    north.coord/many)
-
-(defn messages [port]      ; -> [[@msg-entity to-handle] ...]  (every entity carrying a `to`)
-  (:ok (send-op port {:op :query
-                      :query {:find "m"
-                              :rules [{:head {:rel "m" :args [{:var "e"} {:var "to"}]}
-                                       :body [{:rel "triple" :args [{:var "e"} "to" {:var "to"}]}]}]}})))
-
-(defn for-me? [to me] (or (= to me) (= to "*")))   ; group ("beagle-*") expansion = a later demand-driven add
 
 (defn fresh-id [from]   ; yyyyMMdd-HHmmss-<from>-<4hex>: ts prefix sorts, hex suffix dodges same-second aliasing
   (str (.format (java.time.LocalDateTime/now)
@@ -122,24 +115,39 @@
       (put! port e "subject" (or subj ""))
       (put! port e "body" (or body ""))
       (put! port e "sent_at" (str (java.time.Instant/now)))
-      (put! port e "to" to)
-      (println (str "sent " e " -> " to)))
+      ;; A broadcast's concrete recipients are durable facts, captured before
+      ;; `to` lands. Sender exclusion is intentional: broadcast means peers.
+      (let [broadcast-audience
+            (when (= north.message-audience/broadcast-address to)
+              (north.message-audience/snapshot-broadcast! port e from))]
+        (put! port e "to" to)
+        (println (str "sent " e " -> " to
+                      (when broadcast-audience
+                        (str " (" (count broadcast-audience)
+                             " snapshotted recipients; sender excluded)"))))))
 
-    "inbox"       ; <me>  — DERIVED: to∈{me,"*"} AND not acked_by me
+    "inbox"       ; <me>  — direct-to-me OR finite broadcast audience, minus acked_by
     (let [[me] args]
       (println (format "%-28s %-10s %s" "MSG-ID" "FROM" "SUBJECT"))
-      (doseq [[e to] (sort (or (messages port) []))]
-        (when (and (for-me? to me) (not (contains? (set (many port e "acked_by")) me)))
-          (println (format "%-28s %-10s %s" (subs e 5) (or (one port e "from") "?") (or (one port e "subject") ""))))))
+      (doseq [e (sort (north.message-audience/pending-message-ids port me #{me}))]
+        (println (format "%-28s %-10s %s" (subs e 5) (or (one port e "from") "?") (or (one port e "subject") "")))))
 
     "thread"      ; <msg-id>
     (let [[id] args, e (str "@msg:" id)]
-      (doseq [p ["from" "to" "subject" "body" "sent_at"]]
+      (doseq [p ["from" "to" "subject" "body" "sent_at"
+                 north.message-audience/audience-version-predicate]]
         (println (format "%-9s %s" p (or (one port e p) "-"))))
+      (println (str "broadcast_to: "
+                    (str/join ", " (many port e north.message-audience/audience-predicate))))
       (println (str "acked_by: " (str/join ", " (many port e "acked_by")))))
 
     "ack"         ; <me> <msg-id-or-cmd-id>  — works for @msg and @cmd subjects
     (let [[me id] args, e (if (str/starts-with? (str id) "@") id (str "@msg:" id))]
+      (when (and (str/starts-with? e "@msg:")
+                 (not (north.message-audience/deliverable?
+                       port e (one port e "to") me #{me})))
+        (println (str "REJECTED: " e " is not addressed to " me))
+        (System/exit 2))
       (append! port e "acked_by" me)                       ; multi (many ackers)
       (put!    port e "acked_at" (str (java.time.Instant/now))) ; single
       (println (str me " acked " e)))

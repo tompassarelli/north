@@ -25,7 +25,7 @@ if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
   unset _north_log_dir
 fi
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target requested_target fallback_target_path}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target requested_target fallback_target_path broadcast_audience_version}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -204,7 +204,7 @@ CARD
     # Real-time interrupt listener — RUN AS A BACKGROUND TASK. Dormant (zero
     # tokens) until a peer addresses you, then prints the message and exits:
     # that exit is the interrupt. Read it, act, re-arm. bin/north-arm = alias.
-    exec bb "$NORTH/cli/north-listen.clj" 7977 "${2:?usage: north listen <agent-id>}" --once "${@:3}" ;;
+    exec bb "$NORTH/cli/north-listen.clj" 7977 "${2:?usage: north listen <agent-id>}" --once --ack "${@:3}" ;;
   reactor)
     # Coordinator AUTO-EXPORT sidecar — RUN AS A LONG-LIVED BACKGROUND TASK next to
     # the daemon. Subscribes to the coordinator commit firehose and re-projects

@@ -295,6 +295,13 @@
          (= {:card "single" :kind "ref"}
             (select-keys (registry "retry_command") [:card :kind]))))
 
+(check "broadcast contract version is single/literal"
+       (= {:card "single" :kind "literal"}
+          (select-keys (registry "broadcast_audience_version") [:card :kind])))
+(check "broadcast audience members are multi/literal"
+       (= {:card "multi" :kind "literal"}
+          (select-keys (registry "broadcast_to") [:card :kind])))
+
 (check "Linear adapter cardinality matches its executable schema"
        (every? (fn [[predicate card]] (= card (get-in registry [predicate :card])))
                linear-cardinality))
@@ -350,6 +357,9 @@
 ;; Preserve the old fallback regression check. It verifies the executable legacy
 ;; bootstrap separately; it is intentionally not generalized to every catalog row.
 (let [launcher (slurp-source "bin/north")]
+  (check "broadcast audience version is single in the executable legacy fallback"
+         (boolean (re-find #"FRAM_SINGLE_VALUED=.*\bbroadcast_audience_version\b"
+                           launcher)))
   (doseq [predicate ["provider_target" "requested_target" "fallback_target_path"]]
     (check (str predicate " remains single in the executable legacy fallback")
            (re-find (re-pattern (str "FRAM_SINGLE_VALUED=.*\\b" predicate "\\b")) launcher))))

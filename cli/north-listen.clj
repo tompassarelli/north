@@ -1,7 +1,8 @@
 ;; north-listen.clj <uuid> [--once] [--ack] — dormant-until-pinged listener.
 ;;
 ;; Fact-native pub/sub, client-side. An agent is @agent:<uuid> (an opaque address). Its SCOPE is:
-;;   self-channel : a commit (to ∈ {uuid} ∪ {roles it HOLDS} ∪ {"*"})  — a message to it
+;;   self-channel : a direct commit to {uuid} ∪ {roles it HOLDS}, or a broadcast
+;;                  whose finite send-time audience contains uuid
 ;;   watched thread: a commit whose SUBJECT is a thread it watches                  — that thread moved
 ;; You ADDRESS a role (e.g. `to fram-engine`) and it routes to the current holder — agents are
 ;; fungible, roles are the stable address. holds/watches are facts (@agent:<uuid> holds @role:…
@@ -18,6 +19,7 @@
 ;; (rf/rmany = the single/multi resolved variants — semantics unchanged).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def rf      north.coord/resolved)
@@ -114,7 +116,7 @@
                 (binding [*out* *err*] (println problem))
                 (System/exit 1))
       scoped? (boolean (some #{"--scoped"} flags))  ; P5: server-side scoped subscribe (daemon pushes only my commits)
-      addrs   (atom (into #{uuid "*"} (keep role-slug (rmany port node "holds"))))  ; uuid ∪ held roles
+      addrs   (atom (into #{uuid} (keep role-slug (rmany port node "holds"))))  ; uuid ∪ held roles
       watched (atom (set (rmany port node "watches")))]
   ;; outer loop: with --scoped, RECONNECT when my addr/watch set changes so the daemon re-scopes
   ;; the push filter (the daemon's subscribe loop ignores mid-stream re-subscribe, so a fresh
@@ -124,8 +126,12 @@
     (let [reconnect? (atom false)]
       (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
         (let [w (.getOutputStream s) r (io/reader (.getInputStream s))
+              ;; The daemon still needs "*" in its transport filter to forward
+              ;; broadcast trigger commits. Client-side snapshot membership is
+              ;; the delivery authority; "*" is never a command/direct address.
               sub (cond-> {:op :subscribe}
-                    scoped? (assoc :filter {:addrs @addrs :watch @watched :node node}))]
+                    scoped? (assoc :filter {:addrs (conj @addrs north.message-audience/broadcast-address)
+                                            :watch @watched :node node}))]
           (.write w (.getBytes (str (pr-str sub) "\n"))) (.flush w)
           (.readLine r)                                              ; consume {:subscribed N}
           (println (format "● @agent:%s listening%s — addrs %s + %d watched thread(s)%s"
@@ -159,11 +165,23 @@
                       ;; LAST now (msg-cli send writes it after the body), so from/subject/body are
                       ;; already visible — no settle sleep, and no envelope parsing (commands are
                       ;; @cmd: subjects handled in (c2), not mail bodies).
-                      (and (= op "assert") (= p "to") (contains? @addrs r))
-                      (do (println (format "✉  MAIL %s  (to %s)\n   from:    %s\n   subject: %s\n   body:    %s"
-                                           l r (rf port l "from") (rf port l "subject") (rf port l "body"))) (flush)
-                          (when ack? (ack! port uuid l) (println (str "   ↳ acked_by " uuid)) (flush))
-                          (when once? (System/exit 0)))
+                      (and (= op "assert") (= p "to")
+                           (north.message-audience/deliverable?
+                            port l r uuid @addrs))
+                      (let [claim (when ack?
+                                    (north.message-audience/claim-delivery! port l uuid))]
+                        ;; Raw listeners without --ack remain an explicit
+                        ;; monitoring surface. Canonical one-shot listeners use
+                        ;; --ack and must win the coordinator claim before print.
+                        (when (or (not ack?) claim)
+                          (println (format "✉  MAIL %s  (to %s)\n   from:    %s\n   subject: %s\n   body:    %s"
+                                           l r (rf port l "from") (rf port l "subject") (rf port l "body")))
+                          (flush)
+                          (when ack?
+                            (north.message-audience/complete-delivery! port l uuid claim)
+                            (println (str "   ↳ acked_by " uuid))
+                            (flush))
+                          (when once? (System/exit 0))))
 
                       ;; (c2) command landing: a @cmd:<id> whose routing `target` is one of my addrs.
                       ;; `target` is asserted LAST, so op+args are present. Drive the forward-chaining
