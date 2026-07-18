@@ -1,4 +1,5 @@
 import {
+  assertNoReservedNorthMarker,
   normalizeLinearIdentity,
   normalizeSyncFields,
   normalizeText,
@@ -176,6 +177,7 @@ export function reconcileLinearIssue(input: {
   local: LinearThreadProjection;
   remote: LinearIssueSnapshot;
   bootstrap?: LinearBootstrapDescriptionEvidence;
+  ensureDescriptionMarker?: boolean;
 }): LinearReconciliationResult {
   const baseline = validateLinearSyncBaseline(input.baseline);
   if (baseline.threadId !== normalizeThreadId(input.local.threadId)) {
@@ -200,6 +202,17 @@ export function reconcileLinearIssue(input: {
   if (adoption?.state === "conflict") {
     return bootstrapConflictResult(baseline, input.local, input.remote, adoption.diagnostic, adoption.rawDescriptionHash);
   }
+  let markerBindingDescription: string | undefined;
+  if (!managed && !adoption && input.ensureDescriptionMarker) {
+    try {
+      assertNoReservedNorthMarker("Linear description", input.remote.description ?? "");
+      markerBindingDescription = replaceManagedLinearDescription(
+        input.remote.description, baseline.threadId, localFields,
+      );
+    } catch (error) {
+      return malformedDescriptionResult(baseline, input.local, input.remote, error);
+    }
+  }
   const remoteFields = managed ? normalizeSyncFields({
     title: normalizeText(input.remote.title),
     body: managed.body,
@@ -222,7 +235,7 @@ export function reconcileLinearIssue(input: {
     return reconcileField(field, baseline, localFields, remoteFields ?? absentFields!);
   });
   const comments = planLinearCommentMutations(input.local.comments, input.remote.comments);
-  const forceDescriptionAdoption = adoption?.state === "adopt";
+  const forceDescriptionAdoption = adoption?.state === "adopt" || markerBindingDescription !== undefined;
   const state = stateFor(fields, comments.length > 0 || forceDescriptionAdoption);
   const conflicts = fields.filter(({ category }) => category === "remote-drift" || category === "divergent");
   if (conflicts.length > 0) {
@@ -232,8 +245,10 @@ export function reconcileLinearIssue(input: {
   const locallyChanged = new Set(fields.filter(({ category }) => category === "local-change").map(({ field }) => field));
   const issue: LinearApplyPlan["issue"] = {};
   if (locallyChanged.has("title")) issue.title = localFields.title;
-  if (forceDescriptionAdoption) {
+  if (adoption?.state === "adopt") {
     issue.description = adoption.description;
+  } else if (markerBindingDescription !== undefined) {
+    issue.description = markerBindingDescription;
   } else if (FIELDS.some((field) => DESCRIPTION_FIELDS.has(field) && locallyChanged.has(field))) {
     issue.description = replaceManagedLinearDescription(input.remote.description, baseline.threadId, localFields);
   }

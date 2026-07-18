@@ -6,6 +6,7 @@ import { runLinearCommand, type LinearCliDependencies } from "../src/integration
 import { NorthGraphStore, northThreadIdForIdentity, type GraphFact, type GraphStore, type SyncLease, type SyncLeaseManager } from "../src/integrations/linear/north-state";
 import { createLinearSyncBaseline } from "../src/integrations/linear/reconcile";
 import type { LinearGateway, LinearCallEnvelope } from "../src/integrations/linear/gateway";
+import type { ModelFreeTransportReceipt } from "../src/integrations/linear/mcp-broker";
 
 class FakeGraph implements GraphStore {
   rows = new Map<string, GraphFact[]>();
@@ -85,6 +86,15 @@ function issue(key = "MSA-236", description = "Imported body") {
   };
 }
 
+function normalizeLinearManagedMarkdown(description: string): string {
+  return description
+    .replace(
+      /(<!-- north:thread:[^>\r\n]+ -->)\n(## North thread)/,
+      "$1\n\n$2",
+    )
+    .replace(/(### (?:Body|Done when|Bar evidence|Repositories))\n(<!-- north:field:)/g, "$1\n\n$2");
+}
+
 class FakeGateway implements LinearGateway {
   issue = issue();
   comments: { id: string; body: string }[] = [];
@@ -92,6 +102,7 @@ class FakeGateway implements LinearGateway {
   commentWrites = 0;
   throwAfterIssueWrite = false;
   throwAfterCommentWrite = false;
+  normalizeManagedMarkdown = false;
   rejectOldKey = false;
   falsePositive = issue("NOISE-1", "not the marker");
   duplicateExact = false;
@@ -121,7 +132,10 @@ class FakeGateway implements LinearGateway {
   async writeIssue(args: Record<string, unknown>): Promise<unknown> {
     this.issueWrites++;
     if (typeof args.title === "string") this.issue.title = args.title;
-    if (typeof args.description === "string") this.issue.description = args.description;
+    if (typeof args.description === "string") {
+      this.issue.description = this.normalizeManagedMarkdown
+        ? normalizeLinearManagedMarkdown(args.description) : args.description;
+    }
     if (this.throwAfterIssueWrite) { this.throwAfterIssueWrite = false; throw new Error("transport vanished after commit"); }
     return structuredClone(this.issue);
   }
@@ -139,6 +153,15 @@ class FakeGateway implements LinearGateway {
     }
     if (this.throwAfterCommentWrite) { this.throwAfterCommentWrite = false; throw new Error("comment response lost"); }
     return structuredClone(comment);
+  }
+  transportReceipt(): ModelFreeTransportReceipt {
+    return {
+      transport: "linear-test-double", policy: "linear-test-double-v1", ephemeralThread: true,
+      linearServer: this.server,
+      outgoingMethods: {}, incomingNotifications: {},
+      mcpCalls: [],
+      modelTurnsStarted: 0, usageEvents: 0, tokenTotalStatus: "exact-zero-protocol",
+    };
   }
   async close(): Promise<void> {}
 }
@@ -195,6 +218,8 @@ test("representative mechanical lifecycle converges, no-ops, and recovers from c
     thread: string; link: string; identity: unknown; reused: boolean;
   };
   const thread = imported.thread.replace(/^@/, "");
+  expect((await h.graph.show(thread)).find(({ predicate }) => predicate === "linear_link")?.value)
+    .toBe(imported.link);
   expect(imported.reused).toBe(false);
   expect(await runLinearCommand(["doctor"], h.dependencies)).toMatchObject({
     modelTurn: false, graphSchema: { ok: true, missing: [], conflicting: [] },
@@ -311,9 +336,41 @@ test("first apply consumes unchanged imported description once and comments dedu
   expect(h.gateway.issue.description.match(/Imported body/g)).toHaveLength(1);
   expect(h.gateway.issue.description).toContain(`<!-- north:thread:${thread} -->`);
   expect(h.gateway.comments).toHaveLength(1);
+  const graphWritesAfterFirstApply = h.graph.writes.length;
   const second = await runLinearCommand(["sync", thread, "--apply"], h.dependencies) as { writes: number };
   expect(second.writes).toBe(0);
   expect(h.gateway.comments).toHaveLength(1);
+  expect(h.graph.writes).toHaveLength(graphWritesAfterFirstApply);
+});
+
+test("first apply binds an explicitly adopted speculative thread even without a field delta", async () => {
+  const h = harness();
+  const thread = "existing-speculative-thread";
+  h.graph.seed(thread, "title", h.gateway.issue.title);
+  const unmanagedDescription = h.gateway.issue.description;
+  const imported = await runLinearCommand(
+    ["import", "MSA-236", "--thread", thread], h.dependencies,
+  ) as { thread: string; createdThread: boolean };
+  expect(imported).toMatchObject({ thread: `@${thread}`, createdThread: false });
+
+  const plan = await runLinearCommand(["plan", thread], h.dependencies);
+  expect(plan).toMatchObject({
+    state: "local-ahead",
+    actions: { issue: ["description"], comments: [], descriptionAdoption: true },
+  });
+  const first = await runLinearCommand(["sync", thread, "--apply"], h.dependencies) as { writes: number };
+  expect(first.writes).toBe(1);
+  expect(h.gateway.issue.description.startsWith(unmanagedDescription)).toBe(true);
+  expect(h.gateway.issue.description.match(new RegExp(`<!-- north:thread:${thread} -->`, "g"))).toHaveLength(1);
+  const link = (await h.graph.show(thread)).find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  const manifest = JSON.parse((await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value);
+  expect(manifest.evidence.markerBound).toBe(true);
+
+  const graphWritesAfterFirstApply = h.graph.writes.length;
+  const second = await runLinearCommand(["sync", thread, "--apply"], h.dependencies) as { writes: number };
+  expect(second.writes).toBe(0);
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.graph.writes).toHaveLength(graphWritesAfterFirstApply);
 });
 
 test("unknown post-commit response reconciles without a duplicate and binds marker immediately", async () => {
@@ -328,6 +385,26 @@ test("unknown post-commit response reconciles without a duplicate and binds mark
   expect(manifest.evidence.adoptRawDescription).toBe(false);
   await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
   expect(h.gateway.issueWrites).toBe(1);
+});
+
+test("known Linear scaffold normalization confirms once and the second apply is an exact no-op", async () => {
+  const h = harness();
+  h.gateway.normalizeManagedMarkdown = true;
+  const thread = await importThread(h);
+  await h.graph.put(thread, "progress", "Projection wired.");
+  const first = await runLinearCommand(["sync", thread, "--apply"], h.dependencies) as { writes: number };
+  expect(first.writes).toBe(2);
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(h.gateway.issue.description).toContain("\n\n## North thread");
+  expect(await runLinearCommand(["plan", thread], h.dependencies))
+    .toMatchObject({ state: "in-sync", actions: [] });
+  const graphWrites = h.graph.writes.length;
+  const second = await runLinearCommand(["sync", thread, "--apply"], h.dependencies) as { writes: number };
+  expect(second.writes).toBe(0);
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(h.graph.writes).toHaveLength(graphWrites);
 });
 
 test("crash after issue commit but before confirmed manifest recovers persisted intent without retry", async () => {
@@ -345,6 +422,54 @@ test("crash after issue commit but before confirmed manifest recovers persisted 
   expect(manifest.pending).toBeUndefined();
   expect(manifest.evidence.markerBound).toBe(true);
   expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({ state: "in-sync", actions: [] });
+});
+
+test("legacy normalized pending recovery proves the original payload and rejects unmanaged drift", async () => {
+  const recoverable = harness();
+  recoverable.gateway.normalizeManagedMarkdown = true;
+  const recoveredThread = await importThread(recoverable);
+  const recoveredLink = (await recoverable.graph.show(recoveredThread))
+    .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  recoverable.graph.failSubjectPrefix = recoveredLink;
+  recoverable.graph.failPredicate = "sync_manifest";
+  recoverable.graph.failAfter = 1;
+  await expect(runLinearCommand(["sync", recoveredThread, "--apply"], recoverable.dependencies))
+    .rejects.toThrow("injected graph crash");
+  const recoveredRows = recoverable.graph.rows.get(recoveredLink)!;
+  recoverable.graph.rows.set(recoveredLink, recoveredRows.map((fact) => {
+    if (fact.predicate !== "sync_manifest") return fact;
+    const manifest = JSON.parse(fact.value);
+    delete manifest.pending.descriptionReceiptHash;
+    return { ...fact, value: JSON.stringify(manifest) };
+  }));
+  await runLinearCommand(["sync", recoveredThread, "--apply"], recoverable.dependencies);
+  expect(recoverable.gateway.issueWrites).toBe(1);
+
+  const rejected = harness();
+  rejected.gateway.normalizeManagedMarkdown = true;
+  const existing = "existing-normalized-thread";
+  rejected.graph.seed(existing, "title", rejected.gateway.issue.title);
+  await runLinearCommand(["import", "MSA-236", "--thread", existing], rejected.dependencies);
+  const rejectedLink = (await rejected.graph.show(existing))
+    .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  rejected.graph.failSubjectPrefix = rejectedLink;
+  rejected.graph.failPredicate = "sync_manifest";
+  rejected.graph.failAfter = 1;
+  await expect(runLinearCommand(["sync", existing, "--apply"], rejected.dependencies))
+    .rejects.toThrow("injected graph crash");
+  const rejectedRows = rejected.graph.rows.get(rejectedLink)!;
+  rejected.graph.rows.set(rejectedLink, rejectedRows.map((fact) => {
+    if (fact.predicate !== "sync_manifest") return fact;
+    const manifest = JSON.parse(fact.value);
+    delete manifest.pending.descriptionReceiptHash;
+    return { ...fact, value: JSON.stringify(manifest) };
+  }));
+  rejected.gateway.issue.description = rejected.gateway.issue.description.replace(
+    "Imported body", "Externally changed unmanaged body",
+  );
+  await expect(runLinearCommand(["sync", existing, "--apply"], rejected.dependencies))
+    .rejects.toThrow("prior issue write has unknown outcome and is not observable");
+  expect(rejected.gateway.issueWrites).toBe(1);
 });
 
 test("multi-operation apply carries all receipts through a crash and retry", async () => {
@@ -395,6 +520,26 @@ test("persisted comment intent reconciles a lost response without duplicate comm
   expect(h.gateway.commentWrites).toBe(1);
   expect(h.gateway.comments).toHaveLength(1);
   expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({ state: "in-sync", actions: [] });
+});
+
+test("pending comment recovery rejects duplicate managed markers before graph or remote writes", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  await h.graph.put(thread, "progress", "One durable update.");
+  const link = (await h.graph.show(thread)).find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  h.graph.failSubjectPrefix = link;
+  h.graph.failPredicate = "sync_manifest";
+  h.graph.failAfter = 1;
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies)).rejects.toThrow("injected graph crash");
+  expect(h.gateway.commentWrites).toBe(1);
+  h.gateway.comments.push({ id: "duplicate-comment", body: h.gateway.comments[0]!.body });
+  const graphWritesBeforeRecovery = h.graph.writes.length;
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("duplicate North-managed marker");
+  expect(h.graph.writes).toHaveLength(graphWritesBeforeRecovery);
+  expect(h.gateway.commentWrites).toBe(1);
 });
 
 test("concurrent apply serializes and emits one remote issue mutation", async () => {
@@ -479,6 +624,18 @@ test("doctor reports schema conflicts without overwriting them", async () => {
     graphSchemaBootstrap: { applied: false, assertions: 0 },
   });
   expect(h.graph.writes).toHaveLength(0);
+});
+
+test("doctor mechanically migrates the adapter-owned integration handle from thread ref to literal", async () => {
+  const h = harness();
+  h.graph.seed("linear_link", "value_kind", "ref");
+  const result = await runLinearCommand(["doctor"], h.dependencies);
+  expect(result).toMatchObject({
+    graphSchema: { ok: true, missing: [], conflicting: [] },
+    graphSchemaBootstrap: { applied: true, assertions: 19 },
+  });
+  expect((await h.graph.show("linear_link")).filter(({ predicate }) => predicate === "value_kind"))
+    .toEqual([{ predicate: "value_kind", value: "literal" }]);
 });
 
 test("corrupted partial manifest evidence fails closed instead of being healed", async () => {

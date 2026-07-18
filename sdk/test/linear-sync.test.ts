@@ -3,6 +3,7 @@ import {
   linearIdentityKey, sameLinearIdentity, sha256Canonical, sha256Text,
 } from "../src/integrations/linear/normalize";
 import {
+  managedLinearDescriptionReceiptHash,
   parseManagedLinearDescription,
   projectNorthThread,
   replaceManagedLinearDescription,
@@ -125,6 +126,30 @@ test("managed description replacement preserves all unmanaged text", () => {
   expect(replaced.endsWith(after)).toBe(true);
   expect(parseManagedLinearDescription(replaced, changed.threadId)?.body).toBe("Changed body");
   expect(replaceManagedLinearDescription(replaced, changed.threadId, changed.fields)).toBe(replaced);
+});
+
+test("description receipts tolerate only Linear's bridge-scaffold blank lines", () => {
+  const projected = projectNorthThread(source({ body: "Meaningful body\n  indentation stays." }));
+  const expected = replaceManagedLinearDescription("Human preface", projected.threadId, projected.fields);
+  const normalizedByLinear = expected
+    .replace(
+      `<!-- north:thread:${projected.threadId} -->\n## North thread`,
+      `<!-- north:thread:${projected.threadId} -->\n\n## North thread`,
+    )
+    .replace(/(### (?:Body|Done when|Bar evidence|Repositories))\n(<!-- north:field:)/g, "$1\n\n$2");
+  expect(normalizedByLinear).not.toBe(expected);
+  expect(managedLinearDescriptionReceiptHash(normalizedByLinear, projected.threadId))
+    .toBe(managedLinearDescriptionReceiptHash(expected, projected.threadId));
+
+  expect(managedLinearDescriptionReceiptHash(
+    normalizedByLinear.replace("Human preface", "Human preface edited"), projected.threadId,
+  )).not.toBe(managedLinearDescriptionReceiptHash(expected, projected.threadId));
+  expect(managedLinearDescriptionReceiptHash(
+    normalizedByLinear.replace("Meaningful body", "Meaningfully different body"), projected.threadId,
+  )).not.toBe(managedLinearDescriptionReceiptHash(expected, projected.threadId));
+  expect(() => managedLinearDescriptionReceiptHash(
+    normalizedByLinear.replace("### Body\n\n", "### Body\n\n\n"), projected.threadId,
+  )).toThrow("unexpected bridge scaffold");
 });
 
 test("marker identifiers and projected content fail closed against marker injection", () => {
@@ -297,6 +322,31 @@ test("learning is excluded by default while progress and outcome get stable comm
   expect(first.plan?.comments.map(({ action }) => action)).toEqual(["create", "create"]);
   const second = reconcileLinearIssue({ baseline, local: projection, remote: remoteFrom(projection) });
   expect(second.plan).toBeNull();
+});
+
+test("duplicate and malformed reserved comment markers fail closed", () => {
+  const projection = projectNorthThread(source({ progress: [{ id: "p-1", body: "Durable progress." }] }));
+  const baseline = createLinearSyncBaseline(identity, projection.threadId, projection.fields);
+  const managed = projection.comments[0]!;
+  const reconcile = (comments: LinearIssueSnapshot["comments"]) => reconcileLinearIssue({
+    baseline,
+    local: projection,
+    remote: remoteFrom(projection, { comments }),
+  });
+
+  expect(() => reconcile([
+    { id: "comment-a", body: managed.body },
+    { id: "comment-b", body: managed.body },
+  ])).toThrow("duplicate North-managed marker");
+  expect(() => reconcile([
+    { id: "comment-a", body: `${managed.body}\n${managed.marker}` },
+  ])).toThrow("multiple North-managed comment markers");
+  expect(() => reconcile([
+    { id: "comment-a", body: "poison\n\n<!-- north:comment:foreign:not-a-digest -->" },
+  ])).toThrow("malformed or foreign reserved North comment marker");
+  expect(() => reconcile([
+    { id: "comment-a", body: "poison\n\n<!-- /north:comment:progress -->" },
+  ])).toThrow("malformed or foreign reserved North comment marker");
 });
 
 test("human identifier and team/scope changes preserve workspace + UUID identity", () => {

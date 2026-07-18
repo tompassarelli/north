@@ -145,13 +145,22 @@ export const LINEAR_SCHEMA_FACTS = [
   ["linear_link", "cardinality", "single"],
   ["conflict_field", "cardinality", "multi"],
   ["linked_thread", "value_kind", "ref"],
-  ["linear_link", "value_kind", "ref"],
+  // Integration links are titleless entities. Fram's current `ref` kind is a
+  // thread ref (the target must carry `title`), so the reverse handle is an
+  // explicit literal subject ID rather than a fake thread edge.
+  ["linear_link", "value_kind", "literal"],
 ] as const;
 
 export interface SchemaInspection {
   ok: boolean;
   missing: readonly string[];
   conflicting: readonly string[];
+}
+
+export function isKnownLinearSchemaMigration(inspection: SchemaInspection): boolean {
+  return inspection.missing.includes("@linear_link value_kind literal")
+    && inspection.conflicting.length === 1
+    && inspection.conflicting[0] === "@linear_link value_kind: ref";
 }
 
 async function showSubjects(
@@ -176,7 +185,8 @@ export async function inspectLinearSchema(graph: GraphStore): Promise<SchemaInsp
 
 export async function ensureLinearSchema(graph: GraphStore, prior?: SchemaInspection): Promise<void> {
   const inspection = prior ?? await inspectLinearSchema(graph);
-  if (inspection.conflicting.length) throw new Error(`Linear graph schema conflicts: ${inspection.conflicting.join("; ")}`);
+  if (inspection.conflicting.length && !isKnownLinearSchemaMigration(inspection))
+    throw new Error(`Linear graph schema conflicts: ${inspection.conflicting.join("; ")}`);
   const missing = new Set(inspection.missing);
   for (const [subject, predicate, value] of LINEAR_SCHEMA_FACTS)
     if (missing.has(`@${subject} ${predicate} ${value}`)) await graph.put(subject, predicate, value);
@@ -278,6 +288,7 @@ export interface PendingLinearOperation {
   payloadHash: string;
   titleHash?: string;
   descriptionHash?: string;
+  descriptionReceiptHash?: string;
   bodyHash?: string;
   baselineAfter?: LinearSyncBaseline;
   marker?: string;
@@ -348,7 +359,7 @@ function parseManifest(value: string): LinearSyncManifest {
   if (pending && (typeof pending.key !== "string" || !["issue", "comment"].includes(String(pending.kind))
       || typeof pending.payloadHash !== "string" || typeof pending.startedAt !== "string"))
     throw new Error("Linear sync pending operation has an unsupported shape");
-  if (pending) for (const key of ["payloadHash", "titleHash", "descriptionHash", "bodyHash"])
+  if (pending) for (const key of ["payloadHash", "titleHash", "descriptionHash", "descriptionReceiptHash", "bodyHash"])
     if (pending[key] !== undefined && (typeof pending[key] !== "string" || !/^[0-9a-f]{64}$/.test(pending[key] as string)))
       throw new Error(`Linear sync pending operation ${key} is invalid`);
   if (pending?.baselineAfter !== undefined)

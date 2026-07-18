@@ -3,7 +3,7 @@ import { openLinearGateway, type LinearGateway } from "./gateway";
 import {
   CoordinatorSyncLeaseManager, NorthGraphStore, assertImportableDescription, baselineFromRemote,
   createImportedThread, ensureLinearLinkFacts, ensureLinearSchema, identityForIssue,
-  inspectLinearSchema, inspectPartialLinearLink, issueSnapshot,
+  inspectLinearSchema, inspectPartialLinearLink, isKnownLinearSchemaMigration, issueSnapshot,
   linkSubject, loadLinkBySubject, loadLinkForThread, loadNorthThread, markerForThread,
   northThreadIdForIdentity, normalizeLinearIssueDocument, writeManifest,
 } from "./north-state";
@@ -12,7 +12,10 @@ import type {
   SyncLeaseManager,
 } from "./north-state";
 import { canonicalJson, normalizeBody, sha256Canonical, sha256Text } from "./normalize";
-import { projectNorthThread } from "./projection";
+import {
+  indexManagedLinearComments, managedLinearDescriptionReceiptHash, projectNorthThread,
+  replaceManagedLinearDescription,
+} from "./projection";
 import { createLinearSyncBaseline, reconcileLinearIssue } from "./reconcile";
 import type {
   LinearApplyPlan, LinearIssueIdentity, LinearRemoteComment, LinearReconciliationResult,
@@ -278,6 +281,8 @@ async function importIssue(
     } else if (!threadHasTitle)
       throw new Error(`canonical link points to missing pre-existing thread @${link.threadId}`);
     await deps.graph.put(link.threadId, "linear", freshIssue.key);
+    // Preserve the established opaque handle spelling while schema classifies
+    // the predicate as literal; integration-link entities are not threads.
     await deps.graph.put(link.threadId, "linear_link", `@${link.subject}`);
     if (link.manifest.phase !== "adopted")
       await writeManifest(deps.graph, link, { ...link.manifest, phase: "adopted" });
@@ -296,6 +301,7 @@ interface PlannedSync {
   reconciliation: LinearReconciliationResult;
   plan: LinearApplyPlan | null;
   descriptionAdoption: boolean;
+  descriptionMarkerPresent: boolean;
 }
 
 async function computePlan(thread: string, gateway: LinearGateway, graph: GraphStore): Promise<PlannedSync> {
@@ -306,13 +312,15 @@ async function computePlan(thread: string, gateway: LinearGateway, graph: GraphS
   const local = projectNorthThread(await loadNorthThread(graph, link.threadId));
   const reconciliation = reconcileLinearIssue({
     baseline: link.manifest.baseline, local, remote: issueSnapshot(issue, link.identity, comments),
+    ensureDescriptionMarker: !link.manifest.evidence.markerBound,
     ...(link.manifest.evidence.adoptRawDescription ? {
       bootstrap: { importedRawDescriptionHash: link.manifest.evidence.importedRawDescriptionHash! },
     } : {}),
   });
   return {
     link, issue, comments, local, reconciliation, plan: reconciliation.plan,
-    descriptionAdoption: Boolean(link.manifest.evidence.adoptRawDescription && reconciliation.plan?.issue.description),
+    descriptionAdoption: Boolean(!link.manifest.evidence.markerBound && reconciliation.plan?.issue.description),
+    descriptionMarkerPresent: issue.description.includes(markerForThread(link.threadId)),
   };
 }
 
@@ -332,13 +340,57 @@ function publicPlan(planned: PlannedSync): unknown {
 }
 
 function issueOperationSatisfied(pending: NonNullable<LinearSyncManifest["pending"]>, issue: LinearIssueDocument): boolean {
-  return (pending.titleHash === undefined || pending.titleHash === sha256Canonical(issue.title))
-    && (pending.descriptionHash === undefined || pending.descriptionHash === sha256Canonical(issue.description));
+  if (pending.titleHash !== undefined && pending.titleHash !== sha256Canonical(issue.title)) return false;
+  if (pending.descriptionHash === undefined) return true;
+  if (pending.descriptionHash === sha256Canonical(issue.description)) return true;
+  if (!pending.descriptionReceiptHash || !pending.baselineAfter) return false;
+  try {
+    return pending.descriptionReceiptHash
+      === managedLinearDescriptionReceiptHash(issue.description, pending.baselineAfter.threadId);
+  } catch {
+    return false;
+  }
 }
 
-function commentOperationSatisfied(pending: NonNullable<LinearSyncManifest["pending"]>, comments: readonly LinearRemoteComment[]): string | undefined {
-  const found = comments.find((comment) => pending.marker && comment.body?.includes(pending.marker)
-    && pending.bodyHash === sha256Canonical(normalizeBody(comment.body)));
+/**
+ * Recover the one legacy pending shape emitted before description receipt
+ * hashes existed. Reconstructing the exact original payload from the current
+ * local fields and the remote's byte-identical unmanaged text must reproduce
+ * the persisted payload hash; the managed block must then match under only the
+ * bridge-scaffold normalization accepted by the v1 receipt.
+ */
+async function legacyNormalizedIssueOperationSatisfied(
+  pending: NonNullable<LinearSyncManifest["pending"]>,
+  issue: LinearIssueDocument,
+  graph: GraphStore,
+  link: LinearLinkState,
+): Promise<boolean> {
+  if (pending.descriptionReceiptHash || !pending.descriptionHash || !pending.baselineAfter) return false;
+  if (pending.titleHash !== undefined && pending.titleHash !== sha256Canonical(issue.title)) return false;
+  try {
+    const local = projectNorthThread(await loadNorthThread(graph, link.threadId));
+    const localBaseline = createLinearSyncBaseline(link.identity, link.threadId, local.fields);
+    if (localBaseline.hash !== pending.baselineAfter.hash) return false;
+    const reconstructedDescription = replaceManagedLinearDescription(
+      issue.description, link.threadId, local.fields,
+    );
+    const reconstructedPayload: Record<string, unknown> = {};
+    if (pending.titleHash !== undefined) reconstructedPayload.title = local.fields.title;
+    reconstructedPayload.description = reconstructedDescription;
+    if (sha256Canonical(reconstructedPayload) !== pending.payloadHash) return false;
+    return managedLinearDescriptionReceiptHash(reconstructedDescription, link.threadId)
+      === managedLinearDescriptionReceiptHash(issue.description, link.threadId);
+  } catch {
+    return false;
+  }
+}
+
+function commentOperationSatisfied(
+  pending: NonNullable<LinearSyncManifest["pending"]>,
+  comments: ReadonlyMap<string, LinearRemoteComment>,
+): string | undefined {
+  const found = pending.marker ? comments.get(pending.marker) : undefined;
+  if (!found || pending.bodyHash !== sha256Canonical(normalizeBody(found.body))) return undefined;
   return found?.id;
 }
 
@@ -348,9 +400,13 @@ async function confirmOrRefusePending(
   const pending = link.manifest.pending;
   if (!pending) return link.manifest;
   const { issue, comments } = await readRemote(gateway, link);
+  const indexedComments = indexManagedLinearComments(comments);
+  const issueSatisfied = pending.kind === "issue"
+    && (issueOperationSatisfied(pending, issue)
+      || await legacyNormalizedIssueOperationSatisfied(pending, issue, graph, link));
   const remoteId = pending.kind === "issue"
-    ? issueOperationSatisfied(pending, issue) ? issue.key : undefined
-    : commentOperationSatisfied(pending, comments);
+    ? issueSatisfied ? issue.key : undefined
+    : commentOperationSatisfied(pending, indexedComments);
   if (!remoteId) throw new Error(`prior ${pending.kind} write has unknown outcome and is not observable; refusing to retry`);
   const receipts = { ...(link.manifest.receipts ?? {}), [pending.key]: { confirmedAt: now.toISOString(), remoteId } };
   const markerAdopted = pending.kind === "issue" && pending.descriptionHash !== undefined;
@@ -375,6 +431,8 @@ async function applyOperation(
     key, kind, payloadHash: sha256Canonical(payload),
     ...(typeof payload.title === "string" ? { titleHash: sha256Canonical(payload.title) } : {}),
     ...(typeof payload.description === "string" ? { descriptionHash: sha256Canonical(payload.description) } : {}),
+    ...(typeof payload.description === "string"
+      ? { descriptionReceiptHash: managedLinearDescriptionReceiptHash(payload.description, link.threadId) } : {}),
     ...(typeof payload.body === "string" ? { bodyHash: sha256Canonical(normalizeBody(payload.body)) } : {}),
     ...(baselineAfter ? { baselineAfter } : {}),
     ...(marker ? { marker } : {}), startedAt: now.toISOString(),
@@ -389,9 +447,10 @@ async function applyOperation(
     // The call may have committed remotely before transport failure. Reconcile, never retry.
   }
   const { issue, comments } = await readRemote(gateway, link);
+  const indexedComments = indexManagedLinearComments(comments);
   const remoteId = kind === "issue"
     ? issueOperationSatisfied(pending, issue) ? issue.key : undefined
-    : commentOperationSatisfied(pending, comments);
+    : commentOperationSatisfied(pending, indexedComments);
   if (!remoteId) throw new Error(`${kind} write outcome is unknown and not observable; intent retained, retry refused`);
   const receipts = { ...(prepared.receipts ?? {}), [key]: { confirmedAt: now.toISOString(), remoteId } };
   const confirmed: LinearSyncManifest = { ...prepared, pending: undefined, receipts };
@@ -443,13 +502,20 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
       manifest = applied.manifest;
       writes++;
     }
-    const baseline = createLinearSyncBaseline(link.identity, link.threadId, planned.local.fields);
+    const baseline = planned.plan?.expectedBaseline
+      ?? planned.reconciliation.nextBaseline
+      ?? createLinearSyncBaseline(link.identity, link.threadId, planned.local.fields);
     const finalized: LinearSyncManifest = {
       ...manifest, phase: "adopted", baseline, pending: undefined,
-      evidence: { ...manifest.evidence, markerBound: manifest.evidence.markerBound || Boolean(planned.plan?.issue.description) },
+      evidence: {
+        ...manifest.evidence,
+        markerBound: manifest.evidence.markerBound || planned.descriptionMarkerPresent || Boolean(planned.plan?.issue.description),
+      },
     };
-    await writeManifest(deps.graph, link, finalized);
-    await deps.graph.put(link.subject, "last_synced_at", deps.now().toISOString());
+    if (canonicalJson(finalized) !== canonicalJson(manifest)) {
+      await writeManifest(deps.graph, link, finalized);
+    }
+    if (writes > 0) await deps.graph.put(link.subject, "last_synced_at", deps.now().toISOString());
     return { command: "sync", applied: true, thread: `@${link.threadId}`, link: `@${link.subject}`, writes, state: "in-sync", planHash: planned.plan?.hash ?? null };
   } finally { await lease.release(); }
 }
@@ -485,6 +551,7 @@ export async function runLinearCommand(argv: readonly string[], dependencies: Pa
   if (!server && (verb === "plan" || verb === "sync"))
     server = (await loadLinkForThread(deps.graph, options.positional[0]!)).remoteServer;
   const gateway = await deps.openGateway({ server });
+  let result: unknown;
   try {
     if (verb === "doctor") {
       const schemaBefore = await inspectLinearSchema(deps.graph);
@@ -493,32 +560,32 @@ export async function runLinearCommand(argv: readonly string[], dependencies: Pa
       // diagnoses it; requiring a separate hand-seeding incantation makes the
       // bridge depend on hidden setup state. Conflicts remain diagnostic and
       // are never overwritten.
-      if (!schemaBefore.conflicting.length) await ensureLinearSchema(deps.graph, schemaBefore);
-      const schema = schemaBefore.ok || schemaBefore.conflicting.length
+      const migratable = isKnownLinearSchemaMigration(schemaBefore);
+      if (!schemaBefore.conflicting.length || migratable) await ensureLinearSchema(deps.graph, schemaBefore);
+      const schema = schemaBefore.ok || (schemaBefore.conflicting.length && !migratable)
         ? schemaBefore : await inspectLinearSchema(deps.graph);
-      return {
+      result = {
         command: "doctor", server: gateway.server, oauth: true, modelTurn: false,
         identityMode: "mcp-bootstrap-v1", identityLimitation: "connector omits native workspace and issue UUIDs; managed backlink + createdAt fingerprint",
         graphSchemaBootstrap: {
-          applied: !schemaBefore.ok && !schemaBefore.conflicting.length,
-          assertions: schemaBefore.conflicting.length ? 0 : schemaBefore.missing.length,
+          applied: !schemaBefore.ok && (!schemaBefore.conflicting.length || migratable),
+          assertions: schemaBefore.conflicting.length && !migratable ? 0 : schemaBefore.missing.length,
         },
         graphSchema: schema,
       };
-    }
-    if (verb === "get") {
+    } else if (verb === "get") {
       const issue = normalizeLinearIssueDocument(await gateway.readIssue({ id: required("get") }));
-      return { command: "get", server: gateway.server, issue, identity: identityForIssue(issue, gateway.server) };
-    }
-    if (verb === "import") return await importIssue(required("import"), options, gateway, deps);
-    if (verb === "plan") return publicPlan(await computePlan(required("plan"), gateway, deps.graph));
-    if (verb === "sync") {
+      result = { command: "get", server: gateway.server, issue, identity: identityForIssue(issue, gateway.server) };
+    } else if (verb === "import") result = await importIssue(required("import"), options, gateway, deps);
+    else if (verb === "plan") result = publicPlan(await computePlan(required("plan"), gateway, deps.graph));
+    else if (verb === "sync") {
       const thread = required("sync");
-      if (!options.apply) return publicPlan(await computePlan(thread, gateway, deps.graph));
-      return await applySync(thread, gateway, deps);
-    }
-    throw new Error(`unknown north linear verb ${verb}`);
+      result = options.apply
+        ? await applySync(thread, gateway, deps)
+        : publicPlan(await computePlan(thread, gateway, deps.graph));
+    } else throw new Error(`unknown north linear verb ${verb}`);
   } finally { await gateway.close(); }
+  return { ...record(result, "Linear command result"), transportReceipt: gateway.transportReceipt() };
 }
 
 if (import.meta.main) {

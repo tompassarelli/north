@@ -35,9 +35,31 @@ export interface McpToolResult {
   isError: boolean;
 }
 
+export interface ModelFreeBrokerTransportReceipt {
+  transport: string;
+  policy: string;
+  ephemeralThread: boolean;
+  outgoingMethods: Readonly<Record<string, number>>;
+  incomingNotifications: Readonly<Record<string, number>>;
+  mcpCalls: readonly {
+    server: string;
+    tool: string;
+    access: McpAccess;
+    count: number;
+  }[];
+  modelTurnsStarted: number;
+  usageEvents: number;
+  tokenTotalStatus: "exact-zero-protocol";
+}
+
+export interface ModelFreeTransportReceipt extends ModelFreeBrokerTransportReceipt {
+  linearServer: string;
+}
+
 export interface McpBrokerSession {
   listServers(): Promise<readonly McpServerInventory[]>;
   callTool(call: McpToolCall): Promise<McpToolResult>;
+  transportReceipt(): ModelFreeBrokerTransportReceipt;
   close(): Promise<void>;
 }
 

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AppServerMcpBroker } from "../src/integrations/linear/app-server-broker";
+import { runLinearCommand } from "../src/integrations/linear/cli";
 import { openLinearGateway } from "../src/integrations/linear/gateway";
 
 const fixture = resolve(import.meta.dir, "fixtures/fake-linear-app-server.mjs");
@@ -114,6 +115,27 @@ test("uses stable app-server MCP calls without starting a model turn", async () 
   expect(await gateway.readIssue({ id: "MSA-123" })).toEqual({ issue: { id: "MSA-123", title: "From structured content" } });
   expect(await gateway.writeIssue({ id: "MSA-123", title: "Updated" })).toEqual({ issue: { id: "MSA-123", title: "Updated" } });
   await gateway.close();
+  expect(gateway.transportReceipt()).toEqual({
+    transport: "codex-app-server",
+    policy: "codex-app-server-linear-v1",
+    linearServer: "linear-mcp-test",
+    ephemeralThread: true,
+    outgoingMethods: {
+      initialize: 1,
+      initialized: 1,
+      "mcpServer/tool/call": 2,
+      "mcpServerStatus/list": 1,
+      "thread/start": 1,
+    },
+    incomingNotifications: { "mcpServer/startupStatus/updated": 6 },
+    mcpCalls: [
+      { server: "linear-mcp-test", tool: "get_issue", access: "read", count: 1 },
+      { server: "linear-mcp-test", tool: "save_issue", access: "write", count: 1 },
+    ],
+    modelTurnsStarted: 0,
+    usageEvents: 0,
+    tokenTotalStatus: "exact-zero-protocol",
+  });
 
   const seen = requests(log);
   expect(seen.map(({ method }) => method)).toEqual([
@@ -132,6 +154,131 @@ test("uses stable app-server MCP calls without starting a model turn", async () 
   expect(notifications.length).toBeGreaterThan(0);
   expect(readFileSync(reaped, "utf8")).toBe("SIGTERM");
 });
+
+test("command results carry a deterministic zero-model transport receipt", async () => {
+  const { broker } = harness({
+    servers: [linearServer()],
+    results: {
+      get_issue: {
+        structuredContent: {
+          issue: {
+            id: "MSA-123",
+            title: "Receipt proof",
+            description: "",
+            url: "https://linear.app/msa/issue/MSA-123/receipt-proof",
+            createdAt: "2026-07-18T00:00:00.000Z",
+          },
+        },
+        content: [],
+      },
+    },
+  });
+  const result = await runLinearCommand(["get", "MSA-123"], {
+    openGateway: ({ server }) => openLinearGateway(broker, { server }),
+  }) as { transportReceipt: Record<string, unknown> };
+  expect(result.transportReceipt).toEqual({
+    transport: "codex-app-server",
+    policy: "codex-app-server-linear-v1",
+    linearServer: "linear-mcp-test",
+    ephemeralThread: true,
+    outgoingMethods: {
+      initialize: 1,
+      initialized: 1,
+      "mcpServer/tool/call": 1,
+      "mcpServerStatus/list": 1,
+      "thread/start": 1,
+    },
+    incomingNotifications: {},
+    mcpCalls: [
+      { server: "linear-mcp-test", tool: "get_issue", access: "read", count: 1 },
+    ],
+    modelTurnsStarted: 0,
+    usageEvents: 0,
+    tokenTotalStatus: "exact-zero-protocol",
+  });
+});
+
+test("a late malformed app-server message invalidates the command receipt", async () => {
+  const { broker } = harness({
+    servers: [linearServer()],
+    afterResponse: { method: "mcpServer/tool/call", type: "malformed" },
+    results: {
+      get_issue: {
+        structuredContent: {
+          issue: {
+            id: "MSA-123",
+            title: "Receipt must not escape",
+            description: "",
+            url: "https://linear.app/msa/issue/MSA-123/no-receipt",
+            createdAt: "2026-07-18T00:00:00.000Z",
+          },
+        },
+        content: [],
+      },
+    },
+  });
+  await expect(runLinearCommand(["get", "MSA-123"], {
+    openGateway: ({ server }) => openLinearGateway(broker, { server }),
+  })).rejects.toThrow("malformed JSONL output");
+});
+
+test("a late duplicate app-server error response invalidates the command receipt", async () => {
+  const { broker } = harness({
+    servers: [linearServer()],
+    afterResponse: { method: "mcpServer/tool/call", type: "lateError" },
+    results: {
+      get_issue: {
+        structuredContent: {
+          issue: {
+            id: "MSA-123",
+            title: "Late error must win",
+            description: "",
+            url: "https://linear.app/msa/issue/MSA-123/late-error",
+            createdAt: "2026-07-18T00:00:00.000Z",
+          },
+        },
+        content: [],
+      },
+    },
+  });
+  await expect(runLinearCommand(["get", "MSA-123"], {
+    openGateway: ({ server }) => openLinearGateway(broker, { server }),
+  })).rejects.toThrow("response for an unknown request");
+});
+
+for (const notification of [
+  "turn/started",
+  "response/started",
+  "agent-run",
+  "auth/token/refreshed",
+  "thread/tokenUsage/updated",
+]) {
+  test(`fails closed on non-policy app-server notification ${notification}`, async () => {
+    await expect(openLinearGateway(harness({
+      notifications: notification,
+      servers: [linearServer()],
+    }).broker)).rejects.toThrow(
+      `notification ${notification} is not allowed by codex-app-server-linear-v1`,
+    );
+  });
+}
+
+for (const notification of ["remoteControl/status/changed", "thread/started"]) {
+  test(`allows reviewed benign notification ${notification} without weakening the receipt`, async () => {
+    const gateway = await openLinearGateway(harness({
+      notifications: notification,
+      servers: [linearServer()],
+    }).broker);
+    await gateway.close();
+    expect(gateway.transportReceipt()).toMatchObject({
+      policy: "codex-app-server-linear-v1",
+      incomingNotifications: { [notification]: 4 },
+      modelTurnsStarted: 0,
+      usageEvents: 0,
+      tokenTotalStatus: "exact-zero-protocol",
+    });
+  });
+}
 
 test("forces ChatGPT file auth and strips hostile API transport environment", async () => {
   const canary = "must-not-reach-codex-child";
@@ -170,6 +317,25 @@ test("requires an unambiguous capability match unless a server is explicit", asy
   const explicit = await openLinearGateway(explicitHarness.broker, { server: "linear-b" });
   expect(explicit.server).toBe("linear-b");
   await explicit.close();
+});
+
+test("runtime allowlist rejects an advertised extra tool despite TypeScript erasure", async () => {
+  const server = linearServer();
+  (server.tools as Record<string, any>).ask_model = {
+    name: "ask_model",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  };
+  const { broker, log } = harness({ servers: [server] });
+  const gateway = await openLinearGateway(broker);
+  await expect(gateway.call({
+    access: "read",
+    method: "ask_model",
+    arguments: {},
+  } as any)).rejects.toThrow("outside North's runtime allowlist");
+  await gateway.close();
+  expect(requests(log).filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(0);
+  expect(gateway.transportReceipt().mcpCalls).toEqual([]);
 });
 
 test("accepts save_issue without the unused team field", async () => {

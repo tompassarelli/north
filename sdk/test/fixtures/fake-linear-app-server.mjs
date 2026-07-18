@@ -26,6 +26,24 @@ function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
+function sendResult(request, result) {
+  const response = { id: request.id, result };
+  if (config.afterResponse?.method === request.method) {
+    if (config.afterResponse.type === "malformed") {
+      process.stdout.write(`${JSON.stringify(response)}\nnot-json\n`);
+      return;
+    }
+    if (config.afterResponse.type === "lateError") {
+      process.stdout.write(`${JSON.stringify(response)}\n${JSON.stringify({
+        id: request.id,
+        error: { code: -32000, message: "late duplicate response" },
+      })}\n`);
+      return;
+    }
+  }
+  send(response);
+}
+
 process.on("SIGTERM", () => {
   if (reapedPath) writeFileSync(reapedPath, "SIGTERM");
   process.exit(0);
@@ -47,19 +65,23 @@ input.on("line", (line) => {
       return;
     }
   }
-  if (config.notifications) send({ method: "mcpServer/startupStatus/updated", params: { state: "ready" } });
-  if (request.method === "initialize") return send({ id: request.id, result: { userAgent: "fake-linear" } });
+  if (config.notifications) send({
+    method: typeof config.notifications === "string"
+      ? config.notifications : "mcpServer/startupStatus/updated",
+    params: { state: "ready" },
+  });
+  if (request.method === "initialize") return sendResult(request, { userAgent: "fake-linear" });
   if (request.method === "initialized" && request.id === undefined) return;
-  if (request.method === "thread/start") return send({ id: request.id, result: { thread: { id: "ephemeral-thread" } } });
+  if (request.method === "thread/start") return sendResult(request, { thread: { id: "ephemeral-thread" } });
   if (request.method === "mcpServerStatus/list")
-    return send({ id: request.id, result: { data: config.servers ?? [], nextCursor: null } });
+    return sendResult(request, { data: config.servers ?? [], nextCursor: null });
   if (request.method === "mcpServer/tool/call") {
     if (config.rpcToolError) return send({ id: request.id, error: {
       code: -32000,
       message: typeof config.rpcToolError === "string" ? config.rpcToolError : "fake RPC failure",
     } });
     const result = config.results?.[request.params.tool] ?? { content: [{ type: "text", text: "{}" }] };
-    return send({ id: request.id, result });
+    return sendResult(request, result);
   }
   send({ id: request.id, error: { code: -32601, message: `unexpected method ${request.method}` } });
 });

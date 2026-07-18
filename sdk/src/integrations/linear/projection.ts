@@ -26,7 +26,8 @@ import type {
 const FIELD_NAMES = ["lifecycle", "body", "done_when", "bar_evidence", "repo"] as const;
 type ManagedFieldName = typeof FIELD_NAMES[number];
 
-const COMMENT_MARKER = /<!-- north:comment:(progress|outcome|learning):([0-9a-f]{64}) -->/;
+const COMMENT_MARKER_SOURCE = String.raw`<!-- north:comment:(progress|outcome|learning):([0-9a-f]{64}) -->`;
+const RESERVED_COMMENT_MARKER = /<!--\s*\/?north:comment/i;
 
 function openingMarker(threadId: string): string {
   return `<!-- north:thread:${threadId} -->`;
@@ -109,6 +110,60 @@ function findManagedBlocks(description: string): readonly ManagedBlockRange[] {
     pattern.lastIndex = end;
   }
   return blocks;
+}
+
+/**
+ * Hash the description as Linear is allowed to store it after a bridge write.
+ *
+ * Linear's Markdown round-trip inserts one blank line at a small, observed set
+ * of bridge-owned HTML-comment/heading boundaries. The receipt canonicalizes
+ * only those exact boundaries. User-authored text outside the managed block and
+ * every byte inside managed fields remain part of the preimage unchanged.
+ */
+export function managedLinearDescriptionReceiptHash(
+  descriptionInput: string | null | undefined,
+  expectedThreadIdInput: string,
+): string {
+  const description = descriptionInput ?? "";
+  const expectedThreadId = normalizeThreadId(expectedThreadIdInput);
+  const blocks = findManagedBlocks(description);
+  if (blocks.length !== 1) {
+    throw new Error(`Linear description receipt requires exactly one North-managed block for @${expectedThreadId}`);
+  }
+  const block = blocks[0]!;
+  if (block.threadId !== expectedThreadId) {
+    throw new Error(`Linear description receipt is for @${block.threadId}, not @${expectedThreadId}`);
+  }
+
+  // Parse first so malformed, duplicated, or foreign reserved structure cannot
+  // earn a receipt merely because its raw scaffold happens to hash.
+  parseManagedLinearDescription(description, expectedThreadId);
+
+  const boundaries = [
+    [openingMarker(expectedThreadId), `## North thread \`@${expectedThreadId}\``],
+    ["### Body", fieldOpening("body")],
+    ["### Done when", fieldOpening("done_when")],
+    ["### Bar evidence", fieldOpening("bar_evidence")],
+    ["### Repositories", fieldOpening("repo")],
+  ] as const;
+  let canonicalBlock = block.block;
+  for (const [before, after] of boundaries) {
+    const compact = `${before}\n${after}`;
+    const linear = `${before}\n\n${after}`;
+    const compactCount = canonicalBlock.split(compact).length - 1;
+    const linearCount = canonicalBlock.split(linear).length - 1;
+    if (compactCount + linearCount !== 1) {
+      throw new Error(`Linear description has unexpected bridge scaffold around ${before}`);
+    }
+    canonicalBlock = canonicalBlock.replace(linear, compact);
+  }
+
+  return sha256Canonical({
+    version: "linear-managed-description-receipt-v1",
+    before: description.slice(0, block.start),
+    managed: canonicalBlock,
+    after: description.slice(block.end),
+  });
 }
 
 export function replaceManagedLinearDescription(
@@ -263,11 +318,7 @@ export function planLinearCommentMutations(
   projected: readonly ProjectedLinearComment[],
   remoteInput: readonly LinearRemoteComment[] | null | undefined,
 ): readonly LinearCommentMutationPlan[] {
-  const byMarker = new Map<string, LinearRemoteComment>();
-  for (const remote of remoteInput ?? []) {
-    const match = COMMENT_MARKER.exec(remote.body ?? "");
-    if (match) byMarker.set(match[0], remote);
-  }
+  const byMarker = indexManagedLinearComments(remoteInput);
   const plans: LinearCommentMutationPlan[] = [];
   for (const comment of projected) {
     const remote = byMarker.get(comment.marker);
@@ -277,4 +328,30 @@ export function planLinearCommentMutations(
     }
   }
   return plans;
+}
+
+/** Parse the reserved comment namespace once for both planning and recovery. */
+export function indexManagedLinearComments(
+  remoteInput: readonly LinearRemoteComment[] | null | undefined,
+): ReadonlyMap<string, LinearRemoteComment> {
+  const byMarker = new Map<string, LinearRemoteComment>();
+  for (const remote of remoteInput ?? []) {
+    const body = remote.body ?? "";
+    const markers = [...body.matchAll(new RegExp(COMMENT_MARKER_SOURCE, "g"))].map((match) => match[0]);
+    const withoutCanonicalMarkers = body.replace(new RegExp(COMMENT_MARKER_SOURCE, "g"), "");
+    if (RESERVED_COMMENT_MARKER.test(withoutCanonicalMarkers)) {
+      throw new Error(`Linear comment ${remote.id} contains a malformed or foreign reserved North comment marker`);
+    }
+    if (markers.length > 1) {
+      throw new Error(`Linear comment ${remote.id} contains multiple North-managed comment markers`);
+    }
+    const marker = markers[0];
+    if (!marker) continue;
+    const existing = byMarker.get(marker);
+    if (existing) {
+      throw new Error(`Linear comments ${existing.id} and ${remote.id} contain duplicate North-managed marker ${marker}`);
+    }
+    byMarker.set(marker, remote);
+  }
+  return byMarker;
 }

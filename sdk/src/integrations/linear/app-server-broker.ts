@@ -3,11 +3,24 @@ import { codexConfigArguments, providerEnvironmentForTarget } from "../../accoun
 import type { RoutingTarget } from "../../providers/types";
 import type {
   McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
-  McpToolCall, McpToolDefinition, McpToolResult,
+  McpToolCall, McpToolDefinition, McpToolResult, ModelFreeBrokerTransportReceipt,
 } from "./mcp-broker";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_LINE_BYTES = 1024 * 1024;
+const MODEL_FREE_PROTOCOL_POLICY = "codex-app-server-linear-v1";
+const SAFE_OUTGOING_METHODS = new Map<string, "request" | "notification">([
+  ["initialize", "request"],
+  ["initialized", "notification"],
+  ["thread/start", "request"],
+  ["mcpServerStatus/list", "request"],
+  ["mcpServer/tool/call", "request"],
+]);
+const SAFE_INCOMING_NOTIFICATIONS = new Set([
+  "mcpServer/startupStatus/updated",
+  "remoteControl/status/changed",
+  "thread/started",
+]);
 
 type RpcId = number | string;
 type SpawnProcess = typeof spawn;
@@ -29,6 +42,20 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
   resolve(value: unknown): void;
   reject(error: Error): void;
+}
+
+function increment(counter: Map<string, number>, method: string): void {
+  counter.set(method, (counter.get(method) ?? 0) + 1);
+}
+
+function sortedCounter(counter: ReadonlyMap<string, number>): Readonly<Record<string, number>> {
+  return Object.fromEntries([...counter].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+}
+
+function assertSafeOutgoingMethod(method: string, kind: "request" | "notification"): void {
+  if (SAFE_OUTGOING_METHODS.get(method) !== kind) {
+    throw new Error(`North's ${MODEL_FREE_PROTOCOL_POLICY} broker refuses provider ${kind} ${method}`);
+  }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -53,6 +80,8 @@ class JsonlRpcClient {
   private buffer = "";
   private terminalError?: Error;
   private closed = false;
+  private outgoingMethods = new Map<string, number>();
+  private incomingNotifications = new Map<string, number>();
 
   constructor(
     private child: ChildProcessWithoutNullStreams,
@@ -99,21 +128,44 @@ class JsonlRpcClient {
       return;
     }
     if (typeof message.method === "string") {
-      if (typeof message.id === "number" || typeof message.id === "string") {
-        this.rejectServerRequest(message.id, message.method);
+      if ("id" in message) {
+        const requestId = message.id;
+        if (typeof requestId !== "number" && typeof requestId !== "string") {
+          this.fail(new Error("Codex app-server emitted a malformed server request identifier"));
+          return;
+        }
+        this.rejectServerRequest(requestId, message.method);
+        return;
+      }
+      increment(this.incomingNotifications, message.method);
+      if (!SAFE_INCOMING_NOTIFICATIONS.has(message.method)) {
+        this.fail(new Error(
+          `Codex app-server notification ${message.method} is not allowed by ${MODEL_FREE_PROTOCOL_POLICY}`,
+        ));
         return;
       }
       this.onNotification?.(message.method, message.params);
       return;
     }
-    if (typeof message.id !== "number" && typeof message.id !== "string") return;
+    if (typeof message.id !== "number" && typeof message.id !== "string") {
+      this.fail(new Error("Codex app-server emitted an unrecognized JSONL message"));
+      return;
+    }
     const pending = this.pending.get(message.id);
-    if (!pending) return;
+    if (!pending) {
+      this.fail(new Error("Codex app-server emitted a response for an unknown request"));
+      return;
+    }
     this.pending.delete(message.id);
     clearTimeout(pending.timer);
-    if ("error" in message) pending.reject(new Error(`Codex app-server ${pending.method} failed`));
-    else if ("result" in message) pending.resolve(message.result);
-    else pending.reject(new Error(`Codex app-server ${pending.method} returned neither result nor error`));
+    const hasError = "error" in message;
+    const hasResult = "result" in message;
+    if (hasError === hasResult) {
+      const error = new Error(`Codex app-server ${pending.method} returned an invalid response envelope`);
+      pending.reject(error);
+      this.fail(error);
+    } else if (hasError) pending.reject(new Error(`Codex app-server ${pending.method} failed`));
+    else pending.resolve(message.result);
   }
 
   private onStdout(chunk: string): void {
@@ -135,6 +187,8 @@ class JsonlRpcClient {
   async request(method: string, params: unknown): Promise<unknown> {
     if (this.terminalError) throw this.terminalError;
     if (this.closed) throw new Error("Codex app-server broker is closed");
+    assertSafeOutgoingMethod(method, "request");
+    increment(this.outgoingMethods, method);
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -157,10 +211,30 @@ class JsonlRpcClient {
   notify(method: string, params?: unknown): void {
     if (this.terminalError) throw this.terminalError;
     if (this.closed) throw new Error("Codex app-server broker is closed");
+    assertSafeOutgoingMethod(method, "notification");
+    increment(this.outgoingMethods, method);
     const notification = params === undefined ? { method } : { method, params };
     this.child.stdin.write(`${JSON.stringify(notification)}\n`, (error) => {
       if (error) this.fail(new Error(`Codex app-server ${method} notification failed`));
     });
+  }
+
+  transportReceipt(
+    ephemeralThread: boolean,
+    mcpCalls: ModelFreeBrokerTransportReceipt["mcpCalls"],
+  ): ModelFreeBrokerTransportReceipt {
+    if (this.terminalError) throw this.terminalError;
+    return {
+      transport: "codex-app-server",
+      policy: MODEL_FREE_PROTOCOL_POLICY,
+      ephemeralThread,
+      outgoingMethods: sortedCounter(this.outgoingMethods),
+      incomingNotifications: sortedCounter(this.incomingNotifications),
+      mcpCalls,
+      modelTurnsStarted: 0,
+      usageEvents: 0,
+      tokenTotalStatus: "exact-zero-protocol",
+    };
   }
 
   async close(): Promise<void> {
@@ -186,6 +260,13 @@ class JsonlRpcClient {
 }
 
 class AppServerSession implements McpBrokerSession {
+  private mcpCalls = new Map<string, {
+    server: string;
+    tool: string;
+    access: McpToolCall["access"];
+    count: number;
+  }>();
+
   constructor(private rpc: JsonlRpcClient, private threadId: string) {}
 
   async listServers(): Promise<readonly McpServerInventory[]> {
@@ -217,6 +298,14 @@ class AppServerSession implements McpBrokerSession {
 
   async callTool(call: McpToolCall): Promise<McpToolResult> {
     if (call.access !== "read" && call.access !== "write") throw new Error("MCP tool call must declare read or write access");
+    const callKey = JSON.stringify([call.server, call.tool, call.access]);
+    const prior = this.mcpCalls.get(callKey);
+    this.mcpCalls.set(callKey, {
+      server: call.server,
+      tool: call.tool,
+      access: call.access,
+      count: (prior?.count ?? 0) + 1,
+    });
     const response = await this.rpc.request("mcpServer/tool/call", {
       threadId: this.threadId,
       server: call.server,
@@ -230,6 +319,15 @@ class AppServerSession implements McpBrokerSession {
       ...(response.structuredContent !== undefined ? { structuredContent: response.structuredContent } : {}),
       isError: response.isError === true,
     };
+  }
+
+  transportReceipt(): ModelFreeBrokerTransportReceipt {
+    const mcpCalls = [...this.mcpCalls.values()].sort((left, right) => {
+      const leftKey = JSON.stringify([left.server, left.tool, left.access]);
+      const rightKey = JSON.stringify([right.server, right.tool, right.access]);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+    return this.rpc.transportReceipt(true, mcpCalls);
   }
 
   close(): Promise<void> { return this.rpc.close(); }

@@ -1,6 +1,6 @@
 import type {
-  McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
-  McpToolDefinition, McpToolResult,
+  McpAccess, McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
+  McpToolDefinition, McpToolResult, ModelFreeTransportReceipt,
 } from "./mcp-broker";
 
 export const LINEAR_READ_TOOL = "get_issue";
@@ -8,6 +8,14 @@ export const LINEAR_LIST_ISSUES_TOOL = "list_issues";
 export const LINEAR_WRITE_TOOL = "save_issue";
 export const LINEAR_LIST_COMMENTS_TOOL = "list_comments";
 export const LINEAR_SAVE_COMMENT_TOOL = "save_comment";
+
+const LINEAR_TOOL_ACCESS: Readonly<Record<string, McpAccess>> = Object.freeze({
+  [LINEAR_READ_TOOL]: "read",
+  [LINEAR_LIST_ISSUES_TOOL]: "read",
+  [LINEAR_LIST_COMMENTS_TOOL]: "read",
+  [LINEAR_WRITE_TOOL]: "write",
+  [LINEAR_SAVE_COMMENT_TOOL]: "write",
+});
 
 export type LinearCallEnvelope =
   | { access: "read"; method: typeof LINEAR_READ_TOOL; arguments: Record<string, unknown> }
@@ -28,6 +36,7 @@ export interface LinearGateway {
   writeIssue(arguments_: Record<string, unknown>): Promise<unknown>;
   listComments(arguments_: Record<string, unknown>): Promise<unknown>;
   writeComment(arguments_: Record<string, unknown>): Promise<unknown>;
+  transportReceipt(): ModelFreeTransportReceipt;
   close(): Promise<void>;
 }
 
@@ -197,17 +206,21 @@ class ConnectedLinearGateway implements LinearGateway {
   ) { this.server = inventory.name; }
 
   async call(envelope: LinearCallEnvelope): Promise<unknown> {
-    const expected = envelope.method === LINEAR_READ_TOOL || envelope.method === LINEAR_LIST_ISSUES_TOOL
-      || envelope.method === LINEAR_LIST_COMMENTS_TOOL ? "read" : "write";
+    const method = (envelope as { method?: unknown }).method;
+    if (typeof method !== "string" || !Object.hasOwn(LINEAR_TOOL_ACCESS, method)) {
+      const received = typeof method === "string" ? method : `<${typeof method}>`;
+      throw new Error(`Linear MCP method ${received} is outside North's runtime allowlist`);
+    }
+    const expected = LINEAR_TOOL_ACCESS[method]!;
     if (envelope.access !== expected)
-      throw new Error(`Linear MCP ${envelope.method} must be called through explicit ${expected} access`);
-    const tool = this.inventory.tools[envelope.method];
-    if (!tool) throw new Error(`Linear MCP method ${envelope.method} is not available`);
+      throw new Error(`Linear MCP ${method} must be called through explicit ${expected} access`);
+    const tool = this.inventory.tools[method];
+    if (!tool) throw new Error(`Linear MCP method ${method} is not available`);
     validateArguments(tool, envelope.arguments);
     return normalizeLinearResult(await this.session.callTool({
       access: envelope.access,
       server: this.server,
-      tool: envelope.method,
+      tool: method,
       arguments: envelope.arguments,
     }));
   }
@@ -230,6 +243,10 @@ class ConnectedLinearGateway implements LinearGateway {
 
   writeComment(arguments_: Record<string, unknown>): Promise<unknown> {
     return this.call({ access: "write", method: LINEAR_SAVE_COMMENT_TOOL, arguments: arguments_ });
+  }
+
+  transportReceipt(): ModelFreeTransportReceipt {
+    return { ...this.session.transportReceipt(), linearServer: this.server };
   }
 
   close(): Promise<void> { return this.session.close(); }

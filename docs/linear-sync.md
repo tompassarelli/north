@@ -8,7 +8,9 @@ The transport is the authenticated Codex subscription surface. North opens an
 ephemeral Codex app-server session and calls the configured Linear MCP server
 directly. The internal capability gate permits only `list_issues`, `get_issue`,
 `save_issue`, `list_comments`, and `save_comment`, with their expected schemas
-and safety annotations.
+and safety annotations. The same five-name allowlist is enforced again at the
+runtime gateway boundary; an extra tool advertised by the server cannot be
+called through TypeScript erasure or an untyped caller.
 
 ## Commands
 
@@ -33,14 +35,34 @@ The mechanical verification sequence is `doctor` → `get` → `import` → `pla
 `sync --apply` → `plan`. The final plan must report `state: "in-sync"` with no
 actions. Repeating `import` must return the same thread and integration-link
 identity; if concurrent importers race, the identity lease serializes them and
-the later caller reports that it reused the post-lease link. None of these paths
-starts a model turn (`doctor` reports `modelTurn: false`).
+the later caller reports that it reused the post-lease link. A second
+`sync --apply` in that state performs zero Linear writes and zero graph writes.
+
+Every transport-backed command returns a `transportReceipt`. It records the
+selected Linear server, ephemeral app-server thread, exact outgoing method
+counts, incoming notification counts, and each MCP server/tool/access tuple and
+count, plus
+`modelTurnsStarted: 0`, `usageEvents: 0`, and
+`tokenTotalStatus: "exact-zero-protocol"`. The versioned
+`codex-app-server-linear-v1` policy positively allows only `initialize`,
+`initialized`, `thread/start`, `mcpServerStatus/list`, and
+`mcpServer/tool/call`; its incoming side allows only explicitly reviewed benign
+notifications (`mcpServer/startupStatus/updated`,
+`remoteControl/status/changed`, and `thread/started`). Unknown methods or
+notifications fail closed. Any terminal transport error invalidates the receipt,
+including one observed after a successful tool response. This protocol
+receipt—not a process-wide account usage sample—is the evidence that the command
+used no model turn or model tokens.
 
 Import creates one deterministic integration-link entity and either adopts the
 explicit North thread or deterministically creates one. The thread retains a
 `linear <KEY>` compatibility alias, but aliases are never used as identity or
-auto-matched: duplicate historical aliases are common. The canonical edge is
-`linear_link @link:...`.
+auto-matched: duplicate historical aliases are common. The canonical reverse
+handle is the literal-valued `linear_link @link:...`. Its opaque value retains
+the established `@link:` spelling for compatibility, while `value_kind literal`
+deliberately prevents Fram from treating the titleless integration-link entity
+as a thread ref. `north linear doctor` mechanically migrates the one
+adapter-owned legacy `linear_link value_kind ref` declaration to `literal`.
 
 The current Linear MCP response omits native workspace and issue UUIDs. North
 therefore records an honest `mcp-bootstrap-v1` connector fingerprint over the
@@ -49,14 +71,26 @@ team, and workspace slug remain mutable metadata. The first applied sync plants
 a `north:thread` managed marker in the Linear description; that exact marker is
 the durable backlink after a key, team, or workspace rename. Relocation searches
 the visible `North thread @<id>` text, fetches every candidate in full, then
-requires exactly one exact hidden marker plus matching creation evidence.
+requires exactly one exact hidden marker plus matching creation evidence. The
+binding write is mandatory even when an explicitly adopted North thread has no
+ordinary field delta. Existing unmanaged description text is retained
+byte-for-byte and the managed block is appended exactly once.
 
 ## Projection policy
 
 North owns the issue title and the marked description block: lifecycle, body,
 done bars, evidence, and repositories. North `progress` and `outcome` facts
 become marker-deduplicated Linear comments. `learning` remains private by
-default. Linear status never invents a North outcome or bar evidence.
+default. Linear status never invents a North outcome or bar evidence. Duplicate
+managed comment markers, multiple markers in one comment, and malformed uses of
+the reserved `north:comment` namespace stop both planning and pending-write
+recovery before another mutation.
+
+Current graph reads expose progress and learning values without stable fact
+event IDs, so their comment identity uses a content-hash compatibility fallback.
+Rewording such a fact therefore creates a new projected comment identity.
+Supplying durable graph event IDs is a deliberate follow-up rather than being
+inferred from list order or mutable content.
 
 At first import, the issue title and description seed a newly created North
 thread once. The exact description hash is recorded. The first apply consumes
@@ -77,6 +111,16 @@ Linear again:
   records the receipt and continues;
 - if it is not observable, the intent remains and the command refuses a retry;
 - the next apply repeats the same reconciliation before doing anything else.
+
+Linear's Markdown round-trip inserts blank lines at a small set of
+HTML-comment/heading boundaries inside North's managed scaffold. Issue-write
+receipts therefore retain the exact raw payload hash and add a second,
+versioned hash that canonicalizes only those known bridge-owned boundaries.
+Bytes outside the managed block and bytes inside every managed field remain
+exactly hashed. A legacy pending write can be recovered only when the current
+local baseline, a reconstruction of the original payload hash, and that same
+narrow scaffold receipt all agree; arbitrary whitespace, body, or unmanaged
+description drift still fails closed.
 
 Import is crash-healable too. The prepared manifest—deterministic thread ID,
 identity evidence, original hashes, and one stable import timestamp—lands before
