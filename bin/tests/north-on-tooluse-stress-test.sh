@@ -277,6 +277,7 @@ cat >"$TMP/ack-stall-server.py" <<'PY'
 import socket, sys, time
 
 port_file = sys.argv[1]
+status_file = sys.argv[2]
 server = socket.socket()
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("127.0.0.1", 0))
@@ -284,12 +285,26 @@ server.listen()
 with open(port_file, "w") as f:
     f.write(str(server.getsockname()[1]))
 
-replies = [
-    '{:ok [["@msg:flush-proof" "flush-agent"]]}',
-    '{:values []}',
-    '{:value "peer"}',
-    '{:value "flush proof"}',
-    '{:value "complete body"}',
+steps = [
+    ((':op :query', '"to" "flush-agent"'),
+     '{:ok [["@msg:flush-proof"]]}'),
+    ((':op :query', '"broadcast_to" "flush-agent"', '"to" "*"'),
+     '{:ok []}'),
+    ((':op :query', '"acked_by" "flush-agent"'),
+     '{:ok []}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "acked_by"'),
+     '{:values []}'),
+    ((':op :acquire-lease', ':res "message-delivery:',
+      ':holder "message-consumer:flush-agent:'),
+     '{:ok true :epoch 1}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "acked_by"'),
+     '{:values []}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "from"'),
+     '{:value "peer"}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "subject"'),
+     '{:value "flush proof"}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "body"'),
+     '{:value "complete body"}'),
 ]
 index = 0
 while True:
@@ -301,14 +316,33 @@ while True:
             if not chunk:
                 break
             data += chunk
-        if index < len(replies):
-            conn.sendall((replies[index] + "\n").encode())
+        request = data.decode(errors="replace")
+        if index < len(steps):
+            expected, reply = steps[index]
+            if not all(token in request for token in expected):
+                with open(status_file, "w") as f:
+                    f.write(f"mismatch at step {index + 1}: {request}")
+                conn.sendall(b"{:reject :fixture-protocol-mismatch}\n")
+                break
+            conn.sendall((reply + "\n").encode())
             index += 1
         else:
+            expected_ack = (
+                ':op :assert',
+                ':te "@msg:flush-proof"',
+                ':p "acked_by"',
+                ':r "flush-agent"',
+            )
+            with open(status_file, "w") as f:
+                if all(token in request for token in expected_ack):
+                    f.write("ack-reached")
+                else:
+                    f.write(f"mismatch at ACK: {request}")
             time.sleep(30)
 PY
 PORT_FILE="$TMP/ack-stall.port"
-python3 "$TMP/ack-stall-server.py" "$PORT_FILE" &
+STATUS_FILE="$TMP/ack-stall.status"
+python3 "$TMP/ack-stall-server.py" "$PORT_FILE" "$STATUS_FILE" &
 server_pid=$!
 for _ in $(seq 1 100); do [ -s "$PORT_FILE" ] && break; sleep 0.01; done
 port="$(cat "$PORT_FILE")"
@@ -319,6 +353,8 @@ flush_rc=$?
 set -e
 kill "$server_pid" 2>/dev/null || true
 wait "$server_pid" 2>/dev/null || true
+check "fixture observes the exact nine-step pre-ACK claim protocol" \
+  grep -Fxq "ack-reached" "$STATUS_FILE"
 check "ACK stall reaches the helper deadline" test "$flush_rc" -eq 124
 check "complete subject is flushed before ACK" grep -Fq "✉ from peer — flush proof" "$TMP/flush.out"
 check "complete body is flushed before ACK" grep -Fq "  complete body" "$TMP/flush.out"
