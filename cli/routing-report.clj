@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
-;; Evidence-aware routing feedback. Operational completion is reported separately
-;; from thread verification; evidence coverage is never presented as model quality.
+;; Evidence-aware routing feedback. Operational completion, self-reported thread
+;; evidence, and independent delivery verification remain separate axes; none is
+;; presented as causal model quality.
 
 (require '[cheshire.core :as json]
          '[clojure.edn :as edn]
@@ -9,6 +10,7 @@
 
 (def NORTH (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
 (load-file (str NORTH "/cli/gaffer-staffing.clj"))
+(load-file (str NORTH "/cli/terminal-projection.clj"))
 
 (def multi-preds #{"done_when" "bar_evidence" "domain_requirement"
                    "applied_capability" "applied_domain_requirement"
@@ -125,6 +127,12 @@
 (defn normalized-token [value]
   (let [token (some-> value str str/trim)] (when (seq token) token)))
 
+(defn json-map [value]
+  (try
+    (let [parsed (when value (json/parse-string value))]
+      (when (map? parsed) parsed))
+    (catch Exception _ nil)))
+
 (defn normalized-domain [value]
   (some-> (normalized-token value)
           (java.text.Normalizer/normalize java.text.Normalizer$Form/NFC)
@@ -237,12 +245,17 @@
     (let [bars (many facts thread "done_when")
           evs (many facts thread "bar_evidence")
           outcome? (boolean (one facts thread "outcome"))
-          evidenced (count (filter (fn [bar] (some #(str/includes? (str %) (str bar)) evs)) bars))
+          evidenced
+          (count
+           (filter
+            (fn [bar]
+              (some #(north.terminal-projection/evidence-reports-bar? bar %) evs))
+            bars))
           total (count bars)
           status (cond
                    (zero? total) "no-contract"
-                   (and outcome? (= evidenced total)) "verified"
-                   (= evidenced total) "evidenced-open"
+                   (and outcome? (= evidenced total)) "thread-closed-evidenced"
+                   (= evidenced total) "thread-open-evidenced"
                    (pos? evidenced) "partial"
                    :else "unevidenced")]
       {:status status :bars total :evidenced evidenced :hasOutcome outcome?})))
@@ -261,8 +274,55 @@
           role (normalized-token (get' "role" nil))
           process-outcome (normalized-token (one facts entity "process_outcome"))
           effective-process-outcome (or process-outcome (get' "outcome" "unrecorded"))
-          delivery-outcome (normalized-token (one facts entity "delivery_outcome"))
-          delivery-reason (normalized-token (one facts entity "delivery_reason"))
+          run-facts (get facts entity {})
+          lane-facts (get facts identity {})
+          lane-process-outcome
+          (north.terminal-projection/terminal-process-outcome lane-facts)
+          lane-delivery-candidate
+          (north.terminal-projection/terminal-delivery-outcome lane-facts)
+          lane-evidence-candidate
+          (json-map (north.terminal-projection/singleton-value
+                     lane-facts "delivery_evidence"))
+          lane-delivery-outcome
+          (when (and (= effective-process-outcome lane-process-outcome)
+                     (#{"reported" "verified"} lane-delivery-candidate)
+                     (= entity (get lane-evidence-candidate "run"))
+                     (= thread (get lane-evidence-candidate "thread"))
+                     (= identity (get lane-evidence-candidate "reporter")))
+            lane-delivery-candidate)
+          run-delivery-outcome (normalized-token (one facts entity "delivery_outcome"))
+          run-evidence-candidate
+          (json-map (north.terminal-projection/singleton-value
+                     run-facts "delivery_evidence"))
+          run-delivery-valid
+          (and run-delivery-outcome
+               (north.terminal-projection/delivery-projection-valid? run-facts)
+               (or (#{"unverified" "blocked"} run-delivery-outcome)
+                   (and (= entity (get run-evidence-candidate "run"))
+                        (= thread (get run-evidence-candidate "thread"))
+                        (= identity (get run-evidence-candidate "reporter")))))
+          delivery-outcome (or lane-delivery-outcome
+                               (when run-delivery-valid run-delivery-outcome))
+          delivery-source (cond
+                            lane-delivery-outcome "lane-terminal"
+                            run-delivery-valid "run"
+                            :else nil)
+          delivery-projection-facts (cond
+                                      lane-delivery-outcome lane-facts
+                                      run-delivery-valid run-facts
+                                      :else {})
+          delivery-evidence
+          (json-map (north.terminal-projection/singleton-value
+                     delivery-projection-facts "delivery_evidence"))
+          delivery-attestation
+          (json-map (north.terminal-projection/singleton-value
+                     delivery-projection-facts "delivery_attestation"))
+          delivery-reason
+          (normalized-token
+           (if lane-delivery-outcome
+             (north.terminal-projection/singleton-value lane-facts "delivery_reason")
+             (when run-delivery-valid (one facts entity "delivery_reason"))))
+          delivery-proof-valid (boolean delivery-outcome)
           prompt-composition-applied (normalized-token
                                       (one facts entity "prompt_composition_applied"))
           applied-role-contract (normalized-token (one facts entity "applied_role_contract"))
@@ -344,6 +404,7 @@
              [(str "missing-applied-axes:" (str/join "," missing-axes))])
            (when (seq invalid-axes)
              [(str "invalid-applied-axes:" (str/join "," invalid-axes))])
+           (when-not delivery-proof-valid ["missing-or-invalid-delivery-proof"])
            requested-applied-axis-debt)
           preset-applied-debt
           (when (= "preset" composition-kind)
@@ -404,6 +465,16 @@
        :processOutcomeObserved (boolean process-outcome)
        :deliveryOutcome (or delivery-outcome "unrecorded")
        :deliveryOutcomeObserved (boolean delivery-outcome)
+       :deliveryOutcomeSource delivery-source
+       :deliveryProofValid delivery-proof-valid
+       :deliveryEvidenceThread (get delivery-evidence "thread")
+       :deliveryReporter (get delivery-evidence "reporter")
+       :deliveryEvidenceSha256
+       (north.terminal-projection/singleton-value
+        delivery-projection-facts "delivery_evidence_sha256")
+       :deliveryVerifier (get delivery-attestation "actor")
+       :deliveryVerifierRole (get delivery-attestation "role")
+       :deliveryAuthority (get delivery-attestation "authority")
        :deliveryReason delivery-reason
        :deliveryReasonObserved (boolean delivery-reason)
        :tokens (maybe-long (get' "tokens" nil))
@@ -460,7 +531,9 @@
 
 (defn performance-row [[label rows]]
   (let [statuses (frequencies (map #(get-in % [:evidence :status]) rows))
-        deliveries (frequencies (map :deliveryOutcome rows))]
+        deliveries (frequencies (map :deliveryOutcome rows))
+        delivery-sources (frequencies (keep :deliveryOutcomeSource rows))
+        delivery-authorities (frequencies (keep :deliveryAuthority rows))]
     {:cohort label :runs (count rows)
      :operationalRan (count (filter #(= "ran" (:processOutcome %)) rows))
      :deliveryVerified (get deliveries "verified" 0)
@@ -468,10 +541,14 @@
      :deliveryUnverified (get deliveries "unverified" 0)
      :deliveryBlocked (get deliveries "blocked" 0)
      :deliveryUnrecorded (get deliveries "unrecorded" 0)
+     :deliveryOutcomeSources delivery-sources
+     :deliveryAuthorities delivery-authorities
      :threadOutcomes (count (filter #(get-in % [:evidence :hasOutcome]) rows))
-     :verifiedEvidence (get statuses "verified" 0) :partialEvidence (get statuses "partial" 0)
-     :unevidenced (get statuses "unevidenced" 0) :noContract (get statuses "no-contract" 0)
-     :evidencedOpen (get statuses "evidenced-open" 0)
+     :threadClosedEvidenced (get statuses "thread-closed-evidenced" 0)
+     :threadOpenEvidenced (get statuses "thread-open-evidenced" 0)
+     :threadPartialEvidence (get statuses "partial" 0)
+     :threadUnevidenced (get statuses "unevidenced" 0)
+     :threadNoContract (get statuses "no-contract" 0)
      :escalated (count (filter #(pos? (:escalations %)) rows))}))
 
 (defn performance-report
@@ -481,8 +558,8 @@
          selected (if all? all-rows (vec (filter complete-current-managed-run? all-rows)))]
      {:report "performance"
       :scope (if all? "all-history" "complete-current-managed")
-      :evidenceVersion "v2"
-      :claim "complete applied Gaffer contract plus explicit process and delivery outcomes and current thread evidence coverage; not causal model quality"
+      :evidenceVersion "v4"
+      :claim "complete applied Gaffer contract plus proof-valid process/delivery outcomes; reported is run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread review context is separate; not causal model quality"
       :runs (count selected)
       :availableRuns (count all-rows)
       :excludedRuns (- (count all-rows) (count selected))
@@ -542,11 +619,11 @@
 
 (defn promotion-row [[_ rows]]
   (let [threads (set (keep :thread rows))
-        verified (count (filter #(= "verified" (get-in % [:evidence :status])) rows))
-        qualified (filter #(and (= "ran" (:processOutcome %))
-                                (= "verified" (get-in % [:evidence :status]))
-                                (:thread %))
-                          rows)
+        ;; Managed lanes currently share one OS uid. Historical "verified"
+        ;; projections used caller-controlled AGENT_ID and are display-only:
+        ;; they cannot qualify a reusable staffing pattern for promotion.
+        independently-verified 0
+        qualified []
         qualified-threads (set (map :thread qualified))
         flagged (some :promotionCandidate rows)
         debt (vec (sort (set (mapcat :legacyDebtReasons rows))))
@@ -555,7 +632,7 @@
         review-status (cond
                         legacy? "legacy-debt"
                         (not flagged) "not-requested"
-                        (not recurrent) "insufficient-ran-verified-recurrence"
+                        (not recurrent) "verification-boundary-unavailable"
                         :else "review-candidate")
         composition-ids (vec (sort (set (keep :compositionId rows))))
         labels (if legacy?
@@ -578,7 +655,8 @@
      :recurrent recurrent
      :nearestPresets (vec (sort (set (keep :nearestPreset rows))))
      :operationalRan (count (filter #(= "ran" (:processOutcome %)) rows))
-     :verifiedEvidence verified :promotionRequested (boolean flagged)
+     :independentlyVerified independently-verified
+     :promotionRequested (boolean flagged)
      :reviewStatus review-status
      :note "recurrence is evidence for human review; this report never promotes a role"}))
 
@@ -630,20 +708,22 @@
                       (if (= "all-history" (:scope data))
                         "all historical rows"
                         "complete current managed runs")))
-        (println "Current rows require complete applied Gaffer evidence; process and delivery outcomes remain separate; thread evidence is not causal model quality.")
+        (println "Current rows require complete applied Gaffer evidence; reported delivery is exact run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread evidence is not model quality.")
         (when (pos? (:excludedRuns data))
           (println (format "%d legacy/incomplete/unattributed row(s) excluded; use --all to inspect them."
                            (:excludedRuns data))))
         (println (format "%-38s %5s %5s %5s %5s %5s %5s %5s %5s %5s %5s"
                          "COHORT provider/tier/role/grade" "runs" "ran"
-                         "d-ver" "d-rpt" "d-unv" "d-blk" "e-ver" "e-part" "e-none" "esc"))
+                         "d-ver" "d-rpt" "d-unv" "d-blk" "t-cls" "t-part" "t-none" "esc"))
         (doseq [row (:cohorts data)]
           (println (format "%-38s %5d %5d %5d %5d %5d %5d %5d %5d %5d %5d"
                            (:cohort row) (:runs row) (:operationalRan row)
                            (:deliveryVerified row) (:deliveryReported row)
                            (:deliveryUnverified row) (:deliveryBlocked row)
-                           (:verifiedEvidence row) (:partialEvidence row)
-                           (+ (:unevidenced row) (:noContract row)) (:escalated row))))
+                           (:threadClosedEvidenced row)
+                           (:threadPartialEvidence row)
+                           (+ (:threadUnevidenced row) (:threadNoContract row))
+                           (:escalated row))))
         (when (empty? (:cohorts data))
           (println "  (no complete current managed runs; use --all for historical rows)")))
     "usage"
@@ -689,7 +769,7 @@
                   capabilities (str/join "," (or (:appliedCapabilities row) []))]
               (println (format "%-34s threads=%d runs=%d verified=%d  %s"
                                label (:distinctThreads row) (:runs row)
-                               (:verifiedEvidence row) (:reviewStatus row)))
+                               (:independentlyVerified row) (:reviewStatus row)))
               (println (str "  hash=" hash " capabilities=" capabilities))
               (println "  requested↔applied="
                        (str/join "," (:requestedAppliedIntegrity row)))

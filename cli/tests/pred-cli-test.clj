@@ -49,7 +49,8 @@
   (set (map second (re-seq #"\[\s*\"([a-z][a-z0-9_]*)\"\s*," text))))
 
 (def graph-write-fns
-  #{"append!" "put!" "assert!" "retract!" "set-single!" "set-1!"})
+  #{"append!" "put!" "assert!" "assert-after-read!" "retract!"
+    "set-single!" "set-1!"})
 
 (defn fixed-graph-predicates [form]
   (let [found (atom #{})]
@@ -102,9 +103,11 @@
 ;; elsewhere in this test. A new variable writer cannot silently become exempt.
 (def audited-clj-variable-sites
   #{["cli/agent-fact-internal.clj" "put!" "predicate"]
-    ["cli/agent-fact-internal.clj" "put!" "marker-predicate"]
-    ["cli/agent-fact-internal.clj" "put!" "terminal-marker-predicate"]
+    ["cli/agent-fact-internal.clj" "assert-after-read!" "marker-predicate"]
+    ["cli/agent-fact-internal.clj" "assert-after-read!" "terminal-marker-predicate"]
     ["cli/agent-fact-internal.clj" "retract!" "predicate"]
+    ["cli/coord.clj" "assert-after-read!" "p"]
+    ["cli/delivery-evidence-internal.clj" "append!" "predicate"]
     ["cli/msg-cli.clj" "put!" "(arg-pred k)"]
     ["cli/msg-cli.clj" "retract!" "predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
@@ -134,8 +137,9 @@
     "applied_role_contract" "applied_routing_tier" "applied_task_grade"
     "applied_topology" "at" "bespoke_reason" "cache_create_tokens"
     "cache_read_tokens" "cached_input_tokens" "composition_id"
-    "composition_kind" "composition_override_reason" "delivery_outcome"
-    "delivery_reason" "duration_ms" "provider_duration_ms" "effort"
+    "composition_kind" "composition_override_reason" "delivery_attestation"
+    "delivery_attestation_sha256" "delivery_evidence" "delivery_evidence_sha256"
+    "delivery_outcome" "delivery_reason" "duration_ms" "provider_duration_ms" "effort"
     "entitlement_pressure" "envelope_retries" "error_count" "escalation_count"
     "escalation_path" "escalation_reasons" "escalation_tier" "fallback_count"
     "fallback_path" "fallback_target_path" "input_tokens" "kind" "model"
@@ -162,7 +166,9 @@
                               "export function updateAgentRoute")))
    #{(literal-def "cli/agent-fact-internal.clj" 'marker-predicate)
      (literal-def "cli/agent-fact-internal.clj" 'terminal-marker-predicate)
-     "outcome" "process_outcome" "delivery_outcome" "delivery_reason"}))
+     "outcome" "process_outcome" "delivery_outcome" "delivery_reason"
+     "delivery_evidence" "delivery_evidence_sha256"
+     "delivery_attestation" "delivery_attestation_sha256"}))
 
 (def guard-source (slurp-source "sdk/src/guard-log.ts"))
 (def guard-predicates
@@ -308,6 +314,9 @@
 (check "Linear adapter value kinds match its executable schema"
        (every? (fn [[predicate kind]] (= kind (get-in registry [predicate :kind])))
                linear-kinds))
+(check "Linear integration handle is a canonical entity ref"
+       (= {:card "single" :kind "ref"}
+          (select-keys (registry "linear_link") [:card :kind])))
 (check "Linear imported-thread reference semantics stay explicit"
        (and (= {:card "single" :kind "ref"}
                (select-keys (registry "created_by") [:card :kind]))

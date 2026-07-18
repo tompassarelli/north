@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import { runFacts } from "../src/telemetry";
+import {
+  assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION,
+} from "../src/delivery-verification";
 
 test("run telemetry is token- and routing-based with no price-derived fields", () => {
   expect(runFacts({
@@ -64,6 +67,37 @@ test("run telemetry separates wall time, provider time, process terminal, and de
   expect(facts).toContainEqual([
     "delivery_reason", "provider_terminal_success_without_external_verification",
   ]);
+});
+
+test("reported run telemetry carries the exact evidence snapshot and digest", () => {
+  const assessment = assessThreadDelivery("thread", "agent", [
+    { predicate: "done_when", value: "tests pass" },
+  ], [
+    { predicate: "done_when", value: "tests pass" },
+  ], "run-agent", [{
+    version: RUN_BAR_EVIDENCE_VERSION,
+    run: "@run-agent",
+    thread: "@thread",
+    reporter: "@agent:agent",
+    bar: "tests pass",
+    observed: "exit 0",
+    recordedAt: "2026-07-18T10:00:00.000Z",
+  }]);
+  if (assessment.deliveryOutcome !== "reported") throw new Error("expected reported");
+  const facts = runFacts({
+    thread: "thread", agent: "agent", durationMs: 1, posture: "atomic",
+    outcome: "ran", processOutcome: "ran",
+    deliveryOutcome: assessment.deliveryOutcome,
+    deliveryReason: assessment.deliveryReason,
+    deliveryProof: assessment.proof,
+  }, "2026-07-18T10:00:01.000Z");
+  expect(facts).toContainEqual(["delivery_outcome", "reported"]);
+  expect(facts).toContainEqual(["delivery_evidence", assessment.proof.deliveryEvidence]);
+  expect(facts).toContainEqual([
+    "delivery_evidence_sha256",
+    assessment.proof.deliveryEvidenceSha256,
+  ]);
+  expect(facts.some(([predicate]) => predicate === "delivery_attestation")).toBe(false);
 });
 
 test("run telemetry preserves each exact observed token component once", () => {

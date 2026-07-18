@@ -255,10 +255,22 @@
                    (str "native session in " (get facts "repo")))
                  "unknown")
         process-outcome (north.terminal-projection/terminal-process-outcome facts)
-        delivery-outcome (north.terminal-projection/singleton-value facts "delivery_outcome")
+        delivery-outcome (north.terminal-projection/terminal-delivery-outcome facts)
+        delivery-attestation
+        (when (= "verified" delivery-outcome)
+          (try
+            (json/parse-string
+             (north.terminal-projection/singleton-value facts "delivery_attestation"))
+            (catch Exception _ nil)))
+        delivery-label
+        (if-let [actor (get delivery-attestation "actor")]
+          (str delivery-outcome " by:" actor
+               (when-let [role (get delivery-attestation "role")]
+                 (str "/" role)))
+          (or delivery-outcome "unrecorded"))
         state (cond
                 process-outcome (str "finished(process:" process-outcome
-                                     ", delivery:" (or delivery-outcome "unrecorded") ")")
+                                     ", delivery:" delivery-label ")")
                 (known (get facts "stalled")) "stalled"
                 (:online presence) "working"
                 :else "offline")
@@ -538,6 +550,9 @@
         selected-grade (or taskGrade preset-grade)
         selected-tier (or tier preset-tier)
         selected-topology (or topology preset-topology)
+        depth-problem
+        (north.topology-authority/managed-child-topology-problem
+         "spawn" selected-topology)
         selected-role (if bespoke? invoked-role (or preset-role invoked-role))
         selected-posture (or posture preset-posture (:posture (:defaults catalog)))
         selected-reasoning (or reasoning preset-deliberation)
@@ -620,6 +635,8 @@
       (do (println (red (str "invalid taskGrade: " selected-grade))) (System/exit 1))
       (not (some #{selected-topology} (get-in catalog [:vocabulary :topologies])))
       (do (println (red (str "invalid topology: " selected-topology))) (System/exit 1))
+      depth-problem
+      (do (println (red depth-problem)) (System/exit 1))
       (and (= selected-role "director") (= selected-topology "worker"))
       (do (println (red "director cannot use worker topology; choose a worker role for atomic work")) (System/exit 1))
       (not (some #{selected-tier} (get-in catalog [:vocabulary :semanticTiers])))

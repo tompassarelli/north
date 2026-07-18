@@ -13,6 +13,7 @@ import type { NormalizedTokenUsage } from "./usage";
 import type { AllocationEvidence, RoutingFallbackReason } from "./providers/types";
 import type { HarnessCompositionEvidence } from "./harness";
 import { GAFFER_CAPABILITIES } from "./gaffer-capabilities";
+import type { DeliveryProof } from "./delivery-verification";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
@@ -58,6 +59,7 @@ export interface RunRecord {
   processOutcome?: string;
   deliveryOutcome?: string;
   deliveryReason?: string;
+  deliveryProof?: DeliveryProof;
   // escalate-not-kill (thread 019f1194-ca57) — present only on escalation-enabled runs.
   // Option A yields ONE @run row per spawn with an internal escalation chain, NOT one
   // row per tier (north-reconcile.clj queries adapt in lockstep — follow-up).
@@ -93,6 +95,14 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.processOutcome) facts.push(["process_outcome", rec.processOutcome]);
   if (rec.deliveryOutcome) facts.push(["delivery_outcome", rec.deliveryOutcome]);
   if (rec.deliveryReason) facts.push(["delivery_reason", rec.deliveryReason]);
+  if (rec.deliveryProof?.deliveryEvidence)
+    facts.push(["delivery_evidence", rec.deliveryProof.deliveryEvidence]);
+  if (rec.deliveryProof?.deliveryEvidenceSha256)
+    facts.push(["delivery_evidence_sha256", rec.deliveryProof.deliveryEvidenceSha256]);
+  if (rec.deliveryProof?.deliveryAttestation)
+    facts.push(["delivery_attestation", rec.deliveryProof.deliveryAttestation]);
+  if (rec.deliveryProof?.deliveryAttestationSha256)
+    facts.push(["delivery_attestation_sha256", rec.deliveryProof.deliveryAttestationSha256]);
   if (rec.model) facts.push(["model", rec.model]);
   if (rec.effort) facts.push(["effort", rec.effort]);
   if (rec.role) facts.push(["role", rec.role]);
@@ -204,8 +214,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   return facts;
 }
 
-export function recordRun(rec: RunRecord): void {
-  const id = newRunId(rec.agent);
+export function recordRun(rec: RunRecord, id = newRunId(rec.agent)): void {
   const facts = runFacts(rec);
   // Hermetic capture engines intentionally retain the ordinary fact-verb shape.
   if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") {

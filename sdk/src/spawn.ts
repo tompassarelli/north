@@ -7,7 +7,7 @@ import {
   type Effort, type HarnessCompositionEvidence,
 } from "./harness";
 import { normalizeUsage } from "./usage";
-import { recordRun } from "./telemetry";
+import { newRunId, recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
 import { inputChannel } from "./coordination";
 import {
@@ -40,9 +40,17 @@ import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
 } from "./resource-envelopes";
-import { assertCoordinationAuthority } from "./topology-authority";
+import {
+  assertCoordinationAuthority, assertManagedChildTopology,
+} from "./topology-authority";
 import { admitPinnedProvider } from "./execution-admission";
 import { classifyExecutionTerminal } from "./execution-outcome";
+import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
+import { getThreadFacts } from "./north-client";
+import {
+  loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
+  type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
+} from "./delivery-evidence";
 
 export interface SpawnOptions {
   prompt: string;
@@ -65,6 +73,11 @@ export interface SpawnOptions {
   project?: string;
   sessionId?: string;
   queryFn?: (args: any) => AgentQuery; // injection seam for tests; bypasses provider selection
+  /** Hermetic seam for the capability-bound delivery reservation/evidence store. */
+  deliveryRuntime?: {
+    reserve: (context: DeliveryRunContext) => DeliveryReservation;
+    load: (runId: string) => DeliveryRunState;
+  };
 }
 
 export function createSpawnAgentId(now = Date.now(), uuid = randomUUID()): string {
@@ -108,6 +121,16 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   const requested = { provider: opts.provider, target: opts.target,
     tier: opts.tier, model: opts.model, effort: opts.effort };
   const agentId = opts.agentId ?? createSpawnAgentId();
+  let runId = newRunId(agentId);
+  const runContext = opts.thread
+    ? newDeliveryRunContext(runId, opts.thread, agentId)
+    : undefined;
+  const runtime = opts.deliveryRuntime ?? (opts.queryFn ? undefined : {
+    reserve: reserveDeliveryRun,
+    load: loadDeliveryRunState,
+  });
+  let deliveryReservation: DeliveryReservation | undefined;
+  let deliveryReservationReady = false;
   const stream = new StreamWriter(agentId);
   const requestedTier = opts.tier;
   const requestedReasoning = opts.effort;
@@ -244,6 +267,23 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   const bgTracker = makeBgTracker();
   let bgContinuations = 0;
   try {
+  // Reserve only at the last pre-provider seam. Earlier routing/admission
+  // failures must not strand undiscoverable reservation-only subjects.
+  if (runContext) {
+    try {
+      if (runtime) {
+        deliveryReservation = runtime.reserve(runContext);
+        if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
+        deliveryReservationReady = true;
+      }
+    } catch {
+      const abandonedRunId = runId;
+      runId = newRunId(agentId);
+      console.error(
+        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} and leaving delivery unverified`,
+      );
+    }
+  }
   const agentOptions = harnessOptions({
     self: agentId,
     extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
@@ -254,6 +294,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     systemPrompt: opts.systemPrompt, maxTurns: opts.maxTurns,
     role: opts.role, posture: opts.posture,
     cwd: process.cwd(),
+    deliveryRun: deliveryReservationReady ? runContext : undefined,
     // per-spawn dial wins over ambient env; env-or-full is the harness fallback
     caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
   });
@@ -423,7 +464,53 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // Commit the lane's process/delivery terminal (SYNC, digest marker last)
   // before exit so the reactor cannot mistake a completed lane for silence.
   refreshIdentityRoute();
-  const terminal = classifyExecutionTerminal(outcome);
+  let delivery: DeliveryAssessment | undefined;
+  if (outcome === "ran" && opts.thread) {
+    if (!deliveryReservationReady || !deliveryReservation || !runtime) {
+      delivery = {
+        deliveryOutcome: "unverified",
+        deliveryReason: "delivery_reservation_unavailable_at_finalize",
+      };
+    } else {
+      const reservedRunId = runId;
+      let runState: DeliveryRunState | undefined;
+      try {
+        runState = runtime.load(runId);
+      } catch {
+        runState = undefined;
+      }
+      if (!runState?.reservationValid) {
+        runId = newRunId(agentId);
+        deliveryReservationReady = false;
+        console.error(
+          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} and leaving delivery unverified`,
+        );
+        delivery = {
+          deliveryOutcome: "unverified",
+          deliveryReason: "delivery_reservation_unavailable_at_finalize",
+        };
+      } else {
+        try {
+          delivery = assessThreadDelivery(
+            opts.thread,
+            agentId,
+            getThreadFacts(opts.thread),
+            deliveryReservation.baselineDoneWhen.map(
+              (value) => ({ predicate: "done_when", value }),
+            ),
+            runId,
+            runState.evidence,
+          );
+        } catch {
+          delivery = {
+            deliveryOutcome: "unverified",
+            deliveryReason: "delivery_thread_unavailable_at_finalize",
+          };
+        }
+      }
+    }
+  }
+  const terminal = classifyExecutionTerminal(outcome, delivery);
   writeAgentTerminal(agentId, terminal);
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
@@ -458,10 +545,11 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     providerDurationMs: typeof resultMsg?.duration_ms === "number" ? resultMsg.duration_ms : undefined,
     outcome, processOutcome: terminal.processOutcome,
     deliveryOutcome: terminal.deliveryOutcome, deliveryReason: terminal.deliveryReason,
+    deliveryProof: terminal.deliveryProof,
     numTurns,
     errorCount: st.totalErrors, escalationTier: tier,
     escalations: escalations.length ? escalations : undefined,
-  });
+  }, runId);
   // completion ping mirrors the death ping: the coordinator's inbox hook surfaces it.
   // Suppress it for outcomes that already fired a dedicated ping (died -> AGENT DEATH,
   // stalled -> AGENT DEATH via notifyDeath, max_turns/capped -> TURN CAP) — one terminal
@@ -490,8 +578,14 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
 let bootstrapAuthorityGranted = false;
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
-  if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn");
+  const callerTopology = process.env.AGENT_TOPOLOGY;
+  if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
   const composed = composeSpawnOptions(opts);
+  if (!bootstrapAuthorityGranted) {
+    assertManagedChildTopology(
+      "spawn", composed.routingMetadata.topology, callerTopology,
+    );
+  }
   const context = envelopeContextFromEnv();
   const requestedTier = composed.tier;
   const agentId = composed.agentId ?? createSpawnAgentId();

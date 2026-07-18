@@ -114,6 +114,44 @@
               (str/includes? (:err result) "worker topology cannot mutate agent identity")
               (not (str/includes? (:err result) "subject resolver")))))
 
+(doseq [topology ["worker" "orchestrator"]]
+  (let [result (proc/shell {:out :string :err :string :continue true
+                            :extra-env {"AGENT_TOPOLOGY" topology
+                                        "AGENT_ID" (str topology "-self")
+                                        "FRAM_HOME" "/definitely/absent"}}
+                           (str root "/bin/north") "tell"
+                           "run-other-lane" "run_bar_evidence" "{}")]
+    (check (str "generic run mutation is denied for managed " topology " topology")
+           (and (not (zero? (:exit result)))
+                (str/includes?
+                 (:err result)
+                 "generic fact verbs cannot mutate harness-owned run facts")
+                (not (str/includes? (:err result) "subject resolver"))))))
+
+(let [result (proc/shell {:out :string :err :string :continue true}
+                         "env" "-u" "AGENT_TOPOLOGY" "-u" "AGENT_ID"
+                         (str root "/bin/north") "tell"
+                         "run-unset-env-bypass" "run_bar_evidence" "{}")]
+  (check "unsetting managed identity cannot bypass harness-owned run facts"
+         (and (not (zero? (:exit result)))
+              (str/includes?
+               (:err result)
+               "generic fact verbs cannot mutate harness-owned run facts")
+              (not (str/includes? (:err result) "subject resolver")))))
+
+(let [scrubbed
+      (north.managed-child-env/scrub
+       {"AGENT_ID" "parent"
+        "NORTH_RUN_ID" "run-parent"
+        "NORTH_THREAD_ID" "thread-parent"
+        "NORTH_RUN_CAPABILITY" "parent-secret"
+        "UNRELATED" "preserved"})]
+  (check "managed child scrub removes every inherited delivery capability binding"
+         (and (= "preserved" (get scrubbed "UNRELATED"))
+              (not-any? #(contains? scrubbed %)
+                        ["NORTH_RUN_ID" "NORTH_THREAD_ID"
+                         "NORTH_RUN_CAPABILITY"]))))
+
 (let [result (proc/shell {:out :string :err :string :continue true
                           :extra-env {"AGENT_TOPOLOGY" "worker"
                                       "AGENT_ID" "worker-self"

@@ -259,6 +259,14 @@ export function writeAgentTerminal(agentId: string, terminal: ExecutionTerminal)
       process_outcome: terminal.processOutcome,
       delivery_outcome: terminal.deliveryOutcome,
       delivery_reason: terminal.deliveryReason,
+      ...(terminal.deliveryProof?.deliveryEvidence
+        ? { delivery_evidence: terminal.deliveryProof.deliveryEvidence } : {}),
+      ...(terminal.deliveryProof?.deliveryEvidenceSha256
+        ? { delivery_evidence_sha256: terminal.deliveryProof.deliveryEvidenceSha256 } : {}),
+      ...(terminal.deliveryProof?.deliveryAttestation
+        ? { delivery_attestation: terminal.deliveryProof.deliveryAttestation } : {}),
+      ...(terminal.deliveryProof?.deliveryAttestationSha256
+        ? { delivery_attestation_sha256: terminal.deliveryProof.deliveryAttestationSha256 } : {}),
     }));
   } catch {
     // Non-fatal; presence-lapse reap catches absent or torn terminal evidence.

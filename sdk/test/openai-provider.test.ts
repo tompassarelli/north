@@ -337,6 +337,44 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens
   expect(existsSync(argvPath)).toBe(false);
 });
 
+test("the executable Codex adapter rejects orchestrator authority before starting a provider turn", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-codex-orchestrator-admission-"));
+  temporary.push(directory);
+  const marker = join(directory, "provider-started");
+  const command = join(directory, "fake-codex");
+  writeFileSync(command, `#!/usr/bin/env bash\nprintf started > "${marker}"\n`);
+  chmodSync(command, 0o700);
+  process.env.NORTH_CODEX_BIN = command;
+  process.env.NORTH_PORT = "65534";
+
+  const options = harnessOptions({
+    self: "openai-orchestrator-admission-proof",
+    provider: "openai",
+    cwd: northRoot,
+    routingMetadata: applyGafferStaffing({ role: "director" }),
+    presenceRegistrar: false,
+  }) as any;
+  let caught: unknown;
+  try {
+    for await (const _ of openaiProvider.query({
+      prompt: "must not start a provider turn",
+      options,
+    }) as AsyncIterable<any>) {}
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toMatchObject({
+    code: "blocked_preflight",
+    processOutcome: "blocked_preflight",
+    retrySafeBeforeAcceptance: true,
+  });
+  expect((caught as Error).message).toBe(
+    "openai_adapter_cannot_enforce_gaffer_capabilities",
+  );
+  expect(existsSync(marker)).toBe(false);
+});
+
 test("selected Codex account bootstrap fails during admission before onRoute or provider spawn", async () => {
   const server = createServer((socket) => {
     socket.once("data", () => socket.end("{:version \"target-admission\"}\n"));

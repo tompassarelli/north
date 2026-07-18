@@ -7,7 +7,11 @@
    "AGENT_DOMAIN_REQUIREMENTS" "AGENT_TOPOLOGY" "AGENT_TIER"
    "AGENT_REASONING" "AGENT_EFFORT" "AGENT_POSTURE" "AGENT_COMPOSITION"
    "AGENT_MODEL" "AGENT_TARGET" "AGENT_PROVIDER" "AGENT_COORDINATOR"
-   "NORTH_DISPATCH_DRIVER_PRECLAIMED"])
+   "NORTH_DISPATCH_DRIVER_PRECLAIMED"
+   ;; Per-run proof authority belongs only to the exact child for which the
+   ;; harness committed a reservation. A nested spawn receives a fresh explicit
+   ;; context or none; it must never inherit its parent's capability.
+   "NORTH_RUN_ID" "NORTH_THREAD_ID" "NORTH_RUN_CAPABILITY"])
 
 (defn scrub
   ([] (scrub (into {} (System/getenv))))

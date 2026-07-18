@@ -1,0 +1,78 @@
+{
+  "validInstants": [
+    "2026-07-18T10:00:00Z",
+    "2024-02-29T23:59:59.123456789Z",
+    "2000-02-29T00:00:00Z"
+  ],
+  "invalidInstants": [
+    "2026-02-29T00:00:00Z",
+    "2026-02-30T00:00:00Z",
+    "1900-02-29T00:00:00Z",
+    "2026-13-01T00:00:00Z",
+    "2026-01-01T24:00:00Z",
+    "2026-01-01T00:60:00Z",
+    "2026-01-01T00:00:60Z",
+    "2026-01-01T00:00:00+00:00"
+  ],
+  "limits": {
+    "maxBars": 32,
+    "maxBarUtf8Bytes": 512,
+    "maxObservedUtf8Bytes": 2048,
+    "maxEnvelopeUtf8Bytes": 262144,
+    "maxRecordUtf8Bytes": 16384,
+    "maxReservationBaselineUtf8Bytes": 65536,
+    "maxWriterRequestUtf8Bytes": 16384,
+    "maxThreadIdUtf8Bytes": 512,
+    "maxRunIdUtf8Bytes": 512,
+    "maxAgentIdUtf8Bytes": 256,
+    "maxAttestationUtf8Bytes": 16384
+  },
+  "textCases": [
+    {
+      "name": "ascii-space edges",
+      "raw": "  probe passed  ",
+      "canonical": "probe passed"
+    },
+    {
+      "name": "nbsp edges remain content",
+      "raw": " probe passed ",
+      "canonical": " probe passed "
+    },
+    {
+      "name": "em-space edges remain content",
+      "raw": " probe passed ",
+      "canonical": " probe passed "
+    },
+    {
+      "name": "emoji scalar",
+      "raw": "🧪",
+      "canonical": "🧪"
+    },
+    {
+      "name": "unpaired high surrogate",
+      "raw": "\ud800",
+      "canonical": null
+    }
+  ],
+  "validThreadEntities": [
+    "@thread-123",
+    "@thread-🧪"
+  ],
+  "invalidThreadEntities": [
+    "@",
+    "@thread 123",
+    "@thread\t123",
+    "@thread 123",
+    "@thread@123"
+  ],
+  "reservationBody": [
+    ["run_capability_sha256", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
+    ["run_reservation_agent", "@agent:lane-123"],
+    ["run_reservation_contract_origin", "accepted"],
+    ["run_reservation_done_when", "[\"smoke → old run\",\"tests → old run\"]"],
+    ["run_reservation_thread", "@thread-123"],
+    ["run_reservation_version", "north:run-reservation:v1"],
+    ["run_reserved_at", "2026-07-18T10:00:00Z"]
+  ],
+  "reservationManifestSha256": "6748e670973bdbc8ed10a0c71d8538f0763d2336b514a113ec385ac98f1eeaf3"
+}

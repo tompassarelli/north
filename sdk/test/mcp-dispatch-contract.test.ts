@@ -225,3 +225,70 @@ test("raw MCP rejects non-contract Gaffer fields and verifier-as-topology before
     expect(response.result.content[0].text).toContain(expected);
   }
 });
+
+test("managed MCP launch depth stops at orchestrator to worker for every composition shape", () => {
+  const north = resolve(import.meta.dir, "../..");
+  const orchestratorContract = {
+    responsibility: "coordinate a bounded migration",
+    deliverable: "integrated migration result",
+    capabilities: ["coordination", "filesystem.read", "filesystem.search", "shell.readonly"],
+    mayDecide: ["worker decomposition"],
+    mustEscalate: ["scope expansion"],
+    doneWhen: ["all worker results are reconciled"],
+    report: "integrated verdict",
+  };
+  const shapes = [
+    { role: "director" },
+    {
+      role: "director",
+      tier: "senior",
+      composition: {
+        kind: "preset", id: "director", overrides: ["tier"],
+        overrideReason: "bounded coordination does not require frontier tier",
+      },
+    },
+    {
+      role: "migration-director",
+      taskGrade: "senior",
+      domainRequirements: [],
+      topology: "orchestrator",
+      tier: "senior",
+      reasoning: "high",
+      posture: "preserve",
+      composition: {
+        kind: "bespoke",
+        id: "migration-director",
+        bespokeReason: "one-off coordination shape",
+        promotionCandidate: false,
+        contract: orchestratorContract,
+      },
+    },
+  ];
+  let id = 100;
+  for (const name of ["spawn", "dispatch"]) {
+    for (const shape of shapes) {
+      const arguments_ = name === "spawn"
+        ? { prompt: "must remain two tiers", ...shape }
+        : { id: "depth-cap-thread", ...shape };
+      const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
+        input: `${JSON.stringify({
+          jsonrpc: "2.0", id: id++, method: "tools/call",
+          params: { name, arguments: arguments_ },
+        })}\n`,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_TOPOLOGY: "orchestrator",
+          AGENT_ID: "parent-director",
+          NORTH_MCP_BUN: "/bin/false",
+        },
+      });
+      expect(result.status).toBe(0);
+      const response = JSON.parse(result.stdout.trim());
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toContain(
+        `coordination depth denied: ${name} from an orchestrator may create worker topology only`,
+      );
+    }
+  }
+});

@@ -3,7 +3,8 @@
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
          '[clojure.edn :as edn]
-         '[clojure.java.io :as io])
+         '[clojure.java.io :as io]
+         '[clojure.string :as str])
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
@@ -40,6 +41,24 @@
 (defn scalar-facts [facts]
   (into {} (keep (fn [[predicate values]]
                    (when (= 1 (count values)) [predicate (first values)]))) facts))
+(defn reserve-run!
+  [port run reporter thread capability-digest & [baseline]]
+  (let [baseline (or baseline ["tests pass"])
+        projection
+        (sorted-map
+         "run_capability_sha256" capability-digest
+         "run_reservation_agent" reporter
+         "run_reservation_contract_origin"
+         (if (seq baseline) "accepted" "worker-defined")
+         "run_reservation_done_when" (json/generate-string baseline)
+         "run_reservation_thread" thread
+         "run_reservation_version" north.terminal-projection/run-reservation-version
+         "run_reserved_at" "2026-07-18T09:59:00Z")
+        marker
+        (north.terminal-projection/run-reservation-manifest-sha256 projection)]
+    (doseq [[predicate value] projection]
+      (north.coord/append! port run predicate value))
+    (north.coord/append! port run "run_reservation_manifest_sha256" marker)))
 (defn log-ops [file]
   (with-open [reader (io/reader file)]
     (mapv edn/read-string (line-seq reader))))
@@ -162,6 +181,272 @@
       (check "invalid identity is rejected before mutating the committed generation"
              (and (not (zero? (:exit rejected)))
                   (= before (entity-facts port subject)))))
+
+    (let [race-subject "@agent:identity-publish-race"
+          attempts
+          (mapv
+           (fn [index]
+             (future
+               (run-writer
+                port "publish" race-subject
+                (json/generate-string
+                 (assoc preset
+                        "goal" (str "racing generation " index)
+                        "display_name" (str "racing generation " index))))))
+           (range 8))
+          _ (mapv deref attempts)
+          raw-stored (entity-facts port race-subject)
+          stored (scalar-facts raw-stored)
+          markers (get raw-stored "identity_manifest_sha256" #{})]
+      (check "concurrent identity publication never blesses a mixed body"
+             (or (empty? markers)
+                 (and (= 1 (count markers))
+                      (north.agent-provenance/managed-valid? stored)
+                      (= (first markers)
+                         (north.agent-provenance/manifest-sha256 stored))))))
+
+    (let [race-subject "@agent:identity-route-retask-race"
+          seeded
+          (run-writer port "publish" race-subject
+                      (json/generate-string preset))
+          route
+          {"provider" "openai" "provider_target" "codex-race"
+           "model" "gpt-5.6-sol" "effort" "high"
+           "display_handle" "openai-race-sol-high-integrator"
+           "display_name" "openai:codex-race · sol · high · gaffer:integrator"}
+          operations
+          (mapv
+           (fn [index]
+             (future
+               (if (even? index)
+                 (run-writer port "route" race-subject
+                             (json/generate-string route))
+                 (run-writer
+                  port "retask" race-subject
+                  (json/generate-string
+                   {"goal" (str "racing retask " index)
+                    "display_name" (str "racing retask " index)})))))
+           (range 16))
+          _ (mapv deref operations)
+          raw-stored (entity-facts port race-subject)
+          stored (scalar-facts raw-stored)
+          markers (get raw-stored "identity_manifest_sha256" #{})]
+      (check "route/retask share the global identity marker seam"
+             (and (zero? (:exit seeded))
+                  (or (empty? markers)
+                      (and (= 1 (count markers))
+                           (north.agent-provenance/managed-valid? stored)
+                           (= (first markers)
+                              (north.agent-provenance/manifest-sha256 stored)))))))
+
+    (let [worker-subject "@agent:delivery-worker"
+          verifier-subject "@agent:delivery-verifier"
+          worker (assoc preset
+                        "role" "integrator" "composition_id" "integrator"
+                        "goal" "deliver a proof-carrying change"
+                        "display_handle" "anthropic-a-opus-high-integrator-worker"
+                        "display_name" "anthropic:claude-a · opus · high · gaffer:integrator")
+          verifier (assoc preset
+                          "role" "verifier" "composition_id" "verifier"
+                          "goal" "independently attest delivery"
+                          "display_handle" "anthropic-a-opus-high-verifier-proof"
+                          "display_name" "anthropic:claude-a · opus · high · gaffer:verifier")
+          run-evidence (array-map
+                        "bar" "tests pass"
+                        "observed" "24/24"
+                        "recordedAt" "2026-07-18T09:59:59Z"
+                        "reporter" worker-subject
+                        "run" "@run-delivery-worker-proof"
+                        "thread" "@thread-proof"
+                        "version" "north:run-bar-evidence:v1")
+          evidence (json/generate-string
+                    (array-map
+                     "version" "north:done-bars:v2"
+                     "run" "@run-delivery-worker-proof"
+                     "thread" "@thread-proof"
+                     "reporter" worker-subject
+                     "contractOrigin" "accepted"
+                     "baselineDoneWhen" ["tests pass"]
+                     "doneWhen" ["tests pass"]
+                     "matches" [{"bar" "tests pass"
+                                 "evidence" [run-evidence]}]))
+          reported {"outcome" "ran" "process_outcome" "ran"
+                    "delivery_outcome" "reported"
+                    "delivery_reason" "complete_run_scoped_done_bar_evidence_self_reported"
+                    "delivery_evidence" evidence
+                    "delivery_evidence_sha256"
+                    (north.terminal-projection/sha256 evidence)}]
+      (check "delivery worker identity publishes"
+             (zero? (:exit (run-writer port "publish" worker-subject
+                                       (json/generate-string worker)))))
+      (check "independent verifier identity publishes"
+             (zero? (:exit (run-writer port "publish" verifier-subject
+                                       (json/generate-string verifier)))))
+      (north.coord/append! port "@thread-proof" "done_when" "tests pass")
+      (let [missing-run-result
+            (run-writer port "terminal" worker-subject
+                        (json/generate-string reported))]
+        (check "reported terminal rejects a missing reserved run"
+               (and (not (zero? (:exit missing-run-result)))
+                    (nil? (get (entity-facts port worker-subject)
+                               "terminal_manifest_sha256")))))
+      (reserve-run! port "@run-delivery-worker-proof" worker-subject
+                    "@thread-proof" (apply str (repeat 64 "a")))
+      (north.coord/append!
+       port "@run-delivery-worker-proof" "run_bar_evidence"
+       (json/generate-string (into (sorted-map) run-evidence)))
+      (check "complete self-reported proof commits as reported"
+             (zero? (:exit (run-writer port "terminal" worker-subject
+                                       (json/generate-string reported)))))
+      (doseq [[label injected]
+              [["uncited valid"
+                (json/generate-string
+                 (into (sorted-map)
+                       (assoc run-evidence
+                              "bar" "uncited extra bar"
+                              "observed" "not in snapshot"
+                              "recordedAt" "2026-07-18T10:00:01Z")))]
+               ["malformed" "{"]
+               ["duplicate bar"
+                (json/generate-string
+                 (into (sorted-map)
+                       (assoc run-evidence
+                              "observed" "second stored observation"
+                              "recordedAt" "2026-07-18T10:00:02Z")))]]]
+        (north.coord/append! port "@run-delivery-worker-proof"
+                             "run_bar_evidence" injected)
+        (let [before (entity-facts port worker-subject)
+              rejected
+              (run-writer port "terminal" worker-subject
+                          (json/generate-string reported))]
+          (check (str "lane marker rejects " label " stored evidence")
+                 (and (not (zero? (:exit rejected)))
+                      (= before (entity-facts port worker-subject)))))
+        (north.coord/retract! port "@run-delivery-worker-proof"
+                              "run_bar_evidence" injected))
+      (let [relabelled-evidence
+            (json/generate-string
+             (-> (json/parse-string evidence)
+                 (assoc "contractOrigin" "worker-defined")
+                 (assoc "baselineDoneWhen" [])))
+            relabelled
+            (assoc reported
+                   "delivery_evidence" relabelled-evidence
+                   "delivery_evidence_sha256"
+                   (north.terminal-projection/sha256 relabelled-evidence))
+            before (entity-facts port worker-subject)]
+        (check "snapshot cannot relabel an accepted reservation as worker-defined"
+               (and (not (zero? (:exit
+                                 (run-writer port "terminal" worker-subject
+                                             (json/generate-string relabelled)))))
+                    (= before (entity-facts port worker-subject)))))
+      (north.coord/append! port "@thread-proof" "done_when" "late weaker bar")
+      (let [before (entity-facts port worker-subject)
+            changed
+            (run-writer port "terminal" worker-subject
+                        (json/generate-string reported))]
+        (check "reported terminal rejects a changed current done-bar set"
+               (and (not (zero? (:exit changed)))
+                    (= before (entity-facts port worker-subject)))))
+      (north.coord/retract! port "@thread-proof" "done_when" "late weaker bar")
+      (let [fabricated-record (assoc run-evidence "observed" "not stored")
+            fabricated-evidence
+            (json/generate-string
+             (assoc-in (json/parse-string evidence)
+                       ["matches" 0 "evidence"] [fabricated-record]))
+            fabricated
+            (assoc reported
+                   "delivery_evidence" fabricated-evidence
+                   "delivery_evidence_sha256"
+                   (north.terminal-projection/sha256 fabricated-evidence))
+            before (entity-facts port worker-subject)]
+        (check "reported terminal rejects a fabricated unstored run record"
+               (and (not (zero? (:exit
+                                 (run-writer port "terminal" worker-subject
+                                             (json/generate-string fabricated)))))
+                    (= before (entity-facts port worker-subject)))))
+      (let [cross-run "@run-delivery-cross-proof"
+            cross-record (assoc run-evidence "run" cross-run)
+            cross-evidence
+            (json/generate-string
+             (-> (json/parse-string evidence)
+                 (assoc "run" cross-run)
+                 (assoc-in ["matches" 0 "evidence"] [cross-record])))
+            cross-reported
+            (assoc reported
+                   "delivery_evidence" cross-evidence
+                   "delivery_evidence_sha256"
+                   (north.terminal-projection/sha256 cross-evidence))
+            before (entity-facts port worker-subject)]
+        (reserve-run! port cross-run verifier-subject "@thread-proof"
+                      (apply str (repeat 64 "b")))
+        (north.coord/append! port cross-run "run_bar_evidence"
+                            (json/generate-string (into (sorted-map) cross-record)))
+        (check "reported terminal rejects a cross-agent run reservation"
+               (and (not (zero? (:exit
+                                 (run-writer port "terminal" worker-subject
+                                             (json/generate-string cross-reported)))))
+                    (= before (entity-facts port worker-subject)))))
+      (let [cross-run "@run-delivery-cross-thread-proof"
+            cross-record (assoc run-evidence "run" cross-run)
+            cross-evidence
+            (json/generate-string
+             (-> (json/parse-string evidence)
+                 (assoc "run" cross-run)
+                 (assoc-in ["matches" 0 "evidence"] [cross-record])))
+            cross-reported
+            (assoc reported
+                   "delivery_evidence" cross-evidence
+                   "delivery_evidence_sha256"
+                   (north.terminal-projection/sha256 cross-evidence))
+            before (entity-facts port worker-subject)]
+        (reserve-run! port cross-run worker-subject "@different-thread"
+                      (apply str (repeat 64 "c")))
+        (north.coord/append! port cross-run "run_bar_evidence"
+                            (json/generate-string (into (sorted-map) cross-record)))
+        (check "reported terminal rejects a cross-thread run reservation"
+               (and (not (zero? (:exit
+                                 (run-writer port "terminal" worker-subject
+                                             (json/generate-string cross-reported)))))
+                    (= before (entity-facts port worker-subject)))))
+      (let [contradictory (assoc reported
+                                 "outcome" "died"
+                                 "process_outcome" "died")
+            before (entity-facts port worker-subject)]
+        (check "non-ran process cannot carry reported delivery proof"
+               (and (not (zero? (:exit
+                                 (run-writer port "terminal" worker-subject
+                                             (json/generate-string contradictory)))))
+                    (= before (entity-facts port worker-subject)))))
+      (let [forged-evidence (str/replace evidence worker-subject verifier-subject)
+            forged (assoc reported
+                          "delivery_evidence" forged-evidence
+                          "delivery_evidence_sha256"
+                          (north.terminal-projection/sha256 forged-evidence))
+            before (entity-facts port worker-subject)]
+        (check "caller-supplied reporter cannot forge managed terminal authority"
+               (and (not (zero? (:exit
+                                 (run-writer port "terminal" worker-subject
+                                             (json/generate-string forged)))))
+                    (= before (entity-facts port worker-subject)))))
+      (let [self-result (run-writer port "attest" worker-subject
+                                    (json/generate-string {"actor" worker-subject}))]
+        (check "delivery worker cannot self-attest" (not (zero? (:exit self-result)))))
+      (let [attested-result
+            (proc/shell {:out :string :err :string :continue true
+                         :extra-env {"AGENT_ID" "delivery-verifier"
+                                     "NORTH_PORT" (str port)}}
+                        (str root "/bin/north") "delivery" "attest"
+                        "delivery-worker")
+            stored (scalar-facts (entity-facts port worker-subject))]
+        (check "public north delivery attest fails closed under shared-UID lanes"
+               (and (not (zero? (:exit attested-result)))
+                    (= "reported"
+                       (north.terminal-projection/terminal-delivery-outcome stored))
+                    (nil? (get stored "delivery_attestation"))))
+        (check "failed attestation leaves the reported terminal manifest intact"
+               (= (get stored "terminal_manifest_sha256")
+                  (north.terminal-projection/terminal-manifest-sha256 stored)))))
     (finally
       (proc/destroy-tree daemon)
       (try @daemon (catch Exception _ nil))

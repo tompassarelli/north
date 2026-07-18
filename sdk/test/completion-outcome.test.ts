@@ -11,6 +11,8 @@ import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ProviderRetrySafeError } from "../src/providers";
+import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
+import type { DeliveryRunContext } from "../src/delivery-evidence";
 
 let dir: string;
 let log: string;
@@ -234,6 +236,244 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
   );
   expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
+});
+
+test("dispatch publishes newly observed done-bar evidence as reported, never self-verified", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  writeFileSync(log, "");
+  const baseline = [
+    { predicate: "title", value: "Proof-carrying delivery" },
+    { predicate: "planned", value: "true" },
+    { predicate: "atomic", value: "true" },
+    { predicate: "done_when", value: "focused tests pass" },
+  ];
+  let reads = 0;
+  let reserved: DeliveryRunContext | undefined;
+  await dispatch("test-reported-delivery", {
+    agentId: "test-reported-delivery-agent",
+    routingMetadata: { role: "integrator" },
+    claimDriver: (() => ({ release() {} })) as any,
+    loadChildren: () => [],
+    loadThreadFacts: () => reads++ === 0
+      ? baseline
+      : [
+          ...baseline,
+          { predicate: "bar_evidence", value: "focused tests pass → 10/10" },
+          { predicate: "outcome", value: "worker also closed the thread" },
+        ],
+    deliveryRuntime: {
+      reserve(context) {
+        reserved = context;
+        return {
+          contractOrigin: "accepted",
+          baselineDoneWhen: ["focused tests pass"],
+        };
+      },
+      load(runId) {
+        if (!reserved || runId !== reserved.runId) {
+          return { reservationValid: false, evidence: [] };
+        }
+        return { reservationValid: true, evidence: [{
+          version: RUN_BAR_EVIDENCE_VERSION,
+          run: `@${runId}`,
+          thread: "@test-reported-delivery",
+          reporter: "@agent:test-reported-delivery-agent",
+          bar: "focused tests pass",
+          observed: "10/10",
+          recordedAt: "2026-07-18T10:00:00Z",
+        }] };
+      },
+    },
+    queryFn: () => {
+      expect(reserved?.runId.startsWith("run-test-reported-delivery-agent-")).toBe(true);
+      return (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+      })();
+    },
+  });
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain(
+    "tell agent:test-reported-delivery-agent delivery_outcome reported",
+  );
+  expect(logged).toContain(
+    "tell agent:test-reported-delivery-agent delivery_reason complete_run_scoped_done_bar_evidence_self_reported",
+  );
+  expect(logged).not.toContain(
+    "tell agent:test-reported-delivery-agent delivery_outcome verified",
+  );
+  const lines = await settledRunLines(
+    "test-reported-delivery-agent",
+    "applied_domain_requirement_count 0",
+  );
+  expect(lines.some((line) => line.endsWith(" delivery_outcome reported"))).toBe(true);
+  expect(lines.some((line) => line.includes(" delivery_evidence "))).toBe(true);
+});
+
+test("dispatch abandons a failed reservation subject and publishes unverified telemetry on a fresh run", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  writeFileSync(log, "");
+  let abandonedRunId: string | undefined;
+  let loadCalled = false;
+  await dispatch("test-dispatch-reservation-rotation", {
+    agentId: "test-dispatch-reservation-rotation-agent",
+    routingMetadata: { role: "integrator" },
+    claimDriver: (() => ({ release() {} })) as any,
+    loadChildren: () => [],
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Reservation recovery" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+      { predicate: "done_when", value: "tests pass" },
+    ],
+    deliveryRuntime: {
+      reserve(context) {
+        abandonedRunId = context.runId;
+        throw new Error("simulated partial reservation");
+      },
+      load() {
+        loadCalled = true;
+        return { reservationValid: false, evidence: [] };
+      },
+    },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  const lines = await settledRunLines(
+    "test-dispatch-reservation-rotation-agent",
+    "applied_domain_requirement_count 0",
+  );
+  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+  expect(abandonedRunId).toBeDefined();
+  expect(lines.some((line) => line.startsWith(`tell ${abandonedRunId} `))).toBe(false);
+  expect(subjects.size).toBe(1);
+  expect(subjects.has(abandonedRunId!)).toBe(false);
+  expect(lines.some((line) => line.endsWith(" delivery_outcome unverified"))).toBe(true);
+  expect(loadCalled).toBe(false);
+});
+
+test("spawn abandons a failed reservation subject and publishes unverified telemetry on a fresh run", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  let abandonedRunId: string | undefined;
+  let loadCalled = false;
+  await spawn({
+    prompt: "recover from a partial reservation",
+    agentId: "test-spawn-reservation-rotation",
+    role: "integrator",
+    thread: "thread-spawn-reservation-rotation",
+    deliveryRuntime: {
+      reserve(context) {
+        abandonedRunId = context.runId;
+        throw new Error("simulated partial reservation");
+      },
+      load() {
+        loadCalled = true;
+        return { reservationValid: false, evidence: [] };
+      },
+    },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  const lines = await settledRunLines("test-spawn-reservation-rotation");
+  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+  expect(abandonedRunId).toBeDefined();
+  expect(lines.some((line) => line.startsWith(`tell ${abandonedRunId} `))).toBe(false);
+  expect(subjects.size).toBe(1);
+  expect(subjects.has(abandonedRunId!)).toBe(false);
+  expect(lines.some((line) => line.endsWith(" delivery_outcome unverified"))).toBe(true);
+  expect(loadCalled).toBe(false);
+});
+
+test("dispatch rotates away from a reservation that is invalid at finalization", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  writeFileSync(log, "");
+  let reservedRunId: string | undefined;
+  await dispatch("test-dispatch-finalize-rotation", {
+    agentId: "test-dispatch-finalize-rotation-agent",
+    routingMetadata: { role: "integrator" },
+    claimDriver: (() => ({ release() {} })) as any,
+    loadChildren: () => [],
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Finalize reservation recovery" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+      { predicate: "done_when", value: "tests pass" },
+    ],
+    deliveryRuntime: {
+      reserve(context) {
+        reservedRunId = context.runId;
+        return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+      },
+      load() {
+        return { reservationValid: false, evidence: [] };
+      },
+    },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  const lines = await settledRunLines(
+    "test-dispatch-finalize-rotation-agent",
+    "applied_domain_requirement_count 0",
+  );
+  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+  expect(reservedRunId).toBeDefined();
+  expect(lines.some((line) => line.startsWith(`tell ${reservedRunId} `))).toBe(false);
+  expect(subjects.size).toBe(1);
+  expect(subjects.has(reservedRunId!)).toBe(false);
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
+  )).toBe(true);
+});
+
+test("spawn rotates away from a reservation that is invalid at finalization", async () => {
+  const { spawn } = await import("../src/spawn");
+  writeFileSync(log, "");
+  let reservedRunId: string | undefined;
+  await spawn({
+    prompt: "recover at finalization",
+    agentId: "test-spawn-finalize-rotation",
+    role: "integrator",
+    thread: "thread-spawn-finalize-rotation",
+    deliveryRuntime: {
+      reserve(context) {
+        reservedRunId = context.runId;
+        return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+      },
+      load() {
+        return { reservationValid: false, evidence: [] };
+      },
+    },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  const lines = await settledRunLines("test-spawn-finalize-rotation");
+  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+  expect(reservedRunId).toBeDefined();
+  expect(lines.some((line) => line.startsWith(`tell ${reservedRunId} `))).toBe(false);
+  expect(subjects.size).toBe(1);
+  expect(subjects.has(reservedRunId!)).toBe(false);
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
+  )).toBe(true);
 });
 
 test("spawn keeps omitted, reported-zero, and preflight-zero turn evidence distinct", async () => {

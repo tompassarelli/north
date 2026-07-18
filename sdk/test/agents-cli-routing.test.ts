@@ -16,6 +16,13 @@ const bespokeContract = JSON.stringify({
   mayDecide: ["read-only traces"], mustEscalate: ["destructive recovery"],
   doneWhen: ["every transition is sourced"], report: "timeline and gaps",
 });
+const bespokeOrchestratorContract = JSON.stringify({
+  responsibility: "coordinate a bounded migration",
+  deliverable: "integrated migration result",
+  capabilities: ["coordination", "filesystem.read", "filesystem.search", "shell.readonly"],
+  mayDecide: ["worker decomposition"], mustEscalate: ["scope expansion"],
+  doneWhen: ["all worker results are reconciled"], report: "integrated verdict",
+});
 
 function dry(role: string, provider: string, ...extra: string[]): string {
   const result = spawnSync("bb", [cli, "spawn", role, "probe", "--provider", provider, "--dry-run", ...extra], {
@@ -41,6 +48,42 @@ test("director is the canonical orchestrator role and topology names fail pedago
     });
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(`${topology} is a topology, not a role`);
+  }
+});
+
+test("a managed CLI orchestrator can spawn workers but cannot grow another orchestrator tier", () => {
+  const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args, "--dry-run"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AGENT_TOPOLOGY: "orchestrator",
+      AGENT_ID: "parent-director",
+      NO_COLOR: "1",
+      GAFFER_HOME: gaffer,
+      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+    },
+  });
+  const worker = run("integrator", "bounded worker");
+  expect(worker.status).toBe(0);
+  expect(worker.stdout).toContain("AGENT_TOPOLOGY=worker");
+
+  const denied = [
+    run("director", "role-only nested director"),
+    run(
+      "director", "overridden nested director", "--tier", "senior",
+      "--override-reason", "bounded coordination does not require frontier tier",
+    ),
+    run(
+      "migration-director", "bespoke nested director",
+      "--topology", "orchestrator", "--rationale", "one-off coordination shape",
+      "--contract", bespokeOrchestratorContract, "--no-promotion-candidate",
+    ),
+  ];
+  for (const result of denied) {
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(
+      "coordination depth denied: spawn from an orchestrator may create worker topology only",
+    );
   }
 });
 

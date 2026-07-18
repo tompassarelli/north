@@ -104,7 +104,8 @@ function doneBars(threadId: string, posture: Posture): string {
       "",
       "DONE-BARS — this thread is done ONLY when each bar below has evidence (probe run + result observed). " +
         "Cite evidence per bar in your report; record with " +
-        `\`tell ${threadId} bar_evidence "<probe → observed result>"\`:`,
+        "`north evidence record \"<exact bar below>\" \"<observed result>\"`. " +
+        "The command binds evidence to this exact managed run; a plain thread bar_evidence fact is review text, not delivery proof:",
       ...posture.doneWhen.map((bar, i) => `${i + 1}. ${bar}`),
     ].join("\n");
   }

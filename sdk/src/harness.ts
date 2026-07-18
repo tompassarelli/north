@@ -298,6 +298,12 @@ export interface HarnessOpts {
   omitModelDeltaReason?: string;
   caveman?: string; // resolved terse-output mode (off|lite|full); fallback env-or-full when omitted
   cwd?: string; // provider working directory; dispatch resolves this from thread repo facts
+  /** Capability-bound delivery context reserved before provider execution. */
+  deliveryRun?: {
+    runId: string;
+    threadId: string;
+    capability: string;
+  };
   /** Test seam: false suppresses graph presence; a function captures registration hermetically. */
   presenceRegistrar?: false | ((self: string, cwd: string) => void);
   /** Matching heartbeat seam. Omit with production registration for the real renewer. */
@@ -1016,11 +1022,22 @@ export function harnessOptions(o: HarnessOpts): Options {
     ...(orchestrationAllowed ? ORCHESTRATION_TOOLS : []),
   ])];
   const enforcementTopology: Topology = orchestrationAllowed ? "orchestrator" : "worker";
-  const { NORTH_DISPATCH_DRIVER_PRECLAIMED: _inheritedPreclaim, ...ambientEnv } = process.env;
+  const {
+    NORTH_DISPATCH_DRIVER_PRECLAIMED: _inheritedPreclaim,
+    NORTH_RUN_ID: _inheritedRun,
+    NORTH_THREAD_ID: _inheritedThread,
+    NORTH_RUN_CAPABILITY: _inheritedCapability,
+    ...ambientEnv
+  } = process.env;
   const childEnv = {
     ...ambientEnv,
     AGENT_ID: o.self,
     AGENT_TOPOLOGY: enforcementTopology,
+    ...(o.deliveryRun ? {
+      NORTH_RUN_ID: o.deliveryRun.runId,
+      NORTH_THREAD_ID: o.deliveryRun.threadId,
+      NORTH_RUN_CAPABILITY: o.deliveryRun.capability,
+    } : {}),
     // One explicit value feeds lane presence, provider CLI, North MCP, and
     // admission. Never let a later process ambient choose a different graph.
     NORTH_PORT: northPort(),

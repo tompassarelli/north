@@ -437,6 +437,9 @@
         preset (get gaffer-presets-by-name canonical-role)
         effective-capabilities (if known-role? (get preset "capabilities") contract-capabilities)
         effective-topology (or topology (get preset "topology"))
+        depth-problem
+        (north.topology-authority/managed-child-topology-problem
+         nm effective-topology)
         capability-problem (when (and effective-topology (sequential? effective-capabilities))
                              (topology-capability-problem effective-topology effective-capabilities))
         base-posture (or (get preset "posture") (get-in gaffer-staffing ["defaults" "posture"]))
@@ -470,6 +473,7 @@
       (and role (nil? gaffer-staffing)) (str "Gaffer staffing catalog unavailable: " gaffer-staffing-path)
       (and grade (not (some #{grade} task-grade-values))) "invalid taskGrade"
       (and topology (not (some #{topology} topology-values))) "invalid topology"
+      depth-problem depth-problem
       (and (= canonical-role "director") (= topology "worker")) "director cannot use worker topology; choose a worker role for atomic work"
       (and tier (not (some #{tier} tier-values))) "invalid tier"
       (and effective-reasoning (not (some #{effective-reasoning} reasoning-values))) "invalid reasoning"

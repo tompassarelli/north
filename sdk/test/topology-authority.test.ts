@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  assertCoordinationAuthority,
-  TopologyAuthorityError,
+  assertCoordinationAuthority, assertManagedChildTopology,
+  TopologyAuthorityError, TopologyDepthError,
 } from "../src/topology-authority";
 import { sendPeerCommand, validatePeerCommandArgs } from "../src/harness";
 
@@ -84,6 +84,72 @@ test("authority is ambient only for top-level sessions and otherwise fail-closed
       preSideEffect: true,
     });
   }
+});
+
+test("managed depth permits top-level orchestration and orchestrator workers only", () => {
+  expect(() =>
+    assertManagedChildTopology("spawn", "orchestrator", undefined)
+  ).not.toThrow();
+  expect(() =>
+    assertManagedChildTopology("spawn", "worker", "orchestrator")
+  ).not.toThrow();
+  let error: unknown;
+  try {
+    assertManagedChildTopology("spawn", "orchestrator", "orchestrator");
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toBeInstanceOf(TopologyDepthError);
+  expect(error).toMatchObject({
+    code: "NORTH_TOPOLOGY_DEPTH_DENIED",
+    operation: "spawn",
+    callerTopology: "orchestrator",
+    childTopology: "orchestrator",
+    preSideEffect: true,
+  });
+});
+
+test("raw SDK spawn and dispatch enforce the composed child topology before side effects", async () => {
+  process.env.AGENT_TOPOLOGY = "orchestrator";
+  let providerCalls = 0;
+  let driverCalls = 0;
+  const { spawn } = await import("../src/spawn");
+  await expect(spawn({
+    prompt: "must remain two tiers",
+    role: "director",
+    queryFn: () => {
+      providerCalls++;
+      return { async *[Symbol.asyncIterator]() {} } as any;
+    },
+  })).rejects.toMatchObject({
+    code: "NORTH_TOPOLOGY_DEPTH_DENIED",
+    operation: "spawn",
+    preSideEffect: true,
+  });
+
+  const { dispatch } = await import("../src/dispatch");
+  await expect(dispatch("depth-cap-thread", {
+    routingMetadata: { role: "director" },
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Depth cap" },
+      { predicate: "repo", value: resolve(import.meta.dir, "../..") },
+    ],
+    loadChildren: () => [],
+    claimDriver: (() => {
+      driverCalls++;
+      return { release() {} };
+    }) as any,
+    queryFn: () => {
+      providerCalls++;
+      return { async *[Symbol.asyncIterator]() {} } as any;
+    },
+  })).rejects.toMatchObject({
+    code: "NORTH_TOPOLOGY_DEPTH_DENIED",
+    operation: "dispatch",
+    preSideEffect: true,
+  });
+  expect(providerCalls).toBe(0);
+  expect(driverCalls).toBe(0);
 });
 
 test("raw SDK spawn and dispatch reject workers before admission, driver, or provider boundaries", async () => {
@@ -221,4 +287,32 @@ test("MCP generic tell cannot emulate a peer retask under worker topology", () =
     "worker topology cannot mutate agent identity or authority via generic facts",
   );
   expect(response.result.content[0].text).not.toContain("subject resolver");
+});
+
+test("MCP generic tell cannot bypass the run-scoped evidence writer", () => {
+  const north = resolve(import.meta.dir, "../..");
+  const request = JSON.stringify({
+    jsonrpc: "2.0", id: 1, method: "tools/call",
+    params: { name: "tell", arguments: {
+      id: "run-other-lane", predicate: "run_bar_evidence", value: "{}",
+    } },
+  }) + "\n";
+  const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
+    input: request,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AGENT_TOPOLOGY: "worker",
+      AGENT_ID: "worker-self",
+      NORTH_BIN: resolve(north, "bin/north"),
+      FRAM_HOME: "/definitely/absent",
+    },
+  });
+  expect(result.status).toBe(0);
+  const response = JSON.parse(result.stdout.trim());
+  expect(response.result.isError).toBe(true);
+  expect(response.result.content[0].text).toContain(
+    "generic fact verbs cannot mutate harness-owned run facts",
+  );
+  expect(response.result.content[0].text).toContain("north evidence record");
 });

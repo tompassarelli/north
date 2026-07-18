@@ -21,11 +21,11 @@
     "fram": {
       "flake": false,
       "locked": {
-        "lastModified": 1784377353,
-        "narHash": "sha256-1uKksubSrUV6Wa1KFNXKVQvyhdRMvJ8VCv6uLEcfnr8=",
+        "lastModified": 1784382206,
+        "narHash": "sha256-FuldsziwNAu6p8wKYEVJ8zsSYT7PcbC06WVww6Hl5dg=",
         "owner": "tompassarelli",
         "repo": "fram",
-        "rev": "e22e9e576f3cb8288f1967929800e3fe0a0805e3",
+        "rev": "85b4dc49813620c75154f0dc91851ae9d969a598",
         "type": "github"
       },
       "original": {

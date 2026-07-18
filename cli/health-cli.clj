@@ -47,7 +47,9 @@
 ;; lifecycle projection still fails closed.
 (def health-predicates
   ["kind" "agent" "at" "outcome" "process_outcome" "delivery_outcome"
-   "delivery_reason" "terminal_manifest_sha256" "coordinator" "from" "subject"
+   "delivery_reason" "delivery_evidence" "delivery_evidence_sha256"
+   "delivery_attestation" "delivery_attestation_sha256"
+   "terminal_manifest_sha256" "coordinator" "from" "subject"
    "agent_death" "reached" "lease"])
 
 (defn add-predicate-rows [facts predicate rows]

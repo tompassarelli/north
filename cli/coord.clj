@@ -83,6 +83,32 @@
       (let [res (send-op port {:op :assert :te te :p p :r rv :base (cur-ver port)})]
         (if (and (:reject res) (pos? tries)) (recur (dec tries)) res)))))
 
+;; assert-after-read! — commit one marker against the exact GLOBAL graph version
+;; a caller validated. The callback MUST perform every load-bearing read after
+;; BASE is captured. :assert-at-version performs its comparison + assert in one
+;; serialized Fram coordinator turn; ordinary :assert's :base is only
+;; cardinality-local OCC and MUST NOT be substituted here. A concurrent graph
+;; write makes the marker assert reject; retry therefore re-runs the callback
+;; over a fresh graph instead of blessing a stale read. This is intentionally
+;; global-version conservative: unrelated traffic may cause a retry, but can
+;; never create a false successful commit.
+(defn assert-after-read!
+  ([port te p r validate!] (assert-after-read! port te p r validate! 16))
+  ([port te p r validate! attempts]
+   (when-not (pos? attempts)
+     (throw (ex-info "assert-after-read! requires at least one attempt"
+                     {:attempts attempts})))
+   (let [rv (write-value! te p r)]
+     (loop [remaining attempts]
+       (let [base (cur-ver port)
+             _ (validate!)
+             result
+             (send-op port {:op :assert-at-version
+                            :te te :p p :r rv :base base})]
+         (if (and (= :conflict (:reject result)) (> remaining 1))
+           (recur (dec remaining))
+           result))))))
+
 ;; thin migration alias — old assert! WAS the swap! CAS ritual; keep it pointing
 ;; there so any un-migrated caller is byte-for-byte unchanged.
 (def assert! swap!)

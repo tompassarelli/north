@@ -1,4 +1,6 @@
-export type DeliveryOutcome = "unverified" | "blocked";
+import type { DeliveryAssessment, DeliveryProof } from "./delivery-verification";
+
+export type DeliveryOutcome = "unverified" | "reported" | "verified" | "blocked";
 
 export interface ExecutionTerminal {
   /** Did the adapter/process reach a terminal state, and which one? */
@@ -7,6 +9,8 @@ export interface ExecutionTerminal {
   deliveryOutcome: DeliveryOutcome;
   /** Stable machine reason; never copied from provider prose. */
   deliveryReason: string;
+  /** Self-contained fact snapshot; required for reported. `verified` is legacy/reserved. */
+  deliveryProof?: DeliveryProof;
 }
 
 const BLOCKED_REASON: Record<string, string> = {
@@ -25,12 +29,24 @@ const BLOCKED_REASON: Record<string, string> = {
  * A successful provider terminal proves only that the process ran. Delivery is
  * intentionally unverified until an external bar/evidence seam proves it.
  */
-export function classifyExecutionTerminal(processOutcome: string): ExecutionTerminal {
+export function classifyExecutionTerminal(
+  processOutcome: string,
+  delivery?: DeliveryAssessment,
+): ExecutionTerminal {
   if (processOutcome === "ran") {
+    if (delivery?.deliveryOutcome === "reported") {
+      return {
+        processOutcome,
+        deliveryOutcome: delivery.deliveryOutcome,
+        deliveryReason: delivery.deliveryReason,
+        deliveryProof: delivery.proof,
+      };
+    }
     return {
       processOutcome,
-      deliveryOutcome: "unverified",
-      deliveryReason: "provider_terminal_success_without_external_verification",
+      deliveryOutcome: delivery?.deliveryOutcome ?? "unverified",
+      deliveryReason: delivery?.deliveryReason
+        ?? "provider_terminal_success_without_external_verification",
     };
   }
   return {

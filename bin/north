@@ -60,6 +60,21 @@ deny_worker_agent_mutation() {
 
 deny_worker_agent_mutation "$@" || exit 1
 
+# Run reservations/evidence/telemetry are harness-owned for the same reason as
+# agent identity. A worker records proof only through `north evidence record`;
+# generic facts must not bypass the capability-bound writer or poison another
+# lane's write-once run subject.
+deny_generic_run_mutation() {
+  case "${1:-}" in tell|retract|untell) ;; *) return 0 ;; esac
+  local subject="${2:-}" predicate="${3:-}"
+  subject="${subject#@}"
+  case "$subject" in run-*) ;; *) return 0 ;; esac
+  echo "north: $1 REFUSED — generic fact verbs cannot mutate harness-owned run facts ($subject $predicate); use 'north evidence record' for done-bar observations" >&2
+  return 1
+}
+
+deny_generic_run_mutation "$@" || exit 1
+
 case "${1:-}" in
   ""|help|-h|--help)
     # THE CARD — one screen, grouped, "type this → do this". Bare `north` and
@@ -98,6 +113,9 @@ north — your one card. Type a command to do the thing next to it.
     north watch <id>                   tail an agent's transcript
     north steer <id> "<msg>"           inject a message into a running agent
     north retask <id> "<goal>"         redirect a running agent's goal
+    north evidence record <bar> <result>
+                                       bind done-bar evidence to this exact managed run
+    north delivery attest <agent-id>   unavailable until verifier lanes have OS isolation
     north spawn <role> "<prompt>"      compose from Gaffer's staffing catalog
       --provider auto|anthropic|openai  select or auto-route the worker provider
       --taskGrade/--domain/--topology   independently override staffing axes
@@ -165,6 +183,14 @@ CARD
     # Isolated Claude Code / Codex subscription account homes. The TypeScript
     # CLI owns path validation, allowlisted config links, and normalized auth.
     exec bun run "$NORTH/sdk/src/account-cli.ts" "${@:2}" ;;
+  delivery)
+    # Historical attestation surface. Shared-UID agents cannot establish an
+    # independent verifier boundary, so promotion fails closed.
+    exec bun run "$NORTH/sdk/src/delivery-attest.ts" "${@:2}" ;;
+  evidence)
+    # Capability-bound self-reporting surface. Run/thread/reporter are inherited
+    # from the managed child environment; callers supply only exact bar + result.
+    exec bun run "$NORTH/sdk/src/delivery-evidence.ts" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a
     # read-only plan; only an explicit `sync <thread> --apply` writes remotely.
@@ -192,9 +218,9 @@ CARD
     # scoring is intentionally retired for subscription entitlement routing.
     exec bb "$NORTH/cli/dials-cli.clj" "${@:2}" ;;
   routing)
-    # Empirical routing feedback joins run telemetry to current thread
-    # done_when/bar_evidence/outcome facts. It reports evidence coverage, never
-    # claims causal model quality, and bespoke recurrence never auto-promotes.
+    # Empirical routing feedback joins run telemetry to its exact proof-carrying
+    # lane terminal, with current thread facts retained only as review context.
+    # It never claims causal model quality or auto-promotes bespoke recurrence.
     exec bb "$NORTH/cli/routing-report.clj" "${@:2}" ;;
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a

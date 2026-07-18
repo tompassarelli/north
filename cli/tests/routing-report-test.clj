@@ -135,6 +135,44 @@
   (fact telem run "routing_posture" "deliver")
   (fact telem run "applied_domain_requirement_count" "0"))
 
+(defn verified-lane! [run thread]
+  (let [agent (str "agent-" (subs run 5))
+        subject (str "@agent:" agent)
+        evidence (json/generate-string
+                  (array-map
+                   "version" "north:done-bars:v1"
+                   "run" run
+                   "thread" (str "@" thread)
+                   "reporter" subject
+                   "capturedAt" "2026-07-18T10:00:00Z"
+                   "baselineEvidenceSha256" (sha256 "[]")
+                   "doneWhen" ["tests pass"]
+                   "matches" [{"bar" "tests pass"
+                               "evidence" ["tests pass → exit 0"]}]))
+        evidence-hash (sha256 evidence)
+        attestation (json/generate-string
+                     (array-map
+                      "version" "north:delivery-attestation:v1"
+                      "target" subject
+                      "run" run
+                      "thread" (str "@" thread)
+                      "evidenceSha256" evidence-hash
+                      "actor" "@agent:verifier-proof"
+                      "role" "verifier"
+                      "authority" "managed-independent-verifier"
+                      "attestedAt" "2026-07-18T10:01:00Z"))
+        terminal {"outcome" "ran" "process_outcome" "ran"
+                  "delivery_outcome" "verified"
+                  "delivery_reason" "independent_managed_verifier_attested"
+                  "delivery_evidence" evidence
+                  "delivery_evidence_sha256" evidence-hash
+                  "delivery_attestation" attestation
+                  "delivery_attestation_sha256" (sha256 attestation)}
+        marker (north.terminal-projection/terminal-manifest-sha256 terminal)]
+    (doseq [[predicate value] terminal]
+      (fact coord subject predicate value))
+    (fact coord subject "terminal_manifest_sha256" marker)))
+
 (let [template (get-in (current-preset-catalog) [:presets "integrator"])
       exact-axes (:axes template)
       changed-axes (assoc exact-axes :tier "standard")
@@ -213,11 +251,14 @@
 ;; Same applied contract + effective axes, deliberately different improvised IDs.
 (applied-bespoke! "@run-a" "migration-forensics" hash-a [" NIX " "Beagle"])
 (applied-bespoke! "@run-b" "schema-archaeologist" hash-a ["beagle " "nix"])
+(verified-lane! "@run-a" "thread-a")
+(verified-lane! "@run-b" "thread-b")
 (fact telem "@run-c" "composition_kind" "none")
 (fact telem "@run-c" "composition_id" "old-managed-row")
 (fact telem "@run-preset" "role" "integrator")
 (fact telem "@run-preset" "task_grade" "senior")
 (applied-preset! "@run-preset" "integrator")
+(verified-lane! "@run-preset" "thread-preset")
 (fact telem "@run-incomplete" "composition_kind" "preset")
 (fact telem "@run-incomplete" "composition_id" "integrator")
 (fact telem "@run-incomplete" "role" "integrator")
@@ -237,6 +278,10 @@
   (check "an exact preset is complete without bespoke fingerprint debt"
          (and (complete-current-managed-run? preset)
               (empty? (:legacyDebtReasons preset))
+              (= "unverified" (:deliveryOutcome preset))
+              (= "run" (:deliveryOutcomeSource preset))
+              (nil? (:deliveryVerifier preset))
+              (nil? (:deliveryAuthority preset))
               (not-any? #(str/includes? % "fingerprint")
                         (:legacyDebtReasons preset))))
   (check "a delivery reason is part of a complete current terminal record"
@@ -245,7 +290,9 @@
   (check "current managed evidence requires attributed model and effort"
          (and (not (complete-current-managed-run? (assoc preset :model "unattributed")))
               (not (complete-current-managed-run? (assoc preset :effort "unrecorded")))))
-  (check "a complete bespoke run satisfies current v2 evidence"
+  (check "mutable thread closure is review context, never labeled verification"
+         (= "thread-closed-evidenced" (get-in bespoke [:evidence :status])))
+  (check "a complete bespoke run satisfies current v4 evidence"
          (and (complete-current-managed-run? bespoke)
               (= "matched" (:requestedAppliedIntegrity bespoke))
               (empty? (:legacyDebtReasons bespoke))))
@@ -281,12 +328,16 @@
       unattributed-usage (first (filter #(= "unattributed" (:provider %)) (:providers usage)))]
   (check "performance defaults to complete current managed-run evidence"
          (and (= "complete-current-managed" (:scope performance))
-              (= "v2" (:evidenceVersion performance))
+              (= "v4" (:evidenceVersion performance))
               (= 3 (:runs performance)) (= 8 (:availableRuns performance))
               (= 5 (:excludedRuns performance))
-              (= 3 (reduce + (map :verifiedEvidence cohorts)))
+              (= 3 (reduce + (map :threadClosedEvidenced cohorts)))
               (= 3 (reduce + (map :runs cohorts)))
+              (zero? (reduce + (map :deliveryVerified cohorts)))
               (= 3 (reduce + (map :deliveryUnverified cohorts)))
+              (zero? (reduce + (map #(get-in % [:deliveryAuthorities
+                                                :managed-independent-verifier] 0)
+                                    cohorts)))
               (zero? (reduce + (map :deliveryBlocked cohorts)))))
   (check "performance --all retains legacy and unattributed history explicitly"
          (and (= "all-history" (:scope all-performance))
@@ -322,10 +373,10 @@
          (and (= "unobserved" (:turnEvidence anthropic-usage))
               (= {:exactRuns 0 :runs 2} (:turnCoverage anthropic-usage))
               (nil? (:turns anthropic-usage))))
-  (check "bespoke recurrence is surfaced only as a human review candidate"
+  (check "bespoke recurrence cannot promote without an enforceable verifier boundary"
          (and (= ["migration-forensics" "schema-archaeologist"] (:compositionIds candidate))
-              (= 2 (:distinctThreads candidate)) (= 2 (:qualifiedThreads candidate))
-              (= "review-candidate" (:reviewStatus candidate))
+              (= 2 (:distinctThreads candidate)) (zero? (:qualifiedThreads candidate))
+              (= "verification-boundary-unavailable" (:reviewStatus candidate))
               (= hash-a (:appliedContractSha256 candidate))
               (= ["filesystem.read" "filesystem.search" "web"] (:appliedCapabilities candidate))
               (= ["beagle" "nix"] (get-in candidate [:effectiveAxes :domains]))
@@ -390,10 +441,10 @@
       count-missing (first (filter #(some #{"missing-applied-domain-count"}
                                          (:legacyDebtReasons %)) rows))]
   (check "applied hash and normalized domains split semantic variants"
-         (and (= 1 (:qualifiedThreads hash-drift))
-              (= 1 (:qualifiedThreads domain-drift))
-              (= "insufficient-ran-verified-recurrence" (:reviewStatus hash-drift))
-              (= "insufficient-ran-verified-recurrence" (:reviewStatus domain-drift))))
+         (and (zero? (:qualifiedThreads hash-drift))
+              (zero? (:qualifiedThreads domain-drift))
+              (= "verification-boundary-unavailable" (:reviewStatus hash-drift))
+              (= "verification-boundary-unavailable" (:reviewStatus domain-drift))))
   (check "same semantic variant exposes alias evidence while reused IDs expose drift"
          (and (:hasAliasEvidence recurrent)
               (:hasDriftEvidence recurrent)
@@ -405,8 +456,8 @@
                             (= "legacy-debt" (:reviewStatus %)))
                       missing-hash-debt)))
   (check "failed or unverified rows cannot manufacture qualified recurrence"
-         (and (= 2 (:distinctThreads partial)) (= 1 (:qualifiedThreads partial))
-              (= "insufficient-ran-verified-recurrence" (:reviewStatus partial))))
+         (and (= 2 (:distinctThreads partial)) (zero? (:qualifiedThreads partial))
+              (= "verification-boundary-unavailable" (:reviewStatus partial))))
   (check "requested/applied fingerprint mismatch is hard per-run debt"
          (and fingerprint-debt (= ["mismatch"] (:requestedAppliedIntegrity fingerprint-debt))
               (= "legacy-debt" (:reviewStatus fingerprint-debt))))

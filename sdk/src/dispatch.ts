@@ -8,7 +8,7 @@ import {
 } from "./harness";
 import { inputChannel, subscribeFeed } from "./coordination";
 import { normalizeUsage } from "./usage";
-import { recordRun } from "./telemetry";
+import { newRunId, recordRun } from "./telemetry";
 import { notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
@@ -36,9 +36,16 @@ import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
 } from "./resource-envelopes";
-import { assertCoordinationAuthority } from "./topology-authority";
+import {
+  assertCoordinationAuthority, assertManagedChildTopology,
+} from "./topology-authority";
 import { admitPinnedProvider } from "./execution-admission";
 import { classifyExecutionTerminal } from "./execution-outcome";
+import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
+import {
+  loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
+  type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
+} from "./delivery-evidence";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -62,6 +69,11 @@ export interface DispatchDependencies {
   /** Read seams keep programmatic dispatch tests off the live coordination graph. */
   loadThreadFacts?: typeof getThreadFacts;
   loadChildren?: typeof getChildren;
+  /** Hermetic seam for the capability-bound delivery reservation/evidence store. */
+  deliveryRuntime?: {
+    reserve: (context: DeliveryRunContext) => DeliveryReservation;
+    load: (runId: string) => DeliveryRunState;
+  };
 }
 
 export function createDispatchAgentId(threadId: string, now = Date.now(), uuid = randomUUID()): string {
@@ -89,6 +101,8 @@ async function runDispatch(
   queryFn?: (args: any) => AgentQuery,
   hydratedFacts?: ReturnType<typeof getThreadFacts>,
   hydratedChildren?: ReturnType<typeof getChildren>,
+  loadTerminalFacts: typeof getThreadFacts = getThreadFacts,
+  deliveryRuntime?: DispatchDependencies["deliveryRuntime"],
 ): Promise<DispatchResult> {
   const runStartedAt = process.hrtime.bigint();
   const routingMetadata = hydratedMetadata ?? validateRoutingMetadata(applyGafferStaffing(routingMetadataFromEnv()));
@@ -129,6 +143,14 @@ async function runDispatch(
       : "composite";
 
   const agentId = hydratedAgentId ?? createDispatchAgentId(threadId);
+  let runId = newRunId(agentId);
+  const runContext = newDeliveryRunContext(runId, threadId, agentId);
+  const runtime = deliveryRuntime ?? (queryFn ? undefined : {
+    reserve: reserveDeliveryRun,
+    load: loadDeliveryRunState,
+  });
+  let deliveryReservation: DeliveryReservation | undefined;
+  let deliveryReservationReady = false;
   const stream = new StreamWriter(agentId);
   const requestedTier = routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
   const requestedReasoning = (routingMetadata.reasoning ?? process.env.AGENT_EFFORT) as Effort | undefined;
@@ -228,6 +250,21 @@ async function runDispatch(
   // peer ping to the coordinator); finally -> ALWAYS stop the feed, close the channel, and
   // record the run so the coordinator learns of the death instead of noticing silence.
   try {
+    // Reserve only at the last pre-provider seam. Earlier routing/admission
+    // failures must not strand undiscoverable reservation-only subjects.
+    try {
+      if (runtime) {
+        deliveryReservation = runtime.reserve(runContext);
+        if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
+        deliveryReservationReady = true;
+      }
+    } catch {
+      const abandonedRunId = runId;
+      runId = newRunId(agentId);
+      console.error(
+        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} and leaving delivery unverified`,
+      );
+    }
     const agentOptions = harnessOptions({
       self: agentId,
       extraTools: tools,
@@ -238,6 +275,7 @@ async function runDispatch(
       role,
       posture: routingMetadata.posture,
       cwd: workingDirectory,
+      deliveryRun: deliveryReservationReady ? runContext : undefined,
       systemPrompt: `You are a north agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
     });
     compositionEvidence = harnessCompositionEvidence(agentOptions);
@@ -358,7 +396,53 @@ async function runDispatch(
   // Commit the lane's process/delivery terminal (SYNC, digest marker last)
   // before exit. Mirrors spawn.ts at the same reap-avoidance seam.
   refreshIdentityRoute();
-  const terminal = classifyExecutionTerminal(outcome);
+  let delivery: DeliveryAssessment | undefined;
+  if (outcome === "ran") {
+    if (!deliveryReservationReady || !deliveryReservation || !runtime) {
+      delivery = {
+        deliveryOutcome: "unverified",
+        deliveryReason: "delivery_reservation_unavailable_at_finalize",
+      };
+    } else {
+      const reservedRunId = runId;
+      let runState: DeliveryRunState | undefined;
+      try {
+        runState = runtime.load(runId);
+      } catch {
+        runState = undefined;
+      }
+      if (!runState?.reservationValid) {
+        runId = newRunId(agentId);
+        deliveryReservationReady = false;
+        console.error(
+          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} and leaving delivery unverified`,
+        );
+        delivery = {
+          deliveryOutcome: "unverified",
+          deliveryReason: "delivery_reservation_unavailable_at_finalize",
+        };
+      } else {
+        try {
+          delivery = assessThreadDelivery(
+            threadId,
+            agentId,
+            loadTerminalFacts(threadId),
+            deliveryReservation.baselineDoneWhen.map(
+              (value) => ({ predicate: "done_when", value }),
+            ),
+            runId,
+            runState.evidence,
+          );
+        } catch {
+          delivery = {
+            deliveryOutcome: "unverified",
+            deliveryReason: "delivery_thread_unavailable_at_finalize",
+          };
+        }
+      }
+    }
+  }
+  const terminal = classifyExecutionTerminal(outcome, delivery);
   writeAgentTerminal(agentId, terminal);
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
@@ -394,16 +478,22 @@ async function runDispatch(
               processOutcome: terminal.processOutcome,
               deliveryOutcome: terminal.deliveryOutcome,
               deliveryReason: terminal.deliveryReason,
-              numTurns });
+              deliveryProof: terminal.deliveryProof,
+              numTurns }, runId);
   console.log(`\n[dispatch] @${threadId} process=${outcome} delivery=${terminal.deliveryOutcome}`);
   return { threadId, posture: postureLabel, result };
 }
+
+let bootstrapAuthorityGranted = false;
 
 export async function dispatch(
   threadId: string,
   dependencies: DispatchDependencies = {},
 ): Promise<DispatchResult> {
-  assertCoordinationAuthority("dispatch");
+  const callerTopology = process.env.AGENT_TOPOLOGY;
+  if (!bootstrapAuthorityGranted) {
+    assertCoordinationAuthority("dispatch", callerTopology);
+  }
   // Avoid charging an admission for an unknown or already-completed thread.
   const facts = (dependencies.loadThreadFacts ?? getThreadFacts)(threadId);
   if (!facts.length) throw new Error(`Thread @${threadId} not found or has no facts`);
@@ -418,6 +508,11 @@ export async function dispatch(
     )),
     "managed North dispatch",
   );
+  if (!bootstrapAuthorityGranted) {
+    assertManagedChildTopology(
+      "dispatch", routingMetadata.topology, callerTopology,
+    );
+  }
   const driver = (dependencies.claimDriver ?? claimDispatchDriver)(threadId, agentId, dependencies.driverOptions);
   let admission: EnvelopeAdmission | undefined;
   try {
@@ -429,7 +524,8 @@ export async function dispatch(
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
     return await runDispatch(
       threadId, admission, routingMetadata, workingDirectory, agentId, dependencies.queryFn,
-      facts, children,
+      facts, children, dependencies.loadThreadFacts ?? getThreadFacts,
+      dependencies.deliveryRuntime,
     );
   } finally {
     try { await completeResourceEnvelope(admission); }
@@ -448,6 +544,9 @@ export async function dispatchParallel(
 }
 
 if (import.meta.main) {
+  // The Clojure adapter checked the caller before replacing its environment
+  // with the composed child identity. Direct library calls retain both checks.
+  bootstrapAuthorityGranted = true;
   const threadId = process.argv[2];
   if (!threadId) {
     console.error("usage: bun run src/dispatch.ts <thread-id>");

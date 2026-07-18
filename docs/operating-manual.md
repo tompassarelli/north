@@ -321,12 +321,86 @@ shows these predicates' metadata once declared in the log.
 
 ### Evidence model
 
-A bar is EVIDENCED when some `bar_evidence` fact **quotes the bar's text** —
-the convention is `"<bar> → <observed result>"`, and the pairing is text
-containment, never position or count. `needs-review` (and the outcome-time
-echo) mark each bar ✓ (quoted by evidence) or ○ (open); an outcome over any
-○ bar surfaces as `n/m bar(s) evidenced`. Partial evidence surfaces but
-never blocks.
+A bar is EVIDENCED in the human thread review view when some `bar_evidence` fact
+quotes the bar. That mutable projection is useful context, but it is not managed
+delivery proof. Its review grammar is:
+`"<exact bar> → <nonempty observed result>"`. The exact bar must begin the
+evidence string; incidental substring overlap is not review evidence.
+
+`needs-review` (and the outcome-time echo) mark each bar ✓ (quoted by evidence)
+or ○ (open); an outcome over any ○ bar surfaces as `n/m bar(s) evidenced`.
+Partial evidence surfaces but never blocks a human judgment.
+
+Managed lanes preserve a stronger run-scoped delivery projection:
+
+1. North generates the run ID and a random capability **before** provider
+   execution. It commits a fresh reservation naming the exact run, title-bearing
+   thread, and
+   reporter, plus the canonical starting `done_when` set and whether that
+   contract is `accepted` or `worker-defined`; only the capability hash enters
+   the graph. The capability reaches the exact child and its North MCP process
+   through an explicit per-run environment, never by mutating the parent process
+   environment; nested children scrub all parent run bindings before receiving
+   a fresh explicit context or none. If reservation publication fails, North does not reuse that
+   possibly partial subject: the child receives no delivery capability,
+   delivery remains `unverified`, and final telemetry rotates to a fresh
+   telemetry-only run ID.
+2. Existing `done_when` facts are the accepted reservation contract. Reported
+   finalization requires the current canonical set to equal that exact baseline;
+   if none existed at dispatch, the worker may define bars as its first act and
+   the proof records
+   `contractOrigin=worker-defined` explicitly.
+3. After running a probe, the managed worker records the exact bar and observed
+   result:
+
+   ```sh
+   north evidence record "<exact done_when>" "<observed result>"
+   ```
+
+   Run, thread, and reporter are not command arguments. The writer derives them
+   from the managed environment, checks the reservation capability, confirms the
+   bar is active on the reserved thread, and records a strict-timestamped
+   `run_bar_evidence` object on that run. Those scoped checks and the evidence
+   append share one version-bound commit seam; once `kind=run` publishes, the
+   supported writer can no longer add new evidence. An exact replay remains
+   idempotently available to heal the non-authoritative thread projection.
+4. When every immutable bar has exact evidence from that run/reporter, North
+   commits a v2 snapshot on the lane and run:
+   `delivery=reported`. The snapshot contains only mechanically bound proof:
+   exact run/thread/reporter, reservation-bound contract origin and starting
+   `done_when`, the current canonical bars, and their stored run evidence.
+   Mutable thread evidence, thread outcomes, capture timestamps, and other
+   narrative context are deliberately absent. Before exposing the lane terminal
+   marker, the writer captures a coordinator version, re-reads the named
+   reservation and current canonical thread contract, and commits the marker
+   only against that exact version. A racing graph write rejects the marker and
+   forces the complete validation to run again. The run writer uses the same
+   compare-and-commit boundary before its own marker. Both refuse
+   baseline/origin drift plus missing, fabricated, or cross-agent cited records.
+   If the reservation is missing or invalid at finalization, North rotates final
+   telemetry to a fresh unreserved run instead of losing the run to a poisoned
+   reserved subject.
+   This proves equality at reservation and each terminal commit boundary; it
+   does not claim that a remove-and-readd transient absent from the current fact
+   set never occurred. The supported writer and terminal validator reject
+   cross-run/thread/reporter credit. A successful process without this proof is
+   `delivery=unverified`; a failed process is `delivery=blocked`.
+5. `reported` is currently the highest mechanically enforceable state. Managed
+   lanes share one OS uid and Fram's loopback wire accepts generic assertions.
+   The reservation capability therefore prevents accidental/generic North CLI
+   misuse and supplies scoped correlation; it is not an unforgeable boundary
+   against another same-UID process, which can inspect peer state or speak the
+   coordinator protocol directly. `reported` is explicitly same-UID
+   self-report and never qualifies a Gaffer promotion. Likewise, `AGENT_ID` is
+   provenance rather than an unforgeable independent-verifier identity, so
+   `north delivery attest` fails closed. Historical attestation envelopes may
+   be inspected as legacy data, but they do not validate a current `verified`
+   terminal. An isolated daemon-issued verifier capability or parent-verifiable
+   protected record operation is required before that state can return.
+
+Routing reports join a reported lane terminal to a run only when the snapshot
+names that exact run, thread, and reporter. Historical/current mutable thread
+facts remain review context; they never silently upgrade delivery.
 
 ### Example
 
@@ -686,12 +760,18 @@ says **template** while the versioned machine contract retains `presets`,
 `composition.kind="preset"`, and `nearestPreset`. Templates are reusable
 starting points, not limits: select an exact template, justify an axis override,
 or author a complete bespoke composition. Routing performance defaults to
-complete current v2 managed-run evidence: an explicit terminal reason and
-process/delivery outcomes plus the applied role, capabilities, and every routing
-axis. The applied role must match the composition ID, preset IDs must still
-exist in the current stock catalog, and bespoke compositions need matching
-fingerprint evidence. `--all`
-exposes legacy and unattributed history. Usage totals are exact
+complete current v4 managed-run evidence: an explicit terminal reason and
+proof-valid process/delivery outcomes plus the applied role, capabilities, and
+every routing axis. The applied role must match the composition ID, preset IDs
+must still exist in the current stock catalog, and bespoke compositions need
+matching fingerprint evidence. `--all` exposes legacy and unattributed history.
+Empirical Gaffer promotion qualification is paused until North has an
+independently enforceable verifier boundary. Current `reported` runs and
+historical same-UID `verified` projections cannot manufacture qualified
+recurrence; the promotions report labels this
+`verification-boundary-unavailable`. Thread review counters use `thread*`
+names and never imply independent verification.
+Usage totals are exact
 only when every included run has exact token evidence; otherwise the displayed
 sum is a lower bound with its exact-run coverage.
 
