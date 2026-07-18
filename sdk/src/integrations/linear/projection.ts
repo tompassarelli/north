@@ -181,7 +181,11 @@ export function replaceManagedLinearDescription(
   }
   if (blocks.length > 1) throw new Error(`Linear issue contains duplicate North blocks for @${threadId}`);
   const existing = blocks[0];
-  if (existing) return `${description.slice(0, existing.start)}${managed}${description.slice(existing.end)}`;
+  if (existing) {
+    parseManagedLinearDescription(description, threadId);
+    return `${description.slice(0, existing.start)}${managed}${description.slice(existing.end)}`;
+  }
+  assertNoReservedNorthMarker("Linear unmanaged description", description);
   if (!description) return managed;
   const separator = description.endsWith("\n\n") ? "" : description.endsWith("\n") ? "\n" : "\n\n";
   return `${description}${separator}${managed}`;
@@ -225,23 +229,88 @@ export function planBootstrapLinearDescriptionAdoption(input: {
   };
 }
 
-function extractField(block: string, name: ManagedFieldName): string {
-  const open = fieldOpening(name);
-  const close = fieldClosing(name);
-  const start = block.indexOf(open);
-  if (start < 0) return "";
-  const contentStart = start + open.length;
-  const end = block.indexOf(close, contentStart);
-  if (end < 0) throw new Error(`unclosed North-managed Linear field ${name}`);
-  return block.slice(contentStart, end).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+function parseList(value: string, checkbox: boolean, field: ManagedFieldName): readonly string[] {
+  if (!value) return [];
+  const items = value.split("\n").map((line) => {
+    const match = checkbox ? /^- \[[ xX]\] (.+)$/.exec(line) : /^- (.+)$/.exec(line);
+    if (!match) throw new Error(`North-managed Linear field ${field} contains a malformed nonblank line`);
+    const item = match[1]!;
+    if (normalizeText(item) !== item)
+      throw new Error(`North-managed Linear field ${field} contains non-canonical item whitespace`);
+    return item;
+  });
+  const normalized = normalizeStringList(items);
+  if (normalized.length !== items.length)
+    throw new Error(`North-managed Linear field ${field} contains duplicate items`);
+  return normalized;
 }
 
-function parseList(value: string, checkbox: boolean): readonly string[] {
-  const items = value.split(/\r?\n/).flatMap((line) => {
-    const match = checkbox ? /^\s*-\s*\[[ xX]\]\s+(.*)$/.exec(line) : /^\s*-\s+(.*)$/.exec(line);
-    return match ? [match[1]!] : [];
-  });
-  return normalizeStringList(items);
+function parseManagedLinearBlock(
+  block: string,
+  threadId: string,
+): Omit<LinearSyncFields, "title"> {
+  let cursor = 0;
+  const expectLiteral = (literal: string, label: string): void => {
+    if (!block.startsWith(literal, cursor))
+      throw new Error(`Linear description has unexpected bridge scaffold at ${label}`);
+    cursor += literal.length;
+  };
+  const expectBridgeBreak = (label: string): void => {
+    if (block.startsWith("\n\n", cursor)) cursor += 2;
+    else if (block.startsWith("\n", cursor)) cursor += 1;
+    else throw new Error(`Linear description has unexpected bridge scaffold at ${label}`);
+  };
+  const takeField = (name: ManagedFieldName): string => {
+    expectLiteral(fieldOpening(name), `${name} opening marker`);
+    expectLiteral("\n", `${name} opening line`);
+    const close = `\n${fieldClosing(name)}`;
+    const closeAt = block.indexOf(close, cursor);
+    if (closeAt < 0) throw new Error(`unclosed North-managed Linear field ${name}`);
+    const content = block.slice(cursor, closeAt);
+    cursor = closeAt + close.length;
+    return content;
+  };
+
+  expectLiteral(openingMarker(threadId), "thread opening marker");
+  expectBridgeBreak("thread heading");
+  expectLiteral(`## North thread \`@${threadId}\``, "thread heading");
+  expectLiteral("\n\nLifecycle\n", "lifecycle heading");
+  const lifecycleRaw = takeField("lifecycle");
+  expectLiteral("\n\n### Body", "body heading");
+  expectBridgeBreak("body field");
+  const body = takeField("body");
+  expectLiteral("\n\n### Done when", "done_when heading");
+  expectBridgeBreak("done_when field");
+  const doneWhenRaw = takeField("done_when");
+  expectLiteral("\n\n### Bar evidence", "bar_evidence heading");
+  expectBridgeBreak("bar_evidence field");
+  const barEvidenceRaw = takeField("bar_evidence");
+  expectLiteral("\n\n### Repositories", "repo heading");
+  expectBridgeBreak("repo field");
+  const reposRaw = takeField("repo");
+  expectLiteral("\n", "thread closing marker");
+  expectLiteral(closingMarker(threadId), "thread closing marker");
+  if (cursor !== block.length)
+    throw new Error("Linear description has trailing content inside the North-managed block");
+
+  if (normalizeText(lifecycleRaw) !== lifecycleRaw || lifecycleRaw.includes("\n"))
+    throw new Error("North-managed Linear field lifecycle is not canonical");
+  if (normalizeBody(body) !== body)
+    throw new Error("North-managed Linear field body is not canonical");
+  assertNoReservedNorthMarker("Linear managed body", body);
+  const doneWhen = parseList(doneWhenRaw, true, "done_when");
+  const barEvidence = parseList(barEvidenceRaw, false, "bar_evidence");
+  const repos = parseList(reposRaw, false, "repo");
+  for (const value of doneWhen) assertNoReservedNorthMarker("Linear managed done_when", value);
+  for (const value of barEvidence) assertNoReservedNorthMarker("Linear managed bar_evidence", value);
+  for (const value of repos) assertNoReservedNorthMarker("Linear managed repo", value);
+  return {
+    lifecycle: normalizeLifecycle(lifecycleRaw as LinearSyncFields["lifecycle"]),
+    body,
+    doneWhen,
+    barEvidence,
+    repos,
+  };
 }
 
 export function parseManagedLinearDescription(
@@ -251,24 +320,20 @@ export function parseManagedLinearDescription(
   const description = descriptionInput ?? "";
   const expectedThreadId = normalizeThreadId(expectedThreadIdInput);
   const blocks = findManagedBlocks(description);
-  if (blocks.length === 0) return null;
+  if (blocks.length === 0) {
+    assertNoReservedNorthMarker("Linear unmanaged description", description);
+    return null;
+  }
   if (blocks.length > 1) throw new Error("Linear issue contains multiple North-managed blocks");
   const block = blocks[0]!;
   if (block.threadId !== expectedThreadId) {
     throw new Error(`Linear issue is linked to North thread @${block.threadId}, not @${expectedThreadId}`);
   }
-  const parsed = {
-    lifecycle: normalizeLifecycle(normalizeText(extractField(block.block, "lifecycle")) as LinearSyncFields["lifecycle"]),
-    body: normalizeBody(extractField(block.block, "body")),
-    doneWhen: parseList(extractField(block.block, "done_when"), true),
-    barEvidence: parseList(extractField(block.block, "bar_evidence"), false),
-    repos: parseList(extractField(block.block, "repo"), false),
-  };
-  assertNoReservedNorthMarker("Linear managed body", parsed.body);
-  for (const value of parsed.doneWhen) assertNoReservedNorthMarker("Linear managed done_when", value);
-  for (const value of parsed.barEvidence) assertNoReservedNorthMarker("Linear managed bar_evidence", value);
-  for (const value of parsed.repos) assertNoReservedNorthMarker("Linear managed repo", value);
-  return parsed;
+  assertNoReservedNorthMarker(
+    "Linear unmanaged description",
+    `${description.slice(0, block.start)}${description.slice(block.end)}`,
+  );
+  return parseManagedLinearBlock(block.block, expectedThreadId);
 }
 
 function projectedComment(threadId: string, kind: NorthCommentKind, sourceIdInput: string, bodyInput: string): ProjectedLinearComment {

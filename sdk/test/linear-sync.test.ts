@@ -117,8 +117,8 @@ test("baseline integrity validator round-trips valid state and rejects tampering
 
 test("managed description replacement preserves all unmanaged text", () => {
   const initial = projectNorthThread(source());
-  const before = "Human preface\r\nkeep these bytes\n\n";
-  const after = "\n\nHuman footer\r\nstays too";
+  const before = "<!-- human:note -->\nHuman preface\r\nkeep these bytes\n\n";
+  const after = "\n\nHuman footer\r\nstays too\n<!-- /human:note -->";
   const existing = `${before}${replaceManagedLinearDescription(null, initial.threadId, initial.fields)}${after}`;
   const changed = projectNorthThread(source({ body: "Changed body" }));
   const replaced = replaceManagedLinearDescription(existing, changed.threadId, changed.fields);
@@ -126,6 +126,92 @@ test("managed description replacement preserves all unmanaged text", () => {
   expect(replaced.endsWith(after)).toBe(true);
   expect(parseManagedLinearDescription(replaced, changed.threadId)?.body).toBe("Changed body");
   expect(replaceManagedLinearDescription(replaced, changed.threadId, changed.fields)).toBe(replaced);
+});
+
+test("managed description parser accepts only one complete ordered bridge scaffold", () => {
+  const projected = projectNorthThread(source());
+  const valid = replaceManagedLinearDescription(
+    "<!-- human:note -->\nHuman preface",
+    projected.threadId,
+    projected.fields,
+  );
+  expect(parseManagedLinearDescription(valid, projected.threadId)).toEqual({
+    lifecycle: projected.fields.lifecycle,
+    body: projected.fields.body,
+    doneWhen: projected.fields.doneWhen,
+    barEvidence: projected.fields.barEvidence,
+    repos: projected.fields.repos,
+  });
+  expect(replaceManagedLinearDescription(valid, projected.threadId, projected.fields)).toBe(valid);
+
+  const linearNormalized = valid
+    .replace(
+      `<!-- north:thread:${projected.threadId} -->\n## North thread`,
+      `<!-- north:thread:${projected.threadId} -->\n\n## North thread`,
+    )
+    .replace(/(### (?:Body|Done when|Bar evidence|Repositories))\n(<!-- north:field:)/g, "$1\n\n$2");
+  expect(parseManagedLinearDescription(linearNormalized, projected.threadId))
+    .toEqual(parseManagedLinearDescription(valid, projected.threadId));
+
+  const duplicateField = valid.replace(
+    `<!-- /north:field:repo -->`,
+    `<!-- /north:field:repo -->\n<!-- north:field:body -->\nshadow\n<!-- /north:field:body -->`,
+  );
+  const orphanField = `${valid}\n<!-- north:field:body -->`;
+  const unknownReserved = valid.replace(
+    `<!-- /north:thread:${projected.threadId} -->`,
+    `<!-- north:field:unknown -->\nshadow\n<!-- /north:field:unknown -->\n<!-- /north:thread:${projected.threadId} -->`,
+  );
+  const missingField = valid.replace(
+    "### Bar evidence\n<!-- north:field:bar_evidence -->\n\n<!-- /north:field:bar_evidence -->\n\n",
+    "",
+  );
+  const wrongOrder = valid
+    .replaceAll("north:field:body", "north:field:temporary")
+    .replaceAll("north:field:done_when", "north:field:body")
+    .replaceAll("north:field:temporary", "north:field:done_when");
+  const wrongHeading = valid.replace("### Repositories", "### Repository");
+  const extraScaffoldBlank = valid.replace("### Body\n", "### Body\n\n\n");
+
+  for (const malformed of [
+    duplicateField, orphanField, unknownReserved, missingField, wrongOrder, wrongHeading, extraScaffoldBlank,
+  ]) {
+    expect(() => parseManagedLinearDescription(malformed, projected.threadId)).toThrow();
+    expect(() => managedLinearDescriptionReceiptHash(malformed, projected.threadId)).toThrow();
+    expect(() => replaceManagedLinearDescription(malformed, projected.threadId, projected.fields)).toThrow();
+  }
+
+  const baseline = createLinearSyncBaseline(identity, projected.threadId, projected.fields);
+  const reconciled = reconcileLinearIssue({
+    baseline,
+    local: projected,
+    remote: { ...identity, title: projected.fields.title, description: duplicateField, comments: [] },
+  });
+  expect(reconciled).toMatchObject({ state: "divergent", plan: null });
+  expect(reconciled.diagnostics).not.toEqual([]);
+});
+
+test("managed list fields reject every malformed nonblank row instead of dropping it", () => {
+  const projected = projectNorthThread(source({
+    doneWhen: ["probe exits 0"],
+    barEvidence: ["probe exits 0 → exit 0"],
+    repos: ["~/code/north"],
+  }));
+  const valid = replaceManagedLinearDescription(null, projected.threadId, projected.fields);
+  const malformed = [
+    valid.replace("- [ ] probe exits 0", "probe exits 0"),
+    valid.replace("- [ ] probe exits 0", "- [maybe] probe exits 0"),
+    valid.replace("- [ ] probe exits 0", "- [ ] probe exits 0\nnot a checkbox"),
+    valid.replace("- probe exits 0 → exit 0", "  - probe exits 0 → exit 0"),
+    valid.replace("- ~/code/north", "- "),
+    valid.replace("- ~/code/north", "- ~/code/north\n"),
+    valid.replace("- ~/code/north", "- ~/code/north\n- ~/code/north"),
+  ];
+  for (const description of malformed)
+    expect(() => parseManagedLinearDescription(description, projected.threadId)).toThrow();
+
+  const checked = valid.replace("- [ ] probe exits 0", "- [x] probe exits 0");
+  expect(parseManagedLinearDescription(checked, projected.threadId)?.doneWhen).toEqual(["probe exits 0"]);
 });
 
 test("description receipts tolerate only Linear's bridge-scaffold blank lines", () => {
