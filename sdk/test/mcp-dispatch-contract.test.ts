@@ -23,7 +23,7 @@ case "$*" in
 esac
 printf 'spawn:%s\n' "$AGENT_ID" >> "$NORTH_MCP_EVENTS"
 printf '%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$*" > "$NORTH_MCP_CAPTURE"
-"$NORTH_MCP_BB" ignored 7977 release "\${@: -1}" "$AGENT_ID"
+"$NORTH_MCP_BB" ignored 7977 release "@\${@: -1}" "$AGENT_ID"
 `);
   chmodSync(fakeBun, 0o755);
   writeFileSync(fakeBb, `#!/usr/bin/env bash
@@ -44,7 +44,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   const request = `${JSON.stringify({
     jsonrpc: "2.0", id: 1, method: "tools/call",
     params: { name: "dispatch", arguments: {
-      id: "019f6c5e-61d0-7880-98a0-f8999eac7b03",
+      id: "@019f6c5e-61d0-7880-98a0-f8999eac7b03",
       role: "integrator",
       composition: { kind: "preset", id: "integrator", overrides: [] },
       provider: "anthropic",
@@ -69,17 +69,21 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   expect(response.result.content[0].text).toContain("completed anthropic-claude-gmail-opus-xhigh-integrator-probe");
   expect(response.result.content[0].text).not.toContain("Agent is running");
   expect(response.result.content[0].text).toContain("target=claude-personal-tompas0x-gmail");
+  expect(response.result.content[0].text).toContain("thread @019f6c5e-61d0-7880-98a0-f8999eac7b03");
+  expect(response.result.content[0].text).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
   const [target, provider, agentId, preclaimed, command] = readFileSync(capture, "utf8").trim().split("|");
   expect(target).toBe("claude-personal-tompas0x-gmail");
   expect(provider).toBe("anthropic");
   expect(preclaimed).toBe("1");
   expect(command).toContain("/dispatch.ts");
+  expect(command).toContain("/dispatch.ts 019f6c5e-61d0-7880-98a0-f8999eac7b03");
+  expect(command).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(agentId).toMatch(/^sdk-f8999eac7b03-[a-z0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
   const lifecycle = readFileSync(events, "utf8").trim().split("\n");
-  const claim = lifecycle.findIndex((line) => line === `driver:claim:019f6c5e-61d0-7880-98a0-f8999eac7b03:${agentId}`);
+  const claim = lifecycle.findIndex((line) => line === `driver:claim:@019f6c5e-61d0-7880-98a0-f8999eac7b03:${agentId}`);
   const spawn = lifecycle.findIndex((line) => line === `spawn:${agentId}`);
-  const release = lifecycle.findIndex((line) => line === `driver:release:019f6c5e-61d0-7880-98a0-f8999eac7b03:${agentId}`);
+  const release = lifecycle.findIndex((line) => line === `driver:release:@019f6c5e-61d0-7880-98a0-f8999eac7b03:${agentId}`);
   expect(claim).toBeGreaterThanOrEqual(0);
   expect(spawn).toBeGreaterThan(claim);
   expect(release).toBeGreaterThan(spawn);
@@ -160,6 +164,16 @@ test("raw MCP rejects non-contract Gaffer fields and verifier-as-topology before
     ["spawn", [], "arguments must be an object"],
     ["dispatch", {}, "dispatch id must be a non-empty string"],
     ["dispatch", { id: 42 }, "dispatch id must be a non-empty string"],
+    ["dispatch", {
+      id: "@@019f6c5e-61d0-7880-98a0-f8999eac7b03",
+      role: "verifier",
+      composition: { kind: "preset", id: "verifier", overrides: [] },
+    }, "dispatch id must be a safe North thread id (bare or single @ prefix)"],
+    ["dispatch", {
+      id: "thread;touch-owned",
+      role: "verifier",
+      composition: { kind: "preset", id: "verifier", overrides: [] },
+    }, "dispatch id must be a safe North thread id (bare or single @ prefix)"],
     ["spawn", {}, "spawn prompt must be a non-empty string"],
     ["spawn", { prompt: "" }, "spawn prompt must be a non-empty string"],
     ["spawn", { prompt: "probe" }, "managed spawn requires role selecting a canonical Gaffer preset or a complete bespoke composition"],

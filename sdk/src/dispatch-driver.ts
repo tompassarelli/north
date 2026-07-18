@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { normalizeNorthEntityId, northEntitySubject } from "./north-client";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const ACQUIRE_CLI = resolve(REPO_ROOT, "cli/acquire-cli.clj");
@@ -17,6 +18,15 @@ export class DispatchDriverUnavailableError extends Error {
   constructor(readonly threadId: string) {
     super(`could not establish the active driver for thread @${threadId}`);
     this.name = "DispatchDriverUnavailableError";
+  }
+}
+
+export class DispatchDriverReleaseError extends Error {
+  readonly preSideEffect = false;
+  readonly retrySafe = false;
+  constructor(readonly threadId: string) {
+    super(`could not safely release the active driver for thread @${threadId}`);
+    this.name = "DispatchDriverReleaseError";
   }
 }
 
@@ -45,18 +55,25 @@ export function claimDispatchDriver(
   threadId: string,
   agentId: string,
   options: DispatchDriverOptions = {},
-): { release(): void } {
+): { release(): boolean } {
+  const canonicalThreadId = normalizeNorthEntityId(threadId);
+  const threadSubject = northEntitySubject(canonicalThreadId);
   const command = options.command ?? commandAt(options.port ?? process.env.NORTH_PORT ?? "7977");
   const verb = options.preclaimed ?? process.env.NORTH_DISPATCH_DRIVER_PRECLAIMED === "1" ? "verify" : "claim";
-  const result = command(verb, threadId, agentId);
-  if (result.status === 3) throw new DispatchAlreadyActiveError(threadId);
-  if (result.status !== 0) throw new DispatchDriverUnavailableError(threadId);
+  const result = command(verb, threadSubject, agentId);
+  if (result.status === 3) throw new DispatchAlreadyActiveError(canonicalThreadId);
+  if (result.status !== 0) throw new DispatchDriverUnavailableError(canonicalThreadId);
   let released = false;
   return {
     release: () => {
-      if (released) return;
-      released = true;
-      try { command("release", threadId, agentId); } catch { /* best-effort terminal cleanup */ }
+      if (released) return true;
+      try {
+        const release = command("release", threadSubject, agentId);
+        released = release.status === 0;
+        return released;
+      } catch {
+        return false;
+      }
     },
   };
 }

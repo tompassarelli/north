@@ -2,9 +2,11 @@ import { expect, test } from "bun:test";
 import {
   claimDispatchDriver,
   DispatchAlreadyActiveError,
+  DispatchDriverReleaseError,
   DispatchDriverUnavailableError,
   type DispatchDriverCommand,
 } from "../src/dispatch-driver";
+import { InvalidNorthEntityIdError } from "../src/north-client";
 
 test("canonical dispatch claims once and releases exactly once", () => {
   const calls: string[] = [];
@@ -16,8 +18,8 @@ test("canonical dispatch claims once and releases exactly once", () => {
   lease.release();
   lease.release();
   expect(calls).toEqual([
-    "claim:thread-1:agent-1",
-    "release:thread-1:agent-1",
+    "claim:@thread-1:agent-1",
+    "release:@thread-1:agent-1",
   ]);
 });
 
@@ -26,6 +28,41 @@ test("an MCP-preclaimed dispatch verifies the same holder instead of reacquiring
   const command: DispatchDriverCommand = (verb) => { calls.push(verb); return { status: 0 }; };
   claimDispatchDriver("thread-1", "agent-1", { command, preclaimed: true }).release();
   expect(calls).toEqual(["verify", "release"]);
+});
+
+test("release reports coordinator failure and remains retryable", () => {
+  let attempts = 0;
+  const command: DispatchDriverCommand = (verb) => {
+    if (verb !== "release") return { status: 0 };
+    attempts++;
+    return { status: attempts === 1 ? 5 : 0 };
+  };
+  const lease = claimDispatchDriver("thread-1", "agent-1", { command });
+  expect(lease.release()).toBe(false);
+  expect(lease.release()).toBe(true);
+  expect(lease.release()).toBe(true);
+  expect(attempts).toBe(2);
+  expect(new DispatchDriverReleaseError("thread-1")).toMatchObject({
+    preSideEffect: false,
+    retrySafe: false,
+    threadId: "thread-1",
+  });
+});
+
+test("driver claim canonicalizes one sigil and rejects hostile ids before the command", () => {
+  const calls: string[] = [];
+  const command: DispatchDriverCommand = (verb, thread) => {
+    calls.push(`${verb}:${thread}`);
+    return { status: 0 };
+  };
+  claimDispatchDriver("@thread-1", "agent-1", { command }).release();
+  expect(calls).toEqual(["claim:@thread-1", "release:@thread-1"]);
+
+  for (const invalid of ["", "@", "@@thread-1", " thread-1", "thread-1;touch-owned"]) {
+    expect(() => claimDispatchDriver(invalid, "agent-1", { command }))
+      .toThrow(InvalidNorthEntityIdError);
+  }
+  expect(calls).toHaveLength(2);
 });
 
 test("contention and coordinator failure are distinct fixed pre-side-effect errors", () => {

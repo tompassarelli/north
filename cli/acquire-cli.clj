@@ -8,7 +8,7 @@
 ;; stuck driver is force-released explicitly or retracted by the lane-liveness reaper.
 ;; acquire-lease!/lease-cli survive ONLY for EXTERNAL resources (build dir / external API),
 ;; never a graph-internal subject like @lease:<thread>.
-(require '[clojure.edn :as edn] '[clojure.java.io :as io])
+(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
 ;; shared coord substrate (Foundation Part B): send-op lives once in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
@@ -20,8 +20,45 @@
 (defn- thread-exists? [port thread]
   (some? (:value (send-op port {:op :resolved :te thread :p "title"}))))
 
+(defn- thread-subject [thread]
+  (let [value (when (string? thread) thread)
+        bare (some-> value (str/replace-first #"^@" ""))]
+    (when (and value
+               (= value (str/trim value))
+               (<= (count bare) 512)
+               (re-matches #"[A-Za-z0-9][A-Za-z0-9._:-]*" bare))
+      (str "@" bare))))
+
+(defn- release-driver [port thread me]
+  ;; Capture the global version BEFORE checking ownership, then retract only
+  ;; against that exact snapshot. If any writer moves the graph between those
+  ;; reads and the retract, retry the whole observation. This prevents a stale
+  ;; releaser from clearing a successor installed during the read/retract gap.
+  (loop [remaining 8]
+    (let [base (:version (send-op port {:op :version}))]
+      (when-not (integer? base)
+        (throw (ex-info "coordinator version unavailable" {})))
+      (let [cur (driver-of port thread)]
+        (if (not= cur me)
+          {:state :noop :driver cur}
+          (let [result (send-op port {:op :retract
+                                      :te thread :p "driver" :r me :base base})]
+            (cond
+              (nil? (:reject result)) {:state :released}
+              (and (= :conflict (:reject result)) (> remaining 1))
+              (recur (dec remaining))
+              :else {:state :failed :reject (:reject result)})))))))
+
 (let [[ps verb & args] *command-line-args*
-      port (Integer/parseInt ps)]
+      port (Integer/parseInt ps)
+      raw-thread (first args)
+      canonical-thread (thread-subject raw-thread)
+      args (if canonical-thread (cons canonical-thread (rest args)) args)
+      _ (when (and (#{"claim" "verify" "acquire" "release" "status"} verb)
+                   (nil? canonical-thread))
+          (binding [*out* *err*]
+            (println "invalid thread id: expected a bare or single-@ ASCII identifier"))
+          (System/exit 2))]
   (case verb
     "claim"                              ; <thread> <holder> — fail if ANY driver exists
     (let [[thread holder] args
@@ -69,13 +106,21 @@
 
     "release"                            ; <thread> <holder> — only the live driver may release
     (let [[thread holder] args
-          me  (str "@" holder)
-          cur (driver-of port thread)]
-      (if (= cur me)
-        (let [v (:version (send-op port {:op :version}))]
-          (send-op port {:op :retract :te thread :p "driver" :r me :base v})
-          (println (format "released %s by %s" thread holder)))
-        (println (format "noop %s — not driven by %s (driver=%s)" thread holder (or cur "(none)")))))
+          me  (str "@" holder)]
+      (try
+        (let [{:keys [state driver]} (release-driver port thread me)]
+          (case state
+            :released (println (format "released %s by %s" thread holder))
+            :noop (println (format "noop %s — not driven by %s (driver=%s)"
+                                   thread holder (or driver "(none)")))
+            (do
+              (binding [*out* *err*]
+                (println (format "DENIED %s — safe release could not commit" thread)))
+              (System/exit 5))))
+        (catch Exception _
+          (binding [*out* *err*]
+            (println (format "DENIED %s — safe release unavailable" thread)))
+          (System/exit 5))))
 
     "status"                             ; <thread> — who drives it (coexist-elected single driver)
     (let [[thread] args]

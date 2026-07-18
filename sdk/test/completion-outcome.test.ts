@@ -216,26 +216,138 @@ test("an empty spawn provider stream is a blocked provider error, never ran", as
 test("an empty dispatch provider stream is a blocked provider error, never ran", async () => {
   const { dispatch } = await import("../src/dispatch");
   writeFileSync(log, "");
+  const boundaryIds: string[] = [];
 
-  const result = await dispatch("test-empty-dispatch", {
+  const result = await dispatch("@test-empty-dispatch", {
     agentId: "test-empty-dispatch-agent",
     routingMetadata: { role: "integrator" },
-    claimDriver: (() => ({ release() {} })) as any,
+    claimDriver: ((threadId: string) => {
+      boundaryIds.push(`driver:${threadId}`);
+      return { release() {} };
+    }) as any,
     queryFn: () => (async function* () {})() as any,
-    loadThreadFacts: () => [
-      { predicate: "title", value: "Empty provider dispatch" },
-      { predicate: "planned", value: "true" },
-      { predicate: "atomic", value: "true" },
-    ],
-    loadChildren: () => [],
+    loadThreadFacts: (threadId: string) => {
+      boundaryIds.push(`facts:${threadId}`);
+      return [
+        { predicate: "title", value: "Empty provider dispatch" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+      ];
+    },
+    loadChildren: (threadId: string) => {
+      boundaryIds.push(`children:${threadId}`);
+      return [];
+    },
   });
 
   expect(result.result).toBe("");
+  expect(result.threadId).toBe("test-empty-dispatch");
+  expect(boundaryIds).toEqual([
+    "facts:test-empty-dispatch",
+    "children:test-empty-dispatch",
+    "driver:test-empty-dispatch",
+  ]);
   const lines = await settledRunLines(
     "test-empty-dispatch-agent", "applied_domain_requirement_count 0",
   );
   expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
+  expect(lines.some((line) => line.includes("@@test-empty-dispatch"))).toBe(false);
+});
+
+test("an MCP-preclaimed terminal thread verifies and safely releases before returning", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  const events: string[] = [];
+  const dependencies = {
+    agentId: "test-preclaimed-terminal-agent",
+    driverOptions: { preclaimed: true },
+    loadThreadFacts: (threadId: string) => {
+      events.push(`facts:${threadId}`);
+      return [
+        { predicate: "title", value: "Already terminal" },
+        { predicate: "outcome", value: "done" },
+      ];
+    },
+    loadChildren: (threadId: string) => {
+      events.push(`children:${threadId}`);
+      return [];
+    },
+    claimDriver: ((threadId: string, agentId: string) => {
+      events.push(`verify:${threadId}:${agentId}`);
+      return {
+        release() {
+          events.push(`release:${threadId}:${agentId}`);
+          return true;
+        },
+      };
+    }) as any,
+  };
+  const result = await dispatch("@test-preclaimed-terminal", dependencies);
+  expect(result).toEqual({
+    threadId: "test-preclaimed-terminal",
+    posture: "atomic",
+    result: "already done",
+  });
+  expect(events).toEqual([
+    "facts:test-preclaimed-terminal",
+    "children:test-preclaimed-terminal",
+    "verify:test-preclaimed-terminal:test-preclaimed-terminal-agent",
+    "release:test-preclaimed-terminal:test-preclaimed-terminal-agent",
+  ]);
+
+  let directClaims = 0;
+  await dispatch("test-direct-terminal", {
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Direct terminal" },
+      { predicate: "outcome", value: "done" },
+    ],
+    loadChildren: () => [],
+    claimDriver: (() => {
+      directClaims++;
+      return { release: () => true };
+    }) as any,
+  });
+  expect(directClaims).toBe(0);
+
+  await expect(dispatch("test-preclaimed-release-failure", {
+    agentId: "test-preclaimed-release-failure-agent",
+    driverOptions: { preclaimed: true },
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Terminal with unavailable release" },
+      { predicate: "outcome", value: "done" },
+    ],
+    loadChildren: () => [],
+    claimDriver: (() => ({ release: () => false })) as any,
+  })).rejects.toMatchObject({
+    name: "DispatchDriverReleaseError",
+    threadId: "test-preclaimed-release-failure",
+    preSideEffect: false,
+    retrySafe: false,
+  });
+});
+
+test("dispatch rejects malformed and injection-shaped ids before every read boundary", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  for (const invalid of [
+    "", "@", "@@test-thread", " test-thread", "test-thread;touch-owned",
+    "test-thread$(touch-owned)", "test-thread\nother",
+  ]) {
+    let reads = 0;
+    await expect(dispatch(invalid, {
+      loadThreadFacts: () => {
+        reads++;
+        return [{ predicate: "title", value: "must not be read" }];
+      },
+      loadChildren: () => {
+        reads++;
+        return [];
+      },
+    })).rejects.toMatchObject({
+      code: "NORTH_INVALID_ENTITY_ID",
+      preSideEffect: true,
+    });
+    expect(reads).toBe(0);
+  }
 });
 
 test("dispatch publishes newly observed done-bar evidence as reported, never self-verified", async () => {

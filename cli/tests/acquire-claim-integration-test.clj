@@ -63,13 +63,35 @@
   (proc/shell {:continue true :out :string :err :string}
               "bb" acquire-cli (str port) verb thread holder))
 
+(defn scripted-coordinator [responses]
+  (let [server (java.net.ServerSocket. 0)
+        requests (atom [])
+        worker
+        (future
+          (try
+            (doseq [response responses]
+              (with-open [socket (.accept server)
+                          reader (io/reader (.getInputStream socket))
+                          writer (io/writer (.getOutputStream socket))]
+                (swap! requests conj (edn/read-string (.readLine reader)))
+                (.write writer (str (pr-str response) "\n"))
+                (.flush writer)))
+            :done
+            (finally (.close server))))]
+    {:port (.getLocalPort server)
+     :requests requests
+     :worker worker
+     :server server}))
+
 (let [port (free-port)
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-acquire-claim" (make-array java.nio.file.attribute.FileAttribute 0)))
       log (io/file tmp "facts.log")
-      thread "claim-integration-thread"
-      unknown "missing-claim-integration-thread"
+      thread-id "019f75a8-032c-741a-b65d-e4af097e3837"
+      thread (str "@" thread-id)
+      unknown-id "019f75a8-032c-741a-b65d-e4af097e3838"
+      unknown (str "@" unknown-id)
       first-holder "agent:first"
       second-holder "agent:second"
       daemon-env {"FRAM_SINGLE_VALUED" "title driver"}
@@ -89,7 +111,7 @@
                         {:stdout (deref (:out daemon))
                          :stderr (deref (:err daemon))})))
 
-      (let [missing (acquire port "claim" unknown first-holder)]
+      (let [missing (acquire port "claim" unknown-id first-holder)]
         (check "claiming an unknown thread exits 4"
                (and (= 4 (:exit missing))
                     (str/includes? (:out missing) "thread does not exist")))
@@ -97,19 +119,20 @@
                (nil? (resolved port unknown "driver"))))
 
       (assert-fact! port thread "title" "Claim integration fixture")
-      (let [first-claim (acquire port "claim" thread first-holder)]
-        (check "first claim succeeds and establishes the exact driver"
+      (let [first-claim (acquire port "claim" thread-id first-holder)]
+        (check "a bare UUID claim resolves the canonical @UUID subject"
                (and (zero? (:exit first-claim))
                     (str/includes? (:out first-claim) "CLAIMED")
+                    (str/includes? (:out first-claim) thread)
                     (= (str "@" first-holder) (resolved port thread "driver")))))
 
       (let [duplicate (acquire port "claim" thread first-holder)]
-        (check "duplicate claim by the same holder exits 3 without mutation"
+        (check "an @UUID duplicate reaches the same subject and exits 3"
                (and (= 3 (:exit duplicate))
                     (str/includes? (:out duplicate) "already driven")
                     (= (str "@" first-holder) (resolved port thread "driver")))))
 
-      (let [exact (acquire port "verify" thread first-holder)
+      (let [exact (acquire port "verify" thread-id first-holder)
             wrong (acquire port "verify" thread second-holder)]
         (check "verify succeeds only for the exact holder"
                (and (zero? (:exit exact))
@@ -119,7 +142,7 @@
                     (= (str "@" first-holder) (resolved port thread "driver")))))
 
       (let [first-release (acquire port "release" thread first-holder)
-            second-release (acquire port "release" thread first-holder)]
+            second-release (acquire port "release" thread-id first-holder)]
         (check "release is idempotent and leaves no driver"
                (and (zero? (:exit first-release))
                     (str/includes? (:out first-release) "released")
@@ -127,15 +150,57 @@
                     (str/includes? (:out second-release) "noop")
                     (nil? (resolved port thread "driver")))))
 
-      (let [reclaim (acquire port "claim" thread second-holder)]
+      (let [reclaim (acquire port "claim" thread-id second-holder)]
         (check "a second holder can claim after release"
                (and (zero? (:exit reclaim))
                     (str/includes? (:out reclaim) "CLAIMED")
+                    (= (str "@" second-holder) (resolved port thread "driver")))))
+
+      (let [malformed (acquire port "claim" (str "@" thread) first-holder)]
+        (check "double-@ input is rejected before any graph mutation"
+               (and (= 2 (:exit malformed))
+                    (str/includes? (:err malformed) "invalid thread id")
                     (= (str "@" second-holder) (resolved port thread "driver"))))))
     (finally
       (proc/destroy-tree daemon)
       (doseq [file (reverse (file-seq tmp))]
         (io/delete-file file true)))))
+
+(let [thread-id "019f75a8-032c-741a-b65d-e4af097e3837"
+      first-holder "agent:first"
+      second-holder "agent:second"
+      scripted (scripted-coordinator
+                [{:version 10}
+                 {:value (str "@" first-holder)}
+                 {:reject :conflict}
+                 {:version 11}
+                 {:value (str "@" second-holder)}])
+      release (acquire (:port scripted) "release" thread-id first-holder)
+      completed (deref (:worker scripted) 5000 :timeout)
+      requests @(:requests scripted)
+      retracts (filter #(= :retract (:op %)) requests)]
+  (when (= :timeout completed)
+    (.close (:server scripted)))
+  (check "release retries a snapshot conflict and preserves the successor"
+         (and (= :done completed)
+              (zero? (:exit release))
+              (str/includes? (:out release) "noop")
+              (str/includes? (:out release) (str "driver=@" second-holder))
+              (= 1 (count retracts))
+              (= {:op :retract
+                  :te (str "@" thread-id)
+                  :p "driver"
+                  :r (str "@" first-holder)
+                  :base 10}
+                 (first retracts)))))
+
+(let [port (free-port)
+      unavailable (acquire port "release"
+                           "019f75a8-032c-741a-b65d-e4af097e3837"
+                           "agent:first")]
+  (check "release exits nonzero when safe ownership verification is unavailable"
+         (and (= 5 (:exit unavailable))
+              (str/includes? (:err unavailable) "safe release unavailable"))))
 
 (let [results @checks
       passed (count (filter second results))]

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getThreadFacts, getChildren } from "./north-client";
+import { getThreadFacts, getChildren, normalizeNorthEntityId } from "./north-client";
 import { derivePosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import {
@@ -31,7 +31,9 @@ import {
 } from "./gaffer-staffing";
 import { refreshAccountUsages } from "./account-usage";
 import { resolveDispatchWorkingDirectory } from "./dispatch-context";
-import { claimDispatchDriver, type DispatchDriverOptions } from "./dispatch-driver";
+import {
+  claimDispatchDriver, DispatchDriverReleaseError, type DispatchDriverOptions,
+} from "./dispatch-driver";
 import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
@@ -487,19 +489,31 @@ async function runDispatch(
 let bootstrapAuthorityGranted = false;
 
 export async function dispatch(
-  threadId: string,
+  threadIdInput: string,
   dependencies: DispatchDependencies = {},
 ): Promise<DispatchResult> {
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
     assertCoordinationAuthority("dispatch", callerTopology);
   }
+  const threadId = normalizeNorthEntityId(threadIdInput);
   // Avoid charging an admission for an unknown or already-completed thread.
   const facts = (dependencies.loadThreadFacts ?? getThreadFacts)(threadId);
   if (!facts.length) throw new Error(`Thread @${threadId} not found or has no facts`);
   const children = (dependencies.loadChildren ?? getChildren)(threadId);
   const preflight = derivePosture(facts, children.length > 0);
-  if (preflight.hasOutcome) return { threadId, posture: "atomic", result: "already done" };
+  if (preflight.hasOutcome) {
+    const preclaimed = dependencies.driverOptions?.preclaimed
+      ?? process.env.NORTH_DISPATCH_DRIVER_PRECLAIMED === "1";
+    if (preclaimed) {
+      const agentId = selectDispatchAgentId(threadId, dependencies);
+      const driver = (dependencies.claimDriver ?? claimDispatchDriver)(
+        threadId, agentId, dependencies.driverOptions,
+      );
+      if (driver.release() === false) throw new DispatchDriverReleaseError(threadId);
+    }
+    return { threadId, posture: "atomic", result: "already done" };
+  }
   const workingDirectory = resolveDispatchWorkingDirectory(facts);
   const agentId = selectDispatchAgentId(threadId, dependencies);
   const routingMetadata = requireManagedGafferSelection(
@@ -529,7 +543,11 @@ export async function dispatch(
     );
   } finally {
     try { await completeResourceEnvelope(admission); }
-    finally { driver.release(); }
+    finally {
+      if (driver.release() === false) {
+        console.error(`[dispatch] safe driver release unavailable for @${threadId}; liveness reaper remains armed`);
+      }
+    }
   }
 }
 

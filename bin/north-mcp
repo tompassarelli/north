@@ -294,6 +294,19 @@
                   (str/replace #"(^-|-$)" ""))]
     (if (seq s) s "unknown")))
 
+(defn canonical-north-thread-id [value]
+  (let [raw (when (string? value) value)
+        bare (some-> raw (str/replace-first #"^@" ""))]
+    (when (and raw
+               (= raw (str/trim raw))
+               (<= (count bare) 512)
+               (re-matches #"[A-Za-z0-9][A-Za-z0-9._:-]*" bare))
+      bare)))
+
+(defn north-thread-subject [value]
+  (when-let [id (canonical-north-thread-id value)]
+    (str "@" id)))
+
 (defn semantic-model [value]
   (let [model (semantic-segment value)
         parts (set (str/split model #"-"))]
@@ -349,16 +362,18 @@
     (north.spawn-process/create-agent-id (str "sdk-" fragment))))
 
 (defn driver-command [verb thread agent-id]
-  (try
-    (:exit (proc/sh {:out :string :err :string}
-                    driver-bb driver-cli north-port verb thread agent-id))
-    (catch Exception _ nil)))
+  (when-let [subject (north-thread-subject thread)]
+    (try
+      (:exit (proc/sh {:out :string :err :string}
+                      driver-bb driver-cli north-port verb subject agent-id))
+      (catch Exception _ nil))))
 
 (defn claim-driver-problem [thread agent-id]
-  (case (driver-command "claim" thread agent-id)
-    0 nil
-    3 (str "thread @" thread " already has an active driver")
-    (str "could not establish the active driver for thread @" thread)))
+  (let [id (canonical-north-thread-id thread)]
+    (case (driver-command "claim" id agent-id)
+      0 nil
+      3 (str "thread @" id " already has an active driver")
+      (str "could not establish the active driver for thread @" id))))
 
 (defn release-driver! [thread agent-id]
   ;; The child releases on every normal terminal path. This duplicate release is
@@ -460,6 +475,8 @@
     (cond
       unknown (str "unknown " nm " routing field(s): " (str/join ", " unknown))
       (and (= nm "dispatch") (not (non-empty-string? id))) "dispatch id must be a non-empty string"
+      (and (= nm "dispatch") (nil? (canonical-north-thread-id id)))
+      "dispatch id must be a safe North thread id (bare or single @ prefix)"
       (and (= nm "spawn") (not (non-empty-string? prompt))) "spawn prompt must be a non-empty string"
       (and (#{"dispatch" "spawn"} nm) (not (non-empty-string? role)))
       (str "managed " nm " requires role selecting a canonical Gaffer preset or a complete bespoke composition")
@@ -566,7 +583,7 @@
             env (north.managed-child-env/scrub parent-env)]
         (case nm
           "dispatch"
-          (let [id (get args "id")
+          (let [id (canonical-north-thread-id (get args "id"))
             model (get args "model")
             effort (get args "effort")
             reasoning (or (get args "reasoning") effort)
