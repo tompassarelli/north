@@ -48,17 +48,29 @@
 (defn pair-predicates [text]
   (set (map second (re-seq #"\[\s*\"([a-z][a-z0-9_]*)\"\s*," text))))
 
-(def graph-write-fns
-  #{"append!" "put!" "assert!" "assert-after-read!" "retract!"
-    "set-single!" "set-1!"})
+(def graph-write-predicate-index
+  {"append!" 3
+   "put!" 3
+   "assert!" 3
+   "assert-after-read!" 3
+   "retract!" 3
+   "set-single!" 3
+   "set-1!" 3
+   ;; Fenced verbs carry the lease envelope before subject/predicate.
+   "put-with-fence!" 4
+   "retract-with-fence!" 4
+   "assert-after-read-with-fence!" 4})
 
 (defn fixed-graph-predicates [form]
   (let [found (atom #{})]
     (walk/postwalk
      (fn [node]
        (when (and (seq? node) (symbol? (first node))
-                  (contains? graph-write-fns (name (first node))))
-         (let [predicate (nth (vec node) 3 nil)]
+                  (contains? graph-write-predicate-index (name (first node))))
+         (let [predicate (nth (vec node)
+                              (get graph-write-predicate-index
+                                   (name (first node)))
+                              nil)]
            (when (string? predicate) (swap! found conj predicate))))
        (when (and (map? node) (#{:assert :retract} (:op node)) (string? (:p node)))
          (swap! found conj (:p node)))
@@ -71,8 +83,11 @@
     (walk/postwalk
      (fn [node]
        (when (and (seq? node) (symbol? (first node))
-                  (contains? graph-write-fns (name (first node))))
-         (let [predicate (nth (vec node) 3 nil)]
+                  (contains? graph-write-predicate-index (name (first node))))
+         (let [predicate (nth (vec node)
+                              (get graph-write-predicate-index
+                                   (name (first node)))
+                              nil)]
            (when (and predicate (not (string? predicate)))
              (swap! found conj [relative (name (first node)) (pr-str predicate)]))))
        node)
@@ -102,11 +117,12 @@
 ;; surfaces; the others are closed transports whose producer sets are audited
 ;; elsewhere in this test. A new variable writer cannot silently become exempt.
 (def audited-clj-variable-sites
-  #{["cli/agent-fact-internal.clj" "put!" "predicate"]
-    ["cli/agent-fact-internal.clj" "assert-after-read!" "marker-predicate"]
-    ["cli/agent-fact-internal.clj" "assert-after-read!" "terminal-marker-predicate"]
-    ["cli/agent-fact-internal.clj" "retract!" "predicate"]
+  #{["cli/agent-fact-internal.clj" "put-with-fence!" "predicate"]
+    ["cli/agent-fact-internal.clj" "put-with-fence!" "marker-predicate"]
+    ["cli/agent-fact-internal.clj" "assert-after-read-with-fence!" "terminal-marker-predicate"]
+    ["cli/agent-fact-internal.clj" "retract-with-fence!" "predicate"]
     ["cli/coord.clj" "assert-after-read!" "p"]
+    ["cli/coord.clj" "assert-after-read-with-fence!" "p"]
     ["cli/delivery-evidence-internal.clj" "append!" "predicate"]
     ["cli/msg-cli.clj" "put!" "(arg-pred k)"]
     ["cli/msg-cli.clj" "retract!" "predicate"]

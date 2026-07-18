@@ -5,7 +5,7 @@
 ;;
 ;; usage:
 ;;   bb lease-cli.clj <port> acquire <res> <holder> <ttl-ms>
-;;   bb lease-cli.clj <port> release <res> <holder>
+;;   bb lease-cli.clj <port> release <res> <holder> [<epoch>]
 ;;   bb lease-cli.clj <port> fence   <res> <holder> <epoch>
 ;;   bb lease-cli.clj <port> status
 (require '[clojure.edn :as edn] '[clojure.java.io :as io])
@@ -18,7 +18,11 @@
       port (Integer/parseInt port)
       op (case verb
            "acquire" {:op :acquire-lease :res (nth args 0) :holder (nth args 1) :ttl-ms (Integer/parseInt (nth args 2))}
-           "release" {:op :release-lease :res (nth args 0) :holder (nth args 1)}
+           "release" (cond-> {:op :release-lease
+                              :res (nth args 0)
+                              :holder (nth args 1)}
+                       (nth args 2 nil)
+                       (assoc :epoch (Integer/parseInt (nth args 2))))
            "fence"   {:op :fence-ok :res (nth args 0) :holder (nth args 1) :epoch (Integer/parseInt (nth args 2))}
            "status"  {:op :status}
            (do (println "unknown verb:" verb) (System/exit 2)))]

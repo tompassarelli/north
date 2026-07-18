@@ -91,12 +91,13 @@
   (contains? (set (coord/many port message "acked_by"))
              (bare-handle recipient)))
 
-(defn release-delivery-claim! [port {:keys [resource holder]}]
+(defn release-delivery-claim! [port {:keys [resource holder epoch]}]
   ;; Ack is already durable when normal completion releases. A transient release
   ;; failure must not turn a successful PostToolUse delivery into a hook failure;
   ;; the lease expires and can then be reclaimed.
   (try
-    (coord/send-op port {:op :release-lease :res resource :holder holder})
+    (coord/send-op port {:op :release-lease
+                         :res resource :holder holder :epoch epoch})
     (catch Exception _ nil)))
 
 (defn claim-delivery!

@@ -115,7 +115,7 @@ export class CoordinatorSyncLeaseManager implements SyncLeaseManager {
           async release() {
             if (released) return;
             released = true;
-            await manager.invoke(["release", resource, holder]);
+            await manager.invoke(["release", resource, holder, String(epoch)]);
           },
         };
       }

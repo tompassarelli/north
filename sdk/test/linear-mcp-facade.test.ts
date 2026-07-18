@@ -18,9 +18,12 @@ function fakeNorth(): string {
   writeFileSync(fake, `#!/usr/bin/env bun
 if (process.env.FAKE_TOOL_ERROR === "1") {
   process.stderr.write("HEAD-" + "x".repeat(12_000) + "-TAIL");
-  process.exit(17);
+  // Let the pipe flush before exit. Immediate process exit may truncate an
+  // asynchronous stderr write under load, making the tail assertion random.
+  process.exitCode = 17;
+} else {
+  process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));
 }
-process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));
 `);
   chmodSync(fake, 0o755);
   return fake;

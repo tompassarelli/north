@@ -45,16 +45,29 @@
           "composition_contract_fingerprint_version" "composition_contract_fingerprint_domain"
           "repo" "goal" "coordinator" "spawned_at"}))
 (def publish-predicates (into identity-predicates projection-predicates))
+(def managed-projection-predicates
+  (into (conj publish-predicates marker-predicate terminal-marker-predicate)
+        terminal-predicates))
 (def required-identity-predicates
   #{"kind" "role" "model" "provider" "provider_target" "effort"
     "composition_kind" "composition_id" "repo" "goal" "spawned_at"
     "display_handle" "display_name"})
+(def writer-timeout-bound-ms
+  (parse-long (or (System/getenv "NORTH_IDENTITY_WRITER_TIMEOUT_MS") "10000")))
+(def write-lease-ttl-ms
+  (parse-long (or (System/getenv "NORTH_IDENTITY_WRITE_LEASE_TTL_MS") "60000")))
+(def max-write-lease-wait-ms 5000)
+(def ^:dynamic *write-lease* nil)
 
 (defn fail! [message data]
   (throw (ex-info message data)))
 
 (defn checked! [result operation]
-  (when (:reject result) (fail! "coordinator rejected harness identity write" {:operation operation}))
+  (when (:reject result)
+    (fail! "coordinator rejected harness identity write"
+           {:operation operation
+            :reject (:reject result)
+            :version (:version result)}))
   result)
 
 (defn entity [subject]
@@ -74,6 +87,14 @@
                  (when-not (and (string? predicate) (string? value) (not (str/blank? value)))
                    (fail! "managed identity facts must be nonblank strings"
                           {:predicate predicate :value-type (type value)}))
+                 ;; The canonical reader intentionally trims display inputs when
+                 ;; deciding whether a value is known. Persisting a different raw
+                 ;; boundary here would make writer and reader hash different
+                 ;; bytes. Reject that ambiguity instead of silently changing the
+                 ;; caller's signed projection.
+                 (when-not (= value (str/trim value))
+                   (fail! "managed identity facts may not carry boundary whitespace"
+                          {:predicate predicate}))
                  [predicate value]))
           parsed)))
 
@@ -87,24 +108,58 @@
                                                   :args [subject {:var "p"} {:var "r"}]}]}]}}))]
     (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 
+(defn write-lease-resource [subject]
+  (str "managed-agent-write:"
+       (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                             (.getBytes (str subject)
+                                        java.nio.charset.StandardCharsets/UTF_8))]
+         (format "%064x" (java.math.BigInteger. 1 digest)))))
+
+(defn write-fence-valid? [port]
+  (let [{:keys [resource holder epoch]} *write-lease*]
+    (and resource holder epoch
+         (:fence-ok
+          (north.coord/send-op port {:op :fence-ok
+                                     :res resource
+                                     :holder holder
+                                     :epoch epoch})))))
+
 (defn canonical-record [record]
   (json/generate-string (into (sorted-map) record)))
 
 (defn retract-values! [port subject predicate values]
   (doseq [value values]
-    (checked! (north.coord/retract! port subject predicate value)
-              [:retract subject predicate value])))
+    (checked! (north.coord/retract-with-fence!
+               port *write-lease* subject predicate value)
+              [:retract-with-fence subject predicate value])))
 
 (defn put-facts! [port subject facts]
   (doseq [[predicate value] facts]
-    (checked! (north.coord/put! port subject predicate value)
-              [:put subject predicate value])))
+    (checked! (north.coord/put-with-fence!
+               port *write-lease* subject predicate value)
+              [:put-with-fence subject predicate value])))
+
+(defn put-values! [port subject predicate values]
+  (doseq [value (sort values)]
+    (checked! (north.coord/put-with-fence!
+               port *write-lease* subject predicate value)
+              [:put-with-fence subject predicate value])))
 
 (defn exact-projection [facts predicates]
   (into (sorted-map)
         (keep (fn [predicate]
                 (when-let [values (seq (get facts predicate))]
                   [predicate (set values)])))
+        predicates))
+
+(defn managed-projection [facts]
+  (exact-projection facts managed-projection-predicates))
+
+(defn singleton-facts [facts predicates]
+  (into (sorted-map)
+        (keep (fn [predicate]
+                (when-let [value (first (get facts predicate))]
+                  [predicate value])))
         predicates))
 
 (defn desired-projection [facts]
@@ -118,12 +173,15 @@
                         (.getBytes (str s) java.nio.charset.StandardCharsets/UTF_8))]
     (format "%064x" (java.math.BigInteger. 1 digest))))
 
-(defn verify-exact! [port subject desired predicates]
-  (let [actual (exact-projection (facts-of port subject) predicates)
+(defn verify-exact-snapshot! [snapshot desired predicates]
+  (let [actual (exact-projection snapshot predicates)
         expected (desired-projection desired)]
     (when-not (= expected actual)
       (fail! "managed identity readback did not match the published projection"
              {:expected expected :actual actual}))))
+
+(defn verify-exact! [port subject desired predicates]
+  (verify-exact-snapshot! (facts-of port subject) desired predicates))
 
 (defn singleton-projection! [facts predicates]
   (doseq [predicate predicates
@@ -178,54 +236,159 @@
   ;; invalidate a committed identity by decorating a cached label.
   (let [authoritative (into (sorted-map) (select-keys facts identity-predicates))
         marker (sha256 (canonical authoritative))]
-    (checked!
-     (north.coord/assert-after-read!
-      port subject marker-predicate marker
-      (fn []
-        ;; Every fact hashed by the marker is re-read after the global BASE is
-        ;; captured. Display caches are intentionally outside this authority
-        ;; projection. An identical concurrent marker is idempotent; a distinct
-        ;; one proves competing generation publication and fails closed.
-        (verify-exact! port subject authoritative identity-predicates)
-        (let [markers (get (facts-of port subject) marker-predicate #{})]
-          (when-not (or (empty? markers) (= #{marker} markers))
-            (fail! "managed identity has a competing generation marker"
-                   {:subject subject})))))
-     [:assert-after-read subject marker-predicate marker])
-    (when-not (= #{marker} (get (facts-of port subject) marker-predicate))
-      (fail! "managed identity commit marker was not acknowledged"
-             {:marker marker}))
+    ;; Identity authority is wholly subject-local. The per-agent write lease
+    ;; excludes another supported publisher for this subject, while unrelated
+    ;; graph traffic must not make publication fail. The marker itself remains
+    ;; a digest of the exact authority projection: an unsupported same-subject
+    ;; mutation can only invalidate readback, never bless a mixed generation.
+    ;; Cross-subject delivery validation deliberately keeps global CAS below.
+    (let [snapshot (facts-of port subject)
+          markers (get snapshot marker-predicate #{})]
+      (verify-exact-snapshot! snapshot authoritative identity-predicates)
+      (when-not (or (empty? markers) (= #{marker} markers))
+        (fail! "managed identity has a competing generation marker"
+               {:subject subject})))
+    (checked! (north.coord/put-with-fence!
+               port *write-lease* subject marker-predicate marker)
+              [:put-subject-local-marker subject marker-predicate marker])
+    (let [snapshot (facts-of port subject)]
+      (verify-exact-snapshot! snapshot authoritative identity-predicates)
+      (when-not (= #{marker} (get snapshot marker-predicate))
+        (fail! "managed identity commit marker was not acknowledged"
+               {:marker marker})))
     marker))
 
 (defn terminal-marker! [port subject facts validate-current!]
   (let [marker (north.terminal-projection/terminal-manifest-sha256 facts)]
     (when-not marker
       (fail! "cannot commit an incomplete managed terminal projection" {}))
-    (checked! (north.coord/assert-after-read!
-               port subject terminal-marker-predicate marker validate-current!)
-              [:assert-after-read subject terminal-marker-predicate marker])
+    (checked! (north.coord/assert-after-read-with-fence!
+               port *write-lease* subject terminal-marker-predicate marker
+               validate-current!)
+              [:assert-after-read-with-fence
+               subject terminal-marker-predicate marker])
     (when-not (= marker (north.coord/resolved port subject terminal-marker-predicate))
       (fail! "managed terminal commit marker was not acknowledged" {:marker marker}))
     marker))
 
+(declare validate-terminal!)
+
+(defn validate-existing-managed-projection! [subject snapshot]
+  (singleton-projection! snapshot managed-projection-predicates)
+  (let [identity (singleton-facts snapshot publish-predicates)
+        identity-marker (first (get snapshot marker-predicate))]
+    (validate-publish! identity)
+    (when-not (= identity-marker
+                 (sha256
+                  (canonical
+                   (into (sorted-map)
+                         (select-keys identity identity-predicates)))))
+      (fail! "existing managed identity is not an exact committed generation"
+             {:subject subject})))
+  (let [terminal-view
+        (exact-projection
+         snapshot (conj terminal-predicates terminal-marker-predicate))]
+    (when (seq terminal-view)
+      (let [terminal (singleton-facts snapshot terminal-predicates)
+            terminal-marker (first (get snapshot terminal-marker-predicate))]
+        (validate-terminal! subject terminal)
+        (when-not (= terminal-marker
+                     (north.terminal-projection/terminal-manifest-sha256 terminal))
+          (fail! "existing managed terminal is not an exact committed projection"
+                 {:subject subject}))))))
+
+(defn clear-managed-projection! [port subject]
+  ;; Markers disappear first. Readers can never accept one body while this
+  ;; writer is clearing or reconstructing the projection under its fence.
+  (let [current (facts-of port subject)]
+    (retract-values! port subject marker-predicate
+                     (get current marker-predicate #{}))
+    (retract-values! port subject terminal-marker-predicate
+                     (get current terminal-marker-predicate #{}))
+    (doseq [predicate terminal-retraction-order]
+      (retract-values! port subject predicate (get current predicate #{})))
+    (doseq [predicate (sort publish-predicates)]
+      (retract-values! port subject predicate (get current predicate #{})))))
+
+(defn restore-managed-projection! [port subject snapshot]
+  (let [expected (managed-projection snapshot)]
+    (clear-managed-projection! port subject)
+    ;; Restore every body while both commit markers remain absent, then expose
+    ;; identity before terminal. A terminal marker can therefore never become
+    ;; visible without its exact body and committed actor identity.
+    (doseq [predicate (sort publish-predicates)]
+      (put-values! port subject predicate (get snapshot predicate #{})))
+    (doseq [predicate terminal-publication-order]
+      (put-values! port subject predicate (get snapshot predicate #{})))
+    (put-values! port subject marker-predicate
+                 (get snapshot marker-predicate #{}))
+    (put-values! port subject terminal-marker-predicate
+                 (get snapshot terminal-marker-predicate #{}))
+    (let [actual (managed-projection (facts-of port subject))]
+      (when-not (= expected actual)
+        (fail! "managed projection rollback readback mismatch"
+               {:subject subject :expected expected :actual actual})))))
+
+(defn rollback-managed-projection! [port subject snapshot original-error]
+  ;; Never erase a successor after expiry/takeover. Every restoration mutation
+  ;; is itself fenced, but this preflight avoids starting a rollback that cannot
+  ;; possibly complete under the original lease.
+  (try
+    (when (write-fence-valid? port)
+      (restore-managed-projection! port subject snapshot)
+      nil)
+    (catch Throwable rollback-error
+      ;; A dead coordinator/socket is part of the failed cleanup path. Keep the
+      ;; original mutation rejection as the primary error and attach diagnostics
+      ;; without changing what the SDK reports.
+      (.addSuppressed ^Throwable original-error ^Throwable rollback-error))))
+
+(defn with-managed-rollback! [port subject snapshot operation!]
+  (try
+    (operation!)
+    (catch Throwable operation-error
+      (rollback-managed-projection! port subject snapshot operation-error)
+      (throw operation-error))))
+
 (defn publish! [port subject facts]
   (validate-publish! facts)
-  (let [before (facts-of port subject)]
-    ;; A previous generation may have left any optional shape field or outcome.
-    ;; Withdraw both generation markers deterministically before touching either
-    ;; projection body; readers cannot mistake a partial identity rewrite or a
-    ;; stale terminal for a committed current generation. Simultaneous reuse of
-    ;; one id is unsupported.
-    (retract-values! port subject marker-predicate (get before marker-predicate #{}))
-    (retract-values! port subject terminal-marker-predicate
-                     (get before terminal-marker-predicate #{}))
-    (doseq [predicate terminal-retraction-order]
-      (retract-values! port subject predicate (get before predicate #{})))
-    (doseq [predicate (sort publish-predicates)]
-      (retract-values! port subject predicate (get before predicate #{})))
-    (put-facts! port subject facts)
-    (verify-exact! port subject facts publish-predicates)
-    (commit-marker! port subject facts)))
+  (let [before (facts-of port subject)
+        fresh? (empty? (managed-projection before))
+        exact-uncommitted-retry?
+        (and (nil? (get before marker-predicate))
+             (empty?
+              (exact-projection
+               before (conj terminal-predicates terminal-marker-predicate)))
+             (= (desired-projection facts)
+                (exact-projection before publish-predicates)))
+        mutating? (atom false)]
+    ;; A genuinely fresh id may be cleared on a failed initial publication. A
+    ;; byte-identical markerless body is the durable crash-retry state: complete
+    ;; its marker without rewriting. Every other reused id must name an exact
+    ;; prior generation, preserved byte-for-byte if replacement cannot commit.
+    (when-not (or fresh? exact-uncommitted-retry?)
+      (validate-existing-managed-projection! subject before))
+    (try
+      (if exact-uncommitted-retry?
+        (do
+          (verify-exact-snapshot! before facts publish-predicates)
+          (commit-marker! port subject facts))
+        (do
+          ;; Withdraw both generation markers deterministically before touching
+          ;; either projection body; readers cannot mistake a partial identity
+          ;; rewrite or stale terminal for a committed current generation.
+          (reset! mutating? true)
+          (clear-managed-projection! port subject)
+          (put-facts! port subject facts)
+          (verify-exact! port subject facts publish-predicates)
+          (commit-marker! port subject facts)))
+      (catch Throwable publication-error
+        ;; Never let cleanup mask the publication failure. If the lease was lost,
+        ;; the digest/marker contract remains the fail-closed fallback.
+        (when @mutating?
+          (rollback-managed-projection!
+           port subject before publication-error))
+        (throw publication-error)))))
 
 (defn validate-terminal! [subject facts]
   (let [predicates (set (keys facts))
@@ -310,23 +473,27 @@
 
 (defn publish-terminal! [port subject facts]
   (let [before (facts-of port subject)]
-    (retract-values! port subject terminal-marker-predicate
-                     (get before terminal-marker-predicate #{}))
-    (doseq [predicate terminal-retraction-order]
-      (retract-values! port subject predicate (get before predicate #{})))
-    (doseq [predicate terminal-publication-order
-            :let [value (get facts predicate)]]
-      (when value
-        (checked! (north.coord/put! port subject predicate value)
-                  [:put subject predicate value])))
-    ;; Capture the coordinator version before the load-bearing reads, then commit
-    ;; the marker only against that exact version. Any concurrent done-bar, run,
-    ;; or terminal mutation rejects the marker and re-runs both checks.
-    (terminal-marker!
-     port subject facts
-     (fn []
-       (verify-exact! port subject facts terminal-predicates)
-       (validate-reported-run! port subject facts)))))
+    (with-managed-rollback!
+      port subject before
+      (fn []
+        (retract-values! port subject terminal-marker-predicate
+                         (get before terminal-marker-predicate #{}))
+        (doseq [predicate terminal-retraction-order]
+          (retract-values! port subject predicate (get before predicate #{})))
+        (doseq [predicate terminal-publication-order
+                :let [value (get facts predicate)]]
+          (when value
+            (checked! (north.coord/put-with-fence!
+                       port *write-lease* subject predicate value)
+                      [:put-with-fence subject predicate value])))
+        ;; Capture the coordinator version before the load-bearing reads, then commit
+        ;; the marker only against that exact version. Any concurrent done-bar, run,
+        ;; or terminal mutation rejects the marker and re-runs both checks.
+        (terminal-marker!
+         port subject facts
+         (fn []
+           (verify-exact! port subject facts terminal-predicates)
+           (validate-reported-run! port subject facts)))))))
 
 (defn terminal! [port subject facts]
   (validate-terminal! subject facts)
@@ -371,73 +538,133 @@
   ;; commit marker before changing any route axis; a crash cannot leave a mixed
   ;; route looking like an acknowledged identity generation.
   (let [before (facts-of port subject)
-        current (into (sorted-map)
-                      (keep (fn [predicate]
-                              (when-let [value (first (get before predicate))]
-                                [predicate value])))
-                      publish-predicates)
+        current (singleton-facts before publish-predicates)
         marker (first (get before marker-predicate))]
     (singleton-projection! before (conj publish-predicates marker-predicate))
     (validate-publish! current)
     (when-not (= marker (sha256 (canonical (into (sorted-map)
                                                    (select-keys current identity-predicates)))))
       (fail! "cannot update an uncommitted or corrupted managed route" {}))
-    (retract-values! port subject marker-predicate (get before marker-predicate #{}))
-    ;; The coordinator defaults undeclared predicates to multi cardinality.
-    ;; Never rely on descriptive pred registry rows to supersede executable
-    ;; facts: explicitly clear every old route value before asserting the new
-    ;; exact projection.
-    (doseq [predicate route-predicates]
-      (retract-values! port subject predicate (get before predicate #{}))))
-  (put-facts! port subject facts)
-  (verify-exact! port subject facts route-predicates)
-  (let [current (facts-of port subject)
-        identity (into (sorted-map)
-                       (keep (fn [predicate]
-                               (when-let [value (first (get current predicate))]
-                                 [predicate value])))
-                       publish-predicates)]
-    (validate-publish! identity)
-    (commit-marker! port subject identity)))
+    (with-managed-rollback!
+      port subject before
+      (fn []
+        (retract-values! port subject marker-predicate
+                         (get before marker-predicate #{}))
+        ;; The coordinator defaults undeclared predicates to multi cardinality.
+        ;; Never rely on descriptive pred registry rows to supersede executable
+        ;; facts: explicitly clear every old route value before asserting the new
+        ;; exact projection.
+        (doseq [predicate route-predicates]
+          (retract-values! port subject predicate (get before predicate #{})))
+        (put-facts! port subject facts)
+        (verify-exact! port subject facts route-predicates)
+        (let [identity (singleton-facts (facts-of port subject)
+                                        publish-predicates)]
+          (validate-publish! identity)
+          (commit-marker! port subject identity))))))
 
 (defn retask! [port subject facts]
   (when-not (= #{"goal" "display_name"} (set (keys facts)))
     (fail! "retask requires exactly goal and display_name" {:predicates (keys facts)}))
   (let [before (facts-of port subject)
-        current (into (sorted-map)
-                      (keep (fn [predicate]
-                              (when-let [value (first (get before predicate))]
-                                [predicate value])))
-                      publish-predicates)
+        current (singleton-facts before publish-predicates)
         marker (first (get before marker-predicate))]
     (singleton-projection! before (conj publish-predicates marker-predicate))
     (validate-publish! current)
     (when-not (= marker (sha256 (canonical (into (sorted-map)
                                                    (select-keys current identity-predicates)))))
       (fail! "cannot retask an uncommitted or corrupted managed identity" {}))
-    (retract-values! port subject marker-predicate (get before marker-predicate #{}))
-    (doseq [predicate ["goal" "display_name"]]
-      (retract-values! port subject predicate (get before predicate #{})))
-    (put-facts! port subject facts)
-    (verify-exact! port subject facts #{"goal" "display_name"})
-    (let [after (facts-of port subject)
-          projection (into (sorted-map)
-                           (keep (fn [predicate]
-                                   (when-let [value (first (get after predicate))]
-                                     [predicate value])))
-                           publish-predicates)]
-      (validate-publish! projection)
-      (commit-marker! port subject projection))))
+    (with-managed-rollback!
+      port subject before
+      (fn []
+        (retract-values! port subject marker-predicate
+                         (get before marker-predicate #{}))
+        (doseq [predicate ["goal" "display_name"]]
+          (retract-values! port subject predicate (get before predicate #{})))
+        (put-facts! port subject facts)
+        (verify-exact! port subject facts #{"goal" "display_name"})
+        (let [projection (singleton-facts (facts-of port subject)
+                                          publish-predicates)]
+          (validate-publish! projection)
+          (commit-marker! port subject projection))))))
+
+(defn acquire-write-lease! [port subject wait-on-held?]
+  ;; The SDK's process timeout is the stale-writer boundary. The lease must
+  ;; outlive it, otherwise a timed-out writer could wake after expiry and race a
+  ;; successor. Lifecycle updates may wait for an in-flight same-subject writer,
+  ;; but at most half the declared process budget (capped at 5s), leaving a
+  ;; deterministic margin for mutation, rollback, diagnostics, and SDK startup.
+  (when-not (and (integer? writer-timeout-bound-ms)
+                 (pos? writer-timeout-bound-ms)
+                 (integer? write-lease-ttl-ms)
+                 (> write-lease-ttl-ms writer-timeout-bound-ms))
+    (fail! "managed agent write lease must outlive the writer process timeout"
+           {:writer-timeout-ms writer-timeout-bound-ms
+            :lease-ttl-ms write-lease-ttl-ms}))
+  (let [resource (write-lease-resource subject)
+        holder (str "managed-agent-writer:" (java.util.UUID/randomUUID))
+        wait-budget-ms
+        (if wait-on-held?
+          (min max-write-lease-wait-ms (quot writer-timeout-bound-ms 2))
+          0)
+        deadline (+ (System/nanoTime) (* wait-budget-ms 1000000))]
+    (loop [attempt 1]
+      (let [result (north.coord/send-op
+                    port {:op :acquire-lease
+                          :res resource
+                          :holder holder
+                          :ttl-ms write-lease-ttl-ms})]
+        (cond
+          (:ok result)
+          {:resource resource
+           :holder holder
+           :epoch (:epoch result)}
+
+          (and wait-on-held?
+               (= :held (:reject result))
+               (< (System/nanoTime) deadline))
+          (do
+            (Thread/sleep 25)
+            (recur (inc attempt)))
+
+          :else
+          (fail! "managed agent subject already has a writer"
+                 {:subject subject
+                  :resource resource
+                  :reject (:reject result)
+                  :current-holder (:holder result)
+                  :expires-at (:exp result)
+                  :attempts attempt
+                  :acquisition-budget-ms wait-budget-ms}))))))
+
+(defn with-write-lease [port subject operation operation!]
+  (let [{:keys [resource holder epoch] :as lease}
+        (acquire-write-lease! port subject (not= "publish" operation))]
+    (binding [*write-lease* lease]
+      (try
+        (operation!)
+        (finally
+          ;; Release is advisory after the durable marker acknowledgement. A
+          ;; killed writer cannot run past the 10s SDK timeout while this 60s
+          ;; lease is live; if release transport fails, expiry recovers it.
+          (try
+            (north.coord/send-op
+             port {:op :release-lease :res resource :holder holder :epoch epoch})
+            (catch Throwable _ nil)))))))
 
 (let [[port-s operation subject raw] *command-line-args*
       port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
       subject (entity subject)
-      result (case operation
-               "publish" (publish! port subject (payload raw))
-               "route" (update-route! port subject (payload raw))
-               "retask" (retask! port subject (payload raw))
-               "terminal" (terminal! port subject (payload raw))
-               "attest" (attest! port subject (payload raw))
-               (fail! "internal agent fact operation must be publish, route, retask, terminal, or attest"
-                      {:operation operation}))]
+      operation!
+      (fn []
+        (case operation
+          "publish" (publish! port subject (payload raw))
+          "route" (update-route! port subject (payload raw))
+          "retask" (retask! port subject (payload raw))
+          "terminal" (terminal! port subject (payload raw))
+          (fail! "internal agent fact operation must be publish, route, retask, terminal, or attest"
+                 {:operation operation})))
+      result (if (= "attest" operation)
+               (attest! port subject (payload raw))
+               (with-write-lease port subject operation operation!))]
   (println (json/generate-string {:ok true :result result})))

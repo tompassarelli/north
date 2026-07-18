@@ -26,6 +26,8 @@ export { bespokeContractFingerprint } from "./bespoke-contract";
 const REPO = resolve(import.meta.dir, "..", "..");
 const northBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
 const internalWriter = resolve(REPO, "cli/agent-fact-internal.clj");
+const INTERNAL_WRITER_TIMEOUT_MS = 10_000;
+const INTERNAL_WRITE_LEASE_TTL_MS = 60_000;
 
 /** Read-side projection. `none` is accepted only for historical native rows. */
 export interface ObservedAgentIdentity {
@@ -190,9 +192,29 @@ function writeHarnessAgentOperation(
       execFileSync(northBin(), ["tell", subject, predicate, factValue], { stdio: "ignore", timeout: 10_000 });
     return;
   }
-  execFileSync("bb", [internalWriter, process.env.NORTH_PORT ?? "7977", operation, subject, value], {
-    stdio: "ignore", timeout: 10_000,
-  });
+  try {
+    execFileSync("bb", [internalWriter, process.env.NORTH_PORT ?? "7977", operation, subject, value], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NORTH_IDENTITY_WRITER_TIMEOUT_MS: String(INTERNAL_WRITER_TIMEOUT_MS),
+        NORTH_IDENTITY_WRITE_LEASE_TTL_MS: String(INTERNAL_WRITE_LEASE_TTL_MS),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: INTERNAL_WRITER_TIMEOUT_MS,
+    });
+  } catch (cause) {
+    const raw = cause && typeof cause === "object" && "stderr" in cause
+      ? String((cause as { stderr?: unknown }).stderr ?? "").trim()
+      : "";
+    const detail = raw.split("\n").find((line) => line.startsWith("Message:"))?.slice("Message:".length).trim()
+      ?? raw.split("\n").find((line) => line.includes(":reject"))?.trim()
+      ?? raw.slice(-800);
+    throw new Error(
+      `managed agent ${operation} failed${detail ? `: ${detail}` : ""}`,
+      { cause },
+    );
+  }
 }
 
 export function agentIdentityFacts(

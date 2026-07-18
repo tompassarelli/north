@@ -74,6 +74,20 @@
 (defn put! [port te p r]
   (send-op port {:op :assert :te te :p p :r (write-value! te p r)}))
 
+;; Lease-fenced variants — the coordinator validates RES/HOLDER/EPOCH and
+;; performs the fact mutation under its one writer lock. A separate `fence-ok`
+;; preflight is not an authority boundary: expiry/takeover could land between
+;; two socket turns. These verbs close that window.
+(defn put-with-fence! [port {:keys [resource holder epoch]} te p r]
+  (send-op port {:op :assert-with-fence
+                 :res resource :holder holder :epoch epoch
+                 :te te :p p :r (write-value! te p r)}))
+
+(defn retract-with-fence! [port {:keys [resource holder epoch]} te p r]
+  (send-op port {:op :retract-with-fence
+                 :res resource :holder holder :epoch epoch
+                 :te te :p p :r (write-value! te p r)}))
+
 ;; swap! — SINGLE compare-and-swap: the ONLY base+retry verb. Reads the base, writes
 ;; under it, retries on :reject (a concurrent write moved the base). Reserve for a
 ;; genuine read-modify-write race; near-zero production callers after move-C. 4 tries.
@@ -104,6 +118,29 @@
              _ (validate!)
              result
              (send-op port {:op :assert-at-version
+                            :te te :p p :r rv :base base})]
+         (if (and (= :conflict (:reject result)) (> remaining 1))
+           (recur (dec remaining))
+           result))))))
+
+(defn assert-after-read-with-fence!
+  "Global read-set CAS plus an atomic lease fence. Every load-bearing read in
+  VALIDATE! follows BASE capture; the daemon checks both BASE and the current
+  lease epoch in the same writer turn as the marker assertion."
+  ([port lease te p r validate!]
+   (assert-after-read-with-fence! port lease te p r validate! 16))
+  ([port {:keys [resource holder epoch]} te p r validate! attempts]
+   (when-not (pos? attempts)
+     (throw
+      (ex-info "assert-after-read-with-fence! requires at least one attempt"
+               {:attempts attempts})))
+   (let [rv (write-value! te p r)]
+     (loop [remaining attempts]
+       (let [base (cur-ver port)
+             _ (validate!)
+             result
+             (send-op port {:op :assert-at-version-with-fence
+                            :res resource :holder holder :epoch epoch
                             :te te :p p :r rv :base base})]
          (if (and (= :conflict (:reject result)) (> remaining 1))
            (recur (dec remaining))
