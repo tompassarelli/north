@@ -28,6 +28,66 @@
 (def CACHE-SCOPE (str (hash (str (or (System/getenv "FRAM_LOG") "default") "|"
                                 (or (System/getenv "FRAM_TELEMETRY_LOG") "") "|" PORT))))
 
+;; A full coordinator doctor reads every active log byte and parses every projected
+;; thread file. Its deadline therefore scales with that work instead of being a
+;; fixed number that eventually loses to corpus growth. The contract grants 5s of
+;; process/daemon overhead, then assumes at least 2 MiB/s of aggregate scan/fold
+;; throughput and 2ms per projected file, bounded at two minutes. On the 2026-07-18
+;; corpus (about 17 MiB + 1,528 files, measured 5.2s) this yields about 17s: enough
+;; headroom for contention without turning a hung diagnostic into an unbounded wait.
+(def MIB (* 1024 1024))
+(def COORD-DOCTOR-BASE-MS 5000)
+(def COORD-DOCTOR-PER-MIB-MS 500)
+(def COORD-DOCTOR-PER-FILE-MS 2)
+(def COORD-DOCTOR-MAX-MS 120000)
+
+(defn- ceil-div [n d]
+  (quot (+ n (dec d)) d))
+
+(defn- log-workload [path]
+  (let [f (when (seq path) (io/file path))]
+    (if (and f (.isFile f))
+      (.length f)
+      0)))
+
+(defn- thread-workload [path]
+  (let [dir (when (seq path) (io/file path))]
+    (if (and dir (.isDirectory dir))
+      ;; Match fram.rt/list-md exactly: only direct *.md children participate
+      ;; in the corpus fold, and CLAUDE.md is an instruction file rather than a
+      ;; projected thread.
+      (->> (or (seq (.listFiles dir)) [])
+           (filter #(and (.isFile %)
+                         (str/ends-with? (.getName %) ".md")
+                         (not= (.getName %) "CLAUDE.md")))
+           (reduce (fn [{:keys [bytes files]} f]
+                     {:bytes (+ bytes (.length f))
+                      :files (inc files)})
+                   {:bytes 0 :files 0}))
+      {:bytes 0 :files 0})))
+
+(defn coord-doctor-workload
+  "Bytes + projected-file count read by `north coord-doctor` in this environment."
+  []
+  (let [logs (->> [(or (System/getenv "FRAM_LOG")
+                        (str HOME "/.local/state/north/facts.log"))
+                   (System/getenv "FRAM_TELEMETRY_LOG")]
+                  (remove str/blank?)
+                  distinct)
+        threads (or (System/getenv "FRAM_THREADS")
+                    (str HOME "/.local/state/north/threads"))
+        projected (thread-workload threads)]
+    {:bytes (+ (:bytes projected) (reduce + 0 (map log-workload logs)))
+     :files (:files projected)}))
+
+(defn coord-doctor-timeout-ms
+  "Bounded deadline for a full coordinator doctor workload."
+  [{:keys [bytes files]}]
+  (min COORD-DOCTOR-MAX-MS
+       (+ COORD-DOCTOR-BASE-MS
+          (* COORD-DOCTOR-PER-MIB-MS (ceil-div (max 0 (or bytes 0)) MIB))
+          (* COORD-DOCTOR-PER-FILE-MS (max 0 (or files 0))))))
+
 ;; ---- ANSI (respect NO_COLOR / non-tty) --------------------------------------
 (def color? (and (nil? (System/getenv "NO_COLOR"))
                  (not (System/getenv "NORTH_NO_COLOR"))))
@@ -53,6 +113,13 @@
         {:out (or (:out res) "") :err (or (:err res) "") :exit (:exit res)
          :ok (zero? (:exit res))}))
     (catch Exception e {:error (.getMessage e) :ok false})))
+
+(defn coord-doctor-probe []
+  (let [workload (coord-doctor-workload)
+        timeout-ms (coord-doctor-timeout-ms workload)]
+    (assoc (run [(str NORTH "/bin/north") "coord-doctor"] :timeout timeout-ms)
+           :timeout-ms timeout-ms
+           :workload workload)))
 
 (defn echo-cmd
   "Print the underlying primitive being wrapped (teaching surface)."
@@ -387,10 +454,21 @@
   ;; handshake; doctor now leads with it. `north coord-doctor` is the raw primitive.
   (println (bold "  coordinator"))
   (echo-cmd (str NORTH "/bin/north") "coord-doctor")
-  (let [r (run [(str NORTH "/bin/north") "coord-doctor"] :timeout 6000)]
-    (if (:timeout r)
-      (println (str "    " (red "[ERR] ") " coord-doctor timed out — coordinator may be down"))
-      (doseq [ln (remove str/blank? (str/split-lines (str (or (:out r) "") (or (:err r) ""))))]
+  (let [{:keys [timeout timeout-ms workload ok out err error]} (coord-doctor-probe)]
+    (cond
+      timeout
+      (println (str "    " (red "[ERR] ") " coord-doctor exceeded its "
+                    timeout-ms "ms full-corpus budget ("
+                    (ceil-div (:bytes workload) MIB) " MiB, " (:files workload)
+                    " files) — probe incomplete; coordinator state was not inferred"))
+
+      (not ok)
+      (println (str "    " (red "[ERR] ") " coord-doctor failed"
+                    (when (seq (str/trim (or error err "")))
+                      (str ": " (str/trim (or error err ""))))))
+
+      :else
+      (doseq [ln (remove str/blank? (str/split-lines (str (or out "") (or err ""))))]
         (println (str "    " ln)))))
   ;; daemons
   (let [dh (daemon-health)]
