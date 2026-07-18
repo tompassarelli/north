@@ -395,19 +395,23 @@
 ;; north's WORK rules (abandoned deps, person/role refs) — north.validate.
 ;; The fram CLI `validate` only runs the generic half; this is the full check, so
 ;; bin/north routes `validate` here (and the MCP validate tool through it).
-(defn cmd-validate [log :- String] :- Nil
+(defn cmd-validate [log :- String] :- Int
   (let [idx (live-idx log)
+        ids (k/thread-ids-i idx)
         problems (reduce
                   (fn [acc :- (Vec String) te :- String] :- (Vec String)
                     (reduce (fn [a :- (Vec String) v :- String] :- (Vec String)
                               (conj a (str (short-id te) ": " v)))
                             acc (val/violations-i idx te)))
                   []
-                  (k/thread-ids-i idx))]
+                  ids)]
     (if (empty? problems)
-      (println (str "OK — " (count (k/thread-ids-i idx)) " threads, no violations."))
+      (do
+        (println (str "OK — " (count ids) " threads, no violations."))
+        0)
       (do (doseq [p problems] (println (str "  " p)))
-          (println (str (count problems) " violation(s)."))))))
+          (println (str (count problems) " violation(s)."))
+          1))))
 
 (defn cmd-ready [log :- String all :- Bool] :- Nil
   (let [idx (live-idx log)
@@ -1624,7 +1628,9 @@
        (if (>= (count args) 2)
          (cmd-done-bars log (nth args 1))
          (println "usage: done-bars <@id|@handle>"))]
-      [(= cmd "validate") (cmd-validate log)]
+      ;; Back-compatible direct `run` callers remain non-terminating. Callers
+      ;; that need status use `run-status` below.
+      [(= cmd "validate") (do (cmd-validate log) nil)]
       [(= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))]
       [(= cmd "tools")    (cmd-tools)]
       [(= cmd "doctor")   (cmd-doctor threads-dir log)]
@@ -1660,5 +1666,19 @@
            [:else (println "usage: clock start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")]))]
       [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed [--dry-run|--execute] | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
 
+;; Composable command boundary: returns the exact validation status without
+;; terminating its host process; all other current commands succeed after their
+;; normal `run` side effects. `_main` alone maps a nonzero result to OS exit.
+(defn run-status [args :- (Vec String) threads-dir :- String log :- String] :- Int
+  (if (and (not (empty? args)) (= (first args) "validate"))
+    (cmd-validate log)
+    (do
+      (run args threads-dir log)
+      0)))
+
 (defn -main [& args] :- Nil
-  (run (vec args) (fram.rt/threads-dir) (fram.rt/log-path)))
+  (let [argv (vec args)
+        threads-dir (fram.rt/threads-dir)
+        log (fram.rt/log-path)
+        status (run-status argv threads-dir log)]
+    (when (not (= status 0)) (System/exit status))))

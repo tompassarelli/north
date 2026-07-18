@@ -192,11 +192,15 @@
 
 (defn cmd-validate [^String log]
   (let [idx (live-idx log)
-   problems (reduce (fn [acc te] (reduce (fn [a v] (conj a (str (short-id te) ": " v))) acc (val/violations-i idx te))) [] (k/thread-ids-i idx))]
-  (if (empty? problems) (println (str "OK — " (count (k/thread-ids-i idx)) " threads, no violations.")) (do
+   ids (k/thread-ids-i idx)
+   problems (reduce (fn [acc te] (reduce (fn [a v] (conj a (str (short-id te) ": " v))) acc (val/violations-i idx te))) [] ids)]
+  (if (empty? problems) (do
+  (println (str "OK — " (count ids) " threads, no violations."))
+  0) (do
   (doseq [p problems]
   (println (str "  " p)))
-  (println (str (count problems) " violation(s)."))))))
+  (println (str (count problems) " violation(s)."))
+  1))))
 
 (defn cmd-ready [^String log ^Boolean all]
   (let [idx (live-idx log)
@@ -1070,7 +1074,9 @@
   (= cmd "audit") (cmd-audit log)
   (= cmd "resolve") (if (>= (count args) 2) (cmd-resolve log (nth args 1)) (println "usage: resolve <@handle|@id>"))
   (= cmd "done-bars") (if (>= (count args) 2) (cmd-done-bars log (nth args 1)) (println "usage: done-bars <@id|@handle>"))
-  (= cmd "validate") (cmd-validate log)
+  (= cmd "validate") (do
+  (cmd-validate log)
+  nil)
   (= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))
   (= cmd "tools") (cmd-tools)
   (= cmd "doctor") (cmd-doctor threads-dir log)
@@ -1093,5 +1099,15 @@
   :else (println "usage: clock start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
   :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed [--dry-run|--execute] | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
+(defn run-status [args ^String threads-dir ^String log]
+  (if (and (not (empty? args)) (= (first args) "validate")) (cmd-validate log) (do
+  (run args threads-dir log)
+  0)))
+
 (defn -main [& args]
-  (run (vec args) (fram.rt/threads-dir) (fram.rt/log-path)))
+  (let [argv (vec args)
+   threads-dir (fram.rt/threads-dir)
+   log (fram.rt/log-path)
+   status (run-status argv threads-dir log)]
+  (if (not (= status 0)) (do
+  (System/exit status)))))

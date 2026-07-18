@@ -3,10 +3,11 @@
   "North's integrity check: the engine's GENERIC structural rules (cycles,
   dangling refs — fram.kernel/violations-i) PLUS the WORK-semantics rules the
   engine no longer owns. The work rules were lifted out of the fram kernel to
-  here: a depends_on edge to a withdrawn (abandoned) thread is suspect, and the
-  role refs lead/driver/proposed_by must point at a person node (one carrying a
+  here: part_of/depends_on/relates_to targets must be threads, a depends_on edge
+  to a withdrawn (abandoned) thread is suspect, and the role refs
+  lead/driver/proposed_by must point at a person node (one carrying a
   `display_name`). The kernel stays domain-free — it knows cycles and dangling
-  refs, not lifecycle or person/role vocab.")
+  entity refs, not thread shape, lifecycle, or person/role vocab.")
 
 (require fram.kernel :as k)
 (require north.projections :as proj)
@@ -14,8 +15,32 @@
 ;; WORK-semantics violations over the index (the rules lifted out of the kernel's
 ;; violations-i). Lifecycle-aware (terminal/withdrawn) + person/role vocab —
 ;; neither of which the generic engine knows.
+(def thread-ref-preds :- (Vec String) ["part_of" "depends_on" "relates_to"])
+
 (defn work-violations-i [idx :- k/Index te :- String] :- (Vec String)
   (let [term? (proj/terminal-i? idx te)
+        ;; These three predicates are North thread relationships, not arbitrary
+        ;; entity refs. Fram verifies generic subject existence; North adds the
+        ;; stronger title-bearing target rule. When schema facts already make a
+        ;; predicate generic-ref-valued, its missing-subject diagnostic comes
+        ;; from Fram; otherwise this domain rule must still reject the missing
+        ;; thread (partial schema metadata cannot disable North integrity).
+        v-thread (reduce
+                  (fn [acc :- (Vec String) p :- String] :- (Vec String)
+                    (reduce
+                     (fn [a :- (Vec String) rt :- String] :- (Vec String)
+                       (cond
+                         [(and (k/entity-i? idx rt)
+                               (nil? (k/one-i idx rt "title")))
+                          (conj a (str p " references non-thread entity " rt))]
+                         [(and (not (k/entity-i? idx rt))
+                               (not (k/vec-contains? (:ref-preds idx) p)))
+                          (conj a (str p " references missing thread " rt))]
+                         [:else a]))
+                     acc
+                     (k/many-i idx te p)))
+                  []
+                  thread-ref-preds)
         ;; a depends_on edge to a withdrawn (abandoned) target — only suspect for
         ;; a still-open thread (a resolved thread's stale deps don't matter).
         v-ab (reduce
@@ -23,7 +48,7 @@
                 (if (and (not term?) (proj/withdrawn-i? idx d))
                   (conj acc (str "depends_on points at abandoned " d))
                   acc))
-              []
+              v-thread
               (k/many-i idx te "depends_on"))
         ;; person-ref integrity: lead/driver must point at a node carrying a
         ;; display_name fact ('references unknown person', greppable apart from
