@@ -255,7 +255,7 @@ async function admitOpenAIWithManagedHooksProbe(
   const capabilities = validateOpenAIHarness(options);
   if (!capabilities) return;
   assertManagedHooks();
-  await admitExecution("openai", capabilities, options?.cwd ?? process.cwd(), options);
+  await admitExecution("openai", capabilities, options?.cwd ?? process.cwd(), options, target);
   // AgentProvider.admit runs before routed onRoute/query construction. Resolve
   // the exact selected account here so a bad CODEX_HOME cannot publish a route
   // as active or trigger provider work. Query repeats this proof at spawn time.

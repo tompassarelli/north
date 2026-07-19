@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
   ProviderRetrySafeError, type AgentProvider, type AgentQuery, type ProviderAvailability,
+  type RoutingTarget,
 } from "./types";
 import { probeAnthropic } from "../provider-routing";
 import { observeAnthropicQuery } from "./anthropic-observations";
@@ -178,10 +179,10 @@ function validateAnthropicHarness(options: any): ReturnType<typeof requireGaffer
   return capabilities;
 }
 
-export async function admitAnthropic(options: any): Promise<void> {
+export async function admitAnthropic(options: any, target?: RoutingTarget): Promise<void> {
   const capabilities = validateAnthropicHarness(options);
   if (!capabilities) return;
-  await admitExecution("anthropic", capabilities, resolve(options.cwd ?? process.cwd()), options);
+  await admitExecution("anthropic", capabilities, resolve(options.cwd ?? process.cwd()), options, target);
 }
 
 function createAnthropicQuery(
@@ -194,7 +195,7 @@ function createAnthropicQuery(
     if (source) return source;
     initialization ??= (async () => {
       if (admitted) validateAnthropicHarness(args.options);
-      else await admitAnthropic(args.options);
+      else await admitAnthropic(args.options, args.target);
       admitted = true;
       const options = {
         ...args.options,
@@ -234,7 +235,7 @@ const canonicalAnthropicProvider: AgentProvider = {
   probe(target): ProviderAvailability {
     return probeAnthropic(target);
   },
-  admit: ({ options }) => admitAnthropic(options),
+  admit: ({ options, target }) => admitAnthropic(options, target),
   query(args) {
     const admitted = consumeExecutionAdmission("anthropic", args.options);
     // Direct adapter callers are admitted lazily before SDK query construction;

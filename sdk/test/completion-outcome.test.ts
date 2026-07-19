@@ -202,9 +202,9 @@ test("an Anthropic error terminal still records its authoritative usage", async 
 
   await spawn({ prompt: "terminal error usage", agentId: "test-terminal-error",
     role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic", queryFn });
-  await waitForLog("tell run-test-terminal-error-");
+  await waitForLog("tell run:test-terminal-error-");
   await waitForLog("usage_total_status exact");
-  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-terminal-error-"));
+  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run:test-terminal-error-"));
   expect(lines.some((line) => line.endsWith(" tokens 21"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" usage_terminal_count 1"))).toBe(true);
 });
@@ -226,7 +226,7 @@ test("repeated Anthropic terminals record ambiguity without a selected or summed
   await spawn({ prompt: "two terminal scopes", agentId: "test-repeated-terminals",
     role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic", queryFn });
   await waitForLog("usage_total_status unknown_repeated_terminal");
-  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-repeated-terminals-"));
+  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run:test-repeated-terminals-"));
   expect(lines.some((line) => line.endsWith(" usage_terminal_count 2"))).toBe(true);
   expect(lines.some((line) => / (tokens|input_tokens|output_tokens) /.test(line))).toBe(false);
 });
@@ -408,7 +408,7 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       line === `tell agent:${agentId} process_outcome ${scenario.processOutcome}`
     );
     const runIndex = lines.findIndex((line) =>
-      line.includes(`tell run-${agentId}-`) && line.endsWith(` ${scenario.runTail}`)
+      line.includes(`tell run:${agentId}-`) && line.endsWith(` ${scenario.runTail}`)
     );
     const pingIndex = lines.indexOf(pings[0]!);
     expect(terminalIndex).toBeGreaterThanOrEqual(0);
@@ -497,6 +497,38 @@ test("a blocked auxiliary terminal writer cannot stack beyond the shared publica
   } finally {
     delete process.env.NORTH_TERMINAL_PUBLICATION_BUDGET_MS;
   }
+});
+
+
+test("dispatch warns a committed thread that lacks BOTH done_when and judgment_grade", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  writeFileSync(log, "");
+  const captured: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: any[]) => { captured.push(args.join(" ")); };
+  try {
+    await dispatch("@test-warn-thread", {
+      agentId: "test-warn-thread-agent",
+      routingMetadata: { role: "integrator" },
+      claimDriver: (() => ({ release() { return true; } })) as any,
+      queryFn: () => (async function* () {})() as any,
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Bar-less grade-less thread" },
+        { predicate: "committed", value: "2026-07-20" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+      ],
+      loadChildren: () => [],
+    });
+  } finally {
+    console.log = originalLog;
+  }
+  const doneWhenWarn = captured.find((l) => l.includes("has NO done_when"));
+  const gradeWarn = captured.find((l) => l.includes("has NO judgment_grade"));
+  expect(doneWhenWarn).toBeDefined();
+  expect(gradeWarn).toBeDefined();
+  originalLog(`[bar-evidence] ${doneWhenWarn}`);
+  originalLog(`[bar-evidence] ${gradeWarn}`);
 });
 
 test("an MCP-preclaimed terminal thread verifies and safely releases before returning", async () => {
@@ -644,7 +676,7 @@ test("dispatch publishes newly observed done-bar evidence as reported, never sel
       },
     },
     queryFn: () => {
-      expect(reserved?.runId.startsWith("run-test-reported-delivery-agent-")).toBe(true);
+      expect(reserved?.runId.startsWith("run:test-reported-delivery-agent-")).toBe(true);
       return (async function* () {
       yield {
         type: "result", subtype: "success", result: "done",
@@ -845,7 +877,7 @@ test("a spawn orchestrator hits a bounded no-progress cap as incomplete, never r
       "tell agent:test-spawn-child-cap process_outcome orchestrator_children_incomplete",
     );
     const runIndex = logged.findIndex((line) =>
-      line.includes("tell run-test-spawn-child-cap-")
+      line.includes("tell run:test-spawn-child-cap-")
       && line.endsWith(" process_outcome orchestrator_children_incomplete")
     );
     const pingIndex = logged.indexOf(pings[0]!);
@@ -1458,7 +1490,7 @@ async function waitForLog(needle: string): Promise<string> {
 }
 
 async function settledRunLines(agent: string, requiredSuffix = "error_count 0"): Promise<string[]> {
-  const marker = `tell run-${agent}-`;
+  const marker = `tell run:${agent}-`;
   for (let i = 0, stable = 0, previous = ""; i < 100; i++) {
     const lines = (existsSync(log) ? readFileSync(log, "utf8") : "")
       .split("\n")
@@ -1599,142 +1631,35 @@ test("public SpawnOptions target and Gaffer role land on exact account identity"
   }
 });
 
-test("in-flight escalation refreshes model, effort, and semantic handle without resetting identity", async () => {
-  const { spawn } = await import("./support/spawn");
+test("a struggle sensor firing records a struggle run fact without any in-flight route change", async () => {
+  // In-flight escalation is retired (escalation-arch D5). The struggle sensors now run on
+  // EVERY spawn as harness-observed execution-axis evidence: a fired sensor writes a
+  // `struggle <reason>` run fact at terminal and never changes model/effort. Three
+  // consecutive tool errors trip the consecutive_errors sensor (STRUGGLE_ERROR_STREAK=3).
+  const { spawn } = await import("../src/spawn");
   writeFileSync(log, "");
-  const models: string[] = [];
+  let modelChanged = false;
   const queryFn: any = () => ({
-    setModel: async (model: string) => { models.push(model); },
-    applyFlagSettings: async () => {},
+    // Present the in-flight controls; the retired machinery must never call them now.
+    setModel: async () => { modelChanged = true; },
+    applyFlagSettings: async () => { modelChanged = true; },
     async *[Symbol.asyncIterator]() {
       for (let i = 0; i < 3; i++) {
-        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `t${i}`, name: "Bash", input: { i } }] } };
-        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `t${i}`, is_error: true }] } };
+        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `s${i}`, name: "Bash", input: { i } }] } };
+        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `s${i}`, is_error: true }] } };
       }
-      yield { type: "result", subtype: "success", result: "recovered", duration_ms: 1, num_turns: 4 };
+      yield { type: "result", subtype: "success", result: "done anyway", duration_ms: 1, num_turns: 4 };
     },
   });
 
-  await spawn({ prompt: "recover from errors", agentId: "test-escalated-integrator",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic", escalate: true, queryFn });
+  await spawn({ prompt: "hit repeated errors", agentId: "test-struggle-lane",
+    role: "integrator", provider: "anthropic", queryFn });
 
-  expect(models.length).toBeGreaterThan(0);
-  const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-escalated-integrator effort xhigh");
-  expect(logged).toContain("tell agent:test-escalated-integrator display_handle anthropic-ambient-opus-xhigh-gaffer-integrator-integrator");
-  expect(logged.match(/tell agent:test-escalated-integrator spawned_at/g)?.length).toBe(1);
-});
-
-test("unsupported in-flight escalation is explicit and does not fabricate a higher route", async () => {
-  const { spawn } = await import("./support/spawn");
-  writeFileSync(log, "");
-  let interrupts = 0;
-  const queryFn: any = () => ({
-    interrupt: async () => { interrupts++; },
-    async *[Symbol.asyncIterator]() {
-      for (let i = 0; i < 3; i++) {
-        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `u${i}`, name: "Bash", input: { i } }] } };
-        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `u${i}`, is_error: true }] } };
-      }
-      yield { type: "result", subtype: "success", result: "must not reach", duration_ms: 1, num_turns: 4 };
-    },
-  });
-
-  await spawn({ prompt: "unsupported escalation", agentId: "test-escalation-unsupported",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "openai", escalate: true, queryFn });
-
-  const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-escalation-unsupported outcome provider_escalation_unsupported");
-  expect(logged).toContain("tell agent:test-escalation-unsupported model gpt-5.6-sol");
-  expect(logged).toContain("tell agent:test-escalation-unsupported effort high");
-  expect(logged).not.toContain("tell agent:test-escalation-unsupported model sonnet");
-  expect(logged).not.toContain("tell agent:test-escalation-unsupported effort medium");
-  expect(logged).not.toContain("tell agent:test-escalation-unsupported effort xhigh");
-  expect(logged).not.toContain("tell @swarm agent_death");
-  expect(interrupts).toBe(1);
-});
-
-test("a failed effort escalation records the applied model and interrupts before death", async () => {
-  const { spawn } = await import("./support/spawn");
-  writeFileSync(log, "");
-  const effortFailure = new Error("effort control rejected");
-  let interrupts = 0;
-  const queryFn: any = () => ({
-    setModel: async () => {},
-    applyFlagSettings: async () => { throw effortFailure; },
-    interrupt: async () => { interrupts++; },
-    async *[Symbol.asyncIterator]() {
-      for (let i = 0; i < 3; i++) {
-        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `p${i}`, name: "Bash", input: { i } }] } };
-        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `p${i}`, is_error: true }] } };
-      }
-      yield { type: "result", subtype: "success", result: "must not reach", duration_ms: 1, num_turns: 4 };
-    },
-  });
-
-  await spawn({ prompt: "partial escalation", agentId: "test-escalation-partial",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic", escalate: true, queryFn });
-
-  const logged = readFileSync(log, "utf8");
-  expect(interrupts).toBe(1);
-  expect(logged).toContain("tell agent:test-escalation-partial model claude-opus-4-8");
-  expect(logged).toContain("tell agent:test-escalation-partial effort high");
-  expect(logged).not.toContain("tell agent:test-escalation-partial effort xhigh");
-  expect(logged).toContain("tell agent:test-escalation-partial outcome died");
-  expect(logged).toContain("effort control rejected");
-});
-
-test("the escalation ceiling interrupts the active child before reporting completion", async () => {
-  const { spawn } = await import("./support/spawn");
-  writeFileSync(log, "");
-  process.env.NORTH_FABLE_NOW = "2026-07-20T04:00:00Z";
-  let interrupts = 0;
-  const models: string[] = [];
-  const queryFn: any = () => ({
-    setModel: async (model: string) => { models.push(model); },
-    applyFlagSettings: async () => {},
-    interrupt: async () => { interrupts++; },
-    async *[Symbol.asyncIterator]() {
-      for (let i = 0; i < 6; i++) {
-        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `c${i}`, name: "Bash", input: { i } }] } };
-        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `c${i}`, is_error: true }] } };
-      }
-      yield { type: "result", subtype: "success", result: "must not reach", duration_ms: 1, num_turns: 7 };
-    },
-  });
-
-  await spawn({ prompt: "reach escalation ceiling", agentId: "test-escalation-ceiling",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic", escalate: true, queryFn });
-
-  const logged = readFileSync(log, "utf8");
-  expect(models).toEqual(["claude-opus-4-8"]);
-  expect(interrupts).toBe(1);
-  expect(logged).toContain("tell agent:test-escalation-ceiling effort xhigh");
-  expect(logged).toContain("tell agent:test-escalation-ceiling outcome struggle_ceiling");
-  expect(logged).not.toContain("tell @swarm agent_death");
-});
-
-test("preset-hydrated Anthropic frontier promotes to Fable without losing requested reasoning", async () => {
-  const { spawn } = await import("./support/spawn");
-  writeFileSync(log, "");
-  process.env.NORTH_FABLE_NOW = "2026-07-19T00:00:00Z";
-  let queryOptions: any;
-  const queryFn: any = (args: any) => {
-    queryOptions = args.options;
-    return (async function* () {
-      yield { type: "result", subtype: "success", result: "frontier", duration_ms: 1, num_turns: 1 };
-    })();
-  };
-
-  await spawn({
-    prompt: "frontier preset", agentId: "test-fable-designer",
-    role: "designer", routingMetadata: presetRequest("designer"), provider: "anthropic", queryFn,
-  });
-
-  expect(queryOptions.model).toBe("claude-fable-5");
-  expect(queryOptions.effort).toBe("xhigh");
-  const logged = await waitForLog("requested_reasoning xhigh");
-  expect(logged).toContain("requested_role designer");
-  expect(logged).toContain("routing_tier frontier");
-  expect(logged).toContain("effort xhigh");
+  const logged = await waitForLog("struggle consecutive_errors");
+  expect(logged).toContain("struggle consecutive_errors");
+  console.log(`[bar-evidence] ${logged.split("\n").find((l) => l.includes("struggle consecutive_errors"))}`);
+  // The run still finished normally at its original route — no ladder climb.
+  expect(modelChanged).toBe(false);
+  expect(logged).toContain("tell agent:test-struggle-lane model claude-opus-4-8");
+  expect(logged).not.toContain("outcome provider_escalation_unsupported");
 });

@@ -16,11 +16,7 @@ import {
   userAnchoredPath,
 } from "./identity";
 import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
-import { makeStruggleState, updateStruggle, checkStruggle, resetStruggle } from "./struggle";
-import {
-  activeLadder, tierIndexOf, decideEscalation, escalateInFlight,
-  type AppliedEscalationRoute,
-} from "./ladder";
+import { makeStruggleState, updateStruggle, checkStruggle, type StruggleTrigger } from "./struggle";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
@@ -34,7 +30,7 @@ import {
 } from "./clock";
 import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
-  ProviderEscalationUnsupportedError, ProviderRetrySafeError,
+  ProviderRetrySafeError,
   type ProviderAuthoritySurface, type ProviderPreference,
 } from "./providers";
 import { refreshCodexEntitlementsIfStale } from "./codex-entitlement";
@@ -75,7 +71,6 @@ export interface SpawnOptions {
   tools?: string[];
   systemPrompt?: string;
   maxTurns?: number;
-  escalate?: boolean; // escalate-not-kill: climb the ladder on struggle instead of stopping
   /** Equality-only compatibility alias; routingMetadata remains authoritative. */
   role?: string;
   posture?: string;
@@ -105,7 +100,7 @@ interface SpawnRuntime {
 
 const SPAWN_OPTION_FIELDS = new Set([
   "prompt", "agentId", "model", "effort", "tools", "systemPrompt", "maxTurns",
-  "escalate", "role", "posture", "thread", "caveman", "coordinator", "provider",
+  "role", "posture", "thread", "caveman", "coordinator", "provider",
   "target", "tier", "routingMetadata", "project", "sessionId", "worktree", "setupCmd",
 ]);
 
@@ -273,34 +268,26 @@ async function runSpawn(
     ...liveInputRoute.initialProjection(),
     effort: opts.effort,
   });
-  const escalate = opts.escalate ?? process.env.AGENT_ESCALATE === "1";
-  // escalate-not-kill (thread 019f1194-ca57): a struggling agent climbs the LADDER
-  // in-flight (setModel on the live streaming-input query) instead of being killed at
-  // a turn cap. Opt-in via opts.escalate / AGENT_ESCALATE; off => behaves as before.
-  // Snapshot the active ladder once per run (includes the Fable rung iff the window is
-  // open); tier indices below resolve against THIS array, matching decideEscalation.
-  let ladder = activeLadder(routing.provider);
-  let tier = escalate ? tierIndexOf(routing.provider, opts.model, opts.effort, ladder) : -1; // -1 = fixed model (legacy)
-  const rung = () => (tier >= 0 ? ladder[tier] : { model: opts.model, effort: opts.effort });
-  let acceptedModel = opts.model;
-  let acceptedEffort = opts.effort;
   const activeRoute = () => ({
     provider: routing.provider,
     providerTarget: routing.target,
     liveInput: providerLiveInput(routing.provider),
-    model: routing.resolvedModel ?? acceptedModel,
-    effort: routing.resolvedEffort ?? acceptedEffort,
+    model: routing.resolvedModel ?? opts.model,
+    effort: routing.resolvedEffort ?? opts.effort,
   });
   const refreshIdentityRoute = (required = false) => {
     liveInputRoute.refresh(activeRoute(), required);
   };
   const st = makeStruggleState();
+  // Harness-observed struggle sensors run on EVERY spawn now (in-flight escalation
+  // retired). A fired sensor leaves a stderr breadcrumb once per reason and a terminal
+  // `struggle <reason>` run fact — execution-axis evidence for D2 diagnosis, not a model swap.
+  const firedTriggers = new Set<StruggleTrigger>();
 
-  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})${escalate ? ` (escalate from ${acceptedModel}/${acceptedEffort})` : ""}`);
+  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
 
   let result = "", resultMsg: any = null, outcome = "ran";
   const terminalMessages: any[] = [];
-  const escalations: Array<{ from: string; to: string; reason: string }> = [];
   const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
 
   let injectedCompositionEvidence: HarnessCompositionEvidence | undefined;
@@ -323,22 +310,9 @@ async function runSpawn(
         liveInput: authority.liveInput,
       });
       admittedRoute = { provider: authority.provider, evidence, authority };
-      acceptedModel = routing.resolvedModel ?? acceptedModel;
-      const admittedEffort = routing.resolvedEffort as Effort | undefined;
-      acceptedEffort = admittedEffort ?? acceptedEffort;
-      if (escalate) {
-        ladder = activeLadder(routing.provider);
-        tier = tierIndexOf(
-          routing.provider, routing.resolvedModel, admittedEffort, ladder,
-        );
-      }
       console.log(`[spawn] effective authority: ${formatProviderAuthoritySurface(authority)}`);
     },
   ));
-  const noteAppliedEscalation = (route: AppliedEscalationRoute) => {
-    if (route.model !== undefined) acceptedModel = route.model;
-    if (route.effort !== undefined) acceptedEffort = route.effort;
-  };
   let q: AgentQuery | undefined;
   let queryInterrupted = false;
   const interruptQuery = async () => {
@@ -374,6 +348,7 @@ async function runSpawn(
   const orchestrator = routingMetadata.topology === "orchestrator";
   const readChildSettlement = injected.childSettlementReader ?? settleChildren;
   let childContinuation = initialChildContinuationState();
+  let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   try {
   // Reserve only at the last pre-provider seam. Earlier routing/admission
   // failures must not strand undiscoverable reservation-only subjects.
@@ -395,10 +370,9 @@ async function runSpawn(
   const agentOptions = harnessOptions({
     self: agentId,
     extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
-    model: rung().model, effort: rung().effort,
+    model: opts.model, effort: opts.effort,
     provider: routing.provider,
     routingMetadata,
-    omitModelDeltaReason: escalate ? "cross_model_escalation_enabled" : undefined,
     // Worktree lane: run tools IN the worktree (cwd) and append the
     // isolation+landing+verify protocol to the prompt. Composed HERE so
     // harness.ts stays a thin cwd knob.
@@ -433,39 +407,21 @@ async function runSpawn(
     // Refresh from that structured decision before the event is exposed.
     refreshIdentityRoute();
     stream.writeSDKMessage(msg);
+    if (msg.type === "system" && msg.subtype === "compact_boundary") {
+      compactions++;
+      console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
+    }
     if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
 
-    if (escalate) {
-      updateStruggle(msg, st);
-      const trigger = checkStruggle(st);
-      if (trigger) {
-        const d = decideEscalation(tier, ladder);
-        if (d.kind === "escalate") {
-          const from = `${rung().model}/${rung().effort}`;
-          try {
-            await escalateInFlight(routing.provider, activeQuery, ch, ladder[d.toTier], trigger, noteAppliedEscalation);
-          } catch (err) {
-            // setModel and effort are two provider controls, not an atomic API.
-            // Project any successful first control before preserving the second
-            // control's real error, then terminate the still-live child.
-            refreshIdentityRoute();
-            await interruptQuery();
-            if (err instanceof ProviderEscalationUnsupportedError) {
-              end("provider_escalation_unsupported");
-              break;
-            }
-            throw err;
-          }
-          tier = d.toTier;
-          refreshIdentityRoute();
-          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: trigger });
-          resetStruggle(st);
-          continue; // same loop, smarter tier
-        }
-        end(d.kind);
-        await interruptQuery();
-        break;
-      }
+    // Struggle sensors are OBSERVE-ONLY now: fold the message, and on the first
+    // occurrence of each trigger leave a stderr breadcrumb. The run does NOT change
+    // route or terminate — the accumulated triggers become terminal `struggle` run
+    // facts below, feeding D2's execution-axis diagnosis without any in-flight swap.
+    updateStruggle(msg, st);
+    const trigger = checkStruggle(st);
+    if (trigger && !firedTriggers.has(trigger)) {
+      firedTriggers.add(trigger);
+      console.error(`[struggle] @agent:${agentId} sensor fired: ${trigger} (turn ${st.turn}, ${st.totalErrors} tool error(s)) — recorded as execution-axis evidence, no in-flight change`);
     }
 
     if (msg.type === "result") {
@@ -491,28 +447,6 @@ async function runSpawn(
       if (providerError) {
         end("provider_error");
         break;
-      }
-      if (escalate && !result.trim()) { // terminal empty result -> escalate rather than give up
-        const d = decideEscalation(tier, ladder);
-        if (d.kind === "escalate") {
-          const from = `${rung().model}/${rung().effort}`;
-          try {
-            await escalateInFlight(routing.provider, activeQuery, ch, ladder[d.toTier], "empty_result", noteAppliedEscalation);
-          } catch (err) {
-            refreshIdentityRoute();
-            await interruptQuery();
-            if (err instanceof ProviderEscalationUnsupportedError) {
-              end("provider_escalation_unsupported");
-              break;
-            }
-            throw err;
-          }
-          tier = d.toTier;
-          refreshIdentityRoute();
-          escalations.push({ from, to: `${rung().model}/${rung().effort}`, reason: "empty_result" });
-          resetStruggle(st);
-          continue;
-        }
       }
       if (ch.pending() === 0) {
         // Refuse to exit while harness-tracked background tasks are live (thread 019f4ed2,
@@ -600,8 +534,11 @@ async function runSpawn(
       outcome = "resource_envelope_exceeded";
       console.error(`[envelope] @agent:${agentId} ${err.message}`);
     } else if (err instanceof ProviderRetrySafeError) {
-      outcome = "blocked_preflight";
-      console.error(`[preflight] @agent:${agentId} ${err.message}`);
+      // A spend-guard refusal carries its own terminal outcome; every other
+      // retry-safe preflight block stays blocked_preflight.
+      const carried = (err as { processOutcome?: unknown }).processOutcome;
+      outcome = typeof carried === "string" ? carried : "blocked_preflight";
+      console.error(`[${outcome}] @agent:${agentId} ${err.message}`);
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
@@ -758,11 +695,12 @@ async function runSpawn(
     ? resultMsg.num_turns
     // A retry-safe preflight block proves the provider accepted no turn. This
     // zero is North-observed; every other missing provider value stays absent.
-    : terminal.processOutcome === "blocked_preflight" ? 0 : undefined;
+    : terminal.processOutcome === "blocked_preflight"
+      || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
   const runPublication = await recordRun({
     thread: opts.thread ?? "(ad-hoc)", agent: agentId, posture: "spawn",
-    // Effective FINAL dial (rung() reflects any in-flight escalation); env-fallback
-    // mirrors the identity write so a bare AGENT_MODEL spawn is still attributed.
+    // Effective FINAL dial; env-fallback mirrors the identity write so a bare
+    // AGENT_MODEL spawn is still attributed.
     model: finalRoute.model,
     effort: finalRoute.effort,
     role: routingMetadata.role,
@@ -787,8 +725,10 @@ async function runSpawn(
     deliveryOutcome: terminal.deliveryOutcome, deliveryReason: terminal.deliveryReason,
     deliveryProof: terminal.deliveryProof,
     numTurns,
-    errorCount: st.totalErrors, escalationTier: tier,
-    escalations: escalations.length ? escalations : undefined,
+    compactions,
+    errorCount: st.totalErrors,
+    // Harness-observed execution-axis evidence for D2 (multi-valued: one per distinct sensor).
+    struggleTriggers: firedTriggers.size ? [...firedTriggers] : undefined,
   }, runId, publicationBudget.publicationTimeout(1));
   notifyTerminalSettlement(
     agentId,
@@ -803,7 +743,7 @@ async function runSpawn(
     publicationBudget.notificationTimeout(),
   );
   console.log(`[spawn] @agent:${agentId} complete (process=${outcome}, delivery=${terminal.deliveryOutcome}` +
-    `${escalations.length ? `, ${escalations.length} escalation(s) -> ${rung().model}/${rung().effort}` : ""})`);
+    `${firedTriggers.size ? `, struggle: ${[...firedTriggers].join(",")}` : ""})`);
   return result;
 }
 

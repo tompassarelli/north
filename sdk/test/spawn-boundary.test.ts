@@ -31,7 +31,7 @@ function readySubscription(stop: () => void = () => {}) {
 // harness emits routes nowhere real, even if a future edit lets a write escape the fake.
 const MANAGED_ENV = [
   "PATH", "NORTH_BIN", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
-  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
+  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_TOPOLOGY", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_PROVIDER_OBSERVATIONS", "NORTH_ALLOCATION_MODE", "NORTH_PROVIDER_ORDER",
   "NORTH_PROVIDER_WEIGHTS", "NORTH_RESERVED_FRONTIER_PROVIDER",
@@ -71,6 +71,11 @@ beforeAll(() => {
   delete process.env.NORTH_OPENAI_ENTITLEMENT_PRESSURE;
 
   // Scrub inherited identity so a test spawn cannot adopt the invoking session's id/coordinator.
+  // AGENT_TOPOLOGY in particular: a managed worker lane exports topology=worker, and library
+  // spawn() asserts coordination authority against ambient AGENT_TOPOLOGY — so an unscrubbed
+  // worker topology would make every spawn here throw NORTH_TOPOLOGY_AUTHORITY_DENIED instead
+  // of exercising the death boundary. These tests are the top-level caller: no ambient topology.
+  delete process.env.AGENT_TOPOLOGY;
   delete process.env.AGENT_ID;
   delete process.env.NORTH_AGENT_ID;
   delete process.env.AGENT_MODEL;

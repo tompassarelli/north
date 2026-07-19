@@ -18,9 +18,16 @@ import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { withFileLease } from "./file-lease";
 import type { RoutingTarget } from "./providers/types";
+import { providerBilling, checkSpendBudget, spendBudgetEntityId } from "./spend-guard";
 
 export type AccountProvider = "anthropic" | "openai";
-export type AccountAuthState = "logged-in" | "not-logged-in" | "unavailable" | "error";
+export type AccountAuthState =
+  | "logged-in"
+  | "not-logged-in"
+  | "auth-required"
+  | "unverifiable"
+  | "unavailable"
+  | "error";
 
 export interface ProviderAccount {
   id: string;
@@ -245,6 +252,22 @@ export async function addProviderAccount(
   context: AccountContext = {},
 ): Promise<ProviderAccount> {
   assertSafeAccountId(id);
+  // Config-time fail-closed (design §2): an API-billed provider target cannot be
+  // configured unguarded — a complete `@spend-budget:<id>` must exist first, so
+  // an API target structurally cannot come into being without a budget. Runs
+  // before assertProvider so an API-billed id is refused on the budget ground,
+  // not merely the subscription-only allowlist. (Subscription providers skip
+  // this O(1).)
+  if (providerBilling(providerInput) === "api-billed") {
+    const verdict = checkSpendBudget(id);
+    if (!verdict.ok)
+      throw new Error(
+        `refusing to add API-billed provider '${providerInput}' target '${id}' without a complete spend budget `
+        + `(${verdict.reason}). Create it first: north spend init ${id} --cap-usd … --envelope-default-usd … `
+        + `--envelope-max-usd … --burn-limit-usd-hr … --i-confirm-layer1 "prepaid, auto-topup off, <date>" `
+        + `(then set price facts on @${spendBudgetEntityId(id)}).`,
+      );
+  }
   assertProvider(providerInput);
   const path = routingPolicyPath(context);
   return withFileLease(`${path}.lock`, async () => {
@@ -436,4 +459,60 @@ export function statusProviderAccount(account: ProviderAccount, context: Account
   if (result.status === 0 && statusLines.includes("Logged in using ChatGPT")) return "logged-in";
   if (statusLines.includes("Not logged in")) return "not-logged-in";
   return "error";
+}
+
+/**
+ * Verify Codex authentication against ChatGPT without sending a model turn.
+ * A successful rate-limit RPC is sufficient even when its usage schema is not.
+ */
+export async function liveCodexAuthState(
+  target: RoutingTarget | undefined,
+  context: AccountContext = {},
+  readEntitlement?: (options: {
+    target?: RoutingTarget;
+    targetId?: string;
+    env?: NodeJS.ProcessEnv;
+    timeoutMs?: number;
+  }) => Promise<unknown>,
+): Promise<AccountAuthState> {
+  try {
+    const entitlement = await import("./codex-entitlement");
+    const read = readEntitlement ?? entitlement.readCodexEntitlementObservation;
+    await read({
+      target,
+      targetId: target?.id,
+      env: { ...(context.env ?? process.env), HOME: homeOf(context) },
+      timeoutMs: entitlement.CODEX_USAGE_PROBE_TIMEOUT_MS,
+    });
+    return "logged-in";
+  } catch (error) {
+    const reason = error instanceof Error && "reason" in error
+      ? (error as Error & { reason?: unknown }).reason
+      : undefined;
+    switch (reason) {
+      case "codex_usage_subscription_auth_required": return "auth-required";
+      case "codex_usage_command_unavailable": return "unavailable";
+      case "codex_usage_probe_failed":
+      case "codex_usage_probe_timed_out":
+      case "codex_usage_transport_failed": return "unverifiable";
+      // These failures occur only after account/rateLimits/read returned a
+      // successful live response, which is the authentication signal here.
+      case "codex_usage_response_schema_changed":
+      case "codex_usage_windows_unavailable": return "logged-in";
+      default: return "error";
+    }
+  }
+}
+
+export async function liveStatusProviderAccount(
+  account: ProviderAccount,
+  context: AccountContext = {},
+): Promise<AccountAuthState> {
+  if (account.provider === "anthropic") return statusProviderAccount(account, context);
+  return liveCodexAuthState({
+    id: account.id,
+    provider: account.provider,
+    authMode: account.authMode,
+    profile: account.profile,
+  }, context);
 }

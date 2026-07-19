@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { spawn as spawnChild } from "node:child_process";
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync,
@@ -10,6 +10,14 @@ import { ProviderRetrySafeError } from "../src/providers";
 import { harnessOptions } from "../src/harness";
 import { applyGafferStaffing } from "../src/gaffer-staffing";
 import { providerEnvironmentForTarget } from "../src/accounts";
+import { scrubAmbientGraphEnv } from "./support/managed-env";
+
+// When this suite runs inside a managed north lane, the ambient graph identity
+// (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
+// env whitelist and leaks into the compiled Codex MCP args, breaking the exact
+// hermetic env assertion below. Scrub the inherited pollution around every test;
+// each test that needs specific graph state sets it explicitly afterward.
+let restoreGraphEnv: (() => void) | undefined;
 
 const savedBin = process.env.NORTH_CODEX_BIN;
 const savedHome = process.env.HOME;
@@ -40,7 +48,12 @@ const codexSuccess = (
   ...middle,
   codexTerminal(usage),
 ];
+beforeEach(() => {
+  restoreGraphEnv = scrubAmbientGraphEnv();
+});
 afterEach(() => {
+  restoreGraphEnv?.();
+  restoreGraphEnv = undefined;
   if (savedBin === undefined) delete process.env.NORTH_CODEX_BIN;
   else process.env.NORTH_CODEX_BIN = savedBin;
   if (savedHome === undefined) delete process.env.HOME;

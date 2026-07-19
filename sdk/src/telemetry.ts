@@ -1,7 +1,7 @@
 // Telemetry auto-capture — write each agent run's tuple as facts so the system
 // has a queryable feedback loop (calibrate estimates against actuals, see who ran
 // what and with how many observed tokens). Records to a dedicated
-// `run-<agent>-<ts>` subject that has
+// `run:<agent>-<uuid>` subject that has
 // NO title, so runs never show up as threads on the board — they're queryable via
 // fram, invisible to the work views. Terminal publication is bounded and
 // non-throwing: callers wait for its settlement before waking a coordinator,
@@ -16,6 +16,7 @@ import type { HarnessCompositionEvidence } from "./harness";
 import { GAFFER_CAPABILITIES } from "./gaffer-capabilities";
 import type { DeliveryProof } from "./delivery-verification";
 import type { ProviderAuthoritySurface } from "./providers";
+import { providerBilling, settleSpend } from "./spend-guard";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
@@ -68,9 +69,24 @@ export interface RunRecord {
   // Option A yields ONE @run row per spawn with an internal escalation chain, NOT one
   // row per tier (north-reconcile.clj queries adapt in lockstep — follow-up).
   numTurns?: number; // SDKResultMessage.num_turns (was dropped before)
+  compactions?: number; // count of SDK compact_boundary events observed this run (audit fix 4)
   errorCount?: number; // tool_result errors this run
+  // Harness-observed struggle sensors that fired this run (escalation-arch D2/D5):
+  // consecutive_errors | tool_loop | no_progress. Multi-valued execution-axis evidence.
+  struggleTriggers?: string[];
+  // Legacy in-flight escalation fields — the machinery is retired; these stay so
+  // historical @run rows (escalation_* facts, routing-report escalated column) keep
+  // reading. No current producer sets them.
   escalationTier?: number; // final ladder tier (omit / <0 = escalation off)
   escalations?: Array<{ from: string; to: string; reason: string }>;
+  // Spend guard (build-order step 2). Present only on an API-billed run that
+  // carried a reservation from admission. No producer sets these until the first
+  // API adapter lands (step 4) and threads the reservation from admission through
+  // to the terminal record; the settlement below is dormant until then. The
+  // reaper's dead-lane settlement is a separate step-3 seam. Micro-USD integers.
+  spendTarget?: string;
+  spendPeriod?: string;
+  spendReservationMicrousd?: number;
 }
 
 export type RunPublicationStatus = "recorded" | "unavailable";
@@ -232,8 +248,19 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       if (delta.reason) facts.push(["model_delta_reason", delta.reason]);
     }
   }
+  if (rec.spendTarget && rec.spendReservationMicrousd != null) {
+    // spend_evidence mirrors the settlement rule: exact terminal token usage
+    // will settle DOWN; anything else keeps the worst-case reservation.
+    const exactSpend = rec.tokenUsage?.totalStatus === "exact";
+    facts.push(["spend_target", rec.spendTarget]);
+    facts.push(["spend_envelope_microusd", String(rec.spendReservationMicrousd)]);
+    facts.push(["spend_reserved_microusd", String(rec.spendReservationMicrousd)]);
+    facts.push(["spend_evidence", exactSpend ? "exact" : "reserved-worst-case"]);
+  }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
+  if (rec.compactions) facts.push(["compactions", String(rec.compactions)]);
   if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);
+  for (const reason of rec.struggleTriggers ?? []) facts.push(["struggle", reason]);
   if (rec.escalationTier != null && rec.escalationTier >= 0)
     facts.push(["escalation_tier", String(rec.escalationTier)]);
   if (rec.escalations && rec.escalations.length) {
@@ -259,6 +286,22 @@ export function recordRun(
       }`,
     );
     return Promise.resolve("unavailable");
+  }
+  // Terminal settlement of an API-billed reservation (spend-guard step 3).
+  // Dormant until the spend fields are set; subscription runs never reach the
+  // CAS. Never fails a run.
+  if (rec.spendTarget && rec.spendPeriod && rec.spendReservationMicrousd != null
+      && rec.provider && providerBilling(rec.provider) === "api-billed") {
+    try {
+      settleSpend({
+        target: rec.spendTarget,
+        period: rec.spendPeriod,
+        reservedMicrousd: rec.spendReservationMicrousd,
+        status: rec.tokenUsage?.totalStatus === "exact" ? "exact" : "unknown",
+        inputTokens: rec.tokenUsage?.inputTokens,
+        outputTokens: rec.tokenUsage?.outputTokens,
+      });
+    } catch { /* never fail a run on settlement */ }
   }
   return new Promise((resolvePublication) => {
     let resolved = false;
@@ -300,15 +343,37 @@ export function recordRun(
         process.env.NORTH_PORT ?? "7977",
         id,
         JSON.stringify(facts),
-      ], { timeout: Math.max(1, Math.floor(timeoutMs)) }, (error) => {
+      ], { timeout: Math.max(1, Math.floor(timeoutMs)) }, (error, _stdout, stderr) => {
+        // Bounded and non-throwing, but NOT silent: a swallowed writer rejection
+        // hid a 3-day telemetry outage (2026-07-17). A failed terminal write
+        // leaves the run's tokens/outcome/duration unrecorded, so leave a loud
+        // stderr breadcrumb — never a throw; the run's real result stands.
+        if (error) {
+          const detail = (stderr && String(stderr).trim()) || error.message;
+          process.stderr.write(
+            "[telemetry] recordRun write FAILED for " + id + ": " + detail + "\n",
+          );
+        }
         settle(error ? "unavailable" : "recorded");
       });
-    } catch {
+    } catch (error) {
+      // execFile can throw synchronously (e.g. bb missing) before the callback.
+      process.stderr.write(
+        "[telemetry] recordRun could not spawn writer for " + id + ": " + String(error) + "\n",
+      );
       settle("unavailable");
     }
   });
 }
 
 export function newRunId(agent: string): string {
-  return `run-${agent}-${randomUUID()}`;
+  // `@run:` (colon), NOT `@run-`: the coordinator log-split routes a subject to
+  // telemetry.log by its stored `kind` OR, kind-less, the token before its first
+  // colon (fram coord_daemon subject-token). A run's body facts are written
+  // BEFORE the terminal `kind run` commit marker, so during that window the
+  // subject is kind-less; a dash id has no colon -> token nil -> the body facts
+  // misroute to coordination.log (regression 2026-07-17). The colon puts `run`
+  // in the token so every run-scoped write lands in telemetry.log immediately,
+  // matching the @session:/@mine:/@guard_denial: telemetry-subject convention.
+  return `run:${agent}-${randomUUID()}`;
 }

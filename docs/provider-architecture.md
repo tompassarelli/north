@@ -171,6 +171,96 @@ On a cross-provider fallback, North resolves the same semantic tier again throug
 the new provider's catalog before invocation. Once execution may have produced a
 side effect, the failure is surfaced instead of replaying the task.
 
+## Spend guard
+
+Providers are billed one of two ways. `anthropic` and `openai` draw on a
+subscription entitlement pool; every other provider id is API-billed per token.
+Billing class is derived from a single authoritative allowlist and is fail-closed
+by construction: only the allowlist is subscription, so an unknown or malformed
+provider id is API-billed — unknown means guarded, never unguarded.
+
+An API-billed target is structurally inert unless a complete, readable
+`@spend-budget:<target>` entity exists for it, carrying at minimum
+`budget_cap_microusd`, `budget_period`, `lane_envelope_default_microusd`,
+`lane_envelope_max_microusd`, `burn_limit_microusd_per_hour`, and
+`layer1_confirmed`. A missing entity, a missing or ambiguous predicate, a
+malformed micro-USD amount, or a ledger read failure all refuse: an unreadable
+ledger is never treated as headroom.
+
+The guard binds at two seams. At routing eligibility, an API-billed target
+without a complete budget is ineligible exactly like an exhausted target, so
+auto-route flows past it to a subscription sibling; an exact pin has no sibling
+and fails at admission. At admission, `admitExecution` refuses an API-billed
+target whose budget check has not passed, as defense in depth against a direct
+adapter call. That refusal is `SpendGuardError` with the distinct code and
+terminal outcome `blocked_spend_guard` — kept queryable in run evidence rather
+than conflated with `blocked_preflight`. Because it is retry-safe before
+acceptance, an auto-routed spawn degrades to subscription work instead of
+failing.
+
+Subscription targets never touch this path beyond an O(1) classification branch:
+they read no ledger and incur no new admission cost. The guard ships ahead of any
+API-billed provider, inverting the risk order so the capability cannot exist
+unguarded.
+
+### Budget ledger and worst-case reservation
+
+Admission-gating money is coordination state, so the ledger lives on the
+coordination log. `@spend-budget:<target>` carries the config above plus
+per-model-family `price_in_per_mtok` / `price_out_per_mtok` (micro-USD per Mtok,
+human-maintained). Per-period counters live on `@spend-period:<target>:<yyyy-MM>`
+as two single-valued predicates, `reserved_microusd` and `settled_microusd`.
+Every amount is a micro-USD integer — no float drift in the fact log.
+
+`reserved_microusd` and `settled_microusd` MUST be declared cardinality `single`
+before first use (a multi-valued counter silently never advances — the earliest
+coexist-elect is returned instead of the latest write). `north spend init`
+declares that schema, and every reservation fails closed if the declaration is
+absent.
+
+Reservation is a read-check-commit CAS loop, never a bare read-then-tell (the
+documented lost-update path). The loop captures the coordinator's global version
+as its base, reads the counters, enforces the cap **inside** the loop
+(`reserved + settled + envelope ≤ cap + unexpired overrides`), then commits the
+new `reserved_microusd` with `:assert-at-version` against that base. A concurrent
+counter write moves the base and the commit is rejected `:conflict`; the loop
+re-reads and retries, bounded at 16. Two reservers contending for headroom
+sufficient for only one cannot both win: exactly one commits, the other re-reads
+a depleted counter and is refused. The ledger total can never exceed the cap.
+Missing prices, a missing schema declaration, an over-cap counter, exhausted
+retries, or an unreachable ledger all fail closed to `blocked_spend_guard`.
+
+The reservation IS the charge until a terminal settlement proves it cheaper.
+Settlement runs at the run's terminal telemetry seam: with exact token evidence
+and fresh prices it settles the reservation DOWN to `tokens × price`, releasing
+the remainder (`reserved_microusd -= envelope`, `settled_microusd += actual`).
+Unknown or lower-bound coverage — including a lane that died unreported — keeps
+the full reservation as the final charge (`spend_evidence reserved-worst-case`):
+unknown never becomes cheap, mirroring the token-truth doctrine. Settlement
+increments `settled_microusd` before decrementing `reserved_microusd` so a
+concurrent reader never transiently sees more headroom than exists.
+
+### `north spend` and overrides
+
+`north spend init <target>` declares the counter schema and creates the budget
+entity; it refuses without every parameter and a `--i-confirm-layer1` statement
+(auto-top-up off is the balance-independent safety floor). `north spend status
+[target]` prints the budget, period counters, unexpired override headroom, and
+the coordinator subjects it read. `north spend override <target> --add-usd N
+--until <iso8601> --reason "…"` records a time-boxed `spend_override` fact
+honored in the headroom calculation; expiry is mandatory and capped at 48h,
+reason is mandatory, and an expired override is ignored. There is no env-var
+bypass — env inherits into child lanes.
+
+### Deferred to later build-order steps
+
+The circuit breaker + human reset, the reactor burn-rate sweep and sweep-kill,
+the reaper's dead-lane settlement, per-turn parent-adapter accumulation, and
+reconciliation are later steps. The reservation-carrying plumbing from admission
+through to the terminal record lands with the first API adapter (no producer
+sets the run's spend fields until then, so terminal settlement is dormant but
+wired).
+
 ## Identity and routing evidence
 
 The active route is visible in both live agent identity and immutable run facts.
@@ -277,3 +367,19 @@ invoking Fram's coordinator protocol directly, opening North's sockets, or
 editing user-owned state. Those are unsupported integrity violations and may be
 detected by audit/validation; North does not claim to make them impossible.
 Hostile-code isolation requires an OS/container boundary outside this harness.
+
+## Dispatch judgment grade
+
+`north dispatch` warns (teach, never block) when a committed thread carries no
+`judgment_grade` fact. The grade is the DISPATCHER's coarse S/M/L estimate of
+judgment saturation — how many independent decision points the work is expected
+to cross — set with `north tell @<thread> judgment_grade s|m|l`. Bands:
+
+- **S** — ≤3 expected decision points
+- **M** — 4–11 expected decision points
+- **L** — ≥12 expected decision points
+
+The threshold detector (build-order step 5) trips when observed judgment events
+exceed `k × ceiling(grade)`, with **k = 1.5** default. Bands and `k` are v1
+constants, env-overridable later; the trip check itself is not built yet.
+`judgment_grade` is a single-valued coordination-log predicate (re-tell replaces).

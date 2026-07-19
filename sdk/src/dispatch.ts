@@ -175,6 +175,14 @@ async function runDispatch(
     console.log(`[dispatch] ⚠ @${threadId} committed but has NO done_when — worker will define its own done bar as first act`);
   }
 
+  // Judgment grade (escalation-arch step 3): S/M/L estimate of judgment saturation is the
+  // DISPATCHER's call, not the worker's — it feeds the threshold detector, fable gate, and
+  // calibration report. Warn (teach, never block or inject) when a committed thread lacks it,
+  // mirroring the done_when warn above. Bands live in docs/provider-architecture.md.
+  if (posture.committed && !facts.some((f) => f.predicate === "judgment_grade")) {
+    console.log(`[dispatch] ⚠ @${threadId} committed but has NO judgment_grade — set s|m|l (S≤3 / M 4-11 / L≥12 expected decision points) so the detector can calibrate`);
+  }
+
   if (posture.hasOutcome) {
     return { threadId, posture: "atomic", result: "already done" };
   }
@@ -310,6 +318,7 @@ async function runDispatch(
     try { await q.interrupt?.(); } catch { /* cleanup must not replace the terminal outcome */ }
   };
 
+  let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) the generator THROWS exitError
   // here. catch -> outcome "died" + durable agent_death facts on this thread and @swarm;
@@ -385,6 +394,10 @@ async function runDispatch(
       renewHarnessPresence(agentOptions);
       refreshIdentityRoute();
       stream.writeSDKMessage(msg);
+      if (msg.type === "system" && msg.subtype === "compact_boundary") {
+        compactions++;
+        console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
+      }
       if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
 
       if (msg.type === "result") {
@@ -499,8 +512,11 @@ async function runDispatch(
       outcome = "resource_envelope_exceeded";
       console.error(`[envelope] @agent:${agentId} ${err.message}`);
     } else if (err instanceof ProviderRetrySafeError) {
-      outcome = "blocked_preflight";
-      console.error(`[preflight] @agent:${agentId} ${err.message}`);
+      // A spend-guard refusal carries its own terminal outcome; every other
+      // retry-safe preflight block stays blocked_preflight.
+      const carried = (err as { processOutcome?: unknown }).processOutcome;
+      outcome = typeof carried === "string" ? carried : "blocked_preflight";
+      console.error(`[${outcome}] @agent:${agentId} ${err.message}`);
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
@@ -650,7 +666,8 @@ async function runDispatch(
     ? resultMsg.num_turns
     // A retry-safe preflight block proves the provider accepted no turn. This
     // zero is North-observed; every other missing provider value stays absent.
-    : terminal.processOutcome === "blocked_preflight" ? 0 : undefined;
+    : terminal.processOutcome === "blocked_preflight"
+      || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
   const runPublication = await recordRun({ thread: threadId, agent: agentId, tokenUsage,
               model: routing.resolvedModel ?? resolved.model, effort: routing.resolvedEffort ?? resolved.effort,
               role,
@@ -673,6 +690,7 @@ async function runDispatch(
               routingMetadata,
               promptComposition: admittedRoute?.evidence ?? injectedCompositionEvidence,
               effectiveAuthority: admittedRoute?.authority,
+              compactions,
               durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
               providerDurationMs: typeof resultMsg?.duration_ms === "number" ? resultMsg.duration_ms : undefined,
               posture: postureLabel, outcome,

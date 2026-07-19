@@ -1,8 +1,57 @@
 import { expect, test } from "bun:test";
-import { runFacts } from "../src/telemetry";
+import { newRunId, runFacts } from "../src/telemetry";
 import {
-  assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION,
+  assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
 } from "../src/delivery-verification";
+
+// Mirror of the fram coord_daemon log-split contract (coord_daemon.clj
+// subject-token + default-telemetry-kinds). A subject routes to telemetry.log
+// iff its stored `kind` OR — kind-less — the token before its first colon is in
+// this allow-list. A run's body facts are written BEFORE its `kind run` commit
+// marker, so during that window the run subject is kind-less and MUST carry a
+// colon token to route correctly. A dash-form `@run-…` id has no colon → token
+// undefined → its body facts misroute to coordination.log (the 2026-07-17
+// regression). This guards the id format so that never recurs.
+const TELEMETRY_KINDS = new Set(["run", "session", "mine", "guard_denial"]);
+function subjectToken(subject: string): string | undefined {
+  const s = subject.startsWith("@") ? subject : `@${subject}`;
+  const colon = s.indexOf(":");
+  return colon > 0 ? s.slice(1, colon) : undefined;
+}
+
+test("a minted run subject routes to telemetry.log before its kind marker lands", () => {
+  for (const agent of ["lane-abc123", "sdk-spawn-mrok0z6m-165cef51", "codex-work"]) {
+    const runId = newRunId(agent);
+    // kind-less window: routing falls back to the first-colon token, which must
+    // be an allow-listed telemetry kind or the body facts land in coordination.log.
+    const token = subjectToken(runId);
+    expect(token).toBe("run");
+    expect(TELEMETRY_KINDS.has(token as string)).toBe(true);
+    // and the id must still validate as a run entity (both `@run-`/`@run:` forms).
+    expect(validRunEntity(`@${runId}`)).toBe(true);
+  }
+});
+
+test("a completed run carries every mandatory terminal predicate", () => {
+  // The dark-telemetry symptom (2026-07-17..20) was @run subjects reduced to a
+  // lone `kind run`. A completed run MUST carry its terminal facts.
+  const facts = runFacts({
+    thread: "@2026-07-20-000000", agent: "lane-complete",
+    tokenUsage: {
+      inputTokens: 8794, outputTokens: 86323,
+      cacheCreateTokens: 165477, cacheReadTokens: 10047431,
+      total: 10308025, terminalCount: 1,
+      terminalScope: "anthropic_result_terminal", totalStatus: "exact",
+    },
+    durationMs: 2171896, posture: "spawn", outcome: "ran", processOutcome: "ran",
+  });
+  const predicates = new Set(facts.map(([predicate]) => predicate));
+  for (const mandatory of ["kind", "thread", "agent", "tokens", "duration_ms", "posture", "outcome", "at"]) {
+    expect(predicates.has(mandatory)).toBe(true);
+  }
+  expect(facts).toContainEqual(["tokens", "10308025"]);
+  expect(facts).toContainEqual(["outcome", "ran"]);
+});
 
 test("run telemetry is token- and routing-based with no price-derived fields", () => {
   expect(runFacts({

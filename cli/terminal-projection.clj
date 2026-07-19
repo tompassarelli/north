@@ -140,7 +140,9 @@
   (boolean
    (and (string? value)
         (<= (utf8-byte-count value) max-delivery-run-id-utf8-bytes)
-        (re-matches #"^@run-[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+        ;; accept both the legacy `@run-` (pre-2026-07-20 logs) and the
+        ;; telemetry-routable `@run:` id; see newRunId in sdk telemetry.ts.
+        (re-matches #"^@run[-:][A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
 
 (defn valid-agent-entity?
   [value]

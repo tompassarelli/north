@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { gatedTest } from "./support/capabilities";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -22,7 +23,7 @@ function checkout(): string {
   return path;
 }
 
-test("read-only shell preflight proves checkout denial and ephemeral tmp writes", async () => {
+gatedTest("user-namespace", "read-only shell preflight proves checkout denial and ephemeral tmp writes", async () => {
   const cwd = checkout();
   expect(preflightReadonlyShell(cwd).cwd).toBe(cwd);
   const forbidden = join(cwd, "must-not-land");
@@ -42,7 +43,7 @@ test("read-only shell preflight proves checkout denial and ephemeral tmp writes"
   expect(existsSync(forbidden)).toBe(false);
 });
 
-test("read-only shell preserves canonical home reads while denying home writes", async () => {
+gatedTest("user-namespace", "read-only shell preserves canonical home reads while denying home writes", async () => {
   const markerName = `.north-readonly-home-${randomUUID()}`;
   const marker = join(process.env.HOME!, markerName);
   const result = await runReadonlyShell(
@@ -95,7 +96,7 @@ test("seccomp program denies native socket, io_uring setup, and the x32 range", 
   }
 });
 
-test("read-only shell has no usable network namespace", async () => {
+gatedTest("user-namespace", "read-only shell has no usable network namespace", async () => {
   const result = await runReadonlyShell(
     "if exec 3<>/dev/tcp/127.0.0.1/7977 2>/dev/null; then exit 42; "
       + "else printf network-denied; fi",
@@ -106,7 +107,7 @@ test("read-only shell has no usable network namespace", async () => {
   expect(result.stdout).toBe("network-denied");
 });
 
-test("read-only shell denies io_uring setup", async () => {
+gatedTest("user-namespace", "read-only shell denies io_uring setup", async () => {
   const result = await runReadonlyShell(
     "perl -e 'my $r = syscall(425, 0, 0); "
       + "if ($r == -1 && $! == 1) { print \"io-uring-denied\"; exit 0 } exit 42'",
@@ -117,7 +118,7 @@ test("read-only shell denies io_uring setup", async () => {
   expect(result.stdout).toBe("io-uring-denied");
 });
 
-test("read-only shell cannot create a replacement user namespace", async () => {
+gatedTest("user-namespace", "read-only shell cannot create a replacement user namespace", async () => {
   const result = await runReadonlyShell(
     "if unshare --user --map-root-user true 2>/dev/null; then exit 42; "
       + "else printf userns-denied; fi",
@@ -128,7 +129,7 @@ test("read-only shell cannot create a replacement user namespace", async () => {
   expect(result.stdout).toBe("userns-denied");
 });
 
-test("read-only shell hides host D-Bus and Podman control sockets", async () => {
+gatedTest("user-namespace", "read-only shell hides host D-Bus and Podman control sockets", async () => {
   const uid = typeof process.getuid === "function" ? process.getuid() : 1000;
   const result = await runReadonlyShell(
     `test ! -e /run/user/${uid}/bus && printf dbus-hidden; `
@@ -140,7 +141,7 @@ test("read-only shell hides host D-Bus and Podman control sockets", async () => 
   expect(result.stdout).toBe("dbus-hiddenpodman-hidden");
 });
 
-test("read-only shell cannot connect to a visible host Unix socket outside /run", async () => {
+gatedTest("user-namespace", "read-only shell cannot connect to a visible host Unix socket outside /run", async () => {
   const cwd = checkout();
   const socketPath = join(cwd, "host-control.sock");
   let connections = 0;
@@ -167,7 +168,7 @@ test("read-only shell cannot connect to a visible host Unix socket outside /run"
   }
 });
 
-test("timeout kills the entire sandbox process group, including a background child", async () => {
+gatedTest("user-namespace", "timeout kills the entire sandbox process group, including a background child", async () => {
   const marker = `north-ro-child-${randomUUID()}`;
   const result = await runReadonlyShell(
     `bash --noprofile --norc -c 'sleep 60; wait' ${marker} & wait`,
@@ -181,7 +182,7 @@ test("timeout kills the entire sandbox process group, including a background chi
   expect(processes.split("\n").some((line) => line.includes(marker))).toBe(false);
 });
 
-test("combined output is bounded and overflow terminates the sandbox", async () => {
+gatedTest("user-namespace", "combined output is bounded and overflow terminates the sandbox", async () => {
   const result = await runReadonlyShell(
     "yes x | head -c 1100000",
     checkout(),
