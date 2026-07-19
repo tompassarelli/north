@@ -26,6 +26,7 @@ const BLOCKED_REASON: Record<string, string> = {
   orchestrator_children_incomplete: "orchestrator_children_live_at_terminal",
   child_reconciliation_unavailable: "orchestrator_child_reconciliation_unavailable",
   orchestrator_reduction_incomplete: "orchestrator_child_results_unreconciled",
+  orchestrator_child_set_inconsistent: "orchestrator_child_relation_regressed",
 };
 
 /**

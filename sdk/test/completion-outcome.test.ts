@@ -682,6 +682,153 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
   }
 });
 
+test("spawn and dispatch block a previously live child disappearing from the graph", async () => {
+  const { spawn } = await import("../src/spawn");
+  const { dispatch } = await import("../src/dispatch");
+
+  for (const surface of ["spawn", "dispatch"] as const) {
+    writeFileSync(log, "");
+    const agentId = `test-${surface}-child-set-shrink`;
+    const settlements = [
+      {
+        kind: "live" as const,
+        children: ["@agent:child-a"],
+        live: ["@agent:child-a"],
+      },
+      { kind: "settled" as const, children: [] },
+      { kind: "settled" as const, children: [] },
+    ];
+    let reads = 0;
+    const queryFn: any = ({ prompt }: any) => ({
+      async *[Symbol.asyncIterator]() {
+        const input = prompt[Symbol.asyncIterator]();
+        for (let i = 0; i < 2; i++) {
+          await input.next();
+          yield {
+            type: "result",
+            subtype: "success",
+            result: `provider-result-${i + 1}`,
+            duration_ms: i + 1,
+            num_turns: i + 1,
+          };
+        }
+      },
+    });
+    const childSettlementReader = () =>
+      settlements[Math.min(reads++, settlements.length - 1)]!;
+
+    if (surface === "spawn") {
+      await spawn({
+        prompt: "observe a live child before its graph edge disappears",
+        agentId,
+        role: "director",
+        queryFn,
+        childSettlementReader,
+      });
+    } else {
+      await dispatch(`thread-${agentId}`, {
+        agentId,
+        routingMetadata: { role: "director" },
+        claimDriver: (() => ({ release() {} })) as any,
+        queryFn,
+        loadThreadFacts: () => [
+          { predicate: "title", value: "Observe a disappearing child" },
+          { predicate: "planned", value: "true" },
+          { predicate: "atomic", value: "true" },
+        ],
+        loadChildren: () => [],
+        childSettlementReader,
+      });
+    }
+
+    expect(reads).toBe(3);
+    const lines = await settledRunLines(
+      agentId,
+      surface === "dispatch" ? "applied_domain_requirement_count 0" : "error_count 0",
+    );
+    expect(lines.some((line) =>
+      line.endsWith(" process_outcome orchestrator_child_set_inconsistent"),
+    )).toBe(true);
+    expect(lines.some((line) =>
+      line.endsWith(" delivery_reason orchestrator_child_relation_regressed"),
+    )).toBe(true);
+    expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(false);
+  }
+});
+
+test("spawn and dispatch final gates reject a child disappearing after reduction", async () => {
+  const { spawn } = await import("../src/spawn");
+  const { dispatch } = await import("../src/dispatch");
+
+  for (const surface of ["spawn", "dispatch"] as const) {
+    writeFileSync(log, "");
+    const agentId = `test-${surface}-child-set-final-race`;
+    const settlements = [
+      { kind: "settled" as const, children: ["@agent:child-a"] },
+      { kind: "settled" as const, children: ["@agent:child-a"] },
+      { kind: "settled" as const, children: [] },
+    ];
+    let reads = 0;
+    const seenInputs: string[] = [];
+    const queryFn: any = ({ prompt }: any) => ({
+      async *[Symbol.asyncIterator]() {
+        const input = prompt[Symbol.asyncIterator]();
+        for (let i = 0; i < 2; i++) {
+          const next = await input.next();
+          seenInputs.push(next.value.message.content);
+          yield {
+            type: "result",
+            subtype: "success",
+            result: `provider-result-${i + 1}`,
+            duration_ms: i + 1,
+            num_turns: i + 1,
+          };
+        }
+      },
+    });
+    const childSettlementReader = () =>
+      settlements[Math.min(reads++, settlements.length - 1)]!;
+
+    if (surface === "spawn") {
+      await spawn({
+        prompt: "reduce a child before its graph edge disappears",
+        agentId,
+        role: "director",
+        queryFn,
+        childSettlementReader,
+      });
+    } else {
+      await dispatch(`thread-${agentId}`, {
+        agentId,
+        routingMetadata: { role: "director" },
+        claimDriver: (() => ({ release() {} })) as any,
+        queryFn,
+        loadThreadFacts: () => [
+          { predicate: "title", value: "Exercise the post-reduction final race" },
+          { predicate: "planned", value: "true" },
+          { predicate: "atomic", value: "true" },
+        ],
+        loadChildren: () => [],
+        childSettlementReader,
+      });
+    }
+
+    expect(reads).toBe(3);
+    expect(seenInputs[1]).toContain("post-settlement reduction turn");
+    const lines = await settledRunLines(
+      agentId,
+      surface === "dispatch" ? "applied_domain_requirement_count 0" : "error_count 0",
+    );
+    expect(lines.some((line) =>
+      line.endsWith(" process_outcome orchestrator_child_set_inconsistent"),
+    )).toBe(true);
+    expect(lines.some((line) =>
+      line.endsWith(" delivery_reason orchestrator_child_relation_regressed"),
+    )).toBe(true);
+    expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(false);
+  }
+});
+
 test("spawn and dispatch final gates reject late live, unavailable, or unreduced settled state", async () => {
   const { spawn } = await import("../src/spawn");
   const { dispatch } = await import("../src/dispatch");
@@ -775,7 +922,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
       }
     }
   }
-});
+}, 15_000);
 
 test("dispatch abandons a failed reservation subject and publishes unverified telemetry on a fresh run", async () => {
   const { dispatch } = await import("../src/dispatch");

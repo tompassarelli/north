@@ -51,6 +51,7 @@ export type ChildSettlement =
   | { kind: "unavailable"; reason: string };
 
 export interface ChildContinuationState {
+  observedChildren: string[];
   liveSignature?: string;
   noProgress: number;
   pendingSettledSignature?: string;
@@ -76,8 +77,12 @@ export type ChildTurnEndDecision =
   | {
     action: "block";
     state: ChildContinuationState;
-    reason: "children_live_at_continuation_cap" | "child_reconciliation_unavailable";
+    reason:
+      | "children_live_at_continuation_cap"
+      | "child_reconciliation_unavailable"
+      | "child_set_regressed";
     live?: string[];
+    missing?: string[];
   };
 
 export type ChildFinalizationDecision =
@@ -87,18 +92,43 @@ export type ChildFinalizationDecision =
     outcome:
       | "orchestrator_children_incomplete"
       | "child_reconciliation_unavailable"
-      | "orchestrator_reduction_incomplete";
+      | "orchestrator_reduction_incomplete"
+      | "orchestrator_child_set_inconsistent";
     live?: string[];
     children?: string[];
+    missing?: string[];
     reason?: string;
   };
 
 export function initialChildContinuationState(): ChildContinuationState {
-  return { noProgress: 0 };
+  return { observedChildren: [], noProgress: 0 };
+}
+
+function canonicalChildren(children: string[]): string[] {
+  return [...new Set(children)].sort();
 }
 
 function setSignature(children: string[]): string {
-  return [...new Set(children)].sort().join("\u0000");
+  return canonicalChildren(children).join("\u0000");
+}
+
+function observeChildren(
+  previous: ChildContinuationState,
+  children: string[],
+): { state: ChildContinuationState; missing: string[] } {
+  const current = new Set(canonicalChildren(children));
+  const missing = previous.observedChildren.filter((child) => !current.has(child));
+  if (missing.length > 0) return { state: previous, missing };
+  return {
+    state: {
+      ...previous,
+      observedChildren: canonicalChildren([
+        ...previous.observedChildren,
+        ...children,
+      ]),
+    },
+    missing: [],
+  };
 }
 
 function afterSuccessfulProviderResult(
@@ -106,9 +136,9 @@ function afterSuccessfulProviderResult(
 ): ChildContinuationState {
   if (!previous.pendingSettledSignature) return previous;
   return {
-    noProgress: previous.noProgress,
-    liveSignature: previous.liveSignature,
+    ...previous,
     acknowledgedSettledSignature: previous.pendingSettledSignature,
+    pendingSettledSignature: undefined,
   };
 }
 
@@ -120,10 +150,25 @@ export function decideChildTurnEnd(
   if (!Number.isSafeInteger(cap) || cap < 0) {
     throw new Error("child continuation cap must be a non-negative safe integer");
   }
+  let observed = previous;
+  if (settlement.kind !== "unavailable") {
+    const observation = observeChildren(previous, settlement.children);
+    if (observation.missing.length > 0) {
+      return {
+        action: "block",
+        state: observation.state,
+        reason: "child_set_regressed",
+        missing: observation.missing,
+      };
+    }
+    observed = observation.state;
+  }
   // This function is called only after a successful provider result. Therefore
   // a pending settled signature can be acknowledged now: the provider has
   // completed the continuation that North injected for that exact child set.
-  const acknowledged = afterSuccessfulProviderResult(previous);
+  // The child observation above MUST happen first: a disappeared coordinator
+  // edge cannot acknowledge the reduction that was pending for that child.
+  const acknowledged = afterSuccessfulProviderResult(observed);
   if (settlement.kind === "settled") {
     if (settlement.children.length === 0) {
       return {
@@ -194,6 +239,16 @@ export function assessChildFinalization(
       ok: false,
       outcome: "child_reconciliation_unavailable",
       reason: settlement.reason,
+    };
+  }
+  const current = new Set(canonicalChildren(settlement.children));
+  const missing = state.observedChildren.filter((child) => !current.has(child));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      outcome: "orchestrator_child_set_inconsistent",
+      missing,
+      reason: "previously observed coordinator relation disappeared",
     };
   }
   if (settlement.kind === "live") {

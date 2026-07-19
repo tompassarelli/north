@@ -372,9 +372,16 @@ async function runDispatch(
             if (decision.action === "block") {
               outcome = decision.reason === "child_reconciliation_unavailable"
                 ? "child_reconciliation_unavailable"
-                : "orchestrator_children_incomplete";
+                : decision.reason === "child_set_regressed"
+                  ? "orchestrator_child_set_inconsistent"
+                  : "orchestrator_children_incomplete";
+              const detail = decision.missing?.length
+                ? ` (missing previously observed: ${decision.missing.join(", ")})`
+                : decision.live?.length
+                  ? ` (${decision.live.join(", ")})`
+                  : "";
               console.error(
-                `[harness] @agent:${agentId} orchestrator completion blocked: ${decision.reason}${decision.live?.length ? ` (${decision.live.join(", ")})` : ""}`,
+                `[harness] @agent:${agentId} orchestrator completion blocked: ${decision.reason}${detail}`,
               );
               break;
             }
@@ -430,7 +437,14 @@ async function runDispatch(
   const finalChildren = childSettlementReader(agentId);
   if (orchestrator && outcome === "ran") {
     const finalization = assessChildFinalization(childContinuation, finalChildren);
-    if (!finalization.ok) outcome = finalization.outcome;
+    if (!finalization.ok) {
+      outcome = finalization.outcome;
+      if (finalization.outcome === "orchestrator_child_set_inconsistent") {
+        console.error(
+          `[harness] @agent:${agentId} CHILD SET REGRESSED: missing previously observed coordinator relation(s) ${finalization.missing?.join(", ") ?? "(unknown)"}; terminal cannot be process=ran`,
+        );
+      }
+    }
   }
   if (finalChildren.kind === "live") {
     notifyEarlyExitChildren(agentId, finalChildren.live, { coordinator: coordHandle });

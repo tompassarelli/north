@@ -159,6 +159,56 @@ describe("orchestrator child continuation state", () => {
     expect(reduced).toMatchObject({ action: "finish" });
   });
 
+  test("a previously live child cannot disappear into an empty settled set", () => {
+    const live = decideChildTurnEnd(initialChildContinuationState(), {
+      kind: "live", children: ["@agent:a"], live: ["@agent:a"],
+    }, 2);
+    const regressed = decideChildTurnEnd(live.state, {
+      kind: "settled", children: [],
+    }, 2);
+    expect(regressed).toMatchObject({
+      action: "block",
+      reason: "child_set_regressed",
+      missing: ["@agent:a"],
+      state: {
+        observedChildren: ["@agent:a"],
+      },
+    });
+  });
+
+  test("child-set regression is detected before a pending reduction is acknowledged", () => {
+    const pending = decideChildTurnEnd(initialChildContinuationState(), {
+      kind: "settled", children: ["@agent:a"],
+    }, 2);
+    const regressed = decideChildTurnEnd(pending.state, {
+      kind: "settled", children: [],
+    }, 2);
+    expect(regressed).toMatchObject({
+      action: "block",
+      reason: "child_set_regressed",
+      missing: ["@agent:a"],
+    });
+    expect(regressed.state.pendingSettledSignature).toBe("@agent:a");
+    expect(regressed.state.acknowledgedSettledSignature).toBeUndefined();
+  });
+
+  test("replacing an observed child with a new identity is a regression", () => {
+    const first = decideChildTurnEnd(initialChildContinuationState(), {
+      kind: "live", children: ["@agent:a"], live: ["@agent:a"],
+    }, 2);
+    const replaced = decideChildTurnEnd(first.state, {
+      kind: "live", children: ["@agent:b"], live: ["@agent:b"],
+    }, 2);
+    expect(replaced).toMatchObject({
+      action: "block",
+      reason: "child_set_regressed",
+      missing: ["@agent:a"],
+      state: {
+        observedChildren: ["@agent:a"],
+      },
+    });
+  });
+
   test("each changed settled child-set signature requires another reduction turn", () => {
     const onePending = decideChildTurnEnd(initialChildContinuationState(), {
       kind: "settled", children: ["@agent:a"],
@@ -172,6 +222,7 @@ describe("orchestrator child continuation state", () => {
       children: ["@agent:b", "@agent:a"],
       state: {
         acknowledgedSettledSignature: "@agent:a",
+        observedChildren: ["@agent:a", "@agent:b"],
         pendingSettledSignature: "@agent:a\u0000@agent:b",
       },
     });
@@ -190,6 +241,23 @@ describe("orchestrator child continuation state", () => {
     })).toEqual({ ok: true });
   });
 
+  test("the final gate rejects an empty set after an acknowledged child reduction", () => {
+    const pending = decideChildTurnEnd(initialChildContinuationState(), {
+      kind: "settled", children: ["@agent:a"],
+    }, 2);
+    const acknowledged = decideChildTurnEnd(pending.state, {
+      kind: "settled", children: ["@agent:a"],
+    }, 2);
+    expect(assessChildFinalization(acknowledged.state, {
+      kind: "settled", children: [],
+    })).toEqual({
+      ok: false,
+      outcome: "orchestrator_child_set_inconsistent",
+      missing: ["@agent:a"],
+      reason: "previously observed coordinator relation disappeared",
+    });
+  });
+
   test("state advance resets consecutive no-progress while an unchanged set hits the cap", () => {
     const one = decideChildTurnEnd(initialChildContinuationState(), {
       kind: "live", children: ["a", "b"], live: ["a", "b"],
@@ -199,14 +267,14 @@ describe("orchestrator child continuation state", () => {
     }, 2);
     expect(two).toMatchObject({ action: "continue", attempt: 2 });
     const advanced = decideChildTurnEnd(two.state, {
-      kind: "live", children: ["b"], live: ["b"],
+      kind: "live", children: ["a", "b"], live: ["b"],
     }, 2);
     expect(advanced).toMatchObject({ action: "continue", attempt: 1 });
     const unchanged = decideChildTurnEnd(advanced.state, {
-      kind: "live", children: ["b"], live: ["b"],
+      kind: "live", children: ["a", "b"], live: ["b"],
     }, 2);
     const capped = decideChildTurnEnd(unchanged.state, {
-      kind: "live", children: ["b"], live: ["b"],
+      kind: "live", children: ["a", "b"], live: ["b"],
     }, 2);
     expect(capped).toMatchObject({
       action: "block",
