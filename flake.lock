@@ -10,11 +10,11 @@
         "zig-overlay": "zig-overlay"
       },
       "locked": {
-        "lastModified": 1784379874,
-        "narHash": "sha256-fge1jn0+lGKuYbdTFJgPln+Q2645YBJmyaef61BtxhA=",
+        "lastModified": 1784454376,
+        "narHash": "sha256-NLXYGrwXhHQRU9Xz4bR8dUNRTzknS9E3f4qqQqNneKc=",
         "owner": "tompassarelli",
         "repo": "beagle",
-        "rev": "9ca9e0efc6fe050c4f74831f421c7a35547dafc5",
+        "rev": "e299b869751b70abdc7377facae721ef8e7e504d",
         "type": "github"
       },
       "original": {
@@ -210,11 +210,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784413685,
-        "narHash": "sha256-xCW8mH61e3Y5j6d06FS0CtMLTaLFzcHBoYPeP5OOd/8=",
+        "lastModified": 1784484882,
+        "narHash": "sha256-v3Jvk2rieaowxDf2kEeTjjYcuG9WXDUTFXqBHhO/l+Q=",
         "owner": "tompassarelli",
         "repo": "fram",
-        "rev": "209a00df462d27d6b54542ad6377310c941d6f8f",
+        "rev": "68aa708948290a27dc67923925a2d43910e8f768",
         "type": "github"
       },
       "original": {
@@ -226,11 +226,11 @@
     "gaffer": {
       "flake": false,
       "locked": {
-        "lastModified": 1784456496,
-        "narHash": "sha256-urwU814h21N+/zMZoL394RHeQUbrRIb7StD9Oydmc3c=",
+        "lastModified": 1784492014,
+        "narHash": "sha256-f+o2fkxClYNIrX85YBfFe6Kx8uBgi0+Dpp7VbewHAw4=",
         "owner": "tompassarelli",
         "repo": "gaffer",
-        "rev": "ce1f6e47882835bfacccc93d05ee558de9299b81",
+        "rev": "777809697bd33479042eabd55c028eca6c6f917a",
         "type": "github"
       },
       "original": {
