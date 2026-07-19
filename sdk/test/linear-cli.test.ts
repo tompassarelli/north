@@ -596,6 +596,8 @@ class FakeGateway implements LinearGateway {
   afterIssueWrite?: () => void;
   afterWrittenIssueRead?: () => void;
   afterCommentPage?: () => void;
+  afterCommentRead?: () => void;
+  afterCommentWrite?: () => void;
   beforeFirstIssueRead?: () => Promise<void>;
   afterIssueRead?: () => void;
   constructor(readonly server = "linear-test") {}
@@ -735,7 +737,9 @@ class FakeGateway implements LinearGateway {
         hasNextPage: false,
       };
     }
-    return { comments: structuredClone(this.comments), hasNextPage: false };
+    const result = { comments: structuredClone(this.comments), hasNextPage: false };
+    this.afterCommentRead?.();
+    return result;
   }
   async writeComment(args: Record<string, unknown>): Promise<unknown> {
     this.commentWrites++;
@@ -748,6 +752,7 @@ class FakeGateway implements LinearGateway {
       comment = { id: `comment-${this.comments.length + 1}`, body: String(args.body) };
       this.comments.push(comment);
     }
+    this.afterCommentWrite?.();
     if (this.throwAfterCommentWrite) { this.throwAfterCommentWrite = false; throw new Error("comment response lost"); }
     return structuredClone(comment);
   }
@@ -1095,7 +1100,7 @@ test("representative mechanical lifecycle converges, no-ops, and recovers from c
   expect(applied).toMatchObject({ writes: 2, state: "in-sync" });
   expect(h.gateway.issueWrites).toBe(1);
   expect(h.gateway.commentWrites).toBe(1);
-  expect(h.gateway.commentReadCalls - commentReadsBeforeApply).toBe(1);
+  expect(h.gateway.commentReadCalls - commentReadsBeforeApply).toBe(3);
   expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
     state: "in-sync", conflicts: [], actions: [],
   });
@@ -1704,6 +1709,111 @@ test("first apply consumes unchanged imported description once and comments dedu
   expect(second.writes).toBe(0);
   expect(h.gateway.comments).toHaveLength(1);
   expect(h.graph.writes).toHaveLength(graphWritesAfterFirstApply);
+});
+
+test("apply re-reads managed comments immediately before intent and refuses a stale create", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  await h.graph.put(thread, "progress", "Concurrent create.");
+  const planned = await runLinearCommand(["plan", thread], h.dependencies) as {
+    actions: { comments: { action: string; marker: string }[] };
+  };
+  expect(planned.actions.comments).toHaveLength(1);
+  const marker = planned.actions.comments[0]!.marker;
+  h.gateway.afterCommentRead = () => {
+    h.gateway.afterCommentRead = undefined;
+    h.gateway.comments.push({
+      id: "concurrent-comment",
+      body: `Concurrent create.\n\n${marker}`,
+    });
+  };
+  const graphWrites = h.graph.writes.length;
+  const issueWrites = h.gateway.issueWrites;
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("Linear comment changed after planning; refusing stale save_comment payload");
+  expect(h.gateway.commentWrites).toBe(0);
+  expect(h.gateway.issueWrites).toBe(issueWrites);
+  expect(h.graph.writes).toHaveLength(graphWrites);
+});
+
+test("comment precondition refuses a key relocation before a stale create payload can dispatch", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  await h.graph.put(thread, "progress", "Relocation race.");
+  h.gateway.afterCommentRead = () => {
+    h.gateway.afterCommentRead = undefined;
+    h.gateway.issue = {
+      ...h.gateway.issue,
+      id: "MSA-999",
+      url: "https://linear.app/msa-team/issue/MSA-999/mechanical-linear-bridge",
+    };
+    h.gateway.rejectOldKey = true;
+  };
+  const graphWrites = h.graph.writes.length;
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("Linear issue key changed after comment planning; refusing stale save_comment payload");
+  expect(h.gateway.commentWrites).toBe(0);
+  expect(h.graph.writes).toHaveLength(graphWrites);
+});
+
+test("apply re-reads the exact managed comment id and normalized body before an update intent", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  await h.graph.put(thread, "outcome", "Initial outcome.");
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  const managed = h.gateway.comments[0]!;
+  h.graph.rows.set(thread, h.graph.rows.get(thread)!.map((fact) =>
+    fact.predicate === "outcome" ? { ...fact, value: "Revised outcome." } : fact));
+  const planned = await runLinearCommand(["plan", thread], h.dependencies) as {
+    actions: { comments: { action: string; marker: string }[] };
+  };
+  expect(planned.actions.comments).toEqual([{
+    action: "update",
+    marker: planned.actions.comments[0]!.marker,
+  }]);
+  const marker = planned.actions.comments[0]!.marker;
+  h.gateway.afterCommentRead = () => {
+    h.gateway.afterCommentRead = undefined;
+    managed.body = `Human concurrent edit.\n\n${marker}`;
+  };
+  const graphWrites = h.graph.writes.length;
+  const commentWrites = h.gateway.commentWrites;
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("Linear comment changed after planning; refusing stale save_comment payload");
+  expect(h.gateway.commentWrites).toBe(commentWrites);
+  expect(h.graph.writes).toHaveLength(graphWrites);
+});
+
+test("comment confirmation indexes the full fresh remote set and rejects a post-write duplicate", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  await h.graph.put(thread, "progress", "Duplicate confirmation guard.");
+  h.gateway.afterCommentWrite = () => {
+    h.gateway.afterCommentWrite = undefined;
+    const written = h.gateway.comments[0]!;
+    h.gateway.comments.push({
+      id: "concurrent-duplicate",
+      body: written.body,
+    });
+  };
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("duplicate North-managed marker");
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(h.gateway.comments).toHaveLength(2);
+  const link = (await h.graph.show(thread))
+    .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  const manifest = JSON.parse(
+    (await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value,
+  );
+  expect(manifest.pending).toMatchObject({ kind: "comment" });
 });
 
 test("first apply binds an explicitly adopted speculative thread even without a field delta", async () => {

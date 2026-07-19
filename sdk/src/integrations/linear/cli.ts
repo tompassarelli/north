@@ -28,8 +28,8 @@ import {
 import { createLinearSyncBaseline, reconcileLinearIssue } from "./reconcile";
 import { assertWellFormedUnicode } from "../../strict-json";
 import type {
-  LinearApplyPlan, LinearIssueIdentity, LinearRemoteComment, LinearReconciliationResult,
-  LinearThreadProjection, ProjectedLinearComment,
+  LinearApplyPlan, LinearCommentMutationPlan, LinearIssueIdentity, LinearRemoteComment,
+  LinearReconciliationResult, LinearThreadProjection, ProjectedLinearComment,
 } from "./types";
 
 const HELP = `north linear — deterministic North ↔ Linear projection
@@ -1088,6 +1088,23 @@ function commentOperationSatisfied(
   return found?.id;
 }
 
+function assertCommentMutationPrecondition(
+  plan: LinearCommentMutationPlan,
+  comments: ReadonlyMap<string, LinearRemoteComment>,
+): void {
+  const found = comments.get(plan.marker);
+  if (plan.expectedRemote.state === "absent") {
+    if (found)
+      throw new Error("Linear comment changed after planning; refusing stale save_comment payload");
+    return;
+  }
+  if (!found
+      || found.id !== plan.expectedRemote.commentId
+      || sha256Canonical(normalizeBody(found.body)) !== plan.expectedRemote.normalizedBodyHash) {
+    throw new Error("Linear comment changed after planning; refusing stale save_comment payload");
+  }
+}
+
 async function confirmOrRefusePending(
   gateway: LinearGateway, graph: GraphStore, lease: SyncLease, link: LinearLinkState, now: Date,
 ): Promise<LinearSyncManifest> {
@@ -1126,6 +1143,7 @@ async function applyOperation(
   manifest: LinearSyncManifest,
   kind: "issue" | "comment", key: string, payload: Record<string, unknown>,
   commentBinding: Pick<ProjectedLinearComment, "kind" | "sourceId" | "marker"> | undefined,
+  commentPlan: LinearCommentMutationPlan | undefined,
   now: Date,
   onConfirmed?: (manifest: LinearSyncManifest) => LinearSyncManifest,
   baselineAfter?: LinearApplyPlan["expectedBaseline"],
@@ -1155,7 +1173,8 @@ async function applyOperation(
       } : {}),
     };
   } else {
-    if (typeof payload.body !== "string" || !commentBinding)
+    if (typeof payload.body !== "string" || !commentBinding || !commentPlan
+        || commentPlan.marker !== commentBinding.marker)
       throw new Error("Linear comment intent requires a body and managed identity");
     pending = {
       ...common, kind: "comment",
@@ -1186,14 +1205,21 @@ async function applyOperation(
     const freshRemoteIssue = await readRemoteIssue(gateway, link, lease);
     if (canonicalJson(freshRemoteIssue) !== canonicalJson(expectedRemoteIssue))
       throw new Error("Linear issue changed after planning; refusing stale save_issue payload");
+  } else {
+    const { issue, comments } = await readRemote(gateway, link, lease);
+    if (issue.key !== link.remoteKey)
+      throw new Error("Linear issue key changed after comment planning; refusing stale save_comment payload");
+    assertCommentMutationPrecondition(
+      commentPlan!,
+      indexManagedLinearComments(comments),
+    );
   }
   const prepared: LinearSyncManifest = { ...manifest, pending };
   await lease.renew();
   await writeManifest(graph, lease, link, prepared);
   await lease.renew();
-  let writeResult: unknown;
   try {
-    writeResult = await preparedCall.dispatch();
+    await preparedCall.dispatch();
   } catch {
     // The call may have committed remotely before transport failure. Reconcile, never retry.
   }
@@ -1202,25 +1228,7 @@ async function applyOperation(
   if (kind === "issue") {
     const issue = await readRemoteIssue(gateway, link, lease);
     remoteId = issueOperationSatisfied(pending, issue) ? issue.key : undefined;
-  } else if (writeResult !== undefined) {
-    try {
-      const written = record(
-        record(writeResult, "Linear save_comment result").comment ?? writeResult,
-        "Linear save_comment comment",
-      );
-      if (typeof written.id === "string" && typeof written.body === "string") {
-        const commentId = normalizeLinearOpaqueToken("comment id", written.id, 512);
-        const indexed = indexManagedLinearComments([{
-          id: commentId,
-          body: written.body,
-        }]);
-        remoteId = commentOperationSatisfied(pending, indexed);
-      }
-    } catch {
-      // A malformed success envelope is not commit proof; recover by observation.
-    }
-  }
-  if (kind === "comment" && !remoteId) {
+  } else {
     const { comments } = await readRemote(gateway, link, lease);
     remoteId = commentOperationSatisfied(pending, indexManagedLinearComments(comments));
   }
@@ -1300,7 +1308,8 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
     if (planned.plan && Object.keys(planned.plan.issue).length) {
       const adoptsMarker = planned.plan.issue.description !== undefined;
       const applied = await applyOperation(
-        gateway, deps.graph, scope.thread, link, manifest, "issue", `${planned.plan.hash}:issue`, { ...planned.plan.issue }, undefined, deps.now(),
+        gateway, deps.graph, scope.thread, link, manifest, "issue", `${planned.plan.hash}:issue`,
+        { ...planned.plan.issue }, undefined, undefined, deps.now(),
         (manifest) => adoptsMarker ? {
           ...manifest, baseline: planned.plan!.expectedBaseline,
           evidence: { ...manifest.evidence, markerBound: true, adoptRawDescription: false },
@@ -1314,13 +1323,13 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
     for (const [index, comment] of (planned.plan?.comments ?? []).entries()) {
       const payload = comment.action === "create"
         ? { issueId: link.remoteKey, body: comment.body }
-        : { id: comment.commentId, body: comment.body };
+        : { id: comment.expectedRemote.commentId, body: comment.body };
       const bindings = planned.local.comments.filter(({ marker }) => marker === comment.marker);
       if (bindings.length !== 1)
         throw new Error(`Linear comment plan marker ${comment.marker} lacks one exact local identity`);
       const applied = await applyOperation(
         gateway, deps.graph, scope.thread, link, manifest, "comment",
-        `${planned.plan!.hash}:comment:${index}`, payload, bindings[0], deps.now(),
+        `${planned.plan!.hash}:comment:${index}`, payload, bindings[0], comment, deps.now(),
       );
       manifest = applied.manifest;
       writes++;

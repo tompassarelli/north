@@ -153,13 +153,20 @@ export interface LinearCommentCreatePlan {
   action: "create";
   marker: string;
   body: string;
+  expectedRemote: {
+    state: "absent";
+  };
 }
 
 export interface LinearCommentUpdatePlan {
   action: "update";
-  commentId: string;
   marker: string;
   body: string;
+  expectedRemote: {
+    state: "present";
+    commentId: string;
+    normalizedBodyHash: string;
+  };
 }
 
 export type LinearCommentMutationPlan = LinearCommentCreatePlan | LinearCommentUpdatePlan;

@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import {
-  linearIdentityKey, sameLinearIdentity, sha256Canonical, sha256Text,
+  linearIdentityKey, normalizeBody, sameLinearIdentity, sha256Canonical, sha256Text,
 } from "../src/integrations/linear/normalize";
 import {
   managedLinearDescriptionReceiptHash,
+  planLinearCommentMutations,
   parseManagedLinearDescription,
   projectNorthThread,
   replaceManagedLinearDescription,
@@ -408,6 +409,35 @@ test("learning is excluded by default while progress and outcome get stable comm
   expect(first.plan?.comments.map(({ action }) => action)).toEqual(["create", "create"]);
   const second = reconcileLinearIssue({ baseline, local: projection, remote: remoteFrom(projection) });
   expect(second.plan).toBeNull();
+});
+
+test("comment plans carry exact normalized remote preconditions", () => {
+  const projection = projectNorthThread(source({
+    progress: [],
+    outcome: "Shipped safely.",
+  }));
+  const managed = projection.comments[0]!;
+  expect(planLinearCommentMutations(projection.comments, [])).toEqual([{
+    action: "create",
+    marker: managed.marker,
+    body: managed.body,
+    expectedRemote: { state: "absent" },
+  }]);
+
+  const remoteBody = `Human concurrent edit.\r\n\r\n${managed.marker}`;
+  expect(planLinearCommentMutations(projection.comments, [{
+    id: "comment-outcome",
+    body: remoteBody,
+  }])).toEqual([{
+    action: "update",
+    marker: managed.marker,
+    body: managed.body,
+    expectedRemote: {
+      state: "present",
+      commentId: "comment-outcome",
+      normalizedBodyHash: sha256Canonical(normalizeBody(remoteBody)),
+    },
+  }]);
 });
 
 test("duplicate and malformed reserved comment markers fail closed", () => {

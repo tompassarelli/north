@@ -403,9 +403,25 @@ export function planLinearCommentMutations(
   const plans: LinearCommentMutationPlan[] = [];
   for (const comment of projected) {
     const remote = byMarker.get(comment.marker);
-    if (!remote) plans.push({ action: "create", marker: comment.marker, body: comment.body });
+    if (!remote) {
+      plans.push({
+        action: "create",
+        marker: comment.marker,
+        body: comment.body,
+        expectedRemote: { state: "absent" },
+      });
+    }
     else if (normalizeBody(remote.body) !== normalizeBody(comment.body)) {
-      plans.push({ action: "update", commentId: remote.id, marker: comment.marker, body: comment.body });
+      plans.push({
+        action: "update",
+        marker: comment.marker,
+        body: comment.body,
+        expectedRemote: {
+          state: "present",
+          commentId: remote.id,
+          normalizedBodyHash: sha256Canonical(normalizeBody(remote.body)),
+        },
+      });
     }
   }
   return plans;
