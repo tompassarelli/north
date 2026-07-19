@@ -22,10 +22,12 @@ jobs:
       - name: Resolve locked source inputs
         id: sources
         run: |
-          echo "fram_repository=$(north/bin/github-flake-input-pin north/flake.lock fram repository)" >> "$GITHUB_OUTPUT"
-          echo "fram_ref=$(north/bin/github-flake-input-pin north/flake.lock fram revision)" >> "$GITHUB_OUTPUT"
-          echo "beagle_repository=$(north/bin/github-flake-input-pin north/flake.lock beagle repository)" >> "$GITHUB_OUTPUT"
-          echo "beagle_ref=$(north/bin/github-flake-input-pin north/flake.lock beagle revision)" >> "$GITHUB_OUTPUT"
+          {
+            echo "fram_repository=$(north/bin/github-flake-input-pin north/flake.lock fram repository)"
+            echo "fram_ref=$(north/bin/github-flake-input-pin north/flake.lock fram revision)"
+            echo "beagle_repository=$(north/bin/github-flake-input-pin north/flake.lock beagle repository)"
+            echo "beagle_ref=$(north/bin/github-flake-input-pin north/flake.lock beagle revision)"
+          } >> "$GITHUB_OUTPUT"
       - name: Checkout Fram engine (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -181,6 +183,32 @@ jobs:
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+
+      - name: Evaluate exact package identities on every supported system
+        working-directory: north
+        run: |
+          set -euo pipefail
+          nix flake check --all-systems --no-build
+          for system in x86_64-linux aarch64-linux aarch64-darwin; do
+            identity="$(nix eval --json ".#packages.$system.codex" --apply \
+              'p: p.northManagedHookFailurePolicy.upstreamIdentity')"
+            jq -e '
+              .version == "0.144.4" and
+              .owner == "openai" and .repo == "codex" and
+              .rev == "refs/tags/rust-v0.144.4" and
+              .tag == "rust-v0.144.4" and
+              .srcHash == "sha256-NmYZxjNFPkRWN4rw+eeka10pJt6/oU3ZoLXBxj3dPRU=" and
+              .cargoHash == "sha256-S4dsZXfmKvJItL2XYKyxfhqdCMATEG6oPjrtVRwkuYc=" and
+              .patchSha256 == "36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3"
+            ' <<<"$identity"
+
+            public_drv="$(nix eval --raw ".#packages.$system.codex.drvPath")"
+            public_name="${public_drv##*/}"
+            north_drv="$(nix derivation show ".#packages.$system.north")"
+            test "$(jq --arg public "$public_name" \
+              '[.derivations[].inputs.drvs | keys[] | select(. == $public)] | length' \
+              <<<"$north_drv")" -eq 1
+          done
 
       # Ubuntu's runner image does not ship bubblewrap. Resolve it through
       # North's locked nixpkgs so the full read-only-shell boundary runs instead

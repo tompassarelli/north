@@ -36,11 +36,59 @@
     ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        lib = pkgs.lib;
         codexPkgs = nixpkgs-master.legacyPackages.${system};
-        codexPkg =
+        codexPatch = ./patches/codex-0.144.4/managed-hook-failure-mode.patch;
+        codexExpectedIdentity = {
+          version = "0.144.4";
+          owner = "openai";
+          repo = "codex";
+          rev = "refs/tags/rust-v0.144.4";
+          tag = "rust-v0.144.4";
+          srcHash = "sha256-NmYZxjNFPkRWN4rw+eeka10pJt6/oU3ZoLXBxj3dPRU=";
+          cargoHash = "sha256-S4dsZXfmKvJItL2XYKyxfhqdCMATEG6oPjrtVRwkuYc=";
+          patchSha256 = "36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3";
+        };
+        codexUpstreamPkg =
           codexPkgs.codex or
             (throw "nixpkgs-master does not provide Codex for North's supported system ${system}");
-        lib = pkgs.lib;
+        codexObservedIdentity = {
+          version = codexUpstreamPkg.version or null;
+          owner = codexUpstreamPkg.src.owner or null;
+          repo = codexUpstreamPkg.src.repo or null;
+          rev = codexUpstreamPkg.src.rev or null;
+          tag = codexUpstreamPkg.src.tag or null;
+          srcHash = codexUpstreamPkg.src.outputHash or null;
+          cargoHash = codexUpstreamPkg.cargoHash or null;
+          patchSha256 = builtins.hashFile "sha256" codexPatch;
+        };
+        codexPkg =
+          assert lib.assertMsg
+            (codexObservedIdentity == codexExpectedIdentity)
+            ("North's managed Codex patch source identity drifted; expected "
+              + builtins.toJSON codexExpectedIdentity + "; observed "
+              + builtins.toJSON codexObservedIdentity);
+          codexUpstreamPkg.overrideAttrs (old: {
+            patches = (old.patches or [ ]) ++ [ codexPatch ];
+            postPatch = (old.postPatch or "") + ''
+              grep -Fq 'pub enum ManagedHookFailureMode' protocol/src/config_types.rs
+              grep -Fq 'PreToolUseBlockSource::ManagedTechnicalFailure' core/src/hook_runtime.rs
+              grep -Fq 'does not change `PostToolUse`' \
+                app-server-protocol/schema/typescript/ManagedHookFailureMode.ts
+              test "$(sha256sum Cargo.lock | cut -d' ' -f1)" = \
+                175793a40a3147db1fee08fd9db0acc59312c344b3513dd7ee316f5446d8119e
+            '';
+            passthru = (old.passthru or { }) // {
+              northManagedHookFailurePolicy = {
+                version = 1;
+                scope = "administrator-managed-pre-tool-use";
+                defaultMode = "continue";
+                enforcedMode = "block";
+                patchSha256 = codexObservedIdentity.patchSha256;
+                upstreamIdentity = codexObservedIdentity;
+              };
+            };
+          });
         codexVersionSmoke = pkgs.runCommand
           "north-codex-version-smoke-${codexPkg.version}"
           { nativeBuildInputs = [ codexPkg ]; }
@@ -67,8 +115,9 @@
               throw "North requires an exact or caret-prefixed Claude SDK version, got ${declared}";
         # Runtime PATH for the bb-backed CLIs. util-linux supplies `setsid` for
         # managed lanes on every supported host. iproute2 supplies Linux's `ss`
-        # for daemon-health probes, but has no Darwin package; keep that helper
-        # out of Darwin's derivation instead of admitting an unsupported closure.
+        # for daemon-health probes and procps supplies lifecycle-hook `pgrep`;
+        # neither has a Darwin package, where the corresponding host utilities
+        # are part of the platform runtime.
         runtimePackages = [
           pkgs.babashka
           pkgs.coreutils
@@ -79,13 +128,17 @@
           pkgs.git
           pkgs.gnugrep
           pkgs.gnused
+          pkgs.python3
           pkgs.util-linux
         ] ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
           pkgs.iproute2
+          pkgs.procps
         ] ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           pkgs.lsof
         ];
-        runtimePath = lib.makeBinPath runtimePackages;
+        runtimePath = lib.makeBinPath runtimePackages
+          + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin
+            ":/usr/bin:/bin:/usr/sbin:/sbin";
         framPkg = fram.packages.${system}.default;
         framRuntimeRoot =
           framPkg.runtimeRoot or
@@ -134,6 +187,11 @@
             ./sdk/src
             ./bin/north
             ./bin/north-mcp
+            ./bin/north-actor-key
+            ./bin/north-mark-delegated
+            ./bin/north-on-spawn
+            ./bin/north-on-stop
+            ./bin/north-on-tooluse
             ./bin/north-clock-audit
             ./bin/north-coord-up
             ./bin/north-stream-sync
@@ -482,7 +540,12 @@ EOF
           # Babashka must be present while patchShebangs runs. Otherwise the
           # copied `#!/usr/bin/env bb` survives into `.north-mcp-wrapped`, where
           # the Nix build sandbox has no `/usr/bin/env` to execute.
-          nativeBuildInputs = [ pkgs.makeWrapper pkgs.babashka pkgs.ripgrep ];
+          nativeBuildInputs = [
+            pkgs.makeWrapper
+            pkgs.babashka
+            pkgs.python3
+            pkgs.ripgrep
+          ];
           dontConfigure = true;
           dontBuild = true;
           installPhase = ''
@@ -498,9 +561,11 @@ EOF
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
-            cp bin/north bin/north-mcp bin/north-clock-audit \
-              bin/north-coord-up bin/north-stream-sync bin/concern \
-              bin/ensure-private-docs $out/bin/
+            cp bin/north bin/north-mcp bin/north-actor-key \
+              bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
+              bin/north-on-tooluse bin/north-clock-audit bin/north-coord-up \
+              bin/north-stream-sync bin/concern bin/ensure-private-docs \
+              $out/bin/
             patchShebangs $out/bin
 
             # The Linear route is spread across these load-bearing runtime
@@ -524,6 +589,7 @@ EOF
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_BUN ${pkgs.bun}/bin/bun \
               --set NORTH_GIT_BIN ${pkgs.git}/bin/git \
+              --set NORTH_MKFIFO_BIN ${pkgs.coreutils}/bin/mkfifo \
               --set NORTH_PEER_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_MCP_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_MCP_BUN ${pkgs.bun}/bin/bun \
@@ -543,10 +609,18 @@ EOF
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_BUN ${pkgs.bun}/bin/bun \
               --set NORTH_GIT_BIN ${pkgs.git}/bin/git \
+              --set NORTH_MKFIFO_BIN ${pkgs.coreutils}/bin/mkfifo \
               --set NORTH_PEER_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_MCP_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_MCP_BUN ${pkgs.bun}/bin/bun \
               --set NORTH_MANAGED_CODEX_BIN ${codexPkg}/bin/codex
+
+            for hook in north-mark-delegated north-on-spawn north-on-stop \
+              north-on-tooluse; do
+              wrapProgram "$out/bin/$hook" \
+                --prefix PATH : ${runtimePath} \
+                --set NORTH_HOME $out
+            done
 
             wrapProgram $out/bin/north-clock-audit \
               --prefix PATH : ${runtimePath} \
@@ -612,9 +686,13 @@ EOF
             # The managed OpenAI surface is an exact nixpkgs-master package,
             # never the ambient PATH fixture used by account/auth probes below.
             test -e ${codexVersionSmoke}
+            expected_codex_export="export NORTH_MANAGED_CODEX_BIN='${codexPkg}/bin/codex'"
+            expected_mkfifo_export="export NORTH_MKFIFO_BIN='${pkgs.coreutils}/bin/mkfifo'"
             for wrapper in "$out/bin/north" "$out/bin/north-mcp"; do
-              grep -Fq "NORTH_MANAGED_CODEX_BIN" "$wrapper"
-              grep -Fq "${codexPkg}/bin/codex" "$wrapper"
+              test "$(grep -Fxc "$expected_codex_export" "$wrapper")" -eq 1
+              test "$(grep -Fc 'NORTH_MANAGED_CODEX_BIN=' "$wrapper")" -eq 1
+              test "$(grep -Fxc "$expected_mkfifo_export" "$wrapper")" -eq 1
+              test "$(grep -Fc 'NORTH_MKFIFO_BIN=' "$wrapper")" -eq 1
             done
             mkdir -p "$smoke/home/.local/state/north/threads"
             : > "$smoke/home/.local/state/north/facts.log"
@@ -721,6 +799,90 @@ EOF
             HOME="$smoke/home" FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" \
               $out/bin/north coord-doctor > "$smoke/coord-doctor.out"
             grep -q 'serving the canonical log' "$smoke/coord-doctor.out"
+
+            # Provider hooks are public North runtime surfaces too. Exercise
+            # their Python shebang/import path and sibling actor-key lookup with
+            # an empty ambient PATH, then cross the real hook mail fast path.
+            hook_runtime="$smoke/hook-runtime"
+            hook_session=package-hook-session
+            hook_actor=package-hook-agent
+            mkdir -p "$hook_runtime"
+            test -x "$(${pkgs.coreutils}/bin/env -i PATH="${runtimePath}" \
+              ${pkgs.bash}/bin/bash -c 'command -v pgrep')"
+            hook_key="$(${pkgs.coreutils}/bin/env -i PATH= \
+              $out/bin/north-actor-key session "$hook_session")"
+            printf '%s\n' "$hook_key" | \
+              ${pkgs.gnugrep}/bin/grep -Eq '^[0-9a-f]{64}$'
+            hook_input="$(printf \
+              '{"cwd":"%s","session_id":"%s","hook_event_name":"SessionStart","model":"package-smoke","effort":{"level":"low"}}' \
+              "$smoke/home" "$hook_session")"
+            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
+              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
+              NORTH_AGENT_ID="$hook_actor" NORTH_PORT="$coord_port" \
+              FRAM_LOG="$coord_log" AGENT_PROVIDER=openai \
+              $out/bin/north-on-spawn > "$smoke/hook-spawn.out"
+            ${pkgs.python3}/bin/python3 - \
+              "$smoke/hook-spawn.out" "$out" "$hook_actor" <<'PY'
+import json
+import pathlib
+import sys
+
+value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+specific = value["hookSpecificOutput"]
+assert specific["hookEventName"] == "SessionStart"
+context = specific["additionalContext"]
+assert sys.argv[3] in context
+assert f"{sys.argv[2]}/bin/north listen {sys.argv[3]}" in context
+PY
+            test "$(cat "$hook_runtime/north-agent-ids/$hook_key")" = \
+              "$hook_actor"
+
+            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
+              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
+              NORTH_AGENT_ID="$hook_actor" \
+              $out/bin/north-mark-delegated
+            test "$(head -n1 "$hook_runtime/north-delegated/$hook_key")" = \
+              "$hook_actor"
+            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
+              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
+              NORTH_AGENT_ID="$hook_actor" \
+              $out/bin/north-on-stop > "$smoke/hook-stop.out"
+            ${pkgs.python3}/bin/python3 - \
+              "$smoke/hook-stop.out" "$out" "$hook_actor" <<'PY'
+import json
+import pathlib
+import sys
+
+value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert value["decision"] == "block"
+assert f"{sys.argv[2]}/bin/north listen {sys.argv[3]}" in value["reason"]
+PY
+
+            ${pkgs.coreutils}/bin/env -i \
+              HOME="$smoke/home" PATH="${runtimePath}" \
+              FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb $out/cli/msg-cli.clj "$coord_port" \
+                send package-hook-sender "$hook_actor" \
+                package-hook-mail 'ambient-PATH-free delivery' \
+                > "$smoke/hook-send.out"
+            grep -q 'sent @msg:' "$smoke/hook-send.out"
+            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
+              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
+              NORTH_AGENT_ID="$hook_actor" NORTH_PORT="$coord_port" \
+              FRAM_LOG="$coord_log" AGENT_PROVIDER=openai \
+              $out/bin/north-on-tooluse > "$smoke/hook-tooluse.out"
+            ${pkgs.python3}/bin/python3 - \
+              "$smoke/hook-tooluse.out" <<'PY'
+import json
+import pathlib
+import sys
+
+value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+specific = value["hookSpecificOutput"]
+assert specific["hookEventName"] == "PostToolUse"
+assert "package-hook-mail" in specific["additionalContext"]
+assert "ambient-PATH-free delivery" in specific["additionalContext"]
+PY
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NO_COLOR=1 \
               NORTH_PACKAGE_MODE=forged NORTH_PACKAGE_REV=forged FRAM_PACKAGE_REV=forged \
@@ -1035,6 +1197,9 @@ EOF
         packages = {
           default = northPkg;
           north = northPkg;
+          # This is the exact derivation injected into managed OpenAI lanes;
+          # Firn can install and attest the same executable without repackaging.
+          codex = codexPkg;
           north-web = northWebPkg;
           fram-engine = framPkg;
         };

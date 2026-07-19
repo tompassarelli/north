@@ -1,0 +1,1457 @@
+From: North downstream maintainers
+Date: 2026-07-19
+Subject: [PATCH] enforce administrator-managed PreToolUse failure policy
+
+Upstream-Tag: rust-v0.144.4
+Upstream-Tag-Object: 632c07017ed17f00ca6d911b754683dee785af69
+Upstream-Commit: 8c68d4c87dc54d38861f5114e920c3de2efa5876
+Upstream-Source-NAR: sha256-NmYZxjNFPkRWN4rw+eeka10pJt6/oU3ZoLXBxj3dPRU=
+Upstream-Status: North-specific downstream policy
+License: Apache-2.0; retained LICENSE and NOTICE accompany this patch
+Generated-Artifacts: app-server JSON and TypeScript schema fixtures were regenerated
+North-Modification: adds an opt-in, managed-only, fail-closed policy for technical
+ failures from administrator-managed PreToolUse hooks. Default behavior remains
+ continue; PostToolUse behavior is unchanged.
+
+diff --git a/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json b/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json
+index b7526b080da1487feb2bd5d1d5f8908b00ef1b88..df280ffb0b413ffdd305074f58f50e7fd0c46224 100644
+--- a/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json
++++ b/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json
+@@ -8423,6 +8423,16 @@
+               "null"
+             ]
+           },
++          "managedHookFailureMode": {
++            "anyOf": [
++              {
++                "$ref": "#/definitions/v2/ManagedHookFailureMode"
++              },
++              {
++                "type": "null"
++              }
++            ]
++          },
+           "models": {
+             "anyOf": [
+               {
+@@ -11700,6 +11710,14 @@
+         "title": "LogoutAccountResponse",
+         "type": "object"
+       },
++      "ManagedHookFailureMode": {
++        "description": "Controls how Codex handles technical failures from administrator-managed `PreToolUse` hooks. This is an administrator requirement, not a user setting. It does not change `PostToolUse`, which runs after tool side effects.",
++        "enum": [
++          "continue",
++          "block"
++        ],
++        "type": "string"
++      },
+       "ManagedHooksRequirements": {
+         "properties": {
+           "PermissionRequest": {
+diff --git a/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json b/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json
+index e1afc7883a511f3d8559cfabace13fd52c218a97..68741cf91dd2dd60d988d6685d6acb808a0b5bac 100644
+--- a/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json
++++ b/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json
+@@ -4663,6 +4663,16 @@
+             "null"
+           ]
+         },
++        "managedHookFailureMode": {
++          "anyOf": [
++            {
++              "$ref": "#/definitions/ManagedHookFailureMode"
++            },
++            {
++              "type": "null"
++            }
++          ]
++        },
+         "models": {
+           "anyOf": [
+             {
+@@ -8104,6 +8114,14 @@
+       "title": "LogoutAccountResponse",
+       "type": "object"
+     },
++    "ManagedHookFailureMode": {
++      "description": "Controls how Codex handles technical failures from administrator-managed `PreToolUse` hooks. This is an administrator requirement, not a user setting. It does not change `PostToolUse`, which runs after tool side effects.",
++      "enum": [
++        "continue",
++        "block"
++      ],
++      "type": "string"
++    },
+     "ManagedHooksRequirements": {
+       "properties": {
+         "PermissionRequest": {
+diff --git a/app-server-protocol/schema/json/v2/ConfigRequirementsReadResponse.json b/app-server-protocol/schema/json/v2/ConfigRequirementsReadResponse.json
+index 4e35f7aeadb053a72e68fc3da8da91f2138382e3..a9a19dd72fc91a600dd0f29db87971c21c550c32 100644
+--- a/app-server-protocol/schema/json/v2/ConfigRequirementsReadResponse.json
++++ b/app-server-protocol/schema/json/v2/ConfigRequirementsReadResponse.json
+@@ -170,6 +170,16 @@
+             "null"
+           ]
+         },
++        "managedHookFailureMode": {
++          "anyOf": [
++            {
++              "$ref": "#/definitions/ManagedHookFailureMode"
++            },
++            {
++              "type": "null"
++            }
++          ]
++        },
+         "models": {
+           "anyOf": [
+             {
+@@ -283,6 +293,14 @@
+       ],
+       "type": "object"
+     },
++    "ManagedHookFailureMode": {
++      "description": "Controls how Codex handles technical failures from administrator-managed `PreToolUse` hooks. This is an administrator requirement, not a user setting. It does not change `PostToolUse`, which runs after tool side effects.",
++      "enum": [
++        "continue",
++        "block"
++      ],
++      "type": "string"
++    },
+     "ManagedHooksRequirements": {
+       "properties": {
+         "PermissionRequest": {
+diff --git a/app-server-protocol/schema/typescript/ManagedHookFailureMode.ts b/app-server-protocol/schema/typescript/ManagedHookFailureMode.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b73f9a0d26255a7f9c15f639850f7d4dfd225423
+--- /dev/null
++++ b/app-server-protocol/schema/typescript/ManagedHookFailureMode.ts
+@@ -0,0 +1,10 @@
++// GENERATED CODE! DO NOT MODIFY BY HAND!
++
++// This file was generated by [ts-rs](https://github.com/Aleph-Alpha/ts-rs). Do not edit this file manually.
++
++/**
++ * Controls how Codex handles technical failures from administrator-managed
++ * `PreToolUse` hooks. This is an administrator requirement, not a user setting.
++ * It does not change `PostToolUse`, which runs after tool side effects.
++ */
++export type ManagedHookFailureMode = "continue" | "block";
+diff --git a/app-server-protocol/schema/typescript/index.ts b/app-server-protocol/schema/typescript/index.ts
+index 6237fb44489b520ae05951380ba00d019ea38eb0..702ffb99156791e378deeb7d4231d6c3a02ae7cc 100644
+--- a/app-server-protocol/schema/typescript/index.ts
++++ b/app-server-protocol/schema/typescript/index.ts
+@@ -48,6 +48,7 @@ export type { LegacyAppPathString } from "./LegacyAppPathString";
+ export type { LocalShellAction } from "./LocalShellAction";
+ export type { LocalShellExecAction } from "./LocalShellExecAction";
+ export type { LocalShellStatus } from "./LocalShellStatus";
++export type { ManagedHookFailureMode } from "./ManagedHookFailureMode";
+ export type { McpServerInfo } from "./McpServerInfo";
+ export type { MessagePhase } from "./MessagePhase";
+ export type { ModeKind } from "./ModeKind";
+diff --git a/app-server-protocol/schema/typescript/v2/ConfigRequirements.ts b/app-server-protocol/schema/typescript/v2/ConfigRequirements.ts
+index e2fd573a32ef241c9cb7b76b8b679e892963388b..a341e4fb2145609e19e382fc39cfde2fbdf0c07d 100644
+--- a/app-server-protocol/schema/typescript/v2/ConfigRequirements.ts
++++ b/app-server-protocol/schema/typescript/v2/ConfigRequirements.ts
+@@ -1,6 +1,7 @@
+ // GENERATED CODE! DO NOT MODIFY BY HAND!
+ 
+ // This file was generated by [ts-rs](https://github.com/Aleph-Alpha/ts-rs). Do not edit this file manually.
++import type { ManagedHookFailureMode } from "../ManagedHookFailureMode";
+ import type { WebSearchMode } from "../WebSearchMode";
+ import type { AskForApproval } from "./AskForApproval";
+ import type { ComputerUseRequirements } from "./ComputerUseRequirements";
+@@ -9,4 +10,4 @@ import type { ResidencyRequirement } from "./ResidencyRequirement";
+ import type { SandboxMode } from "./SandboxMode";
+ import type { WindowsSandboxSetupMode } from "./WindowsSandboxSetupMode";
+ 
+-export type ConfigRequirements = {allowedApprovalPolicies: Array<AskForApproval> | null, allowedSandboxModes: Array<SandboxMode> | null, allowedWindowsSandboxImplementations: Array<WindowsSandboxSetupMode> | null, allowedPermissionProfiles: { [key in string]?: boolean } | null, defaultPermissions: string | null, allowedWebSearchModes: Array<WebSearchMode> | null, allowManagedHooksOnly: boolean | null, allowAppshots: boolean | null, allowRemoteControl: boolean | null, computerUse: ComputerUseRequirements | null, featureRequirements: { [key in string]?: boolean } | null, enforceResidency: ResidencyRequirement | null, models: ModelsRequirements | null};
++export type ConfigRequirements = {allowedApprovalPolicies: Array<AskForApproval> | null, allowedSandboxModes: Array<SandboxMode> | null, allowedWindowsSandboxImplementations: Array<WindowsSandboxSetupMode> | null, allowedPermissionProfiles: { [key in string]?: boolean } | null, defaultPermissions: string | null, allowedWebSearchModes: Array<WebSearchMode> | null, allowManagedHooksOnly: boolean | null, managedHookFailureMode: ManagedHookFailureMode | null, allowAppshots: boolean | null, allowRemoteControl: boolean | null, computerUse: ComputerUseRequirements | null, featureRequirements: { [key in string]?: boolean } | null, enforceResidency: ResidencyRequirement | null, models: ModelsRequirements | null};
+diff --git a/app-server-protocol/src/protocol/v2/config.rs b/app-server-protocol/src/protocol/v2/config.rs
+index 24d574a935d6113ae0937c1aa6607a0a66a48b8b..4ebfb249129a9fe2e34769ed9f150021b44acb8d 100644
+--- a/app-server-protocol/src/protocol/v2/config.rs
++++ b/app-server-protocol/src/protocol/v2/config.rs
+@@ -1,3 +1,4 @@
++// Modified by North to expose the administrator-managed hook failure policy.
+ use super::ApprovalsReviewer;
+ use super::AskForApproval;
+ use super::SandboxMode;
+@@ -6,6 +7,7 @@ use super::shared::default_enabled;
+ use codex_experimental_api_macros::ExperimentalApi;
+ use codex_protocol::config_types::AutoCompactTokenLimitScope;
+ use codex_protocol::config_types::ForcedLoginMethod;
++use codex_protocol::config_types::ManagedHookFailureMode;
+ use codex_protocol::config_types::ReasoningSummary;
+ use codex_protocol::config_types::Verbosity;
+ use codex_protocol::config_types::WebSearchMode;
+@@ -382,6 +384,7 @@ pub struct ConfigRequirements {
+     pub default_permissions: Option<String>,
+     pub allowed_web_search_modes: Option<Vec<WebSearchMode>>,
+     pub allow_managed_hooks_only: Option<bool>,
++    pub managed_hook_failure_mode: Option<ManagedHookFailureMode>,
+     pub allow_appshots: Option<bool>,
+     pub allow_remote_control: Option<bool>,
+     pub computer_use: Option<ComputerUseRequirements>,
+diff --git a/app-server-protocol/src/protocol/v2/tests.rs b/app-server-protocol/src/protocol/v2/tests.rs
+index d35d39fe4626bfa6a81cf3696b76a9303b89aaae..ba4c29afd536f9792eef0a8556bfa961aaa9ed65 100644
+--- a/app-server-protocol/src/protocol/v2/tests.rs
++++ b/app-server-protocol/src/protocol/v2/tests.rs
+@@ -1,3 +1,4 @@
++// Modified by North to cover the administrator-managed hook failure policy field.
+ use super::*;
+ use crate::ServerNotification;
+ use codex_protocol::approvals::ElicitationRequest as CoreElicitationRequest;
+@@ -1780,6 +1781,7 @@ fn config_requirements_granular_allowed_approval_policy_is_marked_experimental()
+             default_permissions: None,
+             allowed_web_search_modes: None,
+             allow_managed_hooks_only: None,
++            managed_hook_failure_mode: None,
+             allow_appshots: None,
+             allow_remote_control: None,
+             computer_use: None,
+diff --git a/app-server-protocol/tests/schema_fixtures.rs b/app-server-protocol/tests/schema_fixtures.rs
+index 20823466e79fb74c379fc5f42f7db47e492eb7ed..204ae9b30dcb313e6f6a773e42d3c13e5f84bdc0 100644
+--- a/app-server-protocol/tests/schema_fixtures.rs
++++ b/app-server-protocol/tests/schema_fixtures.rs
+@@ -1,3 +1,4 @@
++// Modified by North to verify managed-hook policy schema scope remains exact.
+ use anyhow::Context;
+ use anyhow::Result;
+ use codex_app_server_protocol::generate_json_with_experimental;
+@@ -27,6 +28,32 @@ fn json_schema_fixtures_match_generated() -> Result<()> {
+     })
+ }
+ 
++#[test]
++fn managed_hook_failure_schema_names_pre_tool_use_and_post_tool_use_boundary() -> Result<()> {
++    let fixture = std::fs::read_to_string(
++        schema_root()?
++            .join("typescript")
++            .join("ManagedHookFailureMode.ts"),
++    )
++    .context("read ManagedHookFailureMode TypeScript fixture")?;
++
++    assert!(
++        fixture.contains("administrator-managed") && fixture.contains("`PreToolUse` hooks"),
++        "schema docs must scope blocking to administrator-managed PreToolUse hooks",
++    );
++    assert!(
++        fixture.contains("does not change `PostToolUse`")
++            && fixture.contains("after tool side effects"),
++        "schema docs must preserve the post-side-effect PostToolUse boundary",
++    );
++    assert!(
++        !fixture.contains("lifecycle hooks"),
++        "schema docs must not overclaim all lifecycle hooks",
++    );
++
++    Ok(())
++}
++
+ fn assert_schema_fixtures_match_generated(
+     label: &'static str,
+     generate: impl FnOnce(&Path) -> Result<()>,
+diff --git a/app-server/src/request_processors/config_processor.rs b/app-server/src/request_processors/config_processor.rs
+index b6dbb30b0834d8488eadaeae6b56dc0c4ffe6a39..b3fb41ed665319873a98d1fdcd83f375dacb9c41 100644
+--- a/app-server/src/request_processors/config_processor.rs
++++ b/app-server/src/request_processors/config_processor.rs
+@@ -1,3 +1,4 @@
++// Modified by North to project the administrator-managed hook failure policy.
+ use std::sync::Arc;
+ 
+ use crate::config_manager::ConfigManager;
+@@ -364,6 +365,7 @@ fn map_requirements_toml_to_api(requirements: ConfigRequirementsToml) -> ConfigR
+             normalized
+         }),
+         allow_managed_hooks_only: requirements.allow_managed_hooks_only,
++        managed_hook_failure_mode: requirements.managed_hook_failure_mode,
+         allow_appshots: requirements.allow_appshots,
+         allow_remote_control: requirements.allow_remote_control,
+         computer_use: requirements
+@@ -580,6 +582,7 @@ mod tests {
+     use codex_config::ModelsRequirementsToml;
+     use codex_config::NewThreadModelDefaultsToml;
+     use codex_config::WindowsRequirementsToml;
++    use codex_protocol::config_types::ManagedHookFailureMode;
+     use codex_protocol::openai_models::ReasoningEffort;
+     use pretty_assertions::assert_eq;
+     use std::collections::BTreeMap;
+@@ -595,6 +598,23 @@ mod tests {
+         assert_eq!(mapped.hooks, None);
+     }
+ 
++    #[test]
++    fn requirements_api_exposes_managed_hook_failure_mode_in_camel_case() {
++        let mapped = map_requirements_toml_to_api(ConfigRequirementsToml {
++            allow_managed_hooks_only: Some(true),
++            managed_hook_failure_mode: Some(ManagedHookFailureMode::Block),
++            ..ConfigRequirementsToml::default()
++        });
++
++        assert_eq!(
++            mapped.managed_hook_failure_mode,
++            Some(ManagedHookFailureMode::Block)
++        );
++        let wire = serde_json::to_value(mapped).expect("serialize requirements API response");
++        assert_eq!(wire["managedHookFailureMode"], "block");
++        assert!(wire.get("managed_hook_failure_mode").is_none());
++    }
++
+     #[test]
+     fn requirements_api_includes_permission_default_and_allowlist() {
+         let mapped = map_requirements_toml_to_api(ConfigRequirementsToml {
+diff --git a/config/src/config_requirements.rs b/config/src/config_requirements.rs
+index 00af97233641bf8fc07e5365086e56293d97e06a..2965e0e05876cadf3683b1afe1c1ffc3bbf24ade 100644
+--- a/config/src/config_requirements.rs
++++ b/config/src/config_requirements.rs
+@@ -1,4 +1,6 @@
++// Modified by North to add an administrator-managed hook failure policy.
+ use codex_protocol::config_types::ApprovalsReviewer;
++use codex_protocol::config_types::ManagedHookFailureMode;
+ use codex_protocol::config_types::SandboxMode;
+ use codex_protocol::config_types::WebSearchMode;
+ use codex_protocol::models::PermissionProfile;
+@@ -151,6 +153,7 @@ pub struct ConfigRequirements {
+     pub windows_sandbox_mode: ConstrainedWithSource<Option<WindowsSandboxModeToml>>,
+     pub web_search_mode: ConstrainedWithSource<WebSearchMode>,
+     pub allow_managed_hooks_only: Option<Sourced<bool>>,
++    pub managed_hook_failure_mode: Option<Sourced<ManagedHookFailureMode>>,
+     pub allow_appshots: Option<Sourced<bool>>,
+     pub allow_remote_control: Option<Sourced<bool>>,
+     pub computer_use: Option<Sourced<ComputerUseRequirementsToml>>,
+@@ -193,6 +196,7 @@ impl Default for ConfigRequirements {
+                 /*source*/ None,
+             ),
+             allow_managed_hooks_only: None,
++            managed_hook_failure_mode: None,
+             allow_appshots: None,
+             allow_remote_control: None,
+             computer_use: None,
+@@ -861,6 +865,7 @@ pub struct ConfigRequirementsToml {
+     pub remote_sandbox_config: Option<Vec<RemoteSandboxConfigToml>>,
+     pub allowed_web_search_modes: Option<Vec<WebSearchModeRequirement>>,
+     pub allow_managed_hooks_only: Option<bool>,
++    pub managed_hook_failure_mode: Option<ManagedHookFailureMode>,
+     pub allow_appshots: Option<bool>,
+     pub allow_remote_control: Option<bool>,
+     pub computer_use: Option<ComputerUseRequirementsToml>,
+@@ -944,6 +949,7 @@ pub struct ConfigRequirementsWithSources {
+     pub default_permissions: Option<Sourced<String>>,
+     pub allowed_web_search_modes: Option<Sourced<Vec<WebSearchModeRequirement>>>,
+     pub allow_managed_hooks_only: Option<Sourced<bool>>,
++    pub managed_hook_failure_mode: Option<Sourced<ManagedHookFailureMode>>,
+     pub allow_appshots: Option<Sourced<bool>>,
+     pub allow_remote_control: Option<Sourced<bool>>,
+     pub computer_use: Option<Sourced<ComputerUseRequirementsToml>>,
+@@ -989,6 +995,7 @@ impl ConfigRequirementsWithSources {
+             remote_sandbox_config: _,
+             allowed_web_search_modes: _,
+             allow_managed_hooks_only: _,
++            managed_hook_failure_mode: _,
+             allow_appshots: _,
+             allow_remote_control: _,
+             computer_use: _,
+@@ -1027,6 +1034,7 @@ impl ConfigRequirementsWithSources {
+                 default_permissions,
+                 allowed_web_search_modes,
+                 allow_managed_hooks_only,
++                managed_hook_failure_mode,
+                 allow_appshots,
+                 allow_remote_control,
+                 computer_use,
+@@ -1063,6 +1071,7 @@ impl ConfigRequirementsWithSources {
+             default_permissions,
+             allowed_web_search_modes,
+             allow_managed_hooks_only,
++            managed_hook_failure_mode,
+             allow_appshots,
+             allow_remote_control,
+             computer_use,
+@@ -1089,6 +1098,7 @@ impl ConfigRequirementsWithSources {
+             remote_sandbox_config: None,
+             allowed_web_search_modes: allowed_web_search_modes.map(|sourced| sourced.value),
+             allow_managed_hooks_only: allow_managed_hooks_only.map(|sourced| sourced.value),
++            managed_hook_failure_mode: managed_hook_failure_mode.map(|sourced| sourced.value),
+             allow_appshots: allow_appshots.map(|sourced| sourced.value),
+             allow_remote_control: allow_remote_control.map(|sourced| sourced.value),
+             computer_use: computer_use.map(|sourced| sourced.value),
+@@ -1181,6 +1191,7 @@ impl ConfigRequirementsToml {
+             && self.remote_sandbox_config.is_none()
+             && self.allowed_web_search_modes.is_none()
+             && self.allow_managed_hooks_only.is_none()
++            && self.managed_hook_failure_mode.is_none()
+             && self.allow_appshots.is_none()
+             && self.allow_remote_control.is_none()
+             && self
+@@ -1262,6 +1273,7 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
+             default_permissions: _,
+             allowed_web_search_modes,
+             allow_managed_hooks_only,
++            managed_hook_failure_mode,
+             allow_appshots,
+             allow_remote_control,
+             computer_use,
+@@ -1280,6 +1292,20 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
+             guardian_policy_config,
+         } = toml;
+ 
++        if let Some(failure_mode) = managed_hook_failure_mode.as_ref()
++            && failure_mode.value == ManagedHookFailureMode::Block
++            && !allow_managed_hooks_only
++                .as_ref()
++                .is_some_and(|managed_only| managed_only.value)
++        {
++            return Err(ConstraintError::InvalidValue {
++                field_name: "managed_hook_failure_mode",
++                candidate: "block".to_string(),
++                allowed: "block only when `allow_managed_hooks_only = true`".to_string(),
++                requirement_source: failure_mode.source.clone(),
++            });
++        }
++
+         if let Some(requirements) = &mcp_servers {
+             validate_mcp_server_requirements(
+                 &requirements.value,
+@@ -1564,6 +1590,7 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
+             windows_sandbox_mode,
+             web_search_mode,
+             allow_managed_hooks_only,
++            managed_hook_failure_mode,
+             allow_appshots,
+             allow_remote_control,
+             computer_use,
+@@ -1660,6 +1687,7 @@ mod tests {
+             remote_sandbox_config: _,
+             allowed_web_search_modes,
+             allow_managed_hooks_only,
++            managed_hook_failure_mode,
+             allow_appshots,
+             allow_remote_control,
+             computer_use,
+@@ -1692,6 +1720,8 @@ mod tests {
+                 .map(|value| Sourced::new(value, RequirementSource::Unknown)),
+             allow_managed_hooks_only: allow_managed_hooks_only
+                 .map(|value| Sourced::new(value, RequirementSource::Unknown)),
++            managed_hook_failure_mode: managed_hook_failure_mode
++                .map(|value| Sourced::new(value, RequirementSource::Unknown)),
+             allow_appshots: allow_appshots
+                 .map(|value| Sourced::new(value, RequirementSource::Unknown)),
+             allow_remote_control: allow_remote_control
+@@ -1742,6 +1772,72 @@ mod tests {
+         Ok(())
+     }
+ 
++    #[test]
++    fn deserialize_managed_hook_failure_mode() -> Result<()> {
++        let requirements: ConfigRequirementsToml = from_str(
++            r#"
++                allow_managed_hooks_only = true
++                managed_hook_failure_mode = "block"
++            "#,
++        )?;
++
++        assert_eq!(
++            requirements.managed_hook_failure_mode,
++            Some(ManagedHookFailureMode::Block)
++        );
++        let normalized: ConfigRequirements = with_unknown_source(requirements).try_into()?;
++        assert_eq!(
++            normalized
++                .managed_hook_failure_mode
++                .map(|sourced| sourced.value),
++            Some(ManagedHookFailureMode::Block)
++        );
++        Ok(())
++    }
++
++    #[test]
++    fn block_failure_mode_requires_managed_hooks_only() -> Result<()> {
++        for requirements_toml in [
++            r#"
++                managed_hook_failure_mode = "block"
++            "#,
++            r#"
++                allow_managed_hooks_only = false
++                managed_hook_failure_mode = "block"
++            "#,
++        ] {
++            let requirements: ConfigRequirementsToml = from_str(requirements_toml)?;
++            assert!(matches!(
++                ConfigRequirements::try_from(with_unknown_source(requirements)),
++                Err(ConstraintError::InvalidValue {
++                    field_name: "managed_hook_failure_mode",
++                    ..
++                })
++            ));
++        }
++        Ok(())
++    }
++
++    #[test]
++    fn managed_hook_failure_mode_rejects_noncanonical_values_and_types() {
++        for (candidate, expected_error) in [
++            ("true", "wanted string or table"),
++            ("0", "wanted string or table"),
++            ("\"BLOCK\"", "unknown variant `BLOCK`"),
++            ("\"deny\"", "unknown variant `deny`"),
++        ] {
++            let error = from_str::<ConfigRequirementsToml>(&format!(
++                "managed_hook_failure_mode = {candidate}"
++            ))
++            .expect_err("noncanonical failure mode must be rejected");
++
++            assert!(
++                error.to_string().contains(expected_error),
++                "unexpected parse error for {candidate}: {error}",
++            );
++        }
++    }
++
+     #[test]
+     fn deserialize_managed_permission_profiles() -> Result<()> {
+         let requirements: ConfigRequirementsToml = from_str(
+@@ -1932,6 +2028,7 @@ mod tests {
+             remote_sandbox_config: None,
+             allowed_web_search_modes: Some(allowed_web_search_modes.clone()),
+             allow_managed_hooks_only: Some(true),
++            managed_hook_failure_mode: Some(ManagedHookFailureMode::Block),
+             allow_appshots: Some(false),
+             allow_remote_control: Some(false),
+             computer_use: Some(computer_use.clone()),
+@@ -1977,6 +2074,10 @@ mod tests {
+                     /*value*/ true,
+                     enforce_source.clone(),
+                 )),
++                managed_hook_failure_mode: Some(Sourced::new(
++                    ManagedHookFailureMode::Block,
++                    enforce_source.clone(),
++                )),
+                 allow_appshots: Some(Sourced::new(/*value*/ false, enforce_source.clone(),)),
+                 allow_remote_control: Some(Sourced::new(
+                     /*value*/ false,
+@@ -2031,6 +2132,7 @@ mod tests {
+                 default_permissions: None,
+                 allowed_web_search_modes: None,
+                 allow_managed_hooks_only: None,
++                managed_hook_failure_mode: None,
+                 allow_appshots: None,
+                 allow_remote_control: None,
+                 computer_use: None,
+@@ -2087,6 +2189,7 @@ mod tests {
+                 default_permissions: None,
+                 allowed_web_search_modes: None,
+                 allow_managed_hooks_only: None,
++                managed_hook_failure_mode: None,
+                 allow_appshots: None,
+                 allow_remote_control: None,
+                 computer_use: None,
+diff --git a/config/src/requirements_layers/stack.rs b/config/src/requirements_layers/stack.rs
+index 9a42650bf360f657df8c91584cb01a72d13fb550..8ca4fc9a7ddbd7cafa01939dc5a5b0da0f3292cb 100644
+--- a/config/src/requirements_layers/stack.rs
++++ b/config/src/requirements_layers/stack.rs
+@@ -12,6 +12,8 @@
+ //!   active managed-dir conflicts.
+ //! - `permissions.filesystem.deny_read` is a high-priority-first union across
+ //!   layers.
++//!
++//! Modified by North to compose an administrator-managed hook failure policy.
+ 
+ use crate::ConfigRequirementsToml;
+ use crate::ConfigRequirementsWithSources;
+@@ -214,6 +216,7 @@ fn populate_merged_regular_fields_with_sources(
+         remote_sandbox_config: _,
+         allowed_web_search_modes,
+         allow_managed_hooks_only,
++        managed_hook_failure_mode,
+         allow_appshots,
+         allow_remote_control,
+         computer_use,
+@@ -245,6 +248,7 @@ fn populate_merged_regular_fields_with_sources(
+     set_sourced!(default_permissions, &["default_permissions"]);
+     set_sourced!(allowed_web_search_modes, &["allowed_web_search_modes"]);
+     set_sourced!(allow_managed_hooks_only, &["allow_managed_hooks_only"]);
++    set_sourced!(managed_hook_failure_mode, &["managed_hook_failure_mode"]);
+     set_sourced!(allow_appshots, &["allow_appshots"]);
+     set_sourced!(allow_remote_control, &["allow_remote_control"]);
+     set_sourced!(computer_use, &["computer_use"]);
+diff --git a/config/src/requirements_layers/stack_tests.rs b/config/src/requirements_layers/stack_tests.rs
+index 92e6bd8b4687d63c0f128d545928c2693d0a1281..a162e2f47ff3d19518df7fb1beaf4c5b4df33cc8 100644
+--- a/config/src/requirements_layers/stack_tests.rs
++++ b/config/src/requirements_layers/stack_tests.rs
+@@ -1,3 +1,4 @@
++// Modified by North to cover administrator-managed hook failure policy composition.
+ use super::super::RequirementsLayerEntry;
+ use super::super::hooks::HookDirectoryField;
+ use super::RequirementsCompositionError;
+@@ -109,6 +110,39 @@ allow_remote_control = false
+     );
+ }
+ 
++#[test]
++fn managed_hook_failure_mode_uses_toml_priority() {
++    let composed = compose(vec![
++        layer(
++            "req_low",
++            "Low",
++            r#"
++allow_managed_hooks_only = true
++managed_hook_failure_mode = "continue"
++"#,
++        ),
++        layer(
++            "req_high",
++            "High",
++            r#"
++managed_hook_failure_mode = "block"
++"#,
++        ),
++    ])
++    .expect("compose requirements")
++    .expect("requirements present");
++
++    assert_eq!(
++        composed,
++        expected_requirements(
++            r#"
++allow_managed_hooks_only = true
++managed_hook_failure_mode = "block"
++"#
++        )
++    );
++}
++
+ #[test]
+ fn new_thread_model_defaults_use_toml_priority() {
+     let composed = compose(vec![
+diff --git a/core/src/config/mod.rs b/core/src/config/mod.rs
+index 6348f14c04432d85794f9d973a4c3dce17ab536e..300fe8f8902e74f630a24c9fb7f707979be94b01 100644
+--- a/core/src/config/mod.rs
++++ b/core/src/config/mod.rs
+@@ -1,3 +1,4 @@
++// Modified by North to preserve the administrator-managed hook failure policy.
+ use crate::config::edit::ConfigEdit;
+ use crate::config::edit::ConfigEditsBuilder;
+ use crate::path_utils::normalize_for_native_workdir;
+@@ -2970,6 +2971,7 @@ impl Config {
+             windows_sandbox_mode: mut constrained_windows_sandbox_mode,
+             web_search_mode: mut constrained_web_search_mode,
+             allow_managed_hooks_only: _,
++            managed_hook_failure_mode: _,
+             allow_appshots: _,
+             allow_remote_control: _,
+             computer_use: _,
+diff --git a/core/src/hook_runtime.rs b/core/src/hook_runtime.rs
+index 342e4d4b8f443deab989c2528da909aaf542e9e8..b5614ba5245be18fad765b6eab82638b2ff1c3fc 100644
+--- a/core/src/hook_runtime.rs
++++ b/core/src/hook_runtime.rs
+@@ -1,3 +1,4 @@
++// Modified by North to keep managed-hook technical failures bounded and non-secret-bearing.
+ use std::future::Future;
+ use std::sync::Arc;
+ use std::time::Duration;
+@@ -10,6 +11,7 @@ use codex_hooks::PermissionRequestOutcome;
+ use codex_hooks::PermissionRequestRequest;
+ use codex_hooks::PostToolUseOutcome;
+ use codex_hooks::PostToolUseRequest;
++use codex_hooks::PreToolUseBlockSource;
+ use codex_hooks::PreToolUseOutcome;
+ use codex_hooks::PreToolUseRequest;
+ use codex_hooks::SessionStartOutcome;
+@@ -189,6 +191,7 @@ pub(crate) async fn run_pre_tool_use_hooks(
+         hook_events,
+         should_block,
+         block_reason,
++        block_source,
+         additional_contexts,
+         updated_input,
+     } = hooks.run_pre_tool_use(request).await;
+@@ -205,6 +208,10 @@ pub(crate) async fn run_pre_tool_use_hooks(
+         };
+     };
+ 
++    if block_source == Some(PreToolUseBlockSource::ManagedTechnicalFailure) {
++        return PreToolUseHookResult::Blocked(reason);
++    }
++
+     if (tool_name.name() == "Bash" || tool_name.name() == "apply_patch")
+         && let Some(command) = tool_input.get("command").and_then(Value::as_str)
+     {
+diff --git a/core/tests/suite/hooks.rs b/core/tests/suite/hooks.rs
+index a5c82d5767ec41f90afbdb5d1f1f633c8e768c30..be374283a57823568a7164459dd8e20a987b570e 100644
+--- a/core/tests/suite/hooks.rs
++++ b/core/tests/suite/hooks.rs
+@@ -1,8 +1,10 @@
++// Modified by North to verify administrator-managed PreToolUse failures block dispatch.
+ use std::fs;
+ use std::path::Path;
+ 
+ use anyhow::Context;
+ use anyhow::Result;
++use codex_config::test_support::CloudConfigBundleFixture;
+ use codex_core::config::Config;
+ use codex_core::config::Constrained;
+ use codex_features::Feature;
+@@ -2377,6 +2379,121 @@ async fn pre_tool_use_blocks_shell_command_before_execution() -> Result<()> {
+     Ok(())
+ }
+ 
++#[tokio::test]
++async fn managed_pre_tool_use_technical_failure_blocks_before_execution() -> Result<()> {
++    skip_if_host_windows!(Ok(()));
++    skip_if_no_network!(Ok(()));
++
++    let server = start_mock_server().await;
++    let home = Arc::new(TempDir::new().context("create managed hook test home")?);
++    let managed_dir = home.path().join("managed-hooks");
++    fs::create_dir_all(&managed_dir).context("create managed hook directory")?;
++    let script_path = managed_dir.join("fail_pre_tool.py");
++    let hook_log = managed_dir.join("fail_pre_tool.json");
++    fs::write(
++        &script_path,
++        format!(
++            r#"import json
++from pathlib import Path
++import sys
++
++payload = json.load(sys.stdin)
++Path(r"{hook_log}").write_text(json.dumps(payload), encoding="utf-8")
++sys.stderr.write("managed policy hook crashed\n")
++raise SystemExit(1)
++"#,
++            hook_log = hook_log.display(),
++        ),
++    )
++    .context("write failing managed PreToolUse hook")?;
++    let requirements = format!(
++        r#"allow_managed_hooks_only = true
++managed_hook_failure_mode = "block"
++
++[features]
++hooks = true
++
++[hooks]
++managed_dir = "{managed_dir}"
++
++[[hooks.PreToolUse]]
++matcher = "^Bash$"
++
++[[hooks.PreToolUse.hooks]]
++type = "command"
++command = "python3 {script_path}"
++timeout = 5
++"#,
++        managed_dir = managed_dir.display(),
++        script_path = script_path.display(),
++    );
++
++    let call_id = "managed-pretooluse-failure";
++    let marker = home.path().join("tool-side-effect-marker");
++    let secret_sentinel = "NORTH-SECRET-SENTINEL-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ-abcdefghijklmnopqrstuvwxyz-NORTH-SECRET-SENTINEL";
++    let command = format!("printf {secret_sentinel} > {}", marker.display());
++    let args = serde_json::json!({ "command": command });
++    let responses = mount_sse_sequence(
++        &server,
++        vec![
++            sse(vec![
++                ev_response_created("resp-1"),
++                ev_function_call(call_id, "shell_command", &serde_json::to_string(&args)?),
++                ev_completed("resp-1"),
++            ]),
++            sse(vec![
++                ev_response_created("resp-2"),
++                ev_assistant_message("msg-1", "managed hook denied dispatch"),
++                ev_completed("resp-2"),
++            ]),
++        ],
++    )
++    .await;
++
++    let test = test_codex()
++        .with_home(home)
++        .with_cloud_config_bundle(
++            CloudConfigBundleFixture::loader_with_enterprise_requirement(&requirements),
++        )
++        .build(&server)
++        .await?;
++
++    test.submit_turn_with_permission_profile(
++        "run the command guarded by the managed hook",
++        PermissionProfile::Disabled,
++    )
++    .await?;
++
++    let requests = responses.requests();
++    assert_eq!(requests.len(), 2);
++    let function_call_output = requests[1].function_call_output(call_id);
++    let output = function_call_output
++        .get("output")
++        .and_then(Value::as_str)
++        .expect("shell command output string");
++    assert!(
++        output.contains(
++            "managed PreToolUse hook failed; tool execution denied by administrator policy"
++        ),
++        "blocked result should surface the administrator failure policy",
++    );
++    assert!(
++        !output.contains(secret_sentinel),
++        "administrator failure result must not echo secret-bearing command content",
++    );
++    assert!(
++        !output.contains(&command),
++        "administrator failure result must remain bounded instead of logging the command",
++    );
++    assert!(hook_log.exists(), "managed PreToolUse hook should have run");
++    assert!(
++        !marker.exists(),
++        "tool handler must not run after a managed PreToolUse technical failure"
++    );
++
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn pre_tool_use_records_additional_context_for_shell_command() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+diff --git a/hooks/src/engine/mod.rs b/hooks/src/engine/mod.rs
+index 859fc54069502e775bbd7fcbf7f5c63ea60642df..60d672839476986b2bfd9e0509ddf246db209916 100644
+--- a/hooks/src/engine/mod.rs
++++ b/hooks/src/engine/mod.rs
+@@ -1,3 +1,4 @@
++// Modified by North to enforce administrator-managed PreToolUse failures.
+ pub(crate) mod command_runner;
+ pub(crate) mod discovery;
+ pub(crate) mod dispatcher;
+@@ -24,6 +25,7 @@ use crate::output_spill::HookOutputSpiller;
+ use codex_config::ConfigLayerStack;
+ use codex_plugin::PluginHookSource;
+ use codex_protocol::ThreadId;
++use codex_protocol::config_types::ManagedHookFailureMode;
+ use codex_protocol::protocol::HookEventName;
+ use codex_protocol::protocol::HookHandlerType;
+ use codex_protocol::protocol::HookRunSummary;
+@@ -102,6 +104,7 @@ pub(crate) struct ClaudeHooksEngine {
+     warnings: Vec<String>,
+     shell: CommandShell,
+     output_spiller: HookOutputSpiller,
++    managed_hook_failure_mode: ManagedHookFailureMode,
+ }
+ 
+ impl ClaudeHooksEngine {
+@@ -113,12 +116,24 @@ impl ClaudeHooksEngine {
+         plugin_hook_load_warnings: Vec<String>,
+         shell: CommandShell,
+     ) -> Self {
++        let managed_hook_failure_mode = config_layer_stack
++            .map(ConfigLayerStack::requirements)
++            .filter(|requirements| {
++                requirements
++                    .allow_managed_hooks_only
++                    .as_ref()
++                    .is_some_and(|managed_only| managed_only.value)
++            })
++            .and_then(|requirements| requirements.managed_hook_failure_mode.as_ref())
++            .map(|mode| mode.value)
++            .unwrap_or_default();
+         if !enabled {
+             return Self {
+                 handlers: Vec::new(),
+                 warnings: Vec::new(),
+                 shell,
+                 output_spiller: HookOutputSpiller::new(),
++                managed_hook_failure_mode,
+             };
+         }
+ 
+@@ -134,6 +149,7 @@ impl ClaudeHooksEngine {
+             warnings: discovered.warnings,
+             shell,
+             output_spiller: HookOutputSpiller::new(),
++            managed_hook_failure_mode,
+         }
+     }
+ 
+@@ -182,8 +198,13 @@ impl ClaudeHooksEngine {
+ 
+     pub(crate) async fn run_pre_tool_use(&self, request: PreToolUseRequest) -> PreToolUseOutcome {
+         let session_id = request.session_id;
+-        let mut outcome =
+-            crate::events::pre_tool_use::run(&self.handlers, &self.shell, request).await;
++        let mut outcome = crate::events::pre_tool_use::run(
++            &self.handlers,
++            &self.shell,
++            request,
++            self.managed_hook_failure_mode,
++        )
++        .await;
+         outcome.additional_contexts = self
+             .maybe_spill_texts(session_id, outcome.additional_contexts)
+             .await;
+diff --git a/hooks/src/engine/mod_tests.rs b/hooks/src/engine/mod_tests.rs
+index 544c67e7ce1071907cdf7f6992ac945fed0c0817..dfde9edf8aa042d432423da522f75aa9e39148f4 100644
+--- a/hooks/src/engine/mod_tests.rs
++++ b/hooks/src/engine/mod_tests.rs
+@@ -1,3 +1,4 @@
++// Modified by North to verify managed-hook failure authority cannot reach unmanaged hooks.
+ use std::collections::HashMap;
+ use std::fs;
+ use std::path::Path;
+@@ -20,6 +21,7 @@ use codex_config::TomlValue;
+ use codex_plugin::PluginHookSource;
+ use codex_plugin::PluginId;
+ use codex_protocol::ThreadId;
++use codex_protocol::config_types::ManagedHookFailureMode;
+ use codex_protocol::protocol::HookOutputEntry;
+ use codex_protocol::protocol::HookOutputEntryKind;
+ use codex_protocol::protocol::HookRunStatus;
+@@ -341,6 +343,71 @@ async fn requirements_managed_hooks_execute_windows_command_override() {
+     );
+ }
+ 
++#[tokio::test]
++async fn direct_stack_block_mode_without_managed_only_cannot_block_unmanaged_failure() {
++    let temp = tempdir().expect("create temp dir");
++    let config_path =
++        AbsolutePathBuf::try_from(temp.path().join("config.toml")).expect("absolute config path");
++    let requirement_source = RequirementSource::LegacyManagedConfigTomlFromMdm;
++    let requirements = ConfigRequirements {
++        allow_managed_hooks_only: Some(Sourced::new(false, requirement_source.clone())),
++        managed_hook_failure_mode: Some(Sourced::new(
++            ManagedHookFailureMode::Block,
++            requirement_source,
++        )),
++        ..ConfigRequirements::default()
++    };
++    let config_layer_stack = ConfigLayerStack::new(
++        vec![ConfigLayerEntry::new(
++            ConfigLayerSource::User {
++                file: config_path,
++                profile: None,
++            },
++            config_toml_with_pre_tool_use("exit 17"),
++        )],
++        requirements,
++        ConfigRequirementsToml {
++            allow_managed_hooks_only: Some(false),
++            managed_hook_failure_mode: Some(ManagedHookFailureMode::Block),
++            ..ConfigRequirementsToml::default()
++        },
++    )
++    .expect("direct config layer stack");
++
++    let engine = ClaudeHooksEngine::new(
++        /*enabled*/ true,
++        /*bypass_hook_trust*/ true,
++        Some(&config_layer_stack),
++        Vec::new(),
++        Vec::new(),
++        CommandShell {
++            program: String::new(),
++            args: Vec::new(),
++        },
++    );
++    let outcome = engine
++        .run_pre_tool_use(PreToolUseRequest {
++            session_id: ThreadId::new(),
++            turn_id: "turn-1".to_string(),
++            subagent: None,
++            cwd: cwd(),
++            transcript_path: None,
++            model: "gpt-test".to_string(),
++            permission_mode: "default".to_string(),
++            tool_name: "Bash".to_string(),
++            matcher_aliases: Vec::new(),
++            tool_use_id: "tool-1".to_string(),
++            tool_input: serde_json::json!({ "command": "echo hello" }),
++        })
++        .await;
++
++    assert_eq!(outcome.hook_events.len(), 1);
++    assert_eq!(outcome.hook_events[0].run.status, HookRunStatus::Failed);
++    assert!(!outcome.should_block);
++    assert_eq!(outcome.block_reason, None);
++    assert_eq!(outcome.block_source, None);
++}
++
+ #[test]
+ fn unknown_requirement_source_hooks_stay_managed() {
+     let temp = tempdir().expect("create temp dir");
+diff --git a/hooks/src/events/pre_tool_use.rs b/hooks/src/events/pre_tool_use.rs
+index b3579aba824e551ab3e070ac30950482644b46be..56844e959629570a3bd191c488badb6ddc96661f 100644
+--- a/hooks/src/events/pre_tool_use.rs
++++ b/hooks/src/events/pre_tool_use.rs
+@@ -1,6 +1,8 @@
++// Modified by North to enforce administrator-managed PreToolUse failures.
+ use std::path::PathBuf;
+ 
+ use codex_protocol::ThreadId;
++use codex_protocol::config_types::ManagedHookFailureMode;
+ use codex_protocol::protocol::HookCompletedEvent;
+ use codex_protocol::protocol::HookEventName;
+ use codex_protocol::protocol::HookOutputEntry;
+@@ -19,6 +21,9 @@ use crate::engine::output_parser;
+ use crate::schema::PreToolUseCommandInput;
+ use crate::schema::SubagentCommandInputFields;
+ 
++const MANAGED_HOOK_FAILURE_REASON: &str =
++    "managed PreToolUse hook failed; tool execution denied by administrator policy";
++
+ #[derive(Debug, Clone)]
+ pub struct PreToolUseRequest {
+     pub session_id: ThreadId,
+@@ -39,10 +44,17 @@ pub struct PreToolUseOutcome {
+     pub hook_events: Vec<HookCompletedEvent>,
+     pub should_block: bool,
+     pub block_reason: Option<String>,
++    pub block_source: Option<PreToolUseBlockSource>,
+     pub additional_contexts: Vec<String>,
+     pub updated_input: Option<Value>,
+ }
+ 
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum PreToolUseBlockSource {
++    HookDecision,
++    ManagedTechnicalFailure,
++}
++
+ #[derive(Debug, Default, PartialEq, Eq)]
+ struct PreToolUseHandlerData {
+     should_block: bool,
+@@ -51,6 +63,14 @@ struct PreToolUseHandlerData {
+     updated_input: Option<Value>,
+ }
+ 
++#[derive(Debug, PartialEq, Eq)]
++struct PreToolUseAggregate {
++    should_block: bool,
++    block_reason: Option<String>,
++    block_source: Option<PreToolUseBlockSource>,
++    updated_input: Option<Value>,
++}
++
+ pub(crate) fn preview(
+     handlers: &[ConfiguredHandler],
+     request: &PreToolUseRequest,
+@@ -72,6 +92,7 @@ pub(crate) async fn run(
+     handlers: &[ConfiguredHandler],
+     shell: &CommandShell,
+     request: PreToolUseRequest,
++    failure_mode: ManagedHookFailureMode,
+ ) -> PreToolUseOutcome {
+     let matcher_inputs = common::matcher_inputs(&request.tool_name, &request.matcher_aliases);
+     let matched = dispatcher::select_handlers_for_matcher_inputs(
+@@ -84,6 +105,7 @@ pub(crate) async fn run(
+             hook_events: Vec::new(),
+             should_block: false,
+             block_reason: None,
++            block_source: None,
+             additional_contexts: Vec::new(),
+             updated_input: None,
+         };
+@@ -98,11 +120,11 @@ pub(crate) async fn run(
+                 format!("failed to serialize pre tool use hook input: {error}"),
+                 &request.tool_use_id,
+             );
+-            return serialization_failure_outcome(hook_events);
++            return serialization_failure_outcome(hook_events, failure_mode);
+         }
+     };
+ 
+-    let results = dispatcher::execute_handlers(
++    let mut results = dispatcher::execute_handlers(
+         shell,
+         matched,
+         input_json,
+@@ -112,20 +134,14 @@ pub(crate) async fn run(
+     )
+     .await;
+ 
+-    let should_block = results.iter().any(|result| result.data.should_block);
+-    let block_reason = results
+-        .iter()
+-        .find_map(|result| result.data.block_reason.clone());
++    let managed_technical_failure = apply_managed_failure_policy(&mut results, failure_mode);
++
++    let aggregate = aggregate_results(&results, managed_technical_failure);
+     let additional_contexts = common::flatten_additional_contexts(
+         results
+             .iter()
+             .map(|result| result.data.additional_contexts_for_model.as_slice()),
+     );
+-    let updated_input = if should_block {
+-        None
+-    } else {
+-        latest_updated_input(&results)
+-    };
+ 
+     PreToolUseOutcome {
+         hook_events: results
+@@ -134,13 +150,75 @@ pub(crate) async fn run(
+                 common::hook_completed_for_tool_use(result.completed, &request.tool_use_id)
+             })
+             .collect(),
+-        should_block,
+-        block_reason,
++        should_block: aggregate.should_block,
++        block_reason: aggregate.block_reason,
++        block_source: aggregate.block_source,
+         additional_contexts,
+-        updated_input,
++        updated_input: aggregate.updated_input,
++    }
++}
++
++fn aggregate_results(
++    results: &[dispatcher::ParsedHandler<PreToolUseHandlerData>],
++    managed_technical_failure: bool,
++) -> PreToolUseAggregate {
++    let should_block = results.iter().any(|result| result.data.should_block);
++    if !should_block {
++        return PreToolUseAggregate {
++            should_block: false,
++            block_reason: None,
++            block_source: None,
++            updated_input: latest_updated_input(results),
++        };
++    }
++
++    if let Some(explicit_reason) = results
++        .iter()
++        .filter(|result| result.completed.run.status == HookRunStatus::Blocked)
++        .find_map(|result| result.data.block_reason.clone())
++    {
++        return PreToolUseAggregate {
++            should_block: true,
++            block_reason: Some(explicit_reason),
++            block_source: Some(PreToolUseBlockSource::HookDecision),
++            updated_input: None,
++        };
++    }
++
++    let block_reason = results
++        .iter()
++        .find_map(|result| result.data.block_reason.clone());
++    PreToolUseAggregate {
++        should_block: true,
++        block_reason,
++        block_source: Some(if managed_technical_failure {
++            PreToolUseBlockSource::ManagedTechnicalFailure
++        } else {
++            PreToolUseBlockSource::HookDecision
++        }),
++        updated_input: None,
+     }
+ }
+ 
++fn apply_managed_failure_policy(
++    results: &mut [dispatcher::ParsedHandler<PreToolUseHandlerData>],
++    failure_mode: ManagedHookFailureMode,
++) -> bool {
++    if failure_mode != ManagedHookFailureMode::Block {
++        return false;
++    }
++    let mut managed_technical_failure = false;
++    for result in results {
++        if result.completed.run.status == HookRunStatus::Failed {
++            managed_technical_failure = true;
++            result.data.should_block = true;
++            result.data.block_reason = Some(MANAGED_HOOK_FAILURE_REASON.to_string());
++            result.data.updated_input = None;
++        }
++    }
++    managed_technical_failure
++}
++
+ /// Chooses the rewrite from the hook that actually finished last.
+ ///
+ /// Hook results stay in configured order for stable reporting, but the
+@@ -302,11 +380,16 @@ fn parse_completed(
+     }
+ }
+ 
+-fn serialization_failure_outcome(hook_events: Vec<HookCompletedEvent>) -> PreToolUseOutcome {
++fn serialization_failure_outcome(
++    hook_events: Vec<HookCompletedEvent>,
++    failure_mode: ManagedHookFailureMode,
++) -> PreToolUseOutcome {
++    let should_block = failure_mode == ManagedHookFailureMode::Block;
+     PreToolUseOutcome {
+         hook_events,
+-        should_block: false,
+-        block_reason: None,
++        should_block,
++        block_reason: should_block.then(|| MANAGED_HOOK_FAILURE_REASON.to_string()),
++        block_source: should_block.then_some(PreToolUseBlockSource::ManagedTechnicalFailure),
+         additional_contexts: Vec::new(),
+         updated_input: None,
+     }
+@@ -315,6 +398,7 @@ fn serialization_failure_outcome(hook_events: Vec<HookCompletedEvent>) -> PreToo
+ #[cfg(test)]
+ mod tests {
+     use codex_protocol::ThreadId;
++    use codex_protocol::config_types::ManagedHookFailureMode;
+     use codex_protocol::protocol::HookEventName;
+     use codex_protocol::protocol::HookOutputEntry;
+     use codex_protocol::protocol::HookOutputEntryKind;
+@@ -323,11 +407,17 @@ mod tests {
+     use codex_utils_absolute_path::test_support::test_path_buf;
+     use pretty_assertions::assert_eq;
+ 
++    use super::MANAGED_HOOK_FAILURE_REASON;
++    use super::PreToolUseAggregate;
++    use super::PreToolUseBlockSource;
+     use super::PreToolUseHandlerData;
++    use super::aggregate_results;
++    use super::apply_managed_failure_policy;
+     use super::command_input_json;
+     use super::latest_updated_input;
+     use super::parse_completed;
+     use super::preview;
++    use super::serialization_failure_outcome;
+     use crate::engine::ConfiguredHandler;
+     use crate::engine::command_runner::CommandRunResult;
+     use crate::events::common;
+@@ -671,6 +761,196 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn administrator_block_mode_promotes_technical_failure_to_denial() {
++        let failed = parse_completed(
++            &handler(),
++            run_result(Some(1), "", "hook failed"),
++            Some("turn-1".to_string()),
++        );
++        let mut results = vec![failed];
++
++        apply_managed_failure_policy(&mut results, ManagedHookFailureMode::Block);
++
++        assert!(results[0].data.should_block);
++        assert_eq!(
++            results[0].data.block_reason.as_deref(),
++            Some(MANAGED_HOOK_FAILURE_REASON)
++        );
++        assert_eq!(results[0].completed.run.status, HookRunStatus::Failed);
++    }
++
++    #[test]
++    fn explicit_denial_precedes_technical_failure_in_both_configured_orders() {
++        let explicit = || {
++            parse_completed(
++                &handler(),
++                run_result(Some(2), "", "explicit administrator denial\n"),
++                Some("turn-1".to_string()),
++            )
++        };
++        let failed = || {
++            parse_completed(
++                &handler(),
++                run_result(Some(1), "", "technical failure"),
++                Some("turn-1".to_string()),
++            )
++        };
++
++        for mut results in [vec![failed(), explicit()], vec![explicit(), failed()]] {
++            let managed_failure =
++                apply_managed_failure_policy(&mut results, ManagedHookFailureMode::Block);
++
++            assert_eq!(
++                aggregate_results(&results, managed_failure),
++                PreToolUseAggregate {
++                    should_block: true,
++                    block_reason: Some("explicit administrator denial".to_string()),
++                    block_source: Some(PreToolUseBlockSource::HookDecision),
++                    updated_input: None,
++                }
++            );
++        }
++    }
++
++    #[test]
++    fn managed_technical_failure_suppresses_successful_updated_input() {
++        let rewrite = parse_completed(
++            &handler(),
++            run_result(
++                Some(0),
++                r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"echo rewritten"}}}"#,
++                "",
++            ),
++            Some("turn-1".to_string()),
++        );
++        let failed = parse_completed(
++            &handler(),
++            run_result(Some(1), "", "technical failure"),
++            Some("turn-1".to_string()),
++        );
++        let mut results = vec![rewrite, failed];
++
++        let managed_failure =
++            apply_managed_failure_policy(&mut results, ManagedHookFailureMode::Block);
++
++        assert_eq!(
++            aggregate_results(&results, managed_failure),
++            PreToolUseAggregate {
++                should_block: true,
++                block_reason: Some(MANAGED_HOOK_FAILURE_REASON.to_string()),
++                block_source: Some(PreToolUseBlockSource::ManagedTechnicalFailure),
++                updated_input: None,
++            }
++        );
++    }
++
++    #[test]
++    fn administrator_failure_mode_covers_every_technical_failure_shape() {
++        let cases = [
++            ("spawn", None, "", "", Some("No such file or directory")),
++            (
++                "stdin",
++                None,
++                "",
++                "",
++                Some("failed to write hook stdin: broken pipe"),
++            ),
++            (
++                "wait",
++                None,
++                "",
++                "",
++                Some("failed to wait on child process"),
++            ),
++            ("timeout", None, "", "", Some("hook timed out after 5s")),
++            ("missing-exit-code", None, "", "", None),
++            ("nonzero-exit", Some(1), "", "hook failed", None),
++            ("malformed-json", Some(0), "{\"decision\":", "", None),
++        ];
++
++        for (name, exit_code, stdout, stderr, error) in cases {
++            for (mode, expected_block) in [
++                (ManagedHookFailureMode::Continue, false),
++                (ManagedHookFailureMode::Block, true),
++            ] {
++                let parsed = parse_completed(
++                    &handler(),
++                    CommandRunResult {
++                        started_at: 1,
++                        completed_at: 2,
++                        duration_ms: 1,
++                        exit_code,
++                        stdout: stdout.to_string(),
++                        stderr: stderr.to_string(),
++                        error: error.map(str::to_string),
++                    },
++                    Some("turn-1".to_string()),
++                );
++                assert_eq!(
++                    parsed.completed.run.status,
++                    HookRunStatus::Failed,
++                    "{name}/{mode:?} must be classified as a technical failure",
++                );
++                let mut results = vec![parsed];
++
++                let managed_failure = apply_managed_failure_policy(&mut results, mode);
++                let aggregate = aggregate_results(&results, managed_failure);
++
++                assert_eq!(
++                    aggregate.should_block, expected_block,
++                    "unexpected block decision for {name}/{mode:?}",
++                );
++                assert_eq!(
++                    aggregate.block_reason,
++                    expected_block.then(|| MANAGED_HOOK_FAILURE_REASON.to_string()),
++                    "unexpected block reason for {name}/{mode:?}",
++                );
++                assert_eq!(
++                    aggregate.block_source,
++                    expected_block.then_some(PreToolUseBlockSource::ManagedTechnicalFailure),
++                    "unexpected block source for {name}/{mode:?}",
++                );
++                assert_eq!(aggregate.updated_input, None);
++            }
++        }
++    }
++
++    #[test]
++    fn default_failure_mode_preserves_upstream_continue_behavior() {
++        let failed = parse_completed(
++            &handler(),
++            run_result(Some(1), "", "hook failed"),
++            Some("turn-1".to_string()),
++        );
++        let mut results = vec![failed];
++
++        apply_managed_failure_policy(&mut results, ManagedHookFailureMode::Continue);
++
++        assert!(!results[0].data.should_block);
++        assert_eq!(results[0].data.block_reason, None);
++        assert_eq!(results[0].completed.run.status, HookRunStatus::Failed);
++    }
++
++    #[test]
++    fn serialization_failure_obeys_administrator_failure_mode() {
++        let blocked = serialization_failure_outcome(Vec::new(), ManagedHookFailureMode::Block);
++        let continued = serialization_failure_outcome(Vec::new(), ManagedHookFailureMode::Continue);
++
++        assert!(blocked.should_block);
++        assert_eq!(
++            blocked.block_reason.as_deref(),
++            Some(MANAGED_HOOK_FAILURE_REASON)
++        );
++        assert_eq!(
++            blocked.block_source,
++            Some(PreToolUseBlockSource::ManagedTechnicalFailure)
++        );
++        assert!(!continued.should_block);
++        assert_eq!(continued.block_reason, None);
++        assert_eq!(continued.block_source, None);
++    }
++
+     #[test]
+     fn exit_code_two_blocks_processing() {
+         let parsed = parse_completed(
+diff --git a/hooks/src/lib.rs b/hooks/src/lib.rs
+index 11300802d86ece7134c2ecf99e2a9e3635e21626..0ae87b46cb7355ff8010261879751abb288ea915 100644
+--- a/hooks/src/lib.rs
++++ b/hooks/src/lib.rs
+@@ -1,3 +1,4 @@
++// Modified by North to expose typed managed-hook failure provenance.
+ mod config_rules;
+ mod declarations;
+ mod engine;
+@@ -54,6 +55,7 @@ pub use events::permission_request::PermissionRequestOutcome;
+ pub use events::permission_request::PermissionRequestRequest;
+ pub use events::post_tool_use::PostToolUseOutcome;
+ pub use events::post_tool_use::PostToolUseRequest;
++pub use events::pre_tool_use::PreToolUseBlockSource;
+ pub use events::pre_tool_use::PreToolUseOutcome;
+ pub use events::pre_tool_use::PreToolUseRequest;
+ pub use events::session_start::SessionStartOutcome;
+diff --git a/protocol/src/config_types.rs b/protocol/src/config_types.rs
+index 7732efbbe5a2fba7864fa0bba63b078d7709b8e7..f385e74f5b05599dcf09a3d9a0e0e189eca47c01 100644
+--- a/protocol/src/config_types.rs
++++ b/protocol/src/config_types.rs
+@@ -1,3 +1,4 @@
++// Modified by North to add an administrator-managed hook failure policy.
+ use codex_utils_absolute_path::AbsolutePathBuf;
+ use schemars::JsonSchema;
+ use schemars::r#gen::SchemaGenerator;
+@@ -342,6 +343,20 @@ pub enum WebSearchMode {
+     Live,
+ }
+ 
++/// Controls how Codex handles technical failures from administrator-managed
++/// `PreToolUse` hooks. This is an administrator requirement, not a user setting.
++/// It does not change `PostToolUse`, which runs after tool side effects.
++#[derive(
++    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS, Default,
++)]
++#[serde(rename_all = "snake_case")]
++#[strum(serialize_all = "snake_case")]
++pub enum ManagedHookFailureMode {
++    #[default]
++    Continue,
++    Block,
++}
++
+ #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
+ #[serde(rename_all = "lowercase")]
+ #[strum(serialize_all = "lowercase")]
