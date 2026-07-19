@@ -299,26 +299,35 @@ const CODEX_PROMPT_MAX_BYTES = 16 * 1024 * 1024;
 const CODEX_SUPERVISOR_STATUS_MAX_BYTES = 4 * 1024;
 const CODEX_SUPERVISOR_STATUS_MAX_FRAMES = 4;
 
-function processExists(child: ChildProcessWithoutNullStreams): boolean {
-  if (child.pid === undefined) return false;
-  try {
-    process.kill(child.pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
+function supervisorExited(child: ChildProcessWithoutNullStreams): boolean {
+  // An async spawn failure has no pid and emits `error`, not `exit`.
+  return child.pid === undefined || child.exitCode !== null || child.signalCode !== null;
 }
 
 function waitForExitBounded(
   child: ChildProcessWithoutNullStreams,
   timeoutMs: number,
 ): Promise<boolean> {
-  return (async () => {
-    const deadline = Date.now() + timeoutMs;
-    while (processExists(child) && Date.now() < deadline)
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
-    return !processExists(child);
-  })();
+  if (supervisorExited(child)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (exited: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = (): void => finish(true);
+    // Listen first, then re-check state to close the exit-before-listener race.
+    child.once("exit", onExit);
+    if (supervisorExited(child)) {
+      finish(true);
+      return;
+    }
+    timer = setTimeout(() => finish(supervisorExited(child)), timeoutMs);
+  });
 }
 
 function closeSupervisorControl(child: ChildProcessWithoutNullStreams): void {
