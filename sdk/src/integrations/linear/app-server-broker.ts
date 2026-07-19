@@ -4,7 +4,10 @@ import type { RoutingTarget } from "../../providers/types";
 import type {
   McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
   McpToolCall, McpToolDefinition, McpToolResult, ModelFreeBrokerTransportReceipt,
+  PreparedMcpToolCall,
 } from "./mcp-broker";
+import { normalizeLinearOpaqueToken } from "./normalize";
+import { parseStrictJson } from "./strict-json";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -47,34 +50,47 @@ interface PendingRequest {
 }
 
 export class StrictJsonlFrames {
-  private buffer = Buffer.alloc(0);
+  private fragments: Buffer[] = [];
+  private bufferedBytes = 0;
   private decoder = new TextDecoder("utf-8", { fatal: true });
 
   push(chunk: Uint8Array): readonly string[] {
-    this.buffer = Buffer.concat([
-      this.buffer,
-      Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength),
-    ]);
+    const incoming = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
     const lines: string[] = [];
+    let start = 0;
     for (;;) {
-      const newline = this.buffer.indexOf(0x0a);
+      const newline = incoming.indexOf(0x0a, start);
       if (newline < 0) break;
-      if (newline > MAX_LINE_BYTES)
+      const segment = incoming.subarray(start, newline);
+      if (this.bufferedBytes + segment.byteLength > MAX_LINE_BYTES)
         throw new Error("Codex app-server JSONL response exceeded 1 MiB");
-      const rawLine = this.buffer.subarray(0, newline);
-      this.buffer = this.buffer.subarray(newline + 1);
+      if (segment.byteLength) {
+        this.fragments.push(segment);
+        this.bufferedBytes += segment.byteLength;
+      }
+      const rawLine = this.fragments.length === 1
+        ? this.fragments[0]!
+        : Buffer.concat(this.fragments, this.bufferedBytes);
+      this.fragments = [];
+      this.bufferedBytes = 0;
       let line: string;
-      try { line = this.decoder.decode(rawLine).trim(); }
+      try { line = this.decoder.decode(rawLine); }
       catch { throw new Error("Codex app-server emitted invalid UTF-8 JSONL output"); }
-      if (line) lines.push(line);
+      if (!/^[ \t\r]*$/.test(line)) lines.push(line);
+      start = newline + 1;
     }
-    if (this.buffer.length > MAX_LINE_BYTES)
+    const remainder = incoming.subarray(start);
+    if (this.bufferedBytes + remainder.byteLength > MAX_LINE_BYTES)
       throw new Error("Codex app-server JSONL response exceeded 1 MiB");
+    if (remainder.byteLength) {
+      this.fragments.push(remainder);
+      this.bufferedBytes += remainder.byteLength;
+    }
     return lines;
   }
 
   finish(): void {
-    if (this.buffer.length)
+    if (this.bufferedBytes)
       throw new Error("Codex app-server closed with a partial JSONL frame");
   }
 }
@@ -109,6 +125,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 function toolDefinition(name: string, value: unknown): McpToolDefinition {
+  normalizeLinearOpaqueToken("MCP tool name", name, 256);
   if (!record(value) || typeof value.name !== "string" || value.name !== name || !("inputSchema" in value))
     throw new Error("Codex app-server returned an invalid MCP tool schema");
   return {
@@ -188,9 +205,15 @@ class JsonlRpcClient {
 
   private onLine(line: string): void {
     let message: unknown;
-    try { message = JSON.parse(line); }
-    catch {
-      this.fail(new Error("Codex app-server emitted malformed JSONL output"));
+    try {
+      message = parseStrictJson(line, "Codex app-server JSONL response", {
+        maxBytes: MAX_LINE_BYTES,
+      });
+    }
+    catch (error) {
+      this.fail(error instanceof Error && error.message.includes("duplicate object keys")
+        ? error
+        : new Error("Codex app-server emitted malformed JSONL output"));
       return;
     }
     if (!record(message)) {
@@ -204,6 +227,8 @@ class JsonlRpcClient {
           this.fail(new Error("Codex app-server emitted a malformed server request identifier"));
           return;
         }
+        if (typeof requestId === "string")
+          normalizeLinearOpaqueToken("app-server request id", requestId, 256);
         this.rejectServerRequest(requestId, message.method);
         return;
       }
@@ -280,29 +305,43 @@ class JsonlRpcClient {
     this.fail(new Error("Codex app-server stdout did not close after transport exit"));
   }
 
-  async request(method: string, params: unknown): Promise<unknown> {
+  prepareRequest(method: string, params: unknown): { dispatch(): Promise<unknown> } {
     if (this.terminalError) throw this.terminalError;
     if (this.closePromise || this.closed) throw new Error("Codex app-server broker is closed");
     assertSafeOutgoingMethod(method, "request");
     const id = ++this.nextId;
     const line = encodeOutgoingJsonl({ id, method, params });
-    increment(this.outgoingMethods, method);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(id);
-        if (!pending) return;
-        this.pending.delete(id);
-        const error = new Error(`Codex app-server ${method} timed out after ${this.timeoutMs}ms`);
-        pending.reject(error);
-        this.fail(error);
-      }, this.timeoutMs);
-      timer.unref?.();
-      this.pending.set(id, { method, timer, resolve, reject });
-      this.child.stdin.write(line, (error) => {
-        if (!error) return;
-        this.fail(new Error(`Codex app-server ${method} write failed`));
-      });
-    });
+    let dispatched = false;
+    return {
+      dispatch: () => {
+        if (dispatched)
+          throw new Error(`Codex app-server ${method} prepared call was already dispatched`);
+        dispatched = true;
+        if (this.terminalError) throw this.terminalError;
+        if (this.closePromise || this.closed) throw new Error("Codex app-server broker is closed");
+        increment(this.outgoingMethods, method);
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            const pending = this.pending.get(id);
+            if (!pending) return;
+            this.pending.delete(id);
+            const error = new Error(`Codex app-server ${method} timed out after ${this.timeoutMs}ms`);
+            pending.reject(error);
+            this.fail(error);
+          }, this.timeoutMs);
+          timer.unref?.();
+          this.pending.set(id, { method, timer, resolve, reject });
+          this.child.stdin.write(line, (error) => {
+            if (!error) return;
+            this.fail(new Error(`Codex app-server ${method} write failed`));
+          });
+        });
+      },
+    };
+  }
+
+  request(method: string, params: unknown): Promise<unknown> {
+    return this.prepareRequest(method, params).dispatch();
   }
 
   notify(method: string, params?: unknown): void {
@@ -429,16 +468,28 @@ class AppServerSession implements McpBrokerSession {
       for (const raw of response.data) {
         if (!record(raw) || typeof raw.name !== "string" || typeof raw.authStatus !== "string" || !record(raw.tools))
           throw new Error("Codex app-server returned an invalid MCP server entry");
+        const name = normalizeLinearOpaqueToken("MCP server name", raw.name, 256);
+        const authStatus = normalizeLinearOpaqueToken("MCP auth status", raw.authStatus, 128);
         const tools: Record<string, McpToolDefinition> = {};
         for (const [name, value] of Object.entries(raw.tools)) tools[name] = toolDefinition(name, value);
-        servers.push({ name: raw.name, authStatus: raw.authStatus, tools });
+        servers.push({ name, authStatus, tools });
         if (servers.length > MAX_MCP_SERVERS)
           throw new Error(`Codex app-server returned more than ${MAX_MCP_SERVERS} MCP servers`);
       }
       if (response.nextCursor == null) return servers;
-      if (typeof response.nextCursor !== "string" || !response.nextCursor || seenCursors.has(response.nextCursor))
+      let nextCursor: string;
+      try {
+        nextCursor = normalizeLinearOpaqueToken(
+          "MCP inventory cursor",
+          response.nextCursor as string,
+          4096,
+        );
+      } catch {
         throw new Error("Codex app-server returned an invalid MCP inventory cursor");
-      cursor = response.nextCursor;
+      }
+      if (seenCursors.has(nextCursor))
+        throw new Error("Codex app-server returned an invalid MCP inventory cursor");
+      cursor = nextCursor;
       seenCursors.add(cursor);
       if (pageNumber === MAX_INVENTORY_PAGES)
         throw new Error(`Codex app-server MCP inventory exceeded ${MAX_INVENTORY_PAGES} pages`);
@@ -446,29 +497,41 @@ class AppServerSession implements McpBrokerSession {
     throw new Error(`Codex app-server MCP inventory exceeded ${MAX_INVENTORY_PAGES} pages`);
   }
 
-  async callTool(call: McpToolCall): Promise<McpToolResult> {
+  prepareTool(call: McpToolCall): PreparedMcpToolCall {
     if (call.access !== "read" && call.access !== "write") throw new Error("MCP tool call must declare read or write access");
     const callKey = JSON.stringify([call.server, call.tool, call.access]);
-    const prior = this.mcpCalls.get(callKey);
-    this.mcpCalls.set(callKey, {
-      server: call.server,
-      tool: call.tool,
-      access: call.access,
-      count: (prior?.count ?? 0) + 1,
-    });
-    const response = await this.rpc.request("mcpServer/tool/call", {
+    const prepared = this.rpc.prepareRequest("mcpServer/tool/call", {
       threadId: this.threadId,
       server: call.server,
       tool: call.tool,
       arguments: call.arguments,
     });
-    if (!record(response) || !Array.isArray(response.content))
-      throw new Error("Codex app-server returned an invalid MCP tool result");
     return {
-      content: response.content,
-      ...(response.structuredContent !== undefined ? { structuredContent: response.structuredContent } : {}),
-      isError: response.isError === true,
+      dispatch: async () => {
+        const prior = this.mcpCalls.get(callKey);
+        this.mcpCalls.set(callKey, {
+          server: call.server,
+          tool: call.tool,
+          access: call.access,
+          count: (prior?.count ?? 0) + 1,
+        });
+        const response = await prepared.dispatch();
+        if (!record(response) || !Array.isArray(response.content))
+          throw new Error("Codex app-server returned an invalid MCP tool result");
+        if (response.isError !== undefined && typeof response.isError !== "boolean")
+          throw new Error("Codex app-server returned a non-boolean MCP isError value");
+        return {
+          content: response.content,
+          ...(response.structuredContent !== undefined
+            ? { structuredContent: response.structuredContent } : {}),
+          isError: response.isError ?? false,
+        };
+      },
     };
+  }
+
+  callTool(call: McpToolCall): Promise<McpToolResult> {
+    return this.prepareTool(call).dispatch();
   }
 
   transportReceipt(): ModelFreeBrokerTransportReceipt {
@@ -515,9 +578,12 @@ export class AppServerMcpBroker implements McpBroker {
       await rpc.request("initialize", { clientInfo: { name: "north", title: "North", version: "1" } });
       rpc.notify("initialized", {});
       const started = await rpc.request("thread/start", { cwd: options.cwd ?? process.cwd(), ephemeral: true });
-      if (!record(started) || !record(started.thread) || typeof started.thread.id !== "string" || !started.thread.id)
+      if (!record(started) || !record(started.thread) || typeof started.thread.id !== "string")
         throw new Error("Codex app-server returned an invalid ephemeral thread");
-      return new AppServerSession(rpc, started.thread.id);
+      return new AppServerSession(
+        rpc,
+        normalizeLinearOpaqueToken("ephemeral thread id", started.thread.id, 512),
+      );
     } catch (error) {
       try { await rpc.close(); }
       catch { /* preserve the handshake/capability failure */ }

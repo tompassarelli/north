@@ -485,7 +485,8 @@ EOF
             # modules. Catch untracked/omitted flake sources before producing a
             # package whose `north linear` verb points at a missing entrypoint.
             for f in cli.ts north-state.ts app-server-broker.ts \
-              reserve-link.clj find-bootstrap-links.clj; do
+              strict-json.ts reserve-link.clj reserve-schema-fact.clj \
+              find-bootstrap-links.clj; do
               test -f "$out/sdk/src/integrations/linear/$f"
             done
 
@@ -795,7 +796,7 @@ EOF
               ${pkgs.babashka}/bin/bb \
               "$out/sdk/src/integrations/linear/reserve-link.clj" \
               "$coord_port" "$linear_resource_a" "$linear_holder_a" "$linear_epoch_a" \
-              "$linear_link_a" "$linear_thread" "linear-package" "-" \
+              "$linear_link_a" "$linear_thread" "linear-package" "linear-uuid" \
               > "$smoke/linear-reserve-a.json"
             if ! ${pkgs.jq}/bin/jq -e '.ok | numbers' \
               "$smoke/linear-reserve-a.json" > /dev/null; then
@@ -822,7 +823,7 @@ EOF
               ${pkgs.babashka}/bin/bb \
               "$out/sdk/src/integrations/linear/reserve-link.clj" \
               "$coord_port" "$linear_resource_b" "$linear_holder_b" "$linear_epoch_b" \
-              "$linear_link_b" "$linear_thread" "linear-package" "-" \
+              "$linear_link_b" "$linear_thread" "linear-package" "linear-uuid" \
               > "$smoke/linear-reserve-b.json"
             if ! ${pkgs.jq}/bin/jq -e \
               '.reject | strings | contains("already reserved by")' \
@@ -831,6 +832,31 @@ EOF
               sed -n '1,80p' "$smoke/linear-reserve-b.json" >&2
               exit 1
             fi
+            # The adapter-owned schema installer is also a packaged CAS helper.
+            # Prove it installs once, rejects an incompatible value, and leaves
+            # the original value authoritative.
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb \
+              "$out/sdk/src/integrations/linear/reserve-schema-fact.clj" \
+              "$coord_port" exact linear_package_schema value_kind literal \
+              > "$smoke/linear-schema-first.json"
+            ${pkgs.jq}/bin/jq -e '.ok | numbers' \
+              "$smoke/linear-schema-first.json" > /dev/null
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb \
+              "$out/sdk/src/integrations/linear/reserve-schema-fact.clj" \
+              "$coord_port" exact linear_package_schema value_kind ref \
+              > "$smoke/linear-schema-conflict.json"
+            ${pkgs.jq}/bin/jq -e \
+              '.reject | strings | contains("conflicts")' \
+              "$smoke/linear-schema-conflict.json" > /dev/null
+            HOME="$smoke/home" FRAM_LOG="$coord_log" \
+              ${pkgs.babashka}/bin/bb \
+              "$out/sdk/src/integrations/linear/reserve-schema-fact.clj" \
+              "$coord_port" exact linear_package_schema value_kind literal \
+              > "$smoke/linear-schema-authority.json"
+            ${pkgs.jq}/bin/jq -e '.ok | numbers' \
+              "$smoke/linear-schema-authority.json" > /dev/null
             # North-managed daemons require the log-fence protocol. Exercise
             # the shared CLI seam against strict mode, then prove a mismatched
             # corpus and a raw bypass are both rejected without changing either

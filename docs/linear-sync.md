@@ -72,10 +72,17 @@ decoded fatally only after a complete frame is present; a split multibyte
 character is preserved, while invalid UTF-8, a line larger than 1 MiB, or any
 partial frame at EOF invalidates the session. The byte limit is per line, not
 per read buffer, so a large chunk containing many individually bounded frames
-is valid. Outgoing JSONL requests have the same 1 MiB ceiling and fail before
-the provider call when serialization would exceed it. MCP inventory traversal
-stops at 20 pages or 100 servers and rejects
-missing, empty, or repeated cursors.
+is valid. Every JSON authority boundary uses the same bounded strict parser:
+duplicate object keys, ill-formed Unicode, excessive nesting, and excessive
+node counts fail closed. This applies both to raw app-server frames and to JSON
+embedded in MCP text results; a permissive second parse cannot reinterpret a
+frame that passed the first boundary. `isError`, when present, must be a
+boolean. Outgoing JSONL requests have the same 1 MiB ceiling and are fully
+serialized before the provider call; an invalid or oversized request cannot
+create a provider-side effect. MCP inventory traversal stops at 20 pages or 100
+servers and rejects missing, empty, or repeated cursors. Issue and comment
+pagination likewise rejects cursor loops, inconsistent continuation state, and
+duplicate comment identities across pages.
 
 Import creates one deterministic integration-link entity and either adopts the
 explicit North thread or deterministically creates one. The thread retains a
@@ -96,17 +103,38 @@ connector-plus-canonical-creation-time bootstrap-evidence lease, then the
 identity and thread leases. The thread lease key is the
 URI-component-encoded normalized North thread ID. Every writer acquires them in
 the fixed order `bootstrap evidence` (when needed), `identity`, then `thread`.
+Opaque provider tokens are never whitespace-normalized: padded IDs, cursors,
+keys, timestamps, owners, and workspace selectors are rejected rather than
+silently changing identity or authority. UUID intake admits either hex case,
+then stores the canonical lowercase spelling.
+Authority duplicated by the live issue document must agree before a lease is
+requested: a non-UUID `id` must equal `identifier`, top-level `teamId` must
+equal nested `team.id`, and the issue identifier in a canonical Linear URL
+must equal the chosen key. Linear URLs with credentials, non-default ports, or
+malformed or percent-encoded workspace authority are rejected.
 
 The current Linear MCP response omits native workspace and issue UUIDs. North
 therefore creates `mcp-bootstrap-v2` identities from the connector and
-canonical creation instant only. It records the initial key separately as
-immutable collision evidence before reserving the thread. A second issue with
-the same connector and creation instant fails closed; a changed key is accepted
-only when the issue carries the exact structurally valid managed marker for the
-already linked thread. Legacy `mcp-bootstrap-v1` subjects (whose fingerprint
-also included the initial key) remain canonical when the current key derives
-that exact subject or the exact marker proves the old thread-to-link handle.
-North never creates a parallel v2 subject to “migrate” a proven v1 link.
+canonical creation instant only. Before either a v1 or v2 identity can reserve
+a thread, both versions contend for one durable
+`@linear-bootstrap:<sha256(connector,createdAt)>` evidence entity. Its
+canonical `bootstrap_election` literal atomically binds connector, creation
+time, immutable initial key, canonical link, and linked thread in one
+coordinator global-version compare-and-set. The individual facts are
+query-friendly projections that only that exact election may heal. A crash
+after any projection prefix therefore cannot let another key, thread, or
+v1/v2 identity steal the winner. Legacy evidence without the atomic literal is
+adopted only when all six old projection facts are already complete and
+coherent; a partial legacy prefix fails closed. A second issue with the same
+connector and creation instant fails closed; a changed key is accepted only
+when the issue carries the exact structurally valid managed marker for the
+already linked thread. Legacy
+`mcp-bootstrap-v1` subjects (whose fingerprint also included the initial key)
+remain canonical when the current key derives that exact subject or the exact
+marker proves the old thread-to-link handle. North never creates a parallel v2
+subject to “migrate” a proven v1 link. If native UUID evidence later appears,
+the already proven bootstrap binding remains canonical instead of creating a
+second UUID link.
 Without the marker, a renamed v1 match on connector plus creation instant is an
 ambiguity and fails closed. The key,
 team, and workspace slug remain mutable metadata. The first applied sync plants
@@ -154,34 +182,39 @@ After adoption, text outside the managed block is preserved byte-for-byte.
 
 ## Conflicts and recovery
 
-Every import/apply acquires coordinator leases for both the immutable Linear
-identity and canonical North thread, always identity first. After both are
-held, the bridge re-reads and exact-compares link subject, canonical identity
-key, thread, and stored server before pending recovery, graph writes, or remote
-work. A changed observation aborts rather than letting a lease for link A
-authorize work through link or gateway B.
+Every import/apply acquires coordinator leases for the immutable Linear
+identity and canonical North thread, identity first. Bootstrap imports first
+acquire the shared connector-plus-creation-time evidence lease, giving the
+global order `bootstrap evidence` → `identity` → `thread`. After the applicable
+leases are held, the bridge re-reads and exact-compares link subject, canonical
+identity key, thread, stored server, and bootstrap evidence before pending
+recovery, graph writes, or remote work. A changed observation aborts rather
+than letting a lease for link A authorize work through link or gateway B.
 Renewal is an atomic coordinator operation: it succeeds only for the exact
 current holder and expected epoch while the lease remains unexpired, persists a
 new expiry, and returns a globally fresh epoch. Any lapse, takeover, stale
 epoch, or lost renewal response aborts the caller; it never silently reacquires
 and continues. Both endpoint leases are renewed around load-bearing boundaries,
 including every provider call. Cleanup releases thread then identity and never
-masks the operation's primary failure; a cleanup failure still fails an
-otherwise successful operation.
+the bootstrap-evidence lease when held, and never masks the operation's primary
+failure; a cleanup failure still fails an otherwise successful operation.
 
-Two expiring leases alone would not make a cross-endpoint fact invariant.
-Before any import data/schema mutation, North therefore commits
-`@link:<canonical-identity> linked_thread @<thread>` through a global-version
-compare-and-set that validates, from the same graph version, all
-`linked_thread @<thread>` claimants (including partial links without `kind`) and
-the thread's `linear_link` pointer. The commit is atomically fenced by the exact
-identity token. This durable reservation enforces one identity ↔ one thread
-across crashes. An implicitly minted thread may still be absent after a crash,
-but its deterministic ID is already owned by the reservation; a later import
-heals that same thread, while another identity is refused. Link facts fence on
-the identity endpoint, thread facts and apply transaction state fence on the
-thread endpoint, and every operation retains both leases until reverse-order
-release.
+Expiring leases alone would not make cross-endpoint facts invariant. Before any
+import data/schema mutation, North therefore commits durable reservations by
+coordinator global-version compare-and-set. Bootstrap identities first elect
+the shared five-field evidence envelope described above. The winning identity
+then commits
+`@link:<canonical-identity> linked_thread @<thread>` while validating, from the
+same graph version, every Linear-link claimant for that thread (including
+partial links without `kind`) and the thread's `linear_link` pointer. The
+commit is atomically fenced by the exact identity token. This enforces one
+bootstrap evidence ↔ one canonical link and one identity ↔ one thread across
+crashes. An implicitly minted thread may still be absent after a crash, but
+its deterministic ID is already owned by the reservation; a later import heals
+that same thread, while another identity is refused. Link facts fence on the
+identity endpoint, bootstrap facts on the evidence endpoint, and thread/apply
+transaction state on the thread endpoint. Every operation retains all
+applicable leases until reverse-order release.
 
 The durable reservation deliberately treats the identity fence as its ownership
 authority; the thread lease provides transaction exclusion. In the narrow race
@@ -219,10 +252,20 @@ private thread or manifest content cannot escape through process errors.
 
 A local coordinator lease cannot be atomic with a call to an external Linear
 server. North closes that unavoidable boundary with a durable protocol. Before
-a non-idempotent call, it atomically writes an exact operation-specific intent.
-The intent contains operation IDs and content hashes, never copied issue or
-comment bodies. An issue intent also carries the complete expected baseline
-snapshot—identity, thread ID, all per-field hashes, and its aggregate hash.
+a non-idempotent call, it first constructs and validates the complete provider
+request, including live tool-schema validation and exact transport
+serialization. At gateway discovery, North recursively audits the advertised
+JSON Schema dialect; an assertion keyword it does not implement rejects the
+gateway instead of being ignored. Every admitted constraint is then enforced
+during preparation. Only a dispatchable prepared call may cause North to
+atomically write an exact operation-specific intent. Deterministic
+construction, validation, or serialization failure therefore leaves no pending
+intent and makes no provider call. Once dispatch begins, any failure is
+observationally unknown: the intent remains for successor reconciliation and is
+never erased on the strength of a local exception. The intent contains
+operation IDs and content hashes, never copied issue or comment bodies. An issue
+intent also carries the complete expected baseline snapshot—identity, thread
+ID, all per-field hashes, and its aggregate hash.
 That full snapshot is recovery-critical because a successor must advance the
 same baseline after observing the remote write; it is more than one hash while
 still containing no raw North field content. A comment intent carries its body
@@ -256,14 +299,17 @@ This makes cumulative manifest serialization linear instead of quadratic.
 thread fence even when the remote plan is already a no-op; pending-write
 recovery remains independent of evicted receipts.
 
-Import is crash-healable too. Native and legacy-v1 imports begin with the atomic
-`linked_thread` reservation. A fresh bootstrap-v2 import first atomically
-records its immutable `bootstrap_initial_key` after validating the same reverse
-thread claims, then reserves `linked_thread`. The prepared manifest records the deterministic
-thread ID, identity evidence, original hashes, and one stable import timestamp
-before the remaining link and thread facts. A repeated import fills any missing
-facts without creating a second thread. Conflicting or malformed partial state
-fails closed.
+Import is crash-healable too. Native imports begin with the atomic
+`linked_thread` reservation. Both bootstrap versions begin with the shared
+five-field evidence election and same-winner projection healing, then reserve
+`linked_thread`. The prepared manifest records the deterministic thread ID,
+exact identity evidence, original hashes, and one stable import timestamp
+before the remaining link and thread facts. The manifest parser is recursively
+exact: unknown, missing, or malformed baseline, identity, hash, evidence,
+pending, or receipt fields fail closed. Stored bootstrap fingerprints are
+recomputed from their evidence rather than trusted as an independent
+authority. A repeated import fills any missing facts without creating a second
+thread. Conflicting or malformed partial state fails closed.
 
 Normal apply work reads the comment corpus once to plan. Issue intent
 confirmation reads only the issue, and a structurally validated successful

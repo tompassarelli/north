@@ -6,6 +6,7 @@ import type {
   NorthLifecycleCategory,
   Nullable,
 } from "./types";
+import { assertWellFormedUnicode } from "./strict-json";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const THREAD_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -13,6 +14,7 @@ const RESERVED_MARKER = /<!--\s*\/?north:/i;
 export const MAX_LINEAR_CONNECTOR_BYTES = 256;
 export const MAX_LINEAR_REMOTE_KEY_BYTES = 512;
 export const MAX_LINEAR_THREAD_ID_BYTES = 512;
+export const MAX_LINEAR_OPAQUE_TOKEN_BYTES = 512;
 const LIFECYCLES = new Set<NorthLifecycleCategory>([
   "speculative", "ready", "blocked", "active", "dormant", "done", "abandoned",
 ]);
@@ -26,6 +28,8 @@ export function normalizeText(value: Nullable<string>): string {
 }
 
 export function normalizeThreadId(value: Nullable<string>): string {
+  if (typeof value !== "string")
+    throw new Error(`North threadId is not safe for a managed marker: ${JSON.stringify(value)}`);
   const normalized = normalizeText(value);
   if (value !== normalized || !THREAD_ID.test(normalized)
       || utf8Bytes(normalized) > MAX_LINEAR_THREAD_ID_BYTES) {
@@ -50,6 +54,8 @@ export function normalizeStringList(values: Nullable<readonly Nullable<string>[]
 }
 
 function requireNonempty(name: string, value: Nullable<string>): string {
+  if (typeof value !== "string") throw new Error(`Linear ${name} must be a string`);
+  assertWellFormedUnicode(value, `Linear ${name}`);
   const normalized = normalizeText(value);
   if (!normalized) throw new Error(`Linear ${name} must be non-empty`);
   return normalized;
@@ -67,6 +73,38 @@ export function normalizeLinearConnector(value: Nullable<string>): string {
   return normalized;
 }
 
+export function normalizeLinearOpaqueToken(
+  name: string,
+  value: Nullable<string>,
+  maxBytes = MAX_LINEAR_OPAQUE_TOKEN_BYTES,
+): string {
+  if (typeof value !== "string") throw new Error(`Linear ${name} must be a string`);
+  assertWellFormedUnicode(value, `Linear ${name}`);
+  if (!value || value !== value.trim() || /[\u0000-\u001f\u007f]/u.test(value)
+      || utf8Bytes(value) > maxBytes)
+    throw new Error(`Linear ${name} must be canonical and at most ${maxBytes} UTF-8 bytes`);
+  return value;
+}
+
+/**
+ * UUID case policy: accept either uniform/mixed hexadecimal case at intake,
+ * reject surrounding padding/control bytes, and store lowercase canonically.
+ */
+export function normalizeLinearUuid(name: string, value: Nullable<string>): string {
+  const exact = normalizeLinearOpaqueToken(name, value, 64);
+  if (!UUID.test(exact))
+    throw new Error(`Linear ${name} must be a UUID, received ${JSON.stringify(value)}`);
+  return exact.toLowerCase();
+}
+
+export function canonicalLinearInstant(value: Nullable<string>, name: string): string {
+  const exact = normalizeLinearOpaqueToken(name, value, 128);
+  const parsed = Date.parse(exact);
+  if (!Number.isFinite(parsed))
+    throw new Error(`Linear ${name} is not a valid timestamp`);
+  return new Date(parsed).toISOString();
+}
+
 export function normalizeLinearRemoteKey(value: Nullable<string>): string {
   const normalized = requireNonempty("issue key", value);
   if (value !== normalized || /\s|[\u0000-\u001f\u007f]/u.test(normalized)
@@ -77,11 +115,8 @@ export function normalizeLinearRemoteKey(value: Nullable<string>): string {
 
 export function normalizeLinearIdentity(value: LinearIssueReference): LinearIssueIdentity {
   if (value.identityKind === "linear-uuid") {
-    const workspaceId = requireNonempty("workspace UUID", value.workspaceId).toLowerCase();
-    const issueId = requireNonempty("issue UUID", value.issueId).toLowerCase();
-    if (!UUID.test(workspaceId))
-      throw new Error(`Linear workspaceId must be a UUID, received ${JSON.stringify(value.workspaceId)}`);
-    if (!UUID.test(issueId)) throw new Error(`Linear issueId must be a UUID, received ${JSON.stringify(value.issueId)}`);
+    const workspaceId = normalizeLinearUuid("workspaceId", value.workspaceId);
+    const issueId = normalizeLinearUuid("issueId", value.issueId);
     return { identityKind: "linear-uuid", workspaceId, issueId };
   }
   if (value.identityKind === "mcp-bootstrap-v1" || value.identityKind === "mcp-bootstrap-v2") {

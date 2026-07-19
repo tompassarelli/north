@@ -128,6 +128,7 @@ jobs:
           bb cli/tests/concern-code-response-test.clj
           bb cli/tests/context-replacement-test.clj
           bb cli/tests/coord-wire-boundary-test.clj
+          bb cli/tests/linear-helper-protocol-test.clj
           bash cli/tests/north-explicit-log-test.sh
           FRAM_TEST_CHECKOUT="$GITHUB_WORKSPACE/fram" \
             bash cli/tests/north-coord-up-test.sh
@@ -138,6 +139,8 @@ jobs:
           set -euo pipefail
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
             bash cli/tests/coord-log-fence-integration-test.sh
+          FRAM_PATH="$GITHUB_WORKSPACE/fram" \
+            bb cli/tests/linear-reservation-integration-test.clj
 
       - name: Gateway policy boundaries
         working-directory: north

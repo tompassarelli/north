@@ -501,6 +501,30 @@ test("fails closed on OAuth and tool schema/annotation drift", async () => {
   await gateway.close();
 });
 
+test("audits the live schema dialect and rejects violated constraints before dispatch", async () => {
+  const unsupported = linearServer();
+  (unsupported.tools.save_issue.inputSchema as Record<string, unknown>).$ref
+    = "#/$defs/saveIssue";
+  const unsupportedHarness = harness({ servers: [unsupported] });
+  await expect(openLinearGateway(unsupportedHarness.broker))
+    .rejects.toThrow("unsupported assertion keyword $ref");
+  expect(requests(unsupportedHarness.log)
+    .filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(0);
+
+  const constrained = linearServer();
+  const idSchema = (constrained.tools.save_issue.inputSchema.properties as
+    Record<string, Record<string, unknown>>).id;
+  idSchema.minLength = 8;
+  const constrainedHarness = harness({ servers: [constrained] });
+  const gateway = await openLinearGateway(constrainedHarness.broker);
+  await expect(gateway.writeIssue({ id: "short", title: "Prepared locally" }))
+    .rejects.toThrow("shorter than minLength 8");
+  expect(requests(constrainedHarness.log)
+    .filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(0);
+  expect(gateway.transportReceipt().mcpCalls).toEqual([]);
+  await gateway.close();
+});
+
 test("rejects malformed output and bounded timeouts", async () => {
   await expect(openLinearGateway(harness({ action: { method: "initialize", type: "malformed" } }).broker))
     .rejects.toThrow("malformed JSONL");
@@ -571,6 +595,49 @@ test("outgoing app-server JSONL is bounded before a provider tool call", async (
   })).rejects.toThrow("JSONL request exceeded 1 MiB");
   expect(requests(h.log).filter(({ method }) => method === "mcpServer/tool/call"))
     .toHaveLength(0);
+  await gateway.close();
+});
+
+test("raw JSONL and MCP text both reject duplicate authority fields", async () => {
+  const rawHarness = harness({
+    servers: [linearServer()],
+    rawDuplicateToolResult: true,
+  });
+  const rawGateway = await openLinearGateway(rawHarness.broker);
+  await expect(rawGateway.readIssue({ id: "MSA-123" }))
+    .rejects.toThrow("duplicate object keys");
+  await expect(rawGateway.close()).rejects.toThrow("duplicate object keys");
+
+  const textHarness = harness({
+    servers: [linearServer()],
+    results: {
+      get_issue: {
+        content: [{
+          type: "text",
+          text: '{"issue":{"id":"MSA-123","id":"OTHER"}}',
+        }],
+      },
+    },
+  });
+  const textGateway = await openLinearGateway(textHarness.broker);
+  await expect(textGateway.readIssue({ id: "MSA-123" }))
+    .rejects.toThrow("non-JSON text");
+  await textGateway.close();
+});
+
+test("MCP isError is absent or boolean, never truthy-coerced", async () => {
+  const { broker } = harness({
+    servers: [linearServer()],
+    results: {
+      get_issue: {
+        content: [{ type: "text", text: "{}" }],
+        isError: "false",
+      },
+    },
+  });
+  const gateway = await openLinearGateway(broker);
+  await expect(gateway.readIssue({ id: "MSA-123" }))
+    .rejects.toThrow("non-boolean MCP isError");
   await gateway.close();
 });
 

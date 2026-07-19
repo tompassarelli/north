@@ -33,6 +33,22 @@ const FIELDS: readonly LinearSyncField[] = NORTH_OWNED_LINEAR_FIELDS;
 const DESCRIPTION_FIELDS = new Set<LinearSyncField>(["body", "doneWhen", "barEvidence", "repos", "lifecycle"]);
 const SHA256 = /^[0-9a-f]{64}$/;
 
+function exactRecord(
+  value: unknown,
+  label: string,
+  keys: readonly string[],
+): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error(`${label} is not an object`);
+  const record = value as Record<string, unknown>;
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length
+      || actual.some((key, index) => key !== expected[index]))
+    throw new Error(`${label} has an unsupported shape`);
+  return record;
+}
+
 function hashesForFields(fields: LinearSyncFields): LinearSyncFieldHashes {
   return {
     title: sha256Canonical(fields.title),
@@ -44,13 +60,17 @@ function hashesForFields(fields: LinearSyncFields): LinearSyncFieldHashes {
   };
 }
 
-function normalizeFieldHashes(value: LinearSyncFieldHashes): LinearSyncFieldHashes {
+function normalizeFieldHashes(value: unknown): LinearSyncFieldHashes {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Linear sync baseline fieldHashes is not an object");
+  const record = value as Record<string, unknown>;
   const hash = (field: LinearSyncField): string => {
-    const hash = value?.[field];
-    if (!SHA256.test(hash)) throw new Error(`Linear sync baseline ${field} hash is invalid`);
+    const hash = record[field];
+    if (typeof hash !== "string" || !SHA256.test(hash))
+      throw new Error(`Linear sync baseline ${field} hash is invalid`);
     return hash;
   };
-  return {
+  const normalized = {
     title: hash("title"),
     body: hash("body"),
     doneWhen: hash("doneWhen"),
@@ -58,6 +78,8 @@ function normalizeFieldHashes(value: LinearSyncFieldHashes): LinearSyncFieldHash
     repos: hash("repos"),
     lifecycle: hash("lifecycle"),
   };
+  exactRecord(value, "Linear sync baseline fieldHashes", FIELDS);
+  return normalized;
 }
 
 function baselineHash(identity: LinearIssueIdentity, threadId: string, fieldHashes: LinearSyncFieldHashes): string {
@@ -76,12 +98,24 @@ export function createLinearSyncBaseline(
   return { identity, threadId, fieldHashes, hash: baselineHash(identity, threadId, fieldHashes) };
 }
 
-export function validateLinearSyncBaseline(value: LinearSyncBaseline): LinearSyncBaseline {
-  const identity = normalizeLinearIdentity(value.identity);
-  const threadId = normalizeThreadId(value.threadId);
-  const fieldHashes = normalizeFieldHashes(value.fieldHashes);
+export function validateLinearSyncBaseline(value: unknown): LinearSyncBaseline {
+  const exact = exactRecord(
+    value,
+    "Linear sync baseline",
+    ["identity", "threadId", "fieldHashes", "hash"],
+  );
+  const rawIdentity = exactRecord(
+    exact.identity,
+    "Linear sync baseline identity",
+    (exact.identity as { identityKind?: unknown })?.identityKind === "linear-uuid"
+      ? ["identityKind", "workspaceId", "issueId"]
+      : ["identityKind", "connector", "fingerprint"],
+  );
+  const identity = normalizeLinearIdentity(rawIdentity as unknown as LinearIssueIdentity);
+  const threadId = normalizeThreadId(exact.threadId as string);
+  const fieldHashes = normalizeFieldHashes(exact.fieldHashes);
   const hash = baselineHash(identity, threadId, fieldHashes);
-  if (hash !== value.hash) throw new Error("Linear sync baseline hash does not match its contents");
+  if (hash !== exact.hash) throw new Error("Linear sync baseline hash does not match its contents");
   return { identity, threadId, fieldHashes, hash };
 }
 

@@ -9,12 +9,17 @@ import {
   runLinearCommand, type LinearCliDependencies,
 } from "../src/integrations/linear/cli";
 import {
-  compactLinearReceipts, CoordinatorSyncLeaseManager, ensureLinearLinkFacts,
+  assertLinearGraphValue, bootstrapIdentityFromEvidence, compactLinearReceipts,
+  CoordinatorSyncLeaseManager, ensureLinearLinkFacts, ensureLinearSchema,
   LINEAR_GRAPH_VALUE_MAX_BYTES,
-  LINEAR_SYNC_LEASE_TTL_MS, MAX_LINEAR_MANIFEST_RECEIPTS, NorthGraphStore,
+  LINEAR_SCHEMA_FACTS, LINEAR_SYNC_LEASE_TTL_MS, MAX_LINEAR_MANIFEST_RECEIPTS,
+  NorthGraphStore,
   legacyBootstrapIdentityForIssue, linkSubject, loadLinkBySubject,
-  normalizeLinearIssueDocument, northThreadIdForIdentity, recordLinearReceipt,
-  type GraphFact, type GraphStore, type SyncLease, type SyncLeaseManager,
+  loadLinkForThread, normalizeLinearIssueDocument, northThreadIdForIdentity,
+  recordLinearReceipt,
+  bootstrapEvidenceSubject, serializeBootstrapElection,
+  type GraphFact, type GraphStore, type LinearBindingReservation, type SyncLease,
+  type SyncLeaseManager,
 } from "../src/integrations/linear/north-state";
 import {
   canonicalJson, MAX_LINEAR_CONNECTOR_BYTES, MAX_LINEAR_REMOTE_KEY_BYTES,
@@ -37,6 +42,7 @@ class FakeGraph implements GraphStore {
   failAfter = Infinity;
   afterPut?: (subject: string, predicate: string, value: string) => void;
   beforeReservationPut?: () => void | Promise<void>;
+  beforeSchemaCommit?: (subject: string, predicate: string, value: string) => void | Promise<void>;
   reservations: { link: string; thread: string }[] = [];
   private matchingWrites = 0;
 
@@ -91,15 +97,41 @@ class FakeGraph implements GraphStore {
     this.afterPut?.(subject, predicate, value);
   }
 
+  async ensureSchemaFact(
+    subject: string,
+    predicate: string,
+    value: string,
+    allowedPrevious?: string,
+  ): Promise<void> {
+    const bare = subject.replace(/^@/, "");
+    let values = new Set((this.rows.get(bare) ?? [])
+      .filter((fact) => fact.predicate === predicate)
+      .map((fact) => fact.value));
+    if (values.size > 1 || [...values].some((found) =>
+      found !== value && found !== allowedPrevious))
+      throw new Error(`Linear graph schema conflicts on @${subject} ${predicate}`);
+    await this.beforeSchemaCommit?.(bare, predicate, value);
+    values = new Set((this.rows.get(bare) ?? [])
+      .filter((fact) => fact.predicate === predicate)
+      .map((fact) => fact.value));
+    if (values.size > 1 || [...values].some((found) =>
+      found !== value && found !== allowedPrevious))
+      throw new Error(`Linear graph schema conflicts on @${subject} ${predicate}`);
+    await this.put(subject, predicate, value);
+  }
+
   async putFenced(lease: SyncLease, subject: string, predicate: string, value: string): Promise<void> {
     await lease.fence();
     await this.put(subject, predicate, value);
   }
 
   async reserveLinearBinding(
-    lease: SyncLease, linkInput: string, threadInput: string, remoteServer: string,
-    bootstrapInitialKey?: string,
+    reservation: LinearBindingReservation,
+    linkInput: string,
+    threadInput: string,
+    remoteServer: string,
   ): Promise<void> {
+    const lease = reservation.identityLease;
     await lease.fence();
     const link = linkInput.replace(/^@/, "");
     const thread = threadInput.replace(/^@/, "");
@@ -110,7 +142,8 @@ class FakeGraph implements GraphStore {
     if (existing.size > 1 || (existing.size === 1 && !existing.has(threadRef)))
       throw new Error("canonical Linear identity is already reserved for a different North thread");
     const reverse = [...this.rows.entries()].filter(([subject, facts]) =>
-      subject !== link && facts.some(({ predicate, value }) =>
+      subject !== link && subject.startsWith("link:linear:")
+      && facts.some(({ predicate, value }) =>
         predicate === "linked_thread" && value === threadRef));
     if (reverse.length)
       throw new Error(`requested North thread is already reserved by @${reverse[0]![0]}`);
@@ -122,12 +155,69 @@ class FakeGraph implements GraphStore {
       .filter(({ predicate }) => predicate === "remote_server").map(({ value }) => value));
     if (servers.size > 1 || (servers.size === 1 && !servers.has(remoteServer)))
       throw new Error("partial Linear link conflicts on remote_server");
+    const bootstrapInitialKey = reservation.kind === "linear-uuid"
+      ? undefined
+      : reservation.evidence.initialKey;
     const bootstrapKeys = new Set((this.rows.get(link) ?? [])
       .filter(({ predicate }) => predicate === "bootstrap_initial_key").map(({ value }) => value));
     if (bootstrapKeys.size > 1
         || (bootstrapInitialKey && bootstrapKeys.size === 1 && !bootstrapKeys.has(bootstrapInitialKey)))
       throw new Error("partial Linear link conflicts on bootstrap_initial_key");
-    await this.beforeReservationPut?.();
+    if (reservation.kind !== "linear-uuid") {
+      await reservation.evidenceLease.fence();
+      const evidenceSubject = bootstrapEvidenceSubject(reservation.evidence);
+      const evidenceRows = this.rows.get(evidenceSubject) ?? [];
+      const election = serializeBootstrapElection(
+        reservation.evidence,
+        linkRef,
+        threadRef,
+      );
+      const compatible = (predicate: string, expected: string): void => {
+        const values = new Set(evidenceRows
+          .filter((fact) => fact.predicate === predicate)
+          .map((fact) => fact.value));
+        if (values.size > 1 || (values.size === 1 && !values.has(expected)))
+          throw new Error(`Linear bootstrap evidence conflicts on ${predicate}`);
+      };
+      const projections = [
+        ["kind", "linear_bootstrap_reservation"],
+        ["bootstrap_connector", reservation.evidence.connector],
+        ["bootstrap_created_at", reservation.evidence.createdAt],
+        ["bootstrap_initial_key", reservation.evidence.initialKey],
+        ["canonical_link", linkRef],
+        ["linked_thread", threadRef],
+      ] as const;
+      const elections = new Set(evidenceRows
+        .filter((fact) => fact.predicate === "bootstrap_election")
+        .map((fact) => fact.value));
+      if (elections.size > 1 || (elections.size === 1 && !elections.has(election)))
+        throw new Error("Linear bootstrap evidence conflicts on bootstrap_election");
+      if (elections.size === 0) {
+        const legacyPresent = projections.some(([predicate]) =>
+          evidenceRows.some((fact) => fact.predicate === predicate));
+        const legacyComplete = projections.every(([predicate, expected]) => {
+          const values = new Set(evidenceRows
+            .filter((fact) => fact.predicate === predicate)
+            .map((fact) => fact.value));
+          return values.size === 1 && values.has(expected);
+        });
+        if (legacyPresent && !legacyComplete)
+          throw new Error("legacy Linear bootstrap evidence is partial or conflicting");
+      }
+      for (const [predicate, expected] of projections)
+        compatible(predicate, expected);
+      await this.beforeReservationPut?.();
+      for (const [predicate, value] of [
+        ["bootstrap_election", election],
+        ...projections,
+      ] as const) {
+        if (!(this.rows.get(evidenceSubject) ?? []).some((fact) =>
+          fact.predicate === predicate && fact.value === value))
+          await this.put(evidenceSubject, predicate, value);
+      }
+    } else {
+      await this.beforeReservationPut?.();
+    }
     if (bootstrapInitialKey && !bootstrapKeys.has(bootstrapInitialKey))
       await this.put(link, "bootstrap_initial_key", bootstrapInitialKey);
     if (!existing.has(threadRef)) await this.put(link, "linked_thread", threadRef);
@@ -136,6 +226,13 @@ class FakeGraph implements GraphStore {
 
   seed(subject: string, predicate: string, value: string) {
     const rows = this.rows.get(subject) ?? [];
+    rows.push({ predicate, value });
+    this.rows.set(subject, rows);
+  }
+
+  replace(subject: string, predicate: string, value: string) {
+    const rows = (this.rows.get(subject) ?? [])
+      .filter((fact) => fact.predicate !== predicate);
     rows.push({ predicate, value });
     this.rows.set(subject, rows);
   }
@@ -269,6 +366,10 @@ class FakeGateway implements LinearGateway {
   issueListCalls = 0;
   transientIssueReadFailure = false;
   malformedComment?: "blank-id" | "non-string-body";
+  duplicateCommentAcrossPages = false;
+  inconsistentCommentCursor = false;
+  prepareWriteFailure?: string;
+  dispatchWriteFailure?: string;
   closeFailure?: string;
   afterIssueWrite?: () => void;
   afterWrittenIssueRead?: () => void;
@@ -276,6 +377,27 @@ class FakeGateway implements LinearGateway {
   beforeFirstIssueRead?: () => Promise<void>;
   afterIssueRead?: () => void;
   constructor(readonly server = "linear-test") {}
+
+  prepare(envelope: LinearCallEnvelope): { dispatch(): Promise<unknown> } {
+    // Mirror the production two-phase boundary: clone the exact accepted
+    // envelope now and consume only that prepared value on dispatch.
+    const prepared = structuredClone(envelope);
+    if (prepared.access === "write" && this.prepareWriteFailure)
+      throw new Error(this.prepareWriteFailure);
+    let dispatched = false;
+    return {
+      dispatch: () => {
+        if (dispatched) throw new Error("prepared fake Linear call was already dispatched");
+        dispatched = true;
+        if (prepared.access === "write" && this.dispatchWriteFailure) {
+          const message = this.dispatchWriteFailure;
+          this.dispatchWriteFailure = undefined;
+          throw new Error(message);
+        }
+        return this.call(prepared);
+      },
+    };
+  }
 
   async call(envelope: LinearCallEnvelope): Promise<unknown> {
     if (envelope.method === "get_issue") return this.readIssue(envelope.arguments);
@@ -301,7 +423,11 @@ class FakeGateway implements LinearGateway {
       if (this.issueWrites > 0) this.afterWrittenIssueRead?.();
     } else if (key === this.falsePositive.id) result = structuredClone(this.falsePositive);
     else if (key === "DUP-1" && this.duplicateExact)
-      result = { ...structuredClone(this.issue), id: "DUP-1" };
+      result = {
+        ...structuredClone(this.issue),
+        id: "DUP-1",
+        url: "https://linear.app/msa-team/issue/DUP-1/mechanical-linear-bridge",
+      };
     else throw new LinearGatewayError("not-found", `missing issue ${key}`);
     this.afterIssueRead?.();
     return result;
@@ -324,7 +450,11 @@ class FakeGateway implements LinearGateway {
     return {
       issues: [structuredClone(this.falsePositive), structuredClone(this.issue),
         ...(this.duplicateIssueKey ? [structuredClone(this.issue)] : []),
-        ...(this.duplicateExact ? [{ ...structuredClone(this.issue), id: "DUP-1" }] : [])],
+        ...(this.duplicateExact ? [{
+          ...structuredClone(this.issue),
+          id: "DUP-1",
+          url: "https://linear.app/msa-team/issue/DUP-1/mechanical-linear-bridge",
+        }] : [])],
       hasNextPage: false,
     };
   }
@@ -339,7 +469,7 @@ class FakeGateway implements LinearGateway {
     if (this.throwAfterIssueWrite) { this.throwAfterIssueWrite = false; throw new Error("transport vanished after commit"); }
     return structuredClone(this.issue);
   }
-  async listComments(): Promise<unknown> {
+  async listComments(args: Record<string, unknown> = {}): Promise<unknown> {
     this.commentReadCalls++;
     if (this.malformedComment === "blank-id")
       return { comments: [{ id: " ", body: "managed-looking" }], hasNextPage: false };
@@ -350,6 +480,25 @@ class FakeGateway implements LinearGateway {
       this.afterCommentPage?.();
       return { comments: [], hasNextPage: true, nextCursor: `comments-${page}` };
     }
+    if (this.duplicateCommentAcrossPages) {
+      if (args.cursor === undefined)
+        return {
+          comments: [{ id: "same-comment", body: "first" }],
+          hasNextPage: true,
+          nextCursor: "comment-page-2",
+        };
+      return {
+        comments: [{ id: "same-comment", body: "second" }],
+        hasNextPage: false,
+      };
+    }
+    if (this.inconsistentCommentCursor)
+      return {
+        comments: [],
+        hasNextPage: true,
+        cursor: "cursor-a",
+        nextCursor: "cursor-b",
+      };
     if (this.oversizedCommentPage) {
       return {
         comments: Array.from({ length: 5_001 }, (_, index) => ({ id: `comment-${index}`, body: "" })),
@@ -677,7 +826,7 @@ test("representative mechanical lifecycle converges, no-ops, and recovers from c
   };
   expect(doctorBefore).toMatchObject({
     modelTurn: false, oauth: true, graphSchema: { ok: true, missing: [], conflicting: [] },
-    graphSchemaBootstrap: { applied: true, assertions: 20 },
+    graphSchemaBootstrap: { applied: true, assertions: 25 },
   });
   const fetched = await runLinearCommand(["get", "MSA-236"], h.dependencies) as {
     issue: { key: string }; identity: unknown;
@@ -837,7 +986,7 @@ test("helper-bound connector, thread, and remote-key metadata reject oversized a
   const remote = harness();
   remote.gateway.issue = issue(key);
   await expect(runLinearCommand(["import", key], remote.dependencies))
-    .rejects.toThrow("issue key must be canonical");
+    .rejects.toThrow("issue id must be canonical");
   expect(remote.graph.writes).toHaveLength(0);
   expect(remote.leases.requestedResources).toHaveLength(0);
 });
@@ -988,16 +1137,17 @@ test("bootstrap, identity, and thread acquisition is canonical with durable coll
   expect(threadResource).toBe(`linear-sync:thread:${encodeURIComponent(imported.thread.replace(/^@/, ""))}`);
   expect(identityResource! < threadResource!).toBe(true);
   expect(identityResource).toContain("%3A");
-  expect(h.graph.writes[0]).toEqual({
-    subject: imported.link.replace(/^@/, ""),
-    predicate: "bootstrap_initial_key",
-    value: "MSA-236",
+  expect(h.graph.writes[0]?.subject).toMatch(/^linear-bootstrap:/);
+  expect(h.graph.writes[0]?.predicate).toBe("bootstrap_election");
+  expect(JSON.parse(h.graph.writes[0]!.value)).toMatchObject({
+    canonicalLink: imported.link,
+    linkedThread: imported.thread,
+    initialKey: "MSA-236",
   });
-  expect(h.graph.writes[1]).toEqual({
-    subject: imported.link.replace(/^@/, ""),
-    predicate: "linked_thread",
-    value: imported.thread,
-  });
+  expect(h.graph.writes.some(({ subject, predicate, value }) =>
+    subject === imported.link.replace(/^@/, "")
+    && predicate === "linked_thread"
+    && value === imported.thread)).toBe(true);
 });
 
 test("distinct Linear identities cannot concurrently reserve the same explicit North thread", async () => {
@@ -1023,7 +1173,9 @@ test("distinct Linear identities cannot concurrently reserve the same explicit N
   ]);
   expect(settled.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
   expect(settled.filter(({ status }) => status === "rejected")).toHaveLength(1);
-  const claimants = [...graph.rows.entries()].filter(([, facts]) =>
+  const claimants = [...graph.rows.entries()].filter(([subject, facts]) =>
+    subject.startsWith("link:linear:")
+    &&
     facts.some(({ predicate, value }) => predicate === "linked_thread" && value === `@${thread}`));
   expect(claimants).toHaveLength(1);
   expect((await graph.show(thread)).filter(({ predicate }) => predicate === "linear_link")).toHaveLength(1);
@@ -1127,10 +1279,13 @@ test("thread takeover inside the identity-fenced reservation leaves only healabl
   expect((await h.graph.show(link))
     .filter(({ predicate, value }) => predicate === "linked_thread" && value === `@${thread}`))
     .toHaveLength(1);
-  expect(h.graph.writes).toEqual([
-    { subject: link, predicate: "bootstrap_initial_key", value: "MSA-236" },
-    { subject: link, predicate: "linked_thread", value: `@${thread}` },
-  ]);
+  expect(h.graph.writes.some(({ subject, predicate, value }) =>
+    subject.startsWith("linear-bootstrap:")
+    && predicate === "bootstrap_election"
+    && JSON.parse(value).canonicalLink === `@${link}`
+    && JSON.parse(value).linkedThread === `@${thread}`)).toBe(true);
+  expect(h.graph.writes.some(({ subject, predicate, value }) =>
+    subject === link && predicate === "linked_thread" && value === `@${thread}`)).toBe(true);
   expect(h.gateway.issueWrites).toBe(0);
   expect(h.gateway.commentWrites).toBe(0);
   expect(h.leases.activeResources()).toEqual([threadResource]);
@@ -1378,7 +1533,7 @@ test("persisted comment intent reconciles a lost response without duplicate comm
   expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({ state: "in-sync", actions: [] });
 });
 
-test("pending comment recovery canonicalizes the provider comment identifier", async () => {
+test("pending comment recovery rejects a padded provider comment identifier", async () => {
   const h = harness();
   const thread = await importThread(h);
   await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
@@ -1393,14 +1548,14 @@ test("pending comment recovery canonicalizes the provider comment identifier", a
   expect(h.gateway.comments).toHaveLength(1);
   h.gateway.comments[0]!.id = ` ${h.gateway.comments[0]!.id} `;
 
-  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  const writesBeforeRecovery = h.graph.writes.length;
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("comment id must be canonical");
   const recovered = JSON.parse(
     (await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value,
   );
-  expect(recovered.pending).toBeUndefined();
-  expect(Object.values(recovered.receipts).some(
-    (receipt: any) => receipt.remoteId === "comment-1",
-  )).toBe(true);
+  expect(recovered.pending).toBeDefined();
+  expect(h.graph.writes).toHaveLength(writesBeforeRecovery);
   expect(h.gateway.commentWrites).toBe(1);
 });
 
@@ -1913,18 +2068,26 @@ test("binding reservation accepts only exact coordinator envelopes", async () =>
     },
   );
   await store.reserveLinearBinding(
-    lease, "link:linear:uuid:ws:11111111-1111-8111-8111-111111111111", "thread-a",
+    { kind: "linear-uuid", identityLease: lease },
+    "link:linear:uuid:ws:11111111-1111-8111-8111-111111111111", "thread-a",
     "linear-test",
   );
   expect(calls[0]).toEqual([
     "7977", lease.resource, lease.holder, "10",
-    "link:linear:uuid:ws:11111111-1111-8111-8111-111111111111", "thread-a", "linear-test", "-",
+    "link:linear:uuid:ws:11111111-1111-8111-8111-111111111111", "thread-a", "linear-test",
+    "linear-uuid",
   ]);
   response.value = JSON.stringify({ reject: "reservation collision" });
-  await expect(store.reserveLinearBinding(lease, "link:x", "thread-a", "linear-test"))
+  await expect(store.reserveLinearBinding(
+    { kind: "linear-uuid", identityLease: lease },
+    "link:x", "thread-a", "linear-test",
+  ))
     .rejects.toThrow("reservation collision");
   response.value = JSON.stringify({ ok: 12, surplus: true });
-  await expect(store.reserveLinearBinding(lease, "link:x", "thread-a", "linear-test"))
+  await expect(store.reserveLinearBinding(
+    { kind: "linear-uuid", identityLease: lease },
+    "link:x", "thread-a", "linear-test",
+  ))
     .rejects.toThrow("invalid reservation response");
 });
 
@@ -2285,7 +2448,7 @@ for (const malformed of ["blank-id", "non-string-body"] as const) {
     const thread = await importThread(h);
     h.gateway.malformedComment = malformed;
     await expect(runLinearCommand(["plan", thread], h.dependencies))
-      .rejects.toThrow(malformed === "blank-id" ? "non-blank id" : "string body");
+      .rejects.toThrow(malformed === "blank-id" ? "comment id must be canonical" : "string body");
     expect(h.gateway.commentWrites).toBe(0);
   });
 }
@@ -2307,7 +2470,11 @@ test("Linear issue and comment pagination has explicit page and item ceilings", 
   const issues = harness();
   const issuesThread = await importThread(issues);
   await runLinearCommand(["sync", issuesThread, "--apply"], issues.dependencies);
-  issues.gateway.issue = { ...issues.gateway.issue, id: "NEW-1" };
+  issues.gateway.issue = {
+    ...issues.gateway.issue,
+    id: "NEW-1",
+    url: "https://linear.app/msa-team/issue/NEW-1/mechanical-linear-bridge",
+  };
   issues.gateway.rejectOldKey = true;
   issues.gateway.infiniteIssuePages = true;
   await expect(runLinearCommand(["plan", issuesThread], issues.dependencies))
@@ -2317,7 +2484,11 @@ test("Linear issue and comment pagination has explicit page and item ceilings", 
   const issueItems = harness();
   const issueItemsThread = await importThread(issueItems);
   await runLinearCommand(["sync", issueItemsThread, "--apply"], issueItems.dependencies);
-  issueItems.gateway.issue = { ...issueItems.gateway.issue, id: "NEW-1" };
+  issueItems.gateway.issue = {
+    ...issueItems.gateway.issue,
+    id: "NEW-1",
+    url: "https://linear.app/msa-team/issue/NEW-1/mechanical-linear-bridge",
+  };
   issueItems.gateway.rejectOldKey = true;
   issueItems.gateway.oversizedIssueCandidates = true;
   await expect(runLinearCommand(["plan", issueItemsThread], issueItems.dependencies))
@@ -2368,7 +2539,11 @@ test("marker relocation rejects duplicate exact matches", async () => {
   const h = harness();
   const thread = await importThread(h);
   await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
-  h.gateway.issue = { ...h.gateway.issue, id: "NEW-1" };
+  h.gateway.issue = {
+    ...h.gateway.issue,
+    id: "NEW-1",
+    url: "https://linear.app/msa-team/issue/NEW-1/mechanical-linear-bridge",
+  };
   h.gateway.rejectOldKey = true;
   h.gateway.duplicateExact = true;
   await expect(runLinearCommand(["plan", thread], h.dependencies)).rejects.toThrow("found 2 exact issue");
@@ -2378,7 +2553,11 @@ test("marker relocation rejects duplicate issue keys before last-write-wins coll
   const h = harness();
   const thread = await importThread(h);
   await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
-  h.gateway.issue = { ...h.gateway.issue, id: "NEW-1" };
+  h.gateway.issue = {
+    ...h.gateway.issue,
+    id: "NEW-1",
+    url: "https://linear.app/msa-team/issue/NEW-1/mechanical-linear-bridge",
+  };
   h.gateway.rejectOldKey = true;
   h.gateway.duplicateIssueKey = true;
   await expect(runLinearCommand(["plan", thread], h.dependencies))
@@ -2390,10 +2569,10 @@ test("doctor bootstraps graph schema exactly once; get stays read-only and irrel
   const first = await runLinearCommand(["doctor"], h.dependencies);
   expect(first).toMatchObject({
     graphSchema: { ok: true, missing: [], conflicting: [] },
-    graphSchemaBootstrap: { applied: true, assertions: 20 },
+    graphSchemaBootstrap: { applied: true, assertions: 25 },
   });
-  expect(h.graph.writes).toHaveLength(20);
-  expect(h.graph.bulkReads).toBe(2);
+  expect(h.graph.writes).toHaveLength(25);
+  expect(h.graph.bulkReads).toBe(3);
   expect(h.graph.showReads).toBe(0);
   const readsBeforeSecondDoctor = h.graph.bulkReads;
   const second = await runLinearCommand(["doctor"], h.dependencies);
@@ -2401,7 +2580,7 @@ test("doctor bootstraps graph schema exactly once; get stays read-only and irrel
     graphSchema: { ok: true, missing: [], conflicting: [] },
     graphSchemaBootstrap: { applied: false, assertions: 0 },
   });
-  expect(h.graph.writes).toHaveLength(20);
+  expect(h.graph.writes).toHaveLength(25);
   expect(h.graph.bulkReads - readsBeforeSecondDoctor).toBe(1);
   expect(h.graph.showReads).toBe(0);
   const beforeGet = h.graph.writes.length;
@@ -2428,7 +2607,7 @@ test("doctor mechanically migrates the adapter-owned integration handle from lit
   const result = await runLinearCommand(["doctor"], h.dependencies);
   expect(result).toMatchObject({
     graphSchema: { ok: true, missing: [], conflicting: [] },
-    graphSchemaBootstrap: { applied: true, assertions: 20 },
+    graphSchemaBootstrap: { applied: true, assertions: 25 },
   });
   expect((await h.graph.show("linear_link")).filter(({ predicate }) => predicate === "value_kind"))
     .toEqual([{ predicate: "value_kind", value: "ref" }]);
@@ -2479,14 +2658,310 @@ test("stored manifests reject unknown fields, noncanonical instants, and duplica
         importedAt: "2026-07-16T11:00:00-04:00",
       },
     }),
+    JSON.stringify({
+      ...parsed,
+      baseline: { ...parsed.baseline, unsupportedBaseline: true },
+    }),
+    JSON.stringify({
+      ...parsed,
+      baseline: {
+        ...parsed.baseline,
+        identity: { ...parsed.baseline.identity, unsupportedIdentity: true },
+      },
+    }),
+    JSON.stringify({
+      ...parsed,
+      baseline: {
+        ...parsed.baseline,
+        fieldHashes: { ...parsed.baseline.fieldHashes, unsupportedHash: "a".repeat(64) },
+      },
+    }),
     original.replace(/"version":1}$/, '"version":1,"version":1}'),
   ];
   for (const value of variants) {
     rows[manifestIndex] = { predicate: "sync_manifest", value };
-    await expect(loadLinkBySubject(h.graph, link)).rejects.toThrow(/manifest|JSON/);
+    await expect(loadLinkBySubject(h.graph, link)).rejects.toThrow(/manifest|JSON|baseline/);
   }
   rows[manifestIndex] = { predicate: "sync_manifest", value: original };
   expect((await loadLinkBySubject(h.graph, link))?.threadId).toBe(thread);
+});
+
+test("UUID, bootstrap-v1, and bootstrap-v2 links all survive import then apply", async () => {
+  const uuidHarness = harness();
+  uuidHarness.gateway.issue = {
+    ...issue(),
+    id: "11111111-1111-8111-8111-111111111111",
+    identifier: "MSA-236",
+    workspaceId: "22222222-2222-8222-8222-222222222222",
+  } as any;
+  const uuidThread = await importThread(uuidHarness);
+  uuidHarness.graph.replace(uuidThread, "title", "UUID update");
+  expect(await runLinearCommand(
+    ["sync", uuidThread, "--apply"],
+    uuidHarness.dependencies,
+  )).toMatchObject({ applied: true, state: "in-sync" });
+  expect((await loadLinkForThread(uuidHarness.graph, uuidThread)).identity.identityKind)
+    .toBe("linear-uuid");
+
+  const v1Harness = harness();
+  const v1 = seedLegacyBootstrapLink(v1Harness);
+  await runLinearCommand(["import", v1Harness.gateway.issue.id], v1Harness.dependencies);
+  v1Harness.graph.replace(v1.thread, "title", "v1 update");
+  expect(await runLinearCommand(
+    ["sync", v1.thread, "--apply"],
+    v1Harness.dependencies,
+  )).toMatchObject({ applied: true, state: "in-sync" });
+  expect((await loadLinkForThread(v1Harness.graph, v1.thread)).identity.identityKind)
+    .toBe("mcp-bootstrap-v1");
+
+  const v2Harness = harness();
+  const v2Thread = await importThread(v2Harness);
+  v2Harness.graph.replace(v2Thread, "title", "v2 update");
+  expect(await runLinearCommand(
+    ["sync", v2Thread, "--apply"],
+    v2Harness.dependencies,
+  )).toMatchObject({ applied: true, state: "in-sync" });
+  expect((await loadLinkForThread(v2Harness.graph, v2Thread)).identity.identityKind)
+    .toBe("mcp-bootstrap-v2");
+});
+
+test("native UUID enrichment preserves an established bootstrap winner", async () => {
+  const h = harness();
+  const first = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    link: string; thread: string;
+  };
+  h.gateway.issue = {
+    ...h.gateway.issue,
+    id: "11111111-1111-8111-8111-111111111111",
+    identifier: "MSA-236",
+    workspaceId: "22222222-2222-8222-8222-222222222222",
+  } as any;
+  const enriched = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    link: string; thread: string; identity: { identityKind: string };
+  };
+  expect(enriched).toMatchObject({
+    link: first.link,
+    thread: first.thread,
+    identity: { identityKind: "mcp-bootstrap-v2" },
+  });
+  expect([...h.graph.rows.keys()].filter((subject) =>
+    subject.startsWith("link:linear:"))).toHaveLength(1);
+});
+
+test("v1 and v2 identities sharing bootstrap evidence elect one durable winner", async () => {
+  const graph = new FakeGraph();
+  const evidence = {
+    connector: "linear-test",
+    createdAt: "2026-07-16T14:08:20.639Z",
+    initialKey: "MSA-236",
+  };
+  const lease = (resource: string): SyncLease => ({
+    resource,
+    holder: `holder:${resource}`,
+    epoch: 1,
+    renew: async () => {},
+    fence: async () => {},
+    release: async () => {},
+  });
+  const evidenceLease = lease(`linear-sync:bootstrap:${
+    bootstrapEvidenceSubject(evidence).replace("linear-bootstrap:", "")
+  }`);
+  const v1 = bootstrapIdentityFromEvidence("mcp-bootstrap-v1", evidence);
+  const v2 = bootstrapIdentityFromEvidence("mcp-bootstrap-v2", evidence);
+  await graph.reserveLinearBinding({
+    kind: "mcp-bootstrap-v1",
+    identityLease: lease(`linear-sync:identity:${encodeURIComponent(
+      `linear:${v1.identityKind}:${v1.connector}:${v1.fingerprint}`,
+    )}`),
+    evidenceLease,
+    evidence,
+  }, linkSubject(v1), "thread-v1", evidence.connector);
+  await expect(graph.reserveLinearBinding({
+    kind: "mcp-bootstrap-v2",
+    identityLease: lease(`linear-sync:identity:${encodeURIComponent(
+      `linear:${v2.identityKind}:${v2.connector}:${v2.fingerprint}`,
+    )}`),
+    evidenceLease,
+    evidence,
+  }, linkSubject(v2), "thread-v2", evidence.connector))
+    .rejects.toThrow("bootstrap_election");
+  expect((await graph.show(bootstrapEvidenceSubject(evidence)))
+    .filter(({ predicate }) => predicate === "canonical_link"))
+    .toEqual([{ predicate: "canonical_link", value: `@${linkSubject(v1)}` }]);
+});
+
+test("a crash after bootstrap election heals only the same winner", async () => {
+  const h = harness();
+  h.graph.failSubjectPrefix = "linear-bootstrap:";
+  h.graph.failAfter = 1;
+  await expect(runLinearCommand(["import", "MSA-236"], h.dependencies))
+    .rejects.toThrow("injected graph crash");
+  const writesAfterCrash = h.graph.writes.length;
+  h.gateway.issue = issue("MSA-999");
+  await expect(runLinearCommand(["import", "MSA-999"], h.dependencies))
+    .rejects.toThrow("exact managed marker is required");
+  h.gateway.issue = issue();
+  await expect(runLinearCommand(
+    ["import", "MSA-236", "--thread", "attacker-thread"],
+    h.dependencies,
+  )).rejects.toThrow("already prepared");
+  expect(h.graph.writes).toHaveLength(writesAfterCrash);
+  const recovered = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    link: string; action: string;
+  };
+  const evidenceSubjects = [...h.graph.rows.keys()].filter((subject) =>
+    subject.startsWith("linear-bootstrap:"));
+  expect(evidenceSubjects).toHaveLength(1);
+  expect((await h.graph.show(evidenceSubjects[0]!))
+    .filter(({ predicate }) => predicate === "canonical_link"))
+    .toEqual([{ predicate: "canonical_link", value: recovered.link }]);
+});
+
+test("authority intake rejects contradictory or ambiguous identity before reservation", async () => {
+  const rejectsBeforeReservation = async (
+    mutate: (value: ReturnType<typeof harness>) => void,
+    message: string,
+  ): Promise<void> => {
+    const candidate = harness();
+    mutate(candidate);
+    await expect(runLinearCommand(["import", "MSA-236"], candidate.dependencies))
+      .rejects.toThrow(message);
+    expect(candidate.graph.writes).toHaveLength(0);
+    expect(candidate.leases.requestedResources).toHaveLength(0);
+    expect(candidate.gateway.issueWrites).toBe(0);
+    expect(candidate.gateway.commentWrites).toBe(0);
+  };
+
+  const owner = harness();
+  await expect(runLinearCommand(
+    ["import", "MSA-236", "--owner", " padded "],
+    owner.dependencies,
+  )).rejects.toThrow("owner must be canonical");
+  expect(owner.graph.writes).toHaveLength(0);
+  expect(owner.leases.requestedResources).toHaveLength(0);
+
+  const workspace = harness();
+  workspace.gateway.issue.url = `https://linear.app/${"w".repeat(513)}/issue/MSA-236/x`;
+  await expect(runLinearCommand(["import", "MSA-236"], workspace.dependencies))
+    .rejects.toThrow("workspace slug must be canonical");
+  expect(workspace.graph.writes).toHaveLength(0);
+  expect(workspace.leases.requestedResources).toHaveLength(0);
+
+  const native = harness();
+  (native.gateway.issue as any).uuid = "11111111-1111-8111-8111-111111111111";
+  await expect(runLinearCommand(["import", "MSA-236"], native.dependencies))
+    .rejects.toThrow("incomplete native UUID evidence");
+  expect(native.graph.writes).toHaveLength(0);
+  expect(native.leases.requestedResources).toHaveLength(0);
+
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue = {
+      ...candidate.gateway.issue,
+      id: "MSA-999",
+      identifier: "MSA-236",
+    } as any;
+  }, "id and identifier disagree");
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue = {
+      ...candidate.gateway.issue,
+      team: { id: "team-b", name: "Technology" },
+    } as any;
+  }, "teamId and team.id disagree");
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue.url =
+      "https://user:password@linear.app/msa-team/issue/MSA-236/x";
+  }, "does not identify a linear.app workspace");
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue.url =
+      "https://linear.app:444/msa-team/issue/MSA-236/x";
+  }, "does not identify a linear.app workspace");
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue.url =
+      "https://linear.app/msa%2Dteam/issue/MSA-236/x";
+  }, "malformed or encoded workspace slug");
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue.url =
+      "https://linear.app/_msa-team/issue/MSA-236/x";
+  }, "malformed or encoded workspace slug");
+  await rejectsBeforeReservation((candidate) => {
+    candidate.gateway.issue.url =
+      "https://linear.app/msa-team/issue/MSA-999/x";
+  }, "URL identifier disagrees");
+});
+
+test("graph value preflight admits the exact limit and rejects max+1 before a lease", async () => {
+  expect(() => assertLinearGraphValue("x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES)))
+    .not.toThrow();
+  expect(() => assertLinearGraphValue("x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES + 1)))
+    .toThrow("exceeds");
+
+  const oversized = harness();
+  oversized.gateway.issue.description = "x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES + 1);
+  await expect(runLinearCommand(["import", "MSA-236"], oversized.dependencies))
+    .rejects.toThrow("imported thread");
+  expect(oversized.graph.writes).toHaveLength(0);
+  expect(oversized.leases.requestedResources).toHaveLength(0);
+});
+
+test("prepared dispatch keeps live-schema rejection pre-intent and transport failure unknown", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  const link = (await h.graph.show(thread))
+    .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  h.graph.replace(thread, "title", "prepared title");
+
+  h.gateway.prepareWriteFailure = "live schema minLength rejection";
+  const writesBeforePrepare = h.graph.writes.length;
+  const issueWritesBefore = h.gateway.issueWrites;
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("live schema minLength rejection");
+  expect(h.graph.writes).toHaveLength(writesBeforePrepare);
+  expect(h.gateway.issueWrites).toBe(issueWritesBefore);
+  expect(JSON.parse((await h.graph.show(link))
+    .find(({ predicate }) => predicate === "sync_manifest")!.value).pending)
+    .toBeUndefined();
+
+  h.gateway.prepareWriteFailure = undefined;
+  h.gateway.dispatchWriteFailure = "callback outcome unknown";
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("outcome is unknown");
+  expect(h.gateway.issueWrites).toBe(issueWritesBefore);
+  expect(JSON.parse((await h.graph.show(link))
+    .find(({ predicate }) => predicate === "sync_manifest")!.value).pending)
+    .toMatchObject({ kind: "issue" });
+});
+
+test("comment ids and cursors are exact and globally consistent across pages", async () => {
+  const duplicate = harness();
+  const duplicateThread = await importThread(duplicate);
+  duplicate.gateway.duplicateCommentAcrossPages = true;
+  await expect(runLinearCommand(["plan", duplicateThread], duplicate.dependencies))
+    .rejects.toThrow("duplicate comment id");
+
+  const cursor = harness();
+  const cursorThread = await importThread(cursor);
+  cursor.gateway.inconsistentCommentCursor = true;
+  await expect(runLinearCommand(["plan", cursorThread], cursor.dependencies))
+    .rejects.toThrow("inconsistent cursor");
+});
+
+test("schema bootstrap reinspection refuses a concurrent conflicting value", async () => {
+  const graph = new FakeGraph();
+  const target = "@canonical_link cardinality single";
+  for (const [subject, predicate, value] of LINEAR_SCHEMA_FACTS)
+    if (`@${subject} ${predicate} ${value}` !== target)
+      graph.seed(subject, predicate, value);
+  graph.beforeSchemaCommit = (subject, predicate) => {
+    if (subject === "canonical_link" && predicate === "cardinality") {
+      graph.beforeSchemaCommit = undefined;
+      graph.seed(subject, predicate, "multi");
+    }
+  };
+  await expect(ensureLinearSchema(graph)).rejects.toThrow("schema conflicts");
+  expect((await graph.show("canonical_link"))
+    .filter(({ predicate }) => predicate === "cardinality"))
+    .toEqual([{ predicate: "cardinality", value: "multi" }]);
 });
 
 test("NorthGraphStore never mistakes a no-coordinator message for a commit", async () => {

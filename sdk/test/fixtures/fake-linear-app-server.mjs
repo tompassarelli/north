@@ -126,6 +126,12 @@ input.on("line", (line) => {
     return sendResult(request, { data, nextCursor: null });
   }
   if (request.method === "mcpServer/tool/call") {
+    if (config.rawDuplicateToolResult) {
+      process.stdout.write(
+        `{"id":${JSON.stringify(request.id)},"result":{"content":[]},"result":{"content":[{"type":"text","text":"{}"}]}}\n`,
+      );
+      return;
+    }
     if (config.rpcToolError) return send({ id: request.id, error: {
       code: -32000,
       message: typeof config.rpcToolError === "string" ? config.rpcToolError : "fake RPC failure",

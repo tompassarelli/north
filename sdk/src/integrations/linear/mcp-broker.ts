@@ -35,6 +35,10 @@ export interface McpToolResult {
   isError: boolean;
 }
 
+export interface PreparedMcpToolCall {
+  dispatch(): Promise<McpToolResult>;
+}
+
 export interface ModelFreeBrokerTransportReceipt {
   transport: string;
   policy: string;
@@ -58,6 +62,7 @@ export interface ModelFreeTransportReceipt extends ModelFreeBrokerTransportRecei
 
 export interface McpBrokerSession {
   listServers(): Promise<readonly McpServerInventory[]>;
+  prepareTool(call: McpToolCall): PreparedMcpToolCall;
   callTool(call: McpToolCall): Promise<McpToolResult>;
   transportReceipt(): ModelFreeBrokerTransportReceipt;
   close(): Promise<void>;

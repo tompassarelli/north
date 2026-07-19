@@ -2,8 +2,8 @@ import type {
   McpAccess, McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
   McpToolDefinition, McpToolResult, ModelFreeTransportReceipt,
 } from "./mcp-broker";
-import { normalizeLinearConnector } from "./normalize";
-import { normalizeLinearRemoteKey } from "./normalize";
+import { canonicalJson, normalizeLinearConnector, normalizeLinearRemoteKey } from "./normalize";
+import { parseStrictJson } from "./strict-json";
 
 export const LINEAR_READ_TOOL = "get_issue";
 export const LINEAR_LIST_ISSUES_TOOL = "list_issues";
@@ -32,6 +32,7 @@ export interface LinearGatewayOptions extends McpBrokerOpenOptions {
 
 export interface LinearGateway {
   readonly server: string;
+  prepare(envelope: LinearCallEnvelope): PreparedLinearCall;
   call(envelope: LinearCallEnvelope): Promise<unknown>;
   readIssue(arguments_: Record<string, unknown>): Promise<unknown>;
   listIssues(arguments_: Record<string, unknown>): Promise<unknown>;
@@ -40,6 +41,10 @@ export interface LinearGateway {
   writeComment(arguments_: Record<string, unknown>): Promise<unknown>;
   transportReceipt(): ModelFreeTransportReceipt;
   close(): Promise<void>;
+}
+
+export interface PreparedLinearCall {
+  dispatch(): Promise<unknown>;
 }
 
 export type LinearGatewayErrorKind = "not-found";
@@ -60,7 +65,101 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const JSON_SCHEMA_TYPES = new Set([
+  "null", "boolean", "object", "array", "number", "integer", "string",
+]);
+const SCHEMA_ANNOTATIONS = new Set([
+  "$schema", "$id", "$comment", "title", "description", "default", "examples",
+  "deprecated", "readOnly", "writeOnly",
+]);
+const SUPPORTED_SCHEMA_ASSERTIONS = new Set([
+  "type", "enum", "const", "anyOf", "oneOf", "allOf", "not",
+  "properties", "required", "additionalProperties",
+  "items", "minItems", "maxItems", "uniqueItems",
+  "minLength", "maxLength",
+  "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+  "minProperties", "maxProperties",
+]);
+
+function nonnegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * The live MCP schema is an authority boundary for prepare-before-intent.
+ * Silently ignoring an assertion keyword could defer a deterministic provider
+ * rejection until after the durable intent. Audit the entire dialect at
+ * discovery and fail closed on every assertion North does not implement.
+ */
+function assertSupportedSchema(schema: unknown, path: string): void {
+  if (typeof schema === "boolean") return;
+  if (!record(schema)) throw new Error(`Linear MCP schema at ${path} is not a JSON Schema`);
+  for (const key of Object.keys(schema)) {
+    if (!SCHEMA_ANNOTATIONS.has(key) && !SUPPORTED_SCHEMA_ASSERTIONS.has(key))
+      throw new Error(`Linear MCP schema at ${path} uses unsupported assertion keyword ${key}`);
+  }
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!types.length || types.some((type) => typeof type !== "string" || !JSON_SCHEMA_TYPES.has(type))
+        || new Set(types).size !== types.length)
+      throw new Error(`Linear MCP schema at ${path}.type is invalid`);
+  }
+  if (schema.enum !== undefined
+      && (!Array.isArray(schema.enum) || !schema.enum.length))
+    throw new Error(`Linear MCP schema at ${path}.enum is invalid`);
+  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
+    const alternatives = schema[key];
+    if (alternatives === undefined) continue;
+    if (!Array.isArray(alternatives) || !alternatives.length)
+      throw new Error(`Linear MCP schema at ${path}.${key} is invalid`);
+    alternatives.forEach((candidate, index) =>
+      assertSupportedSchema(candidate, `${path}.${key}[${index}]`));
+  }
+  if (schema.not !== undefined) assertSupportedSchema(schema.not, `${path}.not`);
+  if (schema.properties !== undefined) {
+    if (!record(schema.properties))
+      throw new Error(`Linear MCP schema at ${path}.properties is invalid`);
+    for (const [key, child] of Object.entries(schema.properties))
+      assertSupportedSchema(child, `${path}.properties.${key}`);
+  }
+  if (schema.required !== undefined
+      && (!Array.isArray(schema.required)
+        || schema.required.some((key) => typeof key !== "string")
+        || new Set(schema.required).size !== schema.required.length))
+    throw new Error(`Linear MCP schema at ${path}.required is invalid`);
+  if (schema.additionalProperties !== undefined
+      && typeof schema.additionalProperties !== "boolean")
+    assertSupportedSchema(schema.additionalProperties, `${path}.additionalProperties`);
+  if (schema.items !== undefined)
+    assertSupportedSchema(schema.items, `${path}.items`);
+  for (const key of [
+    "minItems", "maxItems", "minLength", "maxLength", "minProperties", "maxProperties",
+  ] as const) {
+    if (schema[key] !== undefined && !nonnegativeInteger(schema[key]))
+      throw new Error(`Linear MCP schema at ${path}.${key} is invalid`);
+  }
+  if (schema.uniqueItems !== undefined && typeof schema.uniqueItems !== "boolean")
+    throw new Error(`Linear MCP schema at ${path}.uniqueItems is invalid`);
+  for (const key of [
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+  ] as const) {
+    if (schema[key] !== undefined
+        && (typeof schema[key] !== "number" || !Number.isFinite(schema[key])))
+      throw new Error(`Linear MCP schema at ${path}.${key} is invalid`);
+  }
+  for (const [minimum, maximum] of [
+    ["minItems", "maxItems"],
+    ["minLength", "maxLength"],
+    ["minProperties", "maxProperties"],
+  ] as const) {
+    if (schema[minimum] !== undefined && schema[maximum] !== undefined
+        && (schema[minimum] as number) > (schema[maximum] as number))
+      throw new Error(`Linear MCP schema at ${path} has an inverted ${minimum}/${maximum} range`);
+  }
+}
+
 function schemaObject(tool: McpToolDefinition): Schema {
+  assertSupportedSchema(tool.inputSchema, `${tool.name}.inputSchema`);
   if (!record(tool.inputSchema) || tool.inputSchema.type !== "object" || !record(tool.inputSchema.properties))
     throw new Error(`Linear MCP tool ${tool.name} has an incompatible input schema`);
   return tool.inputSchema;
@@ -68,8 +167,11 @@ function schemaObject(tool: McpToolDefinition): Schema {
 
 function propertyAllowsString(value: unknown): boolean {
   if (!record(value)) return false;
-  if (value.type === "string") return true;
-  return Array.isArray(value.anyOf) && value.anyOf.some(propertyAllowsString);
+  if (value.type === "string"
+      || (Array.isArray(value.type) && value.type.includes("string")))
+    return true;
+  return ["anyOf", "oneOf"].some((key) =>
+    Array.isArray(value[key]) && value[key].some(propertyAllowsString));
 }
 
 function gateLinearCapabilities(server: McpServerInventory): void {
@@ -163,30 +265,90 @@ function schemaTypeMatches(type: unknown, value: unknown): boolean {
   return false;
 }
 
+function jsonSchemaEqual(left: unknown, right: unknown): boolean {
+  try { return canonicalJson(left) === canonicalJson(right); }
+  catch { return false; }
+}
+
+function schemaMatches(schema: unknown, value: unknown, path: string): boolean {
+  try {
+    validateValue(schema, value, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function validateValue(schema: unknown, value: unknown, path: string): void {
   if (schema === true) return;
+  if (schema === false)
+    throw new Error(`Linear MCP argument ${path} is rejected by its schema`);
   if (!record(schema)) throw new Error(`Unsupported Linear MCP schema at ${path}`);
   if (Array.isArray(schema.anyOf)) {
-    const valid = schema.anyOf.some((candidate) => {
-      try { validateValue(candidate, value, path); return true; }
-      catch { return false; }
-    });
-    if (!valid) throw new Error(`Linear MCP argument ${path} does not match its schema`);
-    return;
+    if (!schema.anyOf.some((candidate) => schemaMatches(candidate, value, path)))
+      throw new Error(`Linear MCP argument ${path} does not match any allowed schema`);
   }
-  if (Array.isArray(schema.enum) && !schema.enum.some((entry) => Object.is(entry, value)))
+  if (Array.isArray(schema.oneOf)) {
+    const matches = schema.oneOf.filter((candidate) => schemaMatches(candidate, value, path)).length;
+    if (matches !== 1)
+      throw new Error(`Linear MCP argument ${path} does not match exactly one allowed schema`);
+  }
+  if (Array.isArray(schema.allOf))
+    for (const candidate of schema.allOf) validateValue(candidate, value, path);
+  if (schema.not !== undefined && schemaMatches(schema.not, value, path))
+    throw new Error(`Linear MCP argument ${path} matches a forbidden schema`);
+  if (Array.isArray(schema.enum) && !schema.enum.some((entry) => jsonSchemaEqual(entry, value)))
     throw new Error(`Linear MCP argument ${path} is outside its allowed values`);
+  if (Object.hasOwn(schema, "const") && !jsonSchemaEqual(schema.const, value))
+    throw new Error(`Linear MCP argument ${path} does not equal its required constant`);
   if (schema.type !== undefined && !schemaTypeMatches(schema.type, value))
     throw new Error(`Linear MCP argument ${path} has the wrong type`);
+  if (typeof value === "string") {
+    const length = [...value].length;
+    if (typeof schema.minLength === "number" && length < schema.minLength)
+      throw new Error(`Linear MCP argument ${path} is shorter than minLength ${schema.minLength}`);
+    if (typeof schema.maxLength === "number" && length > schema.maxLength)
+      throw new Error(`Linear MCP argument ${path} is longer than maxLength ${schema.maxLength}`);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (typeof schema.minimum === "number" && value < schema.minimum)
+      throw new Error(`Linear MCP argument ${path} is below minimum ${schema.minimum}`);
+    if (typeof schema.maximum === "number" && value > schema.maximum)
+      throw new Error(`Linear MCP argument ${path} is above maximum ${schema.maximum}`);
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum)
+      throw new Error(`Linear MCP argument ${path} is not above exclusiveMinimum ${schema.exclusiveMinimum}`);
+    if (typeof schema.exclusiveMaximum === "number" && value >= schema.exclusiveMaximum)
+      throw new Error(`Linear MCP argument ${path} is not below exclusiveMaximum ${schema.exclusiveMaximum}`);
+  }
+  if (Array.isArray(value)) {
+    if (typeof schema.minItems === "number" && value.length < schema.minItems)
+      throw new Error(`Linear MCP argument ${path} has fewer than ${schema.minItems} items`);
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems)
+      throw new Error(`Linear MCP argument ${path} has more than ${schema.maxItems} items`);
+    if (schema.uniqueItems === true) {
+      const canonical = value.map((entry) => {
+        try { return canonicalJson(entry); }
+        catch { throw new Error(`Linear MCP argument ${path} contains a non-JSON item`); }
+      });
+      if (new Set(canonical).size !== canonical.length)
+        throw new Error(`Linear MCP argument ${path} contains duplicate items`);
+    }
+  }
   if (Array.isArray(value) && schema.items !== undefined)
     value.forEach((entry, index) => validateValue(schema.items, entry, `${path}[${index}]`));
-  if (record(value) && schema.type === "object") {
+  if (record(value)) {
+    const propertyCount = Object.keys(value).length;
+    if (typeof schema.minProperties === "number" && propertyCount < schema.minProperties)
+      throw new Error(`Linear MCP argument ${path} has fewer than ${schema.minProperties} properties`);
+    if (typeof schema.maxProperties === "number" && propertyCount > schema.maxProperties)
+      throw new Error(`Linear MCP argument ${path} has more than ${schema.maxProperties} properties`);
     const properties = record(schema.properties) ? schema.properties : {};
     const required = Array.isArray(schema.required) ? schema.required : [];
     for (const key of required)
-      if (typeof key === "string" && !(key in value)) throw new Error(`Linear MCP argument ${path}.${key} is required`);
+      if (typeof key === "string" && !Object.hasOwn(value, key))
+        throw new Error(`Linear MCP argument ${path}.${key} is required`);
     for (const [key, entry] of Object.entries(value)) {
-      if (key in properties) validateValue(properties[key], entry, `${path}.${key}`);
+      if (Object.hasOwn(properties, key)) validateValue(properties[key], entry, `${path}.${key}`);
       else if (schema.additionalProperties === false) throw new Error(`Linear MCP argument ${path}.${key} is not accepted by the live schema`);
       else if (record(schema.additionalProperties) || schema.additionalProperties === true)
         validateValue(schema.additionalProperties, entry, `${path}.${key}`);
@@ -213,7 +375,13 @@ function observedGetIssueNotFound(result: McpToolResult): boolean {
       || Buffer.byteLength(entry.text, "utf8") > 4096)
     return false;
   let parsed: unknown;
-  try { parsed = JSON.parse(entry.text); }
+  try {
+    parsed = parseStrictJson(entry.text, "Linear MCP error text", {
+      maxBytes: 4096,
+      maxDepth: 32,
+      maxNodes: 1000,
+    });
+  }
   catch { return false; }
   // `invalid_request` plus HTTP 400 is the connector's generic validation
   // class. Its exact observed missing-Issue message is therefore load-bearing:
@@ -257,7 +425,11 @@ export function normalizeLinearResult(
   }
   if (result.structuredContent !== undefined) return result.structuredContent;
   if (!text.length) throw new Error("Linear MCP tool returned neither structuredContent nor JSON text");
-  try { return JSON.parse(text.join("\n")); }
+  try {
+    return parseStrictJson(text.join("\n"), "Linear MCP result text", {
+      maxBytes: 1024 * 1024,
+    });
+  }
   catch { throw new Error("Linear MCP tool returned non-JSON text without structuredContent"); }
 }
 
@@ -268,7 +440,7 @@ class ConnectedLinearGateway implements LinearGateway {
     private inventory: McpServerInventory,
   ) { this.server = inventory.name; }
 
-  async call(envelope: LinearCallEnvelope): Promise<unknown> {
+  prepare(envelope: LinearCallEnvelope): PreparedLinearCall {
     const method = (envelope as { method?: unknown }).method;
     if (typeof method !== "string" || !Object.hasOwn(LINEAR_TOOL_ACCESS, method)) {
       const received = typeof method === "string" ? method : `<${typeof method}>`;
@@ -282,12 +454,19 @@ class ConnectedLinearGateway implements LinearGateway {
     validateArguments(tool, envelope.arguments);
     if (method === LINEAR_READ_TOOL)
       normalizeLinearRemoteKey(envelope.arguments.id as string);
-    return normalizeLinearResult(await this.session.callTool({
+    const prepared = this.session.prepareTool({
       access: envelope.access,
       server: this.server,
       tool: method,
       arguments: envelope.arguments,
-    }), method);
+    });
+    return {
+      dispatch: async () => normalizeLinearResult(await prepared.dispatch(), method),
+    };
+  }
+
+  async call(envelope: LinearCallEnvelope): Promise<unknown> {
+    return this.prepare(envelope).dispatch();
   }
 
   readIssue(arguments_: Record<string, unknown>): Promise<unknown> {

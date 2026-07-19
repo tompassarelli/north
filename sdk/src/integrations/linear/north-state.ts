@@ -3,11 +3,12 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import {
-  canonicalJson, linearIdentityKey, MAX_LINEAR_REMOTE_KEY_BYTES,
-  normalizeLinearConnector, normalizeLinearIdentity, normalizeLinearRemoteKey,
-  normalizeText, normalizeThreadId,
+  canonicalJson, canonicalLinearInstant, linearIdentityKey, MAX_LINEAR_REMOTE_KEY_BYTES,
+  normalizeLinearConnector, normalizeLinearIdentity, normalizeLinearOpaqueToken,
+  normalizeLinearRemoteKey, normalizeLinearUuid, normalizeText, normalizeThreadId,
   sha256Canonical,
 } from "./normalize";
+import { assertWellFormedUnicode, parseStrictJson } from "./strict-json";
 import { createLinearSyncBaseline, validateLinearSyncBaseline } from "./reconcile";
 import { parseManagedLinearDescription } from "./projection";
 import type {
@@ -22,6 +23,116 @@ const RESERVED_MARKER = /<!--\s*\/?north:/i;
 const MAX_HELPER_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const LINEAR_GRAPH_VALUE_MAX_BYTES = 160 * 1024;
 
+export interface LinearBootstrapEvidence {
+  connector: string;
+  createdAt: string;
+  initialKey: string;
+}
+
+export interface LinearBootstrapElection extends LinearBootstrapEvidence {
+  canonicalLink: string;
+  linkedThread: string;
+}
+
+export function canonicalBootstrapEvidence(input: LinearBootstrapEvidence): LinearBootstrapEvidence {
+  return {
+    connector: normalizeLinearConnector(input.connector),
+    createdAt: canonicalLinearInstant(input.createdAt, "bootstrap createdAt"),
+    initialKey: normalizeLinearRemoteKey(input.initialKey),
+  };
+}
+
+export function bootstrapIdentityFromEvidence(
+  identityKind: "mcp-bootstrap-v1" | "mcp-bootstrap-v2",
+  input: LinearBootstrapEvidence,
+): LinearIssueIdentity {
+  const evidence = canonicalBootstrapEvidence(input);
+  return normalizeLinearIdentity({
+    identityKind,
+    connector: evidence.connector,
+    fingerprint: sha256Canonical(identityKind === "mcp-bootstrap-v1"
+      ? evidence
+      : { connector: evidence.connector, createdAt: evidence.createdAt }),
+  });
+}
+
+export function bootstrapEvidenceSubject(input: LinearBootstrapEvidence): string {
+  const evidence = canonicalBootstrapEvidence(input);
+  return `linear-bootstrap:${sha256Canonical({
+    connector: evidence.connector,
+    createdAt: evidence.createdAt,
+  })}`;
+}
+
+export function bootstrapEvidenceLeaseResource(input: LinearBootstrapEvidence): string {
+  const evidence = canonicalBootstrapEvidence(input);
+  return `linear-sync:bootstrap:${sha256Canonical({
+    connector: evidence.connector,
+    createdAt: evidence.createdAt,
+  })}`;
+}
+
+export function canonicalBootstrapElection(
+  evidenceInput: LinearBootstrapEvidence,
+  linkInput: string,
+  threadInput: string,
+): LinearBootstrapElection {
+  const evidence = canonicalBootstrapEvidence(evidenceInput);
+  const bareLinkInput = typeof linkInput === "string"
+    ? linkInput.replace(/^@/, "")
+    : linkInput;
+  const bareThreadInput = typeof threadInput === "string"
+    ? threadInput.replace(/^@/, "")
+    : threadInput;
+  const canonicalLink = `@${normalizeLinearOpaqueToken(
+    "bootstrap canonical link",
+    bareLinkInput,
+    MAX_LINEAR_REMOTE_KEY_BYTES * 2,
+  )}`;
+  const linkedThread = `@${normalizeThreadId(bareThreadInput)}`;
+  const candidateLinks = new Set([
+    `@${linkSubject(bootstrapIdentityFromEvidence("mcp-bootstrap-v1", evidence))}`,
+    `@${linkSubject(bootstrapIdentityFromEvidence("mcp-bootstrap-v2", evidence))}`,
+  ]);
+  if (!candidateLinks.has(canonicalLink))
+    throw new Error("Linear bootstrap election canonical link does not match its evidence");
+  return { canonicalLink, ...evidence, linkedThread };
+}
+
+export function serializeBootstrapElection(
+  evidence: LinearBootstrapEvidence,
+  link: string,
+  thread: string,
+): string {
+  return canonicalJson(canonicalBootstrapElection(evidence, link, thread));
+}
+
+export function parseBootstrapElection(value: string): LinearBootstrapElection {
+  const raw = parseStrictJson(value, "Linear bootstrap election", {
+    maxBytes: LINEAR_GRAPH_VALUE_MAX_BYTES,
+  });
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new Error("Linear bootstrap election must be an object");
+  const record = raw as Record<string, unknown>;
+  if (!hasExactKeys(record, [
+    "canonicalLink", "connector", "createdAt", "initialKey", "linkedThread",
+  ])) {
+    throw new Error("Linear bootstrap election has unknown or missing fields");
+  }
+  const election = canonicalBootstrapElection(
+    {
+      connector: record.connector as string,
+      createdAt: record.createdAt as string,
+      initialKey: record.initialKey as string,
+    },
+    record.canonicalLink as string,
+    record.linkedThread as string,
+  );
+  if (canonicalJson(election) !== value)
+    throw new Error("Linear bootstrap election is not canonically serialized");
+  return election;
+}
+
 function defaultFramExecutable(): string {
   const binDirectory = process.env.FRAM_BIN
     ?? resolve(process.env.FRAM_HOME ?? resolve(NORTH_ROOT, "../fram"), "bin");
@@ -30,6 +141,18 @@ function defaultFramExecutable(): string {
 
 export interface GraphFact { predicate: string; value: string }
 
+export type LinearBindingReservation =
+  | {
+    kind: "linear-uuid";
+    identityLease: SyncLease;
+  }
+  | {
+    kind: "mcp-bootstrap-v1" | "mcp-bootstrap-v2";
+    identityLease: SyncLease;
+    evidenceLease: SyncLease;
+    evidence: LinearBootstrapEvidence;
+  };
+
 export interface GraphStore {
   show(subject: string): Promise<readonly GraphFact[]>;
   showMany?(subjects: readonly string[]): Promise<ReadonlyMap<string, readonly GraphFact[]>>;
@@ -37,13 +160,22 @@ export interface GraphStore {
   findBootstrapLinkSubjects(connector: string, createdAt: string): Promise<readonly string[]>;
   /** Coordinator-serialized graph assertion. Subject is bare; refs retain @. */
   put(subject: string, predicate: string, value: string): Promise<void>;
+  /** Global-version CAS for schema bootstrap; never overwrites an unexpected value. */
+  ensureSchemaFact(
+    subject: string,
+    predicate: string,
+    value: string,
+    allowedPrevious?: string,
+  ): Promise<void>;
   /**
    * Atomically reserve the identity -> thread edge after validating the reverse
    * thread endpoint against one global coordinator version.
    */
   reserveLinearBinding(
-    lease: SyncLease, linkSubject: string, threadId: string, remoteServer: string,
-    bootstrapInitialKey?: string,
+    reservation: LinearBindingReservation,
+    linkSubject: string,
+    threadId: string,
+    remoteServer: string,
   ): Promise<void>;
   /** Assertion whose lease check and graph mutation share one coordinator turn. */
   putFenced(lease: SyncLease, subject: string, predicate: string, value: string): Promise<void>;
@@ -167,7 +299,9 @@ async function commandWithPrivateStdin(
 
 function coordinatorObject(output: string): Record<string, unknown> | undefined {
   try {
-    const parsed = parseJsonWithoutDuplicateKeys(output, "coordinator response");
+    const parsed = parseStrictJson(output, "coordinator response", {
+      maxBytes: MAX_HELPER_OUTPUT_BYTES,
+    });
     return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
       ? parsed as Record<string, unknown>
       : undefined;
@@ -232,6 +366,8 @@ export interface NorthGraphStoreOptions {
   reservationInvokeOverride?: (args: readonly string[]) => Promise<string>;
   bootstrapFinderCli?: string;
   bootstrapFinderInvokeOverride?: (args: readonly string[]) => Promise<string>;
+  schemaReservationCli?: string;
+  schemaReservationInvokeOverride?: (args: readonly string[]) => Promise<string>;
 }
 
 export class NorthGraphStore implements GraphStore {
@@ -241,6 +377,8 @@ export class NorthGraphStore implements GraphStore {
   private reservationInvokeOverride?: (args: readonly string[]) => Promise<string>;
   private bootstrapFinderCli: string;
   private bootstrapFinderInvokeOverride?: (args: readonly string[]) => Promise<string>;
+  private schemaReservationCli: string;
+  private schemaReservationInvokeOverride?: (args: readonly string[]) => Promise<string>;
 
   constructor(
     private northBin = process.env.NORTH_BIN ?? resolve(NORTH_ROOT, "bin/north"),
@@ -258,11 +396,18 @@ export class NorthGraphStore implements GraphStore {
     this.reservationInvokeOverride = options.reservationInvokeOverride;
     this.bootstrapFinderCli = options.bootstrapFinderCli ?? resolve(import.meta.dir, "find-bootstrap-links.clj");
     this.bootstrapFinderInvokeOverride = options.bootstrapFinderInvokeOverride;
+    this.schemaReservationCli = options.schemaReservationCli
+      ?? resolve(import.meta.dir, "reserve-schema-fact.clj");
+    this.schemaReservationInvokeOverride = options.schemaReservationInvokeOverride;
   }
 
   async show(subject: string): Promise<readonly GraphFact[]> {
     const bare = subject.replace(/^@/, "");
-    const parsed = JSON.parse(await command(this.northBin, ["json", "show", bare]));
+    const parsed = parseStrictJson(
+      await command(this.northBin, ["json", "show", bare]),
+      "north json show response",
+      { maxBytes: MAX_HELPER_OUTPUT_BYTES },
+    );
     if (!Array.isArray(parsed) || parsed.some((fact) => typeof fact?.predicate !== "string" || typeof fact?.value !== "string"))
       throw new Error(`north json show returned invalid facts for @${bare}`);
     return parsed;
@@ -274,7 +419,11 @@ export class NorthGraphStore implements GraphStore {
     if (!bareSubjects.length) return grouped;
     if (bareSubjects.some((subject) => subject.includes(",")))
       throw new Error("north json show-many subjects cannot contain commas");
-    const parsed = JSON.parse(await command(this.northBin, ["json", "show-many", bareSubjects.join(",")]));
+    const parsed = parseStrictJson(
+      await command(this.northBin, ["json", "show-many", bareSubjects.join(",")]),
+      "north json show-many response",
+      { maxBytes: MAX_HELPER_OUTPUT_BYTES },
+    );
     if (!Array.isArray(parsed) || parsed.some((fact) =>
       typeof fact?.subject !== "string" || typeof fact?.predicate !== "string" || typeof fact?.value !== "string"))
       throw new Error("north json show-many returned invalid facts");
@@ -316,14 +465,54 @@ export class NorthGraphStore implements GraphStore {
       throw new Error(`coordinator rejected @${bare} ${predicate}: ${output || "no response"}`);
   }
 
-  async reserveLinearBinding(
-    lease: SyncLease, linkSubject: string, threadId: string, remoteServer: string,
-    bootstrapInitialKey?: string,
+  async ensureSchemaFact(
+    subject: string,
+    predicate: string,
+    value: string,
+    allowedPrevious?: string,
   ): Promise<void> {
+    const args = [
+      this.port,
+      allowedPrevious === undefined ? "exact" : "migrate",
+      subject.replace(/^@/, ""),
+      predicate,
+      value,
+      ...(allowedPrevious === undefined ? [] : [allowedPrevious]),
+    ];
+    const output = this.schemaReservationInvokeOverride
+      ? await this.schemaReservationInvokeOverride(args)
+      : await command("bb", [this.schemaReservationCli, ...args]);
+    const response = coordinatorObject(output);
+    if (response && hasExactKeys(response, ["ok"]) && positiveSafeInteger(response.ok)) return;
+    if (response && hasExactKeys(response, ["reject"])
+        && typeof response.reject === "string" && response.reject)
+      throw new Error(response.reject);
+    throw new Error("Linear schema coordinator returned an invalid response");
+  }
+
+  async reserveLinearBinding(
+    reservation: LinearBindingReservation,
+    linkSubject: string,
+    threadId: string,
+    remoteServer: string,
+  ): Promise<void> {
+    const lease = reservation.identityLease;
+    const evidence = reservation.kind === "linear-uuid"
+      ? undefined
+      : canonicalBootstrapEvidence(reservation.evidence);
     const args = [
       this.port, lease.resource, lease.holder, String(lease.epoch),
       linkSubject.replace(/^@/, ""), threadId.replace(/^@/, ""), remoteServer,
-      bootstrapInitialKey ?? "-",
+      reservation.kind,
+      ...(reservation.kind === "linear-uuid" ? [] : [
+        reservation.evidenceLease.resource,
+        reservation.evidenceLease.holder,
+        String(reservation.evidenceLease.epoch),
+        evidence!.connector,
+        evidence!.createdAt,
+        evidence!.initialKey,
+        bootstrapEvidenceSubject(evidence!),
+      ]),
     ];
     const output = this.reservationInvokeOverride
       ? await this.reservationInvokeOverride(args)
@@ -451,7 +640,11 @@ export const LINEAR_SCHEMA_FACTS = [
   ["remote_uuid", "cardinality", "single"],
   ["remote_workspace", "cardinality", "single"],
   ["remote_fingerprint", "cardinality", "single"],
+  ["bootstrap_election", "cardinality", "single"],
   ["bootstrap_initial_key", "cardinality", "single"],
+  ["bootstrap_connector", "cardinality", "single"],
+  ["bootstrap_created_at", "cardinality", "single"],
+  ["canonical_link", "cardinality", "single"],
   ["remote_workspace_slug", "cardinality", "single"],
   ["remote_scope", "cardinality", "single"],
   ["remote_key", "cardinality", "single"],
@@ -469,6 +662,7 @@ export const LINEAR_SCHEMA_FACTS = [
   // Integration links are fact-bearing entities even though they are not
   // threads. Fram validates this as an entity ref; North owns thread-only refs.
   ["linear_link", "value_kind", "ref"],
+  ["canonical_link", "value_kind", "ref"],
 ] as const;
 
 export interface SchemaInspection {
@@ -503,30 +697,58 @@ export async function inspectLinearSchema(graph: GraphStore): Promise<SchemaInsp
   return { ok: missing.length === 0 && conflicting.length === 0, missing, conflicting };
 }
 
-export async function ensureLinearSchema(graph: GraphStore, prior?: SchemaInspection): Promise<void> {
-  const inspection = prior ?? await inspectLinearSchema(graph);
+export async function ensureLinearSchema(
+  graph: GraphStore,
+  prior?: SchemaInspection,
+): Promise<SchemaInspection> {
+  // `prior` is diagnostic only; authority comes from a fresh inspection and
+  // each missing assertion is still protected by coordinator CAS.
+  void prior;
+  const inspection = await inspectLinearSchema(graph);
   if (inspection.conflicting.length && !isKnownLinearSchemaMigration(inspection))
     throw new Error(`Linear graph schema conflicts: ${inspection.conflicting.join("; ")}`);
   const missing = new Set(inspection.missing);
-  for (const [subject, predicate, value] of LINEAR_SCHEMA_FACTS)
-    if (missing.has(`@${subject} ${predicate} ${value}`)) await graph.put(subject, predicate, value);
+  for (const [subject, predicate, value] of LINEAR_SCHEMA_FACTS) {
+    if (!missing.has(`@${subject} ${predicate} ${value}`)) continue;
+    await graph.ensureSchemaFact(
+      subject,
+      predicate,
+      value,
+      subject === "linear_link" && predicate === "value_kind" && value === "ref"
+        ? "literal"
+        : undefined,
+    );
+  }
+  const after = await inspectLinearSchema(graph);
+  if (!after.ok)
+    throw new Error(`Linear graph schema did not converge: ${
+      [...after.missing, ...after.conflicting].join("; ")
+    }`);
+  return after;
 }
 
-function requiredString(record: Record<string, unknown>, name: string): string {
+function requiredContentString(record: Record<string, unknown>, name: string): string {
   const value = record[name];
   if (typeof value !== "string" || !value.trim()) throw new Error(`Linear issue lacks ${name}`);
-  return value.trim();
+  assertWellFormedUnicode(value, `Linear issue ${name}`);
+  return value;
 }
 
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function optionalContentString(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value.trim())
+    throw new Error(`Linear issue ${name} must be a non-blank string when present`);
+  assertWellFormedUnicode(value, `Linear issue ${name}`);
+  return value;
 }
 
-function canonicalLinearInstant(value: string, name: string): string {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed))
-    throw new Error(`Linear issue ${name} is not a valid timestamp`);
-  return new Date(parsed).toISOString();
+function optionalAuthorityString(
+  value: unknown,
+  name: string,
+  maxBytes = MAX_LINEAR_REMOTE_KEY_BYTES,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return normalizeLinearOpaqueToken(name, value as string, maxBytes);
 }
 
 function asRecord(value: unknown, name: string): Record<string, unknown> {
@@ -534,14 +756,41 @@ function asRecord(value: unknown, name: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export function workspaceFromLinearUrl(input: string): string {
+interface LinearUrlAuthority {
+  workspace: string;
+  issueIdentifier?: string;
+}
+
+function authorityFromLinearUrl(input: string): LinearUrlAuthority {
+  normalizeLinearOpaqueToken("issue URL", input, 4096);
   let url: URL;
   try { url = new URL(input); }
   catch { throw new Error(`Linear issue URL is invalid: ${JSON.stringify(input)}`); }
-  const workspace = url.pathname.split("/").filter(Boolean)[0];
-  if (url.protocol !== "https:" || url.hostname !== "linear.app" || !workspace)
+  if (url.protocol !== "https:" || url.hostname !== "linear.app"
+      || url.username || url.password || url.port) {
     throw new Error(`Linear issue URL does not identify a linear.app workspace: ${input}`);
-  return workspace;
+  }
+  const segments = url.pathname.split("/");
+  const workspace = segments[1];
+  if (!workspace || workspace.includes("%") || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(workspace))
+    throw new Error(`Linear issue URL has a malformed or encoded workspace slug: ${input}`);
+  const normalizedWorkspace = normalizeLinearOpaqueToken(
+    "workspace slug",
+    workspace,
+    MAX_LINEAR_REMOTE_KEY_BYTES,
+  );
+  if (segments[2] !== "issue") return { workspace: normalizedWorkspace };
+  const issueSegment = segments[3];
+  if (!issueSegment || issueSegment.includes("%"))
+    throw new Error(`Linear issue URL has a malformed or encoded issue identifier: ${input}`);
+  return {
+    workspace: normalizedWorkspace,
+    issueIdentifier: normalizeLinearRemoteKey(issueSegment),
+  };
+}
+
+export function workspaceFromLinearUrl(input: string): string {
+  return authorityFromLinearUrl(input).workspace;
 }
 
 export interface LinearIssueDocument {
@@ -564,45 +813,84 @@ export interface LinearIssueDocument {
 export function normalizeLinearIssueDocument(input: unknown): LinearIssueDocument {
   let raw = asRecord(input, "Linear get_issue result");
   if (raw.issue !== undefined) raw = asRecord(raw.issue, "Linear get_issue issue");
-  const url = requiredString(raw, "url");
-  const id = requiredString(raw, "id");
-  const explicitIdentifier = optionalString(raw.identifier);
-  const key = normalizeLinearRemoteKey(explicitIdentifier ?? (UUID.test(id) ? "" : id));
+  const url = normalizeLinearOpaqueToken(
+    "issue URL",
+    requiredContentString(raw, "url"),
+    4096,
+  );
+  const id = normalizeLinearOpaqueToken(
+    "issue id",
+    requiredContentString(raw, "id"),
+    MAX_LINEAR_REMOTE_KEY_BYTES,
+  );
+  const explicitIdentifier = optionalAuthorityString(raw.identifier, "identifier");
+  const idKey = UUID.test(id) ? undefined : normalizeLinearRemoteKey(id);
+  const identifierKey = explicitIdentifier === undefined
+    ? undefined
+    : normalizeLinearRemoteKey(explicitIdentifier);
+  if (idKey && identifierKey && idKey !== identifierKey)
+    throw new Error("Linear issue id and identifier disagree");
+  const key = normalizeLinearRemoteKey(identifierKey ?? idKey ?? "");
   if (!key) throw new Error("Linear issue lacks a human identifier");
-  const uuidCandidates = [raw.uuid, raw.issueId, explicitIdentifier ? raw.id : undefined]
-    .map(optionalString).filter((value): value is string => Boolean(value));
-  const nativeUuids = [...new Set(uuidCandidates
-    .filter((value) => UUID.test(value))
-    .map((value) => value.toLowerCase()))];
+  const explicitNative = [
+    raw.uuid === undefined || raw.uuid === null
+      ? undefined : normalizeLinearUuid("uuid", raw.uuid as string),
+    raw.issueId === undefined || raw.issueId === null
+      ? undefined : normalizeLinearUuid("issueId", raw.issueId as string),
+    explicitIdentifier && UUID.test(id) ? normalizeLinearUuid("id", id) : undefined,
+  ].filter((value): value is string => Boolean(value));
+  const nativeUuids = [...new Set(explicitNative)];
   if (nativeUuids.length > 1)
     throw new Error("Linear issue has conflicting native UUID evidence");
   const uuid = nativeUuids[0];
   const teamRaw = typeof raw.team === "object" && raw.team !== null && !Array.isArray(raw.team)
     ? raw.team as Record<string, unknown> : undefined;
-  const teamId = optionalString(raw.teamId) ?? optionalString(teamRaw?.id);
-  const teamName = optionalString(typeof raw.team === "string" ? raw.team : teamRaw?.name);
-  const createdAt = canonicalLinearInstant(requiredString(raw, "createdAt"), "createdAt");
-  const updatedAtValue = optionalString(raw.updatedAt);
+  const topLevelTeamId = optionalAuthorityString(raw.teamId, "teamId");
+  const nestedTeamId = optionalAuthorityString(teamRaw?.id, "team.id");
+  if (topLevelTeamId && nestedTeamId && topLevelTeamId !== nestedTeamId)
+    throw new Error("Linear issue teamId and team.id disagree");
+  const teamId = topLevelTeamId ?? nestedTeamId;
+  const teamName = optionalContentString(
+    typeof raw.team === "string" ? raw.team : teamRaw?.name,
+    "team name",
+  );
+  const createdAt = canonicalLinearInstant(
+    requiredContentString(raw, "createdAt"),
+    "createdAt",
+  );
+  const updatedAtValue = optionalAuthorityString(raw.updatedAt, "updatedAt", 128);
+  const workspaceId = raw.workspaceId === undefined || raw.workspaceId === null
+    ? undefined
+    : normalizeLinearUuid("workspaceId", raw.workspaceId as string);
+  if (Boolean(uuid) !== Boolean(workspaceId))
+    throw new Error("Linear issue contains incomplete native UUID evidence");
+  const description = typeof raw.description === "string" ? raw.description : "";
+  assertWellFormedUnicode(description, "Linear issue description");
+  const urlAuthority = authorityFromLinearUrl(url);
+  if (urlAuthority.issueIdentifier && urlAuthority.issueIdentifier !== key)
+    throw new Error("Linear issue URL identifier disagrees with the issue key");
+  const teamKey = optionalAuthorityString(teamRaw?.key, "team.key");
   return {
-    key, uuid, workspace: workspaceFromLinearUrl(url), workspaceId: optionalString(raw.workspaceId),
-    title: requiredString(raw, "title"), description: typeof raw.description === "string" ? raw.description : "",
+    key, uuid, workspace: urlAuthority.workspace, workspaceId,
+    title: requiredContentString(raw, "title"), description,
     url, createdAt,
     ...(updatedAtValue ? { updatedAt: canonicalLinearInstant(updatedAtValue, "updatedAt") } : {}),
-    status: optionalString(raw.status), statusType: optionalString(raw.statusType), teamId,
+    status: optionalContentString(raw.status, "status"),
+    statusType: optionalContentString(raw.statusType, "statusType"),
+    teamId,
     team: teamRaw || teamName ? {
       ...(teamId ? { id: teamId } : {}), ...(teamName ? { name: teamName } : {}),
-      ...(optionalString(teamRaw?.key) ? { key: optionalString(teamRaw?.key) } : {}),
+      ...(teamKey ? { key: teamKey } : {}),
     } : undefined,
   };
 }
 
 export function identityForIssue(issue: LinearIssueDocument, connector: string): LinearIssueIdentity {
-  if (issue.uuid && issue.workspaceId && UUID.test(issue.workspaceId)) {
+  if (issue.uuid && issue.workspaceId) {
     return normalizeLinearIdentity({ identityKind: "linear-uuid", workspaceId: issue.workspaceId, issueId: issue.uuid });
   }
-  return normalizeLinearIdentity({
-    identityKind: "mcp-bootstrap-v2", connector,
-    fingerprint: sha256Canonical({ connector: normalizeLinearConnector(connector), createdAt: issue.createdAt }),
+  return bootstrapIdentityFromEvidence("mcp-bootstrap-v2", {
+    connector, createdAt: issue.createdAt, initialKey: issue.key,
   });
 }
 
@@ -610,13 +898,8 @@ export function legacyBootstrapIdentityForIssue(
   issue: LinearIssueDocument,
   connector: string,
 ): LinearIssueIdentity {
-  return normalizeLinearIdentity({
-    identityKind: "mcp-bootstrap-v1", connector,
-    fingerprint: sha256Canonical({
-      connector: normalizeLinearConnector(connector),
-      createdAt: issue.createdAt,
-      initialKey: issue.key,
-    }),
+  return bootstrapIdentityFromEvidence("mcp-bootstrap-v1", {
+    connector, createdAt: issue.createdAt, initialKey: issue.key,
   });
 }
 
@@ -710,38 +993,8 @@ function exactObjectKeys(
 
 function exactIsoTimestamp(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
-}
-
-function parseJsonWithoutDuplicateKeys(value: string, label: string): unknown {
-  const stack: Array<{ kind: "object"; keys: Set<string> } | { kind: "array" }> = [];
-  for (let index = 0; index < value.length; index++) {
-    const character = value[index]!;
-    if (character === "\"") {
-      const start = index;
-      let escaped = false;
-      for (index++; index < value.length; index++) {
-        const stringCharacter = value[index]!;
-        if (escaped) escaped = false;
-        else if (stringCharacter === "\\") escaped = true;
-        else if (stringCharacter === "\"") break;
-      }
-      if (index >= value.length) throw new Error(`${label} is invalid JSON`);
-      let next = index + 1;
-      while (/[ \t\r\n]/.test(value[next] ?? "")) next++;
-      const context = stack.at(-1);
-      if (value[next] === ":" && context?.kind === "object") {
-        const key = JSON.parse(value.slice(start, index + 1)) as unknown;
-        if (typeof key !== "string") throw new Error(`${label} is invalid JSON`);
-        if (context.keys.has(key)) throw new Error(`${label} contains duplicate object keys`);
-        context.keys.add(key);
-      }
-    } else if (character === "{") stack.push({ kind: "object", keys: new Set() });
-    else if (character === "[") stack.push({ kind: "array" });
-    else if (character === "}" || character === "]") stack.pop();
-  }
-  return JSON.parse(value) as unknown;
+  try { return canonicalLinearInstant(value, "manifest timestamp") === value; }
+  catch { return false; }
 }
 
 function parsePendingOperation(
@@ -882,13 +1135,8 @@ export function linearManifestNeedsReceiptCompaction(manifest: LinearSyncManifes
   return manifestsNeedingReceiptCompaction.has(manifest);
 }
 
-function parseManifest(value: string): LinearSyncManifest {
-  if (Buffer.byteLength(value, "utf8") > LINEAR_GRAPH_VALUE_MAX_BYTES)
-    throw new Error("Linear sync manifest exceeds the bounded graph value size");
-  const raw = asRecord(
-    parseJsonWithoutDuplicateKeys(value, "Linear sync manifest"),
-    "Linear sync manifest",
-  );
+export function canonicalLinearSyncManifest(input: unknown): LinearSyncManifest {
+  const raw = asRecord(input, "Linear sync manifest");
   if (!exactObjectKeys(
     raw,
     ["version", "phase", "baseline", "evidence"],
@@ -906,47 +1154,44 @@ function parseManifest(value: string): LinearSyncManifest {
   ] as const;
   if (!exactObjectKeys(evidence, requiredEvidence, allowedEvidence))
     throw new Error("Linear sync manifest evidence has an unsupported shape");
-  if (typeof evidence.connector !== "string"
-      || normalizeLinearConnector(evidence.connector) !== evidence.connector)
-    throw new Error("Linear sync manifest evidence connector is invalid");
+  const connector = normalizeLinearConnector(evidence.connector as string);
   if (!exactIsoTimestamp(evidence.createdAt))
     throw new Error("Linear sync manifest evidence createdAt is invalid");
-  if (typeof evidence.initialKey !== "string"
-      || normalizeLinearRemoteKey(evidence.initialKey) !== evidence.initialKey)
-    throw new Error("Linear sync manifest evidence initialKey is invalid");
-  if (typeof evidence.workspace !== "string"
-      || !evidence.workspace
-      || normalizeText(evidence.workspace) !== evidence.workspace
-      || Buffer.byteLength(evidence.workspace, "utf8") > MAX_LINEAR_REMOTE_KEY_BYTES)
-    throw new Error("Linear sync manifest evidence workspace is invalid");
+  const initialKey = normalizeLinearRemoteKey(evidence.initialKey as string);
+  const workspace = normalizeLinearOpaqueToken(
+    "manifest workspace",
+    evidence.workspace as string,
+    MAX_LINEAR_REMOTE_KEY_BYTES,
+  );
   for (const key of ["markerBound", "adoptRawDescription", "createdThread"])
     if (evidence[key] !== undefined && typeof evidence[key] !== "boolean")
       throw new Error(`Linear sync manifest evidence ${key} must be boolean`);
   if (evidence.importedAt !== undefined && !exactIsoTimestamp(evidence.importedAt))
     throw new Error("Linear sync manifest evidence importedAt is invalid");
-  if (evidence.owner !== undefined
-      && (typeof evidence.owner !== "string"
-        || !evidence.owner
-        || normalizeText(evidence.owner) !== evidence.owner
-        || Buffer.byteLength(evidence.owner, "utf8") > MAX_LINEAR_REMOTE_KEY_BYTES))
-    throw new Error("Linear sync manifest evidence owner is invalid");
+  const owner = evidence.owner === undefined
+    ? undefined
+    : normalizeLinearOpaqueToken(
+      "manifest owner",
+      evidence.owner as string,
+      MAX_LINEAR_REMOTE_KEY_BYTES,
+    );
   if (evidence.importedRawDescriptionHash !== undefined
       && (typeof evidence.importedRawDescriptionHash !== "string" || !/^[0-9a-f]{64}$/.test(evidence.importedRawDescriptionHash)))
     throw new Error("Linear sync manifest evidence importedRawDescriptionHash is invalid");
   if (evidence.importedTitleHash !== undefined
       && (typeof evidence.importedTitleHash !== "string" || !/^[0-9a-f]{64}$/.test(evidence.importedTitleHash)))
     throw new Error("Linear sync manifest evidence importedTitleHash is invalid");
-  const baseline = validateLinearSyncBaseline(asRecord(raw.baseline, "Linear sync manifest baseline") as unknown as LinearSyncBaseline);
+  const baseline = validateLinearSyncBaseline(raw.baseline);
   const pending = parsePendingOperation(raw.pending, baseline);
   const receiptRecord = raw.receipts === undefined ? undefined : asRecord(raw.receipts, "Linear sync receipts");
   const receipts = receiptRecord
     ? compactLinearReceipts(receiptRecord as Record<string, LinearOperationReceipt>)
     : undefined;
   const parsedEvidence: LinearSyncManifest["evidence"] = {
-    connector: evidence.connector,
+    connector,
     createdAt: evidence.createdAt,
-    initialKey: evidence.initialKey,
-    workspace: evidence.workspace,
+    initialKey,
+    workspace,
     ...(typeof evidence.importedRawDescriptionHash === "string"
       ? { importedRawDescriptionHash: evidence.importedRawDescriptionHash } : {}),
     ...(typeof evidence.importedTitleHash === "string"
@@ -957,7 +1202,7 @@ function parseManifest(value: string): LinearSyncManifest {
     ...(typeof evidence.importedAt === "string" ? { importedAt: evidence.importedAt } : {}),
     ...(typeof evidence.createdThread === "boolean"
       ? { createdThread: evidence.createdThread } : {}),
-    ...(typeof evidence.owner === "string" ? { owner: evidence.owner } : {}),
+    ...(owner ? { owner } : {}),
   };
   const manifest: LinearSyncManifest = {
     version: 1, phase: raw.phase as LinearSyncManifest["phase"], baseline,
@@ -968,6 +1213,25 @@ function parseManifest(value: string): LinearSyncManifest {
   if (receiptRecord && Object.keys(receiptRecord).length > MAX_LINEAR_MANIFEST_RECEIPTS)
     manifestsNeedingReceiptCompaction.add(manifest);
   return manifest;
+}
+
+export function parseLinearSyncManifest(value: string): LinearSyncManifest {
+  const parsed = parseStrictJson(value, "Linear sync manifest", {
+    maxBytes: LINEAR_GRAPH_VALUE_MAX_BYTES,
+  });
+  return canonicalLinearSyncManifest(parsed);
+}
+
+export function assertLinearGraphValue(value: string, label = "Linear graph value"): void {
+  assertWellFormedUnicode(value, label);
+  if (Buffer.byteLength(value, "utf8") > LINEAR_GRAPH_VALUE_MAX_BYTES)
+    throw new Error(`${label} exceeds ${LINEAR_GRAPH_VALUE_MAX_BYTES} UTF-8 bytes`);
+}
+
+export function serializeLinearSyncManifest(input: unknown): string {
+  const serialized = canonicalJson(canonicalLinearSyncManifest(input));
+  assertLinearGraphValue(serialized, "Linear sync manifest");
+  return serialized;
 }
 
 export async function inspectPartialLinearLink(graph: GraphStore, subject: string): Promise<PartialLinearLinkState> {
@@ -991,7 +1255,7 @@ export async function inspectPartialLinearLink(graph: GraphStore, subject: strin
   const schema = singleton("sync_schema");
   if (schema !== undefined && schema !== "linear-sync-v1") throw new Error(`partial Linear link @${subject} has unsupported sync_schema`);
   const manifestValue = singleton("sync_manifest");
-  const manifest = manifestValue ? parseManifest(manifestValue) : undefined;
+  const manifest = manifestValue ? parseLinearSyncManifest(manifestValue) : undefined;
   const bootstrapInitialKey = singleton("bootstrap_initial_key");
   const threadId = singleton("linked_thread")?.replace(/^@/, "") ?? manifest?.baseline.threadId;
   const common = ["kind", "linked_thread", "remote_key", "remote_server", "remote_workspace_slug", "identity_kind", "sync_policy", "sync_schema", "sync_manifest"];
@@ -1005,29 +1269,14 @@ export async function inspectPartialLinearLink(graph: GraphStore, subject: strin
 export async function ensureLinearLinkFacts(
   graph: GraphStore, lease: SyncLease, expected: LinearLinkState,
 ): Promise<LinearLinkState> {
+  const required = preflightLinearLinkState(expected);
   const current = await graph.show(expected.subject);
-  const required: readonly (readonly [string, string])[] = [
-    // The prepared manifest is first: it carries the deterministic thread id and
-    // import timestamp needed to heal a crash after any later individual fact.
-    ["sync_manifest", canonicalJson(expected.manifest)],
-    ["kind", "integration_link"], ["linked_thread", `@${expected.threadId}`],
-    ...(expected.identity.identityKind === "linear-uuid"
-      ? [["remote_uuid", expected.identity.issueId], ["remote_workspace", expected.identity.workspaceId]] as const
-      : [
-        ["remote_fingerprint", expected.identity.fingerprint],
-        ["bootstrap_initial_key", expected.manifest.evidence.initialKey],
-      ] as const),
-    ...(expected.remoteScope ? [["remote_scope", expected.remoteScope]] as const : []),
-    ["remote_workspace_slug", expected.remoteWorkspaceSlug], ["remote_key", expected.remoteKey],
-    ["remote_server", expected.remoteServer], ["identity_kind", expected.identity.identityKind],
-    ["sync_policy", "north-primary"], ["sync_schema", "linear-sync-v1"],
-  ];
   for (const [predicate, value] of required) {
     const values = [...new Set(current.filter((fact) => fact.predicate === predicate).map((fact) => fact.value))];
     const compactingReceipts = predicate === "sync_manifest"
       && linearManifestNeedsReceiptCompaction(expected.manifest);
     if (compactingReceipts && values.some((found) =>
-      canonicalJson(parseManifest(found)) !== value))
+      canonicalJson(parseLinearSyncManifest(found)) !== value))
       throw new Error(`partial Linear link @${expected.subject} conflicts on ${predicate}`);
     const mutable = ["remote_key", "remote_scope", "remote_workspace_slug"].includes(predicate)
       || compactingReceipts;
@@ -1044,6 +1293,34 @@ export async function ensureLinearLinkFacts(
   return loaded;
 }
 
+export function preflightLinearLinkState(
+  expected: LinearLinkState,
+): readonly (readonly [string, string])[] {
+  const canonicalManifest = canonicalLinearSyncManifest(expected.manifest);
+  if (canonicalJson(canonicalManifest.baseline.identity) !== canonicalJson(expected.identity)
+      || canonicalManifest.baseline.threadId !== expected.threadId)
+    throw new Error("Linear link manifest does not match its intended identity/thread");
+  const required: readonly (readonly [string, string])[] = [
+    // The prepared manifest is first: it carries the deterministic thread id and
+    // import timestamp needed to heal a crash after any later individual fact.
+    ["sync_manifest", serializeLinearSyncManifest(canonicalManifest)],
+    ["kind", "integration_link"], ["linked_thread", `@${expected.threadId}`],
+    ...(expected.identity.identityKind === "linear-uuid"
+      ? [["remote_uuid", expected.identity.issueId], ["remote_workspace", expected.identity.workspaceId]] as const
+      : [
+        ["remote_fingerprint", expected.identity.fingerprint],
+        ["bootstrap_initial_key", expected.manifest.evidence.initialKey],
+      ] as const),
+    ...(expected.remoteScope ? [["remote_scope", expected.remoteScope]] as const : []),
+    ["remote_workspace_slug", expected.remoteWorkspaceSlug], ["remote_key", expected.remoteKey],
+    ["remote_server", expected.remoteServer], ["identity_kind", expected.identity.identityKind],
+    ["sync_policy", "north-primary"], ["sync_schema", "linear-sync-v1"],
+  ];
+  for (const [predicate, value] of required)
+    assertLinearGraphValue(value, `Linear @${expected.subject} ${predicate} value`);
+  return required;
+}
+
 export async function loadLinkBySubject(graph: GraphStore, subject: string): Promise<LinearLinkState | null> {
   const facts = await graph.show(subject);
   if (!facts.length) return null;
@@ -1053,7 +1330,7 @@ export async function loadLinkBySubject(graph: GraphStore, subject: string): Pro
       && identityKind !== "mcp-bootstrap-v1"
       && identityKind !== "mcp-bootstrap-v2")
     throw new Error(`Linear link @${subject} has unknown identity_kind ${String(identityKind)}`);
-  const remoteServer = one(facts, "remote_server")!;
+  const remoteServer = normalizeLinearConnector(one(facts, "remote_server")!);
   const identity = identityKind === "linear-uuid"
     ? normalizeLinearIdentity({ identityKind, workspaceId: one(facts, "remote_workspace")!, issueId: one(facts, "remote_uuid")! })
     : normalizeLinearIdentity({
@@ -1062,19 +1339,34 @@ export async function loadLinkBySubject(graph: GraphStore, subject: string): Pro
       fingerprint: one(facts, "remote_fingerprint")!,
     });
   if (linkSubject(identity) !== subject.replace(/^@/, "")) throw new Error(`Linear link identity does not match @${subject}`);
-  const manifest = parseManifest(one(facts, "sync_manifest")!);
-  const threadId = one(facts, "linked_thread")!.replace(/^@/, "");
+  const manifest = parseLinearSyncManifest(one(facts, "sync_manifest")!);
+  const threadId = normalizeThreadId(one(facts, "linked_thread")!.replace(/^@/, ""));
   if (manifest.baseline.threadId !== threadId || canonicalJson(manifest.baseline.identity) !== canonicalJson(identity))
     throw new Error(`Linear link @${subject} manifest identity/thread does not match link facts`);
   const bootstrapInitialKey = one(facts, "bootstrap_initial_key", false);
-  if (identity.identityKind !== "linear-uuid"
-      && bootstrapInitialKey !== undefined
-      && bootstrapInitialKey !== manifest.evidence.initialKey)
-    throw new Error(`Linear link @${subject} bootstrap key evidence does not match its manifest`);
+  if (identity.identityKind !== "linear-uuid") {
+    if (bootstrapInitialKey !== undefined
+        && bootstrapInitialKey !== manifest.evidence.initialKey)
+      throw new Error(`Linear link @${subject} bootstrap key evidence does not match its manifest`);
+    if (remoteServer !== manifest.evidence.connector)
+      throw new Error(`Linear link @${subject} connector evidence does not match its remote server`);
+    const derived = bootstrapIdentityFromEvidence(identity.identityKind, manifest.evidence);
+    if (linearIdentityKey(derived) !== linearIdentityKey(identity))
+      throw new Error(`Linear link @${subject} fingerprint does not match its bootstrap evidence`);
+  }
   return {
     subject: subject.replace(/^@/, ""), identity,
-    threadId, remoteKey: one(facts, "remote_key")!,
-    remoteScope: one(facts, "remote_scope", false) ?? "", remoteWorkspaceSlug: one(facts, "remote_workspace_slug")!, remoteServer,
+    threadId,
+    remoteKey: normalizeLinearRemoteKey(one(facts, "remote_key")!),
+    remoteScope: one(facts, "remote_scope", false) === undefined
+      ? ""
+      : normalizeLinearOpaqueToken("remote scope", one(facts, "remote_scope", false)!, 512),
+    remoteWorkspaceSlug: normalizeLinearOpaqueToken(
+      "remote workspace slug",
+      one(facts, "remote_workspace_slug")!,
+      MAX_LINEAR_REMOTE_KEY_BYTES,
+    ),
+    remoteServer,
     manifest,
   };
 }
@@ -1098,9 +1390,10 @@ export async function writeManifest(
   graph: GraphStore, lease: SyncLease, link: LinearLinkState, manifest: LinearSyncManifest,
 ): Promise<void> {
   await lease.renew();
-  await graph.putFenced(lease, link.subject, "sync_manifest", canonicalJson(manifest));
+  const canonical = canonicalLinearSyncManifest(manifest);
+  await graph.putFenced(lease, link.subject, "sync_manifest", serializeLinearSyncManifest(canonical));
   manifestsNeedingReceiptCompaction.delete(manifest);
-  link.manifest = manifest;
+  link.manifest = canonical;
 }
 
 export function baselineFromRemote(issue: LinearIssueDocument, identity: LinearIssueIdentity, threadId: string): LinearSyncBaseline {
@@ -1157,20 +1450,34 @@ export function northThreadIdForIdentity(identity: LinearIssueIdentity): string 
 export async function createImportedThread(
   graph: GraphStore, lease: SyncLease, threadId: string, issue: LinearIssueDocument, owner: string, now: Date,
 ): Promise<void> {
+  const facts = importedThreadFacts(threadId, issue, owner, now);
+  for (const [predicate, value] of facts) {
+    await lease.renew();
+    await graph.putFenced(lease, threadId, predicate, value);
+  }
+}
+
+export function importedThreadFacts(
+  threadId: string,
+  issue: LinearIssueDocument,
+  ownerInput: string,
+  now: Date,
+): readonly (readonly [string, string])[] {
+  normalizeThreadId(threadId);
+  const owner = normalizeLinearOpaqueToken("thread owner", ownerInput, MAX_LINEAR_REMOTE_KEY_BYTES);
   const date = now.toISOString().slice(0, 10);
-  const author = (process.env.NORTH_AUTHOR ?? "tom_passarelli").replace(/^@/, "");
-  const lead = (process.env.NORTH_LEAD ?? "tom_passarelli").replace(/^@/, "");
-  const proposed = (process.env.NORTH_PROPOSED_BY ?? author).replace(/^@/, "");
+  const author = normalizeThreadId((process.env.NORTH_AUTHOR ?? "tom_passarelli").replace(/^@/, ""));
+  const lead = normalizeThreadId((process.env.NORTH_LEAD ?? "tom_passarelli").replace(/^@/, ""));
+  const proposed = normalizeThreadId((process.env.NORTH_PROPOSED_BY ?? author).replace(/^@/, ""));
   const facts: readonly [string, string][] = [
     ["title", issue.title], ["kind", "thread"], ...(owner === "personal" ? [] : [["owner", owner] as [string, string]]),
     ["source", "linear"], ["created_by", `@${author}`], ["lead", `@${lead}`],
     ["proposed_by", `@${proposed}`], ["created_at", now.toISOString()], ["updated_at", date],
     ["committed", date], ["body", issue.description],
   ];
-  for (const [predicate, value] of facts) {
-    await lease.renew();
-    await graph.putFenced(lease, threadId, predicate, value);
-  }
+  for (const [predicate, value] of facts)
+    assertLinearGraphValue(value, `Linear imported thread @${threadId} ${predicate} value`);
+  return facts;
 }
 
 export function assertImportableDescription(description: string): void {
