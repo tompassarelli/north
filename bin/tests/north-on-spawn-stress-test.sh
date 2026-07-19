@@ -188,12 +188,18 @@ check "partial-allocation stdout is empty" test ! -s "$OUT_PARTIAL"
 check "partial-allocation stderr is empty" test ! -s "$OUT_PARTIAL.err"
 check "partial input tempfile is removed" test -z "$(find "$XDG_PARTIAL" -type f -name 'north-spawn-input.*' -print -quit)"
 
-echo "== wrong inner envelope becomes a clean no-op =="
 PY_SHIM="$TMP/python-shim"
 mkdir -p "$PY_SHIM"
 REAL_PYTHON="$(command -v python3)"
 cat >"$PY_SHIM/python3" <<EOF
 #!/usr/bin/env bash
+if [ "\${HOOK_TEST_DELAY_FIRST_PYTHON:-0}" = 1 ]; then
+  count_file="\$HOOK_TEST_STATE/python-count"
+  count="\$(cat "\$count_file" 2>/dev/null || echo 0)"
+  count=\$((count + 1))
+  printf '%s' "\$count" >"\$count_file"
+  [ "\$count" -ne 1 ] || sleep 0.7
+fi
 if [ "\${HOOK_TEST_HANG_SPAWN_VALIDATOR:-0}" = 1 ] &&
     [ "\${1:-}" = -c ] &&
     printf '%s' "\${2:-}" | grep -Fq 'specific = payload["hookSpecificOutput"]'; then
@@ -209,6 +215,26 @@ fi
 exec "$REAL_PYTHON" "\$@"
 EOF
 chmod +x "$PY_SHIM/python3"
+
+echo "== one cold Python startup stays inside the single inner deadline =="
+XDG_COLD_PYTHON="$TMP/xdg-cold-python"
+OUT_COLD_PYTHON="$TMP/cold-python.out"
+mkdir -p "$XDG_COLD_PYTHON"
+rm -f "$STATE/python-count"
+t0="$(date +%s%3N)"
+payload cold-python-01 SessionStart "" |
+  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_COLD_PYTHON" \
+    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast HOOK_TEST_DELAY_FIRST_PYTHON=1 \
+    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_COLD_PYTHON" 2>"$OUT_COLD_PYTHON.err"
+rc=$?
+elapsed=$(( $(date +%s%3N) - t0 ))
+check "cold-Python startup exits zero" test "$rc" -eq 0
+check "cold-Python startup survives a 700ms first interpreter start (${elapsed}ms)" valid_context_json "$OUT_COLD_PYTHON"
+check "cold-Python startup stays below provider deadline (${elapsed}ms)" test "$elapsed" -lt 2500
+check "cold-Python startup emits no stderr" test ! -s "$OUT_COLD_PYTHON.err"
+await_locks "$XDG_COLD_PYTHON" || true
+
+echo "== wrong inner envelope becomes a clean no-op =="
 XDG_BADJSON="$TMP/xdg-badjson"
 OUT_BADJSON="$TMP/badjson.out"
 mkdir -p "$XDG_BADJSON"

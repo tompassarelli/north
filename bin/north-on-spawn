@@ -27,27 +27,22 @@ if [ "${NORTH_SPAWN_INNER:-0}" != 1 ]; then
     mktemp "$out_dir/north-spawn-output.XXXXXX" 2>/dev/null || true)"
   [ -n "$in" ] && [ -n "$out" ] || exit 0
   timeout --signal=TERM --kill-after=0.2s 1s cat >"$in" 2>/dev/null || exit 0
-  expected_event="$(timeout --signal=TERM --kill-after=0.1s 0.5s python3 -c '
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as handle:
-    value = json.load(handle).get("hook_event_name", "SessionStart")
-print(value if isinstance(value, str) and value else "SessionStart")
-' "$in" 2>/dev/null || true)"
-  case "$expected_event" in
-    SessionStart|SubagentStart|SubagentSessionStart) ;;
-    *) exit 0 ;;
-  esac
   NORTH_SPAWN_INNER=1 timeout --signal=TERM --kill-after=0.2s 3s \
     "$0" <"$in" >"$out" 2>/dev/null || true
   if [ -s "$out" ] &&
-      timeout --signal=TERM --kill-after=0.1s 0.5s python3 -c '
+      timeout --signal=TERM --kill-after=0.1s 1s python3 -c '
 import json, sys
+allowed = {"SessionStart", "SubagentStart", "SubagentSessionStart"}
 with open(sys.argv[1], encoding="utf-8") as handle:
+    source = json.load(handle)
+expected = source.get("hook_event_name", "SessionStart")
+assert isinstance(expected, str) and expected in allowed
+with open(sys.argv[2], encoding="utf-8") as handle:
     payload = json.load(handle)
 specific = payload["hookSpecificOutput"]
-assert specific["hookEventName"] == sys.argv[2]
+assert specific["hookEventName"] == expected
 assert isinstance(specific["additionalContext"], str)
-' "$out" "$expected_event" 2>/dev/null; then
+' "$in" "$out" 2>/dev/null; then
     timeout --signal=TERM --kill-after=0.1s 0.5s cat "$out" 2>/dev/null || true
   fi
   exit 0
@@ -82,6 +77,10 @@ agent_id="${JFIELDS[2]:-}"
 evt="${JFIELDS[3]:-}"; [ -z "$evt" ] && evt="SessionStart"
 MODEL="${JFIELDS[4]:-}"
 EFFORT="${JFIELDS[5]:-}"
+case "$evt" in
+  SessionStart|SubagentStart|SubagentSessionStart) ;;
+  *) exit 0 ;;
+esac
 # SubagentStart carries a provider-owned `agent_id`; on Codex its session_id is
 # explicitly the PARENT session. Keying presence/cache by that parent would
 # collapse every native subagent onto one row. Prefer the actor id when present.
