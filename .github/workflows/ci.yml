@@ -461,6 +461,10 @@ jobs:
             --max-jobs 1 --cores 2 \
             'path:.#checks.x86_64-linux.codex-version')"
           test -e "$codex_check"
+          codex_hook_check="$(nix build --no-link -L --print-out-paths \
+            --max-jobs 1 --cores 2 \
+            'path:.#checks.x86_64-linux.codex-managed-hook-failure')"
+          test -e "$codex_hook_check"
           out="$(nix build --no-link -L --print-out-paths \
             --max-jobs 1 --cores 2 \
             'path:.#packages.x86_64-linux.default')"

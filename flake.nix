@@ -103,6 +103,22 @@
             fi
             touch "$out"
           '';
+        codexManagedHookFailureSmoke = pkgs.runCommand
+          "north-codex-managed-hook-failure-smoke-${codexPkg.version}"
+          {
+            nativeBuildInputs = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.python3
+            ];
+          }
+          ''
+            bash ${./bin/tests/codex-managed-hook-failure-smoke.sh} \
+              ${codexPkg}/bin/codex \
+              ${pkgs.libredirect}/lib/libredirect.so \
+              ${pkgs.python3}/bin/python3
+            touch "$out"
+          '';
         sdkVersion =
           let
             declared = (builtins.fromJSON (builtins.readFile ./sdk/package.json))
@@ -1204,7 +1220,11 @@ PY
           fram-engine = framPkg;
         };
 
-        checks.codex-version = codexVersionSmoke;
+        checks = {
+          codex-version = codexVersionSmoke;
+        } // lib.optionalAttrs (system == "x86_64-linux") {
+          codex-managed-hook-failure = codexManagedHookFailureSmoke;
+        };
 
         apps = {
           default = {
