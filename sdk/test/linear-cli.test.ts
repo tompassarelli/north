@@ -17,7 +17,7 @@ import {
   legacyBootstrapIdentityForIssue, linkSubject, loadLinkBySubject,
   loadLinkForThread, normalizeLinearIssueDocument, northThreadIdForIdentity,
   recordLinearReceipt,
-  bootstrapEvidenceSubject, serializeBootstrapElection,
+  bootstrapEvidenceSubject, parseBootstrapElection, serializeBootstrapElection,
   type GraphFact, type GraphStore, type LinearBindingReservation, type SyncLease,
   type SyncLeaseManager,
 } from "../src/integrations/linear/north-state";
@@ -145,8 +145,22 @@ class FakeGraph implements GraphStore {
       subject !== link && subject.startsWith("link:linear:")
       && facts.some(({ predicate, value }) =>
         predicate === "linked_thread" && value === threadRef));
-    if (reverse.length)
-      throw new Error(`requested North thread is already reserved by @${reverse[0]![0]}`);
+    const reverseElections = [...this.rows.entries()].flatMap(([subject, facts]) =>
+      subject.startsWith("linear-bootstrap:")
+        ? facts.filter(({ predicate }) => predicate === "bootstrap_election")
+          .map(({ value }) => parseBootstrapElection(value))
+          .filter((election) =>
+            election.linkedThread === threadRef && election.canonicalLink !== linkRef)
+        : []);
+    const reverseLegacy = [...this.rows.entries()].filter(([subject, facts]) =>
+      subject.startsWith("linear-bootstrap:")
+      && !facts.some(({ predicate }) => predicate === "bootstrap_election")
+      && facts.some(({ predicate, value }) =>
+        predicate === "linked_thread" && value === threadRef)
+      && facts.some(({ predicate, value }) =>
+        predicate === "canonical_link" && value !== linkRef));
+    if (reverse.length || reverseElections.length || reverseLegacy.length)
+      throw new Error("requested North thread is already reserved by another Linear authority");
     const threadLinks = new Set((this.rows.get(thread) ?? [])
       .filter(({ predicate }) => predicate === "linear_link").map(({ value }) => value));
     if (threadLinks.size > 1 || (threadLinks.size === 1 && !threadLinks.has(linkRef)))

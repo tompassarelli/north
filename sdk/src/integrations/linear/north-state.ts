@@ -168,8 +168,9 @@ export interface GraphStore {
     allowedPrevious?: string,
   ): Promise<void>;
   /**
-   * Atomically reserve the identity -> thread edge after validating the reverse
-   * thread endpoint against one global coordinator version.
+   * Atomically reserve the link <-> thread authority after validating both
+   * endpoints against one global coordinator version. Bootstrap elections are
+   * authoritative before their redundant link projection is healed.
    */
   reserveLinearBinding(
     reservation: LinearBindingReservation,

@@ -190,6 +190,124 @@
       (release! port v1-resource i-holder i-epoch)
       (release! port evidence-resource e-holder e-epoch))
 
+    (let [poison-connector "linear-poison-regression"
+          poison-created-at "2026-07-16T14:10:00.639Z"
+          poison-key "MSA-400"
+          poison-hash
+          (canonical-hash
+           {"connector" poison-connector "createdAt" poison-created-at})
+          poison-subject (str "linear-bootstrap:" poison-hash)
+          poison-evidence-resource (str "linear-sync:bootstrap:" poison-hash)
+          poison-identity-key
+          (str "linear:mcp-bootstrap-v2:" poison-connector ":" poison-hash)
+          poison-link (str "link:" poison-identity-key)
+          poison-identity-resource
+          (str "linear-sync:identity:"
+               (encode-uri-component poison-identity-key))
+          wrong-thread "thread-poisoned-by-other-link"
+          correct-thread "thread-corrected-retry"
+          preexisting-link
+          "@link:linear:uuid:11111111-1111-8111-8111-111111111111:22222222-2222-8222-8222-222222222222"
+          _ (assert-fact! port preexisting-link "linked_thread"
+                          (str "@" wrong-thread))
+          rejected
+          (reserve-once!
+           log reserve port poison-evidence-resource
+           poison-identity-resource poison-link wrong-thread
+           poison-connector poison-created-at poison-key poison-subject
+           "poison-rejected")
+          no-election?
+          (empty?
+           (north.coord/many
+            port (str "@" poison-subject) "bootstrap_election"))
+          corrected
+          (reserve-once!
+           log reserve port poison-evidence-resource
+           poison-identity-resource poison-link correct-thread
+           poison-connector poison-created-at poison-key poison-subject
+           "poison-corrected")]
+      (check!
+       "a preclaimed wrong thread rejects before bootstrap election"
+       (and
+        (str/includes?
+         (get rejected "reject" "")
+         "requested North thread is already reserved")
+        no-election?))
+      (check!
+       "a corrected retry succeeds after the rejected wrong-thread attempt"
+       (integer? (get corrected "ok"))))
+
+    (let [winner-connector "linear-crash-winner"
+          winner-created-at "2026-07-16T14:11:00.639Z"
+          winner-key "MSA-410"
+          winner-hash
+          (canonical-hash
+           {"connector" winner-connector "createdAt" winner-created-at})
+          winner-subject (str "linear-bootstrap:" winner-hash)
+          winner-evidence-resource (str "linear-sync:bootstrap:" winner-hash)
+          winner-identity-key
+          (str "linear:mcp-bootstrap-v2:" winner-connector ":" winner-hash)
+          winner-link (str "link:" winner-identity-key)
+          winner-identity-resource
+          (str "linear-sync:identity:"
+               (encode-uri-component winner-identity-key))
+          shared-thread "thread-owned-at-election"
+          winner-election
+          (json/generate-string
+           (into
+            (sorted-map)
+            {"canonicalLink" (str "@" winner-link)
+             "connector" winner-connector
+             "createdAt" winner-created-at
+             "initialKey" winner-key
+             "linkedThread" (str "@" shared-thread)}))
+          _ (assert-fact!
+             port (str "@" winner-subject)
+             "bootstrap_election" winner-election)
+          contender-connector "linear-crash-contender"
+          contender-created-at "2026-07-16T14:12:00.639Z"
+          contender-key "MSA-411"
+          contender-hash
+          (canonical-hash
+           {"connector" contender-connector
+            "createdAt" contender-created-at})
+          contender-subject (str "linear-bootstrap:" contender-hash)
+          contender-evidence-resource
+          (str "linear-sync:bootstrap:" contender-hash)
+          contender-identity-key
+          (str "linear:mcp-bootstrap-v2:"
+               contender-connector ":" contender-hash)
+          contender-link (str "link:" contender-identity-key)
+          contender-identity-resource
+          (str "linear-sync:identity:"
+               (encode-uri-component contender-identity-key))
+          contender-result
+          (reserve-once!
+           log reserve port contender-evidence-resource
+           contender-identity-resource contender-link shared-thread
+           contender-connector contender-created-at contender-key
+           contender-subject "crash-contender")
+          contender-unelected?
+          (empty?
+           (north.coord/many
+            port (str "@" contender-subject) "bootstrap_election"))
+          healed-winner
+          (reserve-once!
+           log reserve port winner-evidence-resource
+           winner-identity-resource winner-link shared-thread
+           winner-connector winner-created-at winner-key
+           winner-subject "crash-winner-heal")]
+      (check!
+       "an election-only crash prefix blocks a different evidence winner for the same thread"
+       (and
+        (str/includes?
+         (get contender-result "reject" "")
+         "requested North thread is already reserved")
+        contender-unelected?))
+      (check!
+       "the election-only winner heals after blocking the contender"
+       (integer? (get healed-winner "ok"))))
+
     (let [prefix-results
           (doall
            (for [prefix (range 7)]

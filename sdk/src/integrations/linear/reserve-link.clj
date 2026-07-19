@@ -1,8 +1,9 @@
-;; Reserve one canonical Linear endpoint. Bootstrap reservations first elect a
-;; connector+createdAt+initialKey+canonicalLink+linkedThread envelope under one
-;; coordinator global-version CAS, then heal its query projections and identity
-;; edge. v1 and v2 therefore share one authority even though their historical
-;; identity fingerprints differ.
+;; Reserve one canonical Linear endpoint. For bootstrap identities, the
+;; connector+createdAt+initialKey+canonicalLink+linkedThread election is the
+;; durable binding authority committed under one coordinator global-version
+;; CAS. Query projections and the identity edge only heal that authority. v1
+;; and v2 therefore share one authority even though their historical identity
+;; fingerprints differ.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
@@ -75,28 +76,160 @@
       (fail! "Linear reservation received an invalid resolved response"))
     (set (:values response))))
 
-(defn reverse-claimants [port thread-ref]
+(def max-bootstrap-authorities 10000)
+(def max-bootstrap-authority-bytes (* 160 1024))
+
+(defn authority-row-string? [value]
+  (and (string? value)
+       (<= (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8))
+           max-bootstrap-authority-bytes)))
+
+(defn query-pairs [port relation predicate]
   (let [response
         (north.coord/send-op
          port
          {:op :query
           :query
-          {:find "link"
+          {:find relation
            :rules
-           [{:head {:rel "link" :args [{:var "link"}]}
+           [{:head {:rel relation
+                    :args [{:var "subject"} {:var "value"}]}
              :body [{:rel "triple"
-                     :args [{:var "link"} "linked_thread" thread-ref]}]}]}})]
+                     :args [{:var "subject"} predicate {:var "value"}]}]}]}})]
     (when-not
      (and (exact-keys? response #{:ok :version :engine})
           (nonnegative-long? (:version response))
           (#{"index" "scan"} (:engine response))
           (vector? (:ok response))
+          (<= (count (:ok response)) max-bootstrap-authorities)
           (every? (fn [row]
-                    (and (vector? row) (= 1 (count row)) (string? (first row))))
+                    (and (vector? row)
+                         (= 2 (count row))
+                         (every? authority-row-string? row)))
                   (:ok response)))
-      (fail! "Linear reservation received an invalid reverse-query response"))
-    (set (filter #(str/starts-with? % "@link:linear:")
-                 (map first (:ok response))))))
+      (fail! "Linear reservation received an invalid authority-query response"))
+    (:ok response)))
+
+(def bootstrap-election-keys
+  #{"canonicalLink" "connector" "createdAt" "initialKey" "linkedThread"})
+
+(defn parse-bootstrap-election! [subject raw]
+  (try
+    (let [record (json/parse-string raw)
+          canonical
+          (when (map? record)
+            (json/generate-string (into (sorted-map) record)))
+          canonical-link (get record "canonicalLink")
+          connector (get record "connector")
+          created-at (get record "createdAt")
+          initial-key (get record "initialKey")
+          linked-thread (get record "linkedThread")]
+      (when-not
+       (and (re-matches #"@linear-bootstrap:[0-9a-f]{64}" subject)
+            (= (set (keys record)) bootstrap-election-keys)
+            (= raw canonical)
+            (re-matches #"@link:linear:[A-Za-z0-9:._!~*'()%-]+" canonical-link)
+            (string? connector) (not (str/blank? connector))
+            (= connector (str/trim connector))
+            (string? created-at) (not (str/blank? created-at))
+            (= created-at (str/trim created-at))
+            (string? initial-key) (not (str/blank? initial-key))
+            (= initial-key (str/trim initial-key))
+            (re-matches #"@[A-Za-z0-9][A-Za-z0-9._:-]*" linked-thread)
+            (= subject
+               (str "@linear-bootstrap:"
+                    (canonical-hash {"connector" connector
+                                     "createdAt" created-at}))))
+        (fail! "Linear reservation found a malformed bootstrap election"))
+      {:canonical-link canonical-link
+       :linked-thread linked-thread})
+    (catch clojure.lang.ExceptionInfo error (throw error))
+    (catch Exception _
+      (fail! "Linear reservation found a malformed bootstrap election"))))
+
+(defn values-by-subject [rows subject-pattern]
+  (reduce
+   (fn [by-subject [subject value]]
+     (if (re-matches subject-pattern subject)
+       (update by-subject subject (fnil conj #{}) value)
+       by-subject))
+   {}
+   rows))
+
+(defn bootstrap-authority-claimants [port thread-ref]
+  (let [election-values
+        (values-by-subject
+         (query-pairs port "bootstrap_election_authority" "bootstrap_election")
+         #"@linear-bootstrap:[0-9a-f]{64}")
+        projected-links
+        (values-by-subject
+         (query-pairs port "bootstrap_link_authority" "canonical_link")
+         #"@linear-bootstrap:[0-9a-f]{64}")
+        projected-threads
+        (values-by-subject
+         (query-pairs port "bootstrap_thread_authority" "linked_thread")
+         #"@linear-bootstrap:[0-9a-f]{64}")
+        elections
+        (into
+         {}
+         (map
+          (fn [[subject values]]
+            (when-not (= 1 (count values))
+              (fail! "Linear reservation found an ambiguous bootstrap election"))
+            [subject (parse-bootstrap-election! subject (first values))])
+          election-values))
+        subjects
+        (set (concat (keys elections)
+                     (keys projected-links)
+                     (keys projected-threads)))]
+    (set
+     (keep
+      (fn [subject]
+        (if-let [election (get elections subject)]
+          (let [links (get projected-links subject #{})
+                threads (get projected-threads subject #{})]
+            ;; The election is authoritative; any redundant projection that
+            ;; already exists must agree with it exactly.
+            (when (or (> (count links) 1)
+                      (and (seq links)
+                           (not= links #{(:canonical-link election)}))
+                      (> (count threads) 1)
+                      (and (seq threads)
+                           (not= threads #{(:linked-thread election)})))
+              (fail! "Linear reservation found conflicting bootstrap projections"))
+            (when (= thread-ref (:linked-thread election))
+              (:canonical-link election)))
+          (let [links (get projected-links subject #{})
+                threads (get projected-threads subject #{})]
+            ;; Historical releases wrote projections without the atomic
+            ;; election. A projected thread is still a claim, but only an
+            ;; exact singleton link/thread pair is safe to interpret.
+            (when (seq threads)
+              (when-not
+               (and (= 1 (count links))
+                    (= 1 (count threads))
+                    (re-matches
+                     #"@link:linear:[A-Za-z0-9:._!~*'()%-]+"
+                     (first links))
+                    (re-matches
+                     #"@[A-Za-z0-9][A-Za-z0-9._:-]*"
+                     (first threads)))
+                (fail! "Linear reservation found partial legacy bootstrap authority"))
+              (when (= thread-ref (first threads))
+                (first links))))))
+      subjects))))
+
+(defn reverse-claimants [port thread-ref]
+  (let [link-rows (query-pairs port "link_authority" "linked_thread")
+        links
+        (set
+         (keep
+          (fn [[subject claimed-thread]]
+            (when (and (= thread-ref claimed-thread)
+                       (str/starts-with? subject "@link:linear:"))
+              subject))
+          link-rows))]
+    (into links (bootstrap-authority-claimants port thread-ref))))
 
 (defn compatible-singleton! [port subject predicate expected]
   (let [values (values-of port subject predicate)]
@@ -119,10 +252,12 @@
     (exact-reject? result) (fail! message)
     :else (fail! "Linear reservation received an invalid mutation response")))
 
-(defn fenced-put! [port lease subject predicate value]
+(defn assert-compatible-with-fence!
+  [port lease subject predicate value validate!]
   (successful!
-   (north.coord/put-with-fence! port lease subject predicate value)
-   (str "Linear reservation lost its fence while healing " predicate)))
+   (north.coord/assert-after-read-with-fence!
+    port lease subject predicate value validate!)
+   (str "Linear reservation raced or lost its fence while healing " predicate)))
 
 (def uuid-identity
   #"linear:uuid:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})")
@@ -293,18 +428,27 @@
                    port evidence-subject predicate expected)))))]
       (when bootstrap?
         ;; One literal binds every authority field in the cross-version
-        ;; election. Everything after it is a redundant, query-friendly
+        ;; election, including the link <-> thread edge. Its validation reads
+        ;; both endpoints and every prior bootstrap election under one global
+        ;; graph version. Everything after it is a redundant, query-friendly
         ;; projection that only the exact same intent may heal.
         (successful!
          (north.coord/assert-after-read-with-fence!
           port evidence-lease evidence-subject
-          "bootstrap_election" bootstrap-election validate-evidence!)
+          "bootstrap_election" bootstrap-election
+          (fn []
+            (validate-evidence!)
+            (validate-link!)))
          "Linear bootstrap evidence raced with another canonical winner")
         (doseq [[predicate value] evidence-projections]
-          (fenced-put! port evidence-lease evidence-subject predicate value))
+          (assert-compatible-with-fence!
+           port evidence-lease evidence-subject predicate value
+           validate-evidence!))
         (validate-evidence!))
       (when bootstrap?
-        (fenced-put! port identity-lease link "bootstrap_initial_key" evidence-initial-key))
+        (assert-compatible-with-fence!
+         port identity-lease link "bootstrap_initial_key" evidence-initial-key
+         validate-link!))
       (let [result
             (north.coord/assert-after-read-with-fence!
              port identity-lease link "linked_thread" thread validate-link!)]
