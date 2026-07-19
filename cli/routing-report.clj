@@ -38,7 +38,7 @@
 (def managed-composition-kinds #{"preset" "bespoke"})
 (def delivery-outcomes #{"unverified" "reported" "verified" "blocked"})
 (def routing-override-fields
-  ["taskGrade" "domainRequirements" "topology" "tier" "reasoning" "posture"])
+  ["taskGrade" "domainRequirements" "tier" "reasoning" "posture"])
 (declare normalized-token normalized-domains capability-summary attributed?)
 
 (defn normalized-preset-template [defaults preset]
@@ -168,9 +168,9 @@
    applied-overrides reason-hash]
   (let [expected (:axes template)
         actual (select-keys effective-axes (keys expected))
+        topology-mismatch? (not= (:topology actual) (:topology expected))
         deltas (->> [["taskGrade" :taskGrade]
                      ["domainRequirements" :domains]
-                     ["topology" :topology]
                      ["tier" :tier]
                      ["reasoning" :reasoning]
                      ["posture" :posture]]
@@ -189,6 +189,8 @@
         ["current-preset-has-noncanonical-capabilities"])
       (when (not= applied-capabilities (:capabilities template))
         ["preset-applied-capabilities-mismatch"])
+      (when topology-mismatch?
+        ["preset-topology-mismatch"])
       (when (seq (:unknown requested))
         ["invalid-composition-override-evidence"])
       (when (seq (:unknown applied))

@@ -13,7 +13,14 @@
   (let [base (merge {"kind" "lane" "goal" "fixture" "repo" "~/code/north"
                      "spawned_at" "2026-07-17T00:00:00Z"
                      "display_handle" "fixture" "display_name" "fixture"
-                     "provider_target" (get facts "provider")}
+                     "provider_target" (get facts "provider")
+                     "live_input" (if (= "anthropic" (get facts "provider"))
+                                    "streaming"
+                                    "unsupported")
+                     "live_input_state" (if (= "anthropic" (get facts "provider"))
+                                          "armed"
+                                          "frozen")
+                     "live_input_epoch" "00000000-0000-4000-8000-000000000010"}
                     facts)]
     (assoc base "identity_manifest_sha256"
            (north.agent-provenance/manifest-sha256 base))))
@@ -468,7 +475,8 @@
   (check "steer remains parseable and keeps the internal control key"
          (and (zero? (:exit steer))
               (str/includes? (:out steer) "send north-cli probe-agent steer probe-message")
-              (str/includes? (:out steer) "[dry-run] not sent."))))
+              (str/includes? (:out steer)
+                             "[dry-run] not sent; target capability and liveness were not checked."))))
 
 (let [help (proc/shell {:out :string :err :string :continue true
                         :extra-env {"NO_COLOR" "1"}}

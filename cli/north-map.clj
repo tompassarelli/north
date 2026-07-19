@@ -1,7 +1,7 @@
-;; north-map.clj — deterministic FAN-OUT + BARRIER. Sibling to
+;; north-map.clj — deterministic batch registry + BARRIER fixture. Sibling to
 ;; presence-cli/msg-cli/lease-cli; speaks the SAME daemon wire (:assert / :version / :query /
-;; :resolved). The capability that replaces Anthropic Workflow's parallel: spawn N workers
-;; under ONE batch fact, then BLOCK on a derived "K-of-N DONE" barrier and surface the payloads.
+;; :resolved). Managed lane creation moved to canonical North spawn/dispatch;
+;; this legacy surface can only register deterministic test batches.
 ;;
 ;; Model (all facts, no new daemon verbs):
 ;;   @batch:<id>  batch_kind=fan-out  expected_count=N  barrier_k=K  role_template=..  task=..
@@ -15,15 +15,14 @@
 ;; (Sigma) is the SAME primitive with the sum reducer instead of count-distinct.
 ;;
 ;; usage:
-;;   bb north-map.clj <port> map    <role-template> <N> <task> [K]   — register batch + fan out N workers
+;;   bb north-map.clj <port> map    <role-template> <N> <task> [K]   — fixture-only batch registration
 ;;   bb north-map.clj <port> done   <batch-id> <worker> <payload>    — a worker reports DONE (carries payload)
 ;;   bb north-map.clj <port> status <batch-id>                       — barrier state + aggregated payloads
 ;;   bb north-map.clj <port> barrier <batch-id>                      — just the derived fired? + done set
 ;;   bb north-map.clj <port> list                                    — known batches
-;; env: MAP_SPAWN=0 registers the batch + records worker handles but skips the real
-;;      SDK spawn (deterministic test path; DONEs then simulated via the `done` verb).
-(require '[cheshire.core :as json] '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
-         '[clojure.java.shell :refer [sh]])
+;; env: MAP_SPAWN=0 is required and exists only for deterministic fixtures.
+;;      Ambient/default execution fails closed toward canonical North spawn/dispatch.
+(require '[clojure.java.io :as io] '[clojure.string :as str])
 
 ;; rec4: schema-validated structured output. Load the sibling validator so a batch can carry a JSON
 ;; schema (done_schema) and the `done` verb gates each worker's payload against it before accepting —
@@ -31,8 +30,8 @@
 ;; the validator's own CLI dormant (main-guard).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/managed-child-env.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/gaffer-staffing.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/batch-id.clj"))
 
 ;; shared coord substrate: cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
@@ -51,11 +50,15 @@
                       "/staffing/catalog.json"))]
     (try
       (let [catalog (north.gaffer-staffing/load-catalog path)
-            preset (get (north.gaffer-staffing/presets-by-name catalog) role)]
+            preset (get (north.gaffer-staffing/presets-by-name catalog) role)
+            route-problem (when preset
+                            (north.gaffer-staffing/unsupported-route-problem
+                             (get preset "tier") (get preset "deliberation")))]
         (cond
           (nil? preset) {:error (str "unknown Gaffer worker preset: " role)}
           (not= "worker" (get preset "topology"))
           {:error (str "north map requires a terminal worker preset; " role " is " (get preset "topology"))}
+          route-problem {:error route-problem}
           :else {:preset preset}))
       (catch Exception e
         {:error (str "Gaffer staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
@@ -93,11 +96,7 @@
 (defn batch-ent [id] (if (str/starts-with? id "@batch:") id (str "@batch:" id)))
 
 (let [[port verb & args] *command-line-args*
-      port (Integer/parseInt port)
-      scratch (some-> (System/getProperty "babashka.file")
-                      io/file .getCanonicalFile .getParentFile str)
-      root (some-> scratch io/file .getParentFile str)
-      bun (or (System/getenv "NORTH_BUN") "bun")]
+      port (Integer/parseInt port)]
   (case verb
 
     "map"          ; <role-template> <N> <task> [K] [<json-schema>]  — register @batch + fan out N workers
@@ -111,11 +110,14 @@
           n (Integer/parseInt n-s)
           k (if (and k-s (seq k-s)) (Integer/parseInt k-s) n)
           has-schema (and schema (seq (str/trim schema)))
-          id (str (.format (java.time.LocalDateTime/now)
-                           (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
-                  "-" (format "%04x" (rand-int 0x10000)))
-          e (batch-ent id)
-          spawn? (not= "0" (System/getenv "MAP_SPAWN"))]
+          register-only? (= "0" (System/getenv "MAP_SPAWN"))
+          _ (when-not register-only?
+              (binding [*out* *err*]
+                (println
+                 "REJECTED: north map lane spawning is retired; use canonical north spawn/dispatch (MAP_SPAWN=0 is fixture-only registration)"))
+              (System/exit 2))
+          id (north.batch-id/fresh-id)
+          e (batch-ent id)]
       (put! port e "batch_kind"     "fan-out")    ; single (batch metadata, write-once)
       (put! port e "expected_count" n)
       (put! port e "barrier_k"      k)
@@ -125,29 +127,10 @@
       (when has-schema (put! port e "done_schema" schema))   ; rec4: payload contract for every DONE
       (doseq [i (range 1 (inc n))]
         (let [slug (str tmpl "-" id "-" i)]
-          (append! port e "worker" slug)            ; multi — membership fact (one per spawned worker)
-          (when spawn?
-            (sh "bb" (str scratch "/presence-cli.clj") (str port) "define-role" slug "exclusive"
-                (str "fan-out worker " i "/" n " of " id))
-            (let [full-prompt (str task "\n\n[batch " e " worker " slug "]\n"
-                                   (when has-schema
-                                     (str "Your result payload MUST be JSON conforming to this schema:\n  " schema "\n"))
-                                   "On completion you MUST run:\n"
-                                   "  bb " scratch "/north-map.clj " port " done " id " " slug " \"<your result>\""
-                                   (when has-schema
-                                     (str "\nThe payload is schema-validated on acceptance; a non-conforming payload is "
-                                          "REJECTED (nonzero exit) and you must re-run the line with a conforming result.")))]
-              (sh bun "run" (str root "/sdk/src/spawn.ts") full-prompt
-                  :env (north.managed-child-env/child
-                        (into {} (System/getenv))
-                        (or (System/getenv "AGENT_ID") "north-map")
-                        {"AGENT_ID" slug
-                         "AGENT_ROLE" tmpl
-                         "AGENT_IDENTITY_ROLE" tmpl
-                         "AGENT_LIFECYCLE" "ephemeral"}))))))
-        (println (str "batch " e "  N=" n " K=" k " role=" tmpl
-                      (when has-schema "  +schema")
-                      (if spawn? "  (spawned via SDK)" "  (registered only, MAP_SPAWN=0)")))))
+          (append! port e "worker" slug)))
+      (println (str "batch " e "  N=" n " K=" k " role=" tmpl
+                    (when has-schema "  +schema")
+                    "  (fixture registration only, MAP_SPAWN=0)"))))
 
     "done"         ; <batch-id> <worker> <payload>  — a worker reports DONE against the batch
     (let [[id worker payload] args

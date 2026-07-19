@@ -34,7 +34,9 @@
   ["outcome" "process_outcome" "delivery_outcome" "delivery_reason"
    "delivery_attestation_sha256" "delivery_attestation"
    "delivery_evidence_sha256" "delivery_evidence"])
-(def route-authority-predicates #{"provider" "provider_target" "model" "effort"})
+(def route-authority-predicates
+  #{"provider" "provider_target" "live_input" "live_input_state"
+    "live_input_epoch" "model" "effort"})
 (def projection-predicates #{"display_handle" "display_name"})
 (def route-predicates (into route-authority-predicates projection-predicates))
 (def identity-predicates
@@ -49,7 +51,8 @@
   (into (conj publish-predicates marker-predicate terminal-marker-predicate)
         terminal-predicates))
 (def required-identity-predicates
-  #{"kind" "role" "model" "provider" "provider_target" "effort"
+  #{"kind" "role" "model" "provider" "provider_target" "live_input"
+    "live_input_state" "live_input_epoch" "effort"
     "composition_kind" "composition_id" "repo" "goal" "spawned_at"
     "display_handle" "display_name"})
 (def writer-timeout-bound-ms
@@ -197,6 +200,21 @@
     (when missing (fail! "incomplete managed identity projection" {:predicates missing}))
     (when-not (= "lane" (get facts "kind"))
       (fail! "managed SDK identity kind must be lane" {:kind (get facts "kind")}))
+    (when-not (contains? #{"streaming" "unsupported"} (get facts "live_input"))
+      (fail! "managed SDK identity has invalid live_input"
+             {:live-input (get facts "live_input")}))
+    (when-not (contains? #{"pending" "armed" "frozen"} (get facts "live_input_state"))
+      (fail! "managed SDK identity has invalid live_input_state"
+             {:live-input-state (get facts "live_input_state")}))
+    (when-not (re-matches
+               #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+               (get facts "live_input_epoch"))
+      (fail! "managed SDK identity has invalid live_input_epoch"
+             {:live-input-epoch (get facts "live_input_epoch")}))
+    (when (and (= "unsupported" (get facts "live_input"))
+               (not= "frozen" (get facts "live_input_state")))
+      (fail! "unsupported live_input must remain frozen"
+             {:live-input-state (get facts "live_input_state")}))
     (when-not (= (get facts "role") (get facts "composition_id"))
       (fail! "managed role and Gaffer composition id must agree"
              {:role (get facts "role") :composition-id (get facts "composition_id")}))

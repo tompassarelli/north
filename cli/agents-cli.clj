@@ -60,19 +60,14 @@
       (walk/keywordize-keys (north.gaffer-staffing/load-catalog (.getPath f))))))
 
 (defn gaffer-routing []
-  (when-let [{:keys [presets aliases defaults]} (gaffer-catalog)]
-      (let [
-            route (fn [r]
-                     (let [name (:name r)]
-                       [name (-> (merge defaults r)
-                                 (assoc :role name :gaffer-preset true
-                                        :composition {:kind "preset" :id name :overrides []}))]))
-            roles (into {} (map route presets))]
-        (reduce (fn [acc {:keys [name target]}]
-                  (if-let [r (get roles target)]
-                    (assoc acc name (assoc r :role target))
-                    acc))
-                roles aliases))))
+  (when-let [{:keys [presets defaults]} (gaffer-catalog)]
+    (into {}
+          (map (fn [r]
+                 (let [name (:name r)]
+                   [name (-> (merge defaults r)
+                             (assoc :role name :gaffer-preset true
+                                    :composition {:kind "preset" :id name :overrides []}))])))
+          presets)))
 
 (defn gaffer-templates []
   (when-let [{:keys [presets defaults]} (gaffer-catalog)]
@@ -374,6 +369,20 @@
   (let [observation (axis-observation facts "model")]
     (if (:conflict observation) "conflict" (or (:value observation) ""))))
 
+(defn- live-input-label [facts]
+  (let [observation (axis-observation facts "live_input")]
+    (cond
+      (:conflict observation) "conflict"
+      (#{"streaming" "unsupported"} (:value observation)) (:value observation)
+      :else "unrecorded")))
+
+(defn- live-input-state-label [facts]
+  (let [observation (axis-observation facts "live_input_state")]
+    (cond
+      (:conflict observation) "conflict"
+      (#{"pending" "armed" "frozen"} (:value observation)) (:value observation)
+      :else "unrecorded")))
+
 (defn- task-of [presence facts session]
   (or (meaningful-task (fact-one session "current_thread"))
       (meaningful-task (fact-one session "active_workflow"))
@@ -464,6 +473,9 @@
      "provider" (raw-provider facts)
      "provider_target" (raw-provider-target facts)
      "provider_label" (provider-axis-label facts)
+     "live_input" (live-input-label facts)
+     "live_input_state" (live-input-state-label facts)
+     "live_input_epoch" (or (fact-one facts "live_input_epoch") "")
      "model" (raw-model facts)
      "model_display" (model-axis-label facts)
      "effort" (effort-axis-label facts)
@@ -748,7 +760,9 @@
                                   (println (str "  " (grn "●") " "
                                                 (agent-primary-line a facts session)))
                                   (println (dim (str "    " handle " · control "
-                                                     (:id a) " · ttl " (:expires a))))))))]
+                                                     (:id a) " · live-input "
+                                                     (live-input-label facts)
+                                                     " · ttl " (:expires a))))))))]
                       (println (bold (str (count rows) " roster entries"))
                                (dim (str "· " active " active · "
                                          (count finished) " recently finished")))
@@ -779,8 +793,9 @@
     (println)
     (println "Stock template:")
     (println "  The role hydrates Gaffer's task grade, tier, reasoning, topology, posture, and capabilities.")
-    (println "  Override an axis with --task-grade, --domain, --topology, --tier, --reasoning, or --posture;")
+    (println "  Override an axis with --task-grade, --domain, --tier, --reasoning, or --posture;")
     (println "  any changed template axis requires --override-reason WHY. Exact templates carry no override reason.")
+    (println "  Stock topology is fixed; --topology applies only to bespoke compositions.")
     (println "  Available templates:" (if (seq roles) (str/join " " roles) "(catalog unavailable)"))
     (println "  Inspect their full routing defaults with: north templates")
     (println)
@@ -791,6 +806,8 @@
     (println "  Canonical capabilities: filesystem.read filesystem.search filesystem.write shell")
     (println "                          shell.readonly web coordination")
     (println "  --nearest TEMPLATE is optional reference provenance, not inheritance.")
+    (println "  Without --nearest, explicitly set task grade, topology, tier, reasoning, and posture.")
+    (println "  Domain requirements remain an explicit empty list when --domain is omitted.")
     (println "  --promotion-candidate nominates recurrence for human review; default is false.")
     (println "  --composition JSON|@file is the advanced full payload form (machine kinds: preset|bespoke).")
     (println)
@@ -838,6 +855,18 @@
       (catch Exception e
         (println (red (str label " must be valid JSON or @file: " (.getMessage e))))
         (System/exit 1)))))
+
+(defn- resolved-spawn-topology
+  "Resolve the exact topology cmd-spawn will apply, including bespoke nearest
+   preset hydration. Delegate classification must inspect this value before it
+   may label a handoff atomic."
+  [{:keys [topology nearest composition positionals]}]
+  (let [role (first positionals)
+        templates (or (gaffer-routing) {})
+        supplied-composition (parse-json-input "--composition" composition)
+        nearest-role (or nearest (:nearestPreset supplied-composition))
+        base (or (get templates role) (get templates nearest-role))]
+    (or topology (:topology base))))
 
 (def canonical-gaffer-capabilities
   ;; This order is part of the cross-language fingerprint contract. Gaffer's
@@ -895,7 +924,7 @@
     (apply str (map #(format "%02x" (bit-and (int %) 0xff)) bytes))))
 
 (def routing-override-fields
-  [:taskGrade :domainRequirements :topology :tier :reasoning :posture])
+  #{"taskGrade" "domainRequirements" "tier" "reasoning" "posture"})
 (def bespoke-contract-fields
   #{:responsibility :deliverable :capabilities :mayDecide :mustEscalate :doneWhen :report})
 (def role-id-pattern #"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -910,7 +939,9 @@
 
 (defn- valid-contract-string-list? [value]
   (and (sequential? value) (seq value) (every? string? value)
-       (every? seq (map canonical-contract-text value))))
+       (let [normalized (mapv canonical-contract-text value)]
+         (and (every? seq normalized)
+              (= (count normalized) (count (set normalized)))))))
 
 (defn- valid-contract-text? [value]
   (and (string? value) (seq (canonical-contract-text value))))
@@ -944,7 +975,18 @@
         [invoked-role prompt & extra] positionals
         catalog (gaffer-catalog)
         dt (or (gaffer-routing) {})
-        supplied-composition (parse-json-input "--composition" composition)
+        raw-supplied-composition (parse-json-input "--composition" composition)
+        override-reason-conflict
+        (and (= "preset" (:kind raw-supplied-composition))
+             overrideReason
+             (contains? raw-supplied-composition :overrideReason)
+             (not= overrideReason (:overrideReason raw-supplied-composition)))
+        supplied-composition
+        (cond-> raw-supplied-composition
+          (and (= "preset" (:kind raw-supplied-composition))
+               overrideReason
+               (not (contains? raw-supplied-composition :overrideReason)))
+          (assoc :overrideReason overrideReason))
         supplied-contract (parse-json-input "--contract" contract)
         canonical (get dt invoked-role)
         bespoke? (and invoked-role (nil? canonical))
@@ -959,7 +1001,7 @@
                                      (contains? supplied-composition :promotionCandidate))
                               (:promotionCandidate supplied-composition)
                               false))
-        base (or canonical nearest-template (:defaults catalog))
+        base (or canonical nearest-template)
         preset-grade (:taskGrade base) preset-tier (:tier base)
         preset-role (:role base) preset-posture (:posture base) preset-topology (:topology base)
         preset-deliberation (:deliberation base)
@@ -973,21 +1015,30 @@
         selected-posture (or posture preset-posture (:posture (:defaults catalog)))
         selected-reasoning (or reasoning preset-deliberation)
         selected-domains (vec (distinct domains))
+        missing-bespoke-axes
+        (when (and bespoke? (nil? nearest-template))
+          (seq (keep (fn [[label value]] (when (nil? value) label))
+                     [["--task-grade" taskGrade]
+                      ["--topology" topology]
+                      ["--tier" tier]
+                      ["--reasoning" reasoning]
+                      ["--posture" posture]])))
+        route-problem (north.gaffer-staffing/unsupported-route-problem
+                       selected-tier selected-reasoning)
         actual-overrides (when canonical
                            (vec (keep (fn [[field selected preset]] (when (not= selected preset) field))
-                                      [[:taskGrade selected-grade (:taskGrade canonical)]
-                                       [:domainRequirements selected-domains []]
-                                       [:topology selected-topology (:topology canonical)]
-                                       [:tier selected-tier (:tier canonical)]
-                                       [:reasoning selected-reasoning (:deliberation canonical)]
-                                       [:posture selected-posture (:posture canonical)]])))
+                                      [["taskGrade" selected-grade (:taskGrade canonical)]
+                                       ["domainRequirements" selected-domains []]
+                                       ["tier" selected-tier (:tier canonical)]
+                                       ["reasoning" selected-reasoning (:deliberation canonical)]
+                                       ["posture" selected-posture (:posture canonical)]])))
         generated-composition (if bespoke?
                                 (cond-> {:kind "bespoke" :id invoked-role
                                          :bespokeReason bespoke-reason :promotionCandidate promotion-value
                                          :contract contract-value}
                                   nearest-role (assoc :nearestPreset nearest-role))
                                 (cond-> {:kind "preset" :id selected-role
-                                         :overrides (mapv name actual-overrides)}
+                                         :overrides actual-overrides}
                                   (seq actual-overrides) (assoc :overrideReason overrideReason)))
         selected-composition (or supplied-composition generated-composition)
         selected-capabilities (if canonical (:capabilities canonical)
@@ -1029,10 +1080,20 @@
           (System/exit 1))
       (and canonical (or rationale nearest contract promotion-specified?))
       (do (println (red "--nearest, --rationale, --contract, and promotion decisions apply only to bespoke roles")) (System/exit 1))
+      (and canonical (some? topology))
+      (do (println (red "--topology applies only to bespoke compositions; stock-template topology is fixed"))
+          (System/exit 1))
       (and bespoke? overrideReason)
       (do (println (red "--override-reason applies only to preset axis overrides")) (System/exit 1))
+      override-reason-conflict
+      (do (println (red "--override-reason conflicts with composition.overrideReason"))
+          (System/exit 1))
       (and bespoke? nearest-role (nil? nearest-template))
       (do (println (red (str "unknown nearest preset: " nearest-role))) (System/exit 1))
+      missing-bespoke-axes
+      (do (println (red (str "bespoke composition without --nearest must explicitly set: "
+                            (str/join ", " missing-bespoke-axes))))
+          (System/exit 1))
       (and bespoke? (not (non-empty-string? bespoke-reason)))
       (do (println (red (str "bespoke role " invoked-role " requires --rationale or composition.bespokeReason"))) (System/exit 1))
       (and bespoke? (nil? contract-value))
@@ -1053,12 +1114,12 @@
       (do (println (red (str "invalid topology: " selected-topology))) (System/exit 1))
       depth-problem
       (do (println (red depth-problem)) (System/exit 1))
-      (and (= selected-role "director") (= selected-topology "worker"))
-      (do (println (red "director cannot use worker topology; choose a worker role for atomic work")) (System/exit 1))
       (not (some #{selected-tier} (get-in catalog [:vocabulary :semanticTiers])))
       (do (println (red (str "invalid tier: " selected-tier))) (System/exit 1))
       (not (some #{selected-reasoning} (get-in catalog [:vocabulary :deliberations])))
       (do (println (red (str "invalid reasoning: " selected-reasoning))) (System/exit 1))
+      route-problem
+      (do (println (red route-problem)) (System/exit 1))
       (not (some #{selected-posture} (get-in catalog [:vocabulary :postures])))
       (do (println (red (str "invalid posture: " selected-posture))) (System/exit 1))
       (not (map? selected-composition))
@@ -1069,13 +1130,17 @@
       (do (println (red (str "known role " invoked-role " requires preset composition id " selected-role))) (System/exit 1))
       (and canonical (not (valid-string-list? declared-overrides false)))
       (do (println (red "preset composition.overrides must be an array of unique routing-axis names")) (System/exit 1))
-      (and canonical (not= (set (map name actual-overrides)) (set declared-overrides)))
+      (and canonical (some #(not (routing-override-fields %)) declared-overrides))
+      (do (println (red (str "composition.overrides may contain only: "
+                            (str/join ", " (sort routing-override-fields)))))
+          (System/exit 1))
+      (and canonical (not= (set actual-overrides) (set declared-overrides)))
       (do (println (red (str "composition.overrides must exactly record changed preset axes: "
-                            (if (seq actual-overrides) (str/join ", " (map name actual-overrides)) "none"))))
+                            (if (seq actual-overrides) (str/join ", " actual-overrides) "none"))))
           (System/exit 1))
       (and canonical (seq actual-overrides) (not (non-empty-string? (:overrideReason selected-composition))))
       (do (println (red (str "preset axis override requires --override-reason (changed: "
-                            (str/join ", " (map name actual-overrides)) ")"))) (System/exit 1))
+                            (str/join ", " actual-overrides) ")"))) (System/exit 1))
       (and canonical (empty? actual-overrides) (contains? selected-composition :overrideReason))
       (do (println (red "unchanged preset must not carry --override-reason")) (System/exit 1))
       (and bespoke? (or (not= "bespoke" composition-kind) (not= invoked-role (:id selected-composition))))
@@ -1142,6 +1207,13 @@
                                            {"kind" "lane" "role" selected-role
                                             "provider" (or (:provider dry-route) provider "auto")
                                             "provider_target" (or target (:provider dry-route) provider "auto")
+                                            "live_input" (if (= "anthropic" (or (:provider dry-route) provider))
+                                                           "streaming"
+                                                           "unsupported")
+                                            "live_input_state" (if (= "anthropic" (or (:provider dry-route) provider))
+                                                                 "pending"
+                                                                 "frozen")
+                                            "live_input_epoch" (str (java.util.UUID/randomUUID))
                                             "model" (or (:model dry-route) (when selected-tier (str "tier:" selected-tier)) "unresolved")
                                             "effort" (or (:effort dry-route) selected-reasoning)
                                             "composition_kind" (:kind spawn-composition)
@@ -1483,13 +1555,11 @@
   (let [{:keys [task mode role context thread forward]} (parse-delegate-args args)
         _ (when-not mode
             (delegate-die "delegate needs an explicit intake decision: --role for atomic work or --composite"))
-        canonical (when role (get (gaffer-routing) role))
         parsed-spawn (parse-spawn-args
                       (into [(if (= mode :composite) "director" role) task] forward))
-        requested-topology (:topology parsed-spawn)
+        effective-topology (resolved-spawn-topology parsed-spawn)
         _ (when (and (= mode :atomic)
-                     (or (= "orchestrator" (:topology canonical))
-                         (= "orchestrator" requested-topology)))
+                     (= "orchestrator" effective-topology))
             (delegate-die "--role is an atomic terminal-worker handoff; use --composite for orchestrator work"))
         ctx-file context
         ctx (when ctx-file
@@ -1527,13 +1597,28 @@
               rest0)
         [id msg] pos]
     (if (or (nil? id) (nil? msg))
-      (println (red "usage:") "north steer <agent-id> \"<msg>\" [--from <me>]")
+      (do
+        (binding [*out* *err*]
+          (println (red "usage:") "north steer <agent-id> \"<msg>\" [--from <me>]"))
+        2)
       (let [argv ["bb" (str NORTH "/cli/msg-cli.clj") PORT "send" from id "steer" msg]]
         (echo-cmd (str/join " " argv))
         (if dry?
-          (println (ylw "[dry-run]") "not sent.")
+          (do
+            (println (ylw "[dry-run]") "not sent; target capability and liveness were not checked.")
+            0)
           (let [r (run argv :timeout 4000)]
-            (println (if (:ok r) (grn "sent") (red "send failed")))))))))
+            (if (:ok r)
+              (do
+                (println (grn (or (known (:out r)) "queued for live injection")))
+                0)
+              (do
+                (binding [*out* *err*]
+                  (println (red (or (known (:err r))
+                                    (known (:out r))
+                                    "steer admission unavailable"))))
+                (let [status (:exit r)]
+                  (if (and (integer? status) (pos? status)) status 2))))))))))
 
 ;; retask: typed managed-identity update. The private publisher replaces the
 ;; multi-cardinality goal/cache values, reads them back, and recommits the
@@ -1572,7 +1657,8 @@
         "fork"    (do (println "renamed: north delegate") (System/exit 1))
         "req"     (do (println "renamed: north delegate") (System/exit 1))
         "watch"   (cmd-watch args)
-        "steer"   (cmd-tell-agent args)
+        "steer"   (let [status (cmd-tell-agent args)]
+                    (when (pos? status) (System/exit status)))
         "retask"  (cmd-retask args)
         (do (println "usage: north {agents|templates|spawn|delegate|watch|steer|retask} ...")
             (System/exit 1)))

@@ -6,9 +6,10 @@
          '[clojure.string :as str])
 
 (def routing-override-fields
-  #{"taskGrade" "domainRequirements" "topology" "tier" "reasoning" "posture"})
+  #{"taskGrade" "domainRequirements" "tier" "reasoning" "posture"})
 (def identity-predicates
-  #{"kind" "role" "model" "provider" "provider_target" "effort"
+  #{"kind" "role" "model" "provider" "provider_target" "live_input"
+    "live_input_state" "live_input_epoch" "effort"
     "composition_kind" "composition_id" "composition_overrides"
     "composition_override_reason" "nearest_preset" "bespoke_reason"
     "promotion_candidate" "composition_contract_sha256"
@@ -16,7 +17,8 @@
     "repo" "goal"
     "coordinator" "spawned_at"})
 (def required-identity-predicates
-  ["kind" "role" "goal" "provider" "provider_target" "model" "effort"
+  ["kind" "role" "goal" "provider" "provider_target" "live_input"
+   "live_input_state" "live_input_epoch" "model" "effort"
    "composition_kind" "composition_id" "repo" "spawned_at" "display_handle"
    "display_name" "identity_manifest_sha256"])
 (def terminal-predicates
@@ -152,6 +154,9 @@
         kind (get facts "kind")
         composition-kind (get facts "composition_kind")
         role (get facts "role")
+        live-input (known (get facts "live_input"))
+        live-input-state (known (get facts "live_input_state"))
+        live-input-epoch (known (get facts "live_input_epoch"))
         composition-id (get facts "composition_id")
         marker (known (get facts "identity_manifest_sha256"))
         conflicts (seq (get facts conflict-key))]
@@ -165,6 +170,21 @@
                   (when (and (known role) (known composition-id) (not= role composition-id))
                     ["composition_id(matches role)"])
                   (when (and (some? role) (not (safe-role-id? role))) ["role(safe Gaffer id)"])
+                  (when (and live-input
+                             (not (contains? #{"streaming" "unsupported"} live-input)))
+                    ["live_input(streaming|unsupported)"])
+                  (when (and live-input-state
+                             (not (contains? #{"pending" "armed" "frozen"} live-input-state)))
+                    ["live_input_state(pending|armed|frozen)"])
+                  (when (and (= "unsupported" live-input)
+                             live-input-state
+                             (not= "frozen" live-input-state))
+                    ["live_input_state(frozen when unsupported)"])
+                  (when (and live-input-epoch
+                             (not (re-matches
+                                   #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                                   live-input-epoch)))
+                    ["live_input_epoch(UUIDv4)"])
                   (when (and (some? composition-id) (not (safe-role-id? composition-id)))
                     ["composition_id(safe Gaffer id)"])
                   (case composition-kind

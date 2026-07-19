@@ -6,8 +6,10 @@ The stream layer the operating manual describes. Two directories:
   (Claude Code JSONL), dictated thoughts, captured conversations. **Local-only,
   gitignored** — raw transcripts carry everything (private context, tool
   output); the repo publishes projections, not the source signal. Files:
-  `YYYY-MM-DD-<slug>.<session-id>.jsonl`. A copy is a snapshot — live sessions
-  keep appending; re-snapshot at session end.
+  `YYYY-MM-DD-<bounded-slug>.<lineage-digest>.jsonl`. The lineage digest binds
+  provider + project-relative lineage + session id; a provider session UUID is
+  not assumed globally unique. A copy is a snapshot — live sessions keep
+  appending; re-snapshot at session end.
 - `streams/distillations/` — **committed tiered compressions** of raw streams.
   Tier 1 = one session → decisions, principles, spawned threads, artifacts,
   with `@thread-id` links so the fact graph and the narrative cross-reference.
@@ -23,10 +25,12 @@ layer's — raw here is its input corpus.
 
 ## Cost contract — this layer is nearly free; keep it that way
 
-- **Raw capture = `cp`, zero tokens.** The Claude Code harness already appends
+- **Raw capture = byte copy, zero tokens.** The Claude Code harness already appends
   the full transcript to `~/.claude/projects/<proj>/<session>.jsonl` in real
-  time, mechanically. Never have a model regenerate conversation text into a
-  file; snapshot the file the harness already wrote.
+  time, mechanically. `north stream-sync` advances a durable byte cursor and
+  proves the copied prefix; it coalesces a moved project lineage only on exact
+  prefix proof. Never have a model regenerate conversation text into a file;
+  snapshot the file the harness already wrote.
 - **Distillation = cheap-tier agent** (sonnet-worker / haiku), never the
   coordinator model. Exception: if the coordinator already holds the whole
   session in context at session end, its ~1k-token summary is cheaper than a

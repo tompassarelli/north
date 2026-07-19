@@ -221,9 +221,10 @@
           d7 (filter #(and (:ms %) (>= (:ms %) (- now WEEK))) deaths)
           silent (->> lor (filter (fn [[_ o]] (= o "died-unreported"))) count)
           last-d (last deaths)]
-      (println (format "%-10s 7d  %d reported (agent_death, with reason) · %s"
+      (println (format "%-10s %d reported (7d, agent_death with reason) · %s"
                        "deaths" (count d7)
-                       (str (if (pos? silent) (ylw (str silent)) "0") " silent (died-unreported, reactor-reaped)")))
+                       (str (if (pos? silent) (ylw (str silent)) "0")
+                            " silent (all-time, died-unreported/reactor-reaped)")))
       (when last-d
         (println (format "%-10s last death  %s — \"%s\" — %s ago" ""
                          (:id last-d) (:reason last-d) (ago (when (:ms last-d) (- now (:ms last-d))))))))
@@ -241,7 +242,7 @@
                    (fn [id] (or (contains? ran-agents id) (contains? du id))))
           signalled (count (filter senders ids))
           lost (count (filter #(and (ended? %) (not (senders %))) ids))]
-      (println (format "%-10s %d lanes carried a coordinator · %d signalled · %s%s"
+      (println (format "%-10s all-time  %d lanes carried a coordinator · %d signalled · %s%s"
                        "pings" (count ids) signalled (if (pos? lost) (ylw (str lost " lost")) "0 lost")
                        (if (zero? (count ids)) (dim "  [coordinator persisted from 2026-07-09 — pre-existing lanes carry none]") ""))))
     ;; 6. zombie forks
