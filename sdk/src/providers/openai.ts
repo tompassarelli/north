@@ -1,11 +1,10 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { ProviderRetrySafeError, type AgentProvider, type AgentQuery, type ProviderAvailability } from "./types";
 import type { RoutingTarget } from "./types";
 import { probeOpenAI } from "../provider-routing";
-import type { AdapterUsageMetadata, TerminalTokenUsage, TokenTotalStatus } from "../usage";
+import type { AdapterUsageMetadata, TerminalTokenUsage } from "../usage";
 import { codexConfigArguments, providerEnvironmentForTarget } from "../accounts";
 import {
   requireGafferCapabilities, type GafferCapability,
@@ -17,6 +16,7 @@ import {
 import {
   canonicalGlobalAgents, GLOBAL_AGENTS_MAX_BYTES,
 } from "../harness";
+import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
 
 function command(env: NodeJS.ProcessEnv): string { return env.NORTH_CODEX_BIN ?? "codex"; }
 
@@ -257,40 +257,178 @@ function waitForClose(child: ChildProcessWithoutNullStreams): Promise<number | n
   return new Promise((resolve) => child.once("close", resolve));
 }
 
-function observedToken(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+type JsonObject = Record<string, unknown>;
+interface ExactCodexUsage extends TerminalTokenUsage {
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  reasoning_output_tokens: number;
 }
 
-function codexUsage(raw: any, terminalCount: number): {
+const CODEX_JSONL_MAX_LINE_BYTES = 1024 * 1024;
+const CODEX_JSONL_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+const CODEX_JSONL_MAX_EVENTS = 10_000;
+const CODEX_ID_MAX_BYTES = 512;
+
+function objectValue(value: unknown, label: string): JsonObject {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error(`${label} must be an object`);
+  return value as JsonObject;
+}
+
+function exactKeys(value: JsonObject, expected: readonly string[], label: string): void {
+  const actual = Object.keys(value).sort();
+  const canonical = [...expected].sort();
+  if (actual.length !== canonical.length
+      || actual.some((key, index) => key !== canonical[index])) {
+    throw new Error(`${label} has an unknown or missing field`);
+  }
+}
+
+function boundedProtocolString(value: unknown, label: string, maxBytes = CODEX_ID_MAX_BYTES): string {
+  if (typeof value !== "string" || !value || value !== value.trim()
+      || Buffer.byteLength(value, "utf8") > maxBytes || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`${label} must be a bounded canonical string`);
+  }
+  return value;
+}
+
+function protocolId(value: unknown, label: string): string {
+  const id = boundedProtocolString(value, label);
+  if (!/^[A-Za-z0-9._:-]+$/.test(id))
+    throw new Error(`${label} must be a canonical protocol id`);
+  return id;
+}
+
+function validateCodexItem(value: unknown): { type: string; text?: string } {
+  const item = objectValue(value, "Codex item");
+  const type = boundedProtocolString(item.type, "Codex item type");
+  protocolId(item.id, "Codex item id");
+  // Item payloads are provider-incidental, not North authority. Keep them
+  // strictly framed/parsed/bounded and require stable identity, but do not
+  // freeze Codex's evolving command/MCP/web/todo payload union here. Only the
+  // final agent text is consumed by North, so that field alone is typed.
+  if (type === "agent_message") {
+    if (typeof item.text !== "string")
+      throw new Error("Codex agent-message text must be a string");
+    return { type, text: item.text };
+  }
+  return { type };
+}
+
+function exactUsage(value: unknown): ExactCodexUsage {
+  const usage = objectValue(value, "Codex terminal usage");
+  exactKeys(
+    usage,
+    ["cached_input_tokens", "input_tokens", "output_tokens", "reasoning_output_tokens"],
+    "Codex terminal usage",
+  );
+  const counter = (name: string): number => {
+    const token = usage[name];
+    if (typeof token !== "number" || !Number.isSafeInteger(token) || token < 0)
+      throw new Error(`Codex terminal usage ${name} is invalid`);
+    return token;
+  };
+  const inputTokens = counter("input_tokens");
+  const cachedInputTokens = counter("cached_input_tokens");
+  const outputTokens = counter("output_tokens");
+  const reasoningOutputTokens = counter("reasoning_output_tokens");
+  if (cachedInputTokens > inputTokens || reasoningOutputTokens > outputTokens
+      || !Number.isSafeInteger(inputTokens + outputTokens)) {
+    throw new Error("Codex terminal usage counters are incoherent");
+  }
+  return {
+    input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
+    output_tokens: outputTokens,
+    reasoning_output_tokens: reasoningOutputTokens,
+  };
+}
+
+interface CodexProtocolResult {
+  text?: string;
+  usage?: ExactCodexUsage;
+}
+
+class CodexExecProtocol {
+  private phase: "thread" | "turn" | "running" | "completed" = "thread";
+  private usage?: ExactCodexUsage;
+
+  accept(line: string): CodexProtocolResult {
+    if (this.phase === "completed")
+      throw new Error("Codex emitted an event after its terminal");
+    const event = objectValue(parseStrictJson(line, "Codex exec event", {
+      maxBytes: CODEX_JSONL_MAX_LINE_BYTES,
+      maxDepth: 64,
+      maxNodes: 50_000,
+    }), "Codex exec event");
+    const type = event.type;
+    if (type === "error") {
+      exactKeys(event, ["message", "type"], "Codex error event");
+      boundedProtocolString(event.message, "Codex error message", CODEX_JSONL_MAX_LINE_BYTES);
+      throw new Error("Codex emitted an unrecoverable error");
+    }
+    if (type === "thread.started") {
+      if (this.phase !== "thread") throw new Error("Codex thread start is out of order");
+      exactKeys(event, ["thread_id", "type"], "Codex thread-start event");
+      protocolId(event.thread_id, "Codex thread id");
+      this.phase = "turn";
+      return {};
+    }
+    if (type === "turn.started") {
+      if (this.phase !== "turn") throw new Error("Codex turn start is out of order");
+      exactKeys(event, ["type"], "Codex turn-start event");
+      this.phase = "running";
+      return {};
+    }
+    if (type === "turn.failed") {
+      if (this.phase !== "running") throw new Error("Codex turn failure is out of order");
+      exactKeys(event, ["error", "type"], "Codex turn-failed event");
+      const error = objectValue(event.error, "Codex turn failure");
+      exactKeys(error, ["message"], "Codex turn failure");
+      boundedProtocolString(error.message, "Codex turn failure message", CODEX_JSONL_MAX_LINE_BYTES);
+      throw new Error("Codex turn failed");
+    }
+    if (type === "turn.completed") {
+      if (this.phase !== "running") throw new Error("Codex turn terminal is out of order");
+      exactKeys(event, ["type", "usage"], "Codex turn-completed event");
+      this.usage = exactUsage(event.usage);
+      this.phase = "completed";
+      return { usage: this.usage };
+    }
+    if (type === "item.started" || type === "item.updated" || type === "item.completed") {
+      if (this.phase !== "running") throw new Error("Codex item event is out of order");
+      exactKeys(event, ["item", "type"], "Codex item event");
+      const item = validateCodexItem(event.item);
+      return type === "item.completed" && item.type === "agent_message"
+        ? { text: item.text }
+        : {};
+    }
+    throw new Error("Codex emitted an unknown event");
+  }
+
+  finish(): ExactCodexUsage {
+    if (this.phase !== "completed" || !this.usage)
+      throw new Error("Codex closed without one successful terminal");
+    return this.usage;
+  }
+}
+
+function codexUsage(usage: ExactCodexUsage): {
   usage: TerminalTokenUsage;
   metadata: AdapterUsageMetadata;
 } {
-  const inputTokens = observedToken(raw?.input_tokens);
-  const outputTokens = observedToken(raw?.output_tokens);
-  const cachedInputTokens = observedToken(raw?.cached_input_tokens);
-  const reasoningOutputTokens = observedToken(raw?.reasoning_output_tokens);
-  const usage: TerminalTokenUsage = {
-    ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
-    ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
-    ...(cachedInputTokens !== undefined ? { cached_input_tokens: cachedInputTokens } : {}),
-    ...(reasoningOutputTokens !== undefined ? { reasoning_output_tokens: reasoningOutputTokens } : {}),
-  };
   // Codex says cached_input_tokens is a subset of input_tokens and
   // reasoning_output_tokens is a subset of output_tokens. The adapter owns this
   // formula so the provider-neutral recorder can never add either subset twice.
-  const totalStatus: TokenTotalStatus = terminalCount === 0
-    ? "unknown_no_terminal"
-    : inputTokens === undefined || outputTokens === undefined
-      ? "unknown_incomplete_terminal"
-      : "exact";
   return {
     usage,
     metadata: {
       provider: "openai",
-      terminal_count: terminalCount,
+      terminal_count: 1,
       scope: "codex_fresh_invocation_thread_cumulative",
-      total_status: totalStatus,
-      ...(totalStatus === "exact" ? { total_tokens: inputTokens! + outputTokens! } : {}),
+      total_status: "exact",
+      total_tokens: usage.input_tokens! + usage.output_tokens!,
     },
   };
 }
@@ -358,34 +496,46 @@ class CodexQuery implements AgentQuery {
     // provider may have accepted work before the CLI emitted a recognized event.
     // Every subsequent failure therefore remains the original provider error.
     let result = "";
-    let usage: any;
-    let usageTerminalCount = 0;
+    const frames = new StrictJsonlFrames({
+      label: "Codex exec",
+      maxLineBytes: CODEX_JSONL_MAX_LINE_BYTES,
+      maxTotalBytes: CODEX_JSONL_MAX_TOTAL_BYTES,
+      maxFrames: CODEX_JSONL_MAX_EVENTS,
+    });
+    const protocol = new CodexExecProtocol();
+    let usage: ExactCodexUsage | undefined;
     child.stderr.resume();
     try {
-      for await (const line of createInterface({ input: child.stdout })) {
-        if (!line.trim()) continue;
-        let event: any;
-        try { event = JSON.parse(line); } catch { continue; }
-        if (event.type === "item.completed" && event.item?.type === "agent_message") {
-          const text = event.item.text ?? "";
-          result = text || result;
-          if (text) yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } };
+      for await (const chunk of child.stdout) {
+        for (const line of frames.push(chunk)) {
+          const accepted = protocol.accept(line);
+          if (accepted.text !== undefined) {
+            result = accepted.text || result;
+            if (accepted.text) {
+              yield {
+                type: "assistant",
+                message: {
+                  role: "assistant",
+                  content: [{ type: "text", text: accepted.text }],
+                },
+              };
+            }
+          }
+          if (accepted.usage) usage = accepted.usage;
         }
-        if (event.type === "turn.completed") {
-          usageTerminalCount++;
-          usage = event.usage;
-        }
-        if (event.type === "error") throw new Error("openai_provider_execution_failed");
       }
+      frames.finish();
       const code = await waitForClose(child);
       if (code !== 0) throw new Error("openai_provider_execution_failed");
-    } catch (error) {
+      usage = protocol.finish();
+    } catch {
       try { await this.interrupt(); } catch { /* cleanup must not replace the provider error */ }
-      throw error;
+      throw new Error("openai_provider_execution_failed");
     } finally {
       this.child = undefined;
     }
-    const normalizedUsage = codexUsage(usage, usageTerminalCount);
+    if (!usage) throw new Error("openai_provider_execution_failed");
+    const normalizedUsage = codexUsage(usage);
     yield {
       type: "result", subtype: "success", result,
       num_turns: 1,

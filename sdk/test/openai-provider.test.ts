@@ -21,6 +21,26 @@ const savedLaws = process.env.AGENT_LAWS;
 const savedGaffer = process.env.GAFFER_HOME;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
 const temporary: string[] = [];
+const codexThreadStarted = JSON.stringify({
+  type: "thread.started",
+  thread_id: "67e55044-10b1-426f-9247-bb680e5fe0c8",
+});
+const codexTurnStarted = JSON.stringify({ type: "turn.started" });
+const codexTerminal = (usage: Record<string, unknown> = {
+  input_tokens: 1,
+  cached_input_tokens: 0,
+  output_tokens: 1,
+  reasoning_output_tokens: 0,
+}): string => JSON.stringify({ type: "turn.completed", usage });
+const codexSuccess = (
+  middle: string[] = [],
+  usage?: Record<string, unknown>,
+): string[] => [
+  codexThreadStarted,
+  codexTurnStarted,
+  ...middle,
+  codexTerminal(usage),
+];
 afterEach(() => {
   if (savedBin === undefined) delete process.env.NORTH_CODEX_BIN;
   else process.env.NORTH_CODEX_BIN = savedBin;
@@ -51,13 +71,26 @@ async function resultFromScript(lines: string[]): Promise<any> {
   return messages.at(-1);
 }
 
+async function resultFromScriptBody(body: string): Promise<any> {
+  const directory = mkdtempSync(join(tmpdir(), "north-codex-protocol-"));
+  temporary.push(directory);
+  const executable = join(directory, "fake-codex");
+  writeFileSync(executable, `#!/usr/bin/env bash\nset -eu\n${body}\n`);
+  chmodSync(executable, 0o700);
+  process.env.NORTH_CODEX_BIN = executable;
+  const messages: any[] = [];
+  for await (const message of openaiProvider.query({
+    prompt: "x",
+    options: {} as any,
+  }) as AsyncIterable<any>) messages.push(message);
+  return messages.at(-1);
+}
+
 test("Codex adapter owns the cumulative total and does not double-count subsets", async () => {
-  const result = await resultFromScript([
-    JSON.stringify({ type: "turn.completed", usage: {
+  const result = await resultFromScript(codexSuccess([], {
       input_tokens: 100, cached_input_tokens: 60,
       output_tokens: 20, reasoning_output_tokens: 7,
-    } }),
-  ]);
+  }));
   expect(result.usage).toEqual({
     input_tokens: 100, cached_input_tokens: 60,
     output_tokens: 20, reasoning_output_tokens: 7,
@@ -70,32 +103,207 @@ test("Codex adapter owns the cumulative total and does not double-count subsets"
   expect(result).not.toHaveProperty("duration_ms");
 });
 
-test("Codex preserves only present counters and zero completed terminals stays unknown", async () => {
-  const incomplete = await resultFromScript([
-    JSON.stringify({ type: "turn.completed", usage: { input_tokens: 0 } }),
-  ]);
-  expect(incomplete.usage).toEqual({ input_tokens: 0 });
-  expect(incomplete._north_usage).toMatchObject({
-    terminal_count: 1, total_status: "unknown_incomplete_terminal",
-  });
-  expect(incomplete._north_usage).not.toHaveProperty("total_tokens");
-
-  const absent = await resultFromScript([]);
-  expect(absent.usage).toEqual({});
-  expect(absent._north_usage).toMatchObject({ terminal_count: 0, total_status: "unknown_no_terminal" });
+test("Codex requires one complete terminal and never synthesizes exit-zero success", async () => {
+  await expect(resultFromScript([
+    codexThreadStarted,
+    codexTurnStarted,
+    codexTerminal({ input_tokens: 0 }),
+  ])).rejects.toThrow("openai_provider_execution_failed");
+  await expect(resultFromScript([])).rejects.toThrow("openai_provider_execution_failed");
 });
 
-test("repeated Codex completed events use the last cumulative snapshot explicitly", async () => {
-  const result = await resultFromScript([
-    JSON.stringify({ type: "turn.completed", usage: { input_tokens: 5, output_tokens: 1 } }),
-    JSON.stringify({ type: "turn.completed", usage: {
+test("repeated Codex terminals fail instead of selecting a cumulative snapshot", async () => {
+  await expect(resultFromScript([
+    ...codexSuccess([], {
+      input_tokens: 5, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0,
+    }),
+    codexTerminal({
       input_tokens: 9, cached_input_tokens: 4, output_tokens: 2, reasoning_output_tokens: 1,
-    } }),
-  ]);
-  expect(result.usage).toEqual({
-    input_tokens: 9, cached_input_tokens: 4, output_tokens: 2, reasoning_output_tokens: 1,
+    }),
+  ])).rejects.toThrow("openai_provider_execution_failed");
+});
+
+test("Codex lifecycle events are closed, ordered, and terminal exactly once", async () => {
+  const validUsage = {
+    input_tokens: 1,
+    cached_input_tokens: 0,
+    output_tokens: 1,
+    reasoning_output_tokens: 0,
+  };
+  const invalidStreams = [
+    ["not json"],
+    [codexTurnStarted, codexThreadStarted, codexTerminal(validUsage)],
+    [codexThreadStarted, codexTerminal(validUsage)],
+    [
+      codexThreadStarted,
+      codexTurnStarted,
+      JSON.stringify({ type: "future.event", payload: true }),
+      codexTerminal(validUsage),
+    ],
+    [
+      JSON.stringify({
+        type: "thread.started",
+        thread_id: "67e55044-10b1-426f-9247-bb680e5fe0c8",
+        extra: true,
+      }),
+      codexTurnStarted,
+      codexTerminal(validUsage),
+    ],
+    [
+      '{"type":"thread.started","thread_id":"one","thread_id":"two"}',
+      codexTurnStarted,
+      codexTerminal(validUsage),
+    ],
+    [
+      codexThreadStarted,
+      codexTurnStarted,
+      codexTerminal(validUsage),
+      JSON.stringify({
+        type: "item.completed",
+        item: { id: "item_0", type: "agent_message", text: "too late" },
+      }),
+    ],
+    [
+      codexThreadStarted,
+      codexTurnStarted,
+      JSON.stringify({ type: "turn.failed", error: { message: "private failure" } }),
+    ],
+  ];
+  for (const events of invalidStreams) {
+    await expect(resultFromScript(events)).rejects.toThrow(
+      "openai_provider_execution_failed",
+    );
+  }
+});
+
+test("Codex terminal usage is an exact coherent four-counter contract", async () => {
+  const invalidUsage = [
+    { input_tokens: 1, output_tokens: 1 },
+    {
+      input_tokens: -1,
+      cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+    },
+    {
+      input_tokens: 1.5,
+      cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+    },
+    {
+      input_tokens: Number.MAX_SAFE_INTEGER + 1,
+      cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+    },
+    {
+      input_tokens: 1,
+      cached_input_tokens: 2,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+    },
+    {
+      input_tokens: 1,
+      cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 2,
+    },
+    {
+      input_tokens: 1,
+      cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+      extra: 1,
+    },
+  ];
+  for (const usage of invalidUsage) {
+    await expect(resultFromScript([
+      codexThreadStarted,
+      codexTurnStarted,
+      codexTerminal(usage),
+    ])).rejects.toThrow("openai_provider_execution_failed");
+  }
+});
+
+test("Codex item payloads stay opaque except for identity and final agent text", async () => {
+  const result = await resultFromScript(codexSuccess([
+    JSON.stringify({
+      type: "item.updated",
+      item: {
+        id: "item_0",
+        type: "future_provider_item",
+        provider_may_evolve: { nested: [true, 1, "bounded"] },
+      },
+    }),
+    JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "item_1",
+        type: "agent_message",
+        text: "final answer",
+        incidental_provider_field: true,
+      },
+    }),
+  ]));
+  expect(result.result).toBe("final answer");
+
+  await expect(resultFromScript(codexSuccess([
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", text: "missing identity" },
+    }),
+  ]))).rejects.toThrow("openai_provider_execution_failed");
+  await expect(resultFromScript(codexSuccess([
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_0", type: "agent_message", text: 7 },
+    }),
+  ]))).rejects.toThrow("openai_provider_execution_failed");
+});
+
+test("Codex raw JSONL framing rejects invalid UTF-8, partial frames, and line overflow", async () => {
+  await expect(resultFromScriptBody("printf '\\377\\n'"))
+    .rejects.toThrow("openai_provider_execution_failed");
+  await expect(resultFromScriptBody(
+    "printf '%s' '{\"type\":\"thread.started\"'",
+  )).rejects.toThrow("openai_provider_execution_failed");
+  await expect(resultFromScriptBody(
+    "head -c 1048577 /dev/zero | tr '\\000' x; printf '\\n'",
+  )).rejects.toThrow("openai_provider_execution_failed");
+  await expect(resultFromScriptBody([
+    `printf '%s\\n' '${codexThreadStarted}'`,
+    `printf '%s\\n' '${codexTurnStarted}'`,
+    `printf '%s\\n' '${codexTerminal()}'`,
+    "printf '%s' '{\"trailing\":\"partial\"'",
+  ].join("\n"))).rejects.toThrow("openai_provider_execution_failed");
+});
+
+test("Codex JSONL frame-count and cumulative-byte ceilings are enforced", async () => {
+  const item = JSON.stringify({
+    type: "item.updated",
+    item: { id: "item_0", type: "progress" },
   });
-  expect(result._north_usage).toMatchObject({ terminal_count: 2, total_status: "exact", total_tokens: 11 });
+  await expect(resultFromScriptBody([
+    `printf '%s\\n' '${codexThreadStarted}'`,
+    `printf '%s\\n' '${codexTurnStarted}'`,
+    "i=0",
+    "while [ \"$i\" -lt 10000 ]; do",
+    `  printf '%s\\n' '${item}'`,
+    "  i=$((i + 1))",
+    "done",
+  ].join("\n"))).rejects.toThrow("openai_provider_execution_failed");
+
+  await expect(resultFromScriptBody([
+    `printf '%s\\n' '${codexThreadStarted}'`,
+    `printf '%s\\n' '${codexTurnStarted}'`,
+    "padding=\"$(head -c 2048 /dev/zero | tr '\\000' x)\"",
+    "i=0",
+    "while [ \"$i\" -lt 9000 ]; do",
+    "  printf '{\"type\":\"item.updated\",\"item\":{\"id\":\"item_0\",\"type\":\"progress\",\"payload\":\"%s\"}}\\n' \"$padding\"",
+    "  i=$((i + 1))",
+    "done",
+  ].join("\n"))).rejects.toThrow("openai_provider_execution_failed");
 });
 
 test("Codex error events terminate and reap the child before propagating", async () => {
@@ -174,8 +382,10 @@ test("two same-provider targets execute concurrently in disjoint Codex homes", a
   writeFileSync(command, `#!/usr/bin/env bash
 printf '%s' "$CODEX_HOME" > "$CODEX_HOME/execution-root"
 printf '%s\n' "$@" > "$CODEX_HOME/argv"
-printf '{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\n' "$CODEX_HOME"
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+printf '%s\n' '{"type":"thread.started","thread_id":"67e55044-10b1-426f-9247-bb680e5fe0c8"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"%s"}}\n' "$CODEX_HOME"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}'
 `);
   chmodSync(command, 0o700);
   process.env.NORTH_CODEX_BIN = command;
@@ -214,7 +424,9 @@ test("Codex capability flags are global-before-exec and fail closed before proce
   writeFileSync(command, `#!/usr/bin/env bash
 printf '%s\n' "$@" > "${argvPath}"
 cat > "${taskPath}"
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+printf '%s\n' '{"type":"thread.started","thread_id":"67e55044-10b1-426f-9247-bb680e5fe0c8"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}'
 `);
   chmodSync(command, 0o700);
   process.env.NORTH_CODEX_BIN = command;
