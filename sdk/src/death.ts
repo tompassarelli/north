@@ -66,11 +66,25 @@ export function deathCommands(
 
 // Emit the death notification. Synchronous + fully swallowed: a failure to notify must
 // never mask the original death nor throw out of the dying agent's finally block.
-export function notifyDeath(agentId: string, err: unknown, ctx: DeathContext = {}): void {
+export function notifyDeath(
+  agentId: string,
+  err: unknown,
+  ctx: DeathContext = {},
+  timeoutMs = 10_000,
+): void {
   const reason = deathReason(err);
+  const startedAt = performance.now();
   for (const { cmd, args } of deathCommands(agentId, reason, ctx)) {
     try {
-      execFileSync(cmd, args, { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "ignore", "ignore"] });
+      const remaining = Math.max(
+        1,
+        Math.floor(timeoutMs - (performance.now() - startedAt)),
+      );
+      execFileSync(cmd, args, {
+        encoding: "utf8",
+        timeout: remaining,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
     } catch {
       /* best-effort: coordinator can still see the death via telemetry outcome="died" */
     }

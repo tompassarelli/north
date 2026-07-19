@@ -245,6 +245,7 @@ async function runDispatch(
   const window = stallMs();
   let stallAborted = false;
   let terminalSignal: Pick<TerminalNotification, "detail" | "subject"> = {};
+  const terminalAuxiliaryWrites: Array<(timeoutMs: number) => void> = [];
   // Background-task refusal (thread 019f4ed2, half a): don't finalize on the first
   // `result` while a harness-tracked background task is live — see bgtasks.ts.
   const bgTracker = makeBgTracker();
@@ -332,7 +333,9 @@ async function runDispatch(
             : "no partial result";
           const detail = `${cap} — ${partial}`;
           terminalSignal = { subject: "TURN CAP", detail };
-          notifyTurnCap(agentId, detail);
+          terminalAuxiliaryWrites.push((timeoutMs) =>
+            notifyTurnCap(agentId, detail, {}, timeoutMs)
+          );
           break;
         }
         const providerError = msg.subtype !== "success"
@@ -419,7 +422,9 @@ async function runDispatch(
         `stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`,
       );
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
-      notifyDeath(agentId, err, { thread: threadId });
+      terminalAuxiliaryWrites.push((timeoutMs) =>
+        notifyDeath(agentId, err, { thread: threadId }, timeoutMs)
+      );
     }
   } catch (err) {
     if (err instanceof ResourceEnvelopeExceededError) {
@@ -431,7 +436,9 @@ async function runDispatch(
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
-      notifyDeath(agentId, err, { thread: threadId });
+      terminalAuxiliaryWrites.push((timeoutMs) =>
+        notifyDeath(agentId, err, { thread: threadId }, timeoutMs)
+      );
     }
   } finally {
     stopFeed();
@@ -458,7 +465,9 @@ async function runDispatch(
     }
   }
   if (finalChildren.kind === "live") {
-    notifyEarlyExitChildren(agentId, finalChildren.live);
+    terminalAuxiliaryWrites.push((timeoutMs) =>
+      notifyEarlyExitChildren(agentId, finalChildren.live, {}, timeoutMs)
+    );
     const childDetail =
       `${finalChildren.live.length} live child(ren): ${finalChildren.live.join(",")}`;
     terminalSignal = terminalSignal.subject
@@ -533,6 +542,13 @@ async function runDispatch(
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
   const publicationBudget = new TerminalPublicationBudget();
+  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
+    writeAuxiliary(
+      publicationBudget.publicationTimeout(
+        terminalAuxiliaryWrites.length - index + 2,
+      ),
+    );
+  }
   const terminalPublication = writeAgentTerminal(
     agentId,
     terminal,

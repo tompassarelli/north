@@ -394,11 +394,25 @@ export function earlyExitCommands(
 
 // Emit the early-exit notification. Synchronous + fully swallowed (a finalizing lane
 // must never throw out of this), and a loud stderr line so it shows in the lane log.
-export function notifyEarlyExitChildren(agentId: string, liveIds: string[], ctx: EarlyExitCtx = {}): void {
+export function notifyEarlyExitChildren(
+  agentId: string,
+  liveIds: string[],
+  ctx: EarlyExitCtx = {},
+  timeoutMs = 10_000,
+): void {
   if (!liveIds.length) return;
+  const startedAt = performance.now();
   for (const { cmd, args } of earlyExitCommands(agentId, liveIds, ctx)) {
     try {
-      execFileSync(cmd, args, { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "ignore", "ignore"] });
+      const remaining = Math.max(
+        1,
+        Math.floor(timeoutMs - (performance.now() - startedAt)),
+      );
+      execFileSync(cmd, args, {
+        encoding: "utf8",
+        timeout: remaining,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
     } catch {
       /* best-effort */
     }

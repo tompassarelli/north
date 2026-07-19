@@ -272,6 +272,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   const window = stallMs();
   let stallAborted = false;
   let terminalSignal: Pick<TerminalNotification, "detail" | "subject"> = {};
+  const terminalAuxiliaryWrites: Array<(timeoutMs: number) => void> = [];
   // Background-task refusal (thread 019f4ed2): a lane that ends its turn while a
   // harness-tracked background Bash task is live must NOT finalize — the SDK
   // auto-continues the model on task settlement, but only if we keep the loop alive
@@ -378,7 +379,9 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
         const partial = result.trim() ? `partial: ${result.trim().slice(0, 200)}` : "no partial result";
         const detail = `${cap} — ${partial}`;
         terminalSignal = { subject: "TURN CAP", detail };
-        notifyTurnCap(agentId, detail);
+        terminalAuxiliaryWrites.push((timeoutMs) =>
+          notifyTurnCap(agentId, detail, {}, timeoutMs)
+        );
         break;
       }
       const providerError = msg.subtype !== "success"
@@ -487,7 +490,9 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
       `stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`,
     );
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
-    notifyDeath(agentId, err, { thread: undefined });
+    terminalAuxiliaryWrites.push((timeoutMs) =>
+      notifyDeath(agentId, err, { thread: undefined }, timeoutMs)
+    );
   }
   } catch (err) {
     if (err instanceof ResourceEnvelopeExceededError) {
@@ -499,7 +504,9 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
-      notifyDeath(agentId, err, { thread: undefined });
+      terminalAuxiliaryWrites.push((timeoutMs) =>
+        notifyDeath(agentId, err, { thread: undefined }, timeoutMs)
+      );
     }
   } finally {
     end(outcome); // idempotent: close the channel so the query + any leak unwinds
@@ -526,7 +533,9 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     }
   }
   if (finalChildren.kind === "live") {
-    notifyEarlyExitChildren(agentId, finalChildren.live);
+    terminalAuxiliaryWrites.push((timeoutMs) =>
+      notifyEarlyExitChildren(agentId, finalChildren.live, {}, timeoutMs)
+    );
     const childDetail =
       `${finalChildren.live.length} live child(ren): ${finalChildren.live.join(",")}`;
     terminalSignal = terminalSignal.subject
@@ -600,6 +609,13 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
   const publicationBudget = new TerminalPublicationBudget();
+  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
+    writeAuxiliary(
+      publicationBudget.publicationTimeout(
+        terminalAuxiliaryWrites.length - index + 2,
+      ),
+    );
+  }
   const terminalPublication = writeAgentTerminal(
     agentId,
     terminal,

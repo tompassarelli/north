@@ -38,7 +38,13 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "north-completion-"));
   log = join(dir, "north.log");
   const fake = join(dir, "north");
-  writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\nexit 0\n`);
+  writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${log}"
+case "$*" in
+  *test-terminal-aux-budget*agent_death*) sleep 5 ;;
+esac
+exit 0
+`);
   chmodSync(fake, 0o755);
   const fakeBb = join(dir, "bb");
   writeFileSync(fakeBb, `#!/usr/bin/env bash
@@ -439,6 +445,44 @@ test("a failed dispatch completion wake-up never replaces the execution outcome"
   ))).toHaveLength(1);
   const lines = await settledRunLines(agentId, "num_turns 1");
   expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
+});
+
+test("a blocked auxiliary terminal writer cannot stack beyond the shared publication budget", async () => {
+  const { dispatch } = await import("../src/dispatch");
+  process.env.NORTH_TERMINAL_PUBLICATION_BUDGET_MS = "100";
+  const runProbe = async (agentId: string) => {
+    writeFileSync(log, "");
+    const startedAt = performance.now();
+    await dispatch(`thread-${agentId}`, {
+      agentId,
+      routingMetadata: { role: "integrator" },
+      claimDriver: (() => ({ release() {} })) as any,
+      queryFn: () => (async function* () {
+        throw new Error("terminal auxiliary budget probe");
+      })(),
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Bound every terminal publication stage" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+      ],
+      loadChildren: () => [],
+    });
+    return {
+      elapsedMs: performance.now() - startedAt,
+      output: readFileSync(log, "utf8"),
+    };
+  };
+  try {
+    const control = await runProbe("test-terminal-aux-control");
+    const blocked = await runProbe("test-terminal-aux-budget");
+    expect(blocked.elapsedMs).toBeLessThan(1_500);
+    expect(blocked.elapsedMs - control.elapsedMs).toBeLessThan(350);
+    expect(blocked.output).toContain(
+      "tell @swarm agent_death test-terminal-aux-budget | terminal auxiliary budget probe",
+    );
+  } finally {
+    delete process.env.NORTH_TERMINAL_PUBLICATION_BUDGET_MS;
+  }
 });
 
 test("an MCP-preclaimed terminal thread verifies and safely releases before returning", async () => {

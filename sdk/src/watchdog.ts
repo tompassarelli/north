@@ -126,10 +126,19 @@ export function turnCapCommands(
 
 // Execute a command spec list. Synchronous + fully swallowed: notifying must never
 // throw out of a dying/stalling agent nor mask the original condition (like death.ts).
-function emit(cmds: Cmd[]): void {
+function emit(cmds: Cmd[], timeoutMs = 10_000): void {
+  const startedAt = performance.now();
   for (const { cmd, args } of cmds) {
     try {
-      execFileSync(cmd, args, { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "ignore", "ignore"] });
+      const remaining = Math.max(
+        1,
+        Math.floor(timeoutMs - (performance.now() - startedAt)),
+      );
+      execFileSync(cmd, args, {
+        encoding: "utf8",
+        timeout: remaining,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
     } catch { /* best-effort: telemetry outcome still records the condition */ }
   }
 }
@@ -139,7 +148,12 @@ export function notifyStall(agentId: string, mins: number, ctx: CoordCtx = {}): 
   console.error(`[stall] @agent:${agentId} silent ${mins}min — no SDK output`);
 }
 
-export function notifyTurnCap(agentId: string, note: string, ctx: CoordCtx = {}): void {
-  emit(turnCapCommands(agentId, note, ctx));
+export function notifyTurnCap(
+  agentId: string,
+  note: string,
+  ctx: CoordCtx = {},
+  timeoutMs = 10_000,
+): void {
+  emit(turnCapCommands(agentId, note, ctx), timeoutMs);
   console.error(`[turn-cap] @agent:${agentId} hit maxTurns — ${note}`);
 }
