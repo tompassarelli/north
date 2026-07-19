@@ -113,16 +113,18 @@ function normalizeComments(input: unknown): { comments: LinearRemoteComment[]; n
     assertWellFormedUnicode(comment.body, "Linear comment body");
     return { id, body: comment.body };
   });
-  if (raw.hasNextPage !== undefined && typeof raw.hasNextPage !== "boolean")
-    throw new Error("Linear list_comments hasNextPage must be boolean when present");
+  if (typeof raw.hasNextPage !== "boolean")
+    throw new Error("Linear list_comments must return a boolean hasNextPage");
   const cursors = [raw.cursor, raw.nextCursor]
     .filter((value) => value !== undefined && value !== null)
     .map((value) => normalizeLinearOpaqueToken("comment cursor", value as string, 4096));
-  if (new Set(cursors).size > 1)
-    throw new Error("Linear list_comments returned inconsistent cursor fields");
+  if (cursors.length > 1)
+    throw new Error("Linear list_comments returned more than one cursor field");
+  if (raw.hasNextPage ? cursors.length !== 1 : cursors.length !== 0)
+    throw new Error("Linear list_comments returned incoherent hasNextPage/cursor fields");
   return {
     comments, nextCursor: cursors[0],
-    hasNextPage: raw.hasNextPage === true,
+    hasNextPage: raw.hasNextPage,
   };
 }
 
@@ -157,17 +159,19 @@ async function allComments(
 function normalizeIssueList(input: unknown): { issues: LinearIssueDocument[]; nextCursor?: string; hasNextPage: boolean } {
   const raw = record(input, "Linear list_issues result");
   if (!Array.isArray(raw.issues)) throw new Error("Linear list_issues result lacks issues");
-  if (raw.hasNextPage !== undefined && typeof raw.hasNextPage !== "boolean")
-    throw new Error("Linear list_issues hasNextPage must be boolean when present");
+  if (typeof raw.hasNextPage !== "boolean")
+    throw new Error("Linear list_issues must return a boolean hasNextPage");
   const cursors = [raw.cursor, raw.nextCursor]
     .filter((value) => value !== undefined && value !== null)
     .map((value) => normalizeLinearOpaqueToken("issue cursor", value as string, 4096));
-  if (new Set(cursors).size > 1)
-    throw new Error("Linear list_issues returned inconsistent cursor fields");
+  if (cursors.length > 1)
+    throw new Error("Linear list_issues returned more than one cursor field");
+  if (raw.hasNextPage ? cursors.length !== 1 : cursors.length !== 0)
+    throw new Error("Linear list_issues returned incoherent hasNextPage/cursor fields");
   return {
     issues: raw.issues.map(normalizeLinearIssueDocument),
     nextCursor: cursors[0],
-    hasNextPage: raw.hasNextPage === true,
+    hasNextPage: raw.hasNextPage,
   };
 }
 
@@ -1125,6 +1129,7 @@ async function applyOperation(
   now: Date,
   onConfirmed?: (manifest: LinearSyncManifest) => LinearSyncManifest,
   baselineAfter?: LinearApplyPlan["expectedBaseline"],
+  expectedRemoteIssue?: LinearIssueDocument,
 ): Promise<{ remoteId: string; manifest: LinearSyncManifest }> {
   const common = {
     key, kind, payloadHash: sha256Canonical(payload), startedAt: now.toISOString(),
@@ -1174,6 +1179,14 @@ async function applyOperation(
       method: "save_comment",
       arguments: payload,
     });
+  if (kind === "issue") {
+    if (!expectedRemoteIssue)
+      throw new Error("Linear issue intent requires its planned remote precondition");
+    await lease.renew();
+    const freshRemoteIssue = await readRemoteIssue(gateway, link, lease);
+    if (canonicalJson(freshRemoteIssue) !== canonicalJson(expectedRemoteIssue))
+      throw new Error("Linear issue changed after planning; refusing stale save_issue payload");
+  }
   const prepared: LinearSyncManifest = { ...manifest, pending };
   await lease.renew();
   await writeManifest(graph, lease, link, prepared);
@@ -1293,6 +1306,7 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
           evidence: { ...manifest.evidence, markerBound: true, adoptRawDescription: false },
         } : manifest,
         planned.plan.expectedBaseline,
+        planned.issue,
       );
       manifest = applied.manifest;
       writes++;

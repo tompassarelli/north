@@ -2,6 +2,7 @@ import type {
   McpAccess, McpBroker, McpBrokerOpenOptions, McpBrokerSession, McpServerInventory,
   McpToolDefinition, McpToolResult, ModelFreeTransportReceipt,
 } from "./mcp-broker";
+import fastUri from "fast-uri";
 import { canonicalJson, normalizeLinearConnector, normalizeLinearRemoteKey } from "./normalize";
 import { parseStrictJson } from "../../strict-json";
 
@@ -79,7 +80,12 @@ const SUPPORTED_SCHEMA_ASSERTIONS = new Set([
   "minLength", "maxLength",
   "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
   "minProperties", "maxProperties",
+  "format",
 ]);
+const SUPPORTED_SCHEMA_FORMATS = new Set(["uri"]);
+const MAX_SCHEMA_URI_BYTES = 16 * 1024;
+const ABSOLUTE_ASCII_URI
+  = /^[A-Za-z][A-Za-z0-9+.-]*:(?:[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=-]|%[0-9A-Fa-f]{2})*$/;
 
 function nonnegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -107,6 +113,10 @@ function assertSupportedSchema(schema: unknown, path: string): void {
   if (schema.enum !== undefined
       && (!Array.isArray(schema.enum) || !schema.enum.length))
     throw new Error(`Linear MCP schema at ${path}.enum is invalid`);
+  if (schema.format !== undefined
+      && (typeof schema.format !== "string"
+        || !SUPPORTED_SCHEMA_FORMATS.has(schema.format)))
+    throw new Error(`Linear MCP schema at ${path}.format is unsupported`);
   for (const key of ["anyOf", "oneOf", "allOf"] as const) {
     const alternatives = schema[key];
     if (alternatives === undefined) continue;
@@ -279,6 +289,16 @@ function schemaMatches(schema: unknown, value: unknown, path: string): boolean {
   }
 }
 
+function assertSchemaUri(value: string, path: string): void {
+  if (Buffer.byteLength(value, "utf8") > MAX_SCHEMA_URI_BYTES
+      || !ABSOLUTE_ASCII_URI.test(value)) {
+    throw new Error(`Linear MCP argument ${path} is not a valid absolute URI`);
+  }
+  const parsed = fastUri.parse(value, { unicodeSupport: false, tolerant: false });
+  if (parsed.error || !parsed.scheme)
+    throw new Error(`Linear MCP argument ${path} is not a valid absolute URI`);
+}
+
 function validateValue(schema: unknown, value: unknown, path: string): void {
   if (schema === true) return;
   if (schema === false)
@@ -309,6 +329,7 @@ function validateValue(schema: unknown, value: unknown, path: string): void {
       throw new Error(`Linear MCP argument ${path} is shorter than minLength ${schema.minLength}`);
     if (typeof schema.maxLength === "number" && length > schema.maxLength)
       throw new Error(`Linear MCP argument ${path} is longer than maxLength ${schema.maxLength}`);
+    if (schema.format === "uri") assertSchemaUri(value, path);
   }
   if (typeof value === "number" && Number.isFinite(value)) {
     if (typeof schema.minimum === "number" && value < schema.minimum)

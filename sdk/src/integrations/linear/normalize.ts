@@ -99,9 +99,37 @@ export function normalizeLinearUuid(name: string, value: Nullable<string>): stri
 
 export function canonicalLinearInstant(value: Nullable<string>, name: string): string {
   const exact = normalizeLinearOpaqueToken(name, value, 128);
+  const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,9}))?(Z|([+-])([0-9]{2}):([0-9]{2}))$/.exec(exact);
+  if (!match)
+    throw new Error(`Linear ${name} is not a valid RFC3339 instant`);
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw,
+    fraction = "", zone, , offsetHourRaw, offsetMinuteRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const second = Number(secondRaw);
+  const offsetHour = Number(offsetHourRaw ?? 0);
+  const offsetMinute = Number(offsetMinuteRaw ?? 0);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [
+    31, leap ? 29 : 28, 31, 30, 31, 30,
+    31, 31, 30, 31, 30, 31,
+  ];
+  if (month < 1 || month > 12
+      || day < 1 || day > monthDays[month - 1]!
+      || hour > 23 || minute > 59 || second > 59
+      || (zone !== "Z"
+        && (offsetHour > 14 || offsetMinute > 59
+          || (offsetHour === 14 && offsetMinute !== 0)))) {
+    throw new Error(`Linear ${name} is not a valid RFC3339 instant`);
+  }
+  if (fraction.length > 3 && /[1-9]/.test(fraction.slice(3)))
+    throw new Error(`Linear ${name} has unsupported sub-millisecond precision`);
   const parsed = Date.parse(exact);
   if (!Number.isFinite(parsed))
-    throw new Error(`Linear ${name} is not a valid timestamp`);
+    throw new Error(`Linear ${name} is not a valid RFC3339 instant`);
   return new Date(parsed).toISOString();
 }
 

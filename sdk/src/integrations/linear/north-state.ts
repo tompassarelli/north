@@ -766,15 +766,15 @@ function authorityFromLinearUrl(input: string): LinearUrlAuthority {
   normalizeLinearOpaqueToken("issue URL", input, 4096);
   let url: URL;
   try { url = new URL(input); }
-  catch { throw new Error(`Linear issue URL is invalid: ${JSON.stringify(input)}`); }
+  catch { throw new Error("Linear issue URL is invalid"); }
   if (url.protocol !== "https:" || url.hostname !== "linear.app"
       || url.username || url.password || url.port) {
-    throw new Error(`Linear issue URL does not identify a linear.app workspace: ${input}`);
+    throw new Error("Linear issue URL does not identify a linear.app workspace");
   }
   const segments = url.pathname.split("/");
   const workspace = segments[1];
   if (!workspace || workspace.includes("%") || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(workspace))
-    throw new Error(`Linear issue URL has a malformed or encoded workspace slug: ${input}`);
+    throw new Error("Linear issue URL has a malformed or encoded workspace slug");
   const normalizedWorkspace = normalizeLinearOpaqueToken(
     "workspace slug",
     workspace,
@@ -783,7 +783,7 @@ function authorityFromLinearUrl(input: string): LinearUrlAuthority {
   if (segments[2] !== "issue") return { workspace: normalizedWorkspace };
   const issueSegment = segments[3];
   if (!issueSegment || issueSegment.includes("%"))
-    throw new Error(`Linear issue URL has a malformed or encoded issue identifier: ${input}`);
+    throw new Error("Linear issue URL has a malformed or encoded issue identifier");
   return {
     workspace: normalizedWorkspace,
     issueIdentifier: normalizeLinearRemoteKey(issueSegment),
@@ -813,7 +813,11 @@ export interface LinearIssueDocument {
 /** Normalize the live top-level get_issue payload. */
 export function normalizeLinearIssueDocument(input: unknown): LinearIssueDocument {
   let raw = asRecord(input, "Linear get_issue result");
-  if (raw.issue !== undefined) raw = asRecord(raw.issue, "Linear get_issue issue");
+  if (raw.issue !== undefined) {
+    if (Object.keys(raw).length !== 1)
+      throw new Error("Linear get_issue wrapper contains ambiguous outer authority");
+    raw = asRecord(raw.issue, "Linear get_issue issue");
+  }
   const url = normalizeLinearOpaqueToken(
     "issue URL",
     requiredContentString(raw, "url"),

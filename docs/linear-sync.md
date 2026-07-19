@@ -178,7 +178,14 @@ thread once. The exact description hash is recorded. The first apply consumes
 that unchanged description into one managed block, rather than appending a
 duplicate copy. If the description changed between import and first apply, or
 already contains an unowned North marker, synchronization stops as a conflict.
-After adoption, text outside the managed block is preserved byte-for-byte.
+After adoption, a payload is constructed by preserving text outside the
+managed block byte-for-byte from the remote snapshot. Immediately before
+persisting write intent, apply re-reads the issue and refuses the prepared
+payload if that normalized snapshot changed. Linear's `save_issue` surface does
+not expose a version/`updatedAt` compare-and-set condition, so an edit arriving
+after that final read but before the save can still race and be overwritten.
+The bridge narrows and reports the detectable interval; it cannot claim
+provider-side write exclusion that Linear does not supply.
 
 ## Conflicts and recovery
 
@@ -317,10 +324,12 @@ confirmation reads only the issue, and a structurally validated successful
 reserved for lost, malformed, or otherwise unknown comment-write responses, so
 multi-comment applies do not repeatedly download the growing corpus.
 
-Remote edits inside North-owned fields are reported as drift/divergence; they
-are never timestamp-resolved or overwritten partially. Inspect with `north
-linear plan <thread>`. Resolve the conflict deliberately in North or Linear,
-then plan again. `north linear doctor` reports OAuth/tool readiness and ensures
-the graph's adapter-owned schema-as-facts metadata is seeded. This local
-bootstrap is the only doctor mutation; it never writes Linear or starts a model
-turn.
+Remote edits observed during planning or the immediate pre-write re-read are
+reported as drift/divergence; they are never timestamp-resolved or partially
+merged. Inspect with `north linear plan <thread>`. Resolve the conflict
+deliberately in North or Linear, then plan again. Because Linear exposes no
+conditional save, the final read-to-save interval remains an explicit residual
+race rather than a false guarantee. `north linear doctor` reports OAuth/tool
+readiness and ensures the graph's adapter-owned schema-as-facts metadata is
+seeded. This local bootstrap is the only doctor mutation; it never writes
+Linear or starts a model turn.

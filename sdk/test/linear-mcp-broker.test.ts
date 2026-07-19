@@ -38,6 +38,18 @@ function toolSchemas() {
         properties: {
           id: { type: "string" }, title: { type: "string" }, description: { type: "string" }, team: { type: "string" },
           labels: { type: "array", items: { type: "string" } },
+          links: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                url: { type: "string", format: "uri" },
+              },
+              required: ["url"],
+              additionalProperties: false,
+            },
+          },
         },
         additionalProperties: false,
       },
@@ -522,6 +534,49 @@ test("audits the live schema dialect and rejects violated constraints before dis
   expect(requests(constrainedHarness.log)
     .filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(0);
   expect(gateway.transportReceipt().mcpCalls).toEqual([]);
+  await gateway.close();
+});
+
+test("implements the live nested URI format and rejects unknown formats before dispatch", async () => {
+  const unknown = linearServer();
+  const unknownUrl = (((unknown.tools.save_issue.inputSchema.properties as
+    Record<string, any>).links.items.properties) as Record<string, any>).url;
+  unknownUrl.format = "uri-reference";
+  const unknownHarness = harness({ servers: [unknown] });
+  await expect(openLinearGateway(unknownHarness.broker))
+    .rejects.toThrow("format is unsupported");
+  expect(requests(unknownHarness.log)
+    .filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(0);
+
+  const accepted = harness({ servers: [linearServer()] });
+  const gateway = await openLinearGateway(accepted.broker);
+  for (const url of [
+    "https://linear.app/acme/issue/MSA-236",
+    "http://example.com/a?b=c#fragment",
+    "mailto:owner@example.com",
+    "urn:isbn:0451450523",
+  ]) {
+    await gateway.writeIssue({
+      id: "MSA-236",
+      links: [{ label: "North", url }],
+    });
+  }
+  const dispatched = requests(accepted.log)
+    .filter(({ method }) => method === "mcpServer/tool/call").length;
+  for (const url of [
+    "relative/path",
+    "https://example.com/%ZZ",
+    "https://example.com/space here",
+    "https://example.com/\u0001",
+    "https://example.com/café",
+  ]) {
+    await expect(gateway.writeIssue({
+      id: "MSA-236",
+      links: [{ label: "North", url }],
+    })).rejects.toThrow("not a valid absolute URI");
+  }
+  expect(requests(accepted.log)
+    .filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(dispatched);
   await gateway.close();
 });
 

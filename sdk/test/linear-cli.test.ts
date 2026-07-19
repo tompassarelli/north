@@ -375,6 +375,7 @@ class FakeGateway implements LinearGateway {
   infiniteIssuePages = false;
   oversizedIssueCandidates = false;
   duplicateIssueKey = false;
+  issuePaginationFault?: "terminal-cursor" | "missing-cursor";
   issuePageCalls = 0;
   issueReadCalls = 0;
   issueListCalls = 0;
@@ -382,6 +383,7 @@ class FakeGateway implements LinearGateway {
   malformedComment?: "blank-id" | "non-string-body";
   duplicateCommentAcrossPages = false;
   inconsistentCommentCursor = false;
+  commentPaginationFault?: "terminal-cursor" | "missing-cursor";
   prepareWriteFailure?: string;
   dispatchWriteFailure?: string;
   closeFailure?: string;
@@ -448,6 +450,10 @@ class FakeGateway implements LinearGateway {
   }
   async listIssues(): Promise<unknown> {
     this.issueListCalls++;
+    if (this.issuePaginationFault === "terminal-cursor")
+      return { issues: [], hasNextPage: false, nextCursor: "unexpected-terminal-cursor" };
+    if (this.issuePaginationFault === "missing-cursor")
+      return { issues: [], hasNextPage: true };
     if (this.infiniteIssuePages) {
       const page = ++this.issuePageCalls;
       return { issues: [], hasNextPage: true, nextCursor: `issues-${page}` };
@@ -485,6 +491,10 @@ class FakeGateway implements LinearGateway {
   }
   async listComments(args: Record<string, unknown> = {}): Promise<unknown> {
     this.commentReadCalls++;
+    if (this.commentPaginationFault === "terminal-cursor")
+      return { comments: [], hasNextPage: false, nextCursor: "unexpected-terminal-cursor" };
+    if (this.commentPaginationFault === "missing-cursor")
+      return { comments: [], hasNextPage: true };
     if (this.malformedComment === "blank-id")
       return { comments: [{ id: " ", body: "managed-looking" }], hasNextPage: false };
     if (this.malformedComment === "non-string-body")
@@ -1020,13 +1030,69 @@ test("provider timestamps canonicalize equivalent instants and reject invalid ev
     reused: true,
   });
 
-  const invalid = harness();
-  invalid.gateway.issue.createdAt = "not-an-instant";
-  await expect(runLinearCommand(["import", "MSA-236"], invalid.dependencies))
-    .rejects.toThrow("createdAt is not a valid timestamp");
-  expect(invalid.graph.writes).toHaveLength(0);
-  expect(invalid.gateway.issueWrites).toBe(0);
-  expect(invalid.gateway.commentWrites).toBe(0);
+  h.gateway.issue.createdAt = "2026-07-16T14:08:20.639000Z";
+  const zeroPrecision = await runLinearCommand(["import", "MSA-236"], h.dependencies) as {
+    link: string; thread: string;
+  };
+  expect(zeroPrecision).toMatchObject({ link: first.link, thread: first.thread });
+
+  for (const timestamp of [
+    "not-an-instant",
+    "0",
+    "1/2/03",
+    "2026-07-19",
+    "2026-07-19T12:00:00",
+    "2026-07-19 12:00:00Z",
+    "2026-02-29T12:00:00Z",
+    "2026-07-19T24:00:00Z",
+    "2026-07-19T12:00:60Z",
+    "2026-07-19T12:00:00+14:01",
+    "2026-07-19T12:00:00+15:00",
+    "2026-07-19T12:00:00.1234Z",
+  ]) {
+    const invalid = harness();
+    invalid.gateway.issue.createdAt = timestamp;
+    await expect(runLinearCommand(["import", "MSA-236"], invalid.dependencies))
+      .rejects.toThrow(/valid RFC3339 instant|unsupported sub-millisecond precision/);
+    expect(invalid.graph.writes).toHaveLength(0);
+    expect(invalid.leases.requestedResources).toHaveLength(0);
+    expect(invalid.gateway.issueWrites).toBe(0);
+    expect(invalid.gateway.commentWrites).toBe(0);
+  }
+
+  const modulePath = resolve(
+    import.meta.dir,
+    "../src/integrations/linear/north-state.ts",
+  );
+  const script = `
+    import { bootstrapEvidenceSubject } from ${JSON.stringify(modulePath)};
+    process.stdout.write(bootstrapEvidenceSubject({
+      connector: "linear-test",
+      createdAt: "2026-07-16T10:08:20.639-04:00",
+      initialKey: "MSA-236",
+    }));
+  `;
+  const subjectInTimezone = async (timezone: string): Promise<string> => {
+    const child = Bun.spawn([process.execPath, "-e", script], {
+      env: { ...process.env, TZ: timezone },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, exit] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(stderr).toBe("");
+    expect(exit).toBe(0);
+    return stdout;
+  };
+  const timezoneSubjects = await Promise.all([
+    subjectInTimezone("UTC"),
+    subjectInTimezone("America/New_York"),
+    subjectInTimezone("Asia/Taipei"),
+  ]);
+  expect(new Set(timezoneSubjects).size).toBe(1);
 });
 
 test("bootstrap-v2 collisions fail closed until an exact managed marker proves reuse", async () => {
@@ -2882,9 +2948,27 @@ test("authority intake rejects contradictory or ambiguous identity before reserv
     } as any;
   }, "teamId and team.id disagree");
   await rejectsBeforeReservation((candidate) => {
-    candidate.gateway.issue.url =
-      "https://user:password@linear.app/msa-team/issue/MSA-236/x";
-  }, "does not identify a linear.app workspace");
+    candidate.gateway.issue = {
+      issue: candidate.gateway.issue,
+      id: "OUTER-AUTHORITY-SENTINEL",
+    } as any;
+  }, "wrapper contains ambiguous outer authority");
+
+  const credential = harness();
+  const passwordSentinel = "password-sentinel-do-not-log";
+  credential.gateway.issue.url =
+    `https://user:${passwordSentinel}@linear.app/msa-team/issue/MSA-236/x`;
+  try {
+    await runLinearCommand(["import", "MSA-236"], credential.dependencies);
+    throw new Error("expected credential-bearing Linear URL rejection");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("does not identify a linear.app workspace");
+    expect(String(error)).not.toContain(passwordSentinel);
+  }
+  expect(credential.graph.writes).toHaveLength(0);
+  expect(credential.leases.requestedResources).toHaveLength(0);
+
   await rejectsBeforeReservation((candidate) => {
     candidate.gateway.issue.url =
       "https://linear.app:444/msa-team/issue/MSA-236/x";
@@ -2946,6 +3030,32 @@ test("prepared dispatch keeps live-schema rejection pre-intent and transport fai
     .toMatchObject({ kind: "issue" });
 });
 
+test("apply re-reads the issue immediately before intent and refuses a stale payload", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await runLinearCommand(["sync", thread, "--apply"], h.dependencies);
+  h.graph.replace(thread, "body", "North body changed after adoption");
+  const link = (await h.graph.show(thread))
+    .find(({ predicate }) => predicate === "linear_link")!.value.replace(/^@/, "");
+  const writesBefore = h.graph.writes.length;
+  const issueWritesBefore = h.gateway.issueWrites;
+  let injected = false;
+  h.gateway.afterIssueRead = () => {
+    if (injected) return;
+    injected = true;
+    h.gateway.issue.description += "\n\nConcurrent unmanaged Linear edit";
+  };
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("issue changed after planning");
+  expect(injected).toBe(true);
+  expect(h.gateway.issueWrites).toBe(issueWritesBefore);
+  expect(h.graph.writes).toHaveLength(writesBefore);
+  expect(JSON.parse((await h.graph.show(link))
+    .find(({ predicate }) => predicate === "sync_manifest")!.value).pending)
+    .toBeUndefined();
+});
+
 test("comment ids and cursors are exact and globally consistent across pages", async () => {
   const duplicate = harness();
   const duplicateThread = await importThread(duplicate);
@@ -2957,7 +3067,30 @@ test("comment ids and cursors are exact and globally consistent across pages", a
   const cursorThread = await importThread(cursor);
   cursor.gateway.inconsistentCommentCursor = true;
   await expect(runLinearCommand(["plan", cursorThread], cursor.dependencies))
-    .rejects.toThrow("inconsistent cursor");
+    .rejects.toThrow("more than one cursor field");
+});
+
+test("issue and comment pagination require coherent explicit terminal state", async () => {
+  for (const fault of ["terminal-cursor", "missing-cursor"] as const) {
+    const comments = harness();
+    const commentThread = await importThread(comments);
+    comments.gateway.commentPaginationFault = fault;
+    await expect(runLinearCommand(["plan", commentThread], comments.dependencies))
+      .rejects.toThrow("incoherent hasNextPage/cursor fields");
+
+    const issues = harness();
+    const issueThread = await importThread(issues);
+    await runLinearCommand(["sync", issueThread, "--apply"], issues.dependencies);
+    issues.gateway.issue = {
+      ...issues.gateway.issue,
+      id: "NEW-1",
+      url: "https://linear.app/msa-team/issue/NEW-1/mechanical-linear-bridge",
+    };
+    issues.gateway.rejectOldKey = true;
+    issues.gateway.issuePaginationFault = fault;
+    await expect(runLinearCommand(["plan", issueThread], issues.dependencies))
+      .rejects.toThrow("incoherent hasNextPage/cursor fields");
+  }
 });
 
 test("schema bootstrap reinspection refuses a concurrent conflicting value", async () => {
