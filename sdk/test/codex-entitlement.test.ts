@@ -241,7 +241,6 @@ test("different Codex targets refresh concurrently with disjoint state and obser
   temporary.push(home);
   process.env.HOME = home;
   process.env.FAKE_CODEX_RESPONSES = JSON.stringify(responses());
-  process.env.FAKE_CODEX_DELAY_MS = "60";
   const storePath = join(home, "observations.json");
   const policy = {
     mode: "preferential" as const,
@@ -254,14 +253,27 @@ test("different Codex targets refresh concurrently with disjoint state and obser
     targetOrder: ["codex-one", "codex-two"],
   };
   const calls: Array<{ args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
+  const launched: ReturnType<typeof spawn>[] = [];
   let active = 0;
   let maxActive = 0;
   const spawnProcess = ((command: string, args: readonly string[], options: any) => {
     calls.push({ args, env: options.env });
     active++;
     maxActive = Math.max(maxActive, active);
-    const child = spawn(command, args, options);
+    const child = spawn(command, args, {
+      ...options,
+      env: { ...options.env, FAKE_CODEX_BARRIER_FD: "3" },
+      stdio: ["pipe", "pipe", "pipe", "pipe"],
+    });
+    launched.push(child);
     child.once("exit", () => { active--; });
+    if (launched.length === policy.targets.length) {
+      for (const participant of launched) {
+        const release = participant.stdio[3] as NodeJS.WritableStream | null;
+        if (!release) throw new Error("missing fake Codex release pipe");
+        release.end(Buffer.from([1]));
+      }
+    }
     return child;
   }) as typeof spawn;
   const observed = await refreshCodexEntitlementsIfStale({
