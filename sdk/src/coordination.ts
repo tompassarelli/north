@@ -11,7 +11,7 @@ import { parseStrictJson } from "./strict-json";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const LIVE_FEED = `${REPO}/cli/north-live-feed.clj`;
-const PORT = process.env.NORTH_PORT ?? "7977";
+const DEFAULT_PORT = "7977";
 const LIVE_FEED_PROTOCOL = "north-live-feed-v1";
 const DEFAULT_FEED_FRAME_BYTES = 192 * 1024;
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
@@ -94,6 +94,8 @@ export interface SubscriptionRuntime {
   spawn?: typeof procSpawn;
   /** Test injection. Production must use the wrapper-owned Nix-store selector. */
   bbExecutable?: string;
+  /** Test injection. Production resolves the coordinator port from NORTH_PORT at spawn time. */
+  port?: string;
   schedule?: (callback: () => void, delayMs: number) => unknown;
   cancel?: (timer: unknown) => void;
   now?: () => number;
@@ -513,6 +515,9 @@ function subscribeFeedMode(
   const bbExecutable = peerBabashkaExecutable(
     runtime.bbExecutable ?? process.env.NORTH_PEER_BB,
   );
+  // Resolve at spawn time so a per-lane / restarted coordinator port is honored,
+  // and so hermetic suites pin it deterministically instead of racing ambient env.
+  const feedPort = runtime.port ?? process.env.NORTH_PORT ?? DEFAULT_PORT;
   const schedule = runtime.schedule
     ?? ((callback: () => void, delayMs: number) => setTimeout(callback, delayMs));
   const cancel = runtime.cancel
@@ -600,7 +605,7 @@ function subscribeFeedMode(
     try {
       child = spawn(bbExecutable, [
         LIVE_FEED,
-        PORT,
+        feedPort,
         self,
         "--ack-timeout-ms",
         String(LIVE_FEED_ACK_TIMEOUT_MS),

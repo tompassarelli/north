@@ -69,6 +69,7 @@ function harness(options: {
       return child;
     }) as any,
     bbExecutable: trustedBb,
+    port: "7977",
     schedule: (callback: () => void, delayMs: number) => {
       const timer: FakeTimer = {
         callback: () => {
