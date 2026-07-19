@@ -928,6 +928,7 @@ interface HarnessAuthoritySeal {
   allowedTools: unknown;
   disallowedTools?: unknown;
   settingSources?: unknown;
+  settings?: unknown;
   strictMcpConfig?: unknown;
   permissionMode?: unknown;
   agentId: string;
@@ -981,6 +982,7 @@ function sealHarnessAuthority(options: Options, provider: ProviderId): void {
     allowedTools: raw.allowedTools,
     disallowedTools: raw.disallowedTools,
     settingSources: raw.settingSources,
+    settings: raw.settings,
     strictMcpConfig: raw.strictMcpConfig,
     permissionMode: raw.permissionMode,
     agentId: raw.env.AGENT_ID,
@@ -1019,6 +1021,7 @@ export function hasCanonicalHarnessAuthority(options: Options, provider: Provide
     && raw.allowedTools === seal.allowedTools
     && raw.disallowedTools === seal.disallowedTools
     && raw.settingSources === seal.settingSources
+    && raw.settings === seal.settings
     && raw.strictMcpConfig === seal.strictMcpConfig
     && raw.permissionMode === seal.permissionMode
     && raw.env.AGENT_ID === seal.agentId
