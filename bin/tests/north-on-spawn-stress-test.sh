@@ -5,6 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 HOOK="$ROOT/bin/north-on-spawn"
+ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
 trap 'jobs -pr | xargs -r kill 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
@@ -118,6 +119,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 print(re.search(r'you are agent "([^"]+)"', context).group(1))
 PY
 }
+session_key() { "$ACTOR_KEY" session "$1"; }
 
 echo "== fresh normal startup emits context without waiting for maintenance =="
 XDG_FAST="$TMP/xdg-fast"
@@ -134,7 +136,8 @@ check "fresh maintenance completes" await_locks "$XDG_FAST"
 fast_id="$(context_id "$OUT_FAST")"
 check "eventual projection uses the context identity" grep -Fxq "$fast_id" "$STATE/projections.log"
 check "eventual presence uses the context identity" grep -Fxq "$fast_id" "$STATE/presences.log"
-check "route cache commits after successful projection" test -s "$XDG_FAST/north-agent-routes/cold0001"
+COLD_KEY="$(session_key cold0001)"
+check "route cache commits after successful projection" test -s "$XDG_FAST/north-agent-routes/$COLD_KEY"
 
 echo "== 20MB hook envelope stays bounded =="
 XDG_LARGE="$TMP/xdg-large"
@@ -274,11 +277,12 @@ elapsed=$(( $(date +%s%3N) - t0 ))
 check "delayed startup exits zero" test "$rc" -eq 0
 check "delayed startup returns under 1s with workers live (${elapsed}ms)" test "$elapsed" -lt 1000
 check "delayed startup still emits valid context JSON" valid_context_json "$OUT_SLOW"
-check "identity seed remains available for PostToolUse repair" test -s "$XDG_SLOW/north-agent-routes/slow0001.seed"
+SLOW_KEY="$(session_key slow0001)"
+check "identity seed remains available for PostToolUse repair" test -s "$XDG_SLOW/north-agent-routes/$SLOW_KEY.seed"
 sleep 6.5
 check "delayed maintenance processes are deadline-killed" test -z "$(find "$STATE" -name 'live-*' -print -quit)"
 check "delayed maintenance removes its singleflight lock" test -z "$(find "$XDG_SLOW" -type d -name '*.lock' -print -quit)"
-check "failed projection does not commit the route cache" test ! -e "$XDG_SLOW/north-agent-routes/slow0001"
+check "failed projection does not commit the route cache" test ! -e "$XDG_SLOW/north-agent-routes/$SLOW_KEY"
 
 echo "== rejected projection preserves seed but never claims convergence =="
 XDG_REJECT="$TMP/xdg-reject"
@@ -286,8 +290,9 @@ OUT_REJECT="$TMP/reject.out"
 run_hook "$XDG_REJECT" reject reject01 SessionStart "" "" "$OUT_REJECT"
 check "rejected startup still emits valid context JSON" valid_context_json "$OUT_REJECT"
 check "rejected maintenance completes" await_locks "$XDG_REJECT"
-check "rejected projection preserves exact observation seed" test -s "$XDG_REJECT/north-agent-routes/reject01.seed"
-check "rejected projection leaves route cache absent" test ! -e "$XDG_REJECT/north-agent-routes/reject01"
+REJECT_KEY="$(session_key reject01)"
+check "rejected projection preserves exact observation seed" test -s "$XDG_REJECT/north-agent-routes/$REJECT_KEY.seed"
+check "rejected projection leaves route cache absent" test ! -e "$XDG_REJECT/north-agent-routes/$REJECT_KEY"
 
 echo "== completed context survives an inner post-emit stall =="
 STALL_SHIM="$TMP/stall-shim"

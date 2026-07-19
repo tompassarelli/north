@@ -8,6 +8,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 HOOK="$ROOT/bin/north-on-tooluse"
+ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
 trap 'jobs -pr | xargs -r kill 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
@@ -82,6 +83,7 @@ run_hook() {
     HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE="$mode" AGENT_PROVIDER=openai \
     bash "$HOOK" >"$out" 2>/dev/null
 }
+session_key() { "$ACTOR_KEY" session "$1"; }
 
 await_locks() {
   local xdg="$1"
@@ -104,8 +106,9 @@ elapsed=$(( $(date +%s%3N) - t0 ))
 check "cold hook exits zero" test "$rc" -eq 0
 check "cold healthy hook completes under 1s (${elapsed}ms)" test "$elapsed" -lt 1000
 check "background maintenance completes" await_locks "$XDG_FAST"
-check "route convergence cache committed" test -s "$XDG_FAST/north-agent-routes/cold-fast-0001"
-check "presence throttle marker committed" test -s "$XDG_FAST/north-presence-renew/session-project-cold-fas"
+COLD_KEY="$(session_key cold-fast-0001)"
+check "route convergence cache committed" test -s "$XDG_FAST/north-agent-routes/$COLD_KEY"
+check "presence throttle marker committed" test -s "$XDG_FAST/north-presence-renew/$COLD_KEY"
 
 echo "== 20MB envelope is parsed once, not once per field =="
 XDG_LARGE="$TMP/xdg-large"
@@ -241,16 +244,17 @@ check "worker deadlines remove their singleflight locks" test -z "$(find "$XDG_S
 
 echo "== stale locks recover and a concurrent cold burst does not duplicate workers =="
 XDG_STALE="$TMP/xdg-stale"
-mkdir -p "$XDG_STALE/north-agent-routes/stale-lo.repair.lock"
-mkdir -p "$XDG_STALE/north-presence-renew/session-project-stale-lo.lock"
+STALE_KEY="$(session_key stale-lo)"
+mkdir -p "$XDG_STALE/north-agent-routes/$STALE_KEY.repair.lock"
+mkdir -p "$XDG_STALE/north-presence-renew/$STALE_KEY.lock"
 touch -d '20 seconds ago' \
-  "$XDG_STALE/north-agent-routes/stale-lo.repair.lock" \
-  "$XDG_STALE/north-presence-renew/session-project-stale-lo.lock"
+  "$XDG_STALE/north-agent-routes/$STALE_KEY.repair.lock" \
+  "$XDG_STALE/north-presence-renew/$STALE_KEY.lock"
 : >"$STATE/starts.log"
 run_hook "$XDG_STALE" fast stale-lo "$TMP/stale.out"
 check "stale-lock repair completes" await_locks "$XDG_STALE"
-check "stale route lock is reclaimed and cache commits" test -s "$XDG_STALE/north-agent-routes/stale-lo"
-check "stale renewal lock is reclaimed and marker commits" test -s "$XDG_STALE/north-presence-renew/session-project-stale-lo"
+check "stale route lock is reclaimed and cache commits" test -s "$XDG_STALE/north-agent-routes/$STALE_KEY"
+check "stale renewal lock is reclaimed and marker commits" test -s "$XDG_STALE/north-presence-renew/$STALE_KEY"
 
 XDG_BURST="$TMP/xdg-burst"
 mkdir -p "$XDG_BURST"
@@ -286,18 +290,19 @@ with open(port_file, "w") as f:
     f.write(str(server.getsockname()[1]))
 
 steps = [
-    ((':op :query', '"to" "flush-agent"'),
-     '{:ok [["@msg:flush-proof"]]}'),
-    ((':op :query', '"broadcast_to" "flush-agent"', '"to" "*"'),
-     '{:ok []}'),
-    ((':op :query', '"acked_by" "flush-agent"'),
-     '{:ok []}'),
+    ((':op :query-page', ':limit 3', ':after nil',
+      '"to" "flush-agent"', '"delivery_rejected_by" "flush-agent"'),
+     '{:ok [["@msg:flush-proof"]] :more false :next nil :version 1 :engine "scan"}'),
     ((':op :resolved', ':te "@msg:flush-proof"', ':p "acked_by"'),
+     '{:values []}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "delivery_rejected_by"'),
      '{:values []}'),
     ((':op :acquire-lease', ':res "message-delivery:',
       ':holder "message-consumer:flush-agent:'),
      '{:ok true :epoch 1}'),
     ((':op :resolved', ':te "@msg:flush-proof"', ':p "acked_by"'),
+     '{:values []}'),
+    ((':op :resolved', ':te "@msg:flush-proof"', ':p "delivery_rejected_by"'),
      '{:values []}'),
     ((':op :resolved', ':te "@msg:flush-proof"', ':p "from"'),
      '{:value "peer"}'),
@@ -347,13 +352,15 @@ server_pid=$!
 for _ in $(seq 1 100); do [ -s "$PORT_FILE" ] && break; sleep 0.01; done
 port="$(cat "$PORT_FILE")"
 set +e
+mkdir -p "$TMP/flush-runtime"
 timeout --signal=TERM --kill-after=0.1s 0.7s \
+  env XDG_RUNTIME_DIR="$TMP/flush-runtime" \
   bb "$ROOT/cli/inbox-peek.clj" "$port" flush-agent >"$TMP/flush.out" 2>/dev/null
 flush_rc=$?
 set -e
 kill "$server_pid" 2>/dev/null || true
 wait "$server_pid" 2>/dev/null || true
-check "fixture observes the exact nine-step pre-ACK claim protocol" \
+check "fixture observes the bounded-page nine-step pre-ACK claim protocol" \
   grep -Fxq "ack-reached" "$STATUS_FILE"
 check "ACK stall reaches the helper deadline" test "$flush_rc" -eq 124
 check "complete subject is flushed before ACK" grep -Fq "✉ from peer — flush proof" "$TMP/flush.out"

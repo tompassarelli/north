@@ -10,6 +10,8 @@
 # Best-effort, always exits 0 — must NEVER break a tool call.
 set -uo pipefail
 umask 077
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 # This hook has no provider-visible output. Bound the whole implementation so a
 # blocked stdin, hostile cwd/git lookup, or slow filesystem degrades to a clean
@@ -24,7 +26,7 @@ PARSED="$(python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)
-    for key in ("cwd", "session_id"):
+    for key in ("cwd", "session_id", "agent_id"):
         value = data.get(key, "")
         value = value if isinstance(value, str) else ""
         print(value.replace("\n", "").replace("\r", ""))
@@ -34,19 +36,42 @@ except Exception:
 mapfile -t JFIELDS <<<"$PARSED"
 cwd="${JFIELDS[0]:-}"; [ -z "$cwd" ] && cwd="$PWD"
 sid="${JFIELDS[1]:-}"
-[ -n "$sid" ] || [ -n "${NORTH_AGENT_ID:-}" ] || exit 0
-REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
-RN="$(basename "$REPO")"
+agent_id="${JFIELDS[2]:-}"
+validated_pin="${NORTH_AGENT_ID:-}"
+if [ -n "$validated_pin" ]; then
+  pin_validation="$("$ACTOR_KEY" managed "$validated_pin" 2>/dev/null || true)"
+  [ "${#pin_validation}" -eq 64 ] || validated_pin=""
+fi
+[ -n "$sid" ] || [ -n "$agent_id" ] || [ -n "$validated_pin" ] || exit 0
 
 # Identity — same resolution order as north-on-tooluse (session cache → env → derived)
 # so the marker key matches the id the listener/inbox use.
-CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$sid"
+IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
+agent_key=""
+[ -z "$agent_id" ] ||
+  agent_key="$("$ACTOR_KEY" agent "$agent_id" 2>/dev/null || true)"
+if [ "${#agent_key}" -eq 64 ] && [ -r "$IDDIR/$agent_key" ]; then
+  identity_key="$agent_key"
+elif [ -n "$sid" ]; then
+  identity_key="$("$ACTOR_KEY" session "$sid" 2>/dev/null || true)"
+elif [ -n "$validated_pin" ]; then
+  identity_key="$("$ACTOR_KEY" managed "$validated_pin" 2>/dev/null || true)"
+else
+  exit 0
+fi
+[ "${#identity_key}" -eq 64 ] || exit 0
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$identity_key"
 ID=""
-[ -n "$sid" ] && [ -r "$CACHE" ] && ID="$(cat "$CACHE" 2>/dev/null || true)"
-[ -z "$ID" ] && ID="${NORTH_AGENT_ID:-}"
-[ -z "$ID" ] && ID="session-$RN-${sid:0:8}"
+[ -r "$CACHE" ] && ID="$(cat "$CACHE" 2>/dev/null || true)"
+[ -z "$ID" ] && ID="$validated_pin"
+[ -z "$ID" ] && ID="native-$identity_key"
 
 MARKDIR="${XDG_RUNTIME_DIR:-/tmp}/north-delegated"
 mkdir -p "$MARKDIR" 2>/dev/null || true
-printf '%s' "$(date +%s 2>/dev/null || echo 0)" > "$MARKDIR/$ID" 2>/dev/null || true
+mark_tmp="$MARKDIR/.$identity_key.$$.${RANDOM}.tmp"
+if printf '%s\n%s\n' "$ID" "$(date +%s 2>/dev/null || echo 0)" \
+    >"$mark_tmp" 2>/dev/null; then
+  mv -f "$mark_tmp" "$MARKDIR/$identity_key" 2>/dev/null ||
+    rm -f "$mark_tmp" 2>/dev/null || true
+fi
 exit 0

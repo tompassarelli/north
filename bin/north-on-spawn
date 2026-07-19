@@ -6,6 +6,10 @@
 # SessionStart cannot block startup; all graph maintenance is best-effort.
 set -uo pipefail
 umask 077
+NORTH_HOME="${NORTH_HOME:-$HOME/code/north}"
+export NORTH_HOME
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 # The provider allows 15s, but startup must never approach that deadline. Buffer
 # one complete envelope behind a much smaller circuit breaker; malformed input,
@@ -81,22 +85,33 @@ EFFORT="${JFIELDS[5]:-}"
 # SubagentStart carries a provider-owned `agent_id`; on Codex its session_id is
 # explicitly the PARENT session. Keying presence/cache by that parent would
 # collapse every native subagent onto one row. Prefer the actor id when present.
-if [ "$evt" = "SubagentStart" ]; then
-  identity_sid="${agent_id:-$sid}"
-else
+if [ "$evt" = "SubagentStart" ] && [ -n "$agent_id" ]; then
+  identity_kind="agent"
+  identity_sid="$agent_id"
+elif [ -n "$sid" ]; then
+  identity_kind="session"
   identity_sid="$sid"
+else
+  identity_kind="managed"
+  identity_sid="${NORTH_AGENT_ID:-}"
 fi
-if [ -z "$identity_sid" ] && [ -z "${NORTH_AGENT_ID:-}" ]; then
-  exit 0
+[ -n "$identity_sid" ] || exit 0
+identity_key="$("$ACTOR_KEY" "$identity_kind" "$identity_sid" 2>/dev/null || true)"
+[ "${#identity_key}" -eq 64 ] || exit 0
+pin="${NORTH_AGENT_ID:-}"
+if [ -n "$pin" ]; then
+  pin_validation="$("$ACTOR_KEY" managed "$pin" 2>/dev/null || true)"
+  [ "${#pin_validation}" -eq 64 ] || pin=""
 fi
-identity_key_source="${identity_sid:-managed-${NORTH_AGENT_ID:-}}"
-identity_key="$(printf '%s' "$identity_key_source" | sed 's/[^A-Za-z0-9._-]/_/g')"
-identity_seed="${identity_key_source#agent-}"
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
 IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
 ROUTEDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes"
-DERIVED="session-$RN-${identity_seed:0:8}"
+# Provider actor IDs are control identity, not decoration. Filesystem keys and
+# derived graph IDs use the complete domain-separated SHA-256 actor key; raw
+# provider/repo text is display provenance only and cannot alias or exceed
+# NAME_MAX.
+DERIVED="native-$identity_key"
 
 # Identity, de-aliased. INVARIANT: one live actor == one id; an id is only
 # renewed/registered by the session that FIRST acquired it. An env pin
@@ -109,7 +124,6 @@ DERIVED="session-$RN-${identity_seed:0:8}"
 # is linked into the stable claim name atomically, so every contender observes
 # one complete winner. Existing pre-claim cache entries seed the first claim.
 ID=""
-pin="${NORTH_AGENT_ID:-}"
 if [ -n "$pin" ]; then
   pin_owners="$IDDIR/.pin-owners"
   pin_digest="$(printf '%s' "$pin" | sha256sum 2>/dev/null | cut -d' ' -f1)"
@@ -213,7 +227,7 @@ schedule_spawn_maintenance() {
   (
     trap 'rm -f "$route_tmp" 2>/dev/null || true; rm -rf "$lock" 2>/dev/null || true' EXIT
     timeout --signal=TERM --kill-after=0.2s 3s \
-      bb "$HOME/code/north/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
+      bb "$NORTH_HOME/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
       register "$ID" "$REPO" "$ID" >/dev/null 2>&1 &
     presence_pid=$!
     timeout --signal=TERM --kill-after=0.2s 6s env \
@@ -225,7 +239,7 @@ schedule_spawn_maintenance() {
       NORTH_NATIVE_EFFORT="$EFFORT_OBS" \
       NORTH_NATIVE_DISPLAY="$DISPLAY_HANDLE" \
       bb -e '
-        (load-file (str (System/getenv "HOME") "/code/north/cli/coord.clj"))
+        (load-file (str (System/getenv "NORTH_HOME") "/cli/coord.clj"))
         (let [port (Integer/parseInt (System/getenv "NORTH_NATIVE_PORT"))
               subject (System/getenv "NORTH_NATIVE_SUBJECT")
               facts [["kind" "session"]

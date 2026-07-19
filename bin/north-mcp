@@ -192,11 +192,6 @@
        (catch Exception _ nil)))
 (def gaffer-role-names
   (set (keep #(get % "name") (get gaffer-staffing "presets"))))
-(def gaffer-role-aliases
-  (into {} (keep (fn [entry]
-                   (when (and (get entry "name") (get entry "target"))
-                     [(get entry "name") (get entry "target")])))
-        (get gaffer-staffing "aliases")))
 (def gaffer-presets-by-name
   (north.gaffer-staffing/presets-by-name gaffer-staffing))
 
@@ -230,7 +225,7 @@
      :properties {:kind {:const "preset"}
                   :id {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
                   :overrides {:type "array" :uniqueItems true
-                              :items {:type "string" :enum ["taskGrade" "domainRequirements" "topology" "tier" "reasoning" "posture"]}}
+                              :items {:type "string" :enum ["taskGrade" "domainRequirements" "tier" "reasoning" "posture"]}}
                   :overrideReason {:type "string" :minLength 1}}
      :required ["kind" "id" "overrides"]
      :allOf [{:if {:properties {:overrides {:minItems 1}} :required ["overrides"]}
@@ -249,7 +244,7 @@
 (def routing-properties
   {:taskGrade {:type "string" :enum task-grade-values :description "Real-world work grade; independent of model tier"}
    :domainRequirements {:type "array" :uniqueItems true :items {:type "string" :minLength 1} :description "Expertise/context the brief or adapter must supply; metadata alone loads nothing"}
-   :topology {:type "string" :enum topology-values :description "Lane's coordination position"}
+   :topology {:type "string" :enum topology-values :description "Lane's coordination position; fixed by stock templates and explicit for bespoke compositions"}
    :composition composition-schema})
 
 (def sdk-tools
@@ -270,7 +265,8 @@
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
                           :composition (:composition routing-properties)}
-             :required ["id" "role"]
+             :required ["id" "role" "taskGrade" "domainRequirements" "topology"
+                        "tier" "reasoning" "posture" "composition"]
              :additionalProperties false}}
    {:name "spawn"
     :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). Returns the agent ID."
@@ -290,7 +286,8 @@
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
                           :composition (:composition routing-properties)}
-             :required ["prompt" "role"]
+             :required ["prompt" "role" "taskGrade" "domainRequirements" "topology"
+                        "tier" "reasoning" "posture" "composition"]
              :additionalProperties false}}])
 
 ;; Attribution (routing-overhaul PART 1): the spawned lane inherits AGENT_COORDINATOR
@@ -453,15 +450,48 @@
               "caveman" "coordinator" "taskGrade" "domainRequirements" "topology" "composition"}})
 
 (def routing-override-fields
-  #{"taskGrade" "domainRequirements" "topology" "tier" "reasoning" "posture"})
+  #{"taskGrade" "domainRequirements" "tier" "reasoning" "posture"})
+(def managed-routing-fields
+  ["role" "taskGrade" "domainRequirements" "topology"
+   "tier" "reasoning" "posture" "composition"])
 (def bespoke-contract-fields
   #{"responsibility" "deliverable" "capabilities" "mayDecide" "mustEscalate" "doneWhen" "report"})
+
+(def edge-ascii-whitespace #"^[\u0009-\u000d\u0020]+|[\u0009-\u000d\u0020]+$")
+
+(defn canonical-contract-text [value]
+  (if (string? value)
+    (-> value
+        (str/replace #"\r\n?" "\n")
+        (java.text.Normalizer/normalize java.text.Normalizer$Form/NFC)
+        (str/replace edge-ascii-whitespace ""))
+    value))
+
+(defn canonicalize-bespoke-routing [args]
+  (let [composition (when (map? args) (get args "composition"))
+        contract (when (map? composition) (get composition "contract"))]
+    (if (and (= "bespoke" (get composition "kind")) (map? contract))
+      (let [normalized
+            (-> (reduce (fn [value field]
+                          (if (contains? value field)
+                            (update value field canonical-contract-text)
+                            value))
+                        contract ["responsibility" "deliverable" "report"])
+                ((fn [value]
+                   (reduce (fn [result field]
+                             (if (sequential? (get result field))
+                               (update result field #(mapv canonical-contract-text %))
+                               result))
+                           value ["capabilities" "mayDecide" "mustEscalate" "doneWhen"]))))]
+        (assoc-in args ["composition" "contract"] normalized))
+      args)))
 
 (defn valid-string-list? [value require-items?]
   (and (sequential? value)
        (or (not require-items?) (seq value))
        (every? #(and (string? %) (not (str/blank? %))) value)
-       (= (count value) (count (set value)))))
+       (let [normalized (mapv canonical-contract-text value)]
+         (= (count normalized) (count (set normalized))))))
 
 (defn non-empty-string? [value]
   (and (string? value) (not (str/blank? value))))
@@ -489,11 +519,12 @@
     "arguments must be an object"
     (let [grade (get args "taskGrade") topology (get args "topology") role (get args "role")
         domains (get args "domainRequirements") composition (get args "composition")
-        reasoning (get args "reasoning") effort (get args "effort") effective-reasoning (or reasoning effort)
+        reasoning (get args "reasoning") effort (get args "effort") effective-reasoning reasoning
         tier (get args "tier") posture (get args "posture") provider (get args "provider")
         target (get args "target") model (get args "model") coordinator (get args "coordinator")
         id (get args "id") prompt (get args "prompt") caveman (get args "caveman")
         unknown (seq (sort (remove (get sdk-argument-keys nm #{}) (keys args))))
+        missing-routing (seq (remove #(contains? args %) managed-routing-fields))
         kind (when (map? composition) (get composition "kind"))
         composition-keys (case kind
                            "preset" #{"kind" "id" "overrides" "overrideReason"}
@@ -505,11 +536,11 @@
         contract-capabilities (when (map? contract) (get contract "capabilities"))
         unknown-contract (when (map? contract)
                            (seq (sort (remove bespoke-contract-fields (keys contract)))))
-        canonical-role (get gaffer-role-aliases role role)
+        canonical-role role
         known-role? (contains? gaffer-role-names canonical-role)
         preset (get gaffer-presets-by-name canonical-role)
         effective-capabilities (if known-role? (get preset "capabilities") contract-capabilities)
-        effective-topology (or topology (get preset "topology"))
+        effective-topology topology
         depth-problem
         (north.topology-authority/managed-child-topology-problem
          nm effective-topology)
@@ -520,11 +551,11 @@
                                       (when (and (some? supplied) (not= supplied base)) field))
                                     [["taskGrade" grade (get preset "taskGrade")]
                                      ["domainRequirements" domains []]
-                                     ["topology" topology (get preset "topology")]
                                      ["tier" tier (get preset "tier")]
                                      ["reasoning" effective-reasoning (get preset "deliberation")]
                                      ["posture" posture base-posture]]))
         declared-overrides (when (= kind "preset") (get composition "overrides"))
+        route-problem (north.gaffer-staffing/unsupported-route-problem tier effective-reasoning)
         missing-bespoke-axes (when (and role (not known-role?))
                                (seq (keep (fn [[label value]] (when (nil? value) label))
                                           [["taskGrade" grade] ["domainRequirements" domains]
@@ -536,6 +567,9 @@
       (and (= nm "dispatch") (nil? (canonical-north-thread-id id)))
       "dispatch id must be a safe North thread id (bare or single @ prefix)"
       (and (= nm "spawn") (not (non-empty-string? prompt))) "spawn prompt must be a non-empty string"
+      missing-routing
+      (str "managed " nm " requires the complete eight-field Gaffer request; missing: "
+           (str/join ", " missing-routing))
       (and (#{"dispatch" "spawn"} nm) (not (non-empty-string? role)))
       (str "managed " nm " requires role selecting a canonical Gaffer preset or a complete bespoke composition")
       (and (some? model) (not (non-empty-string? model))) "model must be a non-empty string"
@@ -546,24 +580,32 @@
       (= role "researcher") "role researcher is retired because it was ambiguous; use scout, analyst, or research-scientist"
       (#{"worker" "orchestrator"} role) (str role " is a topology, not a role; use director for orchestration or a functional worker role")
       (and role (nil? gaffer-staffing)) (str "Gaffer staffing catalog unavailable: " gaffer-staffing-path)
-      (and grade (not (some #{grade} task-grade-values))) "invalid taskGrade"
-      (and topology (not (some #{topology} topology-values))) "invalid topology"
+      (not (some #{grade} task-grade-values)) "invalid taskGrade"
+      (not (valid-string-list? domains false))
+      "domainRequirements must contain unique non-empty strings"
+      (not (some #{topology} topology-values)) "invalid topology"
+      (and role known-role? (not= topology (get preset "topology")))
+      (str "stock-template topology is fixed at '" (get preset "topology")
+           "'; use a bespoke composition for '" topology "'")
       depth-problem depth-problem
-      (and (= canonical-role "director") (= topology "worker")) "director cannot use worker topology; choose a worker role for atomic work"
-      (and tier (not (some #{tier} tier-values))) "invalid tier"
-      (and effective-reasoning (not (some #{effective-reasoning} reasoning-values))) "invalid reasoning"
-      (and posture (not (some #{posture} posture-values))) "invalid posture"
+      (not (some #{tier} tier-values)) "invalid tier"
+      (not (some #{reasoning} reasoning-values)) "invalid reasoning"
+      route-problem route-problem
+      (not (some #{posture} posture-values)) "invalid posture"
       (and provider (not (some #{provider} ["auto" "anthropic" "openai"]))) "invalid provider"
       (and reasoning effort (not= reasoning effort)) "reasoning and compatibility effort disagree"
       (and target (or (not (string? target)) (str/blank? target))) "target must be a non-empty string"
-      (and domains (not (valid-string-list? domains false))) "domainRequirements must contain unique non-empty strings"
-      (and composition (not (map? composition))) "composition must be an object"
+      (not (map? composition)) "composition must be an object"
       unknown-composition (str "unknown composition field(s): " (str/join ", " unknown-composition))
       (and composition (not (#{"preset" "bespoke"} kind))) "invalid composition.kind"
       (and composition (let [v (get composition "id")] (or (not (string? v)) (str/blank? v)))) "composition.id is required"
       (and composition (not (safe-role-id? (get composition "id"))))
       "composition.id must be a lowercase kebab-case Gaffer role id"
       (and composition (nil? role)) "composition requires role"
+      (and role (not known-role?) (= kind "preset"))
+      (str "unknown role " role " requires a bespoke composition")
+      (and role known-role? (= kind "bespoke"))
+      (str "known role " canonical-role " requires preset composition id " canonical-role)
 
       (and (= kind "preset") (not (valid-string-list? declared-overrides false)))
       "preset composition.overrides must be an array of unique routing-axis names"
@@ -629,14 +671,15 @@
         (let [message (str/trim (str err (when (and (seq err) (seq out)) "\n") out))]
           (if (str/blank? message) "exact routing target preflight failed" message))))))
 
-(defn call-sdk [nm args]
-  (if-let [problem (north.topology-authority/authority-problem nm)]
-    {:content [{:type "text" :text problem}] :isError true}
-    (if-let [problem (invalid-routing nm args)]
-    {:content [{:type "text" :text problem}] :isError true}
-    (if-let [problem (preflight-exact-target args)]
+(defn call-sdk [nm raw-args]
+  (let [args (canonicalize-bespoke-routing raw-args)]
+    (if-let [problem (north.topology-authority/authority-problem nm)]
       {:content [{:type "text" :text problem}] :isError true}
-      (let [parent-env (materialize-instance-env (into {} (System/getenv)))
+      (if-let [problem (invalid-routing nm args)]
+      {:content [{:type "text" :text problem}] :isError true}
+      (if-let [problem (preflight-exact-target args)]
+        {:content [{:type "text" :text problem}] :isError true}
+        (let [parent-env (materialize-instance-env (into {} (System/getenv)))
             coordinator (resolve-coordinator parent-env args)
             env (north.managed-child-env/scrub parent-env)]
         (case nm
@@ -644,8 +687,8 @@
           (let [id (canonical-north-thread-id (get args "id"))
             model (get args "model")
             effort (get args "effort")
-            reasoning (or (get args "reasoning") effort)
-            role (get gaffer-role-aliases (get args "role") (get args "role"))
+            reasoning (get args "reasoning")
+            role (get args "role")
             posture (get args "posture")
             provider (get args "provider")
             target (get args "target")
@@ -700,8 +743,8 @@
           (let [prompt (get args "prompt")
             model (get args "model")
             effort (get args "effort")
-            reasoning (or (get args "reasoning") effort)
-            role (get gaffer-role-aliases (get args "role") (get args "role"))
+            reasoning (get args "reasoning")
+            role (get args "role")
             posture (get args "posture")
             provider (get args "provider")
             target (get args "target")
@@ -741,9 +784,9 @@
                                        " Watch via web client (:8088)."))}]}
               {:content [{:type "text" :text (north.spawn-process/failure-message startup)}]
                :isError true}))
-          (catch Exception _
-            {:content [{:type "text" :text "could not start an ad-hoc agent"}]
-             :isError true})))))))))
+            (catch Exception _
+              {:content [{:type "text" :text "could not start an ad-hoc agent"}]
+               :isError true}))))))))))
 
 ;; `untell` is an accepted legacy alias for `retract` — route it to the same tool.
 (def tool-aliases {"untell" "retract"})

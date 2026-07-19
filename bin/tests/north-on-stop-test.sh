@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOK="$ROOT/bin/north-on-stop"
+ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 BASE_PATH="$PATH"
@@ -61,8 +62,9 @@ PY
 
 session="stop-test-session"
 agent_id="session-stop-test-deadbeef"
+session_key="$("$ACTOR_KEY" session "$session")"
 input="$(printf '{"cwd":"%s","session_id":"%s"}' "$TMP" "$session")"
-printf '%s\n' "$agent_id" >"$RUNTIME/north-agent-ids/$session"
+printf '%s\n' "$agent_id" >"$RUNTIME/north-agent-ids/$session_key"
 
 # Malformed input and a clean session with no delegation marker both allow.
 clear_fakes
@@ -99,7 +101,7 @@ exec 9>&-
 assert_empty "$TMP/held-open.out"
 assert_empty "$TMP/held-open.err"
 
-# A hung git (including a TERM-resistant descendant) fails open and is reaped.
+# Repository lookup is no longer authority-bearing; hostile git is never run.
 write_fake git '
 printf "%s\n" "$$" >"$NORTH_TEST_CHILD_PID"
 trap "" TERM
@@ -109,14 +111,9 @@ start_ms="$(date +%s%3N)"
 NORTH_TEST_CHILD_PID="$TMP/hung-git.pid" invoke \
   "$input" "$TMP/hung-git.out" "$TMP/hung-git.err"
 elapsed_ms=$(( $(date +%s%3N) - start_ms ))
-[ "$elapsed_ms" -lt 3000 ] || fail "hung git took ${elapsed_ms}ms"
+[ "$elapsed_ms" -lt 1000 ] || fail "hostile git path took ${elapsed_ms}ms"
 assert_empty "$TMP/hung-git.out"
-sleep 0.3
-hung_git_pid="$(cat "$TMP/hung-git.pid")"
-if kill -0 "$hung_git_pid" 2>/dev/null; then
-  kill -KILL "$hung_git_pid" 2>/dev/null || true
-  fail "hung git survived the supervisor"
-fi
+[ ! -e "$TMP/hung-git.pid" ] || fail "stop hook executed hostile git"
 
 # A background descendant that inherits git stdout cannot hold a command
 # substitution pipe open; the tempfile supervisor kills the whole session.
@@ -132,12 +129,7 @@ exit 0
 NORTH_TEST_CHILD_PID="$TMP/inherited-pipe.pid" invoke \
   "$input" "$TMP/inherited-pipe.out" "$TMP/inherited-pipe.err"
 assert_empty "$TMP/inherited-pipe.out"
-sleep 0.3
-inherited_pid="$(cat "$TMP/inherited-pipe.pid")"
-if kill -0 "$inherited_pid" 2>/dev/null; then
-  kill -KILL "$inherited_pid" 2>/dev/null || true
-  fail "inherited-pipe descendant survived the supervisor"
-fi
+[ ! -e "$TMP/inherited-pipe.pid" ] || fail "stop hook spawned git descendant"
 
 # The old environment recursion marker cannot bypass the positional supervisor.
 write_fake git '
@@ -149,20 +141,15 @@ start_ms="$(date +%s%3N)"
 NORTH_STOP_INNER=1 NORTH_TEST_CHILD_PID="$TMP/hostile-env.pid" invoke \
   "$input" "$TMP/hostile-env.out" "$TMP/hostile-env.err"
 elapsed_ms=$(( $(date +%s%3N) - start_ms ))
-[ "$elapsed_ms" -lt 2500 ] || fail "hostile env bypass took ${elapsed_ms}ms"
+[ "$elapsed_ms" -lt 1000 ] || fail "hostile env bypass took ${elapsed_ms}ms"
 assert_empty "$TMP/hostile-env.out"
-sleep 0.3
-hostile_env_pid="$(cat "$TMP/hostile-env.pid")"
-if kill -0 "$hostile_env_pid" 2>/dev/null; then
-  kill -KILL "$hostile_env_pid" 2>/dev/null || true
-  fail "hostile env bypass left a child"
-fi
+[ ! -e "$TMP/hostile-env.pid" ] || fail "hostile env reached git"
 
 # A marker plus exact live listener allows. Missing listener emits one complete
 # validated block object.
 clear_fakes
 write_fake git 'printf "%s\n" "$2"'
-touch "$RUNTIME/north-delegated/$agent_id"
+printf '%s\n0\n' "$agent_id" >"$RUNTIME/north-delegated/$session_key"
 write_fake pgrep "printf '%s\n' '123 bb /north/north-listen.clj 7977 $agent_id --once'"
 invoke "$input" "$TMP/listener.out" "$TMP/listener.err"
 assert_empty "$TMP/listener.out"
@@ -171,9 +158,37 @@ write_fake pgrep 'exit 1'
 invoke "$input" "$TMP/missing.out" "$TMP/missing.err"
 assert_block "$TMP/missing.out" "$agent_id"
 
+# A provider agent_id is authoritative only after SubagentStart staked its exact
+# typed key. Unseen invocation IDs fall back to the stable session identity.
+staked_raw="agent:stop-test"
+staked_key="$("$ACTOR_KEY" agent "$staked_raw")"
+staked_id="native-$staked_key"
+printf '%s\n' "$staked_id" >"$RUNTIME/north-agent-ids/$staked_key"
+printf '%s\n0\n' "$staked_id" >"$RUNTIME/north-delegated/$staked_key"
+staked_input="$(printf '{"cwd":"%s","session_id":"%s","agent_id":"%s"}' \
+  "$TMP" "$session" "$staked_raw")"
+invoke "$staked_input" "$TMP/staked.out" "$TMP/staked.err"
+assert_block "$TMP/staked.out" "$staked_id"
+
+unstaked_input="$(printf '{"cwd":"%s","session_id":"%s","agent_id":"agent:unseen"}' \
+  "$TMP" "$session")"
+invoke "$unstaked_input" "$TMP/unstaked.out" "$TMP/unstaked.err"
+assert_block "$TMP/unstaked.out" "$agent_id"
+
+max_actor="$(printf 'a%.0s' $(seq 1 512))"
+max_key="$("$ACTOR_KEY" agent "$max_actor")"
+max_id="native-$max_key"
+printf '%s\n' "$max_id" >"$RUNTIME/north-agent-ids/$max_key"
+printf '%s\n0\n' "$max_id" >"$RUNTIME/north-delegated/$max_key"
+max_input="$(printf '{"cwd":"%s","session_id":"%s","agent_id":"%s"}' \
+  "$TMP" "$session" "$max_actor")"
+invoke "$max_input" "$TMP/max-actor.out" "$TMP/max-actor.err"
+assert_block "$TMP/max-actor.out" "$max_id"
+
 # An empty session id can still use a canonical, explicit North agent id.
 ambient_id="session-stop-test-ambient"
-touch "$RUNTIME/north-delegated/$ambient_id"
+ambient_key="$("$ACTOR_KEY" managed "$ambient_id")"
+printf '%s\n0\n' "$ambient_id" >"$RUNTIME/north-delegated/$ambient_key"
 ambient_input="$(printf '{"cwd":"%s"}' "$TMP")"
 NORTH_AGENT_ID="$ambient_id" invoke \
   "$ambient_input" "$TMP/ambient-id.out" "$TMP/ambient-id.err"
@@ -212,10 +227,10 @@ fi
 clear_fakes
 write_fake git 'printf "%s\n" "$2"'
 write_fake pgrep 'exit 1'
-printf '%s\n' 'bad"id' 'second-line' >"$RUNTIME/north-agent-ids/$session"
+printf '%s\n' 'bad"id' 'second-line' >"$RUNTIME/north-agent-ids/$session_key"
 invoke "$input" "$TMP/hostile-cache.out" "$TMP/hostile-cache.err"
 assert_empty "$TMP/hostile-cache.out"
-printf '%s\n' "$agent_id" >"$RUNTIME/north-agent-ids/$session"
+printf '%s\n' "$agent_id" >"$RUNTIME/north-agent-ids/$session_key"
 
 # Repeated concurrent missing-listener checks remain complete JSON objects; no
 # partial writes or nonzero hook statuses emerge under ordinary contention.

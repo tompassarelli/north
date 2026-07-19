@@ -12,17 +12,76 @@
 # purely dd/tail/truncate. Idempotent: an immediate re-run is a no-op because
 # src_size == cursor for every source.
 #
-# Cursor file: streams/raw/.cursors — one line per source:
-#   <bytes-synced>\t<source-path>\t<dest-date>
-# dest-date is the dest file's first-sync date (YYYY-MM-DD), stable across
-# runs (a dest filename must not change once minted) — stored explicitly so
-# a later run doesn't re-derive "today" and mint a second dest for the same
-# source.
+# Cursor file: streams/raw/.cursors — one versioned line per source:
+#   v3\t<bytes>\t<source>\t<lineage-digest>\t<dest-basename>\t<prefix-digest>
+# The exact bounded destination identity is minted once, then persisted. Neither
+# a later slug-rule change nor a directory rename can move an existing stream.
+# Three-field v1 and global-session v2 lines are migrated in place. A lineage is
+# provider + project-relative directory + session id: Claude may reuse a session
+# UUID in unrelated project directories.
 set -euo pipefail
 
 file_size() {
   # POSIX on both Linux and Darwin; avoids platform-specific stat dialects.
   wc -c < "$1" | tr -d '[:space:]'
+}
+
+session_digest() {
+  printf 'north-stream-source-v3\0anthropic\0%s\0%s' "$1" "$2" |
+    sha256sum | cut -d' ' -f1
+}
+
+legacy_session_digest() {
+  printf 'north-stream-session-v2\0%s' "$1" |
+    sha256sum | cut -d' ' -f1
+}
+
+bounded_slug() {
+  local raw="$1" human suffix
+  human="$(
+    printf '%s' "$raw" |
+      LC_ALL=C sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' |
+      tr '[:upper:]' '[:lower:]' |
+      cut -c1-64 |
+      sed -E 's/-+$//'
+  )"
+  [ -n "$human" ] || human=project
+  suffix="$(
+    printf 'north-stream-slug-v1\0%s' "$raw" |
+      sha256sum | cut -c1-16
+  )"
+  printf '%s-%s\n' "$human" "$suffix"
+}
+
+prefix_digest() {
+  local file="$1" bytes="$2"
+  head -c "$bytes" "$file" | sha256sum | cut -d' ' -f1
+}
+
+session_lookup_key() {
+  printf 'north-stream-session-lookup-v1\0%s' "$1" |
+    sha256sum | cut -d' ' -f1
+}
+
+valid_dest_basename() {
+  local value="$1"
+  [ -n "$value" ] &&
+    [ "${#value}" -le 255 ] &&
+    [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.jsonl$ ]]
+}
+
+normalize_decimal() {
+  local value="$1"
+  while [ "${#value}" -gt 1 ] && [ "${value:0:1}" = 0 ]; do
+    value="${value:1}"
+  done
+  printf '%s\n' "$value"
+}
+
+decimal_within() {
+  local value="$1" maximum="$2"
+  [ "${#value}" -lt "${#maximum}" ] ||
+    { [ "${#value}" -eq "${#maximum}" ] && [[ "$value" < "$maximum" || "$value" = "$maximum" ]]; }
 }
 
 usage() {
@@ -52,77 +111,676 @@ fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --days) DAYS="$2"; shift 2 ;;
-    --min-bytes) MIN_BYTES="$2"; shift 2 ;;
-    --src-dir) SRC_DIR="$2"; shift 2 ;;
-    --raw-dir) RAW_DIR="$2"; shift 2 ;;
+    --days|--min-bytes|--src-dir|--raw-dir)
+      if [ $# -lt 2 ]; then
+        echo "north-stream-sync: $1 requires a value" >&2
+        exit 1
+      fi
+      case "$1" in
+        --days) DAYS="$2" ;;
+        --min-bytes) MIN_BYTES="$2" ;;
+        --src-dir) SRC_DIR="$2" ;;
+        --raw-dir) RAW_DIR="$2" ;;
+      esac
+      shift 2
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "north-stream-sync: unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
-mkdir -p "$RAW_DIR"
-CURSOR_FILE="$RAW_DIR/.cursors"
-touch "$CURSOR_FILE"
-LOCK_DIR="$RAW_DIR/.stream-sync.lock"
-
-# mkdir is atomic across processes (POSIX) -> cheap mutual-exclusion lock so
-# the systemd timer and a session-end hook invocation never interleave writes
-# to the same dest/cursor file. Best-effort: if held, just skip this run —
-# the next trigger (timer or another session end) will catch up.
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  echo "north-stream-sync: lock held ($LOCK_DIR) — another sync in flight, skipping" >&2
-  exit 0
+if ! [[ "$DAYS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "north-stream-sync: --days must be a positive integer" >&2
+  exit 1
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+DAYS="$(normalize_decimal "$DAYS")"
+if ! decimal_within "$DAYS" 2147483647; then
+  echo "north-stream-sync: --days exceeds the supported integer range" >&2
+  exit 1
+fi
+if ! [[ "$MIN_BYTES" =~ ^[0-9]+$ ]]; then
+  echo "north-stream-sync: --min-bytes must be a nonnegative integer" >&2
+  exit 1
+fi
+MIN_BYTES="$(normalize_decimal "$MIN_BYTES")"
+if ! decimal_within "$MIN_BYTES" 9223372036854775807; then
+  echo "north-stream-sync: --min-bytes exceeds the supported integer range" >&2
+  exit 1
+fi
+
+# Resolve both roots before creating or touching anything. Invalid overlap must
+# be a no-mutation failure, including when the destination does not yet exist.
+SRC_DIR="$(realpath -m -- "$SRC_DIR")"
+RAW_DIR="$(realpath -m -- "$RAW_DIR")"
+case "$RAW_DIR/" in
+  "$SRC_DIR/"*)
+    echo "north-stream-sync: destination root must not overlap source root" >&2
+    exit 1
+    ;;
+esac
+case "$SRC_DIR/" in
+  "$RAW_DIR/"*)
+    echo "north-stream-sync: source root must not overlap destination root" >&2
+    exit 1
+    ;;
+esac
 
 [ -d "$SRC_DIR" ] || exit 0
+SRC_DIR="$(cd "$SRC_DIR" && pwd -P)"
+mkdir -p "$RAW_DIR"
+RAW_DIR="$(cd "$RAW_DIR" && pwd -P)"
+CURSOR_FILE="$RAW_DIR/.cursors"
+ERROR_FILE="$RAW_DIR/.stream-sync-errors"
+LOCK_FILE="$RAW_DIR/.stream-sync.lock"
+
+# Durable control files are data, never indirections or IPC endpoints. Reject
+# hostile/stale special-file shapes before touch/read can follow or block.
+for state_file in "$CURSOR_FILE" "$ERROR_FILE"; do
+  if [ -L "$state_file" ]; then
+    echo "north-stream-sync: refusing symlinked state file: $state_file" >&2
+    exit 1
+  fi
+  if [ -e "$state_file" ] && [ ! -f "$state_file" ]; then
+    echo "north-stream-sync: state path is not a regular file: $state_file" >&2
+    exit 1
+  fi
+done
+
+# One-time migration from the retired mkdir lock. An empty directory was lock
+# state, not data; a symlink or nonempty directory is not safe to reinterpret.
+if [ -L "$LOCK_FILE" ]; then
+  echo "north-stream-sync: refusing symlinked lock path: $LOCK_FILE" >&2
+  exit 1
+fi
+if [ -d "$LOCK_FILE" ]; then
+  if [ -n "$(find "$LOCK_FILE" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+    echo "north-stream-sync: legacy lock directory is nonempty: $LOCK_FILE" >&2
+    exit 1
+  fi
+  if ! rmdir "$LOCK_FILE"; then
+    echo "north-stream-sync: could not migrate legacy lock directory: $LOCK_FILE" >&2
+    exit 1
+  fi
+elif [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; then
+  echo "north-stream-sync: lock path is not a regular file: $LOCK_FILE" >&2
+  exit 1
+fi
+
+# The kernel owns this advisory lock, so SIGKILL, a crash, or exec failure
+# releases it automatically. A persistent empty lock file is not lock state.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "north-stream-sync: lock held ($LOCK_FILE) — another sync in flight, skipping" >&2
+  exit 0
+fi
+touch "$CURSOR_FILE"
+
+# Existing symlinks could have changed the canonical relationship during the
+# mkdir boundary, so assert the invariant again before cursor/error mutations.
+case "$RAW_DIR/" in
+  "$SRC_DIR/"*)
+    echo "north-stream-sync: destination root must not overlap source root" >&2
+    exit 1
+    ;;
+esac
+case "$SRC_DIR/" in
+  "$RAW_DIR/"*)
+    echo "north-stream-sync: source root must not overlap destination root" >&2
+    exit 1
+    ;;
+esac
+
+TMP_SOURCES="$(mktemp "$RAW_DIR/.stream-sources.XXXXXX")"
+TMP_PROCESSABLE="$(mktemp "$RAW_DIR/.stream-processable.XXXXXX")"
+TMP_RECENT="$(mktemp "$RAW_DIR/.stream-recent.XXXXXX")"
+TMP_LOOKUP="$(mktemp "$RAW_DIR/.stream-lookup.XXXXXX")"
+TMP_CURSOR_SOURCES="$(mktemp "$RAW_DIR/.stream-cursor-sources.XXXXXX")"
+TMP_SESSION_INDEX="$(mktemp -d "$RAW_DIR/.stream-session-index.XXXXXX")"
+TMP_CURSOR=""
+TMP_ERRORS=""
+TMP_DEST=""
+trap 'rm -f "$TMP_SOURCES" "$TMP_PROCESSABLE" "$TMP_RECENT" "$TMP_LOOKUP" "$TMP_CURSOR_SOURCES" ${TMP_CURSOR:+"$TMP_CURSOR"} ${TMP_ERRORS:+"$TMP_ERRORS"} ${TMP_DEST:+"$TMP_DEST"}; rm -rf "$TMP_SESSION_INDEX"' EXIT
 
 TMP_CURSOR="$(mktemp "$CURSOR_FILE.tmp.XXXXXX")"
-trap 'rm -f "$TMP_CURSOR"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+touch "$ERROR_FILE"
+TMP_ERRORS="$(mktemp "$ERROR_FILE.tmp.XXXXXX")"
+new_errors=0
 
-# carry forward every existing cursor line whose source we do NOT touch this
-# run (sources that aged out of the --days window, etc.) — never lose state.
-cp "$CURSOR_FILE" "$TMP_CURSOR"
+declare -A cursor_source_owner=()
+declare -A cursor_lineage_owner=()
+declare -A cursor_dest_owner=()
+declare -A cursor_line_by_source=()
+declare -A cursor_session_present=()
+: >"$TMP_CURSOR"
+while IFS= read -r cursor_line || [ -n "$cursor_line" ]; do
+  [ -n "$cursor_line" ] || continue
+  cursor_fields="$(awk -F'\t' '{print NF}' <<<"$cursor_line")"
+  first_field="$(cut -f1 <<<"$cursor_line")"
+  if [ "$first_field" = v2 ] || [ "$first_field" = v3 ]; then
+    if [ "$cursor_fields" -ne 6 ]; then
+      echo "north-stream-sync: malformed structured cursor" >&2
+      exit 1
+    fi
+    cursor_bytes="$(cut -f2 <<<"$cursor_line")"
+    cursor_source="$(cut -f3 <<<"$cursor_line")"
+    cursor_digest="$(cut -f4 <<<"$cursor_line")"
+    cursor_dest="$(cut -f5 <<<"$cursor_line")"
+    cursor_prefix="$(cut -f6 <<<"$cursor_line")"
+    if ! [[ "$cursor_bytes" =~ ^[0-9]+$ ]] ||
+       ! [[ "$cursor_digest" =~ ^[0-9a-f]{64}$ ]] ||
+       ! [[ "$cursor_prefix" =~ ^[0-9a-f]{64}$ ]] ||
+       ! valid_dest_basename "$cursor_dest"; then
+      echo "north-stream-sync: unsafe structured cursor" >&2
+      exit 1
+    fi
+    cursor_bytes="$(normalize_decimal "$cursor_bytes")"
+    if ! decimal_within "$cursor_bytes" 9223372036854775807; then
+      echo "north-stream-sync: structured cursor byte offset exceeds the supported range" >&2
+      exit 1
+    fi
+  else
+    if [ "$cursor_fields" -ne 3 ] ||
+       ! [[ "$first_field" =~ ^[0-9]+$ ]]; then
+      echo "north-stream-sync: malformed legacy cursor" >&2
+      exit 1
+    fi
+    cursor_bytes="$first_field"
+    cursor_bytes="$(normalize_decimal "$cursor_bytes")"
+    if ! decimal_within "$cursor_bytes" 9223372036854775807; then
+      echo "north-stream-sync: legacy cursor byte offset exceeds the supported range" >&2
+      exit 1
+    fi
+    cursor_source="$(cut -f2 <<<"$cursor_line")"
+    cursor_date="$(cut -f3 <<<"$cursor_line")"
+    if ! [[ "$cursor_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      echo "north-stream-sync: unsafe legacy cursor" >&2
+      exit 1
+    fi
+  fi
+  case "$cursor_source" in
+    ""|*$'\t'*|*$'\n'*|*$'\r'*|*\\*)
+      echo "north-stream-sync: cursor source path is unsafe" >&2
+      exit 1
+      ;;
+  esac
+  case "$cursor_source" in
+    /*) ;;
+    *)
+      echo "north-stream-sync: relative legacy cursor source is ambiguous" >&2
+      exit 1
+      ;;
+  esac
+  cursor_source="$(realpath -m -- "$cursor_source")"
+  if ! [[ "$(basename "$cursor_source")" =~ ^[A-Za-z0-9._-]+\.jsonl$ ]]; then
+    echo "north-stream-sync: cursor source basename is unsafe" >&2
+    exit 1
+  fi
+  cursor_session="$(basename "$cursor_source" .jsonl)"
+  cursor_project="$(basename "$(dirname "$cursor_source")")"
+  canonical_digest="$(session_digest "$cursor_project" "$cursor_session")"
+  if [ "$first_field" = v3 ]; then
+    if [ "$cursor_digest" != "$canonical_digest" ]; then
+      echo "north-stream-sync: v3 cursor lineage digest is contradictory" >&2
+      exit 1
+    fi
+  elif [ "$first_field" = v2 ]; then
+    old_digest="$(legacy_session_digest "$cursor_session")"
+    if [ "$cursor_digest" != "$old_digest" ] &&
+       [ "$cursor_digest" != "$canonical_digest" ]; then
+      echo "north-stream-sync: v2 cursor session digest is contradictory" >&2
+      exit 1
+    fi
+  fi
+  if [ -n "${cursor_source_owner[$cursor_source]+present}" ]; then
+    echo "north-stream-sync: duplicate cursor entries for source: $cursor_source" >&2
+    exit 1
+  fi
+  if [ -n "${cursor_lineage_owner[$canonical_digest]+present}" ]; then
+    echo "north-stream-sync: duplicate cursor entries for lineage digest: $canonical_digest" >&2
+    exit 1
+  fi
+  cursor_source_owner["$cursor_source"]="$canonical_digest"
+  cursor_lineage_owner["$canonical_digest"]="$cursor_source"
+  cursor_session_present["$cursor_session"]=1
+  if [ "$first_field" = v2 ] || [ "$first_field" = v3 ]; then
+    if [ -n "${cursor_dest_owner[$cursor_dest]+present}" ]; then
+      echo "north-stream-sync: duplicate structured destination basename: $cursor_dest" >&2
+      exit 1
+    fi
+    cursor_dest_owner["$cursor_dest"]="$cursor_source"
+    printf -v normalized_line '%s\t%s\t%s\t%s\t%s\t%s' \
+      "$first_field" \
+      "$cursor_bytes" "$cursor_source" "$cursor_digest" \
+      "$cursor_dest" "$cursor_prefix"
+  else
+    printf -v normalized_line '%s\t%s\t%s' \
+      "$cursor_bytes" "$cursor_source" "$cursor_date"
+  fi
+  printf '%s\n' "$normalized_line" >>"$TMP_CURSOR"
+  cursor_line_by_source["$cursor_source"]="$normalized_line"
+  printf '%s\0' "$cursor_source" >>"$TMP_CURSOR_SOURCES"
+  lookup_key="$(session_lookup_key "$cursor_session")"
+  printf '%s\n' "$normalized_line" >>"$TMP_SESSION_INDEX/$lookup_key"
+done <"$CURSOR_FILE"
+
+# Hot discovery is recent sources UNION cursor-owned sources that still exist.
+# A missing cursor source gets a targeted basename lookup so an aged project
+# rename can still be recovered. We never hash every dormant transcript.
+if ! find "$SRC_DIR" -mindepth 2 -maxdepth 2 \
+  -type f -iname '*.jsonl' -mtime "-$DAYS" -print0 >"$TMP_RECENT"; then
+  echo "north-stream-sync: recent-source discovery failed" >&2
+  exit 1
+fi
+declare -A scheduled_source=()
+declare -A recent_source=()
+: >"$TMP_SOURCES"
+
+schedule_source() {
+  local candidate="$1" candidate_name
+  case "$candidate" in
+    *$'\t'*|*$'\n'*|*$'\r'*|*\\*)
+      echo "north-stream-sync: source path cannot be represented safely: $candidate" >&2
+      exit 1
+      ;;
+  esac
+  candidate_name="${candidate##*/}"
+  if ! [[ "$candidate_name" =~ ^[A-Za-z0-9._-]+\.jsonl$ ]]; then
+    echo "north-stream-sync: source basename is unsafe: $candidate_name" >&2
+    exit 1
+  fi
+  if [ -z "${scheduled_source[$candidate]+present}" ]; then
+    scheduled_source["$candidate"]=1
+    printf '%s\0' "$candidate" >>"$TMP_SOURCES"
+  fi
+}
+
+while IFS= read -r -d '' candidate; do
+  schedule_source "$candidate"
+  recent_source["$candidate"]=1
+done <"$TMP_RECENT"
+while IFS= read -r -d '' candidate; do
+  case "$candidate/" in
+    "$SRC_DIR/"*)
+      if [ -f "$candidate" ]; then
+        schedule_source "$candidate"
+      fi
+      ;;
+  esac
+  if [ ! -e "$candidate" ]; then
+    candidate_name="$(basename "$candidate")"
+    if ! find "$SRC_DIR" -mindepth 2 -maxdepth 2 -type f \
+      -name "$candidate_name" -print0 >"$TMP_LOOKUP"; then
+      echo "north-stream-sync: relocation-source discovery failed" >&2
+      exit 1
+    fi
+    while IFS= read -r -d '' relocated; do
+      schedule_source "$relocated"
+    done <"$TMP_LOOKUP"
+  fi
+done <"$TMP_CURSOR_SOURCES"
+
+# Prune recent-but-below-threshold sources before project hashing and slug work.
+# Cursor-owned and same-session relocation candidates always survive the filter,
+# even when aged or small, because durability outranks discovery preferences.
+: >"$TMP_PROCESSABLE"
+while IFS= read -r -d '' candidate; do
+  candidate_name="${candidate##*/}"
+  candidate_session="${candidate_name%.jsonl}"
+  if [ -n "${cursor_line_by_source[$candidate]-}" ] ||
+     [ -n "${cursor_session_present[$candidate_session]+present}" ] ||
+     { [ -n "${recent_source[$candidate]+present}" ] &&
+       [ "$(file_size "$candidate")" -ge "$MIN_BYTES" ]; }; then
+    printf '%s\0' "$candidate" >>"$TMP_PROCESSABLE"
+  fi
+done <"$TMP_SOURCES"
+mv "$TMP_PROCESSABLE" "$TMP_SOURCES"
+
+# Reject a duplicate complete lineage as a group before the first destination
+# mutation. Reused session basenames under different project lineages are
+# intentionally independent.
+declare -A discovered_digest_owner=()
+while IFS= read -r -d '' candidate; do
+  candidate_name="${candidate##*/}"
+  candidate_session="${candidate_name%.jsonl}"
+  candidate_parent="${candidate%/*}"
+  candidate_project="${candidate_parent##*/}"
+  candidate_digest="$(session_digest "$candidate_project" "$candidate_session")"
+  if [ -n "${discovered_digest_owner[$candidate_digest]+present}" ] &&
+     [ "${discovered_digest_owner[$candidate_digest]}" != "$candidate" ]; then
+    echo "north-stream-sync: multiple sources share one full session identity" >&2
+    exit 1
+  fi
+  discovered_digest_owner["$candidate_digest"]="$candidate"
+  prior_cursor_source="${cursor_lineage_owner[$candidate_digest]-}"
+  if [ -n "$prior_cursor_source" ] &&
+     [ "$prior_cursor_source" != "$candidate" ] &&
+     [ -e "$prior_cursor_source" ]; then
+    echo "north-stream-sync: session digest has multiple live sources: $candidate_digest" >&2
+    exit 1
+  fi
+done <"$TMP_SOURCES"
+
+# Build the rename-adoption plan before the first destination mutation. This is
+# a bipartite uniqueness check: one current source must prove exactly one old
+# cursor, and that old cursor must be proved by exactly one current source.
+declare -A relocation_line_by_source=()
+declare -A relocation_old_source_by_source=()
+declare -A relocation_old_digest_by_source=()
+declare -A relocation_claim_count=()
+declare -A relocation_source_ambiguous=()
+while IFS= read -r -d '' candidate; do
+  if [ -n "${cursor_line_by_source[$candidate]-}" ]; then
+    continue
+  fi
+  candidate_size="$(file_size "$candidate")"
+  candidate_name="${candidate##*/}"
+  candidate_session="${candidate_name%.jsonl}"
+  lookup_key="$(session_lookup_key "$candidate_session")"
+  proof_count=0
+  proof_line=""
+  proof_source=""
+  proof_digest=""
+  if [ -f "$TMP_SESSION_INDEX/$lookup_key" ]; then
+    while IFS= read -r candidate_line || [ -n "$candidate_line" ]; do
+      candidate_version="$(cut -f1 <<<"$candidate_line")"
+      if [ "$candidate_version" != v2 ] &&
+         [ "$candidate_version" != v3 ]; then
+        continue
+      fi
+      cursor_bytes="$(cut -f2 <<<"$candidate_line")"
+      cursor_source="$(cut -f3 <<<"$candidate_line")"
+      cursor_digest="$(cut -f4 <<<"$candidate_line")"
+      cursor_dest_name="$(cut -f5 <<<"$candidate_line")"
+      cursor_prefix="$(cut -f6 <<<"$candidate_line")"
+      if [ -e "$cursor_source" ] ||
+         [ "$cursor_bytes" -eq 0 ] ||
+         [ "$candidate_size" -lt "$cursor_bytes" ] ||
+         [ "$(prefix_digest "$candidate" "$cursor_bytes")" != "$cursor_prefix" ]; then
+        continue
+      fi
+      cursor_dest="$RAW_DIR/$cursor_dest_name"
+      if [ -L "$cursor_dest" ]; then
+        continue
+      fi
+      if [ -f "$cursor_dest" ] &&
+         [ "$(file_size "$cursor_dest")" -ge "$cursor_bytes" ] &&
+         [ "$(prefix_digest "$cursor_dest" "$cursor_bytes")" != "$cursor_prefix" ]; then
+        continue
+      fi
+      proof_count=$((proof_count + 1))
+      proof_line="$candidate_line"
+      proof_source="$cursor_source"
+      proof_digest="$cursor_digest"
+    done <"$TMP_SESSION_INDEX/$lookup_key"
+  fi
+  if [ "$proof_count" -eq 1 ]; then
+    relocation_line_by_source["$candidate"]="$proof_line"
+    relocation_old_source_by_source["$candidate"]="$proof_source"
+    relocation_old_digest_by_source["$candidate"]="$proof_digest"
+    claim_count="${relocation_claim_count[$proof_source]-0}"
+    relocation_claim_count["$proof_source"]=$((claim_count + 1))
+  elif [ "$proof_count" -gt 1 ]; then
+    relocation_source_ambiguous["$candidate"]=1
+  fi
+done <"$TMP_SOURCES"
+
+# Carry forward existing error evidence. Cursor state is already normalized in
+# TMP_CURSOR and remains uncommitted until every safe source has been examined.
+cp "$ERROR_FILE" "$TMP_ERRORS"
+legacy_cleanup=()
+
+quarantine_source() {
+  local reason="$1" digest="$2" cursor="$3" observed="$4" source="$5"
+  awk -F'\t' -v d="$digest" \
+    '!($1=="v1" && $3==d)' "$TMP_ERRORS" >"$TMP_ERRORS.next"
+  mv "$TMP_ERRORS.next" "$TMP_ERRORS"
+  printf 'v1\t%s\t%s\t%s\t%s\t%s\n' \
+    "$reason" "$digest" "$cursor" "$observed" "$source" >>"$TMP_ERRORS"
+  echo "north-stream-sync: $reason; quarantined: $source" >&2
+  new_errors=1
+}
 
 while IFS= read -r -d '' src; do
+  case "$src" in
+    *$'\t'*|*$'\n'*|*$'\r'*|*\\*)
+      echo "north-stream-sync: source path became unsafe during scan" >&2
+      exit 1
+      ;;
+  esac
   src_size="$(file_size "$src")"
-  [ "$src_size" -ge "$MIN_BYTES" ] || continue
+  recent=0
+  if [ -n "${recent_source[$src]+present}" ]; then recent=1; fi
 
-  proj_dir="$(basename "$(dirname "$src")")"
+  src_name="${src##*/}"
+  src_parent="${src%/*}"
+  proj_dir="${src_parent##*/}"
   # ~/.claude/projects/<slug>/... slugs are the cwd path with / -> - and a
   # leading -; strip the common -home-<user>[-code] prefix so the dest name
   # reads as a repo name, not a full path smear.
-  slug="$(printf '%s' "$proj_dir" | sed -E 's/^-home-[^-]+-code-/-/; s/^-home-[^-]+-/-/; s/^-+//')"
-  session="$(basename "$src" .jsonl)"
+  legacy_slug="$(printf '%s' "$proj_dir" | sed -E 's/^-home-[^-]+-code-/-/; s/^-home-[^-]+-/-/; s/^-+//')"
+  slug="$(bounded_slug "$legacy_slug")"
+  session="${src_name%.jsonl}"
   session_short="${session:0:8}"
+  digest="$(session_digest "$proj_dir" "$session")"
 
-  # existing cursor line for this exact source (tab-delimited, field 2 == src)
-  cur_line="$(awk -F'\t' -v s="$src" '$2==s{print; exit}' "$CURSOR_FILE")"
+  # Exact source ownership is authoritative. A moved source may inherit a
+  # structured cursor only when exactly one disappeared source with the same
+  # session basename has a nonempty cryptographic prefix that the new source
+  # reproduces. UUID equality alone is never identity evidence.
+  cur_line="${cursor_line_by_source[$src]-}"
+  adopted_cursor=0
+  adopted_source=""
+  adopted_digest=""
+  orphan_recovery=0
+  if [ -z "$cur_line" ]; then
+    proposed_old_source="${relocation_old_source_by_source[$src]-}"
+    if [ -n "$proposed_old_source" ] &&
+       [ "${relocation_claim_count[$proposed_old_source]-0}" -eq 1 ]; then
+      cur_line="${relocation_line_by_source[$src]}"
+      adopted_source="$proposed_old_source"
+      adopted_digest="${relocation_old_digest_by_source[$src]}"
+      adopted_cursor=1
+    elif [ -n "$proposed_old_source" ] ||
+         [ -n "${relocation_source_ambiguous[$src]-}" ]; then
+      echo "north-stream-sync: ambiguous session relocation; preserving independent lineages: $src" >&2
+    fi
+  fi
+
+  if [ -z "$cur_line" ] &&
+     { [ "$src_size" -lt "$MIN_BYTES" ] || [ "$recent" -eq 0 ]; }; then
+    continue
+  fi
+  if [ -z "$cur_line" ]; then
+    prior_lineage_source="${cursor_lineage_owner[$digest]-}"
+    if [ -n "$prior_lineage_source" ] &&
+       [ "$prior_lineage_source" != "$src" ]; then
+      quarantine_source "lineage_reuse_without_prefix_proof" \
+        "$digest" 0 "$src_size" "$src"
+      continue
+    fi
+  fi
 
   if [ -n "$cur_line" ]; then
-    cur_bytes="$(printf '%s' "$cur_line" | cut -f1)"
-    dest_date="$(printf '%s' "$cur_line" | cut -f3)"
-    dest="$RAW_DIR/${dest_date}-${slug}.${session_short}.jsonl"
+    field_count="$(awk -F'\t' '{print NF}' <<<"$cur_line")"
+    first_field="$(cut -f1 <<<"$cur_line")"
+    migrated_legacy=0
+    legacy_dest=""
+    legacy_to_cleanup=""
+    stored_prefix=""
+    if [ "$first_field" = v2 ] || [ "$first_field" = v3 ]; then
+      if [ "$field_count" -ne 6 ]; then
+        echo "north-stream-sync: malformed structured cursor for source: $src" >&2
+        exit 1
+      fi
+      cur_bytes="$(cut -f2 <<<"$cur_line")"
+      cursor_source="$(cut -f3 <<<"$cur_line")"
+      cursor_digest="$(cut -f4 <<<"$cur_line")"
+      dest_name="$(cut -f5 <<<"$cur_line")"
+      stored_prefix="$(cut -f6 <<<"$cur_line")"
+      if ! [[ "$cursor_digest" =~ ^[0-9a-f]{64}$ ]] ||
+         ! [[ "$stored_prefix" =~ ^[0-9a-f]{64}$ ]] ||
+         ! valid_dest_basename "$dest_name"; then
+        echo "north-stream-sync: unsafe structured cursor for source: $src" >&2
+        exit 1
+      fi
+      if [ "$adopted_cursor" -eq 0 ]; then
+        if [ "$first_field" = v3 ] && [ "$cursor_digest" != "$digest" ]; then
+          echo "north-stream-sync: v3 cursor lineage changed for exact source: $src" >&2
+          exit 1
+        fi
+        if [ "$first_field" = v2 ] &&
+           [ "$cursor_digest" != "$(legacy_session_digest "$session")" ] &&
+           [ "$cursor_digest" != "$digest" ]; then
+          echo "north-stream-sync: v2 cursor session changed for exact source: $src" >&2
+          exit 1
+        fi
+      fi
+      if [ "$cursor_source" != "$src" ] && [ -e "$cursor_source" ]; then
+        echo "north-stream-sync: refusing live-source cursor reassignment: $cursor_source" >&2
+        exit 1
+      fi
+      dest="$RAW_DIR/$dest_name"
+    else
+      if [ "$field_count" -ne 3 ]; then
+        echo "north-stream-sync: malformed legacy cursor for source: $src" >&2
+        exit 1
+      fi
+      cur_bytes="$first_field"
+      cursor_source="$(cut -f2 <<<"$cur_line")"
+      dest_date="$(cut -f3 <<<"$cur_line")"
+      if [ "$cursor_source" != "$src" ] ||
+         ! [[ "$dest_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "north-stream-sync: unsafe legacy cursor for source: $src" >&2
+        exit 1
+      fi
+      dest_name="${dest_date}-${slug}.${digest}.jsonl"
+      dest="$RAW_DIR/$dest_name"
+      legacy_name="${dest_date}-${legacy_slug}.${session_short}.jsonl"
+      legacy_dest="$RAW_DIR/$legacy_name"
+      if [ -L "$legacy_dest" ] || [ -L "$dest" ]; then
+        echo "north-stream-sync: refusing symlinked stream destination" >&2
+        exit 1
+      fi
+      migrated_legacy=1
+    fi
   else
-    # brand-new source. Before minting a fresh dest, check whether a dest
-    # already exists for this session (e.g. an earlier manual `cp` snapshot,
-    # or a different slug-derivation) — adopt it rather than duplicating, per
-    # streams/CLAUDE.md's "a copy is a snapshot" contract: one dest per session.
-    adopt="$(find "$RAW_DIR" -maxdepth 1 -type f -iname "*.${session_short}.jsonl" ! -name '.*' 2>/dev/null | head -1)"
-    if [ -n "$adopt" ]; then
-      dest="$adopt"
-      dest_date="$(basename "$dest" | cut -c1-10)"
-      cur_bytes="$(file_size "$dest")"
+    # A prior run may have completed the destination copy and died before the
+    # cursor rename. Recover the exact lineage-named orphan on prefix proof,
+    # including across a date boundary; never truncate an unproven orphan.
+    if ! find "$RAW_DIR" -mindepth 1 -maxdepth 1 \
+      -name "*.$digest.jsonl" -print0 >"$TMP_LOOKUP"; then
+      echo "north-stream-sync: orphan-destination discovery failed" >&2
+      exit 1
+    fi
+    orphan_count=0
+    orphan_dest=""
+    while IFS= read -r -d '' candidate_dest; do
+      orphan_count=$((orphan_count + 1))
+      orphan_dest="$candidate_dest"
+    done <"$TMP_LOOKUP"
+    if [ "$orphan_count" -gt 1 ]; then
+      echo "north-stream-sync: multiple orphan destinations for lineage: $digest" >&2
+      exit 1
+    elif [ "$orphan_count" -eq 1 ]; then
+      dest="$orphan_dest"
+      dest_name="$(basename "$dest")"
+      if ! valid_dest_basename "$dest_name"; then
+        echo "north-stream-sync: unsafe orphan destination basename" >&2
+        exit 1
+      fi
+      orphan_recovery=1
     else
       dest_date="$(date +%F)"
-      dest="$RAW_DIR/${dest_date}-${slug}.${session_short}.jsonl"
-      cur_bytes=0
+      dest_name="${dest_date}-${slug}.${digest}.jsonl"
+      dest="$RAW_DIR/$dest_name"
+      orphan_recovery=0
     fi
+    cur_bytes=0
+    migrated_legacy=0
+    legacy_dest=""
+    legacy_to_cleanup=""
+    stored_prefix=""
+  fi
+
+  if ! [[ "$cur_bytes" =~ ^[0-9]+$ ]]; then
+    echo "north-stream-sync: cursor byte offset is malformed for source: $src" >&2
+    exit 1
+  fi
+  if [ -L "$dest" ]; then
+    echo "north-stream-sync: refusing symlinked stream destination: $dest" >&2
+    exit 1
+  fi
+  if [ "${orphan_recovery:-0}" -eq 1 ]; then
+    orphan_size="$(file_size "$dest")"
+    if [ "$orphan_size" -gt "$src_size" ]; then
+      quarantine_source "orphan_destination_ahead" \
+        "$digest" 0 "$orphan_size" "$src"
+      continue
+    fi
+    orphan_prefix="$(prefix_digest "$dest" "$orphan_size")"
+    if [ "$(prefix_digest "$src" "$orphan_size")" != "$orphan_prefix" ]; then
+      quarantine_source "orphan_destination_mismatch" \
+        "$digest" 0 "$orphan_size" "$src"
+      continue
+    fi
+    cur_bytes="$orphan_size"
+    stored_prefix="$orphan_prefix"
+  fi
+  if [ "$src_size" -lt "$cur_bytes" ]; then
+    quarantine_source "source_shrank" \
+      "$digest" "$cur_bytes" "$src_size" "$src"
+    continue
   fi
 
   dest_size=0
   [ -f "$dest" ] && dest_size="$(file_size "$dest")"
+
+  source_prefix="$(prefix_digest "$src" "$cur_bytes")"
+  if [ -n "$stored_prefix" ] && [ "$source_prefix" != "$stored_prefix" ]; then
+    quarantine_source "source_prefix_mismatch" \
+      "$digest" "$cur_bytes" "$src_size" "$src"
+    continue
+  fi
+  [ -n "$stored_prefix" ] || stored_prefix="$source_prefix"
+
+  # Only after cursor/source validation may a correct legacy destination move.
+  # A mismatched eight-character collision is left untouched and the canonical
+  # destination is rebuilt from the authoritative source.
+  if [ "$migrated_legacy" -eq 1 ] &&
+     [ -f "$legacy_dest" ] &&
+     [ "$legacy_dest" != "$dest" ] &&
+     [ ! -e "$dest" ]; then
+    legacy_size="$(file_size "$legacy_dest")"
+    if [ "$legacy_size" -ge "$cur_bytes" ] &&
+       [ "$(prefix_digest "$legacy_dest" "$cur_bytes")" = "$source_prefix" ]; then
+      cp "$legacy_dest" "$dest"
+      dest_size="$legacy_size"
+      legacy_to_cleanup="$legacy_dest"
+    fi
+  fi
+
+  # A missing or short destination cannot safely resume at CUR_BYTES: rebuild
+  # the complete known-good prefix from the source first. Legacy migration also
+  # verifies the prefix before trusting the old eight-character destination,
+  # which may have collided with another session.
+  rebuild_prefix=0
+  if [ "$dest_size" -lt "$cur_bytes" ]; then
+    rebuild_prefix=1
+  elif [ "$cur_bytes" -gt 0 ] &&
+       [ "$(prefix_digest "$dest" "$cur_bytes")" != "$stored_prefix" ]; then
+    rebuild_prefix=1
+  fi
+  if [ "$rebuild_prefix" -eq 1 ]; then
+    TMP_DEST="$(mktemp "$RAW_DIR/.stream-rebuild.XXXXXX")"
+    head -c "$cur_bytes" "$src" >"$TMP_DEST"
+    mv "$TMP_DEST" "$dest"
+    TMP_DEST=""
+    dest_size="$cur_bytes"
+  fi
+  if [ ! -e "$dest" ]; then
+    : >"$dest"
+    dest_size=0
+  fi
 
   # crash recovery: a prior run appended past the recorded cursor and then
   # died before updating the cursor file. Truncate back to the last known-good
@@ -134,14 +792,60 @@ while IFS= read -r -d '' src; do
 
   new_bytes="$cur_bytes"
   if [ "$src_size" -gt "$cur_bytes" ]; then
-    tail -c "+$((cur_bytes + 1))" "$src" >> "$dest"
+    delta_bytes=$((src_size - cur_bytes))
+    if ! dd if="$src" iflag=skip_bytes,count_bytes \
+      skip="$cur_bytes" count="$delta_bytes" status=none >>"$dest"; then
+      truncate -s "$cur_bytes" "$dest"
+      echo "north-stream-sync: bounded source copy failed; retrying later: $src" >&2
+      new_errors=1
+      continue
+    fi
+    if [ "$(file_size "$dest")" -ne "$src_size" ]; then
+      truncate -s "$cur_bytes" "$dest"
+      echo "north-stream-sync: source changed during bounded copy; retrying later: $src" >&2
+      new_errors=1
+      continue
+    fi
     new_bytes="$src_size"
   fi
 
-  # rewrite this source's cursor line: drop any prior line for it, append fresh.
-  awk -F'\t' -v s="$src" '$2!=s' "$TMP_CURSOR" > "$TMP_CURSOR.next"
+  if [ "$new_bytes" -eq "$cur_bytes" ]; then
+    new_prefix="$source_prefix"
+  else
+    new_prefix="$(prefix_digest "$src" "$new_bytes")"
+    if [ "$(prefix_digest "$dest" "$new_bytes")" != "$new_prefix" ]; then
+      truncate -s "$cur_bytes" "$dest"
+      quarantine_source "source_changed_during_copy" \
+        "$digest" "$cur_bytes" "$src_size" "$src"
+      continue
+    fi
+  fi
+
+  # A successful observation clears any prior quarantine for this identity.
+  awk -F'\t' -v d="$digest" -v old_d="$adopted_digest" \
+    '!($1=="v1" && ($3==d || (old_d!="" && $3==old_d)))' \
+    "$TMP_ERRORS" >"$TMP_ERRORS.next"
+  mv "$TMP_ERRORS.next" "$TMP_ERRORS"
+
+  # Rewrite exact/adopted source ownership. Never drop a cursor merely because
+  # an ambiguous global session UUID happens to match.
+  awk -F'\t' -v s="$src" -v old_s="$adopted_source" '
+    !(($1 ~ /^v[23]$/ && ($3==s || (old_s!="" && $3==old_s))) ||
+      ($1 !~ /^v[23]$/ && ($2==s || (old_s!="" && $2==old_s))))
+  ' "$TMP_CURSOR" > "$TMP_CURSOR.next"
   mv "$TMP_CURSOR.next" "$TMP_CURSOR"
-  printf '%s\t%s\t%s\n' "$new_bytes" "$src" "$dest_date" >> "$TMP_CURSOR"
-done < <(find "$SRC_DIR" -mindepth 2 -maxdepth 2 -type f -iname '*.jsonl' -mtime "-$DAYS" -print0)
+  printf 'v3\t%s\t%s\t%s\t%s\t%s\n' \
+    "$new_bytes" "$src" "$digest" "$dest_name" "$new_prefix" >> "$TMP_CURSOR"
+  if [ -n "$legacy_to_cleanup" ]; then
+    legacy_cleanup+=("$legacy_to_cleanup")
+  fi
+done <"$TMP_SOURCES"
 
 mv "$TMP_CURSOR" "$CURSOR_FILE"
+mv "$TMP_ERRORS" "$ERROR_FILE"
+for legacy in "${legacy_cleanup[@]}"; do
+  rm -f -- "$legacy"
+done
+if [ "$new_errors" -ne 0 ]; then
+  exit 1
+fi

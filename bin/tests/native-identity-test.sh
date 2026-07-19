@@ -7,6 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="$(cd "$HERE/.." && pwd)"
 SPAWN="$BIN/north-on-spawn"
 TOOLUSE="$BIN/north-on-tooluse"
+ACTOR_KEY="$BIN/north-actor-key"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -71,8 +72,12 @@ run_hook() {
   done
 }
 
+key_of() { "$ACTOR_KEY" "$1" "$2"; }
+id_of() { printf 'native-%s' "$(key_of "$1" "$2")"; }
+
 SID="11112222-3333-4444-8555-666677778888"
-ID="session-project-11112222"
+ID_KEY="$(key_of session "$SID")"
+ID="native-$ID_KEY"
 
 echo "== SessionStart exact input outranks ambient adapter dials =="
 run_hook "$SPAWN" \
@@ -134,8 +139,9 @@ has "falls back to exact CLAUDE_EFFORT" "tell agent:$ID effort low"
 
 echo "== PostToolUse repairs a SessionStart identity write failure =="
 RECOVERY_SID="99990000-aaaa-4bbb-8ccc-ddddeeeeffff"
-RECOVERY_ID="session-project-99990000"
-rm -f "$XDG/north-agent-routes/$RECOVERY_SID"
+RECOVERY_KEY="$(key_of session "$RECOVERY_SID")"
+RECOVERY_ID="native-$RECOVERY_KEY"
+rm -f "$XDG/north-agent-routes/$RECOVERY_KEY"
 : > "$LOG"
 run_hook "$SPAWN" \
   "{\"session_id\":\"$RECOVERY_SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"claude-opus-4-8\"}" \
@@ -152,8 +158,9 @@ has "records the exact recovery-turn effort" "tell agent:$RECOVERY_ID effort med
 
 echo "== Codex repair keeps provider/model without ambient PostToolUse markers =="
 CODEX_RECOVERY_SID="88880000-aaaa-4bbb-8ccc-ddddeeeeffff"
-CODEX_RECOVERY_ID="session-project-88880000"
-rm -f "$XDG/north-agent-routes/$CODEX_RECOVERY_SID" "$XDG/north-agent-routes/$CODEX_RECOVERY_SID.seed"
+CODEX_RECOVERY_KEY="$(key_of session "$CODEX_RECOVERY_SID")"
+CODEX_RECOVERY_ID="native-$CODEX_RECOVERY_KEY"
+rm -f "$XDG/north-agent-routes/$CODEX_RECOVERY_KEY" "$XDG/north-agent-routes/$CODEX_RECOVERY_KEY.seed"
 : > "$LOG"
 run_hook "$SPAWN" \
   "{\"session_id\":\"$CODEX_RECOVERY_SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"gpt-5.6-sol\"}" \
@@ -177,11 +184,11 @@ run_hook "$TOOLUSE" \
   "{\"session_id\":\"$SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"PostToolUse\",\"effort\":{\"level\":\"xhigh\"}}" \
   CLAUDE_EFFORT=xhigh
 has "updates stored display_handle with exact effort" \
-  "tell agent:$ID display_handle anthropic-claude-opus-4-8-xhigh-native-11112222"
+  "tell agent:$ID display_handle anthropic-claude-opus-4-8-xhigh-native-$ID_KEY"
 has "updates stored display_name with exact effort" \
-  "tell agent:$ID display_name anthropic-claude-opus-4-8-xhigh-native-11112222"
+  "tell agent:$ID display_name anthropic-claude-opus-4-8-xhigh-native-$ID_KEY"
 lacks "does not retain the stale high projection" \
-  "tell agent:$ID display_handle anthropic-claude-opus-4-8-high-native-11112222"
+  "tell agent:$ID display_handle anthropic-claude-opus-4-8-high-native-$ID_KEY"
 
 : > "$LOG"
 run_hook "$TOOLUSE" \
@@ -191,8 +198,9 @@ lacks "unchanged effort does not rewrite identity" "tell agent:$ID "
 
 echo "== PostToolUse ignores unstable invocation agent_id and requires stable actor identity =="
 TOOL_SID="77770000-aaaa-4bbb-8ccc-ddddeeeeffff"
-TOOL_ID="session-project-77770000"
-rm -f "$XDG/north-agent-routes/$TOOL_SID" "$XDG/north-agent-routes/$TOOL_SID.seed"
+TOOL_KEY="$(key_of session "$TOOL_SID")"
+TOOL_ID="native-$TOOL_KEY"
+rm -f "$XDG/north-agent-routes/$TOOL_KEY" "$XDG/north-agent-routes/$TOOL_KEY.seed"
 : > "$LOG"; : > "$BB_LOG"
 run_hook "$TOOLUSE" \
   "{\"session_id\":\"$TOOL_SID\",\"agent_id\":\"invocation-a03402d0\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"PostToolUse\"}" \
@@ -208,8 +216,8 @@ echo "== spawned native subagents retain distinct actor identities on PostToolUs
 PARENT_SID="66660000-aaaa-4bbb-8ccc-ddddeeeeffff"
 SUB_A="aaaa0000-1111-4222-8333-444455556666"
 SUB_B="bbbb0000-1111-4222-8333-444455556666"
-SUB_A_ID="session-project-aaaa0000"
-SUB_B_ID="session-project-bbbb0000"
+SUB_A_ID="$(id_of agent "$SUB_A")"
+SUB_B_ID="$(id_of agent "$SUB_B")"
 : > "$LOG"; : > "$BB_LOG"
 run_hook "$SPAWN" \
   "{\"session_id\":\"$PARENT_SID\",\"agent_id\":\"$SUB_A\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SubagentStart\",\"model\":\"claude-sonnet-5\",\"effort\":{\"level\":\"medium\"}}" \
@@ -229,7 +237,8 @@ run_hook "$TOOLUSE" \
   CLAUDECODE=1
 has "first subagent tool activity refreshes its cached row" "tell agent:$SUB_A_ID effort high"
 has "second subagent tool activity refreshes its cached row" "tell agent:$SUB_B_ID effort xhigh"
-lacks "subagent tool activity does not collapse onto the parent session" "tell agent:session-project-66660000 effort"
+lacks "subagent tool activity does not collapse onto the parent session" \
+  "tell agent:$(id_of session "$PARENT_SID") effort"
 
 : > "$LOG"; : > "$BB_LOG"
 run_hook "$TOOLUSE" \

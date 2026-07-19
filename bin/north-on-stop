@@ -6,6 +6,8 @@
 # supervises the WHOLE semantic hook—including stdin, git, cache and pgrep—so a
 # wedged dependency can never consume the provider's hook deadline.
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 mode="${1:-}"
 if [ -z "$mode" ]; then
@@ -141,6 +143,7 @@ if not isinstance(active, bool):
     raise SystemExit(1)
 cwd = value.get("cwd", os.getcwd())
 session_id = value.get("session_id", "")
+agent_id = value.get("agent_id", "")
 if (
     not isinstance(cwd, str)
     or not cwd
@@ -150,6 +153,9 @@ if (
     or not isinstance(session_id, str)
     or len(session_id.encode("ascii", "strict")) > 512
     or (session_id and re.fullmatch(r"[A-Za-z0-9._:-]+", session_id) is None)
+    or not isinstance(agent_id, str)
+    or len(agent_id.encode("ascii", "strict")) > 512
+    or (agent_id and re.fullmatch(r"[A-Za-z0-9._:-]+", agent_id) is None)
 ):
     raise SystemExit(1)
 sys.stdout.write(
@@ -160,38 +166,69 @@ sys.stdout.write(
     + ("1" if session_id else "0")
     + (("\n" + session_id) if session_id else "")
     + "\n"
+    + ("1" if agent_id else "0")
+    + (("\n" + agent_id) if agent_id else "")
+    + "\n"
 )
 ' 2>/dev/null
 )" || exit 0
 
 mapfile -t fields <<<"$parsed"
-[ "${#fields[@]}" -ge 3 ] || exit 0
+[ "${#fields[@]}" -ge 4 ] || exit 0
 [ "${fields[0]}" = "0" ] || exit 0
 cwd="${fields[1]}"
+: "$cwd" # validated above; retained for strict hook-envelope compatibility
 case "${fields[2]}" in
   0)
-    [ "${#fields[@]}" -eq 3 ] || exit 0
     sid=""
+    next_field=3
     ;;
   1)
-    [ "${#fields[@]}" -eq 4 ] || exit 0
     sid="${fields[3]}"
+    next_field=4
+    ;;
+  *) exit 0 ;;
+esac
+case "${fields[$next_field]:-}" in
+  0)
+    agent_id=""
+    [ "${#fields[@]}" -eq $((next_field + 1)) ] || exit 0
+    ;;
+  1)
+    agent_id="${fields[$((next_field + 1))]:-}"
+    [ -n "$agent_id" ] || exit 0
+    [ "${#fields[@]}" -eq $((next_field + 2)) ] || exit 0
     ;;
   *) exit 0 ;;
 esac
 
-repo="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$cwd")"
-[ -n "$repo" ] || exit 0
-repo_name="${repo##*/}"
-cache="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$sid"
+IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
+validated_pin="${NORTH_AGENT_ID:-}"
+if [ -n "$validated_pin" ]; then
+  pin_validation="$("$ACTOR_KEY" managed "$validated_pin" 2>/dev/null || true)"
+  [ "${#pin_validation}" -eq 64 ] || validated_pin=""
+fi
+agent_key=""
+[ -z "$agent_id" ] ||
+  agent_key="$("$ACTOR_KEY" agent "$agent_id" 2>/dev/null || true)"
+if [ "${#agent_key}" -eq 64 ] && [ -r "$IDDIR/$agent_key" ]; then
+  identity_key="$agent_key"
+elif [ -n "$sid" ]; then
+  identity_key="$("$ACTOR_KEY" session "$sid" 2>/dev/null || true)"
+elif [ -n "$validated_pin" ]; then
+  identity_key="$("$ACTOR_KEY" managed "$validated_pin" 2>/dev/null || true)"
+else
+  exit 0
+fi
+[ "${#identity_key}" -eq 64 ] || exit 0
+cache="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids/$identity_key"
 id=""
 if [ -n "$sid" ] && [ -f "$cache" ] && [ -r "$cache" ]; then
   IFS= read -r id <"$cache" 2>/dev/null || id=""
 fi
-[ -n "$id" ] || id="${NORTH_AGENT_ID:-}"
+[ -n "$id" ] || id="$validated_pin"
 [ -n "$id" ] || {
-  [ -n "$sid" ] || exit 0
-  id="session-$repo_name-${sid:0:8}"
+  id="native-$identity_key"
 }
 
 # IDs are interpolated into paths, process matching and JSON-visible guidance.
@@ -201,8 +238,11 @@ case "$id" in
   ""|*[!A-Za-z0-9._:-]*) exit 0 ;;
 esac
 
-mark="${XDG_RUNTIME_DIR:-/tmp}/north-delegated/$id"
-[ -f "$mark" ] || exit 0
+mark="${XDG_RUNTIME_DIR:-/tmp}/north-delegated/$identity_key"
+[ -f "$mark" ] && [ -r "$mark" ] || exit 0
+marked_id=""
+IFS= read -r marked_id <"$mark" 2>/dev/null || exit 0
+[ "$marked_id" = "$id" ] || exit 0
 
 # `north-arm` execs `bb .../north-listen.clj <port> <id> --once`. Read one
 # process snapshot and compare the ID as a whitespace-delimited argv token.

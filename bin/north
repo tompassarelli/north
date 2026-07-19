@@ -28,7 +28,7 @@ if [ "$_north_fram_log_explicit" -eq 0 ] && [ -z "${FRAM_TELEMETRY_LOG:-}" ]; th
 fi
 unset _north_fram_log_explicit
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target requested_target fallback_target_path broadcast_audience_version code_port code_log}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -125,7 +125,8 @@ north — your one card. Type a command to do the thing next to it.
     north delivery attest <agent-id>   unavailable until verifier lanes have OS isolation
     north spawn <role> "<prompt>"      compose from Gaffer's staffing catalog
       --provider auto|anthropic|openai  select or auto-route the worker provider
-      --taskGrade/--domain/--topology   independently override staffing axes
+      --taskGrade/--domain              independently override stock staffing axes
+      --topology                        bespoke compositions only; stock topology is fixed
       --tier/--reasoning/--posture      capability, deliberation, and posture
       --rationale "why"                 required for a bespoke role
     (agents dispatch via MCP)          in-harness agents call mcp__north__dispatch / spawn

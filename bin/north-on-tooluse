@@ -6,6 +6,10 @@
 # Input and output both use Python's JSON parser/serializer; no hand-built escaping.
 set -uo pipefail
 umask 077
+NORTH_HOME="${NORTH_HOME:-$HOME/code/north}"
+export NORTH_HOME
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 # The provider harness gives this hook 10s, but several individually bounded
 # best-effort operations below can otherwise add up past that outer limit. Run
@@ -60,24 +64,36 @@ sid="${JFIELDS[1]:-}"
 agent_id="${JFIELDS[2]:-}"
 EFFORT="${JFIELDS[3]:-}"
 IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
+validated_pin="${NORTH_AGENT_ID:-}"
+if [ -n "$validated_pin" ]; then
+  pin_validation="$("$ACTOR_KEY" managed "$validated_pin" 2>/dev/null || true)"
+  [ "${#pin_validation}" -eq 64 ] || validated_pin=""
+fi
 # `agent_id` is ambiguous across provider hook surfaces: SubagentStart uses it
 # as the native actor id, while some PostToolUse emitters use an invocation-local
 # id that changes every call. It is actor evidence only when north-on-spawn has
 # already staked that exact key. Otherwise the stable session owns this tool
 # event. An unseen agent_id is never allowed to mint a roster row.
-agent_key="$(printf '%s' "$agent_id" | sed 's/[^A-Za-z0-9._-]/_/g')"
+agent_key=""
+[ -z "$agent_id" ] ||
+  agent_key="$("$ACTOR_KEY" agent "$agent_id" 2>/dev/null || true)"
 spawn_staked_agent=0
-if [ -n "$agent_id" ] && [ -r "$IDDIR/$agent_key" ]; then
+if [ -n "$agent_id" ] && [ "${#agent_key}" -eq 64 ] &&
+    [ -r "$IDDIR/$agent_key" ]; then
+  identity_kind="agent"
   identity_key_source="$agent_id"
   spawn_staked_agent=1
 elif [ -n "$sid" ]; then
+  identity_kind="session"
   identity_key_source="$sid"
-elif [ -n "${NORTH_AGENT_ID:-}" ]; then
-  identity_key_source="managed-${NORTH_AGENT_ID:-}"
+elif [ -n "$validated_pin" ]; then
+  identity_kind="managed"
+  identity_key_source="$validated_pin"
 else
   exit 0
 fi
-identity_key="$(printf '%s' "$identity_key_source" | sed 's/[^A-Za-z0-9._-]/_/g')"
+identity_key="$("$ACTOR_KEY" "$identity_kind" "$identity_key_source" 2>/dev/null || true)"
+[ "${#identity_key}" -eq 64 ] || exit 0
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
 # identity resolution: per-session cache (written by north-on-spawn — the per-sid
@@ -95,8 +111,8 @@ if [ -r "$CACHE" ]; then
   ID="$(cat "$CACHE" 2>/dev/null || true)"
 fi
 [ "$spawn_staked_agent" -eq 1 ] && [ -z "$ID" ] && exit 0
-[ -z "$ID" ] && ID="${NORTH_AGENT_ID:-}"
-[ -z "$ID" ] && ID="session-$RN-${sid:0:8}"
+[ -z "$ID" ] && ID="$validated_pin"
+[ -z "$ID" ] && ID="native-$identity_key"
 
 # Claude PostToolUse receives the effective effort used for the turn, both as
 # the structured input field and CLAUDE_EFFORT; Codex does not currently expose
@@ -171,7 +187,7 @@ schedule_projection_repair() {
         NORTH_NATIVE_EFFORT="$effort" \
         NORTH_NATIVE_DISPLAY="$display" \
         bb -e '
-          (load-file (str (System/getenv "HOME") "/code/north/cli/coord.clj"))
+          (load-file (str (System/getenv "NORTH_HOME") "/cli/coord.clj"))
           (let [port (Integer/parseInt (System/getenv "NORTH_NATIVE_PORT"))
                 subject (System/getenv "NORTH_NATIVE_SUBJECT")
                 facts [["kind" "session"]
@@ -243,7 +259,7 @@ fi
 # Best-effort + bounded: any failure is swallowed, never breaks the tool call. The marker
 # is stamped only on a SUCCESSFUL renew, so a failed renew retries on the next tool call.
 RENEW_DIR="${XDG_RUNTIME_DIR:-/tmp}/north-presence-renew"
-RENEW_MARK="$RENEW_DIR/$ID"
+RENEW_MARK="$RENEW_DIR/$identity_key"
 now_s="$(date +%s 2>/dev/null || echo 0)"
 last_s=0
 [ -r "$RENEW_MARK" ] && last_s="$(cat "$RENEW_MARK" 2>/dev/null || echo 0)"
@@ -263,7 +279,7 @@ if [ "$now_s" -eq 0 ] || [ $(( now_s - last_s )) -ge 60 ]; then
       (
         trap 'rm -rf "$RENEW_LOCK" 2>/dev/null || true' EXIT
         if timeout --signal=TERM --kill-after=0.2s 3s \
-            bb "$HOME/code/north/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
+            bb "$NORTH_HOME/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
             register "$ID" "$REPO" "$ID" >/dev/null 2>&1
         then
           renew_tmp="${RENEW_MARK}.$$.${RANDOM}.tmp"
@@ -281,7 +297,7 @@ fi
 # deadline interrupts a slow ack, command substitution retains the delivered
 # text and the message can safely repeat later instead of disappearing.
 MAIL="$(timeout --signal=TERM --kill-after=0.2s 1.25s \
-  bb "$HOME/code/north/cli/inbox-peek.clj" "${NORTH_PORT:-7977}" "$ID" 2>/dev/null || true)"
+  bb "$NORTH_HOME/cli/inbox-peek.clj" "${NORTH_PORT:-7977}" "$ID" 2>/dev/null || true)"
 [ -z "$MAIL" ] && exit 0
 
 CTX="[north] new peer message(s):

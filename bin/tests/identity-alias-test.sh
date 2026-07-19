@@ -20,6 +20,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="$(cd "$HERE/.." && pwd)"
 SPAWN="$BIN/north-on-spawn"
 TOOLUSE="$BIN/north-on-tooluse"
+ACTOR_KEY="$BIN/north-actor-key"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -81,60 +82,99 @@ run_hook() {
   done
   tail -n1 "$BB_REG_LOG" 2>/dev/null || true
 }
-cache_of() { cat "$CACHE/$1" 2>/dev/null || true; }
+key_of() { "$ACTOR_KEY" "$1" "$2"; }
+id_of() { printf 'native-%s' "$(key_of "$1" "$2")"; }
+cache_of() { cat "$CACHE/$(key_of "$1" "$2")" 2>/dev/null || true; }
 
-PARENT="d5523b3b-47bb-446d-b5ae-f08ff8c0eba4"   # -> session-fram-d5523b3b (the incident id)
-SUB="aaaa1111-0000-4000-8000-000000000001"      # -> session-fram-aaaa1111
-SUB2="bbbb2222-0000-4000-8000-000000000002"     # -> session-fram-bbbb2222
+PARENT="d5523b3b-47bb-446d-b5ae-f08ff8c0eba4"
+SUB="aaaa1111-0000-4000-8000-000000000001"
+SUB2="bbbb2222-0000-4000-8000-000000000002"
 FRESH="cccc3333-0000-4000-8000-000000000003"
 NOCACHE="dddd4444-0000-4000-8000-000000000004"
+PARENT_ID="$(id_of session "$PARENT")"
+SUB_ID="$(id_of session "$SUB")"
+SUB2_ID="$(id_of session "$SUB2")"
 
 echo "== 1. parent SessionStart (no env pin) acquires its derived id =="
 reg="$(run_hook "$SPAWN" "$PARENT" SessionStart)"
-eq "parent registers session-fram-d5523b3b" "session-fram-d5523b3b" "$reg"
-eq "parent cache file == its id"        "session-fram-d5523b3b" "$(cache_of "$PARENT")"
+eq "parent registers its full provider identity" "$PARENT_ID" "$reg"
+eq "parent cache file == its id"        "$PARENT_ID" "$(cache_of session "$PARENT")"
 
 echo "== 2. subagent SubagentSessionStart w/ INHERITED env pin gets its OWN id =="
-# parent already owns session-fram-d5523b3b (case 1 seeded the cache); the subagent
-# inherits NORTH_AGENT_ID=session-fram-d5523b3b but has its own session_id.
-reg="$(run_hook "$SPAWN" "$SUB" SubagentSessionStart "session-fram-d5523b3b")"
-ne "subagent does NOT alias parent id"  "session-fram-d5523b3b" "$reg"
-eq "subagent gets own derived id"       "session-fram-aaaa1111" "$reg"
-eq "subagent cache file == own id"      "session-fram-aaaa1111" "$(cache_of "$SUB")"
-eq "parent cache untouched"             "session-fram-d5523b3b" "$(cache_of "$PARENT")"
+# The subagent inherits the parent's full pin but has its own session_id.
+reg="$(run_hook "$SPAWN" "$SUB" SubagentSessionStart "$PARENT_ID")"
+ne "subagent does NOT alias parent id"  "$PARENT_ID" "$reg"
+eq "subagent gets own derived id"       "$SUB_ID" "$reg"
+eq "subagent cache file == own id"      "$SUB_ID" "$(cache_of session "$SUB")"
+eq "parent cache untouched"             "$PARENT_ID" "$(cache_of session "$PARENT")"
 
 echo "== 2b. provider SubagentStart parent session_id + unique agent_id stays distinct =="
 NATIVE_AGENT="agent-eeee5555-0000-4000-8000-000000000005"
-reg="$(run_hook "$SPAWN" "$PARENT" SubagentStart "session-fram-d5523b3b" "$NATIVE_AGENT")"
-eq "native subagent derives from agent_id, not parent session_id" "session-fram-eeee5555" "$reg"
-eq "native subagent cache is keyed by agent_id" "session-fram-eeee5555" "$(cache_of "$NATIVE_AGENT")"
-reg="$(run_hook "$TOOLUSE" "$PARENT" PostToolUse "session-fram-d5523b3b" "$NATIVE_AGENT")"
-eq "native subagent tooluse renews its agent_id row" "session-fram-eeee5555" "$reg"
+NATIVE_ID="$(id_of agent "$NATIVE_AGENT")"
+reg="$(run_hook "$SPAWN" "$PARENT" SubagentStart "$PARENT_ID" "$NATIVE_AGENT")"
+eq "native subagent derives from full agent_id, not parent session_id" "$NATIVE_ID" "$reg"
+eq "native subagent cache is keyed by agent_id" "$NATIVE_ID" "$(cache_of agent "$NATIVE_AGENT")"
+reg="$(run_hook "$TOOLUSE" "$PARENT" PostToolUse "$PARENT_ID" "$NATIVE_AGENT")"
+eq "native subagent tooluse renews its full agent_id row" "$NATIVE_ID" "$reg"
 
 echo "== 3. dispatch-style fresh process: env pin, NO prior owner -> keeps pin =="
 reg="$(run_hook "$SPAWN" "$FRESH" SessionStart "sdk-custom-xyz")"
 eq "fresh process keeps its env pin"    "sdk-custom-xyz" "$reg"
-eq "fresh cache file == pinned id"      "sdk-custom-xyz" "$(cache_of "$FRESH")"
+eq "fresh cache file == pinned id"      "sdk-custom-xyz" "$(cache_of session "$FRESH")"
 
 echo "== 4. tooluse renews the CACHE id even when env pin is set (cache > env) =="
-# subagent SUB has cache=session-fram-aaaa1111 but still inherits the parent env pin.
-reg="$(run_hook "$TOOLUSE" "$SUB" PostToolUse "session-fram-d5523b3b")"
-eq "tooluse renews cached subagent id"  "session-fram-aaaa1111" "$reg"
-ne "tooluse ignores inherited env pin"  "session-fram-d5523b3b" "$reg"
+# The subagent still inherits the parent env pin.
+reg="$(run_hook "$TOOLUSE" "$SUB" PostToolUse "$PARENT_ID")"
+eq "tooluse renews cached subagent id"  "$SUB_ID" "$reg"
+ne "tooluse ignores inherited env pin"  "$PARENT_ID" "$reg"
 
 echo "== 5. tooluse env FALLBACK when no cache (SDK-dispatched, spawn hook unfired) =="
 reg="$(run_hook "$TOOLUSE" "$NOCACHE" PostToolUse "sdk-fallback")"
 eq "tooluse falls back to env pin"      "sdk-fallback" "$reg"
 
 echo "== 6. concurrent siblings both inherit pin -> both derive DISTINCT ids =="
-# parent owns session-fram-d5523b3b; two siblings spawn with the inherited pin.
-r1="$(run_hook "$SPAWN" "$SUB"  SubagentSessionStart "session-fram-d5523b3b")"
-r2="$(run_hook "$SPAWN" "$SUB2" SubagentSessionStart "session-fram-d5523b3b")"
-ne "sibling A not aliased to parent"    "session-fram-d5523b3b" "$r1"
-ne "sibling B not aliased to parent"    "session-fram-d5523b3b" "$r2"
+# Two siblings spawn with the inherited parent pin.
+r1="$(run_hook "$SPAWN" "$SUB"  SubagentSessionStart "$PARENT_ID")"
+r2="$(run_hook "$SPAWN" "$SUB2" SubagentSessionStart "$PARENT_ID")"
+ne "sibling A not aliased to parent"    "$PARENT_ID" "$r1"
+ne "sibling B not aliased to parent"    "$PARENT_ID" "$r2"
 ne "siblings not aliased to each other" "$r1" "$r2"
-eq "sibling A own id"                   "session-fram-aaaa1111" "$r1"
-eq "sibling B own id"                   "session-fram-bbbb2222" "$r2"
+eq "sibling A own id"                   "$SUB_ID" "$r1"
+eq "sibling B own id"                   "$SUB2_ID" "$r2"
+
+echo "== 7. matching eight-character prefixes retain full collision entropy =="
+COLLIDE_A="agent-deadbeef-0000-4000-8000-000000000001"
+COLLIDE_B="agent-deadbeef-0000-4000-8000-000000000002"
+COLLIDE_A_ID="$(id_of agent "$COLLIDE_A")"
+COLLIDE_B_ID="$(id_of agent "$COLLIDE_B")"
+c1="$(run_hook "$SPAWN" "$PARENT" SubagentStart "$PARENT_ID" "$COLLIDE_A")"
+c2="$(run_hook "$SPAWN" "$PARENT" SubagentStart "$PARENT_ID" "$COLLIDE_B")"
+eq "first colliding-prefix actor keeps its complete ID" "$COLLIDE_A_ID" "$c1"
+eq "second colliding-prefix actor keeps its complete ID" "$COLLIDE_B_ID" "$c2"
+ne "matching readable prefixes cannot alias control identity" "$c1" "$c2"
+
+echo "== 8. sanitized aliases, namespaces, and max-size actors remain distinct =="
+PUNCT_A="actor:a"
+PUNCT_B="actor_a"
+punct_a_id="$(id_of agent "$PUNCT_A")"
+punct_b_id="$(id_of agent "$PUNCT_B")"
+p1="$(run_hook "$SPAWN" "$PARENT" SubagentStart "$PARENT_ID" "$PUNCT_A")"
+p2="$(run_hook "$SPAWN" "$PARENT" SubagentStart "$PARENT_ID" "$PUNCT_B")"
+eq "colon actor resolves to its full digest" "$punct_a_id" "$p1"
+eq "underscore actor resolves to its full digest" "$punct_b_id" "$p2"
+ne "sanitize-equivalent raw actors cannot alias" "$p1" "$p2"
+
+SAME_RAW="same-actor-bytes"
+session_same="$(run_hook "$SPAWN" "$SAME_RAW" SessionStart)"
+agent_same="$(run_hook "$SPAWN" "$PARENT" SubagentStart "" "$SAME_RAW")"
+eq "session namespace owns its typed digest" "$(id_of session "$SAME_RAW")" "$session_same"
+eq "agent namespace owns its typed digest" "$(id_of agent "$SAME_RAW")" "$agent_same"
+ne "equal raw agent/session bytes are domain-separated" "$session_same" "$agent_same"
+
+MAX_ACTOR="$(printf 'a%.0s' $(seq 1 512))"
+max_id="$(run_hook "$SPAWN" "$PARENT" SubagentStart "" "$MAX_ACTOR")"
+eq "512-byte actor derives a bounded full-digest ID" "$(id_of agent "$MAX_ACTOR")" "$max_id"
+eq "512-byte actor cache uses a NAME_MAX-safe key" "$max_id" "$(cache_of agent "$MAX_ACTOR")"
 
 echo
 echo "identity-alias-test: $PASS passed, $FAIL failed"
