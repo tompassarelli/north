@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,6 +9,7 @@ import { createHash } from "node:crypto";
 import {
   BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION, bespokeContractFingerprint,
 } from "../src/bespoke-contract";
+import { admitPinnedProvider } from "../src/execution-admission";
 
 const north = resolve(import.meta.dir, "../..");
 const cli = resolve(north, "cli/agents-cli.clj");
@@ -35,13 +38,11 @@ function dry(role: string, provider: string, ...extra: string[]): string {
 }
 
 test("director is the canonical orchestrator role and topology names fail pedagogically", () => {
-  for (const provider of ["anthropic", "openai"]) {
-    const director = dry("director", provider);
-    expect(director).toContain("AGENT_TIER=frontier");
-    expect(director).toContain("AGENT_TOPOLOGY=orchestrator");
-    expect(director).toContain("AGENT_ROLE=director");
-    expect(director).not.toContain("AGENT_MODEL=");
-  }
+  const director = dry("director", "anthropic");
+  expect(director).toContain("AGENT_TIER=frontier");
+  expect(director).toContain("AGENT_TOPOLOGY=orchestrator");
+  expect(director).toContain("AGENT_ROLE=director");
+  expect(director).not.toContain("AGENT_MODEL=");
   for (const topology of ["orchestrator", "worker"]) {
     const result = spawnSync("bb", [cli, "spawn", topology, "probe", "--dry-run"], {
       encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
@@ -56,12 +57,12 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
   expect(dry("integrator", "openai")).toContain(
     "policy=north:struggle-observer:v1 topology=worker error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=6",
   );
-  expect(dry("director", "openai")).toContain(
+  expect(dry("director", "anthropic")).toContain(
     "policy=north:struggle-observer:v1 topology=orchestrator error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=12",
   );
 
   const overridden = spawnSync("bb", [
-    cli, "spawn", "director", "probe", "--provider", "openai", "--dry-run",
+    cli, "spawn", "director", "probe", "--provider", "anthropic", "--dry-run",
   ], {
     encoding: "utf8",
     env: {
@@ -151,6 +152,107 @@ test("ambiguous researcher role fails with the three explicit research functions
 const delegate = (...args: string[]) => spawnSync("bb", [cli, "delegate", ...args], {
   encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
     GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+});
+
+test("composite preview and execution share pinned-provider admission before side effects", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-provider-admission-parity-"));
+  const home = join(directory, "home");
+  const calls = join(directory, "side-effects.log");
+  const fakeNorth = join(directory, "north-fake");
+  mkdirSync(home);
+  const planted = (name: string) => {
+    const file = join(directory, name);
+    writeFileSync(file, `#!/usr/bin/env bash\nprintf '%s\\n' ${JSON.stringify(name)} >> ${JSON.stringify(calls)}\nexit 97\n`);
+    chmodSync(file, 0o755);
+    return file;
+  };
+  planted("claude");
+  planted("codex");
+  writeFileSync(
+    fakeNorth,
+    `#!/usr/bin/env bash\nprintf 'north %s\\n' "$*" >> ${JSON.stringify(calls)}\nexit 97\n`,
+  );
+  chmodSync(fakeNorth, 0o755);
+
+  const capabilities = [
+    "filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination",
+  ] as const;
+  let productionReason = "";
+  try {
+    admitPinnedProvider("openai", capabilities);
+  } catch (error) {
+    productionReason = error instanceof Error ? error.message : String(error);
+  }
+  expect(productionReason).toBe("openai_adapter_orchestrator_authority_unavailable");
+
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${directory}:${process.env.PATH ?? ""}`,
+    NORTH_HOME: north,
+    NORTH_BIN: fakeNorth,
+    NORTH_POLICY_BUN: process.execPath,
+    NORTH_RUN_ID: "",
+    NORTH_THREAD_ID: "",
+    NORTH_RUN_CAPABILITY: "",
+    NO_COLOR: "1",
+    GAFFER_HOME: gaffer,
+    GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+  };
+  try {
+    const requests = [
+      ["delegate", "coordinate this", "--composite"],
+      ["spawn", "director", "coordinate this"],
+    ];
+    for (const request of requests) {
+      for (const executionArgs of [["--dry-run"], []]) {
+        const result = spawnSync("bb", [
+          cli, ...request,
+          "--provider", "openai", "--target", "codex-work", ...executionArgs,
+        ], { encoding: "utf8", env });
+        expect(result.status).toBe(1);
+        const document = JSON.parse(result.stdout.trim());
+        expect(document).toEqual({
+          schema: "north:provider-capability-admission:v1",
+          provider: "openai",
+          capabilities: [...capabilities],
+          requestedTarget: "codex-work",
+          status: "unsupported",
+          code: "blocked_preflight",
+          processOutcome: "blocked_preflight",
+          reason: productionReason,
+          retrySafeBeforeAcceptance: true,
+        });
+        expect(result.stderr).toContain(
+          `provider capability admission rejected before side effects: ${productionReason}`,
+        );
+        expect(result.stdout).not.toContain("[dry-run]");
+        expect(result.stdout).not.toContain("semantic handle");
+        expect(result.stdout).not.toContain("control:");
+        expect(result.stdout).not.toContain("AGENT_");
+      }
+    }
+
+    expect(existsSync(calls)).toBe(false);
+    expect(existsSync(join(home, ".local/state/north/accounts"))).toBe(false);
+    expect(existsSync(join(home, ".local/state/north/agents"))).toBe(false);
+
+    const anthropic = spawnSync("bb", [
+      cli, "delegate", "coordinate this", "--composite",
+      "--provider", "anthropic", "--target", "claude-work", "--dry-run",
+    ], { encoding: "utf8", env });
+    expect(anthropic.status).toBe(0);
+    expect(anthropic.stdout).toContain("# gaffer dials for role director");
+    expect(anthropic.stdout).toContain("AGENT_ROLE=director");
+    expect(anthropic.stdout).toContain("AGENT_TOPOLOGY=orchestrator");
+    expect(anthropic.stdout).toContain("NORTH_DELEGATE_THREAD_ID=capture-on-execution");
+    expect(anthropic.stdout).toContain("[dry-run] not executed. semantic handle would be");
+    expect(existsSync(calls)).toBe(false);
+    expect(existsSync(join(home, ".local/state/north/accounts"))).toBe(false);
+    expect(existsSync(join(home, ".local/state/north/agents"))).toBe(false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("delegate requires one explicit dependency-shape classification", () => {

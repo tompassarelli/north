@@ -490,6 +490,7 @@
               (str/includes? (:out help) "--rationale WHY --contract JSON|@file")
               (str/includes? (:out help) "responsibility, deliverable, capabilities, mayDecide")
               (str/includes? (:out help) "--target ACCOUNT")
+              (str/includes? (:out help) "validate pinned-provider capability authority")
               (not (str/includes? (str (:out help) (:err help)) "unknown spawn option")))))
 
 (let [templates (proc/shell {:out :string :err :string :continue true

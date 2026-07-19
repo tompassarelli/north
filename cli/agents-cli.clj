@@ -24,7 +24,11 @@
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION "north:agent-roster:v1")
 (def STRUGGLE-POLICY-CLI (str NORTH "/sdk/src/struggle.ts"))
+(def PROVIDER-CAPABILITY-ADMISSION-CLI
+  (str NORTH "/sdk/src/provider-capability-admission-cli.ts"))
 (def POLICY-BUN (or (System/getenv "NORTH_POLICY_BUN") "bun"))
+(def PROVIDER-CAPABILITY-ADMISSION-SCHEMA
+  "north:provider-capability-admission:v1")
 
 (load-file (str NORTH "/cli/spawn-process.clj"))
 (load-file (str NORTH "/cli/topology-authority.clj"))
@@ -70,6 +74,60 @@
                           "could not resolve struggle detector policy"))))
       (System/exit 1))
     (assoc parsed :canonical raw)))
+
+(defn- require-pinned-provider-capabilities!
+  "Run the SDK's exact pinned-provider gate before delegate thread, identity,
+   account, or provider state can be touched. Auto remains intentionally open:
+   execution may select any capability-compatible provider."
+  [provider target capabilities]
+  (when (and provider (not= provider "auto"))
+    (let [argv (cond-> [POLICY-BUN "run" PROVIDER-CAPABILITY-ADMISSION-CLI
+                        provider (json/generate-string capabilities)]
+                 target (conj target))
+          result (run argv)
+          raw (str/trim (or (:out result) ""))
+          parsed (try (json/parse-string raw true) (catch Exception _ nil))
+          expected-base (cond-> #{:schema :provider :capabilities :status}
+                          target (conj :requestedTarget))
+          supported? (and (:ok result)
+                          (map? parsed)
+                          (= expected-base (set (keys parsed)))
+                          (= PROVIDER-CAPABILITY-ADMISSION-SCHEMA (:schema parsed))
+                          (= "supported" (:status parsed))
+                          (= provider (:provider parsed))
+                          (= capabilities (:capabilities parsed))
+                          (= target (:requestedTarget parsed)))
+          unsupported-fields (into expected-base
+                                   #{:code :processOutcome :reason
+                                     :retrySafeBeforeAcceptance})
+          unsupported? (and (= 3 (:exit result))
+                            (map? parsed)
+                            (= unsupported-fields (set (keys parsed)))
+                            (= PROVIDER-CAPABILITY-ADMISSION-SCHEMA (:schema parsed))
+                            (= "unsupported" (:status parsed))
+                            (= provider (:provider parsed))
+                            (= capabilities (:capabilities parsed))
+                            (= target (:requestedTarget parsed))
+                            (= true (:retrySafeBeforeAcceptance parsed))
+                            (every? #(and (string? %) (not (str/blank? %)))
+                                    (map parsed [:code :processOutcome :reason])))]
+      (cond
+        supported? nil
+        unsupported?
+        (do
+          (binding [*out* *err*]
+            (println (red (str "provider capability admission rejected before side effects: "
+                               (:reason parsed)))))
+          ;; One validated JSON document is the stable machine evidence. Do not
+          ;; print a semantic handle for a provider route that cannot execute.
+          (println raw)
+          (System/exit 1))
+        :else
+        (do
+          (binding [*out* *err*]
+            (println (red (or (not-empty (str/trim (or (:err result) "")))
+                              "provider capability admission unavailable"))))
+          (System/exit 1))))))
 
 ;; ---- gaffer staffing catalog (canonical; generated markdown is adapter-only) -
 (defn gaffer-catalog []
@@ -124,8 +182,10 @@
           (println (dim (str "  capabilities " (str/join " " capabilities))))
           (when verbose? (println (str "  " description))))))))
 
-;; Dry-run route preview. Resolve the provider route declared by Gaffer with no
-;; hidden time-gated model substitution (twin of sdk/src/providers/catalog.ts).
+;; Dry-run route preview. Explicit pins reach this only after the SDK's
+;; capability gate admits them. Resolve the provider route declared by Gaffer
+;; with no hidden time-gated model substitution (twin of
+;; sdk/src/providers/catalog.ts).
 (defn dry-resolved-route [provider tier explicit-model reasoning]
   (when (and provider (not= provider "auto"))
     (try
@@ -817,7 +877,7 @@
     (println "  --domain D[,D...]                 repeatable domain requirement")
     (println "  --reasoning low|medium|high|xhigh|max  (--deliberation is an alias)")
     (println "  --notify PEER                     completion/stall notifications")
-    (println "  --dry-run                         validate and show resolved identity without execution")))
+    (println "  --dry-run                         validate pinned-provider capability authority; show identity only when supported")))
 
 (defn- parse-spawn-args [args]
   (loop [xs args positionals [] opts {:domains [] :seen #{}}]
@@ -1162,7 +1222,10 @@
       capability-problem
       (do (println (red capability-problem)) (System/exit 1))
       :else
-      (let [struggle-policy (resolve-struggle-policy! selected-topology)
+      (do
+        (require-pinned-provider-capabilities!
+         provider target normalized-selected-capabilities)
+        (let [struggle-policy (resolve-struggle-policy! selected-topology)
             model (:model base) synthetic-effort (:effort base) synthetic-reasoning (:reasoning base)
             gaffer-preset (:gaffer-preset base) semantic (:semantic base)
             delegate-binding (when *delegate-request*
@@ -1296,7 +1359,7 @@
                 (do
                   (binding [*out* *err*]
                     (println (red (north.spawn-process/failure-message startup))))
-                  (System/exit 1))))))))))
+                  (System/exit 1)))))))))))
 
 ;; delegate = the ONE handoff verb. The intelligent intake boundary must classify
 ;; dependency shape explicitly: one terminal Gaffer role for atomic work, or a
