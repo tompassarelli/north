@@ -1,6 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { gatedTest } from "./support/capabilities";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync, mkdtempSync, readdirSync, readlinkSync, rmSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -41,6 +43,24 @@ gatedTest("user-namespace", "read-only shell preflight proves checkout denial an
     stdout: "read-oktmp-ok",
   });
   expect(existsSync(forbidden)).toBe(false);
+});
+
+gatedTest("user-namespace", "concurrent seccomp transfers leave no parent descriptor or epoll corruption", async () => {
+  const cwd = checkout();
+  const results = await Promise.all(
+    Array.from({ length: 32 }, () => runReadonlyShell("printf ok", cwd, 5_000)),
+  );
+  expect(results.every(({ ok, stdout }) => ok && stdout === "ok")).toBe(true);
+  await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+  const leaked = readdirSync("/proc/self/fd").flatMap((name) => {
+    try {
+      const target = readlinkSync(`/proc/self/fd/${name}`);
+      return target.includes("north-readonly-seccomp-") ? [target] : [];
+    } catch {
+      return [];
+    }
+  });
+  expect(leaked).toEqual([]);
 });
 
 gatedTest("user-namespace", "read-only shell preserves canonical home reads while denying home writes", async () => {

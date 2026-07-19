@@ -2,11 +2,12 @@
 /**
  * Own one Codex process tree independently of the North host's survival.
  *
- * The host keeps supervisor stdin open solely as a liveness lease; one-shot
- * prompts arrive on immutable fd 4 and duplex RPC arrives through the bounded
- * private spool/FIFO. Kernel EOF therefore proves host death even under
- * SIGKILL. Codex runs in its own process group; every supervisor exit path
- * terminates and waits for that whole group before emitting its terminal receipt.
+ * The host keeps supervisor stdin open solely as a liveness lease; POSIX
+ * one-shot prompts and duplex RPC arrive through the bounded private
+ * spool/FIFO, while Windows retains its fd-4 pipe fallback. Kernel EOF
+ * therefore proves host death even under SIGKILL. Codex runs in its own
+ * process group; every supervisor exit path terminates and waits for that
+ * whole group before emitting its terminal receipt.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -20,7 +21,6 @@ const MAX_PROMPT_BYTES = 16 * 1024 * 1024;
 const MAX_DUPLEX_FRAME_BYTES = 1024 * 1024;
 const DUPLEX_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
 const MAX_DUPLEX_HEADER_BYTES = 128;
-const MAX_DUPLEX_FILE_BYTES = MAX_DUPLEX_FRAME_BYTES + MAX_DUPLEX_HEADER_BYTES;
 const MAX_DUPLEX_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_DUPLEX_FRAMES = 20_000;
 const MAX_SCAN_FRAMES_PER_TICK = 128;
@@ -31,8 +31,10 @@ const PIPE_CLOSE_MS = 750;
 const POSIX_GROUP = process.platform !== "win32";
 const rawArgs = process.argv.slice(2);
 const duplex = rawArgs[0] === "--duplex";
-const controlPath = duplex ? rawArgs[1] : undefined;
-const [executable, ...args] = duplex ? rawArgs.slice(2) : rawArgs;
+const oneShotSpool = rawArgs[0] === "--oneshot-spool";
+const spooledInput = duplex || oneShotSpool;
+const controlPath = spooledInput ? rawArgs[1] : undefined;
+const [executable, ...args] = spooledInput ? rawArgs.slice(2) : rawArgs;
 const trace = (value: string) => {
   if (process.env.NORTH_TEST_TRACE_SUPERVISOR === "1")
     process.stderr.write(`TRACE ${Date.now()} ${value}\n`);
@@ -50,7 +52,11 @@ function receipt(value: string): void {
   }
 }
 
-function decodeDuplexFrame(frame: Buffer): Buffer {
+function decodeDuplexFrame(
+  frame: Buffer,
+  maxPayloadBytes = MAX_DUPLEX_FRAME_BYTES,
+  allowEmpty = false,
+): Buffer {
   const newline = frame.indexOf(0x0a);
   if (newline < 0 || newline >= MAX_DUPLEX_HEADER_BYTES)
     throw new Error("managed Codex control frame header is invalid");
@@ -58,7 +64,7 @@ function decodeDuplexFrame(frame: Buffer): Buffer {
   const match = /^NORTH_CODEX_RPC 1 (0|[1-9][0-9]*) ([0-9a-f]{64})$/.exec(header);
   if (!match) throw new Error("managed Codex control frame header is invalid");
   const length = Number(match[1]);
-  if (!Number.isSafeInteger(length) || length <= 0 || length > MAX_DUPLEX_FRAME_BYTES)
+  if (!Number.isSafeInteger(length) || length < (allowEmpty ? 0 : 1) || length > maxPayloadBytes)
     throw new Error("managed Codex control frame length is invalid");
   const payload = frame.subarray(newline + 1);
   if (payload.byteLength !== length)
@@ -78,7 +84,7 @@ let controlDirectory: string | undefined;
 let providerInputFd: number | undefined;
 let providerWriterFd: number | undefined;
 let stopControl = () => {};
-if (duplex) {
+if (spooledInput) {
   try {
     if (!controlPath) throw new Error("missing control directory");
     controlDirectory = realpathSync(controlPath);
@@ -125,7 +131,7 @@ if (duplex) {
 process.once("exit", () => { stopControl(); });
 
 let child: ChildProcessWithoutNullStreams;
-const providerInputIdentity = duplex && providerInputFd !== undefined
+const providerInputIdentity = spooledInput && providerInputFd !== undefined
   ? fstatSync(providerInputFd)
   : undefined;
 try {
@@ -134,9 +140,9 @@ try {
   child = spawn(executable, args, {
     detached: POSIX_GROUP,
     env: providerEnv,
-    stdio: [duplex ? providerInputFd! : "pipe", "pipe", "pipe"],
+    stdio: [spooledInput ? providerInputFd! : "pipe", "pipe", "pipe"],
   }) as unknown as ChildProcessWithoutNullStreams;
-  if (duplex && providerInputFd !== undefined) {
+  if (spooledInput && providerInputFd !== undefined) {
     const inheritedFd = providerInputFd;
     setImmediate(() => {
       if (providerInputFd !== inheritedFd) return;
@@ -162,7 +168,7 @@ let providerExit:
   | { code: number | null; signal: NodeJS.Signals | null }
   | undefined;
 let shutdownPromise: Promise<void> | undefined;
-let promptAccepted = duplex;
+let promptAccepted = spooledInput;
 
 function groupExists(): boolean {
   if (!POSIX_GROUP || child.pid === undefined) return false;
@@ -317,7 +323,11 @@ const acceptProviderBytes = (bytes: Buffer) => {
   child.stdin.end(input);
   input = Buffer.alloc(0);
 };
-if (duplex) {
+if (spooledInput) {
+  const maxControlFrameBytes = oneShotSpool ? MAX_PROMPT_BYTES : MAX_DUPLEX_FRAME_BYTES;
+  const maxControlFileBytes = maxControlFrameBytes + MAX_DUPLEX_HEADER_BYTES;
+  const maxControlTotalBytes = oneShotSpool ? MAX_PROMPT_BYTES : MAX_DUPLEX_TOTAL_BYTES;
+  const maxControlFrames = oneShotSpool ? 1 : MAX_DUPLEX_FRAMES;
   let nextFrame = 1;
   let duplexBytes = 0;
   let scanning = false;
@@ -339,6 +349,11 @@ if (duplex) {
     try {
       while (providerQueue.length) {
         const bytes = providerQueue[0]!;
+        if (bytes.byteLength === 0) {
+          providerQueue.shift();
+          providerQueueOffset = 0;
+          continue;
+        }
         let written: number;
         try {
           written = writeSync(
@@ -363,6 +378,10 @@ if (duplex) {
           providerQueueOffset = 0;
         }
       }
+      if (oneShotSpool && nextFrame === 2 && providerWriterFd !== undefined) {
+        closeSync(providerWriterFd);
+        providerWriterFd = undefined;
+      }
     } catch {
       trace("flush:reject");
       void shutdown();
@@ -383,7 +402,7 @@ if (duplex) {
     try {
       let tickFrames = 0;
       let tickBytes = 0;
-      while (nextFrame <= MAX_DUPLEX_FRAMES) {
+      while (nextFrame <= maxControlFrames) {
         const request = `${controlDirectory}/${String(nextFrame).padStart(12, "0")}.req`;
         let requestFd: number | undefined;
         try {
@@ -396,7 +415,7 @@ if (duplex) {
         let frame: Buffer;
         try {
           const metadata = fstatSync(requestFd);
-          if (!metadata.isFile() || metadata.size > MAX_DUPLEX_FILE_BYTES
+          if (!metadata.isFile() || metadata.size > maxControlFileBytes
               || (metadata.mode & 0o077) !== 0
               || metadata.nlink !== 1
               || (typeof process.getuid === "function" && metadata.uid !== process.getuid()))
@@ -412,9 +431,9 @@ if (duplex) {
         } finally {
           closeSync(requestFd);
         }
-        const bytes = decodeDuplexFrame(frame);
+        const bytes = decodeDuplexFrame(frame, maxControlFrameBytes, oneShotSpool);
         duplexBytes += bytes.byteLength;
-        if (duplexBytes > MAX_DUPLEX_TOTAL_BYTES)
+        if (duplexBytes > maxControlTotalBytes)
           throw new Error("managed Codex control exceeded its bound");
         unlinkSync(request);
         nextFrame += 1;
@@ -427,7 +446,7 @@ if (duplex) {
           break;
         }
       }
-      if (nextFrame > MAX_DUPLEX_FRAMES) {
+      if (nextFrame > maxControlFrames) {
         const overflow = `${controlDirectory}/${String(nextFrame).padStart(12, "0")}.req`;
         try {
           lstatSync(overflow);

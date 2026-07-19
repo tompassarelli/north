@@ -14,7 +14,7 @@ import { validateRoutingMetadata } from "../src/routing-metadata";
 import { runFacts } from "../src/telemetry";
 
 const north = resolve(import.meta.dir, "../..");
-const gaffer = resolve(north, "../gaffer");
+const gaffer = process.env.GAFFER_HOME ?? resolve(north, "../gaffer");
 const cli = resolve(north, "cli/agents-cli.clj");
 
 const contract = {

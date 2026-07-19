@@ -1,7 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
-  closeSync, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync, rmdirSync,
-  statSync, unlinkSync, writeFileSync,
+  chmodSync, closeSync, fsyncSync, lstatSync, mkdtempSync, openSync, readFileSync,
+  realpathSync, renameSync, rmSync, statSync, writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -298,16 +299,20 @@ function destroyCodexPipes(child: ChildProcessWithoutNullStreams): void {
   try { child.stderr.destroy(); } catch { /* already closed */ }
   const status = (child.stdio as any[])[3];
   try { status?.destroy(); } catch { /* already closed */ }
-  const prompt = (child.stdio as any[])[4];
-  try { prompt?.destroy(); } catch { /* already closed */ }
+  // POSIX never gives Bun a numeric prompt descriptor: the supervisor consumes
+  // a private spool and FIFO. Only Windows creates an owned fd-4 pipe.
+  if (process.platform === "win32") {
+    const prompt = (child.stdio as any[])[4];
+    try { prompt?.destroy(); } catch { /* already closed */ }
+  }
   destroySupervisorControl(child);
 }
 
 async function terminateCodexProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
   // Closing supervisor stdin asks it to terminate and reap the complete Codex
-  // process group. Stdin is only the liveness lease; the prompt uses immutable
-  // fd 4. The kernel therefore generates the same EOF if North is SIGKILLed,
-  // so cleanup does not depend on a live Bun callback.
+  // process group. Stdin is only the liveness lease; prompt delivery is an
+  // independent bounded channel. The kernel therefore generates the same EOF
+  // if North is SIGKILLed, so cleanup does not depend on a live Bun callback.
   closeSupervisorControl(child);
   if (!await waitForExitBounded(child, CODEX_SUPERVISOR_GRACE_MS)) {
     try { child.kill("SIGTERM"); } catch { /* already gone */ }
@@ -395,18 +400,21 @@ function supervisorPromptFrame(prompt: string): Buffer {
 }
 
 interface SupervisorPromptTransport {
-  stdio: "pipe" | number;
-  parentSpawned(child: ChildProcessWithoutNullStreams): void;
+  supervisorArguments: readonly string[];
+  fd4: "pipe" | undefined;
   send(child: ChildProcessWithoutNullStreams): Promise<void>;
   abort(): void;
 }
 
 function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
-  const frame = supervisorPromptFrame(prompt);
+  const promptBytes = Buffer.from(prompt, "utf8");
+  if (promptBytes.byteLength > CODEX_PROMPT_MAX_BYTES)
+    throw new Error("openai_provider_execution_failed");
   if (process.platform === "win32") return {
-    stdio: "pipe",
-    parentSpawned() {},
+    supervisorArguments: [],
+    fd4: "pipe",
     async send(child) {
+      const frame = supervisorPromptFrame(prompt);
       const target = (child.stdio as any[])[4] as NodeJS.WritableStream | undefined;
       if (!target) throw new Error("openai_provider_execution_failed");
       await new Promise<void>((resolveWrite, reject) => {
@@ -421,56 +429,46 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
     abort() {},
   };
 
-  // Bun can drop parent-to-child pipe writes in a nested host process. An
-  // unlinked, mode-0600 inode gives the supervisor an immutable one-shot fd
-  // without exposing the prompt in argv, env, or the filesystem namespace.
+  // Bun corrupts later process stdio when a numeric descriptor is passed to a
+  // nested child. Use the supervisor's bounded spool/FIFO path instead: argv
+  // contains only an opaque private directory, never prompt content.
   const directory = mkdtempSync(join(tmpdir(), "north-codex-prompt-"));
-  const path = join(directory, "payload");
-  let fd: number | undefined;
-  try {
-    writeFileSync(path, frame, { flag: "wx", mode: 0o600 });
-    fd = openSync(path, "r");
-    unlinkSync(path);
-    rmdirSync(directory);
-  } catch (error) {
-    try { if (fd !== undefined) closeSync(fd); } catch {}
-    try { unlinkSync(path); } catch {}
-    try { rmdirSync(directory); } catch {}
-    throw error;
-  }
-  const identity = fstatSync(fd);
-  let open = true;
-  const closeParent = () => {
-    if (!open) return;
-    open = false;
-    try {
-      const current = fstatSync(fd!);
-      // Bun may close a numeric stdio descriptor internally and reuse its
-      // number before the spawn event is delivered. Close only the exact
-      // prompt inode we opened; a mismatch proves ownership already moved.
-      if (current.dev === identity.dev && current.ino === identity.ino)
-        closeSync(fd!);
-    }
-    catch (error) {
-      // Bun may consume a numeric stdio descriptor during spawn. In that case
-      // the parent no longer owns an open descriptor, which is the desired
-      // post-spawn state; cleanup must not replace the provider result.
-      if (!(error instanceof Error && "code" in error && error.code === "EBADF"))
-        throw error;
-    }
+  chmodSync(directory, 0o700);
+  let active = true;
+  const abort = () => {
+    if (!active) return;
+    active = false;
+    try { rmSync(directory, { recursive: true, force: true }); } catch {}
   };
   return {
-    stdio: fd,
-    parentSpawned(child) {
-      // Bun finishes wiring numeric stdio asynchronously. Closing immediately
-      // after spawn() returns can invalidate its pending attachment. Bun emits
-      // `spawn` before returning, unlike Node, so defer one event-loop turn;
-      // the inode check above prevents closing a descriptor Bun already reused.
-      child.once("error", closeParent);
-      setImmediate(closeParent);
+    supervisorArguments: ["--oneshot-spool", directory],
+    fd4: undefined,
+    async send() {
+      if (!active) throw new Error("openai_provider_execution_failed");
+      const digest = createHash("sha256").update(promptBytes).digest("hex");
+      const frame = Buffer.concat([
+        Buffer.from(`NORTH_CODEX_RPC 1 ${promptBytes.byteLength} ${digest}\n`, "ascii"),
+        promptBytes,
+      ]);
+      const temporary = join(directory, `.000000000001.${process.pid}.tmp`);
+      const request = join(directory, "000000000001.req");
+      let fd: number | undefined;
+      try {
+        fd = openSync(temporary, "wx", 0o600);
+        let offset = 0;
+        while (offset < frame.byteLength)
+          offset += writeSync(fd, frame, offset, frame.byteLength - offset);
+        fsyncSync(fd);
+        closeSync(fd);
+        fd = undefined;
+        renameSync(temporary, request);
+      } catch (error) {
+        try { if (fd !== undefined) closeSync(fd); } catch {}
+        abort();
+        throw error;
+      }
     },
-    async send() {},
-    abort: closeParent,
+    abort,
   };
 }
 
@@ -770,21 +768,28 @@ class CodexQuery implements AgentQuery {
     if (this.options.cwd) args.push("--cd", this.options.cwd);
     args.push("-");
     const promptTransport = supervisorPromptTransport(prompt);
+    const supervisorStdio: any[] = ["pipe", "pipe", "pipe", "pipe"];
+    if (promptTransport.fd4) supervisorStdio.push(promptTransport.fd4);
     let child: ChildProcessWithoutNullStreams;
     try {
       child = spawn(
         process.execPath,
-        [CODEX_SUPERVISOR, command(env, managed), ...args],
+        [
+          CODEX_SUPERVISOR,
+          ...promptTransport.supervisorArguments,
+          command(env, managed),
+          ...args,
+        ],
         {
           cwd: this.options.cwd ?? process.cwd(),
           env,
           // fd 0 is a liveness lease: kernel EOF means the North host died.
-          // fd 4 is the immutable one-shot prompt channel.
-          stdio: ["pipe", "pipe", "pipe", "pipe", promptTransport.stdio],
+          // POSIX prompt delivery uses the private one-shot spool; Windows fd 4
+          // remains a dedicated pipe because its process transport differs.
+          stdio: supervisorStdio,
           detached: false,
         },
       ) as unknown as ChildProcessWithoutNullStreams;
-      promptTransport.parentSpawned(child);
     } catch (error) {
       promptTransport.abort();
       throw error;
@@ -804,14 +809,20 @@ class CodexQuery implements AgentQuery {
     let usage: ExactCodexUsage | undefined;
     child.stderr.resume();
     try {
+      // Publish the bounded prompt frame immediately after the supervisor
+      // exists. Waiting for the provider's STARTED receipt lets a valid
+      // short-lived provider exit before its stdin becomes readable.
+      let promptSendError: unknown;
+      try { await promptTransport.send(child); }
+      catch (error) { promptSendError = error; }
       const startStatus = await supervision.started;
       if (startStatus === "unavailable") {
         throw new ProviderRetrySafeError(
           "openai_provider_executable_unavailable_before_acceptance",
         );
       }
+      if (promptSendError) throw promptSendError;
       providerStarted = true;
-      await promptTransport.send(child);
       for await (const chunk of child.stdout) {
         for (const line of frames.push(chunk)) {
           const accepted = protocol.accept(line);
@@ -846,6 +857,7 @@ class CodexQuery implements AgentQuery {
         throw error;
       throw new Error("openai_provider_execution_failed");
     } finally {
+      promptTransport.abort();
       destroyCodexPipes(child);
       this.child = undefined;
     }

@@ -578,6 +578,51 @@ test("the production duplex supervisor carries RPC and bounds host-EOF cleanup",
   expect(existsSync(controlRoot)).toBe(false);
 }, 5_000);
 
+test("the one-shot supervisor transfers an exact bounded prompt without argv or env exposure", async () => {
+  if (process.platform === "win32") return;
+  const root = mkdtempSync(join(tmpdir(), "north-codex-oneshot-test-"));
+  roots.push(root);
+  const controlRoot = mkdtempSync(join(root, "control-"));
+  const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
+  const provider = join(root, "provider.mjs");
+  const prompt = "exact prompt\nwith unicode 🧭 and a NUL \u0000 tail";
+  writeFileSync(provider, `
+const canary = ${JSON.stringify(prompt)};
+if (process.argv.some((value) => value.includes(canary))
+    || Object.values(process.env).some((value) => value?.includes(canary))) process.exit(41);
+const chunks = [];
+for await (const chunk of process.stdin) chunks.push(chunk);
+process.stdout.write(Buffer.concat(chunks));
+`);
+  const child = spawn(process.execPath, [
+    supervisor, "--oneshot-spool", controlRoot, process.execPath, provider,
+  ], {
+    env: { ...process.env, NORTH_MKFIFO_BIN: realpathSync(Bun.which("mkfifo")!) },
+    stdio: ["pipe", "pipe", "pipe", "pipe"],
+  }) as ChildProcessWithoutNullStreams;
+  const status = (child.stdio as any[])[3] as NodeJS.ReadableStream;
+  const output: Buffer[] = [];
+  child.stdout.on("data", (chunk) => output.push(Buffer.from(chunk)));
+  child.stderr.resume();
+  try {
+    expect(await firstLine(status, "Codex one-shot start receipt")).toBe("STARTED");
+    const temporary = join(controlRoot, ".000000000001.test.tmp");
+    writeAtomicSupervisorFrame(temporary, prompt);
+    renameSync(temporary, join(controlRoot, "000000000001.req"));
+    const closed = await Promise.race([
+      new Promise<boolean>((resolveClose) => child.once("close", () => resolveClose(true))),
+      new Promise<boolean>((resolveClose) => setTimeout(() => resolveClose(false), 3_000)),
+    ]);
+    expect(closed).toBe(true);
+    expect(child.exitCode).toBe(0);
+    expect(Buffer.concat(output).toString("utf8")).toBe(prompt);
+    expect(existsSync(controlRoot)).toBe(false);
+  } finally {
+    try { child.stdin.end(); } catch {}
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  }
+}, 5_000);
+
 test("the duplex supervisor rejects symlinked, oversized, corrupt, and over-permissive frames", async () => {
   const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
   const fixture = join(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
@@ -691,23 +736,25 @@ setInterval(() => {}, 1000);
   }
 }, 8_000);
 
-test("the duplex supervisor requires the wrapper-sealed Nix mkfifo binary", async () => {
+test("spooled supervisors require the wrapper-sealed Nix mkfifo binary", async () => {
   const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
   const fixture = join(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
-  for (const mkfifo of [undefined, fixture]) {
-    const controlRoot = mkdtempSync(join(tmpdir(), "north-codex-control-mkfifo-"));
-    roots.push(controlRoot);
-    const env = { ...process.env, NORTH_MKFIFO_BIN: mkfifo };
-    if (mkfifo === undefined) delete env.NORTH_MKFIFO_BIN;
-    const child = spawn(process.execPath, [
-      supervisor, "--duplex", controlRoot, process.execPath, fixture,
-    ], { env, stdio: ["pipe", "pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
-    child.stdout.resume();
-    child.stderr.resume();
-    const status = (child.stdio as any[])[3] as NodeJS.ReadableStream;
-    expect(await firstLine(status, "Codex sealed mkfifo rejection")).toBe("UNAVAILABLE");
-    await new Promise<void>((resolveClose) => child.once("close", () => resolveClose()));
-    expect(existsSync(controlRoot)).toBe(false);
+  for (const inputMode of ["--duplex", "--oneshot-spool"]) {
+    for (const mkfifo of [undefined, fixture]) {
+      const controlRoot = mkdtempSync(join(tmpdir(), "north-codex-control-mkfifo-"));
+      roots.push(controlRoot);
+      const env = { ...process.env, NORTH_MKFIFO_BIN: mkfifo };
+      if (mkfifo === undefined) delete env.NORTH_MKFIFO_BIN;
+      const child = spawn(process.execPath, [
+        supervisor, inputMode, controlRoot, process.execPath, fixture,
+      ], { env, stdio: ["pipe", "pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
+      child.stdout.resume();
+      child.stderr.resume();
+      const status = (child.stdio as any[])[3] as NodeJS.ReadableStream;
+      expect(await firstLine(status, "Codex sealed mkfifo rejection")).toBe("UNAVAILABLE");
+      await new Promise<void>((resolveClose) => child.once("close", () => resolveClose()));
+      expect(existsSync(controlRoot)).toBe(false);
+    }
   }
 });
 

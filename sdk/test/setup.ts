@@ -19,3 +19,19 @@ if (!process.env.NORTH_GIT_BIN) {
     }
   }
 }
+
+if (!process.env.NORTH_MKFIFO_BIN) {
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    try {
+      const candidate = realpathSync(join(directory, "mkfifo"));
+      if (!/^\/nix\/store\/[0-9a-z]{32}-coreutils(?:-full)?-[^/]+\/bin\/coreutils$/.test(candidate))
+        continue;
+      accessSync(candidate, constants.X_OK);
+      process.env.NORTH_MKFIFO_BIN = candidate;
+      break;
+    } catch {
+      // Test bootstrap keeps looking; production never performs this search.
+    }
+  }
+}

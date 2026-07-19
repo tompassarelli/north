@@ -2,7 +2,7 @@ import {
   spawn, spawnSync, type ChildProcessByStdio, type SpawnSyncReturns,
 } from "node:child_process";
 import {
-  accessSync, closeSync, constants, mkdtempSync, openSync, realpathSync, rmSync,
+  accessSync, closeSync, constants, fstatSync, mkdtempSync, openSync, realpathSync, rmSync,
   statSync, writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -127,10 +127,18 @@ function openSocketDenyFilter(): number {
   }
 }
 
-function closeInheritedFd(fd: number): void {
-  // Bun currently closes an explicitly inherited fd after spawnSync; Node
-  // leaves the parent copy open. Accommodate both without weakening the child.
-  try { closeSync(fd); } catch { /* already closed by the runtime */ }
+type FdIdentity = Pick<ReturnType<typeof fstatSync>, "dev" | "ino">;
+
+function closeExactInheritedFd(fd: number, identity: FdIdentity): void {
+  try {
+    const current = fstatSync(fd);
+    // Bun may consume and reuse a numeric stdio descriptor. Closing by number
+    // alone can then destroy an unrelated stream or the test runner's epoll
+    // registration. The opened inode is the only descriptor we own.
+    if (current.dev === identity.dev && current.ino === identity.ino) closeSync(fd);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EBADF")) throw error;
+  }
 }
 
 function executable(candidate: string): string | undefined {
@@ -237,6 +245,7 @@ export function preflightReadonlyShell(cwd: string): ReadonlyShellPrerequisites 
     path: sandboxPath,
   };
   const seccompFd = openSocketDenyFilter();
+  const seccompIdentity = fstatSync(seccompFd);
   const probeName = `.north-readonly-preflight-${process.pid}`;
   let probe: SpawnSyncReturns<string>;
   try {
@@ -251,7 +260,7 @@ export function preflightReadonlyShell(cwd: string): ReadonlyShellPrerequisites 
       stdio: ["ignore", "pipe", "pipe", seccompFd],
     });
   } finally {
-    closeInheritedFd(seccompFd);
+    closeExactInheritedFd(seccompFd, seccompIdentity);
   }
   if (probe.error || probe.status !== 0) {
     throw new ReadonlyShellUnavailableError(
@@ -293,6 +302,7 @@ export async function runReadonlyShell(
   const boundedTimeout = Math.max(100, Math.min(MAX_TIMEOUT_MS, Math.trunc(timeoutMs)));
   const prerequisites = preflightReadonlyShell(cwd);
   const seccompFd = openSocketDenyFilter();
+  const seccompIdentity = fstatSync(seccompFd);
   let child: ChildProcessByStdio<null, Readable, Readable>;
   try {
     child = spawn(prerequisites.bwrap, [
@@ -305,9 +315,14 @@ export async function runReadonlyShell(
       detached: true,
       stdio: ["ignore", "pipe", "pipe", seccompFd],
     }) as ChildProcessByStdio<null, Readable, Readable>;
-  } finally {
-    closeInheritedFd(seccompFd);
+  } catch (cause) {
+    closeExactInheritedFd(seccompFd, seccompIdentity);
+    throw new ReadonlyShellUnavailableError("readonly_shell_process_unavailable", { cause });
   }
+  // Bun wires numeric stdio after spawn() returns and may close the original
+  // descriptor itself. Defer one event-loop turn, then close only if this fd
+  // number still names the exact seccomp inode we opened.
+  setImmediate(() => closeExactInheritedFd(seccompFd, seccompIdentity));
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   const remaining = { bytes: MAX_OUTPUT_BYTES };
