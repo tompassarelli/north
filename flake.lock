@@ -10,11 +10,11 @@
         "zig-overlay": "zig-overlay"
       },
       "locked": {
-        "lastModified": 1784454376,
-        "narHash": "sha256-NLXYGrwXhHQRU9Xz4bR8dUNRTzknS9E3f4qqQqNneKc=",
+        "lastModified": 1784502987,
+        "narHash": "sha256-Or/gqp+jRfZpN5J6S3apwV3EJuNSbiijoiAxACZ8hEc=",
         "owner": "tompassarelli",
         "repo": "beagle",
-        "rev": "e299b869751b70abdc7377facae721ef8e7e504d",
+        "rev": "6633b1c3bd876b0e5bdd810b9559e9bf49b08296",
         "type": "github"
       },
       "original": {
@@ -210,11 +210,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1784484882,
-        "narHash": "sha256-v3Jvk2rieaowxDf2kEeTjjYcuG9WXDUTFXqBHhO/l+Q=",
+        "lastModified": 1784499790,
+        "narHash": "sha256-NljGYYBy/C/0GCZMZNhUiUG5OGBAkD/GUq6sC/1NeD4=",
         "owner": "tompassarelli",
         "repo": "fram",
-        "rev": "68aa708948290a27dc67923925a2d43910e8f768",
+        "rev": "7b6b918a9cc08597901d33ce2ae131b7b53ad570",
         "type": "github"
       },
       "original": {
