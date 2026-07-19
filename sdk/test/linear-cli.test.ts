@@ -2807,9 +2807,10 @@ process.stdin.on("end", () => {
 
     const invalidUtf8 = join(directory, "invalid-utf8");
     writeFileSync(invalidUtf8, `#!/usr/bin/env node
+const { writeSync } = require("node:fs");
 process.stdin.resume();
 process.stdin.on("end", () => {
-  process.stdout.write(Buffer.from([0x7b, 0xc3, 0x28, 0x7d]));
+  writeSync(1, Buffer.from([0x7b, 0xc3, 0x28, 0x7d]));
 });
 `);
     chmodSync(invalidUtf8, 0o700);
@@ -2823,10 +2824,10 @@ process.stdin.on("end", () => {
     const pidPath = join(directory, "stubborn.pid");
     const stubborn = join(directory, "stubborn");
     writeFileSync(stubborn, `#!/usr/bin/env node
-const { writeFileSync } = require("node:fs");
+const { writeFileSync, writeSync } = require("node:fs");
 writeFileSync(process.argv[2], String(process.pid));
 process.on("SIGTERM", () => {});
-process.stdout.write(Buffer.alloc(${4 * 1024 * 1024 + 1}, 0x78));
+writeSync(1, Buffer.alloc(${4 * 1024 * 1024 + 1}, 0x78));
 setInterval(() => {}, 1000);
 `);
     chmodSync(stubborn, 0o700);

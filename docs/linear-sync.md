@@ -318,11 +318,17 @@ recomputed from their evidence rather than trusted as an independent
 authority. A repeated import fills any missing facts without creating a second
 thread. Conflicting or malformed partial state fails closed.
 
-Normal apply work reads the comment corpus once to plan. Issue intent
-confirmation reads only the issue, and a structurally validated successful
-`save_comment` response confirms that comment directly. A full comment scan is
-reserved for lost, malformed, or otherwise unknown comment-write responses, so
-multi-comment applies do not repeatedly download the growing corpus.
+Normal apply work reads the comment corpus once to plan. Before persisting each
+comment intent, apply re-reads the full remote issue-and-comment view, confirms
+that the issue key is unchanged, and checks the exact planned precondition:
+the marker is still absent for a create, or the same comment id still carries
+the planned normalized-body hash for an update. After dispatch, it re-reads the
+full comment corpus again and accepts the mutation only when that observation
+contains one exact managed marker and body. The `save_comment` response is never
+commit proof, and a lost or malformed response follows the same observation
+path without retrying a possibly committed write. Multi-comment applies
+therefore trade additional deterministic reads for per-mutation stale-plan and
+ambiguous-outcome protection.
 
 Remote edits observed during planning or the immediate pre-write re-read are
 reported as drift/divergence; they are never timestamp-resolved or partially

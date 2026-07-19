@@ -6,7 +6,7 @@
 # env pin over the per-session cache, so every subagent aliased the parent id — the
 # roster, concern ledger, and peer-mail inbox all attributed several workstreams to
 # one name, and mail was answered by whichever actor peeked first (cc-fram-d5523b3b,
-# under the incident-era cc- prefix; spawn-derived ids are session-* since rename 2a).
+# under the incident-era cc- prefix; native ids now carry a full typed digest).
 #
 # INVARIANT under test: one live actor == one id. A given id is renewed/registered
 # ONLY by the session that first acquired it. An env pin is honored only when no OTHER
@@ -23,7 +23,7 @@ TOOLUSE="$BIN/north-on-tooluse"
 ACTOR_KEY="$BIN/north-actor-key"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf -- "${TMP:?}"' EXIT
 export XDG="$TMP/xdg"; mkdir -p "$XDG/north-agent-ids"
 CACHE="$XDG/north-agent-ids"
 export BB_REG_LOG="$TMP/registered.log"; : > "$BB_REG_LOG"
@@ -175,6 +175,18 @@ MAX_ACTOR="$(printf 'a%.0s' $(seq 1 512))"
 max_id="$(run_hook "$SPAWN" "$PARENT" SubagentStart "" "$MAX_ACTOR")"
 eq "512-byte actor derives a bounded full-digest ID" "$(id_of agent "$MAX_ACTOR")" "$max_id"
 eq "512-byte actor cache uses a NAME_MAX-safe key" "$max_id" "$(cache_of agent "$MAX_ACTOR")"
+
+DOT_ACTOR=".."
+DOT_ID="$(run_hook "$SPAWN" "$PARENT" SubagentStart "" "$DOT_ACTOR")"
+eq "dot path-component bytes are content, never a filesystem path" \
+  "$(id_of agent "$DOT_ACTOR")" "$DOT_ID"
+eq "dot actor cache is stored only under its bounded digest" \
+  "$DOT_ID" "$(cache_of agent "$DOT_ACTOR")"
+if "$ACTOR_KEY" agent '../escape' >/dev/null 2>&1; then
+  bad "slash-bearing path component is rejected before filesystem use" "rejected" "accepted"
+else
+  ok "slash-bearing path component is rejected before filesystem use"
+fi
 
 echo
 echo "identity-alias-test: $PASS passed, $FAIL failed"

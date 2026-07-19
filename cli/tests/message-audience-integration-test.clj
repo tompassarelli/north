@@ -69,6 +69,14 @@
   (run-cli presence-cli port "register" handle (str "/tmp/" handle) handle))
 (defn sent-subject [result]
   (second (re-find #"sent (@msg:[^ ]+)" (:out result))))
+(defn managed-actor-key [value]
+  (let [digest
+        (.digest
+         (java.security.MessageDigest/getInstance "SHA-256")
+         (.getBytes
+          (str "north-actor-key-v1\u0000managed\u0000" value)
+          java.nio.charset.StandardCharsets/UTF_8))]
+    (apply str (map #(format "%02x" (bit-and (int %) 0xff)) digest))))
 (defn inbox-has? [port handle subject]
   (str/includes? (:out (run-msg port "inbox" handle)) subject))
 (defn start-listener! [port handle log & flags]
@@ -277,21 +285,24 @@
           (assert-fact! port message predicate value)))
       (let [env {"XDG_RUNTIME_DIR" (.getCanonicalPath runtime)}
             first-peek (run-cli-with-env peek-cli port env recipient)
-            cursor-files
-            (filter #(.isFile %)
-                    (file-seq (io/file runtime "north-inbox-peek")))
-            persisted (when (= 1 (count cursor-files))
-                        (slurp (first cursor-files)))
+            state-file
+            (io/file runtime "north-inbox-peek"
+                     (managed-actor-key recipient))
+            persisted (when (.isFile state-file)
+                        (edn/read-string (slurp state-file)))
             second-peek (run-cli-with-env peek-cli port env recipient)]
         (check "first bounded peek skips one full oversized page without output"
                (and (zero? (:exit first-peek))
                     (str/blank? (:out first-peek))))
-        (check "peek persists the coordinator's exact canonical dotted cursor"
-               (and (string? persisted)
-                    (boolean
-                     (re-matches
-                      #"^fram-query-page-v1\.[A-Za-z0-9_-]+$"
-                      persisted))))
+        (check "peek persists a strict engine-issued page without inventing a cursor"
+               (and (map? persisted)
+                    (= "north-inbox-spool-v1" (:schema persisted))
+                    (= (managed-actor-key recipient) (:actor-key persisted))
+                    (= ["@msg:peek-large-4" tail-id] (:ids persisted))
+                    ;; This five-row relation ended in the first engine page.
+                    ;; Nil is therefore the exact engine continuation, not a
+                    ;; cursor derived from the last cached ID.
+                    (nil? (:next persisted))))
         (check "a later bounded peek reaches and emits the small tail"
                (and (zero? (:exit second-peek))
                     (str/includes? (:out second-peek) "bounded tail")
