@@ -1334,14 +1334,30 @@ async function applySync(thread: string, gateway: LinearGateway, deps: LinearCli
       manifest = applied.manifest;
       writes++;
     }
-    const baseline = planned.plan?.expectedBaseline
+    // Per-operation readback proves each individual mutation at one point in
+    // time. It does not prove the aggregate after a later mutation: an earlier
+    // issue/comment or the North source can change while this apply continues.
+    // Re-read the whole projection before publishing the aggregate in-sync
+    // claim and advancing its baseline.
+    const verified = writes > 0
+      ? await leaseBoundary(scope, () => computePlanForLink(
+        link, gateway, deps.graph, scope.thread,
+      ))
+      : planned;
+    if (verified.reconciliation.state !== "in-sync"
+        || verified.reconciliation.conflicts.length
+        || verified.plan) {
+      throw new Error("Linear sync aggregate changed during apply; final in-sync state was not observed");
+    }
+    const baseline = verified.reconciliation.nextBaseline
+      ?? planned.plan?.expectedBaseline
       ?? planned.reconciliation.nextBaseline
       ?? createLinearSyncBaseline(link.identity, link.threadId, planned.local.fields);
     const finalized: LinearSyncManifest = {
       ...manifest, phase: "adopted", baseline, pending: undefined,
       evidence: {
         ...manifest.evidence,
-        markerBound: manifest.evidence.markerBound || planned.descriptionMarkerPresent || Boolean(planned.plan?.issue.description),
+        markerBound: manifest.evidence.markerBound || verified.descriptionMarkerPresent || Boolean(planned.plan?.issue.description),
       },
     };
     if (canonicalJson(finalized) !== canonicalJson(manifest)

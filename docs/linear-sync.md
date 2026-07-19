@@ -329,7 +329,18 @@ reported as drift/divergence; they are never timestamp-resolved or partially
 merged. Inspect with `north linear plan <thread>`. Resolve the conflict
 deliberately in North or Linear, then plan again. Because Linear exposes no
 conditional save, the final read-to-save interval remains an explicit residual
-race rather than a false guarantee. `north linear doctor` reports OAuth/tool
+race: a remote edit after the precondition read can still be overwritten without
+provider-side conflict evidence. If it lands after North's save, the post-write
+read refuses confirmation but cannot undo either mutation.
+After every individually confirmed write in a multi-operation apply, North
+re-reads the complete issue, comment corpus, and North projection under the
+endpoint leases. It advances the aggregate baseline and reports `in-sync` only
+when that final observation has no conflicts and no remaining actions. A change
+to an earlier confirmed field/comment, or to North itself, while a later write
+is running therefore leaves the confirmed per-operation receipts intact but
+fails the aggregate claim; the next plan shows the exact remaining drift.
+
+`north linear doctor` reports OAuth/tool
 readiness and ensures the graph's adapter-owned schema-as-facts metadata is
 seeded. This local bootstrap is the only doctor mutation; it never writes
 Linear or starts a model turn.

@@ -1100,7 +1100,9 @@ test("representative mechanical lifecycle converges, no-ops, and recovers from c
   expect(applied).toMatchObject({ writes: 2, state: "in-sync" });
   expect(h.gateway.issueWrites).toBe(1);
   expect(h.gateway.commentWrites).toBe(1);
-  expect(h.gateway.commentReadCalls - commentReadsBeforeApply).toBe(3);
+  // Plan, per-comment precondition, per-comment confirmation, and aggregate
+  // post-apply attestation each consume one full comment snapshot.
+  expect(h.gateway.commentReadCalls - commentReadsBeforeApply).toBe(4);
   expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
     state: "in-sync", conflicts: [], actions: [],
   });
@@ -1814,6 +1816,68 @@ test("comment confirmation indexes the full fresh remote set and rejects a post-
     (await h.graph.show(link)).find(({ predicate }) => predicate === "sync_manifest")!.value,
   );
   expect(manifest.pending).toMatchObject({ kind: "comment" });
+});
+
+test("final aggregate attestation rejects issue drift after its individual write was confirmed", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await h.graph.put(thread, "progress", "A later comment keeps the apply in flight.");
+  h.gateway.afterWrittenIssueRead = () => {
+    h.gateway.afterWrittenIssueRead = undefined;
+    h.gateway.issue.title = "Concurrent remote title drift";
+  };
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("final in-sync state was not observed");
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(1);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
+    state: "remote-drift",
+    conflicts: [{ field: "title", category: "remote-drift" }],
+  });
+});
+
+test("final aggregate attestation rejects an earlier comment changed during a later write", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  await h.graph.put(thread, "progress", "First projected progress event.");
+  await h.graph.put(thread, "progress", "Second projected progress event.");
+  const mutateAfterRead = h.gateway.commentReadCalls + 3;
+  h.gateway.afterCommentRead = () => {
+    if (h.gateway.commentReadCalls !== mutateAfterRead) return;
+    h.gateway.afterCommentRead = undefined;
+    const first = h.gateway.comments[0]!;
+    const marker = first.body.match(/<!-- north:comment:[^>]+ -->/)?.[0];
+    if (!marker) throw new Error("test expected the first managed comment marker");
+    first.body = `Concurrent remote comment edit.\n\n${marker}`;
+  };
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("final in-sync state was not observed");
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(2);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
+    state: "local-ahead",
+    actions: { comments: [{ action: "update" }] },
+  });
+});
+
+test("final aggregate attestation rejects North facts added after a remote write", async () => {
+  const h = harness();
+  const thread = await importThread(h);
+  h.gateway.afterWrittenIssueRead = () => {
+    h.gateway.afterWrittenIssueRead = undefined;
+    h.graph.seed(thread, "progress", "North changed while the apply was in flight.");
+  };
+
+  await expect(runLinearCommand(["sync", thread, "--apply"], h.dependencies))
+    .rejects.toThrow("final in-sync state was not observed");
+  expect(h.gateway.issueWrites).toBe(1);
+  expect(h.gateway.commentWrites).toBe(0);
+  expect(await runLinearCommand(["plan", thread], h.dependencies)).toMatchObject({
+    state: "local-ahead",
+    actions: { comments: [{ action: "create" }] },
+  });
 });
 
 test("first apply binds an explicitly adopted speculative thread even without a field delta", async () => {
