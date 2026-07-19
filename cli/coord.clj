@@ -58,6 +58,36 @@
 
 (def query-page-response-byte-limit 1048576)
 (def query-page-row-limit 4096)
+(def query-page-cursor-byte-limit 4096)
+(def query-page-cursor-prefix "fram-query-page-v1.")
+
+(defn- base64url-encode-utf8 [value]
+  (.encodeToString
+   (.withoutPadding (java.util.Base64/getUrlEncoder))
+   (.getBytes ^String value java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn- base64url-decode-utf8 [value]
+  (let [bytes (.decode (java.util.Base64/getUrlDecoder) ^String value)
+        decoder
+        (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
+          (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+          (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))]
+    (str (.decode decoder (java.nio.ByteBuffer/wrap bytes)))))
+
+(defn valid-query-page-cursor? [value]
+  (and
+   (string? value)
+   (<= (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8))
+       query-page-cursor-byte-limit)
+   (.startsWith ^String value query-page-cursor-prefix)
+   (> (count value) (count query-page-cursor-prefix))
+   (try
+     (let [payload (subs value (count query-page-cursor-prefix))
+           decoded (base64url-decode-utf8 payload)]
+       (= value
+          (str query-page-cursor-prefix
+               (base64url-encode-utf8 decoded))))
+     (catch Exception _ false))))
 
 (defn connect-socket [port]
   (let [s (java.net.Socket.)]
@@ -365,6 +395,10 @@
               {:type :invalid-query-page-limit
                :limit limit
                :max query-page-row-limit})))
+  (when-not (or (nil? after) (valid-query-page-cursor? after))
+    (throw
+     (ex-info "query page cursor is outside the North/Fram contract"
+              {:type :invalid-query-page-cursor})))
   (binding [*response-byte-limit-override*
             query-page-response-byte-limit]
     (let [response
@@ -372,22 +406,27 @@
                          :query query
                          :limit limit
                          :after after})
-          error? (and (map? response) (vector? (:error response)))
+          error? (boolean (and (map? response) (vector? (:error response))))
           page?
-          (and (map? response)
+          (boolean
+           (and (map? response)
                (vector? (:ok response))
+               (<= (count (:ok response)) limit)
+               (every?
+                #(and (vector? %) (every? string? %))
+                (:ok response))
                (boolean? (:more response))
                (if (:more response)
-                 (and (string? (:next response))
-                      (not (str/blank? (:next response))))
-                 (nil? (:next response))))]
+                 (valid-query-page-cursor? (:next response))
+                 (nil? (:next response)))))]
       (when (= "unknown op" (:error response))
         (throw
          (ex-info "coordinator lacks required query-page protocol"
                   {:type :query-page-unsupported})))
       (when-not (and (integer? (:version response))
+                     (not (neg? (:version response)))
                      (= "scan" (:engine response))
-                     (or error? page?))
+                     (not= error? page?))
         (throw
          (ex-info "coordinator returned a malformed query page"
                   {:type :malformed-query-page-response})))

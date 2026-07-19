@@ -6,7 +6,10 @@
 # supervises the WHOLE semantic hook—including stdin, git, cache and pgrep—so a
 # wedged dependency can never consume the provider's hook deadline.
 set -uo pipefail
+umask 077
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+export NORTH_HOME
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 mode="${1:-}"
@@ -244,7 +247,7 @@ marked_id=""
 IFS= read -r marked_id <"$mark" 2>/dev/null || exit 0
 [ "$marked_id" = "$id" ] || exit 0
 
-# `north-arm` execs `bb .../north-listen.clj <port> <id> --once`. Read one
+# `north listen` execs `bb .../north-listen.clj <port> <id> --once`. Read one
 # process snapshot and compare the ID as a whitespace-delimited argv token.
 listeners="$(pgrep -af 'north-listen[.]clj' 2>/dev/null || true)"
 while IFS= read -r listener; do
@@ -253,7 +256,8 @@ while IFS= read -r listener; do
   esac
 done <<<"$listeners"
 
-reason="You delegated work this session but no north listener is armed. If you end your turn now, a spawned worker's completion/death ping lands in a dead inbox and this session goes SILENT until a human pokes it. Arm the listener as a BACKGROUND task before yielding:  ~/code/north/bin/north-arm ${id}  (run_in_background). When it fires, handle the mail and re-arm. If every delegated worker is already reconciled and you truly want to stop, clear the marker:  rm ${mark}"
+clear_marker_command="$(printf 'rm -f -- %q' "$mark")"
+reason="You delegated work this session but no north listener is armed. If you end your turn now, a spawned worker's completion/death ping lands in a dead inbox and this session goes SILENT until a human pokes it. Arm the listener as a BACKGROUND task before yielding:  ${NORTH_HOME}/bin/north listen ${id}  (run_in_background). When it fires, handle the mail and re-arm. If every delegated worker is already reconciled and you truly want to stop, clear the marker:  ${clear_marker_command}"
 python3 -c '
 import json
 import sys

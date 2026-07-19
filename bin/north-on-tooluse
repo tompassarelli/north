@@ -6,9 +6,9 @@
 # Input and output both use Python's JSON parser/serializer; no hand-built escaping.
 set -uo pipefail
 umask 077
-NORTH_HOME="${NORTH_HOME:-$HOME/code/north}"
-export NORTH_HOME
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+export NORTH_HOME
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 # The provider harness gives this hook 10s, but several individually bounded
@@ -24,9 +24,12 @@ if [ "${NORTH_TOOLUSE_INNER:-0}" != 1 ]; then
   out="$(timeout --signal=TERM --kill-after=0.1s 0.3s \
     mktemp "$out_dir/north-tooluse-output.XXXXXX" 2>/dev/null || true)"
   [ -n "$out" ] || exit 0
-  trap 'timeout --signal=TERM --kill-after=0.1s 0.2s rm -f "$out" 2>/dev/null || true' EXIT
+  trap 'timeout --signal=TERM --kill-after=0.1s 0.2s rm -f -- "${out:?}" 2>/dev/null || true' EXIT
   NORTH_TOOLUSE_INNER=1 timeout --signal=TERM --kill-after=0.2s 4s "$0" >"$out" 2>/dev/null || true
-  if [ -s "$out" ] &&
+  out_bytes="$(timeout --signal=TERM --kill-after=0.1s 0.2s \
+    stat -c %s -- "${out:?}" 2>/dev/null || true)"
+  case "$out_bytes" in ''|*[!0-9]*) out_bytes=0 ;; esac
+  if [ "$out_bytes" -gt 0 ] && [ "$out_bytes" -le 32768 ] &&
       timeout --signal=TERM --kill-after=0.1s 0.5s python3 -c '
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -35,7 +38,7 @@ specific = payload["hookSpecificOutput"]
 assert specific["hookEventName"] == "PostToolUse"
 assert isinstance(specific["additionalContext"], str)
 ' "$out" 2>/dev/null; then
-    timeout --signal=TERM --kill-after=0.1s 0.5s cat "$out" 2>/dev/null || true
+    cat -- "${out:?}"
   fi
   exit 0
 fi
@@ -145,7 +148,7 @@ acquire_singleflight() {
     *[!0-9:]*|0:*|*:0) return 1 ;;
   esac
   [ $((now_s - modified_s)) -ge "$stale_after_s" ] || return 1
-  rmdir "$lock" 2>/dev/null || return 1
+  rmdir -- "${lock:?}" 2>/dev/null || return 1
   mkdir "$lock" 2>/dev/null
 }
 
@@ -173,11 +176,11 @@ schedule_projection_repair() {
   if [ "$current_provider" = "$provider" ] &&
       [ "$current_model" = "$model" ] &&
       [ "$current_effort" = "$effort" ]; then
-    rmdir "$lock" 2>/dev/null || true
+    rmdir -- "${lock:?}" 2>/dev/null || true
     return 0
   fi
   (
-    trap 'rm -rf "$lock" 2>/dev/null || true' EXIT
+    trap 'rm -rf -- "${lock:?}" 2>/dev/null || true' EXIT
     if timeout --signal=TERM --kill-after=0.2s 6s env \
         NORTH_NATIVE_PORT="${NORTH_PORT:-7977}" \
         NORTH_NATIVE_SUBJECT="@agent:$ID" \
@@ -201,7 +204,7 @@ schedule_projection_repair() {
             (when (some :reject results) (System/exit 1)))' >/dev/null 2>&1
     then
       if printf '%s\n%s\n%s\n' "$provider" "$model" "$effort" >"$route_tmp" 2>/dev/null; then
-        mv -f "$route_tmp" "$ROUTE_CACHE" 2>/dev/null || rm -f "$route_tmp" 2>/dev/null || true
+        mv -f "$route_tmp" "$ROUTE_CACHE" 2>/dev/null || rm -f -- "${route_tmp:?}" 2>/dev/null || true
       fi
     fi
   ) </dev/null >/dev/null 2>&1 &
@@ -274,17 +277,17 @@ if [ "$now_s" -eq 0 ] || [ $(( now_s - last_s )) -ge 60 ]; then
     [ -r "$RENEW_MARK" ] && fresh_last_s="$(cat "$RENEW_MARK" 2>/dev/null || echo 0)"
     case "$fresh_last_s" in ''|*[!0-9]*) fresh_last_s=0 ;; esac
     if [ "$now_s" -ne 0 ] && [ $((now_s - fresh_last_s)) -lt 60 ]; then
-      rmdir "$RENEW_LOCK" 2>/dev/null || true
+      rmdir -- "${RENEW_LOCK:?}" 2>/dev/null || true
     else
       (
-        trap 'rm -rf "$RENEW_LOCK" 2>/dev/null || true' EXIT
+        trap 'rm -rf -- "${RENEW_LOCK:?}" 2>/dev/null || true' EXIT
         if timeout --signal=TERM --kill-after=0.2s 3s \
             bb "$NORTH_HOME/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
             register "$ID" "$REPO" "$ID" >/dev/null 2>&1
         then
           renew_tmp="${RENEW_MARK}.$$.${RANDOM}.tmp"
           if printf '%s' "$now_s" >"$renew_tmp" 2>/dev/null; then
-            mv -f "$renew_tmp" "$RENEW_MARK" 2>/dev/null || rm -f "$renew_tmp" 2>/dev/null || true
+            mv -f "$renew_tmp" "$RENEW_MARK" 2>/dev/null || rm -f -- "${renew_tmp:?}" 2>/dev/null || true
           fi
         fi
       ) </dev/null >/dev/null 2>&1 &
@@ -296,7 +299,7 @@ fi
 # helper prints a complete message before attempting its ack, so even if this
 # deadline interrupts a slow ack, command substitution retains the delivered
 # text and the message can safely repeat later instead of disappearing.
-MAIL="$(timeout --signal=TERM --kill-after=0.2s 1.25s \
+MAIL="$(timeout --signal=TERM --kill-after=0.2s 2s \
   bb "$NORTH_HOME/cli/inbox-peek.clj" "${NORTH_PORT:-7977}" "$ID" 2>/dev/null || true)"
 [ -z "$MAIL" ] && exit 0
 

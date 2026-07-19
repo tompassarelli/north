@@ -20,6 +20,7 @@
 # provider + project-relative directory + session id: Claude may reuse a session
 # UUID in unrelated project directories.
 set -euo pipefail
+umask 077
 
 file_size() {
   # POSIX on both Linux and Darwin; avoids platform-specific stat dialects.
@@ -197,7 +198,7 @@ if [ -d "$LOCK_FILE" ]; then
     echo "north-stream-sync: legacy lock directory is nonempty: $LOCK_FILE" >&2
     exit 1
   fi
-  if ! rmdir "$LOCK_FILE"; then
+  if ! rmdir -- "${LOCK_FILE:?}"; then
     echo "north-stream-sync: could not migrate legacy lock directory: $LOCK_FILE" >&2
     exit 1
   fi
@@ -239,7 +240,15 @@ TMP_SESSION_INDEX="$(mktemp -d "$RAW_DIR/.stream-session-index.XXXXXX")"
 TMP_CURSOR=""
 TMP_ERRORS=""
 TMP_DEST=""
-trap 'rm -f "$TMP_SOURCES" "$TMP_PROCESSABLE" "$TMP_RECENT" "$TMP_LOOKUP" "$TMP_CURSOR_SOURCES" ${TMP_CURSOR:+"$TMP_CURSOR"} ${TMP_ERRORS:+"$TMP_ERRORS"} ${TMP_DEST:+"$TMP_DEST"}; rm -rf "$TMP_SESSION_INDEX"' EXIT
+cleanup() {
+  rm -f -- "${TMP_SOURCES:?}" "${TMP_PROCESSABLE:?}" "${TMP_RECENT:?}" \
+    "${TMP_LOOKUP:?}" "${TMP_CURSOR_SOURCES:?}"
+  [ -z "${TMP_CURSOR:-}" ] || rm -f -- "${TMP_CURSOR:?}"
+  [ -z "${TMP_ERRORS:-}" ] || rm -f -- "${TMP_ERRORS:?}"
+  [ -z "${TMP_DEST:-}" ] || rm -f -- "${TMP_DEST:?}"
+  rm -rf -- "${TMP_SESSION_INDEX:?}"
+}
+trap cleanup EXIT
 
 TMP_CURSOR="$(mktemp "$CURSOR_FILE.tmp.XXXXXX")"
 touch "$ERROR_FILE"
@@ -844,7 +853,7 @@ done <"$TMP_SOURCES"
 mv "$TMP_CURSOR" "$CURSOR_FILE"
 mv "$TMP_ERRORS" "$ERROR_FILE"
 for legacy in "${legacy_cleanup[@]}"; do
-  rm -f -- "$legacy"
+  rm -f -- "${legacy:?}"
 done
 if [ "$new_errors" -ne 0 ]; then
   exit 1

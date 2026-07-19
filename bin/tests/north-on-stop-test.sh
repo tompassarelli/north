@@ -6,10 +6,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOK="$ROOT/bin/north-on-stop"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf -- "${TMP:?}"' EXIT
 BASE_PATH="$PATH"
 FAKE="$TMP/fake-bin"
-RUNTIME="$TMP/runtime"
+RUNTIME="$TMP/runtime with spaces"
 mkdir -p "$FAKE" "$RUNTIME/north-agent-ids" "$RUNTIME/north-delegated"
 
 fail() {
@@ -24,7 +24,7 @@ write_fake() {
 }
 
 clear_fakes() {
-  rm -f "$FAKE/git" "$FAKE/pgrep"
+  rm -f -- "${FAKE:?}/git" "${FAKE:?}/pgrep"
 }
 
 invoke() {
@@ -43,20 +43,24 @@ assert_empty() {
 }
 
 assert_block() {
-  local output="$1" expected_id="$2"
-  python3 - "$output" "$expected_id" <<'PY'
+  local output="$1" expected_id="$2" expected_marker="$3" expected_clear
+  printf -v expected_clear 'rm -f -- %q' "$expected_marker"
+  python3 - "$output" "$expected_id" "$ROOT" "$expected_clear" <<'PY'
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
 expected_id = sys.argv[2]
+root = sys.argv[3]
+expected_clear = sys.argv[4]
 value = json.loads(path.read_text(encoding="utf-8"))
 assert set(value) == {"decision", "reason"}
 assert value["decision"] == "block"
 assert isinstance(value["reason"], str) and value["reason"]
 assert expected_id in value["reason"]
-assert f"north-arm {expected_id}" in value["reason"]
+assert f"{root}/bin/north listen {expected_id}" in value["reason"]
+assert expected_clear in value["reason"]
 PY
 }
 
@@ -156,7 +160,7 @@ assert_empty "$TMP/listener.out"
 
 write_fake pgrep 'exit 1'
 invoke "$input" "$TMP/missing.out" "$TMP/missing.err"
-assert_block "$TMP/missing.out" "$agent_id"
+assert_block "$TMP/missing.out" "$agent_id" "$RUNTIME/north-delegated/$session_key"
 
 # A provider agent_id is authoritative only after SubagentStart staked its exact
 # typed key. Unseen invocation IDs fall back to the stable session identity.
@@ -168,12 +172,12 @@ printf '%s\n0\n' "$staked_id" >"$RUNTIME/north-delegated/$staked_key"
 staked_input="$(printf '{"cwd":"%s","session_id":"%s","agent_id":"%s"}' \
   "$TMP" "$session" "$staked_raw")"
 invoke "$staked_input" "$TMP/staked.out" "$TMP/staked.err"
-assert_block "$TMP/staked.out" "$staked_id"
+assert_block "$TMP/staked.out" "$staked_id" "$RUNTIME/north-delegated/$staked_key"
 
 unstaked_input="$(printf '{"cwd":"%s","session_id":"%s","agent_id":"agent:unseen"}' \
   "$TMP" "$session")"
 invoke "$unstaked_input" "$TMP/unstaked.out" "$TMP/unstaked.err"
-assert_block "$TMP/unstaked.out" "$agent_id"
+assert_block "$TMP/unstaked.out" "$agent_id" "$RUNTIME/north-delegated/$session_key"
 
 max_actor="$(printf 'a%.0s' $(seq 1 512))"
 max_key="$("$ACTOR_KEY" agent "$max_actor")"
@@ -183,7 +187,7 @@ printf '%s\n0\n' "$max_id" >"$RUNTIME/north-delegated/$max_key"
 max_input="$(printf '{"cwd":"%s","session_id":"%s","agent_id":"%s"}' \
   "$TMP" "$session" "$max_actor")"
 invoke "$max_input" "$TMP/max-actor.out" "$TMP/max-actor.err"
-assert_block "$TMP/max-actor.out" "$max_id"
+assert_block "$TMP/max-actor.out" "$max_id" "$RUNTIME/north-delegated/$max_key"
 
 # An empty session id can still use a canonical, explicit North agent id.
 ambient_id="session-stop-test-ambient"
@@ -192,7 +196,7 @@ printf '%s\n0\n' "$ambient_id" >"$RUNTIME/north-delegated/$ambient_key"
 ambient_input="$(printf '{"cwd":"%s"}' "$TMP")"
 NORTH_AGENT_ID="$ambient_id" invoke \
   "$ambient_input" "$TMP/ambient-id.out" "$TMP/ambient-id.err"
-assert_block "$TMP/ambient-id.out" "$ambient_id"
+assert_block "$TMP/ambient-id.out" "$ambient_id" "$RUNTIME/north-delegated/$ambient_key"
 
 # stop_hook_active is the first semantic allow and never reaches git/pgrep.
 write_fake git 'printf called >"$NORTH_TEST_CALLED"; exit 1'
@@ -243,7 +247,7 @@ done
 wait
 for index in $(seq 1 20); do
   [ ! -s "$TMP/concurrent-$index.err" ] || fail "concurrent run $index emitted stderr"
-  assert_block "$TMP/concurrent-$index.out" "$agent_id"
+  assert_block "$TMP/concurrent-$index.out" "$agent_id" "$RUNTIME/north-delegated/$session_key"
 done
 
 printf 'north-on-stop-test: passed\n'

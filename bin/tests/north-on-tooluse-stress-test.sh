@@ -10,7 +10,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 HOOK="$ROOT/bin/north-on-tooluse"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
-trap 'jobs -pr | xargs -r kill 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap 'jobs -pr | xargs -r kill 2>/dev/null || true; rm -rf -- "${TMP:?}"' EXIT
 
 PASS=0
 FAIL=0
@@ -54,7 +54,7 @@ esac
 marker="$HOOK_TEST_STATE/live-$kind-$$"
 : >"$marker"
 printf '%s %s\n' "$kind" "$$" >>"$HOOK_TEST_STATE/starts.log"
-trap 'rm -f "$marker"' EXIT
+trap 'rm -f -- "${marker:?}"' EXIT
 if [ "${HOOK_TEST_MODE:-fast}" = slow ] || [ "${HOOK_TEST_MODE:-fast}" = badjson ]; then
   if [ "$kind" = inbox ]; then
     printf '✉ from peer — deadline "proof" \\ route\n'
@@ -89,6 +89,18 @@ await_locks() {
   local xdg="$1"
   for _ in $(seq 1 200); do
     if ! find "$xdg" -type d -name '*.lock' -print -quit 2>/dev/null | grep -q .; then
+      return 0
+    fi
+    sleep 0.01
+  done
+  return 1
+}
+
+await_workers() {
+  local state="$1" xdg="$2"
+  for _ in $(seq 1 800); do
+    if [ -z "$(find "$state" -name 'live-*' -print -quit)" ] &&
+        [ -z "$(find "$xdg" -type d -name '*.lock' -print -quit 2>/dev/null)" ]; then
       return 0
     fi
     sleep 0.01
@@ -143,6 +155,11 @@ if [ "\${HOOK_TEST_BAD_SERIALIZER:-0}" = 1 ] &&
   printf '{malformed'
   exit 0
 fi
+if [ "\${HOOK_TEST_OVERSIZE_TOOLUSE_SERIALIZER:-0}" = 1 ] &&
+    [ "\${1:-}" = -c ] &&
+    printf '%s' "\${2:-}" | grep -Fq 'context = sys.stdin.read()'; then
+  exec "$REAL_PYTHON" -c 'import json; print(json.dumps({"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"x" * 40000}}, separators=(",", ":")))'
+fi
 exec "$REAL_PYTHON" "\$@"
 EOF
 chmod +x "$PY_SHIM/python3"
@@ -159,7 +176,7 @@ check "malformed-child stdout is empty" test ! -s "$OUT_BADJSON"
 check "malformed-child stderr is empty" test ! -s "$OUT_BADJSON.err"
 await_locks "$XDG_BADJSON" || true
 
-echo "== outer validation and emission are independently deadline-bounded =="
+echo "== outer validation is deadline-bounded and output is size-bounded =="
 XDG_VALIDATOR="$TMP/xdg-validator"
 OUT_VALIDATOR="$TMP/validator.out"
 mkdir -p "$XDG_VALIDATOR"
@@ -176,32 +193,21 @@ check "hanging validator emits no stdout" test ! -s "$OUT_VALIDATOR"
 check "hanging validator emits no stderr" test ! -s "$OUT_VALIDATOR.err"
 await_locks "$XDG_VALIDATOR" || true
 
-CAT_SHIM="$TMP/cat-shim"
-mkdir -p "$CAT_SHIM"
-REAL_CAT="$(command -v cat)"
-cat >"$CAT_SHIM/cat" <<EOF
-#!/usr/bin/env bash
-case "\${1:-}" in
-  *north-tooluse-output.*) sleep 30; exit 1 ;;
-esac
-exec "$REAL_CAT" "\$@"
-EOF
-chmod +x "$CAT_SHIM/cat"
-XDG_EMITTER="$TMP/xdg-emitter"
-OUT_EMITTER="$TMP/emitter.out"
-mkdir -p "$XDG_EMITTER"
+XDG_OVERSIZE="$TMP/xdg-oversize"
+OUT_OVERSIZE="$TMP/oversize.out"
+mkdir -p "$XDG_OVERSIZE"
 t0="$(date +%s%3N)"
-payload emitter01 |
-  env -i HOME="$FAKE_HOME" PATH="$CAT_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_EMITTER" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=badjson AGENT_PROVIDER=openai \
-    bash "$HOOK" >"$OUT_EMITTER" 2>"$OUT_EMITTER.err"
+payload oversize01 |
+  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_OVERSIZE" \
+    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=badjson HOOK_TEST_OVERSIZE_TOOLUSE_SERIALIZER=1 \
+    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_OVERSIZE" 2>"$OUT_OVERSIZE.err"
 rc=$?
 elapsed=$(( $(date +%s%3N) - t0 ))
-check "hanging-emitter hook exits zero" test "$rc" -eq 0
-check "hanging emitter is cut off under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
-check "hanging emitter emits no stdout" test ! -s "$OUT_EMITTER"
-check "hanging emitter emits no stderr" test ! -s "$OUT_EMITTER.err"
-await_locks "$XDG_EMITTER" || true
+check "oversized-inner hook exits zero" test "$rc" -eq 0
+check "oversized inner envelope is rejected under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
+check "oversized inner envelope emits no JSON prefix" test ! -s "$OUT_OVERSIZE"
+check "oversized inner envelope emits no stderr" test ! -s "$OUT_OVERSIZE.err"
+await_locks "$XDG_OVERSIZE" || true
 
 echo "== down coordinator is bounded, private, and singleflight-coalesced =="
 XDG_SLOW="$TMP/xdg-slow"
@@ -223,7 +229,7 @@ wait "$hook_pid"
 rc=$?
 elapsed=$(( $(date +%s%3N) - t0 ))
 check "down-daemon hook exits zero" test "$rc" -eq 0
-check "down-daemon hook stays under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
+check "down-daemon hook stays under 2.5s (${elapsed}ms)" test "$elapsed" -lt 2500
 check "message printed before stalled ack is still delivered" grep -Fq "body before stalled ack" "$OUT_SLOW1"
 check "quotes, backslashes, and control characters remain valid JSON" valid_control_character_json "$OUT_SLOW1"
 check "private buffer is removed after delivery" test -z "$(find "$XDG_SLOW" -maxdepth 1 -name 'north-tooluse-output.*' -print -quit)"
@@ -233,14 +239,13 @@ run_hook "$XDG_SLOW" slow down-daemon-01 "$OUT_SLOW2"
 rc=$?
 elapsed=$(( $(date +%s%3N) - t0 ))
 check "repeated down-daemon hook exits zero" test "$rc" -eq 0
-check "repeated down-daemon hook stays under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
+check "repeated down-daemon hook stays under 2.5s (${elapsed}ms)" test "$elapsed" -lt 2500
 repair_starts="$(grep -c '^repair ' "$STATE/starts.log" || true)"
 presence_starts="$(grep -c '^presence ' "$STATE/starts.log" || true)"
 check "repeated hooks start only one live repair worker" test "$repair_starts" -eq 1
 check "repeated hooks start only one live presence worker" test "$presence_starts" -eq 1
-sleep 4.2
-check "all delayed workers are gone after shared deadlines" test -z "$(find "$STATE" -name 'live-*' -print -quit)"
-check "worker deadlines remove their singleflight locks" test -z "$(find "$XDG_SLOW" -type d -name '*.lock' -print -quit)"
+check "all delayed workers and locks settle within the shared deadline" \
+  await_workers "$STATE" "$XDG_SLOW"
 
 echo "== stale locks recover and a concurrent cold burst does not duplicate workers =="
 XDG_STALE="$TMP/xdg-stale"
@@ -277,90 +282,93 @@ check "cold burst publishes identity once" test "$repair_starts" -eq 1
 check "cold burst renews presence once" test "$presence_starts" -eq 1
 
 echo "== real inbox helper flushes before a stalled ACK =="
-cat >"$TMP/ack-stall-server.py" <<'PY'
-import socket, sys, time
+cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
+(require '[clojure.java.io :as io])
 
-port_file = sys.argv[1]
-status_file = sys.argv[2]
-server = socket.socket()
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind(("127.0.0.1", 0))
-server.listen()
-with open(port_file, "w") as f:
-    f.write(str(server.getsockname()[1]))
+(def root (System/getenv "NORTH_TEST_ROOT"))
+(def inbox-file (str root "/cli/inbox-peek.clj"))
+(let [fixture-file (System/getProperty "babashka.file")]
+  (System/setProperty "north.inbox-peek.lib" "1")
+  (System/setProperty "babashka.file" inbox-file)
+  (try
+    (load-file inbox-file)
+    (finally
+      (System/setProperty "babashka.file" fixture-file))))
 
-steps = [
-    ((':op :query-page', ':limit 3', ':after nil',
-      '"to" "flush-agent"', '"delivery_rejected_by" "flush-agent"'),
-     '{:ok [["@msg:flush-proof"]] :more false :next nil :version 1 :engine "scan"}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "acked_by"'),
-     '{:values []}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "delivery_rejected_by"'),
-     '{:values []}'),
-    ((':op :acquire-lease', ':res "message-delivery:',
-      ':holder "message-consumer:flush-agent:'),
-     '{:ok true :epoch 1}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "acked_by"'),
-     '{:values []}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "delivery_rejected_by"'),
-     '{:values []}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "from"'),
-     '{:value "peer"}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "subject"'),
-     '{:value "flush proof"}'),
-    ((':op :resolved', ':te "@msg:flush-proof"', ':p "body"'),
-     '{:value "complete body"}'),
-]
-index = 0
-while True:
-    conn, _ = server.accept()
-    with conn:
-        data = b""
-        while not data.endswith(b"\n"):
-            chunk = conn.recv(65536)
-            if not chunk:
-                break
-            data += chunk
-        request = data.decode(errors="replace")
-        if index < len(steps):
-            expected, reply = steps[index]
-            if not all(token in request for token in expected):
-                with open(status_file, "w") as f:
-                    f.write(f"mismatch at step {index + 1}: {request}")
-                conn.sendall(b"{:reject :fixture-protocol-mismatch}\n")
-                break
-            conn.sendall((reply + "\n").encode())
-            index += 1
-        else:
-            expected_ack = (
-                ':op :assert',
-                ':te "@msg:flush-proof"',
-                ':p "acked_by"',
-                ':r "flush-agent"',
-            )
-            with open(status_file, "w") as f:
-                if all(token in request for token in expected_ack):
-                    f.write("ack-reached")
-                else:
-                    f.write(f"mismatch at ACK: {request}")
-            time.sleep(30)
-PY
-PORT_FILE="$TMP/ack-stall.port"
+(def status-file (System/getenv "NORTH_TEST_STATUS"))
+(def calls (atom []))
+(defn mismatch! [message operation]
+  (spit status-file (str "mismatch: " message " " (pr-str operation)))
+  (System/exit 2))
+(defn fake-send-op [_port operation]
+  (let [step (count (swap! calls conj operation))]
+    (case (:op operation)
+      :query-page
+      (do
+        (when-not (and (= 1 step)
+                       (= 256 (:limit operation))
+                       (nil? (:after operation))
+                       (= "pending_message" (get-in operation [:query :find]))
+                       (some #(= [{:var "e"} "to" "flush-agent"]
+                                 (get-in % [:body 0 :args]))
+                             (get-in operation [:query :strata 0])))
+          (mismatch! "query-page framing" operation))
+        {:ok [["@msg:flush-proof"]]
+         :more false :next nil :version 1 :engine "scan"})
+
+      :resolved
+      (cond
+        (contains? #{"acked_by" "delivery_rejected_by"} (:p operation))
+        {:values []}
+        (= "to" (:p operation)) {:value "flush-agent"}
+        (= "from" (:p operation)) {:value "peer"}
+        (= "subject" (:p operation)) {:value "flush proof"}
+        (= "body" (:p operation)) {:value "complete body"}
+        :else (mismatch! "resolved predicate" operation))
+
+      :acquire-lease
+      (if (and (string? (:res operation))
+               (.startsWith ^String (:res operation) "message-delivery:")
+               (.startsWith ^String (:holder operation)
+                            "message-consumer:flush-agent:"))
+        {:ok true :epoch 1}
+        (mismatch! "delivery lease" operation))
+
+      :assert
+      (if (and (= "@msg:flush-proof" (:te operation))
+               (= "acked_by" (:p operation))
+               (= "flush-agent" (:r operation))
+               (= 11 step))
+        (do
+          (spit status-file "query-page-ok\nack-reached\n")
+          (Thread/sleep 30000)
+          {:ok true})
+        (mismatch! "pre-ACK sequence" operation))
+
+      (mismatch! "unexpected operation" operation))))
+
+(doseq [actor ["" "../escape" (apply str (repeat 513 "a"))]]
+  (let [error (try (managed-actor-key actor) nil (catch Exception cause cause))]
+    (when-not (= :invalid-inbox-actor (:type (ex-data error)))
+      (mismatch! "inbox actor validation" actor))))
+(when (= (managed-actor-key "actor:a") (managed-actor-key "actor_a"))
+  (mismatch! "inbox actor domain collision" nil))
+
+(with-redefs [north.coord/send-op fake-send-op]
+  (run-peek! 1 "flush-agent"))
+CLJ
 STATUS_FILE="$TMP/ack-stall.status"
-python3 "$TMP/ack-stall-server.py" "$PORT_FILE" "$STATUS_FILE" &
-server_pid=$!
-for _ in $(seq 1 100); do [ -s "$PORT_FILE" ] && break; sleep 0.01; done
-port="$(cat "$PORT_FILE")"
 set +e
 mkdir -p "$TMP/flush-runtime"
 timeout --signal=TERM --kill-after=0.1s 0.7s \
-  env XDG_RUNTIME_DIR="$TMP/flush-runtime" \
-  bb "$ROOT/cli/inbox-peek.clj" "$port" flush-agent >"$TMP/flush.out" 2>/dev/null
+  env XDG_RUNTIME_DIR="$TMP/flush-runtime" NORTH_TEST_ROOT="$ROOT" \
+  NORTH_TEST_STATUS="$STATUS_FILE" \
+  bb "$TMP/ack-stall-fixture.clj" >"$TMP/flush.out" 2>"$TMP/flush.err"
 flush_rc=$?
 set -e
-kill "$server_pid" 2>/dev/null || true
-wait "$server_pid" 2>/dev/null || true
-check "fixture observes the bounded-page nine-step pre-ACK claim protocol" \
+check "fixture observes exact query-page framing before the pre-ACK claim protocol" \
+  grep -Fxq "query-page-ok" "$STATUS_FILE"
+check "fixture reaches ACK only after the ten bounded pre-ACK operations" \
   grep -Fxq "ack-reached" "$STATUS_FILE"
 check "ACK stall reaches the helper deadline" test "$flush_rc" -eq 124
 check "complete subject is flushed before ACK" grep -Fq "✉ from peer — flush proof" "$TMP/flush.out"

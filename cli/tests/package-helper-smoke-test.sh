@@ -8,9 +8,10 @@ CHECKOUT="$TMP/north checkout"
 SHIM="$TMP/shim"
 HOME_DIR="$TMP/home"
 HOST_PATH="$PATH"
+REAL_STAT="$(command -v stat)"
 
 cleanup() {
-  rm -rf "$TMP_ROOT"
+  rm -rf -- "${TMP_ROOT:?}"
 }
 trap cleanup EXIT
 
@@ -54,6 +55,9 @@ checkout_raw="$CHECKOUT/streams/raw"
 checkout_dest="$(find "$checkout_raw" -maxdepth 1 -type f -name '*.jsonl' -print -quit)"
 [[ -n "$checkout_dest" ]]
 cmp "$SRC/12345678-1234-1234-1234-123456789abc.jsonl" "$checkout_dest"
+[[ "$("$REAL_STAT" -c '%a' "$checkout_dest")" == 600 ]]
+[[ "$("$REAL_STAT" -c '%a' "$checkout_raw/.cursors")" == 600 ]]
+[[ "$("$REAL_STAT" -c '%a' "$checkout_raw/.stream-sync-errors")" == 600 ]]
 checkout_name="$(basename "$checkout_dest")"
 [[ "$checkout_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+-[0-9a-f]{16}\.[0-9a-f]{64}\.jsonl$ ]]
 [[ "${#checkout_name}" -le 255 ]]
@@ -157,7 +161,7 @@ fi
 grep -Fq "refusing symlinked state file" "$TMP/state-shape.err"
 [[ "$STATE_TARGET_HASH" == "$(sha256sum "$STATE_TARGET")" ]]
 [[ ! -e "$STATE_RAW/.stream-sync.lock" ]]
-rm "$STATE_RAW/.cursors"
+rm -f -- "${STATE_RAW:?}/.cursors"
 mkdir "$STATE_RAW/.stream-sync-errors"
 if env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
   "$CHECKOUT/bin/north-stream-sync" --days 30 --min-bytes 1 \
@@ -318,7 +322,7 @@ done
 printf '{"type":"after-delete"}\n' \
   >>"$SRC/12345678-1234-1234-1234-123456789abc.jsonl"
 touch -d '10 days ago' "$SRC/12345678-1234-1234-1234-123456789abc.jsonl"
-rm "$checkout_dest"
+rm -f -- "${checkout_dest:?}"
 env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
   "$CHECKOUT/bin/north-stream-sync" --days 1 --min-bytes 999999 \
     --src-dir "$TMP/source root"
@@ -416,6 +420,29 @@ while IFS=$'\t' read -r version _bytes source _digest destination _prefix; do
   [[ "$version" == v3 ]]
   cmp "$source" "$REUSED_RAW/$destination"
 done <"$REUSED_RAW/.cursors"
+
+# Human-readable project slugs are bounded, but their full raw bytes still
+# contribute a digest suffix. Two long names with the same sanitized/truncated
+# prefix therefore remain distinct and every destination stays below NAME_MAX.
+SLUG_ROOT="$TMP/bounded slug source"
+LONG_SLUG_BASE="$(printf 'long%.0s' {1..30})"
+SLUG_A="$SLUG_ROOT/${LONG_SLUG_BASE} same"
+SLUG_B="$SLUG_ROOT/${LONG_SLUG_BASE}-same"
+SLUG_RAW="$TMP/bounded slug raw"
+SLUG_SESSION="slug-session-1111-4222-8333-444455556666"
+mkdir -p "$SLUG_A" "$SLUG_B"
+printf 'long slug lineage a\n' >"$SLUG_A/$SLUG_SESSION.jsonl"
+printf 'long slug lineage b\n' >"$SLUG_B/$SLUG_SESSION.jsonl"
+env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
+  "$CHECKOUT/bin/north-stream-sync" --days 30 --min-bytes 1 \
+    --src-dir "$SLUG_ROOT" --raw-dir "$SLUG_RAW"
+[[ "$(cut -f5 "$SLUG_RAW/.cursors" | sort -u | wc -l)" -eq 2 ]]
+while IFS=$'\t' read -r version _bytes source _digest destination _prefix; do
+  [[ "$version" == v3 ]]
+  [[ "${#destination}" -le 255 ]]
+  [[ "$destination" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+-[0-9a-f]{16}\.[0-9a-f]{64}\.jsonl$ ]]
+  cmp "$source" "$SLUG_RAW/$destination"
+done <"$SLUG_RAW/.cursors"
 
 # Migrate a nonzero three-field cursor by adopting its exact legacy destination.
 # Bytes past the cursor simulate a crash; the prefix is retained exactly once.
@@ -547,7 +574,7 @@ env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
     --src-dir "$MISMATCH_ROOT" --raw-dir "$MISMATCH_RAW"
 MISMATCH_CURSOR="$(cat "$MISMATCH_RAW/.cursors")"
 MISMATCH_DEST="$MISMATCH_RAW/$(cut -f5 "$MISMATCH_RAW/.cursors")"
-rm -rf "$MISMATCH_OLD"
+rm -rf -- "${MISMATCH_OLD:?}"
 mkdir -p "$MISMATCH_NEW"
 printf 'replacement is not the same stream\n' >"$MISMATCH_NEW/$MISMATCH_SESSION.jsonl"
 env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
@@ -578,7 +605,7 @@ env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
     --src-dir "$AMBIG_ROOT" --raw-dir "$AMBIG_RAW"
 AMBIG_OLD_CURSOR="$(cat "$AMBIG_RAW/.cursors")"
 AMBIG_OLD_DEST="$AMBIG_RAW/$(cut -f5 "$AMBIG_RAW/.cursors")"
-rm -rf "$AMBIG_OLD"
+rm -rf -- "${AMBIG_OLD:?}"
 mkdir -p "$AMBIG_A" "$AMBIG_B"
 printf 'shared durable history\ncontinuation a\n' >"$AMBIG_A/$AMBIG_SESSION.jsonl"
 printf 'shared durable history\ncontinuation b\n' >"$AMBIG_B/$AMBIG_SESSION.jsonl"

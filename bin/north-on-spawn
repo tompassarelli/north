@@ -6,9 +6,9 @@
 # SessionStart cannot block startup; all graph maintenance is best-effort.
 set -uo pipefail
 umask 077
-NORTH_HOME="${NORTH_HOME:-$HOME/code/north}"
-export NORTH_HOME
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+export NORTH_HOME
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 # The provider allows 15s, but startup must never approach that deadline. Buffer
@@ -20,7 +20,7 @@ if [ "${NORTH_SPAWN_INNER:-0}" != 1 ]; then
   timeout --signal=TERM --kill-after=0.1s 0.3s mkdir -p "$out_dir" 2>/dev/null || out_dir=/tmp
   in=""
   out=""
-  trap 'timeout --signal=TERM --kill-after=0.1s 0.2s rm -f "$in" "$out" 2>/dev/null || true' EXIT
+  trap '[ -z "${in:-}" ] || timeout --signal=TERM --kill-after=0.1s 0.2s rm -f -- "${in:?}" 2>/dev/null || true; [ -z "${out:-}" ] || timeout --signal=TERM --kill-after=0.1s 0.2s rm -f -- "${out:?}" 2>/dev/null || true' EXIT
   in="$(timeout --signal=TERM --kill-after=0.1s 0.3s \
     mktemp "$out_dir/north-spawn-input.XXXXXX" 2>/dev/null || true)"
   out="$(timeout --signal=TERM --kill-after=0.1s 0.3s \
@@ -29,7 +29,10 @@ if [ "${NORTH_SPAWN_INNER:-0}" != 1 ]; then
   timeout --signal=TERM --kill-after=0.2s 1s cat >"$in" 2>/dev/null || exit 0
   NORTH_SPAWN_INNER=1 timeout --signal=TERM --kill-after=0.2s 3s \
     "$0" <"$in" >"$out" 2>/dev/null || true
-  if [ -s "$out" ] &&
+  out_bytes="$(timeout --signal=TERM --kill-after=0.1s 0.2s \
+    stat -c %s -- "${out:?}" 2>/dev/null || true)"
+  case "$out_bytes" in ''|*[!0-9]*) out_bytes=0 ;; esac
+  if [ "$out_bytes" -gt 0 ] && [ "$out_bytes" -le 32768 ] &&
       timeout --signal=TERM --kill-after=0.1s 1s python3 -c '
 import json, sys
 allowed = {"SessionStart", "SubagentStart", "SubagentSessionStart"}
@@ -43,7 +46,7 @@ specific = payload["hookSpecificOutput"]
 assert specific["hookEventName"] == expected
 assert isinstance(specific["additionalContext"], str)
 ' "$in" "$out" 2>/dev/null; then
-    timeout --signal=TERM --kill-after=0.1s 0.5s cat "$out" 2>/dev/null || true
+    cat -- "${out:?}"
   fi
   exit 0
 fi
@@ -125,7 +128,10 @@ DERIVED="native-$identity_key"
 ID=""
 if [ -n "$pin" ]; then
   pin_owners="$IDDIR/.pin-owners"
-  pin_digest="$(printf '%s' "$pin" | sha256sum 2>/dev/null | cut -d' ' -f1)"
+  # Reuse the canonical managed-actor key for both the claim name and every
+  # actor cache. A second ad-hoc hash namespace would make collision audits and
+  # migration reasoning needlessly ambiguous.
+  pin_digest="$pin_validation"
   existing_owner=""
   conflicting_owners=0
   if mkdir -p "$IDDIR" "$pin_owners" 2>/dev/null; then
@@ -144,7 +150,7 @@ if [ -n "$pin" ]; then
     claim_tmp="$pin_owners/.$pin_digest.$$.${RANDOM}.tmp"
     if printf '%s' "$claim_owner" >"$claim_tmp" 2>/dev/null; then
       ln "$claim_tmp" "$claim_file" 2>/dev/null || true
-      rm -f "$claim_tmp" 2>/dev/null || true
+      rm -f -- "${claim_tmp:?}" 2>/dev/null || true
     fi
     committed_owner="$(cat "$claim_file" 2>/dev/null || true)"
     [ "$committed_owner" = "$identity_key" ] && ID="$pin"
@@ -158,7 +164,7 @@ fi
 if [ -n "$identity_key" ]; then
   identity_tmp="$IDDIR/.$identity_key.$$.${RANDOM}.tmp"
   if mkdir -p "$IDDIR" 2>/dev/null && printf '%s' "$ID" >"$identity_tmp" 2>/dev/null; then
-    mv -f "$identity_tmp" "$IDDIR/$identity_key" 2>/dev/null || rm -f "$identity_tmp" 2>/dev/null || true
+    mv -f "$identity_tmp" "$IDDIR/$identity_key" 2>/dev/null || rm -f -- "${identity_tmp:?}" 2>/dev/null || true
   fi
 fi
 
@@ -190,7 +196,7 @@ if [ -n "$identity_key" ]; then
   seed_tmp="$ROUTEDIR/.$identity_key.$$.seed.tmp"
   if mkdir -p "$ROUTEDIR" 2>/dev/null &&
       printf '%s\n%s\n%s\n' "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" > "$seed_tmp" 2>/dev/null; then
-    mv -f "$seed_tmp" "$route_seed" 2>/dev/null || rm -f "$seed_tmp" 2>/dev/null || true
+    mv -f "$seed_tmp" "$route_seed" 2>/dev/null || rm -f -- "${seed_tmp:?}" 2>/dev/null || true
   fi
 fi
 slug() {
@@ -210,7 +216,7 @@ acquire_singleflight() {
     *[!0-9:]*|0:*|*:0) return 1 ;;
   esac
   [ $((now_s - modified_s)) -ge "$stale_after_s" ] || return 1
-  rmdir "$lock" 2>/dev/null || return 1
+  rmdir -- "${lock:?}" 2>/dev/null || return 1
   mkdir "$lock" 2>/dev/null
 }
 
@@ -224,7 +230,7 @@ schedule_spawn_maintenance() {
   mkdir -p "$ROUTEDIR" 2>/dev/null || return 0
   acquire_singleflight "$lock" 10 || return 0
   (
-    trap 'rm -f "$route_tmp" 2>/dev/null || true; rm -rf "$lock" 2>/dev/null || true' EXIT
+    trap 'rm -f -- "${route_tmp:?}" 2>/dev/null || true; rm -rf -- "${lock:?}" 2>/dev/null || true' EXIT
     timeout --signal=TERM --kill-after=0.2s 3s \
       bb "$NORTH_HOME/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
       register "$ID" "$REPO" "$ID" >/dev/null 2>&1 &
@@ -258,7 +264,7 @@ schedule_spawn_maintenance() {
     # identity fact lands, so PostToolUse repairs any failed projection.
     if [ "$projection_ok" -eq 1 ] &&
         printf '%s\n%s\n%s\n' "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" >"$route_tmp" 2>/dev/null; then
-      mv -f "$route_tmp" "$route_cache" 2>/dev/null || rm -f "$route_tmp" 2>/dev/null || true
+      mv -f "$route_tmp" "$route_cache" 2>/dev/null || rm -f -- "${route_tmp:?}" 2>/dev/null || true
     fi
   ) </dev/null >/dev/null 2>&1 &
 }
@@ -268,18 +274,18 @@ CTX="$(cat <<EOF
 Other agents may be working here concurrently. You coordinate through CONCERNS, not locks —
 work coexists; declaring never blocks. See who else is in your footprint, and shape your
 feature against what is likely to land before it is in main.
-  ~/code/north/bin/concern declare $ID $RN "<what you're building>" <file1,file2,...>
-  ~/code/north/bin/concern overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
-  ~/code/north/bin/concern status <id> likely-to-land · done <id> · ls [repo]
+  $NORTH_HOME/bin/concern declare $ID $RN "<what you're building>" <file1,file2,...>
+  $NORTH_HOME/bin/concern overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
+  $NORTH_HOME/bin/concern status <id> likely-to-land · done <id> · ls [repo]
 Declare a concern before editing code for a feature, so others can see + shape around your work.
 
 Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.
-Run \`~/code/north/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.
+Run \`$NORTH_HOME/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.
 
 To be reachable in REAL TIME, arm your interrupt listener as a BACKGROUND task now:
-  ~/code/north/bin/north listen $ID
+  $NORTH_HOME/bin/north listen $ID
 Dormant (no tokens) until a peer addresses you; when it returns you have mail — read it, act, re-arm.
-Ping a peer:  bb ~/code/north/cli/msg-cli.clj 7977 send $ID <peer-id> "URGENT" "<message>"
+Ping a peer:  bb $NORTH_HOME/cli/msg-cli.clj 7977 send $ID <peer-id> "URGENT" "<message>"
 EOF
 )"
 

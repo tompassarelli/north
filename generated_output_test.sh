@@ -2,7 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf -- "${tmp:?}"' EXIT
 for module in projections validate staleness clock clockify audit gatepolicy main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$HOME/code/beagle" "$HOME/code/beagle/bin/beagle-build" \
     "$root/src/north/$module.bclj" "$tmp/$module.clj" >/dev/null

@@ -7,7 +7,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 HOOK="$ROOT/bin/north-on-spawn"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
-trap 'jobs -pr | xargs -r kill 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap 'jobs -pr | xargs -r kill 2>/dev/null || true; rm -rf -- "${TMP:?}"' EXIT
 
 PASS=0
 FAIL=0
@@ -39,7 +39,7 @@ esac
 marker="$HOOK_TEST_STATE/live-$kind-$$"
 : >"$marker"
 printf '%s %s\n' "$kind" "$$" >>"$HOOK_TEST_STATE/starts.log"
-trap 'rm -f "$marker"' EXIT
+trap 'rm -f -- "${marker:?}"' EXIT
 case "$kind" in
   projection)
     printf '%s\n' "${NORTH_NATIVE_SUBJECT#@agent:}" >>"$HOOK_TEST_STATE/projections.log"
@@ -177,7 +177,7 @@ chmod +x "$MKTEMP_SHIM/mktemp"
 XDG_PARTIAL="$TMP/xdg-partial"
 OUT_PARTIAL="$TMP/partial.out"
 mkdir -p "$XDG_PARTIAL"
-rm -f "$STATE/mktemp-count"
+rm -f -- "${STATE:?}/mktemp-count"
 payload partial01 SessionStart "" |
   env -i HOME="$FAKE_HOME" PATH="$MKTEMP_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_PARTIAL" \
     HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast AGENT_PROVIDER=openai \
@@ -212,6 +212,11 @@ if [ "\${HOOK_TEST_BAD_SPAWN_SERIALIZER:-0}" = 1 ] &&
   printf '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"wrong event"}}\n'
   exit 0
 fi
+if [ "\${HOOK_TEST_OVERSIZE_SPAWN_SERIALIZER:-0}" = 1 ] &&
+    [ "\${1:-}" = -c ] &&
+    printf '%s' "\${2:-}" | grep -Fq 'os.environ["HOOK_EVENT_NAME"]'; then
+  exec "$REAL_PYTHON" -c 'import json; print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"x" * 40000}}, separators=(",", ":")))'
+fi
 exec "$REAL_PYTHON" "\$@"
 EOF
 chmod +x "$PY_SHIM/python3"
@@ -220,7 +225,7 @@ echo "== one cold Python startup stays inside the single inner deadline =="
 XDG_COLD_PYTHON="$TMP/xdg-cold-python"
 OUT_COLD_PYTHON="$TMP/cold-python.out"
 mkdir -p "$XDG_COLD_PYTHON"
-rm -f "$STATE/python-count"
+rm -f -- "${STATE:?}/python-count"
 t0="$(date +%s%3N)"
 payload cold-python-01 SessionStart "" |
   env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_COLD_PYTHON" \
@@ -248,7 +253,7 @@ check "wrong-envelope stdout is empty" test ! -s "$OUT_BADJSON"
 check "wrong-envelope stderr is empty" test ! -s "$OUT_BADJSON.err"
 await_locks "$XDG_BADJSON" || true
 
-echo "== outer validation and emission are independently deadline-bounded =="
+echo "== outer validation is deadline-bounded and output is size-bounded =="
 XDG_VALIDATOR="$TMP/xdg-validator"
 OUT_VALIDATOR="$TMP/validator.out"
 mkdir -p "$XDG_VALIDATOR"
@@ -265,32 +270,21 @@ check "hanging validator emits no stdout" test ! -s "$OUT_VALIDATOR"
 check "hanging validator emits no stderr" test ! -s "$OUT_VALIDATOR.err"
 await_locks "$XDG_VALIDATOR" || true
 
-CAT_SHIM="$TMP/cat-shim"
-mkdir -p "$CAT_SHIM"
-REAL_CAT="$(command -v cat)"
-cat >"$CAT_SHIM/cat" <<EOF
-#!/usr/bin/env bash
-case "\${1:-}" in
-  *north-spawn-output.*) sleep 30; exit 1 ;;
-esac
-exec "$REAL_CAT" "\$@"
-EOF
-chmod +x "$CAT_SHIM/cat"
-XDG_EMITTER="$TMP/xdg-emitter"
-OUT_EMITTER="$TMP/emitter.out"
-mkdir -p "$XDG_EMITTER"
+XDG_OVERSIZE="$TMP/xdg-oversize"
+OUT_OVERSIZE="$TMP/oversize.out"
+mkdir -p "$XDG_OVERSIZE"
 t0="$(date +%s%3N)"
-payload emitter01 SessionStart "" |
-  env -i HOME="$FAKE_HOME" PATH="$CAT_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_EMITTER" \
-    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast AGENT_PROVIDER=openai \
-    bash "$HOOK" >"$OUT_EMITTER" 2>"$OUT_EMITTER.err"
+payload oversize01 SessionStart "" |
+  env -i HOME="$FAKE_HOME" PATH="$PY_SHIM:$SHIM:$PATH" XDG_RUNTIME_DIR="$XDG_OVERSIZE" \
+    HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE=fast HOOK_TEST_OVERSIZE_SPAWN_SERIALIZER=1 \
+    AGENT_PROVIDER=openai bash "$HOOK" >"$OUT_OVERSIZE" 2>"$OUT_OVERSIZE.err"
 rc=$?
 elapsed=$(( $(date +%s%3N) - t0 ))
-check "hanging-emitter hook exits zero" test "$rc" -eq 0
-check "hanging emitter is cut off under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
-check "hanging emitter emits no stdout" test ! -s "$OUT_EMITTER"
-check "hanging emitter emits no stderr" test ! -s "$OUT_EMITTER.err"
-await_locks "$XDG_EMITTER" || true
+check "oversized-inner hook exits zero" test "$rc" -eq 0
+check "oversized inner envelope is rejected under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
+check "oversized inner envelope emits no JSON prefix" test ! -s "$OUT_OVERSIZE"
+check "oversized inner envelope emits no stderr" test ! -s "$OUT_OVERSIZE.err"
+await_locks "$XDG_OVERSIZE" || true
 
 echo "== delayed coordinator cannot hold startup pipes or strand workers =="
 XDG_SLOW="$TMP/xdg-slow"
@@ -377,7 +371,8 @@ elapsed=$(( $(date +%s%3N) - t0 ))
 check "all concurrent starts exit zero" test "$burst_ok" -eq 1
 check "concurrent starts return under 2s (${elapsed}ms)" test "$elapsed" -lt 2000
 check "concurrent maintenance completes" await_locks "$XDG_BURST"
-if python3 - "$XDG_BURST" "$STATE/projections.log" "$STATE/presences.log" "${outs[@]}" <<'PY'
+if python3 - "$XDG_BURST" "$STATE/projections.log" "$STATE/presences.log" "${agents[@]}" -- "${outs[@]}" <<'PY'
+import hashlib
 import json
 import pathlib
 import re
@@ -386,7 +381,14 @@ import sys
 xdg = pathlib.Path(sys.argv[1])
 projections = set(pathlib.Path(sys.argv[2]).read_text().splitlines())
 presences = set(pathlib.Path(sys.argv[3]).read_text().splitlines())
-outputs = [pathlib.Path(path) for path in sys.argv[4:]]
+separator = sys.argv.index("--")
+agents = sys.argv[4:separator]
+outputs = [pathlib.Path(path) for path in sys.argv[separator + 1:]]
+
+def actor_key(namespace, raw):
+    preimage = b"north-actor-key-v1\0" + namespace.encode("ascii") + b"\0" + raw.encode("utf-8")
+    return hashlib.sha256(preimage).hexdigest()
+
 ids = []
 for output in outputs:
     context = json.loads(output.read_text())["hookSpecificOutput"]["additionalContext"]
@@ -398,32 +400,16 @@ assert set(ids) <= projections
 assert set(ids) <= presences
 claims = list((xdg / "north-agent-ids" / ".pin-owners").iterdir())
 assert len(claims) == 1
+assert claims[0].name == actor_key("managed", "shared-parent-pin")
 owner = claims[0].read_text()
-assert owner in {
-    "agent-a1111111-0000-4000-8000-000000000001",
-    "agent-b2222222-0000-4000-8000-000000000002",
-    "agent-c3333333-0000-4000-8000-000000000003",
-    "agent-d4444444-0000-4000-8000-000000000004",
-    "agent-e5555555-0000-4000-8000-000000000005",
-    "agent-f6666666-0000-4000-8000-000000000006",
-    "agent-a7777777-0000-4000-8000-000000000007",
-    "agent-b8888888-0000-4000-8000-000000000008",
-}
+expected_keys = {actor_key("agent", raw) for raw in agents}
+assert owner in expected_keys
 cache_values = {
     path.name: path.read_text()
     for path in (xdg / "north-agent-ids").iterdir()
     if path.is_file()
 }
-assert set(cache_values) == {
-    "agent-a1111111-0000-4000-8000-000000000001",
-    "agent-b2222222-0000-4000-8000-000000000002",
-    "agent-c3333333-0000-4000-8000-000000000003",
-    "agent-d4444444-0000-4000-8000-000000000004",
-    "agent-e5555555-0000-4000-8000-000000000005",
-    "agent-f6666666-0000-4000-8000-000000000006",
-    "agent-a7777777-0000-4000-8000-000000000007",
-    "agent-b8888888-0000-4000-8000-000000000008",
-}
+assert set(cache_values) == expected_keys
 assert set(cache_values.values()) == set(ids)
 PY
 then

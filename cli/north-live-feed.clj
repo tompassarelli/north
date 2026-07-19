@@ -644,14 +644,11 @@
           (loop [retry-at
                  (when (= :blocked initial)
                    (+ (System/currentTimeMillis) claim-ttl-ms))]
-            (let [now (System/currentTimeMillis)
-                  wait-ms (when retry-at (max 1 (- retry-at now)))
-                  item (if wait-ms
-                         (.poll event-queue wait-ms
-                                java.util.concurrent.TimeUnit/MILLISECONDS)
-                         (.take event-queue))]
-              (cond
-                (nil? item)
+            (let [now (System/currentTimeMillis)]
+              ;; A retry deadline is a clock edge independent of coordinator
+              ;; traffic. Prioritize it once due; an unrelated commit storm must
+              ;; not keep a nonempty event queue postponing claim-expiry replay.
+              (if (and retry-at (<= retry-at now))
                 (let [result
                       (replay-pending!
                        port recipient @addrs control-queue
@@ -659,33 +656,49 @@
                   (recur
                    (when (= :blocked result)
                      (+ (System/currentTimeMillis) claim-ttl-ms))))
+                (let [wait-ms (when retry-at (- retry-at now))
+                      item (if wait-ms
+                             (.poll event-queue wait-ms
+                                    java.util.concurrent.TimeUnit/MILLISECONDS)
+                             (.take event-queue))]
+                  (cond
+                    (nil? item)
+                    ;; The bounded poll reached the retry deadline. Re-enter at
+                    ;; the loop head so clock priority has one implementation.
+                    (recur retry-at)
 
-                (= :drain (:kind item))
-                (let [epoch (:epoch item)]
-                  (settle-terminal-steers!
-                   port recipient @addrs control-queue
-                   claim-ttl-ms ack-timeout-ms epoch)
-                  (emit-drained! recipient epoch)
-                  (recur nil))
+                    (= :drain (:kind item))
+                    (let [epoch (:epoch item)]
+                      (settle-terminal-steers!
+                       port recipient @addrs control-queue
+                       claim-ttl-ms ack-timeout-ms epoch)
+                      (emit-drained! recipient epoch)
+                      (recur nil))
 
-                (= :event (:kind item))
-                (let [result
-                      (when-not settlement-only?
-                        (process-event!
-                         port recipient node addrs (:event item) control-queue
-                         claim-ttl-ms ack-timeout-ms))]
-                  (recur
-                   (if (= :blocked result)
-                     (+ (System/currentTimeMillis) claim-ttl-ms)
-                     retry-at)))
+                    (= :event (:kind item))
+                    (let [result
+                          (when-not settlement-only?
+                            (process-event!
+                             port recipient node addrs (:event item) control-queue
+                             claim-ttl-ms ack-timeout-ms))
+                          candidate
+                          (when (= :blocked result)
+                            (+ (System/currentTimeMillis) claim-ttl-ms))]
+                      ;; Never move an existing retry later. Multiple blocked
+                      ;; observations share the earliest bounded clock edge.
+                      (recur
+                       (cond
+                         (nil? candidate) retry-at
+                         (nil? retry-at) candidate
+                         :else (min retry-at candidate))))
 
-                (= :eof (:kind item))
-                (throw (ex-info "coordinator subscription closed"
-                                {:type :subscription-eof}))
+                    (= :eof (:kind item))
+                    (throw (ex-info "coordinator subscription closed"
+                                    {:type :subscription-eof}))
 
-                :else
-                (throw (ex-info "coordinator subscription failed"
-                                {:type (:error-type item)}))))))))))
+                    :else
+                    (throw (ex-info "coordinator subscription failed"
+                                    {:type (:error-type item)}))))))))))))
 
 (when-not (= "1" (System/getProperty "north.live-feed.lib"))
   (let [[port recipient & flags] *command-line-args*]

@@ -205,6 +205,34 @@
                  {:item item
                   :errors @(:errors feed)}))))))
 
+(defn frames-until-eof!
+  "Drain a terminated feed's remaining output under one wall-clock bound."
+  [feed timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (loop [frames []]
+      (let [remaining (- deadline (System/currentTimeMillis))]
+        (when-not (pos? remaining)
+          (throw (ex-info "timed out draining terminated feed output"
+                          {:frames frames :errors @(:errors feed)})))
+        (let [item (.poll ^java.util.concurrent.BlockingQueue
+                          (:queue feed)
+                          remaining
+                          java.util.concurrent.TimeUnit/MILLISECONDS)]
+          (cond
+            (nil? item)
+            (throw (ex-info "terminated feed did not close stdout"
+                            {:frames frames :errors @(:errors feed)}))
+
+            (= :line (:kind item))
+            (recur (conj frames (json/parse-string-strict (:line item))))
+
+            (= :eof (:kind item))
+            frames
+
+            :else
+            (throw (ex-info "terminated feed output reader failed"
+                            {:item item :errors @(:errors feed)}))))))))
+
 (defn require-frame! [feed type]
   (let [frame (read-frame! feed)]
     (when-not (= type (get frame "type"))
@@ -490,10 +518,12 @@
     ;; exact production lease before publishing `to` so the armed feed
     ;; deterministically loses the live-event claim. With no later graph write,
     ;; only its scheduled retry can make progress after expiry.
-    (let [feed (start-feed! port "recipient" 500 300)
+    (let [left (start-feed! port "recipient" 500 300)
+          right (start-feed! port "recipient" 500 300)
           message
           "@msg:20260719-000002-00000000-0000-4000-8000-000000000001"]
-      (start! feed "recipient")
+      (start! left "recipient")
+      (start! right "recipient")
       (doseq [[predicate value]
               [["from" "sender"]
                ["subject" "silent-claim-expiry"]
@@ -510,15 +540,43 @@
         (check "fixture pre-acquires the exact production delivery lease"
                (and (:ok claim) (some? (:epoch claim)))))
       (assert-fact! port message "to" "recipient")
-      (check "armed feed emits nothing while the foreign claim is live"
-             (nil? (read-frame! feed 250)))
-      (let [replay (read-frame! feed 1250)]
-        (check "armed feed retries after silent claim expiry"
-               (= message (mail-id replay)))
-        (ack! feed message)
-        (check "claim-expiry replay becomes durable without a later graph write"
+      (let [left-silent (future (read-frame! left 250))
+            right-silent (future (read-frame! right 250))]
+        (check "both armed feeds emit nothing while the foreign claim is live"
+               (and (nil? @left-silent)
+                    (nil? @right-silent))))
+      (let [noise-deadline (+ (System/currentTimeMillis) 900)
+            noise
+            (future
+              (loop [index 0]
+                (when (< (System/currentTimeMillis) noise-deadline)
+                  (assert-fact! port
+                                (str "@noise:claim-expiry-" index)
+                                "note" "unrelated coordinator traffic")
+                  (recur (inc index)))))
+            winner-promise (promise)
+            read-one
+            (fn [feed]
+              (future
+                (let [frame (read-frame! feed 1250)]
+                  (when frame (deliver winner-promise [feed frame]))
+                  frame)))
+            left-read (read-one left)
+            right-read (read-one right)
+            winner (deref winner-promise 1500 nil)
+            _ (when winner (ack! (first winner) message))
+            left-frame @left-read
+            right-frame @right-read
+            _ @noise
+            deliveries (keep identity [left-frame right-frame])]
+        (check "two feeds retry nil claims on time under a commit storm and elect one output"
+               (and winner
+                    (= 1 (count deliveries))
+                    (= message (mail-id (first deliveries)))))
+        (check "two-feed claim-expiry replay becomes durable without another message write"
                (await-acked! port "recipient" [message])))
-      (stop-feed! feed))
+      (stop-feed! left)
+      (stop-feed! right))
 
     ;; Terminal teardown is a generation-specific graph barrier, not an
     ;; in-process promise. More than one bounded page of producer-admitted
@@ -653,6 +711,89 @@
                          % "terminal-steer-drain-route-mismatch")
                        @(:errors stale)))
           (stop-feed! stale))))
+
+    ;; One restart scenario exercises all three terminal barriers explicitly:
+    ;; (1) freeze failure -> late steer remains admissible -> fresh settlement;
+    ;; (2) drain failure -> pending remains and retry cannot inherit success;
+    ;; (3) already-frozen + no original subscription -> a fresh settlement-only
+    ;; process must either prove the exact epoch and settle, or fail closed.
+    (let [recipient "retry-drain-recipient"
+          armed-epoch "00000000-0000-4000-8000-000000000020"
+          frozen-epoch "00000000-0000-4000-8000-000000000021"
+          wrong-epoch "00000000-0000-4000-8000-000000000022"]
+      (publish-route! port recipient "publish" "armed" armed-epoch)
+      (check "retry-drain lane has a live session lease"
+             (zero? (:exit (register! port recipient))))
+      (let [premature
+            (start-feed! port recipient 500 300
+                         "--settlement-only" "true")]
+        (start! premature recipient)
+        (send-control! premature
+                       (array-map "type" "drain" "epoch" frozen-epoch))
+        (check "failed freeze attempt cannot emit a terminal settlement receipt"
+               (await-predicate
+                #(not (.isAlive ^Process (:process premature)))))
+        (check "freeze failure leaves no buffered drained receipt"
+               (not-any? #(= "drained" (get % "type"))
+                         (frames-until-eof! premature 1000)))
+        (check "failed freeze attempt reports the generation mismatch"
+               (some #(str/includes?
+                       % "terminal-steer-drain-route-mismatch")
+                     @(:errors premature)))
+        (stop-feed! premature))
+      (let [admitted
+            (run-msg port "send" "director" recipient "steer"
+                     "accepted after the failed freeze attempt")
+            message
+            (second
+             (re-find #"queued for live injection (@msg:[^ ]+)"
+                      (:out admitted)))]
+        (check "an armed route honestly accepts a late steer after freeze failure"
+               (and (zero? (:exit admitted)) message))
+        (publish-route! port recipient "route" "frozen" frozen-epoch)
+        (let [failed
+              (start-feed! port recipient 500 300
+                           "--settlement-only" "true")]
+          (start! failed recipient)
+          (send-control! failed
+                         (array-map "type" "drain" "epoch" wrong-epoch))
+          (check "failed drain process cannot false-succeed or consume pending steer"
+               (and (await-predicate
+                       #(not (.isAlive ^Process (:process failed))))
+                      (contains? (set (pending-steers port recipient)) message)))
+          (check "drain failure emits no buffered terminal receipt"
+                 (not-any? #(= "drained" (get % "type"))
+                           (frames-until-eof! failed 1000)))
+          (stop-feed! failed))
+        (let [retry
+              (start-feed! port recipient 1000 300
+                           "--settlement-only" "true")]
+          (start! retry recipient)
+          (send-control! retry
+                         (array-map "type" "drain" "epoch" frozen-epoch))
+          (let [frames
+                (loop [observed [] deadline (+ (System/currentTimeMillis) 5000)]
+                  (when (>= (System/currentTimeMillis) deadline)
+                    (throw
+                     (ex-info "retry settlement timed out"
+                              {:observed observed :errors @(:errors retry)})))
+                  (if-let [frame (read-frame! retry 1000)]
+                    (let [next-observed (conj observed frame)]
+                      (if (= "drained" (get frame "type"))
+                        next-observed
+                        (recur next-observed deadline)))
+                    (recur observed deadline)))
+                receipt (last frames)]
+            (check "fresh settlement process proves the exact current frozen epoch"
+                   (and (= "drained" (get receipt "type"))
+                        (= recipient (get receipt "recipient"))
+                        (= frozen-epoch (get receipt "epoch"))))
+            (check "retry settles the late steer without a false acknowledgement"
+                   (and (= #{recipient}
+                           (values-of port message "delivery_rejected_by"))
+                        (empty? (values-of port message "acked_by"))
+                        (empty? (pending-steers port recipient)))))
+          (stop-feed! retry))))
 
     ;; Broadcast replay uses the same durable feed, but its authority comes from
     ;; the finite send-time audience snapshot.
