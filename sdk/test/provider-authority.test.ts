@@ -50,7 +50,7 @@ function designer(provider: "anthropic" | "openai", self: string): any {
   }) as any;
 }
 
-test("North MCP tool inventory and managed Anthropic exposure stay in exact parity", () => {
+test("North MCP tool inventory and managed provider exposure stay exact", () => {
   const source = readFileSync(join(north, "bin/north-mcp"), "utf8");
   const main = source.slice(source.indexOf("(def tools"), source.indexOf(";; --- SDK agent tools"));
   const sdk = source.slice(source.indexOf("(def sdk-tools"), source.indexOf(";; Attribution"));
@@ -97,13 +97,8 @@ test("North MCP tool inventory and managed Anthropic exposure stay in exact pari
     presenceRegistrar: false,
     routingMetadata: applyGafferStaffing({ role: "director" }),
   }) as any;
-  const codexArgs = codexHarnessArguments(director);
-  const enabledTools = codexArgs.find((argument) =>
-    argument.startsWith("mcp_servers.north.enabled_tools="))!;
-  expect(enabledTools).toBe(
-    'mcp_servers.north.enabled_tools=["capture","tell","evidence_record","show","ready","next","board","plate","dispatch","spawn"]',
-  );
-  expect(enabledTools).not.toMatch(/clock|linear|retract|validate/);
+  expect(() => codexHarnessArguments(director))
+    .toThrow("openai_adapter_orchestrator_authority_unavailable");
 });
 
 test("both providers receive the exact custom North and Fram instance selectors without ambient secrets", () => {

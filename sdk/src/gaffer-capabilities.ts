@@ -41,12 +41,13 @@ export function validateTopologyCapabilities(
   }
 }
 
-/** Whether the adapter can realize this exact authority boundary before work starts. */
-export function providerSupportsCapabilities(
+/** Exact pre-acceptance reason when an adapter cannot realize the authority. */
+export function providerCapabilityRejectionCode(
   provider: ProviderId,
   capabilities: readonly GafferCapability[] | undefined,
-): boolean {
-  if (!capabilities) return true;
+): string | undefined {
+  if (!capabilities) return undefined;
+  const generic = `${provider}_adapter_cannot_enforce_gaffer_capabilities`;
   const fileRead = capabilities.includes("filesystem.read");
   const fileSearch = capabilities.includes("filesystem.search");
   const fileWrite = capabilities.includes("filesystem.write");
@@ -56,17 +57,34 @@ export function providerSupportsCapabilities(
   // unrestricted shell can write it. Reject a bespoke set that omits those
   // effective authorities instead of advertising a narrower boundary than the
   // provider can actually enforce.
-  if ((shell || readonlyShell) && (!fileRead || !fileSearch)) return false;
-  if (shell && !fileWrite) return false;
-  if (provider === "anthropic") return true;
+  if ((shell || readonlyShell) && (!fileRead || !fileSearch)) return generic;
+  if (shell && !fileWrite) return generic;
+  if (provider === "anthropic") return undefined;
   // Codex managed workers have an enforceable North MCP surface, but its native
   // exec adapter cannot yet prove child receipt/reconciliation. Orchestrator
   // authority therefore routes elsewhere instead of spending a turn and
   // reporting a coordinator-shaped prompt as operational coordination.
-  if (capabilities.includes("coordination")) return false;
+  if (capabilities.includes("coordination"))
+    return "openai_adapter_orchestrator_authority_unavailable";
+  // `codex exec --search` enables a changing provider-native surface. North has
+  // not yet proven its exact item/receipt and policy boundary, so managed web
+  // work routes to an adapter that can enforce it instead of silently enabling
+  // a capability on faith.
+  if (capabilities.includes("web"))
+    return "openai_adapter_web_capability_unproven";
   // Codex exec always owns a shell surface. It can hard-sandbox that whole run
   // read-only, but cannot presently make only shell read-only while preserving
   // built-in file edits. Authority shapes outside those two modes route to an
   // adapter that can realize them instead of silently widening or narrowing.
-  return (shell && !readonlyShell) || (readonlyShell && !shell && !fileWrite);
+  return (shell && !readonlyShell) || (readonlyShell && !shell && !fileWrite)
+    ? undefined
+    : generic;
+}
+
+/** Whether the adapter can realize this exact authority boundary before work starts. */
+export function providerSupportsCapabilities(
+  provider: ProviderId,
+  capabilities: readonly GafferCapability[] | undefined,
+): boolean {
+  return providerCapabilityRejectionCode(provider, capabilities) === undefined;
 }

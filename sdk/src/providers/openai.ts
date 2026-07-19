@@ -160,6 +160,7 @@ function managedCodexAuthorityArguments(
   // This helper is also exported indirectly through codexHarnessArguments, so
   // retain the same fail-closed envelope check as the executable adapter.
   validateManagedExecutionEnvelope("openai", capabilities, options);
+  admitPinnedProvider("openai", capabilities);
   const north = options.mcpServers.north;
   const cwd = realpathSync(options.cwd ?? process.cwd());
   const projectRoot = defaultCodexProjectRoot(cwd);
@@ -206,7 +207,8 @@ function managedCodexAuthorityArguments(
 }
 
 export function codexGlobalArguments(options: any): string[] {
-  return codexCapabilities(options)?.includes("web") ? ["--search"] : [];
+  void options;
+  return [];
 }
 
 export function probeCodex(target?: RoutingTarget): ProviderAvailability {
@@ -252,9 +254,111 @@ function modelForCodex(model?: string): string | undefined {
   return model;
 }
 
-function waitForClose(child: ChildProcessWithoutNullStreams): Promise<number | null> {
+const CODEX_INTERRUPT_TERM_MS = 750;
+const CODEX_INTERRUPT_KILL_MS = 750;
+const CODEX_POSIX_PROCESS_GROUP = process.platform !== "win32";
+
+function signalCodexProcessGroup(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+): boolean {
+  if (CODEX_POSIX_PROCESS_GROUP && child.pid !== undefined) {
+    try { return process.kill(-child.pid, signal); }
+    catch { return false; }
+  }
+  try { return child.kill(signal); }
+  catch { return false; }
+}
+
+function waitForExit(child: ChildProcessWithoutNullStreams): Promise<number | null> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(child.exitCode);
-  return new Promise((resolve) => child.once("close", resolve));
+  return new Promise((resolve) => child.once("exit", resolve));
+}
+
+function waitForExitBounded(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (exited: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = (): void => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+function codexProcessGroupExists(child: ChildProcessWithoutNullStreams): boolean {
+  if (!CODEX_POSIX_PROCESS_GROUP || child.pid === undefined) return false;
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function waitForCodexProcessGroupGone(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (codexProcessGroupExists(child) && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  return !codexProcessGroupExists(child);
+}
+
+function destroyCodexPipes(child: ChildProcessWithoutNullStreams): void {
+  child.stdin.destroy();
+  child.stdout.destroy();
+  child.stderr.destroy();
+}
+
+async function terminateCodexProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
+  signalCodexProcessGroup(child, "SIGTERM");
+  if (CODEX_POSIX_PROCESS_GROUP) {
+    // The direct CLI can already be gone while an inherited-pipe descendant
+    // remains. Bound the process group itself, not just the leader's exit.
+    if (!await waitForCodexProcessGroupGone(child, CODEX_INTERRUPT_TERM_MS)) {
+      signalCodexProcessGroup(child, "SIGKILL");
+      await waitForCodexProcessGroupGone(child, CODEX_INTERRUPT_KILL_MS);
+    }
+  } else {
+    // Node cannot address a process group on Windows. Bound the direct child
+    // and local pipe wait; descendant ownership remains platform-limited.
+    if (!await waitForExitBounded(child, CODEX_INTERRUPT_TERM_MS)) {
+      signalCodexProcessGroup(child, "SIGKILL");
+      await waitForExitBounded(child, CODEX_INTERRUPT_KILL_MS);
+    }
+  }
+  destroyCodexPipes(child);
+}
+
+function armCodexDescendantReaper(
+  child: ChildProcessWithoutNullStreams,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    child.once("error", () => {
+      if (child.pid === undefined) finish();
+    });
+    child.once("exit", () => {
+      void terminateCodexProcessTree(child).finally(finish);
+    });
+  });
 }
 
 type JsonObject = Record<string, unknown>;
@@ -435,6 +539,7 @@ function codexUsage(usage: ExactCodexUsage): {
 
 class CodexQuery implements AgentQuery {
   private child?: ChildProcessWithoutNullStreams;
+  private interruptPromise?: Promise<void>;
   constructor(
     private prompt: string | AsyncIterable<any>,
     private options: any,
@@ -445,13 +550,18 @@ class CodexQuery implements AgentQuery {
   supportsInFlightEscalation(): boolean { return false; }
 
   async interrupt(): Promise<void> {
+    if (this.interruptPromise) return this.interruptPromise;
     const child = this.child;
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    child.kill("SIGTERM");
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }, 1_000);
-      child.once("close", () => { clearTimeout(timer); resolve(); });
-    });
+    if (!child) return;
+    const cleanup = (async () => {
+      // Always address the process group, even after the direct child exited.
+      await terminateCodexProcessTree(child);
+    })();
+    this.interruptPromise = cleanup;
+    try { await cleanup; }
+    finally {
+      if (this.interruptPromise === cleanup) this.interruptPromise = undefined;
+    }
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<any> {
@@ -479,8 +589,14 @@ class CodexQuery implements AgentQuery {
     if (this.options.effort) args.push("--config", `model_reasoning_effort=${JSON.stringify(this.options.effort)}`);
     if (this.options.cwd) args.push("--cd", this.options.cwd);
     args.push("-");
-    const child = spawn(command(env), args, { cwd: this.options.cwd ?? process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command(env), args, {
+      cwd: this.options.cwd ?? process.cwd(),
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: CODEX_POSIX_PROCESS_GROUP,
+    });
     this.child = child;
+    const descendantsReaped = armCodexDescendantReaper(child);
     const launched = new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);
@@ -525,13 +641,14 @@ class CodexQuery implements AgentQuery {
         }
       }
       frames.finish();
-      const code = await waitForClose(child);
+      const code = await waitForExit(child);
       if (code !== 0) throw new Error("openai_provider_execution_failed");
       usage = protocol.finish();
     } catch {
       try { await this.interrupt(); } catch { /* cleanup must not replace the provider error */ }
       throw new Error("openai_provider_execution_failed");
     } finally {
+      await descendantsReaped;
       this.child = undefined;
     }
     if (!usage) throw new Error("openai_provider_execution_failed");

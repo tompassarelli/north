@@ -2,7 +2,7 @@ import { accessSync, constants } from "node:fs";
 import { spawn as procSpawn } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import type { GafferCapability } from "./gaffer-capabilities";
-import { providerSupportsCapabilities } from "./gaffer-capabilities";
+import { providerCapabilityRejectionCode } from "./gaffer-capabilities";
 import { preflightReadonlyShell, ReadonlyShellUnavailableError } from "./readonly-shell";
 import { ProviderRetrySafeError, type ProviderId } from "./providers/types";
 
@@ -246,9 +246,8 @@ export async function admitExecution(
   cwd: string,
   options?: any,
 ): Promise<void> {
-  if (!providerSupportsCapabilities(provider, capabilities)) {
-    throw new ExecutionAdmissionError(`${provider}_adapter_cannot_enforce_gaffer_capabilities`);
-  }
+  const capabilityRejection = providerCapabilityRejectionCode(provider, capabilities);
+  if (capabilityRejection) throw new ExecutionAdmissionError(capabilityRejection);
   try {
     accessSync(ENGINE, constants.X_OK);
   } catch (cause) {
@@ -281,7 +280,7 @@ export function admitPinnedProvider(
   provider: ProviderId | "auto" | undefined,
   capabilities: readonly GafferCapability[],
 ): void {
-  if (provider && provider !== "auto" && !providerSupportsCapabilities(provider, capabilities)) {
-    throw new ExecutionAdmissionError(`${provider}_adapter_cannot_enforce_gaffer_capabilities`);
-  }
+  if (!provider || provider === "auto") return;
+  const capabilityRejection = providerCapabilityRejectionCode(provider, capabilities);
+  if (capabilityRejection) throw new ExecutionAdmissionError(capabilityRejection);
 }

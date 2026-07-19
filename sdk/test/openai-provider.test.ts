@@ -21,6 +21,7 @@ const savedLaws = process.env.AGENT_LAWS;
 const savedGaffer = process.env.GAFFER_HOME;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
 const temporary: string[] = [];
+const liveProcessPidFiles = new Set<string>();
 const codexThreadStarted = JSON.stringify({
   type: "thread.started",
   thread_id: "67e55044-10b1-426f-9247-bb680e5fe0c8",
@@ -54,6 +55,8 @@ afterEach(() => {
   else process.env.AGENT_LAWS = savedLaws;
   if (savedGaffer === undefined) delete process.env.GAFFER_HOME;
   else process.env.GAFFER_HOME = savedGaffer;
+  for (const path of liveProcessPidFiles) killRecordedProcess(path);
+  liveProcessPidFiles.clear();
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -84,6 +87,50 @@ async function resultFromScriptBody(body: string): Promise<any> {
     options: {} as any,
   }) as AsyncIterable<any>) messages.push(message);
   return messages.at(-1);
+}
+
+async function waitForFile(path: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(path) && Date.now() < deadline) await Bun.sleep(10);
+  if (!existsSync(path)) throw new Error(`timed out waiting for ${path}`);
+}
+
+async function expectProcessGone(pid: number, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let alive = true;
+  while (alive && Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+      await Bun.sleep(10);
+    } catch {
+      alive = false;
+    }
+  }
+  expect(alive).toBe(false);
+}
+
+function killRecordedProcess(path: string): void {
+  if (!existsSync(path)) return;
+  const pid = Number(readFileSync(path, "utf8"));
+  if (!Number.isSafeInteger(pid) || pid <= 1) return;
+  if (process.platform !== "win32") {
+    try { process.kill(-pid, "SIGKILL"); } catch { /* already gone or not a leader */ }
+  }
+  try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+}
+
+async function within<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 test("Codex adapter owns the cumulative total and does not double-count subsets", async () => {
@@ -328,6 +375,161 @@ while true; do :; done
   expect(readFileSync(terminated, "utf8")).toBe("terminated");
 });
 
+test("Codex parent exit reaps a TERM-resistant inherited-pipe descendant", async () => {
+  if (process.platform === "win32") return;
+  const directory = mkdtempSync(join(tmpdir(), "north-codex-exited-parent-"));
+  temporary.push(directory);
+  const command = join(directory, "fake-codex");
+  const parentPath = join(directory, "parent-pid");
+  const descendantPath = join(directory, "descendant-pid");
+  liveProcessPidFiles.add(parentPath);
+  liveProcessPidFiles.add(descendantPath);
+  writeFileSync(command, `#!/usr/bin/env bash
+set -eu
+printf '%s' "$$" > "${parentPath}"
+(
+  trap '' TERM
+  printf '%s' "$BASHPID" > "${descendantPath}"
+  while true; do sleep 10; done
+) &
+while [ ! -s "${descendantPath}" ]; do :; done
+printf '%s\\n' '${codexThreadStarted}'
+printf '%s\\n' '${codexTurnStarted}'
+exit 0
+`);
+  chmodSync(command, 0o700);
+  process.env.NORTH_CODEX_BIN = command;
+  try {
+    const startedAt = Date.now();
+    const caught = await within((async (): Promise<unknown> => {
+      try {
+        for await (const _ of openaiProvider.query({
+          prompt: "x", options: {} as any,
+        }) as AsyncIterable<any>) {}
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    })(), 3_000, "exited-parent reaper");
+    const elapsed = Date.now() - startedAt;
+    const parentPid = Number(readFileSync(parentPath, "utf8"));
+    const descendantPid = Number(readFileSync(descendantPath, "utf8"));
+    expect((caught as Error).message).toBe("openai_provider_execution_failed");
+    expect(elapsed).toBeLessThan(2_500);
+    await expectProcessGone(parentPid);
+    await expectProcessGone(descendantPid);
+  } finally {
+    killRecordedProcess(parentPath);
+    killRecordedProcess(descendantPath);
+    liveProcessPidFiles.delete(parentPath);
+    liveProcessPidFiles.delete(descendantPath);
+  }
+});
+
+test("Codex completion reaps a TERM-resistant descendant with closed pipes", async () => {
+  if (process.platform === "win32") return;
+  const directory = mkdtempSync(join(tmpdir(), "north-codex-closed-pipe-child-"));
+  temporary.push(directory);
+  const command = join(directory, "fake-codex");
+  const parentPath = join(directory, "parent-pid");
+  const descendantPath = join(directory, "descendant-pid");
+  liveProcessPidFiles.add(parentPath);
+  liveProcessPidFiles.add(descendantPath);
+  writeFileSync(command, `#!/usr/bin/env bash
+set -eu
+printf '%s' "$$" > "${parentPath}"
+(
+  exec </dev/null >/dev/null 2>&1
+  trap '' TERM
+  printf '%s' "$BASHPID" > "${descendantPath}"
+  while true; do sleep 10; done
+) &
+while [ ! -s "${descendantPath}" ]; do :; done
+printf '%s\\n' '${codexThreadStarted}'
+printf '%s\\n' '${codexTurnStarted}'
+printf '%s\\n' '${codexTerminal()}'
+exit 0
+`);
+  chmodSync(command, 0o700);
+  process.env.NORTH_CODEX_BIN = command;
+  try {
+    const startedAt = Date.now();
+    const messages = await within((async (): Promise<any[]> => {
+      const result: any[] = [];
+      for await (const message of openaiProvider.query({
+        prompt: "x", options: {} as any,
+      }) as AsyncIterable<any>) result.push(message);
+      return result;
+    })(), 3_000, "closed-pipe descendant reaper");
+    const elapsed = Date.now() - startedAt;
+    const parentPid = Number(readFileSync(parentPath, "utf8"));
+    const descendantPid = Number(readFileSync(descendantPath, "utf8"));
+    expect(messages.at(-1)).toMatchObject({ type: "result", subtype: "success" });
+    expect(elapsed).toBeLessThan(2_500);
+    await expectProcessGone(parentPid);
+    await expectProcessGone(descendantPid);
+  } finally {
+    killRecordedProcess(parentPath);
+    killRecordedProcess(descendantPath);
+    liveProcessPidFiles.delete(parentPath);
+    liveProcessPidFiles.delete(descendantPath);
+  }
+});
+
+test("Codex interrupt is bounded and kills a TERM-resistant process group", async () => {
+  if (process.platform === "win32") return;
+  const directory = mkdtempSync(join(tmpdir(), "north-codex-interrupt-group-"));
+  temporary.push(directory);
+  const command = join(directory, "fake-codex");
+  const parentPath = join(directory, "parent-pid");
+  const descendantPath = join(directory, "descendant-pid");
+  liveProcessPidFiles.add(parentPath);
+  liveProcessPidFiles.add(descendantPath);
+  writeFileSync(command, `#!/usr/bin/env bash
+set -eu
+trap '' TERM
+printf '%s' "$$" > "${parentPath}"
+(
+  trap '' TERM
+  printf '%s' "$BASHPID" > "${descendantPath}"
+  while true; do sleep 10; done
+) &
+while [ ! -s "${descendantPath}" ]; do :; done
+printf '%s\\n' '${codexThreadStarted}'
+printf '%s\\n' '${codexTurnStarted}'
+while true; do sleep 10; done
+`);
+  chmodSync(command, 0o700);
+  process.env.NORTH_CODEX_BIN = command;
+  const query = openaiProvider.query({ prompt: "x", options: {} as any });
+  const running = (async (): Promise<unknown> => {
+    try {
+      for await (const _ of query as AsyncIterable<any>) {}
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  })();
+  try {
+    await Promise.all([waitForFile(parentPath), waitForFile(descendantPath)]);
+    const parentPid = Number(readFileSync(parentPath, "utf8"));
+    const descendantPid = Number(readFileSync(descendantPath, "utf8"));
+    const startedAt = Date.now();
+    await within(query.interrupt(), 2_500, "Codex process-group interrupt");
+    const elapsed = Date.now() - startedAt;
+    const caught = await within(running, 2_500, "interrupted query settlement");
+    expect((caught as Error).message).toBe("openai_provider_execution_failed");
+    expect(elapsed).toBeLessThan(2_500);
+    await expectProcessGone(parentPid);
+    await expectProcessGone(descendantPid);
+  } finally {
+    killRecordedProcess(parentPath);
+    killRecordedProcess(descendantPath);
+    liveProcessPidFiles.delete(parentPath);
+    liveProcessPidFiles.delete(descendantPath);
+  }
+});
+
 test("cleanup failure never replaces the real Codex provider error", async () => {
   const directory = mkdtempSync(join(tmpdir(), "north-codex-cleanup-"));
   temporary.push(directory);
@@ -434,7 +636,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     self: "openai-authority-probe",
     provider: "openai",
     model: "gpt-5.6-terra",
-    routingMetadata: applyGafferStaffing({ role: "scout" }),
+    routingMetadata: applyGafferStaffing({ role: "implementer" }),
     presenceRegistrar: false,
   }) as any;
   // A direct adapter caller cannot widen authority by omitting Claude-shaped
@@ -452,8 +654,10 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
   markExecutionAdmission("openai", options);
   for await (const _ of openaiProvider.query({ prompt: "x", options }) as AsyncIterable<any>) {}
   const argv = readFileSync(argvPath, "utf8").trim().split("\n");
-  expect(argv.slice(0, 2)).toEqual(["--search", "exec"]);
-  expect(argv).toEqual(expect.arrayContaining(["--sandbox", "read-only", "--disable", "multi_agent"]));
+  expect(argv[0]).toBe("exec");
+  expect(argv).toEqual(expect.arrayContaining([
+    "--sandbox", "workspace-write", "--disable", "multi_agent",
+  ]));
   expect(argv).toEqual(expect.arrayContaining([
     "--strict-config",
     "--ephemeral",
@@ -483,7 +687,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
   );
   expect(argv).toContain("mcp_servers.north.required=true");
   expect(argv.some((argument) => /mcp_servers\\.(linear|fram)/i.test(argument))).toBe(false);
-  expect(argv).not.toContain('web_search="disabled"');
+  expect(argv).toContain('web_search="disabled"');
   const nestedCwd = join(northRoot, "sdk", "src");
   const nestedArgs = codexHarnessArguments({ ...canonical, cwd: nestedCwd });
   expect(nestedArgs).toContain(
@@ -494,6 +698,22 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
   );
 
   rmSync(argvPath, { force: true });
+  const web = harnessOptions({
+    self: "openai-web-admission-proof",
+    provider: "openai",
+    model: "gpt-5.6-terra",
+    routingMetadata: applyGafferStaffing({ role: "scout" }),
+    presenceRegistrar: false,
+  }) as any;
+  expect(() => codexHarnessArguments(web))
+    .toThrow("openai_adapter_web_capability_unproven");
+  await expect(async () => {
+    for await (const _ of openaiProvider.query({
+      prompt: "must not spawn for unproven web authority", options: web,
+    }) as AsyncIterable<any>) {}
+  }).toThrow("openai_adapter_web_capability_unproven");
+  expect(existsSync(argvPath)).toBe(false);
+
   const unsupported = openaiProvider.query({
     prompt: "x",
     options: { ...canonical, northCapabilities: ["filesystem.read"] } as any,
@@ -538,7 +758,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     ...harnessOptions({
       self: "openai-missing-global-proof",
       provider: "openai",
-      routingMetadata: applyGafferStaffing({ role: "scout" }),
+      routingMetadata: applyGafferStaffing({ role: "implementer" }),
       presenceRegistrar: false,
     }) as any,
   };
@@ -585,7 +805,7 @@ test("the executable Codex adapter rejects orchestrator authority before startin
     retrySafeBeforeAcceptance: true,
   });
   expect((caught as Error).message).toBe(
-    "openai_adapter_cannot_enforce_gaffer_capabilities",
+    "openai_adapter_orchestrator_authority_unavailable",
   );
   expect(existsSync(marker)).toBe(false);
 });
@@ -639,7 +859,7 @@ test("selected Codex account bootstrap fails during admission before onRoute or 
     self: "openai-target-admission-proof",
     provider: "openai",
     cwd: northRoot,
-    routingMetadata: applyGafferStaffing({ role: "scout" }),
+    routingMetadata: applyGafferStaffing({ role: "implementer" }),
     presenceRegistrar: false,
   });
   await expect(openaiProvider.admit!({

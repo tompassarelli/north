@@ -176,9 +176,9 @@ test("Gaffer capabilities compile to exact provider authority before work starts
   ]));
   expect(director.allowedTools).toContain(READONLY_SHELL_TOOL);
   expect(director.allowedTools).not.toContain("Bash");
-  expect(codexGlobalArguments(director)).toEqual(["--search"]);
-  expect(codexHarnessArguments(director)).toEqual(expect.arrayContaining(["--sandbox", "read-only"]));
-  expect(codexHarnessArguments(director)).toContain("mcp_servers.north.required=true");
+  expect(codexGlobalArguments(director)).toEqual([]);
+  expect(() => codexHarnessArguments(director))
+    .toThrow("openai_adapter_orchestrator_authority_unavailable");
   expect(director.mcpServers[READONLY_SHELL_SERVER]).toBeDefined();
 
   const integrator = harnessOptions({

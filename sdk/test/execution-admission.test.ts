@@ -26,6 +26,16 @@ test("a pinned OpenAI orchestrator is blocked before a provider turn", () => {
   }
 });
 
+test("OpenAI web authority is rejected when pinned and remains auto-routable", () => {
+  const webCapabilities = [
+    "filesystem.read", "filesystem.search", "shell.readonly", "web",
+  ] as const;
+  expect(() => admitPinnedProvider("auto", webCapabilities)).not.toThrow();
+  expect(() => admitPinnedProvider(undefined, webCapabilities)).not.toThrow();
+  expect(() => admitPinnedProvider("openai", webCapabilities))
+    .toThrow("openai_adapter_web_capability_unproven");
+});
+
 test("every managed lane requires a live North coordinator before a provider turn", async () => {
   process.env.NORTH_PORT = "65534";
   for (const capabilities of [

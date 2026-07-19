@@ -585,6 +585,19 @@ test("provider selection filters unenforceable capability shapes before side eff
     "openai", available, policy(), "senior", "capability-pin", "high", undefined, capabilities,
   )).toThrow("cannot enforce the requested Gaffer capabilities");
 
+  const webCapabilities = [
+    "filesystem.read", "filesystem.search", "shell.readonly", "web",
+  ] as const;
+  const web = selectProviderFromAvailability(
+    "auto", available, policy({ providerOrder: ["openai", "anthropic"] }),
+    "senior", "web-route", "high", undefined, webCapabilities,
+  );
+  expect(web.provider).toBe("anthropic");
+  expect(() => selectProviderFromAvailability(
+    "openai", available, policy(), "senior", "web-pin", "high", undefined,
+    webCapabilities,
+  )).toThrow("cannot enforce the requested Gaffer capabilities");
+
   const orchestratorCapabilities = [
     "filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination",
   ] as const;
