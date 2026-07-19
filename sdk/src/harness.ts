@@ -347,10 +347,13 @@ function renewPresence(self: string): void {
     if (err && lastRenew.get(self) === now) lastRenew.set(self, prev);
   });
 }
-function withCoordination(self: string, base: string, cwd: string): string {
+// The per-lane UNIQUE tail: agent id + repo are the only truly lane-specific
+// bytes in the prompt, so they land LAST (P1) — after every shared tier — instead
+// of at ~byte 330, where they used to defeat cross-lane prefix-cache sharing.
+function coordinationBlock(self: string, cwd: string): string {
   const repo = cwd.split("/").filter(Boolean).pop() ?? "repo";
   const proto = [
-    ``, `## north coordination`,
+    ``, ``, `## north coordination`,
     `You are agent "${self}" in "${repo}". Other agents may work here concurrently.`,
     `Coordinate through CONCERNS, not locks — work coexists; declaring never blocks. Before`,
     `editing code for a feature, declare it so others can see + shape around your work:`,
@@ -361,7 +364,7 @@ function withCoordination(self: string, base: string, cwd: string): string {
     `Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.`,
     `Run \`${REPO}/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.`,
   ].join("\n");
-  return `${base}\n${proto}`;
+  return proto;
 }
 
 // AGENT_ESO=on|off — appends dense-handoff instruction to every spawned agent.
@@ -455,6 +458,150 @@ function globalLawsAppendix(): string {
   const trailingNewline = laws.text.endsWith("\n") ? "" : "\n";
   return `\n\n## Global laws — ${laws.path} (binds every provider and agent)\n\n`
     + laws.text + trailingNewline;
+}
+
+// ── P2 tiered constitution (cache-first, capability-gated) ───────────────────
+// The global constitution is injected WHOLE to every Anthropic lane today,
+// regardless of what the lane can do. P2 splits the loaded text by its own
+// section headings AT ASSEMBLY TIME (the file is never edited) and routes each
+// section to a coarse capability/repo gate, so a lane carries only the laws it
+// could violate or need. Determinism is load-bearing for cache reuse: gating is
+// a pure step-function of the capability SET + repo, section order is the file's
+// own order, and an unrecognized heading fails SAFE into CORE (rides with every
+// lane) rather than being silently dropped.
+interface ConstitutionSection { heading: string; text: string }
+
+// Split into the leading preamble (everything before the first `## `) and the
+// ordered `## ` sections, each carrying its own heading line.
+function parseConstitution(raw: string): { preamble: string; sections: ConstitutionSection[] } {
+  const lines = raw.split("\n");
+  const preamble: string[] = [];
+  const sections: ConstitutionSection[] = [];
+  let cur: { heading: string; body: string[] } | null = null;
+  const flush = () => { if (cur) sections.push({ heading: cur.heading, text: [cur.heading, ...cur.body].join("\n") }); };
+  for (const line of lines) {
+    if (/^## /.test(line)) { flush(); cur = { heading: line, body: [] }; }
+    else if (cur) cur.body.push(line);
+    else preamble.push(line);
+  }
+  flush();
+  return { preamble: preamble.join("\n").trim(), sections };
+}
+
+type ConstitutionBucket = keyof {
+  core: 0; write: 0; shell: 0; orch: 0; client: 0; nixos: 0; beagle: 0;
+};
+type ConstitutionBuckets = Record<ConstitutionBucket, string[]>;
+
+// The synthesized one-line CORE safety stub for the API-credit ban (the full
+// bullet rides with filesystem.write). Assembly-time text; the file is unchanged.
+const API_KEYS_CORE_STUB =
+  "- **Billing: subscription entitlements only, never API credits** — full guard rides with write capability.";
+
+// Whole-section gate by heading. Unknown headings fail safe into CORE.
+function constitutionGateForHeading(heading: string): ConstitutionBucket {
+  const h = heading.toLowerCase();
+  if (h.includes("billable")) return "client";
+  if (h.includes("pre-edit gate")) return "orch";
+  if (h.includes("model +")) return "orch";
+  if (h.includes("push freely")) return "write";
+  if (h.includes("external code")) return "write";
+  if (h.includes("internal notes")) return "write";
+  if (h.includes("nixos-config") || h.includes("global agent config")) return "nixos";
+  if (h.includes("racket") || h.includes("beagle")) return "beagle";
+  if (h.includes("new code")) return "write";
+  // north-substrate, blocked, paths, and any unrecognized heading -> CORE.
+  return "core";
+}
+
+// done-claims: para1 (report own evidence) is universal -> CORE; the
+// reconcile/attest-the-aggregate paragraph(s) are coordinator-side -> ORCH.
+function splitDoneClaims(section: ConstitutionSection, b: ConstitutionBuckets): void {
+  const body = section.text.slice(section.heading.length).replace(/^\n+/, "");
+  const paras = body.split("\n\n").map((p) => p.trim()).filter(Boolean);
+  b.core.push(`${section.heading}\n\n${paras[0] ?? ""}`);
+  const rest = paras.slice(1).join("\n\n");
+  if (rest) b.orch.push(rest);
+}
+
+// standing-guards: one heading, five bullets each with its own gate. Bullets are
+// top-level `- ` items with 2-space continuation lines.
+function splitStandingGuards(section: ConstitutionSection, b: ConstitutionBuckets): void {
+  const bullets: string[] = [];
+  let cur: string[] | null = null;
+  for (const line of section.text.slice(section.heading.length).split("\n")) {
+    if (/^- /.test(line)) { if (cur) bullets.push(cur.join("\n")); cur = [line]; }
+    else if (cur) cur.push(line);
+  }
+  if (cur) bullets.push(cur.join("\n"));
+  for (const bullet of bullets) {
+    const t = bullet.toLowerCase();
+    if (t.includes("serialize") || t.includes("`rm`") || t.includes("rm-guard") || t.includes("rm` on variable"))
+      b.shell.push(bullet);
+    else if (t.includes("api credits") || t.includes("api-key") || t.includes("api_key"))
+      b.write.push(bullet); // full API-credit ban; a 1-line stub is added to CORE below
+    else
+      b.core.push(bullet); // fleet-vocab, translucency (on-demand), unknown -> CORE
+  }
+}
+
+function constitutionRepoClass(cwd: string): { client: boolean; nixos: boolean; beagle: boolean } {
+  let real = cwd;
+  try { real = realpathSync(cwd); } catch { /* keep raw cwd */ }
+  const home = process.env.HOME ?? "";
+  const under = (base: string) => real === base || real.startsWith(`${base}${sep}`);
+  return {
+    client: Boolean(home) && under(resolve(home, "code", "client")),
+    nixos: Boolean(home) && under(resolve(home, "code", "nixos-config")),
+    beagle: (Boolean(home) && under(resolve(home, "code", "beagle"))) || /(^|\/)beagle(\/|$)/.test(real),
+  };
+}
+
+/**
+ * Split the loaded constitution into contiguous cache tiers for a capability set
+ * + repo. `core` is byte-identical for every lane; `cap`/`repo` are deterministic
+ * step-functions of the capability SET and cwd. A metadata-less (capability-less)
+ * lane keeps the whole constitution unchanged — tiering only activates when there
+ * is a capability set to gate on.
+ */
+export function constitutionTiers(
+  capabilities: readonly GafferCapability[] | undefined,
+  cwd: string,
+): { core: string; cap: string; repo: string } {
+  const laws = canonicalGlobalAgents();
+  if (!laws) return { core: "", cap: "", repo: "" };
+  if (!capabilities) return { core: globalLawsAppendix(), cap: "", repo: "" };
+
+  const { preamble, sections } = parseConstitution(laws.text);
+  const b: ConstitutionBuckets = { core: [], write: [], shell: [], orch: [], client: [], nixos: [], beagle: [] };
+  if (preamble) b.core.push(preamble);
+  for (const section of sections) {
+    const h = section.heading.toLowerCase();
+    if (h.includes("done-claims")) splitDoneClaims(section, b);
+    else if (h.includes("standing guards")) splitStandingGuards(section, b);
+    else b[constitutionGateForHeading(section.heading)].push(section.text);
+  }
+  b.core.push(API_KEYS_CORE_STUB);
+
+  const caps = new Set(capabilities);
+  const repo = constitutionRepoClass(cwd);
+  const wrap = (label: string, parts: string[]) =>
+    parts.length ? `\n\n## ${label}\n\n${parts.join("\n\n")}` : "";
+  const capParts = [
+    ...(caps.has("filesystem.write") ? b.write : []),
+    ...(caps.has("shell") ? b.shell : []),
+    ...(caps.has("coordination") ? b.orch : []),
+  ];
+  const repoParts = [
+    ...(repo.client && caps.has("filesystem.write") ? b.client : []),
+    ...(repo.nixos && caps.has("filesystem.write") ? b.nixos : []),
+    ...(repo.beagle ? b.beagle : []),
+  ];
+  return {
+    core: wrap(`Global laws — ${laws.path} (binds every provider and agent)`, b.core),
+    cap: wrap("Global laws — capability-gated", capParts),
+    repo: wrap("Global laws — repo-gated", repoParts),
+  };
 }
 
 export const PROJECT_AGENTS_MAX_BYTES = 32 * 1024;
@@ -558,17 +705,14 @@ export function projectAgentsAppendix(cwd: string): string {
     : "";
 }
 
-function providerInstructionAppendix(provider: ProviderId, cwd: string): string {
-  // Codex keeps native global AGENTS discovery but native project loading is
-  // disabled by the managed adapter, so project instructions are explicit once.
-  return (provider === "anthropic" ? globalLawsAppendix() : "")
-    + projectAgentsAppendix(cwd);
-}
-
 function assertCanonicalGlobalAgentsExactlyOnce(prompt: string): void {
   const canonical = canonicalGlobalAgents();
   if (!canonical) return;
-  const needle = canonical.text.trim();
+  // Tiered assembly splits the constitution across CORE/CAP/REPO, so the whole
+  // text is no longer contiguous. The preamble (before the first `## `, always
+  // in CORE) is the stable once-per-lane sentinel; a whole-constitution double
+  // injection duplicates it, which is the failure this guard exists to catch.
+  const needle = parseConstitution(canonical.text).preamble || canonical.text.trim();
   let count = 0;
   let offset = 0;
   while ((offset = prompt.indexOf(needle, offset)) !== -1) {
@@ -721,12 +865,40 @@ export interface HarnessCompositionEvidence {
 }
 
 interface HarnessCompositionState {
-  baseSystemPrompt: string;
+  // Tier ingredients, recomposed per route so the 4-tier order (CORE -> ROLE/CAP
+  // -> REPO -> UNIQUE-TAIL) is rebuilt identically on every provider fallback.
+  self: string;
+  basePrompt: string; // DEFAULT (or caller override) + caveman + eso — the shared head
+  gafferAppendix: string;
+  capabilities?: GafferCapability[];
   cwd: string;
   evidence: HarnessCompositionEvidence;
   initialProvider?: ProviderId;
   initialModel?: string;
   omitModelDeltaReason?: string;
+}
+
+// The single 4-tier assembler. CORE (byte-identical for every lane) then
+// ROLE/CAP (deterministic per capability set) then REPO (per cwd) then the
+// per-lane UNIQUE tail. The constitution rides only for Anthropic (and the
+// provider-unknown initial route, which Anthropic re-derives); Codex loads the
+// global file natively, so its constitution tiers stay empty — its coordination
+// tail still moves last, which is harmless.
+function composeSystemPrompt(
+  state: HarnessCompositionState,
+  provider: ProviderId | undefined,
+  model: string | undefined,
+): { prompt: string; deltaEvidence: ModelDeltaEvidence } {
+  const includeConstitution = provider === undefined || provider === "anthropic";
+  const constitution = includeConstitution
+    ? constitutionTiers(state.capabilities, state.cwd)
+    : { core: "", cap: "", repo: "" };
+  const delta = modelDeltaAppendix(provider, model, state.omitModelDeltaReason);
+  const core = state.basePrompt + constitution.core;
+  const cap = state.gafferAppendix + constitution.cap;
+  const repo = projectAgentsAppendix(state.cwd) + constitution.repo;
+  const tail = coordinationBlock(state.self, state.cwd) + delta.appendix;
+  return { prompt: core + cap + repo + tail, deltaEvidence: delta.evidence };
 }
 
 const harnessComposition = new WeakMap<object, HarnessCompositionState>();
@@ -893,19 +1065,16 @@ export function applyHarnessRoute(options: Options, provider: ProviderId, model?
   const state = harnessComposition.get(options as object);
   if (!state) return { options };
   const concreteModel = resolveModelAlias(provider, model);
-  const delta = modelDeltaAppendix(provider, concreteModel, state.omitModelDeltaReason);
-  const systemPrompt = state.baseSystemPrompt
-    + providerInstructionAppendix(provider, state.cwd)
-    + delta.appendix;
-  if (provider === "anthropic") assertCanonicalGlobalAgentsExactlyOnce(systemPrompt);
+  const composed = composeSystemPrompt(state, provider, concreteModel);
+  if (provider === "anthropic") assertCanonicalGlobalAgentsExactlyOnce(composed.prompt);
   const next = {
     ...options,
     model: concreteModel ?? options.model,
-    systemPrompt,
+    systemPrompt: composed.prompt,
   } as Options;
   harnessComposition.set(next as object, state);
   inheritAuthoringHookSeal(options, next);
-  const evidence = { ...state.evidence, modelDelta: delta.evidence };
+  const evidence = { ...state.evidence, modelDelta: composed.deltaEvidence };
   appliedEvidence.set(next as object, evidence);
   return { options: next, evidence };
 }
@@ -1005,8 +1174,11 @@ export function harnessOptions(o: HarnessOpts): Options {
   const topology = metadata?.topology;
   const gaffer = gafferAppendix(metadata, cwd);
   const capabilities = gaffer.evidence.capabilities;
-  const baseSystemPrompt = withCoordination(o.self, o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT, cwd)
-    + gaffer.appendix + cavemanAppendix(o.caveman) + esoAppendix();
+  // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + caveman +
+  // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
+  // tail are composed by composeSystemPrompt from the state below.
+  const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
+    + cavemanAppendix(o.caveman) + esoAppendix();
   // Orchestration is positive authority, never an ambient default. A lane with
   // no topology remains prompt-neutral but receives coordination-only tools.
   const orchestrationAllowed = topology === "orchestrator"
@@ -1058,10 +1230,19 @@ export function harnessOptions(o: HarnessOpts): Options {
     : o.presenceRenewer ?? (o.presenceRegistrar === undefined ? renewPresence : undefined);
   const readonlyShell = capabilities?.includes("shell.readonly") === true;
   const northMcpEnv = managedNorthMcpEnvironment({ ...childEnv, NORTH_BIN: ENGINE });
-  const initialInstructionAppendix = o.provider
-    ? ""
-    : globalLawsAppendix() + projectAgentsAppendix(cwd);
-  const initialSystemPrompt = baseSystemPrompt + initialInstructionAppendix;
+  const compositionState: HarnessCompositionState = {
+    self: o.self,
+    basePrompt,
+    gafferAppendix: gaffer.appendix,
+    capabilities: capabilities ? [...capabilities] : undefined,
+    cwd,
+    evidence: gaffer.evidence,
+    initialProvider: o.provider,
+    initialModel: o.model,
+    omitModelDeltaReason: o.omitModelDeltaReason,
+  };
+  const initialModel = o.provider ? resolveModelAlias(o.provider, o.model) : o.model;
+  const initialSystemPrompt = composeSystemPrompt(compositionState, o.provider, initialModel).prompt;
   if (!o.provider) assertCanonicalGlobalAgentsExactlyOnce(initialSystemPrompt);
   const options = {
     mcpServers: {
@@ -1088,6 +1269,13 @@ export function harnessOptions(o: HarnessOpts): Options {
     cwd,
     systemPrompt: initialSystemPrompt,
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),
+    // Pin auto-compaction explicitly (audit fix 4). Managed lanes run with
+    // settingSources: [], so the SDK's compaction behavior would otherwise ride a
+    // silent library default that a future bump could flip. This pins the ENABLED
+    // state (today's default) via the highest-priority flag-settings layer — not a
+    // behavior change, an anti-drift lock; every compact_boundary is counted onto
+    // @run and breadcrumbed on stderr by the spawn/dispatch stream loops.
+    settings: { autoCompactEnabled: true },
     hooks: {
       // PreToolUse authoring-guard parity — the fix for worker edits running with
       // ZERO guards (north-clock-guard never fired for a worker edit). Matchers +
@@ -1106,15 +1294,7 @@ export function harnessOptions(o: HarnessOpts): Options {
       }] }],
     },
   } as Options & { northCapabilities?: GafferCapability[] };
-  const state: HarnessCompositionState = {
-    baseSystemPrompt,
-    cwd,
-    evidence: gaffer.evidence,
-    initialProvider: o.provider,
-    initialModel: o.model,
-    omitModelDeltaReason: o.omitModelDeltaReason,
-  };
-  harnessComposition.set(options as object, state);
+  harnessComposition.set(options as object, compositionState);
   appliedEvidence.set(options as object, gaffer.evidence);
   sealAuthoringHooks(options);
   // Presence is an assertion that a runnable lane exists. Every synchronous

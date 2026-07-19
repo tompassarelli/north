@@ -246,6 +246,7 @@ async function runDispatch(
     try { await q.interrupt?.(); } catch { /* cleanup must not replace the terminal outcome */ }
   };
 
+  let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) the generator THROWS exitError
   // here. catch -> outcome "died" + notifyDeath (agent_death fact on this thread + @swarm,
@@ -302,6 +303,10 @@ async function runDispatch(
       const msg = message as any;
       refreshIdentityRoute();
       stream.writeSDKMessage(msg);
+      if (msg.type === "system" && msg.subtype === "compact_boundary") {
+        compactions++;
+        console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
+      }
       if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
 
       if (msg.type === "result") {
@@ -478,6 +483,7 @@ async function runDispatch(
               envelopeAdvisories: envelopeAdmission?.advisories,
               routingMetadata,
               promptComposition: compositionEvidence,
+              compactions,
               durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
               providerDurationMs: typeof resultMsg?.duration_ms === "number" ? resultMsg.duration_ms : undefined,
               posture: postureLabel, outcome,

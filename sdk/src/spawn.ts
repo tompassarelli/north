@@ -266,6 +266,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
   // counts CONSECUTIVE no-progress refusals (reset on settlement) for the stuck-lane cap.
   const bgTracker = makeBgTracker();
   let bgContinuations = 0;
+  let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   try {
   // Reserve only at the last pre-provider seam. Earlier routing/admission
   // failures must not strand undiscoverable reservation-only subjects.
@@ -315,6 +316,10 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     // Refresh from that structured decision before the event is exposed.
     refreshIdentityRoute();
     stream.writeSDKMessage(msg);
+    if (msg.type === "system" && msg.subtype === "compact_boundary") {
+      compactions++;
+      console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
+    }
     if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
 
     if (escalate) {
@@ -551,6 +556,7 @@ async function runSpawn(opts: SpawnOptions & { routingMetadata: RoutingMetadata 
     deliveryOutcome: terminal.deliveryOutcome, deliveryReason: terminal.deliveryReason,
     deliveryProof: terminal.deliveryProof,
     numTurns,
+    compactions,
     errorCount: st.totalErrors, escalationTier: tier,
     escalations: escalations.length ? escalations : undefined,
   }, runId);

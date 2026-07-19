@@ -66,6 +66,7 @@ export interface RunRecord {
   // Option A yields ONE @run row per spawn with an internal escalation chain, NOT one
   // row per tier (north-reconcile.clj queries adapt in lockstep — follow-up).
   numTurns?: number; // SDKResultMessage.num_turns (was dropped before)
+  compactions?: number; // count of SDK compact_boundary events observed this run (audit fix 4)
   errorCount?: number; // tool_result errors this run
   escalationTier?: number; // final ladder tier (omit / <0 = escalation off)
   escalations?: Array<{ from: string; to: string; reason: string }>;
@@ -222,6 +223,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["spend_evidence", exactSpend ? "exact" : "reserved-worst-case"]);
   }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
+  if (rec.compactions) facts.push(["compactions", String(rec.compactions)]);
   if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);
   if (rec.escalationTier != null && rec.escalationTier >= 0)
     facts.push(["escalation_tier", String(rec.escalationTier)]);
