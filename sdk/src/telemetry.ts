@@ -14,6 +14,7 @@ import type { AllocationEvidence, RoutingFallbackReason } from "./providers/type
 import type { HarnessCompositionEvidence } from "./harness";
 import { GAFFER_CAPABILITIES } from "./gaffer-capabilities";
 import type { DeliveryProof } from "./delivery-verification";
+import { providerBilling, settleSpend } from "./spend-guard";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
@@ -67,6 +68,14 @@ export interface RunRecord {
   errorCount?: number; // tool_result errors this run
   escalationTier?: number; // final ladder tier (omit / <0 = escalation off)
   escalations?: Array<{ from: string; to: string; reason: string }>;
+  // Spend guard (build-order step 2). Present only on an API-billed run that
+  // carried a reservation from admission. No producer sets these until the first
+  // API adapter lands (step 4) and threads the reservation from admission through
+  // to the terminal record; the settlement below is dormant until then. The
+  // reaper's dead-lane settlement is a separate step-3 seam. Micro-USD integers.
+  spendTarget?: string;
+  spendPeriod?: string;
+  spendReservationMicrousd?: number;
 }
 
 export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[string, string]> {
@@ -202,6 +211,15 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       if (delta.reason) facts.push(["model_delta_reason", delta.reason]);
     }
   }
+  if (rec.spendTarget && rec.spendReservationMicrousd != null) {
+    // spend_evidence mirrors the settlement rule: exact terminal token usage
+    // will settle DOWN; anything else keeps the worst-case reservation.
+    const exactSpend = rec.tokenUsage?.totalStatus === "exact";
+    facts.push(["spend_target", rec.spendTarget]);
+    facts.push(["spend_envelope_microusd", String(rec.spendReservationMicrousd)]);
+    facts.push(["spend_reserved_microusd", String(rec.spendReservationMicrousd)]);
+    facts.push(["spend_evidence", exactSpend ? "exact" : "reserved-worst-case"]);
+  }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
   if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);
   if (rec.escalationTier != null && rec.escalationTier >= 0)
@@ -216,6 +234,22 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
 
 export function recordRun(rec: RunRecord, id = newRunId(rec.agent)): void {
   const facts = runFacts(rec);
+  // Terminal settlement of an API-billed reservation. Dormant until step 4 sets
+  // the spend fields; subscription runs never reach the CAS. Fire-and-forget:
+  // telemetry (and here, settlement) must never fail a run.
+  if (rec.spendTarget && rec.spendPeriod && rec.spendReservationMicrousd != null
+      && rec.provider && providerBilling(rec.provider) === "api-billed") {
+    try {
+      settleSpend({
+        target: rec.spendTarget,
+        period: rec.spendPeriod,
+        reservedMicrousd: rec.spendReservationMicrousd,
+        status: rec.tokenUsage?.totalStatus === "exact" ? "exact" : "unknown",
+        inputTokens: rec.tokenUsage?.inputTokens,
+        outputTokens: rec.tokenUsage?.outputTokens,
+      });
+    } catch { /* never fail a run on settlement */ }
+  }
   // Hermetic capture engines intentionally retain the ordinary fact-verb shape.
   if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") {
     for (const [predicate, value] of facts) {

@@ -5,7 +5,7 @@ import type { GafferCapability } from "./gaffer-capabilities";
 import { providerSupportsCapabilities } from "./gaffer-capabilities";
 import { preflightReadonlyShell, ReadonlyShellUnavailableError } from "./readonly-shell";
 import { ProviderRetrySafeError, type ProviderId, type RoutingTarget } from "./providers/types";
-import { spendGuardVerdict } from "./spend-guard";
+import { spendGuardVerdict, reserveSpend } from "./spend-guard";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
@@ -155,6 +155,26 @@ export function admitSpendGuard(provider: string, target?: RoutingTarget): void 
 }
 
 /**
+ * The hard CAS reservation — design §2 touch point 2, run after the budget is
+ * proven complete and before the provider query is constructed. Subscription
+ * providers short-circuit O(1) with zero ledger reads. An API-billed target
+ * commits a worst-case envelope reservation; a refusal (over-cap, conflict-
+ * exhausted, missing schema/price, or an unreachable ledger) becomes a
+ * `blocked_spend_guard` — retry-safe, so an auto-routed spawn degrades to a
+ * subscription sibling instead of failing.
+ */
+export function admitSpendReservation(provider: string, target?: RoutingTarget): void {
+  const reservationProvider = target?.provider ?? provider;
+  const reservationTarget = target?.id ?? provider;
+  const reservation = reserveSpend(reservationProvider, reservationTarget);
+  if (!reservation.ok) {
+    throw new SpendGuardError(
+      `${reservationTarget}_spend_reservation_refused:${reservation.reason ?? "unknown"}`,
+    );
+  }
+}
+
+/**
  * `northCapabilities` marks a North-managed lane. Managed execution must carry
  * the canonical North MCP and an explicit child topology: an absent topology is
  * intentionally ambient authority for interactive top-level sessions, so
@@ -285,8 +305,11 @@ export async function admitExecution(
   }
   // Fail-closed spend guard (defense in depth). Subscription providers return
   // O(1) without a ledger read; an API-billed target without a complete budget
-  // refuses here even if it somehow bypassed routing eligibility.
+  // refuses here even if it somehow bypassed routing eligibility. Then commit
+  // the hard CAS reservation — the point past which concurrent admissions can
+  // no longer collectively exceed the cap.
   admitSpendGuard(provider, target);
+  admitSpendReservation(provider, target);
   try {
     accessSync(ENGINE, constants.X_OK);
   } catch (cause) {

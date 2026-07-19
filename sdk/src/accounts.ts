@@ -18,6 +18,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { withFileLease } from "./file-lease";
 import type { RoutingTarget } from "./providers/types";
+import { providerBilling, checkSpendBudget, spendBudgetEntityId } from "./spend-guard";
 
 export type AccountProvider = "anthropic" | "openai";
 export type AccountAuthState = "logged-in" | "not-logged-in" | "unavailable" | "error";
@@ -226,6 +227,22 @@ export async function addProviderAccount(
   context: AccountContext = {},
 ): Promise<ProviderAccount> {
   assertSafeAccountId(id);
+  // Config-time fail-closed (design §2): an API-billed provider target cannot be
+  // configured unguarded — a complete `@spend-budget:<id>` must exist first, so
+  // an API target structurally cannot come into being without a budget. Runs
+  // before assertProvider so an API-billed id is refused on the budget ground,
+  // not merely the subscription-only allowlist. (Subscription providers skip
+  // this O(1).)
+  if (providerBilling(providerInput) === "api-billed") {
+    const verdict = checkSpendBudget(id);
+    if (!verdict.ok)
+      throw new Error(
+        `refusing to add API-billed provider '${providerInput}' target '${id}' without a complete spend budget `
+        + `(${verdict.reason}). Create it first: north spend init ${id} --cap-usd … --envelope-default-usd … `
+        + `--envelope-max-usd … --burn-limit-usd-hr … --i-confirm-layer1 "prepaid, auto-topup off, <date>" `
+        + `(then set price facts on @${spendBudgetEntityId(id)}).`,
+      );
+  }
   assertProvider(providerInput);
   const path = routingPolicyPath(context);
   return withFileLease(`${path}.lock`, async () => {

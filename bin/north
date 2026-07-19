@@ -144,6 +144,8 @@ north — your one card. Type a command to do the thing next to it.
     north account add|login|status     manage provider subscription accounts
     north account usage [id]           subscription windows, resets, and unknown reasons
     north account list [--verbose]    grouped accounts + live login state
+    north spend status [target]        API-billing budget: cap, reserved, settled, headroom
+    north spend init|override <target> create a guarded budget · add a time-boxed override
     north providers                    provider readiness and auto-route decision
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
@@ -190,6 +192,14 @@ CARD
     # Isolated Claude Code / Codex subscription account homes. The TypeScript
     # CLI owns path validation, allowlisted config links, and normalized auth.
     exec "$BUN" run "$NORTH/sdk/src/account-cli.ts" "${@:2}" ;;
+  spend)
+    # API-billing budget LEDGER (spend-guard step 2). Owns schema declaration,
+    # the cap-checked CAS reservation, terminal settlement, and human overrides
+    # on the coordination log via cli/coord.clj — writes the coordinator wire the
+    # read-only TS SDK client cannot. init/status/override are the cockpit surface
+    # (each prints the primitive it runs); reserve/settle/headroom are machine
+    # verbs the admission + terminal seams shell out to.
+    exec "$BB" "$NORTH/cli/spend-cli.clj" "${@:2}" ;;
   delivery)
     # Historical attestation surface. Shared-UID agents cannot establish an
     # independent verifier boundary, so promotion fails closed.

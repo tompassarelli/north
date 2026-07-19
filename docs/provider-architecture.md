@@ -201,9 +201,65 @@ failing.
 Subscription targets never touch this path beyond an O(1) classification branch:
 they read no ledger and incur no new admission cost. The guard ships ahead of any
 API-billed provider, inverting the risk order so the capability cannot exist
-unguarded. Ledger reservation, settlement, the circuit breaker, and the `north
-spend` surface are separate, later concerns; this seam only classifies billing
-and verifies budget-entity completeness.
+unguarded.
+
+### Budget ledger and worst-case reservation
+
+Admission-gating money is coordination state, so the ledger lives on the
+coordination log. `@spend-budget:<target>` carries the config above plus
+per-model-family `price_in_per_mtok` / `price_out_per_mtok` (micro-USD per Mtok,
+human-maintained). Per-period counters live on `@spend-period:<target>:<yyyy-MM>`
+as two single-valued predicates, `reserved_microusd` and `settled_microusd`.
+Every amount is a micro-USD integer — no float drift in the fact log.
+
+`reserved_microusd` and `settled_microusd` MUST be declared cardinality `single`
+before first use (a multi-valued counter silently never advances — the earliest
+coexist-elect is returned instead of the latest write). `north spend init`
+declares that schema, and every reservation fails closed if the declaration is
+absent.
+
+Reservation is a read-check-commit CAS loop, never a bare read-then-tell (the
+documented lost-update path). The loop captures the coordinator's global version
+as its base, reads the counters, enforces the cap **inside** the loop
+(`reserved + settled + envelope ≤ cap + unexpired overrides`), then commits the
+new `reserved_microusd` with `:assert-at-version` against that base. A concurrent
+counter write moves the base and the commit is rejected `:conflict`; the loop
+re-reads and retries, bounded at 16. Two reservers contending for headroom
+sufficient for only one cannot both win: exactly one commits, the other re-reads
+a depleted counter and is refused. The ledger total can never exceed the cap.
+Missing prices, a missing schema declaration, an over-cap counter, exhausted
+retries, or an unreachable ledger all fail closed to `blocked_spend_guard`.
+
+The reservation IS the charge until a terminal settlement proves it cheaper.
+Settlement runs at the run's terminal telemetry seam: with exact token evidence
+and fresh prices it settles the reservation DOWN to `tokens × price`, releasing
+the remainder (`reserved_microusd -= envelope`, `settled_microusd += actual`).
+Unknown or lower-bound coverage — including a lane that died unreported — keeps
+the full reservation as the final charge (`spend_evidence reserved-worst-case`):
+unknown never becomes cheap, mirroring the token-truth doctrine. Settlement
+increments `settled_microusd` before decrementing `reserved_microusd` so a
+concurrent reader never transiently sees more headroom than exists.
+
+### `north spend` and overrides
+
+`north spend init <target>` declares the counter schema and creates the budget
+entity; it refuses without every parameter and a `--i-confirm-layer1` statement
+(auto-top-up off is the balance-independent safety floor). `north spend status
+[target]` prints the budget, period counters, unexpired override headroom, and
+the coordinator subjects it read. `north spend override <target> --add-usd N
+--until <iso8601> --reason "…"` records a time-boxed `spend_override` fact
+honored in the headroom calculation; expiry is mandatory and capped at 48h,
+reason is mandatory, and an expired override is ignored. There is no env-var
+bypass — env inherits into child lanes.
+
+### Deferred to later build-order steps
+
+The circuit breaker + human reset, the reactor burn-rate sweep and sweep-kill,
+the reaper's dead-lane settlement, per-turn parent-adapter accumulation, and
+reconciliation are later steps. The reservation-carrying plumbing from admission
+through to the terminal record lands with the first API adapter (no producer
+sets the run's spend fields until then, so terminal settlement is dormant but
+wired).
 
 ## Identity and routing evidence
 

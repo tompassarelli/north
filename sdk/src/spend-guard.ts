@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 import { getThreadFacts, type Fact, type NorthReadOptions } from "./north-client";
 
 /**
@@ -141,4 +143,117 @@ export function spendGuardEligible(
   options: NorthReadOptions = {},
 ): boolean {
   return spendGuardVerdict(providerId, target, options).ok;
+}
+
+// ---------------------------------------------------------------------------
+// Reservation + settlement — the CAS ledger side effects (build-order step 2).
+//
+// The coordinator write wire (`:assert-at-version` global-version CAS) is
+// exposed ONLY through cli/spend-cli.clj: the TS coordinator client is a
+// real-time ping channel, and north-client.ts is read-only. So the reservation
+// and settlement shell out to that clj primitive — the same shape the step-1
+// budget read shells `north json show`, and the Linear reservation shells
+// reserve-link.clj. Correctness over elegance (the CAS verdict's own guidance).
+// ---------------------------------------------------------------------------
+
+const SPEND_CLI = resolve(import.meta.dir, "../../cli/spend-cli.clj");
+
+export interface SpendCliOptions {
+  /** Override the invoked binary (tests point this at a fake spend-cli). */
+  command?: string;
+  timeoutMs?: number;
+  port?: string;
+}
+
+export interface SpendReservation {
+  ok: boolean;
+  /** Machine-readable refusal reason when !ok (over-cap, missing-schema, …). */
+  reason?: string;
+  detail?: string;
+  period?: string;
+  reserved?: number;
+  envelope?: number;
+}
+
+function runSpendCli(args: string[], options: SpendCliOptions): unknown {
+  const command = options.command;
+  const bin = command ?? (process.env.NORTH_MCP_BB ?? process.env.NORTH_BB ?? "bb");
+  const argv = command ? args : [SPEND_CLI, ...args];
+  const out = execFileSync(bin, argv, {
+    encoding: "utf-8",
+    timeout: options.timeoutMs ?? 10_000,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: options.port ? { ...process.env, NORTH_PORT: options.port } : process.env,
+  });
+  return JSON.parse(out.trim());
+}
+
+/**
+ * The HARD reservation at admission. Subscription providers are an O(1) branch
+ * that never touches the ledger. An API-billed target commits a worst-case
+ * envelope reservation through the CAS loop; any refusal (over-cap, conflict,
+ * missing schema/price, or an unreachable ledger) fails closed so the caller
+ * turns it into a `blocked_spend_guard`. The reservation IS the charge until a
+ * terminal settlement proves it cheaper.
+ */
+export function reserveSpend(
+  providerId: string,
+  target: string,
+  envelopeMicrousd?: number,
+  options: SpendCliOptions = {},
+): SpendReservation {
+  if (providerBilling(providerId) === "subscription") return { ok: true };
+  const args = ["reserve", target];
+  if (envelopeMicrousd != null) args.push("--envelope-microusd", String(envelopeMicrousd));
+  let parsed: unknown;
+  try {
+    parsed = runSpendCli(args, options);
+  } catch (error) {
+    return { ok: false, reason: "reserve-unavailable", detail: error instanceof Error ? error.message : String(error) };
+  }
+  if (!parsed || typeof parsed !== "object")
+    return { ok: false, reason: "reserve-protocol-error" };
+  return parsed as SpendReservation;
+}
+
+export interface SpendSettlement {
+  target: string;
+  period: string;
+  reservedMicrousd: number;
+  /** "exact" only when terminal token usage is exact AND prices are fresh. */
+  status: "exact" | "unknown";
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export interface SpendSettlementResult {
+  ok: boolean;
+  final?: number;
+  evidence?: "exact" | "reserved-worst-case";
+  released?: number;
+  reason?: string;
+}
+
+/**
+ * Terminal settlement of a run's reservation. Exact token evidence settles the
+ * reservation DOWN to actual and releases the remainder; unknown/lower-bound
+ * coverage keeps the full reservation as the final charge (`reserved-worst-case`
+ * — unknown never becomes cheap, mirroring token-truth doctrine). Fire-and-
+ * forget from the terminal seam: telemetry must never fail a run.
+ */
+export function settleSpend(spend: SpendSettlement, options: SpendCliOptions = {}): SpendSettlementResult {
+  const args = ["settle", spend.target,
+    "--period", spend.period,
+    "--reserved-microusd", String(spend.reservedMicrousd),
+    "--status", spend.status,
+    "--input-tokens", String(spend.inputTokens ?? 0),
+    "--output-tokens", String(spend.outputTokens ?? 0)];
+  let parsed: unknown;
+  try {
+    parsed = runSpendCli(args, options);
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  if (!parsed || typeof parsed !== "object") return { ok: false, reason: "settle-protocol-error" };
+  return parsed as SpendSettlementResult;
 }
