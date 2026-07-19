@@ -11,7 +11,10 @@ import { parseStrictJson } from "./strict-json";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const LIVE_FEED = `${REPO}/cli/north-live-feed.clj`;
-const PORT = process.env.NORTH_PORT ?? "7977";
+// Read the coordinator port at feed-launch time, never at module load: the
+// hermetic test contract pins NORTH_PORT before any module imports and lets a
+// suite rebind it, so a load-time capture would ignore the configured port.
+const feedPort = (): string => process.env.NORTH_PORT ?? "7977";
 const LIVE_FEED_PROTOCOL = "north-live-feed-v1";
 const DEFAULT_FEED_FRAME_BYTES = 192 * 1024;
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
@@ -600,7 +603,7 @@ function subscribeFeedMode(
     try {
       child = spawn(bbExecutable, [
         LIVE_FEED,
-        PORT,
+        feedPort(),
         self,
         "--ack-timeout-ms",
         String(LIVE_FEED_ACK_TIMEOUT_MS),

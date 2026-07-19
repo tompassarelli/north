@@ -57,7 +57,9 @@ function harness(options: {
       expect(command).toBe(trustedBb);
       expect(args[0]).toEndWith("/cli/north-live-feed.clj");
       expect(args.slice(1)).toEqual([
-        "7977",
+        // The feed is launched with the configured coordinator port; the
+        // hermetic preload pins NORTH_PORT before this suite runs.
+        process.env.NORTH_PORT ?? "7977",
         "agent-test",
         "--ack-timeout-ms",
         "10000",
