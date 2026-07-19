@@ -27,6 +27,8 @@ jobs:
             echo "fram_ref=$(north/bin/github-flake-input-pin north/flake.lock fram revision)"
             echo "beagle_repository=$(north/bin/github-flake-input-pin north/flake.lock beagle repository)"
             echo "beagle_ref=$(north/bin/github-flake-input-pin north/flake.lock beagle revision)"
+            echo "gaffer_repository=$(north/bin/github-flake-input-pin north/flake.lock gaffer repository)"
+            echo "gaffer_ref=$(north/bin/github-flake-input-pin north/flake.lock gaffer revision)"
           } >> "$GITHUB_OUTPUT"
       - name: Checkout Fram engine (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -44,11 +46,19 @@ jobs:
           ref: ${{ steps.sources.outputs.beagle_ref }}
           path: beagle
 
+      - name: Checkout Gaffer routing contract (pinned)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ steps.sources.outputs.gaffer_repository }}
+          ref: ${{ steps.sources.outputs.gaffer_ref }}
+          path: gaffer
+
       - name: Verify locked source identities
         run: |
           set -euo pipefail
           test "$(git -C fram rev-parse HEAD)" = "${{ steps.sources.outputs.fram_ref }}"
           test "$(git -C beagle rev-parse HEAD)" = "${{ steps.sources.outputs.beagle_ref }}"
+          test "$(git -C gaffer rev-parse HEAD)" = "${{ steps.sources.outputs.gaffer_ref }}"
 
       - name: Install babashka
         run: |
@@ -103,6 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           bash bin/tests/github-flake-input-pin-test.sh
+          bash bin/tests/ci-required-bars-test.sh
           bash bin/tests/sdk-test-entrypoint-test.sh
           bash cli/tests/package-helper-smoke-test.sh
           bash bin/tests/north-on-stop-test.sh
@@ -146,6 +157,38 @@ jobs:
             bash cli/tests/coord-log-fence-integration-test.sh
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
             bb cli/tests/linear-reservation-integration-test.clj
+
+      - name: Hook and native identity boundaries
+        working-directory: north
+        run: |
+          set -euo pipefail
+          timeout --foreground 120s bash bin/tests/north-on-spawn-stress-test.sh
+          timeout --foreground 120s bash bin/tests/north-on-tooluse-stress-test.sh
+          timeout --foreground 120s bash bin/tests/north-mark-delegated-test.sh
+          timeout --foreground 120s bash bin/tests/identity-alias-test.sh
+          timeout --foreground 120s bash bin/tests/native-identity-test.sh
+
+      - name: Agent projection and routing report boundaries
+        working-directory: north
+        env:
+          GAFFER_HOME: ${{ github.workspace }}/gaffer
+        run: |
+          set -euo pipefail
+          timeout --foreground 120s bb cli/tests/agents-cli-test.clj
+          timeout --foreground 120s bb cli/tests/map-contract-test.clj
+          timeout --foreground 120s bb cli/tests/pred-cli-test.clj
+          timeout --foreground 120s bb cli/tests/routing-report-test.clj
+
+      - name: Durable coordination delivery boundaries
+        working-directory: north
+        env:
+          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
+        run: |
+          set -euo pipefail
+          timeout --foreground 180s bb cli/tests/live-feed-integration-test.clj
+          timeout --foreground 180s bb cli/tests/message-audience-integration-test.clj
+          timeout --foreground 180s bb cli/tests/pending-pagination-integration-test.clj
+          timeout --foreground 180s bb cli/tests/peer-command-integration-test.clj
 
       - name: Spend-guard ledger, breaker, and reactor sweeps (real daemon)
         working-directory: north
