@@ -1,0 +1,4 @@
+{:tx 1 :op "assert" :l "@a" :p "note" :r "one" :by "agent:x" :ts "2026-07-19T00:00:01Z"}
+{:tx 2 :op "assert" :l "@b" :p "note" :r "two" :by "agent:x" :ts "2026-07-19T00:00:02Z"}
+{:tx 3 :op "assert" :l "@c" :p "note" :r "three" :by "agent:x" :ts "2026-07-19T00:00:03Z"}
+{:tx 2 :op "assert" :l "@b" :p "note" :r "two" :by "agent:x" :ts "2026-07-19T00:00:02Z"}

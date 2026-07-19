@@ -1,0 +1,4 @@
+{:tx 4 :op "assert" :l "@log:gen" :p "generation" :r "gen-1" :by "fram:unify" :ts "2026-07-19T00:00:00Z" :gen_prev "genesis" :gen_n 1 :gen_src "none" :src_coord_bytes 0 :src_coord_sha "none" :src_telem_bytes 269 :src_telem_sha "b48d49b1efbb6e96"}
+{:tx 1 :op "assert" :l "@a" :p "note" :r "one" :by "agent:x" :ts "2026-07-19T00:00:01Z"}
+{:tx 2 :op "assert" :l "@b" :p "note" :r "two" :by "agent:x" :ts "2026-07-19T00:00:02Z"}
+{:tx 3 :op "assert" :l "@c" :p "note" :r "three" :by "agent:x" :ts "2026-07-19T00:00:03Z"}
