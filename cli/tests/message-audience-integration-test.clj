@@ -9,7 +9,9 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram"))
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (str (System/getProperty "user.home") "/code/fram")))
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def peek-cli (str root "/cli/inbox-peek.clj"))
 (def listener-cli (str root "/cli/north-listen.clj"))
@@ -57,6 +59,11 @@
   (apply proc/shell {:continue true :out :string :err :string
                      :extra-env {"FRAM_LOG" @test-log}}
          "bb" path (str port) args))
+(defn run-cli-with-env [path port extra-env & args]
+  (apply proc/shell
+         {:continue true :out :string :err :string
+          :extra-env (merge {"FRAM_LOG" @test-log} extra-env)}
+         "bb" path (str port) args))
 (defn run-msg [port & args] (apply run-cli msg-cli port args))
 (defn register! [port handle]
   (run-cli presence-cli port "register" handle (str "/tmp/" handle) handle))
@@ -96,9 +103,19 @@
   (reset! test-log (.getCanonicalPath facts))
   (try
     (check "throwaway Fram coordinator starts" (await-predicate #(port-open? port)))
-    (check "north listen wrapper acknowledges before its one-shot exit"
-           (str/includes? (slurp north-wrapper)
-                          "north-listen.clj\" 7977 \"${2:?usage: north listen <agent-id>}\" --once --ack"))
+    (let [wrapper-probe
+          (proc/shell
+           {:continue true :out :string :err :string
+            :extra-env {"HOME" (.getPath tmp)
+                        "NORTH_BB" "/run/current-system/sw/bin/echo"
+                        "NORTH_PORT" (str port)}}
+           north-wrapper "listen" "wrapper-probe" "--scoped")]
+      (check "north listen behavior honors port and acknowledges before caller flags"
+             (and (zero? (:exit wrapper-probe))
+                  (str/includes?
+                   (:out wrapper-probe)
+                   (str listener-cli " " port
+                        " wrapper-probe --once --ack --scoped")))))
     (check "north-arm acknowledges before its one-shot exit"
            (str/includes? (slurp north-arm)
                           "north-listen.clj\" 7977 \"${1:?usage: north-arm <agent-id>}\" --once --ack"))
@@ -235,6 +252,55 @@
       (stop-child! racer-listener))
     (check "racer lease is retired before broadcast snapshot stress"
            (zero? (:exit (run-cli presence-cli port "forget" "racer"))))
+
+    ;; The hook intentionally leaves messages whose complete rendering exceeds
+    ;; its 24 KiB output budget unacknowledged. Its persisted Fram cursor must
+    ;; still make deterministic progress past more than one full candidate page,
+    ;; or a large prefix permanently starves bounded mail behind it.
+    (let [runtime (io/file tmp "peek-cursor-runtime")
+          recipient "cursor-recipient"
+          large-ids (mapv #(str "@msg:peek-large-" %) (range 1 5))
+          tail-id "@msg:peek-small-tail"
+          large-body (apply str (repeat (* 25 1024) "x"))]
+      (.mkdirs runtime)
+      (doseq [message (conj large-ids tail-id)]
+        (doseq [[predicate value]
+                [["from" "cursor-sender"]
+                 ["subject" (if (= message tail-id)
+                              "bounded tail"
+                              "hook-oversized")]
+                 ["body" (if (= message tail-id)
+                           "tail survives a large prefix"
+                           large-body)]
+                 ["sent_at" "2026-07-19T00:00:00Z"]
+                 ["to" recipient]]]
+          (assert-fact! port message predicate value)))
+      (let [env {"XDG_RUNTIME_DIR" (.getCanonicalPath runtime)}
+            first-peek (run-cli-with-env peek-cli port env recipient)
+            cursor-files
+            (filter #(.isFile %)
+                    (file-seq (io/file runtime "north-inbox-peek")))
+            persisted (when (= 1 (count cursor-files))
+                        (slurp (first cursor-files)))
+            second-peek (run-cli-with-env peek-cli port env recipient)]
+        (check "first bounded peek skips one full oversized page without output"
+               (and (zero? (:exit first-peek))
+                    (str/blank? (:out first-peek))))
+        (check "peek persists the coordinator's exact canonical dotted cursor"
+               (and (string? persisted)
+                    (boolean
+                     (re-matches
+                      #"^fram-query-page-v1\.[A-Za-z0-9_-]+$"
+                      persisted))))
+        (check "a later bounded peek reaches and emits the small tail"
+               (and (zero? (:exit second-peek))
+                    (str/includes? (:out second-peek) "bounded tail")
+                    (str/includes? (:out second-peek)
+                                   "tail survives a large prefix")))
+        (check "the emitted tail alone is durably acknowledged"
+               (= #{recipient} (values-of port tail-id "acked_by")))
+        (check "every hook-oversized prefix message remains unacknowledged"
+               (every? #(empty? (values-of port % "acked_by")) large-ids))))
 
     ;; Concurrent producers publish multiple complete snapshots while three
     ;; scoped listeners are armed. Every eligible listener acks each message

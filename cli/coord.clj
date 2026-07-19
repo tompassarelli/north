@@ -40,17 +40,24 @@
                       {:type :invalid-coordinator-timeout :name name :value raw})))
     (Integer/parseInt raw)))
 
+(def ^:dynamic *response-byte-limit-override* nil)
+
 (defn- response-byte-limit []
-  (let [raw (or (System/getenv "NORTH_COORD_MAX_RESPONSE_BYTES")
-                "8388608")
-        value (when (re-matches #"[1-9][0-9]{0,7}" raw)
-                (parse-long raw))]
-    (when-not (and value (<= value 67108864))
-      (throw
-       (ex-info
-        "NORTH_COORD_MAX_RESPONSE_BYTES must be an integer from 1 through 67108864"
-        {:type :invalid-coordinator-response-limit :value raw})))
-    (int value)))
+  (if *response-byte-limit-override*
+    *response-byte-limit-override*
+    (let [raw (or (System/getenv "NORTH_COORD_MAX_RESPONSE_BYTES")
+                  "8388608")
+          value (when (re-matches #"[1-9][0-9]{0,7}" raw)
+                  (parse-long raw))]
+      (when-not (and value (<= value 67108864))
+        (throw
+         (ex-info
+          "NORTH_COORD_MAX_RESPONSE_BYTES must be an integer from 1 through 67108864"
+          {:type :invalid-coordinator-response-limit :value raw})))
+      (int value))))
+
+(def query-page-response-byte-limit 1048576)
+(def query-page-row-limit 4096)
 
 (defn connect-socket [port]
   (let [s (java.net.Socket.)]
@@ -345,6 +352,46 @@
 
 (defn send-op-for-log [port log op]
   (send-envelope port (log-envelope-for log op)))
+
+(defn query-page
+  "Run Fram's internal deterministic query-page verb under its tighter 1 MiB
+   client cap. There is no compatibility fallback: managed replay depends on
+   pagination and fails closed against an older or malformed coordinator."
+  [port query limit after]
+  (when-not (and (integer? limit)
+                 (<= 1 limit query-page-row-limit))
+    (throw
+     (ex-info "query page limit is outside the North/Fram contract"
+              {:type :invalid-query-page-limit
+               :limit limit
+               :max query-page-row-limit})))
+  (binding [*response-byte-limit-override*
+            query-page-response-byte-limit]
+    (let [response
+          (send-op port {:op :query-page
+                         :query query
+                         :limit limit
+                         :after after})
+          error? (and (map? response) (vector? (:error response)))
+          page?
+          (and (map? response)
+               (vector? (:ok response))
+               (boolean? (:more response))
+               (if (:more response)
+                 (and (string? (:next response))
+                      (not (str/blank? (:next response))))
+                 (nil? (:next response))))]
+      (when (= "unknown op" (:error response))
+        (throw
+         (ex-info "coordinator lacks required query-page protocol"
+                  {:type :query-page-unsupported})))
+      (when-not (and (integer? (:version response))
+                     (= "scan" (:engine response))
+                     (or error? page?))
+        (throw
+         (ex-info "coordinator returned a malformed query page"
+                  {:type :malformed-query-page-response})))
+      response)))
 
 (defn send-raw-op
   "Low-level compatibility/policy probe. Managed North operations must use

@@ -17,16 +17,83 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-id.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/command-id.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def put!    north.coord/put!)
 (def one     north.coord/resolved)
 (def many    north.coord/many)
 
-(defn fresh-id [from]   ; yyyyMMdd-HHmmss-<from>-<4hex>: ts prefix sorts, hex suffix dodges same-second aliasing
-  (str (.format (java.time.LocalDateTime/now)
-                (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
-       "-" from "-" (format "%04x" (rand-int 0x10000))))
+(def steer-control-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+(def target-identity-manifest-predicate "target_identity_manifest_sha256")
+(defn reject-message! [message]
+  (binding [*out* *err*] (println (str "REJECTED: message " message)))
+  (System/exit 2))
+(defn validate-message-input! [from to subject body]
+  (when-let [problem
+             (north.message-contract/input-problem from to subject body)]
+    (reject-message! problem))
+  true)
+(defn reject-steer! [message]
+  (binding [*out* *err*] (println (str "REJECTED: steer " message)))
+  (System/exit 2))
+
+(defn steer-agent-facts [port control]
+  (let [subject (str "@agent:" control)
+        response
+        (send-op port {:op :query
+                       :query {:find "steer_fact"
+                               :rules [{:head {:rel "steer_fact"
+                                               :args [{:var "p"} {:var "r"}]}
+                                        :body [{:rel "triple"
+                                                :args [subject {:var "p"} {:var "r"}]}]}]}})
+        rows (:ok response)]
+    (when-not (and (map? response) (vector? rows)
+                   (<= (count rows) 256)
+                   (every? #(and (vector? %) (= 2 (count %))
+                                 (every? string? %))
+                           rows))
+      (reject-steer! "target identity is unavailable"))
+    (reduce (fn [facts [predicate value]]
+              (north.agent-provenance/fold-fact facts predicate value))
+            {}
+            rows)))
+
+(defn require-live-steer! [port control]
+  (when-not (and (string? control)
+                 (re-matches steer-control-pattern control))
+    (reject-steer! "target is malformed"))
+  (let [facts (steer-agent-facts port control)
+        provider (get facts "provider")
+        live-input (get facts "live_input")
+        live-input-state (get facts "live_input_state")]
+    (when-not (north.agent-provenance/managed-valid? facts)
+      (reject-steer! "target is not one exact committed managed lane"))
+    (when (or (seq (get facts "process_outcome"))
+              (seq (get facts "outcome")))
+      (reject-steer! "target is terminal"))
+    (let [online?
+          (try (north.coord/online? port control)
+               (catch Exception _ ::unavailable))]
+      (when (= ::unavailable online?)
+        (reject-steer! "target liveness is unavailable"))
+      (when-not online?
+        (reject-steer! "target is offline")))
+    (when-not (= "streaming" live-input)
+      (reject-steer!
+       (str "target adapter does not support live input"
+            (when (string? provider) (str " (provider " provider ")")))))
+    (when-not (= "armed" live-input-state)
+      (reject-steer!
+       (str "target live input is not armed"
+            (when (string? live-input-state)
+              (str " (state " live-input-state ")")))))
+    {:identity-manifest (get facts "identity_manifest_sha256")}))
+
+(def fresh-id north.message-id/fresh-id)
 
 ;; --- command-as-facts --------------------------------------------------------
 ;; A command is NOT an opaque {:op :args} EDN blob in one `body` cell (the old cargo-cult,
@@ -54,17 +121,9 @@
     (doseq [op (remove known default-ops)] (append! port vocab-subj "known_op" op))
     supported-ops))
 
-(defn content-id
-  "Stable id only when a caller explicitly supplies an idempotency key."
-  [op args target idempotency-key]
-  (let [canon (str idempotency-key " " op " " (pr-str (into (sorted-map) args)) " " target)
-        bs    (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes canon "UTF-8"))]
-    (apply str (map #(format "%02x" %) (take 8 bs)))))
-
-(defn command-id [op args target idempotency-key]
-  (if (str/blank? (str idempotency-key))
-    (str (java.util.UUID/randomUUID))
-    (content-id op args target idempotency-key)))
+(def canonical-value north.command-id/canonical-value)
+(def content-id north.command-id/content-id)
+(def command-id north.command-id/command-id)
 
 (defn arg-pred [k] (str/replace (name k) "-" "_"))   ; :ttl-ms -> "ttl_ms"
 
@@ -81,11 +140,28 @@
       (try (edn/read-string (str/replace (str s) #"@[^\s,}\]]+" #(str \" % \")))
            (catch Exception _ ::bad)))))
 
+(defn canonical-json-value [value]
+  (cond
+    (map? value)
+    (into
+     (sorted-map-by
+      #(compare (canonical-value %1) (canonical-value %2)))
+     (map (fn [[key item]] [key (canonical-json-value item)]))
+     value)
+    (set? value)
+    (mapv canonical-json-value
+          (sort-by canonical-value value))
+    (sequential? value)
+    (mapv canonical-json-value value)
+    (keyword? value) (name value)
+    :else value))
+
 (defn encoded-arg [value]
   ;; Structured staffing values cross the fact bus as canonical JSON. `(str v)`
   ;; produced EDN maps/vectors that routingMetadataFromEnv could not parse.
   (cond
-    (or (map? value) (sequential? value) (set? value)) (json/generate-string value)
+    (or (map? value) (sequential? value) (set? value))
+    (json/generate-string (canonical-json-value value))
     (keyword? value) (name value)
     :else (str value)))
 
@@ -103,25 +179,57 @@
   (case verb
     "send"        ; <from> <to> "<subject>" "<body>"  — human mail
     (let [[from to subj body] args
+          _ (when-not (= 4 (count args))
+              (reject-message! "send requires exactly from, to, subject, and body"))
+          _ (validate-message-input! from to subj body)
+          steer? (= "steer" (some-> subj str str/trim str/lower-case))
+          steer-admission (when steer?
+                            (north.topology-authority/require-coordination! "steer")
+                            (require-live-steer! port to))
           e (str "@msg:" (fresh-id from))]
       ;; `north steer` labels its control message exactly `steer`. Ordinary
       ;; worker -> coordinator completion/death mail remains legal; peer control
       ;; does not become legal merely because the producer bypassed agents-cli.
-      (when (= "steer" (some-> subj str str/trim str/lower-case))
-        (north.topology-authority/require-coordination! "steer"))
       ;; write content facts first, `to` LAST: the listener triggers on `to`, so landing it
       ;; last means from/subject/body are already visible — no settle race, no sleep.
       (put! port e "from" from)              ; single — all message fields are write-once on a fresh @msg
-      (put! port e "subject" (or subj ""))
+      ;; Canonicalize the managed control type. Ordinary subjects retain their
+      ;; original spelling; every producer-admitted steer is exactly "steer".
+      (put! port e "subject" (if steer? "steer" (or subj "")))
       (put! port e "body" (or body ""))
       (put! port e "sent_at" (str (java.time.Instant/now)))
+      (when steer-admission
+        (put! port e target-identity-manifest-predicate
+              (:identity-manifest steer-admission)))
       ;; A broadcast's concrete recipients are durable facts, captured before
       ;; `to` lands. Sender exclusion is intentional: broadcast means peers.
       (let [broadcast-audience
             (when (= north.message-audience/broadcast-address to)
               (north.message-audience/snapshot-broadcast! port e from))]
-        (put! port e "to" to)
-        (println (str "sent " e " -> " to
+        (if steer-admission
+          ;; This is the steer acceptance linearization point. Every
+          ;; load-bearing route read follows the global BASE capture, then Fram
+          ;; compares BASE + lands `to` in one serialized writer turn. A freeze
+          ;; between validation and this assert conflicts, retries the whole
+          ;; route read, and cannot leave an accepted post-freeze message.
+          (let [admitted-manifest (:identity-manifest steer-admission)
+                result
+                (north.coord/assert-after-read!
+                 port e "to" to
+                 (fn []
+                   (let [current (require-live-steer! port to)
+                         stored (one port e target-identity-manifest-predicate)]
+                     (when-not (and (= admitted-manifest stored)
+                                    (= admitted-manifest
+                                       (:identity-manifest current)))
+                       (reject-steer!
+                        "target route changed during message admission"))
+                     true)))]
+            (when (:reject result)
+              (reject-steer!
+               "target route changed during message admission")))
+          (put! port e "to" to))
+        (println (str (if steer? "queued for live injection " "sent ") e " -> " to
                       (when broadcast-audience
                         (str " (" (count broadcast-audience)
                              " snapshotted recipients; sender excluded)"))))))
@@ -139,7 +247,11 @@
         (println (format "%-9s %s" p (or (one port e p) "-"))))
       (println (str "broadcast_to: "
                     (str/join ", " (many port e north.message-audience/audience-predicate))))
-      (println (str "acked_by: " (str/join ", " (many port e "acked_by")))))
+      (println (str "acked_by: " (str/join ", " (many port e "acked_by"))))
+      (println (str "delivery_rejected_by: "
+                    (str/join ", " (many port e "delivery_rejected_by"))))
+      (doseq [rejection (many port e "delivery_rejection")]
+        (println (str "delivery_rejection: " rejection))))
 
     "ack"         ; <me> <msg-id-or-cmd-id>  — works for @msg and @cmd subjects
     (let [[me id] args, e (if (str/starts-with? (str id) "@") id (str "@msg:" id))]

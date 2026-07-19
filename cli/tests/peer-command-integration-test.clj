@@ -146,7 +146,38 @@
           (let [retry-a (run-msg port "send-cmd" "producer" self "tell" (pr-str args) "transport-retry")
                 retry-b (run-msg port "send-cmd" "producer" self "tell" (pr-str args) "transport-retry")]
             (check "an explicit idempotency key gives transport retries one identity"
-                   (= (sent-command retry-a) (sent-command retry-b)))))
+                   (= (sent-command retry-a) (sent-command retry-b))))
+
+          (let [nested-a
+                (array-map
+                 :id "@thread:peer-canonical"
+                 :pred "note"
+                 :value "canonical"
+                 :payload
+                 (array-map :z #{3 1 2}
+                            :a [(array-map :right 2 :left 1)]))
+                nested-b
+                (array-map
+                 :payload
+                 (array-map :a [(array-map :left 1 :right 2)]
+                            :z #{2 3 1})
+                 :value "canonical"
+                 :pred "note"
+                 :id "@thread:peer-canonical")
+                canonical-a
+                (sent-command
+                 (run-msg port "send-cmd" "producer" self "tell"
+                          (pr-str nested-a) "nested-order-retry"))
+                canonical-b
+                (sent-command
+                 (run-msg port "send-cmd" "producer" self "tell"
+                          (pr-str nested-b) "nested-order-retry"))
+                digest (some-> canonical-a (str/replace-first #"^@cmd:" ""))]
+            (check "nested map/set insertion order cannot fork an idempotent command"
+                   (= canonical-a canonical-b))
+            (check "explicit idempotency uses one full SHA-256 command identity"
+                   (boolean (and digest
+                                 (re-matches #"^[0-9a-f]{64}$" digest))))))
 
         (let [before (command-subjects port)
               rejected (run-msg port "send-cmd" "producer" self "spawn" "{:prompt \"must-not-run\"}")]

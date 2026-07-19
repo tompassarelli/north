@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Derive one filesystem-safe, domain-separated North actor key."""
+
+import hashlib
+import re
+import sys
+
+
+def main() -> int:
+    if len(sys.argv) != 3 or sys.argv[1] not in {"agent", "session", "managed"}:
+        return 2
+    namespace, raw = sys.argv[1:]
+    encoded = raw.encode("utf-8", "strict")
+    if (
+        not encoded
+        or len(encoded) > 512
+        or re.fullmatch(r"[A-Za-z0-9._:-]+", raw) is None
+    ):
+        return 2
+    preimage = b"north-actor-key-v1\0" + namespace.encode("ascii") + b"\0" + encoded
+    sys.stdout.write(hashlib.sha256(preimage).hexdigest())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
