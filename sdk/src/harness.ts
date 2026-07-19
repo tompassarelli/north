@@ -298,6 +298,8 @@ export interface HarnessOpts {
   effort?: Effort;
   systemPrompt?: string;
   maxTurns?: number;
+  /** Outer host lifecycle; provider adapters bridge this into owned processes. */
+  abortController?: AbortController;
   role?: string;
   posture?: string;
   provider?: ProviderId;
@@ -1494,6 +1496,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     cwd,
     systemPrompt: initialSystemPrompt,
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),
+    ...(o.abortController ? { abortController: o.abortController } : {}),
     // Pin auto-compaction explicitly (audit fix 4). Managed lanes run with
     // settingSources: [], so the SDK's compaction behavior would otherwise ride a
     // silent library default that a future bump could flip. This pins the ENABLED

@@ -70,6 +70,9 @@ import {
   adHocJudgmentGrade, judgmentGradeFromThreadFacts,
   type JudgmentGradeSnapshot,
 } from "./judgment-grade";
+import {
+  ManagedQueryTermination, type HostTerminationRegistrar,
+} from "./query-lifecycle";
 
 export interface SpawnOptions {
   prompt: string;
@@ -104,6 +107,14 @@ interface SpawnRuntime {
   loadThreadFacts?: typeof getThreadFacts;
   childSettlementReader?: (agentId: string) => ChildSettlement;
   feedSubscriber?: typeof subscribeFeed;
+  registerTermination?: HostTerminationRegistrar;
+  refreshAccountUsages?: typeof refreshAccountUsages;
+  refreshCodexEntitlements?: typeof refreshCodexEntitlementsIfStale;
+  admitResourceEnvelope?: typeof admitResourceEnvelope;
+  completeResourceEnvelope?: typeof completeResourceEnvelope;
+  admitBillableClock?: typeof admitBillableClock;
+  clockFinalize?: typeof clockFinalize;
+  clockStop?: (agentId: string) => void | Promise<void>;
 }
 
 const SPAWN_OPTION_FIELDS = new Set([
@@ -172,6 +183,7 @@ async function runSpawn(
   envelopeAdmission?: EnvelopeAdmission,
   clockLease?: ManagedClockLease,
   injected: SpawnRuntime = {},
+  termination: ManagedQueryTermination = new ManagedQueryTermination(),
 ): Promise<string> {
   const runStartedAt = process.hrtime.bigint();
   // Composition is deliberately complete before admission and stays immutable
@@ -201,8 +213,20 @@ async function runSpawn(
   // Injected query functions own their entire provider boundary; keeping the
   // refresh out of that path makes tests and alternative adapters hermetic.
   if (!injected.queryFn) {
-    try { await refreshAccountUsages({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
-    try { await refreshCodexEntitlementsIfStale({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
+    try {
+      await (injected.refreshAccountUsages ?? refreshAccountUsages)({
+        requested: routingRequest,
+        signal: termination.signal,
+      });
+    } catch { /* telemetry is advisory */ }
+    termination.throwIfTerminated();
+    try {
+      await (injected.refreshCodexEntitlements ?? refreshCodexEntitlementsIfStale)({
+        requested: routingRequest,
+        signal: termination.signal,
+      });
+    } catch { /* telemetry is advisory */ }
+    termination.throwIfTerminated();
   }
   const routing = selectProvider(routingRequest, undefined,
     {
@@ -256,6 +280,7 @@ async function runSpawn(
   };
   const initialLiveInput = providerLiveInput(routing.provider);
   const ch = inputChannel(opts.prompt); // streaming input keeps the managed live-steering route open
+  termination.attachInput(() => { try { ch.end(); } catch { /* already closed */ } });
   const liveInputRoute = new ManagedLiveInputRoute(
     agentId,
     identityBase,
@@ -319,13 +344,7 @@ async function runSpawn(
       console.log(`[spawn] effective authority: ${formatProviderAuthoritySurface(authority)}`);
     },
   ));
-  let q: AgentQuery | undefined;
-  let queryInterrupted = false;
-  const interruptQuery = async () => {
-    if (queryInterrupted || !q) return;
-    queryInterrupted = true;
-    try { await q.interrupt?.(); } catch { /* preserve the terminal provider error */ }
-  };
+  let queryCloseError: unknown;
 
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) readMessages() THROWS exitError
@@ -387,6 +406,7 @@ async function runSpawn(
         + worktreePayload({ path: wt.path, branch: wt.branch, mainReportsDir: repoRoot + "/docs/private" })
       : opts.systemPrompt,
     maxTurns: opts.maxTurns,
+    abortController: termination.abortController,
     role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
     deliveryRun: deliveryReservationReady ? runContext : undefined,
@@ -396,11 +416,12 @@ async function runSpawn(
   if (injected.queryFn) injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
   if (injected.queryFn && injected.feedSubscriber)
     await liveInputRoute.activate(activeRoute());
+  termination.throwIfTerminated();
   const activeQuery = queryFn({
     prompt: ch.stream(),
     options: agentOptions,
   });
-  q = activeQuery;
+  termination.attachQuery(activeQuery);
   const watched = withStallWatchdog((activeQuery as AsyncIterable<any>)[Symbol.asyncIterator](), {
     stallMs: window,
     onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
@@ -524,7 +545,7 @@ async function runSpawn(
     // outcome=stalled, and record the death path durably. Its terminal peer wake
     // is deferred until the authoritative terminal and run publications settle.
     outcome = "stalled";
-    await interruptQuery();
+    await termination.close();
     const err = new Error(
       `stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`,
     );
@@ -560,7 +581,20 @@ async function runSpawn(
     // A terminal SDK result does not guarantee the provider subprocess has
     // exited while streaming input remains open. Interrupt exactly once after
     // closing input so a completed lane cannot retain its Bun/CLI process tree.
-    await interruptQuery();
+    try { await termination.close(); }
+    catch (error) { queryCloseError = error; }
+  }
+
+  const hostSignal = termination.hostSignal();
+  if (hostSignal) {
+    outcome = "died";
+    const error = new Error(`host terminated by ${hostSignal}`);
+    terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
+  } else if (queryCloseError) {
+    outcome = "died";
+    const error = queryCloseError instanceof Error
+      ? queryCloseError : new Error("provider query cleanup failed");
+    terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
   }
 
   if (liveInputFreezeError) {
@@ -620,7 +654,7 @@ async function runSpawn(
 
   // Close only the exact clock positively opened by this run's preflight.
   if (clockLease?.admission.kind === "opened") {
-    clockFinalize(agentId, outcome);
+    (injected.clockFinalize ?? clockFinalize)(agentId, outcome);
     clockLease.finalized = true;
   }
 
@@ -790,33 +824,58 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   // Pin the generated id so admission, telemetry, and the provider run name the
   // same lane. Admission completes before entitlement refresh or provider query.
   composed.agentId = agentId;
-  const clockLease: ManagedClockLease = {
-    admission: admitBillableClock({
-      agentId,
-      capabilities: gafferCapabilities(composed.routingMetadata),
-      cwd: process.cwd(),
-      threadId: composed.thread,
-    }),
-    finalized: false,
-  };
+  const termination = new ManagedQueryTermination(injected?.registerTermination);
+  let clockLease: ManagedClockLease | undefined;
   let admission: EnvelopeAdmission | undefined;
+  let result!: string;
+  let failed = false;
+  let primaryError: unknown;
   try {
-    admission = await admitResourceEnvelope({
+    clockLease = {
+      admission: (injected?.admitBillableClock ?? admitBillableClock)({
+        agentId,
+        capabilities: gafferCapabilities(composed.routingMetadata),
+        cwd: process.cwd(),
+        threadId: composed.thread,
+      }),
+      finalized: false,
+    };
+    termination.throwIfTerminated();
+    admission = await (injected?.admitResourceEnvelope ?? admitResourceEnvelope)({
       agentId, tier: requestedTier, project: composed.project ?? context.project,
       sessionId: composed.sessionId ?? context.sessionId,
     });
+    termination.throwIfTerminated();
     for (const advisory of admission?.advisories ?? [])
       console.warn(`[envelope] advisory: ${advisory}`);
-    return await runSpawn(
-      composed, judgmentGrade, strugglePolicy, admission, clockLease, injected,
+    result = await runSpawn(
+      composed, judgmentGrade, strugglePolicy,
+      admission, clockLease, injected, termination,
     );
-  } finally {
-    try { await completeResourceEnvelope(admission); }
-    finally {
-      if (clockLease.admission.kind === "opened" && !clockLease.finalized)
-        clockStop(agentId);
-    }
+  } catch (error) {
+    failed = true;
+    primaryError = error;
   }
+  // Awaiting runSpawn proves every terminal/run publication attempt either
+  // settled or was never reached. Keep the host barrier closed through every
+  // outer cleanup that can otherwise be cut off by process.exit.
+  termination.publicationSettled();
+  const cleanupErrors: unknown[] = [];
+  try { await (injected?.completeResourceEnvelope ?? completeResourceEnvelope)(admission); }
+  catch (error) { cleanupErrors.push(error); }
+  try {
+    if (clockLease?.admission.kind === "opened" && !clockLease.finalized)
+      await (injected?.clockStop ?? clockStop)(agentId);
+  } catch (error) { cleanupErrors.push(error); }
+  finally {
+    termination.cleanupSettled();
+    termination.release();
+  }
+  const errors = failed ? [primaryError, ...cleanupErrors] : cleanupErrors;
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(errors, "spawn execution and outer cleanup failed");
+  return result;
 }
 
 // Spawn multiple agents in parallel — the core win over the bash swarm.

@@ -175,6 +175,10 @@ export interface ProviderAvailability {
 export interface AgentQuery {
   [Symbol.asyncIterator](): AsyncIterator<any>;
   interrupt?(): Promise<void>;
+  /** Idempotently dispose the provider query and await its owned process boundary. */
+  close?(): Promise<void>;
+  /** Synchronous second-signal/host-exit defense; never a normal cleanup path. */
+  forceClose?(): void;
   setModel?(model: string): Promise<void> | void;
   applyFlagSettings?(settings: { effortLevel?: Effort | null }): Promise<void> | void;
   /** True only when both model and effort can be changed on the active run. */

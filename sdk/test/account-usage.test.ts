@@ -82,6 +82,22 @@ test("refreshes every isolated account concurrently with disjoint authoritative 
     .unavailableComponents).toEqual([{ limitId: "claude:five_hour", reason: "reset_unavailable" }]);
 });
 
+test("host abort is control flow and never persists a synthetic usage failure", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-account-usage-abort-"));
+  temporary.push(directory);
+  const storePath = join(directory, "observations.json");
+  const controller = new AbortController();
+  await expect(refreshAccountUsages({
+    accounts: [accounts(directory)[0]], storePath, force: true,
+    signal: controller.signal,
+    readAnthropic: async () => {
+      controller.abort(new Error("host shutdown"));
+      throw new AnthropicUsageUnavailableError("anthropic_usage_probe_failed");
+    },
+  })).rejects.toThrow("host shutdown");
+  expect(loadProviderUsageObservations(storePath)).toBeUndefined();
+});
+
 test("default refresh observes every routing target and preserves ambient authentication", async () => {
   const directory = mkdtempSync(join(tmpdir(), "north-account-usage-routing-targets-"));
   temporary.push(directory);

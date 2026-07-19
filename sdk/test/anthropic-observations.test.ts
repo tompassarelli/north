@@ -116,10 +116,14 @@ test("observes rate-limit messages without extra turns and preserves the stream"
     { type: "result", subtype: "success" },
   ];
   let interrupted = false;
+  let closed = false;
+  let forceClosed = false;
   const models: string[] = [];
   const efforts: Array<string | null | undefined> = [];
   const source: AgentQuery = {
     interrupt: async () => { interrupted = true; },
+    close: async () => { closed = true; },
+    forceClose: () => { forceClosed = true; },
     setModel: async (model) => { models.push(model); },
     applyFlagSettings: async (settings) => { efforts.push(settings.effortLevel); },
     async *[Symbol.asyncIterator]() { yield* messages; },
@@ -135,6 +139,8 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   await observed.interrupt?.();
   await observed.setModel?.("claude-opus-4-8");
   await observed.applyFlagSettings?.({ effortLevel: "xhigh" });
+  await observed.close?.();
+  observed.forceClose?.();
 
   expect(received).toEqual(messages);
   expect(written).toHaveLength(1);
@@ -144,6 +150,8 @@ test("observes rate-limit messages without extra turns and preserves the stream"
     windows: [{ limitId: "seven_day", usedPercent: 72 }],
   });
   expect(interrupted).toBe(true);
+  expect(closed).toBe(true);
+  expect(forceClosed).toBe(true);
   expect(observed.supportsInFlightEscalation?.()).toBe(true);
   expect(models).toEqual(["claude-opus-4-8"]);
   expect(efforts).toEqual(["xhigh"]);

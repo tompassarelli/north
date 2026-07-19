@@ -15,6 +15,7 @@ import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
 import type { DeliveryRunContext } from "../src/delivery-evidence";
 import { presetRequest } from "./routing-fixtures";
 import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { HostTerminationCoordinator } from "../src/host-termination";
 
 let dir: string;
 let log: string;
@@ -38,6 +39,42 @@ const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
 
 const TEST_COORDINATOR = `test-coordinator-${process.pid}`;
+
+function fakeTerminationHost() {
+  const signals = new Map<string, Set<() => void>>([
+    ["SIGTERM", new Set()], ["SIGINT", new Set()],
+  ]);
+  const exits = new Set<() => void>();
+  const exitCodes: number[] = [];
+  return {
+    control: {
+      onSignal: (signal: string, listener: () => void) => { signals.get(signal)!.add(listener); },
+      offSignal: (signal: string, listener: () => void) => { signals.get(signal)!.delete(listener); },
+      onExit: (listener: () => void) => { exits.add(listener); },
+      offExit: (listener: () => void) => { exits.delete(listener); },
+      exit: (code: number) => { exitCodes.push(code); },
+    },
+    emit: (signal: "SIGTERM" | "SIGINT") => {
+      for (const listener of [...signals.get(signal)!]) listener();
+    },
+    listenerCount: () => [...signals.values()].reduce(
+      (sum, listeners) => sum + listeners.size, exits.size,
+    ),
+    exitCodes,
+  };
+}
+
+async function eventuallyTrue(
+  predicate: () => boolean,
+  label: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "north-completion-"));
@@ -251,13 +288,20 @@ test("an empty spawn provider stream is a blocked provider error, never ran", as
   const result = await spawn({
     prompt: "provider stream closes without a terminal", agentId: "test-empty-spawn",
     role: "integrator", routingMetadata: presetRequest("integrator"),
-    queryFn: () => (async function* () {})(),
+    queryFn: () => ({
+      close: async () => { writeFileSync(log, "QUERY_CLOSED spawn\n", { flag: "a" }); },
+      async *[Symbol.asyncIterator]() {},
+    }),
   });
 
   expect(result).toBe("");
   const lines = await settledRunLines("test-empty-spawn");
   expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
+  const publicationOrder = readFileSync(log, "utf8");
+  expect(publicationOrder.indexOf("QUERY_CLOSED spawn")).toBeLessThan(
+    publicationOrder.indexOf("tell agent:test-empty-spawn outcome provider_error"),
+  );
 });
 
 test("an empty dispatch provider stream is a blocked provider error, never ran", async () => {
@@ -272,7 +316,10 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
       boundaryIds.push(`driver:${threadId}`);
       return { release() {} };
     }) as any,
-    queryFn: () => (async function* () {})() as any,
+    queryFn: () => ({
+      close: async () => { writeFileSync(log, "QUERY_CLOSED dispatch\n", { flag: "a" }); },
+      async *[Symbol.asyncIterator]() {},
+    }) as any,
     loadThreadFacts: (threadId: string) => {
       boundaryIds.push(`facts:${threadId}`);
       return [
@@ -305,6 +352,132 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
   expect(lines.some((line) => line.endsWith(" judgment_grade_source thread"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" struggle_topology worker"))).toBe(true);
   expect(lines.some((line) => line.includes("@@test-empty-dispatch"))).toBe(false);
+  const publicationOrder = readFileSync(log, "utf8");
+  expect(publicationOrder.indexOf("QUERY_CLOSED dispatch")).toBeLessThan(
+    publicationOrder.indexOf("tell agent:test-empty-dispatch-agent outcome provider_error"),
+  );
+});
+
+test("SIGTERM during provider preflight waits for envelope, clock, and driver cleanup", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  const host = fakeTerminationHost();
+  const coordinator = new HostTerminationCoordinator(host.control as any);
+  const order: string[] = [];
+  let finishEnvelope!: () => void;
+  const envelopeGate = new Promise<void>((resolve) => { finishEnvelope = resolve; });
+  let finishClock!: () => void;
+  const clockGate = new Promise<void>((resolve) => { finishClock = resolve; });
+  let finishDriver!: () => void;
+  const driverGate = new Promise<void>((resolve) => { finishDriver = resolve; });
+  let codexPreflightCalls = 0;
+  const execution = dispatch("test-signal-preflight-cleanup", {
+    agentId: "test-signal-preflight-cleanup-agent",
+    routingMetadata: presetRequest("integrator"),
+    registerTermination: (options: any) => coordinator.register(options),
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Signal during provider preflight" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+    ],
+    loadChildren: () => [],
+    claimDriver: (() => ({ release: () => true })) as any,
+    admitBillableClock: (() => ({
+      kind: "opened",
+      agentId: "test-signal-preflight-cleanup-agent",
+      threadId: "test-signal-preflight-cleanup",
+    })) as any,
+    admitResourceEnvelope: (async () => undefined) as any,
+    refreshAccountUsages: (async ({ signal }: { signal?: AbortSignal }) => {
+      order.push("preflight");
+      host.emit("SIGTERM");
+      expect(signal?.aborted).toBe(true);
+      return [];
+    }) as any,
+    refreshCodexEntitlements: (async () => {
+      codexPreflightCalls++;
+      return [];
+    }) as any,
+    completeResourceEnvelope: (async () => {
+      order.push("envelope:start");
+      await envelopeGate;
+      order.push("envelope:end");
+    }) as any,
+    clockStop: async () => {
+      order.push("clock:start");
+      await clockGate;
+      order.push("clock:error");
+      throw new Error("clock cleanup failed");
+    },
+    releaseDriver: async () => {
+      order.push("driver:start");
+      await driverGate;
+      order.push("driver:error");
+      throw new Error("driver cleanup failed");
+    },
+  }).catch((error) => error);
+
+  await eventuallyTrue(() => order.includes("envelope:start"), "envelope cleanup start");
+  expect(host.exitCodes).toEqual([]);
+  finishEnvelope();
+  await eventuallyTrue(() => order.includes("clock:start"), "clock cleanup start");
+  expect(host.exitCodes).toEqual([]);
+  finishClock();
+  await eventuallyTrue(() => order.includes("driver:start"), "driver cleanup start");
+  expect(host.exitCodes).toEqual([]);
+  finishDriver();
+  const failure = await execution;
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors.map((error: Error) => error.message)).toEqual([
+    "host termination requested (SIGTERM)",
+    "clock cleanup failed",
+    "driver cleanup failed",
+  ]);
+  expect(order).toEqual([
+    "preflight",
+    "envelope:start", "envelope:end",
+    "clock:start", "clock:error",
+    "driver:start", "driver:error",
+  ]);
+  expect(codexPreflightCalls).toBe(0);
+  await eventuallyTrue(() => host.exitCodes.length === 1, "coordinated SIGTERM exit");
+  expect(host.exitCodes).toEqual([143]);
+});
+
+test("a pre-publication exception still closes query and releases every outer owner", async () => {
+  const { spawn } = await import("./support/spawn");
+  const host = fakeTerminationHost();
+  const coordinator = new HostTerminationCoordinator(host.control as any);
+  const order: string[] = [];
+  await expect(spawn({
+    prompt: "throw before terminal publication",
+    agentId: "test-pre-publication-throw",
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    registerTermination: (options: any) => coordinator.register(options),
+    queryFn: () => ({
+      close: async () => { order.push("query:closed"); },
+      async *[Symbol.asyncIterator]() {},
+    }),
+    childSettlementReader: () => ({ kind: "settled", children: [] }),
+    admitBillableClock: (() => ({
+      kind: "opened",
+      agentId: "test-pre-publication-throw",
+      threadId: "test-pre-publication-throw-thread",
+    })) as any,
+    clockFinalize: (() => {
+      order.push("clock:finalize-error");
+      throw new Error("pre-publication clock failure");
+    }) as any,
+    completeResourceEnvelope: (async () => { order.push("envelope:complete"); }) as any,
+    clockStop: async () => { order.push("clock:stopped"); },
+  })).rejects.toThrow("pre-publication clock failure");
+  expect(order).toEqual([
+    "query:closed",
+    "clock:finalize-error",
+    "envelope:complete",
+    "clock:stopped",
+  ]);
+  expect(host.listenerCount()).toBe(0);
 });
 
 test("dispatch wakes its coordinator once, after every terminal publication settles", async () => {

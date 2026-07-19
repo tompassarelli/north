@@ -140,6 +140,8 @@ export function observeAnthropicQuery(
   const now = options.now ?? (() => new Date());
   return {
     interrupt: source.interrupt?.bind(source),
+    close: source.close?.bind(source),
+    forceClose: source.forceClose?.bind(source),
     setModel: source.setModel?.bind(source),
     applyFlagSettings: source.applyFlagSettings?.bind(source),
     supportsInFlightEscalation: () =>

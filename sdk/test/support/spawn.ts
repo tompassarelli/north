@@ -9,6 +9,9 @@ import { bindSpawnTestRuntime } from "../../src/internal/test-runtime";
 const RUNTIME_FIELDS = new Set([
   "queryFn", "deliveryRuntime", "loadThreadFacts",
   "childSettlementReader", "feedSubscriber",
+  "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
+  "admitResourceEnvelope", "completeResourceEnvelope", "admitBillableClock",
+  "clockFinalize", "clockStop",
 ]);
 
 function prepared(value: SpawnOptions & Record<string, unknown>): SpawnOptions {

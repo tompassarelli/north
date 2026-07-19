@@ -823,6 +823,7 @@ test("Anthropic adapter diagnostics redact SDK failures across stream and contro
 
   const source = {
     interrupt: async () => { throw new Error(canary); },
+    close: async () => { throw new Error(canary); },
     setModel: async () => { throw new Error(canary); },
     applyFlagSettings: async () => { throw new Error(canary); },
     supportsInFlightEscalation: () => { throw new Error(canary); },
@@ -831,12 +832,14 @@ test("Anthropic adapter diagnostics redact SDK failures across stream and contro
   const query = normalizeAnthropicQueryDiagnostics(source);
   await expect(eventsOf(query)).rejects.toThrow("anthropic_provider_execution_failed");
   await expect(query.interrupt!()).rejects.toThrow("anthropic_provider_execution_failed");
+  await expect(query.close!()).rejects.toThrow("anthropic_provider_execution_failed");
   await expect(query.setModel!("opus")).rejects.toThrow("anthropic_provider_execution_failed");
   await expect(query.applyFlagSettings!({ effortLevel: "high" })).rejects.toThrow("anthropic_provider_execution_failed");
   expect(() => query.supportsInFlightEscalation!()).toThrow("anthropic_provider_execution_failed");
   for (const action of [
     () => eventsOf(query),
     () => query.interrupt!(),
+    () => query.close!(),
     () => query.setModel!("opus"),
     () => query.applyFlagSettings!({ effortLevel: "high" }),
   ]) {
@@ -1082,11 +1085,15 @@ test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier 
   const calls: Array<{ provider: ProviderId; args: any }> = [];
   const prompt = "preserve this prompt";
   const activated: string[] = [];
+  let failedRouteCloses = 0;
   const registry = {
-    anthropic: fakeProvider("anthropic", (args) => ({ async *[Symbol.asyncIterator]() {
-      calls.push({ provider: "anthropic", args });
-      throw new ProviderRetrySafeError("subscription usage limit reached; bearer secret-must-not-leak");
-    }})),
+    anthropic: fakeProvider("anthropic", (args) => ({
+      close: async () => { failedRouteCloses++; },
+      async *[Symbol.asyncIterator]() {
+        calls.push({ provider: "anthropic", args });
+        throw new ProviderRetrySafeError("subscription usage limit reached; bearer secret-must-not-leak");
+      },
+    })),
     openai: fakeProvider("openai", (args) => ({ async *[Symbol.asyncIterator]() {
       calls.push({ provider: "openai", args });
       yield { type: "result", result: "ok" };
@@ -1124,6 +1131,25 @@ test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier 
   expect(decision.resolvedModel).toBe(calls[1].args.options.model);
   expect(decision.resolvedEffort).toBe(calls[1].args.options.effort);
   expect(activated).toEqual(["anthropic/fable/xhigh", "openai/gpt-5.6-sol/xhigh"]);
+  expect(failedRouteCloses).toBe(1);
+});
+
+test("closing a routed query before first next is sticky and constructs no provider", async () => {
+  const decision = selectProviderFromAvailability("anthropic", available, policy(), "standard");
+  let constructions = 0;
+  const registry = {
+    anthropic: fakeProvider("anthropic", () => {
+      constructions++;
+      return { async *[Symbol.asyncIterator]() { yield { type: "result" }; } };
+    }),
+    openai: fakeProvider("openai", () => { throw new Error("must not construct fallback"); }),
+  };
+  const routed = routedQueryWithRegistry(
+    decision, { prompt: "x", options: {} as any }, "standard", registry,
+  );
+  await routed.close?.();
+  expect(await eventsOf(routed)).toEqual([]);
+  expect(constructions).toBe(0);
 });
 
 test("provider-pinned retry-safe failure advances to a sibling target only", async () => {

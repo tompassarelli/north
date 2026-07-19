@@ -73,6 +73,8 @@ export interface RefreshAccountUsageOptions {
   now?: Date;
   storePath?: string;
   timeoutMs?: number;
+  /** Abort an in-flight provider control probe during host shutdown. */
+  signal?: AbortSignal;
   readAnthropic?: ReadAnthropic;
   readCodex?: ReadCodex;
 }
@@ -205,6 +207,7 @@ async function refreshOne(
   storePath: string,
   now: Date,
 ): Promise<AccountUsageReport> {
+  options.signal?.throwIfAborted();
   const cached = cachedObservation(storePath, account);
   const initialCachedReport = cachedReport(account, cached, now);
   if (!options.force && initialCachedReport) return initialCachedReport;
@@ -213,6 +216,7 @@ async function refreshOne(
   const lockPath = `${storePath}.account-usage.${targetHash}.lock`;
   try {
     return await withFileLease(lockPath, async () => {
+      options.signal?.throwIfAborted();
       const afterWait = cachedObservation(storePath, account);
       const afterWaitReport = cachedReport(account, afterWait, now);
       if (!options.force && afterWaitReport) return afterWaitReport;
@@ -223,20 +227,24 @@ async function refreshOne(
         if (account.provider === "anthropic") {
           const result: AnthropicUsageResult = await (options.readAnthropic ?? readAnthropicSubscriptionUsage)({
             target: targetFor(account), env: options.env ?? options.context?.env,
-            now, timeoutMs: options.timeoutMs, storePath,
+            now, timeoutMs: options.timeoutMs, storePath, signal: options.signal,
           });
           observation = result.observation;
           unavailableComponents = result.unavailableComponents;
         } else {
           observation = await (options.readCodex ?? readCodexEntitlementObservation)({
             target: targetFor(account), env: options.env ?? options.context?.env,
-            now, timeoutMs: options.timeoutMs,
+            now, timeoutMs: options.timeoutMs, signal: options.signal,
           });
         }
         validateObservationForAccount(account, observation);
         await writeProviderUsageObservations(observation, storePath);
         return observedReport(account, observation, false, unavailableComponents);
       } catch (error) {
+        // Host shutdown is control flow, not an availability observation. Do
+        // not persist a synthetic telemetry failure after the owner aborted
+        // the probe, and do not let advisory fallback swallow the sticky edge.
+        options.signal?.throwIfAborted();
         const reason = unavailableReason(error, account.provider) as ProviderUsageCollectionFailureReason;
         const prior = afterWait ?? cached;
         // A failed collection is absence of new knowledge. Preserve a still-live,
@@ -264,6 +272,7 @@ async function refreshOne(
       }
     }, accountUsageLeaseOptions(options.timeoutMs));
   } catch {
+    options.signal?.throwIfAborted();
     // The observation substrate is advisory. A broken or contended store must
     // neither abort the route nor leak filesystem diagnostics; retain only live
     // exhaustion evidence and otherwise degrade to explicit unknown.
@@ -307,6 +316,7 @@ function configuredUsageTargets(options: RefreshAccountUsageOptions): AccountUsa
 export async function refreshAccountUsages(
   options: RefreshAccountUsageOptions = {},
 ): Promise<AccountUsageReport[]> {
+  options.signal?.throwIfAborted();
   const now = options.now ?? new Date();
   const storePath = options.storePath
     ?? options.env?.NORTH_PROVIDER_OBSERVATIONS

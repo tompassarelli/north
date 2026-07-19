@@ -63,6 +63,7 @@ export interface ReadAnthropicUsageOptions {
   timeoutMs?: number;
   start?: StartUsageQuery;
   storePath?: string;
+  signal?: AbortSignal;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -191,9 +192,13 @@ export async function readAnthropicSubscriptionUsage(
   const deadline = Date.now() + timeoutMs;
   const remaining = () => Math.max(1, deadline - Date.now());
   const controller = new AbortController();
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
   let warm: UsageWarmQuery | undefined;
   let usageQuery: UsageQuery | undefined;
   try {
+    options.signal?.throwIfAborted();
     const env = providerEnvironmentForTarget("anthropic", options.target, { env: options.env });
     warm = await timed((options.start ?? (startup as StartUsageQuery))({
       initializeTimeoutMs: timeoutMs,
@@ -232,6 +237,7 @@ export async function readAnthropicSubscriptionUsage(
     if (error instanceof AnthropicUsageUnavailableError) throw error;
     throw new AnthropicUsageUnavailableError("anthropic_usage_probe_failed");
   } finally {
+    options.signal?.removeEventListener("abort", abort);
     controller.abort();
     usageQuery?.close();
     if (!usageQuery) warm?.close();

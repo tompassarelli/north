@@ -71,6 +71,9 @@ import {
   judgmentGradeFromThreadFacts,
   type JudgmentGradeSnapshot,
 } from "./judgment-grade";
+import {
+  ManagedQueryTermination, type HostTerminationRegistrar,
+} from "./query-lifecycle";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -106,6 +109,17 @@ interface DispatchRuntime {
   };
   childSettlementReader?: (agentId: string) => ChildSettlement;
   feedSubscriber?: typeof subscribeFeed;
+  registerTermination?: HostTerminationRegistrar;
+  refreshAccountUsages?: typeof refreshAccountUsages;
+  refreshCodexEntitlements?: typeof refreshCodexEntitlementsIfStale;
+  admitResourceEnvelope?: typeof admitResourceEnvelope;
+  completeResourceEnvelope?: typeof completeResourceEnvelope;
+  admitBillableClock?: typeof admitBillableClock;
+  clockFinalize?: typeof clockFinalize;
+  clockStop?: (agentId: string) => void | Promise<void>;
+  releaseDriver?: (
+    driver: ReturnType<typeof claimDispatchDriver>,
+  ) => boolean | Promise<boolean>;
 }
 
 const DISPATCH_DEPENDENCY_FIELDS = new Set(["routingMetadata", "agentId"]);
@@ -165,6 +179,11 @@ async function runDispatch(
   childSettlementReader: (agentId: string) => ChildSettlement = settleChildren,
   feedSubscriber: typeof subscribeFeed = subscribeFeed,
   clockLease?: ManagedClockLease,
+  termination: ManagedQueryTermination = new ManagedQueryTermination(),
+  preflightRuntime: Pick<
+    DispatchRuntime,
+    "refreshAccountUsages" | "refreshCodexEntitlements" | "clockFinalize"
+  > = {},
 ): Promise<DispatchResult> {
   const runStartedAt = process.hrtime.bigint();
   const routingMetadata = hydratedMetadata;
@@ -232,8 +251,20 @@ async function runDispatch(
   const routingRequest = { provider: providerPreference, target: targetPreference };
   if (!queryFn) {
     admitPinnedProvider(providerPreference, capabilities);
-    try { await refreshAccountUsages({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
-    try { await refreshCodexEntitlementsIfStale({ requested: routingRequest }); } catch { /* telemetry is advisory */ }
+    try {
+      await (preflightRuntime.refreshAccountUsages ?? refreshAccountUsages)({
+        requested: routingRequest,
+        signal: termination.signal,
+      });
+    } catch { /* telemetry is advisory */ }
+    termination.throwIfTerminated();
+    try {
+      await (preflightRuntime.refreshCodexEntitlements ?? refreshCodexEntitlementsIfStale)({
+        requested: routingRequest,
+        signal: termination.signal,
+      });
+    } catch { /* telemetry is advisory */ }
+    termination.throwIfTerminated();
   }
   const routing = selectProvider(routingRequest, undefined,
     { tier: requestedTier, reasoning: requestedReasoning,
@@ -263,6 +294,7 @@ async function runDispatch(
   } as const;
   const initialLiveInput = providerLiveInput(routing.provider);
   const ch = inputChannel(prompt);
+  termination.attachInput(() => { try { ch.end(); } catch { /* already closed */ } });
   const liveInputRoute = new ManagedLiveInputRoute(
     agentId,
     identityBase,
@@ -318,19 +350,13 @@ async function runDispatch(
   const orchestrator = routingMetadata.topology === "orchestrator";
   const struggle = makeStruggleObserver(strugglePolicy);
   let childContinuation = initialChildContinuationState();
-  let q: AgentQuery | undefined;
   let injectedCompositionEvidence: HarnessCompositionEvidence | undefined;
   let admittedRoute: {
     provider: ProviderAuthoritySurface["provider"];
     evidence: HarnessCompositionEvidence | undefined;
     authority: ProviderAuthoritySurface;
   } | undefined;
-  let queryInterrupted = false;
-  const interruptQuery = async () => {
-    if (queryInterrupted || !q) return;
-    queryInterrupted = true;
-    try { await q.interrupt?.(); } catch { /* cleanup must not replace the terminal outcome */ }
-  };
+  let queryCloseError: unknown;
 
   let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
@@ -366,6 +392,7 @@ async function runDispatch(
       cwd: workingDirectory,
       deliveryRun: deliveryReservationReady ? runContext : undefined,
       systemPrompt: `You are a north agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
+      abortController: termination.abortController,
     });
     console.log(
       `[dispatch] posture: ${postureLabel}, provider: ${routing.provider}, `
@@ -378,7 +405,8 @@ async function runDispatch(
     };
     if (queryFn && feedSubscriber !== subscribeFeed)
       await liveInputRoute.activate(activeRoute());
-    q = queryFn
+    termination.throwIfTerminated();
+    const q = queryFn
       ? queryFn(queryArgs)
       : routedQuery(routing, queryArgs, requestedTier,
         async (transition) => {
@@ -398,6 +426,7 @@ async function runDispatch(
             `[dispatch] effective authority: ${formatProviderAuthoritySurface(authority)}`,
           );
         });
+    termination.attachQuery(q);
     const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
       stallMs: window,
       onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
@@ -521,7 +550,7 @@ async function runDispatch(
       // 2N of silence: interrupt the hung query, mark outcome=stalled, and fire the death
       // path durably. Its terminal peer wake follows publication settlement.
       outcome = "stalled";
-      await interruptQuery();
+      await termination.close();
       const err = new Error(
         `stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`,
       );
@@ -557,7 +586,20 @@ async function runDispatch(
     // Streaming input can keep the provider subprocess alive even after it has
     // emitted a terminal result. Close the active query exactly once so Bun and
     // the provider CLI cannot survive a completed dispatch.
-    await interruptQuery();
+    try { await termination.close(); }
+    catch (error) { queryCloseError = error; }
+  }
+
+  const hostSignal = termination.hostSignal();
+  if (hostSignal) {
+    outcome = "died";
+    const error = new Error(`host terminated by ${hostSignal}`);
+    terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
+  } else if (queryCloseError) {
+    outcome = "died";
+    const error = queryCloseError instanceof Error
+      ? queryCloseError : new Error("provider query cleanup failed");
+    terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
   }
 
   if (liveInputFreezeError) {
@@ -616,7 +658,7 @@ async function runDispatch(
 
   // Close only the exact clock positively opened by this dispatch preflight.
   if (clockLease?.admission.kind === "opened") {
-    clockFinalize(agentId, outcome);
+    (preflightRuntime.clockFinalize ?? clockFinalize)(agentId, outcome);
     clockLease.finalized = true;
   }
 
@@ -795,28 +837,36 @@ export async function dispatch(
     agentId: admitted.agentId,
     driverOptions: injected.driverOptions,
   });
-  const clockLease: ManagedClockLease = {
-    admission: admitBillableClock({
-      agentId,
-      capabilities: gafferCapabilities(routingMetadata),
-      cwd: workingDirectory,
-      threadId,
-    }),
-    finalized: false,
-  };
+  const termination = new ManagedQueryTermination(injected.registerTermination);
+  let clockLease: ManagedClockLease | undefined;
   let driver: ReturnType<typeof claimDispatchDriver> | undefined;
   let admission: EnvelopeAdmission | undefined;
+  let result!: DispatchResult;
+  let failed = false;
+  let primaryError: unknown;
   try {
+    clockLease = {
+      admission: (injected.admitBillableClock ?? admitBillableClock)({
+        agentId,
+        capabilities: gafferCapabilities(routingMetadata),
+        cwd: workingDirectory,
+        threadId,
+      }),
+      finalized: false,
+    };
+    termination.throwIfTerminated();
     driver = (injected.claimDriver ?? claimDispatchDriver)(
       threadId, agentId, injected.driverOptions,
     );
     const context = envelopeContextFromEnv(workingDirectory);
-    admission = await admitResourceEnvelope({
+    termination.throwIfTerminated();
+    admission = await (injected.admitResourceEnvelope ?? admitResourceEnvelope)({
       agentId, tier: routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined,
       project: context.project, sessionId: context.sessionId,
     });
+    termination.throwIfTerminated();
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
-    return await runDispatch(
+    result = await runDispatch(
       threadId, judgmentGrade, strugglePolicy,
       admission, routingMetadata, workingDirectory, agentId, injected.queryFn,
       facts, children, injected.loadThreadFacts ?? getThreadFacts,
@@ -824,17 +874,38 @@ export async function dispatch(
       injected.childSettlementReader,
       injected.feedSubscriber ?? subscribeFeed,
       clockLease,
+      termination,
+      injected,
     );
-  } finally {
-    try { await completeResourceEnvelope(admission); }
-    finally {
-      if (clockLease.admission.kind === "opened" && !clockLease.finalized)
-        clockStop(agentId);
-      if (driver && driver.release() === false) {
-        console.error(`[dispatch] safe driver release unavailable for @${threadId}; liveness reaper remains armed`);
-      }
-    }
+  } catch (error) {
+    failed = true;
+    primaryError = error;
   }
+  termination.publicationSettled();
+  const cleanupErrors: unknown[] = [];
+  try { await (injected.completeResourceEnvelope ?? completeResourceEnvelope)(admission); }
+  catch (error) { cleanupErrors.push(error); }
+  try {
+    if (clockLease?.admission.kind === "opened" && !clockLease.finalized)
+      await (injected.clockStop ?? clockStop)(agentId);
+  } catch (error) { cleanupErrors.push(error); }
+  try {
+    const released = driver
+      ? await (injected.releaseDriver ?? ((value) => value.release()))(driver)
+      : true;
+    if (released === false) {
+      console.error(`[dispatch] safe driver release unavailable for @${threadId}; liveness reaper remains armed`);
+    }
+  } catch (error) { cleanupErrors.push(error); }
+  finally {
+    termination.cleanupSettled();
+    termination.release();
+  }
+  const errors = failed ? [primaryError, ...cleanupErrors] : cleanupErrors;
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(errors, "dispatch execution and outer cleanup failed");
+  return result;
 }
 
 export async function dispatchParallel(

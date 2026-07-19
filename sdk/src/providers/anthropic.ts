@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Query } from "@anthropic-ai/claude-agent-sdk";
 import {
   ProviderRetrySafeError, type AgentProvider, type AgentQuery, type ProviderAvailability,
   type RoutingTarget,
@@ -19,12 +19,33 @@ import {
   COORDINATION_TOOLS, hasCanonicalAuthoringHooks, hasCanonicalHarnessAuthority, managedToolPolicy,
   NATIVE_AGENT_TOOLS, ORCHESTRATION_TOOLS,
 } from "../harness";
+import {
+  createAnthropicProcessLifecycle, settleAnthropicProcessOwner,
+  type AnthropicProcessLifecycle,
+} from "./anthropic-process";
 
 // Selection already proved a CLI-owned first-party Claude.ai session, and the
 // target environment strips API-key, cloud, and alternate-endpoint transports.
 // Claude Code Agent SDK 0.3.195 reports `none` for that subscription flow even
 // though its current ApiKeySource declaration omits the runtime value.
 const SUBSCRIPTION_SAFE_API_KEY_SOURCES = new Set(["oauth", "none"]);
+export async function disposeAnthropicSdkQuery(
+  rawQuery: Pick<Query, "return"> | undefined,
+  lifecycle: AnthropicProcessLifecycle | undefined,
+  abort: AbortController | undefined,
+  graceMs?: number,
+): Promise<void> {
+  if (!lifecycle || !abort) {
+    if (rawQuery) await rawQuery.return(undefined);
+    return;
+  }
+  await settleAnthropicProcessOwner({
+    lifecycle,
+    abortController: abort,
+    dispose: rawQuery ? () => rawQuery.return(undefined) : undefined,
+    ...(graceMs === undefined ? {} : { disposalGraceMs: graceMs }),
+  });
+}
 
 function exactStrings(actual: unknown, expected: readonly string[]): boolean {
   return Array.isArray(actual)
@@ -65,6 +86,12 @@ export function normalizeAnthropicQueryDiagnostics(source: AgentQuery): AgentQue
   return {
     interrupt: source.interrupt && (async () => {
       try { await source.interrupt!(); } catch { throw failed(); }
+    }),
+    close: source.close && (async () => {
+      try { await source.close!(); } catch { throw failed(); }
+    }),
+    forceClose: source.forceClose && (() => {
+      try { source.forceClose!(); } catch { /* host exit cannot expose diagnostics */ }
     }),
     setModel: source.setModel && (async (model) => {
       try { await source.setModel!(model); } catch { throw failed(); }
@@ -185,29 +212,86 @@ export async function admitAnthropic(options: any, target?: RoutingTarget): Prom
   await admitExecution("anthropic", capabilities, resolve(options.cwd ?? process.cwd()), options, target);
 }
 
-function createAnthropicQuery(
+export interface AnthropicQueryRuntime {
+  query: typeof query;
+  observe: typeof observeAnthropicQuery;
+  createLifecycle: typeof createAnthropicProcessLifecycle;
+  admit?: typeof admitAnthropic;
+}
+
+export function createAnthropicQuery(
   args: Parameters<AgentProvider["query"]>[0],
   admitted: boolean,
+  runtime: AnthropicQueryRuntime = {
+    query,
+    observe: observeAnthropicQuery,
+    createLifecycle: createAnthropicProcessLifecycle,
+    admit: admitAnthropic,
+  },
 ): AgentQuery {
   let source: AgentQuery | undefined;
+  let rawQuery: Query | undefined;
+  let lifecycle: AnthropicProcessLifecycle | undefined;
+  let ownedAbort: AbortController | undefined;
+  let detachCallerAbort: (() => void) | undefined;
   let initialization: Promise<AgentQuery> | undefined;
+  let closePromise: Promise<void> | undefined;
+  let closed = false;
+  const callerSignal = args.options.abortController?.signal;
+  const ensureOpen = () => {
+    if (closed || callerSignal?.aborted) throw new Error("anthropic_query_closed");
+  };
+  const closedBeforeConstruction = (error: unknown) => !lifecycle && !rawQuery
+    && error instanceof Error && error.message === "anthropic_query_closed";
   const initialize = async (): Promise<AgentQuery> => {
+    ensureOpen();
     if (source) return source;
     initialization ??= (async () => {
       if (admitted) validateAnthropicHarness(args.options);
-      else await admitAnthropic(args.options, args.target);
+      else await (runtime.admit ?? admitAnthropic)(args.options, args.target);
+      // Admission may await a subscription control probe. Close or host abort
+      // during that wait is sticky: never construct a lifecycle or SDK Query
+      // after the preflight resumes.
+      ensureOpen();
       admitted = true;
+      ownedAbort = new AbortController();
+      if (callerSignal) {
+        const forward = () => ownedAbort?.abort(callerSignal.reason);
+        if (callerSignal.aborted) forward();
+        else {
+          callerSignal.addEventListener("abort", forward, { once: true });
+          detachCallerAbort = () => callerSignal.removeEventListener("abort", forward);
+        }
+      }
+      lifecycle = runtime.createLifecycle();
       const options = {
         ...args.options,
+        abortController: ownedAbort,
+        spawnClaudeCodeProcess: lifecycle.spawnClaudeCodeProcess,
         env: providerEnvironmentForTarget("anthropic", args.target, { env: args.options.env }),
       };
       try {
-        source = observeAnthropicQuery(
-          normalizeAnthropicQueryDiagnostics(query({ prompt: args.prompt, options })),
+        rawQuery = runtime.query({ prompt: args.prompt, options });
+        source = runtime.observe(
+          normalizeAnthropicQueryDiagnostics({
+            interrupt: () => rawQuery!.interrupt(),
+            close: async () => {
+              try { await disposeAnthropicSdkQuery(rawQuery, lifecycle, ownedAbort); }
+              finally { detachCallerAbort?.(); }
+            },
+            forceClose: () => lifecycle?.forceKill(),
+            setModel: (model) => rawQuery!.setModel(model),
+            applyFlagSettings: (settings) => rawQuery!.applyFlagSettings(settings as any),
+            supportsInFlightEscalation: () => true,
+            [Symbol.asyncIterator]: () => rawQuery![Symbol.asyncIterator](),
+          }),
           { targetId: () => args.target?.id ?? "anthropic" },
         );
         return source;
       } catch {
+        try { await disposeAnthropicSdkQuery(rawQuery, lifecycle, ownedAbort); }
+        catch { /* initialization failure stays provider-private */ }
+        detachCallerAbort?.();
         throw new Error("anthropic_provider_execution_failed");
       }
     })();
@@ -215,6 +299,22 @@ function createAnthropicQuery(
   };
   return {
     interrupt: async () => { await (await initialize()).interrupt?.(); },
+    close: () => closePromise ??= (async () => {
+      closed = true;
+      // A lazy query that was never initialized owns no subprocess. Closing it
+      // must remain a pure no-op rather than accidentally accepting a turn.
+      if (!initialization && !source) return;
+      try {
+        const initialized = await initialization;
+        await initialized?.close?.();
+      } catch (error) {
+        if (!closedBeforeConstruction(error)) throw error;
+      }
+    })(),
+    forceClose: () => {
+      closed = true;
+      lifecycle?.forceKill();
+    },
     setModel: async (model) => { await (await initialize()).setModel?.(model); },
     applyFlagSettings: async (settings) => {
       await (await initialize()).applyFlagSettings?.(settings);
@@ -224,7 +324,12 @@ function createAnthropicQuery(
         && (source.supportsInFlightEscalation?.() ?? true))
       : true,
     async *[Symbol.asyncIterator]() {
-      for await (const message of await initialize()) yield message;
+      if (closed) return;
+      try {
+        for await (const message of await initialize()) yield message;
+      } catch (error) {
+        if (!closedBeforeConstruction(error)) throw error;
+      }
     },
   };
 }

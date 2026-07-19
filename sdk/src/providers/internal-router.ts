@@ -68,6 +68,8 @@ export function routedQueryWithRegistry(
   onRouteAttempt?: (decision: RoutingDecision) => void,
 ): AgentQuery {
   let active: AgentQuery | undefined;
+  let closed = false;
+  let closePromise: Promise<void> | undefined;
   const prompt = replayablePrompt(args.prompt);
   const requestedReasoning = args.options.effort as Effort | undefined;
   const seed = harnessRouteSeed(args.options);
@@ -94,6 +96,14 @@ export function routedQueryWithRegistry(
   };
   return {
     interrupt: async () => { await active?.interrupt?.(); },
+    close: () => closePromise ??= (async () => {
+      closed = true;
+      await active?.close?.();
+    })(),
+    forceClose: () => {
+      closed = true;
+      active?.forceClose?.();
+    },
     supportsInFlightEscalation: () => Boolean(
       active?.setModel && active?.applyFlagSettings
       && (active.supportsInFlightEscalation?.() ?? true),
@@ -118,6 +128,7 @@ export function routedQueryWithRegistry(
     async *[Symbol.asyncIterator]() {
       let emitted = 0;
       while (true) {
+        if (closed) return;
         try {
           onRouteAttempt?.(decision);
           const route = optionsFor(decision.provider);
@@ -143,11 +154,16 @@ export function routedQueryWithRegistry(
               "provider_authority_route_mismatch",
             );
           await onRoute?.(decision, route.evidence, authority);
+          if (closed) return;
           active = provider.query({
             prompt,
             options,
             target: decision.routingTargets[decision.target],
           });
+          if (closed) {
+            await active.close?.();
+            return;
+          }
           for await (const event of active as AsyncIterable<any>) {
             emitted++;
             yield event;
@@ -163,6 +179,10 @@ export function routedQueryWithRegistry(
             && fallbackProvider
             && error instanceof ProviderRetrySafeError
           ) {
+            // Retry safety proves the provider did not accept the turn; it does
+            // not imply its preflight process already exited. Reap the failed
+            // route before constructing a fallback target.
+            await active?.close?.();
             const previousTarget = decision.target;
             const previousProvider = decision.provider;
             await beforeFallback?.({

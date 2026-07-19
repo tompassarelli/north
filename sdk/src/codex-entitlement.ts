@@ -51,6 +51,7 @@ interface AppServerOptions {
   env?: NodeJS.ProcessEnv;
   now?: Date;
   spawnProcess?: typeof spawn;
+  signal?: AbortSignal;
 }
 
 interface ObserveOptions extends AppServerOptions {
@@ -207,12 +208,22 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
   });
 
   const timeoutMs = options.timeoutMs ?? CODEX_USAGE_PROBE_TIMEOUT_MS;
+  let abortForce: ReturnType<typeof setTimeout> | undefined;
+  const abortProbe = () => {
+    rejectAll(new CodexUsageUnavailableError("codex_usage_probe_failed"));
+    child.kill("SIGTERM");
+    abortForce ??= setTimeout(() => child.kill("SIGKILL"), 250);
+    abortForce.unref?.();
+  };
+  if (options.signal?.aborted) abortProbe();
+  else options.signal?.addEventListener("abort", abortProbe, { once: true });
   const timeout = setTimeout(() => {
     rejectAll(new CodexUsageUnavailableError("codex_usage_probe_timed_out"));
     child.kill("SIGKILL");
   }, timeoutMs);
   timeout.unref?.();
   try {
+    options.signal?.throwIfAborted();
     await request(child, pending, 1, "initialize", { clientInfo: { name: "north", version: "1" } });
     const account = await request(child, pending, 2, "account/read", {});
     if (!record(account) || !record(account.account) || account.account.type !== "chatgpt")
@@ -228,6 +239,8 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
       windows,
     };
   } finally {
+    options.signal?.removeEventListener("abort", abortProbe);
+    if (abortForce) clearTimeout(abortForce);
     clearTimeout(timeout);
     for (const waiter of pending.values()) waiter.reject(new CodexUsageUnavailableError("codex_usage_transport_failed"));
     pending.clear();
