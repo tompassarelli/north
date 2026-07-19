@@ -168,9 +168,9 @@ test("an Anthropic error terminal still records its authoritative usage", async 
 
   await spawn({ prompt: "terminal error usage", agentId: "test-terminal-error",
     role: "integrator", provider: "anthropic", queryFn });
-  await waitForLog("tell run-test-terminal-error-");
+  await waitForLog("tell run:test-terminal-error-");
   await waitForLog("usage_total_status exact");
-  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-terminal-error-"));
+  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run:test-terminal-error-"));
   expect(lines.some((line) => line.endsWith(" tokens 21"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" usage_terminal_count 1"))).toBe(true);
 });
@@ -192,7 +192,7 @@ test("repeated Anthropic terminals record ambiguity without a selected or summed
   await spawn({ prompt: "two terminal scopes", agentId: "test-repeated-terminals",
     role: "integrator", provider: "anthropic", queryFn });
   await waitForLog("usage_total_status unknown_repeated_terminal");
-  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run-test-repeated-terminals-"));
+  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run:test-repeated-terminals-"));
   expect(lines.some((line) => line.endsWith(" usage_terminal_count 2"))).toBe(true);
   expect(lines.some((line) => / (tokens|input_tokens|output_tokens) /.test(line))).toBe(false);
 });
@@ -397,7 +397,7 @@ test("dispatch publishes newly observed done-bar evidence as reported, never sel
       },
     },
     queryFn: () => {
-      expect(reserved?.runId.startsWith("run-test-reported-delivery-agent-")).toBe(true);
+      expect(reserved?.runId.startsWith("run:test-reported-delivery-agent-")).toBe(true);
       return (async function* () {
       yield {
         type: "result", subtype: "success", result: "done",
@@ -688,7 +688,7 @@ async function waitForLog(needle: string): Promise<string> {
 }
 
 async function settledRunLines(agent: string, requiredSuffix = "error_count 0"): Promise<string[]> {
-  const marker = `tell run-${agent}-`;
+  const marker = `tell run:${agent}-`;
   for (let i = 0, stable = 0, previous = ""; i < 100; i++) {
     const lines = (existsSync(log) ? readFileSync(log, "utf8") : "")
       .split("\n")

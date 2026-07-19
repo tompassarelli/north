@@ -1027,6 +1027,13 @@ export function harnessOptions(o: HarnessOpts): Options {
     NORTH_RUN_ID: _inheritedRun,
     NORTH_THREAD_ID: _inheritedThread,
     NORTH_RUN_CAPABILITY: _inheritedCapability,
+    // Never let a parent's pinned dials leak into a child's bootstrap: every
+    // managed spawn re-resolves model/effort from its Gaffer tier, but a
+    // tier-less import.meta.main bootstrap reads process.env.AGENT_MODEL, so an
+    // inherited value would silently pin the child. Strip them at the boundary.
+    AGENT_MODEL: _inheritedModel,
+    AGENT_EFFORT: _inheritedEffort,
+    AGENT_TIER: _inheritedTier,
     ...ambientEnv
   } = process.env;
   const childEnv = {

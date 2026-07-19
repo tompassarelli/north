@@ -264,7 +264,9 @@
   (let [preset-catalog (current-preset-catalog)]
    (for [[entity predicates] facts
         :when (and (= "run" (one facts entity "kind"))
-                   (str/starts-with? entity "@run-"))]
+                   ;; both legacy `@run-` and telemetry-routable `@run:` ids
+                   (or (str/starts-with? entity "@run-")
+                       (str/starts-with? entity "@run:")))]
     (let [agent (one facts entity "agent")
           identity (str "@agent:" agent)
           get' (fn [pred fallback] (or (one facts entity pred) (one facts identity pred) fallback))

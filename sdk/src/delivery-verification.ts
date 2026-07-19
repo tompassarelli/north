@@ -157,7 +157,7 @@ export function validThreadEntity(value: unknown): value is string {
 export function validRunEntity(value: unknown): value is string {
   return typeof value === "string"
     && utf8ByteCount(value) <= MAX_DELIVERY_RUN_ID_UTF8_BYTES
-    && /^@run-[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
+    && /^@run[-:][A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
 }
 
 export function validAgentEntity(value: unknown): value is string {
@@ -238,7 +238,7 @@ export function assessThreadDelivery(
   reporterAgentId: string,
   facts: readonly Fact[],
   baselineFacts: readonly Fact[] = [],
-  runId = `run-${reporterAgentId.replace(/^@?agent:/, "")}`,
+  runId = `run:${reporterAgentId.replace(/^@?agent:/, "")}`,
   runEvidence: readonly RunBarEvidence[] = [],
 ): DeliveryAssessment {
   if (!facts.length) {

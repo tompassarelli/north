@@ -1,10 +1,11 @@
 // Telemetry auto-capture — write each agent run's tuple as facts so the system
 // has a queryable feedback loop (calibrate estimates against actuals, see who ran
 // what and with how many observed tokens). Records to a dedicated
-// `run-<agent>-<ts>` subject that has
+// `run:<agent>-<uuid>` subject that has
 // NO title, so runs never show up as threads on the board — they're queryable via
 // fram, invisible to the work views. Fire-and-forget: telemetry must NEVER block
-// or fail an agent run, so writes are async and all errors are swallowed.
+// or fail an agent run, so writes never throw — but a write FAILURE is now loud
+// on stderr (a silently-swallowed rejection once hid a 3-day telemetry outage).
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -265,12 +266,34 @@ export function recordRun(rec: RunRecord, id = newRunId(rec.agent)): void {
       process.env.NORTH_PORT ?? "7977",
       id,
       JSON.stringify(facts),
-    ], () => {});
-  } catch {
-    /* telemetry must never replace the run's real terminal result */
+    ], (error, _stdout, stderr) => {
+      // Fire-and-forget still, but NOT silent: a swallowed writer rejection hid
+      // a 3-day telemetry outage (2026-07-17). A failed terminal write leaves the
+      // run's tokens/outcome/duration unrecorded, so make it a loud stderr
+      // breadcrumb — never a throw, so the run's real terminal result stands.
+      if (error) {
+        const detail = (stderr && stderr.trim()) || error.message;
+        process.stderr.write(
+          `[telemetry] recordRun write FAILED for ${id}: ${detail}\n`,
+        );
+      }
+    });
+  } catch (error) {
+    // execFile can throw synchronously (e.g. bb missing) before the callback.
+    process.stderr.write(
+      `[telemetry] recordRun could not spawn writer for ${id}: ${String(error)}\n`,
+    );
   }
 }
 
 export function newRunId(agent: string): string {
-  return `run-${agent}-${randomUUID()}`;
+  // `@run:` (colon), NOT `@run-`: the coordinator log-split routes a subject to
+  // telemetry.log by its stored `kind` OR, kind-less, the token before its first
+  // colon (fram coord_daemon subject-token). A run's body facts are written
+  // BEFORE the terminal `kind run` commit marker, so during that window the
+  // subject is kind-less; a dash id has no colon -> token nil -> the body facts
+  // misroute to coordination.log (regression 2026-07-17). The colon puts `run`
+  // in the token so every run-scoped write lands in telemetry.log immediately,
+  // matching the @session:/@mine:/@guard_denial: telemetry-subject convention.
+  return `run:${agent}-${randomUUID()}`;
 }
