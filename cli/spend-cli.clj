@@ -24,6 +24,9 @@
 ;; directly and when load-file'd as a library by a test), so the shared write
 ;; substrate loads regardless of the entry script's directory.
 (load-file (str (.getParent (io/file *file*)) "/coord.clj"))
+;; Breaker state + burn-condition re-evaluation (step 3). Loaded AFTER coord so its
+;; `north.coord/*` references resolve; provides tripped?/reset for reserve! + ceremony.
+(load-file (str (.getParent (io/file *file*)) "/spend-breaker.clj"))
 
 (def port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
 
@@ -125,6 +128,11 @@
   [port target envelope-micro]
   (or
    ;; fail-closed preconditions
+   ;; BREAKER (step 3, design §4): a tripped global breaker refuses EVERY API-billed
+   ;; reservation ahead of the cap check, so the refusal reason is breaker-distinct
+   ;; from headroom exhaustion (the TS admission surfaces reason verbatim). ~1ms read.
+   (when (north.spend-breaker/tripped? port)
+     {:ok false :reason "breaker-tripped" :detail (north.spend-breaker/trip-reason port)})
    (when-not (and (integer? envelope-micro) (pos? envelope-micro))
      {:ok false :reason "bad-envelope"})
    (when-let [defect (budget-defect port target)]
@@ -348,6 +356,99 @@
                       headroom (- (+ cap overrides) reserved settled)]
                   {:ok (>= headroom (or envelope 0)) :headroom headroom :envelope envelope}))))))
 
+;; ============================================================================
+;; BREAKER RESET CEREMONY (design §4) — human-only. Prints live ledger-vs-provider
+;; state, REFUSES while a trip condition still evaluates true unless --force with a
+;; typed confirmation phrase quoting the current trip_reason, then writes
+;; reset/reset_reason/reset_by provenance + retracts the trip. Provider side is an
+;; "unsupported" STUB until step 5 lands the reconciliation adapter.
+(def HUMAN-ACTOR "tom_passarelli")
+
+;; Order-independent flag-value read: parse-flags pairs EVERY --flag with the next
+;; token, so a boolean --force would swallow a following --i-understand. Read named
+;; values positionally instead, and treat --force as a pure presence flag.
+(defn- flag-val [args name]
+  (let [v (vec args) i (.indexOf v name)]
+    (when (and (>= i 0) (< (inc i) (count v))) (nth v (inc i)))))
+
+(defn cmd-reset-breaker [args]
+  (let [force? (contains? (set args) "--force")
+        confirm (flag-val args "--i-understand")
+        reason  (or (flag-val args "--reason") "manual reset")
+        actor   (or (System/getenv "NORTH_AUTHOR") "unknown")]
+    (when-not (north.spend-breaker/tripped? port)
+      (println "breaker @spend-breaker:global is NOT tripped — nothing to reset")
+      (System/exit 0))
+    (let [trip (north.spend-breaker/trip-reason port)
+          tripped-at (north.coord/resolved port (str "@" north.spend-breaker/BREAKER) "tripped")]
+      (println "── spend-breaker reset ceremony ─────────────────────────────")
+      (println (str "  TRIPPED " tripped-at))
+      (println (str "  trip_reason: " trip))
+      (println "  LEDGER state (authoritative for admission):")
+      (doseq [t (all-budget-targets port)] (print-budget-status port t))
+      (println "  PROVIDER state: unsupported (reconciliation adapter lands step 5)")
+      (println "─────────────────────────────────────────────────────────────")
+      (let [live (north.spend-breaker/live-trip-condition port (System/currentTimeMillis))]
+        (when live
+          (println (str "  ⚠ trip condition STILL EVALUATES TRUE: " live))
+          (when-not force?
+            (binding [*out* *err*]
+              (println "refusing reset while the trip condition holds.")
+              (println "  re-run with --force --i-understand \"<the exact current trip_reason>\" to override:")
+              (println (str "  --i-understand \"" trip "\"")))
+            (System/exit 2))
+          ;; --force requires the typed confirmation phrase to quote the CURRENT trip_reason exactly.
+          (when-not (= (str confirm) (str trip))
+            (binding [*out* *err*]
+              (println "refusing --force reset: --i-understand must quote the CURRENT trip_reason EXACTLY.")
+              (println (str "  expected: " trip))
+              (println (str "  got:      " confirm)))
+            (System/exit 2))))
+      ;; Terminal writes: durable audit event entity + provenance on the breaker + retract the trip.
+      (let [now (str (java.time.Instant/now))
+            ev  (str "spend-breaker-reset:" (System/currentTimeMillis))]
+        (doseq [[p v] [["kind" "spend-breaker-reset"] ["reset_at" now]
+                       ["reset_by" actor] ["reset_reason" (str reason)]
+                       ["cleared_trip_reason" (str trip)] ["forced" (str (boolean force?))]]]
+          (north.coord/append! port (str "@" ev) p v))
+        (north.coord/put! port (str "@" north.spend-breaker/BREAKER) "reset_at" now)
+        (north.coord/put! port (str "@" north.spend-breaker/BREAKER) "reset_by" actor)
+        (north.coord/put! port (str "@" north.spend-breaker/BREAKER) "reset_reason" (str reason))
+        (north.spend-breaker/retract-tripped! port)
+        (println (str "breaker RESET by " actor " — " reason))
+        (println (str "  audit event @" ev))
+        (when-not (#{HUMAN-ACTOR (str "@" HUMAN-ACTOR)} actor)
+          (println (str "  ⚠ NEEDS REVIEW: reset actor '" actor "' is not @" HUMAN-ACTOR
+                        " — breaker reset is human-only by doctrine (see `north spend reset-audit`)")))))))
+
+;; needs-review SURFACE (minimal, per scope): the engine's `north needs-review`
+;; projection is a Beagle-compiled staleness module (out/north/staleness.clj) —
+;; editing it forces a Beagle rebuild (stale-bytecode trap), disproportionate for
+;; this step. SEAM, DEFERRED: fold the query below into stale/needs-review later.
+;; Until then this verb IS the surface — every breaker reset whose actor is not the
+;; human is a review item.
+(defn cmd-reset-audit []
+  (let [rows (->> (:ok (north.coord/send-op
+                        port {:op :query
+                              :query {:find "e"
+                                      :rules [{:head {:rel "e" :args [{:var "e"}]}
+                                               :body [{:rel "triple" :args [{:var "e"} "kind" "spend-breaker-reset"]}]}]}}))
+                  (map (comp str first))
+                  (map (fn [e] {:e e
+                                :by (north.coord/resolved port e "reset_by")
+                                :at (north.coord/resolved port e "reset_at")
+                                :reason (north.coord/resolved port e "reset_reason")
+                                :forced (north.coord/resolved port e "forced")}))
+                  (sort-by :at))
+        flagged (remove #(#{HUMAN-ACTOR (str "@" HUMAN-ACTOR)} (str (:by %))) rows)]
+    (println (str "breaker resets: " (count rows) " total, " (count flagged) " NEEDS REVIEW (actor ≠ @" HUMAN-ACTOR ")"))
+    (doseq [{:keys [e by at reason forced]} rows]
+      (println (str "  " at "  by " by (when (= "true" (str forced)) " [FORCED]")
+                    "  — " reason
+                    (when-not (#{HUMAN-ACTOR (str "@" HUMAN-ACTOR)} (str by)) "   ⚠ REVIEW")
+                    "   (" e ")")))
+    (when (seq flagged) (System/exit 1))))
+
 (defn -main [& args]
   (let [[verb target & rest] args]
     (try
@@ -358,11 +459,15 @@
         "reserve"  (cmd-reserve target rest)
         "settle"   (cmd-settle target rest)
         "headroom" (cmd-headroom target rest)
+        "reset-breaker" (cmd-reset-breaker (vec (cons target rest)))
+        "reset-audit"   (cmd-reset-audit)
         ("help" "--help" "-h" nil)
-        (do (println "north spend — API-billing budget ledger")
+        (do (println "north spend — API-billing budget ledger + circuit breaker")
             (println "  north spend init <target> --cap-usd X --envelope-default-usd Y --envelope-max-usd Z --burn-limit-usd-hr W --i-confirm-layer1 \"...\"")
             (println "  north spend status [target]")
             (println "  north spend override <target> --add-usd N --until <iso8601> --reason \"...\"")
+            (println "  north spend reset-breaker [--reason \"...\"] [--force --i-understand \"<trip_reason>\"]   (human-only breaker reset)")
+            (println "  north spend reset-audit                        (breaker resets; flags any actor ≠ human)")
             (println "  (reserve/settle/headroom are machine verbs used by the admission + terminal seams)"))
         (throw (ex-info (str "unknown verb: " verb) {})))
       (catch clojure.lang.ExceptionInfo e

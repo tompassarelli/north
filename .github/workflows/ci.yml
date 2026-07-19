@@ -140,6 +140,13 @@ jobs:
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
             bash cli/tests/coord-log-fence-integration-test.sh
 
+      - name: Spend-guard ledger, breaker, and reactor sweeps (real daemon)
+        working-directory: north
+        run: |
+          set -euo pipefail
+          FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-cli-test.clj
+          FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-breaker-test.clj
+
       - name: Gateway policy boundaries
         working-directory: north
         run: |

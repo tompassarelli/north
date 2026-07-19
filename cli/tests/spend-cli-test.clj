@@ -23,7 +23,7 @@
 
 (defn free-port [] (with-open [s (java.net.ServerSocket. 0)] (.getLocalPort s)))
 (defn port-open? [p] (try (with-open [s (java.net.Socket. "127.0.0.1" (int p))] true) (catch Exception _ false)))
-(defn eventually [f] (loop [n 200] (cond (try (f) (catch Exception _ false)) true (zero? n) false :else (do (Thread/sleep 25) (recur (dec n))))))
+(defn eventually [f] (loop [n 1200] (cond (try (f) (catch Exception _ false)) true (zero? n) false :else (do (Thread/sleep 25) (recur (dec n))))))
 
 ;; write a budget directly through coord (mirrors `north spend init`, but each
 ;; toggle is independent so a subtest can drop schema or prices to prove

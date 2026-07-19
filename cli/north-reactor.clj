@@ -43,6 +43,10 @@
 ;; DURABLE last-sweep heartbeat — the reactor's liveness trace `north doctor` reads.
 ;; Shared writer/reader lib (doctor loads the same file); we stamp it at each sweep.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/reactor-heartbeat.clj"))
+;; Spend-guard breaker + burn/kill/reaper-settle primitives (step 3). Loaded AFTER
+;; coord so its north.coord/* references resolve. The reactor is the ONLY place the
+;; burn-rate trip is computed + written and the only terminal for dead-lane spend.
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/spend-breaker.clj"))
 
 ;; `sweep-once` verb: one-shot reap for testing. `bb cli/north-reactor.clj sweep-once
 ;; [--dry-run] [--repo <repo>]`. Otherwise argv = [port debounce] for the reactor loop.
@@ -252,6 +256,10 @@
         (publish-reaped-terminal! e)
         (orphan-clock! h)                                                  ; close any orphan clock session the dead lane left open
         (release-orphaned-drivers! h)                                      ; unblock threads held by the hard-killed lane
+        ;; The reaper is the ONLY terminal for dead-lane spend: settle any open
+        ;; spend reservation at FULL (status unknown) — idempotent (settled_at guard).
+        (try (north.spend-breaker/reap-settle-lane-reservations! port h false)
+             (catch Throwable t (println (str "[sweep] spend reaper-settle error: " (.getMessage t)))))
         ;; Death is terminal evidence, not a mutation of identity/name caches.
         ;; Every UI derives its decoration from the committed process/delivery facts.
         (let [coord (or (north.coord/resolved port e "coordinator")
@@ -383,6 +391,13 @@
   (let [nc (sweep-concerns! dry?) nl (sweep-lanes! dry?)
         nd (sweep-unpublished-driver-claims! dry?)
         al (sweep-agent-logs! dry?)
+        ;; Spend-guard backstop (step 3): burn-rate breach TRIPS the global breaker;
+        ;; a tripped breaker SIGKILLs every verified live breached lane + settles it.
+        ;; Best-effort — a coordinator hiccup here never crashes the liveness sweep.
+        burn (try (north.spend-breaker/sweep-burn! port dry?)
+                  (catch Throwable t (println (str "[sweep] burn error: " (.getMessage t))) {:tripped false}))
+        nk (try (north.spend-breaker/sweep-kill! port dry?)
+                (catch Throwable t (println (str "[sweep] sweep-kill error: " (.getMessage t))) 0))
         ca (maybe-clock-audit! dry?)]
     ;; Durable last-sweep heartbeat — write ONLY on a real sweep so doctor can tell a
     ;; running reactor from a dead one. --dry-run leaves no trace (mirrors clock-audit).
@@ -390,9 +405,11 @@
     (println (str "[sweep] " (when dry? "(dry-run) ") "concerns abandoned=" nc
                   " lanes reaped=" nl " unpublished drivers released=" nd
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
+                  " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
                   " clock-audit=" (name ca)))
     (flush)
-    {:concerns nc :lanes nl :unpublished-drivers nd :agent-logs al :clock-audit ca}))
+    {:concerns nc :lanes nl :unpublished-drivers nd :agent-logs al
+     :breaker burn :lanes-killed nk :clock-audit ca}))
 
 (defn sweep-loop []
   (loop []

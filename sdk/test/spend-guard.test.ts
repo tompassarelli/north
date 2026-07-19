@@ -266,6 +266,22 @@ test("admitSpendReservation throws a distinct SpendGuardError on refusal, passes
   expect(() => admitSpendReservation("anthropic", { id: "claude-personal", provider: "anthropic" })).not.toThrow();
 });
 
+test("a tripped-breaker refusal surfaces breaker-distinct from headroom in the error payload", () => {
+  // Step-3 breaker: spend-cli reserve refuses a tripped breaker with reason
+  // "breaker-tripped" ahead of the cap check, so the SpendGuardError message is
+  // distinguishable from an over-cap (headroom) refusal — queryable in run evidence.
+  process.env.NORTH_BB = spendCliReturning(JSON.stringify({ ok: false, reason: "breaker-tripped", detail: "burn-rate breach" }));
+  let error: unknown;
+  try {
+    admitSpendReservation("openrouter", apiTarget("glm"));
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toBeInstanceOf(SpendGuardError);
+  expect((error as Error).message).toContain("breaker-tripped");
+  expect((error as Error).message).not.toContain("over-cap");
+});
+
 // --- settlement seam ---------------------------------------------------------
 
 // --- config-time fail-closed: account add for an api-billed provider ---------
