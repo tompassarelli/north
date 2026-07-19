@@ -100,11 +100,16 @@
        (remove #(some #{"tests"} (str/split (.getPath %) #"[/\\]")))
        (sort-by #(.getPath %))))
 
+(def engine-schema-predicates #{"acyclic" "cardinality" "value_kind"})
 (def clj-fixed
-  (reduce into #{}
-          (for [file (production-clj-files)
-                form (read-forms file)]
-            (fixed-graph-predicates form))))
+  (set/difference
+   (reduce into #{}
+           (for [file (production-clj-files)
+                 form (read-forms file)]
+             (fixed-graph-predicates form)))
+   ;; These predicate-position literals configure Fram's executable schema;
+   ;; they are not North domain predicates and never belong in VOCAB.
+   engine-schema-predicates))
 
 (def clj-variable-sites
   (reduce into #{}
@@ -127,13 +132,19 @@
     ;; lease-cli put-fenced carries a caller-supplied predicate under the fence.
     ["cli/lease-cli.clj" "put-with-fence!" "(required-text \"predicate\" (nth args 4 nil))"]
     ["cli/msg-cli.clj" "put!" "(arg-pred k)"]
+    ["cli/msg-cli.clj" "put!" "target-identity-manifest-predicate"]
     ["cli/msg-cli.clj" "retract!" "predicate"]
+    ["cli/message-audience.clj" "append!" "rejected-by-predicate"]
+    ["cli/message-audience.clj" "append!" "rejection-predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
     ["cli/pred-cli.clj" "put!" "p"]
     ["cli/pred-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
-    ["cli/run-fact-internal.clj" "put!" "predicate"]})
+    ["cli/run-fact-internal.clj" "put!" "predicate"]
+    ["cli/spend-breaker.clj" "retract!" "p"]
+    ["cli/spend-cli.clj" "append!" "p"]
+    ["cli/spend-cli.clj" "put!" "p"]})
 
 ;; Fixed SDK fact constructors are audited instead of their variable transport
 ;; loops. A variable p in recordRun is not permission to omit a runFacts tuple.
@@ -145,7 +156,9 @@
 (def audited-run-multi
   #{"allocation_evidence" "applied_capability" "applied_domain_requirement"
     "applied_preset_override" "composition_override" "domain_requirement"
-    "envelope_advisory" "envelope_scope" "fallback_reason" "struggle"})
+    "effective_authority_capability" "effective_builtin" "effective_mcp_tool"
+    "effective_north_enabled_tool" "envelope_advisory" "envelope_scope"
+    "fallback_reason" "struggle"})
 (def audited-run-single
   #{"agent" "allocation_mode" "applied_bespoke_contract_sha256"
     "applied_bespoke_contract_fingerprint_domain"
@@ -157,7 +170,7 @@
     "cache_read_tokens" "cached_input_tokens" "composition_id"
     "composition_kind" "composition_override_reason" "delivery_attestation"
     "delivery_attestation_sha256" "delivery_evidence" "delivery_evidence_sha256"
-    "delivery_outcome" "delivery_reason" "duration_ms" "provider_duration_ms" "effort"
+    "compactions" "delivery_outcome" "delivery_reason" "duration_ms" "provider_duration_ms" "effort"
     "entitlement_pressure" "envelope_retries" "error_count" "escalation_count"
     "escalation_path" "escalation_reasons" "escalation_tier" "fallback_count"
     "fallback_path" "fallback_target_path" "input_tokens" "kind" "model"
@@ -168,6 +181,8 @@
     "model_delta_provider" "model_delta_reason" "nearest_preset" "num_turns"
     "outcome" "process_outcome" "output_tokens" "posture" "promotion_candidate"
     "prompt_composition_applied" "provider" "provider_reason" "provider_target"
+    "effective_authoring_hooks" "effective_authority_provider" "effective_live_input"
+    "effective_native_multi_agent" "effective_sandbox" "effective_web"
     "reasoning_output_tokens" "requested_effort" "requested_model"
     "requested_provider" "requested_reasoning" "requested_role"
     "requested_target" "requested_tier" "role" "routing_posture" "routing_tier"
@@ -175,7 +190,8 @@
     "struggle_detector_policy_version" "struggle_topology"
     "struggle_error_streak_threshold" "struggle_loop_repeat_threshold"
     "struggle_loop_window" "struggle_no_progress_turn_threshold"
-    "task_grade" "thread" "tokens" "topology" "usage_scope"
+    "spend_envelope_microusd" "spend_evidence" "spend_reserved_microusd"
+    "spend_target" "task_grade" "thread" "tokens" "topology" "usage_scope"
     "usage_terminal_count" "usage_total_status"})
 (def audited-run-predicates (set/union audited-run-single audited-run-multi))
 
