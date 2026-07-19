@@ -261,3 +261,118 @@ jobs:
             echo "north-web retained a compiler/test-only runtime dependency" >&2
             exit 1
           fi
+  package-x86_64-linux:
+    needs: test
+    runs-on: ${{ vars.NORTH_PACKAGE_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 240
+    concurrency:
+      group: north-package-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout North
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: north
+
+      # The public runner image carries SDKs this repository never uses. Reclaim
+      # them before Nix so the exact release/LTO build has room for bounded swap
+      # and its store closure without depending on undocumented free space.
+      - name: Reclaim unused hosted-runner SDK space
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup
+          df -h /
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+
+      - name: Provision deterministic Rust build memory
+        run: |
+          set -euo pipefail
+          readonly gib_kib=$((1024 * 1024))
+          readonly min_physical_kib=$((15 * gib_kib))
+          readonly min_total_kib=$((24 * gib_kib))
+          readonly min_swap_kib=$((8 * gib_kib))
+          readonly max_swap_kib=$((16 * gib_kib))
+          readonly build_disk_reserve_kib=$((24 * gib_kib))
+
+          physical_kib="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)"
+          existing_swap_kib="$(awk '/^SwapTotal:/ { print $2 }' /proc/meminfo)"
+          if (( physical_kib < min_physical_kib )); then
+            echo "North's exact Codex release build requires at least 15 GiB physical RAM." >&2
+            echo "Configure NORTH_PACKAGE_RUNNER with a >=32 GiB runner label." >&2
+            exit 1
+          fi
+
+          swap_file=""
+          if (( physical_kib + existing_swap_kib < min_total_kib )); then
+            required_swap_kib=$((min_total_kib - physical_kib - existing_swap_kib))
+            if (( required_swap_kib < min_swap_kib )); then
+              swap_kib="$min_swap_kib"
+            else
+              swap_kib="$required_swap_kib"
+            fi
+            if (( swap_kib > max_swap_kib )); then
+              echo "Required swap exceeds North's 16 GiB CI safety bound." >&2
+              echo "Configure NORTH_PACKAGE_RUNNER with a >=32 GiB runner label." >&2
+              exit 1
+            fi
+
+            swap_file="${RUNNER_TEMP:?}/north-package-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.swap"
+            available_kib="$(df -Pk "${RUNNER_TEMP:?}" | awk 'NR == 2 { print $4 }')"
+            if (( available_kib < swap_kib + build_disk_reserve_kib )); then
+              echo "Insufficient disk for bounded CI swap plus a 24 GiB build reserve." >&2
+              echo "Configure NORTH_PACKAGE_RUNNER with a >=32 GiB runner label." >&2
+              exit 1
+            fi
+
+            echo "NORTH_CI_SWAP_FILE=$swap_file" >> "$GITHUB_ENV"
+            sudo fallocate -l "${swap_kib}K" "$swap_file"
+            sudo chmod 600 "$swap_file"
+            sudo mkswap "$swap_file"
+            sudo swapon "$swap_file"
+          else
+            echo "NORTH_CI_SWAP_FILE=" >> "$GITHUB_ENV"
+          fi
+
+          final_swap_kib="$(awk '/^SwapTotal:/ { print $2 }' /proc/meminfo)"
+          if (( physical_kib + final_swap_kib < min_total_kib )); then
+            echo "North's exact Codex release build requires 24 GiB combined RAM and swap." >&2
+            exit 1
+          fi
+          printf 'physical_kib=%s swap_kib=%s total_kib=%s\n' \
+            "$physical_kib" "$final_swap_kib" "$((physical_kib + final_swap_kib))"
+
+      # Codex 0.144.4's release/LTO link reached ~12.3 GiB RSS locally. Keep
+      # Cargo/Nix concurrency bounded on a standard runner; repositories with a
+      # >=32 GiB runner should set NORTH_PACKAGE_RUNNER to that runner label.
+      - name: Build exact patched Codex and packaged North
+        working-directory: north
+        run: |
+          set -euo pipefail
+          codex_check="$(nix build --no-link -L --print-out-paths \
+            --max-jobs 1 --cores 2 \
+            'path:.#checks.x86_64-linux.codex-version')"
+          test -e "$codex_check"
+          out="$(nix build --no-link -L --print-out-paths \
+            --max-jobs 1 --cores 2 \
+            'path:.#packages.x86_64-linux.default')"
+          test -x "$out/bin/north"
+
+      - name: Remove CI swap
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NORTH_CI_SWAP_FILE:-}" ]]; then
+            exit 0
+          fi
+          if awk -v path="$NORTH_CI_SWAP_FILE" \
+            'NR > 1 && $1 == path { found = 1 } END { exit !found }' /proc/swaps; then
+            sudo swapoff "${NORTH_CI_SWAP_FILE:?}"
+          fi
+          sudo rm -f "${NORTH_CI_SWAP_FILE:?}"

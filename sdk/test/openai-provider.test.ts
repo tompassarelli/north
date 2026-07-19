@@ -5,12 +5,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexHarnessArguments, openaiProvider } from "../src/providers/openai";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
+import {
+  codexHarnessArguments, internalOpenAIProviderWithManagedHooksProbeForTest, openaiProvider,
+} from "../src/providers/openai";
 import { ProviderRetrySafeError } from "../src/providers";
+import { anthropicProvider } from "../src/providers/anthropic";
+import { routedQueryWithRegistry } from "../src/providers/internal-router";
 import { harnessOptions } from "../src/harness";
 import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { selectProviderFromAvailability } from "../src/provider-routing";
 import { providerEnvironmentForTarget } from "../src/accounts";
 import { scrubAmbientGraphEnv } from "./support/managed-env";
+import { gatedTest } from "./support/capabilities";
 
 // When this suite runs inside a managed north lane, the ambient graph identity
 // (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
@@ -896,6 +904,106 @@ test("the executable Codex adapter rejects orchestrator authority before startin
     "openai_adapter_orchestrator_authority_unavailable",
   );
   expect(existsSync(marker)).toBe(false);
+});
+
+gatedTest("loopback-bind", "selected Codex account bootstrap fails during admission before onRoute or provider spawn", async () => {
+  let coordinatorLog = "";
+  const server = createServer((socket) => {
+    socket.once("data", (chunk) => {
+      if (chunk.toString("utf8").includes(":for-log")) {
+        socket.end("{:version 23}\n");
+      } else {
+        socket.end(
+          `{:reject ["fence required"] :code :log-fence-required :served-log ${JSON.stringify(coordinatorLog)}}\n`,
+        );
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const home = mkdtempSync(join(tmpdir(), "north-openai-target-admission-"));
+  temporary.push(home);
+  process.env.HOME = home;
+  process.env.AGENT_LAWS = "on";
+  process.env.GAFFER_HOME = realpathSync(savedGaffer ?? join(northRoot, "../gaffer"));
+  process.env.NORTH_PORT = String((server.address() as AddressInfo).port);
+  process.env.FRAM_LOG = join(home, "north target admission.log");
+  coordinatorLog = process.env.FRAM_LOG;
+  const codexHome = join(home, ".codex");
+  mkdirSync(codexHome);
+  writeFileSync(join(codexHome, "AGENTS.md"), "TARGET_ADMISSION_CANONICAL\n");
+
+  const target = {
+    id: "codex-broken-target",
+    provider: "openai" as const,
+    authMode: "isolated" as const,
+    profile: "broken-target",
+  };
+  const targetRoot = join(home, ".local/state/north/accounts/openai/broken-target");
+  mkdirSync(targetRoot, { recursive: true });
+  writeFileSync(join(targetRoot, "AGENTS.md"), "TARGET_REPLACEMENT_MUST_FAIL\n");
+
+  const marker = join(home, "provider-spawned");
+  const command = join(home, "fake-codex");
+  writeFileSync(command, `#!/usr/bin/env bash\nprintf spawned > "${marker}"\n`);
+  chmodSync(command, 0o700);
+  process.env.NORTH_CODEX_BIN = command;
+
+  const options = harnessOptions({
+    self: "openai-target-admission-proof",
+    provider: "openai",
+    cwd: northRoot,
+    routingMetadata: applyGafferStaffing({ role: "executor" }),
+    presenceRegistrar: false,
+  });
+  await expect(openaiProvider.admit!({
+    options: {
+      ...options,
+      env: { ...options.env, AGENT_LAWS: "off" },
+    },
+    target: { ...target, authMode: "ambient" },
+  })).rejects.toThrow("openai_harness_authority_seal_missing");
+  expect(existsSync(marker)).toBe(false);
+
+  const decision = selectProviderFromAvailability(
+    { provider: "openai", target: target.id },
+    [{ targetId: target.id, provider: "openai", available: true, reason: "ready" }],
+    {
+      mode: "balanced",
+      targets: [target],
+      targetOrder: [target.id],
+      providerOrder: ["openai"],
+      pressures: { openai: "normal" },
+    },
+    "economy",
+    "target-admission-proof",
+    "low",
+  );
+  let routePublished = false;
+  const query = routedQueryWithRegistry(
+    decision,
+    { prompt: "must not run", options },
+    "economy",
+    Object.freeze({
+      anthropic: anthropicProvider,
+      openai: Object.freeze(
+        internalOpenAIProviderWithManagedHooksProbeForTest(() => {}),
+      ),
+    }),
+    undefined,
+    () => { routePublished = true; },
+  );
+  try {
+    await expect(async () => {
+      for await (const _ of query as AsyncIterable<any>) {}
+    }).toThrow("openai_target_environment_invalid");
+    expect(routePublished).toBe(false);
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test("selected Codex account bootstrap refuses to replace an existing account path", () => {

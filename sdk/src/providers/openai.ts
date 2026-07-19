@@ -750,7 +750,11 @@ class CodexQuery implements AgentQuery {
   }
 }
 
-function providerWithManagedHooksProbe(
+/**
+ * @internal Hermetic test seam. Deliberately not exported by providers/index;
+ * production remains closed over assertInstalledManagedCodexHooks below.
+ */
+export function internalOpenAIProviderWithManagedHooksProbeForTest(
   assertManagedHooks: ManagedHooksProbe,
 ): AgentProvider {
   return {
@@ -770,5 +774,5 @@ function providerWithManagedHooksProbe(
 }
 
 export const openaiProvider: AgentProvider = Object.freeze(
-  providerWithManagedHooksProbe(assertInstalledManagedCodexHooks),
+  internalOpenAIProviderWithManagedHooksProbeForTest(assertInstalledManagedCodexHooks),
 );

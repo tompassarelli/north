@@ -918,6 +918,7 @@ const harnessActivityRenewers = new WeakMap<object, () => void>();
 interface HarnessAuthoritySeal {
   provider: ProviderId;
   optionKeys: readonly string[];
+  optionValues: readonly unknown[];
   systemPrompt: string;
   routingRequest: RoutingRequest;
   capabilities: readonly GafferCapability[];
@@ -968,9 +969,11 @@ function sealHarnessAuthority(options: Options, provider: ProviderId): void {
   const northServer = raw.mcpServers?.north;
   if (!evidence || typeof raw.systemPrompt !== "string"
       || !raw.env || !northServer || typeof raw.cwd !== "string") return;
+  const optionKeys = Object.keys(raw).sort();
   harnessAuthoritySeals.set(options as object, {
     provider,
-    optionKeys: Object.freeze(Object.keys(raw).sort()),
+    optionKeys: Object.freeze(optionKeys),
+    optionValues: Object.freeze(optionKeys.map((key) => deepFreeze(raw[key]))),
     systemPrompt: raw.systemPrompt,
     routingRequest: raw.northRoutingRequest,
     capabilities: raw.northCapabilities,
@@ -1005,7 +1008,9 @@ export function hasCanonicalHarnessAuthority(options: Options, provider: Provide
     seal
     && seal.provider === provider
     && optionKeys.length === seal.optionKeys.length
-    && optionKeys.every((key, index) => key === seal.optionKeys[index])
+    && optionKeys.every((key, index) =>
+      key === seal.optionKeys[index]
+      && Object.is(raw[key], seal.optionValues[index]))
     && raw.systemPrompt === seal.systemPrompt
     && raw.northRoutingRequest === seal.routingRequest
     && raw.northCapabilities === seal.capabilities

@@ -6,7 +6,8 @@
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def cli (str root "/cli/north-map.clj"))
-(def gaffer (str (.getParent (io/file root)) "/gaffer"))
+(def gaffer (or (System/getenv "GAFFER_HOME")
+                (str (.getParent (io/file root)) "/gaffer")))
 (def checks (atom []))
 (defn check [label value] (swap! checks conj [label (boolean value)]))
 (load-file (str root "/cli/batch-id.clj"))
