@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync,
 } from "node:fs";
@@ -12,6 +12,15 @@ import { harnessOptions } from "../src/harness";
 import { applyGafferStaffing } from "../src/gaffer-staffing";
 import { markExecutionAdmission } from "../src/execution-admission";
 import { selectProviderFromAvailability } from "../src/provider-routing";
+import { scrubAmbientGraphEnv } from "./support/managed-env";
+import { gatedTest } from "./support/capabilities";
+
+// When this suite runs inside a managed north lane, the ambient graph identity
+// (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
+// env whitelist and leaks into the compiled Codex MCP args, breaking the exact
+// hermetic env assertion below. Scrub the inherited pollution around every test;
+// each test that needs specific graph state sets it explicitly afterward.
+let restoreGraphEnv: (() => void) | undefined;
 
 const savedBin = process.env.NORTH_CODEX_BIN;
 const savedHome = process.env.HOME;
@@ -21,7 +30,12 @@ const savedLaws = process.env.AGENT_LAWS;
 const savedGaffer = process.env.GAFFER_HOME;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
 const temporary: string[] = [];
+beforeEach(() => {
+  restoreGraphEnv = scrubAmbientGraphEnv();
+});
 afterEach(() => {
+  restoreGraphEnv?.();
+  restoreGraphEnv = undefined;
   if (savedBin === undefined) delete process.env.NORTH_CODEX_BIN;
   else process.env.NORTH_CODEX_BIN = savedBin;
   if (savedHome === undefined) delete process.env.HOME;
@@ -378,7 +392,7 @@ test("the executable Codex adapter rejects orchestrator authority before startin
   expect(existsSync(marker)).toBe(false);
 });
 
-test("selected Codex account bootstrap fails during admission before onRoute or provider spawn", async () => {
+gatedTest("loopback-bind", "selected Codex account bootstrap fails during admission before onRoute or provider spawn", async () => {
   let coordinatorLog = "";
   const server = createServer((socket) => {
     socket.once("data", (chunk) => {

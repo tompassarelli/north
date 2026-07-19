@@ -15,6 +15,7 @@ import {
 import { harnessOptions, type HarnessCompositionEvidence } from "../src/harness";
 import { applyGafferStaffing, gafferCapabilities } from "../src/gaffer-staffing";
 import { agentRouteFacts } from "../src/identity";
+import { gatedTest } from "./support/capabilities";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
@@ -773,11 +774,11 @@ async function assertReadonlyCrossProviderFallback(
   expect(decision.fallbackPath).toEqual([initial, fallback]);
 }
 
-test("OpenAI read-only fallback to Anthropic preserves minimum authority and exact route", async () => {
+gatedTest("loopback-bind", "OpenAI read-only fallback to Anthropic preserves minimum authority and exact route", async () => {
   await assertReadonlyCrossProviderFallback("openai", "anthropic");
 });
 
-test("Anthropic read-only fallback to OpenAI preserves minimum authority and exact route", async () => {
+gatedTest("loopback-bind", "Anthropic read-only fallback to OpenAI preserves minimum authority and exact route", async () => {
   await assertReadonlyCrossProviderFallback("anthropic", "openai");
 });
 
@@ -838,7 +839,7 @@ test("Anthropic adapter diagnostics redact SDK failures across stream and contro
   }
 });
 
-test("Anthropic managed admission rejects every omitted authority boundary before SDK side effects", async () => {
+gatedTest("loopback-bind", "Anthropic managed admission rejects every omitted authority boundary before SDK side effects", async () => {
   let sequence = 0;
   const makeBase = () => harnessOptions({
     self: `anthropic-authority-probe-${sequence++}`,

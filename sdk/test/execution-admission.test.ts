@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { admitExecution, admitPinnedProvider } from "../src/execution-admission";
+import { gatedTest } from "./support/capabilities";
 
 const inheritedPort = process.env.NORTH_PORT;
 afterEach(() => {
@@ -44,7 +45,7 @@ test("every managed lane requires a live North coordinator before a provider tur
   }
 });
 
-test("admission never falls back to a later ambient North port", async () => {
+gatedTest("loopback-bind", "admission never falls back to a later ambient North port", async () => {
   const server = createServer((socket) => {
     socket.once("data", () => socket.end("{:version \"ambient-must-not-win\"}\n"));
   });
@@ -70,7 +71,7 @@ test("admission never falls back to a later ambient North port", async () => {
   }
 });
 
-test("admission rejects non-canonical corpus identities before opening a socket", async () => {
+gatedTest("loopback-bind", "admission rejects non-canonical corpus identities before opening a socket", async () => {
   let accepts = 0;
   const server = createServer((socket) => {
     accepts += 1;
@@ -101,7 +102,7 @@ test("admission rejects non-canonical corpus identities before opening a socket"
   }
 });
 
-test("admission probes the validated lane coordinator port, never a different ambient instance", async () => {
+gatedTest("loopback-bind", "admission probes the validated lane coordinator port, never a different ambient instance", async () => {
   const requests: string[] = [];
   const expectedLog = "/tmp/north admission corpus.log";
   const server = createServer((socket) => {
@@ -150,7 +151,7 @@ test("admission probes the validated lane coordinator port, never a different am
   }
 });
 
-test("admission rejects wrong-log and pre-fence coordinator replies", async () => {
+gatedTest("loopback-bind", "admission rejects wrong-log and pre-fence coordinator replies", async () => {
   for (const reply of [
     '{:reject ["wrong log"] :code :log-mismatch}\n',
     '{:error "unknown op"}\n',
@@ -177,7 +178,7 @@ test("admission rejects wrong-log and pre-fence coordinator replies", async () =
   }
 });
 
-test("admission bounds an unterminated coordinator response", async () => {
+gatedTest("loopback-bind", "admission bounds an unterminated coordinator response", async () => {
   const server = createServer((socket) => {
     socket.once("data", () => socket.write("x".repeat(4_097)));
   });
