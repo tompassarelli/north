@@ -71,6 +71,16 @@
    (when duration (fact telem run "duration_ms" duration))
    (when turns (fact telem run "num_turns" turns))))
 
+(defn struggle-observation! [run topology no-progress error-count triggers]
+  (fact telem run "struggle_detector_policy_version" "north:struggle-observer:v1")
+  (fact telem run "struggle_topology" topology)
+  (fact telem run "struggle_error_streak_threshold" "3")
+  (fact telem run "struggle_loop_repeat_threshold" "3")
+  (fact telem run "struggle_loop_window" "20")
+  (fact telem run "struggle_no_progress_turn_threshold" (str no-progress))
+  (fact telem run "error_count" (str error-count))
+  (doseq [trigger triggers] (fact telem run "struggle" trigger)))
+
 (defn requested-fingerprint! [run hash version domain]
   (let [identity (str "@agent:agent-" (subs run 5))]
     (when hash (fact coord identity "composition_contract_sha256" hash))
@@ -491,6 +501,55 @@
                 (not (str/includes? usage "?"))))
     (check "human promotion title frames bespoke patterns as template candidates"
            (str/includes? promotions
-                          "BESPOKE PATTERNS — stock-template review candidates")))
+                          "BESPOKE PATTERNS — stock-template review candidates"))
+
+    ;; Admission-time run facts are the only calibration input. Mutating the
+    ;; current thread grade after the run must not relabel its S cohort.
+    (run-facts! "@run-calibration-valid" "thread-preset" "openai" "ran" nil)
+    (fact telem "@run-calibration-valid" "judgment_grade" "s")
+    (fact telem "@run-calibration-valid" "judgment_grade_status" "valid")
+    (fact telem "@run-calibration-valid" "judgment_grade_source" "thread")
+    (struggle-observation! "@run-calibration-valid" "worker" 6 2
+                           ["no_progress" "tool_loop"])
+    (fact coord "@thread-preset" "judgment_grade" "l")
+
+    (run-facts! "@run-calibration-invalid" "thread-preset" "openai" "ran" nil)
+    (fact telem "@run-calibration-invalid" "judgment_grade_status" "invalid")
+    (fact telem "@run-calibration-invalid" "judgment_grade_source" "thread")
+    (struggle-observation! "@run-calibration-invalid" "worker" 6 0 [])
+
+    (run-facts! "@run-calibration-adhoc" "(ad-hoc)" "openai" "ran" nil)
+    (fact telem "@run-calibration-adhoc" "judgment_grade_status" "unavailable")
+    (fact telem "@run-calibration-adhoc" "judgment_grade_source" "ad-hoc")
+    (struggle-observation! "@run-calibration-adhoc" "worker" 6 0 [])
+
+    (let [calibration (run! "calibration")
+          cohort (first (:cohorts calibration))]
+      (check "calibration uses immutable run-local grade and full detector policy"
+             (and (= 20 (:runs calibration))
+                  (= 1 (:eligibleRuns calibration))
+                  (= {:valid 1 :unavailable 1 :invalid 1 :unrecorded 17}
+                     (:gradeStatus calibration))
+                  (= {:s 1 :m 0 :l 0} (:gradeCounts calibration))
+                  (= "s" (:judgmentGrade cohort))
+                  (= "worker" (:topology cohort))
+                  (= {:errorStreak 3 :loopRepeat 3 :loopWindow 20 :noProgressTurns 6}
+                     (:thresholds cohort))
+                  (= 1 (:struggleRuns cohort))
+                  (= 2 (:errorCount cohort))
+                  (= 1 (get-in cohort [:triggerCounts :no_progress]))
+                  (= 1 (get-in cohort [:triggerCounts :tool_loop]))))
+      (check "mutable thread grade cannot bleed into completed-run calibration"
+             (and (= "l" (one (fold-facts (read-ops [(.getPath coord)]))
+                              "@thread-preset" "judgment_grade"))
+                  (= "s" (:judgmentGrade cohort)))))
+
+    (let [human-calibration
+          (:out (proc/shell {:out :string :err :string :extra-env env}
+                            (str root "/bin/north") "routing" "report" "calibration"))]
+      (check "human calibration view exposes status and immutable cohorts"
+             (and (str/includes? human-calibration "ROUTING CALIBRATION")
+                  (str/includes? human-calibration "grades={:s 1, :m 0, :l 0}")
+                  (str/includes? human-calibration "s/worker runs=1")))))
   (finally
     (doseq [file (reverse (file-seq tmp))] (io/delete-file file true))))

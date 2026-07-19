@@ -14,7 +14,7 @@
 
 (def multi-preds #{"done_when" "bar_evidence" "domain_requirement"
                    "applied_capability" "applied_domain_requirement"
-                   "composition_override" "applied_preset_override"})
+                   "composition_override" "applied_preset_override" "struggle"})
 
 (def canonical-gaffer-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
@@ -37,6 +37,10 @@
 (def safe-role-id-pattern #"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 (def managed-composition-kinds #{"preset" "bespoke"})
 (def delivery-outcomes #{"unverified" "reported" "verified" "blocked"})
+(def judgment-grade-values #{"s" "m" "l"})
+(def judgment-grade-status-values #{"valid" "unavailable" "invalid"})
+(def judgment-grade-source-values #{"thread" "ad-hoc"})
+(def struggle-trigger-values #{"consecutive_errors" "tool_loop" "no_progress"})
 (def routing-override-fields
   ["taskGrade" "domainRequirements" "tier" "reasoning" "posture"])
 (declare normalized-token normalized-domains capability-summary attributed?)
@@ -442,6 +446,24 @@
           legacy-debt (vec (concat common-applied-debt preset-applied-debt
                                    bespoke-applied-debt))]
       {:entity entity :thread thread
+       ;; Calibration evidence is immutable and RUN-LOCAL. Never fall back to
+       ;; current thread/agent facts for these fields: later grade edits must not
+       ;; relabel a completed run.
+       :judgmentGrade (normalized-token (one facts entity "judgment_grade"))
+       :judgmentGradeStatus (normalized-token (one facts entity "judgment_grade_status"))
+       :judgmentGradeSource (normalized-token (one facts entity "judgment_grade_source"))
+       :struggleTriggers (vec (many facts entity "struggle"))
+       :struggleDetectorPolicyVersion
+       (normalized-token (one facts entity "struggle_detector_policy_version"))
+       :struggleTopology (normalized-token (one facts entity "struggle_topology"))
+       :struggleErrorStreakThreshold
+       (maybe-positive-long (one facts entity "struggle_error_streak_threshold"))
+       :struggleLoopRepeatThreshold
+       (maybe-positive-long (one facts entity "struggle_loop_repeat_threshold"))
+       :struggleLoopWindow (maybe-positive-long (one facts entity "struggle_loop_window"))
+       :struggleNoProgressTurnThreshold
+       (maybe-positive-long (one facts entity "struggle_no_progress_turn_threshold"))
+       :struggleErrorCount (maybe-long (one facts entity "error_count"))
        :provider (get' "provider" "unattributed")
        :tier (or (:tier effective-axes)
                  (when-let [value (:tier requested-axes)]
@@ -698,12 +720,83 @@
                                       #(str/join "," (:compositionIds %))))
                         vec)}))
 
+(defn calibration-observation-valid? [row]
+  (let [grade (:judgmentGrade row)
+        status (:judgmentGradeStatus row)
+        source (:judgmentGradeSource row)
+        topology (:struggleTopology row)
+        repeat-threshold (:struggleLoopRepeatThreshold row)
+        loop-window (:struggleLoopWindow row)
+        triggers (:struggleTriggers row)]
+    (and (= "valid" status)
+         (judgment-grade-values grade)
+         (= "thread" source)
+         (#{"worker" "orchestrator"} topology)
+         (attributed? (:struggleDetectorPolicyVersion row))
+         (every? pos-int?
+                 [(:struggleErrorStreakThreshold row)
+                  repeat-threshold loop-window
+                  (:struggleNoProgressTurnThreshold row)])
+         (<= repeat-threshold loop-window)
+         (some? (:struggleErrorCount row))
+         (not (neg? (:struggleErrorCount row)))
+         (= (count triggers) (count (distinct triggers)))
+         (every? struggle-trigger-values triggers))))
+
+(defn calibration-cohort-key [row]
+  [(:judgmentGrade row) (:struggleTopology row)
+   (:struggleDetectorPolicyVersion row)
+   (:struggleErrorStreakThreshold row)
+   (:struggleLoopRepeatThreshold row)
+   (:struggleLoopWindow row)
+   (:struggleNoProgressTurnThreshold row)])
+
+(defn calibration-row [[[grade topology version error-streak loop-repeat loop-window no-progress]
+                        rows]]
+  (let [triggers (mapcat :struggleTriggers rows)]
+    {:judgmentGrade grade
+     :topology topology
+     :policyVersion version
+     :thresholds {:errorStreak error-streak
+                  :loopRepeat loop-repeat
+                  :loopWindow loop-window
+                  :noProgressTurns no-progress}
+     :runs (count rows)
+     :struggleRuns (count (filter #(seq (:struggleTriggers %)) rows))
+     :triggerCounts (into (sorted-map) (frequencies triggers))
+     :errorCount (reduce + (map :struggleErrorCount rows))}))
+
+(defn calibration-report [rows]
+  (let [all-rows (vec rows)
+        valid-rows (vec (filter calibration-observation-valid? all-rows))
+        exact-grade-counts (frequencies (map :judgmentGrade valid-rows))
+        statuses (frequencies (map #(or (:judgmentGradeStatus %) "unrecorded") all-rows))]
+    {:report "calibration"
+     :claim (str "judgment grade and detector configuration are immutable run-local observations; "
+                 "current thread facts are never calibration inputs")
+     :runs (count all-rows)
+     :eligibleRuns (count valid-rows)
+     :excludedRuns (- (count all-rows) (count valid-rows))
+     :gradeStatus {:valid (get statuses "valid" 0)
+                   :unavailable (get statuses "unavailable" 0)
+                   :invalid (get statuses "invalid" 0)
+                   :unrecorded (get statuses "unrecorded" 0)}
+     :gradeCounts {:s (get exact-grade-counts "s" 0)
+                   :m (get exact-grade-counts "m" 0)
+                   :l (get exact-grade-counts "l" 0)}
+     :cohorts (->> valid-rows
+                   (group-by calibration-cohort-key)
+                   (map calibration-row)
+                   (sort-by (juxt :judgmentGrade :topology :policyVersion))
+                   vec)}))
+
 (defn report [kind rows & [{:keys [all?] :or {all? false}}]]
   (case kind
     "performance" (performance-report rows all?)
     "usage" (usage-report rows)
     "promotions" (promotions-report rows)
-    (throw (ex-info "usage: north routing report [performance|usage|promotions] [--json] [--all]" {}))))
+    "calibration" (calibration-report rows)
+    (throw (ex-info "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all]" {}))))
 
 (defn print-table [data]
   (case (:report data)
@@ -783,7 +876,21 @@
               (when (:hasDriftEvidence row)
                 (println "  drift=" (str/join "," (:driftedCompositionIds row))))
               (when (:legacyDebt row)
-                (println "  debt=" (str/join "," (:legacyDebtReasons row))))))))))
+                (println "  debt=" (str/join "," (:legacyDebtReasons row))))))))
+    "calibration"
+    (do
+      (println "ROUTING CALIBRATION — immutable run-local judgment + struggle evidence")
+      (println (format "runs=%d eligible=%d excluded=%d status=%s grades=%s"
+                       (:runs data) (:eligibleRuns data) (:excludedRuns data)
+                       (pr-str (:gradeStatus data)) (pr-str (:gradeCounts data))))
+      (if (empty? (:cohorts data))
+        (println "  (no complete run-local calibration observations)")
+        (doseq [row (:cohorts data)]
+          (println (format "%s/%s runs=%d struggle=%d errors=%d thresholds=%s triggers=%s"
+                           (:judgmentGrade row) (:topology row) (:runs row)
+                           (:struggleRuns row) (:errorCount row)
+                           (pr-str (:thresholds row))
+                           (pr-str (:triggerCounts row)))))))))
 
 (defn -main [& args]
   (let [[verb kind & flags] args
@@ -791,12 +898,12 @@
         unknown-flags (remove allowed-flags flags)
         all? (some #{"--all"} flags)]
     (when-not (= verb "report")
-      (binding [*out* *err*] (println "usage: north routing report [performance|usage|promotions] [--json] [--all]"))
+      (binding [*out* *err*] (println "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all]"))
       (System/exit 2))
     (when (seq unknown-flags)
       (binding [*out* *err*]
         (println "unknown routing report option:" (first unknown-flags))
-        (println "usage: north routing report [performance|usage|promotions] [--json] [--all]"))
+        (println "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all]"))
       (System/exit 2))
     (when (and all? (not= (or kind "performance") "performance"))
       (binding [*out* *err*] (println "--all applies only to the performance report"))

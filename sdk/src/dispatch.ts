@@ -62,6 +62,15 @@ import {
 } from "./delivery-evidence";
 import { takeDispatchTestRuntime } from "./internal/test-runtime";
 import { ManagedLiveInputRoute } from "./live-input-route";
+import {
+  makeStruggleObserver, resolveStrugglePolicy,
+  assertExpectedStrugglePolicy,
+  type StrugglePolicy,
+} from "./struggle";
+import {
+  judgmentGradeFromThreadFacts,
+  type JudgmentGradeSnapshot,
+} from "./judgment-grade";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -142,6 +151,8 @@ export function selectDispatchAgentId(
 
 async function runDispatch(
   threadId: string,
+  judgmentGrade: JudgmentGradeSnapshot,
+  strugglePolicy: StrugglePolicy,
   envelopeAdmission?: EnvelopeAdmission,
   hydratedMetadata?: RoutingRequest,
   hydratedWorkingDirectory?: string,
@@ -179,8 +190,10 @@ async function runDispatch(
   // DISPATCHER's call, not the worker's — it feeds the threshold detector, fable gate, and
   // calibration report. Warn (teach, never block or inject) when a committed thread lacks it,
   // mirroring the done_when warn above. Bands live in docs/provider-architecture.md.
-  if (posture.committed && !facts.some((f) => f.predicate === "judgment_grade")) {
+  if (posture.committed && judgmentGrade.status === "unavailable") {
     console.log(`[dispatch] ⚠ @${threadId} committed but has NO judgment_grade — set s|m|l (S≤3 / M 4-11 / L≥12 expected decision points) so the detector can calibrate`);
+  } else if (judgmentGrade.status === "invalid") {
+    console.log(`[dispatch] ⚠ @${threadId} has malformed legacy judgment_grade evidence — replace it with exact s|m|l before calibration`);
   }
 
   if (posture.hasOutcome) {
@@ -303,6 +316,7 @@ async function runDispatch(
   const bgTracker = makeBgTracker();
   let bgContinuations = 0;
   const orchestrator = routingMetadata.topology === "orchestrator";
+  const struggle = makeStruggleObserver(strugglePolicy);
   let childContinuation = initialChildContinuationState();
   let q: AgentQuery | undefined;
   let injectedCompositionEvidence: HarnessCompositionEvidence | undefined;
@@ -399,6 +413,15 @@ async function runDispatch(
         console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
       }
       if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
+
+      const struggleTrigger = struggle.observe(msg);
+      if (struggleTrigger) {
+        console.error(
+          `[struggle] @agent:${agentId} sensor fired: ${struggleTrigger} `
+          + `(turn ${struggle.state.turn}, ${struggle.state.totalErrors} tool error(s)) `
+          + "— recorded as execution-axis evidence, no in-flight change",
+        );
+      }
 
       if (msg.type === "result") {
         terminalMessages.push(msg);
@@ -698,7 +721,10 @@ async function runDispatch(
               deliveryOutcome: terminal.deliveryOutcome,
               deliveryReason: terminal.deliveryReason,
               deliveryProof: terminal.deliveryProof,
-              numTurns }, runId, publicationBudget.publicationTimeout(1));
+              numTurns,
+              judgmentGrade,
+              struggleObservation: struggle.snapshot(),
+              }, runId, publicationBudget.publicationTimeout(1));
   notifyTerminalSettlement(
     agentId,
     coordHandle,
@@ -739,9 +765,14 @@ export async function dispatch(
       "dispatch", routingMetadata.topology, callerTopology,
     );
   }
+  // The detector policy is an admission input: reject malformed overrides before
+  // any graph claim, clock, resource envelope, or provider-selection side effect.
+  const strugglePolicy = resolveStrugglePolicy(routingMetadata.topology!);
+  assertExpectedStrugglePolicy(strugglePolicy);
   // Avoid charging an admission for an unknown or already-completed thread.
   const facts = (injected.loadThreadFacts ?? getThreadFacts)(threadId);
   if (!facts.length) throw new Error(`Thread @${threadId} not found or has no facts`);
+  const judgmentGrade = judgmentGradeFromThreadFacts(facts);
   const children = (injected.loadChildren ?? getChildren)(threadId);
   const preflight = derivePosture(facts, children.length > 0);
   if (preflight.hasOutcome) {
@@ -786,7 +817,8 @@ export async function dispatch(
     });
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
     return await runDispatch(
-      threadId, admission, routingMetadata, workingDirectory, agentId, injected.queryFn,
+      threadId, judgmentGrade, strugglePolicy,
+      admission, routingMetadata, workingDirectory, agentId, injected.queryFn,
       facts, children, injected.loadThreadFacts ?? getThreadFacts,
       injected.deliveryRuntime,
       injected.childSettlementReader,

@@ -23,6 +23,8 @@
                          (str GAFFER "/staffing/catalog.json")))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION "north:agent-roster:v1")
+(def STRUGGLE-POLICY-CLI (str NORTH "/sdk/src/struggle.ts"))
+(def POLICY-BUN (or (System/getenv "NORTH_POLICY_BUN") "bun"))
 
 (load-file (str NORTH "/cli/spawn-process.clj"))
 (load-file (str NORTH "/cli/topology-authority.clj"))
@@ -52,6 +54,22 @@
     (catch Exception e {:error (.getMessage e) :ok false})))
 
 (defn echo-cmd [& parts] (println (dim (str "» " (str/join " " parts)))))
+
+(defn resolve-struggle-policy! [topology]
+  (let [result (run [POLICY-BUN "run" STRUGGLE-POLICY-CLI "policy" topology])
+        raw (str/trim (or (:out result) ""))
+        parsed (try (json/parse-string raw true) (catch Exception _ nil))]
+    (when-not (and (:ok result) (map? parsed)
+                   (= topology (:topology parsed))
+                   (string? (:version parsed))
+                   (every? pos-int? (map parsed
+                                          [:errorStreak :loopRepeat :loopWindow
+                                           :noProgressTurns])))
+      (binding [*out* *err*]
+        (println (red (or (not-empty (str/trim (or (:err result) "")))
+                          "could not resolve struggle detector policy"))))
+      (System/exit 1))
+    (assoc parsed :canonical raw)))
 
 ;; ---- gaffer staffing catalog (canonical; generated markdown is adapter-only) -
 (defn gaffer-catalog []
@@ -1145,7 +1163,8 @@
       capability-problem
       (do (println (red capability-problem)) (System/exit 1))
       :else
-      (let [model (:model base) synthetic-effort (:effort base) synthetic-reasoning (:reasoning base)
+      (let [struggle-policy (resolve-struggle-policy! selected-topology)
+            model (:model base) synthetic-effort (:effort base) synthetic-reasoning (:reasoning base)
             gaffer-preset (:gaffer-preset base) semantic (:semantic base)
             delegate-binding (when *delegate-request*
                                (resolve-delegate-thread! *delegate-request* dry?))
@@ -1160,7 +1179,8 @@
                                 (assoc selected-composition :contract canonical-contract)
                                 selected-composition)
             aid (north.spawn-process/create-agent-id "lane")
-            env (cond-> {"AGENT_ID" aid}
+            env (cond-> {"AGENT_ID" aid
+                         "NORTH_STRUGGLE_POLICY_EXPECTED" (:canonical struggle-policy)}
                   selected-role (assoc "AGENT_IDENTITY_ROLE" selected-role)
                   selected-grade (assoc "AGENT_TASK_GRADE" selected-grade)
                   (or canonical bespoke?) (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string selected-domains))
@@ -1180,7 +1200,7 @@
             child-env (north.managed-child-env/child
                        (into {} (System/getenv)) immediate-coordinator env)
             spawn-ts (str NORTH "/sdk/src/spawn.ts")
-            display-env (cond-> env
+            display-env (cond-> (dissoc env "NORTH_STRUGGLE_POLICY_EXPECTED")
                           bespoke? (assoc "AGENT_COMPOSITION" "REDACTED_BESPOKE_CONTRACT"))
             envs (str/join " " (map (fn [[k v]] (str k "=" v)) (sort display-env)))
             dry-route (dry-resolved-route provider selected-tier
@@ -1232,6 +1252,13 @@
                       (when selected-posture (str " posture=" selected-posture))
                       (when selected-topology (str " topology=" selected-topology))
                       (when (seq selected-domains) (str " domains=" (str/join "," selected-domains)))))
+        (println (dim "# struggle observer ->")
+                 (str "policy=" (:version struggle-policy)
+                      " topology=" (:topology struggle-policy)
+                      " error-streak=" (:errorStreak struggle-policy)
+                      " loop-repeat=" (:loopRepeat struggle-policy)
+                      " loop-window=" (:loopWindow struggle-policy)
+                      " no-progress-turns=" (:noProgressTurns struggle-policy)))
         (when bespoke?
           (println (dim "# bespoke evidence ->")
                    (str "version=" bespoke-fingerprint-version

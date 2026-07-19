@@ -30,6 +30,9 @@ const MANAGED_ENV = [
   "NORTH_PROVIDER_OBSERVATIONS", "NORTH_ALLOCATION_MODE", "NORTH_PROVIDER_ORDER",
   "NORTH_PROVIDER_WEIGHTS", "NORTH_RESERVED_FRONTIER_PROVIDER",
   "NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE", "NORTH_OPENAI_ENTITLEMENT_PRESSURE",
+  "NORTH_STRUGGLE_POLICY_EXPECTED", "STRUGGLE_ERROR_STREAK",
+  "STRUGGLE_LOOP_REPEAT", "STRUGGLE_LOOP_WINDOW", "STRUGGLE_STALL_TURNS",
+  "STRUGGLE_STALL_TURNS_ORCHESTRATOR",
 ] as const;
 const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
@@ -87,6 +90,12 @@ exit 0
   delete process.env.NORTH_RESERVED_FRONTIER_PROVIDER;
   delete process.env.NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE;
   delete process.env.NORTH_OPENAI_ENTITLEMENT_PRESSURE;
+  delete process.env.NORTH_STRUGGLE_POLICY_EXPECTED;
+  delete process.env.STRUGGLE_ERROR_STREAK;
+  delete process.env.STRUGGLE_LOOP_REPEAT;
+  delete process.env.STRUGGLE_LOOP_WINDOW;
+  delete process.env.STRUGGLE_STALL_TURNS;
+  delete process.env.STRUGGLE_STALL_TURNS_ORCHESTRATOR;
   delete process.env.AGENT_ID;
   delete process.env.NORTH_AGENT_ID;
   delete process.env.AGENT_MODEL;
@@ -144,6 +153,10 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   );
   const runLines = await settledRunLines("test-done-ok");
   expect(runLines.some((line) => line.endsWith(" thread (ad-hoc)"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" judgment_grade_status unavailable"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" judgment_grade_source ad-hoc"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" struggle_topology worker"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" struggle_no_progress_turn_threshold 6"))).toBe(true);
 });
 
 test("a lane that dies mid-stream records outcome=died ON the lane entity (reported, not silent)", async () => {
@@ -266,6 +279,7 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
         { predicate: "title", value: "Empty provider dispatch" },
         { predicate: "planned", value: "true" },
         { predicate: "atomic", value: "true" },
+        { predicate: "judgment_grade", value: "s" },
       ];
     },
     loadChildren: (threadId: string) => {
@@ -286,6 +300,10 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
   );
   expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" judgment_grade s"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" judgment_grade_status valid"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" judgment_grade_source thread"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" struggle_topology worker"))).toBe(true);
   expect(lines.some((line) => line.includes("@@test-empty-dispatch"))).toBe(false);
 });
 
@@ -501,7 +519,7 @@ test("a blocked auxiliary terminal writer cannot stack beyond the shared publica
 
 
 test("dispatch warns a committed thread that lacks BOTH done_when and judgment_grade", async () => {
-  const { dispatch } = await import("../src/dispatch");
+  const { dispatch } = await import("./support/dispatch");
   writeFileSync(log, "");
   const captured: string[] = [];
   const originalLog = console.log;
@@ -509,7 +527,7 @@ test("dispatch warns a committed thread that lacks BOTH done_when and judgment_g
   try {
     await dispatch("@test-warn-thread", {
       agentId: "test-warn-thread-agent",
-      routingMetadata: { role: "integrator" },
+      routingMetadata: presetRequest("integrator"),
       claimDriver: (() => ({ release() { return true; } })) as any,
       queryFn: () => (async function* () {})() as any,
       loadThreadFacts: () => [
@@ -760,7 +778,7 @@ test("spawn reserves before provider execution and binds evidence plus telemetry
     },
   });
   expect(result).toBe("evidence recorded");
-  expect(events.slice(0, 2)).toEqual(["reserve", "provider"]);
+  expect(events.slice(0, 3)).toEqual(["thread-read", "reserve", "provider"]);
   const logged = await waitForLog(
     "tell agent:test-proof-bound-spawn delivery_outcome reported",
   );
@@ -1636,7 +1654,7 @@ test("a struggle sensor firing records a struggle run fact without any in-flight
   // EVERY spawn as harness-observed execution-axis evidence: a fired sensor writes a
   // `struggle <reason>` run fact at terminal and never changes model/effort. Three
   // consecutive tool errors trip the consecutive_errors sensor (STRUGGLE_ERROR_STREAK=3).
-  const { spawn } = await import("../src/spawn");
+  const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let modelChanged = false;
   const queryFn: any = () => ({
@@ -1653,10 +1671,13 @@ test("a struggle sensor firing records a struggle run fact without any in-flight
   });
 
   await spawn({ prompt: "hit repeated errors", agentId: "test-struggle-lane",
-    role: "integrator", provider: "anthropic", queryFn });
+    role: "integrator", routingMetadata: presetRequest("integrator"),
+    provider: "anthropic", queryFn });
 
   const logged = await waitForLog("struggle consecutive_errors");
   expect(logged).toContain("struggle consecutive_errors");
+  expect(logged).toContain("struggle_detector_policy_version north:struggle-observer:v1");
+  expect(logged).toContain("struggle_error_streak_threshold 3");
   console.log(`[bar-evidence] ${logged.split("\n").find((l) => l.includes("struggle consecutive_errors"))}`);
   // The run still finished normally at its original route — no ladder climb.
   expect(modelChanged).toBe(false);

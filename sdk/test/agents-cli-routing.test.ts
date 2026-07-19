@@ -52,6 +52,54 @@ test("director is the canonical orchestrator role and topology names fail pedago
   }
 });
 
+test("CLI dry preview uses the exact topology policy selected for execution", () => {
+  expect(dry("integrator", "openai")).toContain(
+    "policy=north:struggle-observer:v1 topology=worker error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=6",
+  );
+  expect(dry("director", "openai")).toContain(
+    "policy=north:struggle-observer:v1 topology=orchestrator error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=12",
+  );
+
+  const overridden = spawnSync("bb", [
+    cli, "spawn", "director", "probe", "--provider", "openai", "--dry-run",
+  ], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      GAFFER_HOME: gaffer,
+      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      STRUGGLE_ERROR_STREAK: "5",
+      STRUGGLE_LOOP_REPEAT: "4",
+      STRUGGLE_LOOP_WINDOW: "30",
+      STRUGGLE_STALL_TURNS: "9",
+      STRUGGLE_STALL_TURNS_ORCHESTRATOR: "18",
+    },
+  });
+  expect(overridden.status).toBe(0);
+  expect(overridden.stdout).toContain(
+    "topology=orchestrator error-streak=5 loop-repeat=4 loop-window=30 no-progress-turns=18",
+  );
+  // The full JSON witness is deliberately not printed in the shell command.
+  expect(overridden.stdout).not.toContain("NORTH_STRUGGLE_POLICY_EXPECTED");
+
+  const invalid = spawnSync("bb", [
+    cli, "spawn", "integrator", "probe", "--provider", "openai", "--dry-run",
+  ], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      GAFFER_HOME: gaffer,
+      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      STRUGGLE_STALL_TURNS: "0",
+    },
+  });
+  expect(invalid.status).toBe(1);
+  expect(invalid.stderr).toContain("positive integer between 1 and 1000");
+  expect(invalid.stdout).not.toContain("[dry-run]");
+});
+
 test("a managed CLI orchestrator can spawn workers but cannot grow another orchestrator tier", () => {
   const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args, "--dry-run"], {
     encoding: "utf8",
@@ -76,6 +124,8 @@ test("a managed CLI orchestrator can spawn workers but cannot grow another orche
     ),
     run(
       "migration-director", "bespoke nested director",
+      "--task-grade", "staff", "--tier", "senior",
+      "--reasoning", "high", "--posture", "deliver",
       "--topology", "orchestrator", "--rationale", "one-off coordination shape",
       "--contract", bespokeOrchestratorContract, "--no-promotion-candidate",
     ),
@@ -432,6 +482,7 @@ test("a partial structured capture fails closed before any provider process star
       env: {
         ...process.env,
         PATH: `${directory}:${process.env.PATH}`,
+        NORTH_POLICY_BUN: process.execPath,
         NORTH_BIN: fake.command,
         NORTH_RUN_ID: "",
         NORTH_THREAD_ID: "",
@@ -466,7 +517,8 @@ test("judge is the premium high-leverage verdict role", () => {
 
 test("bespoke roles require a structured contract and explicit promotion decision", () => {
   const ordinary = dry("migration-forensics", "openai", "--rationale", "one-off probe",
-    "--contract", bespokeContract);
+    "--contract", bespokeContract, "--task-grade", "senior", "--tier", "senior",
+    "--reasoning", "high", "--posture", "explore", "--topology", "worker");
   expect(ordinary).toContain("AGENT_COMPOSITION=REDACTED_BESPOKE_CONTRACT");
   expect(ordinary).toContain(`version=${BESPOKE_FINGERPRINT_VERSION}`);
   expect(ordinary).toContain(`domain=${BESPOKE_FINGERPRINT_DOMAIN}`);

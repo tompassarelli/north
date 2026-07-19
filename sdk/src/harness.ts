@@ -36,6 +36,7 @@ import {
   MAX_READONLY_COMMAND_BYTES, READONLY_SHELL_SERVER, READONLY_SHELL_TOOL, runReadonlyShell,
 } from "./readonly-shell";
 import { managedNorthMcpEnvironment } from "./execution-admission";
+import { requireJudgmentGrade } from "./judgment-grade";
 
 // sdk/src/harness.ts -> its relocatable runtime root.
 const REPO = resolve(import.meta.dir, "../..");
@@ -78,6 +79,7 @@ export function validatePeerCommandArgs(op: PeerOperation, args: Record<string, 
   if (op === "tell") {
     exactPeerFields(args, ["id", "pred", "value"], op);
     if (!["id", "pred", "value"].every(nonEmpty)) throw new Error("tell requires id, pred, and value");
+    if (args.pred === "judgment_grade") requireJudgmentGrade(args.value);
     return;
   }
   if (op === "acquire") {

@@ -178,10 +178,12 @@
 (load-file (str root "/cli/topology-authority.clj"))
 (def sdk-dir (str root "/sdk/src"))
 (def bun (or (System/getenv "NORTH_MCP_BUN") "bun"))
+(def policy-bun (or (System/getenv "NORTH_POLICY_BUN") "bun"))
 (def driver-bb (or (System/getenv "NORTH_MCP_BB") "bb"))
 (def driver-cli (str root "/cli/acquire-cli.clj"))
 (def north-port (or (System/getenv "NORTH_PORT") "7977"))
 (def route-preflight (str sdk-dir "/mcp-route-preflight.ts"))
+(def struggle-policy-cli (str sdk-dir "/struggle.ts"))
 (def gaffer-staffing-path
   (or (System/getenv "GAFFER_STAFFING_CATALOG")
       (str (or (System/getenv "GAFFER_HOME")
@@ -673,6 +675,18 @@
         (let [message (str/trim (str err (when (and (seq err) (seq out)) "\n") out))]
           (if (str/blank? message) "exact routing target preflight failed" message))))))
 
+(defn preflight-struggle-policy [args]
+  ;; The MCP edge always invokes the same resolver as execution. Its exact JSON
+  ;; becomes a one-shot child witness, so defaults and overrides alike cannot
+  ;; diverge between admission, selection, and the SDK observer.
+  (let [{:keys [out err exit]}
+        (proc/sh policy-bun "run" struggle-policy-cli "policy" (get args "topology"))
+        expected (str/trim out)]
+    (if (zero? exit)
+      {:expected expected}
+      {:problem (or (not-empty (str/trim err))
+                    "invalid struggle detector policy")})))
+
 (defn call-sdk [nm raw-args]
   (let [args (canonicalize-bespoke-routing raw-args)]
     (if-let [problem (north.topology-authority/authority-problem nm)]
@@ -681,9 +695,15 @@
       {:content [{:type "text" :text problem}] :isError true}
       (if-let [problem (preflight-exact-target args)]
         {:content [{:type "text" :text problem}] :isError true}
+        (let [struggle-preflight (preflight-struggle-policy args)]
+          (if-let [problem (:problem struggle-preflight)]
+            {:content [{:type "text" :text problem}] :isError true}
         (let [parent-env (materialize-instance-env (into {} (System/getenv)))
             coordinator (resolve-coordinator parent-env args)
-            env (north.managed-child-env/scrub parent-env)]
+            env (cond-> (north.managed-child-env/scrub parent-env)
+                  (:expected struggle-preflight)
+                  (assoc "NORTH_STRUGGLE_POLICY_EXPECTED"
+                         (:expected struggle-preflight)))]
         (case nm
           "dispatch"
           (let [id (canonical-north-thread-id (get args "id"))
@@ -792,7 +812,7 @@
                :isError true}))
             (catch Exception _
               {:content [{:type "text" :text "could not start an ad-hoc agent"}]
-               :isError true}))))))))))
+               :isError true}))))))))))))
 
 ;; `untell` is an accepted legacy alias for `retract` — route it to the same tool.
 (def tool-aliases {"untell" "retract"})

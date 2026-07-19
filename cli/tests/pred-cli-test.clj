@@ -168,6 +168,10 @@
     "reasoning_output_tokens" "requested_effort" "requested_model"
     "requested_provider" "requested_reasoning" "requested_role"
     "requested_target" "requested_tier" "role" "routing_posture" "routing_tier"
+    "judgment_grade" "judgment_grade_status" "judgment_grade_source"
+    "struggle_detector_policy_version" "struggle_topology"
+    "struggle_error_streak_threshold" "struggle_loop_repeat_threshold"
+    "struggle_loop_window" "struggle_no_progress_turn_threshold"
     "task_grade" "thread" "tokens" "topology" "usage_scope"
     "usage_terminal_count" "usage_total_status"})
 (def audited-run-predicates (set/union audited-run-single audited-run-multi))

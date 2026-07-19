@@ -17,9 +17,21 @@ import { GAFFER_CAPABILITIES } from "./gaffer-capabilities";
 import type { DeliveryProof } from "./delivery-verification";
 import type { ProviderAuthoritySurface } from "./providers";
 import { providerBilling, settleSpend } from "./spend-guard";
+import {
+  parseJudgmentGrade,
+  type JudgmentGradeSnapshot,
+} from "./judgment-grade";
+import {
+  STRUGGLE_DETECTOR_POLICY_VERSION,
+  STRUGGLE_THRESHOLD_MAX,
+  type StruggleObservation,
+} from "./struggle";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
+const STRUGGLE_TRIGGER_VALUES: ReadonlySet<string> = new Set([
+  "consecutive_errors", "tool_loop", "no_progress",
+]);
 
 export interface RunRecord {
   thread: string; // the thread driven, or "(ad-hoc)" for a bare spawn
@@ -70,10 +82,10 @@ export interface RunRecord {
   // row per tier (north-reconcile.clj queries adapt in lockstep — follow-up).
   numTurns?: number; // SDKResultMessage.num_turns (was dropped before)
   compactions?: number; // count of SDK compact_boundary events observed this run (audit fix 4)
-  errorCount?: number; // tool_result errors this run
-  // Harness-observed struggle sensors that fired this run (escalation-arch D2/D5):
-  // consecutive_errors | tool_loop | no_progress. Multi-valued execution-axis evidence.
-  struggleTriggers?: string[];
+  /** Immutable admission-time dispatcher judgment; required by recordRun. */
+  judgmentGrade?: JudgmentGradeSnapshot;
+  /** Provider-neutral observer result; required by recordRun. */
+  struggleObservation?: StruggleObservation;
   // Legacy in-flight escalation fields — the machinery is retired; these stay so
   // historical @run rows (escalation_* facts, routing-report escalated column) keep
   // reading. No current producer sets them.
@@ -88,6 +100,10 @@ export interface RunRecord {
   spendPeriod?: string;
   spendReservationMicrousd?: number;
 }
+
+export type ObservedRunRecord = RunRecord & Required<
+  Pick<RunRecord, "judgmentGrade" | "struggleObservation">
+>;
 
 export type RunPublicationStatus = "recorded" | "unavailable";
 
@@ -259,8 +275,65 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
   if (rec.compactions) facts.push(["compactions", String(rec.compactions)]);
-  if (rec.errorCount != null) facts.push(["error_count", String(rec.errorCount)]);
-  for (const reason of rec.struggleTriggers ?? []) facts.push(["struggle", reason]);
+  if (rec.judgmentGrade) {
+    const snapshot = rec.judgmentGrade;
+    const validGrade = parseJudgmentGrade(snapshot.grade);
+    const valid = snapshot.status === "valid"
+      && snapshot.source === "thread"
+      && validGrade === snapshot.grade;
+    const unavailable = snapshot.status === "unavailable"
+      && snapshot.grade === undefined
+      && (snapshot.source === "thread" || snapshot.source === "ad-hoc");
+    const invalid = snapshot.status === "invalid"
+      && snapshot.grade === undefined
+      && snapshot.source === "thread";
+    if (!valid && !unavailable && !invalid) {
+      throw new Error("invalid run-local judgment_grade snapshot");
+    }
+    if (validGrade) facts.push(["judgment_grade", validGrade]);
+    facts.push(["judgment_grade_status", snapshot.status]);
+    facts.push(["judgment_grade_source", snapshot.source]);
+  }
+  if (rec.struggleObservation) {
+    const observation = rec.struggleObservation;
+    if (observation.policyVersion !== STRUGGLE_DETECTOR_POLICY_VERSION) {
+      throw new Error("unsupported struggle detector policy version");
+    }
+    if (observation.topology !== "worker" && observation.topology !== "orchestrator") {
+      throw new Error("invalid struggle topology");
+    }
+    for (const [name, value] of [
+      ["error-streak", observation.errorStreakThreshold],
+      ["loop-repeat", observation.loopRepeatThreshold],
+      ["loop-window", observation.loopWindow],
+      ["no-progress", observation.noProgressTurnThreshold],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value < 1 || value > STRUGGLE_THRESHOLD_MAX) {
+        throw new Error(`invalid struggle ${name} threshold`);
+      }
+    }
+    if (observation.loopRepeatThreshold > observation.loopWindow) {
+      throw new Error("struggle loop-repeat threshold exceeds loop window");
+    }
+    if (!Number.isSafeInteger(observation.errorCount) || observation.errorCount < 0) {
+      throw new Error("invalid struggle error count");
+    }
+    if (new Set(observation.triggers).size !== observation.triggers.length
+        || observation.triggers.some((trigger) => !STRUGGLE_TRIGGER_VALUES.has(trigger))) {
+      throw new Error("invalid struggle trigger observation");
+    }
+    facts.push(["error_count", String(observation.errorCount)]);
+    facts.push(["struggle_detector_policy_version", observation.policyVersion]);
+    facts.push(["struggle_topology", observation.topology]);
+    facts.push(["struggle_error_streak_threshold", String(observation.errorStreakThreshold)]);
+    facts.push(["struggle_loop_repeat_threshold", String(observation.loopRepeatThreshold)]);
+    facts.push(["struggle_loop_window", String(observation.loopWindow)]);
+    facts.push([
+      "struggle_no_progress_turn_threshold",
+      String(observation.noProgressTurnThreshold),
+    ]);
+    for (const reason of observation.triggers) facts.push(["struggle", reason]);
+  }
   if (rec.escalationTier != null && rec.escalationTier >= 0)
     facts.push(["escalation_tier", String(rec.escalationTier)]);
   if (rec.escalations && rec.escalations.length) {
@@ -272,7 +345,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
 }
 
 export function recordRun(
-  rec: RunRecord,
+  rec: ObservedRunRecord,
   id = newRunId(rec.agent),
   timeoutMs = 10_000,
 ): Promise<RunPublicationStatus> {

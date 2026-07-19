@@ -48,6 +48,37 @@ NORTH="$(cd "$(dirname "$0")/.." && pwd)"
 BB="${NORTH_BB:-bb}"
 BUN="${NORTH_BUN:-bun}"
 
+# judgment_grade is dispatcher/orchestrator-owned calibration input. Ordinary
+# worker thread writes remain available, but managed workers cannot tell,
+# retract, or cold-set this predicate. New values pass the one canonical parser;
+# malformed legacy values can still be retracted by an ambient human/orchestrator.
+# `set` is included because the generic engine passthrough would otherwise bypass
+# the coordinated tell policy (and remains discouraged under concurrency).
+guard_judgment_grade_write() {
+  case "${1:-}" in tell|retract|untell|set) ;; *) return 0 ;; esac
+  [ "${3:-}" = judgment_grade ] || return 0
+  case "${AGENT_TOPOLOGY:-}" in
+    ""|orchestrator) ;;
+    *)
+      echo "north: $1 REFUSED — judgment_grade is dispatcher/orchestrator-owned; worker topology cannot mutate it" >&2
+      return 1 ;;
+  esac
+  case "$1" in
+    tell|set)
+      if [ "$#" -ne 4 ]; then
+        echo "north: $1 REFUSED — judgment_grade requires exactly one value: s, m, or l" >&2
+        return 1
+      fi
+      "$BUN" run "$NORTH/sdk/src/judgment-grade.ts" validate "$4" >/dev/null || {
+        echo "north: $1 REFUSED — judgment_grade must be exactly one of: s, m, l" >&2
+        return 1
+      }
+      ;;
+  esac
+}
+
+guard_judgment_grade_write "$@" || exit 1
+
 # A worker still needs ordinary THREAD fact writes. Agent identity/lifecycle is
 # harness evidence, not agent-authored data: generic fact verbs may not mutate
 # any agent subject (self or peer). Trusted harness writes use a subprocess-only
@@ -106,6 +137,7 @@ north — your one card. Type a command to do the thing next to it.
     north routing report performance  current managed evidence  (--all = legacy/incomplete history)
     north routing report usage        provider work usage (never dollars / API credits)
     north routing report promotions   bespoke patterns for stock-template review
+    north routing report calibration  run-local judgment/struggle detector cohorts
     north schema                       the fact vocabulary in use
     web  http://127.0.0.1:8088         the browser cockpit (stakeholder view)
 

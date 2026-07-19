@@ -54,6 +54,10 @@
                    {:ok false :retryable false :message "tell requires id, pred, and value"}
                    (str/starts-with? (str/replace-first (str id) #"^@" "") "agent:")
                    {:ok false :retryable false :message "peer tell cannot mutate harness-owned @agent identity"}
+                   (and (= pred "judgment_grade")
+                        (not (contains? #{"s" "m" "l"} value)))
+                   {:ok false :retryable false
+                    :message "judgment_grade must be exactly one of: s, m, l"}
                    :else
                    (let [result (append! port id pred value)]
                      (if (:reject result)

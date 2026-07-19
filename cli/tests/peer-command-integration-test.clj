@@ -137,6 +137,30 @@
                  (= {:kind "preset" :id "verifier" :overrides []}
                     (json/parse-string (value-of port first-command "composition") true)))
 
+          (let [valid-grade (run-msg port "send-cmd" "producer" self "tell"
+                                     (pr-str {:id "@thread:peer-grade"
+                                              :pred "judgment_grade" :value "m"}))
+                valid-command (sent-command valid-grade)]
+            (check "peer producer and reactor accept an exact judgment grade"
+                   (and (zero? (:exit valid-grade)) valid-command
+                        (await-predicate
+                         #(and (= #{"m"} (values-of port "@thread:peer-grade" "judgment_grade"))
+                               (contains? (values-of port valid-command "acked_by") self))))))
+
+          ;; Raw command facts bypass the producer validator on purpose. The
+          ;; reactor must independently reject the malformed legacy value.
+          (let [invalid-command
+                (command! port "invalid-judgment-grade" "tell"
+                          [["id" "@thread:peer-grade-invalid"]
+                           ["pred" "judgment_grade"] ["value" "M"]]
+                          self)]
+            (check "peer reactor rejects malformed judgment grade before graph mutation"
+                   (await-predicate
+                    #(and (contains? (values-of port invalid-command "failed_by") self)
+                          (empty? (values-of port invalid-command "acked_by"))
+                          (empty? (values-of port "@thread:peer-grade-invalid"
+                                             "judgment_grade"))))))
+
           (let [second-result (run-msg port "send-cmd" "producer" self "tell" (pr-str args))
                 second-command (sent-command second-result)]
             (check "two intentional identical commands receive distinct identities"

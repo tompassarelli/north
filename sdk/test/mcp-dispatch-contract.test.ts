@@ -36,6 +36,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     "AGENT_REASONING", "AGENT_EFFORT", "AGENT_POSTURE", "AGENT_COMPOSITION",
     "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS", "AGENT_TOPOLOGY",
     "NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY",
+    "NORTH_STRUGGLE_POLICY_EXPECTED",
   ];
   const env = Object.fromEntries(
     Object.entries(process.env)
@@ -64,6 +65,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_RUN_ID: "run-parent",
     NORTH_THREAD_ID: "thread-parent",
     NORTH_RUN_CAPABILITY: "parent-capability",
+    NORTH_STRUGGLE_POLICY_EXPECTED: "ambient-policy-must-not-leak",
   });
   configure(home, env);
 
@@ -104,12 +106,53 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     AGENT_POSTURE: route.posture,
     AGENT_COMPOSITION: JSON.stringify(route.composition),
   });
+  expect(JSON.parse(childEnv.NORTH_STRUGGLE_POLICY_EXPECTED)).toEqual({
+    version: "north:struggle-observer:v1",
+    topology: route.topology,
+    errorStreak: 3,
+    loopRepeat: 3,
+    loopWindow: 20,
+    noProgressTurns: 6,
+  });
   for (const residue of [
     "AGENT_MODEL", "AGENT_PROVIDER", "AGENT_TARGET",
     "NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY",
   ]) expect(childEnv).not.toHaveProperty(residue);
   return { home, childEnv };
 }
+
+test("MCP rejects an invalid detector override before SDK launch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-mcp-struggle-policy-"));
+  temporary.push(directory);
+  const marker = join(directory, "sdk-launched");
+  const fakeBun = join(directory, "bun");
+  writeFileSync(fakeBun, `#!/usr/bin/env bash\ntouch ${JSON.stringify(marker)}\n`);
+  chmodSync(fakeBun, 0o755);
+  const north = resolve(import.meta.dir, "../..");
+  const request = `${JSON.stringify({
+    jsonrpc: "2.0", id: 1, method: "tools/call",
+    params: { name: "spawn", arguments: {
+      prompt: "must fail before launch", ...presetRequest("verifier"),
+    } },
+  })}\n`;
+  const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
+    input: request,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NORTH_MCP_BUN: fakeBun,
+      NORTH_POLICY_BUN: process.execPath,
+      STRUGGLE_STALL_TURNS: "0",
+    },
+  });
+  expect(result.status).toBe(0);
+  const response = JSON.parse(result.stdout.trim());
+  expect(response.result.isError).toBe(true);
+  expect(response.result.content[0].text).toContain(
+    "STRUGGLE_STALL_TURNS must be a positive integer between 1 and 1000",
+  );
+  expect(() => readFileSync(marker)).toThrow();
+});
 
 test("env-less MCP SDK launches materialize the canonical North instance exactly once", () => {
   const defaulted = mcpSpawnEnvironment(() => {});

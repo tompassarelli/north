@@ -16,7 +16,11 @@ import {
   userAnchoredPath,
 } from "./identity";
 import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
-import { makeStruggleState, updateStruggle, checkStruggle, type StruggleTrigger } from "./struggle";
+import {
+  makeStruggleObserver, resolveStrugglePolicy,
+  assertExpectedStrugglePolicy,
+  type StrugglePolicy,
+} from "./struggle";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
@@ -62,6 +66,10 @@ import {
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
 } from "./delivery-evidence";
 import { takeSpawnTestRuntime } from "./internal/test-runtime";
+import {
+  adHocJudgmentGrade, judgmentGradeFromThreadFacts,
+  type JudgmentGradeSnapshot,
+} from "./judgment-grade";
 
 export interface SpawnOptions {
   prompt: string;
@@ -159,6 +167,8 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & { routingMetada
 
 async function runSpawn(
   opts: SpawnOptions & { routingMetadata: RoutingRequest },
+  judgmentGrade: JudgmentGradeSnapshot,
+  strugglePolicy: StrugglePolicy,
   envelopeAdmission?: EnvelopeAdmission,
   clockLease?: ManagedClockLease,
   injected: SpawnRuntime = {},
@@ -278,11 +288,7 @@ async function runSpawn(
   const refreshIdentityRoute = (required = false) => {
     liveInputRoute.refresh(activeRoute(), required);
   };
-  const st = makeStruggleState();
-  // Harness-observed struggle sensors run on EVERY spawn now (in-flight escalation
-  // retired). A fired sensor leaves a stderr breadcrumb once per reason and a terminal
-  // `struggle <reason>` run fact — execution-axis evidence for D2 diagnosis, not a model swap.
-  const firedTriggers = new Set<StruggleTrigger>();
+  const struggle = makeStruggleObserver(strugglePolicy);
 
   console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
 
@@ -417,11 +423,9 @@ async function runSpawn(
     // occurrence of each trigger leave a stderr breadcrumb. The run does NOT change
     // route or terminate — the accumulated triggers become terminal `struggle` run
     // facts below, feeding D2's execution-axis diagnosis without any in-flight swap.
-    updateStruggle(msg, st);
-    const trigger = checkStruggle(st);
-    if (trigger && !firedTriggers.has(trigger)) {
-      firedTriggers.add(trigger);
-      console.error(`[struggle] @agent:${agentId} sensor fired: ${trigger} (turn ${st.turn}, ${st.totalErrors} tool error(s)) — recorded as execution-axis evidence, no in-flight change`);
+    const trigger = struggle.observe(msg);
+    if (trigger) {
+      console.error(`[struggle] @agent:${agentId} sensor fired: ${trigger} (turn ${struggle.state.turn}, ${struggle.state.totalErrors} tool error(s)) — recorded as execution-axis evidence, no in-flight change`);
     }
 
     if (msg.type === "result") {
@@ -726,9 +730,8 @@ async function runSpawn(
     deliveryProof: terminal.deliveryProof,
     numTurns,
     compactions,
-    errorCount: st.totalErrors,
-    // Harness-observed execution-axis evidence for D2 (multi-valued: one per distinct sensor).
-    struggleTriggers: firedTriggers.size ? [...firedTriggers] : undefined,
+    judgmentGrade,
+    struggleObservation: struggle.snapshot(),
   }, runId, publicationBudget.publicationTimeout(1));
   notifyTerminalSettlement(
     agentId,
@@ -742,8 +745,9 @@ async function runSpawn(
     },
     publicationBudget.notificationTimeout(),
   );
+  const struggleSnapshot = struggle.snapshot();
   console.log(`[spawn] @agent:${agentId} complete (process=${outcome}, delivery=${terminal.deliveryOutcome}` +
-    `${firedTriggers.size ? `, struggle: ${[...firedTriggers].join(",")}` : ""})`);
+    `${struggleSnapshot.triggers.length ? `, struggle: ${struggleSnapshot.triggers.join(",")}` : ""})`);
   return result;
 }
 
@@ -755,7 +759,7 @@ async function runSpawn(
 let bootstrapAuthorityGranted = false;
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
-  const injected = takeSpawnTestRuntime<SpawnRuntime>(opts);
+  const injected = takeSpawnTestRuntime<SpawnRuntime>(opts) ?? {};
   const admitted = allowlistedSpawnOptions(opts);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
@@ -764,6 +768,21 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     assertManagedChildTopology(
       "spawn", composed.routingMetadata.topology, callerTopology,
     );
+  }
+  // Resolve the exact observer policy and immutable dispatcher grade before
+  // clock/resource/provider side effects. Thread-backed spawns snapshot the
+  // admission projection; raw ad-hoc work is explicitly unavailable.
+  const strugglePolicy = resolveStrugglePolicy(composed.routingMetadata.topology!);
+  assertExpectedStrugglePolicy(strugglePolicy);
+  let judgmentGrade = adHocJudgmentGrade();
+  if (composed.thread) {
+    try {
+      judgmentGrade = judgmentGradeFromThreadFacts(
+        (injected.loadThreadFacts ?? getThreadFacts)(composed.thread),
+      );
+    } catch {
+      judgmentGrade = judgmentGradeFromThreadFacts([]);
+    }
   }
   const context = envelopeContextFromEnv();
   const requestedTier = composed.tier;
@@ -788,7 +807,9 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     });
     for (const advisory of admission?.advisories ?? [])
       console.warn(`[envelope] advisory: ${advisory}`);
-    return await runSpawn(composed, admission, clockLease, injected);
+    return await runSpawn(
+      composed, judgmentGrade, strugglePolicy, admission, clockLease, injected,
+    );
   } finally {
     try { await completeResourceEnvelope(admission); }
     finally {

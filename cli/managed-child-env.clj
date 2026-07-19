@@ -8,6 +8,8 @@
    "AGENT_REASONING" "AGENT_EFFORT" "AGENT_POSTURE" "AGENT_COMPOSITION"
    "AGENT_MODEL" "AGENT_TARGET" "AGENT_PROVIDER" "AGENT_COORDINATOR"
    "NORTH_DISPATCH_DRIVER_PRECLAIMED"
+   ;; One-shot adapter/runtime parity witness; every child gets its own value.
+   "NORTH_STRUGGLE_POLICY_EXPECTED"
    ;; Adapter-only bootstrap input. The CLI re-adds it explicitly for a
    ;; proof-bearing delegate; ambient parent state must never bind a raw spawn.
    "NORTH_DELEGATE_THREAD_ID"

@@ -8,6 +8,7 @@ import {
   TopologyAuthorityError, TopologyDepthError,
 } from "../src/topology-authority";
 import { sendPeerCommand, validatePeerCommandArgs } from "../src/harness";
+import { presetRequest } from "./routing-fixtures";
 
 const temporary: string[] = [];
 const inheritedTopology = process.env.AGENT_TOPOLOGY;
@@ -23,8 +24,10 @@ afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-test("peer command accepts role-only hydration or a complete Gaffer envelope, never partial routing", () => {
-  expect(() => validatePeerCommandArgs("spawn", { prompt: "probe", role: "verifier" })).not.toThrow();
+test("peer command accepts a complete Gaffer envelope, never role-only or partial routing", () => {
+  expect(() => validatePeerCommandArgs("spawn", {
+    prompt: "probe", ...presetRequest("verifier"),
+  })).not.toThrow();
   expect(() => validatePeerCommandArgs("dispatch", {
     thread: "thread-probe",
     role: "verifier",
@@ -37,13 +40,24 @@ test("peer command accepts role-only hydration or a complete Gaffer envelope, ne
     composition: { kind: "preset", id: "verifier", overrides: [] },
   })).not.toThrow();
   expect(() => validatePeerCommandArgs("spawn", {
+    prompt: "probe", role: "verifier",
+  })).toThrow("complete eight-field");
+  expect(() => validatePeerCommandArgs("spawn", {
     prompt: "probe", role: "verifier", tier: "senior",
-  })).toThrow("role-only");
+  })).toThrow("complete eight-field");
   expect(() => validatePeerCommandArgs("spawn", {
     prompt: "probe", role: "verifier", hiddenAuthority: "root",
   } as any)).toThrow("unknown field");
   expect(() => validatePeerCommandArgs("tell", { id: "x", pred: "goal" } as any))
     .toThrow("requires id, pred, and value");
+  expect(() => validatePeerCommandArgs("tell", {
+    id: "thread-grade", pred: "judgment_grade", value: "s",
+  })).not.toThrow();
+  for (const value of ["S", "medium", " s", "s "]) {
+    expect(() => validatePeerCommandArgs("tell", {
+      id: "thread-grade", pred: "judgment_grade", value,
+    })).toThrow("exactly one of");
+  }
 });
 
 test("peer managed spawn fails before msg-cli for both workers and orchestrators", () => {
@@ -117,6 +131,7 @@ test("raw SDK spawn and dispatch enforce the composed child topology before side
   await expect(spawn({
     prompt: "must remain two tiers",
     role: "director",
+    routingMetadata: presetRequest("director"),
     queryFn: () => {
       providerCalls++;
       return { async *[Symbol.asyncIterator]() {} } as any;
@@ -129,7 +144,7 @@ test("raw SDK spawn and dispatch enforce the composed child topology before side
 
   const { dispatch } = await import("./support/dispatch");
   await expect(dispatch("depth-cap-thread", {
-    routingMetadata: { role: "director" },
+    routingMetadata: presetRequest("director"),
     loadThreadFacts: () => [
       { predicate: "title", value: "Depth cap" },
       { predicate: "repo", value: resolve(import.meta.dir, "../..") },

@@ -3,6 +3,7 @@ import { newRunId, runFacts } from "../src/telemetry";
 import {
   assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
 } from "../src/delivery-verification";
+import { makeStruggleObserver, resolveStrugglePolicy } from "../src/struggle";
 
 // Mirror of the fram coord_daemon log-split contract (coord_daemon.clj
 // subject-token + default-telemetry-kinds). A subject routes to telemetry.log
@@ -51,6 +52,60 @@ test("a completed run carries every mandatory terminal predicate", () => {
   }
   expect(facts).toContainEqual(["tokens", "10308025"]);
   expect(facts).toContainEqual(["outcome", "ran"]);
+});
+
+test("current run telemetry freezes judgment and the full effective detector policy", () => {
+  const struggle = makeStruggleObserver(resolveStrugglePolicy("orchestrator", {
+    STRUGGLE_ERROR_STREAK: "4",
+    STRUGGLE_LOOP_REPEAT: "3",
+    STRUGGLE_LOOP_WINDOW: "24",
+    STRUGGLE_STALL_TURNS: "8",
+    STRUGGLE_STALL_TURNS_ORCHESTRATOR: "16",
+  }));
+  const facts = runFacts({
+    thread: "thread-grade", agent: "lane-grade", durationMs: 1,
+    posture: "composite", outcome: "ran",
+    judgmentGrade: { grade: "l", status: "valid", source: "thread" },
+    struggleObservation: struggle.snapshot(),
+  });
+  for (const expected of [
+    ["judgment_grade", "l"],
+    ["judgment_grade_status", "valid"],
+    ["judgment_grade_source", "thread"],
+    ["struggle_detector_policy_version", "north:struggle-observer:v1"],
+    ["struggle_topology", "orchestrator"],
+    ["struggle_error_streak_threshold", "4"],
+    ["struggle_loop_repeat_threshold", "3"],
+    ["struggle_loop_window", "24"],
+    ["struggle_no_progress_turn_threshold", "16"],
+    ["error_count", "0"],
+  ]) expect(facts).toContainEqual(expected);
+
+  const adHoc = runFacts({
+    thread: "(ad-hoc)", agent: "lane-ad-hoc", durationMs: 1,
+    posture: "spawn", outcome: "ran",
+    judgmentGrade: { status: "unavailable", source: "ad-hoc" },
+    struggleObservation: makeStruggleObserver(resolveStrugglePolicy("worker", {})).snapshot(),
+  });
+  expect(adHoc).toContainEqual(["judgment_grade_status", "unavailable"]);
+  expect(adHoc).toContainEqual(["judgment_grade_source", "ad-hoc"]);
+  expect(adHoc.some(([predicate]) => predicate === "judgment_grade")).toBe(false);
+});
+
+test("telemetry rejects internally inconsistent observation snapshots", () => {
+  const base = {
+    thread: "thread", agent: "lane", durationMs: 1, posture: "atomic", outcome: "ran",
+    struggleObservation: makeStruggleObserver(resolveStrugglePolicy("worker", {})).snapshot(),
+  };
+  expect(() => runFacts({
+    ...base,
+    judgmentGrade: { grade: "s", status: "unavailable", source: "thread" } as any,
+  })).toThrow("invalid run-local judgment_grade snapshot");
+  expect(() => runFacts({
+    ...base,
+    judgmentGrade: { status: "unavailable", source: "ad-hoc" },
+    struggleObservation: { ...base.struggleObservation, loopWindow: 2, loopRepeatThreshold: 3 },
+  })).toThrow("exceeds loop window");
 });
 
 test("run telemetry is token- and routing-based with no price-derived fields", () => {
