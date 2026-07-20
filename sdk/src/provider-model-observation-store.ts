@@ -3,6 +3,7 @@ import { chmod, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { withFileLease } from "./file-lease";
+import { throwIfProviderRefreshCancelled } from "./provider-cancellation";
 import { providerSupportsModel, resolveModelAlias } from "./providers/catalog";
 import type { ProviderId, RoutingTarget } from "./providers/types";
 
@@ -313,11 +314,19 @@ export async function writeProviderModelObservation(
   incoming: ProviderModelObservation,
   path = providerModelObservationPath(),
   now = new Date(),
+  options: { signal?: AbortSignal } = {},
 ): Promise<ProviderModelObservationStore> {
+  throwIfProviderRefreshCancelled(options.signal);
   const normalized = parseObservation(incoming, now);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  throwIfProviderRefreshCancelled(options.signal);
   return withFileLease(`${path}.lock`, async () => {
+    // Acquisition can wait behind another process. Re-check inside the lease so
+    // a cancelled refresh never turns an already-obsolete result into shared
+    // route evidence after the waiter is admitted.
+    throwIfProviderRefreshCancelled(options.signal);
     const existing = await readProviderModelObservations(path, now);
+    throwIfProviderRefreshCancelled(options.signal);
     const identity = targetIdentity(normalized);
     const observations = [
       ...(existing?.observations ?? []).filter((observation) => targetIdentity(observation) !== identity),
@@ -328,6 +337,9 @@ export async function writeProviderModelObservation(
     try {
       await writeFile(temporary, `${JSON.stringify(store, null, 2)}\n`, { flag: "wx", mode: 0o600 });
       await chmod(temporary, 0o600);
+      // Atomic replacement is the commit boundary. Everything before it is a
+      // private temporary and can be discarded on cancellation.
+      throwIfProviderRefreshCancelled(options.signal);
       await rename(temporary, path);
       await chmod(path, 0o600);
       return store;

@@ -1,4 +1,4 @@
-import { resourcePolicyFromEnv, selectProvider } from "./provider-routing";
+import { resourcePolicyFromEnv, selectProviderForExecution } from "./provider-routing";
 import type {
   ProviderPreference,
   ResourcePolicy,
@@ -37,17 +37,22 @@ export function validateConfiguredRoutePin(
 }
 
 /** Fail an exact MCP pin before the background worker is acknowledged. */
-export function preflightMcpRoutePin(
+export async function preflightMcpRoutePin(
   request: McpRoutePin,
   dependencies: {
     policy?: ResourcePolicy;
     select?: (requested: RoutingPreference, policy?: ResourcePolicy,
-      context?: { tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string }) => RoutingDecision;
+      context?: { tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string }) =>
+        RoutingDecision | Promise<RoutingDecision>;
   } = {},
-): RoutingDecision {
+): Promise<RoutingDecision> {
   const policy = dependencies.policy ?? resourcePolicyFromEnv();
   validateConfiguredRoutePin(request, policy);
-  const decision = (dependencies.select ?? selectProvider)(
+  // The execution selector owns the authoritative usage + exact-model refresh.
+  // Its persisted observations are then cache hits when the admitted worker
+  // resolves the same exact target, so cold/stale MCP launch performs one warm
+  // provider Query rather than one usage probe plus a second model probe.
+  const decision = await (dependencies.select ?? selectProviderForExecution)(
     { provider: request.provider ?? "auto", target: request.target },
     policy,
     { tier: request.tier, reasoning: request.reasoning, model: request.model,
@@ -58,7 +63,7 @@ export function preflightMcpRoutePin(
   return decision;
 }
 
-/** Refresh only the exact pinned account. Telemetry loss never blocks a route. */
+/** Refresh only the exact pin, sharing model evidence when the route names one. */
 export async function refreshMcpRoutePinUsage(
   request: McpRoutePin,
   dependencies: {
@@ -80,7 +85,10 @@ export async function refreshMcpRoutePinUsage(
   }
   try {
     if (isolated) {
-      await (dependencies.refreshAccounts ?? refreshAccountUsages)({ accounts: [isolated] });
+      await (dependencies.refreshAccounts ?? refreshAccountUsages)({
+        accounts: [isolated],
+        observeAnthropicModels: configured.provider === "anthropic" && request.model !== undefined,
+      });
     } else if (configured.provider === "openai") {
       await (dependencies.refreshCodex ?? refreshCodexEntitlementsIfStale)({ requested: request });
     }
@@ -104,12 +112,9 @@ if (import.meta.main) {
       reasoning: (rawReasoning && rawReasoning !== "-") ? rawReasoning as Effort : undefined,
       model: (rawModel && rawModel !== "-") ? rawModel : undefined,
     };
-    // Reject unknown/mismatched pins without touching a provider. For a valid
-    // pin, refresh target-scoped subscription evidence before canonical route
-    // selection; the worker's second refresh is then a cheap cache hit.
-    validateConfiguredRoutePin(request);
-    await refreshMcpRoutePinUsage(request);
-    const decision = preflightMcpRoutePin(request);
+    // Validation happens before the execution selector can probe. Its shared
+    // model + usage evidence makes the worker's subsequent refresh a cache hit.
+    const decision = await preflightMcpRoutePin(request);
     console.log(JSON.stringify({ target: decision.target, provider: decision.provider, reason: decision.selectionReason }));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

@@ -7,6 +7,7 @@ import {
 } from "./resource-policy";
 import type { ProviderUsageObservation, ProviderUsageObservationStore } from "./providers/types";
 import { withFileLease } from "./file-lease";
+import { throwIfProviderRefreshCancelled } from "./provider-cancellation";
 
 function observationKey({ targetId, provider, source }: ProviderUsageObservation): string {
   return `${targetId}\u0000${provider}\u0000${source ?? "legacy"}`;
@@ -55,20 +56,26 @@ async function readExisting(path: string): Promise<ProviderUsageObservationStore
 export async function writeProviderUsageObservations(
   incoming: ProviderUsageObservation | ProviderUsageObservation[],
   path = process.env.NORTH_PROVIDER_OBSERVATIONS ?? DEFAULT_PROVIDER_OBSERVATIONS_PATH,
+  options: { signal?: AbortSignal } = {},
 ): Promise<ProviderUsageObservationStore> {
+  throwIfProviderRefreshCancelled(options.signal);
   const validatedIncoming = parseProviderUsageObservations({ version: 1, observations: [incoming].flat() }, "<incoming observations>");
   const directory = dirname(path);
   await mkdir(directory, { recursive: true, mode: 0o700 });
+  throwIfProviderRefreshCancelled(options.signal);
   const lockPath = `${path}.lock`;
   return withFileLease(lockPath, async () => {
+    throwIfProviderRefreshCancelled(options.signal);
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
     try {
-    const merged = mergeProviderUsageObservations(await readExisting(path), validatedIncoming.observations);
-    await writeFile(temporary, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    await chmod(temporary, 0o600);
-    await rename(temporary, path);
-    await chmod(path, 0o600);
-    return merged;
+      const merged = mergeProviderUsageObservations(await readExisting(path), validatedIncoming.observations);
+      throwIfProviderRefreshCancelled(options.signal);
+      await writeFile(temporary, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+      await chmod(temporary, 0o600);
+      throwIfProviderRefreshCancelled(options.signal);
+      await rename(temporary, path);
+      await chmod(path, 0o600);
+      return merged;
     } finally { await rm(temporary, { force: true }); }
   });
 }

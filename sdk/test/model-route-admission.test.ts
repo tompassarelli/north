@@ -1,7 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
+import { watch } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { refreshAccountUsages } from "../src/account-usage";
 import {
   collectExecutionModelRefreshAttempts,
@@ -15,6 +16,7 @@ import {
   writeProviderModelObservation,
 } from "../src/provider-model-observation-store";
 import { ProviderRefreshCancelledError } from "../src/provider-cancellation";
+import { acquireFileLease } from "../src/file-lease";
 import {
   providerSupportsRoute,
   resolveModelAlias,
@@ -113,6 +115,31 @@ function successfulControl(counters?: ControlCounters): StartAnthropicControl {
       close() {},
     };
   };
+}
+
+function nextLeaseContender(directory: string, lockPath: string): {
+  seen: Promise<void>;
+  close(): void;
+} {
+  const prefix = `${basename(lockPath)}.candidate.`;
+  let close = () => {};
+  const seen = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      close();
+      reject(new Error(`timed out waiting for lease contender ${prefix}`));
+    }, 2_000);
+    const watcher = watch(directory, (_event, filename) => {
+      if (!filename?.toString().startsWith(prefix)) return;
+      clearTimeout(timeout);
+      watcher.close();
+      resolve();
+    });
+    close = () => {
+      clearTimeout(timeout);
+      watcher.close();
+    };
+  });
+  return { seen, close };
 }
 
 test("Gaffer exact routes do not cross-product tier defaults", () => {
@@ -499,6 +526,95 @@ test("cancelled refresh is run-local and the next run probes immediately", async
   expect(next.status).toBe("observed");
   expect((await readProviderModelObservations(modelPath, now))?.observations[0].collectionFailure)
     .toBeUndefined();
+});
+
+test("cancellation while model persistence waits commits neither positive nor failed observations", async () => {
+  for (const response of ["positive", "invalid"] as const) {
+    const root = await mkdtemp(join(tmpdir(), `north-model-cancelled-write-${response}-`));
+    roots.push(root);
+    const usagePath = join(root, "usage.json");
+    const modelPath = join(root, "models.json");
+    const held = await acquireFileLease(`${modelPath}.lock`);
+    const contender = nextLeaseContender(root, `${modelPath}.lock`);
+    const controller = new AbortController();
+    const refresh = refreshAccountUsages({
+      accounts: [anthropic],
+      observeAnthropicModels: true,
+      force: true,
+      now,
+      storePath: usagePath,
+      modelStorePath: modelPath,
+      signal: controller.signal,
+      startAnthropicControl: async () => ({
+        query(prompt) {
+          void (async () => { for await (const _message of prompt) { /* no prompt turns */ } })();
+          return {
+            async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET() {
+              return usageResponse();
+            },
+            async supportedModels() {
+              return response === "positive" ? [{ value: "fable" }] : [{ label: "not-a-model" }] as any;
+            },
+            close() {},
+          };
+        },
+        close() {},
+      }),
+    });
+    try {
+      await contender.seen;
+      controller.abort(new Error(`PRIVATE ${response.toUpperCase()} WRITE CANCEL`));
+      await held.release();
+      await expect(refresh).rejects.toBeInstanceOf(ProviderRefreshCancelledError);
+    } finally {
+      contender.close();
+      await held.release();
+    }
+    await expect(readFile(modelPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(usagePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  }
+});
+
+test("cancellation while usage persistence waits commits neither successful nor failed observations", async () => {
+  for (const response of ["observed", "failed"] as const) {
+    const root = await mkdtemp(join(tmpdir(), `north-usage-cancelled-write-${response}-`));
+    roots.push(root);
+    const usagePath = join(root, "usage.json");
+    const held = await acquireFileLease(`${usagePath}.lock`);
+    const contender = nextLeaseContender(root, `${usagePath}.lock`);
+    const controller = new AbortController();
+    const refresh = refreshAccountUsages({
+      accounts: [anthropic],
+      force: true,
+      now,
+      storePath: usagePath,
+      signal: controller.signal,
+      readAnthropic: async () => {
+        if (response === "failed") throw new Error("PRIVATE USAGE COLLECTION FAILURE");
+        return {
+          source: "claude-agent-sdk:usage-control-experimental",
+          observation: {
+            targetId: anthropic.id,
+            provider: "anthropic",
+            source: "claude-agent-sdk:usage-control-experimental",
+            observedAt: now.toISOString(),
+            windows: [{ usedPercent: 12, resetsAt: "2099-01-01T00:00:00.000Z" }],
+          },
+          unavailableComponents: [],
+        };
+      },
+    });
+    try {
+      await contender.seen;
+      controller.abort(new Error(`PRIVATE ${response.toUpperCase()} USAGE WRITE CANCEL`));
+      await held.release();
+      await expect(refresh).rejects.toBeInstanceOf(ProviderRefreshCancelledError);
+    } finally {
+      contender.close();
+      await held.release();
+    }
+    await expect(readFile(usagePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  }
 });
 
 test("lifecycle settlement failure becomes explicit unavailable model evidence", async () => {

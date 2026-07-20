@@ -295,7 +295,9 @@ async function persistFailedModelAttempt(
   throwIfProviderRefreshCancelled(signal);
   try {
     const failed = failedProviderModelObservation(target, reason, new Date(attemptedAt));
-    await writeProviderModelObservation(failed, modelStorePath, new Date(attemptedAt));
+    await writeProviderModelObservation(
+      failed, modelStorePath, new Date(attemptedAt), { signal },
+    );
     throwIfProviderRefreshCancelled(signal);
     return { status: "persisted", observation: failed };
   } catch (error) {
@@ -372,9 +374,14 @@ async function refreshOne(
                 : failedProviderModelObservation(
                     target, modelFailureReason(modelSurface.reason), new Date(modelSurface.attemptedAt),
                   );
-              await writeProviderModelObservation(modelObservation, modelStorePath, new Date(modelObservation.observedAt));
+              await writeProviderModelObservation(
+                modelObservation, modelStorePath, new Date(modelObservation.observedAt),
+                { signal: options.signal },
+              );
               modelAvailabilityAttempt = { status: "persisted", observation: modelObservation };
             } catch (error) {
+              if (error instanceof ProviderRefreshCancelledError || options.signal?.aborted)
+                throw new ProviderRefreshCancelledError();
               const reason = error instanceof AnthropicModelsUnavailableError
                 ? error.reason : "anthropic_models_response_schema_changed";
               const attemptedAt = modelSurface.ok ? modelSurface.observedAt : modelSurface.attemptedAt;
@@ -401,7 +408,7 @@ async function refreshOne(
         }
         throwIfProviderRefreshCancelled(options.signal);
         validateObservationForAccount(account, observation);
-        await writeProviderUsageObservations(observation, storePath);
+        await writeProviderUsageObservations(observation, storePath, { signal: options.signal });
         return observedReport(
           account, observation, false, unavailableComponents, modelAvailabilityAttempt,
         );
@@ -438,8 +445,12 @@ async function refreshOne(
               collectionFailure: { observedAt: now.toISOString(), reason },
             };
         try {
-          await writeProviderUsageObservations(failedObservation, storePath);
-        } catch {
+          await writeProviderUsageObservations(
+            failedObservation, storePath, { signal: options.signal },
+          );
+        } catch (writeError) {
+          if (writeError instanceof ProviderRefreshCancelledError || options.signal?.aborted)
+            throw new ProviderRefreshCancelledError();
           return unavailableReport(
             account, failedObservation, "usage_observation_store_unavailable", false,
             modelAvailabilityAttempt,
