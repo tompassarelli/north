@@ -19,9 +19,11 @@ printf '{"acme" {:tokens #{"%s"} :coordinator-port %s :coordinator-log "%s"}}\n'
   "$HASH" "$CPORT" "$LOG" > "$REG"
 
 COORD_PID=""; GW_PID=""
-cleanup() { [ -n "$GW_PID" ] && kill "$GW_PID" 2>/dev/null || true
-            [ -n "$COORD_PID" ] && kill "$COORD_PID" 2>/dev/null || true
-            rm -rf "$TMP"; }
+cleanup() {
+  if [ -n "$GW_PID" ]; then kill "$GW_PID" 2>/dev/null || true; fi
+  if [ -n "$COORD_PID" ]; then kill "$COORD_PID" 2>/dev/null || true; fi
+  rm -rf "$TMP"
+}
 trap cleanup EXIT
 
 echo "starting coordinator on :$CPORT ..."

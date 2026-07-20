@@ -15,7 +15,7 @@ mkdir -p "$STATE" "$TMP/home" "$TMP/fram/bin"
 cleanup() {
   if [[ -f "$STATE/all-pids" ]]; then
     while IFS= read -r pid; do
-      [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill "$pid" 2>/dev/null || true
+      if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then kill "$pid" 2>/dev/null || true; fi
     done <"$STATE/all-pids"
   fi
   rm -rf "$TMP"

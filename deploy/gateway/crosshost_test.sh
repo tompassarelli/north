@@ -17,8 +17,11 @@ printf '{"acme" {:tokens #{"%s"} :coordinator-port %s :coordinator-host "%s" :co
   "$HASH" "$CPORT" "$IP" "$LOG" > "$REG"
 
 CPID=""; GPID=""
-cleanup(){ [ -n "$GPID" ] && kill "$GPID" 2>/dev/null || true
-           [ -n "$CPID" ] && kill "$CPID" 2>/dev/null || true; rm -rf "$TMP"; }
+cleanup(){
+  if [ -n "$GPID" ]; then kill "$GPID" 2>/dev/null || true; fi
+  if [ -n "$CPID" ]; then kill "$CPID" 2>/dev/null || true; fi
+  rm -rf "$TMP"
+}
 trap cleanup EXIT
 
 echo "coordinator FRAM_BIND=0.0.0.0 on :$CPORT ; gateway routes :coordinator-host=$IP"
