@@ -1,5 +1,0 @@
-/node_modules
-/.direnv
-out/
-*.log
-.qa-shots/
