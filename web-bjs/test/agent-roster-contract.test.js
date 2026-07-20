@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,6 +76,39 @@ function committedTerminal(facts) {
 
 const queryReply = (ok) => ({ ok, version: 1, engine: "index" });
 
+function quotedStrings(source, expression, label) {
+  const match = expression.exec(source);
+  if (!match) throw new Error(`missing ${label} source definition`);
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+}
+
+function identityPredicateSources() {
+  const cli = readFileSync(
+    new URL("../../cli/agent-provenance.clj", import.meta.url), "utf8",
+  );
+  const web = readFileSync(
+    new URL("../src/presence.bjs", import.meta.url), "utf8",
+  );
+  return {
+    cliIdentity: quotedStrings(
+      cli, /\(def identity-predicates\s+#\{([\s\S]*?)\}\)/,
+      "CLI identity-predicates",
+    ),
+    cliRequired: quotedStrings(
+      cli, /\(def required-identity-predicates\s+\[([\s\S]*?)\]/,
+      "CLI required-identity-predicates",
+    ),
+    webIdentity: quotedStrings(
+      web, /\(def identity-predicates\s+:-\s+Any\s+\[([\s\S]*?)\]/,
+      "web identity-predicates",
+    ),
+    webRequired: quotedStrings(
+      web, /\(def required-identity-predicates\s+:-\s+Any\s+\[([\s\S]*?)\]/,
+      "web required-identity-predicates",
+    ),
+  };
+}
+
 async function listen(server) {
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -87,7 +120,14 @@ async function listen(server) {
 }
 
 describe("semantic agent roster contract", () => {
-  test("shared fixtures project identical provider, model, effort, and Gaffer identity", () => {
+  test("source predicates and shared fixtures match canonical CLI identity semantics", () => {
+    const { cliIdentity, cliRequired, webIdentity, webRequired } =
+      identityPredicateSources();
+    expect(webIdentity).toEqual([...cliIdentity].sort());
+    expect(webRequired).toEqual(cliRequired);
+    expect(webIdentity.filter((predicate) => predicate.startsWith("live_input")))
+      .toEqual(["live_input", "live_input_epoch", "live_input_state"]);
+
     for (const fixture of fixtures) {
       const projected = project_agent(
         fixture.id,

@@ -334,6 +334,9 @@
    "effort"
    "goal"
    "kind"
+   "live_input"
+   "live_input_epoch"
+   "live_input_state"
    "model"
    "nearest_preset"
    "promotion_candidate"
@@ -344,7 +347,8 @@
    "spawned_at"])
 
 (def required-identity-predicates :- Any
-  ["kind" "role" "goal" "provider" "provider_target" "model" "effort"
+  ["kind" "role" "goal" "provider" "provider_target" "live_input"
+   "live_input_state" "live_input_epoch" "model" "effort"
    "composition_kind" "composition_id" "repo" "spawned_at" "display_handle"
    "display_name" "identity_manifest_sha256"])
 
