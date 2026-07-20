@@ -27,12 +27,41 @@ function trustedStoreExecutable(
   throw new Error(`trusted Nix-store ${label} executable unavailable`);
 }
 
+/** A username safe to interpolate into a fixed system-profile path. */
+function safeProfileUser(user: string | undefined): string | undefined {
+  return user && /^[a-z_][a-z0-9_-]*$/.test(user) ? user : undefined;
+}
+
 /**
- * Resolve only the exact Git injected by North's Nix wrapper. Ambient PATH and
- * user-profile pointers are never candidates.
+ * Fixed, non-arbitrary entry points to a NixOS-immutable Git, most trusted
+ * first: the wrapper's explicit injection, the root-managed system profile, the
+ * root-managed home-manager per-user profile, then the caller's own Nix
+ * profile. These are ENTRY hints only — trust is never granted by the location.
+ * Every candidate must still pass the canonical `/nix/store` + executable proof
+ * below, so a repointed profile symlink or a shim can only ever resolve to the
+ * immutable store or be rejected. Ambient `$PATH` is deliberately absent.
+ */
+function defaultTrustedGitPointers(): readonly (string | undefined)[] {
+  const home = process.env.HOME;
+  const user = safeProfileUser(process.env.USER);
+  return [
+    process.env.NORTH_GIT_BIN,
+    "/run/current-system/sw/bin/git",
+    user ? `/etc/profiles/per-user/${user}/bin/git` : undefined,
+    home ? `${home}/.nix-profile/bin/git` : undefined,
+  ];
+}
+
+/**
+ * Resolve a Git whose real canonical executable lives in the immutable Nix
+ * store. Managed spawns do not always inherit the wrapper's NORTH_GIT_BIN, so
+ * the default candidates also include the real NixOS current-system/profile
+ * layout — but only as entry hints. Ambient `$PATH` and writable shim locations
+ * are never candidates, and every accepted path is proven to canonicalize into
+ * `/nix/store` and be executable. Absent that proof, resolution fails closed.
  */
 export function trustedGitExecutable(
-  candidates: readonly (string | undefined)[] = [process.env.NORTH_GIT_BIN],
+  candidates: readonly (string | undefined)[] = defaultTrustedGitPointers(),
 ): string {
   return trustedStoreExecutable(
     candidates,
