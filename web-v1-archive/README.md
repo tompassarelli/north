@@ -1,4 +1,4 @@
-# lodestar / web
+# north / web
 
 A web app that points at any **Fram claim-graph daemon** by port and renders it
 live. v1 is the **agent presence view**: watch and steer your running agents.
@@ -6,8 +6,8 @@ live. v1 is the **agent presence view**: watch and steer your running agents.
 ## Run
 
 ```bash
-bin/lodestar-web            # -> http://localhost:8088   (needs babashka `bb`)
-bin/lodestar-web 9000       # pick a different http port
+bin/north-web            # -> http://localhost:8088   (needs babashka `bb`)
+bin/north-web 9000       # pick a different http port
 ```
 
 Targets the agents daemon on `:7978` by default; change the target daemon

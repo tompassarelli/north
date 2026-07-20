@@ -2,7 +2,7 @@
 //
 // This is the beagle-js dogfood candidate (BRIEF "Beagle dogfood"): pure, typed,
 // total functions with no DOM/WS/IO. Authored in plain JS for a runnable v1; the
-// intent is to port THIS file to beagle-js (compile→JS) once the lodestar web ships.
+// intent is to port THIS file to beagle-js (compile→JS) once the north web ships.
 // Everything here is data-driven — no hardcoded agent/msg/role knowledge — so the
 // v2 code-as-claims graph reuses it unchanged.
 

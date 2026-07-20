@@ -1,5 +1,5 @@
 (ns bridge.rt
-  "Host-interop runtime for the lodestar-web bridge's Beagle module — the
+  "Host-interop runtime for the north-web bridge's Beagle module — the
   irreducible Clojure layer the .bclj `declare-extern`s bind to. Beagle
   (bridge.bclj -> bridge.clj) owns the typed logic: the graph fold, federation
   merge, presence/timetape projection, routing. THIS owns the host calls:
@@ -161,7 +161,7 @@
 ;; ---- steer: send a message to an agent via msg-cli --------------------------
 (defn steer! [port to body]
   (let [subject "steer from web"
-        res (p/sh ["bb" (.getPath MSG-CLI) (str port) "send" "lodestar-web" to subject body])]
+        res (p/sh ["bb" (.getPath MSG-CLI) (str port) "send" "north-web" to subject body])]
     {:ok (zero? (:exit res)) :out (str/trim (str (:out res) (:err res)))}))
 
 ;; ---- distill: (re)run the decision analyst for one agent into the decisions
@@ -255,7 +255,7 @@
                  (finally (try (p/destroy-tree proc) (catch Exception _ nil))))))))})))
 
 ;; ---- SDK spawn: fire bun-based agent in background, register in presence ----
-(def SDK-DIR (io/file (System/getProperty "user.home") "code/lodestar/sdk/src"))
+(def SDK-DIR (io/file (System/getProperty "user.home") "code/north/sdk/src"))
 (def BUN "/run/current-system/sw/bin/bun")
 
 (defn- register-sdk-agent! [port agent-id & {:keys [model thread-id]}]
@@ -279,7 +279,7 @@
     (register-sdk-agent! port agent-id :model model)
     (let [env (merge (into {} (System/getenv))
                      {"AGENT_ID" agent-id
-                      "LODESTAR_STREAM_DIR" (.getPath AGENT-DATA)}
+                      "NORTH_STREAM_DIR" (.getPath AGENT-DATA)}
                      (when model {"AGENT_MODEL" model})
                      (when effort {"AGENT_EFFORT" effort}))]
       (p/process [BUN "run" (.getPath (io/file SDK-DIR "spawn.ts")) prompt]
@@ -292,7 +292,7 @@
     (register-sdk-agent! port agent-id :model model :thread-id thread-id)
     (let [env (merge (into {} (System/getenv))
                      {"AGENT_ID" agent-id
-                      "LODESTAR_STREAM_DIR" (.getPath AGENT-DATA)}
+                      "NORTH_STREAM_DIR" (.getPath AGENT-DATA)}
                      (when model {"AGENT_MODEL" model})
                      (when effort {"AGENT_EFFORT" effort}))]
       (p/process [BUN "run" (.getPath (io/file SDK-DIR "dispatch.ts")) thread-id]
@@ -303,7 +303,7 @@
 (defn boot! [handler]
   (let [port (or (some-> (first *command-line-args*) parse-long) 8088)]
     (http/run-server handler {:port port})
-    (println (str "lodestar-web bridge up  →  http://localhost:" port))
+    (println (str "north-web bridge up  →  http://localhost:" port))
     (println (str "  serving " (.getPath WEB)))
-    (println "  lodestar web targets fram daemon :7978 (override per-request with ?port=N)")
+    (println "  north web targets fram daemon :7978 (override per-request with ?port=N)")
     @(promise)))

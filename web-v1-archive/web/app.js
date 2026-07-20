@@ -384,9 +384,9 @@ function showThreadSubview(sub) {
 // deep-link: #graph keeps the graph subview; #agents lands on agent list; default is board.
 const _hash = location.hash.slice(1);
 if (_hash === 'graph') { showTab('graph'); }
-else if (_hash === 'agents' || _hash === 'lodestar-web') { showTab('agents'); }
+else if (_hash === 'agents' || _hash === 'north-web') { showTab('agents'); }
 else { showTab('board'); }
-window.Lodestar = {
+window.North = {
   openAgentStream(handle) {
     showTab('agents');
     const a = agentsById[handle] || { uuid: handle, roles: [], has_stream: true };

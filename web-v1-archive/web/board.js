@@ -334,7 +334,7 @@
         dchip.title = uuid;
         dchip.addEventListener('click', e => {
           e.stopPropagation();
-          if (window.Lodestar) Lodestar.openAgentStream(uuid);
+          if (window.North) North.openAgentStream(uuid);
         });
       }
       chips.append(dchip);
