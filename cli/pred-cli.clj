@@ -331,6 +331,15 @@
    ["reason" "single" "literal" "bounded diagnostic reason"]
    ["note" "multi" "literal" "mined observation attached to a session summary"]
    ["verb_vote" "multi" "literal" "mined suggestion for a repeated workflow verb"]
+   ;; --- verbosity advisory (north-mine W2): emit-only aggregate on @advisory:*,
+   ;;     never a routing/posture/model predicate ---
+   ["advises" "single" "literal" "subject a mined advisory addresses (e.g. response_verbosity)"]
+   ["sample_responses" "single" "literal" "count of assistant text turns in an advisory sample"]
+   ["sample_sessions" "single" "literal" "count of sessions in an advisory sample"]
+   ["long_response_rate" "single" "literal" "fraction of mined responses over the long threshold"]
+   ["corrective_interruption_rate" "single" "literal" "fraction of responses met by a corrective interrupt"]
+   ["fast_skip_rate" "single" "literal" "fraction of responses a human skipped/abandoned quickly"]
+   ["verdict" "single" "literal" "advisory verdict (insufficient-evidence|within-norms|verbose-tendency)"]
    ["run_at" "single" "literal" "instant an operational audit ran"]
    ["window" "single" "literal" "date window covered by an operational audit"]
    ["uncovered_count" "single" "literal" "uncovered commit count from a clock audit"]
