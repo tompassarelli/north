@@ -198,6 +198,82 @@ test("OpenAI exec lanes never arm a live-input subscription", async () => {
     .toContain("tell agent:test-openai-no-live-feed live_input unsupported");
 });
 
+// Reproduces + fixes: a lane whose provider turn already completed (a real
+// result was read) was reclassified process=died/delivery=blocked solely
+// because the POST-completion terminal live-feed drain (freezeAndUnbind's
+// settlement barrier) timed out/failed during cleanup. Terminal drain is
+// cleanup after a completed turn; its failure must not erase the process/
+// delivery the completed turn already earned.
+test("a terminal live-feed drain failure AFTER a completed provider turn preserves process=ran, not died", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const failingDrainSubscription = () => Object.assign(() => {}, {
+    ready: Promise.resolve(),
+    drain: async () => { throw new Error("settlement feed drain timed out"); },
+    isArmed: () => true,
+  });
+
+  const result = await spawn({
+    prompt: "finish the turn, then let the feed drain fail",
+    agentId: "test-drain-safe-completion",
+    provider: "anthropic",
+    routingMetadata: presetRequest("integrator"),
+    feedSubscriber: () => failingDrainSubscription(),
+    queryFn: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: "result", subtype: "success", result: "turn completed", num_turns: 1 };
+      },
+    }),
+  });
+
+  expect(result).toBe("turn completed");
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain("tell agent:test-drain-safe-completion outcome ran");
+  expect(logged).toContain("tell agent:test-drain-safe-completion process_outcome ran");
+  expect(logged).not.toContain("tell agent:test-drain-safe-completion outcome died");
+  expect(logged).not.toContain("tell agent:test-drain-safe-completion delivery_outcome blocked");
+  expect(logged).not.toContain("agent_death");
+});
+
+// The fail-closed peer of the test above: when the provider itself never
+// reaches a success terminal (dies mid-stream, no result read), a live-feed
+// drain failure during the same cleanup path must still stay fail-closed —
+// process=died is the correct, unchanged classification.
+test("a terminal live-feed drain failure with NO completed provider result stays fail-closed (died)", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const failingDrainSubscription = () => Object.assign(() => {}, {
+    ready: Promise.resolve(),
+    drain: async () => { throw new Error("settlement feed drain timed out"); },
+    isArmed: () => true,
+  });
+
+  let threw = false;
+  try {
+    await spawn({
+      prompt: "die before any result, then let the feed drain fail too",
+      agentId: "test-drain-fail-closed",
+      provider: "anthropic",
+      routingMetadata: presetRequest("integrator"),
+      feedSubscriber: () => failingDrainSubscription(),
+      queryFn: () => ({
+        async *[Symbol.asyncIterator]() {
+          throw new Error("Claude Code process terminated by signal 9");
+        },
+      }),
+    });
+  } catch {
+    threw = true;
+  }
+
+  expect(threw).toBe(false); // supervision, not fail-fast
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain("tell agent:test-drain-fail-closed outcome died");
+  expect(logged).toContain("tell agent:test-drain-fail-closed process_outcome died");
+  expect(logged).toContain("tell agent:test-drain-fail-closed delivery_outcome blocked");
+  expect(logged).toContain("agent_death");
+});
+
 test("public spawn mints one full-entropy ID across admission, harness, and identity", async () => {
   const { spawn } = await import("./support/spawn");
   const policy = join(dir, "generated-id-policy.json");

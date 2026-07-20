@@ -589,6 +589,17 @@ async function runSpawn(
     catch (error) { queryCloseError = error; }
   }
 
+  // Snapshot BEFORE any cleanup-only failure below can touch outcome: this is
+  // the provider's own terminal, not a cleanup verdict. A lane that already
+  // reached its success terminal (a real result was read) has done the work;
+  // teardown of the terminal live-feed drain afterward is best-effort cleanup,
+  // not part of the provider turn, and must not retroactively convert a
+  // completed lane into process=died — that would erase real evidence/outcome
+  // the lane already recorded. A drain failure that happens BEFORE a success
+  // terminal (no result yet) is a genuine feed/provider failure and stays
+  // fail-closed via the branches below, unchanged.
+  const reachedProviderSuccessTerminal = outcome === "ran";
+
   const hostSignal = termination.hostSignal();
   if (hostSignal) {
     outcome = "died";
@@ -606,14 +617,25 @@ async function runSpawn(
       await liveInputRoute.freezeAndUnbind();
       liveInputFreezeError = undefined;
     } catch {
-      outcome = "died";
       const error = liveInputFreezeError instanceof Error
         ? liveInputFreezeError
         : new Error("managed live-input route could not be frozen");
-      terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
-      terminalAuxiliaryWrites.push((timeoutMs) =>
-        notifyDeath(agentId, error, { thread: undefined }, timeoutMs)
-      );
+      if (reachedProviderSuccessTerminal) {
+        // Completed provider turn: the feed leak is real (best-effort, logged
+        // for operator follow-up) but it is cleanup after success — process/
+        // delivery already earned by the completed turn stays as recorded.
+        // No AGENT DEATH fact/ping: that channel means "the provider died",
+        // which did not happen here and must not be asserted.
+        console.error(
+          `[live-input] @agent:${agentId} terminal live-feed drain failed after a completed provider turn — process/delivery preserved (${error.message})`,
+        );
+      } else {
+        outcome = "died";
+        terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
+        terminalAuxiliaryWrites.push((timeoutMs) =>
+          notifyDeath(agentId, error, { thread: undefined }, timeoutMs)
+        );
+      }
     }
   }
 
