@@ -10,11 +10,11 @@
         "zig-overlay": "zig-overlay"
       },
       "locked": {
-        "lastModified": 1784502987,
-        "narHash": "sha256-Or/gqp+jRfZpN5J6S3apwV3EJuNSbiijoiAxACZ8hEc=",
+        "lastModified": 1784505799,
+        "narHash": "sha256-OY8OsCd159NmK/tV0hf+ZGqKnJmyei2uGovkFSkZPZM=",
         "owner": "tompassarelli",
         "repo": "beagle",
-        "rev": "6633b1c3bd876b0e5bdd810b9559e9bf49b08296",
+        "rev": "c30a5145d39d15fd5776a8fcba22c9ccbc49c298",
         "type": "github"
       },
       "original": {
