@@ -20,6 +20,7 @@ import {
 import { harnessOptions, type HarnessCompositionEvidence } from "../src/harness";
 import { applyGafferStaffing, gafferCapabilities } from "../src/gaffer-staffing";
 import { agentRouteFacts } from "../src/identity";
+import { OfflineProviderSimulator } from "./support/provider-simulator";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -1130,34 +1131,23 @@ test("concurrent auto routes accept CLI-owned subscription init with honest iden
 test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier on OpenAI", async () => {
   const decision = selectProviderFromAvailability("auto", available, policy(), "frontier");
   const initialReason = decision.selectionReason;
-  const calls: Array<{ provider: ProviderId; args: any }> = [];
   const prompt = "preserve this prompt";
   const activated: string[] = [];
-  let failedRouteCloses = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", (args) => ({
-      close: async () => { failedRouteCloses++; },
-      async *[Symbol.asyncIterator]() {
-        calls.push({ provider: "anthropic", args });
-        throw new ProviderRetrySafeError("subscription usage limit reached; bearer secret-must-not-leak");
-      },
-    })),
-    openai: fakeProvider("openai", (args) => ({ async *[Symbol.asyncIterator]() {
-      calls.push({ provider: "openai", args });
-      yield { type: "result", result: "ok" };
-    }})),
-  };
+  const simulator = new OfflineProviderSimulator({
+    anthropic: { kind: "http_error", status: 429 },
+    openai: { kind: "response", messages: [{ type: "result", result: "ok" }] },
+  });
 
   expect(await eventsOf(routedQueryWithRegistry(decision, {
     prompt, options: { model: "fable", effort: "xhigh", systemPrompt: "keep system" } as any,
-  }, "frontier", registry, undefined,
+  }, "frontier", simulator.registry(), undefined,
   (route) => activated.push(`${route.provider}/${route.resolvedModel}/${route.resolvedEffort}`))))
     .toEqual([{ type: "result", result: "ok" }]);
-  expect(calls.map((call) => call.provider)).toEqual(["anthropic", "openai"]);
-  expect(calls[1].args.prompt).toBe(prompt);
-  expect(calls[1].args.options.systemPrompt).toBe("keep system");
-  expect(calls[1].args.options.model).toBe("gpt-5.6-sol");
-  expect(calls[1].args.options.effort).toBe("xhigh");
+  expect(simulator.requests.map((request) => request.provider)).toEqual(["anthropic", "openai"]);
+  expect(simulator.requests[1]!.prompt).toEqual([prompt]);
+  expect((simulator.requests[1]!.options as any).systemPrompt).toBe("keep system");
+  expect((simulator.requests[1]!.options as any).model).toBe("gpt-5.6-sol");
+  expect((simulator.requests[1]!.options as any).effort).toBe("xhigh");
   expect(decision.provider).toBe("openai");
   expect(decision.fallbackCount).toBe(1);
   expect(decision.fallbackPath).toEqual(["anthropic", "openai"]);
@@ -1176,10 +1166,10 @@ test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier 
     toTarget: "openai", toProvider: "openai",
   }]);
   expect(JSON.stringify(decision.fallbackReasons)).not.toContain("secret-must-not-leak");
-  expect(decision.resolvedModel).toBe(calls[1].args.options.model);
-  expect(decision.resolvedEffort).toBe(calls[1].args.options.effort);
+  expect(decision.resolvedModel).toBe((simulator.requests[1]!.options as any).model);
+  expect(decision.resolvedEffort).toBe((simulator.requests[1]!.options as any).effort);
   expect(activated).toEqual(["anthropic/fable/xhigh", "openai/gpt-5.6-sol/xhigh"]);
-  expect(failedRouteCloses).toBe(1);
+  expect(simulator.closes).toEqual(["anthropic"]);
 });
 
 test("closing a routed query before first next is sticky and constructs no provider", async () => {
