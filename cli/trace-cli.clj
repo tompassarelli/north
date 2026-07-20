@@ -11,7 +11,10 @@
 ;;
 ;;   ✓ present/healthy   ! incomplete proof   · expected-absent / n-a   ✗ genuine failure
 ;;   usage: north trace <agent-id>
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
+(require '[clojure.edn :as edn]
+         '[clojure.java.io :as io]
+         '[clojure.set :as set]
+         '[clojure.string :as str])
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
@@ -27,6 +30,22 @@
 (def PORT (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
 (def NOW (System/currentTimeMillis))
 (def max-trace-run-candidates 128)
+(def trace-session-display-predicates
+  #{"repo" "goal" "current_thread" "active_workflow" "task" "stalled"
+    "display_handle" "display_name"})
+(def trace-agent-predicates
+  ;; Trace used to ask Datalog for every predicate on @agent:<id>. Fram has no
+  ;; subject-only index today, so that innocent-looking read scanned the entire
+  ;; graph while holding the coordinator query lock. Keep this projection finite
+  ;; and point-read each declared predicate through :resolved instead.
+  (-> (set/union north.agent-provenance/identity-predicates
+                 (set north.agent-provenance/required-identity-predicates)
+                 north.agent-provenance/terminal-predicates
+                 (set north.terminal-projection/terminal-projection-predicates)
+                 trace-session-display-predicates
+                 #{"identity_manifest_sha256" "terminal_manifest_sha256"})
+      sort
+      vec))
 
 (def use-color? (some? (System/console)))
 (defn c [code s] (if use-color? (str "\033[" code "m" s "\033[0m") (str s)))
@@ -45,16 +64,16 @@
 ;; ---- per-id reads ------------------------------------------------------------
 (defn afact [id p] (resolved PORT (str "@agent:" id) p))
 (defn agent-facts [id]
-  (let [subject (str "@agent:" id)
-        rows (:ok (send-op PORT {:op :query
-                                 :query {:find "trace_identity"
-                                         :rules [{:head {:rel "trace_identity"
-                                                         :args [{:var "p"} {:var "r"}]}
-                                                  :body [{:rel "triple"
-                                                          :args [subject {:var "p"} {:var "r"}]}]}]}}))]
-    (reduce (fn [facts [predicate value]]
-              (north.agent-provenance/fold-fact facts predicate value))
-            {} rows)))
+  (let [subject (str "@agent:" id)]
+    (reduce
+     (fn [facts predicate]
+       (reduce
+        (fn [current value]
+          (north.agent-provenance/fold-fact current predicate value))
+        facts
+        (many PORT subject predicate)))
+     {}
+     trace-agent-predicates)))
 (defn lease [id] (lease-of PORT (str "session:" id)))
 (defn q [project body]
   (:ok (send-op PORT {:op :query

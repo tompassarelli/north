@@ -38,6 +38,42 @@
        (= "model=gpt-5.6-luna effort=low"
           (identity-route-detail {"model" "gpt-5.6-luna" "effort" "low"})))
 
+(let [source (slurp trace-cli)]
+  (check "trace source contains no subject-only all-predicate agent query"
+         (and (not (str/includes? source ":find \"trace_identity\""))
+              (not (re-find
+                    #":args\s*\[subject\s*\{:var\s+\"p\"\}\s*\{:var\s+\"r\"\}\]"
+                    source)))))
+
+(let [calls (atom [])
+      query-called? (atom false)
+      facts
+      (with-redefs
+       [many
+        (fn [port subject predicate]
+          (swap! calls conj [port subject predicate])
+          (case predicate
+            "model" ["model-a" "model-b"]
+            "process_outcome" ["ran" "died"]
+            "repo" ["~/code/north"]
+            []))
+        send-op
+        (fn [& _]
+          (reset! query-called? true)
+          (throw (ex-info "agent projection must not issue Datalog" {})))]
+       (agent-facts "bounded-agent"))]
+  (check "trace agent projection is an exact finite set of direct point reads"
+         (and (not @query-called?)
+              (= (set trace-agent-predicates)
+                 (set (map #(nth % 2) @calls)))
+              (= (count trace-agent-predicates) (count @calls))
+              (every? #(= [PORT "@agent:bounded-agent"] (subvec (vec %) 0 2))
+                      @calls)
+              (= "~/code/north" (get facts "repo"))
+              (contains? (get facts north.agent-provenance/conflict-key #{})
+                         "model")
+              (= #{"ran" "died"} (get facts "process_outcome")))))
+
 (let [terminal {"outcome" "ran"
                 "process_outcome" "ran"
                 "delivery_outcome" "unverified"
