@@ -205,6 +205,7 @@ CARD
     # cmd-doctor): tell/untell safe? daemon state matches on-disk log? This is the
     # raw primitive the cockpit `north doctor` leads with. Renamed from the old bare
     # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
+    "$NORTH/bin/north-coord-up" --check-runtime || exit $?
     exec "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main doctor "${@:2}" ;;
   dashboard|doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =

@@ -2,9 +2,61 @@
 # Start North's Fram coordinator against the configured North log.
 set -euo pipefail
 
-NORTH_HOME="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
-FRAM_HOME="${FRAM_HOME:-$HOME/code/fram}"
-FRAM_BIN="${FRAM_BIN:-$FRAM_HOME/bin}"
+script_north_home="$(cd "$(dirname "$0")/.." && pwd -P)"
+if [[ -n "${NORTH_HOME:-}" && -e "$NORTH_HOME/bin/north-coord-up" &&
+      "$NORTH_HOME/bin/north-coord-up" -ef "$0" ]]; then
+  NORTH_HOME="$(cd "$NORTH_HOME" && pwd -P)"
+else
+  # An inherited NORTH_HOME must not make a checkout launcher load another
+  # North release's coordination probe.
+  NORTH_HOME="$script_north_home"
+fi
+
+# Runtime selection is an operational boundary, not an ambient-environment
+# coincidence. A checkout launch defaults to the sibling Fram checkout. A
+# packaged North launch is selected by the launcher's immutable store
+# provenance, and an inherited store pin in an otherwise live launch is
+# rejected until the caller names that intent explicitly.
+fram_home_input="${FRAM_HOME:-}"
+fram_bin_input="${FRAM_BIN:-}"
+runtime_selector="${NORTH_FRAM_RUNTIME:-auto}"
+case "$runtime_selector" in
+  auto)
+    if [[ "$script_north_home" == /nix/store/* ]]; then
+      runtime_selector=package
+    else
+      runtime_selector=checkout
+    fi
+    ;;
+  checkout|package) ;;
+  *)
+    echo "north up: NORTH_FRAM_RUNTIME must be checkout or package (got '$runtime_selector')" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$runtime_selector" == checkout ]]; then
+  if [[ -n "$fram_home_input" && "$fram_home_input" == /nix/store/* ]] ||
+     [[ -n "$fram_bin_input" && "$fram_bin_input" == /nix/store/* ]]; then
+    echo "north up: refusing inherited Nix-store Fram in checkout mode; set NORTH_FRAM_RUNTIME=package to select it explicitly" >&2
+    exit 2
+  fi
+  FRAM_HOME="${fram_home_input:-$HOME/code/fram}"
+  FRAM_BIN="${fram_bin_input:-$FRAM_HOME/bin}"
+
+  # These variables are implementation details of the packaged Fram wrapper.
+  # If they leak into a checkout launch, fram-daemon otherwise executes the old
+  # packaged JVM classpath even when its executable came from the checkout.
+  unset FRAM_PACKAGED FRAM_JAVA FRAM_DAEMON_CLASSPATH_FILE FRAM_RESOLVE FRAM_PACKAGE_REV
+else
+  if [[ -z "$fram_home_input" || -z "$fram_bin_input" ]]; then
+    echo "north up: package mode requires FRAM_HOME and FRAM_BIN" >&2
+    exit 2
+  fi
+  FRAM_HOME="$fram_home_input"
+  FRAM_BIN="$fram_bin_input"
+fi
+
 FRAM_PORT="${FRAM_PORT:-7977}"
 FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/facts.log}"
 if [[ ! "$FRAM_PORT" =~ ^[0-9]+$ ]] ||
@@ -15,15 +67,19 @@ fi
 FRAM_PORT="$((10#$FRAM_PORT))"
 FRAM_REQUIRE_LOG_FENCE=1
 export FRAM_PORT FRAM_LOG FRAM_REQUIRE_LOG_FENCE
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+runtime_identity_file="${NORTH_COORD_RUNTIME_FILE:-$state_home/north/fram-daemon-$FRAM_PORT.runtime}"
 
 fram="$FRAM_BIN/fram"
 daemon="$FRAM_BIN/fram-daemon"
 north_bb="${NORTH_BB:-${NORTH_MCP_BB:-bb}}"
 restart=0
+check_runtime=0
 
 case "${1:-}" in
   "") ;;
   --restart) restart=1 ;;
+  --check-runtime) check_runtime=1 ;;
   *)
     echo "usage: north up [--restart]" >&2
     exit 2
@@ -40,6 +96,44 @@ for executable in "$fram" "$daemon" "$north_bb"; do
     exit 2
   fi
 done
+
+canonical_path() {
+  local path="$1" parent base
+  if [[ -d "$path" ]]; then
+    (cd "$path" && pwd -P)
+    return
+  fi
+  if [[ -e "$path" ]]; then
+    parent="$(cd "$(dirname "$path")" && pwd -P)"
+    base="$(basename "$path")"
+    printf '%s/%s\n' "$parent" "$base"
+    return
+  fi
+  printf '%s\n' "$path"
+}
+
+runtime_source="$(canonical_path "$FRAM_HOME")"
+runtime_daemon="$(canonical_path "$daemon")"
+runtime_rev=
+if [[ "$runtime_selector" == checkout ]] && command -v git >/dev/null 2>&1; then
+  runtime_rev="$(git -C "$FRAM_HOME" rev-parse --verify HEAD 2>/dev/null || true)"
+fi
+if [[ -z "$runtime_rev" && "$runtime_selector" == package ]]; then
+  runtime_rev="${FRAM_RUNTIME_REV:-${FRAM_PACKAGE_REV:-}}"
+fi
+if [[ -z "$runtime_rev" && "$runtime_selector" == package ]]; then
+  # The canonical store root is immutable and content-addressed. Keep the
+  # revision field non-empty even when an older package wrapper did not export
+  # FRAM_PACKAGE_REV.
+  runtime_rev="store:$(basename "$runtime_source")"
+fi
+runtime_rev="${runtime_rev:-unversioned}"
+
+export NORTH_FRAM_RUNTIME="$runtime_selector"
+export FRAM_HOME FRAM_BIN
+export FRAM_RUNTIME_SOURCE="$runtime_source"
+export FRAM_RUNTIME_REV="$runtime_rev"
+export FRAM_RUNTIME_DAEMON="$runtime_daemon"
 
 doctor_output=
 doctor_healthy() {
@@ -80,6 +174,138 @@ listener_pids() {
   return 127
 }
 
+proc_root="${NORTH_PROC_ROOT:-/proc}"
+listener_supervisor=
+listener_identity_error=
+
+proc_env_value() {
+  local pid="$1" name="$2" value recorded_pid
+  if [[ -r "$proc_root/$pid/environ" ]]; then
+    value="$(
+      tr '\0' '\n' <"$proc_root/$pid/environ" \
+        | sed -n "s/^${name}=//p" \
+        | head -n 1
+    )"
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  fi
+
+  # macOS has no /proc. A launcher-owned, PID-bound identity record is the
+  # portable fallback; Linux still prefers the process environment itself.
+  [[ -r "$runtime_identity_file" ]] || return 1
+  recorded_pid="$(sed -n 's/^PID=//p' "$runtime_identity_file" | head -n 1)"
+  [[ "$recorded_pid" == "$pid" ]] || return 1
+  sed -n "s/^${name}=//p" "$runtime_identity_file" | head -n 1
+}
+
+publish_runtime_identity() {
+  local pid="$1" identity_tmp="$runtime_identity_file.tmp.$$"
+  mkdir -p "$(dirname "$runtime_identity_file")"
+  (umask 077; printf '%s\n' \
+    "PID=$pid" \
+    "FRAM_RUNTIME_SOURCE=$runtime_source" \
+    "FRAM_RUNTIME_REV=$runtime_rev" \
+    "FRAM_RUNTIME_DAEMON=$runtime_daemon" \
+    >"$identity_tmp")
+  mv -f "$identity_tmp" "$runtime_identity_file"
+}
+
+supervisor_for_pid() {
+  local pid="$1" cgroup unit
+  [[ -r "$proc_root/$pid/cgroup" ]] || return 1
+  while IFS= read -r cgroup; do
+    unit="$(sed -n 's#.*[/\:]\([^/\:]*\.service\)\(?:/.*\)\?$#\1#p' <<<"$cgroup")"
+    if [[ -n "$unit" ]]; then
+      printf '%s\n' "$unit"
+      return 0
+    fi
+  done <"$proc_root/$pid/cgroup"
+  return 1
+}
+
+runtime_identity_matches_pid() {
+  local pid="$1" running_source running_rev running_daemon
+  running_source="$(proc_env_value "$pid" FRAM_RUNTIME_SOURCE || true)"
+  running_rev="$(proc_env_value "$pid" FRAM_RUNTIME_REV || true)"
+  running_daemon="$(proc_env_value "$pid" FRAM_RUNTIME_DAEMON || true)"
+
+  # Diagnose pre-identity-contract coordinators precisely instead of collapsing
+  # them into a generic unknown verdict.
+  [[ -n "$running_source" ]] || running_source="$(proc_env_value "$pid" FRAM_HOME || true)"
+  [[ -n "$running_rev" ]] || running_rev="$(proc_env_value "$pid" FRAM_PACKAGE_REV || true)"
+
+  if [[ -z "$running_source" || -z "$running_rev" ]]; then
+    listener_identity_error="PID $pid does not expose FRAM_RUNTIME_SOURCE and FRAM_RUNTIME_REV"
+    return 1
+  fi
+  running_source="$(canonical_path "$running_source")"
+  if [[ "$running_source" != "$runtime_source" || "$running_rev" != "$runtime_rev" ]]; then
+    listener_identity_error="PID $pid runs Fram source=$running_source rev=$running_rev; desired source=$runtime_source rev=$runtime_rev"
+    return 1
+  fi
+  if [[ -n "$running_daemon" ]]; then
+    running_daemon="$(canonical_path "$running_daemon")"
+    if [[ "$running_daemon" != "$runtime_daemon" ]]; then
+      listener_identity_error="PID $pid runs Fram executable=$running_daemon; desired executable=$runtime_daemon"
+      return 1
+    fi
+  fi
+  return 0
+}
+
+runtime_identity_matches_listeners() {
+  local pids="$1" pid count=0
+  listener_identity_error=
+  listener_supervisor=
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    count=$((count + 1))
+    if [[ -z "$listener_supervisor" ]]; then
+      listener_supervisor="$(supervisor_for_pid "$pid" || true)"
+    fi
+    runtime_identity_matches_pid "$pid" || return 1
+  done <<<"$pids"
+  if [[ "$count" -ne 1 ]]; then
+    listener_identity_error="expected exactly one coordinator listener PID, observed $count"
+    return 1
+  fi
+  return 0
+}
+
+spawned_identity_matches_pid() {
+  local pid="$1"
+  if [[ -r "$proc_root/$pid/environ" ]]; then
+    runtime_identity_matches_pid "$pid"
+    return
+  fi
+  # On platforms without /proc, the exact executable and environment above are
+  # the spawn proof. Publish the portable PID-bound record only after that child
+  # owns the listener and passes both coordinator readiness probes.
+  return 0
+}
+
+before_pids=
+have_pid_probe=0
+if before_pids="$(listener_pids)"; then
+  have_pid_probe=1
+fi
+
+identity_matches=0
+if [[ -n "$before_pids" ]] && runtime_identity_matches_listeners "$before_pids"; then
+  identity_matches=1
+fi
+
+if [[ "$check_runtime" -eq 1 ]]; then
+  if [[ "$identity_matches" -eq 1 ]]; then
+    echo "coordinator runtime identity OK on :$FRAM_PORT (source: $runtime_source, rev: $runtime_rev)"
+    exit 0
+  fi
+  echo "north coord-doctor: coordinator runtime identity UNHEALTHY — ${listener_identity_error:-no listener identity available}" >&2
+  exit 1
+fi
+
 same_log=0
 if doctor_healthy; then
   same_log=1
@@ -90,14 +316,12 @@ if [[ "$same_log" -eq 1 ]] && strict_ready; then
 fi
 
 if [[ "$strict" -eq 1 && "$restart" -eq 0 ]]; then
-  echo "coordinator already up on :$FRAM_PORT (use \`north up --restart\` to reload it)"
+  if [[ "$identity_matches" -ne 1 ]]; then
+    echo "north up: coordinator runtime identity mismatch — $listener_identity_error" >&2
+    exit 1
+  fi
+  echo "coordinator already up on :$FRAM_PORT (source: $runtime_source, rev: $runtime_rev; use \`north up --restart\` to reload it)"
   exit 0
-fi
-
-before_pids=
-have_pid_probe=0
-if before_pids="$(listener_pids)"; then
-  have_pid_probe=1
 fi
 
 if [[ "$same_log" -eq 1 && "$strict" -eq 0 && "$restart" -eq 0 ]]; then
@@ -117,6 +341,18 @@ fi
 if [[ "$restart" -eq 1 && "$same_log" -eq 1 ]]; then
   if [[ "$have_pid_probe" -ne 1 || -z "$before_pids" ]]; then
     echo "north up: coordinator is healthy, but its listener PID cannot be identified safely; refusing restart" >&2
+    exit 1
+  fi
+
+  # Killing a supervised MainPID does not replace that runtime: the supervisor
+  # immediately relaunches its configured executable and races North for the
+  # same port. Fail before any signal so the owning service can be changed and
+  # restarted through its one authoritative control plane.
+  if [[ -n "$listener_supervisor" ]]; then
+    echo "north up: coordinator listener is owned by systemd unit $listener_supervisor; refusing a direct restart that the supervisor would reclaim" >&2
+    if [[ "$identity_matches" -ne 1 ]]; then
+      echo "north up: coordinator runtime identity mismatch — $listener_identity_error" >&2
+    fi
     exit 1
   fi
 
@@ -141,7 +377,6 @@ if [[ "$restart" -eq 1 && "$same_log" -eq 1 ]]; then
   fi
 fi
 
-state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 diagnostic_log="${FRAM_DAEMON_LOG:-$state_home/north/fram-daemon-$FRAM_PORT.log}"
 mkdir -p "$(dirname "$FRAM_LOG")" "$(dirname "$diagnostic_log")"
 
@@ -173,7 +408,8 @@ for _ in $(seq 1 120); do
         fi
       done < <(listener_pids)
     fi
-    if [[ "$listener_owned" -eq 1 ]]; then
+    if [[ "$listener_owned" -eq 1 ]] && spawned_identity_matches_pid "$daemon_pid"; then
+      publish_runtime_identity "$daemon_pid"
       echo "coordinator up on :$FRAM_PORT"
       exit 0
     fi
