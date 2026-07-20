@@ -21,14 +21,12 @@
 
 (defn lane-resolved?
   "RESOLVED (never reap) from committed execution state: the lane's valid
-  terminal projection or a kind=run row tagged to the lane. A death report is
-  only a notification receipt; it cannot substitute for materializing a
-  committed terminal. Torn modern lane terminals and pre-kind run rows are
-  invisible."
-  [_h lane-facts tagged-run-facts]
-  (boolean (or (north.terminal-projection/terminal-process-outcome lane-facts)
-               (some north.terminal-projection/committed-run-process-outcome
-                     tagged-run-facts))))
+  terminal projection or the lane's latest valid committed run. A death report
+  is only a notification receipt; it cannot substitute for materializing a
+  committed terminal. This boolean is true only for resolved truth; destructive
+  callers use lane-resolution directly so indeterminate evidence blocks reap."
+  [h lane-facts run-entries]
+  (north.terminal-projection/lane-resolved? h lane-facts run-entries))
 
 (defn death-reported?
   "Whether @swarm already received the lane's exact death notification. This

@@ -145,33 +145,76 @@
 ;; secondary trail; body facts from a crashed run writer remain invisible until
 ;; its last kind=run write. @swarm agent_death is a notification receipt only:
 ;; a hard kill between that ping and terminal publication must remain reapable.
-(defn subject-facts
-  "All live facts for one subject, preserving multi-value conflicts as sets."
-  [subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "terminal_fact"
-                                 :rules [{:head {:rel "terminal_fact"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
-    (reduce (fn [facts [predicate value]]
-              (update facts predicate (fnil conj #{}) value))
-            {}
-            rows)))
+(def max-lane-run-candidates 128)
 
-(defn committed-runs-tagged-agent
-  "Run subjects carrying both agent=<h> and the writer's last-write kind=run marker."
+(defn subject-facts
+  "Read only the finite lifecycle predicates through subject+predicate indexes,
+  preserving multi-value conflicts as sets."
+  [subject predicates]
+  (into {}
+        (keep (fn [predicate]
+                (let [values (set (north.coord/many port subject predicate))]
+                  (when (seq values) [predicate values]))))
+        predicates))
+
+(defn runs-tagged-agent
+  "All @run subjects tagged agent=<h>, including a latest torn/uncommitted row
+  that must block fallback to an older terminal."
   [h]
-  (distinct
-   (q-col [{:rel "triple" :args [{:var "e"} "agent" h]}
-           {:rel "triple" :args [{:var "e"} "kind" "run"]}])))
+  (try
+    (let [response
+          (north.coord/query-page
+           port
+           {:find "lane_run_candidate"
+            :rules
+            [{:head {:rel "lane_run_candidate" :args [{:var "e"}]}
+              :body [{:rel "triple"
+                      :args [{:var "e"} "agent" h]}]}]}
+           max-lane-run-candidates nil)
+          rows (:ok response)]
+      (if (and (false? (:more response))
+               (vector? rows)
+               (every? #(and (vector? %) (= 1 (count %))
+                             (string? (first %)))
+                       rows))
+        {:ok true
+         :subjects
+         (->> rows
+              (map first)
+              (filter north.terminal-projection/valid-run-entity?)
+              distinct
+              vec)}
+        {:ok false :reason :run-projection-over-broad}))
+    (catch Exception _
+      {:ok false :reason :run-projection-unavailable})))
+
+(defn lane-resolution* [h]
+  (let [run-projection (runs-tagged-agent h)
+        subjects (:subjects run-projection)
+        lane-facts
+        (subject-facts
+         (str "@agent:" h)
+         (conj north.terminal-projection/terminal-projection-predicates
+               "terminal_manifest_sha256"))]
+    (if-not (:ok run-projection)
+      {:status :indeterminate :reason (:reason run-projection)}
+      (north.terminal-projection/lane-resolution
+       h lane-facts
+       (mapv
+        (fn [subject]
+          {:subject subject
+           :facts
+           (subject-facts
+            subject north.terminal-projection/run-resolution-predicates)})
+        subjects)))))
 
 (defn lane-resolved?* [h]
-  (north.reap/lane-resolved?
-    h
-    (subject-facts (str "@agent:" h))
-    (map subject-facts (committed-runs-tagged-agent h))))
+  (= :resolved (:status (lane-resolution* h))))
+
+(defn lane-reap-blocked?* [h]
+  ;; Reaping is destructive, so indeterminate lifecycle evidence protects the
+  ;; lane. Janitor cleanup remains stricter and accepts only :resolved above.
+  (not= :unresolved (:status (lane-resolution* h))))
 
 (def agent-fact-writer
   (str (.getParent (io/file (System/getProperty "babashka.file")))
@@ -254,7 +297,7 @@
                           l        (north.coord/lease-of port (str "session:" h))
                           lease-exp (:exp l)
                           sp       (or (spawned-ms e) (north.reap/sdk-agent-mint-ms h))]
-                   :when (north.reap/reap-lane? now (lane-resolved?* h) lease-exp sp)]
+                   :when (north.reap/reap-lane? now (lane-reap-blocked?* h) lease-exp sp)]
                {:e e :h h :lapse (north.reap/lane-lapse-ms now lease-exp sp)})]
     (doseq [{:keys [e h lapse]} hits]
       (when-not dry?

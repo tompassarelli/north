@@ -59,7 +59,7 @@
               blocked-terminal))
       blocked-folded
       (reduce-kv north.agent-provenance/fold-fact {} blocked-modern)
-      blocked-state (execution-terminal-state blocked-folded nil [])
+      blocked-state (execution-terminal-state "blocked-agent" blocked-folded [] [])
       blocked-delivery (terminal-delivery-state blocked-folded blocked-state)
       ran-state {:outcome "ran" :source :agent :terminal? true
                  :kind :ran :death-notifications 0}
@@ -93,34 +93,52 @@
                          :kind nil :death-notifications 0}
         :delivery-state nil :online true :lease {:exp (+ NOW 60000)}
         :lineage :session :identity-complete false :deaths []})
+      online-inconsistent-verdict
+      (trace-verdict
+       {:id "inconsistent-agent" :on-roster true
+        :terminal-state {:outcome nil :source nil :terminal? false
+                         :kind nil :resolution-status :indeterminate
+                         :resolution-reason :uncommitted-latest-run
+                         :death-notifications 0}
+        :delivery-state nil :online true :lease {:exp (+ NOW 60000)}
+        :lineage :sdk-lane :identity-complete true :deaths []})
       blocked-verdict
       (trace-verdict
        {:id "blocked-agent" :on-roster true
         :terminal-state blocked-state :delivery-state blocked-delivery
         :online true :lease {:exp (+ NOW 60000)}
         :lineage :sdk-lane :identity-complete true :deaths []})
-      run {:outcome "ran" :ms 0}
+      run-facts (merge terminal
+                       {"kind" "run" "agent" "trace-agent"
+                        "at" "2026-07-20T09:00:00Z"})
+      run [{:subject "@run:trace-agent-terminal" :facts run-facts}]
       death [{:reason "transport exited" :ms 0}]]
   (check "true legacy singleton outcome remains terminal"
          (= {:outcome "ran" :source :agent :terminal? true :kind :ran
              :death-notifications 0}
-            (execution-terminal-state {"outcome" "ran"} nil [])))
+            (select-keys
+             (execution-terminal-state "trace-agent" {"outcome" "ran"} [] [])
+             [:outcome :source :terminal? :kind :death-notifications])))
   (check "valid modern terminal resolves from folded multi-cardinality rows"
-         (= :ran (:kind (execution-terminal-state folded nil []))))
+         (= :ran (:kind (execution-terminal-state "trace-agent" folded [] []))))
   (check "partial modern terminal blocks secondary run fallback"
-         (not (:terminal? (execution-terminal-state partial run []))))
+         (not (:terminal? (execution-terminal-state "trace-agent" partial run []))))
   (check "conflicting process values fail closed"
-         (not (:terminal? (execution-terminal-state conflict run []))))
+         (not (:terminal? (execution-terminal-state "trace-agent" conflict run []))))
   (check "conflicting terminal markers fail closed"
-         (not (:terminal? (execution-terminal-state corrupt-marker run []))))
+         (not (:terminal?
+               (execution-terminal-state "trace-agent" corrupt-marker run []))))
   (check "committed run remains fallback only when the lane has no terminal body"
          (= {:outcome "ran" :source :run :terminal? true :kind :ran
              :death-notifications 0}
-            (execution-terminal-state {} run [])))
+            (select-keys
+             (execution-terminal-state "trace-agent" {} run [])
+             [:outcome :source :terminal? :kind :death-notifications])))
   (check "blocked_preflight is a stopped terminal even with a live lease"
          (= {:outcome "blocked_preflight" :source :agent :terminal? true
              :kind :stopped :death-notifications 0}
-            blocked-state))
+            (select-keys blocked-state
+                         [:outcome :source :terminal? :kind :death-notifications])))
   (check "completion rendering separates process from delivery"
          (= (str "process=blocked_preflight · delivery=blocked "
                  "(execution_preflight_blocked)")
@@ -161,6 +179,12 @@
   (check "online without a terminal remains healthy"
          (= "healthy — online and advancing (no terminal signal yet). No failure."
             online-active-verdict))
+  (check "online presence cannot make indeterminate lifecycle evidence healthy"
+         (and (str/includes? online-inconsistent-verdict
+                             "lifecycle evidence is inconsistent")
+              (str/includes? online-inconsistent-verdict
+                             "neither active nor finished")
+              (not (str/includes? online-inconsistent-verdict "healthy"))))
   (check "terminal blocked_preflight dominates live presence in the verdict"
          (and (str/includes? blocked-verdict
                              "terminal execution did not succeed")
@@ -170,7 +194,9 @@
   (check "death notification alone is diagnostic and never terminal"
          (= {:outcome nil :source nil :terminal? false :kind nil
              :death-notifications 1}
-            (execution-terminal-state {} nil death))))
+            (select-keys
+             (execution-terminal-state "trace-agent" {} [] death)
+             [:outcome :source :terminal? :kind :death-notifications]))))
 
 (doseq [[label passed?] @checks]
   (println (format "  [%s] %s" (if passed? "PASS" "FAIL") label)))

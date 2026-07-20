@@ -175,11 +175,45 @@
        (and (= :active-agent (roster-category {"kind" "lane"}))
             (= :native-session (roster-category {"kind" "session"}))
             (= :recently-finished (roster-category {"kind" "lane" "outcome" "ran"}))
-            (= :active-agent
+            (= :inconsistent
                (roster-category {"kind" "lane" "process_outcome" "ran" "outcome" "ran"}))
             (= :recently-finished
                (roster-category (marked-terminal {"kind" "lane"})))
             (= :unclassified (roster-category {}))))
+
+(let [control "lane-run-terminal"
+      terminal (dissoc (marked-terminal {}) "terminal_manifest_sha256")
+      committed-run
+      {:subject "@run:lane-run-terminal"
+       :facts (merge terminal
+                     {"kind" "run" "agent" control
+                      "at" "2026-07-20T09:00:00Z"})}
+      no-run
+      (attach-lane-resolutions
+       [control] {control {"kind" "lane"}}
+       {:ok true :by-agent {control []}})
+      resolved
+      (attach-lane-resolutions
+       [control] {control {"kind" "lane"}}
+       {:ok true :by-agent {control [committed-run]}})
+      malformed
+      (attach-lane-resolutions
+       [control] {control {"kind" "lane"}}
+       {:ok true
+        :by-agent
+        {control [(update committed-run :facts dissoc "kind")]}})]
+  (check "canonical run resolution controls roster active, finished, and inconsistent categories"
+         (and (= :active-agent (roster-category (get no-run control)))
+              (= :recently-finished (roster-category (get resolved control)))
+              (= :inconsistent (roster-category (get malformed control)))
+              (= "finished"
+                 (get (roster-json-row {:id control :online true :expires-s 10}
+                                       (get resolved control) {})
+                      "state"))
+              (= "inconsistent"
+                 (get (roster-json-row {:id control :online true :expires-s 10}
+                                       (get malformed control) {})
+                      "lifecycle")))))
 
 (check "terminal roster state separates process exit from delivery truth"
        (and (str/includes?
@@ -192,7 +226,7 @@
                                  {"kind" "lane" "outcome" "ran" "goal" "legacy"})
              "finished(process:ran, delivery:unrecorded)")))
 
-(check "legacy same-UID verified projection cannot manufacture a finished roster state"
+(check "legacy same-UID verified projection is lifecycle-inconsistent, never finished or active"
        (let [evidence (json/generate-string
                        {"version" "north:done-bars:v1"
                         "run" "@run-worker"
@@ -229,7 +263,7 @@
                            (north.terminal-projection/terminal-manifest-sha256 terminal)})]
          (let [line (agent-primary-line {:online true} facts)]
            (and (not (str/includes? line "delivery:verified"))
-                (str/includes? line "working")))))
+                (str/includes? line "inconsistent(lifecycle:invalid-lane-terminal)")))))
 
 (check "folded terminal conflicts stay visible and cannot manufacture a finished lane"
        (let [committed (fold-observed
@@ -243,10 +277,10 @@
               (str/includes? (agent-primary-line {:online true} committed)
                              "finished(process:ran, delivery:unverified)")
               (= #{"ran" "died"} (get process-conflict "process_outcome"))
-              (= :active-agent (roster-category process-conflict))
+              (= :inconsistent (roster-category process-conflict))
               (str/includes? (agent-primary-line {:online true} process-conflict)
-                             " · working: conflict probe")
-              (= :active-agent (roster-category marker-conflict)))))
+                             " · inconsistent(lifecycle:invalid-lane-terminal): conflict probe")
+              (= :inconsistent (roster-category marker-conflict)))))
 
 (check "uncomposed role remains visible without inventing Gaffer provenance"
        (let [facts {"kind" "lane" "provider" "anthropic" "model" "opus"
@@ -367,10 +401,14 @@
                                            "process_outcome" "ran"
                                            "delivery_outcome" "unverified"
                                            "delivery_reason" "provider_terminal_success_without_external_verification"})}}
-                           :sessions {}})]
+                           :sessions {}})
+                        roster-run-entries
+                        (fn [ids]
+                          {:ok true
+                           :by-agent (into {} (map #(vector % []) ids))})]
             (with-out-str (cmd-agents [])))]
   (check "roster summary separates active and recently finished counts"
-         (and (str/includes? out "3 roster entries · 2 active · 1 recently finished")
+         (and (str/includes? out "3 roster entries · 2 active · 0 inconsistent · 1 recently finished")
               (str/includes? out "active agents (1)")
               (str/includes? out "native sessions (1)")
               (str/includes? out "recently finished (1)")

@@ -26,6 +26,7 @@
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (def PORT (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
 (def NOW (System/currentTimeMillis))
+(def max-trace-run-candidates 128)
 
 (def use-color? (some? (System/console)))
 (defn c [code s] (if use-color? (str "\033[" code "m" s "\033[0m") (str s)))
@@ -68,13 +69,51 @@
                                            (rs "likely-to-land") "likely-to-land" (rs "building") "building" :else "?"))
                      :repo (resolved PORT e "repo")}))))
 
-(defn agent-runs [id]                 ; [{:outcome :ms} ...] run records whose agent = id
-  (->> (q ["e" "o" "t"]
-          [{:rel "triple" :args [{:var "e"} "kind" "run"]}
-           {:rel "triple" :args [{:var "e"} "agent" id]}
-           {:rel "triple" :args [{:var "e"} "outcome" {:var "o"}]}
-           {:rel "triple" :args [{:var "e"} "at" {:var "t"}]}])
-       (map (fn [[_ o t]] {:outcome o :ms (iso->ms t)}))
+(defn agent-run-entries [id]
+  (let [response
+        (try
+          (north.coord/query-page
+           PORT
+           {:find "trace_run_candidate"
+            :rules
+            [{:head {:rel "trace_run_candidate" :args [{:var "e"}]}
+              :body [{:rel "triple"
+                      :args [{:var "e"} "agent" id]}]}]}
+           max-trace-run-candidates nil)
+          (catch Exception _ nil))
+        rows (:ok response)]
+    (when (and (map? response)
+               (false? (:more response))
+               (vector? rows)
+               (<= (count rows) max-trace-run-candidates)
+               (every? #(and (vector? %) (= 1 (count %))
+                             (string? (first %)))
+                       rows))
+      (->> rows
+           (map first)
+           (filter north.terminal-projection/valid-run-entity?)
+           distinct
+           sort
+           (mapv
+            (fn [subject]
+              {:subject subject
+               :facts
+               (into {}
+                     (keep
+                      (fn [predicate]
+                        (let [values (set (many PORT subject predicate))]
+                          (when (seq values) [predicate values]))))
+                     north.terminal-projection/run-resolution-predicates)}))))))
+
+(defn agent-runs [run-entries]         ; [{:outcome :ms} ...] display history
+  (->> run-entries
+       (keep (fn [{:keys [facts]}]
+               (when-let [ms (some->
+                              (north.terminal-projection/singleton-value facts "at")
+                              iso->ms)]
+                 {:outcome
+                  (north.terminal-projection/committed-run-process-outcome facts)
+                  :ms ms})))
        (sort-by #(or (:ms %) 0))))
 
 (defn deaths-for [id]                 ; agent_death lines on @swarm mentioning this id
@@ -96,16 +135,17 @@
   modern projection or conflicting legacy outcome fails closed and cannot fall
   through to a secondary run trail. A committed run remains the compatibility
   fallback only when the lane carries no terminal body at all."
-  [facts last-run deaths]
-  (let [lane-evidence? (or (north.terminal-projection/fact-present?
-                            facts "process_outcome")
-                           (north.terminal-projection/fact-present? facts "outcome"))
-        lane-outcome (north.terminal-projection/terminal-process-outcome facts)
-        run-outcome (when (and (not lane-evidence?) (nil? lane-outcome))
-                      (:outcome last-run))
-        outcome (or lane-outcome run-outcome)]
+  [control facts run-entries deaths]
+  (let [resolution
+        (if (vector? run-entries)
+          (north.terminal-projection/lane-resolution control facts run-entries)
+          {:status :indeterminate :reason :run-projection-unavailable})
+        outcome (when (= :resolved (:status resolution)) (:outcome resolution))]
     {:outcome outcome
-     :source (cond lane-outcome :agent run-outcome :run :else nil)
+     :source (:source resolution)
+     :resolution-status (:status resolution)
+     :resolution-reason (:reason resolution)
+     :facts (:facts resolution)
      :terminal? (boolean outcome)
      :kind (cond
              (= "ran" outcome) :ran
@@ -116,16 +156,16 @@
      :death-notifications (count deaths)}))
 
 (defn terminal-delivery-state
-  "Expose delivery only from the same committed lane terminal that established
-  process truth. A compatibility run fallback has no lane delivery projection."
+  "Expose delivery only from the same committed projection that established
+  process truth."
   [facts terminal-state]
-  (when (and (:terminal? terminal-state)
-             (= :agent (:source terminal-state)))
-    {:outcome (or (north.terminal-projection/singleton-value
-                   facts "delivery_outcome")
+  (when (:terminal? terminal-state)
+    (let [terminal-facts (or (:facts terminal-state) facts)]
+      {:outcome (or (north.terminal-projection/singleton-value
+                   terminal-facts "delivery_outcome")
                   "unrecorded")
-     :reason (north.terminal-projection/singleton-value
-              facts "delivery_reason")}))
+       :reason (north.terminal-projection/singleton-value
+                terminal-facts "delivery_reason")})))
 
 (defn terminal-summary [terminal-state delivery-state]
   (str "process=" (:outcome terminal-state)
@@ -151,6 +191,10 @@
     (cond
       (not on-roster)
       (red "F4 — not on any roster: a zombie fork, a bad id, or an unmanaged actor. Confirm via git author vs `north agents`.")
+      (= :indeterminate (:resolution-status terminal-state))
+      (red (str "lifecycle evidence is inconsistent ("
+                (name (:resolution-reason terminal-state))
+                "); this lane is neither active nor finished. Repair the lane/run projection before steering or cleanup."))
       (= terminal-kind :died)
       (str (red (str "F1 — API-death mid-lane; " summary "."))
            " agent_death recorded. Remedy: re-dispatch the thread (idempotent); for chronic deaths re-dispatch at the next tier per the D2 execution-axis move; read the partial result first.")
@@ -225,10 +269,11 @@
             active-concern (first (filter #(= (:status %) "building") concerns))
             tx (transcript id)
             ;; completion / death
-            runs (agent-runs id)
+            run-entries (agent-run-entries id)
+            runs (agent-runs run-entries)
             last-run (last runs)
             deaths (deaths-for id)
-            terminal-state (execution-terminal-state facts last-run deaths)
+            terminal-state (execution-terminal-state id facts run-entries deaths)
             terminal? (:terminal? terminal-state)
             terminal-kind (:kind terminal-state)
             delivery-state (terminal-delivery-state facts terminal-state)
@@ -301,6 +346,7 @@
                          (and (= terminal-kind :ran) (= proof-class :incomplete)) :warn
                          (= terminal-kind :ran) :fail
                          terminal-kind :fail
+                         (= :indeterminate (:resolution-status terminal-state)) :fail
                          death-notification :fail
                          online :na
                          :else :fail)
@@ -319,6 +365,9 @@
                                  " (reactor-reaped silent death)"))
                        :stopped (red (terminal-summary terminal-state delivery-state))
                        (cond
+                         (= :indeterminate (:resolution-status terminal-state))
+                         (red (str "lifecycle evidence inconsistent: "
+                                   (name (:resolution-reason terminal-state))))
                          death-notification
                          (str (red "agent_death notification without committed terminal")
                               ": \"" (:reason death-notification) "\"")

@@ -25,6 +25,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 
 (def protocol "north-live-feed-v1")
 (def max-control-line-bytes 4096)
@@ -33,6 +34,7 @@
 (def control-queue-capacity 32)
 (def default-ack-timeout-ms 10000)
 (def target-identity-manifest-predicate "target_identity_manifest_sha256")
+(def max-live-route-run-candidates 128)
 
 (defn utf8-bytes [value]
   (alength (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))
@@ -286,8 +288,67 @@
               {}
               rows))))
 
+(defn agent-run-entries [port control]
+  (try
+    (let [response
+          (north.coord/query-page
+           port
+           {:find "live_route_run_candidate"
+            :rules
+            [{:head {:rel "live_route_run_candidate"
+                     :args [{:var "e"}]}
+              :body [{:rel "triple"
+                      :args [{:var "e"} "agent" control]}]}]}
+           max-live-route-run-candidates nil)
+          rows (:ok response)]
+      (when (and (map? response)
+                 (vector? rows)
+                 (false? (:more response))
+                 (<= (count rows) max-live-route-run-candidates)
+                 (every? #(and (vector? %) (= 1 (count %))
+                               (every? string? %))
+                         rows))
+        (->> rows
+             (map first)
+             (filter north.terminal-projection/valid-run-entity?)
+             distinct
+             sort
+             (mapv
+              (fn [subject]
+                {:subject subject
+                 :facts
+                 (into {}
+                       (keep
+                        (fn [predicate]
+                          (let [values
+                                (set (north.coord/many port subject predicate))]
+                            (when (seq values) [predicate values]))))
+                       north.terminal-projection/run-resolution-predicates)})))))
+    (catch Exception _ nil)))
+
+(defn route-resolution [port control facts]
+  (let [runs (agent-run-entries port control)]
+    (if (and (map? facts) (vector? runs))
+      (north.terminal-projection/lane-resolution control facts runs)
+      {:status :indeterminate :reason :lifecycle-projection-unavailable})))
+
+(defn require-open-lane! [port control]
+  (let [facts (agent-facts port control)
+        resolution (route-resolution port control facts)]
+    (case (:status resolution)
+      :unresolved true
+      :resolved
+      (throw (ex-info "live input target is terminal"
+                      {:type :terminal-live-input-target
+                       :recipient control}))
+      (throw (ex-info "live input target lifecycle is inconsistent"
+                      {:type :indeterminate-live-input-target
+                       :recipient control
+                       :reason (:reason resolution)})))))
+
 (defn require-frozen-route-epoch! [port recipient epoch]
-  (let [facts (agent-facts port recipient)]
+  (let [facts (agent-facts port recipient)
+        resolution (route-resolution port recipient facts)]
     (when-not
      (and (safe-route-epoch? epoch)
           (map? facts)
@@ -295,8 +356,7 @@
           (= "streaming" (get facts "live_input"))
           (= "frozen" (get facts "live_input_state"))
           (= epoch (get facts "live_input_epoch"))
-          (empty? (get facts "process_outcome"))
-          (empty? (get facts "outcome")))
+          (= :unresolved (:status resolution)))
       (throw
        (ex-info
         "terminal drain does not match the current frozen route generation"
@@ -315,11 +375,11 @@
         managed-steer? (some? expected)]
     (if-not (or steer-shaped-subject? managed-steer?)
       {:valid? true}
-      (let [
-          facts (agent-facts port to)
-          observed (when (map? facts)
-                     (get facts "identity_manifest_sha256"))]
-      (cond
+      (let [facts (agent-facts port to)
+            resolution (route-resolution port to facts)
+            observed (when (map? facts)
+                       (get facts "identity_manifest_sha256"))]
+        (cond
         (and managed-steer? (not canonical-steer-subject?))
         {:valid? false :reason "steer_type_invalid"
          :expected-manifest
@@ -348,16 +408,22 @@
         {:valid? false :reason "steer_route_stale"
          :expected-manifest expected :observed-manifest observed}
 
+        (= :resolved (:status resolution))
+        {:valid? false :reason "steer_route_not_armed"
+         :expected-manifest expected :observed-manifest observed}
+
+        (= :indeterminate (:status resolution))
+        {:valid? false :reason "steer_route_not_armed"
+         :expected-manifest expected :observed-manifest observed}
+
         (or (not= "streaming" (get facts "live_input"))
-            (not= "armed" (get facts "live_input_state"))
-            (seq (get facts "process_outcome"))
-            (seq (get facts "outcome")))
+            (not= "armed" (get facts "live_input_state")))
         {:valid? false :reason "steer_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
         :else
-        {:valid? true
-         :expected-manifest expected :observed-manifest observed})))))
+          {:valid? true
+           :expected-manifest expected :observed-manifest observed})))))
 
 (defn current-steer-route? [port message to subject]
   (:valid? (steer-route-status port message to subject)))
@@ -630,6 +696,10 @@
              (north.coord/read-line-bounded! reader))]
         ;; Start draining the armed stream before making readiness observable.
         (start-event-reader! reader event-queue)
+        ;; A committed terminal run is execution truth even when a crashed
+        ;; writer never copied it to @agent. Check after subscription arm and
+        ;; immediately before readiness becomes observable.
+        (require-open-lane! port recipient)
         (emit-ready! recipient (:subscribed handshake))
         (await-control! control-queue "start" nil ack-timeout-ms)
         ;; Role/address snapshot happens after arm. Any concurrent holds/to

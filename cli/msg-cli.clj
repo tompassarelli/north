@@ -21,6 +21,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/command-id.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def put!    north.coord/put!)
@@ -29,6 +30,7 @@
 
 (def steer-control-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 (def target-identity-manifest-predicate "target_identity_manifest_sha256")
+(def max-steer-run-candidates 128)
 (defn reject-message! [message]
   (binding [*out* *err*] (println (str "REJECTED: message " message)))
   (System/exit 2))
@@ -62,19 +64,61 @@
             {}
             rows)))
 
+(defn steer-run-entries [port control]
+  (try
+    (let [response
+          (north.coord/query-page
+           port
+           {:find "steer_run_candidate"
+            :rules
+            [{:head {:rel "steer_run_candidate"
+                     :args [{:var "e"}]}
+              :body [{:rel "triple"
+                      :args [{:var "e"} "agent" control]}]}]}
+           max-steer-run-candidates nil)
+          rows (:ok response)]
+      (when-not
+       (and (map? response) (vector? rows)
+            (false? (:more response))
+            (<= (count rows) max-steer-run-candidates)
+            (every? #(and (vector? %) (= 1 (count %))
+                          (every? string? %))
+                    rows))
+        (reject-steer! "target lifecycle is unavailable"))
+      (->> rows
+           (map first)
+           (filter north.terminal-projection/valid-run-entity?)
+           distinct
+           sort
+           (mapv
+            (fn [subject]
+              {:subject subject
+               :facts
+               (into {}
+                     (keep (fn [predicate]
+                             (let [values (set (many port subject predicate))]
+                               (when (seq values) [predicate values]))))
+                     north.terminal-projection/run-resolution-predicates)}))))
+    (catch Exception _
+      (reject-steer! "target lifecycle is unavailable"))))
+
 (defn require-live-steer! [port control]
   (when-not (and (string? control)
                  (re-matches steer-control-pattern control))
     (reject-steer! "target is malformed"))
   (let [facts (steer-agent-facts port control)
+        resolution
+        (north.terminal-projection/lane-resolution
+         control facts (steer-run-entries port control))
         provider (get facts "provider")
         live-input (get facts "live_input")
         live-input-state (get facts "live_input_state")]
     (when-not (north.agent-provenance/managed-valid? facts)
       (reject-steer! "target is not one exact committed managed lane"))
-    (when (or (seq (get facts "process_outcome"))
-              (seq (get facts "outcome")))
+    (when (= :resolved (:status resolution))
       (reject-steer! "target is terminal"))
+    (when (= :indeterminate (:status resolution))
+      (reject-steer! "target lifecycle is inconsistent"))
     (let [online?
           (try (north.coord/online? port control)
                (catch Exception _ ::unavailable))]

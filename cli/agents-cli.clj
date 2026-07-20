@@ -31,6 +31,7 @@
   "north:provider-capability-admission:v1")
 
 (load-file (str NORTH "/cli/spawn-process.clj"))
+(load-file (str NORTH "/cli/coord.clj"))
 (load-file (str NORTH "/cli/topology-authority.clj"))
 (load-file (str NORTH "/cli/managed-child-env.clj"))
 (load-file (str NORTH "/cli/gaffer-staffing.clj"))
@@ -240,7 +241,9 @@
 (def max-control-id-bytes 256)
 (def max-live-controls 256)
 (def max-roster-fact-rows 32768)
+(def max-roster-run-candidates 4096)
 (def roster-conflict-key "__roster_conflicts")
+(def lane-resolution-key ::lane-resolution)
 
 (defn- valid-control-id? [value]
   (and (string? value)
@@ -315,6 +318,82 @@
           ;; the timeout pathology this roster replaces. One failed bounded
           ;; projection is an unavailable roster, never 256 fabricated empties.
           {:err "agent subject projection unavailable"})))))
+
+(defn roster-run-entries
+  "Read run candidates for every live control in one indexed union query. The
+  response is proportional to those lane handles, never to global run history."
+  [ids]
+  (let [ids (vec (distinct ids))]
+    (if (empty? ids)
+      {:ok true :by-agent {}}
+      (try
+        (let [rules
+              (mapv
+               (fn [control]
+                 {:head {:rel "roster_run_candidate"
+                         :args [{:var "e"}]}
+                  :body [{:rel "triple"
+                          :args [{:var "e"} "agent" control]}]})
+               ids)
+              response
+              (north.coord/query-page
+               (Integer/parseInt PORT)
+               {:find "roster_run_candidate" :rules rules}
+               max-roster-run-candidates nil)
+              rows (:ok response)]
+          (if-not
+           (and (map? response) (vector? rows)
+                (false? (:more response))
+                (<= (count rows) max-roster-run-candidates)
+                (every? #(and (vector? %) (= 1 (count %))
+                              (every? string? %))
+                        rows))
+            {:ok false :reason :run-projection-malformed}
+            (let [subjects
+                  (->> rows
+                       (map first)
+                       (filter north.terminal-projection/valid-run-entity?)
+                       distinct
+                       sort)
+                  entries
+                  (mapv
+                   (fn [subject]
+                     {:subject subject
+                      :facts
+                      (into {}
+                            (keep
+                             (fn [predicate]
+                               (let [values
+                                     (set (north.coord/many
+                                           (Integer/parseInt PORT)
+                                           subject predicate))]
+                                 (when (seq values) [predicate values]))))
+                            north.terminal-projection/run-resolution-predicates)})
+                   subjects)]
+              {:ok true
+               :by-agent
+               (into {}
+                     (map (fn [control]
+                            [control
+                             (filterv
+                              #(contains? (get-in % [:facts "agent"] #{}) control)
+                              entries)]))
+                     ids)})))
+        (catch Exception _
+          {:ok false :reason :run-projection-unavailable})))))
+
+(defn attach-lane-resolutions [ids agents run-projection]
+  (into {}
+        (map
+         (fn [control]
+           (let [facts (get agents control {})
+                 resolution
+                 (if (:ok run-projection)
+                   (north.terminal-projection/lane-resolution
+                    control facts (get-in run-projection [:by-agent control] []))
+                   {:status :indeterminate :reason (:reason run-projection)})]
+             [control (assoc facts lane-resolution-key resolution)])))
+        ids))
 
 (defn current-repo []
   (let [r (run ["git" "remote" "get-url" "origin"] :timeout 1500)]
@@ -458,10 +537,17 @@
       "unknown"))
 
 (defn- terminal-state [presence facts]
-  (let [process-outcome (north.terminal-projection/terminal-process-outcome facts)
-        delivery-outcome (north.terminal-projection/terminal-delivery-outcome facts)
+  (let [resolution
+        (or (get facts lane-resolution-key)
+            (north.terminal-projection/lane-resolution
+             (:id presence) facts []))
+        process-outcome (when (= :resolved (:status resolution))
+                          (:outcome resolution))
+        delivery-outcome (when (= :resolved (:status resolution))
+                           (:delivery-outcome resolution))
         delivery-attestation
-        (when (= "verified" delivery-outcome)
+        (when (and (= :agent (:source resolution))
+                   (= "verified" delivery-outcome))
           (try
             (json/parse-string
              (north.terminal-projection/singleton-value facts "delivery_attestation"))
@@ -474,15 +560,23 @@
           (or delivery-outcome "unrecorded"))
         state (cond
                 process-outcome "finished"
+                (= :indeterminate (:status resolution)) "inconsistent"
                 (fact-one facts "stalled") "stalled"
                 (:online presence) "working"
                 :else "offline")
         state-label
-        (if process-outcome
+        (cond
+          process-outcome
           (str "finished(process:" process-outcome ", delivery:" delivery-label ")")
-          state)]
+
+          (= :indeterminate (:status resolution))
+          (str "inconsistent(lifecycle:" (name (:reason resolution)) ")")
+
+          :else state)]
     {:process-outcome (or process-outcome "")
      :delivery-outcome (or delivery-outcome "")
+     :resolution-status (:status resolution)
+     :resolution-reason (:reason resolution)
      :state state
      :state-label state-label}))
 
@@ -521,7 +615,8 @@
           (role-axis facts) " · " state ": " task))))
 
 (defn roster-json-row [presence facts session]
-  (let [{:keys [process-outcome delivery-outcome state state-label]}
+  (let [{:keys [process-outcome delivery-outcome state state-label
+                resolution-status resolution-reason]}
         (terminal-state presence facts)
         task (task-of presence facts session)
         control (:id presence)]
@@ -544,18 +639,24 @@
      "task" task
      "state" state
      "state_label" state-label
-     "lifecycle" (or (fact-one facts "lifecycle") state)
+     "lifecycle" state
+     "lifecycle_resolution" (name resolution-status)
+     "lifecycle_reason" (if resolution-reason (name resolution-reason) "")
      "process_outcome" process-outcome
      "delivery_outcome" delivery-outcome
      "online" (boolean (:online presence))
      "expires_s" (:expires-s presence)}))
 
 (defn roster-category [facts]
-  (cond
-    (north.terminal-projection/terminal-process-outcome facts) :recently-finished
-    (= "lane" (fact-one facts "kind")) :active-agent
-    (= "session" (fact-one facts "kind")) :native-session
-    :else :unclassified))
+  (let [resolution
+        (or (get facts lane-resolution-key)
+            (north.terminal-projection/lane-resolution nil facts []))]
+    (cond
+      (= :resolved (:status resolution)) :recently-finished
+      (= :indeterminate (:status resolution)) :inconsistent
+      (= "lane" (fact-one facts "kind")) :active-agent
+      (= "session" (fact-one facts "kind")) :native-session
+      :else :unclassified)))
 
 ;; ---- presence ---------------------------------------------------------------
 (defn presence-rows []
@@ -664,10 +765,13 @@
     (if (:err presence)
       {:err (:err presence)}
       (let [rows (vec (filter :online (:agents presence)))
-            facts (roster-facts (mapv :id rows))]
+            ids (mapv :id rows)
+            facts (roster-facts ids)]
         (if (:err facts)
           {:err (:err facts)}
-          (let [agents (:agents facts)
+          (let [run-projection (roster-run-entries ids)
+                agents (attach-lane-resolutions
+                        ids (:agents facts) run-projection)
                 sessions (:sessions facts)]
             {:rows rows
              :agents agents
@@ -713,6 +817,7 @@
                           active-agents (vec (get categorized :active-agent []))
                           native-sessions (vec (get categorized :native-session []))
                           unclassified (vec (get categorized :unclassified []))
+                          inconsistent (vec (get categorized :inconsistent []))
                           finished (vec (get categorized :recently-finished []))
                           active (+ (count active-agents)
                                     (count native-sessions)
@@ -736,12 +841,16 @@
                                                      " · ttl " (:expires a))))))))]
                       (println (bold (str (count rows) " roster entries"))
                                (dim (str "· " active " active · "
+                                         (count inconsistent) " inconsistent · "
                                          (count finished) " recently finished")))
                       (render-section "active agents" nil active-agents)
                       (render-section "native sessions"
                                       "(active provider CLI sessions)" native-sessions)
                       (render-section "unclassified presence"
                                       "(legacy or missing identity facts)" unclassified)
+                      (render-section "inconsistent lifecycle"
+                                      "(terminal/run projection is incomplete, conflicting, or unavailable)"
+                                      inconsistent)
                   (render-section
                    "recently finished"
                    "(process is terminal; delivery evidence is shown separately; presence lease has not lapsed)"

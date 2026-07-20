@@ -25,8 +25,12 @@
   (assoc modern-terminal "terminal_manifest_sha256"
          (north.terminal-projection/terminal-manifest-sha256 modern-terminal)))
 (def partial-run
-  {"agent" "sdk-run" "outcome" "ran" "process_outcome" "ran"})
+  (merge modern-terminal
+         {"agent" "sdk-run" "at" "2026-07-20T09:00:00Z"}))
 (def committed-run (assoc partial-run "kind" "run"))
+(defn run-entry
+  ([facts] (run-entry "@run:sdk-run-terminal" facts))
+  ([subject facts] {:subject subject :facts facts}))
 
 (defn resolved? [h lane runs]
   (north.reap/lane-resolved? h lane runs))
@@ -46,9 +50,20 @@
    ["true legacy lane outcome resolves only without process_outcome"
     (resolved? "sdk-a" {"outcome" "ran"} [])                                     true]
    ["committed kind=run fallback resolves"
-    (resolved? "sdk-run" {} [committed-run])                                     true]
+    (resolved? "sdk-run" {} [(run-entry committed-run)])                         true]
    ["partial run body without kind=run stays invisible"
-    (resolved? "sdk-run" {} [partial-run])                                       false]
+    (resolved? "sdk-run" {} [(run-entry partial-run)])                           false]
+   ["newer uncommitted run blocks fallback to an older terminal"
+    (resolved?
+     "sdk-run" {}
+     [(run-entry "@run:sdk-run-old" committed-run)
+      (run-entry "@run:sdk-run-new"
+                 (assoc partial-run "at" "2026-07-20T10:00:00Z"))])               false]
+   ["timestamp tie is indeterminate rather than electing a terminal"
+    (resolved?
+     "sdk-run" {}
+     [(run-entry "@run:sdk-run-a" committed-run)
+      (run-entry "@run:sdk-run-b" committed-run)])                               false]
 
    ;; --- the true-positive: truly-silent lane IS reaped ---------------------------
    ["silent lane (lease lapsed >30min, no committed terminal) => reaped"
@@ -66,7 +81,12 @@
    ["no lease, spawned 2min ago => NOT reaped (too new)"
     (reap? now false nil new-spawn)                                               false]
    ["no lease, spawned 3h ago, but resolved via committed @run => NOT reaped"
-    (reap? now (resolved? "sdk-d" {} [committed-run]) nil old-spawn)              false]
+    (reap? now
+           (resolved?
+            "sdk-d" {}
+            [(run-entry "@run:sdk-d-terminal"
+                        (assoc committed-run "agent" "sdk-d"))])
+           nil old-spawn)                                                         false]
    ["no lease AND no spawned_at => NOT reaped (no staleness axis)"
     (reap? now false nil nil)                                                     false]
 
@@ -81,7 +101,10 @@
 
    ;; --- lane-resolved? join precision --------------------------------------------
    ["resolved?: unrelated tagged subjects without kind=run stay false"
-    (resolved? "sdk-f" {} [{"kind" "session" "outcome" "ran"}])                   false]
+    (resolved? "sdk-f" {}
+               [(run-entry "@run:sdk-f-uncommitted"
+                           {"kind" "session" "agent" "sdk-f"
+                            "at" "2026-07-20T09:00:00Z" "outcome" "ran"})])       false]
    ["resolved?: empty lane and runs, no deaths => false"
     (resolved? "sdk-g" {} [])                                                     false]
    ["resolved?: death line prefix must be exact (sdk-01 not matched by sdk-011)"

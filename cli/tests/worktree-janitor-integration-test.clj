@@ -21,6 +21,14 @@
 (defn check [label value & [detail]]
   (swap! checks conj [label (boolean value) detail]))
 
+(let [source (slurp reactor)]
+  (check "sweep lifecycle lookup is paged, capped, and never scans all subject facts"
+         (and (str/includes? source "north.coord/query-page")
+              (str/includes? source "lane_run_candidate")
+              (str/includes? source "max-lane-run-candidates nil")
+              (str/includes? source "north.coord/many port subject predicate")
+              (not (str/includes? source ":find \"terminal_fact\"")))))
+
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
 
@@ -102,6 +110,7 @@
 (defn commit-run! [port handle]
   (let [run (str "@run:" handle)]
     (assert-fact! port run "agent" handle)
+    (assert-fact! port run "at" "2026-07-20T09:00:00Z")
     (assert-fact! port run "outcome" "ran")
     ;; Last-write commit marker: without this exact fact the run is invisible.
     (assert-fact! port run "kind" "run")))

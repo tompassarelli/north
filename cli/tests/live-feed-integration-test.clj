@@ -17,6 +17,7 @@
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
 (def identity-writer (str root "/cli/agent-fact-internal.clj"))
+(def north-cli (str root "/bin/north"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-audience.clj"))
 (def checks (atom []))
@@ -110,11 +111,22 @@
 (defn run-msg [port & args]
   (apply run-cli msg-cli port args))
 
+(defn run-north [port & args]
+  (apply proc/shell
+         {:continue true
+          :out :string
+          :err :string
+          :extra-env {"FRAM_LOG" @test-log
+                      "NORTH_HOME" root
+                      "NORTH_PORT" (str port)
+                      "NO_COLOR" "1"}}
+         north-cli args))
+
 (defn register! [port handle]
   (run-cli presence-cli port "register" handle (str "/tmp/" handle) handle))
 
 (defn sent-subject [result]
-  (second (re-find #"sent (@msg:[^ ]+)" (:out result))))
+  (second (re-find #"(@msg:[^ ]+)" (:out result))))
 
 (defn send-message! [port from to subject body]
   (let [result (run-msg port "send" from to subject body)
@@ -304,6 +316,25 @@
                         (json/generate-string payload))]
     (when-not (zero? (:exit result))
       (throw (ex-info "route fixture publication failed" result)))))
+
+(defn publish-terminal-run!
+  ([port control subject at]
+   (publish-terminal-run! port control subject at true))
+  ([port control subject at commit?]
+   (doseq [[predicate value]
+           [["agent" control]
+            ["at" at]
+            ["outcome" "ran"]
+            ["process_outcome" "ran"]
+            ["delivery_outcome" "unverified"]
+            ["delivery_reason"
+             "provider_terminal_success_without_external_verification"]]]
+     (assert-fact! port subject predicate value))
+   (when commit?
+     ;; kind=run is deliberately last: this fixture exercises the production
+     ;; publication boundary instead of manufacturing an already-folded map.
+     (assert-fact! port subject "kind" "run"))
+   subject))
 
 (defn pending-steers [port recipient]
   (with-redefs
@@ -794,6 +825,103 @@
                         (empty? (values-of port message "acked_by"))
                         (empty? (pending-steers port recipient)))))
           (stop-feed! retry))))
+
+    ;; A committed @run terminal is execution truth even if a crashed lifecycle
+    ;; writer left the lane identity armed and its presence lease online.
+    (let [recipient "run-terminal-recipient"
+          epoch "00000000-0000-4000-8000-000000000020"
+          run-subject "@run:run-terminal-recipient"
+          _ (publish-route! port recipient "publish" "armed" epoch)
+          _ (check "run-terminal lane has a live session lease"
+                   (zero? (:exit (register! port recipient))))
+          feed (start-feed! port recipient 3000 2000)
+          ready (require-frame! feed "ready")
+          admitted (run-msg port "send" "director" recipient "steer"
+                            "accepted before terminal publication")
+          message (sent-subject admitted)
+          _ (when-not (and (zero? (:exit admitted)) (string? message))
+              (throw (ex-info "pre-terminal steer fixture was rejected"
+                              admitted)))]
+      (check "no-run armed lane reaches consumer readiness"
+             (and (= recipient (get ready "recipient"))
+                  (zero? (:exit admitted))
+                  (string? message)))
+      (publish-terminal-run!
+       port recipient run-subject "2026-07-20T09:00:00Z")
+      (send-control! feed (array-map "type" "start"))
+      (let [rejection (require-frame! feed "error")]
+        (check "consumer re-read rejects a pre-terminal admitted steer"
+               (and (= message (get rejection "id"))
+                    (= "steer_route_not_armed" (get rejection "code"))
+                    (= #{recipient}
+                       (values-of port message "delivery_rejected_by"))
+                    (empty? (values-of port message "acked_by")))))
+      (stop-feed! feed)
+
+      (let [producer
+            (run-msg port "send" "director" recipient "steer"
+                     "must not land after terminal")]
+        (check "producer admission rejects an online armed lane with a terminal run"
+               (and (= 2 (:exit producer))
+                    (str/blank? (:out producer))
+                    (str/includes? (:err producer) "target is terminal"))))
+
+      (let [after-terminal (start-feed! port recipient 3000 2000)]
+        (check "terminal run prevents a false live-feed ready frame"
+               (and (.waitFor ^Process (:process after-terminal)
+                              5 java.util.concurrent.TimeUnit/SECONDS)
+                    (empty? (frames-until-eof! after-terminal 2000))
+                    (some #(str/includes? % "terminal-live-input-target")
+                          @(:errors after-terminal))))
+        (stop-feed! after-terminal))
+
+      (let [roster-result (run-north port "agents" "--json")
+            roster (when (zero? (:exit roster-result))
+                     (json/parse-string (:out roster-result)))
+            row (first (filter #(= recipient (get % "control_id"))
+                               (get roster "agents")))]
+        (check "roster excludes terminal-run lane from active working state"
+               (and (zero? (:exit roster-result))
+                    (= "finished" (get row "state"))
+                    (= "resolved" (get row "lifecycle_resolution"))
+                    (= "ran" (get row "process_outcome"))))))
+
+    ;; An incomplete latest run cannot falsely finish a lane or fall back to an
+    ;; older terminal. It is explicitly inconsistent and steer admission closes.
+    (let [recipient "run-incomplete-recipient"
+          epoch "00000000-0000-4000-8000-000000000021"
+          _ (publish-route! port recipient "publish" "armed" epoch)
+          _ (check "incomplete-run lane has a live session lease"
+                   (zero? (:exit (register! port recipient))))
+          before (run-north port "agents" "--json")
+          before-row
+          (when (zero? (:exit before))
+            (first
+             (filter #(= recipient (get % "control_id"))
+                     (get (json/parse-string (:out before)) "agents"))))]
+      (check "real roster keeps a valid no-run lane working"
+             (and (= "working" (get before-row "state"))
+                  (= "unresolved" (get before-row "lifecycle_resolution"))))
+      (publish-terminal-run!
+       port recipient "@run:run-incomplete-recipient"
+       "2026-07-20T10:00:00Z" false)
+      (let [producer
+            (run-msg port "send" "director" recipient "steer"
+                     "must not cross incomplete lifecycle")
+            roster-result (run-north port "agents" "--json")
+            roster (when (zero? (:exit roster-result))
+                     (json/parse-string (:out roster-result)))
+            row (first (filter #(= recipient (get % "control_id"))
+                               (get roster "agents")))]
+        (check "uncommitted latest run rejects producer admission as inconsistent"
+               (and (= 2 (:exit producer))
+                    (str/includes? (:err producer)
+                                   "target lifecycle is inconsistent")))
+        (check "uncommitted run is neither active nor falsely finished in roster"
+               (and (= "inconsistent" (get row "state"))
+                    (= "indeterminate" (get row "lifecycle_resolution"))
+                    (= "uncommitted-latest-run" (get row "lifecycle_reason"))
+                    (str/blank? (get row "process_outcome"))))))
 
     ;; Broadcast replay uses the same durable feed, but its authority comes from
     ;; the finite send-time audience snapshot.

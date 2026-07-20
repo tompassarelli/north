@@ -16,6 +16,8 @@
    "delivery_attestation" "delivery_attestation_sha256"])
 (def terminal-projection-predicates
   (into terminal-predicates delivery-proof-predicates))
+(def run-resolution-predicates
+  (into ["agent" "at" "kind"] terminal-projection-predicates))
 (def delivery-evidence-version "north:done-bars:v2")
 (def run-bar-evidence-version "north:run-bar-evidence:v1")
 (def max-delivery-bars 32)
@@ -494,9 +496,111 @@
 
 (defn committed-run-process-outcome
   "Resolve a run terminal only after kind=run committed the row. Modern run
-  rows prefer process_outcome; committed historical rows may carry only outcome."
+  rows require a complete proof-valid process/delivery projection; committed
+  historical rows may carry only outcome."
   [facts]
   (when (committed-run? facts)
     (if (fact-present? facts "process_outcome")
-      (some-> (singleton-value facts "process_outcome") str/trim)
-      (some-> (singleton-value facts "outcome") str/trim))))
+      (let [process (singleton-value facts "process_outcome")
+            legacy-alias (singleton-value facts "outcome")]
+        (when (and process legacy-alias
+                   (= process legacy-alias)
+                   (terminal-manifest-sha256 facts)
+                   (delivery-projection-valid? facts))
+          (str/trim process)))
+      ;; A historical run is legacy only when no modern terminal residue is
+      ;; present. Partial modern publication must never downgrade to the old
+      ;; outcome-only protocol.
+      (when-not (some #(fact-present? facts %)
+                      (concat (remove #{"outcome"} terminal-predicates)
+                              delivery-proof-predicates))
+        (some-> (singleton-value facts "outcome") str/trim)))))
+
+(defn- terminal-body-present?
+  [facts]
+  (boolean
+   (some #(fact-present? facts %)
+         (conj terminal-projection-predicates "terminal_manifest_sha256"))))
+
+(defn- strict-run-instant
+  [facts]
+  (let [at (singleton-value facts "at")]
+    (when (instant? at)
+      (java.time.Instant/parse at))))
+
+(defn lane-resolution
+  "Canonical execution resolution for one managed lane.
+
+  RUN-ENTRIES are maps with :subject and :facts. The valid digest-committed lane
+  terminal is primary. With no lane terminal body, the latest exact run by its
+  singleton ISO timestamp may resolve the lane only when its last-write kind
+  marker, agent identity, and terminal projection are all valid. Ambiguous,
+  torn, conflicting, uncommitted, or nonterminal evidence is indeterminate:
+  callers must neither call it active nor finished."
+  [control lane-facts run-entries]
+  (let [lane-outcome (terminal-process-outcome lane-facts)]
+    (cond
+      lane-outcome
+      {:status :resolved
+       :source :agent
+       :outcome lane-outcome
+       :delivery-outcome (terminal-delivery-outcome lane-facts)
+       :facts lane-facts}
+
+      (terminal-body-present? lane-facts)
+      {:status :indeterminate :reason :invalid-lane-terminal}
+
+      (empty? run-entries)
+      {:status :unresolved :reason :no-run}
+
+      :else
+      (let [dated
+            (mapv (fn [{:keys [subject facts] :as entry}]
+                    (assoc entry :instant (strict-run-instant facts)))
+                  run-entries)]
+        (cond
+          (some #(or (not (valid-run-entity? (:subject %)))
+                     (not (map? (:facts %)))
+                     (nil? (:instant %)))
+                dated)
+          {:status :indeterminate :reason :invalid-run-ordering}
+
+          :else
+          (let [latest-instant
+                (reduce (fn [latest candidate]
+                          (if (pos? (.compareTo ^java.time.Instant candidate
+                                               ^java.time.Instant latest))
+                            candidate
+                            latest))
+                        (map :instant dated))
+                latest (filterv #(= latest-instant (:instant %)) dated)]
+            (if (not= 1 (count latest))
+              {:status :indeterminate :reason :ambiguous-latest-run}
+              (let [{:keys [subject facts]} (first latest)
+                    agent (singleton-value facts "agent")
+                    outcome (committed-run-process-outcome facts)]
+                (cond
+                  (not= control agent)
+                  {:status :indeterminate :reason :invalid-run-agent
+                   :run-subject subject}
+
+                  (not (committed-run? facts))
+                  {:status :indeterminate :reason :uncommitted-latest-run
+                   :run-subject subject}
+
+                  (nil? outcome)
+                  {:status :indeterminate :reason :invalid-latest-run-terminal
+                   :run-subject subject}
+
+                  :else
+                  {:status :resolved
+                   :source :run
+                   :run-subject subject
+                   :outcome outcome
+                   :delivery-outcome
+                   (singleton-value facts "delivery_outcome")
+                   :facts facts})))))))))
+
+(defn lane-resolved?
+  [control lane-facts run-entries]
+  (= :resolved (:status (lane-resolution control lane-facts run-entries))))
