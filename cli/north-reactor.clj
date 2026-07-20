@@ -403,7 +403,8 @@
                :lane-resolved? lane-resolved?*})
              (catch Throwable t
                (println (str "[sweep] worktree janitor error: " (.getMessage t)))
-               {:scanned 0 :unresolved 0 :dirty 0 :uncertain 0
+               {:scanned 0 :unresolved 0 :dirty 0 :uncertain 0 :partial 0
+                :already-removed 0
                 :removed 0 :would-remove 0 :orphan-facts-written 0
                 :errors 1}))
         al (sweep-agent-logs! dry?)
@@ -429,6 +430,8 @@
                   " worktrees removed=" (:removed wt)
                   " dirty-kept=" (:dirty wt)
                   " uncertain-kept=" (:uncertain wt)
+                  " partial-cleanup=" (:partial wt)
+                  " already-reclaimed=" (:already-removed wt)
                   " orphan-facts=" (:orphan-facts-written wt)
                   " worktree-errors=" (get wt :errors 0)
                   " logs deleted=" (:deleted al) " capped=" (:capped al)

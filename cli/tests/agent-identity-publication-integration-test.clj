@@ -8,7 +8,9 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram"))
+(def fram
+  (.getCanonicalPath
+   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
 (def writer (str root "/cli/agent-fact-internal.clj"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/agent-provenance.clj"))
@@ -179,6 +181,8 @@
       subject "@agent:identity-publication-probe"
       preset {"kind" "lane" "role" "integrator" "model" "claude-opus-4-8"
               "provider" "anthropic" "provider_target" "claude-a" "effort" "high"
+              "live_input" "streaming" "live_input_state" "armed"
+              "live_input_epoch" "00000000-0000-4000-8000-000000000101"
               "composition_kind" "preset" "composition_id" "integrator"
               "composition_overrides" "[\"tier\"]"
               "composition_override_reason" "critical seam" "repo" "north"
@@ -187,6 +191,8 @@
               "display_name" "anthropic:claude-a · opus · high · gaffer:integrator"}
       bespoke {"kind" "lane" "role" "migration-forensics" "model" "gpt-5.6-sol"
                "provider" "openai" "provider_target" "codex-b" "effort" "xhigh"
+               "live_input" "unsupported" "live_input_state" "frozen"
+               "live_input_epoch" "00000000-0000-4000-8000-000000000102"
                "composition_kind" "bespoke" "composition_id" "migration-forensics"
                "nearest_preset" "analyst" "bespoke_reason" "cross-schema archaeology"
                "promotion_candidate" "false"
@@ -284,6 +290,8 @@
                      (get stored "identity_manifest_sha256")))))
 
     (let [route {"provider" "anthropic" "provider_target" "claude-c"
+                 "live_input" "streaming" "live_input_state" "armed"
+                 "live_input_epoch" "00000000-0000-4000-8000-000000000103"
                  "model" "claude-opus-4-8" "effort" "high"
                  "display_handle" "anthropic-c-opus-high-gaffer-bespoke-probe"
                  "display_name" "anthropic:claude-c · opus · high · gaffer:bespoke:migration-forensics"}
@@ -372,6 +380,8 @@
     (doseq [{:keys [operation payload verify]}
             [{:operation "route"
               :payload {"provider" "openai" "provider_target" "codex-held"
+                        "live_input" "unsupported" "live_input_state" "frozen"
+                        "live_input_epoch" "00000000-0000-4000-8000-000000000104"
                         "model" "gpt-5.6-sol" "effort" "high"
                         "display_handle" "openai-held-sol-high-integrator"
                         "display_name" "openai:codex-held · sol · high · gaffer:integrator"}
@@ -538,6 +548,8 @@
                       (json/generate-string preset))
           route
           {"provider" "openai" "provider_target" "codex-race"
+           "live_input" "unsupported" "live_input_state" "frozen"
+           "live_input_epoch" "00000000-0000-4000-8000-000000000105"
            "model" "gpt-5.6-sol" "effort" "high"
            "display_handle" "openai-race-sol-high-integrator"
            "display_name" "openai:codex-race · sol · high · gaffer:integrator"}
@@ -577,6 +589,9 @@
              {:operation "route"
               :payload {"provider" "openai"
                         "provider_target" "codex-rollback"
+                        "live_input" "unsupported"
+                        "live_input_state" "frozen"
+                        "live_input_epoch" "00000000-0000-4000-8000-000000000106"
                         "model" "gpt-5.6-sol"
                         "effort" "high"
                         "display_handle" "rollback-route"
@@ -709,6 +724,9 @@
         (let [route
               {"provider" "openai"
                "provider_target" "codex-preflight-drop"
+               "live_input" "unsupported"
+               "live_input_state" "frozen"
+               "live_input_epoch" "00000000-0000-4000-8000-000000000107"
                "model" "gpt-5.6-sol"
                "effort" "high"
                "display_handle" "preflight-drop-route"
@@ -743,6 +761,9 @@
           stale-route
           {"provider" "openai"
            "provider_target" "codex-stale"
+           "live_input" "unsupported"
+           "live_input_state" "frozen"
+           "live_input_epoch" "00000000-0000-4000-8000-000000000108"
            "model" "gpt-5.6-sol"
            "effort" "high"
            "display_handle" "stale-route"
@@ -751,6 +772,9 @@
           (assoc preset
                  "provider" "openai"
                  "provider_target" "codex-successor"
+                 "live_input" "unsupported"
+                 "live_input_state" "frozen"
+                 "live_input_epoch" "00000000-0000-4000-8000-000000000109"
                  "model" "gpt-5.6-sol"
                  "effort" "xhigh"
                  "goal" "successor generation"

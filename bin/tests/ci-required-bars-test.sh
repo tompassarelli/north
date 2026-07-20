@@ -10,8 +10,10 @@ shell_bars=(
   bin/tests/north-mark-delegated-test.sh
   bin/tests/identity-alias-test.sh
   bin/tests/native-identity-test.sh
+  cli/tests/coord-log-fence-integration-test.sh
 )
 clojure_bars=(
+  cli/tests/agent-identity-publication-integration-test.clj
   cli/tests/agents-cli-test.clj
   cli/tests/live-feed-integration-test.clj
   cli/tests/map-contract-test.clj
@@ -19,6 +21,7 @@ clojure_bars=(
   cli/tests/pending-pagination-integration-test.clj
   cli/tests/pred-cli-test.clj
   cli/tests/routing-report-test.clj
+  cli/tests/spawn-process-integration-test.clj
   cli/tests/peer-command-integration-test.clj
   cli/tests/worktree-janitor-integration-test.clj
 )
@@ -41,6 +44,9 @@ grep -Fq 'gaffer_ref=$(north/bin/github-flake-input-pin north/flake.lock gaffer 
 grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram' "$WORKFLOW"
 # shellcheck disable=SC2016
 grep -Fq 'GAFFER_HOME: ${{ github.workspace }}/gaffer' "$WORKFLOW"
+grep -Fq 'test -s ../fram/coordination.log' "$WORKFLOW"
+grep -Fq 'FRAM_LOG=../fram/coordination.log' "$WORKFLOW"
+grep -Fq "grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS'" "$WORKFLOW"
 
 # The patched executable's behavioral smoke must remain connected all the way
 # from its reusable entrypoint to the x86_64 check and the release build job.

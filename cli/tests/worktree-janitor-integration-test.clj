@@ -138,6 +138,7 @@
       agent-logs (doto (io/file tmp "agent logs") .mkdirs)
       git-log (io/file tmp "git-calls.log")
       git-wrapper (io/file tmp "git-wrapper")
+      post-remove-marker (io/file tmp "post-remove-failure-armed")
       daemon-env {"FRAM_REQUIRE_LOG_FENCE" "1"
                   "FRAM_SINGLE_VALUED"
                   (str/join " " ["kind" "repo" "worktree" "branch" "agent"
@@ -170,14 +171,18 @@
           hostile (create-worktree! repo worktrees "hostile-branch")
           status-fail (create-worktree! repo worktrees "status-failure")
           provenance-fail (create-worktree! repo worktrees "provenance-failure")
-          lanes [clean dirty live torn hostile status-fail provenance-fail]]
+          post-remove-fail (create-worktree! repo worktrees "post-remove-failure")
+          branch-delete-fail (create-worktree! repo worktrees "branch-delete-failure")
+          lanes [clean dirty live torn hostile status-fail provenance-fail
+                 post-remove-fail branch-delete-fail]]
       (doseq [lane lanes] (register-lane! port repo lane nil))
       ;; Graph data may never choose the branch passed to Git. Make one exact
       ;; registration hostile while its real worktree remains perfectly valid.
       (assert-fact! port (:subject hostile) "branch" "main")
 
       (commit-modern-terminal! port (:subject clean))
-      (doseq [lane [dirty hostile status-fail provenance-fail]]
+      (doseq [lane [dirty hostile status-fail provenance-fail
+                    post-remove-fail branch-delete-fail]]
         (commit-run! port (:handle lane)))
       ;; Torn modern lane terminal + uncommitted run: neither is terminal proof.
       (assert-fact! port (:subject torn) "process_outcome" "ran")
@@ -195,8 +200,9 @@
         (spit dirty-file "dirty bytes must survive\n"))
 
       ;; Test-only Git transport: every non-fault command execs the system Git.
-      ;; Two exact paths inject status/provenance uncertainty without corrupting
-      ;; either repository, and every argv is recorded for the non-force audit.
+      ;; Exact paths inject pre-mutation uncertainty, a post-remove observation
+      ;; failure, and a branch-delete refusal. Every argv is recorded for the
+      ;; non-force audit.
       (spit git-wrapper
             (str "#!/usr/bin/env bash\n"
                  "set -euo pipefail\n"
@@ -204,6 +210,19 @@
                  "printf '\\n' >> \"${GIT_CALL_LOG:?}\"\n"
                  "if [[ ${1:-} == -C && ${2:-} == \"${STATUS_FAIL_PATH:?}\" && ${3:-} == status ]]; then exit 91; fi\n"
                  "if [[ ${1:-} == -C && ${2:-} == \"${PROVENANCE_FAIL_PATH:?}\" && ${3:-} == rev-parse ]]; then exit 92; fi\n"
+                 "if [[ ${1:-} == -C && ${3:-} == worktree && ${4:-} == remove && ${6:-} == \"${POST_REMOVE_FAIL_PATH:?}\" ]]; then\n"
+                 "  set +e\n"
+                 "  \"${REAL_GIT:?}\" \"$@\"\n"
+                 "  rc=$?\n"
+                 "  set -e\n"
+                 "  if (( rc == 0 )); then : > \"${POST_REMOVE_FAIL_MARKER:?}\"; fi\n"
+                 "  exit \"$rc\"\n"
+                 "fi\n"
+                 "if [[ ${1:-} == -C && ${3:-} == worktree && ${4:-} == list && -f \"${POST_REMOVE_FAIL_MARKER:?}\" ]]; then\n"
+                 "  mv \"${POST_REMOVE_FAIL_MARKER:?}\" \"${POST_REMOVE_FAIL_MARKER:?}.used\"\n"
+                 "  exit 93\n"
+                 "fi\n"
+                 "if [[ ${1:-} == -C && ${3:-} == branch && ${4:-} == -d && ${6:-} == \"${BRANCH_DELETE_FAIL_BRANCH:?}\" ]]; then exit 94; fi\n"
                  "exec \"${REAL_GIT:?}\" \"$@\"\n"))
       (.setExecutable git-wrapper true)
       (spit git-log "")
@@ -218,7 +237,10 @@
                          "REAL_GIT" (str/trim (:out (proc/shell {:out :string} "which" "git")))
                          "GIT_CALL_LOG" (.getCanonicalPath git-log)
                          "STATUS_FAIL_PATH" (:path status-fail)
-                         "PROVENANCE_FAIL_PATH" (:path provenance-fail)}
+                         "PROVENANCE_FAIL_PATH" (:path provenance-fail)
+                         "POST_REMOVE_FAIL_PATH" (:path post-remove-fail)
+                         "POST_REMOVE_FAIL_MARKER" (.getCanonicalPath post-remove-marker)
+                         "BRANCH_DELETE_FAIL_BRANCH" (:branch branch-delete-fail)}
             first-run (run-reactor port environment)
             after-first-log (slurp log)
             orphan-values (many port (:subject dirty) "worktree_orphaned")]
@@ -227,12 +249,29 @@
         (check "reactor summary exposes janitor result"
                (and (str/includes? (:out first-run) "worktrees removed=1")
                     (str/includes? (:out first-run) "dirty-kept=1")
+                    (str/includes? (:out first-run) "partial-cleanup=2")
                     (str/includes? (:out first-run) "orphan-facts=1"))
                (:out first-run))
         (check "resolved-clean expected worktree disappears"
                (not (.exists (io/file (:path clean)))))
         (check "resolved-clean expected branch disappears"
                (not (branch-present? repo (:branch clean))))
+        (check "post-remove observation failure reports the removed tree as partial"
+               (and (not (.exists (io/file (:path post-remove-fail))))
+                    (branch-present? repo (:branch post-remove-fail))
+                    (str/includes? (:out first-run)
+                                   (str "PARTIAL cleanup " (:subject post-remove-fail)))
+                    (not (str/includes? (:out first-run)
+                                        (str "KEEP/REVIEW " (:subject post-remove-fail)))))
+               (:out first-run))
+        (check "branch-delete failure reports partial cleanup without claiming the tree was kept"
+               (and (not (.exists (io/file (:path branch-delete-fail))))
+                    (branch-present? repo (:branch branch-delete-fail))
+                    (str/includes? (:out first-run)
+                                   (str "PARTIAL cleanup " (:subject branch-delete-fail)))
+                    (not (str/includes? (:out first-run)
+                                        (str "KEEP/REVIEW " (:subject branch-delete-fail)))))
+               (:out first-run))
         (check "every non-removable worktree remains present"
                (every? #(.isDirectory (io/file (:path %)))
                        [dirty live torn hostile status-fail provenance-fail]))
@@ -256,7 +295,15 @@
                  (and (str/includes? calls "worktree remove --")
                       (str/includes? calls "branch -d --")) calls)
           (check "hostile graph branch never reaches a Git delete argv"
-                 (not (str/includes? calls "branch -d -- main")) calls))
+                 (not (str/includes? calls "branch -d -- main")) calls)
+          (check "post-remove uncertainty does not attempt branch deletion"
+                 (not (str/includes? calls
+                                     (str "branch -d -- " (:branch post-remove-fail))))
+                 calls)
+          (check "branch-delete regression reaches only the non-force delete"
+                 (str/includes? calls
+                                (str "branch -d -- " (:branch branch-delete-fail)))
+                 calls))
 
         ;; A second production pass is the idempotency bar: no tree/branch is
         ;; removed, the dirty fact is not rewritten, and the coordinator log is
@@ -268,7 +315,21 @@
                  (str (:out second-run) (:err second-run)))
           (check "repeat removes zero worktrees and writes zero orphan facts"
                  (and (str/includes? (:out second-run) "worktrees removed=0")
+                      (str/includes? (:out second-run) "partial-cleanup=2")
+                      (str/includes? (:out second-run) "already-reclaimed=1")
                       (str/includes? (:out second-run) "orphan-facts=0"))
+                 (:out second-run))
+          (check "repeat never relabels an absent worktree as kept"
+                 (and (not (str/includes? (:out second-run)
+                                          (str "KEEP " (:subject clean))))
+                      (not (str/includes? (:out second-run)
+                                          (str "KEEP " (:subject post-remove-fail))))
+                      (not (str/includes? (:out second-run)
+                                          (str "KEEP " (:subject branch-delete-fail))))
+                      (str/includes? (:out second-run)
+                                     (str "PARTIAL cleanup " (:subject post-remove-fail)))
+                      (str/includes? (:out second-run)
+                                     (str "PARTIAL cleanup " (:subject branch-delete-fail))))
                  (:out second-run))
           (check "repeat performs zero coordinator writes"
                  (= after-first-log after-second-log))
@@ -277,7 +338,9 @@
           (check "heartbeat carries the latest worktree-janitor result"
                  (and (.isFile heartbeat)
                       (str/includes? (slurp heartbeat) ":worktrees")
-                      (str/includes? (slurp heartbeat) ":removed 0"))
+                      (str/includes? (slurp heartbeat) ":removed 0")
+                      (str/includes? (slurp heartbeat) ":partial 2")
+                      (str/includes? (slurp heartbeat) ":already-removed 1"))
                  (when (.isFile heartbeat) (slurp heartbeat))))))
 
     (finally

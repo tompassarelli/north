@@ -98,6 +98,37 @@
       (= 1 (:exit result)) false
       :else nil)))
 
+(defn- known-state [value]
+  (cond (= true value) "present"
+        (= false value) "absent"
+        :else "unknown"))
+
+(defn- absent-cleanup-state
+  "Recognize a prior cleanup without pretending an absent tree was retained.
+   A fully absent registration+branch is idempotently settled; any other absent
+   worktree state remains an explicit partial-cleanup incident."
+  [handle facts]
+  (let [expected-branch (str "lane-" handle)
+        graph-kind (singleton facts "kind")
+        graph-branch (singleton facts "branch")
+        root (registered-path (singleton facts "repo"))
+        worktree (registered-path (singleton facts "worktree"))]
+    (when (and worktree (not (.exists (io/file worktree))))
+      (if (and (= "lane" graph-kind)
+               (= expected-branch graph-branch)
+               root
+               (.isDirectory (io/file root)))
+        (let [registered? (worktree-registered? root worktree)
+              branch-present (branch-present? root expected-branch)]
+          (if (and (= false registered?) (= false branch-present))
+            {:kind :already-removed}
+            {:kind :partial
+             :reason (str "worktree is absent from disk"
+                          " (registration=" (known-state registered?)
+                          ", branch=" (known-state branch-present) ")")}))
+        {:kind :partial
+         :reason "registered worktree path is absent; exact cleanup provenance cannot be reconstructed"}))))
+
 (defn- validate-provenance
   "Validate every destructive-action input against Git itself. Graph values are
    only registrations; they never grant deletion authority."
@@ -207,23 +238,58 @@
     (if-not (zero? (:exit merged))
       {:kind :uncertain :reason "lane branch is not proven merged into the registered main checkout HEAD"}
       (let [removed (git "-C" root "worktree" "remove" "--" worktree)]
-        (if-not (zero? (:exit removed))
-          {:kind :uncertain :reason "non-force git worktree remove refused"}
-          (let [path-gone? (not (.exists (io/file worktree)))
-                registered? (worktree-registered? root worktree)]
-            (if-not (and path-gone? (= false registered?))
-              {:kind :uncertain :reason "worktree removal postcondition was not proven"}
-              (let [deleted (git "-C" root "branch" "-d" "--" branch)
-                    branch-present (branch-present? root branch)]
-                (if (and (zero? (:exit deleted)) (= false branch-present))
-                  {:kind :removed}
-                  {:kind :uncertain :reason "non-force branch delete or its postcondition failed"})))))))))
+        ;; A Git command may fail after changing state. Inspect the postcondition
+        ;; even on non-zero exit so a removed tree is never reported as kept.
+        (let [path-present? (.exists (io/file worktree))
+              registered? (worktree-registered? root worktree)]
+          (cond
+            ;; Exact pre-state still holds: this is the only post-attempt outcome
+            ;; that can truthfully be reported as KEEP.
+            (and path-present? (= true registered?))
+            {:kind :uncertain
+             :reason (if (zero? (:exit removed))
+                       "git reported success but the registered worktree remains"
+                       "non-force git worktree remove refused and the registered worktree remains")}
+
+            ;; Exact worktree removal is proved; only now may branch deletion run.
+            (and (not path-present?) (= false registered?))
+            (let [deleted (git "-C" root "branch" "-d" "--" branch)
+                  branch-present (branch-present? root branch)]
+              (cond
+                (= false branch-present)
+                {:kind :removed}
+
+                (= true branch-present)
+                {:kind :partial
+                 :reason (if (zero? (:exit deleted))
+                           "worktree removed; Git reported branch-delete success but the branch remains"
+                           "worktree removed; non-force branch delete refused and the branch remains")}
+
+                :else
+                {:kind :partial
+                 :reason (str "worktree removed; branch deletion postcondition is unknown"
+                              " (git-exit=" (:exit deleted) ")")}))
+
+            ;; The command ran and the exact before/after state is no longer
+            ;; provable. This is a cleanup incident, not a retained tree.
+            :else
+            {:kind :partial
+             :reason
+             (str "worktree removal outcome is partial or unknown"
+                  " (path=" (if path-present? "present" "absent")
+                  ", registration="
+                  (cond (= true registered?) "present"
+                        (= false registered?) "absent"
+                        :else "unknown")
+                  ", git-exit=" (:exit removed) ")")}))))))
 
 (defn- zero-result []
   {:scanned 0
    :unresolved 0
    :dirty 0
    :uncertain 0
+   :partial 0
+   :already-removed 0
    :removed 0
    :would-remove 0
    :orphan-facts-written 0
@@ -264,43 +330,63 @@
       {:kind :unresolved}
 
       :else
-      (let [provenance (validate-provenance handle facts)]
-        (if-not (:ok? provenance)
+      (let [prior-cleanup (absent-cleanup-state handle facts)]
+        (cond
+          (= :already-removed (:kind prior-cleanup))
+          {:kind :already-removed}
+
+          (= :partial (:kind prior-cleanup))
           (do
-            (println (str "[worktrees] KEEP " subject " — " (:reason provenance)))
-            {:kind :uncertain})
-          (let [status (worktree-status (:worktree provenance))]
-            (case (:kind status)
-              :uncertain
+            (println (str "[worktrees] PARTIAL cleanup " subject
+                          " — " (:reason prior-cleanup)))
+            {:kind :partial})
+
+          :else
+          (let [provenance (validate-provenance handle facts)]
+            (if-not (:ok? provenance)
               (do
-                (println (str "[worktrees] KEEP " subject " — " (:reason status)))
+                (println (str "[worktrees] KEEP " subject " — " (:reason provenance)))
                 {:kind :uncertain})
+              (let [status (worktree-status (:worktree provenance))]
+                (case (:kind status)
+                  :uncertain
+                  (do
+                    (println (str "[worktrees] KEEP " subject " — " (:reason status)))
+                    {:kind :uncertain})
 
-              :dirty
-              (let [value (orphan-fact (:worktree provenance) (:branch provenance))
-                    wrote? (and (not dry?)
-                                (ensure-orphan-fact! port subject value))]
-                (println (str "[worktrees] " (if dry? "WOULD KEEP" "KEPT")
-                              " dirty " (:worktree provenance)))
-                {:kind :dirty :orphan-written? wrote?})
+                  :dirty
+                  (let [value (orphan-fact (:worktree provenance) (:branch provenance))
+                        wrote? (and (not dry?)
+                                    (ensure-orphan-fact! port subject value))]
+                    (println (str "[worktrees] " (if dry? "WOULD KEEP" "KEPT")
+                                  " dirty " (:worktree provenance)))
+                    {:kind :dirty :orphan-written? wrote?})
 
-              :clean
-              (if dry?
-                (do
-                  (println (str "[worktrees] WOULD REMOVE clean "
-                                (:worktree provenance)))
-                  {:kind :would-remove})
-                (let [removed (remove-clean-worktree! provenance)]
-                  (if (= :removed (:kind removed))
+                  :clean
+                  (if dry?
                     (do
-                      (println (str "[worktrees] removed clean "
-                                    (:worktree provenance) " and "
-                                    (:branch provenance)))
-                      {:kind :removed})
-                    (do
-                      (println (str "[worktrees] KEEP/REVIEW " subject
-                                    " — " (:reason removed)))
-                      {:kind :uncertain})))))))))))
+                      (println (str "[worktrees] WOULD REMOVE clean "
+                                    (:worktree provenance)))
+                      {:kind :would-remove})
+                    (let [removed (remove-clean-worktree! provenance)]
+                      (case (:kind removed)
+                        :removed
+                        (do
+                          (println (str "[worktrees] removed clean "
+                                        (:worktree provenance) " and "
+                                        (:branch provenance)))
+                          {:kind :removed})
+
+                        :partial
+                        (do
+                          (println (str "[worktrees] PARTIAL cleanup " subject
+                                        " — " (:reason removed)))
+                          {:kind :partial})
+
+                        (do
+                          (println (str "[worktrees] KEEP " subject
+                                        " — " (:reason removed)))
+                          {:kind :uncertain})))))))))))))
 
 (defn sweep-worktrees!
   "Inspect registered lane worktrees and reclaim only a canonically terminal,

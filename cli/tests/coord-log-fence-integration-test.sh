@@ -85,7 +85,8 @@ grep -q ':code :log-mismatch' <<<"$shared_result"
 capture_output="$(
   env "${common_env[@]}" "$root/bin/north" capture "must not land in either corpus" 2>&1
 )"
-grep -q 'writes won.t serialize' <<<"$capture_output"
+grep -Fq 'CORPUS MISMATCH' <<<"$capture_output"
+grep -Fq 'capture was not recorded' <<<"$capture_output"
 
 tell_output="$(
   env "${common_env[@]}" "$root/bin/north" tell @wire-handle note must-not-land 2>&1

@@ -133,10 +133,13 @@ jobs:
           bb reap_test.clj      # reactor reap verdict (daemon-free; guards the @run-join false positive)
           bb cli/tests/reactor-heartbeat-test.clj   # durable last-sweep heartbeat + doctor stale/missing verdict (daemon-free)
           bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated coordinator, production sweep-once twice
-          # Fram no longer ships a facts.log, so generate one (and exercise the
-          # current log format) before the lifecycle test — otherwise it skips.
+          # Generate the exact imported corpus and require the lifecycle bar's
+          # terminal PASS marker so a missing/wrong log can never skip green.
           ( cd ../fram && bin/fram import )
-          FRAM_LOG=../fram/facts.log bb -cp "$CP" lifecycle_test.clj
+          test -s ../fram/coordination.log
+          lifecycle_output="$(FRAM_LOG=../fram/coordination.log bb -cp "$CP" lifecycle_test.clj)"
+          printf '%s\n' "$lifecycle_output"
+          grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS' <<<"$lifecycle_output"
 
       - name: Coordinator policy and startup boundaries
         working-directory: north
@@ -159,7 +162,7 @@ jobs:
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
             bb cli/tests/linear-reservation-integration-test.clj
 
-      - name: Hook and native identity boundaries
+      - name: Hook, native, and managed identity boundaries
         working-directory: north
         run: |
           set -euo pipefail
@@ -168,6 +171,9 @@ jobs:
           timeout --foreground 120s bash bin/tests/north-mark-delegated-test.sh
           timeout --foreground 120s bash bin/tests/identity-alias-test.sh
           timeout --foreground 120s bash bin/tests/native-identity-test.sh
+          FRAM_PATH="$GITHUB_WORKSPACE/fram" timeout --foreground 180s \
+            bb cli/tests/agent-identity-publication-integration-test.clj
+          timeout --foreground 120s bb cli/tests/spawn-process-integration-test.clj
 
       - name: Agent projection and routing report boundaries
         working-directory: north
