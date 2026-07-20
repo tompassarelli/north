@@ -8,17 +8,18 @@
          '[clojure.string :as str])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
 
 (def marker-predicate "identity_manifest_sha256")
 (def terminal-marker-predicate "terminal_manifest_sha256")
 (def base-terminal-predicates
-  #{"outcome" "process_outcome" "delivery_outcome" "delivery_reason"})
+  (set north.terminal-projection/terminal-predicates))
 (def delivery-proof-predicates
-  #{"delivery_evidence" "delivery_evidence_sha256"
-    "delivery_attestation" "delivery_attestation_sha256"})
+  (set north.terminal-projection/delivery-proof-predicates))
 (def terminal-predicates
-  (into base-terminal-predicates delivery-proof-predicates))
+  (disj north.agent-provenance/terminal-predicates terminal-marker-predicate))
 (def terminal-publication-order
   ;; Readers treat process_outcome without the marker as a partial new-style
   ;; publication. Keep the legacy outcome alias last so it cannot masquerade as
@@ -41,22 +42,13 @@
 (def route-predicates (into route-authority-predicates projection-predicates))
 (def retask-overlay-predicates #{"goal" "display_name"})
 (def route-generation-predicates (disj route-predicates "display_name"))
-(def identity-predicates
-  (into route-authority-predicates
-        #{"kind" "role" "composition_kind" "composition_id"
-          "composition_overrides" "composition_override_reason" "nearest_preset"
-          "bespoke_reason" "promotion_candidate" "composition_contract_sha256"
-          "composition_contract_fingerprint_version" "composition_contract_fingerprint_domain"
-          "repo" "goal" "coordinator" "spawned_at"}))
+(def identity-predicates north.agent-provenance/identity-predicates)
 (def publish-predicates (into identity-predicates projection-predicates))
 (def managed-projection-predicates
-  (into (conj publish-predicates marker-predicate terminal-marker-predicate)
-        terminal-predicates))
+  (set north.lifecycle-projection/managed-agent-predicates))
 (def required-identity-predicates
-  #{"kind" "role" "model" "provider" "provider_target" "live_input"
-    "live_input_state" "live_input_epoch" "effort"
-    "composition_kind" "composition_id" "repo" "goal" "spawned_at"
-    "display_handle" "display_name"})
+  (disj (set north.agent-provenance/required-identity-predicates)
+        marker-predicate))
 (def writer-timeout-bound-ms
   (parse-long (or (System/getenv "NORTH_IDENTITY_WRITER_TIMEOUT_MS") "10000")))
 (def write-lease-ttl-ms
@@ -103,15 +95,14 @@
                  [predicate value]))
           parsed)))
 
-(defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "identity_fact"
-                                 :rules [{:head {:rel "identity_fact"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
-    (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
+(defn facts-of
+  ([port subject]
+   (facts-of port subject north.lifecycle-projection/managed-agent-predicates))
+  ([port subject predicates]
+   (north.lifecycle-projection/raw-point-facts
+    (fn [entity predicate] (north.coord/many port entity predicate))
+    subject
+    predicates)))
 
 (defn write-lease-resource [subject]
   (str "managed-agent-write:"
@@ -446,7 +437,8 @@
     (let [evidence (json/parse-string (get facts "delivery_evidence"))
           run (get evidence "run")
           thread (get evidence "thread")
-          run-facts (facts-of port run)
+          run-facts
+          (facts-of port run north.lifecycle-projection/reported-run-predicates)
           reservation-origin
           (north.terminal-projection/singleton-value
            run-facts "run_reservation_contract_origin")
@@ -454,7 +446,8 @@
           (north.terminal-projection/run-reservation-done-when run-facts)
           current-bars
           (north.terminal-projection/canonical-done-when
-           (facts-of port thread))
+           (facts-of port thread
+                     north.lifecycle-projection/reported-thread-predicates))
           cited-records
           (set
            (mapcat (fn [match]

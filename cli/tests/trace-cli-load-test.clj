@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
 (require '[babashka.process :as proc]
          '[clojure.java.io :as io]
+         '[clojure.set :as set]
          '[clojure.string :as str])
 
 (def root (.getCanonicalPath
@@ -38,12 +39,82 @@
        (= "model=gpt-5.6-luna effort=low"
           (identity-route-detail {"model" "gpt-5.6-luna" "effort" "low"})))
 
-(let [source (slurp trace-cli)]
-  (check "trace source contains no subject-only all-predicate agent query"
-         (and (not (str/includes? source ":find \"trace_identity\""))
-              (not (re-find
-                    #":args\s*\[subject\s*\{:var\s+\"p\"\}\s*\{:var\s+\"r\"\}\]"
-                    source)))))
+(let [production-files
+      ["cli/agent-fact-internal.clj"
+       "cli/msg-cli.clj"
+       "cli/north-live-feed.clj"
+       "cli/trace-cli.clj"]
+      sources (mapv #(slurp (str root "/" %)) production-files)
+      expected-point-reader
+      {"cli/agent-fact-internal.clj"
+       "north.lifecycle-projection/raw-point-facts"
+       "cli/msg-cli.clj"
+       "north.lifecycle-projection/folded-agent-point-facts"
+       "cli/north-live-feed.clj"
+       "north.lifecycle-projection/folded-agent-point-facts"
+       "cli/trace-cli.clj"
+       "north.lifecycle-projection/folded-agent-point-facts"}
+      forbidden-query-ids
+      [":find \"identity_fact\"" ":find \"steer_fact\""
+       ":find \"live_route_fact\"" ":find \"trace_identity\""]
+      subject-all-predicate-shape
+      #":args\s*\[[^\n]*\{:var\s+\"p\"\}\s*\{:var\s+\"r\"\}\]"
+      guarded?
+      (every?
+       (fn [[file source]]
+         (and (str/includes? source (get expected-point-reader file))
+              (not-any? #(str/includes? source %) forbidden-query-ids)
+              (not (re-find subject-all-predicate-shape source))))
+       (map vector production-files sources))]
+  (check "all managed lifecycle production readers forbid subject-only all-predicate queries"
+         guarded?))
+
+(let [expected-agent
+      (set/union north.agent-provenance/identity-predicates
+                 (set north.agent-provenance/required-identity-predicates)
+                 north.agent-provenance/terminal-predicates
+                 (set north.terminal-projection/terminal-projection-predicates)
+                 #{"identity_manifest_sha256" "terminal_manifest_sha256"})
+      expected-run
+      (set/union (set north.terminal-projection/run-reservation-predicates)
+                 #{"run_bar_evidence"})
+      expected-route-guard
+      (set/union
+       (set north.terminal-projection/terminal-projection-predicates)
+       #{"identity_manifest_sha256" "terminal_manifest_sha256"
+         "live_input" "live_input_state" "live_input_epoch"})]
+  (check "shared lifecycle vocabularies exactly cover canonical agent/run/thread evidence"
+         (and (= expected-agent
+                 (set north.lifecycle-projection/managed-agent-predicates))
+              (= (set/union expected-agent
+                            north.lifecycle-projection/trace-session-display-predicates)
+                 (set north.lifecycle-projection/trace-agent-predicates))
+              (= expected-run
+                 (set north.lifecycle-projection/reported-run-predicates))
+              (= expected-route-guard
+                 (set north.lifecycle-projection/route-guard-predicates))
+              (= #{"done_when"}
+                 (set north.lifecycle-projection/reported-thread-predicates)))))
+
+(let [calls (atom [])
+      raw
+      (north.lifecycle-projection/raw-point-facts
+       (fn [subject predicate]
+         (swap! calls conj [subject predicate])
+         (case predicate
+           "goal" ["one" "two"]
+           "process_outcome" ["ran" "died"]
+           []))
+       "@agent:raw-probe"
+       ["goal" "process_outcome" "terminal_manifest_sha256"])]
+  (check "raw lifecycle point reads retain exact conflicting and terminal value sets"
+         (and (= [["@agent:raw-probe" "goal"]
+                  ["@agent:raw-probe" "process_outcome"]
+                  ["@agent:raw-probe" "terminal_manifest_sha256"]]
+                 @calls)
+              (= #{"one" "two"} (get raw "goal"))
+              (= #{"ran" "died"} (get raw "process_outcome"))
+              (not (contains? raw "terminal_manifest_sha256")))))
 
 (let [calls (atom [])
       query-called? (atom false)

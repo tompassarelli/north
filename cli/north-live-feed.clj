@@ -26,6 +26,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
 
 (def protocol "north-live-feed-v1")
 (def max-control-line-bytes 4096)
@@ -265,28 +266,19 @@
           (current-direct-addresses port recipient)))))
 
 (defn agent-facts [port control]
-  (let [response
-        (north.coord/send-op
-         port
-         {:op :query
-          :query
-          {:find "live_route_fact"
-           :rules
-           [{:head {:rel "live_route_fact"
-                    :args [{:var "p"} {:var "r"}]}
-             :body [{:rel "triple"
-                     :args [(str "@agent:" control) {:var "p"} {:var "r"}]}]}]}})
-        rows (:ok response)]
-    (when (and (map? response)
-               (vector? rows)
-               (<= (count rows) 256)
-               (every? #(and (vector? %) (= 2 (count %))
-                             (every? string? %))
-                       rows))
-      (reduce (fn [facts [predicate value]]
-                (north.agent-provenance/fold-fact facts predicate value))
-              {}
-              rows))))
+  (try
+    (north.lifecycle-projection/folded-agent-point-facts
+     (fn [subject predicate] (north.coord/many port subject predicate))
+     (str "@agent:" control))
+    (catch Exception _ nil)))
+
+(defn route-guard-facts [port control]
+  (try
+    (north.lifecycle-projection/raw-point-facts
+     (fn [subject predicate] (north.coord/many port subject predicate))
+     (str "@agent:" control)
+     north.lifecycle-projection/route-guard-predicates)
+    (catch Exception _ nil)))
 
 (defn agent-run-entries [port control]
   (try
@@ -365,21 +357,31 @@
          :epoch epoch})))
     facts))
 
-(defn steer-route-status [port message to subject]
+(defn steer-route-status-from-facts
+  [port message to subject facts resolution]
   (let [steer-shaped-subject?
         (= "steer" (some-> subject str str/trim str/lower-case))
         canonical-steer-subject? (= "steer" subject)
         expected
         (north.coord/resolved
          port message target-identity-manifest-predicate)
-        managed-steer? (some? expected)]
+        managed-steer? (some? expected)
+        observed
+        (when (map? facts)
+          (north.terminal-projection/singleton-value
+           facts "identity_manifest_sha256"))
+        live-input
+        (when (map? facts)
+          (north.terminal-projection/singleton-value facts "live_input"))
+        live-input-state
+        (when (map? facts)
+          (north.terminal-projection/singleton-value facts "live_input_state"))
+        live-input-epoch
+        (when (map? facts)
+          (north.terminal-projection/singleton-value facts "live_input_epoch"))]
     (if-not (or steer-shaped-subject? managed-steer?)
       {:valid? true}
-      (let [facts (agent-facts port to)
-            resolution (route-resolution port to facts)
-            observed (when (map? facts)
-                       (get facts "identity_manifest_sha256"))]
-        (cond
+      (cond
         (and managed-steer? (not canonical-steer-subject?))
         {:valid? false :reason "steer_type_invalid"
          :expected-manifest
@@ -395,8 +397,17 @@
                   (re-matches #"^[0-9a-f]{64}$" expected)))
         {:valid? false :reason "steer_manifest_missing"}
 
+        ;; A supported route mutation withdraws the full identity marker before
+        ;; changing any route axis and recommits it last. Point-reading that
+        ;; marker plus the complete route guard therefore detects every supported
+        ;; torn generation without reloading the whole identity per message.
         (or (not (map? facts))
-            (not (north.agent-provenance/managed-valid? facts)))
+            (not (and (string? observed)
+                      (re-matches #"^[0-9a-f]{64}$" observed)))
+            (not (contains? #{"streaming" "unsupported"} live-input))
+            (not (contains? #{"pending" "armed" "frozen"}
+                            live-input-state))
+            (not (safe-route-epoch? live-input-epoch)))
         {:valid? false :reason "steer_route_invalid"
          :expected-manifest expected
          :observed-manifest
@@ -416,14 +427,19 @@
         {:valid? false :reason "steer_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
-        (or (not= "streaming" (get facts "live_input"))
-            (not= "armed" (get facts "live_input_state")))
+        (or (not= "streaming" live-input)
+            (not= "armed" live-input-state))
         {:valid? false :reason "steer_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
         :else
-          {:valid? true
-           :expected-manifest expected :observed-manifest observed})))))
+        {:valid? true
+         :expected-manifest expected :observed-manifest observed}))))
+
+(defn steer-route-status [port message to subject]
+  (let [facts (route-guard-facts port to)]
+    (steer-route-status-from-facts
+     port message to subject facts (route-resolution port to facts))))
 
 (defn current-steer-route? [port message to subject]
   (:valid? (steer-route-status port message to subject)))
@@ -447,53 +463,59 @@
      "message_frame_too_large")))
 
 (defn deliver-message!
-  [port recipient message control-queue claim-ttl-ms ack-timeout-ms]
-  (when-let [claim
-             (north.message-audience/claim-delivery!
-              port message recipient claim-ttl-ms)]
-    (let [to (north.coord/resolved port message "to")
-          from (north.coord/resolved port message "from")
-          subject (north.coord/resolved port message "subject")
-          body (north.coord/resolved port message "body")
-          problem (message-problem message from subject body)
-          steer-status (steer-route-status port message to subject)]
-      (cond
-        (not (currently-deliverable? port recipient message to))
-        (do
-          (north.message-audience/release-delivery-claim! port claim)
-          :skipped)
+  ([port recipient message control-queue claim-ttl-ms ack-timeout-ms]
+   (deliver-message!
+    port recipient message control-queue claim-ttl-ms ack-timeout-ms
+    (fn [candidate to subject]
+      (steer-route-status port candidate to subject))))
+  ([port recipient message control-queue claim-ttl-ms ack-timeout-ms
+    route-status]
+   (when-let [claim
+              (north.message-audience/claim-delivery!
+               port message recipient claim-ttl-ms)]
+     (let [to (north.coord/resolved port message "to")
+           from (north.coord/resolved port message "from")
+           subject (north.coord/resolved port message "subject")
+           body (north.coord/resolved port message "body")
+           problem (message-problem message from subject body)
+           steer-status (route-status message to subject)]
+       (cond
+         (not (currently-deliverable? port recipient message to))
+         (do
+           (north.message-audience/release-delivery-claim! port claim)
+           :skipped)
 
-        problem
-        (do
-          (north.message-audience/reject-delivery!
-           port message recipient claim {:reason problem})
-          (emit-error! problem (when (safe-control-id? message) message))
-          :rejected)
+         problem
+         (do
+           (north.message-audience/reject-delivery!
+            port message recipient claim {:reason problem})
+           (emit-error! problem (when (safe-control-id? message) message))
+           :rejected)
 
-        (not (:valid? steer-status))
-        (do
-          (north.message-audience/reject-delivery!
-           port message recipient claim steer-status)
-          (emit-error! (:reason steer-status)
-                       (when (safe-control-id? message) message))
-          :rejected)
+         (not (:valid? steer-status))
+         (do
+           (north.message-audience/reject-delivery!
+            port message recipient claim steer-status)
+           (emit-error! (:reason steer-status)
+                        (when (safe-control-id? message) message))
+           :rejected)
 
-        :else
-        (try
-          (emit-mail! message from subject body)
-          (let [control (await-control!
-                         control-queue nil message ack-timeout-ms)]
-            (if (= "ack" (get control "type"))
-              (do
-                (north.message-audience/complete-delivery!
-                 port message recipient claim)
-                :acked)
-              (do
-                (north.message-audience/release-delivery-claim! port claim)
-                :restart)))
-          (catch Exception error
-            (north.message-audience/release-delivery-claim! port claim)
-            (throw error)))))))
+         :else
+         (try
+           (emit-mail! message from subject body)
+           (let [control (await-control!
+                          control-queue nil message ack-timeout-ms)]
+             (if (= "ack" (get control "type"))
+               (do
+                 (north.message-audience/complete-delivery!
+                  port message recipient claim)
+                 :acked)
+               (do
+                 (north.message-audience/release-delivery-claim! port claim)
+                 :restart)))
+           (catch Exception error
+             (north.message-audience/release-delivery-claim! port claim)
+             (throw error))))))))
 
 (defn replay-pending!
   [port recipient direct-addresses control-queue claim-ttl-ms ack-timeout-ms]
@@ -539,11 +561,16 @@
    claim-ttl-ms ack-timeout-ms epoch]
   (let [idle-bound-ms (+ claim-ttl-ms ack-timeout-ms 1000)]
     (loop [settled 0 blocked-since nil backoff-ms 25]
-      (require-frozen-route-epoch! port recipient epoch)
-      (let [messages
+      (let [frozen-facts (require-frozen-route-epoch! port recipient epoch)
+            messages
             (:messages
              (north.message-audience/pending-steer-page
-              port recipient direct-addresses))]
+              port recipient direct-addresses))
+            frozen-route-status
+            (fn [message to subject]
+              (steer-route-status-from-facts
+               port message to subject frozen-facts
+               {:status :unresolved :reason :frozen-route-validated}))]
         (if (empty? messages)
           (do
             ;; The receipt is generation-specific: re-read after observing the
@@ -556,7 +583,7 @@
                    (let [result
                          (deliver-message!
                           port recipient message control-queue
-                          claim-ttl-ms ack-timeout-ms)]
+                          claim-ttl-ms ack-timeout-ms frozen-route-status)]
                      (case result
                        :rejected
                        (let [next-settled (inc settled)]

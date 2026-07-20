@@ -22,6 +22,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def put!    north.coord/put!)
@@ -44,25 +45,12 @@
   (System/exit 2))
 
 (defn steer-agent-facts [port control]
-  (let [subject (str "@agent:" control)
-        response
-        (send-op port {:op :query
-                       :query {:find "steer_fact"
-                               :rules [{:head {:rel "steer_fact"
-                                               :args [{:var "p"} {:var "r"}]}
-                                        :body [{:rel "triple"
-                                                :args [subject {:var "p"} {:var "r"}]}]}]}})
-        rows (:ok response)]
-    (when-not (and (map? response) (vector? rows)
-                   (<= (count rows) 256)
-                   (every? #(and (vector? %) (= 2 (count %))
-                                 (every? string? %))
-                           rows))
-      (reject-steer! "target identity is unavailable"))
-    (reduce (fn [facts [predicate value]]
-              (north.agent-provenance/fold-fact facts predicate value))
-            {}
-            rows)))
+  (try
+    (north.lifecycle-projection/folded-agent-point-facts
+     (fn [subject predicate] (many port subject predicate))
+     (str "@agent:" control))
+    (catch Exception _
+      (reject-steer! "target identity is unavailable"))))
 
 (defn steer-run-entries [port control]
   (try
