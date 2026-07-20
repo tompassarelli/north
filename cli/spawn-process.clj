@@ -2,9 +2,10 @@
   "Shared managed-process boundary for North's shell and MCP spawn surfaces.
 
   A successful OS fork is not a successful North spawn.  The caller may only
-  acknowledge a live lane after the child has published its structured identity
-  and acquired an online presence lease.  Fast terminal outcomes are reported as
-  completed; early exits and acknowledgement timeouts are explicit failures."
+  acknowledge a live lane after the child has published its structured identity,
+  committed an effective live-input route, and acquired an online presence lease.
+  Fast terminal outcomes are reported as completed; early exits and
+  acknowledgement timeouts are explicit failures."
   (:require [babashka.process :as p]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -31,9 +32,28 @@
   [facts]
   (north.agent-provenance/identity-defects facts))
 
-(defn identity-ready?
+(defn identity-valid?
   [facts]
   (empty? (identity-defects facts)))
+
+(defn effective-route?
+  "A live startup acknowledgement requires public input authority, not merely
+  a digest-valid pending identity. Terminal acknowledgement remains independent
+  because a lane may validly finish before it ever arms a feed."
+  [facts]
+  (or (and (= "streaming" (get facts "live_input"))
+           (= "armed" (get facts "live_input_state")))
+      (and (= "unsupported" (get facts "live_input"))
+           (= "frozen" (get facts "live_input_state")))))
+
+(defn identity-ready?
+  [facts]
+  (and (identity-valid? facts) (effective-route? facts)))
+
+(defn startup-defects [facts]
+  (cond-> (vec (identity-defects facts))
+    (and (identity-valid? facts) (not (effective-route? facts)))
+    (conj "effective_live_input_route")))
 
 (defn env-ms
   [name fallback]
@@ -90,15 +110,16 @@
       (let [observed (try (or (probe-identity agent-id) {}) (catch Exception _ {}))
             merged (merge facts observed)
             outcome (north.terminal-projection/terminal-process-outcome merged)]
-        (if (or (and (identity-ready? merged) outcome)
+        (if (or (and (identity-valid? merged) outcome)
                 (>= (System/currentTimeMillis) deadline))
           merged
           (do (Thread/sleep poll-ms) (recur merged)))))))
 
 (defn await-startup
-  "Wait for the two durable startup proofs: complete structured lane identity
-  and an online presence lease. `probe-identity` returns the current predicate
-  map; `probe-online` returns whether this exact id owns an unexpired lease."
+  "Wait for three durable startup proofs: complete structured lane identity,
+  effective route authority, and an online presence lease. `probe-identity`
+  returns the current predicate map; `probe-online` returns whether this exact
+  id owns an unexpired lease."
   [process agent-id log-file probe-identity probe-online
    & {:keys [timeout-ms poll-ms exit-grace-ms]
       :or {timeout-ms (env-ms "NORTH_SPAWN_STARTUP_TIMEOUT_MS" default-startup-timeout-ms)
@@ -108,7 +129,8 @@
     (loop [last-facts {}]
       (let [facts (try (or (probe-identity agent-id) {})
                        (catch Exception _ last-facts))
-            identity? (identity-ready? facts)
+            identity? (identity-valid? facts)
+            route-ready? (and identity? (effective-route? facts))
             outcome (north.terminal-projection/terminal-process-outcome facts)
             first-exit (process-exit process)
             online? (and identity? (nil? first-exit)
@@ -121,7 +143,7 @@
           {:status :completed :agent-id agent-id :handle (get facts "display_handle")
            :outcome outcome :facts facts :log (str log-file)}
 
-          (and identity? online? (nil? exit))
+          (and route-ready? online? (nil? exit))
           {:status :ready :agent-id agent-id :handle (get facts "display_handle")
            :facts facts :log (str log-file)}
 
@@ -129,19 +151,19 @@
           (let [final-facts (final-terminal-facts
                              agent-id facts probe-identity exit-grace-ms poll-ms)
                 final-outcome (north.terminal-projection/terminal-process-outcome final-facts)]
-            (if (and (identity-ready? final-facts) final-outcome)
+            (if (and (identity-valid? final-facts) final-outcome)
               {:status :completed :agent-id agent-id
                :handle (get final-facts "display_handle")
                :outcome final-outcome :facts final-facts :log (str log-file)}
               {:status :failed :agent-id agent-id :exit exit :facts final-facts
-               :missing (identity-defects final-facts)
+               :missing (startup-defects final-facts)
                :log (str log-file)}))
 
           (>= (System/currentTimeMillis) deadline)
           (do
             (stop-process! process)
             {:status :timeout :agent-id agent-id :facts facts
-             :missing (identity-defects facts)
+             :missing (startup-defects facts)
              :log (str log-file) :timeout-ms timeout-ms})
 
           :else

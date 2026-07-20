@@ -105,6 +105,36 @@ test("armed publication failure is fatal and stops the uncommitted feed", async 
   expect(stops).toBe(1);
 });
 
+test("lost-ack recovery commits armed locally and preserves the already-ready feed", async () => {
+  let stops = 0;
+  const states: string[] = [];
+  const route = new ManagedLiveInputRoute(
+    "lane-lost-ack-recovered",
+    { kind: "lane" },
+    initialRoute,
+    () => inputAdmission,
+    () => subscription(
+      Promise.resolve(),
+      () => { stops++; },
+      async () => {},
+    ),
+    (_agentId, facts) => {
+      states.push(facts.liveInputState!);
+      return {
+        status: "committed",
+        operationId: `test-operation-${states.length}`,
+        reason: states.length === 1 ? "exact_replay" : undefined,
+      };
+    },
+  );
+  await route.activate(initialRoute);
+  expect(states).toEqual(["armed"]);
+  expect(stops).toBe(0);
+  await route.freezeAndUnbind();
+  expect(states).toEqual(["armed", "frozen"]);
+  expect(stops).toBe(1);
+});
+
 test("armed streaming route permanently refuses unsupported fallback", async () => {
   const events: string[] = [];
   const route = new ManagedLiveInputRoute(

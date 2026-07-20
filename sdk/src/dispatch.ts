@@ -724,17 +724,12 @@ async function runDispatch(
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
   const publicationBudget = new TerminalPublicationBudget();
-  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
-    writeAuxiliary(
-      publicationBudget.publicationTimeout(
-        terminalAuxiliaryWrites.length - index + 2,
-      ),
-    );
-  }
+  // Publish the lane terminal before any diagnostic side channel. A slow
+  // auxiliary writer may consume only what remains after authoritative state.
   const terminalPublication = writeAgentTerminal(
     agentId,
     terminal,
-    publicationBudget.publicationTimeout(2),
+    publicationBudget.publicationTimeout(1),
   );
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
@@ -779,6 +774,13 @@ async function runDispatch(
               judgmentGrade,
               struggleObservation: struggle.snapshot(),
               }, runId, publicationBudget.publicationTimeout(1));
+  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
+    writeAuxiliary(
+      publicationBudget.publicationTimeout(
+        terminalAuxiliaryWrites.length - index,
+      ),
+    );
+  }
   notifyTerminalSettlement(
     agentId,
     coordHandle,

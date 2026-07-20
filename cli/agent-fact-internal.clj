@@ -518,6 +518,199 @@
   (validate-reported-run! port subject facts)
   (publish-terminal! port subject facts))
 
+(defn identity-marker [facts]
+  (sha256
+   (canonical
+    (into (sorted-map) (select-keys facts identity-predicates)))))
+
+(defn exact-committed-identity?
+  [snapshot desired]
+  (and desired
+       (try
+         (validate-publish! desired)
+         (singleton-projection!
+          snapshot (conj publish-predicates marker-predicate))
+         (and (= (desired-projection desired)
+                 (exact-projection snapshot publish-predicates))
+              (= #{(identity-marker desired)}
+                 (get snapshot marker-predicate #{})))
+         (catch Throwable _ false))))
+
+(defn exact-committed-terminal?
+  [subject snapshot desired]
+  (and desired
+       (try
+         (validate-terminal! subject desired)
+         (singleton-projection!
+          snapshot (conj terminal-predicates terminal-marker-predicate))
+         (and (= (desired-projection desired)
+                 (exact-projection snapshot terminal-predicates))
+              (= #{(north.terminal-projection/terminal-manifest-sha256 desired)}
+                 (get snapshot terminal-marker-predicate #{})))
+         (catch Throwable _ false))))
+
+(defn valid-committed-terminal?
+  [subject snapshot]
+  (try
+    (let [terminal (singleton-facts snapshot terminal-predicates)]
+      (validate-terminal! subject terminal)
+      (= #{(north.terminal-projection/terminal-manifest-sha256 terminal)}
+         (get snapshot terminal-marker-predicate #{})))
+    (catch Throwable _ false)))
+
+(defn terminal-projection-present?
+  [snapshot]
+  (boolean
+   (seq
+    (exact-projection
+     snapshot (conj terminal-predicates terminal-marker-predicate)))))
+
+(defn values-compatible-with-transition?
+  "True only for a markerless killed prefix made entirely from the caller's
+  expected and desired exact projections. The stable holder/rotating epoch
+  establishes who may repair; this value check prevents that owner from
+  blessing an unrelated mixed generation."
+  [snapshot expected desired predicates]
+  (every?
+   (fn [predicate]
+     (let [actual (get snapshot predicate #{})
+           allowed (set (keep identity [(get expected predicate)
+                                        (get desired predicate)]))]
+       (and (<= (count actual) 1)
+            (every? allowed actual))))
+   predicates))
+
+(defn replace-identity-projection!
+  [port subject desired]
+  (clear-managed-projection! port subject)
+  (put-facts! port subject desired)
+  (verify-exact! port subject desired publish-predicates)
+  (commit-marker! port subject desired))
+
+(defn committed-result [operation-id & [reason]]
+  (cond-> {:status "committed" :operation_id operation-id}
+    reason (assoc :reason reason)))
+
+(defn unresolved-result [status operation-id reason]
+  {:status status :operation_id operation-id :reason reason})
+
+(defn recover-identity-write!
+  "Apply or recover one caller-owned publish/route transition. `expected` and
+  `desired` are complete projections. A replay may repair only an exact prior
+  generation or a markerless prefix composed from those two projections."
+  [port subject operation operation-id delta desired expected]
+  (when-not desired
+    (fail! "managed identity recovery requires a complete desired projection"
+           {:operation-id operation-id}))
+  (validate-publish! desired)
+  (when expected (validate-publish! expected))
+  (case operation
+    "publish"
+    (when-not (= desired delta)
+      (fail! "managed publish payload must equal its complete desired projection"
+             {:operation-id operation-id}))
+
+    "route"
+    (do
+      (when-not expected
+        (fail! "managed route recovery requires a complete expected projection"
+               {:operation-id operation-id}))
+      (when-not (= route-predicates (set (keys delta)))
+        (fail! "managed route operation requires the exact route predicate set"
+               {:operation-id operation-id :predicates (set (keys delta))}))
+      (when-not (= delta (select-keys desired route-predicates))
+        (fail! "managed route delta disagrees with desired projection"
+               {:operation-id operation-id}))
+      (when-not (= (apply dissoc expected route-predicates)
+                   (apply dissoc desired route-predicates))
+        (fail! "managed route operation changed non-route identity authority"
+               {:operation-id operation-id})))
+
+    (fail! "unsupported recoverable managed identity operation"
+           {:operation operation}))
+  (let [before (facts-of port subject)]
+    (cond
+      ;; Lost acknowledgement after the marker committed: acknowledge without
+      ;; withdrawing it or touching a feed-visible generation.
+      (exact-committed-identity? before desired)
+      (committed-result operation-id "exact_replay")
+
+      ;; A terminal generation is irreversible. An exact older route replay may
+      ;; be acknowledged above, but no new identity mutation may cross it.
+      (terminal-projection-present? before)
+      (if (valid-committed-terminal? subject before)
+        (unresolved-result "not_committed" operation-id "terminal_committed")
+        (unresolved-result "indeterminate" operation-id "partial_or_invalid_terminal"))
+
+      ;; Ordinary first attempt or a retry after the caller's expected marker
+      ;; remained intact.
+      (and expected (exact-committed-identity? before expected))
+      (do
+        (replace-identity-projection! port subject desired)
+        (committed-result operation-id))
+
+      ;; Fresh initial publication.
+      (and (nil? expected) (empty? (managed-projection before)))
+      (do
+        (replace-identity-projection! port subject desired)
+        (committed-result operation-id))
+
+      ;; Crash after marker withdrawal and at any durable body prefix. The new
+      ;; same-holder acquisition already rotated the fence epoch, so the killed
+      ;; writer cannot resume; rebuild the complete desired state exactly.
+      (and (empty? (get before marker-predicate #{}))
+           (empty? (exact-projection
+                    before (conj terminal-predicates terminal-marker-predicate)))
+           (values-compatible-with-transition?
+            before expected desired publish-predicates))
+      (do
+        (replace-identity-projection! port subject desired)
+        (committed-result operation-id "recovered_killed_prefix"))
+
+      ;; A complete generation outside the caller's expected→desired edge is a
+      ;; successor or another authority. Never overwrite it during recovery.
+      (seq (get before marker-predicate #{}))
+      (unresolved-result "not_committed" operation-id "conflicting_generation")
+
+      :else
+      (unresolved-result "indeterminate" operation-id "unrecognized_partial_generation"))))
+
+(defn terminal-prefix-compatible?
+  [snapshot desired]
+  (and (empty? (get snapshot terminal-marker-predicate #{}))
+       (every?
+        (fn [predicate]
+          (let [actual (get snapshot predicate #{})
+                wanted (get desired predicate)]
+            (and (<= (count actual) 1)
+                 (or (empty? actual) (= #{wanted} actual)))))
+        terminal-predicates)))
+
+(defn recover-terminal-write!
+  [port subject operation-id desired expected-identity]
+  (validate-terminal! subject desired)
+  (validate-reported-run! port subject desired)
+  (let [before (facts-of port subject)]
+    (cond
+      (exact-committed-terminal? subject before desired)
+      (committed-result operation-id "exact_replay")
+
+      (valid-committed-terminal? subject before)
+      (unresolved-result "not_committed" operation-id "conflicting_terminal")
+
+      (not (exact-committed-identity? before expected-identity))
+      (unresolved-result "indeterminate" operation-id "identity_generation_changed")
+
+      (terminal-prefix-compatible? before desired)
+      (do
+        (publish-terminal! port subject desired)
+        (committed-result operation-id
+                          (when (terminal-projection-present? before)
+                            "recovered_killed_prefix")))
+
+      :else
+      (unresolved-result "indeterminate" operation-id "unrecognized_partial_terminal"))))
+
 (defn committed-managed-actor!
   [port raw-actor]
   (let [actor (entity raw-actor)
@@ -606,7 +799,10 @@
           (validate-publish! projection)
           (commit-marker! port subject projection))))))
 
-(defn acquire-write-lease! [port subject wait-on-held?]
+(def uuid-v4-pattern
+  #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+
+(defn acquire-write-lease! [port subject wait-on-held? supplied-holder]
   ;; The SDK's process timeout is the stale-writer boundary. The lease must
   ;; outlive it, otherwise a timed-out writer could wake after expiry and race a
   ;; successor. Lifecycle updates may wait for an in-flight same-subject writer,
@@ -620,7 +816,12 @@
            {:writer-timeout-ms writer-timeout-bound-ms
             :lease-ttl-ms write-lease-ttl-ms}))
   (let [resource (write-lease-resource subject)
-        holder (str "managed-agent-writer:" (java.util.UUID/randomUUID))
+        holder (or supplied-holder
+                   (str "managed-agent-writer:" (java.util.UUID/randomUUID)))
+        holder-id (str/replace holder #"^managed-agent-writer:" "")
+        _ (when-not (and (str/starts-with? holder "managed-agent-writer:")
+                         (re-matches uuid-v4-pattern holder-id))
+            (fail! "invalid managed agent writer holder" {:holder holder}))
         wait-budget-ms
         (if wait-on-held?
           (min max-write-lease-wait-ms (quot writer-timeout-bound-ms 2))
@@ -655,9 +856,10 @@
                   :attempts attempt
                   :acquisition-budget-ms wait-budget-ms}))))))
 
-(defn with-write-lease [port subject operation operation!]
+(defn with-write-lease [port subject operation supplied-holder operation!]
   (let [{:keys [resource holder epoch] :as lease}
-        (acquire-write-lease! port subject (not= "publish" operation))]
+        (acquire-write-lease! port subject (not= "publish" operation)
+                              supplied-holder)]
     (binding [*write-lease* lease]
       (try
         (operation!)
@@ -670,19 +872,41 @@
              port {:op :release-lease :res resource :holder holder :epoch epoch})
             (catch Throwable _ nil)))))))
 
-(let [[port-s operation subject raw] *command-line-args*
+(defn optional-payload [raw]
+  (when-not (str/blank? raw) (payload raw)))
+
+(let [[port-s operation subject raw supplied-holder supplied-operation-id
+       desired-raw expected-raw] *command-line-args*
       port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
       subject (entity subject)
+      managed-recovery? (not (str/blank? supplied-operation-id))
+      operation-id (or supplied-operation-id (str (java.util.UUID/randomUUID)))
+      _ (when-not (re-matches uuid-v4-pattern operation-id)
+          (fail! "invalid managed agent logical operation id"
+                 {:operation-id operation-id}))
+      desired (optional-payload desired-raw)
+      expected (optional-payload expected-raw)
       operation!
       (fn []
         (case operation
-          "publish" (publish! port subject (payload raw))
-          "route" (update-route! port subject (payload raw))
+          "publish" (if managed-recovery?
+                      (recover-identity-write!
+                       port subject operation operation-id
+                       (payload raw) desired expected)
+                      (publish! port subject (payload raw)))
+          "route" (if managed-recovery?
+                    (recover-identity-write!
+                     port subject operation operation-id
+                     (payload raw) desired expected)
+                    (update-route! port subject (payload raw)))
           "retask" (retask! port subject (payload raw))
-          "terminal" (terminal! port subject (payload raw))
+          "terminal" (if managed-recovery?
+                       (recover-terminal-write!
+                        port subject operation-id (payload raw) expected)
+                       (terminal! port subject (payload raw)))
           (fail! "internal agent fact operation must be publish, route, retask, terminal, or attest"
                  {:operation operation})))
       result (if (= "attest" operation)
                (attest! port subject (payload raw))
-               (with-write-lease port subject operation operation!))]
+               (with-write-lease port subject operation supplied-holder operation!))]
   (println (json/generate-string {:ok true :result result})))

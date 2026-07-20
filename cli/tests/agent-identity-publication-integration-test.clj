@@ -12,6 +12,10 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
 (def writer (str root "/cli/agent-fact-internal.clj"))
+(def test-terminal-publication-order
+  ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
+   "delivery_attestation" "delivery_attestation_sha256"
+   "delivery_outcome" "delivery_reason" "outcome"])
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/agent-provenance.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
@@ -37,6 +41,23 @@
                                                "FRAM_LOG" @test-log)}
                             "bb" writer (str port) operation subject value)]
      {:exit (:exit result) :out (:out result) :err (:err result)})))
+(defn run-managed-writer
+  [port operation subject value holder operation-id desired expected]
+  (let [result
+        (proc/shell
+         {:out :string :err :string :continue true
+          :extra-env {"FRAM_LOG" @test-log}}
+         "bb" writer (str port) operation subject value holder operation-id
+         (if desired (json/generate-string desired) "")
+         (if expected (json/generate-string expected) ""))]
+    {:exit (:exit result)
+     :out (:out result)
+     :err (:err result)
+     :result
+     (try
+       (:result (json/parse-string
+                 (or (last (str/split-lines (:out result))) "") true))
+       (catch Throwable _ nil))}))
 (defn entity-facts [port subject]
   (let [rows (:ok (north.coord/send-op
                    port {:op :query
@@ -167,6 +188,19 @@
      (north.coord/put-with-fence!
       port lease subject "identity_manifest_sha256" marker)
      [:put "identity_manifest_sha256" marker])))
+
+(defn seed-identity! [port subject identity]
+  (doseq [[predicate value] identity]
+    (north.coord/append! port subject predicate value))
+  (north.coord/append!
+   port subject "identity_manifest_sha256"
+   (north.agent-provenance/manifest-sha256 identity)))
+
+(defn apply-prefix! [port subject operations count]
+  (doseq [[operation predicate value] (take count operations)]
+    (case operation
+      :put (north.coord/append! port subject predicate value)
+      :retract (north.coord/retract! port subject predicate value))))
 
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
@@ -865,6 +899,190 @@
           (when-let [lease @successor-lease]
             (release-lease! port lease))
           ((:close! proxy)))))
+
+    ;; Caller-owned recovery protocol. Route transitions carry both complete
+    ;; endpoints, so every killed durable prefix can be classified and rebuilt.
+    (let [route-delta
+          {"provider" "openai"
+           "provider_target" "codex-recovery"
+           "live_input" "streaming"
+           "live_input_state" "armed"
+           "live_input_epoch" "00000000-0000-4000-8000-000000000121"
+           "model" "gpt-5.6-sol"
+           "effort" "xhigh"
+           "display_handle" "openai-recovery-sol-xhigh-integrator"
+           "display_name" "openai:codex-recovery · sol · xhigh · gaffer:integrator"}
+          desired (merge preset route-delta)
+          old-marker (north.agent-provenance/manifest-sha256 preset)
+          new-marker (north.agent-provenance/manifest-sha256 desired)
+          transition
+          (vec
+           (concat
+            [[:retract "identity_manifest_sha256" old-marker]]
+            (for [[predicate value] (sort-by key preset)]
+              [:retract predicate value])
+            (for [[predicate value] (sort-by key desired)]
+              [:put predicate value])
+            [[:put "identity_manifest_sha256" new-marker]]))
+          holder "managed-agent-writer:00000000-0000-4000-8000-000000000120"
+          results
+          (mapv
+           (fn [prefix]
+             (let [subject (str "@agent:managed-killed-prefix-" prefix)]
+               (seed-identity! port subject preset)
+               (apply-prefix! port subject transition prefix)
+               (let [result
+                     (run-managed-writer
+                      port "route" subject (json/generate-string route-delta)
+                      holder (str (java.util.UUID/randomUUID)) desired preset)
+                     stored (scalar-facts (entity-facts port subject))]
+                 {:result result
+                  :exact (and (north.agent-provenance/managed-valid? stored)
+                              (= desired
+                                 (select-keys stored (keys desired)))
+                              (= new-marker
+                                 (get stored "identity_manifest_sha256")))})))
+           (range (inc (count transition))))]
+      (check "every durable route prefix recovers the exact desired generation"
+             (every?
+              #(and (zero? (get-in % [:result :exit]))
+                    (= "committed" (get-in % [:result :result :status]))
+                    (:exact %))
+              results)))
+
+    ;; Exact state after commit with the old epoch still leased is the real
+    ;; commit-unknown incident. Same-holder replay must rotate/fence immediately;
+    ;; the delayed old finally may not erase the successor epoch.
+    (let [subject "@agent:managed-lost-ack"
+          route-delta
+          {"provider" "openai" "provider_target" "codex-lost-ack"
+           "live_input" "streaming" "live_input_state" "armed"
+           "live_input_epoch" "00000000-0000-4000-8000-000000000122"
+           "model" "gpt-5.6-sol" "effort" "xhigh"
+           "display_handle" "openai-lost-ack-sol-xhigh-integrator"
+           "display_name" "openai:codex-lost-ack · sol · xhigh · gaffer:integrator"}
+          desired (merge preset route-delta)
+          holder "managed-agent-writer:00000000-0000-4000-8000-000000000122"
+          resource (identity-write-resource subject)
+          old-lease (north.coord/send-op
+                     port {:op :acquire-lease :res resource :holder holder
+                           :ttl-ms 60000})
+          _ (seed-identity! port subject desired)
+          recovered (run-managed-writer
+                     port "route" subject (json/generate-string route-delta)
+                     holder (str (java.util.UUID/randomUUID)) desired preset)
+          stale-write (north.coord/put-with-fence!
+                       port {:resource resource :holder holder
+                             :epoch (:epoch old-lease)}
+                       subject "goal" "stale prior operation")
+          stale-release (north.coord/send-op
+                         port {:op :release-lease :res resource :holder holder
+                               :epoch (:epoch old-lease)})
+          stored (scalar-facts (entity-facts port subject))]
+      (check "lost acknowledgement replays as committed through the retained same-holder fence"
+             (and (:ok old-lease)
+                  (zero? (:exit recovered))
+                  (= "committed" (get-in recovered [:result :status]))
+                  (= "exact_replay" (get-in recovered [:result :reason]))
+                  (= desired (select-keys stored (keys desired)))))
+      (check "stale same-holder release cannot erase the recovered epoch"
+             (and (= :fence-lost (:reject stale-write))
+                  (:noop stale-release)
+                  (= (north.agent-provenance/manifest-sha256 stored)
+                     (get stored "identity_manifest_sha256")))))
+
+    (let [subject "@agent:managed-conflicting-successor"
+          route-delta
+          {"provider" "openai" "provider_target" "codex-intended"
+           "live_input" "streaming" "live_input_state" "armed"
+           "live_input_epoch" "00000000-0000-4000-8000-000000000123"
+           "model" "gpt-5.6-sol" "effort" "xhigh"
+           "display_handle" "openai-intended-sol-xhigh-integrator"
+           "display_name" "openai:codex-intended · sol · xhigh · gaffer:integrator"}
+          desired (merge preset route-delta)
+          successor (assoc desired
+                           "provider_target" "codex-successor"
+                           "live_input_epoch" "00000000-0000-4000-8000-000000000124"
+                           "display_handle" "openai-successor-sol-xhigh-integrator"
+                           "display_name" "openai:codex-successor · sol · xhigh · gaffer:integrator")
+          _ (seed-identity! port subject successor)
+          before (entity-facts port subject)
+          result (run-managed-writer
+                  port "route" subject (json/generate-string route-delta)
+                  "managed-agent-writer:00000000-0000-4000-8000-000000000123"
+                  (str (java.util.UUID/randomUUID)) desired preset)]
+      (check "recovery returns typed not_committed without overwriting a successor"
+             (and (zero? (:exit result))
+                  (= "not_committed" (get-in result [:result :status]))
+                  (= "conflicting_generation" (get-in result [:result :reason]))
+                  (= before (entity-facts port subject)))))
+
+    (let [terminal
+          {"outcome" "died" "process_outcome" "died"
+           "delivery_outcome" "blocked"
+           "delivery_reason" "provider_process_died"}
+          operation-order
+          (vec
+           (concat
+            (for [predicate test-terminal-publication-order
+                  :let [value (get terminal predicate)]
+                  :when value]
+              [:put predicate value])
+            [[:put "terminal_manifest_sha256"
+              (north.terminal-projection/terminal-manifest-sha256 terminal)]]))
+          results
+          (mapv
+           (fn [prefix]
+             (let [subject (str "@agent:managed-terminal-prefix-" prefix)
+                   holder (str "managed-agent-writer:"
+                               (java.util.UUID/randomUUID))]
+               (seed-identity! port subject preset)
+               (apply-prefix! port subject operation-order prefix)
+               (let [result
+                     (run-managed-writer
+                      port "terminal" subject (json/generate-string terminal)
+                      holder (str (java.util.UUID/randomUUID)) nil preset)
+                     stored (scalar-facts (entity-facts port subject))]
+                 {:result result
+                  :exact (= (north.terminal-projection/terminal-manifest-sha256 terminal)
+                            (get stored "terminal_manifest_sha256"))})))
+           (range (inc (count operation-order))))]
+      (check "every durable terminal prefix recovers one exact terminal projection"
+             (every?
+              #(and (zero? (get-in % [:result :exit]))
+                    (= "committed" (get-in % [:result :result :status]))
+                    (:exact %))
+              results)))
+
+    (let [subject "@agent:managed-terminal-dominates-route"
+          holder "managed-agent-writer:00000000-0000-4000-8000-000000000125"
+          terminal
+          {"outcome" "died" "process_outcome" "died"
+           "delivery_outcome" "blocked"
+           "delivery_reason" "provider_process_died"}
+          route-delta
+          {"provider" "openai" "provider_target" "codex-after-terminal"
+           "live_input" "streaming" "live_input_state" "frozen"
+           "live_input_epoch" "00000000-0000-4000-8000-000000000125"
+           "model" "gpt-5.6-sol" "effort" "xhigh"
+           "display_handle" "openai-after-terminal-sol-xhigh-integrator"
+           "display_name" "openai:codex-after-terminal · sol · xhigh · gaffer:integrator"}
+          desired (merge preset route-delta)
+          _ (seed-identity! port subject preset)
+          terminal-result
+          (run-managed-writer
+           port "terminal" subject (json/generate-string terminal)
+           holder (str (java.util.UUID/randomUUID)) nil preset)
+          before (entity-facts port subject)
+          route-result
+          (run-managed-writer
+           port "route" subject (json/generate-string route-delta)
+           holder (str (java.util.UUID/randomUUID)) desired preset)]
+      (check "committed terminal is irreversible and rejects later route mutation"
+             (and (= "committed" (get-in terminal-result [:result :status]))
+                  (= "not_committed" (get-in route-result [:result :status]))
+                  (= "terminal_committed" (get-in route-result [:result :reason]))
+                  (= before (entity-facts port subject)))))
 
     (let [worker-subject "@agent:delivery-worker"
           verifier-subject "@agent:delivery-verifier"

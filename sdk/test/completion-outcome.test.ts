@@ -685,6 +685,15 @@ test("a blocked auxiliary terminal writer cannot stack beyond the shared publica
     expect(blocked.output).toContain(
       "tell @swarm agent_death test-terminal-aux-budget | terminal auxiliary budget probe",
     );
+    const lines = blocked.output.split("\n").filter(Boolean);
+    const terminalIndex = lines.findIndex((line) => line.includes(
+      "tell agent:test-terminal-aux-budget process_outcome died",
+    ));
+    const auxiliaryIndex = lines.findIndex((line) => line.includes(
+      "tell @swarm agent_death test-terminal-aux-budget | terminal auxiliary budget probe",
+    ));
+    expect(terminalIndex).toBeGreaterThanOrEqual(0);
+    expect(auxiliaryIndex).toBeGreaterThan(terminalIndex);
   } finally {
     delete process.env.NORTH_TERMINAL_PUBLICATION_BUDGET_MS;
   }

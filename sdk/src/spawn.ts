@@ -743,17 +743,12 @@ async function runSpawn(
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
   const publicationBudget = new TerminalPublicationBudget();
-  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
-    writeAuxiliary(
-      publicationBudget.publicationTimeout(
-        terminalAuxiliaryWrites.length - index + 2,
-      ),
-    );
-  }
+  // The terminal marker is the lane's authoritative lifecycle boundary. It
+  // must never queue behind diagnostic writes or lose their shared budget.
   const terminalPublication = writeAgentTerminal(
     agentId,
     terminal,
-    publicationBudget.publicationTimeout(2),
+    publicationBudget.publicationTimeout(1),
   );
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
@@ -797,6 +792,13 @@ async function runSpawn(
     judgmentGrade,
     struggleObservation: struggle.snapshot(),
   }, runId, publicationBudget.publicationTimeout(1));
+  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
+    writeAuxiliary(
+      publicationBudget.publicationTimeout(
+        terminalAuxiliaryWrites.length - index,
+      ),
+    );
+  }
   notifyTerminalSettlement(
     agentId,
     coordHandle,

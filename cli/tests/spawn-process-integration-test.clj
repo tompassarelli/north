@@ -69,6 +69,50 @@
             (north.spawn-process/identity-defects
              (committed (assoc ready-base "composition_kind" "invalid")))))
 
+  (let [pending-facts
+        (committed
+         (assoc ready-base
+                "live_input" "streaming"
+                "live_input_state" "pending"))
+        armed-facts
+        (committed
+         (assoc ready-base
+                "live_input" "streaming"
+                "live_input_state" "armed"))
+        log (temp-file "pending-route.log")
+        process (north.spawn-process/launch-detached! ["sleep" "10"] base-env log)
+        probes (atom 0)
+        startup
+        (north.spawn-process/await-startup
+         process "lane-pending-route" log
+         (fn [_] (if (< (swap! probes inc) 4) pending-facts armed-facts))
+         (constantly true)
+         :timeout-ms 1000 :poll-ms 10)]
+    (check "online presence plus pending streaming identity cannot acknowledge startup"
+           (and (not (north.spawn-process/identity-ready? pending-facts))
+                (= ["effective_live_input_route"]
+                   (north.spawn-process/startup-defects pending-facts))
+                (= :ready (:status startup))
+                (>= @probes 4)))
+    (north.spawn-process/stop-process! process))
+
+  (let [pending-facts
+        (committed
+         (assoc ready-base
+                "live_input" "streaming"
+                "live_input_state" "pending"))
+        log (temp-file "pending-fast-terminal.log")
+        process (north.spawn-process/launch-detached! ["bash" "-c" "exit 0"] base-env log)
+        startup
+        (north.spawn-process/await-startup
+         process "lane-pending-fast-terminal" log
+         (constantly (assoc pending-facts "outcome" "died"))
+         (constantly false)
+         :timeout-ms 1000 :poll-ms 10)]
+    (check "valid fast terminal remains completed even when no route was armed"
+           (and (= :completed (:status startup))
+                (= "died" (:outcome startup)))))
+
   (let [log (temp-file "ready.log")
         process (north.spawn-process/launch-detached! ["sleep" "10"] base-env log)
         startup (north.spawn-process/await-startup

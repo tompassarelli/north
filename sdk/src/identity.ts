@@ -9,6 +9,7 @@
 // manifest marker last. Route refresh and terminal outcome remain lifecycle
 // telemetry, with required-vs-advisory behavior chosen by their callers.
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -77,7 +78,53 @@ export interface ManagedLaneIdentity extends ObservedAgentIdentity {
 }
 
 export type AgentIdentity = ObservedAgentIdentity;
-export type TerminalPublicationStatus = "recorded" | "unavailable";
+export type TerminalPublicationStatus =
+  | "recorded"
+  | "not_committed"
+  | "indeterminate"
+  | "unavailable";
+export type ManagedWriteStatus = "committed" | "not_committed" | "indeterminate";
+
+export interface ManagedWriteResult {
+  status: ManagedWriteStatus;
+  operationId: string;
+  reason?: string;
+}
+
+export class ManagedAgentWriteError extends Error {
+  constructor(
+    readonly operation: "publish" | "route" | "terminal",
+    readonly result: ManagedWriteResult,
+    options?: ErrorOptions,
+  ) {
+    super(
+      `managed agent ${operation} ${result.status}${result.reason ? `: ${result.reason}` : ""}`,
+      options,
+    );
+    this.name = "ManagedAgentWriteError";
+  }
+}
+
+interface ManagedWriterSession {
+  /** Stable for one in-process lane lifecycle; coordinator epochs fence operations. */
+  holder: string;
+  identity?: Record<string, string>;
+  terminalCommitted: boolean;
+}
+
+const managedWriterSessions = new Map<string, ManagedWriterSession>();
+
+function managedWriterSession(agentId: string): ManagedWriterSession {
+  let session = managedWriterSessions.get(agentId);
+  if (!session) {
+    session = {
+      holder: `managed-agent-writer:${randomUUID()}`,
+      terminalCommitted: false,
+    };
+    managedWriterSessions.set(agentId, session);
+  }
+  return session;
+}
 
 const component = (value?: string) => {
   const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -176,8 +223,14 @@ function writeHarnessAgentOperation(
   operation: "publish" | "route" | "terminal",
   subject: string,
   value: string,
+  recovery: {
+    holder: string;
+    operationId: string;
+    desiredIdentity?: Record<string, string>;
+    expectedIdentity?: Record<string, string>;
+  },
   timeoutMs = INTERNAL_WRITER_TIMEOUT_MS,
-) {
+): ManagedWriteResult {
   if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") {
     // Hermetic tests point NORTH_BIN at a tiny capture engine. Preserve the
     // ordinary fact-verb shape there so existing lifecycle assertions stay
@@ -193,7 +246,7 @@ function writeHarnessAgentOperation(
           timeout: remaining,
         });
       }
-      return;
+      return { status: "committed", operationId: recovery.operationId };
     }
     if (operation === "publish") {
       try {
@@ -213,10 +266,23 @@ function writeHarnessAgentOperation(
     const facts = JSON.parse(value) as Record<string, string>;
     for (const [predicate, factValue] of Object.entries(facts))
       execFileSync(northBin(), ["tell", subject, predicate, factValue], { stdio: "ignore", timeout: 10_000 });
-    return;
+    return { status: "committed", operationId: recovery.operationId };
   }
-  try {
-    execFileSync("bb", [internalWriter, process.env.NORTH_PORT ?? "7977", operation, subject, value], {
+
+  const args = [
+    internalWriter,
+    process.env.NORTH_PORT ?? "7977",
+    operation,
+    subject,
+    value,
+    recovery.holder,
+    recovery.operationId,
+    recovery.desiredIdentity ? JSON.stringify(recovery.desiredIdentity) : "",
+    recovery.expectedIdentity ? JSON.stringify(recovery.expectedIdentity) : "",
+  ];
+  const startedAt = performance.now();
+  const execute = (attemptTimeoutMs: number): ManagedWriteResult => {
+    const output = execFileSync("bb", args, {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -224,18 +290,67 @@ function writeHarnessAgentOperation(
         NORTH_IDENTITY_WRITE_LEASE_TTL_MS: String(INTERNAL_WRITE_LEASE_TTL_MS),
       },
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: timeoutMs,
+      timeout: Math.max(1, Math.floor(attemptTimeoutMs)),
     });
+    const envelope = JSON.parse(output.trim().split("\n").at(-1) ?? "") as {
+      ok?: boolean;
+      result?: { status?: ManagedWriteStatus; operation_id?: string; reason?: string };
+    };
+    const status = envelope.result?.status;
+    const operationId = envelope.result?.operation_id;
+    if (envelope.ok !== true
+        || !status
+        || !["committed", "not_committed", "indeterminate"].includes(status)
+        || operationId !== recovery.operationId) {
+      throw new Error("managed writer returned an invalid typed acknowledgement");
+    }
+    return { status, operationId, reason: envelope.result?.reason };
+  };
+
+  let firstCause: unknown;
+  try {
+    // Reserve part of the original wall budget for commit-unknown
+    // classification. This is recovery inside the existing bound, not a hidden
+    // timeout increase.
+    const result = execute(Math.max(1, Math.floor(timeoutMs * 0.8)));
+    if (result.status !== "indeterminate") {
+      if (result.status !== "committed")
+        throw new ManagedAgentWriteError(operation, result);
+      return result;
+    }
+    firstCause = new ManagedAgentWriteError(operation, result);
   } catch (cause) {
+    if (cause instanceof ManagedAgentWriteError && cause.result.status === "not_committed")
+      throw cause;
+    firstCause = cause;
+  }
+
+  // A process timeout is commit-unknown, never proof of failure. Replaying the
+  // same logical operation with the same holder rotates the coordinator epoch,
+  // fences the stale child, and classifies the durable expected/desired state.
+  try {
+    const remaining = Math.max(1, timeoutMs - (performance.now() - startedAt));
+    const recovered = execute(remaining);
+    if (recovered.status !== "committed")
+      throw new ManagedAgentWriteError(operation, recovered, { cause: firstCause });
+    return recovered;
+  } catch (recoveryCause) {
+    if (recoveryCause instanceof ManagedAgentWriteError) throw recoveryCause;
+    const cause = recoveryCause ?? firstCause;
     const raw = cause && typeof cause === "object" && "stderr" in cause
       ? String((cause as { stderr?: unknown }).stderr ?? "").trim()
       : "";
     const detail = raw.split("\n").find((line) => line.startsWith("Message:"))?.slice("Message:".length).trim()
       ?? raw.split("\n").find((line) => line.includes(":reject"))?.trim()
       ?? raw.slice(-800);
-    throw new Error(
-      `managed agent ${operation} failed${detail ? `: ${detail}` : ""}`,
-      { cause },
+    throw new ManagedAgentWriteError(
+      operation,
+      {
+        status: "indeterminate",
+        operationId: recovery.operationId,
+        reason: detail || "recovery acknowledgement unavailable",
+      },
+      { cause: recoveryCause ?? firstCause },
     );
   }
 }
@@ -282,16 +397,47 @@ export function writeAgentFacts(agentId: string, f: ManagedLaneIdentity): void {
   const subject = `agent:${agentId}`; // north tell @-prefixes bare ids
   const facts = agentIdentityFacts(agentId, f);
   const projection = Object.fromEntries(facts.filter((fact): fact is [string, string] => fact[1] !== undefined && fact[1] !== ""));
-  writeHarnessAgentOperation("publish", subject, JSON.stringify(projection));
+  const session = managedWriterSession(agentId);
+  writeHarnessAgentOperation("publish", subject, JSON.stringify(projection), {
+    holder: session.holder,
+    operationId: randomUUID(),
+    desiredIdentity: projection,
+    expectedIdentity: session.identity,
+  });
+  session.identity = projection;
+  session.terminalCommitted = false;
 }
 
 // Refresh the route projection without resetting generation identity. This is
 // used when a pre-side-effect provider fallback activates. The control key and
 // spawned_at stay stable; the route is immutable once side effects begin.
-export function updateAgentRoute(agentId: string, f: AgentIdentity): void {
+export function updateAgentRoute(agentId: string, f: AgentIdentity): ManagedWriteResult {
+  const session = managedWriterSession(agentId);
+  if (session.terminalCommitted) {
+    throw new ManagedAgentWriteError("route", {
+      status: "not_committed",
+      operationId: randomUUID(),
+      reason: "terminal_committed",
+    });
+  }
+  if (!session.identity) {
+    throw new ManagedAgentWriteError("route", {
+      status: "indeterminate",
+      operationId: randomUUID(),
+      reason: "managed identity is unavailable to route recovery",
+    });
+  }
   const route = Object.fromEntries(agentRouteFacts(agentId, f)
     .filter((fact): fact is [string, string] => fact[1] !== undefined && fact[1] !== ""));
-  writeHarnessAgentOperation("route", `agent:${agentId}`, JSON.stringify(route));
+  const desiredIdentity = { ...session.identity, ...route };
+  const result = writeHarnessAgentOperation("route", `agent:${agentId}`, JSON.stringify(route), {
+    holder: session.holder,
+    operationId: randomUUID(),
+    desiredIdentity,
+    expectedIdentity: session.identity,
+  });
+  session.identity = desiredIdentity;
+  return result;
 }
 
 // Crash-safe terminal projection on @agent:<id>. The scoped writer publishes
@@ -307,6 +453,7 @@ export function writeAgentTerminal(
   timeoutMs = INTERNAL_WRITER_TIMEOUT_MS,
 ): TerminalPublicationStatus {
   if (!terminal.processOutcome) return "unavailable";
+  const session = managedWriterSession(agentId);
   try {
     writeHarnessAgentOperation("terminal", `agent:${agentId}`, JSON.stringify({
       outcome: terminal.processOutcome,
@@ -321,11 +468,24 @@ export function writeAgentTerminal(
         ? { delivery_attestation: terminal.deliveryProof.deliveryAttestation } : {}),
       ...(terminal.deliveryProof?.deliveryAttestationSha256
         ? { delivery_attestation_sha256: terminal.deliveryProof.deliveryAttestationSha256 } : {}),
-    }), timeoutMs);
+    }), {
+      holder: session.holder,
+      operationId: randomUUID(),
+      expectedIdentity: session.identity,
+    }, timeoutMs);
+    session.terminalCommitted = true;
     return "recorded";
-  } catch {
-    // Non-fatal; presence-lapse reap catches absent or torn terminal evidence.
-    return "unavailable";
+  } catch (error) {
+    // Finalization continues to the independently committed run trail, but a
+    // typed terminal failure is never silently collapsed into generic absence.
+    const status = error instanceof ManagedAgentWriteError
+      ? error.result.status === "not_committed" ? "not_committed" : "indeterminate"
+      : "unavailable";
+    console.error(
+      `[terminal] @agent:${agentId} authoritative publication ${status}: `
+      + (error instanceof Error ? error.message : String(error)),
+    );
+    return status;
   }
 }
 

@@ -11,6 +11,7 @@ import {
   updateAgentRoute,
   type AgentIdentity,
   type LiveInputState,
+  type ManagedWriteResult,
 } from "./identity";
 import {
   ProviderRetrySafeError,
@@ -41,6 +42,11 @@ type FeedSubscriber = (
   recipient: string,
   onMessage: (message: string) => InputAdmission,
 ) => FeedSubscription;
+
+type RouteWriter = (
+  agentId: string,
+  identity: AgentIdentity,
+) => ManagedWriteResult | void;
 
 interface PublishedRoute extends ManagedRouteAxes {
   liveInputState: LiveInputState;
@@ -95,7 +101,7 @@ export class ManagedLiveInputRoute {
     initialRoute: ManagedRouteAxes,
     private readonly pushMessage: (message: string) => InputAdmission,
     private readonly feedSubscriber: FeedSubscriber = subscribeFeed,
-    private readonly routeWriter: typeof updateAgentRoute = updateAgentRoute,
+    private readonly routeWriter: RouteWriter = updateAgentRoute,
     settlementFeedSubscriber?: FeedSubscriber,
   ) {
     this.settlementFeedSubscriber = settlementFeedSubscriber
@@ -135,7 +141,16 @@ export class ManagedLiveInputRoute {
       liveInputEpoch: randomUUID(),
     };
     try {
-      this.routeWriter(this.agentId, { ...this.identityBase, ...next });
+      const acknowledgement = this.routeWriter(
+        this.agentId,
+        { ...this.identityBase, ...next },
+      );
+      if (acknowledgement && acknowledgement.status !== "committed") {
+        throw new Error(
+          `managed route publication ${acknowledgement.status}`
+          + (acknowledgement.reason ? `: ${acknowledgement.reason}` : ""),
+        );
+      }
       this.published = next;
       if (state === "armed" && route.liveInput === "streaming")
         this.everArmedStreaming = this.settlementRequired = true;
