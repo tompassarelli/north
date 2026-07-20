@@ -121,6 +121,66 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   return { home, childEnv };
 }
 
+// Anti-rot: the advertised tools/list schema must surface the work identifier
+// first, then the eight Gaffer routing fields contiguously, before any optional
+// compat/provider field. The properties map in bin/north-mcp is a >8-key map, so
+// a plain `{}` literal degrades to a scrambled PersistentHashMap; this test fails
+// if a field is dropped, reordered, or displaced from those leading positions.
+const EIGHT_ROUTING_FIELDS = [
+  "role",
+  "taskGrade",
+  "domainRequirements",
+  "topology",
+  "tier",
+  "reasoning",
+  "posture",
+  "composition",
+] as const;
+
+function toolsListSchemaKeys(): Record<string, string[]> {
+  const north = resolve(import.meta.dir, "../..");
+  const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
+    input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`,
+    encoding: "utf8",
+    env: { ...process.env, NORTH_MCP_BUN: "/bin/false" },
+  });
+  expect(result.status).toBe(0);
+  const response = JSON.parse(result.stdout.trim());
+  const keysByTool: Record<string, string[]> = {};
+  for (const tool of response.result.tools) {
+    // JSON.parse preserves insertion order for non-numeric string keys, so
+    // Object.keys reflects the exact advertised (document) order.
+    keysByTool[tool.name] = Object.keys(tool.inputSchema.properties);
+  }
+  return keysByTool;
+}
+
+test("MCP tools/list advertises the work identifier then the eight Gaffer fields first, in order", () => {
+  const keysByTool = toolsListSchemaKeys();
+  for (const [tool, identifier] of [["dispatch", "id"], ["spawn", "prompt"]] as const) {
+    const keys = keysByTool[tool];
+    expect(keys, `${tool} must be advertised in tools/list`).toBeDefined();
+    // Work identifier is position 0.
+    expect(keys[0], `${tool} must advertise its work identifier first`).toBe(identifier);
+    // The eight routing fields occupy positions 1..8 contiguously, in exact order.
+    expect(
+      keys.slice(1, 1 + EIGHT_ROUTING_FIELDS.length),
+      `${tool} must advertise the eight Gaffer routing fields contiguously, in order, right after ${identifier}`,
+    ).toEqual([...EIGHT_ROUTING_FIELDS]);
+    // Presence guard, independent of the ordering slice above.
+    for (const field of EIGHT_ROUTING_FIELDS) {
+      expect(keys, `${tool} must advertise ${field}`).toContain(field);
+    }
+    // Every optional/compat field trails the leading routing block.
+    for (const [index, key] of keys.entries()) {
+      if (index === 0 || EIGHT_ROUTING_FIELDS.includes(key as (typeof EIGHT_ROUTING_FIELDS)[number])) continue;
+      expect(index, `optional field ${key} on ${tool} must trail the routing block`).toBeGreaterThan(
+        EIGHT_ROUTING_FIELDS.length,
+      );
+    }
+  }
+});
+
 test("MCP rejects an invalid detector override before SDK launch", () => {
   const directory = mkdtempSync(join(tmpdir(), "north-mcp-struggle-policy-"));
   temporary.push(directory);
