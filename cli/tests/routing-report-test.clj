@@ -565,3 +565,98 @@
                   (str/includes? human-calibration "s/worker runs=1")))))
   (finally
     (doseq [file (reverse (file-seq tmp))] (io/delete-file file true))))
+
+;; --by-model / --by-effort + read-time alias normalization + provider
+;; derivation from a bare model id when no provider fact was recorded.
+;; Isolated fixture set so counts here never entangle with the fixed-count
+;; assertions above.
+(let [tmp2 (.toFile (java.nio.file.Files/createTempDirectory
+                     "north-routing-report-models" (make-array java.nio.file.attribute.FileAttribute 0)))
+      coord2 (io/file tmp2 "coordination.log")
+      telem2 (io/file tmp2 "telemetry.log")
+      env2 {"FRAM_LOG" (.getPath coord2) "FRAM_TELEMETRY_LOG" (.getPath telem2)}]
+ (try
+  (doseq [id ["@thread-model-a" "@thread-model-b"]]
+    (fact coord2 id "title" (str "Thread " id)))
+  (letfn [(fact2 [l p r] (fact telem2 l p r))
+          (run! [kind & flags]
+            (let [argv (into ["bb" (str root "/cli/routing-report.clj")
+                              "report" kind "--json"] flags)
+                  result (apply proc/shell {:out :string :err :string :extra-env env2} argv)]
+              (when-not (zero? (:exit result)) (throw (ex-info (:err result) result)))
+              (json/parse-string (str/trim (:out result)) true)))
+          (run-facts2! [run thread provider tokens model effort]
+            (fact2 run "kind" "run")
+            (fact2 run "agent" (str "agent-" (subs run 5)))
+            (fact2 run "thread" thread)
+            (when provider (fact2 run "provider" provider))
+            (fact2 run "model" model)
+            (fact2 run "effort" effort)
+            (fact2 run "outcome" "ran")
+            (fact2 run "process_outcome" "ran")
+            (fact2 run "delivery_outcome" "unverified")
+            (fact2 run "delivery_reason" "provider process completed without external delivery proof")
+            (when tokens (fact2 run "tokens" tokens)))]
+    (run-facts2! "@run-model-sol" "@thread-model-a" "openai" "500" "gpt-5.6-sol" "high")
+    (run-facts2! "@run-model-terra" "@thread-model-b" nil "300" "gpt-5.6-terra" "medium")
+    (run-facts2! "@run-model-alias-opus" "@thread-model-a" nil "400" "opus" "high")
+    (run-facts2! "@run-model-alias-sonnet" "@thread-model-b" "anthropic" "150" "sonnet" "low")
+
+    (let [rows (vec (run-rows (fold-facts (read-ops [(.getPath coord2) (.getPath telem2)]))))
+          terra (first (filter #(= "@run-model-terra" (:entity %)) rows))
+          opus (first (filter #(= "@run-model-alias-opus" (:entity %)) rows))
+          sonnet (first (filter #(= "@run-model-alias-sonnet" (:entity %)) rows))
+          sol (first (filter #(= "@run-model-sol" (:entity %)) rows))]
+      (check "a run with a model fact but no provider fact derives provider from the model id"
+             (and (= "openai" (:provider terra))
+                  (= "derived-from-model" (:providerProvenance terra))))
+      (check "a bare alias model normalizes to its canonical id at read time"
+             (and (= "claude-opus-4-8" (:model opus))
+                  (= "anthropic" (:provider opus))
+                  (= "derived-from-model" (:providerProvenance opus))
+                  (= "claude-sonnet-5" (:model sonnet))
+                  (= "observed" (:providerProvenance sonnet))))
+      (check "an observed provider fact is never overridden by derivation"
+             (= "openai" (:provider sol))))
+
+    (let [usage (run! "usage")
+          usage-by-model (run! "usage" "--by-model")
+          usage-by-effort-only (run! "usage" "--by-effort")
+          usage-by-model-effort (run! "usage" "--by-model" "--by-effort")
+          sol-row (first (filter #(= "gpt-5.6-sol" (:model %)) (:models usage-by-model)))
+          terra-row (first (filter #(= "gpt-5.6-terra" (:model %)) (:models usage-by-model)))
+          opus-row (first (filter #(= "claude-opus-4-8" (:model %)) (:models usage-by-model)))
+          sol-high-row (first (filter #(and (= "gpt-5.6-sol" (:model %)) (= "high" (:effort %)))
+                                      (:models usage-by-model-effort)))
+          opus-high-row (first (filter #(and (= "claude-opus-4-8" (:model %)) (= "high" (:effort %)))
+                                       (:models usage-by-model-effort)))
+          unattributed-provider (first (filter #(= "unattributed" (:provider %)) (:providers usage)))]
+      (check "usage --json omits models unless --by-model is requested" (nil? (:models usage)))
+      (check "usage --by-model includes gpt-5.6-sol and gpt-5.6-terra rows"
+             (and sol-row terra-row (= 1 (:runs sol-row)) (= 500 (:tokens sol-row))
+                  (= 1 (:runs terra-row)) (= 300 (:tokens terra-row))))
+      (check "usage --by-model normalizes alias models into the model row"
+             (and opus-row (= 1 (:runs opus-row)) (= 400 (:tokens opus-row))))
+      (check "usage --by-model --by-effort splits model rows by effort"
+             (and (nil? (:effort sol-row))
+                  sol-high-row (= 1 (:runs sol-high-row))
+                  opus-high-row (= 1 (:runs opus-high-row))))
+      (check "usage --by-effort alone still implies the model x effort breakdown"
+             (some? (:models usage-by-effort-only)))
+      (check "provider derivation shrinks the unattributed bucket: no unattributed runs remain"
+             (nil? unattributed-provider)))
+
+    (let [human-usage-by-model (:out (proc/shell {:out :string :err :string :extra-env env2}
+                                                 "bb" (str root "/cli/routing-report.clj")
+                                                 "report" "usage" "--by-model"))]
+      (check "human usage --by-model table lists per-model rows"
+             (and (str/includes? human-usage-by-model "MODEL —")
+                  (str/includes? human-usage-by-model "gpt-5.6-sol")
+                  (str/includes? human-usage-by-model "gpt-5.6-terra"))))
+
+    (let [bad-flag (proc/shell {:out :string :err :string :continue true :extra-env env2}
+                               "bb" (str root "/cli/routing-report.clj")
+                               "report" "performance" "--by-model")]
+      (check "--by-model is rejected outside the usage report" (not (zero? (:exit bad-flag))))))
+  (finally
+    (doseq [file (reverse (file-seq tmp2))] (io/delete-file file true)))))

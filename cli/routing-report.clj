@@ -124,6 +124,44 @@
                    (and (zero? parsed)
                         (= "blocked_preflight" process-outcome))))
       parsed)))
+(def model-alias-catalog-providers ["anthropic" "openai"])
+
+(defn- gaffer-catalog-root []
+  (or (System/getenv "GAFFER_HOME")
+      (str (System/getProperty "user.home") "/code/gaffer")))
+
+(defn- load-provider-catalog [provider]
+  (try
+    (let [file (io/file (gaffer-catalog-root) "providers" (str provider ".json"))]
+      (when (.exists file) (json/parse-string (slurp file))))
+    (catch Exception _ nil)))
+
+(defn model-alias-map
+  "Read-time alias -> canonical model id, assembled from the Gaffer provider
+  catalogs' modelAliases (bare tier names like opus/sonnet/fable/luna/terra/sol
+  never appear as canonical model ids). This is the ONE place aliases are
+  normalized until the write-side fix + migration land; that fix should reuse
+  or replace this function rather than growing a second mapping."
+  []
+  (into {}
+        (mapcat (fn [provider]
+                  (get (load-provider-catalog provider) "modelAliases")))
+        model-alias-catalog-providers))
+
+(defn normalize-model-alias [alias-map model]
+  (or (get alias-map model) model))
+
+(defn derive-provider-from-model
+  "Provider derivation for runs that recorded a model fact but no provider
+  fact. Only covers the canonical id prefixes; anything else stays unattributed
+  rather than guessing."
+  [model]
+  (cond
+    (nil? model) nil
+    (str/starts-with? model "claude-") "anthropic"
+    (str/starts-with? model "gpt-") "openai"
+    :else nil))
+
 (defn thread-ref [value]
   (when (and value (not= value "(ad-hoc)"))
     (if (str/starts-with? value "@") value (str "@" value))))
@@ -267,7 +305,8 @@
       {:status status :bars total :evidenced evidenced :hasOutcome outcome?})))
 
 (defn run-rows [facts]
-  (let [preset-catalog (current-preset-catalog)]
+  (let [preset-catalog (current-preset-catalog)
+        alias-map (model-alias-map)]
    (for [[entity predicates] facts
         :when (and (= "run" (one facts entity "kind"))
                    ;; both legacy `@run-` and telemetry-routable `@run:` ids
@@ -276,6 +315,9 @@
     (let [agent (one facts entity "agent")
           identity (str "@agent:" agent)
           get' (fn [pred fallback] (or (one facts entity pred) (one facts identity pred) fallback))
+          raw-model (normalize-model-alias alias-map (get' "model" nil))
+          raw-provider (get' "provider" nil)
+          derived-provider (when-not raw-provider (derive-provider-from-model raw-model))
           thread (thread-ref (one facts entity "thread"))
           composition-kind (get' "composition_kind" nil)
           composition-id (normalized-token (get' "composition_id" nil))
@@ -464,7 +506,10 @@
        :struggleNoProgressTurnThreshold
        (maybe-positive-long (one facts entity "struggle_no_progress_turn_threshold"))
        :struggleErrorCount (maybe-long (one facts entity "error_count"))
-       :provider (get' "provider" "unattributed")
+       :provider (or raw-provider derived-provider "unattributed")
+       :providerProvenance (cond raw-provider "observed"
+                                  derived-provider "derived-from-model"
+                                  :else "unattributed")
        :tier (or (:tier effective-axes)
                  (when-let [value (:tier requested-axes)]
                    (str "requested:" value))
@@ -476,7 +521,7 @@
                          (:tier requested-axes) "requested-gaffer-fallback"
                          (attributed? (get' "requested_tier" nil)) "requested-route-fallback"
                          :else "unattributed")
-       :model (get' "model" "unattributed") :effort (get' "effort" "unattributed")
+       :model (or raw-model "unattributed") :effort (get' "effort" "unattributed")
        :modelAvailability
        (when-let [source (normalized-token (one facts entity "model_availability_source"))]
          {:target (normalized-token (one facts entity "model_availability_target"))
@@ -598,7 +643,10 @@
       :excludedRuns (- (count all-rows) (count selected))
       :cohorts (->> selected (group-by cohort-label) (map performance-row) (sort-by :cohort) vec)})))
 
-(defn usage-row [[provider rows]]
+(defn usage-stats
+  "Shared runs/tokens/wall/turns coverage stats for one cohort of rows,
+  regardless of whether the cohort is keyed by provider, model, or model+effort."
+  [rows]
   (let [tokens (keep :tokens rows)
         token-runs (count tokens)
         runs (count rows)
@@ -607,7 +655,7 @@
         duration-ms (when (seq durations) (reduce + durations))
         turns (keep :turns rows)
         turn-runs (count turns)]
-    {:provider provider :runs (count rows)
+    {:runs runs
      :tokens (when (seq tokens) (reduce + tokens)) :tokenRuns token-runs
      :tokenCoverage {:exactRuns token-runs :runs runs}
      :tokenEvidence (cond
@@ -632,9 +680,35 @@
      :fallbacks (reduce + (map :fallbacks rows))
      :escalatedRuns (count (filter #(pos? (:escalations %)) rows))}))
 
-(defn usage-report [rows]
-  {:report "usage" :unit "observed work, never dollars or API credits"
-   :runs (count rows) :providers (->> rows (group-by :provider) (map usage-row) (sort-by :provider) vec)})
+(defn usage-row [[provider rows]]
+  (assoc (usage-stats rows)
+         :provider provider
+         :derivedRuns (count (filter #(= "derived-from-model" (:providerProvenance %)) rows))))
+
+(defn model-row [[model rows]]
+  (assoc (usage-stats rows) :model model))
+
+(defn model-effort-row [[[model effort] rows]]
+  (assoc (usage-stats rows) :model model :effort effort))
+
+(defn models-report [rows by-effort?]
+  (if by-effort?
+    (->> rows
+         (group-by (juxt :model :effort))
+         (map model-effort-row)
+         (sort-by (juxt :model :effort))
+         vec)
+    (->> rows (group-by :model) (map model-row) (sort-by :model) vec)))
+
+(defn usage-report
+  ([rows] (usage-report rows {}))
+  ([rows {:keys [by-model? by-effort?]}]
+   ;; --by-effort implies the model breakdown even without an explicit
+   ;; --by-model flag: "model x effort" has no meaning without a model axis.
+   (cond-> {:report "usage" :unit "observed work, never dollars or API credits"
+            :runs (count rows)
+            :providers (->> rows (group-by :provider) (map usage-row) (sort-by :provider) vec)}
+     (or by-model? by-effort?) (assoc :models (models-report rows by-effort?)))))
 
 (defn promotion-variant-key [row]
   (if (seq (:legacyDebtReasons row))
@@ -797,13 +871,44 @@
                    (sort-by (juxt :judgmentGrade :topology :policyVersion))
                    vec)}))
 
-(defn report [kind rows & [{:keys [all?] :or {all? false}}]]
+(defn report [kind rows & [{:keys [all? by-model? by-effort?]
+                            :or {all? false by-model? false by-effort? false}}]]
   (case kind
     "performance" (performance-report rows all?)
-    "usage" (usage-report rows)
+    "usage" (usage-report rows {:by-model? by-model? :by-effort? by-effort?})
     "promotions" (promotions-report rows)
     "calibration" (calibration-report rows)
     (throw (ex-info "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all]" {}))))
+
+(defn usage-table-line
+  ([label row] (usage-table-line label row {}))
+  ([label row {:keys [label-width] :or {label-width 14}}]
+   (let [{token-exact :exactRuns token-runs :runs} (:tokenCoverage row)
+         {duration-exact :exactRuns duration-runs :runs} (:durationCoverage row)
+         {turn-exact :exactRuns turn-runs :runs} (:turnCoverage row)
+         token-label (case (:tokenEvidence row)
+                       "exact" (str (:tokens row))
+                       "lower-bound" (str (:tokens row) "+")
+                       "unobserved")
+         wall-value (when-let [seconds (:wallSeconds row)]
+                      (if (== seconds (Math/floor seconds))
+                        (format "%.0f" seconds)
+                        (format "%.3f" seconds)))
+         wall-label (case (:durationEvidence row)
+                      "exact" wall-value
+                      "lower-bound" (str wall-value "+")
+                      "unobserved")
+         turn-label (case (:turnEvidence row)
+                      "exact" (str (:turns row))
+                      "lower-bound" (str (:turns row) "+")
+                      "unobserved")]
+     (format (str "%-" label-width "s %6d %16s %11s %14s %11s %12s %11s %9d %9d")
+             label (:runs row)
+             token-label (str token-exact "/" token-runs)
+             wall-label (str duration-exact "/" duration-runs)
+             turn-label (str turn-exact "/" turn-runs)
+             (:fallbacks row)
+             (:escalatedRuns row)))))
 
 (defn print-table [data]
   (case (:report data)
@@ -836,32 +941,17 @@
                          "PROVIDER" "runs" "tokens" "tok exact" "wall-s"
                          "wall exact" "turns" "turn exact" "fallbacks" "escalated"))
         (doseq [row (:providers data)]
-          (let [{token-exact :exactRuns token-runs :runs} (:tokenCoverage row)
-                {duration-exact :exactRuns duration-runs :runs} (:durationCoverage row)
-                {turn-exact :exactRuns turn-runs :runs} (:turnCoverage row)
-                token-label (case (:tokenEvidence row)
-                              "exact" (str (:tokens row))
-                              "lower-bound" (str (:tokens row) "+")
-                              "unobserved")
-                wall-value (when-let [seconds (:wallSeconds row)]
-                             (if (== seconds (Math/floor seconds))
-                               (format "%.0f" seconds)
-                               (format "%.3f" seconds)))
-                wall-label (case (:durationEvidence row)
-                             "exact" wall-value
-                             "lower-bound" (str wall-value "+")
-                             "unobserved")
-                turn-label (case (:turnEvidence row)
-                             "exact" (str (:turns row))
-                             "lower-bound" (str (:turns row) "+")
-                             "unobserved")]
-            (println (format "%-14s %6d %16s %11s %14s %11s %12s %11s %9d %9d"
-                             (:provider row) (:runs row)
-                             token-label (str token-exact "/" token-runs)
-                             wall-label (str duration-exact "/" duration-runs)
-                             turn-label (str turn-exact "/" turn-runs)
-                             (:fallbacks row)
-                             (:escalatedRuns row))))))
+          (println (usage-table-line (:provider row) row)))
+        (when-let [models (:models data)]
+          (println)
+          (println "MODEL — observed work (row per model, or model × effort with --by-effort)")
+          (println (format "%-24s %6s %16s %11s %14s %11s %12s %11s %9s %9s"
+                           "MODEL" "runs" "tokens" "tok exact" "wall-s"
+                           "wall exact" "turns" "turn exact" "fallbacks" "escalated"))
+          (doseq [row models]
+            (println (usage-table-line
+                      (if (:effort row) (str (:model row) "/" (:effort row)) (:model row))
+                      row {:label-width 24})))))
     "promotions"
     (do (println "BESPOKE PATTERNS — stock-template review candidates")
         (println "Variants use applied canonical hash + capabilities + effective axes; missing hashes are per-run legacy debt.")
@@ -901,22 +991,28 @@
 
 (defn -main [& args]
   (let [[verb kind & flags] args
-        allowed-flags #{"--json" "--all"}
+        allowed-flags #{"--json" "--all" "--by-model" "--by-effort"}
         unknown-flags (remove allowed-flags flags)
-        all? (some #{"--all"} flags)]
+        all? (some #{"--all"} flags)
+        by-model? (some #{"--by-model"} flags)
+        by-effort? (some #{"--by-effort"} flags)]
     (when-not (= verb "report")
-      (binding [*out* *err*] (println "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all]"))
+      (binding [*out* *err*] (println "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all] [--by-model] [--by-effort]"))
       (System/exit 2))
     (when (seq unknown-flags)
       (binding [*out* *err*]
         (println "unknown routing report option:" (first unknown-flags))
-        (println "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all]"))
+        (println "usage: north routing report [performance|usage|promotions|calibration] [--json] [--all] [--by-model] [--by-effort]"))
       (System/exit 2))
     (when (and all? (not= (or kind "performance") "performance"))
       (binding [*out* *err*] (println "--all applies only to the performance report"))
       (System/exit 2))
+    (when (and (or by-model? by-effort?) (not= (or kind "performance") "usage"))
+      (binding [*out* *err*] (println "--by-model/--by-effort apply only to the usage report"))
+      (System/exit 2))
     (let [facts (fold-facts (read-ops (default-paths)))
-          data (report (or kind "performance") (run-rows facts) {:all? all?})]
+          data (report (or kind "performance") (run-rows facts)
+                       {:all? all? :by-model? by-model? :by-effort? by-effort?})]
       (if (some #{"--json"} flags)
         (println (json/generate-string data))
         (print-table data)))))
