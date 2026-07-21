@@ -887,7 +887,7 @@ rules (also in the global CLAUDE.md):
 Reads are instant off the warm daemon (`north serve`); writes serialize
 through the coordinator.
 
-### Concern liveness — decay, handoff, and reaping
+### Concern liveness — decay, orphaning, and reaping
 
 A **concern** (`concern declare …`) is a feature + footprint an agent is
 building. Concerns coexist; declaring never blocks. Their liveness is **derived
@@ -901,9 +901,15 @@ an owner dies without running `concern done`:
    - owner **lapsed**, still `building` → **STALE** (dimmed, `owner lapsed
      <ago>`). Shown, not hidden — a hidden stale concern is what let dead-agent
      work linger invisibly *and* misroute a live lane.
-   - owner **lapsed**, `likely-to-land` → **HANDOFF** (prominent). A
-     near-landing concern *survives* owner death: it is a signal to the next
-     agent to adopt, not stranded WIP.
+   - owner **lapsed**, `likely-to-land` → **ORPHANED** (prominent). A
+     near-landing concern *survives* owner death instead of being swept: it is
+     a retained landing candidate and a signal that the next agent may need to
+     recover or adopt the footprint. **Liveness alone cannot establish that a
+     handoff occurred** — lease expiry proves only that the owner is gone and
+     the work was close to landing; it asserts nothing about whether anyone
+     distilled or transferred context. Owner-lapsed `likely-to-land` is
+     orphaning, not handoff. See "Handoff — an explicit procedure" below for
+     what actually counts as one.
    `<ago>` uses the lease-expiry lapse, or the concern's own declare-age when a
    pre-presence owner never held a lease.
 
@@ -911,9 +917,11 @@ an owner dies without running `concern done`:
    sweeps on its cadence (every 5 min): a `building` concern whose owner has
    been lapsed **>24h** gets `reached=abandoned-stale` written through :7977
    (auditable, reversible — a later `landed` still wins). `likely-to-land` is
-   **exempt** (it's a handoff). Abandoned concerns are retired from `concern ls`
-   (shown with `--all`). Test one-shot: `bb cli/north-reactor.clj sweep-once
-   [--dry-run] [--repo <repo>]`.
+   **exempt** — not because lapsing constitutes a handoff, but because a
+   near-landing footprint is worth retaining as an orphaned candidate for
+   recovery or adoption rather than auto-abandoning it. Abandoned concerns are
+   retired from `concern ls` (shown with `--all`). Test one-shot:
+   `bb cli/north-reactor.clj sweep-once [--dry-run] [--repo <repo>]`.
 
 3. **Stuck-fork reaping.** The same sweep finds `kind=lane` agents whose
    presence lapsed **>30min** with no `outcome` fact → writes
@@ -946,6 +954,48 @@ PostToolUse hook renews the owner's presence lease on tool calls, **throttled to
 once per 60s** (marker in `XDG_RUNTIME_DIR`). A renewal therefore *means*
 "this agent ran a tool recently" (IS-WORKING), so lease expiry is a real death
 signal — not merely "never registered".
+
+#### Handoff — an explicit procedure
+
+A **handoff** is never inferred from liveness, decay, or a rendered state
+label (§ "Concern liveness" above: owner-lapsed `likely-to-land` is
+**ORPHANED**, not a handoff). It is an explicit act performed over the
+existing thread and message substrate — no separate handoff subsystem exists
+or is needed:
+
+1. **Checkpoint the state.** Distill an operable, self-contained context
+   frame covering: verified state (what is actually true, checked — not
+   assumed), artifacts and their locations (files, threads, concerns,
+   branches), decisions made and their rationale, constraints in force,
+   open uncertainties, remaining work, the exact next action, and done
+   criteria plus the evidence gathered so far. The frame must let a
+   successor pick up work without reverse-engineering it from diffs or
+   scrollback.
+2. **Index it on the durable thread.** Record the frame as a fact (e.g.
+   `progress` or a dedicated handoff fact) on the exact thread id the work
+   belongs to, so it is discoverable by id rather than living only in a
+   transcript.
+3. **Offer or transfer it explicitly.** Name a recipient (a message, a
+   `driver`/`lead` reassignment, or an explicit offer fact) — handoff is a
+   transitive act between a giver and a receiver, not a broadcast into the
+   void.
+4. **Recipient reads, acknowledges, and claims or declines.** The recipient
+   reads the indexed frame and records an explicit acknowledgment —
+   claiming the work (e.g. taking `driver`) or declining it. Silence is not
+   acknowledgment.
+
+**Completion criterion.** A handoff is *complete* only once the recipient's
+acknowledgment or adoption is recorded. A distilled, indexed frame that has
+been offered but not yet accepted is **handoff-ready**, not handed off —
+the distinction matters because a prepared frame with no acceptance leaves
+the work exactly as orphaned as before, just better documented.
+
+This procedure is distinct from other legitimate uses of "handoff" elsewhere
+in this manual describing an explicit, structural transfer of control —
+e.g. the driver-claim handoff between MCP and the SDK, and delegation's
+atomic/composite handoff to a selected worker or director — which already
+satisfy the explicit-transfer-and-acceptance shape and are unaffected by
+this section.
 
 ---
 
