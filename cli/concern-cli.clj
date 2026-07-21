@@ -31,7 +31,7 @@
 ;;   status  <concern-id> <exploring|building|likely-to-land|landed>   append a maturity level
 ;;   done    <concern-id>     reach `landed`
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
-         '[clojure.set :as set])
+         '[clojure.set :as set] '[cheshire.core :as json])
 
 ;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
@@ -50,8 +50,10 @@
 ;; roster uses. When the owner's presence has LAPSED we don't hide or delete — we
 ;; DECAY the render at read time (pure projection, no write): a building concern
 ;; goes STALE (dim + "owner lapsed <ago>"); a likely-to-land concern instead
-;; renders as a HANDOFF (prominent) — it SURVIVES owner death because it is a
-;; signal to the next agent, not stranded WIP. Terminal reactor verdict
+;; renders as ORPHANED (prominent) — a RETAINED RECOVERY CANDIDATE that survives
+;; owner death, a signal to the next agent to adopt (or prepare an explicit
+;; handoff), not stranded WIP and NOT evidence a handoff procedure occurred.
+;; Terminal reactor verdict
 ;; `reached=abandoned-stale` (owner dead >24h) renders abandoned + hides by default.
 (def ^:private use-color? (some? (System/console)))   ; ANSI only on a real TTY; piped/captured stays plain
 (defn- dim  [] (if use-color? "\033[2m" ""))
@@ -220,7 +222,7 @@
 (def maturity ["exploring" "building" "likely-to-land" "landed"])
 (def maturity-idx (into {} (map-indexed (fn [i m] [m i]) maturity)))
 (def usage
-  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> | overlap <id> [--landing] | ls [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
+  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> | overlap <id> [--landing] | ls [repo] | list-json [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
 (defn usage-error! [message]
   (binding [*out* *err*]
     (println (str "concern: " message))
@@ -345,6 +347,49 @@
                (when (= #{"concern"} (get predicates "kind")) entity)))
        distinct))
 
+;; ---- strict versioned MACHINE projection (design 019f4418) ------------------
+;; The liveness class a machine consumer (the dashboard) needs, derived from the
+;; SAME lease decay the human render uses, but emitted as a strict versioned JSON
+;; document so no consumer ever scrapes rendered text. The class is exactly one of:
+;;   live     — owner online
+;;   stale    — owner lapsed, still building (dead-agent WIP)
+;;   orphaned — owner lapsed, likely-to-land: a RETAINED RECOVERY CANDIDATE that
+;;              survives owner death (formerly mislabeled HANDOFF — an owner
+;;              disappearing is NOT evidence a handoff procedure occurred)
+;;   retired  — reactor verdict abandoned-stale (owner dead >24h)
+;; `retired` is also carried as an explicit boolean so a consumer can exclude
+;; retired rows without re-deriving the class. landed concerns are OMITTED (done).
+(def concern-projection-version 1)
+
+(defn classification-of [m]
+  (cond
+    (:abandoned m)                   "retired"
+    (:online m)                      "live"
+    (= (:status m) "likely-to-land") "orphaned"
+    :else                            "stale"))
+
+(defn projection-row [m]
+  {:id (:id m)
+   :agent (:agent m)
+   :repo (:repo m)
+   :intent (:intent m)
+   :maturity (:status m)
+   :classification (classification-of m)
+   :online (boolean (:online m))
+   :retired (boolean (:abandoned m))
+   :touches (vec (sort (:touches m)))})
+
+(defn concern-projection [port repo]
+  (let [facts (concern-list-facts port)
+        now (System/currentTimeMillis)
+        rows (->> (concerns-from-live facts)
+                  (map #(meta-from-live facts % now))
+                  (remove #(= (:status %) "landed"))
+                  (filter #(or (nil? repo) (= (:repo %) repo)))
+                  (sort-by (juxt :repo #(str (:agent %))))
+                  (mapv projection-row))]
+    {:version concern-projection-version :concerns rows}))
+
 (defn fmt [m]
   (format "  %-12s %-14s %-10s {%s}\n     ↳ %s  (%s)"
           (or (:agent m) "?") (or (:status m) "?") (or (:repo m) "?")
@@ -352,7 +397,8 @@
 
 ;; Render one concern with liveness DECAY applied. m must carry :online/:lapsed-ago-ms
 ;; (via with-liveness) + :abandoned. Live -> plain; lapsed building -> STALE (dim);
-;; lapsed likely-to-land -> HANDOFF (prominent); abandoned-stale -> retired (dim).
+;; lapsed likely-to-land -> ORPHANED (prominent, retained recovery candidate);
+;; abandoned-stale -> retired (dim).
 (defn decorate [m]
   (let [base (fmt m)]
     (cond
@@ -360,9 +406,9 @@
         (str (dim) base "\n       (ABANDONED-STALE: owner dead >24h — auto-retired by reactor)" (rst))
       (:online m) base
       (= (:status m) "likely-to-land")
-        (str (bold) "» HANDOFF  " base
+        (str (bold) "» ORPHANED  " base
              "\n       ⇒ owner lapsed " (ago (:lapsed-ago-ms m))
-             " — likely-to-land survives owner death; ADOPT this" (rst))
+             " — likely-to-land orphaned; retained recovery candidate, ADOPT this or prepare a handoff" (rst))
       :else
         (str (dim) base
              "\n       (STALE: owner lapsed " (ago (:lapsed-ago-ms m)) ")" (rst)))))
@@ -514,7 +560,7 @@
     ;; Liveness-derived DECAY (design 019f4418): a lapsed owner's concern is NOT hidden
     ;; — hiding is what made 17 dead-agent concerns invisibly linger AND let a stale one
     ;; misroute a live lane. It is RENDERED, decayed at read time: building -> STALE (dim),
-    ;; likely-to-land -> HANDOFF (prominent, survives owner death as a signal). The reactor's
+    ;; likely-to-land -> ORPHANED (prominent retained recovery candidate). The reactor's
     ;; terminal verdict `abandoned-stale` (owner dead >24h) retires the concern — hidden by
     ;; default, shown with --all. Agent-less concerns can't lapse, so render live.
     "ls"
@@ -530,17 +576,24 @@
                        (sort-by (juxt :repo #(str (:agent %)))))
           active  (remove :abandoned all-ms)             ; abandoned-stale retired: hidden unless --all
           shown   (if show-all all-ms active)
-          stale-ct   (count (filter #(and (not (:online %)) (not (:abandoned %))
-                                          (not= (:status %) "likely-to-land")) active))
-          handoff-ct (count (filter #(and (not (:online %)) (= (:status %) "likely-to-land")) active))
+          stale-ct    (count (filter #(and (not (:online %)) (not (:abandoned %))
+                                           (not= (:status %) "likely-to-land")) active))
+          orphaned-ct (count (filter #(and (not (:online %)) (= (:status %) "likely-to-land")) active))
           retired-ct (- (count all-ms) (count active))]
       (println (str "ACTIVE CONCERNS" (when repo (str " in " repo)) " — " (count shown)
-                    (when (pos? stale-ct)   (str "  [" stale-ct " STALE: owner lapsed]"))
-                    (when (pos? handoff-ct) (str "  [" handoff-ct " HANDOFF: owner gone, likely-to-land]"))
+                    (when (pos? stale-ct)    (str "  [" stale-ct " STALE: owner lapsed]"))
+                    (when (pos? orphaned-ct) (str "  [" orphaned-ct " ORPHANED: owner gone, likely-to-land]"))
                     (when (and (pos? retired-ct) (not show-all))
                       (str "  [" retired-ct " abandoned-stale retired — `concern ls --all` to show]"))))
       (doseq [m shown]
         (println (decorate m))))
+
+    ;; Strict versioned MACHINE projection — the same liveness decay as `ls`, emitted
+    ;; as JSON so consumers (the dashboard) never scrape rendered text. Optional repo
+    ;; positional filters as in `ls`. Class ∈ {live,stale,orphaned,retired}.
+    "list-json"
+    (let [repo (first (remove #(str/starts-with? % "--") args))]
+      (println (json/generate-string (concern-projection port repo))))
 
     "status"
     (let [[raw st] args]

@@ -29,8 +29,8 @@
 (def concern-facts
   {"@concern-stale"
    {"kind" #{"concern"} "agent" #{"@stale"} "reached" #{"building"}}
-   "@concern-handoff"
-   {"kind" #{"concern"} "agent" #{"@handoff"} "reached" #{"likely-to-land"}}
+   "@concern-orphaned"
+   {"kind" #{"concern"} "agent" #{"@orphaned"} "reached" #{"likely-to-land"}}
    "@concern-retired"
    {"kind" #{"concern"} "agent" #{"@retired"}
     "reached" #{"building" "abandoned-stale"}}
@@ -75,8 +75,8 @@
         {} "outcome"
         [["@agent:conflict" "ran"] ["@agent:conflict" "died"]
          ["@agent:conflict" "ran"]]))]
-   ["concern summary preserves stale, handoff, retired, landed, and live semantics"
-    (= {:active 4 :stale 1 :handoff 1 :retired 1}
+   ["concern summary preserves stale, orphaned, retired, landed, and live semantics"
+    (= {:active 4 :stale 1 :orphaned 1 :retired 1}
        (concern-counts concern-facts concern-now))]])
 
 (doseq [[label passed?] checks]

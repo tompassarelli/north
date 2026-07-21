@@ -14,6 +14,7 @@
 (require '[babashka.process :as p]
          '[clojure.string :as str]
          '[clojure.edn :as edn]
+         '[cheshire.core :as json]
          '[clojure.java.io :as io])
 
 (def HOME (System/getenv "HOME"))
@@ -212,26 +213,52 @@
                    :focus (when-not (#{"-" online expires} focus) focus)}))}))))))
 
 ;; ---- concerns: active, grouped by repo --------------------------------------
+;; The dashboard consumes the STRICT VERSIONED MACHINE projection (`concern list-json`)
+;; — never the human render. A malformed or wrong-version payload FAILS CLOSED to an
+;; error line rather than guessing, so a projection format bump can never silently
+;; misrender concern counts.
+(def concern-projection-version 1)
+
+(defn parse-concern-projection
+  "Strictly consume the versioned concern machine projection. Returns
+   {:concerns [{:id :status :repo :classification} ...]} of the NON-retired,
+   active-by-repository rows, or {:err ...} on a malformed or wrong-version payload.
+   Retired (abandoned-stale) rows are excluded here so every downstream count and
+   by-repo grouping is over active concerns only."
+  [text]
+  (let [parsed (try (json/parse-string (str text) true)
+                    (catch Exception _ ::unparseable))]
+    (cond
+      (= parsed ::unparseable)          {:err "concern projection unparseable"}
+      (not (map? parsed))               {:err "concern projection not an object"}
+      (not= (:version parsed) concern-projection-version)
+      {:err (str "concern projection version mismatch (want "
+                 concern-projection-version ", got " (pr-str (:version parsed)) ")")}
+      (not (vector? (:concerns parsed))) {:err "concern projection concerns not a list"}
+      (not (every? map? (:concerns parsed))) {:err "concern projection row malformed"}
+      :else
+      {:concerns
+       (->> (:concerns parsed)
+            (remove :retired)
+            (mapv (fn [c] {:id (:id c) :status (:maturity c)
+                           :repo (:repo c) :classification (:classification c)})))})))
+
 (defn concern-rows
-  "Active concerns grouped by repo. CACHED 90s. `concern ls --all` runs a decay
-   projection over owner leases ON the coordinator — measured 12-24s on the current
-   large log (NOT the ~2s an older comment assumed; log GROWTH pushed it past the
-   old 8s timeout, so it timed out every render). Active concerns move slowly, so a
-   point-in-time dashboard tolerates ~90s staleness. Cache miss runs with a 30s
-   budget — it MUST exceed real cost or the probe can never seed. Only successful
-   reads are cached; a timeout/error returns fresh and retries next run."
+  "Active concerns grouped by repo. CACHED 90s. `concern list-json` runs the same
+   owner-lease decay projection ON the coordinator that `concern ls` does — measured
+   12-24s on the current large log — but returns a strict versioned JSON document, so
+   the dashboard consumes structured rows instead of scraping rendered text. Active
+   concerns move slowly, so a point-in-time dashboard tolerates ~90s staleness. Cache
+   miss runs with a 30s budget — it MUST exceed real cost or the probe can never seed.
+   Only successful, well-formed reads are cached; a timeout/error/malformed payload
+   returns fresh and retries next run (fail closed, never cache a bad projection)."
   []
   (or (cache-get "concerns.edn" 90000)
-      (let [r (run [(str NORTH "/bin/concern") "ls" "--all"] :timeout 30000)]
+      (let [r (run [(str NORTH "/bin/concern") "list-json"] :timeout 30000)]
         (if (or (:timeout r) (not (:ok r)))
           {:err "concern probe unavailable"}
-          (cache-put! "concerns.edn"
-            {:concerns
-             (doall
-              (for [ln (str/split-lines (:out r))
-                    :let [m (re-matches #"\s+@(\S+)\s+(\S+)\s+(\S+)\s+\{.*" ln)]
-                    :when m]
-                (let [[_ id status repo] m] {:id id :status status :repo repo})))})))))
+          (let [parsed (parse-concern-projection (:out r))]
+            (if (:err parsed) parsed (cache-put! "concerns.edn" parsed)))))))
 
 ;; ---- board / ready counts ---------------------------------------------------
 (defn board-counts []
