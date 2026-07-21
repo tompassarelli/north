@@ -8,7 +8,7 @@
 ;;   1. lane outcomes      run-<agent>-<ts>  kind=run  outcome=ran|died|resource_envelope_exceeded|error
 ;;   2. reported deaths     @swarm            agent_death "<id> | <reason> | <ts>"  (death.notifyDeath)
 ;;   3. silent hard-kills   @agent:<id>       outcome=died-unreported               (reactor.sweep-lanes!)
-;;   4. stale/handoff concerns  (the same renewable-lease liveness DECAY as `concern ls`)
+;;   4. stale/orphaned concerns  (the same renewable-lease liveness DECAY as `concern ls`)
 ;; plus ping-loss (a lane carried a `coordinator` fact but landed no COMPLETE/DEATH
 ;; ping) and a zombie-fork scan (F4: an agent-handle git author absent from the roster).
 ;;
@@ -163,15 +163,15 @@
      :stale (count (filter #(and (not (:online %))
                                  (not= (:status %) "likely-to-land"))
                            active))
-     :handoff (count (filter #(and (not (:online %))
-                                   (= (:status %) "likely-to-land"))
-                             active))
+     :orphaned (count (filter #(and (not (:online %))
+                                    (= (:status %) "likely-to-land"))
+                              active))
      :retired (- (count rows) (count active))}))
 
 (defn concern-line [facts now]
-  (let [{:keys [active stale handoff retired]} (concern-counts facts now)]
+  (let [{:keys [active stale orphaned retired]} (concern-counts facts now)]
     (str active " active · " (ylw (str stale " STALE")) " (owner lapsed) · "
-         handoff " HANDOFF (likely-to-land) · "
+         orphaned " ORPHANED (likely-to-land) · "
          retired " abandoned-stale retired")))
 
 ;; ---- zombie forks (F4): agent-handle git authors absent from the roster --------

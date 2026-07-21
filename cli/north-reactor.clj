@@ -73,7 +73,8 @@
 ;; ---- LIVENESS-DERIVED REAPING (design 019f4418) -----------------------------
 ;; Two terminal verdicts the reactor writes on its cadence (or via sweep-once):
 ;;   1. a `building` concern whose owner has been LAPSED >24h  -> reached=abandoned-stale
-;;      (likely-to-land is EXEMPT — it survives owner death as a handoff signal).
+;;      (likely-to-land is EXEMPT — it survives owner death as an ORPHANED retained
+;;      recovery candidate, not evidence a handoff procedure occurred).
 ;;   2. a kind=lane agent LAPSED >30min with no COMMITTED lane/run terminal
 ;;      -> a committed process=died-unreported, delivery=blocked terminal; if it
 ;;      carries a coordinator/supervisor, ping it.
@@ -110,7 +111,8 @@
 
 (defn building-only?
   "True iff the concern reached `building` and never progressed past it (and isn't
-   already abandoned). likely-to-land/landed are EXCLUDED — a handoff must survive."
+   already abandoned). likely-to-land/landed are EXCLUDED — an ORPHANED retained
+   recovery candidate must survive."
   [rs]
   (and (contains? rs "building")
        (not (rs "likely-to-land")) (not (rs "landed")) (not (rs "abandoned-stale"))))

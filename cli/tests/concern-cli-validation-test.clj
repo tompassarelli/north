@@ -2,6 +2,7 @@
 ;; Malformed concern maturity commands must be usage errors and must not publish
 ;; even a partial fact to the coordinator.
 (require '[clojure.edn :as edn] '[clojure.java.io :as io]
+         '[cheshire.core :as json]
          '[babashka.process :as p])
 
 (def root (-> (io/file (System/getProperty "babashka.file"))
@@ -105,6 +106,31 @@
               (zero? (:exit result))
               (re-find #"ACTIVE CONCERNS — 251" (:out result))
               (< elapsed-ms 2000))))
+
+;; Strict versioned MACHINE projection: `list-json` enumerates structured rows so a
+;; consumer never scrapes rendered text. Every row carries a closed-set liveness
+;; class + an explicit retired boolean; the lapsed likely-to-land fixture (cid, set
+;; to likely-to-land above, owner holds no live lease) is ORPHANED, never HANDOFF.
+(let [proj    (run-concern "list-json")
+      parsed  (try (json/parse-string (:out proj) true) (catch Exception _ nil))
+      rows    (:concerns parsed)
+      by-id   (into {} (map (juxt :id identity)) rows)
+      classes #{"live" "stale" "orphaned" "retired"}
+      cid-row (get by-id (str "@" cid))]
+  (check "list-json exits 0" (zero? (:exit proj)))
+  (check "list-json is a version-1 document" (= 1 (:version parsed)))
+  (check "list-json concerns is a vector" (vector? rows))
+  (check "every projection row carries a closed-set liveness class"
+         (and (seq rows) (every? #(contains? classes (:classification %)) rows)))
+  (check "every projection row carries an explicit retired boolean"
+         (every? #(contains? #{true false} (:retired %)) rows))
+  (check "lapsed likely-to-land fixture is classified ORPHANED, not handoff"
+         (and cid-row
+              (= "likely-to-land" (:maturity cid-row))
+              (= "orphaned" (:classification cid-row))
+              (false? (:retired cid-row))))
+  (check "list-json emits no HANDOFF label"
+         (not (re-find #"(?i)handoff" (:out proj)))))
 
 (cleanup)
 (if (zero? @fails)
