@@ -79,4 +79,6 @@ bash deploy/gateway/smoke_test.sh        # gateway auth + routing
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+North is dual-licensed under the [MIT License](LICENSE-MIT) or the
+[Apache License 2.0](LICENSE-APACHE), at your option. See the root
+[license chooser](LICENSE).
