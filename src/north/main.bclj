@@ -180,7 +180,26 @@
         (if (some? dn) dn (short-id d))))))
 
 (defrecord LevItem [te :- String score :- Int])
-(defrecord NextItem [te :- String score :- Int])
+;; A next recommendation carries its SCORE and the orthogonal components that
+;; produced it, each a DISTINCT documented axis (never silently summed into one
+;; opaque number):
+;;   leverage  — graph leverage: how many stuck threads finishing this frees
+;;               (transitive dependents). The dependency-sequencing signal.
+;;   urgency   — schedule pressure from do_on (overdue > today > none).
+;;   momentum  — a parked driver is already attached (prior pickup to RESUME);
+;;               live-driven threads are `active`, not `ready`, so never scored.
+;;   priority  — the stored P0/P1/… fact. Orthogonal + currently INERT (does not
+;;               move the score); surfaced so the human can override the ranking.
+;; score = 3*leverage + urgency + momentum. priority stays out of the arithmetic.
+(defrecord NextItem
+  [te :- String
+   score :- Int
+   leverage :- Int
+   urgency :- Int
+   momentum :- Int
+   priority :- String
+   sequencing :- Int
+   basis :- String])
 (defrecord AgendaItem [te :- String do_on :- String])
 
 ;; --- fact-set signatures (for capture's import guard) ----------------------
@@ -516,111 +535,11 @@
           (println (str (count problems) " violation(s)."))
           1))))
 
-(defn cmd-ready [log :- String all :- Bool] :- Nil
-  (let [idx (live-idx log)
-        today (fram.rt/today-iso)
-        raw (proj/ready idx today fram.rt/str-lt?)
-        ;; default scopes to WORK THREADS (kind=thread) — concerns/mine/telemetry
-        ;; also satisfy the ready predicate but are not actionable work items;
-        ;; --all keeps the old unscoped full list unchanged.
-        rs (if all raw
-             (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
-        ;; rank by leverage so the top-15 default is the HIGH-SIGNAL slice, not an
-        ;; arbitrary prefix of subject order. --all prints the whole ranked list.
-        ranked (vec (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te))) rs))
-        shown (if all ranked (vec (take 15 ranked)))]
-    (if all
-      (println (str "READY NOW — " (count rs)))
-      (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
-    (println "  ready = committed + unblocked, start anytime (vs open = merely not-done, may still be blocked)")
-    (doseq [te shown]
-      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
-    (when (and (not all) (> (count rs) (count shown)))
-      (println (str "  … +" (- (count rs) (count shown)) " more · north ready --all")))))
-
-(defn cmd-blocked [log :- String] :- Nil
-  (let [idx (live-idx log)
-        today (fram.rt/today-iso)
-        before? fram.rt/str-lt?
-        bs (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) "blocked"))
-                    (proj/work-thread-ids-i idx))]
-    (println (str "BLOCKED — " (count bs)))
-    (doseq [te bs]
-      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 48)
-                    "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
-
-(defn cmd-leverage [log :- String] :- Nil
-  (let [idx (live-idx log)
-        cands (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
-                       (proj/work-thread-ids-i idx))
-        items (filterv (fn [it :- LevItem] :- Bool (> (:score it) 0))
-                       (mapv (fn [te :- String] :- LevItem
-                               (->LevItem te (proj/leverage-score idx te)))
-                             cands))
-        ranked (vec (take 15 (sort-by (fn [it :- LevItem] :- Int (- 0 (:score it))) items)))]
-    (println "TOP UNBLOCKERS — finishing this transitively frees the most stuck threads")
-    (doseq [it ranked]
-      (println (str "  unblocks " (:score it) "  " (short-id (:te it))
-                    "  " (trunc (title-of idx (:te it)) 46))))))
-
-(defn cmd-next [log :- String] :- Nil
-  (let [idx (live-idx log)
-        today (fram.rt/today-iso)
-        items (mapv
-               (fn [te :- String] :- NextItem
-                 (let [lev (proj/leverage-score idx te)
-                       doo (k/one-i idx te "do_on")
-                       urg (if (some? doo)
-                             (cond
-                               [(fram.rt/str-lt? doo today) 5]
-                               [(= doo today) 3]
-                               [:else 0])
-                             0)
-                       mom (if (some? (k/one-i idx te "driver")) 2 0)]
-                   (->NextItem te (+ (* 3 lev) (+ urg mom)))))
-               (proj/ready idx today fram.rt/str-lt?))
-        ranked (vec (take 12 (sort-by (fn [it :- NextItem] :- Int (- 0 (:score it))) items)))]
-    (println (str "WHAT TO WORK ON — top picks (" today ")"))
-    (doseq [it ranked]
-      (println (str "  [" (:score it) "] " (short-id (:te it)) "  "
-                    (trunc (title-of idx (:te it)) 50))))))
-
-(defn cmd-agenda [log :- String] :- Nil
-  (let [idx (live-idx log)
-        today (fram.rt/today-iso)
-        cands (filterv (fn [te :- String] :- Bool
-                         (and (not (proj/terminal-i? idx te)) (some? (k/one-i idx te "do_on"))))
-                       (proj/work-thread-ids-i idx))
-        items (mapv (fn [te :- String] :- AgendaItem
-                      (->AgendaItem te (let [d (k/one-i idx te "do_on")] (if (some? d) d ""))))
-                    cands)
-        overdue (vec (sort-by (fn [it :- AgendaItem] :- String (:do_on it))
-                              (filterv (fn [it :- AgendaItem] :- Bool (fram.rt/str-lt? (:do_on it) today)) items)))
-        todayb (filterv (fn [it :- AgendaItem] :- Bool (= (:do_on it) today)) items)
-        upcoming (vec (sort-by (fn [it :- AgendaItem] :- String (:do_on it))
-                               (filterv (fn [it :- AgendaItem] :- Bool (fram.rt/str-lt? today (:do_on it))) items)))]
-    (println (str "AGENDA — " today))
-    (println (str "OVERDUE (" (count overdue) ")"))
-    (doseq [it overdue] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
-    (println (str "TODAY (" (count todayb) ")"))
-    (doseq [it todayb] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
-    (println (str "UPCOMING (" (count upcoming) ")"))
-    (doseq [it upcoming] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
-
-(defn- board-group [idx :- k/Index label :- String grp :- (Vec String)] :- Nil
-  (when (not (empty? grp))
-    (println (str "\n" (proj/condition-emoji idx label) " " label " (" (count grp) ")"))
-    (doseq [te grp]
-      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
-
-(defn- in-condition [idx :- k/Index nonterm :- (Vec String) today :- String before? :- [String String -> Bool] c :- String] :- (Vec String)
-  (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) c)) nonterm))
-
 ;; --- driver LIVENESS: is a driver plausibly active NOW? ----------------------
-;; A `driver` fact is never retired, so the raw classifier calls every historical
-;; pickup "active" — the board's ACTIVE section drowned in drivers dead since May.
-;; The curated board DERIVES liveness (never stores it) by combining two honest
-;; signals, in strict preference order:
+;; A `driver` fact is never retired, so treating assignment as liveness calls
+;; every historical pickup "active" — the board's ACTIVE section drowned in
+;; drivers dead since May. The canonical live? DERIVES liveness (never stores it)
+;; by combining two honest signals, in strict preference order:
 ;;   (a) AGENT presence lease — the strong positive. A session driver renews an
 ;;       @lease:session:<handle> lease (30-min TTL, bumped on every tool call);
 ;;       live iff its exp is still in the coordinator's future. SAME renewable-lease
@@ -637,8 +556,10 @@
 ;;       thread across days/weeks, so the window is loose vs the lease's minutes.
 ;;       This fallback also rescues an agent whose lease lapsed but whose thread
 ;;       still saw activity inside the window.
-;; Demoted drivers are NOT hidden — board-curated prints a dim parked count and
-;; `--all` (board-full) renders the raw driver-based kanban unchanged.
+;; This is the ONE production liveness notion the canonical classifier consumes:
+;; ready/board/next/JSON/grooming all classify against `live-driver-pred`, so a
+;; parked driver reads the same (not-active -> its committed/schedule state)
+;; everywhere. `--all` changes scope only; it never changes lifecycle semantics.
 (defn- lease-exp-secs [idx :- k/Index driverref :- String] :- Int
   ;; exp of @lease:session:<handle> in EPOCH SECONDS, or -1 if no lease. Lease value
   ;; is "holder|exp-ms|epoch"; slice exp-ms to seconds (drop the last 3 chars) —
@@ -686,35 +607,180 @@
   (let [d (fram.rt/parse-int (fram.rt/getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
     (* (if (> d 0) d 14) 86400)))
 
+;; The canonical live? predicate the classifier consumes, curried over a fixed
+;; now/window so every thread in one command is judged against the same instant.
+(defn- live-driver-pred [now-secs :- Int window-secs :- Int] :- [k/Index String -> Bool]
+  (fn [idx :- k/Index te :- String] :- Bool (driver-live? idx te now-secs window-secs)))
+
+;; Build the canonical live? for "right now" — one clock read, reused for the whole
+;; command. Callers that already hold now-secs/window use live-driver-pred directly.
+(defn- default-live? [] :- [k/Index String -> Bool]
+  (live-driver-pred (fram.rt/iso-to-seconds (fram.rt/now-iso)) (driver-stale-window-secs)))
+
+;; Assignment and activity are orthogonal. A parked assignment remains visible
+;; for cleanup even though it no longer forces the lifecycle to `active`.
+(defn- parked-assignment? [idx :- k/Index te :- String live? :- [k/Index String -> Bool]] :- Bool
+  (and (proj/assigned? idx te) (not (live? idx te))))
+
+(defn- parked-assignments [idx :- k/Index tes :- (Vec String) live? :- [k/Index String -> Bool]] :- (Vec String)
+  (filterv (fn [te :- String] :- Bool (parked-assignment? idx te live?)) tes))
+
+(defn cmd-ready [log :- String all :- Bool] :- Nil
+  (let [idx (live-idx log)
+        today (fram.rt/today-iso)
+        live? (default-live?)
+        raw (proj/ready idx today fram.rt/str-lt? live?)
+        ;; default scopes to WORK THREADS (kind=thread) — concerns/mine/telemetry
+        ;; also satisfy the ready predicate but are not actionable work items;
+        ;; --all keeps the old unscoped full list unchanged.
+        rs (if all raw
+             (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
+        ;; rank by leverage so the top-15 default is the HIGH-SIGNAL slice, not an
+        ;; arbitrary prefix of subject order. --all prints the whole ranked list.
+        ranked (vec (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te))) rs))
+        shown (if all ranked (vec (take 15 ranked)))]
+    (if all
+      (println (str "READY NOW — " (count rs)))
+      (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
+    (println "  ready = committed + unblocked + no live driver + not future-scheduled (vs open = merely nonterminal)")
+    (doseq [te shown]
+      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
+    (when (and (not all) (> (count rs) (count shown)))
+      (println (str "  … +" (- (count rs) (count shown)) " more · north ready --all")))))
+
+(defn cmd-blocked [log :- String] :- Nil
+  (let [idx (live-idx log)
+        today (fram.rt/today-iso)
+        before? fram.rt/str-lt?
+        live? (default-live?)
+        bs (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before? live?) "blocked"))
+                    (proj/work-thread-ids-i idx))]
+    (println (str "BLOCKED — " (count bs)))
+    (doseq [te bs]
+      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 48)
+                    "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
+
+(defn cmd-leverage [log :- String] :- Nil
+  (let [idx (live-idx log)
+        cands (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
+                       (proj/work-thread-ids-i idx))
+        items (filterv (fn [it :- LevItem] :- Bool (> (:score it) 0))
+                       (mapv (fn [te :- String] :- LevItem
+                               (->LevItem te (proj/leverage-score idx te)))
+                             cands))
+        ranked (vec (take 15 (sort-by (fn [it :- LevItem] :- Int (- 0 (:score it))) items)))]
+    (println "TOP UNBLOCKERS — finishing this transitively frees the most stuck threads")
+    (doseq [it ranked]
+      (println (str "  unblocks " (:score it) "  " (short-id (:te it))
+                    "  " (trunc (title-of idx (:te it)) 46))))))
+
+(defn- next-item [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- NextItem
+  (let [lev (proj/leverage-score idx te)
+        doo (k/one-i idx te "do_on")
+        urg (if (some? doo)
+              (cond
+                [(fram.rt/str-lt? doo today) 5]
+                [(= doo today) 3]
+                [:else 0])
+              0)
+        ;; ready EXCLUDES live-driven (active) threads, so a driver fact here is a
+        ;; PARKED pickup — momentum = resume-ability, not "someone's on it".
+        mom (if (some? (k/one-i idx te "driver")) 2 0)
+        pri (let [p (k/one-i idx te "priority")] (if (some? p) p ""))
+        sequencing (count (proj/incomplete-deps idx te))
+        eligibility (proj/explain idx te today before? live?)]
+    (->NextItem te (+ (* 3 lev) (+ urg mom)) lev urg mom pri sequencing (:reason eligibility))))
+
+(defn cmd-next [log :- String] :- Nil
+  (let [idx (live-idx log)
+        today (fram.rt/today-iso)
+        before? fram.rt/str-lt?
+        live? (default-live?)
+        ;; candidate set = the ONE eligibility rule (proj/ready = classify "ready"):
+        ;; committed, unblocked, no live driver, not scheduled-later. Identical to
+        ;; the set `ready` and the board's READY bucket render — they cannot diverge.
+        items (mapv (fn [te :- String] :- NextItem (next-item idx te today before? live?))
+                    (proj/ready idx today before? live?))
+        ranked (vec (take 12 (sort-by (fn [it :- NextItem] :- Int (- 0 (:score it))) items)))]
+    (println (str "WHAT TO WORK ON — top picks (" today ")"))
+    (println "  eligible = ready (committed + unblocked + no live driver + not scheduled-later)")
+    (println "  dependency sequencing gates eligibility · score = 3·graph-leverage + do_on urgency + parked-assignment momentum")
+    (println "  stored priority is orthogonal human intent (shown, never silently scored)")
+    (doseq [it ranked]
+      (println (str "  [" (:score it) "] " (short-id (:te it)) "  "
+                    (trunc (title-of idx (:te it)) 46)))
+      (println (str "      eligible: " (:basis it)))
+      (println (str "      score: 3×" (:leverage it) " leverage + " (:urgency it)
+                    " urgency + " (:momentum it) " momentum = " (:score it)
+                    " · sequencing: " (:sequencing it) " incomplete deps"
+                    " · priority: " (if (str/blank? (:priority it)) "none" (:priority it))
+                    " (not scored)")))))
+
+(defn cmd-agenda [log :- String] :- Nil
+  (let [idx (live-idx log)
+        today (fram.rt/today-iso)
+        cands (filterv (fn [te :- String] :- Bool
+                         (and (not (proj/terminal-i? idx te)) (some? (k/one-i idx te "do_on"))))
+                       (proj/work-thread-ids-i idx))
+        items (mapv (fn [te :- String] :- AgendaItem
+                      (->AgendaItem te (let [d (k/one-i idx te "do_on")] (if (some? d) d ""))))
+                    cands)
+        overdue (vec (sort-by (fn [it :- AgendaItem] :- String (:do_on it))
+                              (filterv (fn [it :- AgendaItem] :- Bool (fram.rt/str-lt? (:do_on it) today)) items)))
+        todayb (filterv (fn [it :- AgendaItem] :- Bool (= (:do_on it) today)) items)
+        upcoming (vec (sort-by (fn [it :- AgendaItem] :- String (:do_on it))
+                               (filterv (fn [it :- AgendaItem] :- Bool (fram.rt/str-lt? today (:do_on it))) items)))]
+    (println (str "AGENDA — " today))
+    (println (str "OVERDUE (" (count overdue) ")"))
+    (doseq [it overdue] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
+    (println (str "TODAY (" (count todayb) ")"))
+    (doseq [it todayb] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
+    (println (str "UPCOMING (" (count upcoming) ")"))
+    (doseq [it upcoming] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
+
+(defn- board-group [idx :- k/Index label :- String grp :- (Vec String)] :- Nil
+  (when (not (empty? grp))
+    (println (str "\n" (proj/condition-emoji idx label) " " label " (" (count grp) ")"))
+    (doseq [te grp]
+      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
+
+(defn- in-condition [idx :- k/Index nonterm :- (Vec String) today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] c :- String] :- (Vec String)
+  (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before? live?) c)) nonterm))
+
+(defn- parked-group [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] grp :- (Vec String)] :- Nil
+  (when (not (empty? grp))
+    (println (str "\nPARKED ASSIGNMENTS (" (count grp) ") — stale driver retained; lifecycle is not active"))
+    (doseq [te grp]
+      (println (str "  " (driver-label idx te) "  " (short-id te) "  "
+                    (proj/condition-i idx te today before? live?) "  "
+                    (trunc (title-of idx te) 42))))))
+
 ;; board (kanban prior; `plate` kept as a hidden alias — vocabulary pass, thread 019f2032)
 ;; DEFAULT = SIGNAL: active drivers (who's on what) + top-15 ready by leverage +
 ;; a counts line. The full per-condition kanban dump moved behind `--all` (chaos
 ;; was the census diagnosis: the flat dump drowned the ~15 threads that matter).
-(defn- board-full [idx :- k/Index today :- String before? :- [String String -> Bool] nonterm :- (Vec String)] :- Nil
+(defn- board-full [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] nonterm :- (Vec String)] :- Nil
   (do
     (println (str "THREADS — " (count nonterm) " open"))
-    (board-group idx "active" (in-condition idx nonterm today before? "active"))
-    (board-group idx "ready" (in-condition idx nonterm today before? "ready"))
-    (board-group idx "blocked" (in-condition idx nonterm today before? "blocked"))
-    (board-group idx "dormant" (in-condition idx nonterm today before? "dormant"))
-    (board-group idx "draft" (in-condition idx nonterm today before? "draft"))))
+    (board-group idx "active" (in-condition idx nonterm today before? live? "active"))
+    (board-group idx "ready" (in-condition idx nonterm today before? live? "ready"))
+    (board-group idx "blocked" (in-condition idx nonterm today before? live? "blocked"))
+    (board-group idx "dormant" (in-condition idx nonterm today before? live? "dormant"))
+    (board-group idx "draft" (in-condition idx nonterm today before? live? "draft"))
+    (parked-group idx today before? live? (parked-assignments idx nonterm live?))))
 
-(defn- board-curated [idx :- k/Index today :- String before? :- [String String -> Bool] nonterm :- (Vec String) now-secs :- Int window-secs :- Int] :- Nil
+(defn- board-curated [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] nonterm :- (Vec String)] :- Nil
   ;; SCOPE TO WORK THREADS: concerns/telemetry/mine also carry `title` (so
   ;; thread-ids-i sees them), which is exactly what drowned the old board — 200+
   ;; concern rows rendering as "active". kind-of excludes them; the full --all
   ;; dump keeps the unscoped set unchanged. Facts do the filtering: a concern
   ;; self-identifies kind=concern, a thread kind=thread (or is un-kinded legacy).
   (let [threads (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) nonterm)
-        ;; ACTIVE HONESTY: a `driver` fact is never retired, so classify calls every
-        ;; historical pickup "active". Partition on DERIVED liveness (driver-live?):
-        ;; live drivers show under ACTIVE; parked (stale-lease + stale-recency) ones
-        ;; collapse to a dim count. --all/json/classify keep the raw driver semantics.
-        active-all (in-condition idx threads today before? "active")
-        active (filterv (fn [te :- String] :- Bool (driver-live? idx te now-secs window-secs)) active-all)
-        nparked (- (count active-all) (count active))
-        readyl (in-condition idx threads today before? "ready")
-        blockedl (in-condition idx threads today before? "blocked")
+        active (in-condition idx threads today before? live? "active")
+        parked (parked-assignments idx threads live?)
+        nparked (count parked)
+        readyl (in-condition idx threads today before? live? "ready")
+        blockedl (in-condition idx threads today before? live? "blocked")
         ;; cheap concern count: subjects that classify as a concern (kind fact or
         ;; concern- prefix). NOT stale-decayed — concern liveness/decay is the
         ;; concern-lane's projection; the board reports the raw open count.
@@ -728,7 +794,7 @@
                   nconcern " concerns   (north threads --all for the full kanban)"))
     ;; self-teaching legend: the counts above are derived conditions, not obvious labels —
     ;; spell out what each word means so "open" vs "ready" needs no outside explanation.
-    (println "  open = not done · active = being driven now · ready = committed + unblocked, start anytime · blocked = waiting on a dependency")
+    (println "  open = not terminal · active = live driver · ready = committed + unblocked + no live driver + not future-scheduled")
     (when (not (empty? active))
       (println (str "\n" (proj/condition-emoji idx "active") " ACTIVE — who's on what (" (count active) ")"))
       (doseq [te ashow]
@@ -737,7 +803,14 @@
       (when (> (count active) (count ashow))
         (println (str "  … +" (- (count active) (count ashow)) " more · north threads --all"))))
     (when (> nparked 0)
-      (println (str "\n" nparked " parked driver(s) — stale, not shown (north threads --all)")))
+      (let [pshow (vec (take 10 parked))]
+        (println (str "\nPARKED ASSIGNMENTS — stale driver retained, lifecycle demoted (" nparked ")"))
+        (doseq [te pshow]
+          (println (str "  " (driver-label idx te) "  " (short-id te) "  "
+                        (proj/condition-i idx te today before? live?) "  "
+                        (trunc (title-of idx te) 36))))
+        (when (> nparked (count pshow))
+          (println (str "  … +" (- nparked (count pshow)) " more · north needs-review")))))
     (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked)
                   " of " (count readyl) " by leverage"))
     (doseq [it rranked]
@@ -750,13 +823,12 @@
   (let [idx (live-idx log)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
+        live? (default-live?)
         nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all
-      (board-full idx today before? nonterm)
-      (board-curated idx today before? nonterm
-                     (fram.rt/iso-to-seconds (fram.rt/now-iso))
-                     (driver-stale-window-secs)))))
+      (board-full idx today before? live? nonterm)
+      (board-curated idx today before? live? nonterm))))
 
 ;; --- structured (JSON) projections for the MCP edge --------------------------
 (defrecord JThread [id :- String title :- String condition :- String emoji :- String])
@@ -775,8 +847,8 @@
 (defrecord JCalib [pct :- Int sample :- Int])
 (defrecord JClockReport [rows :- (Vec JClockRow) calibration :- JCalib])
 
-(defn- jthread [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- JThread
-  (let [c (proj/condition-i idx te today before?)]
+(defn- jthread [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- JThread
+  (let [c (proj/condition-i idx te today before? live?)]
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 ;; CURATED JSON = the SAME slice the human board/ready render, so the AI-facing
@@ -785,13 +857,13 @@
 ;; lived ONLY in cmd-board/cmd-ready; the JSON path bypassed it. These helpers
 ;; move it into the JSON path too, gated on all? — --all restores the full,
 ;; unscoped dump that discover.ts/analysis consumers still want.
-(defn- ready-curated-tes [idx :- k/Index today :- String before? :- [String String -> Bool] all? :- Bool] :- (Vec String)
-  (let [raw (proj/ready idx today before?)
+(defn- ready-curated-tes [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] all? :- Bool] :- (Vec String)
+  (let [raw (proj/ready idx today before? live?)
         rs (if all? raw (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
         ranked (vec (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te))) rs))]
     (if all? ranked (vec (take 15 ranked)))))
 
-(defn- board-curated-tes [idx :- k/Index today :- String before? :- [String String -> Bool] all? :- Bool] :- (Vec String)
+(defn- board-curated-tes [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] all? :- Bool] :- (Vec String)
   (let [nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all?
@@ -800,12 +872,9 @@
       ;; kanban content: live-driven ACTIVE ++ top-15 READY by leverage. Blocked
       ;; is a count-only bucket on the human board, so it stays out of the slice.
       (let [threads (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) nonterm)
-            now-secs (fram.rt/iso-to-seconds (fram.rt/now-iso))
-            window-secs (driver-stale-window-secs)
-            active (filterv (fn [te :- String] :- Bool (driver-live? idx te now-secs window-secs))
-                            (in-condition idx threads today before? "active"))
+            active (in-condition idx threads today before? live? "active")
             ready (vec (take 15 (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te)))
-                                         (in-condition idx threads today before? "ready"))))]
+                                         (in-condition idx threads today before? live? "ready"))))]
         (vec (concat active ready))))))
 
 (defn- matching-subjects
@@ -857,22 +926,57 @@
     (fn [fact :- k/Fact] :- Bool (get subjects (:l fact) false))
     facts)))
 
+;; Grooming consumes the same liveness decision as ready/board/next. The
+;; staleness module owns judgment provenance and remains clock/lease agnostic;
+;; this composition layer removes its raw-driver done-bar false positives and
+;; adds explicit parked-assignment reviews without mutating lifecycle facts.
+(defn- parked-assignment-reviews
+  [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
+  (reduce
+   (fn [acc :- (Vec stale/Review) te :- String] :- (Vec stale/Review)
+     (if (and (= (kind-of idx te) "thread")
+              (and (not (proj/terminal-i? idx te))
+                   (parked-assignment? idx te live?)))
+       (let [d (k/one-i idx te "driver")
+             eligibility (proj/explain idx te today before? live?)]
+         (conj acc
+               (stale/->Review
+                te "driver"
+                (str "parked assignment " (if (some? d) d "?")
+                     " has no live lease or recent activity; lifecycle=" (:state eligibility)
+                     " — reassign or retract driver"))))
+       acc))
+   []
+   (proj/work-thread-ids-i idx)))
+
+(defn- canonical-grooming-reviews
+  [cold-idx :- k/Index latest :- (Vec fold/Latest) live-idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
+  (let [base (stale/needs-review cold-idx latest today before?)
+        live-base (filterv
+                   (fn [rv :- stale/Review] :- Bool
+                     (if (= (:pred rv) "done_when")
+                       (live? live-idx (:te rv))
+                       true))
+                   base)]
+    (vec (concat live-base (parked-assignment-reviews live-idx today before? live?)))))
+
 (defn cmd-json [log :- String what :- String arg :- String all? :- Bool] :- Nil
   (let [facts (live-facts log)
         idx (k/build-index facts)
         today (fram.rt/today-iso)
-        before? fram.rt/str-lt?]
+        before? fram.rt/str-lt?
+        live? (default-live?)]
     (cond
       [(or (= what "board") (= what "plate"))
        (println (fram.rt/to-json
-                 (mapv (fn [te :- String] :- JThread (jthread idx te today before?))
-                       (board-curated-tes idx today before? all?))))]
+                 (mapv (fn [te :- String] :- JThread (jthread idx te today before? live?))
+                       (board-curated-tes idx today before? live? all?))))]
       [(= what "ready")
-       (println (fram.rt/to-json (mapv (fn [te :- String] :- JThread (jthread idx te today before?))
-                                       (ready-curated-tes idx today before? all?))))]
+       (println (fram.rt/to-json (mapv (fn [te :- String] :- JThread (jthread idx te today before? live?))
+                                       (ready-curated-tes idx today before? live? all?))))]
       [(= what "blocked")
-       (println (fram.rt/to-json (mapv (fn [te :- String] :- JThread (jthread idx te today before?))
-                                       (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before?) "blocked"))
+       (println (fram.rt/to-json (mapv (fn [te :- String] :- JThread (jthread idx te today before? live?))
+                                       (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before? live?) "blocked"))
                                                 (proj/work-thread-ids-i idx)))))]
       [(= what "needs-review")
        ;; COLD on purpose (see live-facts): fold-latest needs per-assertion
@@ -882,11 +986,10 @@
              cidx (k/build-index (:facts (fold/fold as)))
              latest (fold/fold-latest as)
              today (fram.rt/today-iso)
-             reviews (stale/needs-review cidx latest today
-                                         (fn [a :- String b :- String] :- Bool (fram.rt/str-lt? a b)))]
+             reviews (canonical-grooming-reviews cidx latest idx today before? live?)]
          (println (fram.rt/to-json
                    (mapv (fn [rv :- stale/Review] :- JReview
-                           (->JReview (short-id (:te rv)) (title-of cidx (:te rv)) (:pred rv) (:detail rv)))
+                           (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv)))
                          reviews))))]
       [(= what "clock-report")
        (let [rs (clk/rows idx
@@ -955,14 +1058,16 @@
 (defn cmd-needs-review [log :- String] :- Nil
   (let [as (fram.rt/read-log log)
         idx (k/build-index (:facts (fold/fold as)))
+        live-idx-now (live-idx log)
         latest (fold/fold-latest as)
         today (fram.rt/today-iso)
-        reviews (stale/needs-review idx latest today
-                                    (fn [a :- String b :- String] :- Bool (fram.rt/str-lt? a b)))
+        before? fram.rt/str-lt?
+        live? (default-live?)
+        reviews (canonical-grooming-reviews idx latest live-idx-now today before? live?)
         promo (stale/promotable idx)]
     (println (str "NEEDS REVIEW — " (count reviews) " judgment(s) whose inputs moved (" today ")"))
     (doseq [rv reviews]
-      (println (str "  [" (:pred rv) "] " (short-id (:te rv)) "  " (trunc (title-of idx (:te rv)) 44)))
+      (println (str "  [" (:pred rv) "] " (short-id (:te rv)) "  " (trunc (title-of live-idx-now (:te rv)) 44)))
       (println (str "      " (:detail rv))))
     (println (str "\nPROMOTABLE — " (count promo) " uncommitted draft(s) that grew real structure"))
     (doseq [te promo]
@@ -1569,7 +1674,8 @@
   (let [p (probe threads-dir log)
         idx (:idx p)
         today (fram.rt/today-iso)
-        before? fram.rt/str-lt?]
+        before? fram.rt/str-lt?
+        live? (default-live?)]
     ;; 1. safety verdict (one line) + hygiene one-liner.
     (println (str "=> " (safety-line p)))
     (let [h (hygiene-line p)] (when (not (str/blank? h)) (println (str "   " h))))
@@ -1587,10 +1693,10 @@
     ;; 3. board counts by derived condition.
     (let [nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                            (proj/work-thread-ids-i idx))]
-      (println (str "\nBOARD — active " (count (in-condition idx nonterm today before? "active"))
-                    "  ready " (count (in-condition idx nonterm today before? "ready"))
-                    "  blocked " (count (in-condition idx nonterm today before? "blocked"))
-                    "  draft " (count (in-condition idx nonterm today before? "draft"))))
+      (println (str "\nBOARD — active " (count (in-condition idx nonterm today before? live? "active"))
+                    "  ready " (count (in-condition idx nonterm today before? live? "ready"))
+                    "  blocked " (count (in-condition idx nonterm today before? live? "blocked"))
+                    "  draft " (count (in-condition idx nonterm today before? live? "draft"))))
       ;; 4. top 5 by leverage (finishing these frees the most stuck threads).
       (let [cands (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te))) nonterm)
             items (filterv (fn [it :- LevItem] :- Bool (> (:score it) 0))

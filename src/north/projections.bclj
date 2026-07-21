@@ -50,19 +50,18 @@
 (defn anchor-i? [idx :- k/Index te :- String] :- Bool
   (and (some? (k/one-i idx te "title"))
        (and (some? (k/one-i idx te "committed"))
-            (and (nil? (k/one-i idx te "outcome"))
-                 (and (nil? (k/one-i idx te "abandoned"))
-                      (and (nil? (k/one-i idx te "driver"))
-                           (and (empty? (k/many-i idx te "depends_on"))
-                                (and (nil? (k/one-i idx te "part_of"))
-                                     (and (nil? (k/one-i idx te "do_on"))
-                                          (and (nil? (k/one-i idx te "valid_until"))
-                                               (and (nil? (k/one-i idx te "estimate_hours"))
-                                                    (and (nil? (k/one-i idx te "lead"))
-                                                         (and (empty? (k/many-i idx te "proposed_by"))
-                                                              (and (nil? (k/one-i idx te "created_at"))
-                                                                   (and (nil? (k/one-i idx te "updated_at"))
-                                                                        (nil? (k/one-i idx te "repo")))))))))))))))))
+            (and (not (terminal-i? idx te))
+                 (and (nil? (k/one-i idx te "driver"))
+                      (and (empty? (k/many-i idx te "depends_on"))
+                           (and (nil? (k/one-i idx te "part_of"))
+                                (and (nil? (k/one-i idx te "do_on"))
+                                     (and (nil? (k/one-i idx te "valid_until"))
+                                          (and (nil? (k/one-i idx te "estimate_hours"))
+                                               (and (nil? (k/one-i idx te "lead"))
+                                                    (and (empty? (k/many-i idx te "proposed_by"))
+                                                         (and (nil? (k/one-i idx te "created_at"))
+                                                              (and (nil? (k/one-i idx te "updated_at"))
+                                                                   (nil? (k/one-i idx te "repo"))))))))))))))))
 
 ;; thread ids that are actual work (anchors excluded) — the basis for plate/
 ;; ready/next/leverage/agenda. validate keeps using k/thread-ids-i (sees anchors).
@@ -95,26 +94,64 @@
   (let [d (k/one-i idx te "do_on")]
     (and (some? d) (before? today d))))
 
+;; --- driver LIVENESS is an explicit classifier input (not a stored fact) -----
+;; A `driver` fact is an assignment, not proof of activity now: a pickup dead
+;; since May still carries its driver. The ONE canonical classifier therefore
+;; asks a `live?` predicate — [Index te -> Bool] — exactly as it asks today/
+;; before? for the clock, rather than reading `driver` raw. Production callers
+;; supply one lease+recency predicate for the entire command; tests inject a
+;; deterministic predicate. `assigned?` remains orthogonal so grooming can show
+;; stale assignments without inventing a second lifecycle.
+(defn assigned? [idx :- k/Index te :- String] :- Bool
+  (some? (k/one-i idx te "driver")))
+
 ;; The ONE shared precedence classifier (the-model §3): every single-bucket view
 ;; calls this, so two views can never disagree. EXACT precedence:
-;;   terminal > blocked > active > ready > dormant > draft
-;; committed + future-do_on reads `ready` (committed dominates the schedule —
-;; both-true semantics); uncommitted + future-do_on falls to `dormant`.
-(defn classify [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- String
+;;   terminal > blocked > active > dormant > ready > draft
+;; `active` = a LIVE driver (per the caller's live? predicate); a parked/stale
+;; driver is NOT active and falls through to its committed/schedule state.
+;; `dormant` (a future do_on) dominates `ready`: a committed thread scheduled for
+;; later is NOT pull-able now, so it drops out of ready/next EVERYWHERE (schedule
+;; is an eligibility gate, not a display hint — the prior "committed dominates the
+;; schedule" split let board call it ready while the work queue hid it).
+(defn classify [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- String
   (cond
     [(terminal-i? idx te) "terminal"]
     [(blocked? idx te) "blocked"]
-    [(some? (k/one-i idx te "driver")) "active"]
-    [(some? (k/one-i idx te "committed")) "ready"]
+    [(live? idx te) "active"]
     [(dormant? idx te today before?) "dormant"]
+    [(some? (k/one-i idx te "committed")) "ready"]
     [:else "draft"]))
 
-(defn ready [idx :- k/Index today :- String before? :- [String String -> Bool]] :- (Vec String)
-  (filterv (fn [te :- String] :- Bool
-             (and (not (terminal-i? idx te))
-                  (and (not (blocked? idx te))
-                       (not (dormant? idx te today before?)))))
+;; ELIGIBILITY is DERIVED from the one classifier, never a parallel filter: a
+;; thread is pull-able now iff it classifies `ready` (committed + unblocked + no
+;; live driver + not scheduled-later). ready/next/board's READY bucket all reduce
+;; to this predicate, so their eligibility sets are identical by construction.
+(defn eligible? [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- Bool
+  (= (classify idx te today before? live?) "ready"))
+
+(defn ready [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- (Vec String)
+  (filterv (fn [te :- String] :- Bool (eligible? idx te today before? live?))
            (work-thread-ids-i idx)))
+
+;; One-line human/agent explanation of WHY a thread is (in)eligible — the state
+;; plus its load-bearing reason. Shared by next (per-recommendation eligibility)
+;; and grooming so the answer to "why isn't this in my queue?" is derived from the
+;; same classifier, never re-explained ad hoc.
+(defrecord Eligibility [state :- String eligible :- Bool reason :- String])
+
+(defn explain [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- Eligibility
+  (let [st (classify idx te today before? live?)]
+    (->Eligibility
+     st
+     (= st "ready")
+     (cond
+       [(= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"]
+       [(= st "blocked") (str "waiting on " (count (incomplete-deps idx te)) " incomplete dependency(ies)")]
+       [(= st "active") "a live driver is on it now — being worked, not pull-able"]
+       [(= st "dormant") (str "scheduled for a future do_on (" (let [d (k/one-i idx te "do_on")] (if (some? d) d "?")) ") — dormant until then")]
+       [(= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"]
+       [:else "uncommitted draft — decide + commit before it is work"]))))
 
 (defn blocked [idx :- k/Index] :- (Vec String)
   (filterv (fn [te :- String] :- Bool
@@ -122,9 +159,10 @@
            (work-thread-ids-i idx)))
 
 ;; Derived condition of a work thread — delegates to the ONE precedence classifier
-;; so plate text + json + the blocked command all agree.
-(defn condition-i [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- String
-  (classify idx te today before?))
+;; so plate text + json + the blocked command all agree. live? is threaded through
+;; exactly as today/before? are (the caller owns the liveness notion).
+(defn condition-i [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- String
+  (classify idx te today before? live?))
 
 ;; Presentation: a deterministic, user-configurable emoji per condition. Engine
 ;; defaults here; any is overridden by a fact `@ui emoji_<condition> "<glyph>"`,
