@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # North — the life app. Routes LIFE verbs to the North CLI (north.main,
 # run against the Fram engine on the classpath) and ENGINE verbs to the Fram CLI.
-# Both operate on the same private XDG fact data. Supplies the life domain config
-# (cardinality vocab §1.1 + capture provenance).
+# Both operate on the same private XDG fact data. Supplies North's lifecycle
+# configuration and capture provenance; executable predicate schema lives in
+# the fact graph itself.
 #
 #   engine: FRAM_HOME (checkout fallback: sibling fram)   data: XDG state
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
@@ -28,6 +29,10 @@ if [ "$_north_fram_log_explicit" -eq 0 ] && [ -z "${FRAM_TELEMETRY_LOG:-}" ]; th
 fi
 unset _north_fram_log_explicit
 export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
+# TRANSITIONAL_SCHEMA_BOOTSTRAP: graph declarations win whenever present. Keep
+# this compatibility set only until a verified two-corpus snapshot, canonical
+# schema-migrate execution, strict audit, and restart proof have all landed; its
+# removal is deliberately sequenced after that live-data cutover.
 export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
@@ -139,6 +144,8 @@ north — your one card. Type a command to do the thing next to it.
     north routing report promotions   bespoke patterns for stock-template review
     north routing report calibration  run-local judgment/struggle detector cohorts
     north schema                       the fact vocabulary in use
+    north predicate ls|show|define     inspect or extend executable predicate entities
+    north schema-migrate plan|audit    deterministic schema cutover and strict audit
 
   HAND OFF WORK   (starts a new lane — your own channel never blocks)
     /delegate "<thing>" [--new]        chat: delegate; session context rides by
@@ -250,6 +257,16 @@ CARD
     # Hidden machine-ingestion surface. Interactive adapters feed provider
     # telemetry here; it is intentionally silent and best-effort.
     exec "$BUN" run "$NORTH/sdk/src/provider-observations-cli.ts" "${@:2}" ;;
+  predicate)
+    # Generated read/authoring projection over exact executable @<predicate>
+    # entities. Bootstrap inventory is available only through its explicitly
+    # weak offline lint; connected commands read the graph authority.
+    exec "$BB" "$NORTH/cli/pred-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
+  schema-migrate)
+    # Exact Fram fold over coordination + telemetry. Canonical execution is a
+    # maintenance operation and must follow a verified two-corpus snapshot;
+    # plan/audit remain read-only at all times.
+    exec "$BB" -cp "$FRAM_OUT" "$NORTH/cli/schema-migrate.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
   up)
     exec "$NORTH/bin/north-coord-up" "${@:2}" ;;
   agents|templates|spawn|delegate|request|fork|req|watch|steer|retask)

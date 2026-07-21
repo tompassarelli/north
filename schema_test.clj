@@ -1,14 +1,14 @@
 ;; schema_test.clj — the vocabulary census (`north schema`): the kind classifier
 ;; and the census roll-up.
-;;   (1) kind-of: explicit `kind` fact > `title`=>thread > subject-prefix
-;;       heuristic > schema-as-facts predicate > other. Handles @-prefixed and
-;;       bare subjects, and folds run/session/lane telemetry into one bucket.
+;;   (1) kind-of: explicit `entity_kind` authority > legacy `kind` compatibility
+;;       > namespace/shape/schema heuristics > other. Namespaced extensions are
+;;       preserved exactly instead of collapsing into presentation buckets.
 ;;   (2) census: per-kind subject + fact counts, sorted by fact count desc.
 ;;   (3) predicate metadata (cardinality/value_kind) is surfaced from the graph.
 ;;   bb -cp out:../fram/out schema_test.clj      (run from the repo root)
 (require '[fram.kernel :as k] '[north.main :as m])
 
-;; one subject per kind: some kind-tagged, some inferred from prefix/title only.
+;; one subject per kind: authoritative, legacy-compatible, and inferred rows.
 (def facts
   [(k/->Fact "@t1" "kind" "thread")   (k/->Fact "@t1" "title" "Kinded thread")
    (k/->Fact "@2026-05-01-000000" "title" "Legacy thread (no kind)")
@@ -18,16 +18,21 @@
    (k/->Fact "@msg:m1" "body" "hello")
    (k/->Fact "@topic-perf" "note" "a topic")
    (k/->Fact "@mine:1" "kind" "mine")   (k/->Fact "@mine:1" "note" "personal")
-   (k/->Fact "@run-9" "kind" "run")     (k/->Fact "@run-9" "started_at" "t")
+   ;; Explicit structure wins even when stale legacy classification disagrees.
+   (k/->Fact "@run-9" "entity_kind" "run") (k/->Fact "@run-9" "kind" "session")
+   (k/->Fact "@run-9" "started_at" "t")
    (k/->Fact "@client-clock" "kind" "client_session") (k/->Fact "@client-clock" "owner" "acme")
    (k/->Fact "@session:s1" "started_at" "t")   (k/->Fact "@session:s1" "agent" "cc")
+   (k/->Fact "@denial:g1" "reason" "guarded")
+   (k/->Fact "@person:p1" "display_name" "Person P")
+   (k/->Fact "@vendor:x" "entity_kind" "vendor/widget") (k/->Fact "@vendor:x" "note" "open extension")
    (k/->Fact "@depends_on" "cardinality" "single")  (k/->Fact "@depends_on" "acyclic" "true")
    (k/->Fact "@rate" "value_kind" "literal")
    (k/->Fact "@weird" "foo" "bar")
    ;; A historical malformed write must remain inspectable through the no-arg
    ;; census instead of taking the entire schema command down.
    (k/->Fact nil "reached" "")
-   ;; a synthetic `gadget` kind for the per-kind field spec (required vs optional):
+   ;; a synthetic legacy `gadget` kind for the per-kind field spec (required vs optional):
    ;; `name` on 3/3 subjects (100% => REQUIRED), `color` on 1/3 (33% => OPTIONAL),
    ;; `tag` asserted twice on ONE subject (coverage must dedup to 1 subject, not 2).
    (k/->Fact "@g1" "kind" "gadget")  (k/->Fact "@g1" "name" "a")
@@ -59,25 +64,29 @@
     #(with-out-str (m/cmd-schema "ignored" ""))))
 
 (def checks
-  [["kind fact wins: @t1 => thread"                (= "thread" (kof "@t1"))]
+  [["legacy kind fallback: @t1 => thread"          (= "thread" (kof "@t1"))]
    ["title (no kind) => thread"                    (= "thread" (kof "@2026-05-01-000000"))]
    ["kind fact: concern-a => concern"              (= "concern" (kof "concern-a"))]
    ["prefix (bare/@): @concern-b => concern"       (= "concern" (kof "@concern-b"))]
    ["prefix agent:  => agent"                      (= "agent" (kof "@agent:x"))]
-   ["prefix msg:    => msg"                         (= "msg" (kof "@msg:m1"))]
+   ["prefix msg:    => message"                     (= "message" (kof "@msg:m1"))]
    ["prefix topic-  => topic"                       (= "topic" (kof "@topic-perf"))]
-   ["kind mine      => mine"                        (= "mine" (kof "@mine:1"))]
-   ["kind run folds => session-telemetry"           (= "session-telemetry" (kof "@run-9"))]
-   ["kind client_session stays billing-only"        (= "billing-session" (kof "@client-clock"))]
-   ["prefix session: => session-telemetry"          (= "session-telemetry" (kof "@session:s1"))]
+   ["legacy mine becomes namespaced extension"      (= "north/mine" (kof "@mine:1"))]
+   ["explicit entity_kind wins over legacy kind"    (= "run" (kof "@run-9"))]
+   ["legacy client_session maps to core kind"        (= "client_session" (kof "@client-clock"))]
+   ["prefix session: maps to agent"                  (= "agent" (kof "@session:s1"))]
+   ["prefix denial: maps to guard_denial"            (= "guard_denial" (kof "@denial:g1"))]
+   ["display_name shape maps to person"              (= "person" (kof "@person:p1"))]
+   ["explicit namespaced extension is preserved"    (= "vendor/widget" (kof "@vendor:x"))]
    ["schema-as-facts subject => predicate"          (= "predicate" (kof "@depends_on"))]
    ["unclassifiable => other"                       (= "other" (kof "@weird"))]
    ["malformed nil subject => other"                (= "other" (kof nil))]
    ["no-arg schema tolerates malformed subject"     (.contains no-arg-schema-output "SCHEMA —")]
    ["census: 2 thread subjects"                     (= 2 (subj-of "thread"))]
    ["census: 2 concern subjects"                    (= 2 (subj-of "concern"))]
-   ["census: 2 session-telemetry subjects"          (= 2 (subj-of "session-telemetry"))]
-   ["census: 1 billing-session subject"             (= 1 (subj-of "billing-session"))]
+   ["census: run remains its own core kind"          (= 1 (subj-of "run"))]
+   ["census: client_session remains core kind"       (= 1 (subj-of "client_session"))]
+   ["census preserves namespaced extension"          (= 1 (subj-of "vendor/widget"))]
    ["census: 2 other subjects"                      (= 2 (subj-of "other"))]
    ["census sorted by fact count desc"              facts-desc?]
    ["predicate metadata surfaces depends_on"        (some #{"@depends_on"} pred-subs)]
@@ -90,6 +99,12 @@
    ["coverage dedups multi-valued: tag subs = 1"    (= 1 (:subs (field "gadget" "tag")))]
    ["field spec: required sorts before optional"    (:required (first (fields-for "gadget")))]
    ["writers map: thread => capture-facts"          (.contains (#'m/kind-writer "thread") "capture-facts")]
+   ["schema-seed compatibility path is non-writing" (let [result (atom nil)
+                                                            output (with-out-str
+                                                                     (reset! result (m/run-status ["schema-seed" "--execute"] "" "")))]
+                                                        (and (= 2 @result)
+                                                             (.contains output "RETIRED")
+                                                             (.contains output "no facts were written")))]
    ["writers map: uncurated kind => not curated"    (.contains (#'m/kind-writer "zzz") "not curated")]])
 
 (let [fails (remove second checks)]

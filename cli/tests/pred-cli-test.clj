@@ -137,11 +137,15 @@
     ["cli/message-audience.clj" "append!" "rejected-by-predicate"]
     ["cli/message-audience.clj" "append!" "rejection-predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
+    ["cli/north-mine.clj" "append!" "pred"]
+    ["cli/north-mine.clj" "put!" "pred"]
     ["cli/pred-cli.clj" "put!" "p"]
     ["cli/pred-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
     ["cli/run-fact-internal.clj" "put!" "predicate"]
+    ["cli/schema-migrate.clj" "put!" "predicate"]
+    ["cli/schema-migrate.clj" "retract!" "predicate"]
     ["cli/spend-breaker.clj" "retract!" "p"]
     ["cli/spend-cli.clj" "append!" "p"]
     ["cli/spend-cli.clj" "put!" "p"]})
@@ -179,7 +183,7 @@
     "model_availability_target"
     "model_delta_kind" "model_delta_model" "model_delta_path"
     "model_delta_provider" "model_delta_reason" "nearest_preset" "num_turns"
-    "outcome" "process_outcome" "output_tokens" "posture" "promotion_candidate"
+    "outcome" "preflight_cause" "process_outcome" "output_tokens" "posture" "promotion_candidate"
     "prompt_composition_applied" "provider" "provider_reason" "provider_target"
     "effective_authoring_hooks" "effective_authority_provider" "effective_live_input"
     "effective_native_multi_agent" "effective_sandbox" "effective_web"
@@ -284,11 +288,13 @@
                       (#{"literal" "ref"} kind)
                       (string? doc) (not (str/blank? doc))))
                registry))
-(check "descriptive catalog does not masquerade as executable schema"
-       (and (not (contains? registry-names "cardinality"))
-            (not (contains? registry-names "value_kind"))
-            (str/includes? (slurp-source "cli/pred-cli.clj")
-                           "does NOT declare cardinality or")))
+(check "bootstrap inventories Fram's executable meta-schema"
+       (and (= {:card "single" :kind "literal"}
+               (select-keys (registry "cardinality") [:card :kind]))
+            (= {:card "single" :kind "literal"}
+               (select-keys (registry "value_kind") [:card :kind]))
+            (= {:card "single" :kind "literal"}
+               (select-keys (registry "entity_kind") [:card :kind]))))
 
 (let [missing (set/difference emitted-predicates registry-names)]
   (check "all fixed cross-language fact emitters are registered"
@@ -404,19 +410,14 @@
        (= audited-clj-variable-sites clj-variable-sites)
        (set-detail audited-clj-variable-sites clj-variable-sites))
 
-;; Preserve the old fallback regression check. It verifies the executable legacy
-;; bootstrap separately; it is intentionally not generalized to every catalog row.
+;; Removing the compatibility fallback is sequenced after snapshot + canonical
+;; migration + strict audit + restart proof. Until then it must be loudly marked
+;; transitional, while executable graph facts retain engine precedence.
 (let [launcher (slurp-source "bin/north")]
-  (check "broadcast audience version is single in the executable legacy fallback"
-         (boolean (re-find #"FRAM_SINGLE_VALUED=.*\bbroadcast_audience_version\b"
-                           launcher)))
-  (doseq [predicate ["provider_target" "requested_target" "fallback_target_path"]]
-    (check (str predicate " remains single in the executable legacy fallback")
-           (re-find (re-pattern (str "FRAM_SINGLE_VALUED=.*\\b" predicate "\\b")) launcher)))
-  (doseq [predicate ["code_port" "code_log"]]
-    (check (str predicate " is single in the executable concern-store fallback")
-           (re-find (re-pattern (str "FRAM_SINGLE_VALUED=.*\\b" predicate "\\b"))
-                    launcher))))
+  (check "launcher cardinality fallback is explicitly transitional until live cutover"
+         (and (str/includes? launcher "TRANSITIONAL_SCHEMA_BOOTSTRAP")
+              (str/includes? launcher "export FRAM_SINGLE_VALUED=")
+              (= 1 (count (re-seq #"export FRAM_SINGLE_VALUED=" launcher))))))
 
 (let [results @checks
       failures (remove :ok results)
