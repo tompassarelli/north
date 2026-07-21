@@ -27,6 +27,8 @@ import {
   type StruggleObservation,
 } from "./struggle";
 import type { ProviderModelAdmissionReceipt } from "./provider-model-observation-store";
+import { canonicalWriteModel } from "./providers/catalog";
+import type { ProviderId } from "./providers/types";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
@@ -75,6 +77,9 @@ export interface RunRecord {
   envelopeAdvisories?: string[];
   outcome: string; // "ran" | "error" | "resource_envelope_exceeded" | ...
   processOutcome?: string;
+  /** Full nested-cause chain for a blocked_preflight (or other retry-safe) death — the
+   * real underlying failure a bare processOutcome code otherwise swallows (thread 019f8300). */
+  preflightCause?: string;
   deliveryOutcome?: string;
   deliveryReason?: string;
   deliveryProof?: DeliveryProof;
@@ -129,6 +134,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.providerDurationMs != null)
     facts.push(["provider_duration_ms", String(Math.round(rec.providerDurationMs))]);
   if (rec.processOutcome) facts.push(["process_outcome", rec.processOutcome]);
+  if (rec.preflightCause) facts.push(["preflight_cause", rec.preflightCause]);
   if (rec.deliveryOutcome) facts.push(["delivery_outcome", rec.deliveryOutcome]);
   if (rec.deliveryReason) facts.push(["delivery_reason", rec.deliveryReason]);
   if (rec.deliveryProof?.deliveryEvidence)
@@ -139,7 +145,14 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["delivery_attestation", rec.deliveryProof.deliveryAttestation]);
   if (rec.deliveryProof?.deliveryAttestationSha256)
     facts.push(["delivery_attestation_sha256", rec.deliveryProof.deliveryAttestationSha256]);
-  if (rec.model) facts.push(["model", rec.model]);
+  // Canonicalize AT WRITE: every caller (spawn/dispatch admission, fallback,
+  // legacy env-fallback) funnels through the one shared alias map (Gaffer
+  // catalogs' modelAliases, see providers/catalog.ts) so a `model` fact is
+  // never a bare family alias (opus/sonnet/fable/haiku/...), and a model that
+  // does not belong to the executed provider (fallback-death lag) writes no
+  // model rather than a phantom cross-provider one.
+  const model = canonicalWriteModel(rec.provider as ProviderId | undefined, rec.model);
+  if (model) facts.push(["model", model]);
   if (rec.effort) facts.push(["effort", rec.effort]);
   if (rec.role) facts.push(["role", rec.role]);
   if (rec.provider) facts.push(["provider", rec.provider]);
@@ -149,7 +162,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     const evidence = rec.modelAvailability;
     if (rec.provider !== evidence.provider
         || rec.providerTarget !== evidence.targetId
-        || rec.model !== evidence.model) {
+        || model !== evidence.model) {
       throw new Error("model availability evidence does not match the final provider route");
     }
     facts.push(["model_availability_target", evidence.targetId]);

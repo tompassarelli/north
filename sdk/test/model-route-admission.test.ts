@@ -18,10 +18,12 @@ import {
 import { ProviderRefreshCancelledError } from "../src/provider-cancellation";
 import { acquireFileLease } from "../src/file-lease";
 import {
+  canonicalWriteModel,
   providerSupportsRoute,
   resolveModelAlias,
   resolveTier,
 } from "../src/providers/catalog";
+import { agentRouteFacts } from "../src/identity";
 import { normalizeAnthropicSupportedModels } from "../src/providers/anthropic-models";
 import { anthropicProvider } from "../src/providers/anthropic";
 import {
@@ -156,6 +158,41 @@ test("Gaffer exact routes do not cross-product tier defaults", () => {
   expect(resolveModelAlias("anthropic", "__proto__")).toBe("__proto__");
   expect(() => resolveTier("anthropic", "frontier", "__proto__", "xhigh"))
     .toThrow("does not declare model __proto__");
+});
+
+test("canonicalWriteModel resolves aliases, guards cross-provider phantoms, and never crashes", () => {
+  // Bare family alias -> concrete catalog id. A `model` fact must never be a raw
+  // tier name (opus/sonnet/fable/luna/terra/sol).
+  expect(canonicalWriteModel("anthropic", "opus")).toBe("claude-opus-4-8");
+  expect(canonicalWriteModel("anthropic", "sonnet")).toBe("claude-sonnet-5");
+  expect(canonicalWriteModel("openai", "sol")).toBe("gpt-5.6-sol");
+  // Already-concrete id passes through unchanged.
+  expect(canonicalWriteModel("anthropic", "claude-opus-4-8")).toBe("claude-opus-4-8");
+  // Cross-provider phantom (fallback-death lag, e.g. lane-mrtcfwgj: a gpt-* id
+  // recorded against provider=anthropic) writes NO model rather than the stale
+  // routed one.
+  expect(canonicalWriteModel("anthropic", "gpt-5.6-sol")).toBeUndefined();
+  expect(canonicalWriteModel("openai", "claude-opus-4-8")).toBeUndefined();
+  // Missing provider or model -> no fact.
+  expect(canonicalWriteModel(undefined, "opus")).toBeUndefined();
+  expect(canonicalWriteModel("anthropic", undefined)).toBeUndefined();
+  // A provider North has no catalog for (native/interactive session) cannot be
+  // canonicalized, but must not crash the write nor drop the datum.
+  expect(canonicalWriteModel("google" as any, "gemini-3-pro")).toBe("gemini-3-pro");
+});
+
+test("lane-identity model facts are canonicalized at write, not left as bare aliases", () => {
+  // agentRouteFacts is the second durable model-fact write path; a tier name as
+  // spawned must land as a concrete id, matching the @run write path.
+  const facts = Object.fromEntries(
+    agentRouteFacts("agent-x", { kind: "lane", provider: "anthropic", model: "opus" }),
+  );
+  expect(facts.model).toBe("claude-opus-4-8");
+  // Cross-provider phantom drops the model fact on the identity path too.
+  const phantom = Object.fromEntries(
+    agentRouteFacts("agent-y", { kind: "lane", provider: "anthropic", model: "gpt-5.6-sol" }),
+  );
+  expect(phantom.model).toBeUndefined();
 });
 
 test("unpinned canonical tier defaults are static, while an explicit pin to the same model needs live evidence", () => {

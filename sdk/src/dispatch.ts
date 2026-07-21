@@ -9,7 +9,7 @@ import {
 import { inputChannel, subscribeFeed } from "./coordination";
 import { normalizeUsage } from "./usage";
 import { newRunId, recordRun } from "./telemetry";
-import { deathReason, notifyDeath } from "./death";
+import { causeChain, deathReason, notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
@@ -321,6 +321,10 @@ async function runDispatch(
   let resultMsg: any = null;
   const terminalMessages: any[] = [];
   let outcome = "ran";
+  // Full nested-cause chain for a blocked_preflight (or other retry-safe) death,
+  // set alongside `outcome` in the catch below and carried onto @run so the
+  // real underlying failure survives past the banner-only stdout log.
+  let preflightCause: string | undefined;
 
   // Real-time coordination: run the prompt in streaming-input mode so peers can inject
   // pings only when the admitted provider can consume turns after its initial prompt.
@@ -580,7 +584,8 @@ async function runDispatch(
       // retry-safe preflight block stays blocked_preflight.
       const carried = (err as { processOutcome?: unknown }).processOutcome;
       outcome = typeof carried === "string" ? carried : "blocked_preflight";
-      console.error(`[${outcome}] @agent:${agentId} ${err.message}`);
+      preflightCause = causeChain(err);
+      console.error(`[${outcome}] @agent:${agentId} ${preflightCause}`);
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
@@ -770,6 +775,7 @@ async function runDispatch(
               numTurns,
               judgmentGrade,
               struggleObservation: struggle.snapshot(),
+              preflightCause,
               }, runId, publicationBudget.publicationTimeout(1));
   for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
     writeAuxiliary(

@@ -38,6 +38,29 @@ export function deathReason(err: unknown): string {
   return raw.replace(/\s+/g, " ").trim().slice(0, 300) || "unknown";
 }
 
+// Walk err.cause -> cause.cause -> ... and join every message. A staged preflight
+// error (ManagedCodexPreThreadError -> ProviderRetrySafeError, each wrapping the
+// prior with { cause }) otherwise prints only its outermost code; the real RPC/fs
+// failure sits in a swallowed nested cause the lane log never shows (thread
+// 019f8300, hours lost tracing openai_codex_authority_preflight_failed blind).
+// Bounded depth + total length so a pathological cause cycle/huge message can
+// never blow up a synchronous console.error or a telemetry fact value.
+export function causeChain(err: unknown, maxDepth = 8, maxLen = 2000): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < maxDepth && current != null; depth++) {
+    if (seen.has(current)) { parts.push("[cyclic cause]"); break; }
+    seen.add(current);
+    const message =
+      (current as any)?.message ?? (typeof current === "string" ? current : String(current));
+    parts.push(String(message).replace(/\s+/g, " ").trim());
+    current = (current as any)?.cause;
+  }
+  if (current != null) parts.push("[cause chain truncated]");
+  return parts.join(" <- cause: ").slice(0, maxLen);
+}
+
 // PURE: build the exact command specs a death emits, so the notification path is testable
 // without shelling out or touching the coordinator. Order: facts first (durable record),
 // peer ping last (transient wake). @swarm always; thread + coordinator only when known.

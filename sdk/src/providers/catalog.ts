@@ -159,6 +159,39 @@ export function providerSupportsModel(provider: ProviderId, model?: string): boo
   return Object.hasOwn(catalog.models, concrete);
 }
 
+/**
+ * Canonicalize a model value for a WRITE onto a durable fact (run telemetry,
+ * lane identity). The single place both write paths must call — never
+ * reimplement alias resolution locally, and never assert a bare family alias
+ * (opus/sonnet/fable/haiku/...) as a model fact.
+ *
+ * Also refuses a cross-provider phantom: if `model` does not belong to
+ * `provider`'s catalog after alias resolution (the fallback-death case where
+ * routed-intent model lags the executed provider, e.g. a gpt-* id recorded
+ * against provider=anthropic), the caller gets `undefined` back. Writing no
+ * model is correct; writing the stale routed one is not.
+ */
+export function canonicalWriteModel(
+  provider: ProviderId | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (!model) return undefined;
+  if (!provider) return undefined;
+  // A native/interactive session can carry a provider string North models no
+  // catalog for; we cannot canonicalize what we cannot resolve, so preserve the
+  // model verbatim rather than crash the fact write or drop the datum. Only a
+  // catalog-KNOWN provider gets alias resolution + the cross-provider phantom
+  // guard below.
+  let concrete: string;
+  try {
+    concrete = resolveModelAlias(provider, model) ?? model;
+    if (!providerSupportsModel(provider, concrete)) return undefined;
+  } catch {
+    return model;
+  }
+  return concrete;
+}
+
 function tierEntry(provider: ProviderId, tier: SemanticTier): ProviderTier {
   const entry = providerCatalog(provider).tiers?.[tier];
   if (!entry) throw new Error(`provider ${provider} does not define semantic tier ${tier}`);

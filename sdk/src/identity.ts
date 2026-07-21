@@ -18,7 +18,8 @@ import {
 } from "./bespoke-contract";
 import type { ExecutionTerminal } from "./execution-outcome";
 import { classifyExecutionTerminal } from "./execution-outcome";
-import type { LiveInputCapability } from "./providers/types";
+import type { LiveInputCapability, ProviderId } from "./providers/types";
+import { canonicalWriteModel } from "./providers/catalog";
 export { bespokeContractFingerprint } from "./bespoke-contract";
 
 export type LiveInputState = "pending" | "armed" | "frozen";
@@ -247,7 +248,10 @@ export function agentRouteFacts(agentId: string, f: AgentIdentity): Array<[strin
     ["live_input", f.liveInput],
     ["live_input_state", f.liveInputState],
     ["live_input_epoch", f.liveInputEpoch],
-    ["model", f.model],
+    // Canonicalize at write: f.model is the tier name as spawned (opus|sonnet|
+    // haiku), so a bare family alias would otherwise become a durable lane-
+    // identity fact. Same shared alias map as the @run write path.
+    ["model", canonicalWriteModel(f.provider as ProviderId | undefined, f.model)],
     ["effort", f.effort],
     ["display_handle", semanticHandle(agentId, f)],
     ["display_name", renderDisplayName(agentId, f)],
@@ -414,7 +418,9 @@ export function agentIdentityFacts(
     ["kind", f.kind],
     ["display_handle", semanticHandle(agentId, f)],
     ["role", f.role],
-    ["model", f.model],
+    // Canonicalize at write (see agentRouteFacts): a bare tier alias must never
+    // land as a durable lane-identity model fact.
+    ["model", canonicalWriteModel(f.provider as ProviderId | undefined, f.model)],
     ["provider", f.provider],
     ["provider_target", f.providerTarget],
     ["live_input", f.liveInput],
