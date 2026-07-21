@@ -883,20 +883,90 @@ test("post-thread drift, rejection, malformed traffic, and hook failures are nev
   }
 });
 
-test("filesystem authority and executable provenance fail before thread/start", async () => {
+function expectLaunchPreflightFailure(
+  options: ReturnType<typeof setup>["options"],
+  code: string,
+): ManagedCodexPreThreadError {
+  const remoteControlBefore = options.env.CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED;
+  let caught: unknown;
+  try { managedCodexAppServerLaunch(options); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  expect((caught as Error).message).toBe(code);
+  expect(options.env.CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED)
+    .toBe(remoteControlBefore);
+  return caught as ManagedCodexPreThreadError;
+}
+
+test("every launch preflight cause has stable diagnosis and fails before process authority", () => {
+  for (const missing of ["CODEX_HOME", "CODEX_SQLITE_HOME"] as const) {
+    const { options, requests } = setup();
+    delete options.env[missing];
+    const error = expectLaunchPreflightFailure(options, "openai_target_state_roots_missing");
+    expect(error.cause).toBeUndefined();
+    expect(requests).toEqual([]);
+  }
+
   {
-    const { options, codexHome } = setup();
-    writeFileSync(join(codexHome, "config.toml"), "model = 'hostile'\n");
-    expect(() => managedCodexAppServerLaunch(options))
-      .toThrow("openai_codex_authority_filesystem_invalid");
+    const { options, root, requests } = setup();
+    options.env.CODEX_HOME = join(root, "missing-codex-home");
+    const error = expectLaunchPreflightFailure(options, "openai_codex_state_root_unresolvable");
+    expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+    expect(requests).toEqual([]);
   }
   {
-    const { options, root } = setup();
+    const { options, codexHome, requests } = setup();
+    rmSync(join(codexHome, "sqlite"), { recursive: true });
+    const error = expectLaunchPreflightFailure(options, "openai_codex_state_root_unresolvable");
+    expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+    expect(requests).toEqual([]);
+  }
+  {
+    const { options, root, requests } = setup();
+    options.cwd = join(root, "missing-cwd");
+    const error = expectLaunchPreflightFailure(options, "openai_codex_cwd_unresolvable");
+    expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+    expect(requests).toEqual([]);
+  }
+  {
+    const { options, root, requests } = setup();
+    const hostileCwd = join(root, "hostile-git-root");
+    mkdirSync(hostileCwd);
+    writeFileSync(join(hostileCwd, ".git"), "gitdir: /north-test-missing-git-dir\n");
+    options.cwd = hostileCwd;
+    const error = expectLaunchPreflightFailure(options, "openai_codex_project_root_untrusted");
+    expect((error.cause as Error).name).toBe("TrustedGitOracleError");
+    expect(requests).toEqual([]);
+  }
+
+  for (const missing of ["command", "expected"] as const) {
+    const { options, root, requests } = setup();
+    if (missing === "command") options.command = join(root, "missing-command");
+    else options.testExpectedExecutable = join(root, "missing-expected-command");
+    const error = expectLaunchPreflightFailure(options, "openai_codex_executable_pin_mismatch");
+    expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+    expect(requests).toEqual([]);
+  }
+  {
+    const { options, root, requests } = setup();
     const other = join(root, "other-codex");
     writeFileSync(other, "#!/bin/sh\nexit 1\n");
     chmodSync(other, 0o700);
     options.command = other;
-    expect(() => managedCodexAppServerLaunch(options))
-      .toThrow("openai_codex_authority_filesystem_invalid");
+    const error = expectLaunchPreflightFailure(options, "openai_codex_executable_pin_mismatch");
+    expect((error.cause as Error).message).toContain("is not the pinned provider binary");
+    expect(requests).toEqual([]);
+  }
+
+  for (const authority of ["config.toml", "hooks.json", "rules"] as const) {
+    const { options, codexHome, requests } = setup();
+    const path = join(codexHome, authority);
+    if (authority === "rules") mkdirSync(path);
+    else writeFileSync(path, "hostile\n");
+    const error = expectLaunchPreflightFailure(
+      options, "openai_codex_authority_filesystem_invalid",
+    );
+    expect((error.cause as Error).message)
+      .toBe(`managed Codex account contains authority-bearing ${authority}`);
+    expect(requests).toEqual([]);
   }
 });

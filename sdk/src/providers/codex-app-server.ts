@@ -232,28 +232,38 @@ export function managedCodexAppServerLaunch(
   const sqliteHomeValue = options.env.CODEX_SQLITE_HOME?.trim();
   if (!codexHomeValue || !sqliteHomeValue)
     throw new ManagedCodexPreThreadError("openai_target_state_roots_missing");
-  let codexHome: string;
-  let sqliteHome: string;
-  let cwd: string;
-  let projectRoot: string;
-  let executable: string;
-  try {
-    codexHome = realpathSync(codexHomeValue);
-    sqliteHome = realpathSync(sqliteHomeValue);
-    cwd = realpathSync(options.cwd);
-    projectRoot = trustedGitProjectRoot(cwd);
-    executable = realpathSync(options.command);
+  // Each preflight cause carries its own code so a swallowed {cause} in the
+  // lane log no longer collapses distinct authority failures into one opaque
+  // string. Diagnosis reads the code; the {cause} keeps the raw error.
+  const stage = <T>(code: string, run: () => T): T => {
+    try {
+      return run();
+    } catch (cause) {
+      throw new ManagedCodexPreThreadError(code, { cause });
+    }
+  };
+  const codexHome = stage("openai_codex_state_root_unresolvable",
+    () => realpathSync(codexHomeValue));
+  const sqliteHome = stage("openai_codex_state_root_unresolvable",
+    () => realpathSync(sqliteHomeValue));
+  const cwd = stage("openai_codex_cwd_unresolvable", () => realpathSync(options.cwd));
+  const projectRoot = stage("openai_codex_project_root_untrusted",
+    () => trustedGitProjectRoot(cwd));
+  const executable = stage("openai_codex_executable_pin_mismatch", () => {
+    const resolved = realpathSync(options.command);
     const expectedExecutable = realpathSync(
       options.spawnProcess && options.useSupervisor === false && options.testExpectedExecutable
         ? options.testExpectedExecutable
         : trustedManagedCodexExecutable(),
     );
-    if (executable !== expectedExecutable)
-      throw new Error("managed Codex executable is not the pinned provider binary");
-    assertNoFilesystemAuthority(codexHome);
-  } catch (cause) {
-    throw new ManagedCodexPreThreadError("openai_codex_authority_filesystem_invalid", { cause });
-  }
+    if (resolved !== expectedExecutable)
+      throw new Error(
+        `managed Codex executable ${resolved} is not the pinned provider binary ${expectedExecutable}`,
+      );
+    return resolved;
+  });
+  stage("openai_codex_authority_filesystem_invalid",
+    () => assertNoFilesystemAuthority(codexHome));
   options.env.CODEX_HOME = codexHome;
   options.env.CODEX_SQLITE_HOME = sqliteHome;
   options.env.CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED = "1";
