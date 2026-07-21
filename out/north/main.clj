@@ -43,29 +43,33 @@
 (defn- ^String trunc [^String s n]
   (if (> (count s) n) (str (subs s 0 (- n 1)) "…") s))
 
-(defn- ^String kind-bucket [^String ek]
+(defn- ^String legacy-entity-kind [^String ek]
   (cond
-  (= ek "concern") "concern"
-  (= ek "thread") "thread"
-  (= ek "mine") "mine"
-  (= ek "client_session") "billing-session"
-  (or (= ek "run") (or (= ek "session") (= ek "lane"))) "session-telemetry"
+  (or (= ek "lane") (or (= ek "managed") (= ek "session"))) "agent"
+  (or (= ek "msg") (= ek "command")) "message"
+  (= ek "mine") "north/mine"
+  (= ek "snapshot") "north/snapshot"
   :else ek))
 
 (defn- ^String namespace-kind [^String bare]
   (cond
   (str/starts-with? bare "concern-") "concern"
   (str/starts-with? bare "agent:") "agent"
-  (str/starts-with? bare "msg:") "msg"
+  (or (str/starts-with? bare "msg:") (str/starts-with? bare "cmd:")) "message"
   (str/starts-with? bare "topic-") "topic"
-  (str/starts-with? bare "mine:") "mine"
-  (or (str/starts-with? bare "session:") (or (str/starts-with? bare "sess-") (or (str/starts-with? bare "run-") (or (str/starts-with? bare "snapshot:") (or (str/starts-with? bare "arena-") (or (str/starts-with? bare "cc-") (str/starts-with? bare "cmd:"))))))) "session-telemetry"
+  (str/starts-with? bare "mine:") "north/mine"
+  (or (str/starts-with? bare "run-") (str/starts-with? bare "run:")) "run"
+  (or (str/starts-with? bare "session:") (or (str/starts-with? bare "sess-") (str/starts-with? bare "cc-"))) "agent"
+  (str/starts-with? bare "denial:") "guard_denial"
+  (str/starts-with? bare "snapshot:") "north/snapshot"
+  (str/starts-with? bare "arena-") "north/arena_run"
   :else ""))
 
 (defn- ^String kind-of [idx te]
-  (if (nil? te) "other" (let [ek (k/one-i idx te "kind")]
-  (if (some? ek) (kind-bucket ek) (let [np (namespace-kind (short-id te))]
-  (if (not (str/blank? np)) np (if (some? (k/one-i idx te "title")) "thread" (if (or (some? (k/one-i idx te "cardinality")) (or (some? (k/one-i idx te "value_kind")) (some? (k/one-i idx te "acyclic")))) "predicate" "other"))))))))
+  (if (nil? te) "other" (let [explicit (k/one-i idx te "entity_kind")]
+  (if (some? explicit) explicit (let [legacy (k/one-i idx te "kind")]
+  (if (some? legacy) (legacy-entity-kind legacy) (let [np (namespace-kind (short-id te))]
+  (if (not (str/blank? np)) np (if (some? (k/one-i idx te "title")) "thread" (if (some? (k/one-i idx te "display_name")) "person" (if (or (some? (k/one-i idx te "cardinality")) (or (some? (k/one-i idx te "value_kind")) (some? (k/one-i idx te "acyclic")))) "predicate" "other")))))))))))
 
 (defn- ^String driver-label [idx ^String te]
   (let [d (k/one-i idx te "driver")]
@@ -1054,54 +1058,16 @@
   (doseq [it ranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
 
-(defn- split-ws [^String s]
-  (filterv (fn [w] (not (str/blank? w))) (vec (str/split s #"\s+"))))
-
-(defn- single-valued-preds []
-  (split-ws (fram.rt/getenv-or "FRAM_SINGLE_VALUED" "")))
-
-(defn- ^Boolean all-ref? [facts ^String pred]
-  (loop [cs facts
-   seen false]
-  (if (empty? cs) seen (let [c (first cs)]
-  (if (= (:p c) pred) (if (str/starts-with? (:r c) "@") (recur (rest cs) true) false) (recur (rest cs) seen))))))
-
-(defn- distinct-preds [facts]
-  (reduce (fn [acc c] (if (k/vec-contains? acc (:p c)) acc (conj acc (:p c)))) [] facts))
-
-(defn- seed-facts [^String log]
-  (let [facts (live-facts log)
-   card (mapv (fn [p] (k/->Fact (str "@" p) "cardinality" "single")) (single-valued-preds))
-   acyc (mapv (fn [p] (k/->Fact (str "@" p) "acyclic" "true")) ["depends_on" "part_of"])
-   refs (filterv (fn [p] (all-ref? facts p)) (distinct-preds facts))
-   vk (mapv (fn [p] (k/->Fact (str "@" p) "value_kind" "ref")) refs)]
-  (vec (concat card acyc vk))))
-
-(defn cmd-schema-seed [^String log ^Boolean execute]
-  (let [seeds (seed-facts log)]
-  (if (not execute) (do
-  (println (str "schema-seed DRY-RUN — " (count seeds) " fact(s); nothing written."))
-  (doseq [c seeds]
-  (println (str "  tell " (:l c) " " (:p c) " " (:r c))))
-  (println "Run `north schema-seed --execute` (coordinator session) to write.")) (let [idx (live-idx log)
-   subs (distinct-ids (mapv (fn [c] (:l c)) seeds))
-   collisions (filterv (fn [s] (some? (k/one-i idx s "title"))) subs)]
-  (if (not (empty? collisions)) (do
-  (println (str "!!! schema-seed ABORTED — " (count collisions) " predicate name(s) collide with a live thread id."))
-  (println "    Writing predicate metadata onto these would pollute real threads:")
-  (doseq [s collisions]
-  (println (str "      " s "  (has a `title` fact — is a thread)")))
-  (println "    No facts written. Rename the colliding thread(s) or exclude the pred(s).")) (let [port (fram.rt/coord-port)
-   coord-v (fram.rt/coord-version-for-log port log)]
-  (if (< coord-v 0) (println (coordinator-failure-message coord-v port log "schema seed was not recorded")) (let [results (mapv (fn [c] (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)) seeds)
-   oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
-  (println (str "schema-seed EXECUTED — " oks "/" (count seeds) " fact(s) committed via coordinator."))))))))))
+(defn cmd-schema-seed [^String _log ^Boolean _execute]
+  (do
+  (println "schema-seed RETIRED — no facts were written.")
+  (println "Use `north schema-migrate plan`, then maintenance-approved `migrate --execute`, and `audit --strict`.")))
 
 (defn cmd-tools []
   (do
   (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
   (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
-  (println "  vocabulary : schema (census by kind) · schema-seed (declare predicate metadata)")
+  (println "  vocabulary : schema (census by kind) · predicate (executable metadata) · schema-migrate (cutover/audit)")
   (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
   (println "  time       : clock in <owner>|out|status|report  (start/stop remain compatible)")
   (println "  agents     : dispatch · spawn")
@@ -1109,7 +1075,7 @@
   (println "")
   (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
   (println "Vocabulary is DATA, not tools: `north show <pred>` reveals a predicate's metadata")
-  (println "(cardinality/value_kind/acyclic facts). Seed that metadata with `north schema-seed`.")))
+  (println "(cardinality/value_kind/acyclic facts). Govern it with `north predicate` and `north schema-migrate`.")))
 
 (defrecord PredCount [pred n])
 
@@ -1201,11 +1167,11 @@
   (= kind "thread") "north capture -> src/north/main.bclj capture-facts (title, kind=thread, created_at, committed, …)"
   (= kind "concern") "concern declare -> cli/concern-cli.clj (put! kind=concern, intent, touches, reached)"
   (= kind "agent") "agent identity -> sdk/src/identity.ts writeIdentity + bin/north-on-spawn (tell agent:<id> kind/role/display_name)"
-  (= kind "billing-session") "human billing -> north clock in/out (src/north/main.bclj kind=client_session)"
-  (= kind "session-telemetry") "run/session telemetry -> sdk/src/telemetry.ts recordRun (kind=run) + bin/north-on-spawn (kind=session) + cli/presence-cli.clj (session leases)"
-  (= kind "msg") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"
-  (= kind "mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"
-  (= kind "predicate") "schema-as-facts -> north schema-seed (src/north/main.bclj cmd-schema-seed) / fram tell (cardinality/value_kind/acyclic)"
+  (= kind "client_session") "human billing -> north clock in/out (src/north/main.bclj kind=client_session)"
+  (= kind "run") "managed task telemetry -> sdk/src/telemetry.ts recordRun (kind=run)"
+  (= kind "message") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"
+  (= kind "north/mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"
+  (= kind "predicate") "executable schema -> north predicate define + north schema-migrate"
   (= kind "topic") "topic grouping anchors (topic- prefix)"
   :else "(writer not curated — grep the coordination log for this kind's writer)"))
 
@@ -1291,10 +1257,15 @@
   (= sub "projects") (cf/cmd-projects)
   (= sub "workspaces") (cf/cmd-workspaces)
   :else (println "usage: clock in <owner> | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed [--dry-run|--execute] | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <in|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <in|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
-  (if (and (not (empty? args)) (= (first args) "validate")) (cmd-validate log) (do
+  (cond
+  (and (not (empty? args)) (= (first args) "validate")) (cmd-validate log)
+  (and (not (empty? args)) (= (first args) "schema-seed")) (do
+  (cmd-schema-seed log (has-flag? args "--execute"))
+  2)
+  :else (do
   (run args threads-dir log)
   0)))
 

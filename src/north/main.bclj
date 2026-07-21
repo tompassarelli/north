@@ -111,21 +111,16 @@
   (if (> (count s) n) (str (subs s 0 (- n 1)) "…") s))
 
 ;; --- entity KIND: the census classifier ------------------------------------
-;; Every subject rolls up to one census bucket. Precedence: an explicit `kind`
-;; fact (concern-cli/session writers stamp it; north capture now stamps
-;; kind=thread) WINS; else a `title` means thread; else a subject-prefix
-;; heuristic; else the schema-as-facts predicate check; else other. The heuristic
-;; is a FALLBACK for the un-kinded legacy bulk — new entities self-identify, so it
-;; shrinks over time. Facts, not guesses, where the fact exists.
-(defn- kind-bucket [ek :- String] :- String
-  ;; canonicalize an explicit `kind` fact value into a census bucket; the
-  ;; run/session/lane telemetry kinds fold into the one loud session-telemetry blob.
+;; `entity_kind` is the structural authority and remains open: namespaced
+;; extensions are rendered exactly as stored. Legacy `kind`, reserved namespaces,
+;; shapes, and executable predicate metadata are migration-compatible fallbacks
+;; for subjects not yet stamped by schema-migrate.
+(defn- legacy-entity-kind [ek :- String] :- String
   (cond
-    [(= ek "concern") "concern"]
-    [(= ek "thread") "thread"]
-    [(= ek "mine") "mine"]
-    [(= ek "client_session") "billing-session"]
-    [(or (= ek "run") (or (= ek "session") (= ek "lane"))) "session-telemetry"]
+    [(or (= ek "lane") (or (= ek "managed") (= ek "session"))) "agent"]
+    [(or (= ek "msg") (= ek "command")) "message"]
+    [(= ek "mine") "north/mine"]
+    [(= ek "snapshot") "north/snapshot"]
     [:else ek]))
 
 ;; DEFINITIVE namespaces — a subject id in one of these is that kind regardless of
@@ -136,17 +131,15 @@
   (cond
     [(str/starts-with? bare "concern-") "concern"]
     [(str/starts-with? bare "agent:") "agent"]
-    [(str/starts-with? bare "msg:") "msg"]
+    [(or (str/starts-with? bare "msg:") (str/starts-with? bare "cmd:")) "message"]
     [(str/starts-with? bare "topic-") "topic"]
-    [(str/starts-with? bare "mine:") "mine"]
+    [(str/starts-with? bare "mine:") "north/mine"]
+    [(or (str/starts-with? bare "run-") (str/starts-with? bare "run:")) "run"]
     [(or (str/starts-with? bare "session:")
-         (or (str/starts-with? bare "sess-")
-             (or (str/starts-with? bare "run-")
-                 (or (str/starts-with? bare "snapshot:")
-                     (or (str/starts-with? bare "arena-")
-                         (or (str/starts-with? bare "cc-")
-                             (str/starts-with? bare "cmd:")))))))
-     "session-telemetry"]
+         (or (str/starts-with? bare "sess-") (str/starts-with? bare "cc-"))) "agent"]
+    [(str/starts-with? bare "denial:") "guard_denial"]
+    [(str/starts-with? bare "snapshot:") "north/snapshot"]
+    [(str/starts-with? bare "arena-") "north/arena_run"]
     [:else ""]))
 
 (defn- kind-of [idx :- k/Index te :- String?] :- String
@@ -155,20 +148,25 @@
   ;; subject in `other` instead of crashing before the operator can inspect it.
   (if (nil? te)
     "other"
-    (let [ek (k/one-i idx te "kind")]
-      (if (some? ek)
-        (kind-bucket ek)
-        (let [np (namespace-kind (short-id te))]
-          (if (not (str/blank? np))
-            np
-            (if (some? (k/one-i idx te "title"))
-              "thread"
-              ;; schema-as-facts predicate subject (cardinality/value_kind/acyclic)?
-              (if (or (some? (k/one-i idx te "cardinality"))
-                      (or (some? (k/one-i idx te "value_kind"))
-                          (some? (k/one-i idx te "acyclic"))))
-                "predicate"
-                "other"))))))))
+    (let [explicit (k/one-i idx te "entity_kind")]
+      (if (some? explicit)
+        explicit
+        (let [legacy (k/one-i idx te "kind")]
+          (if (some? legacy)
+            (legacy-entity-kind legacy)
+            (let [np (namespace-kind (short-id te))]
+              (if (not (str/blank? np))
+                np
+                (if (some? (k/one-i idx te "title"))
+                  "thread"
+                  (if (some? (k/one-i idx te "display_name"))
+                    "person"
+                    ;; schema-as-facts predicate subject (cardinality/value_kind/acyclic)?
+                    (if (or (some? (k/one-i idx te "cardinality"))
+                            (or (some? (k/one-i idx te "value_kind"))
+                                (some? (k/one-i idx te "acyclic"))))
+                      "predicate"
+                      "other")))))))))))
 
 ;; The human label for a thread's driver: its display_name if the agent carries
 ;; one, else the bare ref — board legibility (who's on what).
@@ -1708,84 +1706,13 @@
         (doseq [it ranked]
           (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
 
-;; --- schema-seed: predicate metadata AS facts (schema-as-facts) -----------
-;; Predicates are ENTITIES: subject "@<pred>" carries its own metadata facts
-;; (cardinality single|multi, value_kind ref|literal, acyclic true). fram's new
-;; precedence is fact > env > legacy fallback; this command derives the seed set
-;; from the CURRENT env vocab + the live log so the graph can carry what the env
-;; list carried, then it drops out. Writes go THROUGH the coordinator (same path
-;; as `tell`): the subject IS the @-prefixed predicate name.
-;;   (a) cardinality single for each pred in FRAM_SINGLE_VALUED (parsed from the
-;;       env at runtime — the SAME list bin/north exports; not duplicated here).
-;;       Every other live pred defaults multi and needs NO fact.
-;;   (b) acyclic true for depends_on and part_of.
-;;   (c) value_kind ref for preds whose live objects are ALL @-refs with >=1
-;;       occurrence (mirrors fram.tools/all-ref?); literal is the default, omitted.
-;; --dry-run (default) prints the exact fact list and writes nothing; --execute
-;; writes, but first aborts loudly if any predicate name collides with a live
-;; thread id (asserting @title on a real thread @title would pollute it).
-
-(defn- split-ws [s :- String] :- (Vec String)
-  (filterv (fn [w :- String] :- Bool (not (str/blank? w))) (vec (str/split s #"\s+"))))
-
-(defn- single-valued-preds [] :- (Vec String)
-  (split-ws (fram.rt/getenv-or "FRAM_SINGLE_VALUED" "")))
-
-;; Mirror fram.tools/all-ref?: pred appears >=1 time AND every object is an @-ref.
-(defn- all-ref? [facts :- (Vec k/Fact) pred :- String] :- Bool
-  (loop [cs facts seen false]
-    (if (empty? cs)
-      seen
-      (let [c (first cs)]
-        (if (= (:p c) pred)
-          (if (str/starts-with? (:r c) "@")
-            (recur (rest cs) true)
-            false)
-          (recur (rest cs) seen))))))
-
-(defn- distinct-preds [facts :- (Vec k/Fact)] :- (Vec String)
-  (reduce (fn [acc :- (Vec String) c :- k/Fact] :- (Vec String)
-            (if (k/vec-contains? acc (:p c)) acc (conj acc (:p c))))
-          [] facts))
-
-(defn- seed-facts [log :- String] :- (Vec k/Fact)
-  (let [facts (live-facts log)
-        card (mapv (fn [p :- String] :- k/Fact (k/->Fact (str "@" p) "cardinality" "single"))
-                   (single-valued-preds))
-        acyc (mapv (fn [p :- String] :- k/Fact (k/->Fact (str "@" p) "acyclic" "true"))
-                   ["depends_on" "part_of"])
-        refs (filterv (fn [p :- String] :- Bool (all-ref? facts p)) (distinct-preds facts))
-        vk (mapv (fn [p :- String] :- k/Fact (k/->Fact (str "@" p) "value_kind" "ref")) refs)]
-    (vec (concat card acyc vk))))
-
-(defn cmd-schema-seed [log :- String execute :- Bool] :- Nil
-  (let [seeds (seed-facts log)]
-    (if (not execute)
-      (do
-        (println (str "schema-seed DRY-RUN — " (count seeds) " fact(s); nothing written."))
-        (doseq [c seeds] (println (str "  tell " (:l c) " " (:p c) " " (:r c))))
-        (println "Run `north schema-seed --execute` (coordinator session) to write."))
-      (let [idx (live-idx log)
-            subs (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c)) seeds))
-            collisions (filterv (fn [s :- String] :- Bool (some? (k/one-i idx s "title"))) subs)]
-        (if (not (empty? collisions))
-          (do
-            (println (str "!!! schema-seed ABORTED — " (count collisions)
-                          " predicate name(s) collide with a live thread id."))
-            (println "    Writing predicate metadata onto these would pollute real threads:")
-            (doseq [s collisions] (println (str "      " s "  (has a `title` fact — is a thread)")))
-            (println "    No facts written. Rename the colliding thread(s) or exclude the pred(s)."))
-          (let [port (fram.rt/coord-port)
-                coord-v (fram.rt/coord-version-for-log port log)]
-            (if (< coord-v 0)
-              (println (coordinator-failure-message
-                        coord-v port log "schema seed was not recorded"))
-              (let [results (mapv (fn [c :- k/Fact] :- String
-                                    (tell-retry port log "assert" (:l c) (:p c) (:r c) 5))
-                                  seeds)
-                    oks (count (filterv (fn [r :- String] :- Bool (str/starts-with? r "ok:")) results))]
-                (println (str "schema-seed EXECUTED — " oks "/" (count seeds)
-                              " fact(s) committed via coordinator."))))))))))
+;; Historical compatibility only. The env-derived schema-seed writer was a
+;; second, incomplete authority and is permanently non-mutating. The exact-fold
+;; schema-migrate command owns cutover, audit, collision checks, and receipts.
+(defn cmd-schema-seed [_log :- String _execute :- Bool] :- Nil
+  (do
+    (println "schema-seed RETIRED — no facts were written.")
+    (println "Use `north schema-migrate plan`, then maintenance-approved `migrate --execute`, and `audit --strict`.")))
 
 ;; --- tools: NORTH's curated tool surface (NOT the generated per-predicate one) -
 ;; fram's engine dispatch would print the generated per-predicate catalog; north
@@ -1795,7 +1722,7 @@
   (do
     (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
     (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
-    (println "  vocabulary : schema (census by kind) · schema-seed (declare predicate metadata)")
+    (println "  vocabulary : schema (census by kind) · predicate (executable metadata) · schema-migrate (cutover/audit)")
     (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
     (println "  time       : clock in <owner>|out|status|report  (start/stop remain compatible)")
     (println "  agents     : dispatch · spawn")
@@ -1803,9 +1730,9 @@
     (println "")
     (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
     (println "Vocabulary is DATA, not tools: `north show <pred>` reveals a predicate's metadata")
-    (println "(cardinality/value_kind/acyclic facts). Seed that metadata with `north schema-seed`.")))
+    (println "(cardinality/value_kind/acyclic facts). Govern it with `north predicate` and `north schema-migrate`.")))
 
-;; --- schema: the vocabulary census (READ side; schema-seed is the WRITE side) --
+;; --- schema: the vocabulary census (generated from graph authority) ----------
 ;; "What schemas exist in north?" answered as a standing tool: subjects + live-fact
 ;; counts grouped by entity kind (kind-of), top predicates per kind, and the
 ;; declared predicate metadata (cardinality/value_kind/acyclic — schema-as-facts).
@@ -1901,8 +1828,8 @@
                          (pad7 (- 9999999 (:subs fs))) "|" (:pred fs)))
                   stats))))
 
-;; declared cardinality/value_kind for a predicate, if present (schema-seed writes
-;; @<pred> subjects; tolerate a bare <pred> subject too). Blank when undeclared.
+;; declared cardinality/value_kind for a predicate, if present (schema-migrate and
+;; predicate define write @<pred> subjects; tolerate a bare legacy subject too).
 (defn- pred-ann [idx :- k/Index p :- String] :- String
   (let [ps (if (or (some? (k/one-i idx (str "@" p) "cardinality"))
                    (some? (k/one-i idx (str "@" p) "value_kind")))
@@ -1919,11 +1846,11 @@
     [(= kind "thread") "north capture -> src/north/main.bclj capture-facts (title, kind=thread, created_at, committed, …)"]
     [(= kind "concern") "concern declare -> cli/concern-cli.clj (put! kind=concern, intent, touches, reached)"]
     [(= kind "agent") "agent identity -> sdk/src/identity.ts writeIdentity + bin/north-on-spawn (tell agent:<id> kind/role/display_name)"]
-    [(= kind "billing-session") "human billing -> north clock in/out (src/north/main.bclj kind=client_session)"]
-    [(= kind "session-telemetry") "run/session telemetry -> sdk/src/telemetry.ts recordRun (kind=run) + bin/north-on-spawn (kind=session) + cli/presence-cli.clj (session leases)"]
-    [(= kind "msg") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"]
-    [(= kind "mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"]
-    [(= kind "predicate") "schema-as-facts -> north schema-seed (src/north/main.bclj cmd-schema-seed) / fram tell (cardinality/value_kind/acyclic)"]
+    [(= kind "client_session") "human billing -> north clock in/out (src/north/main.bclj kind=client_session)"]
+    [(= kind "run") "managed task telemetry -> sdk/src/telemetry.ts recordRun (kind=run)"]
+    [(= kind "message") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"]
+    [(= kind "north/mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"]
+    [(= kind "predicate") "executable schema -> north predicate define + north schema-migrate"]
     [(= kind "topic") "topic grouping anchors (topic- prefix)"]
     [:else "(writer not curated — grep the coordination log for this kind's writer)"]))
 
@@ -2054,17 +1981,17 @@
            [(= sub "projects")   (cf/cmd-projects)]
            [(= sub "workspaces") (cf/cmd-workspaces)]
            [:else (println "usage: clock in <owner> | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")]))]
-      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed [--dry-run|--execute] | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <in|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
+      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <in|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
 
 ;; Composable command boundary: returns the exact validation status without
-;; terminating its host process; all other current commands succeed after their
-;; normal `run` side effects. `_main` alone maps a nonzero result to OS exit.
+;; terminating its host process. Retired schema-seed is a deliberate compatibility
+;; refusal (2); other commands succeed after their normal `run` side effects.
 (defn run-status [args :- (Vec String) threads-dir :- String log :- String] :- Int
-  (if (and (not (empty? args)) (= (first args) "validate"))
-    (cmd-validate log)
-    (do
-      (run args threads-dir log)
-      0)))
+  (cond
+    [(and (not (empty? args)) (= (first args) "validate")) (cmd-validate log)]
+    [(and (not (empty? args)) (= (first args) "schema-seed"))
+     (do (cmd-schema-seed log (has-flag? args "--execute")) 2)]
+    [:else (do (run args threads-dir log) 0)]))
 
 (defn -main [& args] :- Nil
   (let [argv (vec args)

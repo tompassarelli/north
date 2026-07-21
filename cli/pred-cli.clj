@@ -1,25 +1,22 @@
-;; pred-cli.clj — North's DESCRIPTIVE @pred:* predicate catalog. Predicates
-;; become first-class @pred:<name> entities carrying pred_cardinality /
-;; pred_value_kind / doc / minted_by / minted_at facts, with same_as alias edges
-;; so a content-addressed rename never orphans history. The values intentionally
-;; reuse Fram's single|multi / literal|ref vocabulary, but the catalog is not
-;; Fram's executable schema.
+;; pred-cli.clj — the human and lint surface over Fram's executable predicate
+;; entities.  A predicate named p is represented only by @p; cardinality,
+;; value_kind, acyclic, doc, entity_kind, and extension metadata all live there.
+;; The historical @pred:p descriptive registry is intentionally never read.
 ;;
-;; SCOPE NOTE: seeding or defining an @pred:* row does NOT declare cardinality or
-;; reference integrity to Fram. Executable schema is authored separately as
-;; @<predicate> cardinality/value_kind facts (or supplied by an explicit legacy
-;; fallback). Writers that require replacement semantics must therefore use an
-;; executable declaration or explicitly retract old values. This catalog records
-;; North's intended public semantics and drives documentation/drift checks only.
+;; VOCAB below is migration bootstrap material, not a second live authority.
+;; `seed` fills those values into executable entities. Connected reads, census,
+;; and strict lint use only graph facts; `lint-offline` is the deliberately weak
+;; bootstrap-only source check for CI without a coordinator.
 ;;
 ;; usage:
 ;;   bb pred-cli.clj <port> seed                                  register the whole vocabulary ONCE
 ;;   bb pred-cli.clj <port> define <name> <single|multi> <literal|ref> ["doc"] [minted_by]
-;;   bb pred-cli.clj <port> alias  <old-name> <new-name>          @pred:<old> same_as @pred:<new>
-;;   bb pred-cli.clj <port> ls                                    every registered predicate
-;;   bb pred-cli.clj <port> show   <name>                         one predicate (alias-resolved)
-;;   bb pred-cli.clj <port> lint   [--strict]                     flag production cli/*.clj predicate literals with no registry entry
-;;   bb pred-cli.clj <port> census [logpath] [--strict]           fold the live coordination log; flag live literal predicates with no registry entry
+;;   bb pred-cli.clj <port> alias  ...                            rejected: executable predicate aliases are unsound
+;;   bb pred-cli.clj <port> ls                                    graph-generated schema projection
+;;   bb pred-cli.clj <port> show   <name>                         one exact executable predicate
+;;   bb pred-cli.clj <port> lint   [--strict]                     compare source literals with graph authority
+;;   bb pred-cli.clj <port> lint-offline [--strict]               weak bootstrap-only source check
+;;   bb pred-cli.clj <port> census [logpath] [--strict]           compare log literals with graph authority
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str] '[clojure.walk :as walk])
 
 ;; shared coord substrate (Foundation Part B): the wire helpers live once in cli/coord.clj.
@@ -31,36 +28,65 @@
 (def resolved north.coord/resolved)
 (def many     north.coord/many)
 
-(def PRED-NS "@pred:")
-(defn pred-ent  [nm]  (str PRED-NS nm))
-(defn pred-name [ent] (let [s (str ent)] (if (str/starts-with? s PRED-NS) (subs s (count PRED-NS)) s)))
+(defn pred-ent [nm] (str "@" nm))
+(defn pred-name [ent]
+  (let [s (str ent)] (if (str/starts-with? s "@") (subs s 1) s)))
 
-;; single-valued registry field = clear current values, then put! (LWW). The
-;; pred_cardinality / pred_value_kind / doc / minted_* fields aren't in the engine's
-;; single set, so a bare write would ACCUMULATE — supersede EXPLICITLY (retract loop),
-;; uniform regardless of engine cardinality. same_as is multi (plain append!).
+;; Predicate subjects are not thread/name-resolvable. Query the exact subject.
+(defn exact-values [port subject predicate]
+  (->> (:ok (send-op port {:op :query
+                           :query {:find "v"
+                                   :rules [{:head {:rel "v" :args [{:var "v"}]}
+                                            :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}}))
+       (map first)))
+
+(defn exact-one [port subject predicate]
+  (first (exact-values port subject predicate)))
+
+(defn exact-facts [port subject]
+  (->> (:ok (send-op port {:op :query
+                           :query {:find "p,v"
+                                   :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
+                                            :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]}}))
+       (map (fn [row] [(nth row 0) (nth row 1)]))
+       (sort-by (juxt first second))))
+
+;; Supersede explicitly so bootstrap works even before the meta-predicates have
+;; acquired their own executable cardinality facts in this same seed operation.
 (defn set-1! [port te p v]
-  (doseq [old (many port te p)] (retract! port te p old))
+  (doseq [old (exact-values port te p)] (retract! port te p old))
   (put! port te p (str v)))
 
 ;; ============================================================================
-;; VOCAB — the authoritative registry definition, seeded ONCE. [name card kind doc]
+;; VOCAB — bootstrap + offline lint inventory. [name card kind doc]
 ;; Drawn from the cross-language writer inventory: Clojure coordination CLIs,
 ;; SDK identity/run/lifecycle telemetry, native hooks, and the Linear bridge.
 ;; ref = the object is an @-ref to another entity; literal = an interned value.
 ;; ============================================================================
 (def VOCAB
-  [;; --- registry meta-predicates (the registry describes itself) ---
-   ;; NOTE: stored under pred_cardinality / pred_value_kind, NOT bare
-   ;; cardinality / value_kind. Those are executable Fram schema writes; using
-   ;; them here would declare the catalog entity `pred:X`, not describe North's
-   ;; domain predicate X. The value vocabulary is intentionally the same.
+  [;; --- executable schema meta-predicates (the schema describes itself) ---
+   ["cardinality" "single" "literal" "executable Fram cardinality: single or multi"]
+   ["value_kind" "single" "literal" "executable Fram object kind: literal or ref"]
+   ["acyclic" "single" "literal" "true makes a ref-valued edge cycle-free"]
+   ["entity_kind" "single" "literal" "open structural taxonomy; extensions use namespace/name"]
+   ["entity_kind_name" "single" "literal" "canonical value represented by an @entity-kind:* definition"]
+   ;; Historical @pred:* facts remain ordinary data until a later archival pass;
+   ;; registering their predicates here makes that history schema-complete without
+   ;; making it authoritative.
    ["pred_cardinality" "single" "literal" "single|multi — is this predicate single-valued?"]
    ["pred_value_kind"  "single" "literal" "literal|ref — interned value vs @-ref object"]
    ["doc"         "single" "literal" "human description of a predicate"]
    ["minted_by"   "single" "literal" "who registered this predicate"]
    ["minted_at"   "single" "literal" "instant the predicate was registered"]
-   ["same_as"     "multi"  "ref"     "alias edge: this @pred:* is the same predicate as the target (content-addressed rename)"]
+   ["same_as"     "multi"  "ref"     "historical descriptive-alias edge; executable predicate identity never follows it"]
+   ;; Cross-cutting operational predicates discovered by strict source lint.
+   ["burn_limit_microusd_per_hour" "single" "literal" "maximum reserved spend burn admitted per rolling hour"]
+   ["forced" "single" "literal" "whether an operator explicitly forced a guarded reset"]
+   ["lane" "single" "literal" "managed lane identifier associated with a resource reservation"]
+   ["period" "single" "literal" "budget/accounting period identifier"]
+   ["pid" "single" "literal" "operating-system process id associated with a live reservation"]
+   ["reserved_microusd" "single" "literal" "currently reserved spend in integer micro-USD"]
+   ["preflight_cause" "single" "literal" "typed terminal cause when provider execution ended during preflight"]
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]
@@ -405,47 +431,45 @@
    {:id "legacy-runmeta" :path "cli/presence-cli.clj"
     :reason "legacy runmeta accepts extension fields; fixed SDK run telemetry does not"}
    {:id "registry-define" :path "cli/pred-cli.clj"
-    :reason "operators may explicitly register an additional descriptive predicate"}])
+    :reason "operators may explicitly define an additional executable predicate entity"}])
 
 (def VOCAB-CARD (into {} (map (fn [[n c k d]] [n {:card c :kind k :doc d}]) VOCAB)))
 
 ;; ---- registry reads ----
 (defn register! [port nm card kind doc minter]
   (let [e (pred-ent nm)]
-    (set-1! port e "pred_cardinality" card)   ; NOT "cardinality" — engine-reserved, see VOCAB note
-    (set-1! port e "pred_value_kind"  kind)
+    (set-1! port e "cardinality" card)
+    (set-1! port e "value_kind" kind)
     (when (seq (str doc)) (set-1! port e "doc" doc))
+    (set-1! port e "entity_kind" "predicate")
     (set-1! port e "minted_by" (or minter "pred-cli"))
     (set-1! port e "minted_at" (str (java.time.Instant/now)))
     e))
 
-;; follow same_as transitively to the canonical entry (seen-set bounded, so an
-;; accidental alias cycle terminates rather than spins).
-(defn canonical [port nm]
-  (loop [cur nm seen #{}]
-    (if (contains? seen cur)
-      cur
-      (if-let [al (first (many port (pred-ent cur) "same_as"))]
-        (recur (pred-name al) (conj seen cur))
-        cur))))
+;; Executable predicate identity is exact.  A same_as edge cannot make Fram use
+;; another entity's cardinality, so aliases are never followed here.
+(defn canonical [_port nm] nm)
 
-;; every @pred:<name> that has a cardinality fact in the live graph.
+;; Every executable @<name> carrying cardinality in the live graph.  Colon-bearing
+;; subjects are entity namespaces (@agent:*, @entity-kind:*), not predicate names.
 (defn graph-pred-names [port]
   (->> (:ok (send-op port {:op :query
                            :query {:find "e"
                                    :rules [{:head {:rel "e" :args [{:var "e"}]}
-                                            :body [{:rel "triple" :args [{:var "e"} "pred_cardinality" {:var "_"}]}]}]}}))
+                                            :body [{:rel "triple" :args [{:var "e"} "cardinality" {:var "_"}]}]}]}}))
        (map first)
-       (filter #(str/starts-with? (str %) PRED-NS))
+       (filter #(and (str/starts-with? (str %) "@")
+                     (not (str/includes? (str %) ":"))))
        (map pred-name)
        set))
 
-;; registry membership for lint = the in-code VOCAB ∪ whatever is live in the graph.
-;; VOCAB alone makes lint work offline (CI without a seeded daemon); the graph union
-;; reflects predicates registered at runtime via `define`.
+;; The connected registry is generated solely from executable graph entities.
+;; Keeping the bootstrap set separately makes its weaker, migration-only role
+;; mechanically visible to callers and tests.
+(def BOOTSTRAP-SET (set (keys VOCAB-CARD)))
+
 (defn registry-set [port]
-  (into (set (keys VOCAB-CARD))
-        (try (graph-pred-names port) (catch Exception _ #{}))))
+  (graph-pred-names port))
 
 ;; ============================================================================
 ;; structural predicate extraction — the local lint engine. Read each production
@@ -495,20 +519,14 @@
     @acc))
 
 ;; ============================================================================
-;; CENSUS — fold the PHYSICAL coordination log and surface every descriptive
-;; domain literal predicate in live use with no registry entry. This is an exact
-;; log fold (never a daemon query) so live telemetry in the sibling telemetry.log
-;; cannot contaminate the coordination-predicate census. A value is literal when
-;; it is not an @-ref; a blank predicate from a torn read of the live tail is
-;; ignored. Fram executable-schema declarations (cardinality / value_kind /
-;; acyclic) describe predicate ENTITIES, not domain data, and are deliberately
-;; NOT descriptive-catalog members (see SCOPE NOTE above + the parity test that
-;; forbids cardinality/value_kind in VOCAB) — the census excludes them.
+;; CENSUS — lightweight source/log inventory. The authoritative strict audit is
+;; schema-migrate.clj, which reuses Fram's exact two-pass fold across both corpus
+;; logs. This literal-only view never decides runtime schema semantics.
 ;;
 ;; A predicate name is registrable only if it is a bare identifier — the `define`
 ;; verb and every wire writer produce such names. A torn merge write can leave a
 ;; garbage predicate (e.g. a literal two-quote-char string) that can NEVER become
-;; a @pred:* entry; the fold skips it rather than reporting an un-fixable miss,
+;; an executable @<predicate> entity; the fold skips it rather than reporting an un-fixable miss,
 ;; and `census` prints the skipped set so the corruption stays visible.
 ;; ============================================================================
 (def FRAM-SCHEMA-PREDICATES #{"cardinality" "value_kind" "acyclic"})
@@ -540,68 +558,64 @@
   (case verb
     "seed"
     (do (doseq [[n c k d] VOCAB] (register! port n c k d "seed"))
-        (println (str "✓ seeded " (count VOCAB) " predicates into the @pred:* registry on :" port)))
+        (println (str "✓ seeded " (count VOCAB) " executable predicate entities on :" port)))
 
     "define"
     (let [[nm card kind doc minter] args]
-      (when-not (and nm (#{"single" "multi"} card) (#{"literal" "ref"} kind))
+      (when-not (and nm
+                     (re-matches #"^[A-Za-z][A-Za-z0-9_-]*(?:/[A-Za-z][A-Za-z0-9_-]*)?$" nm)
+                     (#{"single" "multi"} card) (#{"literal" "ref"} kind))
         (println "usage: pred-cli.clj <port> define <name> <single|multi> <literal|ref> [\"doc\"] [minted_by]")
         (System/exit 2))
       (let [e (register! port nm card kind doc minter)]
         (println (str "✓ " e "  cardinality=" card " value_kind=" kind (when (seq (str doc)) (str " doc=" (pr-str doc)))))))
 
     "alias"
-    (let [[old new] args]
-      (when-not (and old new)
-        (println "usage: pred-cli.clj <port> alias <old-name> <new-name>") (System/exit 2))
-      (append! port (pred-ent old) "same_as" (pred-ent new))   ; multi (alias edges accumulate)
-      (println (str "✓ " (pred-ent old) " same_as " (pred-ent new) "  (reads of '" old "' now resolve to '" new "')")))
+    (do
+      (binding [*out* *err*]
+        (println "predicate alias REFUSED — Fram executes the exact @<predicate> entity; migrate fact uses explicitly instead"))
+      (System/exit 2))
 
     "ls"
     (let [names (sort (registry-set port))]
-      (println (format "@pred:* REGISTRY — %d predicates on :%d" (count names) port))
-      (println (format "  %-24s %-7s %-8s %s" "NAME" "CARD" "KIND" "DOC"))
+      (println (format "EXECUTABLE PREDICATES — %d on :%d" (count names) port))
+      (println (format "  %-28s %-7s %-8s %s" "NAME" "CARD" "KIND" "DOC"))
       (doseq [nm names]
-        (let [c (pred-ent (canonical port nm)), v (VOCAB-CARD nm)
-              card (or (resolved port c "pred_cardinality") (:card v) "?")
-              kind (or (resolved port c "pred_value_kind")  (:kind v) "?")
-              doc  (or (resolved port c "doc")              (:doc  v) "")]
-          (println (format "  %-24s %-7s %-8s %s" nm card kind doc)))))
+        (let [entity (pred-ent nm)
+              card (or (exact-one port entity "cardinality") "?")
+              kind (or (exact-one port entity "value_kind") "?")
+              doc (or (exact-one port entity "doc") "")]
+          (println (format "  %-28s %-7s %-8s %s" nm card kind doc)))))
 
     "show"
-    (let [[nm] args
-          canon (canonical port nm)
-          c (pred-ent canon)]
+    (let [[nm] args]
       (when-not nm (println "usage: pred-cli.clj <port> show <name>") (System/exit 2))
-      (println (str (pred-ent nm) (when (not= canon nm) (str "  ──same_as──▶  " (pred-ent canon)))))
-      (let [labels {"pred_cardinality" :card "pred_value_kind" :kind "doc" :doc}, v (VOCAB-CARD canon)]
-        (doseq [p ["pred_cardinality" "pred_value_kind" "doc" "minted_by" "minted_at"]]
-          (println (format "  %-17s %s" p (or (resolved port c p) (some-> (labels p) v) "-")))))
-      (let [fwd (many port (pred-ent nm) "same_as")
-            rev (->> (:ok (send-op port {:op :query
-                          :query {:find "e" :rules [{:head {:rel "e" :args [{:var "e"}]}
-                                   :body [{:rel "triple" :args [{:var "e"} "same_as" (pred-ent nm)]}]}]}}))
-                     (map first))]
-        (when (seq fwd) (println (str "  aliases  →  " (str/join ", " fwd))))
-        (when (seq rev) (println (str "  aliased ← by  " (str/join ", " rev))))))
+      (let [entity (pred-ent nm)
+            graph (exact-facts port entity)
+            predicates (distinct (concat ["cardinality" "value_kind" "acyclic" "doc" "entity_kind"]
+                                         (map first graph)))]
+        (println entity)
+        (doseq [predicate predicates]
+          (let [values (vec (exact-values port entity predicate))
+                rendered (if (seq values) (str/join " · " values) "-")]
+            (println (format "  %-17s %s" predicate rendered))))))
 
     "census"
     (let [strict (some #{"--strict"} args)
           logpath (or (first (remove #{"--strict"} args)) (north.coord/expected-log))
           reg (registry-set port)
           {:keys [counts skipped]} (census-literal-preds logpath)
-          used (set (keys counts))
-          misses (->> used (remove reg) sort)]
-      (println (format "predicate census — %d distinct literal predicate(s) in %s; registry has %d entries"
-                       (count used) logpath (count reg)))
+          misses (->> (keys counts) (remove reg) sort)]
+      (println (format "predicate source census — %d literal predicate(s) in %s; %d graph-authoritative names"
+                       (count counts) logpath (count reg)))
       (when (seq skipped)
         (println (str "  ⚠ " (count skipped) " non-registrable predicate name(s) skipped (torn/garbage writes):"))
         (doseq [p (sort (keys skipped))] (println (format "    %-28s %d assertion(s)" (pr-str p) (skipped p)))))
       (if (empty? misses)
-        (println "  ✓ zero unregistered live literal predicates")
-        (do (println (str "  ✗ " (count misses) " unregistered live literal predicate(s):"))
+        (println "  ✓ every observed literal predicate has an executable graph declaration")
+        (do (println (str "  ✗ " (count misses) " predicate(s) lack an executable graph declaration:"))
             (doseq [p misses] (println (format "    %-28s %d assertion(s)" p (counts p))))
-            (println "  -> register each with `pred-cli.clj <port> define <name> <card> <kind>`")
+            (println "  -> run `north schema-migrate migrate --execute`; authoritative strict audit is `north schema-migrate audit --strict`")
             (when strict (System/exit 1)))))
 
     "lint"
@@ -609,14 +623,27 @@
           reg (registry-set port)
           used (scan-preds)
           misses (->> used (remove (fn [[p _]] (contains? reg p))) (sort-by first))]
-      (println (format "pred lint — %d predicate literals across %d files, registry has %d entries"
+      (println (format "pred lint — %d predicate literals across %d files, %d graph-authoritative names"
                        (count used) (count (lint-files)) (count reg)))
       (if (empty? misses)
-        (println "  ✓ clean — every predicate-position literal has a @pred:* registry entry")
-        (do (println (str "  ✗ " (count misses) " predicate literal(s) with NO registry entry:"))
+        (println "  ✓ clean — every predicate-position literal has an executable graph declaration")
+        (do (println (str "  ✗ " (count misses) " predicate literal(s) with NO entry:"))
             (doseq [[p fs] misses] (println (format "    %-24s used in %s" p (str/join "," (sort fs)))))
-            (println "  -> add each with `pred-cli.clj <port> define <name> <card> <kind>` (or seed)")
+            (println "  -> run `north schema-migrate migrate --execute` or `pred-cli.clj <port> define ...`")
             (when strict (System/exit 1)))))
 
-    (do (println "usage: pred-cli.clj <port> {seed | define <n> <card> <kind> [doc] | alias <old> <new> | ls | show <n> | lint [--strict] | census [logpath] [--strict]}")
+    "lint-offline"
+    (let [strict (some #{"--strict"} args)
+          used (scan-preds)
+          misses (->> used (remove (fn [[p _]] (contains? BOOTSTRAP-SET p))) (sort-by first))]
+      (println (format "pred lint-offline (WEAK, BOOTSTRAP-ONLY) — %d predicate literals across %d files, %d bootstrap names"
+                       (count used) (count (lint-files)) (count BOOTSTRAP-SET)))
+      (if (empty? misses)
+        (println "  ✓ clean against migration bootstrap inventory (not a runtime schema verdict)")
+        (do (println (str "  ✗ " (count misses) " predicate literal(s) absent from migration bootstrap:"))
+            (doseq [[p fs] misses] (println (format "    %-24s used in %s" p (str/join "," (sort fs)))))
+            (println "  -> add bootstrap material only if the predicate is intentional; runtime authority remains the graph")
+            (when strict (System/exit 1)))))
+
+    (do (println "usage: pred-cli.clj <port> {seed | define <n> <card> <kind> [doc] | alias (refused) | ls | show <n> | lint [--strict] | lint-offline [--strict] | census [logpath] [--strict]}")
         (System/exit 2))))
