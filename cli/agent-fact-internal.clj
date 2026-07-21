@@ -513,6 +513,70 @@
   (validate-reported-run! port subject facts)
   (publish-terminal! port subject facts))
 
+(defn terminal-thread [raw]
+  (when-not (str/blank? raw)
+    (let [bare (str/replace-first raw #"^@" "")]
+      (when-not (and (= raw (str/trim raw))
+                     (<= (count bare) 512)
+                     (re-matches #"[A-Za-z0-9][A-Za-z0-9._:-]*" bare))
+        (fail! "invalid managed terminal thread id" {:thread raw}))
+      (str "@" bare))))
+
+(defn settle-terminal-cleanup!
+  "Withdraw every ephemeral lifecycle claim owned by SUBJECT. This runs under
+   the same recoverable logical terminal operation as the durable projection.
+   Every mutation is exact/idempotent: a replay cannot erase a successor's
+   driver or another holder's presence lease."
+  [port subject thread]
+  (let [agent-id (subs subject (count "@agent:"))
+        presence-resource (str "session:" agent-id)
+        presence-result
+        (north.coord/send-op
+         port {:op :release-lease :res presence-resource :holder agent-id})]
+    (checked! presence-result [:release-terminal-presence presence-resource])
+    (when (= agent-id (:holder (north.coord/lease-of port presence-resource)))
+      (fail! "managed terminal presence withdrawal was not acknowledged"
+             {:subject subject :resource presence-resource})))
+  (when thread
+    (let [driver subject
+          current (set (north.coord/many port thread "driver"))]
+      (when (contains? current driver)
+        (checked! (north.coord/retract-with-fence!
+                   port *write-lease* thread "driver" driver)
+                  [:retract-terminal-driver thread driver]))
+      (when (contains? (set (north.coord/many port thread "driver")) driver)
+        (fail! "managed terminal driver withdrawal was not acknowledged"
+               {:subject subject :thread thread :driver driver})))))
+
+(defn publish-managed-terminal!
+  "Publish a recoverable terminal generation with its terminal marker LAST,
+   after presence and exact driver withdrawal. Unlike the legacy replacement
+   verb, a managed terminal never rolls back: any killed durable prefix is
+   markerless and the same logical operation reconstructs it on replay."
+  [port subject facts thread]
+  (let [before (facts-of port subject)]
+    (retract-values! port subject terminal-marker-predicate
+                     (get before terminal-marker-predicate #{}))
+    (doseq [predicate terminal-retraction-order]
+      (retract-values! port subject predicate (get before predicate #{})))
+    (doseq [predicate terminal-publication-order
+            :let [value (get facts predicate)]
+            :when value]
+      (checked! (north.coord/put-with-fence!
+                 port *write-lease* subject predicate value)
+                [:put-managed-terminal-with-fence subject predicate value]))
+    (verify-exact! port subject facts terminal-predicates)
+    (validate-reported-run! port subject facts)
+    (settle-terminal-cleanup! port subject thread)
+    (terminal-marker!
+     port subject facts
+     (fn []
+       (verify-exact! port subject facts terminal-predicates)
+       (validate-reported-run! port subject facts)
+       ;; A late activity renewal or driver mutation must invalidate this
+       ;; marker attempt rather than bless a terminal with live ownership.
+       (settle-terminal-cleanup! port subject thread)))))
+
 (defn identity-marker [facts]
   (sha256
    (canonical
@@ -805,17 +869,24 @@
         terminal-predicates)))
 
 (defn recover-terminal-write!
-  [port subject operation-id desired expected-identity]
+  [port subject operation-id desired expected-identity thread]
   (validate-terminal! subject desired)
   (validate-reported-run! port subject desired)
   (let [before (facts-of port subject)
         current (committed-identity before)]
     (cond
       (exact-committed-terminal? subject before desired)
-      (committed-result operation-id "exact_replay")
+      (do
+        (settle-terminal-cleanup! port subject thread)
+        (committed-result operation-id "exact_replay"))
 
       (valid-committed-terminal? subject before)
-      (unresolved-result "not_committed" operation-id "conflicting_terminal")
+      (do
+        ;; The lane is irrevocably terminal even if this caller carried a stale
+        ;; terminal body. Heal its ephemeral ownership without rewriting the
+        ;; already-committed terminal generation.
+        (settle-terminal-cleanup! port subject thread)
+        (unresolved-result "not_committed" operation-id "conflicting_terminal"))
 
       (not (and current expected-identity
                 (identity-matches-except?
@@ -824,7 +895,7 @@
 
       (terminal-prefix-compatible? before desired)
       (do
-        (publish-terminal! port subject desired)
+        (publish-managed-terminal! port subject desired thread)
         (committed-result operation-id
                           (when (terminal-projection-present? before)
                             "recovered_killed_prefix")))
@@ -997,9 +1068,10 @@
   (when-not (str/blank? raw) (payload raw)))
 
 (let [[port-s operation subject raw supplied-holder supplied-operation-id
-       desired-raw expected-raw] *command-line-args*
+       desired-raw expected-raw terminal-thread-raw] *command-line-args*
       port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
       subject (entity subject)
+      terminal-thread (terminal-thread terminal-thread-raw)
       managed-recovery? (not (str/blank? supplied-operation-id))
       operation-id (or supplied-operation-id (str (java.util.UUID/randomUUID)))
       _ (when-not (re-matches uuid-v4-pattern operation-id)
@@ -1023,7 +1095,7 @@
           "retask" (retask! port subject (payload raw))
           "terminal" (if managed-recovery?
                        (recover-terminal-write!
-                        port subject operation-id (payload raw) expected)
+                        port subject operation-id (payload raw) expected terminal-thread)
                        (terminal! port subject (payload raw)))
           (fail! "internal agent fact operation must be publish, route, retask, terminal, or attest"
                  {:operation operation})))

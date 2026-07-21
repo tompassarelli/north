@@ -48,6 +48,7 @@ test("commit-unknown retry reuses one logical operation and lifecycle holder", (
     blockedTerminal,
     200,
     runtime,
+    "@lost-ack-thread",
   );
 
   expect(status).toBe("recorded");
@@ -58,6 +59,7 @@ test("commit-unknown retry reuses one logical operation and lifecycle holder", (
     /^managed-agent-writer:[0-9a-f-]{36}$/,
   );
   expect(attempts[0]?.args[6]).toMatch(/^[0-9a-f-]{36}$/);
+  expect(attempts[0]?.args[9]).toBe("@lost-ack-thread");
 });
 
 test("real writer subprocess parses one typed acknowledgement under a measured startup bar", () => {

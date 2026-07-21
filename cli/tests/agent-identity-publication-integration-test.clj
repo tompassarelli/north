@@ -45,22 +45,26 @@
                             "bb" writer (str port) operation subject value)]
      {:exit (:exit result) :out (:out result) :err (:err result)})))
 (defn run-managed-writer
-  [port operation subject value holder operation-id desired expected]
-  (let [result
-        (proc/shell
-         {:out :string :err :string :continue true
-          :extra-env {"FRAM_LOG" @test-log}}
-         "bb" writer (str port) operation subject value holder operation-id
-         (if desired (json/generate-string desired) "")
-         (if expected (json/generate-string expected) ""))]
-    {:exit (:exit result)
-     :out (:out result)
-     :err (:err result)
-     :result
-     (try
-       (:result (json/parse-string
-                 (or (last (str/split-lines (:out result))) "") true))
-       (catch Throwable _ nil))}))
+  ([port operation subject value holder operation-id desired expected]
+   (run-managed-writer
+    port operation subject value holder operation-id desired expected ""))
+  ([port operation subject value holder operation-id desired expected terminal-thread]
+   (let [result
+         (proc/shell
+          {:out :string :err :string :continue true
+           :extra-env {"FRAM_LOG" @test-log}}
+          "bb" writer (str port) operation subject value holder operation-id
+          (if desired (json/generate-string desired) "")
+          (if expected (json/generate-string expected) "")
+          terminal-thread)]
+     {:exit (:exit result)
+      :out (:out result)
+      :err (:err result)
+      :result
+      (try
+        (:result (json/parse-string
+                  (or (last (str/split-lines (:out result))) "") true))
+        (catch Throwable _ nil))})))
 (defn entity-facts [port subject]
   (let [rows (:ok (north.coord/send-op
                    port {:op :query
@@ -204,6 +208,23 @@
     (case operation
       :put (north.coord/append! port subject predicate value)
       :retract (north.coord/retract! port subject predicate value))))
+
+(defn apply-terminal-lifecycle-prefix!
+  [port subject thread terminal operations prefix-count]
+  (let [agent-id (subs subject (count "@agent:"))]
+    (doseq [[operation predicate value] (take prefix-count operations)]
+      (case operation
+        :put (north.coord/append! port subject predicate value)
+        :release-presence
+        (north.coord/send-op
+         port {:op :release-lease :res (str "session:" agent-id)
+               :holder agent-id})
+        :release-driver
+        (north.coord/retract! port thread "driver" subject)
+        :marker
+        (north.coord/append!
+         port subject "terminal_manifest_sha256"
+         (north.terminal-projection/terminal-manifest-sha256 terminal))))))
 
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
@@ -1106,6 +1127,141 @@
                   (= "retasked before terminal" (get stored "goal"))
                   (= (north.terminal-projection/terminal-manifest-sha256 terminal)
                      (get stored "terminal_manifest_sha256")))))
+
+    ;; Exact production incident: provider preflight rejects after identity and
+    ;; presence publication. Terminal commit must make the lane disappear now,
+    ;; release only its own driver, and permit immediate thread reuse.
+    (let [agent-id "managed-blocked-preflight-cleanup"
+          subject (str "@agent:" agent-id)
+          thread "@managed-blocked-preflight-thread"
+          successor "managed-blocked-preflight-successor"
+          terminal
+          {"outcome" "blocked_preflight"
+           "process_outcome" "blocked_preflight"
+           "delivery_outcome" "blocked"
+           "delivery_reason" "execution_preflight_blocked"}
+          holder "managed-agent-writer:00000000-0000-4000-8000-000000000140"
+          operation-id "00000000-0000-4000-8000-000000000140"
+          _identity (seed-identity! port subject preset)
+          _title (north.coord/append! port thread "title" "blocked preflight cleanup")
+          _driver (north.coord/append! port thread "driver" subject)
+          presence (north.coord/send-op
+                    port {:op :acquire-lease :res (str "session:" agent-id)
+                          :holder agent-id :ttl-ms 1800000})
+          proxy (fault-proxy port (constantly false))
+          terminal-result
+          (run-managed-writer
+           (:port proxy) "terminal" subject (json/generate-string terminal)
+           holder operation-id nil preset thread)
+          after (scalar-facts (entity-facts port subject))
+          claim
+          (proc/shell {:out :string :err :string :continue true
+                       :extra-env {"FRAM_LOG" @test-log}}
+                      "bb" (str root "/cli/acquire-cli.clj") (str port)
+                      "claim" thread successor)
+          replay
+          (run-managed-writer
+           (:port proxy) "terminal" subject (json/generate-string terminal)
+           holder operation-id nil preset thread)
+          requests @(:requests proxy)
+          presence-index
+          (first (keep-indexed
+                  (fn [index request]
+                    (when (and (= :release-lease (:op request))
+                               (= (str "session:" agent-id) (:res request)))
+                      index))
+                  requests))
+          driver-index
+          (first (keep-indexed
+                  (fn [index request]
+                    (when (and (= :retract-with-fence (:op request))
+                               (= thread (:te request))
+                               (= "driver" (:p request))
+                               (= subject (:r request)))
+                      index))
+                  requests))
+          marker-index
+          (first (keep-indexed
+                  (fn [index request]
+                    (when (and (= :assert-at-version-with-fence (:op request))
+                               (= subject (:te request))
+                               (= "terminal_manifest_sha256" (:p request)))
+                      index))
+                  requests))]
+      (check "blocked preflight terminal closes presence and releases its exact driver before acknowledgement"
+             (and (:ok presence)
+                  (= "committed" (get-in terminal-result [:result :status]))
+                  (= (north.terminal-projection/terminal-manifest-sha256 terminal)
+                     (get after "terminal_manifest_sha256"))
+                  (nil? (north.coord/lease-of port (str "session:" agent-id)))
+                  (zero? (:exit claim))))
+      (check "terminal marker is the final lifecycle publication after presence and driver cleanup"
+             (and (integer? presence-index)
+                  (integer? driver-index)
+                  (integer? marker-index)
+                  (< presence-index marker-index)
+                  (< driver-index marker-index)))
+      (check "lost-ack replay preserves the immediate successor driver"
+             (and (= "committed" (get-in replay [:result :status]))
+                  (= "exact_replay" (get-in replay [:result :reason]))
+                  (= (str "@" successor)
+                     (north.coord/resolved port thread "driver"))))
+      ((:close! proxy)))
+
+    ;; Enumerate every durable prefix of terminal body -> presence close ->
+    ;; exact driver release -> commit marker. The same logical operation must
+    ;; reconstruct the exact terminal and cleanup state from each one.
+    (let [terminal
+          {"outcome" "blocked_preflight"
+           "process_outcome" "blocked_preflight"
+           "delivery_outcome" "blocked"
+           "delivery_reason" "execution_preflight_blocked"}
+          operations
+          (vec
+           (concat
+            (for [predicate test-terminal-publication-order
+                  :let [value (get terminal predicate)]
+                  :when value]
+              [:put predicate value])
+            [[:release-presence nil nil]
+             [:release-driver nil nil]
+             [:marker nil nil]]))
+          results
+          (mapv
+           (fn [prefix]
+             (let [agent-id (str "managed-terminal-cleanup-prefix-" prefix)
+                   subject (str "@agent:" agent-id)
+                   thread (str "@managed-terminal-cleanup-thread-" prefix)
+                   _identity (seed-identity! port subject preset)
+                   _title (north.coord/append! port thread "title" "cleanup prefix")
+                   _driver (north.coord/append! port thread "driver" subject)
+                   _presence
+                   (north.coord/send-op
+                    port {:op :acquire-lease :res (str "session:" agent-id)
+                          :holder agent-id :ttl-ms 1800000})
+                   _prefix
+                   (apply-terminal-lifecycle-prefix!
+                    port subject thread terminal operations prefix)
+                   recovered
+                   (run-managed-writer
+                    port "terminal" subject (json/generate-string terminal)
+                    "managed-agent-writer:00000000-0000-4000-8000-000000000141"
+                    (str (java.util.UUID/randomUUID)) nil preset thread)
+                   stored (scalar-facts (entity-facts port subject))]
+               {:recovered recovered
+                :exact (= (north.terminal-projection/terminal-manifest-sha256 terminal)
+                          (get stored "terminal_manifest_sha256"))
+                :presence (north.coord/lease-of port (str "session:" agent-id))
+                :driver (north.coord/resolved port thread "driver")}))
+           (range (inc (count operations))))]
+      (check "every killed terminal-cleanup durable prefix recovers terminal, presence, and driver exactly"
+             (every?
+              #(and (zero? (get-in % [:recovered :exit]))
+                    (= "committed" (get-in % [:recovered :result :status]))
+                    (:exact %)
+                    (nil? (:presence %))
+                    (nil? (:driver %)))
+              results)))
 
     (let [subject "@agent:managed-retask-during-recovery"
           holder "managed-agent-writer:00000000-0000-4000-8000-000000000134"

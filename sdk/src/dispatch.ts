@@ -710,6 +710,8 @@ async function runDispatch(
     agentId,
     terminal,
     publicationBudget.publicationTimeout(1),
+    undefined,
+    threadId,
   );
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);

@@ -20,7 +20,7 @@ let repo: string;     // scratch git repo the opt-in lane worktrees off of
 let origCwd: string;
 
 const MANAGED_ENV = [
-  "PATH", "NORTH_BIN", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR",
+  "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR",
   "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT",
   "AGENT_WORKTREE", "AGENT_SETUP_CMD",
@@ -60,9 +60,13 @@ beforeAll(() => {
   const fake = join(dir, "north");
   writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\nexit 0\n`);
   chmodSync(fake, 0o755);
+  const fakeBb = join(dir, "bb");
+  writeFileSync(fakeBb, `#!/usr/bin/env bash\nprintf 'bb %s\\n' "$*" >> "${log}"\nexit 0\n`);
+  chmodSync(fakeBb, 0o755);
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;
+  process.env.NORTH_PEER_BB = fakeBb;
   process.env.NORTH_IDENTITY_TEST_REDIRECT = "1";
   process.env.NORTH_PORT = "59999";
   process.env.NORTH_STREAM_DIR = dir;

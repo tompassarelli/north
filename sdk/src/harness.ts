@@ -12,9 +12,9 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { delimiter, dirname, relative, resolve, sep } from "node:path";
 import {
   authoringGuardsOff, evaluateGuards, HOOKS_DIR, resolveManagedGuardChain,
 } from "./authoring-guards";
@@ -49,6 +49,21 @@ const MCP = `${REPO}/bin/north-mcp`;
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
 const northPort = () => process.env.NORTH_PORT ?? "7977";
 const peerBb = () => process.env.NORTH_PEER_BB ?? "bb";
+
+function currentPathExecutable(name: string): string {
+  if (name.includes("/")) return name;
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    const candidate = resolve(directory, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch { /* keep searching the current PATH */ }
+  }
+  return name;
+}
+
+const presenceBb = () => currentPathExecutable(process.env.NORTH_PEER_BB ?? "bb");
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -334,12 +349,18 @@ export interface HarnessOpts {
 // the bin/north-on-spawn SessionStart hook. Presence so it shows on the roster;
 // the concern protocol appended to the system prompt so it self-coordinates.
 function registerPresence(self: string, cwd: string): void {
-  // fire-and-forget — coordination must never delay or break a spawn.
   // The canonical :7977 log — NOT a separate daemon: presence on :7978
   // stranded, invisible to concern/roster/board which all read :7977.
   // Resolve the port at dispatch time: Bun caches this module across test files,
   // while each hermetic spawn test installs its own transport after import.
-  execFile("bb", [`${REPO}/cli/presence-cli.clj`, northPort(), "register", self, cwd, self], () => {});
+  // Registration is a bounded synchronous admission edge. A detached child can
+  // otherwise land its lease after a fast provider-preflight terminal has
+  // already withdrawn presence, resurrecting a 30-minute ghost roster row.
+  execFileSync(presenceBb(), [`${REPO}/cli/presence-cli.clj`, northPort(), "register", self, cwd, self], {
+    env: { ...process.env },
+    stdio: "ignore",
+    timeout: 5_000,
+  });
 }
 
 // SDK-lane presence heartbeat (F2). registerPresence writes the lease ONCE at
@@ -360,12 +381,18 @@ function renewPresence(self: string): void {
   const prev = lastRenew.get(self) ?? 0;
   if (now - prev < RENEW_THROTTLE_MS) return;
   lastRenew.set(self, now); // stamp before dispatch so a burst of tool calls spawns one bb
-  // Best-effort + timeout-bounded: any failure is swallowed, never breaks the
-  // tool call. On failure, roll the stamp back (only if no newer renew landed)
-  // so the next tool call retries — same retry semantics as north-on-tooluse.
-  execFile("bb", [`${REPO}/cli/presence-cli.clj`, northPort(), "renew", self], { timeout: 5000 }, (err) => {
-    if (err && lastRenew.get(self) === now) lastRenew.set(self, prev);
-  });
+  // Best-effort + timeout-bounded: complete the renewal before the tool hook
+  // returns so no detached renew can recreate presence after terminal cleanup.
+  // On failure, roll the stamp back so the next tool call retries.
+  try {
+    execFileSync(presenceBb(), [`${REPO}/cli/presence-cli.clj`, northPort(), "renew", self], {
+      env: { ...process.env },
+      stdio: "ignore",
+      timeout: 5_000,
+    });
+  } catch {
+    if (lastRenew.get(self) === now) lastRenew.set(self, prev);
+  }
 }
 // The per-lane UNIQUE tail: agent id + repo are the only truly lane-specific
 // bytes in the prompt, so they land LAST (P1) — after every shared tier — instead

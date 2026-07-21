@@ -30,7 +30,7 @@ function readySubscription(stop: () => void = () => {}) {
 // sweep (~50s). We scrub identity and pin a SYNTHETIC coordinator so any fact/ping the
 // harness emits routes nowhere real, even if a future edit lets a write escape the fake.
 const MANAGED_ENV = [
-  "PATH", "NORTH_BIN", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
+  "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_TOPOLOGY", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_PROVIDER_OBSERVATIONS", "NORTH_ALLOCATION_MODE", "NORTH_PROVIDER_ORDER",
@@ -53,9 +53,13 @@ beforeAll(() => {
   const fake = join(dir, "north");
   writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\nexit 0\n`);
   chmodSync(fake, 0o755);
+  const fakeBb = join(dir, "bb");
+  writeFileSync(fakeBb, `#!/usr/bin/env bash\nprintf 'bb %s\\n' "$*" >> "${log}"\nexit 0\n`);
+  chmodSync(fakeBb, 0o755);
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;
+  process.env.NORTH_PEER_BB = fakeBb;
   process.env.NORTH_IDENTITY_TEST_REDIRECT = "1";
   process.env.NORTH_PORT = "59999"; // unused -> presence/any bb write silently no-ops
   process.env.NORTH_STREAM_DIR = dir; // keep stream jsonl out of ~/code/agent-data

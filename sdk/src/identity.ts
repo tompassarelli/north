@@ -10,8 +10,9 @@
 // telemetry, with required-vs-advisory behavior chosen by their callers.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { delimiter, resolve } from "node:path";
 import {
   BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION,
 } from "./bespoke-contract";
@@ -32,6 +33,21 @@ const northBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
 const internalWriter = resolve(REPO, "cli/agent-fact-internal.clj");
 const INTERNAL_WRITER_TIMEOUT_MS = 10_000;
 const INTERNAL_WRITE_LEASE_TTL_MS = 60_000;
+
+function currentPathExecutable(name: string): string {
+  if (name.includes("/")) return name;
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    const candidate = resolve(directory, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch { /* keep searching the current PATH */ }
+  }
+  return name;
+}
+
+const lifecycleBb = () => currentPathExecutable(process.env.NORTH_PEER_BB ?? "bb");
 
 export interface ManagedWriterRuntime {
   now(): number;
@@ -247,6 +263,7 @@ function writeHarnessAgentOperation(
     operationId: string;
     desiredIdentity?: Record<string, string>;
     expectedIdentity?: Record<string, string>;
+    terminalThreadId?: string;
   },
   timeoutMs = INTERNAL_WRITER_TIMEOUT_MS,
   runtime = defaultManagedWriterRuntime,
@@ -264,6 +281,19 @@ function writeHarnessAgentOperation(
         execFileSync(northBin(), ["tell", subject, predicate, factValue], {
           stdio: "ignore",
           timeout: remaining,
+        });
+      }
+      const agentId = subject.replace(/^agent:/, "");
+      execFileSync(lifecycleBb(), [resolve(REPO, "cli/presence-cli.clj"),
+        process.env.NORTH_PORT ?? "7977", "forget", agentId], {
+        env: { ...process.env },
+        stdio: "ignore", timeout: Math.max(1, Math.floor(timeoutMs - (performance.now() - startedAt))),
+      });
+      if (recovery.terminalThreadId) {
+        execFileSync(lifecycleBb(), [resolve(REPO, "cli/acquire-cli.clj"),
+          process.env.NORTH_PORT ?? "7977", "release", recovery.terminalThreadId, agentId], {
+          env: { ...process.env },
+          stdio: "ignore", timeout: Math.max(1, Math.floor(timeoutMs - (performance.now() - startedAt))),
         });
       }
       return { status: "committed", operationId: recovery.operationId };
@@ -299,6 +329,7 @@ function writeHarnessAgentOperation(
     recovery.operationId,
     recovery.desiredIdentity ? JSON.stringify(recovery.desiredIdentity) : "",
     recovery.expectedIdentity ? JSON.stringify(recovery.expectedIdentity) : "",
+    recovery.terminalThreadId ?? "",
   ];
   const startedAt = runtime.now();
   const execute = (attemptTimeoutMs: number): ManagedWriteResult => {
@@ -471,6 +502,7 @@ export function writeAgentTerminal(
   terminal: ExecutionTerminal,
   timeoutMs = INTERNAL_WRITER_TIMEOUT_MS,
   runtime = defaultManagedWriterRuntime,
+  terminalThreadId?: string,
 ): TerminalPublicationStatus {
   if (!terminal.processOutcome) return "unavailable";
   const session = managedWriterSession(agentId);
@@ -492,6 +524,7 @@ export function writeAgentTerminal(
       holder: session.holder,
       operationId: randomUUID(),
       expectedIdentity: session.identity,
+      terminalThreadId,
     }, timeoutMs, runtime);
     session.terminalCommitted = true;
     return "recorded";

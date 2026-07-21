@@ -92,7 +92,7 @@ exit 0
   writeFileSync(fakeBb, `#!/usr/bin/env bash
 printf 'bb %s\\n' "$*" >> "${log}"
 case "$*" in
-  *test-dispatch-notify-failure*) exit 1 ;;
+  *msg-cli.clj*test-dispatch-notify-failure*) exit 1 ;;
 esac
 exit 0
 `);
@@ -579,6 +579,22 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
     expect(runIndex).toBeGreaterThanOrEqual(0);
     expect(terminalIndex).toBeLessThan(pingIndex);
     expect(runIndex).toBeLessThan(pingIndex);
+    if (scenario.processOutcome === "blocked_preflight") {
+      const registerIndex = lines.findIndex((line) =>
+        line.includes(`presence-cli.clj 59999 register ${agentId} `)
+      );
+      const forgetIndex = lines.findIndex((line) =>
+        line.endsWith(`presence-cli.clj 59999 forget ${agentId}`)
+      );
+      const releaseIndex = lines.findIndex((line) =>
+        line.endsWith(`acquire-cli.clj 59999 release thread-${agentId} ${agentId}`)
+      );
+      expect(registerIndex).toBeGreaterThanOrEqual(0);
+      expect(forgetIndex).toBeGreaterThan(terminalIndex);
+      expect(releaseIndex).toBeGreaterThan(terminalIndex);
+      expect(forgetIndex).toBeLessThan(pingIndex);
+      expect(releaseIndex).toBeLessThan(pingIndex);
+    }
     if (scenario.processOutcome === "stalled") {
       const diagnosticPings = lines.filter((line) =>
         line.includes(`send ${agentId} ${TEST_COORDINATOR} AGENT STALLED`)
