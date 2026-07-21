@@ -54,6 +54,37 @@ test("a completed run carries every mandatory terminal predicate", () => {
   expect(facts).toContainEqual(["outcome", "ran"]);
 });
 
+test("a @run model fact is canonicalized at write, never a bare family alias", () => {
+  const facts = runFacts({
+    thread: "@run-alias", agent: "lane-alias", durationMs: 1,
+    posture: "spawn", outcome: "ran", provider: "anthropic", model: "opus",
+  });
+  expect(facts).toContainEqual(["model", "claude-opus-4-8"]);
+  expect(facts.some(([, v]) => v === "opus")).toBe(false);
+});
+
+test("a fallback-death @run drops the routed-intent model rather than write a cross-provider phantom", () => {
+  // lane-mrtcfwgj shape: executed provider=anthropic after openai->anthropic
+  // fallback, but the routed-intent model gpt-5.6-sol lagged. Write no model.
+  const facts = runFacts({
+    thread: "@run-phantom", agent: "lane-phantom", durationMs: 1,
+    posture: "spawn", outcome: "died", provider: "anthropic", model: "gpt-5.6-sol",
+  });
+  expect(facts.some(([predicate]) => predicate === "model")).toBe(false);
+});
+
+test("a blocked_preflight @run carries the full nested cause chain as preflight_cause", () => {
+  const facts = runFacts({
+    thread: "@run-preflight", agent: "lane-preflight", durationMs: 1,
+    posture: "spawn", outcome: "blocked_preflight", processOutcome: "blocked_preflight",
+    preflightCause: "openai_codex_authority_preflight_failed <- cause: rpc handshake refused",
+  });
+  expect(facts).toContainEqual([
+    "preflight_cause",
+    "openai_codex_authority_preflight_failed <- cause: rpc handshake refused",
+  ]);
+});
+
 test("current run telemetry freezes judgment and the full effective detector policy", () => {
   const struggle = makeStruggleObserver(resolveStrugglePolicy("orchestrator", {
     STRUGGLE_ERROR_STREAK: "4",

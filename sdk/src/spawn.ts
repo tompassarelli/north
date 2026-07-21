@@ -11,7 +11,7 @@ import {
 } from "./worktree";
 import { normalizeUsage } from "./usage";
 import { newRunId, recordRun } from "./telemetry";
-import { deathReason, notifyDeath } from "./death";
+import { causeChain, deathReason, notifyDeath } from "./death";
 import { inputChannel, subscribeFeed } from "./coordination";
 import {
   bespokeContractFingerprint, writeAgentFacts, writeAgentTerminal, updateAgentRoute, goalFromPrompt,
@@ -306,6 +306,10 @@ async function runSpawn(
   console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
 
   let result = "", resultMsg: any = null, outcome = "ran";
+  // Full nested-cause chain for a blocked_preflight (or other retry-safe) death,
+  // set alongside `outcome` in the catch below and carried onto @run so the
+  // real underlying failure survives past the banner-only stdout log.
+  let preflightCause: string | undefined;
   const terminalMessages: any[] = [];
   const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
 
@@ -573,7 +577,8 @@ async function runSpawn(
       // retry-safe preflight block stays blocked_preflight.
       const carried = (err as { processOutcome?: unknown }).processOutcome;
       outcome = typeof carried === "string" ? carried : "blocked_preflight";
-      console.error(`[${outcome}] @agent:${agentId} ${err.message}`);
+      preflightCause = causeChain(err);
+      console.error(`[${outcome}] @agent:${agentId} ${preflightCause}`);
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
@@ -791,6 +796,7 @@ async function runSpawn(
     compactions,
     judgmentGrade,
     struggleObservation: struggle.snapshot(),
+    preflightCause,
   }, runId, publicationBudget.publicationTimeout(1));
   for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
     writeAuxiliary(

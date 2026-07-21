@@ -2,7 +2,7 @@
 // deathCommands() is the single source of "what a death emits"; asserting its shape here
 // locks the contract (agent_death fact on @swarm + thread; peer ping to the coordinator).
 import { test, expect, describe } from "bun:test";
-import { deathReason, deathCommands } from "../src/death";
+import { deathReason, deathCommands, causeChain } from "../src/death";
 
 describe("deathReason", () => {
   test("Error -> its message", () => {
@@ -21,6 +21,33 @@ describe("deathReason", () => {
   test("nullish -> 'unknown'", () => {
     expect(deathReason(undefined)).toBe("unknown");
     expect(deathReason(null)).toBe("unknown");
+  });
+});
+
+describe("causeChain", () => {
+  test("walks err.cause -> cause.cause and joins every nested message", () => {
+    // The exact staged-preflight shape: outer umbrella wraps the real RPC failure.
+    const inner = new Error("rpc handshake refused: connection reset");
+    const mid = new Error("openai_codex_app_server_unreachable", { cause: inner });
+    const outer = new Error("openai_codex_authority_preflight_failed", { cause: mid });
+    const chain = causeChain(outer);
+    expect(chain).toBe(
+      "openai_codex_authority_preflight_failed <- cause: " +
+      "openai_codex_app_server_unreachable <- cause: " +
+      "rpc handshake refused: connection reset",
+    );
+  });
+  test("string cause and bare error pass through", () => {
+    expect(causeChain(new Error("plain"))).toBe("plain");
+    expect(causeChain("just a string")).toBe("just a string");
+  });
+  test("a cyclic cause chain terminates and is bounded", () => {
+    const a: any = new Error("a");
+    const b: any = new Error("b", { cause: a });
+    a.cause = b; // cycle
+    const chain = causeChain(a);
+    expect(chain).toContain("[cyclic cause]");
+    expect(chain.length).toBeLessThanOrEqual(2000);
   });
 });
 
