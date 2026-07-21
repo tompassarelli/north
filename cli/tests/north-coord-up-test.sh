@@ -322,6 +322,50 @@ grep -q 'refusing to signal an unowned coordinator.*pid/birth/token' "$TMP/unkno
 kill -0 "$LISTENER_PID"
 [[ ! -e "$STATE/daemon-pid" ]]
 
+# A systemd-supervised coordinator always executes a rev-pinned deployment
+# snapshot worktree, not the sibling checkout `north up` targets by path.
+# Identity must accept that snapshot when git independently verifies its
+# HEAD/tree against the desired rev+tree.
+SNAPSHOT_ROOT="$TMP/fram-runtime/deployments/$FRAM_REV"
+git clone -q "$FRAM_ROOT" "$SNAPSHOT_ROOT"
+git -C "$SNAPSHOT_ROOT" checkout -q "$FRAM_REV"
+: >"$FAKE_PROC/$LISTENER_PID/cgroup"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" "$UP" --check-runtime \
+  >"$TMP/snapshot-match.out"
+grep -q '^coordinator runtime identity OK on :39871' "$TMP/snapshot-match.out"
+kill -0 "$LISTENER_PID"
+
+# A deployment-shaped source path claiming the WRONG rev must still fail
+# closed. Matching the deployments/<rev> path shape is never sufficient
+# identity on its own; the desired rev must still match.
+FAKE_REV="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+WRONG_SNAPSHOT_ROOT="$TMP/fram-runtime/deployments/$FAKE_REV"
+cp -r "$SNAPSHOT_ROOT" "$WRONG_SNAPSHOT_ROOT"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$WRONG_SNAPSHOT_ROOT" "$FAKE_REV" "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" "$UP" --check-runtime \
+  >"$TMP/snapshot-wrong-rev.out" 2>&1; then
+  echo "north-coord-up test: deployment-shaped source at the wrong rev was accepted" >&2
+  exit 1
+fi
+grep -q 'coordinator runtime identity UNHEALTHY' "$TMP/snapshot-wrong-rev.out"
+kill -0 "$LISTENER_PID"
+
+# A plain checkout-source match (no deployment snapshot path at all) is still
+# accepted directly by path equality — the new snapshot allowance must not
+# have disturbed the original ordinary-match case.
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$FRAM_ROOT" "$FRAM_REV" "$FRAM_TREE" "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" "$UP" --check-runtime \
+  >"$TMP/plain-checkout-match.out"
+grep -q '^coordinator runtime identity OK on :39871' "$TMP/plain-checkout-match.out"
+kill -0 "$LISTENER_PID"
+
 kill "$LISTENER_PID"
 wait "$LISTENER_PID" 2>/dev/null || true
 LISTENER_PID=

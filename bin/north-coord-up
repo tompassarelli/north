@@ -343,7 +343,7 @@ supervisor_for_pid() {
 
 runtime_identity_matches_pid() {
   local pid="$1" running_source running_rev running_tree running_daemon
-  local running_head derived_tree
+  local running_head derived_tree source_is_verified_deployment_snapshot=0
   running_source="$(runtime_identity_value "$pid" FRAM_RUNTIME_SOURCE || true)"
   running_rev="$(runtime_identity_value "$pid" FRAM_RUNTIME_REV || true)"
   running_tree="$(runtime_identity_value "$pid" FRAM_RUNTIME_TREE || true)"
@@ -366,7 +366,25 @@ runtime_identity_matches_pid() {
     derived_tree="$(git -C "$running_source" rev-parse --verify 'HEAD^{tree}' 2>/dev/null || true)"
     running_tree="$derived_tree"
   fi
-  if [[ "$running_source" != "$runtime_source" || "$running_rev" != "$runtime_rev" ||
+  if [[ "$runtime_selector" == checkout && "$running_source" != "$runtime_source" ]]; then
+    # A systemd-supervised coordinator always executes a rev-pinned deployment
+    # snapshot worktree (north-data/fram-runtime/deployments/<rev>), never the
+    # sibling checkout the CLI targets. Recognize that snapshot as identity
+    # -matching only when its own name and git history independently verify
+    # the desired rev — never by trusting the exported source path or rev
+    # alone — so every other source mismatch still fails closed.
+    if [[ "$running_source" == */fram-runtime/deployments/* &&
+          "$(basename -- "$running_source")" == "$runtime_rev" ]] &&
+       running_head="$(git -C "$running_source" rev-parse --verify HEAD 2>/dev/null)" &&
+       [[ "$running_head" == "$runtime_rev" ]] &&
+       git -C "$running_source" diff --quiet --no-ext-diff HEAD --; then
+      derived_tree="$(git -C "$running_source" rev-parse --verify 'HEAD^{tree}' 2>/dev/null || true)"
+      running_tree="$derived_tree"
+      source_is_verified_deployment_snapshot=1
+    fi
+  fi
+  if [[ ( "$running_source" != "$runtime_source" && "$source_is_verified_deployment_snapshot" -ne 1 ) ||
+        "$running_rev" != "$runtime_rev" ||
         ( "$runtime_selector" == checkout && "$running_tree" != "$runtime_tree" ) ]]; then
     listener_identity_error="PID $pid runs Fram source=$running_source rev=$running_rev tree=${running_tree:-unknown}; desired source=$runtime_source rev=$runtime_rev tree=$runtime_tree"
     return 1
@@ -374,8 +392,16 @@ runtime_identity_matches_pid() {
   if [[ -n "$running_daemon" ]]; then
     running_daemon="$(canonical_path "$running_daemon")"
     if [[ "$running_daemon" != "$runtime_daemon" ]]; then
-      listener_identity_error="PID $pid runs Fram executable=$running_daemon; desired executable=$runtime_daemon"
-      return 1
+      # A verified deployment snapshot's own executable, at the same
+      # path suffix under its rev-pinned worktree, is the identical file the
+      # already-verified matching tree provides — never a substitute identity.
+      if [[ "$source_is_verified_deployment_snapshot" -eq 1 &&
+            "$running_daemon" == "$running_source${runtime_daemon#"$runtime_source"}" ]]; then
+        :
+      else
+        listener_identity_error="PID $pid runs Fram executable=$running_daemon; desired executable=$runtime_daemon"
+        return 1
+      fi
     fi
   fi
   return 0
