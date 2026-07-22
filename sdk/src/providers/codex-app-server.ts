@@ -42,6 +42,7 @@ export const MANAGED_CODEX_ENABLED_FEATURES = [
   "unified_exec",
 ] as const;
 export const MANAGED_CODEX_DISABLED_FEATURES = [
+  "apply_patch_freeform",
   "apps",
   "apply_patch_streaming_events",
   "artifact",
@@ -660,6 +661,7 @@ function validateConfig(
   const expectedFeatures = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false] as const),
+    ["remote_control", false] as const,
   ]);
   exact(config.features, expectedFeatures, "Codex effective feature set");
   exact(config.mcp_servers, contract.expectedSessionConfig.mcp_servers, "Codex effective MCP set");
