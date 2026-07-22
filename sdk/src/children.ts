@@ -137,10 +137,15 @@ function childIdentity(value: string): ChildIdentity {
 }
 
 function runIdentity(value: string): string {
-  if (!value.startsWith("run-"))
+  if (!value.startsWith("run:"))
     throw new Error("child settlement projection returned a non-run subject");
-  const graphId = normalizeNorthEntityId(value);
-  if (graphId !== value || graphId.length === "run-".length)
+  let graphId: string;
+  try {
+    graphId = normalizeNorthEntityId(value);
+  } catch {
+    throw new Error("child settlement projection returned a noncanonical run");
+  }
+  if (graphId !== value || !/^run:[a-z0-9][a-z0-9._:-]*$/i.test(graphId))
     throw new Error("child settlement projection returned a noncanonical run");
   return graphId;
 }

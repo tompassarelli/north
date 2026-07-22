@@ -346,7 +346,7 @@ export async function admitExecution(
   }
   if (provider === "anthropic" && capabilities.includes("shell.readonly")) {
     try {
-      preflightReadonlyShell(cwd);
+      preflightReadonlyShell(cwd, options?.env ?? process.env);
     } catch (error) {
       if (error instanceof ReadonlyShellUnavailableError)
         throw new ExecutionAdmissionError(error.message, { cause: error });
