@@ -174,6 +174,7 @@ function setup(mode = "ok") {
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true]),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false]),
   ]);
+  const effectiveFeatures = { ...features, remote_control: false };
   const north = {
     command: "/nix/store/north/bin/north-mcp",
     args: [] as string[],
@@ -196,7 +197,7 @@ function setup(mode = "ok") {
   };
   const baseConfig = {
     config: {
-      features, mcp_servers: session.mcp_servers, projects: session.projects,
+      features: effectiveFeatures, mcp_servers: session.mcp_servers, projects: session.projects,
       project_doc_max_bytes: 0, model_provider: "openai",
       cli_auth_credentials_store: "file", forced_login_method: "chatgpt",
       sqlite_home: sqliteHome, apps: null, plugins: {}, marketplaces: {},
