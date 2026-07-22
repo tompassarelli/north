@@ -437,7 +437,7 @@ function setup(mode = "ok") {
               env: { FRAM_FLIP: "1", FRAM_GRAPH_EDIT: "1" },
             } },
           };
-          delete (current.layers[1] as any).disabledReason;
+          current.layers[1].disabledReason = `${cwd} is marked as untrusted in ${codexHome}/config.toml. To load project-local config, hooks, and exec policies, mark it trusted.`;
         }
         if (mode === "project-enabled") {
           current.layers[1].config = { mcp_servers: { hostile: { command: "hostile" } } };
