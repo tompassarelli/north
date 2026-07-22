@@ -1,20 +1,26 @@
 (ns north.corpus-transaction
   "Journaled, all-old/all-new replacement for North's split fact corpus.
 
-  This is deliberately snapshot-agnostic. Callers seal exact live and candidate
-  file records into a plan, then provide coordinator lifecycle callbacks. The
-  core owns the state singleton, writer fences, durable preimage, journal,
-  replacement, and crash recovery."
+  Callers seal exact live and candidate file records plus bounded schema
+  artifact provenance into a plan, then provide coordinator lifecycle
+  callbacks. The core owns the state singleton, writer fences, durable
+  preimage, journal, replacement, and crash recovery."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [fram.rt :as rt]))
 
-(def plan-format "north-corpus-transaction-plan/v1")
-(def journal-format "north-corpus-transaction-journal/v1")
-(def receipt-format "north-corpus-transaction-receipt/v1")
+(def plan-format "north-corpus-transaction-plan/v2")
+(def journal-format "north-corpus-transaction-journal/v2")
+(def receipt-format "north-corpus-transaction-receipt/v2")
+(def preimage-format "north-corpus-preimage/v2")
 (def roles [:coordination :telemetry])
 (def plan-id-pattern #"plan-[0-9a-f]{64}")
+(def provenance-max-bytes 1024)
+(def sha256-pattern #"[0-9a-f]{64}")
+(def snapshot-id-pattern #"snapshot-[0-9a-f]{64}")
+(def finalized-candidate-id-pattern #"schema-candidate-[0-9a-f]{64}")
+(def schema-receipt-id-pattern #"schema-converged-[0-9a-f]{64}\.edn")
 
 (defn fail!
   ([message] (fail! message {}))
@@ -198,6 +204,43 @@
     (sequential? value) (mapv canonical-form value)
     :else value))
 
+(defn canonical-edn-bytes [value]
+  (.getBytes (pr-str (canonical-form value))
+             java.nio.charset.StandardCharsets/UTF_8))
+
+(defn exact-keys? [value expected]
+  (and (map? value) (= expected (set (keys value)))))
+
+(defn validate-provenance! [provenance]
+  (let [size (alength ^bytes (canonical-edn-bytes provenance))]
+    (when (> size provenance-max-bytes)
+      (fail! "corpus transaction provenance exceeds its canonical size limit"
+             {:type :provenance-too-large
+              :bytes size :limit provenance-max-bytes})))
+  (let [source (:source_snapshot provenance)
+        candidate (:finalized_candidate provenance)]
+    (when-not
+     (and (exact-keys? provenance
+                       #{:source_snapshot :finalized_candidate
+                         :schema_receipt_id})
+          (exact-keys? source #{:snapshot_id :manifest_sha256})
+          (exact-keys? candidate #{:candidate_id :manifest_sha256})
+          (string? (:snapshot_id source))
+          (re-matches snapshot-id-pattern (:snapshot_id source))
+          (string? (:manifest_sha256 source))
+          (re-matches sha256-pattern (:manifest_sha256 source))
+          (string? (:candidate_id candidate))
+          (re-matches finalized-candidate-id-pattern
+                      (:candidate_id candidate))
+          (string? (:manifest_sha256 candidate))
+          (re-matches sha256-pattern (:manifest_sha256 candidate))
+          (string? (:schema_receipt_id provenance))
+          (re-matches schema-receipt-id-pattern
+                      (:schema_receipt_id provenance)))
+      (fail! "corpus transaction provenance is missing, malformed, or contains unknown fields"
+             {:type :provenance-invalid})))
+  (canonical-form provenance))
+
 (defn plan-payload [plan]
   (dissoc plan :plan-id))
 
@@ -229,38 +272,41 @@
   ([plan expected-live]
    (when-not (= plan-format (:format plan))
      (fail! (str "unsupported corpus transaction plan format: " (:format plan))))
-   (when-not (and (string? (:plan-id plan))
-                  (re-matches plan-id-pattern (:plan-id plan))
-                  (= (:plan-id plan) (str "plan-" (plan-digest plan))))
-     (fail! "corpus transaction plan seal is invalid"))
-   (doseq [role roles]
-     (verify-corpus-record! (str "live " (name role))
-                            (get-in plan [:live role]))
-     (verify-corpus-record! (str "candidate " (name role))
-                            (get-in plan [:candidate role])))
-   (let [pair (live-pair! (:live plan))]
-     (when expected-live
-       (doseq [role roles]
-         (when-not (= (get pair role) (get expected-live role))
-           (fail! (str "plan live " (name role)
-                       " path does not match this North instance")))))
-     (assoc plan :verified-live pair))))
+   (let [provenance (validate-provenance! (:provenance plan))]
+     (when-not (and (string? (:plan-id plan))
+                    (re-matches plan-id-pattern (:plan-id plan))
+                    (= (:plan-id plan) (str "plan-" (plan-digest plan))))
+       (fail! "corpus transaction plan seal is invalid"))
+     (doseq [role roles]
+       (verify-corpus-record! (str "live " (name role))
+                              (get-in plan [:live role]))
+       (verify-corpus-record! (str "candidate " (name role))
+                              (get-in plan [:candidate role])))
+     (let [pair (live-pair! (:live plan))]
+       (when expected-live
+         (doseq [role roles]
+           (when-not (= (get pair role) (get expected-live role))
+             (fail! (str "plan live " (name role)
+                         " path does not match this North instance")))))
+       (assoc plan :provenance provenance :verified-live pair)))))
 
 (defn make-plan
-  [{:keys [purpose live candidate target runtime metadata]}]
-  (seal-plan
-   {:purpose (or purpose "unspecified-maintenance")
-    :created-at (now-iso)
-    :live (into {} (map (fn [role]
-                          [role (corpus-file-record (str "live " (name role))
-                                                    (get live role))]) roles))
-    :candidate (into {} (map (fn [role]
-                               [role (corpus-file-record
-                                      (str "candidate " (name role))
-                                      (get candidate role))]) roles))
-    :target (or target {})
-    :runtime (or runtime {})
-    :metadata (or metadata {})}))
+  [{:keys [purpose live candidate target runtime metadata provenance]}]
+  (let [provenance (validate-provenance! provenance)]
+    (seal-plan
+     {:purpose (or purpose "unspecified-maintenance")
+      :created-at (now-iso)
+      :provenance provenance
+      :live (into {} (map (fn [role]
+                            [role (corpus-file-record (str "live " (name role))
+                                                      (get live role))]) roles))
+      :candidate (into {} (map (fn [role]
+                                 [role (corpus-file-record
+                                        (str "candidate " (name role))
+                                        (get candidate role))]) roles))
+      :target (or target {})
+      :runtime (or runtime {})
+      :metadata (or metadata {})})))
 
 (defn write-bytes-durable! [path ^bytes payload]
   (let [target (io/file path)
@@ -505,18 +551,19 @@
   (sha256-text
    (pr-str
     (canonical-form
-     (select-keys journal [:plan-id :purpose :original-live :live :candidate
-                           :target :runtime :checkpoint :lease])))))
+     (select-keys journal [:plan-id :purpose :provenance :original-live :live
+                           :candidate :target :runtime :checkpoint :lease])))))
 
 (defn validate-journal! [journal]
   (when-not (= journal-format (:format journal))
     (fail! (str "unsupported active corpus journal format: " (:format journal))))
-  (when-not (and (string? (:transaction-id journal))
-                 (str/starts-with? (:transaction-id journal) "txn-")
-                 (= (:execution-seal journal) (execution-seal journal)))
-    (fail! "active corpus journal execution seal is invalid"))
-  (live-pair! (:live journal))
-  journal)
+  (let [provenance (validate-provenance! (:provenance journal))]
+    (when-not (and (string? (:transaction-id journal))
+                   (str/starts-with? (:transaction-id journal) "txn-")
+                   (= (:execution-seal journal) (execution-seal journal)))
+      (fail! "active corpus journal execution seal is invalid"))
+    (live-pair! (:live journal))
+    (assoc journal :provenance provenance)))
 
 (defn update-journal! [journal phase]
   (let [next (assoc journal :phase phase :updated-at (now-iso))]
@@ -525,6 +572,11 @@
 
 (defn clear-journal! []
   (delete-file-durable! (journal-path)))
+
+(defn prevalidate-active-journal! []
+  (when (.isFile (io/file (journal-path)))
+    (validate-journal!
+     (read-edn-file! "active corpus transaction journal" (journal-path)))))
 
 (defn persist-content-object! [role source-record]
   (let [directory (ensure-dir! (str (state-root) "/objects/sha256"))
@@ -558,10 +610,11 @@
                        (map (fn [role]
                               [role (persist-content-object! role (get current role))])
                             roles))
-        manifest {:format "north-corpus-preimage/v1"
+        manifest {:format preimage-format
                   :transaction-id (:transaction-id journal)
                   :plan-id (:plan-id journal)
                   :execution-seal (:execution-seal journal)
+                  :provenance (:provenance journal)
                   :created-at (now-iso)
                   :files preimage}
         manifest-record
@@ -583,10 +636,11 @@
   (let [artifact (:preimage-manifest journal)]
     (verify-record! "preimage manifest" artifact)
     (let [manifest (read-edn-file! "preimage manifest" (:path artifact))]
-      (when-not (= {:format "north-corpus-preimage/v1"
+      (when-not (= {:format preimage-format
                     :transaction-id (:transaction-id journal)
                     :plan-id (:plan-id journal)
                     :execution-seal (:execution-seal journal)
+                    :provenance (:provenance journal)
                     :files (:preimage journal)}
                    (dissoc manifest :created-at))
         (fail! "preimage manifest does not match its active transaction"))
@@ -600,6 +654,7 @@
               :transaction-id (transaction-id execution)
               :plan-id (:plan-id execution)
               :purpose (:purpose execution)
+              :provenance (:provenance execution)
               :created-at (now-iso)
               :phase :pre-stop
               :original-live (:original-live execution)
@@ -641,6 +696,7 @@
    :plan-id (:plan-id journal)
    :execution-seal (:execution-seal journal)
    :purpose (:purpose journal)
+   :provenance (:provenance journal)
    :result result
    ;; These instants are durable journal facts written once before publication;
    ;; retrying the same receipt therefore reproduces byte-identical content.
@@ -794,6 +850,10 @@
     pair))
 
 (defn recover-active! [{:keys [expected-live assert-offline!]}]
+  ;; A malformed or provenance-tampered journal is rejected before opening the
+  ;; maintenance lock file. The journal is read and validated again under the
+  ;; lock so this early gate grants no race authority.
+  (prevalidate-active-journal!)
   (with-maintenance-lock
     (if-not (.isFile (io/file (journal-path)))
       {:result "clean"}
@@ -910,6 +970,7 @@
           receipt)))))
 
 (defn settle-active! [{:keys [wait? expected-live] :as callbacks}]
+  (prevalidate-active-journal!)
   (let [run (fn []
               (if-not (.isFile (io/file (journal-path)))
                 {:result "clean"}
@@ -972,7 +1033,8 @@
              :target target
              :runtime (or (:runtime checkpoint) (:runtime verified))
              :verified-live execution-pair
-             :checkpoint (dissoc checkpoint :live :candidate :target :runtime)
+             :checkpoint (dissoc checkpoint :live :candidate :target :runtime
+                                 :provenance)
              :lease lease))))
 
 (defn mark-runtime-unverified! [error]
@@ -1009,6 +1071,10 @@
            [:verify-restart! verify-restart!] [:settle-lease! settle-lease!]]]
     (when-not (fn? callback)
       (fail! (str "missing corpus transaction callback " label))))
+  ;; The complete plan, including structured provenance and its content seal,
+  ;; is verified before creating the state directory or maintenance lock.
+  ;; Reverification inside the lock retains the existing OCC behavior.
+  (verify-plan! plan expected-live)
   (with-maintenance-lock
     (when (.isFile (io/file (journal-path)))
       (fail! (str "an active corpus transaction journal already exists at "
