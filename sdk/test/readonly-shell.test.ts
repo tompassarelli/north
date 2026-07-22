@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readdirSync, readlinkSync, rmSync } from "node
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import {
   MAX_READONLY_COMMAND_BYTES, preflightReadonlyShell, readonlyShellSeccompProgram,
   runReadonlyShell,
@@ -41,6 +41,23 @@ gatedTest("user-namespace", "read-only shell preflight proves checkout denial an
     stdout: "read-oktmp-ok",
   });
   expect(existsSync(forbidden)).toBe(false);
+});
+
+gatedTest("user-namespace", "explicit managed environment pins North package authority", async () => {
+  const managedNorth = resolve(repo, "bin/north");
+  const managedPath = `${resolve(repo, "bin")}${delimiter}${process.env.PATH ?? "/usr/bin:/bin"}`;
+  const result = await runReadonlyShell(
+    "printf '%s\\n' \"$NORTH_BIN\"; command -v north",
+    checkout(),
+    5_000,
+    {
+      ...process.env,
+      NORTH_BIN: managedNorth,
+      PATH: managedPath,
+    },
+  );
+  expect(result).toMatchObject({ ok: true, exitCode: 0 });
+  expect(result.stdout.trim().split("\n")).toEqual([managedNorth, managedNorth]);
 });
 
 gatedTest("user-namespace", "concurrent seccomp transfers leave no parent descriptor or epoll corruption", async () => {

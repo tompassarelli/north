@@ -21,6 +21,8 @@ export interface ReadonlyShellPrerequisites {
   cwd: string;
   home: string;
   path: string;
+  lang: string;
+  northBin?: string;
 }
 
 export interface ReadonlyShellResult {
@@ -178,7 +180,10 @@ function sandboxArguments(prerequisites: ReadonlyShellPrerequisites, seccompFd: 
     "--setenv", "XDG_CONFIG_HOME", "/tmp/north-home/.config",
     "--setenv", "XDG_DATA_HOME", "/tmp/north-home/.local/share",
     "--setenv", "PATH", prerequisites.path,
-    "--setenv", "LANG", process.env.LANG ?? "C.UTF-8",
+    "--setenv", "LANG", prerequisites.lang,
+    ...(prerequisites.northBin
+      ? ["--setenv", "NORTH_BIN", prerequisites.northBin]
+      : []),
     "--chdir", prerequisites.cwd,
     "--seccomp", String(seccompFd),
   ];
@@ -210,7 +215,10 @@ function seccompLaunchArguments(
  * accepted. The checkout is a read-only bind, the only writable mount is an
  * ephemeral /tmp, and --unshare-all gives the command no network namespace.
  */
-export function preflightReadonlyShell(cwd: string): ReadonlyShellPrerequisites {
+export function preflightReadonlyShell(
+  cwd: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): ReadonlyShellPrerequisites {
   let canonicalCwd: string;
   try {
     canonicalCwd = realpathSync(resolve(cwd));
@@ -221,13 +229,13 @@ export function preflightReadonlyShell(cwd: string): ReadonlyShellPrerequisites 
   if (canonicalCwd === "/tmp" || canonicalCwd.startsWith("/tmp/")) {
     throw new ReadonlyShellUnavailableError("readonly_shell_cwd_hidden_by_ephemeral_tmp");
   }
-  const path = process.env.PATH ?? "/usr/bin:/bin";
+  const path = environment.PATH ?? "/usr/bin:/bin";
   const sandboxPath = canonicalSandboxPath(path);
   if (!sandboxPath)
     throw new ReadonlyShellUnavailableError("readonly_shell_executable_path_unavailable");
   let home: string;
   try {
-    home = realpathSync(resolve(process.env.HOME ?? homedir()));
+    home = realpathSync(resolve(environment.HOME ?? homedir()));
     if (!statSync(home).isDirectory()) throw new Error("not a directory");
   } catch (cause) {
     throw new ReadonlyShellUnavailableError("readonly_shell_home_unavailable", { cause });
@@ -235,11 +243,13 @@ export function preflightReadonlyShell(cwd: string): ReadonlyShellPrerequisites 
   if (home === "/tmp" || home.startsWith("/tmp/"))
     throw new ReadonlyShellUnavailableError("readonly_shell_home_hidden_by_ephemeral_tmp");
   const prerequisites = {
-    bwrap: resolveExecutable("bwrap", process.env.NORTH_BWRAP_BIN, path),
-    bash: resolveExecutable("bash", process.env.NORTH_BASH_BIN, path),
+    bwrap: resolveExecutable("bwrap", environment.NORTH_BWRAP_BIN, path),
+    bash: resolveExecutable("bash", environment.NORTH_BASH_BIN, path),
     cwd: canonicalCwd,
     home,
     path: sandboxPath,
+    lang: environment.LANG ?? "C.UTF-8",
+    ...(environment.NORTH_BIN ? { northBin: environment.NORTH_BIN } : {}),
   };
   const probeName = `.north-readonly-preflight-${process.pid}`;
   let probe: SpawnSyncReturns<string>;
@@ -283,6 +293,7 @@ export async function runReadonlyShell(
   command: string,
   cwd: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<ReadonlyShellResult> {
   if (!command.trim()) throw new Error("readonly shell command must be nonblank");
   if (Buffer.byteLength(command, "utf8") > MAX_READONLY_COMMAND_BYTES)
@@ -290,7 +301,7 @@ export async function runReadonlyShell(
   if (!Number.isFinite(timeoutMs))
     throw new Error("readonly shell timeout must be finite");
   const boundedTimeout = Math.max(100, Math.min(MAX_TIMEOUT_MS, Math.trunc(timeoutMs)));
-  const prerequisites = preflightReadonlyShell(cwd);
+  const prerequisites = preflightReadonlyShell(cwd, environment);
   let child: ChildProcessByStdio<null, Readable, Readable>;
   try {
     child = spawn(prerequisites.bash, seccompLaunchArguments(prerequisites, [

@@ -182,8 +182,8 @@ describe("bounded atomic child settlement", () => {
       childEnvelope([
         { subject: "agent:run-child", predicate: "coordinator", value: "director" },
       ], [
-        { subject: "run-terminal", predicate: "agent", value: "run-child" },
-        ...factRows("run-terminal", committedRun.filter((fact) => fact.predicate !== "agent")),
+        { subject: "run:terminal", predicate: "agent", value: "run-child" },
+        ...factRows("run:terminal", committedRun.filter((fact) => fact.predicate !== "agent")),
       ]),
     ]);
     expect(runTerminal.settlement).toEqual({
@@ -191,6 +191,34 @@ describe("bounded atomic child settlement", () => {
       children: ["@agent:run-child"],
     });
     expect(runTerminal.calls).toHaveLength(1);
+  });
+
+  test("canonical terminal run subjects settle the exact two-child canary shape", () => {
+    const firstAgent = "sdk-4537af4c0558-mrwpd8ei-a01855d6-20ae-45de-afe9-f57648d5820a";
+    const secondAgent = "sdk-08a8751c1453-mrwpdlej-c41267e2-6905-4c36-8c3a-c8caee70118a";
+    const firstRun = `run:${firstAgent}-be10542f-fdd7-49ce-b59c-ba9ae649838a`;
+    const secondRun = `run:${secondAgent}-7bc4cf7f-b5af-4bd7-95c4-6566459cbd90`;
+    const terminalRun = (subject: string, agent: string) => [
+      { subject, predicate: "agent", value: agent },
+      { subject, predicate: "outcome", value: "ran" },
+      { subject, predicate: "process_outcome", value: "ran" },
+      { subject, predicate: "delivery_outcome", value: "reported" },
+      { subject, predicate: "kind", value: "run" },
+    ];
+    const { settlement, calls } = boundedSettlement([
+      childEnvelope([
+        { subject: `agent:${firstAgent}`, predicate: "coordinator", value: "director" },
+        { subject: `agent:${secondAgent}`, predicate: "coordinator", value: "director" },
+      ], [
+        ...terminalRun(firstRun, firstAgent),
+        ...terminalRun(secondRun, secondAgent),
+      ]),
+    ]);
+    expect(settlement).toEqual({
+      kind: "settled",
+      children: [`@agent:${secondAgent}`, `@agent:${firstAgent}`],
+    });
+    expect(calls).toHaveLength(1);
   });
 
   test("a maximum-cardinality live set remains one subprocess with no fallback", () => {
@@ -231,8 +259,8 @@ describe("bounded atomic child settlement", () => {
     const runs = Array.from(
       { length: CHILD_SETTLEMENT_MAX_RUNS + 1 },
       (_, index) => [
-        { subject: `run-${index}`, predicate: "agent", value: "child" },
-        { subject: `run-${index}`, predicate: "kind", value: "run" },
+        { subject: `run:${index}`, predicate: "agent", value: "child" },
+        { subject: `run:${index}`, predicate: "kind", value: "run" },
       ],
     ).flat();
     const runOverflow = boundedSettlement([
@@ -330,8 +358,11 @@ describe("bounded atomic child settlement", () => {
     }
     for (const run of [
       "agent:not-a-run",
-      "@run-child",
+      "@run:child",
+      "run-child",
       "run-",
+      "run:",
+      "run::child",
     ]) {
       const attempt = boundedSettlement([
         childEnvelope([
@@ -372,9 +403,9 @@ describe("bounded atomic child settlement", () => {
       childEnvelope([
         { subject: "agent:child", predicate: "coordinator", value: "director" },
       ], [
-        { subject: "run-child", predicate: "agent", value: "child" },
-        { subject: "run-child", predicate: "agent", value: "other" },
-        { subject: "run-child", predicate: "kind", value: "run" },
+        { subject: "run:child", predicate: "agent", value: "child" },
+        { subject: "run:child", predicate: "agent", value: "other" },
+        { subject: "run:child", predicate: "kind", value: "run" },
       ]),
     ]);
     expect(duplicateRunAuthority.settlement).toEqual({
@@ -388,8 +419,8 @@ describe("bounded atomic child settlement", () => {
       childEnvelope([
         { subject: "agent:child", predicate: "coordinator", value: "director" },
       ], [
-        { subject: "run-child", predicate: "agent", value: "child" },
-        { subject: "run-child", predicate: "outcome", value: "ran" },
+        { subject: "run:child", predicate: "agent", value: "child" },
+        { subject: "run:child", predicate: "outcome", value: "ran" },
       ]),
     ]);
     expect(partial.settlement).toEqual({
@@ -401,8 +432,8 @@ describe("bounded atomic child settlement", () => {
       childEnvelope([
         { subject: "agent:child", predicate: "coordinator", value: "director" },
       ], [
-        { subject: "run-other", predicate: "agent", value: "other" },
-        { subject: "run-other", predicate: "kind", value: "run" },
+        { subject: "run:other", predicate: "agent", value: "other" },
+        { subject: "run:other", predicate: "kind", value: "run" },
       ]),
     ]);
     expect(unrelated.settlement).toEqual({
