@@ -66,6 +66,8 @@ export class McpActivityAccumulator {
 
   complete(): void { this.terminal = true; }
 
+  reopen(): void { this.terminal = false; }
+
   snapshot(): McpActivityObservation {
     if (!this.terminal) return { source: this.source, coverage: "unknown", tools: [] };
     const tools = [...this.counts.values()].sort((left, right) =>

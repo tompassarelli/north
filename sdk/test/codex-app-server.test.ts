@@ -373,6 +373,7 @@ function setup(mode = "ok") {
         arguments: { secret: "CANARY-private-argument" },
         result: "CANARY-private-result",
       });
+      if (mode === "mcp-identity-loss") delete mcp.tool;
       lifecycle("started", mcp, 14);
       notify("item/mcpToolCall/progress", { threadId, turnId, itemId: mcp.id, message: "working" });
       lifecycle("completed", mcp, 15);
@@ -529,6 +530,10 @@ function setup(mode = "ok") {
         return;
       }
       if (request.method === "turn/start") {
+        if (mode === "continuation-turn-failure" && turnStarts > 0) {
+          fail(request);
+          return;
+        }
         turnId = turnIds[Math.min(turnStarts, turnIds.length - 1)]!;
         turnStarts += 1;
         result(request, { turn: turn(turnId, "inProgress") });
@@ -617,6 +622,30 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
     tools: [{ server: "north", tool: "tell", count: 1 }],
   });
   expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
+});
+
+test("a first-result consumer sees exact MCP activity without resuming the session", async () => {
+  const { options } = setup();
+  const run = new ManagedCodexAppServerRun(options);
+  const session = run.session(async () => undefined);
+  const first = await session.next();
+  expect(first.done).toBe(false);
+  expect(run.mcpActivity()).toEqual({
+    source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 1,
+    tools: [{ server: "north", tool: "tell", count: 1 }],
+  });
+  await session.return(first.value!);
+  expect(run.mcpActivity().coverage).toBe("exact");
+});
+
+test("a clean terminal with MCP identity loss settles as partial", async () => {
+  const { options } = setup("mcp-identity-loss");
+  const run = new ManagedCodexAppServerRun(options);
+  await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
+  expect(run.mcpActivity()).toEqual({
+    source: "codex-app-server:item-completed", coverage: "partial", totalCalls: 1,
+    tools: [],
+  });
 });
 
 test("thread-scoped MCP startup may precede the thread/start response", async () => {
@@ -719,6 +748,20 @@ test("a later North frame drives a same-thread continuation turn under re-proven
   expect(requests.filter(({ method }) => method === "config/read")).toHaveLength(5);
   expect(requests.filter(({ method }) => method === "hooks/list")).toHaveLength(3);
   expect(requests.filter(({ method }) => method === "mcpServerStatus/list")).toHaveLength(6);
+});
+
+test("an admitted continuation makes MCP coverage unknown until its terminal succeeds", async () => {
+  const { options } = setup("continuation-turn-failure");
+  const run = new ManagedCodexAppServerRun(options);
+  const session = run.session(async () => "continue after the first terminal");
+  const first = await session.next();
+  expect(first.done).toBe(false);
+  expect(run.mcpActivity().coverage).toBe("exact");
+
+  await expect(session.next()).rejects.toThrow("openai_provider_execution_failed");
+  expect(run.mcpActivity()).toEqual({
+    source: "codex-app-server:item-completed", coverage: "unknown", tools: [],
+  });
 });
 
 test("a continuation turn that widens config authority fails closed", async () => {

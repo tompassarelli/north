@@ -30,3 +30,34 @@ test("a completed MCP item with lost identity is partial rather than inferred ze
     source: "fixture", coverage: "partial", totalCalls: 1, tools: [],
   });
 });
+
+test("an admitted continuation reopens coverage until its next clean terminal", () => {
+  const activity = new McpActivityAccumulator("fixture");
+  const identity = normalizeCodexMcpIdentity("north", "tell");
+  activity.observe("turn-1:call-1", identity);
+  activity.complete();
+  expect(activity.snapshot().coverage).toBe("exact");
+
+  activity.reopen();
+  expect(activity.snapshot()).toEqual({ source: "fixture", coverage: "unknown", tools: [] });
+  activity.observe("turn-2:call-1", identity);
+  activity.complete();
+  expect(activity.snapshot()).toEqual({
+    source: "fixture", coverage: "exact", totalCalls: 2,
+    tools: [{ server: "north", tool: "tell", count: 2 }],
+  });
+});
+
+test("identity loss remains sticky across reopened continuation coverage", () => {
+  const activity = new McpActivityAccumulator("fixture");
+  activity.observe("turn-1:call-1", undefined);
+  activity.complete();
+  expect(activity.snapshot().coverage).toBe("partial");
+
+  activity.reopen();
+  expect(activity.snapshot().coverage).toBe("unknown");
+  activity.complete();
+  expect(activity.snapshot()).toEqual({
+    source: "fixture", coverage: "partial", totalCalls: 1, tools: [],
+  });
+});
