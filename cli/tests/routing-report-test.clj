@@ -742,7 +742,9 @@
       (doseq [[entity values]
                [["@run-window-sol"
                 [["response_strategy_id" "none"] ["response_strategy_implementation" "disabled"]
-                 ["caveman_mode" "off"] ["caveman_measurement_coverage" "unknown"]
+                 ["caveman_requested_mode" "off"] ["caveman_mode" "off"]
+                 ["caveman_implementation" "disabled"]
+                 ["caveman_measurement_coverage" "unknown"]
                  ["caveman_source" "default"]
                  ["caveman_decision_reason" "default-off-unproven-savings"]
                  ["mcp_activity_source" "codex-app-server:item-completed"]
@@ -751,7 +753,9 @@
                 [["response_strategy_id" "caveman"]
                  ["response_strategy_implementation" "fork-skill"]
                  ["response_strategy_version" "020f650daa42a506660a2959f62f2a999d7e1018"]
-                 ["caveman_mode" "lite"] ["caveman_measurement_coverage" "exact"]
+                 ["caveman_requested_mode" "lite"] ["caveman_mode" "lite"]
+                 ["caveman_implementation" "fork-skill"]
+                 ["caveman_measurement_coverage" "exact"]
                  ["caveman_source" "request"] ["caveman_decision_reason" "explicit-request"]
                  ["caveman_repository" "github.com/tompassarelli/caveman"]
                  ["caveman_revision" "020f650daa42a506660a2959f62f2a999d7e1018"]
@@ -765,12 +769,16 @@
                  ["mcp_actual_tool" "{\"server\":\"north\",\"tool\":\"tell\",\"count\":2}"]
                  ["mcp_actual_tool" "{\"server\":\"north\",\"tool\":\"ready\",\"count\":1}"]]]
                ["@run-window-claude-overlap"
-                [["response_strategy_id" "caveman"] ["caveman_mode" "full"]
+                [["response_strategy_id" "caveman"] ["caveman_requested_mode" "full"]
+                 ["caveman_mode" "full"] ["caveman_implementation" "fork-skill"]
                  ["caveman_source" "env"] ["caveman_decision_reason" "inherited-env"]
                  ["mcp_activity_source" "anthropic-agent-sdk:assistant-tool-use"]
                  ["mcp_activity_coverage" "exact"] ["mcp_actual_calls" "1"]
                  ["mcp_actual_tool" "{\"server\":\"north\",\"tool\":\"show\",\"count\":1}"]]]]]
         (doseq [[predicate value] values] (fact telem3 entity predicate value)))
+      (doseq [predicate ["caveman_prompt" "caveman_arguments" "caveman_output"
+                         "caveman_transcript" "caveman_content"]]
+        (fact telem3 "@run-window-terra" predicate "CANARY-SENSITIVE-CONTENT"))
       ;; The end boundary belongs to a future report, never both adjacent windows.
       (window-run! "@run-window-at-end" "codex-a" "openai" "gpt-5.6-sol" "high"
                    "2026-07-22T12:00:00Z" 999)
@@ -833,11 +841,23 @@
                                                    (= "gpt-5.6-terra" (:model %)))
                                              (:byProviderAccountModel cumulative-op)))
                      provenance (first (filter #(= "caveman" (:strategyId %))
-                                               (:responseStrategyProvenance terra-op)))]
+                                               (:responseStrategyProvenance terra-op)))
+                     legacy (first (filter #(= "legacy-unknown" (:strategyId %))
+                                           (:responseStrategyProvenance terra-op)))]
                  (and (= {:off 1} (get-in older-op [:coverage :cavemanModeCounts]))
+                      (= {:off 1} (get-in older-op [:coverage :cavemanRequestedModeCounts]))
+                      (= {:disabled 1} (get-in older-op [:coverage :cavemanImplementationCounts]))
                       (= 0 (get-in older-op [:coverage :mcpActualCalls]))
                       (= {:full 1 :legacy-unknown 2 :lite 1}
                          (get-in recent-op [:coverage :cavemanModeCounts]))
+                      (= {:full 1 :legacy-unknown 2 :lite 1}
+                         (get-in recent-op [:coverage :cavemanRequestedModeCounts]))
+                      (= {:fork-skill 2 :legacy-unknown 2}
+                         (get-in recent-op [:coverage :cavemanImplementationCounts]))
+                      (= {:full 1 :legacy-unknown 2 :lite 1 :off 1}
+                         (get-in cumulative-op [:coverage :cavemanRequestedModeCounts]))
+                      (= {:disabled 1 :fork-skill 2 :legacy-unknown 2}
+                         (get-in cumulative-op [:coverage :cavemanImplementationCounts]))
                       (= 4 (get-in recent-op [:coverage :mcpActualCalls]))
                       (= 4 (get-in cumulative-op [:coverage :mcpActualCalls]))
                       (= [{:server "north" :tool "ready" :calls 1}
@@ -850,7 +870,8 @@
                          (:responseStrategyProvenanceCoverageCounts terra-op))
                       (= {:strategyId "caveman" :implementation "fork-skill"
                           :version "020f650daa42a506660a2959f62f2a999d7e1018"
-                          :mode "lite" :source "request" :decisionReason "explicit-request"
+                          :requestedMode "lite" :mode "lite" :source "request"
+                          :decisionReason "explicit-request" :cavemanImplementation "fork-skill"
                           :repository "github.com/tompassarelli/caveman"
                           :revision "020f650daa42a506660a2959f62f2a999d7e1018"
                           :skillSha256 "e38ec671ecbee47ce234190be12615daf60ac667d775b7340d49d07f4f63c7bc"
@@ -860,10 +881,51 @@
                           :sourceKind "git-object" :resolutionProvenance "local-dev"
                           :measurementCoverage "exact" :runs 1}
                          (select-keys provenance
-                                      [:strategyId :implementation :version :mode :source
-                                       :decisionReason :repository :revision :skillSha256
+                                      [:strategyId :implementation :version :requestedMode :mode :source
+                                       :decisionReason :cavemanImplementation :repository :revision :skillSha256
                                        :skillBytes :renderedSha256 :renderedBytes :sourceKind
-                                       :resolutionProvenance :measurementCoverage :runs])))))
+                                       :resolutionProvenance :measurementCoverage :runs]))
+                      (= "legacy-unknown" (:requestedMode legacy))
+                      (= "legacy-unknown" (:cavemanImplementation legacy))
+                      (not (str/includes? (json/generate-string cumulative-op)
+                                          "CANARY-SENSITIVE-CONTENT")))))
+        (check "strategy completeness fails closed for every omitted contract field"
+               (let [complete {:responseStrategyId "caveman"
+                               :responseStrategyImplementation "fork-skill"
+                               :responseStrategyVersion "revision"
+                               :cavemanRequestedMode "lite" :cavemanMode "lite"
+                               :cavemanSource "request" :cavemanDecisionReason "explicit-request"
+                               :cavemanImplementation "fork-skill"
+                               :cavemanMeasurementCoverage "exact"
+                               :cavemanRepository "repository" :cavemanRevision "revision"
+                               :cavemanSkillSha256 hash-a :cavemanSkillBytes 1
+                               :cavemanRenderedSha256 hash-b :cavemanRenderedBytes 1
+                               :cavemanSourceKind "git-object"
+                               :cavemanResolutionProvenance "local-dev"}
+                     required [:responseStrategyImplementation :responseStrategyVersion
+                               :cavemanRequestedMode :cavemanMode :cavemanSource
+                               :cavemanDecisionReason :cavemanImplementation
+                               :cavemanMeasurementCoverage :cavemanRepository :cavemanRevision
+                               :cavemanSkillSha256 :cavemanSkillBytes :cavemanRenderedSha256
+                               :cavemanRenderedBytes :cavemanSourceKind
+                               :cavemanResolutionProvenance]
+                     coverage (fn [row]
+                                (get-in (operational-telemetry [row])
+                                        [:coverage :responseStrategyProvenanceCoverageCounts]))
+                     off {:responseStrategyId "none"
+                          :responseStrategyImplementation "disabled"
+                          :cavemanRequestedMode "off" :cavemanMode "off"
+                          :cavemanSource "default"
+                          :cavemanDecisionReason "default-off-unproven-savings"
+                          :cavemanImplementation "disabled"
+                          :cavemanMeasurementCoverage "unknown"}]
+                 (and (= {"complete" 1} (coverage complete))
+                      (every? #(= {"partial" 1} (coverage (dissoc complete %))) required)
+                      (= {"legacy-unknown" 1} (coverage (dissoc complete :responseStrategyId)))
+                      (= {"complete" 1} (coverage off))
+                      (= {"partial" 1} (coverage (dissoc off :cavemanRequestedMode)))
+                      (= {"partial" 1} (coverage (dissoc off :cavemanImplementation)))
+                      (= {"legacy-unknown" 1} (coverage {})))))
         (check "native interactive activity is separate per slice and cumulative"
                (let [older-native (:nativeInteractiveActivity older)
                      recent-native (:nativeInteractiveActivity recent)
