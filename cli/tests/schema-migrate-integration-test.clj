@@ -50,6 +50,23 @@
          (concat args ["--log" log "--telemetry" telemetry
                        "--receipt-dir" receipt-dir])))
 
+(defn write-reviewed-manifest!
+  [path log telemetry predicate-semantics other-entries]
+  (let [corpus (read-corpus (resolve-corpus-paths! log telemetry))
+        manifest {:format REPAIR-MANIFEST-FORMAT
+                  :source (source-seal corpus)
+                  :review {:by "schema-migrate-integration-test"
+                           :at "2026-07-22T00:00:00Z"
+                           :basis "Explicit fixture semantics and classifications."}
+                  :predicate_semantics predicate-semantics
+                  :cardinality_repairs []
+                  :fact_repairs []
+                  :other_allowlist
+                  {:name "schema-migrate-integration-reviewed-other/v1"
+                   :entries other-entries}}]
+    (spit path (str (pr-str manifest) "\n"))
+    path))
+
 (defn run-pred [port log telemetry & args]
   (apply proc/shell
          {:dir root :out :string :err :string :continue true
@@ -58,7 +75,9 @@
 
 (defn start-daemon [port log telemetry]
   (proc/process {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_LOG" log "FRAM_TELEMETRY_LOG" telemetry}}
+                 :extra-env {"FRAM_LOG" log "FRAM_TELEMETRY_LOG" telemetry
+                             "FRAM_REQUIRE_LOG_FENCE" "1"
+                             "FRAM_SINGLE_VALUED" ""}}
                 "bb" "-cp" "out" "coord_daemon.clj"
                 "serve-flat" (str port) log))
 
@@ -80,15 +99,18 @@
       telemetry (.getCanonicalPath (io/file temp "telemetry.log"))
       log-alias (.getAbsolutePath (io/file temp "coordination-alias.log"))
       receipts (.getCanonicalPath (io/file temp "receipts"))
+      manifest-path (.getCanonicalPath (io/file temp "reviewed-manifest.edn"))
       invalid-log (.getCanonicalPath (io/file temp "acyclic-invalid.log"))
       invalid-telemetry (.getCanonicalPath (io/file temp "acyclic-invalid-telemetry.log"))
       invalid-receipts (.getCanonicalPath (io/file temp "acyclic-invalid-receipts"))
       corrupt-log (.getCanonicalPath (io/file temp "corrupt.log"))
       corrupt-telemetry (.getCanonicalPath (io/file temp "corrupt-telemetry.log"))
       corrupt-receipts (.getCanonicalPath (io/file temp "corrupt-receipts"))
+      corrupt-manifest (.getCanonicalPath (io/file temp "corrupt-manifest.edn"))
       unterminated-log (.getCanonicalPath (io/file temp "unterminated.log"))
       unterminated-telemetry (.getCanonicalPath (io/file temp "unterminated-telemetry.log"))
       unterminated-receipts (.getCanonicalPath (io/file temp "unterminated-receipts"))
+      unterminated-manifest (.getCanonicalPath (io/file temp "unterminated-manifest.edn"))
       _ (spit log (str (str/join "\n"
                                  [(op 1 "assert" "@thread-a" "title" "one")
                                   (op 2 "assert" "@thread-a" "custom_ref" "@thread-b")
@@ -126,10 +148,28 @@
                          (op 2 "assert" "@part_of" "acyclic" "false")
                          (op 3 "assert" "@custom_edge" "acyclic" "maybe")]))
       _ (spit invalid-telemetry "")
-      _ (spit corrupt-log (op 1 "assert" "@thread-a" "\"\"" ""))
+      _ (spit corrupt-log (str (op 1 "assert" "@thread-a" "\"\"" "") "\n"))
       _ (spit corrupt-telemetry "")
       _ (spit unterminated-log (op 1 "assert" "@thread-a" "title" "one"))
       _ (spit unterminated-telemetry "")
+      _ (write-reviewed-manifest!
+         manifest-path log telemetry
+         {"custom_ref" {:cardinality "multi"
+                        :value_kind "ref"
+                        :doc "Reviewed integration-test reference edge."
+                        :rationale "The fixture explicitly targets @thread-b."}
+          "opaque" {:cardinality "multi"
+                    :value_kind "literal"
+                    :doc "Reviewed opaque integration-test literal."
+                    :rationale "The fixture value is literal test data."}}
+         {"@ambiguous" {:entity_kind "vendor/opaque"
+                         :rationale "Fixture-owned extension with no North structural signal."}})
+      _ (write-reviewed-manifest!
+         unterminated-manifest unterminated-log unterminated-telemetry {} {})
+      _ (write-reviewed-manifest!
+         corrupt-manifest corrupt-log corrupt-telemetry {}
+         {"@thread-a" {:entity_kind "north/quarantined_legacy_artifact"
+                       :rationale "Keeps the corrupt fixture classification explicit during preflight."}})
       daemon (atom (start-daemon port log telemetry))
       checks (atom [])
       check! (fn [label ok detail]
@@ -166,9 +206,12 @@
                                 ["migrate" "--execute"]
                                 ["repair-corrupt" "--execute" "--offline-confirm"]])
           alias-duplicate (run-schema port log log-alias receipts "plan")
+          direct-before (run-schema port log telemetry receipts "migrate" "--execute")
           unterminated-before (slurp unterminated-log)
           unterminated-execute (run-schema port unterminated-log unterminated-telemetry
-                                           unterminated-receipts "migrate" "--execute")]
+                                           unterminated-receipts
+                                           "build-candidate" "--execute" "--offline-confirm"
+                                           "--manifest" unterminated-manifest)]
       (check! "mandatory zero-byte telemetry log is accepted as a corpus member"
               (zero? (:exit empty-telemetry-plan))
               (str "exit=" (:exit empty-telemetry-plan) " err=" (:err empty-telemetry-plan)))
@@ -197,6 +240,12 @@
               (and (not (zero? (:exit alias-duplicate)))
                    (str/includes? (:err alias-duplicate) "same canonical path"))
               (:err alias-duplicate))
+      (check! "direct migration is disabled before the first write"
+              (and (not (zero? (:exit direct-before)))
+                   (str/includes? (:err direct-before) "direct migrate --execute is disabled")
+                   (= log-before (slurp log))
+                   (= telemetry-before (slurp telemetry)))
+              (str "exit=" (:exit direct-before) " err=" (:err direct-before)))
       (check! "execute rejects an unterminated append boundary before coordinator work"
               (and (not (zero? (:exit unterminated-execute)))
                    (str/includes? (:err unterminated-execute) "not newline-terminated")
@@ -256,14 +305,16 @@
     (let [corrupt-before (run-schema port corrupt-log corrupt-telemetry corrupt-receipts
                                      "audit" "--strict")
           refused (run-schema port corrupt-log corrupt-telemetry corrupt-receipts
-                              "migrate" "--execute")]
+                              "build-candidate" "--execute" "--offline-confirm"
+                              "--manifest" corrupt-manifest)]
       (check! "strict audit names the malformed predicate"
               (and (= 1 (:exit corrupt-before))
                    (str/includes? (:out corrupt-before) "corrupt predicate"))
               (:out corrupt-before))
-      (check! "migration refuses to register around corrupt bytes"
+      (check! "candidate preflight refuses to register around corrupt bytes"
               (and (not (zero? (:exit refused)))
-                   (str/includes? (:err refused) "repair-corrupt"))
+                   (str/includes? (:out refused) "corrupt-facts-present")
+                   (str/includes? (:err refused) "zero coordinator writes attempted"))
               (str "exit=" (:exit refused) " out=" (:out refused) " err=" (:err refused))))
 
     (let [log-before (slurp corrupt-log)
@@ -290,23 +341,26 @@
                    (not (.exists (io/file corrupt-receipts))))
               nil))
 
-    (let [migrate (run-schema port log telemetry receipts "migrate" "--execute")
+    (let [migrate (run-schema port log telemetry receipts
+                              "build-candidate" "--execute" "--offline-confirm"
+                              "--manifest" manifest-path)
           receipt-files (when (.isDirectory (io/file receipts))
                           (vec (.listFiles (io/file receipts))))
           receipt-data (when (= 1 (count receipt-files))
-                         (edn/read-string (slurp (first receipt-files))))
-          receipt-pass (first (:passes receipt-data))]
-      (check! "migration exits 0 on the validated clean corpus"
+                         (edn/read-string (slurp (first receipt-files))))]
+      (check! "offline candidate build exits 0 on the completely reviewed corpus"
               (zero? (:exit migrate))
               (str "exit=" (:exit migrate) " out=" (:out migrate) " err=" (:err migrate)))
-      (check! "only the committed migration emits a persisted receipt"
+      (check! "only the converged candidate build emits a persisted receipt"
               (and (str/includes? (:out migrate) "receipt ")
                    (.isDirectory (io/file receipts))
                    (= 1 (count receipt-files))
+                   (= "north-schema-candidate-build/v1" (:format receipt-data))
                    (true? (:converged receipt-data))
-                   (= (:actions_acknowledged receipt-pass)
-                      (count (:requested_action_identities receipt-pass)))
-                   (empty? (:remaining_action_identities receipt-pass)))
+                   (true? (:post_matches_simulation receipt-data))
+                   (= (:actions_acknowledged receipt-data)
+                      (count (:requested_action_identities receipt-data)))
+                   (empty? (:remaining_action_identities receipt-data)))
               (str (:out migrate) " receipt=" (pr-str receipt-data))))
 
     (let [after (run-schema port log telemetry receipts "audit" "--strict")]
@@ -360,11 +414,11 @@
                                       expected)))))
       (check! "explicit namespaced entity-kind extension is preserved"
               (= #{"vendor/widget"} (values facts "@vendor-subject" "entity_kind")) nil)
-      (check! "ambiguous subject remains untyped instead of being guessed"
-              (empty? (values facts "@ambiguous" "entity_kind")) nil))
+      (check! "reviewed ambiguous extension receives only its explicit classification"
+              (= #{"vendor/opaque"} (values facts "@ambiguous" "entity_kind")) nil))
 
-    (let [second (run-schema port log telemetry receipts "migrate" "--execute")]
-      (check! "second migration is a zero-delta idempotent run"
+    (let [second (run-schema port log telemetry receipts "plan")]
+      (check! "post-candidate plan is a zero-delta idempotence proof"
               (and (zero? (:exit second)) (str/includes? (:out second) "0 action(s)"))
               (str "exit=" (:exit second) " out=" (:out second))))
 
