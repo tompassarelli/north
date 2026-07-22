@@ -27,6 +27,13 @@ scan() {
   LC_ALL=C rg --hidden -n "$impurity_pattern" "$1" | LC_ALL=C rg -v "$sanctioned" || true
 }
 
+scan_tracked_sdk() {
+  (cd "$repo_root"
+   git ls-files -z sdk/src \
+     | xargs -0 -r rg --hidden -n "$impurity_pattern" \
+     | LC_ALL=C rg -v "$sanctioned" || true)
+}
+
 work=$(mktemp -d)
 trap 'rm -rf "${work:?}"' EXIT
 
@@ -67,7 +74,23 @@ mkdir -p "$work/d/sdk/src"
 printf '    "/run/current-system/sw/bin/git",\n' > "$work/d/sdk/src/other.ts"
 expect_flagged "$work/d" "the exemption does not apply outside trusted-runtime.ts"
 
-# E: the live repository source carries no UNSANCTIONED impurity.
-expect_clean "$repo_root/sdk/src" "sdk/src has no unsanctioned impurity"
+# E: package-eligible SDK source carries no UNSANCTIONED impurity. Untracked
+# scratch files are intentionally outside the Git-backed Nix source.
+[ -z "$(scan_tracked_sdk)" ] || {
+  echo "FAIL: tracked sdk/src has unsanctioned impurity" >&2
+  scan_tracked_sdk >&2
+  exit 1
+}
+pass "tracked sdk/src has no unsanctioned impurity"
+
+# F: north-data is a runtime corpus directory, not the north source checkout.
+mkdir -p "$work/f/cli"
+printf '    (str home "/code/north-data/facts.log")\n' > "$work/f/cli/schema-migrate.clj"
+expect_clean "$work/f" "runtime north-data path is not mistaken for the north checkout"
+
+# G: the actual checkout root and its descendants remain fatal.
+mkdir -p "$work/g/cli"
+printf '    (str home "/code/north/cli/schema-migrate.clj")\n' > "$work/g/cli/schema-migrate.clj"
+expect_flagged "$work/g" "north checkout descendants remain fatal"
 
 echo "PASS: purity-guard allowlist is narrow (git/bb entry hints only)"
