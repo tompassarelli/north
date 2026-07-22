@@ -19,6 +19,8 @@ const identity = {
   parentRun: "@run:parent-001",
   parentThread: "@019f89ac-parent",
   coordinator: "north-root",
+  cavemanMode: "lite",
+  cavemanSource: "request",
 };
 
 const examples: Record<string, Record<string, string | number>> = {
@@ -41,6 +43,15 @@ const examples: Record<string, Record<string, string | number>> = {
     compactionPolicy: "native-auto-compact-enabled",
     compactionPolicyVersion: "north-native-auto-compact:v1",
   },
+  caveman_observed: {
+    requestedMode: "lite", resolvedMode: "lite", implementation: "fork-skill",
+    decisionReason: "explicit-request",
+    measurementCoverage: "exact", repository: "github.com/tompassarelli/caveman",
+    revision: digest("revision"), skillSha256: digest("skill"), skillBytes: 4000,
+    renderedSha256: digest("rendered"), renderedBytes: 2500,
+    sourceKind: "git-object", resolutionProvenance: "local-dev",
+  },
+  tool_activity: { serverName: "north", toolName: "tell", callCount: 2 },
   tool_observed: { toolName: "mcp__north__tell", activity: "completed", successCount: 2, errorCount: 0 },
   usage_observed: { inputTokens: 120, outputTokens: 40, totalTokens: 160, terminalCount: 1 },
   cache_observed: { cacheReadTokens: 80, cacheCreateTokens: 20, cachedInputTokens: 50 },
@@ -108,14 +119,14 @@ test("a finalized ledger binds exact lineage, monotone ordering, coverage, and i
     ["run_event_terminal_sequence", String(summary.terminalSequence)],
     ["run_event_ledger_sha256", summary.digest],
   ]) expect(header).toContainEqual(expected);
-  expect(() => ledger.append("tool_observed", examples.tool_observed, "north-harness", "exact"))
+  expect(() => ledger.append("tool_activity", examples.tool_activity, "north-harness", "exact"))
     .toThrow("run ledger is finalized");
 });
 
 test("events serialize only fixed content-free predicates and payload keys", () => {
   const ledger = new AgentRunLedger(identity);
   const event = ledger.append(
-    "tool_observed", examples.tool_observed, "codex-app-server", "exact",
+    "tool_activity", examples.tool_activity, "codex-app-server", "exact",
     "2026-07-22T00:00:00.000Z",
   );
   const facts = eventFacts(event);
@@ -123,11 +134,11 @@ test("events serialize only fixed content-free predicates and payload keys", () 
     "kind", "agent_run_ledger_version", "run", "thread", "agent", "parent_run",
     "parent_thread", "run_coordinator", "run_event_sequence", "run_event_type",
     "run_event_observed_at", "run_event_source", "run_event_coverage",
-    "run_event_data", "run_event_sha256",
+    "run_event_data", "run_event_sha256", "caveman_mode", "caveman_source",
   ]));
   const encoded = JSON.stringify(facts);
   expect(encoded).not.toContain("tool arguments are private");
-  expect(JSON.parse(facts.find(([p]) => p === "run_event_data")![1])).toEqual(examples.tool_observed);
+  expect(JSON.parse(facts.find(([p]) => p === "run_event_data")![1])).toEqual(examples.tool_activity);
 });
 
 test("privacy validation rejects prompt, argument, raw, credential, and free-text payloads", () => {
@@ -137,14 +148,14 @@ test("privacy validation rejects prompt, argument, raw, credential, and free-tex
   ]) {
     const ledger = new AgentRunLedger(identity);
     expect(() => ledger.append(
-      "tool_observed",
-      { ...examples.tool_observed, [forbidden]: "CANARY-private-prompt-and-tool-arguments" },
+      "tool_activity",
+      { ...examples.tool_activity, [forbidden]: "CANARY-private-prompt-and-tool-arguments" },
       "north-harness", "exact",
     )).toThrow();
   }
   const ledger = new AgentRunLedger(identity);
   expect(() => ledger.append(
-    "tool_observed", { toolName: "shell", activity: "ran arbitrary user text with spaces" },
+    "tool_activity", { serverName: "north", toolName: "arbitrary user text with spaces", callCount: 1 },
     "north-harness", "exact",
   )).toThrow("invalid run ledger identifier");
   expect(() => ledger.append(
@@ -198,6 +209,20 @@ const promptEconomics = {
   compactionPolicyVersion: "north-native-auto-compact:v1",
 } as const;
 
+const caveman = {
+  requestedMode: "lite", resolvedMode: "lite", source: "request",
+  decisionReason: "explicit-request",
+  implementation: "fork-skill", instructions: "private-rendered-instructions",
+  repository: "github.com/tompassarelli/caveman", revision: digest("revision"),
+  skillSha256: digest("skill"), skillBytes: 4000, renderedSha256: digest("rendered"),
+  renderedBytes: 2500, sourceKind: "git-object", resolutionProvenance: "local-dev",
+  measurementCoverage: "exact",
+} as const;
+const mcpActivity = {
+  source: "anthropic-agent-sdk:assistant-tool-use", coverage: "exact" as const,
+  totalCalls: 2, tools: [{ server: "north", tool: "tell", count: 2 }],
+};
+
 test("terminal success publishes exact ordered lifecycle evidence and a complete summary", async () => {
   const published: AgentRunEvent[] = [];
   const summary = await publishRunLifecycleLedger(identity, {
@@ -209,10 +234,11 @@ test("terminal success publishes exact ordered lifecycle evidence and a complete
     },
     compactions: 0,
     outcome: "ran",
+    caveman, mcpActivity,
   }, 1000, async (event) => { published.push(event); return "recorded"; });
-  expect(summary?.eventCount).toBe(5);
+  expect(summary?.eventCount).toBe(8);
   expect(published.map(({ type }) => type)).toEqual([
-    "prompt_constructed", "usage_observed", "cache_observed",
+    "caveman_observed", "tool_activity", "tool_activity", "prompt_constructed", "usage_observed", "cache_observed",
     "compaction_observed", "terminal_cleanup",
   ]);
   expect(published.at(-1)?.payload).toEqual({ outcome: "ran", cleanupStatus: "observed" });
@@ -225,6 +251,7 @@ test("a provider failure is a terminal lifecycle but missing usage stays explici
     tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
     compactions: 1,
     outcome: "provider_error",
+    caveman, mcpActivity,
   }, 1000, async (event) => { published.push(event); return "recorded"; });
   expect(summary).toBeDefined();
   expect(published.find(({ type }) => type === "usage_observed")?.coverage).toBe("unknown");
@@ -239,6 +266,7 @@ test("final run-id rotation never copies partial events or manufactures a summar
     tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
     compactions: 0,
     outcome: "ran",
+    caveman, mcpActivity,
   }, 1000, async (event) => {
     published.push(event);
     return event.type === "cache_observed" ? "unavailable" : "recorded";
@@ -252,6 +280,7 @@ test("final run-id rotation never copies partial events or manufactures a summar
     tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
     compactions: 0,
     outcome: "died",
+    caveman, mcpActivity,
   }, 1000, async () => "recorded");
   expect(crashed).toBeUndefined();
 });

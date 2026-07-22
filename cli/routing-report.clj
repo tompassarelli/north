@@ -572,6 +572,29 @@
        :model (or raw-model "unattributed") :effort (get' "effort" "unattributed")
        :providerTarget (or (normalized-token (get' "provider_target" nil))
                            "unattributed")
+       :responseStrategyId (normalized-token (one facts entity "response_strategy_id"))
+       :responseStrategyImplementation
+       (normalized-token (one facts entity "response_strategy_implementation"))
+       :responseStrategyVersion
+       (normalized-token (one facts entity "response_strategy_version"))
+       :cavemanMode (normalized-token (one facts entity "caveman_mode"))
+       :cavemanSource (normalized-token (one facts entity "caveman_source"))
+       :cavemanDecisionReason
+       (normalized-token (one facts entity "caveman_decision_reason"))
+       :cavemanMeasurementCoverage
+       (normalized-token (one facts entity "caveman_measurement_coverage"))
+       :mcpActivitySource (normalized-token (one facts entity "mcp_activity_source"))
+       :mcpActivityCoverage (normalized-token (one facts entity "mcp_activity_coverage"))
+       :mcpActualCalls (maybe-long (one facts entity "mcp_actual_calls"))
+       :mcpActualTools
+       (vec (keep (fn [raw]
+                    (let [parsed (json-map raw)
+                          server (normalized-token (get parsed "server"))
+                          tool (normalized-token (get parsed "tool"))
+                          count' (maybe-positive-long (get parsed "count"))]
+                      (when (and server tool count')
+                        {:server server :tool tool :count count'})))
+                  (many facts entity "mcp_actual_tool")))
        :requestedProvider (normalized-token (one facts entity "requested_provider"))
        :requestedTarget (normalized-token (one facts entity "requested_target"))
        :requestedModel (normalized-token (one facts entity "requested_model"))
@@ -1137,11 +1160,54 @@
      :tokenEvidence (if (seq observed) "observed-lower-bound" "unobserved")
      :accounts account-rows}))
 
+(defn operational-telemetry [rows]
+  (let [group-key (fn [row] [(or (:provider row) "unattributed")
+                             (or (:providerTarget row) "unattributed")
+                             (or (:model row) "unattributed")])
+        summarize
+        (fn [cohort]
+          (let [known-calls (filter #(some? (:mcpActualCalls %)) cohort)
+                tools (mapcat :mcpActualTools cohort)]
+            {:runs (count cohort)
+             :cavemanModeCounts (->> cohort (map #(or (:cavemanMode %) "legacy-unknown"))
+                                      frequencies (into (sorted-map)))
+             :cavemanSourceCounts (->> cohort (map #(or (:cavemanSource %) "legacy-unknown"))
+                                        frequencies (into (sorted-map)))
+             :cavemanDecisionReasonCounts
+             (->> cohort (map #(or (:cavemanDecisionReason %) "legacy-unknown"))
+                  frequencies (into (sorted-map)))
+             :responseStrategyCounts
+             (->> cohort (map #(or (:responseStrategyId %) "legacy-unknown"))
+                  frequencies (into (sorted-map)))
+             :mcpCoverageCounts
+             (->> cohort (map #(or (:mcpActivityCoverage %) "legacy-unknown"))
+                  frequencies (into (sorted-map)))
+             :mcpKnownCallRuns (count known-calls)
+             :mcpActualCalls (when (seq known-calls) (reduce + (map :mcpActualCalls known-calls)))
+             :mcpToolDistribution
+             (->> tools
+                  (group-by (juxt :server :tool))
+                  (map (fn [[[server tool] entries]]
+                         {:server server :tool tool :calls (reduce + (map :count entries))}))
+                  (sort-by (juxt :server :tool)) vec)}))]
+    {:scope "managed-provider-actuals"
+     :claim (str "MCP totals count completed structured provider observations only; grants, native "
+                 "tools, arguments, outputs, and unknown legacy activity are excluded")
+     :coverage (summarize rows)
+     :byProviderAccountModel
+     (->> rows (group-by group-key)
+          (map (fn [[[provider account model] cohort]]
+                 (assoc (summarize cohort)
+                        :provider provider :account account :model model)))
+          (sort-by (juxt :provider :account :model)) vec)}))
+
 (defn interval-report [rows sessions persisted accounts start end]
-  (assoc (interval-usage rows accounts start end)
+  (let [bounded (vec (filter #(row-in-interval? % start end) rows))]
+   (assoc (interval-usage rows accounts start end)
          :usageScope "managed-terminal-runs-only"
          :nativeInteractiveActivity (native-session-activity sessions start end)
-         :accountObserved (account-observed-usage persisted rows accounts start end)))
+         :accountObserved (account-observed-usage persisted rows accounts start end)
+         :operationalTelemetry (operational-telemetry bounded))))
 
 (defn windowed-usage-report [rows sessions {:keys [window-hours slice-hours now]}]
   (let [end (or (parse-instant now)
@@ -1464,6 +1530,7 @@
       :savingsVerdict {:status "cannot-determine" :reasons savings-reasons
                        :claim (str "Realized savings require a controlled, matched-workload cohort; "
                                    "observational cache, token, and compaction differences are not causal.")}}
+     :operationalTelemetry (operational-telemetry managed)
      :findings findings
      :alerts (vec (filter #(= "alert" (:status %)) findings))}))
 

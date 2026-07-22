@@ -383,6 +383,30 @@ test("an exhausted run envelope rejects before an injected provider boundary is 
   }
 });
 
+test("an enabled Caveman request with unproved fork provenance rejects before provider query", async () => {
+  const priorHome = process.env.NORTH_CAVEMAN_HOME;
+  const priorRev = process.env.NORTH_CAVEMAN_REV;
+  process.env.NORTH_CAVEMAN_HOME = "/definitely/missing-caveman-fork";
+  process.env.NORTH_CAVEMAN_REV = "020f650daa42a506660a2959f62f2a999d7e1018";
+  let providerCalls = 0;
+  let providerObservations = 0;
+  try {
+    await expect((await import("./support/spawn")).spawn({
+      prompt: "must not reach provider", agentId: "caveman-provenance-before-provider",
+      caveman: "lite", routingMetadata: presetRequest("integrator"),
+      refreshAccountUsages: async () => { providerObservations++; throw new Error("must not probe"); },
+      queryFn: () => { providerCalls++; return { async *[Symbol.asyncIterator]() {} } as any; },
+    })).rejects.toThrow("managed Caveman fork provenance unavailable");
+    expect(providerCalls).toBe(0);
+    expect(providerObservations).toBe(0);
+  } finally {
+    if (priorHome === undefined) delete process.env.NORTH_CAVEMAN_HOME;
+    else process.env.NORTH_CAVEMAN_HOME = priorHome;
+    if (priorRev === undefined) delete process.env.NORTH_CAVEMAN_REV;
+    else process.env.NORTH_CAVEMAN_REV = priorRev;
+  }
+});
+
 test("Gaffer-derived frontier tier is hydrated before envelope admission", async () => {
   const policy = join(dir, "denied-frontier-policy.json");
   writeFileSync(policy, JSON.stringify({

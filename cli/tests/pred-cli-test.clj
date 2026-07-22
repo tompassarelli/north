@@ -169,7 +169,7 @@
     "effective_authority_capability" "effective_builtin" "effective_mcp_tool"
     "effective_north_enabled_tool" "envelope_advisory" "envelope_scope"
     "fallback_reason" "routing_pin" "routing_receipt_override" "routing_rule_code"
-    "run_observation_coverage" "struggle"})
+    "run_observation_coverage" "struggle" "mcp_actual_tool"})
 (def audited-run-ref #{"parent_run" "parent_thread"})
 (def audited-run-single
   #{"agent" "agent_run_ledger_version" "allocation_mode" "applied_bespoke_contract_sha256"
@@ -227,6 +227,13 @@
     "run_coordinator" "run_event_count" "run_event_first_sequence"
     "run_event_last_sequence" "run_event_ledger_sha256" "run_event_status"
     "run_event_terminal_sequence" "spend_target" "task_grade" "thread" "tokens"
+    "response_strategy_id" "response_strategy_implementation" "response_strategy_version"
+    "caveman_requested_mode" "caveman_mode" "caveman_source" "caveman_decision_reason"
+    "caveman_implementation" "caveman_measurement_coverage" "caveman_repository"
+    "caveman_revision" "caveman_skill_sha256" "caveman_skill_bytes"
+    "caveman_rendered_sha256" "caveman_rendered_bytes" "caveman_source_kind"
+    "caveman_resolution_provenance" "mcp_activity_source" "mcp_activity_coverage"
+    "mcp_actual_calls"
     "topology" "usage_scope" "usage_terminal_count" "usage_total_status"})
 (def audited-run-predicates
   (set/union audited-run-single audited-run-multi audited-run-ref))
@@ -234,7 +241,8 @@
 (def audited-run-event-single
   #{"kind" "agent_run_ledger_version" "thread" "agent" "run_coordinator"
     "run_event_sequence" "run_event_type" "run_event_observed_at"
-    "run_event_source" "run_event_coverage" "run_event_data" "run_event_sha256"})
+    "run_event_source" "run_event_coverage" "run_event_data" "run_event_sha256"
+    "caveman_mode" "caveman_source"})
 (def audited-run-event-predicates
   (set/union audited-run-event-ref audited-run-event-single))
 

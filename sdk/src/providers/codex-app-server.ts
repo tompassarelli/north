@@ -11,6 +11,7 @@ import { managedNorthMcpEnvironment } from "../execution-admission";
 import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
 import { trustedGitProjectRoot, trustedManagedCodexExecutable } from "../trusted-runtime";
 import type { TerminalTokenUsage } from "../usage";
+import { McpActivityAccumulator, normalizeCodexMcpIdentity } from "../tool-activity";
 import type { OpenAIAuthoritySurface } from "./authority";
 import { expectedManagedCodexHooks } from "./codex-managed-hooks";
 
@@ -842,6 +843,7 @@ interface RuntimeNotificationState {
   text: string;
   usage?: ManagedCodexResult["usage"];
   terminalSeen: boolean;
+  mcpActivity: McpActivityAccumulator;
 }
 
 function validateNotifiedTurn(
@@ -996,6 +998,12 @@ function validateProgressNotification(
     if (method === "item/completed" && item.type === "agentMessage") {
       if (typeof item.text !== "string") throw new Error("Codex agent message text is invalid");
       state.text = item.text;
+    }
+    if (method === "item/completed" && item.type === "mcpToolCall") {
+      state.mcpActivity.observe(
+        `${state.turnId}:${String(item.id)}`,
+        normalizeCodexMcpIdentity(item.server, item.tool),
+      );
     }
     return;
   }
@@ -1207,8 +1215,11 @@ export class ManagedCodexAppServerRun {
   private rpc?: AppServerRpc;
   private control?: SupervisorControl;
   private threadStarted = false;
+  private readonly mcp = new McpActivityAccumulator("codex-app-server:item-completed");
 
   constructor(private options: ManagedCodexAppServerOptions) {}
+
+  mcpActivity() { return this.mcp.snapshot(); }
 
   async interrupt(): Promise<void> {
     if (this.child) await closeProcess(this.child, this.rpc, this.control);
@@ -1222,6 +1233,7 @@ export class ManagedCodexAppServerRun {
     const first = await session.next();
     if (first.done || !first.value)
       throw new Error("openai_provider_execution_failed");
+    this.mcp.complete();
     // Resume into the generator's finally so teardown (and any unclean-close
     // failure) is observed exactly as the pre-continuation flow observed it.
     await session.return(first.value);
@@ -1410,6 +1422,7 @@ export class ManagedCodexAppServerRun {
         hookRuns: new Map(),
         text: "",
         terminalSeen: false,
+        mcpActivity: this.mcp,
       };
       drainQueued(false);
       if (runtimeState.hookRuns.size || queuedNotifications.length)
@@ -1465,7 +1478,10 @@ export class ManagedCodexAppServerRun {
         yield { text: runtimeState.text, usage: runtimeState.usage };
 
         input = await nextInput();
-        if (input === undefined) break;
+        if (input === undefined) {
+          this.mcp.complete();
+          break;
+        }
       }
     } catch (error) {
       primaryFailed = true;

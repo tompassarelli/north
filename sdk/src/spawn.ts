@@ -12,6 +12,8 @@ import {
 import { normalizeUsage } from "./usage";
 import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
 import { publishRunLifecycleLedger } from "./run-ledger";
+import { resolveManagedCaveman, type CavemanResolution } from "./caveman";
+import { unknownMcpActivity } from "./tool-activity";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import { inputChannel, subscribeFeed } from "./coordination";
 import {
@@ -88,7 +90,7 @@ export interface SpawnOptions {
   role?: string;
   posture?: string;
   thread?: string; // exact work/evidence thread; managed runs verify the human client session separately.
-  caveman?: "off" | "lite" | "full"; // per-spawn terse-output dial; overrides ambient AGENT_CAVEMAN
+  caveman?: "off" | "lite" | "full"; // request override for the fork-backed response strategy
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   provider?: ProviderPreference;
   target?: string;
@@ -210,6 +212,7 @@ async function runSpawn(
   },
   judgmentGrade: JudgmentGradeSnapshot,
   strugglePolicy: StrugglePolicy,
+  caveman: CavemanResolution,
   envelopeAdmission?: EnvelopeAdmission,
   injected: SpawnRuntime = {},
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
@@ -440,8 +443,7 @@ async function runSpawn(
     role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
     deliveryRun: deliveryReservationReady ? runContext : undefined,
-    // per-spawn dial wins over ambient env; env-or-full is the harness fallback
-    caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
+    cavemanInstructions: caveman.instructions,
   });
   injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
   if (injected.queryFn && injected.feedSubscriber)
@@ -800,6 +802,8 @@ async function runSpawn(
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
   const finalRoute = activeRoute();
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const mcpActivity = activeExecutionQuery?.mcpActivity?.()
+    ?? unknownMcpActivity("provider-activity-unavailable");
   const runLedger = await publishRunLifecycleLedger({
     run: runId,
     thread: opts.thread ?? "(ad-hoc)",
@@ -807,11 +811,15 @@ async function runSpawn(
     ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
     ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
     ...(coordHandle ? { coordinator: coordHandle } : {}),
+    cavemanMode: caveman.resolvedMode,
+    cavemanSource: caveman.source,
   }, {
     promptEconomics: promptComposition?.promptEconomics,
     tokenUsage,
     compactions,
     outcome,
+    caveman,
+    mcpActivity,
   }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
   const numTurns = typeof resultMsg?.num_turns === "number"
     ? resultMsg.num_turns
@@ -845,6 +853,7 @@ async function runSpawn(
     executionSource: "north-managed",
     executionTransport: activeExecutionQuery?.executionTransport
       ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
+    caveman, mcpActivity,
     providerSessionPersistence: "unknown",
     northSessionId: opts.sessionId,
     threadProvenance: opts.thread ? "exact" : "ad-hoc",
@@ -960,6 +969,10 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
   const composed = composeSpawnOptions(admitted);
+  const caveman = resolveManagedCaveman(
+    composed.caveman ?? (process.env.NORTH_CAVEMAN_SOURCE === "request"
+      ? process.env.AGENT_CAVEMAN : undefined),
+  );
   if (!bootstrapAuthorityGranted) {
     assertRecursiveChildBinding(
       composed, callerTopology, injected.loadThreadFacts ?? getThreadFacts,
@@ -1033,7 +1046,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       console.warn(`[envelope] advisory: ${advisory}`);
     result = await runSpawn(
       composed, judgmentGrade, strugglePolicy,
-      admission, injected, termination, worktreeLease,
+      caveman, admission, injected, termination, worktreeLease,
     );
   } catch (error) {
     failed = true;

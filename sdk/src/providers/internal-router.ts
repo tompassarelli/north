@@ -100,6 +100,9 @@ export function routedQueryWithRegistry(
   };
   return {
     get executionTransport() { return active?.executionTransport; },
+    mcpActivity: () => active?.mcpActivity?.() ?? {
+      source: "provider-route-unavailable", coverage: "unknown", tools: [],
+    },
     interrupt: async () => { await active?.interrupt?.(); },
     close: () => closePromise ??= (async () => {
       closed = true;

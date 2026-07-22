@@ -10,6 +10,8 @@ import { inputChannel, subscribeFeed } from "./coordination";
 import { normalizeUsage } from "./usage";
 import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
 import { publishRunLifecycleLedger } from "./run-ledger";
+import { resolveManagedCaveman, type CavemanResolution } from "./caveman";
+import { unknownMcpActivity } from "./tool-activity";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
@@ -165,6 +167,7 @@ async function runDispatch(
   threadId: string,
   judgmentGrade: JudgmentGradeSnapshot,
   strugglePolicy: StrugglePolicy,
+  caveman: CavemanResolution,
   envelopeAdmission?: EnvelopeAdmission,
   hydratedMetadata?: RoutingRequest,
   routingEconomics?: AdmittedRoutingEconomics,
@@ -407,6 +410,7 @@ async function runDispatch(
       deliveryRun: deliveryReservationReady ? runContext : undefined,
       systemPrompt: `You are a north agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
       abortController: termination.abortController,
+      cavemanInstructions: caveman.instructions,
     });
     console.log(
       `[dispatch] posture: ${postureLabel}, provider: ${routing.provider}, `
@@ -757,6 +761,8 @@ async function runDispatch(
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const mcpActivity = activeExecutionQuery?.mcpActivity?.()
+    ?? unknownMcpActivity("provider-activity-unavailable");
   const runLedger = await publishRunLifecycleLedger({
     run: runId,
     thread: threadId,
@@ -764,11 +770,15 @@ async function runDispatch(
     ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
     ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
     ...(coordHandle ? { coordinator: coordHandle } : {}),
+    cavemanMode: caveman.resolvedMode,
+    cavemanSource: caveman.source,
   }, {
     promptEconomics: promptComposition?.promptEconomics,
     tokenUsage,
     compactions,
     outcome,
+    caveman,
+    mcpActivity,
   }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
   const numTurns = typeof resultMsg?.num_turns === "number"
     ? resultMsg.num_turns
@@ -803,6 +813,7 @@ async function runDispatch(
               executionSource: "north-managed",
               executionTransport: activeExecutionQuery?.executionTransport
                 ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
+              caveman, mcpActivity,
               providerSessionPersistence: "unknown",
               northSessionId,
               threadProvenance: "exact",
@@ -850,6 +861,9 @@ export async function dispatch(
 ): Promise<DispatchResult> {
   const injected = takeDispatchTestRuntime<DispatchRuntime>(dependencies) ?? {};
   const admitted = allowlistedDispatchDependencies(dependencies);
+  const caveman = resolveManagedCaveman(
+    process.env.NORTH_CAVEMAN_SOURCE === "request" ? process.env.AGENT_CAVEMAN : undefined,
+  );
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
     assertCoordinationAuthority("dispatch", callerTopology);
@@ -928,7 +942,7 @@ export async function dispatch(
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
     result = await runDispatch(
       threadId, judgmentGrade, strugglePolicy,
-      admission, routingMetadata, routingEconomics, context.sessionId,
+      caveman, admission, routingMetadata, routingEconomics, context.sessionId,
       workingDirectory, agentId, injected.queryFn,
       facts, children, injected.loadThreadFacts ?? getThreadFacts,
       injected.deliveryRuntime,

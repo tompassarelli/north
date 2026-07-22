@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PromptEconomicsEvidence } from "./harness";
 import type { NormalizedTokenUsage } from "./usage";
+import type { CavemanResolution } from "./caveman";
+import type { McpActivityObservation } from "./tool-activity";
 
 const REPO = resolve(import.meta.dir, "../..");
 const CONTRACT_PATH = resolve(REPO, "contracts/agent-run-ledger-v1.json");
@@ -37,6 +39,8 @@ export interface RunLedgerIdentity {
   parentRun?: string;
   parentThread?: string;
   coordinator?: string;
+  cavemanMode?: string;
+  cavemanSource?: string;
 }
 
 export interface AgentRunEvent extends RunLedgerIdentity {
@@ -102,6 +106,16 @@ function validateIdentity(identity: RunLedgerIdentity): RunLedgerIdentity {
     const coordinator = identity.coordinator.replace(/^@agent:/, "");
     if (!IDENTIFIER.test(coordinator)) throw new Error("invalid run ledger coordinator");
     validated.coordinator = coordinator;
+  }
+  if (identity.cavemanMode) {
+    if (!new Set(["off", "lite", "full"]).has(identity.cavemanMode))
+      throw new Error("invalid run ledger Caveman mode");
+    validated.cavemanMode = identity.cavemanMode;
+  }
+  if (identity.cavemanSource) {
+    if (!new Set(["request", "env", "default"]).has(identity.cavemanSource))
+      throw new Error("invalid run ledger Caveman source");
+    validated.cavemanSource = identity.cavemanSource;
   }
   return validated;
 }
@@ -255,6 +269,8 @@ export function eventFacts(event: AgentRunEvent): Array<[string, string]> {
     ["run_event_data", canonical(payload)],
     ["run_event_sha256", expectedDigest],
   ];
+  if (identity.cavemanMode) facts.push(["caveman_mode", identity.cavemanMode]);
+  if (identity.cavemanSource) facts.push(["caveman_source", identity.cavemanSource]);
   if (identity.parentRun) facts.push(["parent_run", identity.parentRun]);
   if (identity.parentThread) facts.push(["parent_thread", identity.parentThread]);
   if (identity.coordinator) facts.push(["run_coordinator", identity.coordinator]);
@@ -288,6 +304,8 @@ export interface RunLifecycleObservations {
   tokenUsage: NormalizedTokenUsage;
   compactions: number;
   outcome: string;
+  caveman: CavemanResolution;
+  mcpActivity: McpActivityObservation;
 }
 
 /**
@@ -305,6 +323,35 @@ export async function publishRunLifecycleLedger(
   const ledger = new AgentRunLedger(identity);
   const events: AgentRunEvent[] = [];
   const economics = observations.promptEconomics;
+  const caveman = observations.caveman;
+  const cavemanPayload: Record<string, string | number> = {
+    requestedMode: caveman.requestedMode,
+    resolvedMode: caveman.resolvedMode,
+    implementation: caveman.implementation,
+    decisionReason: caveman.decisionReason,
+    measurementCoverage: caveman.measurementCoverage,
+  };
+  for (const key of [
+    "repository", "revision", "skillSha256", "skillBytes", "renderedSha256", "renderedBytes",
+    "sourceKind", "resolutionProvenance",
+  ] as const) {
+    const value = caveman[key];
+    if (value !== undefined) cavemanPayload[key] = value;
+  }
+  events.push(ledger.append(
+    "caveman_observed", cavemanPayload, "north-caveman-adapter", caveman.measurementCoverage,
+  ));
+
+  const activity = observations.mcpActivity;
+  const activitySummary: Record<string, string | number> = {};
+  if (activity.totalCalls !== undefined) activitySummary.totalCalls = activity.totalCalls;
+  if (activity.coverage !== "unknown") activitySummary.distinctTools = activity.tools.length;
+  events.push(ledger.append("tool_activity", activitySummary, activity.source, activity.coverage));
+  for (const tool of activity.tools) {
+    events.push(ledger.append("tool_activity", {
+      serverName: tool.server, toolName: tool.tool, callCount: tool.count,
+    }, activity.source, activity.coverage));
+  }
   if (economics) {
     const payload: Record<string, string | number> = {
       compositionVersion: economics.compositionVersion,
@@ -379,12 +426,13 @@ export async function publishRunLifecycleLedger(
   // Event subjects carry immutable sequence slots, so publication may proceed
   // concurrently without weakening order. This keeps the ledger inside the
   // shared terminal budget instead of starving existing cleanup writers.
-  const publications = await Promise.allSettled(
-    events.map((event) => writer(event, eventTimeout)),
-  );
-  const complete = publications.every(
-    (result) => result.status === "fulfilled" && result.value === "recorded",
-  );
+  let complete = true;
+  for (const event of events) {
+    if (await writer(event, eventTimeout) !== "recorded") {
+      complete = false;
+      break;
+    }
+  }
   // A caught transport crash has no provider terminal boundary. Its attempted
   // observations remain useful events, but the @run header must not claim a
   // complete lifecycle ledger.

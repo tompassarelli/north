@@ -9,6 +9,7 @@ import type {
   ProviderUsageCategoricalSignal,
   ProviderUsageObservation,
 } from "./types";
+import { McpActivityAccumulator, parseAnthropicMcpName } from "../tool-activity";
 
 type RateLimitInfo = SDKRateLimitEvent["rate_limit_info"];
 
@@ -138,6 +139,7 @@ export function observeAnthropicQuery(
   const targetId = options.targetId ?? (() => "anthropic");
   const write = options.write ?? writeProviderUsageObservations;
   const now = options.now ?? (() => new Date());
+  const mcp = new McpActivityAccumulator("anthropic-agent-sdk:assistant-tool-use");
   return {
     interrupt: source.interrupt?.bind(source),
     close: source.close?.bind(source),
@@ -147,6 +149,7 @@ export function observeAnthropicQuery(
     supportsInFlightEscalation: () =>
       typeof source.setModel === "function" && typeof source.applyFlagSettings === "function" &&
       (source.supportsInFlightEscalation?.() ?? true),
+    mcpActivity: () => mcp.snapshot(),
     async *[Symbol.asyncIterator]() {
       for await (const message of source as AsyncIterable<any>) {
         if (message?.type === "rate_limit_event" && message.rate_limit_info) {
@@ -157,6 +160,14 @@ export function observeAnthropicQuery(
             // telemetry loss, not a reason to kill the provider stream.
           }
         }
+        if (message?.type === "assistant" && Array.isArray(message?.message?.content)) {
+          for (const block of message.message.content) {
+            if (block?.type === "tool_use" && typeof block.name === "string"
+                && block.name.startsWith("mcp__"))
+              mcp.observe(block.id, parseAnthropicMcpName(block.name));
+          }
+        }
+        if (message?.type === "result" && message?.subtype === "success") mcp.complete();
         yield message;
       }
     },

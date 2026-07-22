@@ -333,7 +333,8 @@ export interface HarnessOpts {
     targetId: string;
     receipt?: ProviderModelAdmissionReceipt;
   };
-  caveman?: string; // resolved terse-output mode (off|lite|full); fallback env-or-full when omitted
+  /** Attested rendered fork skill; empty when managed Caveman resolves off. */
+  cavemanInstructions?: string;
   cwd?: string; // provider working directory; dispatch resolves this from thread repo facts, spawn from opt-in worktree provisioning
   /** Capability-bound delivery context reserved before provider execution. */
   deliveryRun?: {
@@ -1457,22 +1458,6 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
   return blocks.length ? `\n\n${blocks.join("\n\n")}` : "";
 }
 
-// AGENT_CAVEMAN=full|lite|off — appends terse-output instruction to every spawned agent.
-// Per-spawn override rides in via HarnessOpts.caveman (spawn tool's `caveman` param);
-// env-or-full remains the fallback ONLY when no resolved mode was passed.
-export function cavemanAppendix(mode?: string): string {
-  mode = mode ?? process.env.AGENT_CAVEMAN ?? "full";
-  if (mode === "full") return "\n\n" +
-    "CAVEMAN OUTPUT MODE (full) — respond terse like smart caveman. Drop articles (a/an/the), " +
-    "filler (just/really/basically/actually), pleasantries, hedging. Fragments OK. Short synonyms. " +
-    "Technical terms exact. ALL technical substance stays. Code blocks, commit messages, quoted errors: " +
-    "write NORMAL, never compressed. Security warnings and irreversible-action confirmations: write normal, clear.";
-  if (mode === "lite") return "\n\n" +
-    "CAVEMAN OUTPUT MODE (lite) — terse. No filler, no pleasantries, minimal hedging. " +
-    "Technical substance exact. Code/commits/quoted errors/security content: normal prose.";
-  return "";
-}
-
 // SDK worker authoring-guard parity (see authoring-guards.ts for the WHY). The SDK
 // never loads ~/.claude/settings.json, so we re-run the SAME PreToolUse guard scripts
 // the interactive matchers run and translate their output into HookJSONOutput.
@@ -1551,11 +1536,11 @@ export function harnessOptions(o: HarnessOpts): Options {
   const topology = metadata?.topology;
   const gaffer = gafferAppendix(metadata, cwd);
   const capabilities = gaffer.evidence.capabilities;
-  // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + caveman +
+  // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
   // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
   const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
-    + cavemanAppendix(o.caveman) + esoAppendix();
+    + (o.cavemanInstructions ? `\n\n${o.cavemanInstructions}` : "") + esoAppendix();
   // Orchestration is positive authority, never an ambient default. A lane with
   // no topology remains prompt-neutral but receives coordination-only tools.
   const orchestrationAllowed = topology === "orchestrator"

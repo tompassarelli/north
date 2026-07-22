@@ -739,6 +739,26 @@
                    "2026-07-22T03:00:00Z" 50)
       (window-run! "@run-window-claude-overlap" "claude-b" "anthropic" "claude-fable-5" "max"
                    "2026-07-22T03:30:00Z" 70)
+      (doseq [[entity values]
+              [["@run-window-sol"
+                [["response_strategy_id" "none"] ["caveman_mode" "off"]
+                 ["caveman_source" "default"]
+                 ["caveman_decision_reason" "default-off-unproven-savings"]
+                 ["mcp_activity_source" "codex-app-server:item-completed"]
+                 ["mcp_activity_coverage" "exact"] ["mcp_actual_calls" "0"]]]
+               ["@run-window-terra"
+                [["response_strategy_id" "caveman"] ["caveman_mode" "lite"]
+                 ["caveman_source" "request"] ["caveman_decision_reason" "explicit-request"]
+                 ["mcp_activity_source" "codex-app-server:item-completed"]
+                 ["mcp_activity_coverage" "exact"] ["mcp_actual_calls" "2"]
+                 ["mcp_actual_tool" "{\"server\":\"north\",\"tool\":\"tell\",\"count\":2}"]]]
+               ["@run-window-claude-overlap"
+                [["response_strategy_id" "caveman"] ["caveman_mode" "full"]
+                 ["caveman_source" "env"] ["caveman_decision_reason" "inherited-env"]
+                 ["mcp_activity_source" "anthropic-agent-sdk:assistant-tool-use"]
+                 ["mcp_activity_coverage" "exact"] ["mcp_actual_calls" "1"]
+                 ["mcp_actual_tool" "{\"server\":\"north\",\"tool\":\"show\",\"count\":1}"]]]]]
+        (doseq [[predicate value] values] (fact telem3 entity predicate value)))
       ;; The end boundary belongs to a future report, never both adjacent windows.
       (window-run! "@run-window-at-end" "codex-a" "openai" "gpt-5.6-sol" "high"
                    "2026-07-22T12:00:00Z" 999)
@@ -793,6 +813,19 @@
                     (false? (:configuredNow retired))))
         (check "bounded usage records dated/undated time coverage"
                (= {:datedRuns 6 :undatedRuns 0} (:timeCoverage report)))
+        (check "window telemetry reports Caveman provenance and actual MCP calls without guessing legacy"
+               (let [older-op (:operationalTelemetry older)
+                     recent-op (:operationalTelemetry recent)
+                     cumulative-op (:operationalTelemetry cumulative)]
+                 (and (= {:off 1} (get-in older-op [:coverage :cavemanModeCounts]))
+                      (= 0 (get-in older-op [:coverage :mcpActualCalls]))
+                      (= {:full 1 :legacy-unknown 2 :lite 1}
+                         (get-in recent-op [:coverage :cavemanModeCounts]))
+                      (= 3 (get-in recent-op [:coverage :mcpActualCalls]))
+                      (= 3 (get-in cumulative-op [:coverage :mcpActualCalls]))
+                      (= [{:server "north" :tool "show" :calls 1}
+                          {:server "north" :tool "tell" :calls 2}]
+                         (get-in cumulative-op [:coverage :mcpToolDistribution])))))
         (check "native interactive activity is separate per slice and cumulative"
                (let [older-native (:nativeInteractiveActivity older)
                      recent-native (:nativeInteractiveActivity recent)
