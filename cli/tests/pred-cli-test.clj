@@ -143,6 +143,7 @@
     ["cli/pred-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
+    ["cli/run-event-internal.clj" "put!" "predicate"]
     ["cli/run-fact-internal.clj" "put!" "predicate"]
     ["cli/schema-migrate.clj" "put!" "predicate"]
     ["cli/schema-migrate.clj" "retract!" "predicate"]
@@ -157,14 +158,21 @@
   (pair-predicates (section telemetry-source
                             "export function runFacts"
                             "export function recordRun")))
+(def run-event-source (slurp-source "sdk/src/run-ledger.ts"))
+(def run-event-predicates
+  (pair-predicates (section run-event-source
+                            "export function eventFacts"
+                            "export type RunEventPublicationStatus")))
 (def audited-run-multi
   #{"allocation_evidence" "applied_capability" "applied_domain_requirement"
     "applied_preset_override" "composition_override" "domain_requirement"
     "effective_authority_capability" "effective_builtin" "effective_mcp_tool"
     "effective_north_enabled_tool" "envelope_advisory" "envelope_scope"
-    "fallback_reason" "struggle"})
+    "fallback_reason" "routing_pin" "routing_receipt_override" "routing_rule_code"
+    "run_observation_coverage" "struggle"})
+(def audited-run-ref #{"parent_run" "parent_thread"})
 (def audited-run-single
-  #{"agent" "allocation_mode" "applied_bespoke_contract_sha256"
+  #{"agent" "agent_run_ledger_version" "allocation_mode" "applied_bespoke_contract_sha256"
     "applied_bespoke_contract_fingerprint_domain"
     "applied_bespoke_contract_fingerprint_version"
     "applied_comms_contract_sha256" "applied_domain_requirement_count" "applied_posture"
@@ -184,20 +192,43 @@
     "model_delta_kind" "model_delta_model" "model_delta_path"
     "model_delta_provider" "model_delta_reason" "nearest_preset" "num_turns"
     "outcome" "preflight_cause" "process_outcome" "output_tokens" "posture" "promotion_candidate"
-    "prompt_composition_applied" "provider" "provider_reason" "provider_target"
+    "prompt_composition_applied" "prompt_composition_version" "prompt_composition_sha256"
+    "capability_class" "provider" "provider_reason" "provider_target"
     "effective_authoring_hooks" "effective_authority_provider" "effective_live_input"
     "effective_native_multi_agent" "effective_sandbox" "effective_web"
     "reasoning_output_tokens" "requested_effort" "requested_model"
     "requested_provider" "requested_reasoning" "requested_role"
     "requested_target" "requested_tier" "role" "routing_posture" "routing_tier"
+    "execution_source" "execution_transport" "north_session_id"
+    "provider_session_persistence" "thread_provenance" "turn_provenance"
+    "routing_admission_receipt_version" "routing_request_sha256"
+    "routing_assessment_sha256" "routing_policy_sha256" "provider_catalogs_sha256"
+    "staffing_catalog_sha256" "routing_assessment_status"
+    "routing_override_evidence_status" "routing_override_exception_code"
+    "routing_assessment_policy" "routing_derived_tier" "routing_derived_reasoning"
+    "routing_selected_tier" "routing_selected_reasoning" "routing_exception_code"
+    "routing_exception_detail" "routing_exceptional_deliberation"
+    "routing_pin_policy" "routing_pin_issued_at" "routing_pin_expires_at"
+    "routing_pin_reason_code" "routing_pin_detail" "routing_pin_evidence_status"
+    "routing_pin_evidence_sha256"
     "judgment_grade" "judgment_grade_status" "judgment_grade_source"
     "struggle_detector_policy_version" "struggle_topology"
     "struggle_error_streak_threshold" "struggle_loop_repeat_threshold"
     "struggle_loop_window" "struggle_no_progress_turn_threshold"
     "spend_envelope_microusd" "spend_evidence" "spend_reserved_microusd"
-    "spend_target" "task_grade" "thread" "tokens" "topology" "usage_scope"
-    "usage_terminal_count" "usage_total_status"})
-(def audited-run-predicates (set/union audited-run-single audited-run-multi))
+    "run_coordinator" "run_event_count" "run_event_first_sequence"
+    "run_event_last_sequence" "run_event_ledger_sha256" "run_event_status"
+    "run_event_terminal_sequence" "spend_target" "task_grade" "thread" "tokens"
+    "topology" "usage_scope" "usage_terminal_count" "usage_total_status"})
+(def audited-run-predicates
+  (set/union audited-run-single audited-run-multi audited-run-ref))
+(def audited-run-event-ref #{"run" "parent_run" "parent_thread"})
+(def audited-run-event-single
+  #{"kind" "agent_run_ledger_version" "thread" "agent" "run_coordinator"
+    "run_event_sequence" "run_event_type" "run_event_observed_at"
+    "run_event_source" "run_event_coverage" "run_event_data" "run_event_sha256"})
+(def audited-run-event-predicates
+  (set/union audited-run-event-ref audited-run-event-single))
 
 (def identity-source (slurp-source "sdk/src/identity.ts"))
 (def identity-predicates
@@ -275,7 +306,7 @@
 
 (def emitted-predicates
   (reduce set/union #{}
-          [clj-fixed run-predicates identity-predicates guard-predicates
+          [clj-fixed run-predicates run-event-predicates identity-predicates guard-predicates
            lifecycle-predicates native-predicates linear-fixed-predicates
            clock-predicates]))
 
@@ -315,10 +346,25 @@
        (every? #(= {:card "single" :kind "literal"}
                     (select-keys (registry %) [:card :kind]))
                audited-run-single))
+(check "run lineage facts are cataloged single/ref"
+       (every? #(= {:card "single" :kind "ref"}
+                    (select-keys (registry %) [:card :kind]))
+               audited-run-ref))
 (check "loop-valued run facts are cataloged multi/literal"
        (every? #(= {:card "multi" :kind "literal"}
                     (select-keys (registry %) [:card :kind]))
                audited-run-multi))
+(check "run event inventory is deliberately cardinality-classified"
+       (= audited-run-event-predicates run-event-predicates)
+       (set-detail audited-run-event-predicates run-event-predicates))
+(check "run event scalar facts are cataloged single/literal"
+       (every? #(= {:card "single" :kind "literal"}
+                    (select-keys (registry %) [:card :kind]))
+               audited-run-event-single))
+(check "run event entity facts are cataloged single/ref"
+       (every? #(= {:card "single" :kind "ref"}
+                    (select-keys (registry %) [:card :kind]))
+               audited-run-event-ref))
 
 (check "managed identity is single/literal except globally repeatable repo"
        (every? (fn [predicate]

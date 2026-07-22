@@ -1,0 +1,82 @@
+{
+  "version": "north-agent-run-ledger:v1",
+  "coverage": ["exact", "partial", "unknown"],
+  "eventTypes": {
+    "admission_received": {
+      "required": ["receiptDigest"],
+      "allowed": ["receiptDigest", "policyVersion"]
+    },
+    "provider_routed": {
+      "required": ["provider", "account", "model", "effort"],
+      "allowed": ["provider", "account", "model", "effort", "reasonCode"]
+    },
+    "prompt_constructed": {
+      "required": ["compositionVersion", "compositionDigest"],
+      "allowed": ["compositionVersion", "compositionDigest", "capabilityClass", "capabilityCount"]
+    },
+    "tool_observed": {
+      "required": ["toolName", "activity"],
+      "allowed": ["toolName", "activity", "successCount", "errorCount"]
+    },
+    "usage_observed": {
+      "required": ["terminalCount"],
+      "allowed": ["inputTokens", "outputTokens", "totalTokens", "reasoningOutputTokens", "terminalCount"]
+    },
+    "cache_observed": {
+      "required": [],
+      "allowed": ["cacheReadTokens", "cacheCreateTokens", "cachedInputTokens"]
+    },
+    "escalation_observed": {
+      "required": ["fromTier", "toTier", "reasonCode"],
+      "allowed": ["fromTier", "toTier", "reasonCode"]
+    },
+    "child_settled": {
+      "required": ["childRun", "childThread", "outcome"],
+      "allowed": ["childRun", "childThread", "outcome", "settlementDigest"]
+    },
+    "terminal_cleanup": {
+      "required": ["outcome", "cleanupStatus"],
+      "allowed": ["outcome", "cleanupStatus", "childCount"]
+    }
+  },
+  "fieldKinds": {
+    "receiptDigest": "digest",
+    "settlementDigest": "digest",
+    "compositionDigest": "digest",
+    "policyVersion": "identifier",
+    "provider": "identifier",
+    "account": "identifier",
+    "model": "identifier",
+    "effort": "identifier",
+    "reasonCode": "identifier",
+    "compositionVersion": "identifier",
+    "capabilityClass": "identifier",
+    "toolName": "identifier",
+    "activity": "identifier",
+    "fromTier": "identifier",
+    "toTier": "identifier",
+    "outcome": "identifier",
+    "cleanupStatus": "identifier",
+    "childRun": "entity",
+    "childThread": "entity",
+    "capabilityCount": "count",
+    "successCount": "count",
+    "errorCount": "count",
+    "inputTokens": "count",
+    "outputTokens": "count",
+    "totalTokens": "count",
+    "reasoningOutputTokens": "count",
+    "terminalCount": "count",
+    "cacheReadTokens": "count",
+    "cacheCreateTokens": "count",
+    "cachedInputTokens": "count",
+    "childCount": "count"
+  },
+  "privacy": {
+    "maxIdentifierLength": 128,
+    "forbiddenKeyFragments": [
+      "prompt", "argument", "content", "message", "transcript", "secret",
+      "tokenvalue", "apikey", "authorization", "credential", "raw"
+    ]
+  }
+}
