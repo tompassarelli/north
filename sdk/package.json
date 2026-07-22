@@ -5,6 +5,7 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "exports": {
+    "./ccr": "./src/ccr.ts",
     "./spawn": "./src/spawn.ts",
     "./dispatch": "./src/dispatch.ts",
     "./providers": "./src/providers/index.ts"
@@ -12,7 +13,7 @@
   "scripts": {
     "dispatch": "bun run src/dispatch.ts",
     "license:check": "bun run src/license-integrity.ts",
-    "check": "bun run license:check && bun x tsc --noEmit && bun build src/dispatch.ts --no-bundle > /dev/null && bun build src/spawn.ts --no-bundle > /dev/null && bun build src/routing-economics-preflight-cli.ts --no-bundle > /dev/null && bun build src/provider-capability-admission-cli.ts --no-bundle > /dev/null && bun build src/integrations/linear/cli.ts --no-bundle > /dev/null",
+    "check": "bun run license:check && bun x tsc --noEmit && bun build src/dispatch.ts --no-bundle > /dev/null && bun build src/spawn.ts --no-bundle > /dev/null && bun build src/routing-economics-preflight-cli.ts --no-bundle > /dev/null && bun build src/provider-capability-admission-cli.ts --no-bundle > /dev/null && bun build src/integrations/linear/cli.ts --no-bundle > /dev/null && bun build src/ccr-cli.ts --no-bundle > /dev/null",
     "test": "bash ./test/support/run-suite.sh"
   },
   "devDependencies": {

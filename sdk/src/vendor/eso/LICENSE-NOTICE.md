@@ -6,7 +6,20 @@ Vendored commit: 9682ea3b8e087adcdff6615010492983512f90b5
 Vendor date: 2026-07-03  
 
 Files were converted from CommonJS (`module.exports`/`require`) to ESM
-(`export`/`import`) for bun compatibility. All logic is unmodified.
+(`export`/`import`) for bun compatibility. North later strengthened `ccr.js`
+with exact JSON-domain validation, marker-inclusive gain checks, protected-row
+selection, verified cache round trips, corruption rejection, and a passive
+cache-prefix evaluator. Those North modifications remain under North's
+`MIT OR Apache-2.0` license; the original ESO material remains MIT-licensed
+under the notice below.
+
+The persistent scoped store, TTL/retrieval classifications, and explicit
+canary integration in `sdk/src/ccr.ts` were informed by an interoperability
+audit of Headroom CCR at commit
+`9b016f2b64cb50cd50ab68711ab2abdf7d74c8ec`:
+https://github.com/DanielAvdar/headroom (Apache-2.0). No Headroom source code was
+copied. Headroom's Apache-2.0 license is preserved in that upstream repository;
+North's implementation is original and remains `MIT OR Apache-2.0`.
 
 ---
 
