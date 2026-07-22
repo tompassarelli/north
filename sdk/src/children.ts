@@ -18,6 +18,7 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { normalizeNorthEntityId, type Fact } from "./north-client";
+import type { RoutingRequest } from "./routing-metadata";
 import { parseStrictJson } from "./strict-json";
 import { laneResolvedByFacts } from "./terminal-projection";
 
@@ -155,8 +156,10 @@ export type ChildSettlement =
   | { kind: "unavailable"; reason: string };
 
 export interface ChildContinuationState {
+  requiredChildren: number;
   observedChildren: string[];
   liveSignature?: string;
+  obligationSignature?: string;
   noProgress: number;
   pendingSettledSignature?: string;
   acknowledgedSettledSignature?: string;
@@ -174,6 +177,15 @@ export type ChildTurnEndDecision =
   }
   | {
     action: "continue";
+    reason: "child_dispatch_required";
+    state: ChildContinuationState;
+    children: string[];
+    required: number;
+    attempt: number;
+    cap: number;
+  }
+  | {
+    action: "continue";
     reason: "child_reduction_required";
     state: ChildContinuationState;
     children: string[];
@@ -183,9 +195,12 @@ export type ChildTurnEndDecision =
     state: ChildContinuationState;
     reason:
       | "children_live_at_continuation_cap"
+      | "child_dispatch_continuation_cap"
       | "child_reconciliation_unavailable"
       | "child_set_regressed";
     live?: string[];
+    children?: string[];
+    required?: number;
     missing?: string[];
   };
 
@@ -195,17 +210,32 @@ export type ChildFinalizationDecision =
     ok: false;
     outcome:
       | "orchestrator_children_incomplete"
+      | "orchestrator_child_obligation_unmet"
       | "child_reconciliation_unavailable"
       | "orchestrator_reduction_incomplete"
       | "orchestrator_child_set_inconsistent";
     live?: string[];
     children?: string[];
+    required?: number;
     missing?: string[];
     reason?: string;
   };
 
-export function initialChildContinuationState(): ChildContinuationState {
-  return { observedChildren: [], noProgress: 0 };
+export function requiredDirectChildCount(routing: RoutingRequest): number {
+  if (routing.topology !== "orchestrator") return 0;
+  return routing.composition.kind === "preset"
+      && routing.composition.id === "director"
+    ? 2
+    : 1;
+}
+
+export function initialChildContinuationState(
+  requiredChildren: number,
+): ChildContinuationState {
+  if (!Number.isSafeInteger(requiredChildren) || requiredChildren < 0) {
+    throw new Error("required child count must be a non-negative safe integer");
+  }
+  return { requiredChildren, observedChildren: [], noProgress: 0 };
 }
 
 function canonicalChildren(children: string[]): string[] {
@@ -274,17 +304,59 @@ export function decideChildTurnEnd(
   // edge cannot acknowledge the reduction that was pending for that child.
   const acknowledged = afterSuccessfulProviderResult(observed);
   if (settlement.kind === "settled") {
-    if (settlement.children.length === 0) {
+    const children = canonicalChildren(settlement.children);
+    if (children.length < acknowledged.requiredChildren) {
+      const obligationSignature = `${acknowledged.requiredChildren}\u0001${setSignature(children)}`;
+      const noProgress = acknowledged.obligationSignature === obligationSignature
+        ? acknowledged.noProgress + 1
+        : 1;
+      const state = {
+        ...acknowledged,
+        liveSignature: undefined,
+        obligationSignature,
+        noProgress,
+        pendingSettledSignature: undefined,
+      };
+      if (noProgress > cap) {
+        return {
+          action: "block",
+          state,
+          reason: "child_dispatch_continuation_cap",
+          children,
+          required: acknowledged.requiredChildren,
+        };
+      }
       return {
-        action: "finish",
-        state: { ...acknowledged, liveSignature: undefined, noProgress: 0 },
+        action: "continue",
+        reason: "child_dispatch_required",
+        state,
+        children,
+        required: acknowledged.requiredChildren,
+        attempt: noProgress,
+        cap,
       };
     }
-    const signature = setSignature(settlement.children);
+    if (children.length === 0) {
+      return {
+        action: "finish",
+        state: {
+          ...acknowledged,
+          liveSignature: undefined,
+          obligationSignature: undefined,
+          noProgress: 0,
+        },
+      };
+    }
+    const signature = setSignature(children);
     if (acknowledged.acknowledgedSettledSignature === signature) {
       return {
         action: "finish",
-        state: { ...acknowledged, liveSignature: undefined, noProgress: 0 },
+        state: {
+          ...acknowledged,
+          liveSignature: undefined,
+          obligationSignature: undefined,
+          noProgress: 0,
+        },
       };
     }
     return {
@@ -293,6 +365,7 @@ export function decideChildTurnEnd(
       state: {
         ...acknowledged,
         liveSignature: undefined,
+        obligationSignature: undefined,
         noProgress: 0,
         pendingSettledSignature: signature,
       },
@@ -313,6 +386,7 @@ export function decideChildTurnEnd(
   const state = {
     ...acknowledged,
     liveSignature,
+    obligationSignature: undefined,
     noProgress,
     pendingSettledSignature: undefined,
   };
@@ -362,8 +436,18 @@ export function assessChildFinalization(
       live: settlement.live,
     };
   }
-  if (settlement.children.length === 0) return { ok: true };
-  const signature = setSignature(settlement.children);
+  const children = canonicalChildren(settlement.children);
+  if (children.length < state.requiredChildren) {
+    return {
+      ok: false,
+      outcome: "orchestrator_child_obligation_unmet",
+      children,
+      required: state.requiredChildren,
+      reason: "minimum direct-child count was not met",
+    };
+  }
+  if (children.length === 0) return { ok: true };
+  const signature = setSignature(children);
   if (state.acknowledgedSettledSignature === signature
       && state.pendingSettledSignature === undefined) {
     return { ok: true };
@@ -517,6 +601,18 @@ export function childContinuationMessage(liveIds: string[]): string {
     `North refuses orchestrator turn-end: ${liveIds.length} child lane(s) remain live (${liveIds.join(", ")}).`,
     "Keep this turn active, consume the North listener/peer results, reconcile completed work into the prebound thread,",
     "and return a later terminal result only after every child has a committed lifecycle terminal.",
+  ].join(" ");
+}
+
+export function childDispatchMessage(
+  observedIds: string[],
+  required: number,
+): string {
+  const remaining = Math.max(0, required - observedIds.length);
+  return [
+    `North refuses orchestrator turn-end: the direct-child obligation is unmet (${observedIds.length}/${required} observed).`,
+    `Use North coordination now to dispatch at least ${remaining} more direct child lane(s); do not perform their terminal work inline.`,
+    "Return a later terminal result only after the required direct coordinator relations exist; live-child settlement and parent reduction are enforced separately.",
   ].join(" ");
 }
 
