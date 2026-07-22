@@ -15,7 +15,7 @@
 ;;   north schema-migrate plan
 ;;   north schema-migrate migrate --execute
 ;;   north schema-migrate audit --strict
-;;   north schema-migrate repair-corrupt --execute --offline-confirm  # coordinator stopped
+;;   north schema-migrate repair-corrupt                 # diagnostics only
 (require '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.set :as set]
@@ -23,7 +23,10 @@
          '[fram.fold :as fold]
          '[fram.rt :as rt])
 
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def SCHEMA-MIGRATE-SOURCE
+  (.getCanonicalPath (io/file (or *file* (System/getProperty "babashka.file")))))
+
+(load-file (str (.getParent (io/file SCHEMA-MIGRATE-SOURCE)) "/coord.clj"))
 
 (def VALID-PREDICATE #"^[A-Za-z][A-Za-z0-9_-]*(?:/[A-Za-z][A-Za-z0-9_-]*)?$")
 (def VALID-ENTITY-KIND #"^[a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*)?$")
@@ -81,7 +84,7 @@
    "value_kind" {:card "single" :kind "literal"
                  :doc "Executable Fram object kind: literal or ref."}})
 
-(defn script-dir [] (.getParent (io/file (System/getProperty "babashka.file"))))
+(defn script-dir [] (.getParent (io/file SCHEMA-MIGRATE-SOURCE)))
 (defn pred-cli-path [] (str (script-dir) "/pred-cli.clj"))
 
 (defn read-forms [path]
@@ -129,11 +132,37 @@
     (.update md (.getBytes (str s) java.nio.charset.StandardCharsets/UTF_8))
     (format "%064x" (java.math.BigInteger. 1 (.digest md)))))
 
-(defn existing-paths [paths]
-  (vec (filter #(.isFile (io/file %)) (remove str/blank? paths))))
+(defn configured-path? [path]
+  (and (string? path) (not (str/blank? path))))
+
+(defn canonical-readable-file! [role path]
+  (when-not (configured-path? path)
+    (throw (ex-info (str role " corpus log path is required")
+                    {:type :missing-corpus-path :role role :path path})))
+  (let [file (io/file path)]
+    (when-not (and (.isFile file) (.canRead file))
+      (throw (ex-info (str role " corpus log is missing or unreadable: " path)
+                      {:type :unreadable-corpus-path :role role :path path})))
+    (.getCanonicalPath file)))
+
+(defn distinct-corpus-paths! [paths]
+  (when-not (= (count paths) (count (set paths)))
+    (throw (ex-info "coordination and telemetry corpus logs resolve to the same canonical path"
+                    {:type :duplicate-corpus-path :paths paths})))
+  paths)
+
+(defn resolve-corpus-paths! [coordination telemetry]
+  (distinct-corpus-paths!
+   [(canonical-readable-file! "coordination" coordination)
+    (canonical-readable-file! "telemetry" telemetry)]))
 
 (defn read-corpus [paths]
-  (let [paths (existing-paths paths)
+  (when (empty? paths)
+    (throw (ex-info "coordination corpus log path is required"
+                    {:type :missing-corpus-path :role "coordination"})))
+  (let [paths (->> paths
+                   (mapv #(canonical-readable-file! "configured" %))
+                   distinct-corpus-paths!)
         ops (vec (mapcat rt/read-log paths))
         folded (fold/fold ops)]
     {:paths paths
@@ -145,6 +174,23 @@
                      :bytes (.length (io/file path))
                      :sha256 (file-sha256 path)})
                   paths)}))
+
+(defn append-boundary-ready? [path]
+  (let [file (io/file path)
+        length (.length file)]
+    (or (zero? length)
+        (with-open [raf (java.io.RandomAccessFile. file "r")]
+          (.seek raf (dec length))
+          (= 10 (.read raf))))))
+
+(defn require-append-boundaries! [paths]
+  (doseq [path paths]
+    (when-not (append-boundary-ready? path)
+      (throw (ex-info
+              (str "corpus log is not newline-terminated; coordinator append would merge two EDN records: " path)
+              {:type :unsafe-corpus-append-boundary
+               :path path}))))
+  paths)
 
 (defn registrable-predicate? [p]
   (and (string? p) (boolean (re-matches VALID-PREDICATE p))))
@@ -167,6 +213,16 @@
               (update m (:p fact) (fnil conj #{}) (:r fact))
               m))
           (sorted-map) facts))
+
+(defn declared-predicate-names [facts]
+  (->> facts
+       (filter #(contains? META-PREDICATES (:p %)))
+       (keep (fn [fact]
+               (let [subject (:l fact)]
+                 (when (and (string? subject) (str/starts-with? subject "@"))
+                   (let [predicate (subs subject 1)]
+                     (when (registrable-predicate? predicate) predicate))))))
+       set))
 
 (defn corrupt-facts [facts]
   (->> facts
@@ -192,6 +248,7 @@
         observed (live-predicate-values facts)
         bootstrap (bootstrap-schema)
         predicates (sort (set/union (set (keys observed))
+                                    (declared-predicate-names facts)
                                     (set (keys bootstrap))
                                     META-PREDICATES
                                     (set (keys BUILTIN-SCHEMA))))
@@ -203,8 +260,10 @@
                        card-values (values-at by-lp entity "cardinality")
                        kind-values (values-at by-lp entity "value_kind")
                        doc-values (values-at by-lp entity "doc")
+                       acyclic-values (values-at by-lp entity "acyclic")
                        existing-card (valid-singleton card-values #{"single" "multi"})
                        existing-kind (valid-singleton kind-values #{"literal" "ref"})
+                       existing-acyclic (valid-singleton acyclic-values #{"true" "false"})
                        bootstrap-row (get bootstrap predicate)
                        objects (get observed predicate #{})
                        derived-kind (if (and (seq objects)
@@ -217,10 +276,14 @@
                                       "multi")
                      :value_kind (or existing-kind (:kind bootstrap-row) derived-kind)
                      :doc (preferred-doc doc-values bootstrap predicate)
-                     :acyclic (or (= "true" (valid-singleton
-                                             (values-at by-lp entity "acyclic")
-                                             #{"true" "false"}))
-                                  (contains? ACYCLIC-PREDICATES predicate))}]))
+                     ;; A valid explicit false is policy, not absence. Bootstrap
+                     ;; only when no declaration exists at all; malformed or
+                     ;; multiple values remain untouched for strict audit.
+                     :acyclic (cond
+                                existing-acyclic existing-acyclic
+                                (empty? acyclic-values)
+                                (when (contains? ACYCLIC-PREDICATES predicate) "true")
+                                :else nil)}]))
                predicates))))
 
 (defn set-action [by-lp subject predicate value]
@@ -239,8 +302,8 @@
                               (set-action by-lp subject "value_kind" (:value_kind row))
                               (set-action by-lp subject "doc" (:doc row))
                               (set-action by-lp subject "entity_kind" "predicate")
-                              (when (:acyclic row)
-                                (set-action by-lp subject "acyclic" "true"))]))))
+                              (when-let [acyclic (:acyclic row)]
+                                (set-action by-lp subject "acyclic" acyclic))]))))
          (sort-by (juxt :subject :predicate))
          vec)))
 
@@ -363,10 +426,11 @@
 (defn malformed-schema [facts schema]
   (let [by-lp (facts-by-lp facts)]
     (->> schema
-         (mapcat (fn [[predicate _]]
+         (mapcat (fn [[predicate row]]
                    (let [subject (str "@" predicate)
                          card (values-at by-lp subject "cardinality")
                          kind (values-at by-lp subject "value_kind")
+                         acyclic (values-at by-lp subject "acyclic")
                          docs (values-at by-lp subject "doc")
                          ek (values-at by-lp subject "entity_kind")]
                      (remove nil?
@@ -376,6 +440,11 @@
                               (when-not (and (= 1 (count kind))
                                              (contains? #{"literal" "ref"} (first kind)))
                                 {:predicate predicate :field "value_kind" :values (vec (sort kind))})
+                              (when (or (seq acyclic) (some? (:acyclic row)))
+                                (when-not (and (= 1 (count acyclic))
+                                               (contains? #{"true" "false"} (first acyclic))
+                                               (= (:acyclic row) (first acyclic)))
+                                  {:predicate predicate :field "acyclic" :values (vec (sort acyclic))}))
                               (when-not (and (= 1 (count docs)) (not (str/blank? (str (first docs)))))
                                 {:predicate predicate :field "doc" :values (vec (sort docs))})
                               (when-not (= #{"predicate"} ek)
@@ -469,41 +538,8 @@
     (set-values! port subject predicate value))
   (count actions))
 
-(defn coordinator-online? [port]
-  (try
-    (number? (:version (north.coord/send-op port {:op :version})))
-    (catch Exception _ false)))
-
-(defn repair-log-offline! [path]
-  ;; The coordinator intentionally omits malformed triples from its warm store,
-  ;; so an online retract is acknowledged as a no-op and cannot heal the bytes.
-  ;; Repair is therefore a narrow append-only maintenance operation: daemon
-  ;; proved down, OS file lock held, fresh fold inspected under that lock, exact
-  ;; retract tombstones appended with strictly increasing tx, fsync before return.
-  (with-open [raf (java.io.RandomAccessFile. path "rw")
-              channel (.getChannel raf)]
-    ;; Keep the lock strongly reachable until channel close; closing the channel
-    ;; releases it (Babashka intentionally does not expose FileLock.close).
-    (let [_lock (.lock channel)
-          ops (rt/read-log path)
-          bad (corrupt-facts (:facts (fold/fold ops)))
-          first-tx (inc (fold/max-tx ops))]
-      (when (seq bad)
-        (let [length (.length raf)]
-          (when (pos? length)
-            (.seek raf (dec length))
-            (when (not= 10 (.read raf))
-              (.seek raf length)
-              (.write raf (.getBytes "\n" java.nio.charset.StandardCharsets/UTF_8))))
-          (.seek raf (.length raf)))
-        (doseq [[offset fact] (map-indexed vector bad)]
-          (let [line (str (pr-str {:tx (+ first-tx offset)
-                                   :op "retract"
-                                   :l (:l fact) :p (:p fact) :r (:r fact)
-                                   :frame "north-schema-corrupt-repair/v1"}) "\n")]
-            (.write raf (.getBytes line java.nio.charset.StandardCharsets/UTF_8))))
-        (.force channel true))
-      bad)))
+(defn action-identities [actions]
+  (mapv #(select-keys % [:subject :predicate :value]) actions))
 
 (defn write-receipt! [dir receipt]
   (let [sha (text-sha256 (pr-str receipt))
@@ -517,6 +553,13 @@
                                           [java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
     (.getCanonicalPath target)))
 
+(defn option-value! [option remaining]
+  (let [value (first remaining)]
+    (when (or (nil? value) (str/starts-with? value "--"))
+      (throw (ex-info (str option " requires a value")
+                      {:type :missing-option-value :option option})))
+    value))
+
 (defn parse-opts [args]
   (loop [remaining args opts {:execute false :strict false :repair-corrupt false
                               :offline-confirm false :verbose false}]
@@ -529,9 +572,9 @@
           "--verbose" (recur more (assoc opts :verbose true))
           "--repair-corrupt" (recur more (assoc opts :repair-corrupt true))
           "--offline-confirm" (recur more (assoc opts :offline-confirm true))
-          "--log" (recur (rest more) (assoc opts :log (first more)))
-          "--telemetry" (recur (rest more) (assoc opts :telemetry (first more)))
-          "--receipt-dir" (recur (rest more) (assoc opts :receipt-dir (first more)))
+          "--log" (recur (rest more) (assoc opts :log (option-value! arg more)))
+          "--telemetry" (recur (rest more) (assoc opts :telemetry (option-value! arg more)))
+          "--receipt-dir" (recur (rest more) (assoc opts :receipt-dir (option-value! arg more)))
           ;; Compatibility with the abandoned lane's positional log argument.
           (if (:log opts)
             (throw (ex-info (str "unknown argument: " arg) {}))
@@ -586,77 +629,87 @@
                   (str/join ", " (take 20 (:ambiguous_subjects report))))))
   (println (if (:ok report)
              "  ✓ executable predicate entities are authoritative; core entity kinds are governed"
-             "  -> if corruption is listed, run offline `repair-corrupt`; then run `migrate --execute` and audit again")))
+             "  -> if corruption is listed, use `repair-corrupt` for exact diagnostics; mutation requires the corpus transaction surface")))
 
 (defn usage! []
   (binding [*out* *err*]
     (println "usage: schema-migrate.clj <port> {plan|migrate|audit|repair-corrupt} [--execute] [--strict] [--verbose] [--log PATH] [--telemetry PATH] [--receipt-dir PATH]")
-    (println "       repair-corrupt additionally requires --offline-confirm and a stopped coordinator"))
+    (println "       coordination and telemetry logs are both mandatory; repair-corrupt is diagnostic-only"))
   (System/exit 2))
 
-(let [[port-arg verb & raw-args] *command-line-args*]
-  (when-not (and port-arg verb) (usage!))
-  (let [port (Integer/parseInt port-arg)
-        opts (parse-opts raw-args)
-        log (or (:log opts) (System/getenv "FRAM_LOG") (north.coord/expected-log))
-        telemetry (or (:telemetry opts) (System/getenv "FRAM_TELEMETRY_LOG"))
-        paths (existing-paths [log telemetry])
-        _ (when (empty? paths)
-            (throw (ex-info "no readable North corpus log" {:log log :telemetry telemetry})))
-        corpus (read-corpus paths)]
-    (case verb
-      "plan"
-      (print-plan (plan-for corpus) (:verbose opts))
+(defn main! [args]
+  (let [[port-arg verb & raw-args] args]
+    (when-not (and port-arg verb) (usage!))
+    (let [port (Integer/parseInt port-arg)
+          opts (parse-opts raw-args)
+          log (or (:log opts) (System/getenv "FRAM_LOG") (north.coord/expected-log))
+          telemetry (or (:telemetry opts) (System/getenv "FRAM_TELEMETRY_LOG"))
+          paths (resolve-corpus-paths! log telemetry)
+          corpus (read-corpus paths)]
+      (case verb
+        "plan"
+        (print-plan (plan-for corpus) (:verbose opts))
 
-      "audit"
-      (let [report (audit-report corpus)]
-        (print-audit report)
-        (when (and (:strict opts) (not (:ok report))) (System/exit 1)))
+        "audit"
+        (let [report (audit-report corpus)]
+          (print-audit report)
+          (when (and (:strict opts) (not (:ok report))) (System/exit 1)))
 
-      "migrate"
-      (let [plan (plan-for corpus)]
-        (print-plan plan (:verbose opts))
-        (when-not (:execute opts)
-          (println "  dry-run only; pass --execute to commit through the coordinator"))
-        (when (and (:execute opts) (seq (:collisions plan)))
-          (throw (ex-info "predicate/thread collisions make migration unsafe" {:collisions (:collisions plan)})))
-        (when (and (:execute opts) (seq (:corrupt plan)))
-          (throw (ex-info "corrupt predicates present; stop the coordinator and run repair-corrupt --execute --offline-confirm first"
-                          {:count (count (:corrupt plan))})))
-        (when (:execute opts)
-          (apply-actions! port (:actions plan))
-          (let [post (read-corpus paths)
-                report (audit-report post)
-                receipt {:format "north-schema-migration/v1"
-                         :plan_sha256 (:sha256 plan)
-                         :actions_committed (count (:actions plan))
-                         :corrupt_retracted 0
-                         :post_audit report}
-                receipt-path (write-receipt! (or (:receipt-dir opts) (default-receipt-dir)) receipt)]
-            (print-audit report)
-            (println (str "  receipt " receipt-path))
-            (when-not (:ok report) (System/exit 1)))))
-
-      ("repair-corrupt" "reject-empty")
-      (let [bad (corrupt-facts (:facts corpus))]
-        (println (str "repair-corrupt — " (count bad) " live non-registrable predicate fact(s)"))
-        (if-not (:execute opts)
-          (println "  dry-run only; stop the coordinator, then pass --execute --offline-confirm")
-          (do
-            (when-not (:offline-confirm opts)
-              (throw (ex-info "offline corruption repair requires --offline-confirm" {})))
-            (when (coordinator-online? port)
-              (throw (ex-info "offline corruption repair refused while coordinator is reachable" {:port port})))
-            (let [repaired (vec (mapcat repair-log-offline! paths))
-                  post (read-corpus paths)
-                  receipt {:format "north-schema-corrupt-repair/v1"
-                           :pre_corpus (:files corpus)
-                           :retracted (mapv #(select-keys % [:l :p :r]) repaired)
-                           :post_corpus (:files post)}
+        "migrate"
+        (let [plan (plan-for corpus)]
+          (print-plan plan (:verbose opts))
+          (when-not (:execute opts)
+            (println "  dry-run only; pass --execute to commit through the coordinator"))
+          (when (and (:execute opts) (seq (:collisions plan)))
+            (throw (ex-info "predicate/thread collisions make migration unsafe" {:collisions (:collisions plan)})))
+          (when (and (:execute opts) (seq (:corrupt plan)))
+            (throw (ex-info "corrupt predicates present; inspect with repair-corrupt, then repair through the corpus transaction surface"
+                            {:count (count (:corrupt plan))})))
+          (when (:execute opts)
+            (require-append-boundaries! paths)
+            (apply-actions! port (:actions plan))
+            (let [post (read-corpus paths)
+                  post-plan (plan-for post)
+                  before-actions (action-identities (:actions plan))
+                  remaining-actions (action-identities (:actions post-plan))
+                  converged? (empty? remaining-actions)
+                  report (audit-report post)
+                  receipt {:format "north-schema-migration/v1"
+                           :plan_sha256 (:sha256 plan)
+                           :post_plan_sha256 (:sha256 post-plan)
+                           :passes [{:pass 1
+                                     :requested_action_identities before-actions
+                                     :actions_acknowledged (count (:actions plan))
+                                     :remaining_action_identities remaining-actions
+                                     :converged converged?}]
+                           :converged converged?
+                           :corrupt_retracted 0
+                           :post_audit report}
                   receipt-path (write-receipt! (or (:receipt-dir opts) (default-receipt-dir)) receipt)]
-              (println (str "  appended " (count repaired) " exact retract tombstone(s) under file lock + fsync"))
+              (print-audit report)
+              (when-not converged?
+                (println (str "  ✗ corpus projection retained " (count remaining-actions)
+                              " planned action(s) after acknowledged writes")))
               (println (str "  receipt " receipt-path))
-              (when (seq (corrupt-facts (:facts post)))
-                (throw (ex-info "corruption remains after offline repair" {})))))))
+              (when-not (and converged? (:ok report)) (System/exit 1)))))
 
-      (usage!))))
+        "repair-corrupt"
+        (let [bad (corrupt-facts (:facts corpus))]
+          (println (str "repair-corrupt — " (count bad) " live non-registrable predicate fact(s)"))
+          (doseq [fact bad]
+            (println (str "  would retract exact triple "
+                          (pr-str (select-keys fact [:l :p :r])))))
+          (if (:execute opts)
+            (throw (ex-info "repair-corrupt execute unavailable: corpus transaction required; no bytes written"
+                            {:type :corpus-transaction-required
+                             :count (count bad)}))
+            (println "  diagnostic dry-run only; no bytes written")))
+
+        (usage!)))))
+
+(defn invoked-as-script? []
+  (when-let [main-source (System/getProperty "babashka.file")]
+    (= SCHEMA-MIGRATE-SOURCE (.getCanonicalPath (io/file main-source)))))
+
+(when (invoked-as-script?)
+  (main! *command-line-args*))

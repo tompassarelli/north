@@ -1,12 +1,14 @@
 #!/usr/bin/env bb
 ;; Exact-fold + real-coordinator proof for the executable schema cutover.
 (require '[babashka.process :as proc]
+         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[fram.fold :as fold]
          '[fram.rt :as rt])
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
+(load-file (str root "/cli/schema-migrate.clj"))
 (def fram (.getCanonicalPath
            (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
 (when-not (.isFile (io/file fram "coord_daemon.clj"))
@@ -76,38 +78,159 @@
                      (make-array java.nio.file.attribute.FileAttribute 0)))
       log (.getCanonicalPath (io/file temp "coordination.log"))
       telemetry (.getCanonicalPath (io/file temp "telemetry.log"))
+      log-alias (.getAbsolutePath (io/file temp "coordination-alias.log"))
       receipts (.getCanonicalPath (io/file temp "receipts"))
-      _ (spit log (str/join "\n"
-                            [(op 1 "assert" "@thread-a" "title" "one")
-                             (op 2 "assert" "@thread-a" "custom_ref" "@thread-b")
-                             (op 3 "assert" "@thread-b" "title" "two")
-                             ;; A valid executable declaration is authority even
-                             ;; when bootstrap intent disagrees.
-                             (op 4 "assert" "@title" "cardinality" "multi")
-                             (op 5 "assert" "@topic-schema" "title" "schema")
-                             (op 6 "assert" "@concern-schema" "kind" "concern")
-                             (op 7 "assert" "@msg:schema" "body" "hello")
-                             (op 8 "assert" "@run-schema" "kind" "run")
-                             (op 9 "assert" "@client-clock" "kind" "client_session")
-                             (op 10 "assert" "@denial:schema" "kind" "guard_denial")
-                             (op 11 "assert" "@agent:schema" "display_name" "Agent Schema")
-                             (op 12 "assert" "@person-schema" "display_name" "Person Schema")
-                             ;; Explicit namespace/name extensions are preserved.
-                             (op 13 "assert" "@vendor-subject" "entity_kind" "vendor/widget")
-                             (op 14 "assert" "@vendor-subject" "note" "extension")
-                             ;; No structural signal: remain visible as `other`.
-                             (op 15 "assert" "@ambiguous" "opaque" "value")
-                             ;; The live malformed predicate must be surfaced and
-                             ;; repaired as an exact triple, never registered.
-                             (op 16 "assert" "@thread-a" "\"\"" "")])
+      invalid-log (.getCanonicalPath (io/file temp "acyclic-invalid.log"))
+      invalid-telemetry (.getCanonicalPath (io/file temp "acyclic-invalid-telemetry.log"))
+      invalid-receipts (.getCanonicalPath (io/file temp "acyclic-invalid-receipts"))
+      corrupt-log (.getCanonicalPath (io/file temp "corrupt.log"))
+      corrupt-telemetry (.getCanonicalPath (io/file temp "corrupt-telemetry.log"))
+      corrupt-receipts (.getCanonicalPath (io/file temp "corrupt-receipts"))
+      unterminated-log (.getCanonicalPath (io/file temp "unterminated.log"))
+      unterminated-telemetry (.getCanonicalPath (io/file temp "unterminated-telemetry.log"))
+      unterminated-receipts (.getCanonicalPath (io/file temp "unterminated-receipts"))
+      _ (spit log (str (str/join "\n"
+                                 [(op 1 "assert" "@thread-a" "title" "one")
+                                  (op 2 "assert" "@thread-a" "custom_ref" "@thread-b")
+                                  (op 3 "assert" "@thread-b" "title" "two")
+                                  ;; A valid executable declaration is authority even
+                                  ;; when bootstrap intent disagrees.
+                                  (op 4 "assert" "@title" "cardinality" "multi")
+                                  (op 5 "assert" "@topic-schema" "title" "schema")
+                                  (op 6 "assert" "@concern-schema" "kind" "concern")
+                                  (op 7 "assert" "@msg:schema" "body" "hello")
+                                  (op 8 "assert" "@run-schema" "kind" "run")
+                                  (op 9 "assert" "@client-clock" "kind" "client_session")
+                                  (op 10 "assert" "@denial:schema" "kind" "guard_denial")
+                                  (op 11 "assert" "@agent:schema" "display_name" "Agent Schema")
+                                  (op 12 "assert" "@person-schema" "display_name" "Person Schema")
+                                  ;; Explicit namespace/name extensions are preserved.
+                                  (op 13 "assert" "@vendor-subject" "entity_kind" "vendor/widget")
+                                  (op 14 "assert" "@vendor-subject" "note" "extension")
+                                  ;; No structural signal: remain visible as `other`.
+                                  (op 15 "assert" "@ambiguous" "opaque" "value")
+                                  ;; Valid explicit policy, including false, is
+                                  ;; authoritative and must survive migration.
+                                  (op 16 "assert" "@part_of" "acyclic" "false")
+                                  (op 17 "assert" "@depends_on" "acyclic" "true")])
+                       "\n")
               :append true)
       _ (spit telemetry "")
+      _ (java.nio.file.Files/createSymbolicLink
+         (.toPath (io/file log-alias))
+         (.toPath (io/file log))
+         (make-array java.nio.file.attribute.FileAttribute 0))
+      _ (spit invalid-log
+              (str/join "\n"
+                        [(op 1 "assert" "@part_of" "acyclic" "true")
+                         (op 2 "assert" "@part_of" "acyclic" "false")
+                         (op 3 "assert" "@custom_edge" "acyclic" "maybe")]))
+      _ (spit invalid-telemetry "")
+      _ (spit corrupt-log (op 1 "assert" "@thread-a" "\"\"" ""))
+      _ (spit corrupt-telemetry "")
+      _ (spit unterminated-log (op 1 "assert" "@thread-a" "title" "one"))
+      _ (spit unterminated-telemetry "")
       daemon (atom (start-daemon port log telemetry))
       checks (atom [])
       check! (fn [label ok detail]
                (swap! checks conj {:label label :ok (boolean ok) :detail detail}))]
   (try
+    (let [synthetic-facts [{:l "@part_of" :p "acyclic" :r "true"}
+                           {:l "@part_of" :p "acyclic" :r "false"}
+                           {:l "@custom_edge" :p "acyclic" :r "maybe"}]
+          synthetic-schema (desired-schema synthetic-facts)
+          defects (malformed-schema synthetic-facts synthetic-schema)
+          by-key (into {} (map (fn [defect]
+                                 [[(:predicate defect) (:field defect)] (:values defect)]))
+                       defects)]
+      (check! "strict schema audit detects synthetic multiple and malformed acyclic state"
+              (and (= ["false" "true"] (get by-key ["part_of" "acyclic"]))
+                   (= ["maybe"] (get by-key ["custom_edge" "acyclic"])))
+              (pr-str by-key)))
+
+    (let [log-before (slurp log)
+          telemetry-before (slurp telemetry)
+          empty-telemetry-plan (run-schema port log telemetry receipts "plan")
+          missing-coordination (run-schema port
+                                           (.getAbsolutePath (io/file temp "missing-coordination.log"))
+                                           telemetry receipts "migrate" "--execute")
+          missing-telemetry (run-schema port log
+                                        (.getAbsolutePath (io/file temp "missing-telemetry.log"))
+                                        receipts "migrate" "--execute")
+          blank-telemetry (run-schema port log "" receipts "plan")
+          directory-telemetry (run-schema port log (.getCanonicalPath temp) receipts "audit" "--strict")
+          duplicate-runs (mapv (fn [args]
+                                 (apply run-schema port log log receipts args))
+                               [["plan"]
+                                ["audit" "--strict"]
+                                ["migrate" "--execute"]
+                                ["repair-corrupt" "--execute" "--offline-confirm"]])
+          alias-duplicate (run-schema port log log-alias receipts "plan")
+          unterminated-before (slurp unterminated-log)
+          unterminated-execute (run-schema port unterminated-log unterminated-telemetry
+                                           unterminated-receipts "migrate" "--execute")]
+      (check! "mandatory zero-byte telemetry log is accepted as a corpus member"
+              (zero? (:exit empty-telemetry-plan))
+              (str "exit=" (:exit empty-telemetry-plan) " err=" (:err empty-telemetry-plan)))
+      (check! "missing coordination log fails before migration work"
+              (and (not (zero? (:exit missing-coordination)))
+                   (str/includes? (:err missing-coordination) "coordination corpus log is missing or unreadable"))
+              (:err missing-coordination))
+      (check! "missing configured telemetry log fails before migration work"
+              (and (not (zero? (:exit missing-telemetry)))
+                   (str/includes? (:err missing-telemetry) "telemetry corpus log is missing or unreadable"))
+              (:err missing-telemetry))
+      (check! "blank telemetry configuration is rejected instead of silently omitted"
+              (and (not (zero? (:exit blank-telemetry)))
+                   (str/includes? (:err blank-telemetry) "telemetry corpus log path is required"))
+              (:err blank-telemetry))
+      (check! "non-file telemetry corpus path is rejected as unreadable"
+              (and (not (zero? (:exit directory-telemetry)))
+                   (str/includes? (:err directory-telemetry) "telemetry corpus log is missing or unreadable"))
+              (:err directory-telemetry))
+      (check! "every verb rejects a directly duplicated corpus path"
+              (every? #(and (not (zero? (:exit %)))
+                            (str/includes? (:err %) "same canonical path"))
+                      duplicate-runs)
+              (pr-str (mapv #(select-keys % [:exit :err]) duplicate-runs)))
+      (check! "canonical path identity rejects a symlink alias"
+              (and (not (zero? (:exit alias-duplicate)))
+                   (str/includes? (:err alias-duplicate) "same canonical path"))
+              (:err alias-duplicate))
+      (check! "execute rejects an unterminated append boundary before coordinator work"
+              (and (not (zero? (:exit unterminated-execute)))
+                   (str/includes? (:err unterminated-execute) "not newline-terminated")
+                   (= unterminated-before (slurp unterminated-log))
+                   (not (.exists (io/file unterminated-receipts))))
+              (str "exit=" (:exit unterminated-execute) " err=" (:err unterminated-execute)))
+      (check! "corpus validation failures perform no work or receipt writes"
+              (and (= log-before (slurp log))
+                   (= telemetry-before (slurp telemetry))
+                   (not (.exists (io/file receipts))))
+              nil))
+
+    (let [invalid-plan (run-schema port invalid-log invalid-telemetry invalid-receipts
+                                   "plan" "--verbose")
+          invalid-audit (run-schema port invalid-log invalid-telemetry invalid-receipts
+                                    "audit" "--strict")]
+      (check! "malformed acyclic declarations remain a nonwriting diagnostic plan"
+              (and (zero? (:exit invalid-plan))
+                   (not (re-find #"(?m)^  set @part_of\s+acyclic\s" (:out invalid-plan)))
+                   (not (re-find #"(?m)^  set @custom_edge\s+acyclic\s" (:out invalid-plan))))
+              (:out invalid-plan))
+      (check! "strict audit reports a malformed persisted acyclic declaration exactly"
+              (and (= 1 (:exit invalid-audit))
+                   (str/includes? (:out invalid-audit) "@custom_edge acyclic = [\"maybe\"]"))
+              (str "exit=" (:exit invalid-audit) " out=" (:out invalid-audit))))
+
     (check! "real Fram coordinator starts" (eventually #(port-open? port)) nil)
+
+    (let [valid-plan (run-schema port log telemetry receipts "plan" "--verbose")]
+      (check! "valid explicit true and false acyclic policy require no rewrite"
+              (and (zero? (:exit valid-plan))
+                   (not (re-find #"(?m)^  set @part_of\s+acyclic\s" (:out valid-plan)))
+                   (not (re-find #"(?m)^  set @depends_on\s+acyclic\s" (:out valid-plan))))
+              (:out valid-plan)))
 
     (let [listing (run-pred port log telemetry "ls")
           show-missing (run-pred port log telemetry "show" "owner")
@@ -128,35 +251,63 @@
 
     (let [before (run-schema port log telemetry receipts "audit" "--strict")]
       (check! "strict audit fails before migration"
-              (= 1 (:exit before)) (str "exit=" (:exit before) " out=" (:out before)))
-      (check! "audit names the malformed predicate"
-              (str/includes? (:out before) "corrupt predicate") (:out before)))
+              (= 1 (:exit before)) (str "exit=" (:exit before) " out=" (:out before))))
 
-    (let [refused (run-schema port log telemetry receipts "migrate" "--execute")]
-      (check! "online migration refuses to register around corrupt bytes"
+    (let [corrupt-before (run-schema port corrupt-log corrupt-telemetry corrupt-receipts
+                                     "audit" "--strict")
+          refused (run-schema port corrupt-log corrupt-telemetry corrupt-receipts
+                              "migrate" "--execute")]
+      (check! "strict audit names the malformed predicate"
+              (and (= 1 (:exit corrupt-before))
+                   (str/includes? (:out corrupt-before) "corrupt predicate"))
+              (:out corrupt-before))
+      (check! "migration refuses to register around corrupt bytes"
               (and (not (zero? (:exit refused)))
                    (str/includes? (:err refused) "repair-corrupt"))
               (str "exit=" (:exit refused) " out=" (:out refused) " err=" (:err refused))))
 
-    (stop-daemon! @daemon)
-    (reset! daemon nil)
-    (check! "coordinator is offline before physical repair"
-            (eventually #(not (port-open? port))) nil)
-    (let [repair (run-schema port log telemetry receipts "repair-corrupt" "--execute" "--offline-confirm")]
-      (check! "offline repair appends exact retract tombstone under lock + fsync"
-              (and (zero? (:exit repair)) (str/includes? (:out repair) "exact retract tombstone"))
-              (str "exit=" (:exit repair) " out=" (:out repair) " err=" (:err repair))))
+    (let [log-before (slurp corrupt-log)
+          telemetry-before (slurp corrupt-telemetry)
+          diagnostic (run-schema port corrupt-log corrupt-telemetry corrupt-receipts
+                                 "repair-corrupt")
+          refused-repair (run-schema port corrupt-log corrupt-telemetry corrupt-receipts
+                                     "repair-corrupt" "--execute" "--offline-confirm")]
+      (check! "repair-corrupt dry-run names the exact malformed triple"
+              (and (zero? (:exit diagnostic))
+                   (str/includes? (:out diagnostic) "1 live non-registrable predicate fact(s)")
+                   (str/includes? (:out diagnostic) "would retract exact triple")
+                   (str/includes? (:out diagnostic) ":p \"\\\"\\\"\""))
+              (str "exit=" (:exit diagnostic) " out=" (:out diagnostic) " err=" (:err diagnostic)))
+      (check! "repair-corrupt execute fails closed without the corpus transaction surface"
+              (and (not (zero? (:exit refused-repair)))
+                   (str/includes? (:err refused-repair) "corpus transaction required")
+                   (str/includes? (:err refused-repair) "no bytes written"))
+              (str "exit=" (:exit refused-repair) " out=" (:out refused-repair)
+                   " err=" (:err refused-repair)))
+      (check! "diagnostic and refused repair leave both corpus logs byte-identical"
+              (and (= log-before (slurp corrupt-log))
+                   (= telemetry-before (slurp corrupt-telemetry))
+                   (not (.exists (io/file corrupt-receipts))))
+              nil))
 
-    (reset! daemon (start-daemon port log telemetry))
-    (check! "coordinator restarts on the repaired corpus" (eventually #(port-open? port)) nil)
-    (let [migrate (run-schema port log telemetry receipts "migrate" "--execute")]
-      (check! "migration exits 0 after corruption is repaired"
-              (zero? (:exit migrate)) (str "exit=" (:exit migrate) " out=" (:out migrate) " err=" (:err migrate)))
-      (check! "repair and migration each emit a persisted receipt"
+    (let [migrate (run-schema port log telemetry receipts "migrate" "--execute")
+          receipt-files (when (.isDirectory (io/file receipts))
+                          (vec (.listFiles (io/file receipts))))
+          receipt-data (when (= 1 (count receipt-files))
+                         (edn/read-string (slurp (first receipt-files))))
+          receipt-pass (first (:passes receipt-data))]
+      (check! "migration exits 0 on the validated clean corpus"
+              (zero? (:exit migrate))
+              (str "exit=" (:exit migrate) " out=" (:out migrate) " err=" (:err migrate)))
+      (check! "only the committed migration emits a persisted receipt"
               (and (str/includes? (:out migrate) "receipt ")
                    (.isDirectory (io/file receipts))
-                   (= 2 (count (.listFiles (io/file receipts)))))
-              (:out migrate)))
+                   (= 1 (count receipt-files))
+                   (true? (:converged receipt-data))
+                   (= (:actions_acknowledged receipt-pass)
+                      (count (:requested_action_identities receipt-pass)))
+                   (empty? (:remaining_action_identities receipt-pass)))
+              (str (:out migrate) " receipt=" (pr-str receipt-data))))
 
     (let [after (run-schema port log telemetry receipts "audit" "--strict")]
       (check! "strict audit passes after migration"
@@ -173,6 +324,10 @@
     (let [facts (live-facts log telemetry)]
       (check! "valid graph declaration wins over bootstrap intent"
               (= #{"multi"} (values facts "@title" "cardinality")) nil)
+      (check! "valid explicit false acyclic policy survives migration"
+              (= #{"false"} (values facts "@part_of" "acyclic")) nil)
+      (check! "valid explicit true acyclic policy survives migration"
+              (= #{"true"} (values facts "@depends_on" "acyclic")) nil)
       (check! "observed unknown ref predicate gains complete executable metadata"
               (and (= #{"multi"} (values facts "@custom_ref" "cardinality"))
                    (= #{"ref"} (values facts "@custom_ref" "value_kind"))
@@ -206,12 +361,7 @@
       (check! "explicit namespaced entity-kind extension is preserved"
               (= #{"vendor/widget"} (values facts "@vendor-subject" "entity_kind")) nil)
       (check! "ambiguous subject remains untyped instead of being guessed"
-              (empty? (values facts "@ambiguous" "entity_kind")) nil)
-      (check! "malformed predicate fact is absent after exact repair"
-              (empty? (filter #(= "\"\"" (:p %)) facts))
-              (pr-str (map #(select-keys % [:tx :op :l :p :r])
-                           (filter #(= "\"\"" (:p %))
-                                   (concat (rt/read-log log) (rt/read-log telemetry)))))))
+              (empty? (values facts "@ambiguous" "entity_kind")) nil))
 
     (let [second (run-schema port log telemetry receipts "migrate" "--execute")]
       (check! "second migration is a zero-delta idempotent run"
