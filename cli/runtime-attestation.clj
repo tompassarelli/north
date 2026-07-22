@@ -11,7 +11,21 @@
             [clojure.string :as str]))
 
 (def attestation-format "north-fram-runtime-attestation/v1")
+(def active-attestation-format "north-fram-active-runtime-attestation/v1")
+(def active-runtime-record-format "north-fram-active-runtime/v1")
+(def static-runtime-identity-format "north-fram-runtime-v1")
+(def active-runtime-record-name "active.runtime")
+(def active-runtime-record-order
+  ["FORMAT" "GENERATION" "GENERATION_IDENTITY"
+   "GENERATION_IDENTITY_SHA256" "NORTH_FRAM_RUNTIME"
+   "FRAM_RUNTIME_SOURCE" "FRAM_RUNTIME_REV" "FRAM_RUNTIME_TREE"
+   "FRAM_RUNTIME_ORIGIN" "FRAM_RUNTIME_DAEMON" "FRAM_PORT"
+   "FRAM_LOG" "FRAM_TELEMETRY_LOG" "PID" "PID_BIRTH"
+   "OWNER_TOKEN" "CONTROLLER_UNIT" "CONTROLLER_MAIN_PID"])
+(def active-runtime-record-keys
+  (set active-runtime-record-order))
 (def proc-read-limit (* 16 1024 1024))
+(def identity-read-limit (* 1024 1024))
 (def required-runtime-artifacts
   ["bin/fram-daemon"
    "coord_daemon.clj"
@@ -43,6 +57,154 @@
             (.update digest buffer 0 n)
             (recur)))))
     (apply str (map #(format "%02x" %) (.digest digest)))))
+
+(defn- no-follow-options []
+  (into-array java.nio.file.LinkOption
+              [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
+
+(defn- unix-file-state! [label path]
+  (let [nio (.toPath (io/file (str path)))
+        options (no-follow-options)]
+    (when (java.nio.file.Files/isSymbolicLink nio)
+      (fail! (str label " must not be a symbolic link: " path)
+             :active-runtime-path-invalid {:label label :path (str path)}))
+    (when-not (java.nio.file.Files/isRegularFile nio options)
+      (fail! (str label " is missing or not a regular file: " path)
+             :active-runtime-path-invalid {:label label :path (str path)}))
+    (let [attrs (java.nio.file.Files/readAttributes
+                 nio "unix:dev,ino,uid,mode,nlink,size,lastModifiedTime,ctime"
+                 options)]
+      {:dev (long (get attrs "dev"))
+       :ino (long (get attrs "ino"))
+       :uid (long (get attrs "uid"))
+       :mode (bit-and (long (get attrs "mode")) 511)
+       :nlink (long (get attrs "nlink"))
+       :size (long (get attrs "size"))
+       :mtime (str (get attrs "lastModifiedTime"))
+       :ctime (str (get attrs "ctime"))})))
+
+(defn- unix-directory-state! [label path]
+  (let [file (io/file (str path))
+        nio (.toPath file)
+        options (no-follow-options)]
+    (when (or (java.nio.file.Files/isSymbolicLink nio)
+              (not (java.nio.file.Files/isDirectory nio options)))
+      (fail! (str label " is missing or not a real directory: " path)
+             :active-runtime-path-invalid {:label label :path (str path)}))
+    (let [attrs (java.nio.file.Files/readAttributes
+                 nio "unix:dev,ino,uid,mode,nlink,lastModifiedTime,ctime"
+                 options)]
+      {:dev (long (get attrs "dev"))
+       :ino (long (get attrs "ino"))
+       :uid (long (get attrs "uid"))
+       :mode (bit-and (long (get attrs "mode")) 511)
+       :nlink (long (get attrs "nlink"))
+       :mtime (str (get attrs "lastModifiedTime"))
+       :ctime (str (get attrs "ctime"))})))
+
+(defn- channel-bytes! [label ^java.nio.channels.FileChannel channel size]
+  (when (> size identity-read-limit)
+    (fail! (str label " exceeds the sealed identity read bound")
+           :active-runtime-record-invalid
+           {:label label :bytes size :limit identity-read-limit}))
+  (.position channel 0)
+  (let [payload (byte-array (int size))
+        buffer (java.nio.ByteBuffer/wrap payload)]
+    (loop []
+      (when (.hasRemaining buffer)
+        (let [read (.read channel buffer)]
+          (when (neg? read)
+            (fail! (str label " shortened during its pinned read")
+                   :active-runtime-record-raced {:label label}))
+          (recur))))
+    payload))
+
+(defn- read-sealed-file! [label path]
+  (let [canonical (.getCanonicalPath (io/file (str path)))
+        before (unix-file-state! label path)]
+    (when-not (= canonical (.getAbsolutePath (io/file canonical)))
+      (fail! (str label " path is not absolute: " path)
+             :active-runtime-path-invalid {:label label :path (str path)}))
+    (with-open [channel
+                (java.nio.channels.FileChannel/open
+                 (.toPath (io/file canonical))
+                 (into-array java.nio.file.OpenOption
+                             [java.nio.file.StandardOpenOption/READ
+                              java.nio.file.LinkOption/NOFOLLOW_LINKS]))]
+      (let [first-read (channel-bytes! label channel (:size before))
+            second-read (channel-bytes! label channel (:size before))
+            after (unix-file-state! label canonical)]
+        (when-not (and (= before after)
+                       (= (:size before) (.size channel))
+                       (java.util.Arrays/equals first-read second-read))
+          (fail! (str label " changed while it was being read")
+                 :active-runtime-record-raced
+                 {:label label :path canonical
+                  :before before :after after}))
+        {:path canonical
+         :bytes first-read
+         :sha256 (sha256-bytes first-read)
+         :state after}))))
+
+(defn- exact-key-value-record! [sealed]
+  (let [^bytes payload (:bytes sealed)
+        _ (when (or (zero? (alength payload))
+                    (not= 10 (aget payload (dec (alength payload))))
+                    (some #(= 13 %) payload))
+            (fail! "active runtime identity must be LF-terminated canonical text"
+                   :active-runtime-record-invalid))
+        lines (str/split-lines
+               (String. ^bytes (:bytes sealed)
+                        java.nio.charset.StandardCharsets/UTF_8))
+        pairs
+        (mapv
+         (fn [line]
+           (let [index (str/index-of line "=")]
+             (when-not (and index (pos? index))
+               (fail! (str "malformed active runtime identity line: " line)
+                      :active-runtime-record-invalid))
+             [(subs line 0 index) (subs line (inc index))]))
+         lines)
+        values
+        (reduce
+         (fn [result [key value]]
+           (when (or (str/blank? key) (str/blank? value)
+                     (contains? result key))
+             (fail! "active runtime identity has a blank or duplicate field"
+                    :active-runtime-record-invalid {:key key}))
+           (assoc result key value))
+         {} pairs)]
+    (when-not (and (= active-runtime-record-keys (set (keys values)))
+                   (= active-runtime-record-order (mapv first pairs)))
+      (fail! "active runtime identity has the wrong exact ordered field set"
+             :active-runtime-record-invalid
+             {:expected active-runtime-record-order
+              :actual (mapv first pairs)}))
+    (when-not (= active-runtime-record-format (get values "FORMAT"))
+      (fail! "active runtime identity has an unsupported format"
+             :active-runtime-record-invalid
+             {:expected active-runtime-record-format
+              :actual (get values "FORMAT")}))
+    values))
+
+(defn- parse-static-runtime-identity! [sealed]
+  (let [^bytes payload (:bytes sealed)
+        _ (when (or (zero? (alength payload))
+                    (not= 10 (aget payload (dec (alength payload))))
+                    (some #(= 13 %) payload))
+            (fail! "selected runtime generation identity must be LF-terminated canonical text"
+                   :active-runtime-generation-invalid
+                   {:path (:path sealed)}))
+        lines (str/split-lines
+               (String. ^bytes (:bytes sealed)
+                        java.nio.charset.StandardCharsets/UTF_8))]
+    (when-not (and (= 7 (count lines))
+                   (= static-runtime-identity-format (first lines))
+                   (every? #(not (str/blank? %)) lines))
+      (fail! "selected runtime generation identity is malformed"
+             :active-runtime-generation-invalid
+             {:path (:path sealed)}))
+    (zipmap [:format :mode :source :revision :tree :origin :daemon] lines)))
 
 (defn- canonical-regular-file! [label path]
   (let [file (io/file (str path))
@@ -235,7 +397,13 @@
     value))
 
 (defn- source-version! [root expected-revision expected-tree]
-  (if (.isDirectory (io/file root ".git"))
+  (let [marker (.toPath (io/file root ".git"))
+        options (no-follow-options)
+        git-backed?
+        (and (not (java.nio.file.Files/isSymbolicLink marker))
+             (or (java.nio.file.Files/isDirectory marker options)
+                 (java.nio.file.Files/isRegularFile marker options)))]
+  (if git-backed?
     (let [revision (git-value! root "HEAD" :fram-revision-unavailable)
           tree (git-value! root "HEAD^{tree}" :fram-tree-unavailable)]
       (when-not (and (= expected-revision revision) (= expected-tree tree))
@@ -250,7 +418,7 @@
         (fail! "selected Fram runtime is neither a Git source nor an immutable store object"
                :runtime-source-version-unavailable
                {:root root :revision expected-revision :tree expected-tree}))
-      {:revision expected-revision :tree expected-tree :provenance "nix-store"})))
+      {:revision expected-revision :tree expected-tree :provenance "nix-store"}))))
 
 (defn- runtime-artifact-paths [root]
   (let [root-file (io/file root)
@@ -359,6 +527,352 @@
      (sha256-bytes
       (.getBytes (pr-str arguments) java.nio.charset.StandardCharsets/UTF_8))}))
 
+(defn- exact-symlink-target! [label path expected-pattern]
+  (let [nio (.toPath (io/file path))]
+    (when-not (java.nio.file.Files/isSymbolicLink nio)
+      (fail! (str label " is not a symbolic link: " path)
+             :active-runtime-selector-invalid {:label label :path path}))
+    (let [target (str (java.nio.file.Files/readSymbolicLink nio))]
+      (when-not (re-matches expected-pattern target)
+        (fail! (str label " has an invalid target: " target)
+               :active-runtime-selector-invalid
+               {:label label :path path :target target}))
+      target)))
+
+(defn- resolve-active-selection! [state-root]
+  (when (str/blank? (str state-root))
+    (fail! "active runtime state root is required"
+           :active-runtime-selector-invalid))
+  (let [root (.getCanonicalPath (io/file (str state-root)))
+        root-state (unix-directory-state! "active runtime state root" root)
+        current-link (str root "/current")
+        active-link (str root "/active")
+        current-target
+        (exact-symlink-target! "stable runtime selector" current-link
+                               #"active/current")
+        active-target
+        (exact-symlink-target! "active runtime generation selector" active-link
+                               #"generations/[A-Za-z0-9._-]+")
+        generation (.getCanonicalPath (io/file root active-target))
+        generation-state
+        (unix-directory-state! "active runtime generation" generation)
+        member-link (str generation "/current")
+        _ (when-not (java.nio.file.Files/isSymbolicLink
+                     (.toPath (io/file member-link)))
+            (fail! "active runtime generation has no current member"
+                   :active-runtime-generation-invalid
+                   {:path member-link}))
+        source (.getCanonicalPath (io/file member-link))
+        identity-path (str generation "/current.identity")
+        identity (read-sealed-file! "runtime generation identity" identity-path)
+        static (parse-static-runtime-identity! identity)]
+    (when-not (and (= source (.getCanonicalPath (io/file (:source static))))
+                   (= generation
+                      (.getCanonicalPath (.getParentFile
+                                          (io/file (:path identity)))))
+                   (= (:uid root-state) (:uid generation-state)
+                      (get-in identity [:state :uid]))
+                   (= 1 (get-in identity [:state :nlink]))
+                   (zero? (bit-and (get-in identity [:state :mode]) 18)))
+      (fail! "active runtime generation identity does not bind its selected member"
+             :active-runtime-generation-invalid
+             {:generation generation :source source :static static
+              :identity-state (:state identity)}))
+    {:state-root root
+     :state-root-state root-state
+     :current-link {:path current-link :target current-target}
+     :active-link {:path active-link :target active-target}
+     :generation generation
+     :generation-state generation-state
+     :member-link member-link
+     :source source
+     :identity identity
+     :static static
+     :record-path (str generation "/" active-runtime-record-name)}))
+
+(defn- canonical-existing-path! [label value]
+  (when (str/blank? (str value))
+    (fail! (str label " is blank") :active-runtime-record-invalid))
+  (let [file (io/file (str value))]
+    (when-not (.exists file)
+      (fail! (str label " does not exist: " value)
+             :active-runtime-record-invalid {:label label :path value}))
+    (.getCanonicalPath file)))
+
+(defn- parse-positive-long! [label value]
+  (let [parsed (parse-long (str value))]
+    (when-not (and parsed (pos? parsed))
+      (fail! (str label " is not a positive integer: " value)
+             :active-runtime-record-invalid {:label label :value value}))
+    parsed))
+
+(defn- valid-owner-token? [value]
+  (try
+    (= value (str (java.util.UUID/fromString value)))
+    (catch Throwable _ false)))
+
+(defn- parse-active-record!
+  [selection explicit-record port served-log telemetry-log]
+  (let [expected-path (:record-path selection)
+        selected-path (or explicit-record expected-path)
+        selected-canonical (.getCanonicalPath (io/file (str selected-path)))
+        _ (when-not (= expected-path selected-canonical)
+            (fail! "active runtime record is not scoped to the selected generation"
+                   :active-runtime-record-invalid
+                   {:expected expected-path :actual selected-canonical}))
+        sealed (read-sealed-file! "active runtime identity" selected-canonical)
+        record (exact-key-value-record! sealed)
+        static (:static selection)
+        generation
+        (canonical-existing-path! "active runtime generation"
+                                  (get record "GENERATION"))
+        identity
+        (canonical-existing-path! "active runtime generation identity"
+                                  (get record "GENERATION_IDENTITY"))
+        source (canonical-existing-path! "active Fram source"
+                                         (get record "FRAM_RUNTIME_SOURCE"))
+        daemon (canonical-existing-path! "active Fram daemon"
+                                         (get record "FRAM_RUNTIME_DAEMON"))
+        record-log (canonical-existing-path! "active coordination log"
+                                             (get record "FRAM_LOG"))
+        record-telemetry
+        (canonical-existing-path! "active telemetry log"
+                                  (get record "FRAM_TELEMETRY_LOG"))
+        pid (parse-positive-long! "active runtime PID" (get record "PID"))
+        main-pid (parse-positive-long! "active controller MainPID"
+                                       (get record "CONTROLLER_MAIN_PID"))
+        record-port (parse-positive-long! "active Fram port"
+                                          (get record "FRAM_PORT"))]
+    (when-not (and (= 384 (get-in sealed [:state :mode]))
+                   (= 1 (get-in sealed [:state :nlink]))
+                   (= (get-in selection [:generation-state :uid])
+                      (get-in sealed [:state :uid]))
+                   (= (:generation selection) (get record "GENERATION"))
+                   (= (:generation selection) generation)
+                   (= (get-in selection [:identity :path])
+                      (get record "GENERATION_IDENTITY"))
+                   (= (get-in selection [:identity :path]) identity)
+                   (= (get-in selection [:identity :sha256])
+                      (get record "GENERATION_IDENTITY_SHA256"))
+                   (= (:source selection) source)
+                   (= (:mode static) (get record "NORTH_FRAM_RUNTIME"))
+                   (= (:source static) (get record "FRAM_RUNTIME_SOURCE"))
+                   (= (:revision static) (get record "FRAM_RUNTIME_REV"))
+                   (= (:tree static) (get record "FRAM_RUNTIME_TREE"))
+                   (= (:origin static) (get record "FRAM_RUNTIME_ORIGIN"))
+                   (= (:daemon static) (get record "FRAM_RUNTIME_DAEMON"))
+                   (= source (.getCanonicalPath (.getParentFile
+                                                 (.getParentFile
+                                                  (io/file daemon)))))
+                   (= record-port (long port))
+                   (= pid main-pid)
+                   (= record-log (.getCanonicalPath (io/file served-log)))
+                   (= record-telemetry
+                      (.getCanonicalPath (io/file telemetry-log)))
+                   (not= record-log record-telemetry)
+                   (re-matches #"proc:[1-9][0-9]*"
+                               (get record "PID_BIRTH"))
+                   (valid-owner-token? (get record "OWNER_TOKEN")))
+      (fail! "active runtime identity does not exactly bind its generation, process, and split corpus"
+             :active-runtime-record-invalid
+             {:selection (select-keys selection [:generation :source])
+              :record-path (:path sealed)}))
+    {:sealed sealed :values record :pid pid :port record-port
+     :coordination-log record-log :telemetry-log record-telemetry
+     :source source :daemon daemon}))
+
+(defn- parse-systemd-properties [output]
+  (into {}
+        (keep (fn [line]
+                (when-let [index (str/index-of line "=")]
+                  [(subs line 0 index) (subs line (inc index))])))
+        (str/split-lines output)))
+
+(defn systemd-main-pid! [unit]
+  (when-not (re-matches #"[A-Za-z0-9@_.:-]+" (str unit))
+    (fail! "active runtime controller unit name is unsafe"
+           :active-runtime-controller-invalid {:unit unit}))
+  (let [result
+        (proc/shell {:out :string :err :string :continue true}
+                    "systemctl" "show" unit "--no-pager"
+                    "--property" "Id" "--property" "LoadState"
+                    "--property" "ActiveState" "--property" "SubState"
+                    "--property" "MainPID")
+        properties (parse-systemd-properties (:out result))
+        main-pid (parse-long (get properties "MainPID"))]
+    (when-not (and (zero? (:exit result))
+                   (= unit (get properties "Id"))
+                   (= "loaded" (get properties "LoadState"))
+                   (= "active" (get properties "ActiveState"))
+                   (= "running" (get properties "SubState"))
+                   main-pid (pos? main-pid))
+      (fail! "active runtime controller is not one loaded, running systemd unit"
+             :active-runtime-controller-invalid
+             {:unit unit :properties properties
+              :error (str/trim (:err result))}))
+    {:kind "systemd" :unit unit :main-pid main-pid
+     :load-state "loaded" :active-state "active" :sub-state "running"}))
+
+(defn- controller-proof! [controller-mode controller-unit record pid]
+  (let [record-unit (get record "CONTROLLER_UNIT")
+        record-main (parse-positive-long! "active controller MainPID"
+                                          (get record "CONTROLLER_MAIN_PID"))]
+    (case (str controller-mode)
+      "direct"
+      (do
+        (when-not (and (= "direct" record-unit) (= pid record-main))
+          (fail! "direct runtime fixture has inconsistent controller identity"
+                 :active-runtime-controller-invalid))
+        {:kind "direct" :unit "direct" :main-pid pid})
+
+      "systemd"
+      (let [unit (or controller-unit "north-coord.service")
+            proof (systemd-main-pid! unit)]
+        (when-not (and (= unit record-unit)
+                       (= pid record-main (:main-pid proof)))
+          (fail! "active runtime PID is not the selected systemd MainPID"
+                 :active-runtime-controller-invalid
+                 {:record-unit record-unit :record-main record-main
+                  :controller proof :pid pid}))
+        proof)
+
+      "auto"
+      (let [unit (or controller-unit "north-coord.service")
+            proof (systemd-main-pid! unit)]
+        (when-not (and (= unit record-unit)
+                       (= pid record-main (:main-pid proof)))
+          (fail! "active runtime PID is not the selected systemd MainPID"
+                 :active-runtime-controller-invalid
+                 {:record-unit record-unit :record-main record-main
+                  :controller proof :pid pid}))
+        proof)
+
+      (fail! "runtime controller mode must be systemd, auto, or explicit fixture-only direct"
+             :active-runtime-controller-invalid
+             {:mode controller-mode}))))
+
+(defn- canonical-env-path [environment key]
+  (when-let [value (get environment key)]
+    (try (.getCanonicalPath (io/file value))
+         (catch Throwable _ nil))))
+
+(defn attest-active-runtime!
+  "Attest the generation-scoped active runtime selected by state-root/active.
+
+  The selector and static identity choose source bytes; active.runtime binds
+  that generation to one minted-token process. Production additionally binds
+  it to systemd MainPID. The explicit direct mode exists only for disposable
+  owner/integration fixtures. Same-UID hostile code remains outside this local
+  evidence boundary; all supported selector/launcher transitions are detected."
+  [{:keys [port served-log telemetry-log state-root record-path
+           controller-mode controller-unit]}]
+  (let [selection (resolve-active-selection! state-root)
+        parsed (parse-active-record! selection record-path port served-log
+                                     telemetry-log)
+        selection-after (resolve-active-selection! state-root)
+        stable-selection (fn [value]
+                           (update value :identity dissoc :bytes))]
+    (when-not (= (stable-selection selection)
+                 (stable-selection selection-after))
+      (fail! "active runtime selector changed during attestation"
+             :active-runtime-selector-raced
+             {:before selection :after selection-after}))
+    (let [record (:values parsed)
+          pid (:pid parsed)
+          pids (listener-pids port)
+          actual-birth (process-birth-token pid)
+          process-start (process-start-millis pid)
+          environment (process-environment pid)
+          controller (controller-proof!
+                      (or controller-mode "auto") controller-unit record pid)
+          artifact (fram-artifact-identity!
+                    (:source parsed) (get record "FRAM_RUNTIME_REV")
+                    (get record "FRAM_RUNTIME_TREE"))
+          daemon (artifact-record "Fram daemon launcher" (:daemon parsed))
+          shape (process-shape! pid (:source parsed) (:daemon parsed)
+                                port (:coordination-log parsed))
+          exact-environment
+          {"NORTH_FRAM_RUNTIME" (get record "NORTH_FRAM_RUNTIME")
+           "NORTH_COORD_SYSTEMD_UNIT" (get record "CONTROLLER_UNIT")
+           "FRAM_RUNTIME_SOURCE" (get record "FRAM_RUNTIME_SOURCE")
+           "FRAM_RUNTIME_REV" (get record "FRAM_RUNTIME_REV")
+           "FRAM_RUNTIME_TREE" (get record "FRAM_RUNTIME_TREE")
+           "FRAM_RUNTIME_ORIGIN" (get record "FRAM_RUNTIME_ORIGIN")
+           "FRAM_RUNTIME_DAEMON" (get record "FRAM_RUNTIME_DAEMON")
+           "FRAM_RUNTIME_OWNER_TOKEN" (get record "OWNER_TOKEN")
+           "FRAM_PORT" (get record "FRAM_PORT")
+           "FRAM_REQUIRE_LOG_FENCE" "1"}
+          exact-path-environment
+          {"NORTH_COORD_RUNTIME_STATE" (:state-root selection)
+           "NORTH_COORD_RUNTIME_GENERATION" (:generation selection)
+           "NORTH_COORD_RUNTIME_IDENTITY" (get-in selection [:identity :path])
+           "NORTH_COORD_RUNTIME_FILE" (get-in parsed [:sealed :path])
+           "FRAM_LOG" (:coordination-log parsed)
+           "FRAM_TELEMETRY_LOG" (:telemetry-log parsed)}]
+      (when-not
+       (and (= [pid] pids)
+            (= (get record "PID_BIRTH") actual-birth)
+            (integer? process-start)
+            (<= (:latest-artifact-mtime-millis artifact) process-start)
+            (= exact-environment (select-keys environment
+                                               (keys exact-environment)))
+            (every? (fn [[key expected]]
+                      (= expected (canonical-env-path environment key)))
+                    exact-path-environment))
+        (fail! "active runtime record, listener, process environment, and source artifacts disagree"
+               :active-runtime-process-attestation-failed
+               {:port port :pid pid :listener-pids pids
+                :expected-birth (get record "PID_BIRTH")
+                :actual-birth actual-birth
+                :process-start-millis process-start
+                :latest-artifact-mtime-millis
+                (:latest-artifact-mtime-millis artifact)
+                :environment-keys (sort (concat (keys exact-environment)
+                                                (keys exact-path-environment)))}))
+      {:format active-attestation-format
+       :request {:port (long port)
+                 :served-log (.getCanonicalPath (io/file served-log))
+                 :telemetry-log (.getCanonicalPath (io/file telemetry-log))
+                 :state-root (:state-root selection)
+                 :record-path (get-in parsed [:sealed :path])
+                 :controller-mode (or controller-mode "auto")
+                 :controller-unit controller-unit}
+       :identity
+       (merge
+        (dissoc artifact :latest-artifact-mtime-millis)
+        {:runtime-mode (get record "NORTH_FRAM_RUNTIME")
+         :generation (:generation selection)
+         :generation-identity
+         {:path (get-in selection [:identity :path])
+          :bytes (alength ^bytes (get-in selection [:identity :bytes]))
+          :sha256 (get-in selection [:identity :sha256])}
+         :daemon daemon
+         :executable (:executable shape)
+         :script (:script shape)
+         :arguments-sha256 (:arguments-sha256 shape)
+         :port (long port)
+         :served-log (:coordination-log parsed)
+         :telemetry-log (:telemetry-log parsed)
+         :controller-unit (:unit controller)})
+       :authority
+       {:pid pid
+        :pid-birth actual-birth
+        :process-start-millis process-start
+        :owner-token-sha256
+        (sha256-bytes
+         (.getBytes (get record "OWNER_TOKEN")
+                    java.nio.charset.StandardCharsets/UTF_8))
+        :selector (select-keys selection
+                               [:state-root :state-root-state :current-link
+                                :active-link :generation :generation-state
+                                :member-link :source])
+        :active-record
+        {:path (get-in parsed [:sealed :path])
+         :bytes (alength ^bytes (get-in parsed [:sealed :bytes]))
+         :sha256 (get-in parsed [:sealed :sha256])
+         :state (get-in parsed [:sealed :state])}
+        :controller controller}})))
+
 (defn attest-runtime!
   "Attest the one process listening on port against a launcher-owned runtime
   identity record and the exact selected Fram artifacts.  No coordinator wire
@@ -436,13 +950,16 @@
   "Re-attest without a coordinator wire call and require the exact same process
   authority and stable runtime identity."
   [attestation]
-  (let [record-path (get-in attestation [:authority :identity-record :path])
+  (let [active? (= active-attestation-format (:format attestation))
+        record-path (get-in attestation [:authority :identity-record :path])
         identity (:identity attestation)
         current
         (try
-          (attest-runtime! {:port (:port identity)
-                            :served-log (:served-log identity)
-                            :record-path record-path})
+          (if active?
+            (attest-active-runtime! (:request attestation))
+            (attest-runtime! {:port (:port identity)
+                              :served-log (:served-log identity)
+                              :record-path record-path}))
           (catch Throwable error
             (fail! "selected Fram runtime authority changed"
                    :runtime-authority-lost

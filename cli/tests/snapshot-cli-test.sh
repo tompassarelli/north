@@ -44,11 +44,14 @@ live=$scratch/live
 store=$scratch/snapshots
 coordination=$live/coordination.log
 telemetry=$live/telemetry.log
-runtime_file=$state/north/runtime.identity
+runtime_state=$state/north/fram-runtime
+runtime_generation=$runtime_state/generations/snapshot-cli-generation
+runtime_identity=$runtime_generation/current.identity
+runtime_file=$runtime_generation/active.runtime
 launcher=$scratch/direct-controller
 daemon_output=$scratch/daemon.out
 port=$(bb -e '(with-open [socket (java.net.ServerSocket. 0)] (println (.getLocalPort socket)))')
-mkdir -p "$home" "$state/north" "$live"
+mkdir -p "$home" "$runtime_generation" "$live"
 printf '%s\n' '{:tx 1, :op "assert", :l "@thread", :p "title", :r "before", :frame "snapshot-cli-test"}' >"$coordination"
 : >"$telemetry"
 chmod 0600 "$coordination"
@@ -69,6 +72,19 @@ fram_daemon=$(cd "$(dirname "$fram/bin/fram-daemon")" && pwd -P)/$(basename "$fr
 fram_rev=$(git -C "$fram" rev-parse --verify HEAD)
 fram_tree=$(git -C "$fram" rev-parse --verify 'HEAD^{tree}')
 owner_token=$(bb -e '(println (str (java.util.UUID/randomUUID)))')
+ln -s active/current "$runtime_state/current"
+ln -s generations/snapshot-cli-generation "$runtime_state/active"
+ln -s "$fram_source" "$runtime_generation/current"
+printf '%s\n' \
+  north-fram-runtime-v1 \
+  checkout \
+  "$fram_source" \
+  "$fram_rev" \
+  "$fram_tree" \
+  "$fram_source" \
+  "$fram_daemon" \
+  >"$runtime_identity"
+runtime_identity_sha=$(sha256sum "$runtime_identity" | cut -d' ' -f1)
 
 common_env=(
   HOME="$home"
@@ -82,15 +98,26 @@ common_env=(
   NORTH_PORT="$port"
   NORTH_CORPUS_CONTROLLER=direct
   NORTH_COORD_LAUNCHER="$launcher"
+  NORTH_COORD_RUNTIME_STATE="$runtime_state"
+  NORTH_COORD_RUNTIME_GENERATION="$runtime_generation"
+  NORTH_COORD_RUNTIME_IDENTITY="$runtime_identity"
   NORTH_COORD_RUNTIME_FILE="$runtime_file"
   NORTH_CORPUS_TRANSACTION_DIR="$scratch/transactions"
   NORTH_AUTHOR=snapshot-cli-test
 )
 
-FRAM_REQUIRE_LOG_FENCE=1 FRAM_TELEMETRY_LOG="$telemetry" \
+NORTH_FRAM_RUNTIME=checkout \
+NORTH_COORD_RUNTIME_STATE="$runtime_state" \
+NORTH_COORD_RUNTIME_GENERATION="$runtime_generation" \
+NORTH_COORD_RUNTIME_IDENTITY="$runtime_identity" \
+NORTH_COORD_RUNTIME_FILE="$runtime_file" \
+NORTH_COORD_SYSTEMD_UNIT=direct \
+FRAM_REQUIRE_LOG_FENCE=1 FRAM_LOG="$coordination" \
+  FRAM_TELEMETRY_LOG="$telemetry" FRAM_PORT="$port" \
   FRAM_RUNTIME_SOURCE="$fram_source" \
   FRAM_RUNTIME_REV="$fram_rev" \
   FRAM_RUNTIME_TREE="$fram_tree" \
+  FRAM_RUNTIME_ORIGIN="$fram_source" \
   FRAM_RUNTIME_DAEMON="$fram_daemon" \
   FRAM_RUNTIME_OWNER_TOKEN="$owner_token" \
   "$fram/bin/fram-daemon" "$port" "$coordination" \
@@ -101,13 +128,24 @@ stat_remainder=${stat_line##*) }
 start_ticks=$(awk '{print $20}' <<<"$stat_remainder")
 [[ "$start_ticks" =~ ^[0-9]+$ ]]
 printf '%s\n' \
-  "PID=$daemon_pid" \
-  "PID_BIRTH=proc:$start_ticks" \
-  "OWNER_TOKEN=$owner_token" \
+  'FORMAT=north-fram-active-runtime/v1' \
+  "GENERATION=$runtime_generation" \
+  "GENERATION_IDENTITY=$runtime_identity" \
+  "GENERATION_IDENTITY_SHA256=$runtime_identity_sha" \
+  'NORTH_FRAM_RUNTIME=checkout' \
   "FRAM_RUNTIME_SOURCE=$fram_source" \
   "FRAM_RUNTIME_REV=$fram_rev" \
   "FRAM_RUNTIME_TREE=$fram_tree" \
+  "FRAM_RUNTIME_ORIGIN=$fram_source" \
   "FRAM_RUNTIME_DAEMON=$fram_daemon" \
+  "FRAM_PORT=$port" \
+  "FRAM_LOG=$coordination" \
+  "FRAM_TELEMETRY_LOG=$telemetry" \
+  "PID=$daemon_pid" \
+  "PID_BIRTH=proc:$start_ticks" \
+  "OWNER_TOKEN=$owner_token" \
+  'CONTROLLER_UNIT=direct' \
+  "CONTROLLER_MAIN_PID=$daemon_pid" \
   >"$runtime_file"
 chmod 0600 "$runtime_file"
 
