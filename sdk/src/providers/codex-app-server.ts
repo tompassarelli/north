@@ -1458,7 +1458,6 @@ export class ManagedCodexAppServerRun {
       if (method === "mcpServer/startupStatus/updated") {
         const pendingThreadStart = threadId === undefined && this.threadStarted;
         const params = validateMcpStartupNotification(value, threadId, pendingThreadStart);
-        console.error(`[managed-codex] MCP startup: ${JSON.stringify(params)}`);
         // Codex may emit a thread-scoped startup transition before the
         // thread/start response that establishes the exact local thread id.
         // Preserve it until that signed response arrives, then validate the
