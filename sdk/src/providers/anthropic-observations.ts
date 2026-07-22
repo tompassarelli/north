@@ -10,6 +10,7 @@ import type {
   ProviderUsageObservation,
 } from "./types";
 import { McpActivityAccumulator, parseAnthropicMcpName } from "../tool-activity";
+import { providerJoinEvidence } from "./provider-join";
 
 type RateLimitInfo = SDKRateLimitEvent["rate_limit_info"];
 
@@ -140,6 +141,8 @@ export function observeAnthropicQuery(
   const write = options.write ?? writeProviderUsageObservations;
   const now = options.now ?? (() => new Date());
   const mcp = new McpActivityAccumulator("anthropic-agent-sdk:assistant-tool-use");
+  const sessionIds = new Set<string>();
+  const turnIds = new Set<string>();
   return {
     interrupt: source.interrupt?.bind(source),
     close: source.close?.bind(source),
@@ -152,6 +155,7 @@ export function observeAnthropicQuery(
     mcpActivity: () => mcp.snapshot(),
     async *[Symbol.asyncIterator]() {
       for await (const message of source as AsyncIterable<any>) {
+        if (typeof message?.session_id === "string") sessionIds.add(message.session_id);
         if (message?.type === "rate_limit_event" && message.rate_limit_info) {
           try {
             await write(observationFromAnthropicRateLimit(message as SDKRateLimitEvent, targetId(), now()));
@@ -161,13 +165,34 @@ export function observeAnthropicQuery(
           }
         }
         if (message?.type === "assistant" && Array.isArray(message?.message?.content)) {
+          if (typeof message.message.id === "string") turnIds.add(message.message.id);
           for (const block of message.message.content) {
             if (block?.type === "tool_use" && typeof block.name === "string"
                 && block.name.startsWith("mcp__"))
               mcp.observe(block.id, parseAnthropicMcpName(block.name));
           }
         }
-        if (message?.type === "result" && message?.subtype === "success") mcp.complete();
+        if (message?.type === "result" && message?.subtype === "success") {
+          mcp.complete();
+          if (sessionIds.size === 1) {
+            try {
+              yield {
+                ...message,
+                _north_provider_join: providerJoinEvidence("anthropic", {
+                  sessionId: sessionIds.values().next().value,
+                  turnIds: [...turnIds],
+                  // North does not set the SDK's persistSession:false option;
+                  // the selected account root receives the transcript JSONL.
+                  sessionPersistence: "persisted",
+                }),
+              };
+              continue;
+            } catch {
+              // Malformed experimental provider identity is telemetry loss,
+              // never a reason to replace an otherwise valid terminal.
+            }
+          }
+        }
         yield message;
       }
     },

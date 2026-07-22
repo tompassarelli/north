@@ -172,7 +172,7 @@
     "effective_authority_capability" "effective_builtin" "effective_mcp_tool"
     "effective_north_enabled_tool" "envelope_advisory" "envelope_scope"
     "fallback_reason" "routing_pin" "routing_receipt_override" "routing_rule_code"
-    "run_observation_coverage" "struggle" "mcp_actual_tool"})
+    "run_observation_coverage" "struggle" "mcp_actual_tool" "provider_turn_key"})
 (def audited-run-ref #{"parent_run" "parent_thread"})
 (def audited-run-single
   #{"agent" "agent_run_ledger_version" "allocation_mode" "applied_bespoke_contract_sha256"
@@ -211,6 +211,7 @@
     "requested_provider" "requested_reasoning" "requested_role"
     "requested_target" "requested_tier" "role" "routing_posture" "routing_tier"
     "execution_source" "execution_transport" "north_session_id"
+    "provider_join_key_version" "provider_join_coverage" "provider_session_key"
     "provider_session_persistence" "thread_provenance" "turn_provenance"
     "routing_admission_receipt_version" "routing_request_sha256"
     "routing_assessment_sha256" "routing_policy_sha256" "provider_catalogs_sha256"

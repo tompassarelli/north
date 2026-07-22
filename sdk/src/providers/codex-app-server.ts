@@ -14,6 +14,7 @@ import type { TerminalTokenUsage } from "../usage";
 import { McpActivityAccumulator, normalizeCodexMcpIdentity } from "../tool-activity";
 import type { OpenAIAuthoritySurface } from "./authority";
 import { expectedManagedCodexHooks } from "./codex-managed-hooks";
+import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
 
 const SUPERVISOR = resolve(import.meta.dir, "codex-supervisor.ts");
 const RPC_TIMEOUT_MS = 20_000;
@@ -137,6 +138,7 @@ export interface ManagedCodexResult {
     output_tokens: number;
     reasoning_output_tokens: number;
   };
+  providerJoin: ProviderJoinEvidence;
 }
 
 // A later North input frame for the same provider thread, or `undefined` to
@@ -1475,7 +1477,18 @@ export class ManagedCodexAppServerRun {
           throw new Error("Codex config authority changed at terminal settlement");
         rpc.assertHealthy();
         protocolSucceeded = true;
-        yield { text: runtimeState.text, usage: runtimeState.usage };
+        yield {
+          text: runtimeState.text,
+          usage: runtimeState.usage,
+          providerJoin: providerJoinEvidence("openai", {
+            sessionId: threadId,
+            turnIds: [turnId],
+            // thread/start is admitted only with ephemeral:true above. This is
+            // positive non-persistence evidence, not an inference from a
+            // missing account-log record.
+            sessionPersistence: "ephemeral",
+          }),
+        };
 
         input = await nextInput();
         if (input === undefined) {
