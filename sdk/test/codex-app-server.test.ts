@@ -622,6 +622,66 @@ test("a continuation turn that widens config authority fails closed", async () =
   expect(requests.filter(({ method }) => method === "turn/start").length).toBeLessThanOrEqual(1);
 });
 
+function supervisedStatusChild(drive: (stderr: PassThrough) => void): any {
+  return (() => {
+    const child = new EventEmitter() as ChildProcessWithoutNullStreams & {
+      exitCode: number | null; signalCode: NodeJS.Signals | null;
+    };
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    Object.assign(child, {
+      stdin, stdout, stderr, stdio: [stdin, stdout, stderr],
+      pid: 5100, exitCode: null, signalCode: null, killed: false,
+    });
+    let exited = false;
+    const exit = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (exited) return;
+      exited = true;
+      child.exitCode = code;
+      child.signalCode = signal;
+      try { stdout.end(); } catch { /* already closed */ }
+      queueMicrotask(() => { child.emit("exit", code, signal); child.emit("close", code, signal); });
+    };
+    stdin.on("finish", () => exit(null, "SIGTERM"));
+    (child as any).kill = (signal: NodeJS.Signals = "SIGTERM") => { exit(null, signal); return true; };
+    queueMicrotask(() => { child.emit("spawn"); drive(stderr); });
+    return child;
+  }) as any;
+}
+
+test("a supervised launch whose status channel closes before STARTED fails preflight loud", async () => {
+  const { options } = setup();
+  const run = new ManagedCodexAppServerRun({
+    ...options,
+    useSupervisor: true,
+    spawnProcess: supervisedStatusChild((stderr) => { stderr.end(); }),
+  });
+  let caught: unknown;
+  try { await run.execute(); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  expect((caught as Error).message).toBe("openai_codex_authority_preflight_failed");
+  expect((caught as Error).cause).toBeInstanceOf(Error);
+  expect(((caught as Error).cause as Error).message)
+    .toBe("Codex supervisor closed before authority preflight");
+});
+
+test("a supervised launch reads UNAVAILABLE off the supervisor stderr status channel", async () => {
+  const { options } = setup();
+  const run = new ManagedCodexAppServerRun({
+    ...options,
+    useSupervisor: true,
+    spawnProcess: supervisedStatusChild((stderr) => {
+      stderr.write(`${codexSupervisorStatusLine("UNAVAILABLE")}\n`);
+    }),
+  });
+  let caught: unknown;
+  try { await run.execute(); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  expect((caught as Error).message).toBe("openai_codex_authority_preflight_failed");
+  expect(((caught as Error).cause as Error).message).toBe("Codex executable unavailable");
+});
+
 test("the production duplex supervisor carries RPC and bounds host-EOF cleanup", async () => {
   const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
   const fixture = join(import.meta.dir, "fixtures/fake-codex-app-server.mjs");

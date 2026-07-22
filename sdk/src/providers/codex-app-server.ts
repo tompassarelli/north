@@ -14,6 +14,7 @@ import type { TerminalTokenUsage } from "../usage";
 import { McpActivityAccumulator, normalizeCodexMcpIdentity } from "../tool-activity";
 import type { OpenAIAuthoritySurface } from "./authority";
 import { expectedManagedCodexHooks } from "./codex-managed-hooks";
+import { CODEX_SUPERVISOR_STATUS_PREFIX } from "./codex-supervisor-protocol";
 import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
 
 const SUPERVISOR = resolve(import.meta.dir, "codex-supervisor.ts");
@@ -255,7 +256,7 @@ export function managedCodexAppServerLaunch(
   const executable = stage("openai_codex_executable_pin_mismatch", () => {
     const resolved = realpathSync(options.command);
     const expectedExecutable = realpathSync(
-      options.spawnProcess && options.useSupervisor === false && options.testExpectedExecutable
+      options.spawnProcess && options.testExpectedExecutable
         ? options.testExpectedExecutable
         : trustedManagedCodexExecutable(),
     );
@@ -432,6 +433,7 @@ class AppServerRpc {
     private writeLine: AppServerWriter = (line, callback) => {
       child.stdin.write(line, callback);
     },
+    private ownsStderr = true,
   ) {
     child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
     child.stdout.on("end", () => {
@@ -439,8 +441,10 @@ class AppServerRpc {
       catch (cause) { this.fail(new Error("managed Codex closed with a partial frame", { cause })); }
     });
     child.stdout.on("error", () => this.fail(new Error("managed Codex stdout failed")));
-    child.stderr.resume();
-    child.stderr.on("error", () => {});
+    if (this.ownsStderr) {
+      child.stderr.resume();
+      child.stderr.on("error", () => {});
+    }
     child.stdin.on("error", () => this.fail(new Error("managed Codex stdin failed")));
     child.on("error", () => this.fail(new Error("managed Codex supervisor failed")));
     child.on("exit", () => {
@@ -1129,7 +1133,7 @@ function usageFromNotification(value: unknown, threadId: string, turnId: string)
 function supervisorPreflightFailure(
   child: ChildProcessWithoutNullStreams,
 ): { failure: Promise<never>; stop(): void } {
-  const status = (child.stdio as any[])[3] as NodeJS.ReadableStream | undefined;
+  const status = child.stderr as NodeJS.ReadableStream | undefined;
   if (!status) return {
     failure: Promise.reject(new Error("Codex supervisor status pipe is absent")),
     stop() {},
@@ -1141,10 +1145,13 @@ function supervisorPreflightFailure(
   const onData = (chunk: Buffer) => {
     if (stopped) return;
     try {
-      for (const line of frames.push(chunk)) {
-        if (line === "STARTED") continue;
+      for (const line of frames.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))) {
+        const statusLine = line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX)
+          ? line.slice(CODEX_SUPERVISOR_STATUS_PREFIX.length)
+          : undefined;
+        if (statusLine === "STARTED") continue;
         stopped = true;
-        rejectFailure(new Error(line === "UNAVAILABLE"
+        rejectFailure(new Error(statusLine === "UNAVAILABLE"
           ? "Codex executable unavailable"
           : "Codex supervisor emitted invalid start receipt"));
       }
@@ -1160,12 +1167,14 @@ function supervisorPreflightFailure(
   };
   status.on("data", onData);
   status.on("end", onEnd);
+  status.on("error", onEnd);
   return {
     failure,
     stop() {
       stopped = true;
       status.removeListener("data", onData);
       status.removeListener("end", onEnd);
+      status.removeListener("error", onEnd);
       try {
         status.resume();
       } catch {}
@@ -1197,7 +1206,7 @@ async function closeProcess(
       new Promise<boolean>((resolveExit) => setTimeout(() => resolveExit(false), 750)),
     ]);
   }
-  for (const stream of [child.stdin, child.stdout, child.stderr, (child.stdio as any[])[3]]) {
+  for (const stream of [child.stdin, child.stdout, child.stderr]) {
     try { stream?.destroy(); } catch {}
   }
   if (!reaped) throw new Error("managed Codex supervisor exceeded its teardown bound");
@@ -1269,7 +1278,7 @@ export class ManagedCodexAppServerRun {
           : [...(this.options.commandPrefix ?? []), ...contract.args], {
         cwd: contract.cwd,
         env: this.options.env,
-        stdio: supervised ? ["pipe", "pipe", "pipe", "pipe"] : ["pipe", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         detached: false,
       }) as unknown as ChildProcessWithoutNullStreams;
     } catch (cause) {
@@ -1371,6 +1380,7 @@ export class ManagedCodexAppServerRun {
     };
     const rpc = new AppServerRpc(
       child, this.options.timeoutMs ?? RPC_TIMEOUT_MS, onNotification, control?.writeLine,
+      !supervised,
     );
     this.rpc = rpc;
     // Route an RPC-level terminal failure into whichever turn is currently
