@@ -150,7 +150,7 @@ const EIGHT_ROUTING_FIELDS = [
   "composition",
 ] as const;
 
-function toolsListSchemaKeys(): Record<string, string[]> {
+function toolsListTools(): Record<string, any> {
   const north = resolve(import.meta.dir, "../..");
   const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
     input: `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`,
@@ -159,13 +159,22 @@ function toolsListSchemaKeys(): Record<string, string[]> {
   });
   expect(result.status, result.stderr).toBe(0);
   const response = JSON.parse(result.stdout.trim());
-  const keysByTool: Record<string, string[]> = {};
+  const toolsByName: Record<string, any> = {};
   for (const tool of response.result.tools) {
-    // JSON.parse preserves insertion order for non-numeric string keys, so
-    // Object.keys reflects the exact advertised (document) order.
-    keysByTool[tool.name] = Object.keys(tool.inputSchema.properties);
+    toolsByName[tool.name] = tool;
   }
-  return keysByTool;
+  return toolsByName;
+}
+
+function toolsListSchemaKeys(): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(toolsListTools()).map(([name, tool]) => [
+      name,
+      // JSON.parse preserves insertion order for non-numeric string keys, so
+      // Object.keys reflects the exact advertised (document) order.
+      Object.keys(tool.inputSchema.properties),
+    ]),
+  );
 }
 
 test("MCP tools/list advertises the work identifier then the eight Gaffer fields first, in order", () => {
@@ -192,6 +201,79 @@ test("MCP tools/list advertises the work identifier then the eight Gaffer fields
       );
     }
   }
+});
+
+test("MCP tools/list explains automatic routing and explicit selector evidence", () => {
+  const tools = toolsListTools();
+  for (const name of ["dispatch", "spawn"]) {
+    const tool = tools[name];
+    expect(tool.description).toContain(
+      "For automatic routing, omit model and target and omit provider or use auto",
+    );
+    expect(tool.description).toContain(
+      "requires fresh exact typed pinEvidence",
+    );
+    expect(tool.inputSchema.properties.pinEvidence.description).toContain(
+      "typed pins exactly match every explicit provider, target/account, or model selector",
+    );
+    expect(tool.inputSchema.properties.provider.description).toContain(
+      "Omit or use auto for automatic routing",
+    );
+    expect(tool.inputSchema.properties.target.description).toContain(
+      "requires fresh pinEvidence with an exact matching account pin",
+    );
+    expect(tool.inputSchema.properties.model.description).toContain(
+      "requires fresh pinEvidence with an exact matching model pin",
+    );
+  }
+});
+
+test("managed parent copied selectors without pin evidence are rejected before SDK launch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-mcp-copied-selector-"));
+  temporary.push(directory);
+  const marker = join(directory, "sdk-launched");
+  const fakeBun = join(directory, "bun");
+  writeFileSync(fakeBun, `#!/usr/bin/env bash\ntouch ${JSON.stringify(marker)}\n`);
+  chmodSync(fakeBun, 0o755);
+  const north = resolve(import.meta.dir, "../..");
+  const copiedSelectors = {
+    provider: "anthropic",
+    target: "parent-account",
+    model: "parent-model",
+  };
+  const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
+    input: `${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "spawn",
+        arguments: {
+          prompt: "do not inherit the managed parent's concrete selectors",
+          ...presetRequest("verifier"),
+          ...copiedSelectors,
+        },
+      },
+    })}\n`,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AGENT_ID: "parent-director",
+      AGENT_TOPOLOGY: "orchestrator",
+      AGENT_PROVIDER: copiedSelectors.provider,
+      AGENT_TARGET: copiedSelectors.target,
+      AGENT_MODEL: copiedSelectors.model,
+      NORTH_MCP_BUN: fakeBun,
+      NORTH_POLICY_BUN: fakeBun,
+    },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  const response = JSON.parse(result.stdout.trim());
+  expect(response.result.isError).toBe(true);
+  expect(response.result.content[0].text).toBe(
+    "explicit provider, target, or model selectors require fresh exact typed pinEvidence; for automatic routing omit model and target and omit provider or use provider=auto",
+  );
+  expect(() => readFileSync(marker)).toThrow();
 });
 
 test("MCP rejects an invalid detector override before SDK launch", () => {

@@ -304,6 +304,7 @@
    :additionalProperties false})
 (def routing-pin-evidence-schema
   {:type "object"
+   :description "Fresh north-routing-pin-v1 evidence whose typed pins exactly match every explicit provider, target/account, or model selector. Required whenever automatic routing is overridden."
    :properties {:policyVersion {:const "north-routing-pin-v1"}
                 :issuedAt {:type "string" :format "date-time"}
                 :expiresAt {:type "string" :format "date-time"}
@@ -320,7 +321,7 @@
 
 (def sdk-tools
   [{:name "dispatch"
-    :desc "Dispatch an agent for a thread (must exist — capture first). North derives posture and routes to an available provider. Returns the agent ID."
+    :desc "Dispatch an agent for a thread (must exist — capture first). For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
     ;; Property ORDER is load-bearing, not cosmetic: cheshire serializes a map in
     ;; its seq order, and a >8-key literal `{}` is a PersistentHashMap (scrambled,
     ;; unstable). `array-map` pins insertion order so tools/list advertises the work
@@ -339,16 +340,16 @@
                           :composition (:composition routing-properties)
                           :routingAssessment routing-assessment-schema
                           :pinEvidence routing-pin-evidence-schema
-                          :model {:type "string" :minLength 1 :description "Provider model override; normally omit and let the semantic tier resolve it"}
+                          :model {:type "string" :minLength 1 :description "Exact model selector. Omit for automatic routing; supplying it requires fresh pinEvidence with an exact matching model pin."}
                           :effort {:type "string" :enum reasoning-values :description "Compatibility alias for reasoning"}
-                          :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
-                          :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
+                          :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Omit or use auto for automatic routing. Selecting anthropic/openai requires fresh pinEvidence with an exact matching provider pin."}
+                          :target {:type "string" :minLength 1 :description "Exact configured routing target/account selector. Omit for automatic routing; supplying it requires fresh pinEvidence with an exact matching account pin and never falls back."}
                           :coordinator {:type "string" :minLength 1 :description "Caller's north id; the lane pings it on done/death + records a `coordinator` fact. Omit to inherit from AGENT_ID/NORTH_AGENT_ID env; pass explicitly from an interactive session."})
              :required ["id" "role" "taskGrade" "domainRequirements" "topology"
                         "tier" "reasoning" "posture" "composition"]
              :additionalProperties false}}
    {:name "spawn"
-    :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). Returns the agent ID."
+    :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
     ;; Same deterministic contract as dispatch (see note there): work identifier
     ;; (prompt) first, then the eight Gaffer routing fields, then optional fields.
     :schema {:type "object"
@@ -364,10 +365,10 @@
                           :composition (:composition routing-properties)
                           :routingAssessment routing-assessment-schema
                           :pinEvidence routing-pin-evidence-schema
-                          :model {:type "string" :minLength 1 :description "Provider model override; normally omit and let the semantic tier resolve it"}
+                          :model {:type "string" :minLength 1 :description "Exact model selector. Omit for automatic routing; supplying it requires fresh pinEvidence with an exact matching model pin."}
                           :effort {:type "string" :enum reasoning-values :description "Compatibility alias for reasoning"}
-                          :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
-                          :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
+                          :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Omit or use auto for automatic routing. Selecting anthropic/openai requires fresh pinEvidence with an exact matching provider pin."}
+                          :target {:type "string" :minLength 1 :description "Exact configured routing target/account selector. Omit for automatic routing; supplying it requires fresh pinEvidence with an exact matching account pin and never falls back."}
                           :caveman {:type "string" :enum ["off" "lite" "full"] :description "Managed response-compression strategy (default off until savings are proven)"}
                           :worktree {:type "boolean" :description "OPT-IN: run this lane in an isolated per-lane git worktree (own index+tree). Default off."}
                           :setupCmd {:type "string" :minLength 1 :description "Optional repo-setup command run in the fresh worktree (e.g. 'bun install'); only with worktree=true"}
@@ -635,6 +636,9 @@
         reasoning (get args "reasoning") effort (get args "effort") effective-reasoning reasoning
         tier (get args "tier") posture (get args "posture") provider (get args "provider")
         target (get args "target") model (get args "model") coordinator (get args "coordinator")
+        explicit-selector? (or (and (contains? args "provider") (not= provider "auto"))
+                               (contains? args "target")
+                               (contains? args "model"))
         id (get args "id") prompt (get args "prompt") caveman (get args "caveman")
         unknown (seq (sort (remove (get sdk-argument-keys nm #{}) (keys args))))
         missing-routing (seq (remove #(contains? args %) managed-routing-fields))
@@ -704,6 +708,8 @@
       (and provider (not (some #{provider} ["auto" "anthropic" "openai"]))) "invalid provider"
       (and reasoning effort (not= reasoning effort)) "reasoning and compatibility effort disagree"
       (and target (or (not (string? target)) (str/blank? target))) "target must be a non-empty string"
+      (and explicit-selector? (not (contains? args "pinEvidence")))
+      "explicit provider, target, or model selectors require fresh exact typed pinEvidence; for automatic routing omit model and target and omit provider or use provider=auto"
       (not (map? composition)) "composition must be an object"
       unknown-composition (str "unknown composition field(s): " (str/join ", " unknown-composition))
       (and composition (not (#{"preset" "bespoke"} kind))) "invalid composition.kind"
