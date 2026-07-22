@@ -396,6 +396,10 @@ async function runSpawn(
       }
     },
   ));
+  // This boundary distinguishes North/Gaffer prompt assembly from the provider
+  // query itself. A throw before construction cannot honestly be a provider
+  // process death because no provider query has been created or accepted.
+  let providerQueryConstructionStarted = false;
   let queryCloseError: unknown;
   let activeExecutionQuery: AgentQuery | undefined;
 
@@ -477,6 +481,7 @@ async function runSpawn(
   if (injected.queryFn && injected.feedSubscriber)
     await liveInputRoute.activate(activeRoute());
   termination.throwIfTerminated();
+  providerQueryConstructionStarted = true;
   const activeQuery = queryFn({
     prompt: ch.stream(),
     options: agentOptions,
@@ -660,6 +665,14 @@ async function runSpawn(
       };
       preflightCause = causeChain(err);
       console.error(`[${outcome}] @agent:${agentId} ${preflightCause}`);
+    } else if (!providerQueryConstructionStarted) {
+      outcome = "blocked_preflight";
+      worktreeTerminalFailure = {
+        code: "spawn_pre_provider_setup_failed",
+        phase: "provider_preflight",
+      };
+      preflightCause = `spawn_pre_provider_setup_failed: ${causeChain(err)}`;
+      console.error(`[blocked_preflight] @agent:${agentId} ${preflightCause}`);
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };

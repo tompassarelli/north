@@ -7,8 +7,11 @@
 // injected queryFn owns the whole SDK boundary, so no live coordinator / network / model.
 // This is the same fake-engine pattern as spawn-boundary.test.ts.
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
+  rmSync, writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { ProviderRetrySafeError } from "../src/providers";
 import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
@@ -264,6 +267,83 @@ test("a synchronous provider-construction failure records run telemetry without 
   expect(logged).toContain(" thread thread-sync-construction");
   expect(logged).toContain(" duration_ms ");
   expect(logged).not.toContain("clock orphan test-sync-construction-failure");
+});
+
+test("a Gaffer prompt-composition failure is blocked preflight before query construction", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const sourceGaffer = process.env.GAFFER_HOME
+    ?? resolve(import.meta.dir, "../../..", "gaffer");
+  const brokenGaffer = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
+  mkdirSync(join(brokenGaffer, "providers"), { recursive: true });
+  mkdirSync(join(brokenGaffer, "docs", "deltas"), { recursive: true });
+  for (const name of ["anthropic.json", "openai.json"]) {
+    copyFileSync(
+      join(sourceGaffer, "providers", name),
+      join(brokenGaffer, "providers", name),
+    );
+  }
+  for (const name of ["roles.md", "comms.md", "task-grades.md", "topologies.md", "postures.md"]) {
+    copyFileSync(join(sourceGaffer, "docs", name), join(brokenGaffer, "docs", name));
+  }
+  const priorGafferHome = process.env.GAFFER_HOME;
+  let queryConstructionCalls = 0;
+  try {
+    process.env.GAFFER_HOME = brokenGaffer;
+    const routingMetadata = applyGafferStaffing({
+      role: "scout",
+      tier: "standard",
+      reasoning: "low",
+      composition: {
+        kind: "preset",
+        id: "scout",
+        overrides: ["tier"],
+        overrideReason: "exercise the Terra prompt-composition preflight boundary",
+      },
+    });
+    const result = await spawn({
+      prompt: "prove missing model-delta classification",
+      agentId: "test-prompt-composition-preflight",
+      role: "scout",
+      routingMetadata,
+      provider: "openai",
+      pinEvidence: pinEvidence("openai"),
+      worktree: false,
+      queryFn: () => {
+        queryConstructionCalls++;
+        return (async function* () {})();
+      },
+    });
+    expect(result).toBe("");
+  } finally {
+    if (priorGafferHome === undefined) delete process.env.GAFFER_HOME;
+    else process.env.GAFFER_HOME = priorGafferHome;
+    rmSync(brokenGaffer, { recursive: true, force: true });
+  }
+
+  expect(queryConstructionCalls).toBe(0);
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain(
+    "tell agent:test-prompt-composition-preflight process_outcome blocked_preflight",
+  );
+  expect(logged).toContain(
+    "tell agent:test-prompt-composition-preflight delivery_outcome blocked",
+  );
+  expect(logged).toContain(
+    "tell agent:test-prompt-composition-preflight delivery_reason execution_preflight_blocked",
+  );
+  expect(logged).not.toContain("tell @swarm agent_death");
+  const runLines = await settledRunLines(
+    "test-prompt-composition-preflight",
+    "num_turns 0",
+  );
+  expect(runLines.some((line) => line.endsWith(" turn_provenance pre-provider"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" num_turns 0"))).toBe(true);
+  expect(runLines.some((line) =>
+    line.includes(" preflight_cause ")
+    && line.includes("spawn_pre_provider_setup_failed")
+    && line.includes("gpt-5.6-terra.md")
+  )).toBe(true);
 });
 
 test("an Anthropic error terminal still records its authoritative usage", async () => {
