@@ -42,6 +42,11 @@ if [ "${1:-}" = "-e" ] && [ -n "${NORTH_NATIVE_SUBJECT:-}" ]; then
     printf 'tell %s execution_source provider-native\n' "$subject"
     printf 'tell %s execution_transport provider-hook\n' "$subject"
     printf 'tell %s provider_session_persistence unknown\n' "$subject"
+    if [ -n "${NORTH_NATIVE_PROVIDER_SESSION_KEY:-}" ]; then
+      printf 'tell %s provider_join_key_version north-provider-join:v1\n' "$subject"
+      printf 'tell %s provider_join_coverage partial\n' "$subject"
+      printf 'tell %s provider_session_key %s\n' "$subject" "$NORTH_NATIVE_PROVIDER_SESSION_KEY"
+    fi
     printf 'tell %s native_actor_kind %s\n' "$subject" "$NORTH_NATIVE_ACTOR_KIND"
     printf 'tell %s native_depth %s\n' "$subject" "$NORTH_NATIVE_DEPTH"
     printf 'tell %s dispatch_mode_at_start %s\n' "$subject" "$NORTH_NATIVE_DISPATCH_MODE_AT_START"
@@ -92,6 +97,8 @@ run_hook "$SPAWN" \
 has "records exact SessionStart model" "tell agent:$ID model claude-opus-4-8"
 has "records exact structured effort" "tell agent:$ID effort xhigh"
 has "records immutable dispatch mode at session start" "tell agent:$ID dispatch_mode_at_start north"
+has "records the privacy-bounded provider session join key" \
+  "tell agent:$ID provider_session_key $ID_KEY"
 lacks "does not record ambient model over exact input" "tell agent:$ID model wrong-model"
 
 echo "== Codex SessionStart records exact provider/model and honest effort absence =="

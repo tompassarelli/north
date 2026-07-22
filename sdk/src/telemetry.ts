@@ -29,6 +29,9 @@ import {
 import type { ProviderModelAdmissionReceipt } from "./provider-model-observation-store";
 import { canonicalWriteModel } from "./providers/catalog";
 import type { ProviderId } from "./providers/types";
+import {
+  PROVIDER_JOIN_KEY_VERSION, type ProviderJoinEvidence,
+} from "./providers/provider-join";
 import type { CavemanResolution } from "./caveman";
 import type { McpActivityObservation } from "./tool-activity";
 import type {
@@ -84,6 +87,8 @@ export interface RunRecord {
   executionSource?: "north-managed" | "provider-native";
   executionTransport?: "anthropic-agent-sdk" | "codex-app-server" | "codex-cli" | "provider-hook";
   providerSessionPersistence?: "persisted" | "ephemeral" | "unknown";
+  /** Privacy-bounded exact provider session/turn identity; contains no raw IDs. */
+  providerJoin?: ProviderJoinEvidence;
   northSessionId?: string;
   threadProvenance?: "exact" | "ad-hoc" | "unknown";
   turnProvenance?: "provider-terminal" | "pre-provider" | "unknown";
@@ -328,8 +333,28 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.requestedEffort) facts.push(["requested_effort", rec.requestedEffort]);
   if (rec.executionSource) facts.push(["execution_source", rec.executionSource]);
   if (rec.executionTransport) facts.push(["execution_transport", rec.executionTransport]);
-  if (rec.providerSessionPersistence)
-    facts.push(["provider_session_persistence", rec.providerSessionPersistence]);
+  const providerSessionPersistence = rec.providerJoin?.sessionPersistence
+    ?? rec.providerSessionPersistence;
+  if (rec.providerJoin && rec.providerSessionPersistence
+      && rec.providerJoin.sessionPersistence !== rec.providerSessionPersistence)
+    throw new Error("provider join persistence disagrees with run provenance");
+  if (providerSessionPersistence)
+    facts.push(["provider_session_persistence", providerSessionPersistence]);
+  if (rec.providerJoin) {
+    const join = rec.providerJoin;
+    const sha256 = /^[a-f0-9]{64}$/;
+    if (join.version !== PROVIDER_JOIN_KEY_VERSION
+        || (join.sessionKey !== undefined && !sha256.test(join.sessionKey))
+        || !Array.isArray(join.turnKeys)
+        || join.turnKeys.some((key) => !sha256.test(key))
+        || new Set(join.turnKeys).size !== join.turnKeys.length
+        || !LEDGER_COVERAGE.has(join.coverage))
+      throw new Error("invalid privacy-bounded provider join evidence");
+    facts.push(["provider_join_key_version", join.version]);
+    facts.push(["provider_join_coverage", join.coverage]);
+    if (join.sessionKey) facts.push(["provider_session_key", join.sessionKey]);
+    for (const key of join.turnKeys) facts.push(["provider_turn_key", key]);
+  }
   if (rec.northSessionId) facts.push(["north_session_id", rec.northSessionId]);
   if (rec.threadProvenance) facts.push(["thread_provenance", rec.threadProvenance]);
   if (rec.turnProvenance) facts.push(["turn_provenance", rec.turnProvenance]);

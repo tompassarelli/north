@@ -24,6 +24,7 @@ import { selectProviderFromAvailability } from "../src/provider-routing";
 import { providerEnvironmentForTarget } from "../src/accounts";
 import { scrubAmbientGraphEnv } from "./support/managed-env";
 import { gatedTest } from "./support/capabilities";
+import { providerSessionKey } from "../src/providers/provider-join";
 
 // When this suite runs inside a managed north lane, the ambient graph identity
 // (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
@@ -179,6 +180,11 @@ test("Codex adapter owns the cumulative total and does not double-count subsets"
     provider: "openai", terminal_count: 1,
     scope: "codex_fresh_invocation_thread_cumulative",
     total_status: "exact", total_tokens: 120,
+  });
+  expect(result._north_provider_join).toEqual({
+    version: "north-provider-join:v1",
+    sessionKey: providerSessionKey("67e55044-10b1-426f-9247-bb680e5fe0c8"),
+    turnKeys: [], sessionPersistence: "persisted", coverage: "partial",
   });
   expect(result).not.toHaveProperty("duration_ms");
 });

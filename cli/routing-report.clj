@@ -4,6 +4,7 @@
 ;; presented as causal model quality.
 
 (require '[cheshire.core :as json]
+         '[babashka.process :as proc]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
@@ -17,7 +18,7 @@
                    "applied_capability" "applied_domain_requirement"
                    "composition_override" "applied_preset_override" "struggle"
                    "routing_rule_code" "routing_pin" "routing_receipt_override"
-                   "mcp_actual_tool"})
+                   "mcp_actual_tool" "provider_turn_key"})
 
 (def canonical-gaffer-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
@@ -613,10 +614,20 @@
        :requestedProvider (normalized-token (one facts entity "requested_provider"))
        :requestedTarget (normalized-token (one facts entity "requested_target"))
        :requestedModel (normalized-token (one facts entity "requested_model"))
+       :requestedEffort (normalized-token (one facts entity "requested_effort"))
        :executionSource (normalized-token (one facts entity "execution_source"))
        :executionTransport (normalized-token (one facts entity "execution_transport"))
        :providerSessionPersistence
        (normalized-token (one facts entity "provider_session_persistence"))
+       :providerJoinKeyVersion
+       (normalized-token (one facts entity "provider_join_key_version"))
+       :providerJoinCoverage
+       (normalized-token (one facts entity "provider_join_coverage"))
+       :providerSessionKey
+       (normalized-token (one facts entity "provider_session_key"))
+       :providerTurnKeys
+       (vec (sort (keep #(when (re-matches sha256-pattern %) %)
+                        (many facts entity "provider_turn_key"))))
        :northSessionId (normalized-token (one facts entity "north_session_id"))
        :threadProvenance (normalized-token (one facts entity "thread_provenance"))
        :turnProvenance (normalized-token (one facts entity "turn_provenance"))
@@ -636,6 +647,19 @@
        (normalized-token (one facts entity "routing_pin_evidence_status"))
        :routingAdmissionReceiptVersion
        (maybe-long (one facts entity "routing_admission_receipt_version"))
+       :routingReceipt
+       (when-let [version (maybe-long (one facts entity "routing_admission_receipt_version"))]
+         {:version version
+          :routingRequestSha256 (normalized-token (one facts entity "routing_request_sha256"))
+          :routingAssessmentSha256
+          (normalized-token (one facts entity "routing_assessment_sha256"))
+          :routingPolicySha256 (normalized-token (one facts entity "routing_policy_sha256"))
+          :providerCatalogsSha256
+          (normalized-token (one facts entity "provider_catalogs_sha256"))
+          :staffingCatalogSha256
+          (normalized-token (one facts entity "staffing_catalog_sha256"))
+          :assessmentStatus
+          (normalized-token (one facts entity "routing_assessment_status"))})
        ;; Run time is deliberately run-local: a lane/session timestamp is not a
        ;; terminal-run timestamp and must not be borrowed for interval reports.
        :at (normalized-token (one facts entity "at"))
@@ -741,7 +765,17 @@
                                 alias-map (normalized-token (one facts identity "model")))
                          provider (or (normalized-token (one facts identity "provider"))
                                       (derive-provider-from-model model)
-                                      "unattributed")]
+                                      "unattributed")
+                         actor-kind (or (normalized-token
+                                         (one facts identity "native_actor_kind"))
+                                        "unknown")
+                         explicit-session-key
+                         (normalized-token (one facts identity "provider_session_key"))
+                         historical-session-key
+                         (when (and (= "root" actor-kind)
+                                    (string? agent)
+                                    (re-matches #"native-[a-f0-9]{64}" agent))
+                           (subs agent (count "native-")))]
                      {:entity entity
                       :provider provider
                       :model (or model "unattributed")
@@ -754,8 +788,14 @@
                       :providerSessionPersistence
                       (or (normalized-token (one facts identity "provider_session_persistence"))
                           "unknown")
-                      :actorKind (or (normalized-token (one facts identity "native_actor_kind"))
-                                     "unknown")
+                      :providerJoinKeyVersion
+                      (or (normalized-token (one facts identity "provider_join_key_version"))
+                          (when historical-session-key "north-provider-join:v1-historical-native"))
+                      :providerJoinCoverage
+                      (or (normalized-token (one facts identity "provider_join_coverage"))
+                          (when historical-session-key "partial") "unknown")
+                      :providerSessionKey (or explicit-session-key historical-session-key)
+                      :actorKind actor-kind
                       :depth (or (maybe-long (one facts identity "native_depth")) "unknown")
                       :dispatchModeAtStart
                       (or (normalized-token (one facts identity "dispatch_mode_at_start"))
@@ -910,12 +950,18 @@
 
 (defn scan-openai-file [state file]
   (with-open [reader (io/reader file)]
-    (first
-     (reduce
-      (fn [[state current-turn] line]
+    (let [[state _ _]
+          (reduce
+      (fn [[state current-turn session-ids] line]
         (if-let [event (parse-json-line line)]
           (let [turn (or (event-turn-id event) current-turn)
                 payload (get event "payload")
+                session-ids
+                (if (= "session_meta" (get event "type"))
+                  (into session-ids
+                        (keep normalized-token
+                              [(get payload "id") (get payload "session_id")]))
+                  session-ids)
                 state (if (and (= "turn_context" (get event "type")) turn)
                         (assoc-in state [:turnMetadata turn]
                                   {:model (normalized-token (get payload "model"))
@@ -931,11 +977,14 @@
                      cumulative tokens (not (neg? tokens)) (parse-instant at))
               (let [key [(or turn (str "file:" (.getPath file))) cumulative]
                     candidate {:turn turn :at at :tokens tokens
+                               :providerSessionIds (vec (sort session-ids))
                                :dedupKeyHasTurn (boolean turn)}]
-                [(update-in state [:candidates key] earlier-candidate candidate) turn])
-              [state turn]))
-          [state current-turn]))
-      [state nil] (line-seq reader)))))
+                [(update-in state [:candidates key] earlier-candidate candidate)
+                 turn session-ids])
+              [state turn session-ids]))
+          [state current-turn session-ids]))
+      [state nil #{}] (line-seq reader))]
+      state)))
 
 (defn openai-account-records [{:keys [providerTarget root]}]
   (let [state (reduce scan-openai-file {:turnMetadata {} :candidates {}}
@@ -947,6 +996,8 @@
                    :model (or (:model metadata) "unattributed")
                    :effort (or (:effort metadata) "unobserved")
                    :at (:at candidate) :tokens (:tokens candidate)
+                   :providerSessionIds (:providerSessionIds candidate)
+                   :providerTurnId (:turn candidate)
                    :source "codex-account-jsonl:last-token-usage"
                    :deduplication "turn-id+cumulative-total-earliest-timestamp"
                    :dedupKeyHasTurn (:dedupKeyHasTurn candidate)})))
@@ -963,6 +1014,7 @@
     (when (and id (parse-instant at) (every? some? components)
                (every? #(not (neg? %)) components))
       {:messageId id :at at :tokens (reduce + components)
+       :sessionId (normalized-token (get event "sessionId"))
        :model (or (normalized-token (get message "model")) "unattributed")})))
 
 (defn anthropic-account-records [{:keys [providerTarget root]}]
@@ -982,17 +1034,62 @@
             {:providerTarget providerTarget :provider "anthropic"
              :model (:model candidate) :effort nil
              :at (:at candidate) :tokens (:tokens candidate)
+             :providerSessionIds (vec (remove nil? [(:sessionId candidate)]))
+             :providerTurnId (:messageId candidate)
              :source "claude-account-jsonl:message-usage"
              :deduplication "message-id-earliest-timestamp"})
           (vals deduped))))
 
+(defn attach-provider-join-keys [records]
+  (let [records (vec records)
+        session-refs (vec (mapcat (fn [[index record]]
+                                    (map (fn [id] [index id])
+                                         (:providerSessionIds record)))
+                                  (map-indexed vector records)))
+        turn-refs (vec (keep (fn [[index record]]
+                               (when-let [id (:providerTurnId record)]
+                                 [index (:provider record) id]))
+                             (map-indexed vector records)))
+        request {:sessions (mapv second session-refs)
+                 :turns (mapv (fn [[_ provider id]]
+                                {:provider provider :id id}) turn-refs)}]
+    (try
+      (let [result (proc/shell {:in (json/generate-string request)
+                                :out :string :err :string}
+                               "bun" (str NORTH "/sdk/src/providers/provider-join.ts"))
+            response (json/parse-string (str/trim (:out result)) true)]
+        (when-not (and (zero? (:exit result))
+                       (= "north-provider-join:v1" (:version response))
+                       (= (count session-refs) (count (:sessions response)))
+                       (= (count turn-refs) (count (:turns response))))
+          (throw (ex-info "provider join-key helper returned an invalid batch" {})))
+        (let [session-keys (reduce (fn [by-record [[index _] key]]
+                                     (update by-record index (fnil conj #{}) key))
+                                   {} (map vector session-refs (:sessions response)))
+              turn-keys (into {} (map (fn [[[index _ _] key]] [index key])
+                                      (map vector turn-refs (:turns response))))]
+          (mapv (fn [index record]
+                  (cond-> (dissoc record :providerSessionIds :providerTurnId)
+                    true (assoc :providerJoinKeyVersion "north-provider-join:v1"
+                                :providerSessionKeys
+                                (vec (sort (get session-keys index #{}))))
+                    (get turn-keys index) (assoc :providerTurnKey (get turn-keys index))))
+                (range) records)))
+      (catch Exception _
+        (mapv #(-> %
+                   (dissoc :providerSessionIds :providerTurnId)
+                   (assoc :providerJoinKeyVersion "unavailable"
+                          :providerSessionKeys []))
+              records)))))
+
 (defn account-log-records []
-  (mapcat (fn [target]
-            (case (:provider target)
-              "openai" (openai-account-records target)
-              "anthropic" (anthropic-account-records target)
-              []))
-          (configured-account-log-targets)))
+  (attach-provider-join-keys
+   (mapcat (fn [target]
+             (case (:provider target)
+               "openai" (openai-account-records target)
+               "anthropic" (anthropic-account-records target)
+               []))
+           (configured-account-log-targets))))
 
 (defn parse-hours [value option]
   (let [match (re-matches #"(?i)([0-9]+(?:\.[0-9]+)?)h" (or value ""))
@@ -1097,9 +1194,110 @@
 (defn exact-token-sum [rows]
   (when (seq rows) (reduce + (map :tokens rows))))
 
+(defn index-many [rows keys-fn]
+  (reduce (fn [index row]
+            (reduce (fn [index key]
+                      (update index key (fnil conj []) row))
+                    index (keys-fn row)))
+          {} rows))
+
+(defn unique-row [rows]
+  (let [rows (vec (vals (into {} (map (juxt :entity identity) rows))))]
+    (when (= 1 (count rows)) (first rows))))
+
+(defn managed-provider-attribution [run status]
+  {:joinStatus status
+   :northKind "run"
+   :northEntity (:entity run)
+   :dispatchMode "north"
+   :account (:providerTarget run)
+   :provider (:provider run)
+   :model (:model run)
+   :requestedModel (:requestedModel run)
+   :requestedEffort (:requestedEffort run)
+   :resolvedEffort (:effort run)
+   :routingReceiptStatus (if (:routingReceipt run) "observed" "legacy-unknown")
+   :routingReceipt (:routingReceipt run)})
+
+(defn native-provider-attribution [session]
+  {:joinStatus "matched-native-session"
+   :northKind "native-session"
+   :northEntity (:entity session)
+   :dispatchMode (:dispatchModeAtStart session)
+   :account "provider-log-observed"
+   :provider (:provider session)
+   :model (:model session)
+   :requestedModel nil
+   :requestedEffort nil
+   ;; Native identity is a mutable final session snapshot, not exact per-turn
+   ;; effort. Preserve it separately and keep resolvedEffort unknown.
+   :resolvedEffort nil
+   :sessionEffortSnapshot (:effort session)
+   :routingReceiptStatus "not-applicable-provider-native"
+   :routingReceipt nil})
+
+(defn attribute-provider-records [records managed native]
+  (let [managed-turn
+        (index-many managed
+                    (fn [run]
+                      (map (fn [key] [(:provider run) (:providerTarget run) key])
+                           (:providerTurnKeys run))))
+        managed-session
+        (index-many managed
+                    (fn [run]
+                      (when-let [key (:providerSessionKey run)]
+                        [[(:provider run) (:providerTarget run) key]])))
+        native-session
+        (index-many native
+                    (fn [session]
+                      (when-let [key (:providerSessionKey session)]
+                        [[(:provider session) key]])))]
+    (mapv
+     (fn [record]
+       (let [turn-candidates
+             (get managed-turn [(:provider record) (:providerTarget record)
+                                (:providerTurnKey record)] [])
+             session-candidates
+             (mapcat #(get managed-session
+                           [(:provider record) (:providerTarget record) %] [])
+                     (:providerSessionKeys record))
+             native-candidates
+             (mapcat #(get native-session [(:provider record) %] [])
+                     (:providerSessionKeys record))
+             turn-run (unique-row turn-candidates)
+             session-run (when (empty? turn-candidates)
+                           (unique-row session-candidates))
+             native-row (when (and (empty? turn-candidates)
+                                   (empty? session-candidates))
+                          (unique-row native-candidates))
+             selected-candidates (cond
+                                   (seq turn-candidates) turn-candidates
+                                   (seq session-candidates) session-candidates
+                                   :else native-candidates)
+             ambiguous? (> (count (set (map :entity selected-candidates))) 1)]
+         (cond
+           ambiguous? (assoc record :joinStatus "ambiguous"
+                             :northAttribution nil)
+           turn-run (assoc record :joinStatus "matched-managed-turn"
+                           :northAttribution
+                           (managed-provider-attribution turn-run "matched-managed-turn"))
+           session-run (assoc record :joinStatus "matched-managed-session"
+                              :northAttribution
+                              (managed-provider-attribution session-run
+                                                            "matched-managed-session"))
+           native-row (assoc record :joinStatus "matched-native-session"
+                             :northAttribution (native-provider-attribution native-row))
+           (= "unavailable" (:providerJoinKeyVersion record))
+           (assoc record :joinStatus "join-key-unavailable" :northAttribution nil)
+           :else (assoc record :joinStatus "unmatched" :northAttribution nil))))
+     records)))
+
 (defn account-observed-breakdown [records account-total]
   (->> records
-       (group-by (juxt :model :effort))
+       (group-by (fn [record]
+                   [(:model record)
+                    (or (:effort record)
+                        (get-in record [:northAttribution :resolvedEffort]))]))
        (map (fn [[[model effort] grouped]]
               (let [tokens (exact-token-sum grouped)]
                 {:model model :effort effort
@@ -1107,12 +1305,15 @@
                  :exactObservedTokens tokens
                  :percentageOfProviderOwnedAccountExactObservedTokens
                  (percent tokens account-total)
-                 :percentageBasis "provider-owned-account-observed-tokens"})))
+                 :percentageBasis "provider-owned-account-observed-tokens"
+                 :joinStatuses (frequencies (map :joinStatus grouped))
+                 :northAttributions (vec (keep :northAttribution grouped))})))
        (sort-by (juxt :model #(or (:effort %) ""))) vec))
 
 (defn account-observed-row [account persisted managed start end]
   (let [target (:providerTarget account)
         provider (:provider account)
+        persisted-target (filterv #(= target (:providerTarget %)) persisted)
         persisted-selected (vec (filter #(and (= target (:providerTarget %))
                                               (row-in-interval? % start end))
                                         persisted))
@@ -1129,24 +1330,63 @@
                            (count (filter :dedupKeyHasTurn persisted-selected))
                            :fallbackDedupObservations
                            (count (remove :dedupKeyHasTurn persisted-selected))
-                           :exactObservedTokens provider-owned-total}
+                           :exactObservedTokens provider-owned-total
+                           :joinStatuses (frequencies (map :joinStatus persisted-selected))
+                           :northAttributions
+                           (vec (keep :northAttribution persisted-selected))}
                           {:source "claude-account-jsonl:message-usage"
                            :observations (count persisted-selected)
-                           :exactObservedTokens provider-owned-total})
+                           :exactObservedTokens provider-owned-total
+                           :joinStatuses (frequencies (map :joinStatus persisted-selected))
+                           :northAttributions
+                           (vec (keep :northAttribution persisted-selected))})
         managed-total (exact-token-sum managed-exact)
-        overlap-status (if (= provider "openai") "cannot-determine" "known-overlap")]
+        matched-runs (set (keep #(when (= "run" (get-in % [:northAttribution :northKind]))
+                                   (get-in % [:northAttribution :northEntity]))
+                                persisted-target))
+        persisted-turn-keys (set (keep :providerTurnKey persisted-target))
+        provider-terminal-runs
+        (filterv #(not= "pre-provider" (:turnProvenance %)) managed-selected)
+        ephemeral-exclusive
+        (filterv (fn [run]
+                   (and (= "ephemeral" (:providerSessionPersistence run))
+                        (= "north-provider-join:v1" (:providerJoinKeyVersion run))
+                        (seq (:providerTurnKeys run))
+                        (empty? (filter persisted-turn-keys (:providerTurnKeys run)))))
+                 provider-terminal-runs)
+        ephemeral-entities (set (map :entity ephemeral-exclusive))
+        unresolved (filterv #(and (not (matched-runs (:entity %)))
+                                  (not (ephemeral-entities (:entity %))))
+                            provider-terminal-runs)
+        exclusive-exact (filterv #(some? (:tokens %)) ephemeral-exclusive)
+        exclusive-total (exact-token-sum exclusive-exact)
+        active? (or (seq persisted-selected) (seq provider-terminal-runs))
+        combination-status (cond
+                             (not active?) "no-activity"
+                             (seq unresolved) "legacy-partial-or-ambiguous"
+                             :else "exact-no-double-count")
+        combined-total (when (= "exact-no-double-count" combination-status)
+                         (+ (or provider-owned-total 0) (or exclusive-total 0)))
+        overlap-status (cond
+                         (seq unresolved) "unresolved"
+                         (seq ephemeral-exclusive) "joined-plus-explicit-ephemeral"
+                         (seq matched-runs) "joined"
+                         :else "no-overlap-observed")]
     {:providerTarget target :provider provider
      :exactObservedTokens provider-owned-total
      :providerOwnedExactObservedTokens provider-owned-total
      :tokenEvidence (if (some? provider-owned-total) "observed-lower-bound" "unobserved")
      :overlapStatus overlap-status
      :overlapReason
-     (if (= provider "openai")
-       "North run facts do not prove whether each managed run persisted into the account JSONL"
-       "Anthropic account JSONL includes managed activity")
-     :combinedExactObservedTokens nil
-     :combinedPercentageBasis nil
-     :combinationSemantics "non-additive ledgers; no combined usage claim"
+     (if (seq unresolved)
+       "historical, partial, or ambiguous North rows lack a unique provider-owned join"
+       "provider-owned matches are canonical; only explicitly ephemeral unmatched runs are added once")
+     :combinationStatus combination-status
+     :combinedExactObservedTokens combined-total
+     :combinedPercentageBasis
+     (when (some? combined-total) "provider-owned-plus-exclusive-ephemeral-managed")
+     :combinationSemantics
+     "matched provider-owned turn is canonical; its North terminal is never added again"
      :sources [provider-source]
      :managedLedger {:source "north-managed-terminal"
                      :exactTokenRuns (count managed-exact)
@@ -1157,20 +1397,36 @@
                                       (zero? managed-unknown) "exact"
                                       :else "lower-bound")
                      :breakdown (:breakdown (account-usage-row account managed-selected))}
+     :joinCoverage {:matchedRuns (count matched-runs)
+                    :exclusiveEphemeralRuns (count ephemeral-exclusive)
+                    :unresolvedRuns (count unresolved)}
+     :exclusiveManagedLedger
+     {:source "north-managed-explicit-ephemeral"
+      :exactTokenRuns (count exclusive-exact)
+      :unknownTokenRuns (- (count ephemeral-exclusive) (count exclusive-exact))
+      :exactObservedTokens exclusive-total}
      :breakdown (account-observed-breakdown persisted-selected provider-owned-total)}))
 
 (defn account-observed-usage [persisted managed accounts start end]
   (let [account-rows (mapv #(account-observed-row % persisted managed start end) accounts)
-        observed (filter #(some? (:exactObservedTokens %)) account-rows)]
+        observed (filter #(some? (:exactObservedTokens %)) account-rows)
+        active (filter #(not= "no-activity" (:combinationStatus %)) account-rows)
+        combined-exact? (every? #(= "exact-no-double-count" (:combinationStatus %)) active)
+        combined (when (and (seq active) combined-exact?)
+                   (reduce + (map #(or (:combinedExactObservedTokens %) 0) active)))]
     {:scope "account-observed-provider-logs"
-     :claim (str "provider-owned observations and North managed terminals are separate, "
-                 "non-additive ledgers; OpenAI overlap cannot be determined without per-run "
-                 "persistence provenance, while Anthropic overlap is known")
+     :claim (str "provider-owned matched turns are canonical and North terminals are not added "
+                 "again; exact unmatched terminals contribute only with positive ephemeral-session "
+                 "evidence; legacy, partial, and ambiguous joins remain explicit unknowns")
      :exactObservedTokens (when (seq observed)
                             (reduce + (map :exactObservedTokens observed)))
      :providerOwnedExactObservedTokens (when (seq observed)
                                          (reduce + (map :exactObservedTokens observed)))
-     :combinedExactObservedTokens nil
+     :combinedExactObservedTokens combined
+     :combinationStatus (cond
+                          (empty? active) "no-activity"
+                          combined-exact? "exact-no-double-count"
+                          :else "legacy-partial-or-ambiguous")
      :overlapStatus "see-account-ledgers"
      :tokenEvidence (if (seq observed) "observed-lower-bound" "unobserved")
      :accounts account-rows}))
@@ -1299,7 +1555,9 @@
     (let [start (.minus end window-duration)
           window-rows (vec (filter #(row-in-interval? % start end) rows))
           accounts (account-universe window-rows)
-          persisted (vec (account-log-records))
+          configured-accounts (vec (filter :configuredNow accounts))
+          provider-families (set (map :provider configured-accounts))
+          persisted (attribute-provider-records (vec (account-log-records)) rows sessions)
           intervals (mapv (fn [index]
                             (let [interval-start (.plusMillis start (* index slice-ms))
                                   interval-end (.plusMillis interval-start slice-ms)]
@@ -1310,9 +1568,16 @@
       {:report "usage"
        :scope "bounded-intervals"
        :unit "exact observed tokens, never dollars or API credits"
-       :claim (str "managed terminal-run token observations are lower bounds on subscription "
-                   "consumption; provider-native interactive sessions are counted separately "
-                   "with unknown tokens and account")
+       :claim (str "provider-owned turns are canonical when joined to North runs/native sessions; "
+                   "managed terminal observations remain lower bounds on subscription consumption, "
+                   "and unmatched historical identity remains unknown")
+       :accountScope
+       {:accountTargets (count configured-accounts)
+        :providerFamilies (count provider-families)
+        :label (format "%d account targets across %d provider families"
+                       (count configured-accounts) (count provider-families))
+        :targets (mapv :providerTarget configured-accounts)
+        :families (vec (sort provider-families))}
        :window {:start (.toString start) :end (.toString end)
                 :hours window-hours :sliceHours slice-hours
                 :boundary "start-inclusive,end-exclusive"}
@@ -1624,7 +1889,7 @@
     (let [start (.minus end window-duration)
           window-rows (vec (filter #(row-in-interval? % start end) rows))
           accounts (account-universe window-rows)
-          persisted (vec (account-log-records))]
+          persisted (attribute-provider-records (vec (account-log-records)) rows sessions)]
       {:report "economics" :scope "bounded-intervals"
        :policy "alert-only; no model is silently downgraded"
        :claim (str "token shares use exact observed managed tokens; native sessions and legacy "

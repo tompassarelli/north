@@ -33,6 +33,7 @@ import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
   ManagedCodexAppServerRun, ManagedCodexPreThreadError,
 } from "./codex-app-server";
+import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
 import {
   prepareManagedCodexHome, type PreparedManagedCodexHome,
 } from "./managed-codex-home";
@@ -678,6 +679,7 @@ interface CodexProtocolResult {
 class CodexExecProtocol {
   private phase: "thread" | "turn" | "running" | "completed" = "thread";
   private usage?: ExactCodexUsage;
+  private threadId?: string;
 
   accept(line: string): CodexProtocolResult {
     if (this.phase === "completed")
@@ -696,7 +698,7 @@ class CodexExecProtocol {
     if (type === "thread.started") {
       if (this.phase !== "thread") throw new Error("Codex thread start is out of order");
       exactKeys(event, ["thread_id", "type"], "Codex thread-start event");
-      protocolId(event.thread_id, "Codex thread id");
+      this.threadId = protocolId(event.thread_id, "Codex thread id");
       this.phase = "turn";
       return {};
     }
@@ -736,6 +738,18 @@ class CodexExecProtocol {
     if (this.phase !== "completed" || !this.usage)
       throw new Error("Codex closed without one successful terminal");
     return this.usage;
+  }
+
+  providerJoin(): ProviderJoinEvidence {
+    if (this.phase !== "completed" || !this.threadId)
+      throw new Error("Codex closed without one successful provider session");
+    // `codex exec` persists its rollout by default. Its structured stdout does
+    // not expose the turn id, so the session-only join remains explicitly
+    // partial instead of inventing a per-turn identifier.
+    return providerJoinEvidence("openai", {
+      sessionId: this.threadId,
+      sessionPersistence: "persisted",
+    });
   }
 }
 
@@ -880,6 +894,7 @@ class CodexQuery implements AgentQuery {
             num_turns: turns,
             usage: normalizedUsage.usage,
             _north_usage: normalizedUsage.metadata,
+            _north_provider_join: completed.providerJoin,
           };
         }
         return;
@@ -949,6 +964,7 @@ class CodexQuery implements AgentQuery {
     });
     const protocol = new CodexExecProtocol();
     let usage: ExactCodexUsage | undefined;
+    let providerJoin: ProviderJoinEvidence | undefined;
     try {
       // Publish the bounded prompt frame immediately after the supervisor
       // exists. Waiting for the provider's STARTED receipt lets a valid
@@ -991,6 +1007,7 @@ class CodexQuery implements AgentQuery {
       if (supervisorExit !== 0)
         throw new Error("openai_provider_execution_failed");
       usage = protocol.finish();
+      providerJoin = protocol.providerJoin();
     } catch (error) {
       try { await this.interrupt(); } catch { /* cleanup must not replace the provider error */ }
       try { await supervision.completed; } catch { /* preserve the provider error */ }
@@ -1002,13 +1019,14 @@ class CodexQuery implements AgentQuery {
       destroyCodexPipes(child);
       this.child = undefined;
     }
-    if (!usage) throw new Error("openai_provider_execution_failed");
+    if (!usage || !providerJoin) throw new Error("openai_provider_execution_failed");
     const normalizedUsage = codexUsage(usage);
     yield {
       type: "result", subtype: "success", result,
       num_turns: 1,
       usage: normalizedUsage.usage,
       _north_usage: normalizedUsage.metadata,
+      _north_provider_join: providerJoin,
     };
   }
 }

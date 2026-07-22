@@ -4,6 +4,9 @@ import {
   assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
 } from "../src/delivery-verification";
 import { makeStruggleObserver, resolveStrugglePolicy } from "../src/struggle";
+import {
+  providerJoinEvidence, providerSessionKey, providerTurnKey,
+} from "../src/providers/provider-join";
 
 // Mirror of the fram coord_daemon log-split contract (coord_daemon.clj
 // subject-token + default-telemetry-kinds). A subject routes to telemetry.log
@@ -164,11 +167,16 @@ test("run telemetry is token- and routing-based with no price-derived fields", (
 });
 
 test("run telemetry carries admission receipt and overlap-safe execution provenance", () => {
+  const providerJoin = providerJoinEvidence("openai", {
+    sessionId: "session-provenance",
+    turnIds: ["turn-provenance-a", "turn-provenance-b"],
+    sessionPersistence: "persisted",
+  });
   const facts = runFacts({
     thread: "thread-provenance", agent: "lane-provenance", durationMs: 1,
     posture: "spawn", outcome: "ran", provider: "openai",
     executionSource: "north-managed", executionTransport: "codex-cli",
-    providerSessionPersistence: "unknown", northSessionId: "north-session",
+    providerSessionPersistence: "persisted", providerJoin, northSessionId: "north-session",
     threadProvenance: "exact", turnProvenance: "provider-terminal",
     routingAdmissionReceipt: {
       version: 1,
@@ -184,7 +192,12 @@ test("run telemetry carries admission receipt and overlap-safe execution provena
   for (const expected of [
     ["execution_source", "north-managed"],
     ["execution_transport", "codex-cli"],
-    ["provider_session_persistence", "unknown"],
+    ["provider_session_persistence", "persisted"],
+    ["provider_join_key_version", "north-provider-join:v1"],
+    ["provider_join_coverage", "exact"],
+    ["provider_session_key", providerSessionKey("session-provenance")],
+    ["provider_turn_key", providerTurnKey("openai", "turn-provenance-a")],
+    ["provider_turn_key", providerTurnKey("openai", "turn-provenance-b")],
     ["north_session_id", "north-session"],
     ["thread_provenance", "exact"],
     ["turn_provenance", "provider-terminal"],

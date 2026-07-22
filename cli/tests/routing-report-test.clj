@@ -36,6 +36,18 @@
 (def hash-e (apply str (repeat 64 "e")))
 (def hash-f (apply str (repeat 64 "f")))
 
+(defn provider-join-keys [provider session turns]
+  (let [result (proc/shell {:in (json/generate-string
+                                 {:sessions [session]
+                                  :turns (mapv #(hash-map :provider provider :id %) turns)})
+                            :out :string :err :string}
+                           "bun" (str root "/sdk/src/providers/provider-join.ts"))
+        response (json/parse-string (str/trim (:out result)) true)]
+    (when-not (and (zero? (:exit result))
+                   (= "north-provider-join:v1" (:version response)))
+      (throw (ex-info "provider join helper failed" result)))
+    {:session (first (:sessions response)) :turns (:turns response)}))
+
 (defn verified-thread! [id]
   (fact coord id "title" (str "Thread " id))
   (fact coord id "outcome" "landed")
@@ -669,6 +681,15 @@
       telem3 (io/file tmp3 "telemetry.log")
       policy3 (io/file tmp3 "routing-policy.json")
       accounts3 (io/file tmp3 "accounts")
+      openai-join (provider-join-keys "openai" "session-openai"
+                                      ["turn-a" "turn-b" "turn-ephemeral"
+                                       "turn-ambiguous"])
+      openai-ephemeral-join (provider-join-keys "openai" "session-openai-ephemeral"
+                                                ["turn-ephemeral"])
+      anthropic-join (provider-join-keys "anthropic" "session-claude-managed"
+                                         ["msg-a" "msg-b"])
+      native-join (provider-join-keys "anthropic" "session-claude-native"
+                                      ["msg-native"])
       env3 {"FRAM_LOG" (.getPath coord3)
             "FRAM_TELEMETRY_LOG" (.getPath telem3)
             "NORTH_ROUTING_POLICY" (.getPath policy3)
@@ -677,9 +698,13 @@
     (spit policy3 (json/generate-string
                    {"version" 1
                     "targets" [{"id" "codex-a" "provider" "openai"}
-                               {"id" "claude-b" "provider" "anthropic"}]}))
+                               {"id" "claude-b" "provider" "anthropic"}
+                               {"id" "codex-zero" "provider" "openai"}]}))
     (let [codex-dir (io/file accounts3 "openai/codex-a/sessions/2026/07/22")
           claude-dir (io/file accounts3 "anthropic/claude-b/projects/test")
+          session-meta (fn [at id]
+                         {"timestamp" at "type" "session_meta"
+                          "payload" {"id" id "session_id" id}})
           turn-context (fn [at turn model effort]
                          {"timestamp" at "type" "turn_context"
                           "payload" {"turn_id" turn "model" model "effort" effort}})
@@ -688,8 +713,8 @@
                          "payload" {"type" "token_count"
                                     "info" {"total_token_usage" {"total_tokens" cumulative}
                                             "last_token_usage" {"total_tokens" tokens}}}})
-          claude-message (fn [at id tokens]
-                           {"timestamp" at "type" "assistant"
+          claude-message (fn [at session id tokens]
+                           {"timestamp" at "type" "assistant" "sessionId" session
                             "message" {"id" id "model" "claude-fable-5"
                                        "usage" {"input_tokens" tokens
                                                 "cache_creation_input_tokens" 0
@@ -699,17 +724,31 @@
       (.mkdirs claude-dir)
       ;; Fork clone: the same turn+cumulative event appears twice. Earliest wins.
       (spit (io/file codex-dir "one.jsonl")
-            (str (json/generate-string (turn-context "2026-07-21T18:00:00Z" "turn-a" "gpt-5.6-sol" "high")) "\n"
+            (str (json/generate-string (session-meta "2026-07-21T17:59:59Z"
+                                                     "session-openai")) "\n"
+                 (json/generate-string (turn-context "2026-07-21T18:00:00Z" "turn-a" "gpt-5.6-sol" "high")) "\n"
                  (json/generate-string (token-count "2026-07-21T18:01:00Z" 1000 40)) "\n"
                  (json/generate-string (turn-context "2026-07-22T04:00:00Z" "turn-b" "gpt-5.6-terra" "medium")) "\n"
-                 (json/generate-string (token-count "2026-07-22T04:01:00Z" 2000 60)) "\n"))
+                 (json/generate-string (token-count "2026-07-22T04:01:00Z" 2000 60)) "\n"
+                 (json/generate-string (turn-context "2026-07-22T04:10:00Z" "turn-ambiguous" "gpt-5.6-terra" "medium")) "\n"
+                 (json/generate-string (token-count "2026-07-22T04:11:00Z" 2010 10)) "\n"))
       (spit (io/file codex-dir "fork.jsonl")
             (str (json/generate-string (turn-context "2026-07-22T05:00:00Z" "turn-a" "gpt-5.6-sol" "high")) "\n"
                  (json/generate-string (token-count "2026-07-22T05:01:00Z" 1000 40)) "\n"))
       ;; Claude repeats the same message while streaming; message.id dedups it.
       (spit (io/file claude-dir "one.jsonl")
-            (str (json/generate-string (claude-message "2026-07-22T03:00:00Z" "msg-a" 50)) "\n"
-                 (json/generate-string (claude-message "2026-07-22T03:00:01Z" "msg-a" 50)) "\n")))
+            (str (json/generate-string
+                  (claude-message "2026-07-22T03:00:00Z" "session-claude-managed"
+                                  "msg-a" 50)) "\n"
+                 (json/generate-string
+                  (claude-message "2026-07-22T03:00:01Z" "session-claude-managed"
+                                  "msg-a" 50)) "\n"
+                 (json/generate-string
+                  (claude-message "2026-07-22T03:05:00Z" "session-claude-managed"
+                                  "msg-b" 20)) "\n"
+                 (json/generate-string
+                  (claude-message "2026-07-22T03:10:00Z" "session-claude-native"
+                                  "msg-native" 30)) "\n")))
     (letfn [(window-run! [id target provider model effort at tokens]
               (fact telem3 id "kind" "run")
               (fact telem3 id "agent" (str "agent-" (subs id 5)))
@@ -721,6 +760,14 @@
               (fact telem3 id "at" at)
               (fact telem3 id "outcome" "ran")
               (when (some? tokens) (fact telem3 id "tokens" (str tokens))))
+            (provider-join! [id session-key turn-keys persistence coverage]
+              (fact telem3 id "provider_join_key_version" "north-provider-join:v1")
+              (fact telem3 id "provider_join_coverage" coverage)
+              (when session-key (fact telem3 id "provider_session_key" session-key))
+              (doseq [turn-key turn-keys]
+                (fact telem3 id "provider_turn_key" turn-key))
+              (fact telem3 id "provider_session_persistence" persistence)
+              (fact telem3 id "turn_provenance" "provider-terminal"))
             (window-report []
               (let [result (proc/shell {:out :string :err :string :extra-env env3}
                                        "bb" (str root "/cli/routing-report.clj")
@@ -739,6 +786,31 @@
                    "2026-07-22T03:00:00Z" 50)
       (window-run! "@run-window-claude-overlap" "claude-b" "anthropic" "claude-fable-5" "max"
                    "2026-07-22T03:30:00Z" 70)
+      (provider-join! "@run-window-sol" (:session openai-join)
+                      [(first (:turns openai-join))] "persisted" "exact")
+      (provider-join! "@run-window-unknown" (:session openai-join)
+                      [(second (:turns openai-join))] "persisted" "exact")
+      (provider-join! "@run-window-terra" (:session openai-ephemeral-join)
+                      (:turns openai-ephemeral-join) "ephemeral" "exact")
+      (provider-join! "@run-window-claude-overlap" (:session anthropic-join)
+                      (:turns anthropic-join) "persisted" "exact")
+      (fact telem3 "@run-window-retired" "turn_provenance" "pre-provider")
+      (doseq [[predicate value]
+              [["requested_model" "gpt-5.6-sol"] ["requested_effort" "high"]
+               ["routing_admission_receipt_version" "1"]
+               ["routing_request_sha256" hash-a] ["routing_assessment_sha256" hash-b]
+               ["routing_policy_sha256" hash-c] ["provider_catalogs_sha256" hash-d]
+               ["staffing_catalog_sha256" hash-e] ["routing_assessment_status" "admitted"]]]
+        (fact telem3 "@run-window-sol" predicate value))
+      (doseq [[predicate value]
+              [["requested_model" "claude-fable-5"] ["requested_effort" "max"]]]
+        (fact telem3 "@run-window-claude-overlap" predicate value))
+      ;; The persisted turn has two historical North candidates. Its provider
+      ;; tokens remain canonical, but North attribution is explicitly ambiguous.
+      (doseq [id ["@run-window-ambiguous-a" "@run-window-ambiguous-b"]]
+        (window-run! id "codex-a" "openai" "gpt-5.6-terra" "medium"
+                     "2026-07-20T00:00:00Z" nil)
+        (provider-join! id nil [(nth (:turns openai-join) 3)] "persisted" "partial"))
       (doseq [[entity values]
                [["@run-window-sol"
                 [["response_strategy_id" "none"] ["response_strategy_implementation" "disabled"]
@@ -794,12 +866,20 @@
           (fact telem3 session "agent" agent)
           (fact telem3 session "session_id" agent)
           (fact telem3 session "started_at" started)))
+      (doseq [[predicate value]
+              [["native_actor_kind" "root"] ["dispatch_mode_at_start" "native"]
+               ["provider_join_key_version" "north-provider-join:v1"]
+               ["provider_join_coverage" "partial"]
+               ["provider_session_key" (:session native-join)]
+               ["provider_session_persistence" "persisted"]]]
+        (fact telem3 "@agent:native-window-opus" predicate value))
       (let [report (window-report)
             [older recent] (:intervals report)
             cumulative (:cumulative report)
             accounts (:accounts cumulative)
             codex (first (filter #(= "codex-a" (:providerTarget %)) accounts))
             claude (first (filter #(= "claude-b" (:providerTarget %)) accounts))
+            zero (first (filter #(= "codex-zero" (:providerTarget %)) accounts))
             retired (first (filter #(= "retired-codex" (:providerTarget %)) accounts))
             sol (first (filter #(= "gpt-5.6-sol" (:model %)) (:breakdown codex)))
             terra (first (filter #(= "gpt-5.6-terra" (:model %)) (:breakdown codex)))]
@@ -809,11 +889,19 @@
                     (= (:end older) (:start recent))
                     (= "2026-07-21T12:00:00Z" (:start older))
                     (= "2026-07-22T12:00:00Z" (:end recent))))
+        (check "bounded usage names account targets and provider families without conflating them"
+               (= {:accountTargets 3 :providerFamilies 2
+                   :label "3 account targets across 2 provider families"
+                   :targets ["codex-a" "claude-b" "codex-zero"]
+                   :families ["anthropic" "openai"]}
+                  (:accountScope report)))
         (check "every configured and in-window used target appears in every interval"
-               (and (= ["codex-a" "claude-b" "retired-codex"]
+               (and (= ["codex-a" "claude-b" "codex-zero" "retired-codex"]
                        (mapv :providerTarget (:accounts older)))
-                    (= ["codex-a" "claude-b" "retired-codex"]
-                       (mapv :providerTarget (:accounts recent)))))
+                    (= ["codex-a" "claude-b" "codex-zero" "retired-codex"]
+                       (mapv :providerTarget (:accounts recent)))
+                    (= 0 (:terminalRuns zero))
+                    (nil? (:exactObservedTokens zero))))
         (check "unknown token runs remain explicit and never become zero tokens"
                (and (= 5 (:terminalRuns cumulative))
                     (= 4 (:exactTokenRuns cumulative))
@@ -832,7 +920,7 @@
                     (= 50 (:exactObservedTokens retired))
                     (false? (:configuredNow retired))))
         (check "bounded usage records dated/undated time coverage"
-               (= {:datedRuns 6 :undatedRuns 0} (:timeCoverage report)))
+               (= {:datedRuns 8 :undatedRuns 0} (:timeCoverage report)))
         (check "window telemetry reports Caveman provenance and actual MCP calls without guessing legacy"
                (let [older-op (:operationalTelemetry older)
                      recent-op (:operationalTelemetry recent)
@@ -945,46 +1033,90 @@
         (check "bounded report warns managed token observations are not total subscription consumption"
                (and (= "managed-terminal-runs-only" (:usageScope cumulative))
                     (str/includes? (:claim report) "lower bounds on subscription consumption")))
-        (check "account-observed OpenAI dedups fork clones but never assumes managed additivity"
+        (check "account-observed OpenAI joins turns, keeps ambiguity explicit, and adds ephemeral use once"
                (let [account (first (filter #(= "codex-a" (:providerTarget %))
                                             (get-in cumulative [:accountObserved :accounts])))
                      persisted (first (:sources account))
-                     managed (:managedLedger account)]
-                 (and (= 100 (:exactObservedTokens account))
-                      (= 100 (:providerOwnedExactObservedTokens account))
-                      (nil? (:combinedExactObservedTokens account))
-                      (nil? (:combinedPercentageBasis account))
-                      (= "cannot-determine" (:overlapStatus account))
-                      (= 2 (:observations persisted))
-                      (= 2 (:turnAttributedObservations persisted))
+                     managed (:managedLedger account)
+                     sol-attribution (first (filter #(= "@run-window-sol" (:northEntity %))
+                                                    (:northAttributions persisted)))]
+                 (and (= 110 (:exactObservedTokens account))
+                      (= 110 (:providerOwnedExactObservedTokens account))
+                      (= 410 (:combinedExactObservedTokens account))
+                      (not= 510 (:combinedExactObservedTokens account))
+                      (= "provider-owned-plus-exclusive-ephemeral-managed"
+                         (:combinedPercentageBasis account))
+                      (= "joined-plus-explicit-ephemeral" (:overlapStatus account))
+                      (= "exact-no-double-count" (:combinationStatus account))
+                      (= 3 (:observations persisted))
+                      (= 3 (:turnAttributedObservations persisted))
                       (= 0 (:fallbackDedupObservations persisted))
-                      (= 100 (:exactObservedTokens persisted))
+                      (= 110 (:exactObservedTokens persisted))
                       (= "north-managed-terminal" (:source managed))
                       (= 2 (:exactTokenRuns managed))
                       (= 400 (:exactObservedTokens managed))
                       (= 1 (:unknownTokenRuns managed))
-                      (str/includes? (:overlapReason account) "do not prove")
-                      (str/includes? (:combinationSemantics account) "non-additive"))))
-        (check "account-observed Anthropic dedups message ids and never adds overlapping managed usage"
-               (let [account (first (filter #(= "claude-b" (:providerTarget %))
+                      (= {:matchedRuns 2 :exclusiveEphemeralRuns 1 :unresolvedRuns 0}
+                         (:joinCoverage account))
+                      (= {:joinStatus "matched-managed-turn" :northKind "run"
+                          :northEntity "@run-window-sol" :dispatchMode "north"
+                          :account "codex-a" :provider "openai" :model "gpt-5.6-sol"
+                          :requestedModel "gpt-5.6-sol" :requestedEffort "high"
+                          :resolvedEffort "high" :routingReceiptStatus "observed"
+                          :routingReceipt {:version 1 :routingRequestSha256 hash-a
+                                           :routingAssessmentSha256 hash-b
+                                           :routingPolicySha256 hash-c
+                                           :providerCatalogsSha256 hash-d
+                                           :staffingCatalogSha256 hash-e
+                                           :assessmentStatus "admitted"}}
+                         sol-attribution)
+                      (str/includes? (:combinationSemantics account)
+                                     "never added again"))))
+        (check "unique turn matches outrank lower-tier same-session ambiguity"
+               (let [account (first (filter #(= "codex-a" (:providerTarget %))
                                             (get-in cumulative [:accountObserved :accounts])))
                      source (first (:sources account))]
-                 (and (= 50 (:exactObservedTokens account))
-                      (= 1 (:observations source))
-                      (= "known-overlap" (:overlapStatus account))
+                 (= {:ambiguous 1 :matched-managed-turn 2}
+                    (:joinStatuses source))))
+        (check "account-observed Anthropic joins managed and native activity without double counting"
+               (let [account (first (filter #(= "claude-b" (:providerTarget %))
+                                            (get-in cumulative [:accountObserved :accounts])))
+                     source (first (:sources account))
+                     native-attribution (first (filter #(= "native-session"
+                                                            (:northKind %))
+                                                       (:northAttributions source)))]
+                 (and (= 100 (:exactObservedTokens account))
+                      (= 3 (:observations source))
+                      (= {:matched-managed-turn 2 :matched-native-session 1}
+                         (:joinStatuses source))
+                      (= "joined" (:overlapStatus account))
                       (= 70 (get-in account [:managedLedger :exactObservedTokens]))
-                      (nil? (:combinedExactObservedTokens account))
-                      ;; The 70-token North managed Anthropic run is deliberately
-                      ;; not added: the provider-owned log is the overlap ledger.
-                      (not= 120 (:exactObservedTokens account))
+                      (= 100 (:combinedExactObservedTokens account))
+                      (= {:matchedRuns 1 :exclusiveEphemeralRuns 0 :unresolvedRuns 0}
+                         (:joinCoverage account))
+                      (= {:joinStatus "matched-native-session" :northKind "native-session"
+                          :northEntity "@session:native-window-opus" :dispatchMode "native"
+                          :account "provider-log-observed" :provider "anthropic"
+                          :model "claude-opus-4-8" :requestedModel nil :requestedEffort nil
+                          :resolvedEffort nil :sessionEffortSnapshot "high"
+                          :routingReceiptStatus "not-applicable-provider-native"
+                          :routingReceipt nil}
+                         native-attribution)
                       (nil? (:effort (first (:breakdown account))))
-                      (str/includes? (:combinationSemantics account) "non-additive"))))
-        (check "account-observed aggregate is provider-owned only and refuses a combined total"
-               (and (= 150 (get-in cumulative [:accountObserved :exactObservedTokens]))
-                    (= 150 (get-in cumulative [:accountObserved :providerOwnedExactObservedTokens]))
-                    (nil? (get-in cumulative [:accountObserved :combinedExactObservedTokens]))
+                      (str/includes? (:combinationSemantics account)
+                                     "never added again"))))
+        (check "account-observed aggregate is exact without summing matched North terminals twice"
+               (and (= 210 (get-in cumulative [:accountObserved :exactObservedTokens]))
+                    (= 210 (get-in cumulative [:accountObserved :providerOwnedExactObservedTokens]))
+                    (= 510 (get-in cumulative [:accountObserved :combinedExactObservedTokens]))
+                    (= "exact-no-double-count"
+                       (get-in cumulative [:accountObserved :combinationStatus]))
                     (str/includes? (get-in cumulative [:accountObserved :claim])
-                                   "non-additive ledgers")))
+                                   "not added again")))
+        (check "provider raw session and turn identifiers never escape the report"
+               (let [serialized (json/generate-string report)]
+                 (not-any? #(str/includes? serialized %)
+                           ["session-openai" "session-claude" "turn-a" "msg-a"])))
         (check "fixed event-time windows disclose late/backfill rerun instability"
                (let [repro (:reproducibility report)]
                  (and (= "provider-event-time" (:boundaryBasis repro))

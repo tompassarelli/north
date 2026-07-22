@@ -84,7 +84,6 @@ case "$evt" in
   SessionStart|SubagentStart|SubagentSessionStart) ;;
   *) exit 0 ;;
 esac
-
 # Freeze the dispatch topology that was in force when this provider-native
 # actor began. Report-time config is mutable context, never historical proof.
 dispatch_mode_at_start="north"
@@ -134,6 +133,15 @@ case "$evt" in
     native_parent_actor_key=""
     ;;
 esac
+# Root SessionStart owns the provider session. Native subagent start payloads
+# carry the parent session_id, so publishing that key on each child would create
+# a false one-to-many token attribution. The deployed actor-key helper shares
+# the exact session-key domain with sdk/src/providers/provider-join.ts.
+provider_session_key=""
+if [ "$native_actor_kind" = "root" ] && [ -n "$sid" ]; then
+  provider_session_key="$("$ACTOR_KEY" session "$sid" 2>/dev/null || true)"
+  [ "${#provider_session_key}" -eq 64 ] || provider_session_key=""
+fi
 pin="${NORTH_AGENT_ID:-}"
 if [ -n "$pin" ]; then
   pin_validation="$("$ACTOR_KEY" managed "$pin" 2>/dev/null || true)"
@@ -281,6 +289,7 @@ schedule_spawn_maintenance() {
       NORTH_NATIVE_DEPTH="$native_depth" \
       NORTH_NATIVE_DISPATCH_MODE_AT_START="$dispatch_mode_at_start" \
       NORTH_NATIVE_PARENT_ACTOR_KEY="$native_parent_actor_key" \
+      NORTH_NATIVE_PROVIDER_SESSION_KEY="$provider_session_key" \
       bb -e '
         (load-file (str (System/getenv "NORTH_HOME") "/cli/coord.clj"))
         (let [port (Integer/parseInt (System/getenv "NORTH_NATIVE_PORT"))
@@ -302,6 +311,11 @@ schedule_spawn_maintenance() {
                      ["display_handle" (System/getenv "NORTH_NATIVE_DISPLAY")]
                      ["display_name" (System/getenv "NORTH_NATIVE_DISPLAY")]]
               facts (cond-> base-facts
+                      (seq (System/getenv "NORTH_NATIVE_PROVIDER_SESSION_KEY"))
+                      (conj ["provider_join_key_version" "north-provider-join:v1"]
+                            ["provider_join_coverage" "partial"]
+                            ["provider_session_key"
+                             (System/getenv "NORTH_NATIVE_PROVIDER_SESSION_KEY")])
                       (seq (System/getenv "NORTH_NATIVE_PARENT_ACTOR_KEY"))
                       (conj ["native_parent_actor_key"
                              (System/getenv "NORTH_NATIVE_PARENT_ACTOR_KEY")]))

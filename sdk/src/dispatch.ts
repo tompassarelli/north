@@ -13,6 +13,7 @@ import {
 } from "./coordination";
 import { normalizeUsage } from "./usage";
 import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
+import { collectProviderJoinEvidence } from "./providers/provider-join";
 import { publishRunLifecycleLedger } from "./run-ledger";
 import { resolveManagedCaveman, type CavemanResolution } from "./caveman";
 import { unknownMcpActivity } from "./tool-activity";
@@ -768,6 +769,7 @@ async function runDispatch(
   }
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
+  const providerJoin = collectProviderJoinEvidence(terminalMessages);
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
   const mcpActivity = activeExecutionQuery?.mcpActivity?.()
     ?? unknownMcpActivity("provider-activity-unavailable");
@@ -822,7 +824,8 @@ async function runDispatch(
               executionTransport: activeExecutionQuery?.executionTransport
                 ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
               caveman, mcpActivity,
-              providerSessionPersistence: "unknown",
+              providerSessionPersistence: providerJoin?.sessionPersistence ?? "unknown",
+              providerJoin,
               northSessionId,
               threadProvenance: "exact",
               turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),

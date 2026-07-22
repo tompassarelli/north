@@ -10,6 +10,7 @@ import {
 } from "../src/providers/anthropic-observations";
 import type { AgentQuery, ProviderUsageObservation } from "../src/providers/types";
 import { balancedAllocationEstimates } from "../src/provider-routing";
+import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 
 const temporary: string[] = [];
 afterEach(() => {
@@ -113,12 +114,13 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   const messages = [
     { type: "system", subtype: "init" },
     event({ utilization: 72, resetsAt: Date.parse("2026-07-17T00:00:00Z") / 1_000, rateLimitType: "seven_day" }),
-    { type: "assistant", message: { content: [
+    { type: "assistant", session_id: "test-session", message: {
+      id: "msg_test_join", content: [
       { type: "tool_use", id: "call-1", name: "mcp__north__tell", input: { secret: "CANARY" } },
       { type: "tool_use", id: "call-1", name: "mcp__north__tell", input: { retry: true } },
       { type: "tool_use", id: "native-1", name: "Bash", input: { command: "private" } },
     ] } },
-    { type: "result", subtype: "success" },
+    { type: "result", subtype: "success", session_id: "test-session" },
   ];
   let interrupted = false;
   let closed = false;
@@ -147,7 +149,17 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   await observed.close?.();
   observed.forceClose?.();
 
-  expect(received).toEqual(messages);
+  expect(received.slice(0, -1)).toEqual(messages.slice(0, -1));
+  expect(received.at(-1)).toEqual({
+    ...messages.at(-1),
+    _north_provider_join: {
+      version: "north-provider-join:v1",
+      sessionKey: providerSessionKey("test-session"),
+      turnKeys: [providerTurnKey("anthropic", "msg_test_join")],
+      sessionPersistence: "persisted",
+      coverage: "exact",
+    },
+  });
   expect(written).toHaveLength(1);
   expect(written[0]).toMatchObject({
     targetId: "claude-primary",

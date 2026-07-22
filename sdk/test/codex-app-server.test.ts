@@ -18,6 +18,7 @@ import {
 import { expectedManagedCodexHooks } from "../src/providers/codex-managed-hooks";
 import { codexSupervisorStatusLine } from "../src/providers/codex-supervisor-protocol";
 import type { OpenAIAuthoritySurface } from "../src/providers/authority";
+import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 
 function firstLine(stream: NodeJS.ReadableStream, label: string): Promise<string> {
   return new Promise((resolveLine, reject) => {
@@ -523,6 +524,13 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(result).toEqual({
     text: "managed answer",
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
+    providerJoin: {
+      version: "north-provider-join:v1",
+      sessionKey: providerSessionKey("019f7abc-0000-7000-8000-000000000001"),
+      turnKeys: [providerTurnKey("openai", "019f7abc-0000-7000-8000-000000000002")],
+      sessionPersistence: "ephemeral",
+      coverage: "exact",
+    },
   });
   expect(requests.filter(({ method }) => method === "initialize")).toHaveLength(1);
   expect(requests.filter(({ method }) => method === "config/read")).toHaveLength(3);
@@ -558,12 +566,22 @@ test("a later North frame drives a same-thread continuation turn under re-proven
   for await (const turnResult of run.session(async () => later.shift())) {
     settlements.push(turnResult);
   }
-  const expected = {
+  const expected = (turnId: string) => ({
     text: "managed answer",
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
-  };
+    providerJoin: {
+      version: "north-provider-join:v1",
+      sessionKey: providerSessionKey("019f7abc-0000-7000-8000-000000000001"),
+      turnKeys: [providerTurnKey("openai", turnId)],
+      sessionPersistence: "ephemeral",
+      coverage: "exact",
+    },
+  });
   // One terminal result per consumed frame.
-  expect(settlements).toEqual([expected, expected]);
+  expect(settlements).toEqual([
+    expected("019f7abc-0000-7000-8000-000000000002"),
+    expected("019f7abc-0000-7000-8000-000000000003"),
+  ]);
   expect(run.mcpActivity()?.totalCalls).toBe(2);
 
   // Exactly one provider thread, two turns bound to it.
