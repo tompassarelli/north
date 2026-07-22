@@ -38,9 +38,9 @@ import {
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
-  assessChildFinalization, childContinuationMessage, childReductionMessage,
+  assessChildFinalization, childContinuationMessage, childDispatchMessage, childReductionMessage,
   decideChildTurnEnd, initialChildContinuationState, notifyEarlyExitChildren,
-  settleChildren, type ChildSettlement,
+  requiredDirectChildCount, settleChildren, type ChildSettlement,
 } from "./children";
 import { admitBillableClock } from "./clock";
 import {
@@ -425,7 +425,9 @@ async function runSpawn(
   let bgContinuations = 0;
   const orchestrator = routingMetadata.topology === "orchestrator";
   const readChildSettlement = injected.childSettlementReader ?? settleChildren;
-  let childContinuation = initialChildContinuationState();
+  let childContinuation = initialChildContinuationState(
+    requiredDirectChildCount(routingMetadata),
+  );
   let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   try {
   // Reserve only at the last pre-provider seam. Earlier routing/admission
@@ -563,6 +565,11 @@ async function runSpawn(
                 `[harness] @agent:${agentId} refusing orchestrator turn-end — ${decision.live.length} live child lane(s): ${decision.live.join(", ")} (no-progress ${decision.attempt}/${decision.cap})`,
               );
               ch.push(childContinuationMessage(decision.live));
+            } else if (decision.reason === "child_dispatch_required") {
+              console.error(
+                `[harness] @agent:${agentId} requiring direct-child dispatch — ${decision.children.length}/${decision.required} child lane(s) observed (no-progress ${decision.attempt}/${decision.cap})`,
+              );
+              ch.push(childDispatchMessage(decision.children, decision.required));
             } else {
               console.error(
                 `[harness] @agent:${agentId} requiring post-settlement reduction — ${decision.children.length} settled child lane(s): ${decision.children.join(", ")}`,
@@ -576,11 +583,15 @@ async function runSpawn(
               ? "child_reconciliation_unavailable"
               : decision.reason === "child_set_regressed"
                 ? "orchestrator_child_set_inconsistent"
-                : "orchestrator_children_incomplete";
+                : decision.reason === "child_dispatch_continuation_cap"
+                  ? "orchestrator_child_obligation_unmet"
+                  : "orchestrator_children_incomplete";
             const detail = decision.missing?.length
               ? ` (missing previously observed: ${decision.missing.join(", ")})`
               : decision.live?.length
                 ? ` (${decision.live.join(", ")})`
+                : decision.required !== undefined
+                  ? ` (${decision.children?.length ?? 0}/${decision.required} direct children)`
                 : "";
             console.error(
               `[harness] @agent:${agentId} orchestrator completion blocked: ${decision.reason}${detail}`,
@@ -763,6 +774,11 @@ async function runSpawn(
              && finalChildren.kind === "settled") {
     console.error(
       `[harness] @agent:${agentId} CHILD RESULTS UNREDUCED: settled set changed or lacked a completed reduction turn (${finalChildren.children.join(", ")}); terminal cannot be process=ran`,
+    );
+  } else if (orchestrator && outcome === "orchestrator_child_obligation_unmet"
+             && finalChildren.kind === "settled") {
+    console.error(
+      `[harness] @agent:${agentId} DIRECT-CHILD OBLIGATION UNMET: ${finalChildren.children.length}/${childContinuation.requiredChildren} direct child lane(s) observed; terminal cannot be process=ran`,
     );
   }
 

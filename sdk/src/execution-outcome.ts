@@ -42,6 +42,7 @@ const BLOCKED_REASON: Record<string, string> = {
   provider_escalation_unsupported: "provider_escalation_unsupported",
   max_tier: "escalation_ladder_exhausted",
   orchestrator_children_incomplete: "orchestrator_children_live_at_terminal",
+  orchestrator_child_obligation_unmet: "orchestrator_minimum_children_not_dispatched",
   child_reconciliation_unavailable: "orchestrator_child_reconciliation_unavailable",
   orchestrator_reduction_incomplete: "orchestrator_child_results_unreconciled",
   orchestrator_child_set_inconsistent: "orchestrator_child_relation_regressed",

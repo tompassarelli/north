@@ -1074,10 +1074,14 @@ test("a spawn orchestrator gets a provider reduction turn after child settlement
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   const settlements = [
-    { kind: "live", children: ["@agent:child-a"], live: ["@agent:child-a"] },
-    { kind: "settled", children: ["@agent:child-a"] },
-    { kind: "settled", children: ["@agent:child-a"] },
-    { kind: "settled", children: ["@agent:child-a"] },
+    {
+      kind: "live",
+      children: ["@agent:child-a", "@agent:child-b"],
+      live: ["@agent:child-a"],
+    },
+    { kind: "settled", children: ["@agent:child-a", "@agent:child-b"] },
+    { kind: "settled", children: ["@agent:child-a", "@agent:child-b"] },
+    { kind: "settled", children: ["@agent:child-a", "@agent:child-b"] },
   ] as const;
   let settlementIndex = 0;
   const seenInputs: string[] = [];
@@ -1122,6 +1126,85 @@ test("a spawn orchestrator gets a provider reduction turn after child settlement
   const lines = await settledRunLines("test-spawn-child-resolves");
   expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
 });
+
+test("spawn and dispatch force a zero-child director to dispatch two children before reduction", async () => {
+  const { spawn } = await import("./support/spawn");
+  const { dispatch } = await import("./support/dispatch");
+
+  for (const surface of ["spawn", "dispatch"] as const) {
+    writeFileSync(log, "");
+    const agentId = `test-${surface}-director-child-obligation`;
+    const settlements = [
+      { kind: "settled" as const, children: [] },
+      {
+        kind: "settled" as const,
+        children: ["@agent:child-a", "@agent:child-b"],
+      },
+      {
+        kind: "settled" as const,
+        children: ["@agent:child-a", "@agent:child-b"],
+      },
+      {
+        kind: "settled" as const,
+        children: ["@agent:child-a", "@agent:child-b"],
+      },
+    ];
+    let reads = 0;
+    const seenInputs: string[] = [];
+    const queryFn: any = ({ prompt }: any) => ({
+      async *[Symbol.asyncIterator]() {
+        const input = prompt[Symbol.asyncIterator]();
+        for (let i = 0; i < 3; i++) {
+          const next = await input.next();
+          seenInputs.push(next.value.message.content);
+          yield {
+            type: "result",
+            subtype: "success",
+            result: `provider-result-${i + 1}`,
+            duration_ms: i + 1,
+            num_turns: i + 1,
+          };
+        }
+      },
+    });
+    const childSettlementReader = () =>
+      settlements[Math.min(reads++, settlements.length - 1)]!;
+
+    if (surface === "spawn") {
+      await spawn({
+        prompt: "coordinate two independent children",
+        agentId,
+        role: "director",
+        routingMetadata: presetRequest("director"),
+        queryFn,
+        childSettlementReader,
+      });
+    } else {
+      await dispatch(`thread-${agentId}`, {
+        agentId,
+        routingMetadata: presetRequest("director"),
+        claimDriver: (() => ({ release() {} })) as any,
+        queryFn,
+        loadThreadFacts: () => [
+          { predicate: "title", value: "Coordinate two independent children" },
+          { predicate: "planned", value: "true" },
+          { predicate: "atomic", value: "true" },
+        ],
+        loadChildren: () => [],
+        childSettlementReader,
+      });
+    }
+
+    expect(reads).toBe(4);
+    expect(seenInputs[1]).toContain("direct-child obligation is unmet (0/2 observed)");
+    expect(seenInputs[2]).toContain("post-settlement reduction turn");
+    const lines = await settledRunLines(
+      agentId,
+      surface === "dispatch" ? "applied_domain_requirement_count 0" : "error_count 0",
+    );
+    expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
+  }
+}, 15_000);
 
 test("a spawn orchestrator hits a bounded no-progress cap as incomplete, never ran", async () => {
   const { spawn } = await import("./support/spawn");
@@ -1193,9 +1276,18 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
     {
       label: "already-settled",
       settlements: [
-        { kind: "settled" as const, children: ["@agent:child-a"] },
-        { kind: "settled" as const, children: ["@agent:child-a"] },
-        { kind: "settled" as const, children: ["@agent:child-a"] },
+        {
+          kind: "settled" as const,
+          children: ["@agent:child-a", "@agent:child-b"],
+        },
+        {
+          kind: "settled" as const,
+          children: ["@agent:child-a", "@agent:child-b"],
+        },
+        {
+          kind: "settled" as const,
+          children: ["@agent:child-a", "@agent:child-b"],
+        },
       ],
       providerResults: 2,
       reductionTurns: 1,
@@ -1203,10 +1295,19 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
     {
       label: "settled-set-changed",
       settlements: [
-        { kind: "settled" as const, children: ["@agent:child-a"] },
         { kind: "settled" as const, children: ["@agent:child-a", "@agent:child-b"] },
-        { kind: "settled" as const, children: ["@agent:child-a", "@agent:child-b"] },
-        { kind: "settled" as const, children: ["@agent:child-a", "@agent:child-b"] },
+        {
+          kind: "settled" as const,
+          children: ["@agent:child-a", "@agent:child-b", "@agent:child-c"],
+        },
+        {
+          kind: "settled" as const,
+          children: ["@agent:child-a", "@agent:child-b", "@agent:child-c"],
+        },
+        {
+          kind: "settled" as const,
+          children: ["@agent:child-a", "@agent:child-b", "@agent:child-c"],
+        },
       ],
       providerResults: 3,
       reductionTurns: 2,
@@ -1267,7 +1368,7 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
       expect(reductionInputs).toHaveLength(scenario.reductionTurns);
       expect(reductionInputs[0]).toContain("@agent:child-a");
       if (scenario.label === "settled-set-changed") {
-        expect(reductionInputs[1]).toContain("@agent:child-b");
+        expect(reductionInputs[1]).toContain("@agent:child-c");
       }
       const lines = await settledRunLines(
         agentId,
@@ -1361,8 +1462,14 @@ test("spawn and dispatch final gates reject a child disappearing after reduction
     writeFileSync(log, "");
     const agentId = `test-${surface}-child-set-final-race`;
     const settlements = [
-      { kind: "settled" as const, children: ["@agent:child-a"] },
-      { kind: "settled" as const, children: ["@agent:child-a"] },
+      {
+        kind: "settled" as const,
+        children: ["@agent:child-a", "@agent:child-b"],
+      },
+      {
+        kind: "settled" as const,
+        children: ["@agent:child-a", "@agent:child-b"],
+      },
       { kind: "settled" as const, children: [] },
     ];
     let reads = 0;
@@ -1435,7 +1542,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
       label: "live",
       state: {
         kind: "live" as const,
-        children: ["@agent:late-child"],
+        children: ["@agent:child-a", "@agent:child-b", "@agent:late-child"],
         live: ["@agent:late-child"],
       },
       outcome: "orchestrator_children_incomplete",
@@ -1452,19 +1559,21 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
       label: "settled",
       state: {
         kind: "settled" as const,
-        children: ["@agent:late-terminal-child"],
+        children: ["@agent:child-a", "@agent:child-b", "@agent:late-terminal-child"],
       },
       outcome: "orchestrator_reduction_incomplete",
     },
   ];
-  const oneTerminalQuery: any = ({ prompt }: any) => ({
+  const reducedTerminalQuery: any = ({ prompt }: any) => ({
     async *[Symbol.asyncIterator]() {
       const input = prompt[Symbol.asyncIterator]();
-      await input.next();
-      yield {
-        type: "result", subtype: "success", result: "provider said done",
-        duration_ms: 1, num_turns: 1,
-      };
+      for (let i = 0; i < 2; i++) {
+        await input.next();
+        yield {
+          type: "result", subtype: "success", result: "provider said done",
+          duration_ms: i + 1, num_turns: i + 1,
+        };
+      }
     },
   });
 
@@ -1475,8 +1584,11 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
       let calls = 0;
       const childSettlementReader = () => {
         calls++;
-        return calls === 1
-          ? { kind: "settled" as const, children: [] }
+        return calls <= 2
+          ? {
+              kind: "settled" as const,
+              children: ["@agent:child-a", "@agent:child-b"],
+            }
           : terminalState.state;
       };
       if (surface === "spawn") {
@@ -1485,7 +1597,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
           agentId,
           role: "director",
           routingMetadata: presetRequest("director"),
-          queryFn: oneTerminalQuery,
+          queryFn: reducedTerminalQuery,
           childSettlementReader,
         });
       } else {
@@ -1493,7 +1605,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
           agentId,
           routingMetadata: presetRequest("director"),
           claimDriver: (() => ({ release() {} })) as any,
-          queryFn: oneTerminalQuery,
+          queryFn: reducedTerminalQuery,
           loadThreadFacts: () => [
             { predicate: "title", value: "Exercise dispatch child gate" },
             { predicate: "planned", value: "true" },
@@ -1503,7 +1615,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
           childSettlementReader,
         });
       }
-      expect(calls).toBe(2);
+      expect(calls).toBe(3);
       const lines = await settledRunLines(
         agentId,
         surface === "dispatch" ? "applied_domain_requirement_count 0" : "error_count 0",

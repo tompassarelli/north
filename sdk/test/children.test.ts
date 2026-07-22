@@ -6,14 +6,17 @@ import {
   assessChildFinalization,
   CHILD_SETTLEMENT_MAX_CHILDREN,
   CHILD_SETTLEMENT_MAX_RUNS,
+  childDispatchMessage,
   childReductionMessage,
   decideChildTurnEnd,
   earlyExitCommands,
   gatherChildSettlement,
   initialChildContinuationState,
+  requiredDirectChildCount,
   resolveChildLifecycle,
   settleChildrenBounded,
 } from "../src/children";
+import { presetRequest } from "./routing-fixtures";
 import {
   laneResolvedByFacts,
   terminalManifestSha256,
@@ -439,8 +442,102 @@ describe("bounded atomic child settlement", () => {
 });
 
 describe("orchestrator child continuation state", () => {
+  test("director and bespoke topology select the required direct-child minimum", () => {
+    const director = presetRequest("director");
+    expect(requiredDirectChildCount(director)).toBe(2);
+    expect(requiredDirectChildCount(presetRequest("implementer"))).toBe(0);
+    expect(requiredDirectChildCount({
+      ...director,
+      role: "custom-orchestrator",
+      composition: { kind: "bespoke", id: "custom-orchestrator" },
+    } as any)).toBe(1);
+  });
+
+  test("a worker's zero-child terminal remains unchanged", () => {
+    expect(decideChildTurnEnd(
+      initialChildContinuationState(0),
+      { kind: "settled", children: [] },
+      1,
+    )).toMatchObject({ action: "finish" });
+  });
+
+  test("a zero-child director must dispatch twice before reduction can finish", () => {
+    const dispatchRequired = decideChildTurnEnd(
+      initialChildContinuationState(2),
+      { kind: "settled", children: [] },
+      1,
+    );
+    expect(dispatchRequired).toMatchObject({
+      action: "continue",
+      reason: "child_dispatch_required",
+      children: [],
+      required: 2,
+      attempt: 1,
+      cap: 1,
+    });
+
+    const reductionRequired = decideChildTurnEnd(dispatchRequired.state, {
+      kind: "settled", children: ["@agent:a", "@agent:b"],
+    }, 1);
+    expect(reductionRequired).toMatchObject({
+      action: "continue",
+      reason: "child_reduction_required",
+      children: ["@agent:a", "@agent:b"],
+    });
+
+    const reduced = decideChildTurnEnd(reductionRequired.state, {
+      kind: "settled", children: ["@agent:a", "@agent:b"],
+    }, 1);
+    expect(reduced).toMatchObject({ action: "finish" });
+    expect(assessChildFinalization(reduced.state, {
+      kind: "settled", children: ["@agent:a", "@agent:b"],
+    })).toEqual({ ok: true });
+  });
+
+  test.each([
+    ["zero", []],
+    ["one", ["@agent:a"]],
+  ])("persistent %s-child director attempts hit the dispatch cap", (_, children) => {
+    const first = decideChildTurnEnd(
+      initialChildContinuationState(2),
+      { kind: "settled", children },
+      1,
+    );
+    const capped = decideChildTurnEnd(
+      first.state,
+      { kind: "settled", children },
+      1,
+    );
+    expect(capped).toMatchObject({
+      action: "block",
+      reason: "child_dispatch_continuation_cap",
+      children,
+      required: 2,
+    });
+    expect(assessChildFinalization(capped.state, {
+      kind: "settled", children,
+    })).toMatchObject({
+      ok: false,
+      outcome: "orchestrator_child_obligation_unmet",
+      children,
+      required: 2,
+    });
+  });
+
+  test("the final aggregate gate counts distinct direct children", () => {
+    expect(assessChildFinalization(initialChildContinuationState(2), {
+      kind: "settled", children: ["@agent:a", "@agent:a"],
+    })).toEqual({
+      ok: false,
+      outcome: "orchestrator_child_obligation_unmet",
+      children: ["@agent:a"],
+      required: 2,
+      reason: "minimum direct-child count was not met",
+    });
+  });
+
   test("an already-settled child requires one post-settlement provider result", () => {
-    const first = decideChildTurnEnd(initialChildContinuationState(), {
+    const first = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "settled", children: ["@agent:a"],
     }, 2);
     expect(first).toMatchObject({
@@ -467,7 +564,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("terminality after a live observation still forces a reduction turn", () => {
-    const live = decideChildTurnEnd(initialChildContinuationState(), {
+    const live = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "live", children: ["@agent:a"], live: ["@agent:a"],
     }, 2);
     expect(live).toMatchObject({
@@ -486,7 +583,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("a previously live child cannot disappear into an empty settled set", () => {
-    const live = decideChildTurnEnd(initialChildContinuationState(), {
+    const live = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "live", children: ["@agent:a"], live: ["@agent:a"],
     }, 2);
     const regressed = decideChildTurnEnd(live.state, {
@@ -503,7 +600,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("child-set regression is detected before a pending reduction is acknowledged", () => {
-    const pending = decideChildTurnEnd(initialChildContinuationState(), {
+    const pending = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "settled", children: ["@agent:a"],
     }, 2);
     const regressed = decideChildTurnEnd(pending.state, {
@@ -519,7 +616,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("replacing an observed child with a new identity is a regression", () => {
-    const first = decideChildTurnEnd(initialChildContinuationState(), {
+    const first = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "live", children: ["@agent:a"], live: ["@agent:a"],
     }, 2);
     const replaced = decideChildTurnEnd(first.state, {
@@ -536,7 +633,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("each changed settled child-set signature requires another reduction turn", () => {
-    const onePending = decideChildTurnEnd(initialChildContinuationState(), {
+    const onePending = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "settled", children: ["@agent:a"],
     }, 2);
     const changed = decideChildTurnEnd(onePending.state, {
@@ -568,7 +665,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("the final gate rejects an empty set after an acknowledged child reduction", () => {
-    const pending = decideChildTurnEnd(initialChildContinuationState(), {
+    const pending = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "settled", children: ["@agent:a"],
     }, 2);
     const acknowledged = decideChildTurnEnd(pending.state, {
@@ -585,7 +682,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("state advance resets consecutive no-progress while an unchanged set hits the cap", () => {
-    const one = decideChildTurnEnd(initialChildContinuationState(), {
+    const one = decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "live", children: ["a", "b"], live: ["a", "b"],
     }, 2);
     const two = decideChildTurnEnd(one.state, {
@@ -610,7 +707,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("an unavailable settlement read blocks immediately", () => {
-    expect(decideChildTurnEnd(initialChildContinuationState(), {
+    expect(decideChildTurnEnd(initialChildContinuationState(0), {
       kind: "unavailable", reason: "graph offline",
     }, 5)).toMatchObject({
       action: "block",
@@ -619,7 +716,7 @@ describe("orchestrator child continuation state", () => {
   });
 
   test("the final gate rejects live, unavailable, and unacknowledged settled sets", () => {
-    const initial = initialChildContinuationState();
+    const initial = initialChildContinuationState(0);
     expect(assessChildFinalization(initial, {
       kind: "live", children: ["a"], live: ["a"],
     })).toEqual({
@@ -653,6 +750,8 @@ describe("orchestrator child continuation state", () => {
     expect(childReductionMessage(["@agent:a"])).toContain(
       "changed settled child set requires another reduction turn",
     );
+    expect(childDispatchMessage([], 2)).toContain("direct-child obligation is unmet (0/2 observed)");
+    expect(childDispatchMessage([], 2)).toContain("dispatch at least 2 more direct child lane(s)");
   });
 });
 
