@@ -578,10 +578,14 @@
        (normalized-token (one facts entity "response_strategy_implementation"))
        :responseStrategyVersion
        (normalized-token (one facts entity "response_strategy_version"))
+       :cavemanRequestedMode
+       (normalized-token (one facts entity "caveman_requested_mode"))
        :cavemanMode (normalized-token (one facts entity "caveman_mode"))
        :cavemanSource (normalized-token (one facts entity "caveman_source"))
        :cavemanDecisionReason
        (normalized-token (one facts entity "caveman_decision_reason"))
+       :cavemanImplementation
+       (normalized-token (one facts entity "caveman_implementation"))
        :cavemanMeasurementCoverage
        (normalized-token (one facts entity "caveman_measurement_coverage"))
        :cavemanRepository (normalized-token (one facts entity "caveman_repository"))
@@ -1178,9 +1182,11 @@
           {:strategyId (or (:responseStrategyId row) unknown)
            :implementation (or (:responseStrategyImplementation row) unknown)
            :version (or (:responseStrategyVersion row) unknown)
+           :requestedMode (or (:cavemanRequestedMode row) unknown)
            :mode (or (:cavemanMode row) unknown)
            :source (or (:cavemanSource row) unknown)
            :decisionReason (or (:cavemanDecisionReason row) unknown)
+           :cavemanImplementation (or (:cavemanImplementation row) unknown)
            :measurementCoverage (or (:cavemanMeasurementCoverage row) unknown)
            :repository (or (:cavemanRepository row) unknown)
            :revision (or (:cavemanRevision row) unknown)
@@ -1197,15 +1203,18 @@
               (= unknown (:strategyId value)) "legacy-unknown"
               (= "none" (:strategyId value))
               (if (and (= "disabled" (:implementation value))
+                       (not= unknown (:requestedMode value))
                        (not= unknown (:mode value))
                        (not= unknown (:source value))
                        (not= unknown (:decisionReason value))
+                       (= "disabled" (:cavemanImplementation value))
                        (not= unknown (:measurementCoverage value)))
                 "complete" "partial")
               (every? #(not= unknown (get value %))
-                      [:implementation :version :mode :source :decisionReason
-                       :measurementCoverage :repository :revision :skillSha256 :skillBytes
-                       :renderedSha256 :renderedBytes :sourceKind :resolutionProvenance])
+                      [:implementation :version :requestedMode :mode :source :decisionReason
+                       :cavemanImplementation :measurementCoverage :repository :revision
+                       :skillSha256 :skillBytes :renderedSha256 :renderedBytes :sourceKind
+                       :resolutionProvenance])
               "complete"
               :else "partial")))
         group-key (fn [row] [(or (:provider row) "unattributed")
@@ -1231,6 +1240,12 @@
                   frequencies (into (sorted-map)))
              :responseStrategyVersionCounts
              (->> cohort (map #(or (:responseStrategyVersion %) unknown))
+                  frequencies (into (sorted-map)))
+             :cavemanRequestedModeCounts
+             (->> cohort (map #(or (:cavemanRequestedMode %) unknown))
+                  frequencies (into (sorted-map)))
+             :cavemanImplementationCounts
+             (->> cohort (map #(or (:cavemanImplementation %) unknown))
                   frequencies (into (sorted-map)))
              :responseStrategyProvenanceCoverageCounts
              (->> cohort (map provenance-status) frequencies (into (sorted-map)))
