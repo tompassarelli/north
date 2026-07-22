@@ -30,13 +30,22 @@
 (defn slurp* [path] (slurp (io/file path)))
 (defn hex64 [character] (apply str (repeat 64 character)))
 (def transaction-provenance
-  {:source_snapshot
+  {:format ct/schema-candidate-provenance-format
+   :source_snapshot
    {:snapshot_id (str "snapshot-" (hex64 "a"))
     :manifest_sha256 (hex64 "b")}
    :finalized_candidate
    {:candidate_id (str "schema-candidate-" (hex64 "c"))
     :manifest_sha256 (hex64 "d")}
    :schema_receipt_id (str "schema-converged-" (hex64 "e") ".edn")})
+(def restore-provenance
+  {:format ct/snapshot-restore-provenance-format
+   :source_snapshot
+   {:snapshot_id (str "snapshot-" (hex64 "1"))
+    :manifest_sha256 (hex64 "2")}
+   :restore_candidate
+   {:candidate_id (str "candidate-" (hex64 "3"))
+    :manifest_sha256 (hex64 "4")}})
 (defn scenario-corpus-bytes [scenario]
   (into {}
         (map (fn [key] [key (slurp* (get scenario key))])
@@ -207,11 +216,16 @@
             (= transaction-provenance
                (:provenance
                 (ct/verify-plan! plan (:expected-live scenario)))))
-     (let [alternate
+     (let [restore-plan (reseal-provenance plan restore-provenance)
+           alternate
            (reseal-provenance
             plan (assoc transaction-provenance
                         :schema_receipt_id
                         (str "schema-converged-" (hex64 "f") ".edn")))]
+       (check "snapshot restore provenance is an independently valid tagged variant"
+              (= restore-provenance
+                 (:provenance
+                  (ct/verify-plan! restore-plan (:expected-live scenario)))))
        (check "provenance is part of the plan content identity"
               (not= (:plan-id plan) (:plan-id alternate)))))))
 
@@ -239,6 +253,39 @@
                   plan (assoc-in transaction-provenance
                                  [:finalized_candidate :path]
                                  "/must/not/be/accepted"))
+           :type :provenance-invalid}
+          {:label "unknown provenance format"
+           :plan (reseal-provenance
+                  plan (assoc transaction-provenance
+                              :format "north-corpus-provenance/unknown-v1"))
+           :type :provenance-invalid}
+          {:label "schema tag on restore fields"
+           :plan (reseal-provenance
+                  plan (assoc restore-provenance
+                              :format ct/schema-candidate-provenance-format))
+           :type :provenance-invalid}
+          {:label "restore tag on schema fields"
+           :plan (reseal-provenance
+                  plan (assoc transaction-provenance
+                              :format ct/snapshot-restore-provenance-format))
+           :type :provenance-invalid}
+          {:label "mixed cross-variant fields"
+           :plan (reseal-provenance
+                  plan (assoc restore-provenance
+                              :schema_receipt_id
+                              (:schema_receipt_id transaction-provenance)))
+           :type :provenance-invalid}
+          {:label "restore candidate prefix in schema provenance"
+           :plan (reseal-provenance
+                  plan (assoc-in transaction-provenance
+                                 [:finalized_candidate :candidate_id]
+                                 (str "candidate-" (hex64 "c"))))
+           :type :provenance-invalid}
+          {:label "schema candidate prefix in restore provenance"
+           :plan (reseal-provenance
+                  plan (assoc-in restore-provenance
+                                 [:restore_candidate :candidate_id]
+                                 (str "schema-candidate-" (hex64 "3"))))
            :type :provenance-invalid}
           {:label "oversized provenance"
            :plan (reseal-provenance

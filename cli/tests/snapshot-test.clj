@@ -328,6 +328,16 @@
          result (snapshot/restore-plan!
                  (assoc base :selector (:snapshot-id created) :execute? true))
          plan (ct/read-edn-file! "restore plan" (:plan-path result))
+         snapshot-sha (subs (:snapshot-id created) (count "snapshot-"))
+         candidate-sha (subs (:candidate-id result) (count "candidate-"))
+         expected-provenance
+         {:format ct/snapshot-restore-provenance-format
+          :source_snapshot
+          {:snapshot_id (:snapshot-id created)
+           :manifest_sha256 snapshot-sha}
+          :restore_candidate
+          {:candidate_id (:candidate-id result)
+           :manifest_sha256 candidate-sha}}
          candidate-coord (get-in plan [:candidate :coordination :path])
          candidate-telem (get-in plan [:candidate :telemetry :path])
          candidate-ops (vec (rt/read-log candidate-coord))
@@ -336,6 +346,8 @@
      (check! "restore planning mutates neither selected live log"
              (= live-before {:coordination (slurp coordination)
                              :telemetry (slurp telemetry)}))
+     (check! "restore plan provenance binds the actual snapshot and candidate manifests"
+             (= expected-provenance (:provenance plan)))
      (check! "older snapshot candidate watermark is strictly above live checkpoint"
              (= 101 (:watermark-tx result)
                     (get-in plan [:target :corpus-max-tx])

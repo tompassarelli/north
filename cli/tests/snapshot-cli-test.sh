@@ -169,21 +169,40 @@ restore_dry=$(env "${common_env[@]}" "$root/bin/north" snapshot restore-plan "$s
 restore=$(env "${common_env[@]}" "$root/bin/north" snapshot restore-plan "$snapshot_id" --store "$store" --execute)
 plan_path=$(parse_field "$restore" plan-path)
 plan_id=$(parse_field "$restore" plan-id)
+candidate_id=$(parse_field "$restore" candidate-id)
 watermark=$(parse_field "$restore" watermark-tx)
 [[ "$plan_id" =~ ^plan-[0-9a-f]{64}$ ]]
+[[ "$candidate_id" =~ ^candidate-[0-9a-f]{64}$ ]]
 [[ "$watermark" -gt 1 ]]
 [[ -f "$plan_path" ]]
 [[ "$coord_before" == "$(sha256sum "$coordination" | cut -d' ' -f1)" ]]
 [[ "$telem_before" == "$(sha256sum "$telemetry" | cut -d' ' -f1)" ]]
 
-TEST_ROOT="$root" TEST_PLAN="$plan_path" TEST_COORD="$coordination" TEST_TELEMETRY="$telemetry" \
+TEST_ROOT="$root" TEST_PLAN="$plan_path" TEST_COORD="$coordination" \
+TEST_TELEMETRY="$telemetry" TEST_SNAPSHOT="$snapshot_id" \
+TEST_CANDIDATE="$candidate_id" \
   bb -cp "$fram/out" -e '
     (load-file (str (System/getenv "TEST_ROOT") "/cli/corpus-transaction.clj"))
-    (let [plan (north.corpus-transaction/read-edn-file!
-                "snapshot restore plan" (System/getenv "TEST_PLAN"))]
-      (north.corpus-transaction/verify-plan!
-       plan {:coordination (System/getenv "TEST_COORD")
-             :telemetry (System/getenv "TEST_TELEMETRY")}))' >/dev/null
+    (let [snapshot-id (System/getenv "TEST_SNAPSHOT")
+          candidate-id (System/getenv "TEST_CANDIDATE")
+          plan (north.corpus-transaction/read-edn-file!
+                "snapshot restore plan" (System/getenv "TEST_PLAN"))
+          verified
+          (north.corpus-transaction/verify-plan!
+           plan {:coordination (System/getenv "TEST_COORD")
+                 :telemetry (System/getenv "TEST_TELEMETRY")})
+          expected
+          {:format north.corpus-transaction/snapshot-restore-provenance-format
+           :source_snapshot
+           {:snapshot_id snapshot-id
+            :manifest_sha256 (subs snapshot-id (count "snapshot-"))}
+           :restore_candidate
+           {:candidate_id candidate-id
+            :manifest_sha256 (subs candidate-id (count "candidate-"))}}]
+      (when-not (= expected (:provenance verified))
+        (throw (ex-info "snapshot CLI restore provenance mismatch"
+                        {:expected expected
+                         :actual (:provenance verified)}))))' >/dev/null
 
 cp -p "$runtime_file" "$scratch/runtime.saved"
 sed 's/^FRAM_RUNTIME_REV=.*/FRAM_RUNTIME_REV=wrong-runtime/' \

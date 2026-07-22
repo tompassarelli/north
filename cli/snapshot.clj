@@ -801,10 +801,31 @@
             (ct/fail! (str "immutable restore candidate race mismatch: " target)))
           (assoc existing :created @created? :idempotent (not @created?)))))))
 
-(defn- make-restore-plan [pair current candidate identities snapshot-id]
+(defn- derive-restore-provenance!
+  [snapshot candidate]
+  (let [snapshot-sha (sha256-bytes (canonical-edn-bytes (:manifest snapshot)))
+        candidate-sha (sha256-bytes (canonical-edn-bytes (:manifest candidate)))
+        snapshot-id (str "snapshot-" snapshot-sha)
+        candidate-id (str "candidate-" candidate-sha)]
+    (when-not (= snapshot-id (:snapshot-id snapshot))
+      (ct/fail! "restore provenance source snapshot identity is not content-bound"))
+    (when-not (= candidate-id (:id candidate))
+      (ct/fail! "restore provenance candidate identity is not content-bound"))
+    (ct/validate-provenance!
+     {:format ct/snapshot-restore-provenance-format
+      :source_snapshot
+      {:snapshot_id snapshot-id
+       :manifest_sha256 snapshot-sha}
+      :restore_candidate
+      {:candidate_id candidate-id
+       :manifest_sha256 candidate-sha}})))
+
+(defn- make-restore-plan
+  [pair current candidate identities snapshot-id provenance]
   (ct/seal-plan
    {:purpose "restore-from-north-snapshot"
     :created-at (ct/now-iso)
+    :provenance (ct/validate-provenance! provenance)
     :live (into {}
                 (map (fn [role]
                        [role (assoc (get current role)
@@ -889,8 +910,11 @@
                     :runtime (:runtime identities)
                     :controller (:controller identities)
                     :provenance provenance :execute? execute?})
+        transaction-provenance
+        (derive-restore-provenance! snapshot candidate)
         plan (make-restore-plan pair current candidate identities
-                                (:snapshot-id snapshot))
+                                (:snapshot-id snapshot)
+                                transaction-provenance)
         prepared-plan (when execute? (prepare-plan-stage! store-root plan))
         after-current (into {}
                             (map (fn [role]
