@@ -186,6 +186,13 @@ function setup(mode = "ok") {
     inherit: "core",
     set: { PATH: managedPath, NORTH_BIN: engine },
   };
+  const effectiveShellEnvironmentPolicy = {
+    ...shellEnvironmentPolicy,
+    ignore_default_excludes: null,
+    exclude: null,
+    include_only: null,
+    experimental_use_profile: null,
+  };
   const session = {
     cli_auth_credentials_store: "file",
     forced_login_method: "chatgpt",
@@ -209,7 +216,7 @@ function setup(mode = "ok") {
         ...session.mcp_servers.north, environment_id: "local", tool_timeout_sec: null,
       } },
       projects: session.projects,
-      shell_environment_policy: shellEnvironmentPolicy,
+      shell_environment_policy: effectiveShellEnvironmentPolicy,
       project_doc_max_bytes: 0, model_provider: "openai",
       cli_auth_credentials_store: "file", forced_login_method: "chatgpt",
       sqlite_home: sqliteHome, apps: null, plugins: {}, marketplaces: {},
@@ -490,6 +497,8 @@ function setup(mode = "ok") {
           current.config.shell_environment_policy.inherit = "all";
         if (mode === "shell-policy-drift")
           current.config.shell_environment_policy.set.PATH = "/run/current-system/sw/bin";
+        if (mode === "shell-policy-extra-key")
+          current.config.shell_environment_policy.future_authority = true;
         if (mode === "fingerprint-mutation" && configReads > 1)
           current.layers[0].version = `sha256:${"f".repeat(64)}`;
         if (mode === "terminal-notification-unknown" && configReads > 2)
@@ -655,6 +664,12 @@ test("launch seals the exact package shell environment policy", () => {
   expect(launch.args).toContain(
     `shell_environment_policy.set={"NORTH_BIN"=${JSON.stringify(options.env.NORTH_BIN)},"PATH"=${JSON.stringify(options.env.PATH)}}`,
   );
+});
+
+test("real expanded effective shell policy is accepted without widening the session request", async () => {
+  const { options, requests } = setup();
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
+  expect(requests.some(({ method }) => method === "thread/start")).toBe(true);
 });
 
 test("a first-result consumer sees exact MCP activity without resuming the session", async () => {
@@ -1115,6 +1130,7 @@ test("pre-thread authority mutants fail before thread/start", async () => {
     "hook-failure-continue", "hook-failure-unrecognized",
     "feature-default-enabled", "feature-omitted", "mcp-resource", "mcp-template", "mcp-auth",
     "shell-policy-missing", "shell-policy-wrong-inherit", "shell-policy-drift",
+    "shell-policy-extra-key",
     "mcp-server-info", "remote-enabled", "remote-extra-field", "remote-missing-installation",
     "deprecation-extra-field", "notification-unknown-prethread", "server-request-prethread",
     "config-warning-drift",

@@ -704,9 +704,19 @@ function validateConfig(
   ));
   exact(config.mcp_servers, expectedEffectiveMcp, "Codex effective MCP set");
   exact(config.projects, contract.expectedSessionConfig.projects, "Codex project trust set");
+  const sessionShellEnvironmentPolicy = record(
+    contract.expectedSessionConfig.shell_environment_policy,
+    "Codex expected shell environment policy",
+  );
   exact(
     config.shell_environment_policy,
-    contract.expectedSessionConfig.shell_environment_policy,
+    {
+      ...sessionShellEnvironmentPolicy,
+      ignore_default_excludes: null,
+      exclude: null,
+      include_only: null,
+      experimental_use_profile: null,
+    },
     "Codex effective shell environment policy",
   );
   if (config.project_doc_max_bytes !== 0 || config.model_provider !== "openai"
