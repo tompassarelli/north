@@ -44,9 +44,9 @@
       (str (System/getProperty "user.home") "/.local/state")))
 
 (defn default-store [] (str (state-home) "/north/snapshots"))
-(defn runtime-file []
-  (or (env-value "NORTH_COORD_RUNTIME_FILE")
-      (str (state-home) "/north/fram-daemon-" port ".runtime")))
+(defn runtime-state-root []
+  (or (env-value "NORTH_COORD_RUNTIME_STATE")
+      (str (state-home) "/north/fram-runtime")))
 
 (defn require-split-live! []
   (when-not telemetry-log
@@ -62,14 +62,23 @@
                 {:status strict}))
     (let [status (coord/send-op port {:op :status})
           served (some-> (:log status) io/file .getCanonicalPath)
-          record-path (.getCanonicalPath (io/file (runtime-file)))]
+          controller-mode (or (env-value "NORTH_CORPUS_CONTROLLER") "auto")
+          controller-unit (or (env-value "NORTH_COORD_SYSTEMD_UNIT")
+                              "north-coord.service")]
       (when-not (= coordination-log served)
         (ct/fail! "coordinator status reports the wrong served log"
                   {:expected coordination-log :served served}))
-      {:selector (or (env-value "NORTH_FRAM_RUNTIME") "auto")
+      {:selector (or (env-value "NORTH_COORD_RUNTIME_GENERATION") "auto")
        :attestation
-       (runtime-attestation/attest-runtime!
-        {:port port :served-log served :record-path record-path})
+       (runtime-attestation/attest-active-runtime!
+        {:port port
+         :served-log served
+         :telemetry-log telemetry-log
+         :state-root (runtime-state-root)
+         :record-path (env-value "NORTH_COORD_RUNTIME_FILE")
+         :controller-mode controller-mode
+         :controller-unit (when-not (= "direct" controller-mode)
+                            controller-unit)})
        :protocol {:rollback-floor (:rollback_floor status)}})))
 
 (defn assert-runtime-current! [runtime]
