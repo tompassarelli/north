@@ -125,6 +125,16 @@
               exact
             else
               throw "North requires an exact or caret-prefixed Claude SDK version, got ${declared}";
+        zodVersion =
+          let
+            declared = (builtins.fromJSON (builtins.readFile ./sdk/package.json))
+              .dependencies.zod;
+            exact = lib.removePrefix "^" declared;
+          in
+            if builtins.match "[0-9]+\\.[0-9]+\\.[0-9]+" exact != null then
+              exact
+            else
+              throw "North requires an exact or caret-prefixed Zod version, got ${declared}";
         # Runtime PATH for the bb-backed CLIs. util-linux supplies `setsid` for
         # managed lanes on every supported host. iproute2 supplies Linux's `ss`
         # for daemon-health probes and procps supplies lifecycle-hook `pgrep`;
@@ -189,12 +199,17 @@
         sdkPlatformSource = pkgs.fetchurl {
           inherit (sdkPlatform) url hash;
         };
+        zodSource = pkgs.fetchurl {
+          url = "https://registry.npmjs.org/zod/-/zod-${zodVersion}.tgz";
+          hash = "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==";
+        };
         runtimeSource = lib.fileset.toSource {
           root = ./.;
           fileset = lib.fileset.unions [
             ./out
             (lib.fileset.difference ./cli ./cli/tests)
             ./sdk/src
+            ./contracts/agent-run-ledger-v1.json
             ./bin/north
             ./bin/north-mcp
             ./bin/north-actor-key
@@ -293,11 +308,11 @@ PY
           '';
         };
 
-        # sdk.mjs is self-contained; at runtime it needs the public package and
-        # the exact native Claude binary for this host. Fetching those tarballs
-        # directly keeps each system's closure bounded instead of prefetching
-        # every 200+ MB optional OS/architecture package in npm's universal
-        # lockfile.
+        # The packaged TypeScript runtime needs the public SDK, North's direct
+        # Zod dependency, and the exact native Claude binary for this host.
+        # Fetching those tarballs directly keeps each system's closure bounded
+        # instead of prefetching every 200+ MB optional OS/architecture package
+        # in npm's universal lockfile.
         sdkRuntimeDependencies = pkgs.stdenvNoCC.mkDerivation {
           pname = "north-sdk-runtime-dependencies";
           version = sdkVersion;
@@ -307,11 +322,14 @@ PY
             runHook preInstall
             mkdir -p \
               $out/node_modules/@anthropic-ai/claude-agent-sdk \
-              $out/node_modules/${sdkPlatform.packageName}
+              $out/node_modules/${sdkPlatform.packageName} \
+              $out/node_modules/zod
             tar -xzf ${sdkSource} --strip-components=1 \
               -C $out/node_modules/@anthropic-ai/claude-agent-sdk
             tar -xzf ${sdkPlatformSource} --strip-components=1 \
               -C $out/node_modules/${sdkPlatform.packageName}
+            tar -xzf ${zodSource} --strip-components=1 \
+              -C $out/node_modules/zod
             chmod +x $out/node_modules/${sdkPlatform.packageName}/claude
             runHook postInstall
           '';
@@ -342,8 +360,9 @@ PY
           dontBuild = true;
           installPhase = ''
             runHook preInstall
-            mkdir -p $out/bin $out/out $out/sdk
+            mkdir -p $out/bin $out/contracts $out/out $out/sdk
             cp -r out/. $out/out/
+            cp contracts/agent-run-ledger-v1.json $out/contracts/
             # bb-verb CLIs (agents/watch/trace/health/dials/dashboard/config/...)
             # route through $root/cli — without this every non-engine verb dies
             # on the packaged binary with "File does not exist: .../cli/*.clj".
@@ -469,9 +488,11 @@ PY
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/poison-home" \
               NORTH_HOME="$out" \
+              SPAWN_MODULE="$out/sdk/src/spawn.ts" \
               WORKTREE_MODULE="$out/sdk/src/worktree.ts" \
               EXPECTED_NORTH_BIN="$out/bin/north" \
               ${pkgs.bun}/bin/bun -e '
+                await import(process.env.SPAWN_MODULE);
                 const module = await import(process.env.WORKTREE_MODULE);
                 const actual = module.worktreeNorthExecutable(process.env);
                 if (actual !== process.env.EXPECTED_NORTH_BIN)
