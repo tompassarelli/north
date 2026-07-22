@@ -634,8 +634,8 @@ function validateConfig(
         ? ["name", "version", "config"]
         : ["name", "version", "config", "disabledReason"], "Codex project layer");
       onlyKeys(name, ["type", "dotCodexFolder"], "Codex project layer name");
-      if (layer.disabledReason !== undefined && layer.disabledReason !== "untrusted")
-        throw new Error("Codex project layer is not disabled");
+      if (layer.disabledReason !== undefined)
+        boundedString(layer.disabledReason, "Codex project layer disabled reason", 4_096);
       validateDisabledProjectConfig(layerConfig);
       if (Object.keys(layerConfig).length > 0) projectWarningRequired = true;
       if (boundedString(name.dotCodexFolder, "Codex project layer folder", 4_096)
