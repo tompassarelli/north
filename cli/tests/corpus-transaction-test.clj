@@ -28,6 +28,25 @@
 (defn append! [path value] (spit path value :append true))
 (defn sha [path] (ct/sha256-file path))
 (defn slurp* [path] (slurp (io/file path)))
+(defn hex64 [character] (apply str (repeat 64 character)))
+(def transaction-provenance
+  {:source_snapshot
+   {:snapshot_id (str "snapshot-" (hex64 "a"))
+    :manifest_sha256 (hex64 "b")}
+   :finalized_candidate
+   {:candidate_id (str "schema-candidate-" (hex64 "c"))
+    :manifest_sha256 (hex64 "d")}
+   :schema_receipt_id (str "schema-converged-" (hex64 "e") ".edn")})
+(defn scenario-corpus-bytes [scenario]
+  (into {}
+        (map (fn [key] [key (slurp* (get scenario key))])
+             [:coord :telem :candidate-coord :candidate-telem])))
+(defn reseal-provenance [plan provenance]
+  (ct/seal-plan
+   (assoc (dissoc plan :plan-id) :provenance provenance)))
+(defn canonical-bytes= [left right]
+  (java.util.Arrays/equals ^bytes (ct/canonical-edn-bytes left)
+                           ^bytes (ct/canonical-edn-bytes right)))
 (defn delete-tree! [root]
   (doseq [f (reverse (file-seq root))]
     (java.nio.file.Files/deleteIfExists (.toPath ^java.io.File f))))
@@ -68,14 +87,17 @@
         (f scenario))
       (finally (delete-tree! (:tmp scenario))))))
 
+(defn plan-input [scenario]
+  {:purpose "owner-state-machine-test"
+   :provenance transaction-provenance
+   :live (:expected-live scenario)
+   :candidate {:coordination (:candidate-coord scenario)
+               :telemetry (:candidate-telem scenario)}
+   :target {:corpus-max-tx (get-in scenario [:options :target-max] 2)}
+   :runtime {:controller "test"}})
+
 (defn fresh-plan [scenario]
-  (ct/make-plan
-   {:purpose "owner-state-machine-test"
-    :live (:expected-live scenario)
-    :candidate {:coordination (:candidate-coord scenario)
-                :telemetry (:candidate-telem scenario)}
-    :target {:corpus-max-tx (get-in scenario [:options :target-max] 2)}
-    :runtime {:controller "test"}}))
+  (ct/make-plan (plan-input scenario)))
 
 (defn callbacks [scenario]
   (let [{:keys [coord telem candidate-coord candidate-telem events
@@ -177,7 +199,70 @@
                (:plan-id (ct/verify-plan! plan (:expected-live scenario)))))
      (check "plan metadata tamper is refused"
             (throws? #(ct/verify-plan! (assoc plan :purpose "tampered")
-                                      (:expected-live scenario)))))))
+                                      (:expected-live scenario))))
+     (check "plan construction requires provenance"
+            (throws? #(ct/make-plan (dissoc (plan-input scenario)
+                                           :provenance))))
+     (check "verified plan retains exact canonical provenance"
+            (= transaction-provenance
+               (:provenance
+                (ct/verify-plan! plan (:expected-live scenario)))))
+     (let [alternate
+           (reseal-provenance
+            plan (assoc transaction-provenance
+                        :schema_receipt_id
+                        (str "schema-converged-" (hex64 "f") ".edn")))]
+       (check "provenance is part of the plan content identity"
+              (not= (:plan-id plan) (:plan-id alternate)))))))
+
+(println "## provenance rejects before transaction mutation")
+(with-scenario
+ {}
+ (fn [scenario]
+   (let [plan (fresh-plan scenario)
+         invalid
+         [{:label "missing provenance"
+           :plan (ct/seal-plan (dissoc plan :plan-id :provenance))
+           :type :provenance-invalid}
+          {:label "malformed provenance"
+           :plan (reseal-provenance
+                  plan (assoc-in transaction-provenance
+                                 [:source_snapshot :snapshot_id]
+                                 "snapshot-malformed"))
+           :type :provenance-invalid}
+          {:label "unknown provenance field"
+           :plan (reseal-provenance
+                  plan (assoc transaction-provenance :unknown "refused"))
+           :type :provenance-invalid}
+          {:label "unknown nested provenance field"
+           :plan (reseal-provenance
+                  plan (assoc-in transaction-provenance
+                                 [:finalized_candidate :path]
+                                 "/must/not/be/accepted"))
+           :type :provenance-invalid}
+          {:label "oversized provenance"
+           :plan (reseal-provenance
+                  plan (assoc transaction-provenance
+                              :schema_receipt_id
+                              (apply str (repeat 2048 "x"))))
+           :type :provenance-too-large}
+          {:label "plan-seal provenance tamper"
+           :plan (assoc-in plan
+                           [:provenance :source_snapshot :manifest_sha256]
+                           (hex64 "f"))}]
+         before (scenario-corpus-bytes scenario)]
+     (doseq [{:keys [label plan type]} invalid]
+       (let [result (capture #(ct/apply-plan! plan (callbacks scenario)))]
+         (check (str label " is refused")
+                (and (:error result)
+                     (or (nil? type) (= type (:type (ex-data (:error result)))))))
+         (check (str label " invokes no transaction callback")
+                (empty? @(:events scenario)))
+         (check (str label " creates no state lock or journal")
+                (and (not (.exists (io/file (ct/maintenance-lock-path))))
+                     (not (.exists (io/file (ct/journal-path))))))
+         (check (str label " changes no corpus bytes")
+                (= before (scenario-corpus-bytes scenario))))))))
 (with-scenario
  {:checkpoint-version 9 :target-max 8}
  (fn [scenario]
@@ -222,6 +307,8 @@
               (and (= true (get-in receipt [:runtime-verification :ok]))
                    (= "test" (get-in receipt [:runtime :controller]))
                    (= 2 (get-in receipt [:target :corpus-max-tx]))
+                   (canonical-bytes= transaction-provenance
+                                     (:provenance receipt))
                    (= true (get-in receipt [:pre-settlement-corpus :prefix-match]))
                    (= true (get-in receipt [:post-settlement-corpus :prefix-match]))
                    (= true (get-in receipt [:lease-settlement :ok]))
@@ -308,6 +395,64 @@
          (ct/settle-active! cb)
          (check (str boundary " settles exact lease then clears journal")
                 (not (.exists (io/file (ct/journal-path))))))))))
+
+(println "## provenance survives interruption and detects journal tamper")
+(with-scenario
+ {}
+ (fn [scenario]
+   (let [cb (callbacks scenario)
+         crashed (crash-at!
+                  "coordination-renamed"
+                  #(ct/apply-plan! (fresh-plan scenario) cb))
+         original-journal
+         (ct/read-edn-file! "provenance crash journal" (ct/journal-path))
+         preimage-manifest
+         (ct/read-edn-file!
+          "provenance preimage manifest"
+          (get-in original-journal [:preimage-manifest :path]))
+         before-tamper-recovery (scenario-corpus-bytes scenario)
+         event-count (count @(:events scenario))
+         tampered-journal
+         (assoc-in original-journal
+                   [:provenance :finalized_candidate :manifest_sha256]
+                   (hex64 "f"))]
+     (check "interruption leaves provenance in durable intent"
+            (and (:error crashed)
+                 (canonical-bytes= transaction-provenance
+                                   (:provenance original-journal))
+                 (canonical-bytes= transaction-provenance
+                                   (:provenance preimage-manifest))))
+     (ct/write-edn-atomic! (ct/journal-path) tampered-journal)
+     (let [refused
+           (capture #(ct/recover-active!
+                      {:expected-live (:expected-live scenario)
+                       :assert-offline! (:assert-offline! cb)}))]
+       (check "journal provenance tamper is refused before recovery callbacks"
+              (and (:error refused)
+                   (= event-count (count @(:events scenario)))))
+       (check "journal provenance tamper changes no corpus bytes"
+              (= before-tamper-recovery (scenario-corpus-bytes scenario))))
+     ;; Exact original intent remains retry authority once restored from the
+     ;; test's saved durable bytes.
+     (ct/write-edn-atomic! (ct/journal-path) original-journal)
+     (let [recovered
+           (ct/recover-active!
+            {:expected-live (:expected-live scenario)
+             :assert-offline! (:assert-offline! cb)})
+           recovered-journal
+           (ct/read-edn-file! "recovered provenance journal" (ct/journal-path))
+           _ ((:start! cb))
+           settled (ct/settle-active! cb)
+           receipt (ct/read-edn-file! "provenance terminal receipt"
+                                      (:path settled))]
+       (check "recovery and settlement preserve byte-semantic provenance"
+              (every? #(canonical-bytes= transaction-provenance %)
+                      [(:provenance recovered)
+                       (:provenance recovered-journal)
+                       (get-in settled [:receipt :provenance])
+                       (:provenance receipt)]))
+       (check "provenance retry reaches one clean terminal state"
+              (not (.exists (io/file (ct/journal-path)))))))))
 
 (println "## post-restart settlement crash boundaries")
 (doseq [boundary ["settlement-verified" "lease-settled" "receipt-published"

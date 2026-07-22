@@ -94,8 +94,18 @@ make_plan() {
   TEST_CANDIDATE_TELEMETRY=$candidate_telemetry \
     bb -cp "$fram/out" -e '
       (load-file (str (System/getenv "TEST_ROOT") "/cli/corpus-transaction.clj"))
-      (let [plan (north.corpus-transaction/make-plan
+      (let [hex (fn [character] (apply str (repeat 64 character)))
+            plan (north.corpus-transaction/make-plan
                   {:purpose "real-split-integration"
+                   :provenance
+                   {:source_snapshot
+                    {:snapshot_id (str "snapshot-" (hex "a"))
+                     :manifest_sha256 (hex "b")}
+                    :finalized_candidate
+                    {:candidate_id (str "schema-candidate-" (hex "c"))
+                     :manifest_sha256 (hex "d")}
+                    :schema_receipt_id
+                    (str "schema-converged-" (hex "e") ".edn")}
                    :live {:coordination (System/getenv "TEST_COORD")
                           :telemetry (System/getenv "TEST_TELEMETRY")}
                    :candidate {:coordination (System/getenv "TEST_CANDIDATE_COORD")
@@ -104,6 +114,31 @@ make_plan() {
                    :runtime {}})]
         (spit (System/getenv "TEST_PLAN") (str (pr-str plan) "\n"))
         (println (:plan-id plan)))'
+}
+
+assert_provenance() {
+  local document=$1 location=$2
+  TEST_DOCUMENT=$document TEST_LOCATION=$location bb -e '
+    (require (quote [clojure.edn :as edn]))
+    (let [hex (fn [character] (apply str (repeat 64 character)))
+          expected
+          {:source_snapshot
+           {:snapshot_id (str "snapshot-" (hex "a"))
+            :manifest_sha256 (hex "b")}
+           :finalized_candidate
+           {:candidate_id (str "schema-candidate-" (hex "c"))
+            :manifest_sha256 (hex "d")}
+           :schema_receipt_id
+           (str "schema-converged-" (hex "e") ".edn")}
+          value (edn/read-string (slurp (System/getenv "TEST_DOCUMENT")))
+          actual (case (System/getenv "TEST_LOCATION")
+                   "top" (:provenance value)
+                   "receipt" (get-in value [:receipt :provenance])
+                   "nested-receipt"
+                   (get-in value [:receipt :receipt :provenance]))]
+      (when-not (= expected actual)
+        (throw (ex-info "transaction provenance mismatch"
+                        {:expected expected :actual actual}))))'
 }
 
 coord_value() {
@@ -156,9 +191,11 @@ candidate_telemetry_1=$scratch/candidate-1-telemetry.log
 write_op "$candidate_coord_1" 1000 @candidate-one title installed-one
 write_op "$candidate_telemetry_1" 999 @candidate-run-one kind run
 plan_id=$(make_plan "$candidate_coord_1" "$candidate_telemetry_1")
+assert_provenance "$plan_file" top
 env "${common_env[@]}" "$root/bin/north" corpus-transaction \
   apply "$plan_file" --confirm-plan "$plan_id" >"$scratch/apply-one.out"
 grep -q ':ok true' "$scratch/apply-one.out"
+assert_provenance "$scratch/apply-one.out" nested-receipt
 [[ $(coord_value @candidate-one title) == installed-one ]]
 [[ $(coord_version) -ge 1000 ]]
 [[ ! -e "$state_dir/active.edn" ]]
@@ -178,6 +215,7 @@ drift_rc=$?
 set -e
 [[ "$drift_rc" -eq 1 ]]
 grep -q ':aborted :source-drift' "$scratch/apply-drift.out"
+assert_provenance "$scratch/apply-drift.out" nested-receipt
 [[ $(coord_value @real-stop-race note) == acknowledged-before-stop ]]
 [[ $(coord_value @candidate-two title) == '' ]]
 drift_version=$(coord_version)
@@ -200,6 +238,7 @@ crash_rc=$?
 set -e
 [[ "$crash_rc" -eq 1 ]]
 [[ -e "$state_dir/active.edn" ]]
+assert_provenance "$state_dir/active.edn" top
 if env "${common_env[@]}" TEST_ROOT=$root TEST_PORT=$port TEST_LOG=$coord_log \
      bb -cp "$fram/out" -e '
        (load-file (str (System/getenv "TEST_ROOT") "/cli/coord.clj"))
@@ -217,9 +256,11 @@ unlink "$candidate_telemetry_3"
 env "${common_env[@]}" "$root/bin/north" corpus-transaction recover --launcher \
   >"$scratch/recover.out"
 grep -q ':data-result "rolled-back"' "$scratch/recover.out"
+assert_provenance "$scratch/recover.out" top
 env "${common_env[@]}" "$launcher"
 env "${common_env[@]}" "$root/bin/north" corpus-transaction settle --wait --launcher \
   >"$scratch/settle.out"
+assert_provenance "$scratch/settle.out" receipt
 [[ ! -e "$state_dir/active.edn" ]]
 [[ $(coord_value @real-stop-race note) == acknowledged-before-stop ]]
 [[ $(coord_value @candidate-three title) == '' ]]
