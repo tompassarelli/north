@@ -113,6 +113,11 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   const messages = [
     { type: "system", subtype: "init" },
     event({ utilization: 72, resetsAt: Date.parse("2026-07-17T00:00:00Z") / 1_000, rateLimitType: "seven_day" }),
+    { type: "assistant", message: { content: [
+      { type: "tool_use", id: "call-1", name: "mcp__north__tell", input: { secret: "CANARY" } },
+      { type: "tool_use", id: "call-1", name: "mcp__north__tell", input: { retry: true } },
+      { type: "tool_use", id: "native-1", name: "Bash", input: { command: "private" } },
+    ] } },
     { type: "result", subtype: "success" },
   ];
   let interrupted = false;
@@ -155,6 +160,11 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   expect(observed.supportsInFlightEscalation?.()).toBe(true);
   expect(models).toEqual(["claude-opus-4-8"]);
   expect(efforts).toEqual(["xhigh"]);
+  expect(observed.mcpActivity?.()).toEqual({
+    source: "anthropic-agent-sdk:assistant-tool-use", coverage: "exact", totalCalls: 1,
+    tools: [{ server: "north", tool: "tell", count: 1 }],
+  });
+  expect(JSON.stringify(observed.mcpActivity?.())).not.toContain("CANARY");
 });
 
 test("observation persistence failures never interrupt Claude output", async () => {

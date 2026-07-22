@@ -340,7 +340,11 @@ function setup(mode = "ok") {
       notify("item/fileChange/outputDelta", { threadId, turnId, itemId: file.id, delta: "patched" });
       notify("item/fileChange/patchUpdated", { threadId, turnId, itemId: file.id, changes: [] });
       lifecycle("completed", file, 13);
-      const mcp = item("mcp-1", "mcpToolCall");
+      const mcp = item("mcp-1", "mcpToolCall", {
+        server: "north", tool: "tell",
+        arguments: { secret: "CANARY-private-argument" },
+        result: "CANARY-private-result",
+      });
       lifecycle("started", mcp, 14);
       notify("item/mcpToolCall/progress", { threadId, turnId, itemId: mcp.id, message: "working" });
       lifecycle("completed", mcp, 15);
@@ -514,7 +518,8 @@ function setup(mode = "ok") {
 
 test("one app-server proves authority and executes realistic shell/file/MCP traffic", async () => {
   const { options, requests } = setup();
-  const result = await new ManagedCodexAppServerRun(options).execute();
+  const run = new ManagedCodexAppServerRun(options);
+  const result = await run.execute();
   expect(result).toEqual({
     text: "managed answer",
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
@@ -535,6 +540,11 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
     threadId: "019f7abc-0000-7000-8000-000000000001",
     input: [{ type: "text", text: "perform managed work" }], effort: "high",
   });
+  expect(run.mcpActivity()).toEqual({
+    source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 1,
+    tools: [{ server: "north", tool: "tell", count: 1 }],
+  });
+  expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
 });
 
 test("a later North frame drives a same-thread continuation turn under re-proven authority", async () => {
@@ -554,6 +564,7 @@ test("a later North frame drives a same-thread continuation turn under re-proven
   };
   // One terminal result per consumed frame.
   expect(settlements).toEqual([expected, expected]);
+  expect(run.mcpActivity()?.totalCalls).toBe(2);
 
   // Exactly one provider thread, two turns bound to it.
   expect(requests.filter(({ method }) => method === "thread/start")).toHaveLength(1);

@@ -368,7 +368,7 @@
                           :effort {:type "string" :enum reasoning-values :description "Compatibility alias for reasoning"}
                           :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Agent provider (default auto)"}
                           :target {:type "string" :minLength 1 :description "Exact configured routing target/account; exact pins never fall back"}
-                          :caveman {:type "string" :enum ["off" "lite" "full"] :description "Terse-output dial (default ambient AGENT_CAVEMAN)"}
+                          :caveman {:type "string" :enum ["off" "lite" "full"] :description "Managed response-compression strategy (default off until savings are proven)"}
                           :worktree {:type "boolean" :description "OPT-IN: run this lane in an isolated per-lane git worktree (own index+tree). Default off."}
                           :setupCmd {:type "string" :minLength 1 :description "Optional repo-setup command run in the fresh worktree (e.g. 'bun install'); only with worktree=true"}
                           :coordinator {:type "string" :minLength 1 :description "Caller's north id; see dispatch.coordinator"})
@@ -557,7 +557,7 @@
 (def sdk-argument-keys
   {"dispatch" #{"id" "model" "effort" "reasoning" "role" "posture" "provider" "target" "tier"
                  "coordinator" "taskGrade" "domainRequirements" "topology" "composition"
-                 "routingAssessment" "pinEvidence"}
+                 "routingAssessment" "pinEvidence" "caveman"}
    "spawn" #{"prompt" "model" "effort" "reasoning" "role" "posture" "provider" "target" "tier"
               "caveman" "coordinator" "taskGrade" "domainRequirements" "topology" "composition"
               "routingAssessment" "pinEvidence"}})
@@ -847,6 +847,7 @@
             composition (get args "composition")
             routing-assessment (get args "routingAssessment")
             pin-evidence (get args "pinEvidence")
+            caveman (get args "caveman")
             agent-id (create-mcp-agent-id id)
             cmd-env (cond-> (assoc env
                               "AGENT_ID" agent-id
@@ -865,6 +866,7 @@
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment))
                       pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" (json/generate-string pin-evidence))
+                      caveman     (assoc "AGENT_CAVEMAN" caveman "NORTH_CAVEMAN_SOURCE" "request")
                       coordinator (assoc "AGENT_COORDINATOR" coordinator))]
         (if-let [problem (claim-driver-problem id agent-id)]
           {:content [{:type "text" :text problem}] :isError true}
@@ -927,7 +929,7 @@
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment))
                       pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" (json/generate-string pin-evidence))
-                      caveman     (assoc "AGENT_CAVEMAN" caveman)
+                      caveman     (assoc "AGENT_CAVEMAN" caveman "NORTH_CAVEMAN_SOURCE" "request")
                       worktree    (assoc "AGENT_WORKTREE" "1")
                       setup-cmd   (assoc "AGENT_SETUP_CMD" setup-cmd)
                       recursive-binding

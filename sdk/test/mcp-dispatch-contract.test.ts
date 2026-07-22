@@ -85,6 +85,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     jsonrpc: "2.0", id: 1, method: "tools/call",
     params: { name: "spawn", arguments: {
       prompt: "contract probe",
+      caveman: "full",
       ...route,
     } },
   })}\n`;
@@ -95,7 +96,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   });
   expect(result.status, result.stderr).toBe(0);
   const response = JSON.parse(result.stdout.trim());
-  expect(response.result.isError).not.toBe(true);
+  expect(response.result.isError, JSON.stringify(response.result)).not.toBe(true);
   const childEnv = Object.fromEntries(
     readFileSync(capture, "utf8")
       .trim()
@@ -115,6 +116,8 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     AGENT_EFFORT: route.reasoning,
     AGENT_POSTURE: route.posture,
     AGENT_COMPOSITION: JSON.stringify(route.composition),
+    AGENT_CAVEMAN: "full",
+    NORTH_CAVEMAN_SOURCE: "request",
   });
   expect(JSON.parse(childEnv.NORTH_STRUGGLE_POLICY_EXPECTED)).toEqual({
     version: "north:struggle-observer:v1",
@@ -274,7 +277,7 @@ case "$*" in
   *mcp-route-preflight.ts*) exit 0 ;;
 esac
 printf 'spawn:%s\n' "$AGENT_ID" >> "$NORTH_MCP_EVENTS"
-printf '%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_LOG" "$*" > "$NORTH_MCP_CAPTURE"
+printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_LOG" "$AGENT_CAVEMAN" "$NORTH_CAVEMAN_SOURCE" "$*" > "$NORTH_MCP_CAPTURE"
 "$NORTH_MCP_BB" ignored 7977 release "@\${@: -1}" "$AGENT_ID"
 `);
   chmodSync(fakeBun, 0o755);
@@ -301,6 +304,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       ...presetRequest("integrator"),
       provider: "anthropic",
       target: "claude-personal-tompas0x-gmail",
+      caveman: "lite",
       pinEvidence: pinEvidence([
         { kind: "provider", value: "anthropic" },
         { kind: "account", value: "claude-personal-tompas0x-gmail" },
@@ -322,18 +326,20 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   });
   expect(result.status, result.stderr).toBe(0);
   const response = JSON.parse(result.stdout.trim());
-  expect(response.result.isError).not.toBe(true);
+  expect(response.result.isError, JSON.stringify(response.result)).not.toBe(true);
   expect(response.result.content[0].text).toContain("completed anthropic-claude-gmail-opus-xhigh-integrator-probe");
   expect(response.result.content[0].text).not.toContain("Agent is running");
   expect(response.result.content[0].text).toContain("target=claude-personal-tompas0x-gmail");
   expect(response.result.content[0].text).toContain("thread @019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(response.result.content[0].text).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
-  const [target, provider, agentId, preclaimed, observedFramLog, command] =
+  const [target, provider, agentId, preclaimed, observedFramLog, caveman, cavemanSource, command] =
     readFileSync(capture, "utf8").trim().split("|");
   expect(target).toBe("claude-personal-tompas0x-gmail");
   expect(provider).toBe("anthropic");
   expect(preclaimed).toBe("1");
   expect(observedFramLog).toBe(exactFramLog);
+  expect(caveman).toBe("lite");
+  expect(cavemanSource).toBe("request");
   expect(command).toContain("/dispatch.ts");
   expect(command).toContain("/dispatch.ts 019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(command).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");

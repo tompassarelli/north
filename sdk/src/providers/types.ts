@@ -186,6 +186,8 @@ export interface AgentQuery {
   applyFlagSettings?(settings: { effortLevel?: Effort | null }): Promise<void> | void;
   /** True only when both model and effort can be changed on the active run. */
   supportsInFlightEscalation?(): boolean;
+  /** Argument-free actual MCP activity observed by the selected adapter. */
+  mcpActivity?(): import("../tool-activity").McpActivityObservation;
 }
 
 export class ProviderEscalationUnsupportedError extends Error {

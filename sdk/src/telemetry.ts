@@ -29,6 +29,8 @@ import {
 import type { ProviderModelAdmissionReceipt } from "./provider-model-observation-store";
 import { canonicalWriteModel } from "./providers/catalog";
 import type { ProviderId } from "./providers/types";
+import type { CavemanResolution } from "./caveman";
+import type { McpActivityObservation } from "./tool-activity";
 import type {
   RoutingAdmissionReceipt, RoutingAssessment, RoutingPinEvidence,
 } from "./routing-economics";
@@ -93,6 +95,8 @@ export interface RunRecord {
   capabilityClass?: string;
   /** Finalized append-only observation ledger summary. */
   runLedger?: AgentRunLedgerSummary;
+  caveman?: CavemanResolution;
+  mcpActivity?: McpActivityObservation;
   /** Exact provider-executable authority from the final admitted route. */
   effectiveAuthority?: ProviderAuthoritySurface;
   allocationMode?: string;
@@ -209,6 +213,36 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     for (const observation of ledger.coverage) {
       facts.push(["run_observation_coverage", JSON.stringify(observation)]);
     }
+  }
+  if (rec.caveman) {
+    const value = rec.caveman;
+    facts.push(["response_strategy_id", value.resolvedMode === "off" ? "none" : "caveman"]);
+    facts.push(["response_strategy_implementation", value.implementation]);
+    if (value.revision) facts.push(["response_strategy_version", value.revision]);
+    facts.push(["caveman_requested_mode", value.requestedMode]);
+    facts.push(["caveman_mode", value.resolvedMode]);
+    facts.push(["caveman_source", value.source]);
+    facts.push(["caveman_decision_reason", value.decisionReason]);
+    facts.push(["caveman_implementation", value.implementation]);
+    facts.push(["caveman_measurement_coverage", value.measurementCoverage]);
+    if (value.repository) facts.push(["caveman_repository", value.repository]);
+    if (value.revision) facts.push(["caveman_revision", value.revision]);
+    if (value.skillSha256) facts.push(["caveman_skill_sha256", value.skillSha256]);
+    if (value.skillBytes !== undefined) facts.push(["caveman_skill_bytes", String(value.skillBytes)]);
+    if (value.renderedSha256) facts.push(["caveman_rendered_sha256", value.renderedSha256]);
+    if (value.renderedBytes !== undefined)
+      facts.push(["caveman_rendered_bytes", String(value.renderedBytes)]);
+    if (value.sourceKind) facts.push(["caveman_source_kind", value.sourceKind]);
+    if (value.resolutionProvenance)
+      facts.push(["caveman_resolution_provenance", value.resolutionProvenance]);
+  }
+  if (rec.mcpActivity) {
+    const activity = rec.mcpActivity;
+    facts.push(["mcp_activity_source", activity.source]);
+    facts.push(["mcp_activity_coverage", activity.coverage]);
+    if (activity.totalCalls !== undefined)
+      facts.push(["mcp_actual_calls", String(activity.totalCalls)]);
+    for (const tool of activity.tools) facts.push(["mcp_actual_tool", JSON.stringify(tool)]);
   }
   // Structured usage owns the aggregate whenever it is present. This prevents a
   // caller from reintroducing zero/summed guesses alongside an unknown terminal

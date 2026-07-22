@@ -37,6 +37,7 @@ import {
   prepareManagedCodexHome, type PreparedManagedCodexHome,
 } from "./managed-codex-home";
 import { CODEX_SUPERVISOR_STATUS_PREFIX } from "./codex-supervisor-protocol";
+import { type McpActivityObservation, unknownMcpActivity } from "../tool-activity";
 
 type ManagedCommandResolver = () => string;
 
@@ -761,6 +762,7 @@ class CodexQuery implements AgentQuery {
   private child?: ChildProcessWithoutNullStreams;
   private managedRun?: ManagedCodexAppServerRun;
   private interruptPromise?: Promise<void>;
+  private completedMcpActivity?: McpActivityObservation;
   constructor(
     private prompt: string | AsyncIterable<any>,
     private options: any,
@@ -776,6 +778,12 @@ class CodexQuery implements AgentQuery {
   }
 
   supportsInFlightEscalation(): boolean { return false; }
+
+  mcpActivity(): McpActivityObservation {
+    return this.managedRun?.mcpActivity() ?? this.completedMcpActivity
+      ?? unknownMcpActivity(this.executionTransport === "codex-cli"
+        ? "codex-cli:structured-mcp-unavailable" : "codex-app-server:unsettled");
+  }
 
   async interrupt(): Promise<void> {
     if (this.interruptPromise) return this.interruptPromise;
@@ -881,6 +889,7 @@ class CodexQuery implements AgentQuery {
         throw error;
       } finally {
         await frames?.close().catch(() => { /* teardown owns the terminal error */ });
+        this.completedMcpActivity = this.managedRun?.mcpActivity();
         this.managedRun = undefined;
         managedLaunch!.home.dispose();
       }

@@ -108,6 +108,7 @@ export function normalizeAnthropicQueryDiagnostics(source: AgentQuery): AgentQue
       }
       catch { throw failed(); }
     },
+    mcpActivity: source.mcpActivity?.bind(source),
     async *[Symbol.asyncIterator]() {
       try {
         for await (const message of source as AsyncIterable<any>) yield normalizedAnthropicMessage(message);

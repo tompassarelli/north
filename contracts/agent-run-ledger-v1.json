@@ -28,6 +28,14 @@
         "compactionPolicy", "compactionPolicyVersion"
       ]
     },
+    "caveman_observed": {
+      "required": ["requestedMode", "resolvedMode", "implementation", "decisionReason", "measurementCoverage"],
+      "allowed": ["requestedMode", "resolvedMode", "implementation", "decisionReason", "measurementCoverage", "repository", "revision", "skillSha256", "skillBytes", "renderedSha256", "renderedBytes", "sourceKind", "resolutionProvenance"]
+    },
+    "tool_activity": {
+      "required": [],
+      "allowed": ["totalCalls", "distinctTools", "serverName", "toolName", "callCount"]
+    },
     "tool_observed": {
       "required": ["toolName", "activity"],
       "allowed": ["toolName", "activity", "successCount", "errorCount"]
@@ -82,6 +90,18 @@
     "compactionEvidence": "identifier",
     "toolName": "identifier",
     "activity": "identifier",
+    "serverName": "identifier",
+    "requestedMode": "identifier",
+    "resolvedMode": "identifier",
+    "implementation": "identifier",
+    "decisionReason": "identifier",
+    "measurementCoverage": "identifier",
+    "repository": "identifier",
+    "revision": "digest",
+    "skillSha256": "digest",
+    "renderedSha256": "digest",
+    "sourceKind": "identifier",
+    "resolutionProvenance": "identifier",
     "fromTier": "identifier",
     "toTier": "identifier",
     "outcome": "identifier",
@@ -100,6 +120,11 @@
     "compactionCount": "count",
     "successCount": "count",
     "errorCount": "count",
+    "skillBytes": "count",
+    "renderedBytes": "count",
+    "totalCalls": "count",
+    "distinctTools": "count",
+    "callCount": "count",
     "inputTokens": "count",
     "outputTokens": "count",
     "totalTokens": "count",
