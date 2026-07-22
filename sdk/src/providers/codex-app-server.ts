@@ -1358,7 +1358,6 @@ export class ManagedCodexAppServerRun {
     const first = await session.next();
     if (first.done || !first.value)
       throw new Error("openai_provider_execution_failed");
-    this.mcp.complete();
     // Resume into the generator's finally so teardown (and any unclean-close
     // failure) is observed exactly as the pre-continuation flow observed it.
     await session.return(first.value);
@@ -1660,6 +1659,7 @@ export class ManagedCodexAppServerRun {
           throw new Error("Codex config authority changed at terminal settlement");
         rpc.assertHealthy();
         protocolSucceeded = true;
+        this.mcp.complete();
         yield {
           text: runtimeState.text,
           usage: runtimeState.usage,
@@ -1674,10 +1674,8 @@ export class ManagedCodexAppServerRun {
         };
 
         input = await nextInput();
-        if (input === undefined) {
-          this.mcp.complete();
-          break;
-        }
+        if (input === undefined) break;
+        this.mcp.reopen();
       }
     } catch (error) {
       primaryFailed = true;
