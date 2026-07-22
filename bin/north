@@ -144,6 +144,7 @@ north — your one card. Type a command to do the thing next to it.
     north routing report economics    bounded routing-cost signals + alert-only policy findings
     north routing report promotions   bespoke patterns for stock-template review
     north routing report calibration  run-local judgment/struggle detector cohorts
+    north ccr prepare|retrieve         default-off structured-output CCR canary
     north schema                       the fact vocabulary in use
     north predicate ls|show|define     inspect or extend executable predicate entities
     north schema-migrate plan|audit    deterministic schema cutover and strict audit
@@ -265,6 +266,10 @@ CARD
     # Hidden machine-ingestion surface. Interactive adapters feed provider
     # telemetry here; it is intentionally silent and best-effort.
     exec "$BUN" run "$NORTH/sdk/src/provider-observations-cli.ts" "${@:2}" ;;
+  ccr)
+    # Explicit canary only: this does not intercept provider tool results or
+    # change provider prompts/tool lists. Compression requires --enable.
+    exec "$BUN" run "$NORTH/sdk/src/ccr-cli.ts" "${@:2}" ;;
   predicate)
     # Generated read/authoring projection over exact executable @<predicate>
     # entities. Bootstrap inventory is available only through its explicitly
