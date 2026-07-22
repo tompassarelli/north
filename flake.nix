@@ -1025,6 +1025,8 @@ PY
             now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
             reset=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)
             printf '{"version":1,"observations":[{"targetId":"openai","provider":"openai","observedAt":"%s","windows":[{"usedPercent":10,"resetsAt":"%s"}]}]}\n' "$now" "$reset" > "$smoke/observations.json"
+            printf '{"policyVersion":"north-routing-pin-v1","issuedAt":"%s","expiresAt":"%s","reasonCode":"capability-requirement","detail":"package smoke validates the exact OpenAI route","pins":[{"kind":"provider","value":"openai"}]}\n' \
+              "$now" "$reset" > "$smoke/openai-pin-evidence.json"
             HOME="$smoke/home" NORTH_CLAUDE_BIN="$smoke/bin/claude" NORTH_CODEX_BIN="$smoke/bin/codex" \
               NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" $out/bin/north providers --json > "$smoke/providers.json"
             ${pkgs.jq}/bin/jq -e \
@@ -1033,7 +1035,8 @@ PY
                  .installed and .authenticated and .headroom == "plenty")' \
               "$smoke/providers.json" > /dev/null
             HOME="$smoke/home" NO_COLOR=1 $out/bin/north spawn implementer probe \
-              --provider openai --dry-run > "$smoke/spawn.out"
+              --provider openai --pin-evidence "@$smoke/openai-pin-evidence.json" \
+              --dry-run > "$smoke/spawn.out"
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
             # Runtime Gaffer reads must be hermetic: exercise exact provider/model
