@@ -396,3 +396,36 @@ test("zero and repeated terminals remain queryable without a fabricated token to
     expect(facts).toContainEqual(["usage_total_status", tokenUsage.totalStatus]);
   }
 });
+
+test("prompt economics persists only content-free measurements and exact zero compactions", () => {
+  const facts = runFacts({
+    thread: "thread-economics", agent: "lane-economics", durationMs: 1,
+    posture: "spawn", outcome: "ran", compactions: 0,
+    promptComposition: { promptEconomics: {
+      compositionVersion: "north-harness-prompt:v1",
+      compositionDigest: "a".repeat(64),
+      capabilityClass: "authoring", capabilityCount: 4,
+      stablePrefixBytes: 1200, uniqueTailBytes: 300, totalBytes: 1500,
+      byteMeasurementSource: "node-buffer-byte-length:utf8",
+      tokenMeasurementStatus: "unknown",
+      tokenMeasurementSource: "authoritative-tokenizer-unavailable",
+      providerContextWindowTokens: 400000,
+      contextWindowEffectiveFrom: "2026-01-01",
+      contextWindowStatus: "observed", contextWindowSource: "gaffer-provider-catalog",
+      contextBudgetStatus: "unknown", contextBudgetSource: "north-harness-unconfigured",
+      compactionPolicy: "native-auto-compact-enabled",
+      compactionPolicyVersion: "north-native-auto-compact:v1",
+    } },
+  });
+  for (const expected of [
+    ["prompt_composition_version", "north-harness-prompt:v1"],
+    ["capability_class", "authoring"],
+    ["prompt_stable_prefix_bytes", "1200"],
+    ["prompt_unique_tail_bytes", "300"],
+    ["prompt_total_bytes", "1500"],
+    ["provider_context_window_tokens", "400000"],
+    ["context_budget_status", "unknown"],
+    ["compaction_count", "0"],
+  ]) expect(facts).toContainEqual(expected);
+  expect(JSON.stringify(facts)).not.toContain("CANARY-private-prompt-content");
+});

@@ -916,6 +916,20 @@
                        ["provider_session_persistence" "unknown"] ["thread_provenance" "exact"]
                        ["turn_provenance" "provider-terminal"]]]
           (fact telem4 entity p r))))
+    (doseq [i (range 11)]
+      (let [entity (str "@run:economics-" i)]
+        (doseq [[p r] [["prompt_composition_version" "north-harness-prompt:v1"]
+                       ["capability_class" "authoring"]
+                       ["prompt_stable_prefix_bytes" "8000"]
+                       ["prompt_unique_tail_bytes" "2000"]
+                       ["prompt_total_bytes" "10000"]
+                       ["input_tokens" "800"] ["output_tokens" "200"]
+                       ["cache_read_tokens" "400"] ["cache_create_tokens" "100"]
+                       ["context_window_status" "observed"]
+                       ["provider_context_window_tokens" "400000"]
+                       ["context_budget_status" "unknown"]
+                       ["compaction_count" "0"]]]
+          (fact telem4 entity p r))))
     (doseq [[p r] [["kind" "session"] ["provider" "openai"] ["model" "gpt-5.6-sol"]
                    ["effort" "ultra"] ["native_actor_kind" "subagent"] ["native_depth" "1"]
                    ["dispatch_mode_at_start" "north"]
@@ -976,6 +990,18 @@
                   (= 5 (count (get-in cumulative [:usage :accountObserved :accounts])))
                   (= "ultra" (get-in cumulative [:usage :accountObserved :accounts 2
                                                   :breakdown 0 :effort]))))
+      (check "headroom attribution groups exact prompt/cache observations without causal savings claims"
+             (let [headroom (:headroomAttribution cumulative)
+                   group (first (:groups headroom))]
+               (and (= 100.0 (:promptEvidenceCoveragePercent headroom))
+                    (= "north-harness-prompt:v1" (:promptCompositionVersion group))
+                    (= "authoring" (:capabilityClass group))
+                    (= 110000 (:totalPromptBytes group))
+                    (= 4400 (:cacheReadTokens group))
+                    (= "cannot-determine" (get-in headroom [:savingsVerdict :status]))
+                    (= ["controlled-cohort-unavailable"
+                        "matched-workload-identity-unavailable"]
+                       (get-in headroom [:savingsVerdict :reasons])))))
       (check "native economics exposes root/subagent/depth without guessing legacy rows"
              (and (= "north" (get-in cumulative [:native :currentDispatchModeContext]))
                   (= 1 (get-in cumulative [:native :subagentSessions]))
@@ -988,6 +1014,8 @@
                                                     "codex-b" "codex-c"])
                   (str/includes? human "gpt-5.6-sol")
                   (str/includes? human "/ ultra")
+                  (str/includes? human "HEADROOM prompt=11/11")
+                  (str/includes? human "savings=cannot-determine")
                   (not (str/includes? human "native-high=null"))
                   (not (str/includes? human "native-ultra=null")))))
   (finally

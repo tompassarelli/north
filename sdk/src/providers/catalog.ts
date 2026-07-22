@@ -30,6 +30,7 @@ interface ProviderModel {
   efforts?: Effort[];
   reasoning?: Effort[];
   routes?: Partial<Record<SemanticTier, Effort[]>>;
+  contextWindow?: { tokens: number; effectiveFrom: string };
 }
 
 interface ProviderCatalog {
@@ -157,6 +158,31 @@ export function providerSupportsModel(provider: ProviderId, model?: string): boo
   const catalog = providerCatalog(provider);
   const concrete = Object.hasOwn(catalog.modelAliases, model) ? catalog.modelAliases[model] : model;
   return Object.hasOwn(catalog.models, concrete);
+}
+
+export interface ProviderContextWindowObservation {
+  provider: ProviderId;
+  model: string;
+  tokens: number;
+  effectiveFrom: string;
+  source: "gaffer-provider-catalog";
+}
+
+/** Observe Gaffer's exact-model provider ceiling without changing allocation. */
+export function observeProviderContextWindow(
+  provider: ProviderId,
+  model?: string,
+): ProviderContextWindowObservation | undefined {
+  if (!model) return undefined;
+  const catalog = providerCatalog(provider);
+  const concrete = Object.hasOwn(catalog.modelAliases, model) ? catalog.modelAliases[model] : model;
+  const value = catalog.models[concrete]?.contextWindow;
+  if (!value || !Number.isSafeInteger(value.tokens) || value.tokens < 1
+      || typeof value.effectiveFrom !== "string") return undefined;
+  return {
+    provider, model: concrete, tokens: value.tokens,
+    effectiveFrom: value.effectiveFrom, source: "gaffer-provider-catalog",
+  };
 }
 
 /**

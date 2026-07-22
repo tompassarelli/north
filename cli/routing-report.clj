@@ -635,6 +635,25 @@
        :deliveryReason delivery-reason
        :deliveryReasonObserved (boolean delivery-reason)
        :tokens (maybe-long (get' "tokens" nil))
+       :promptCompositionVersion (normalized-token (one facts entity "prompt_composition_version"))
+       :capabilityClass (normalized-token (one facts entity "capability_class"))
+       :promptStablePrefixBytes (maybe-long (one facts entity "prompt_stable_prefix_bytes"))
+       :promptUniqueTailBytes (maybe-long (one facts entity "prompt_unique_tail_bytes"))
+       :promptTotalBytes (maybe-long (one facts entity "prompt_total_bytes"))
+       :promptTotalCompositionTokens
+       (maybe-long (one facts entity "prompt_total_composition_tokens"))
+       :inputTokens (maybe-long (one facts entity "input_tokens"))
+       :outputTokens (maybe-long (one facts entity "output_tokens"))
+       :cacheReadTokens (maybe-long (one facts entity "cache_read_tokens"))
+       :cacheCreateTokens (maybe-long (one facts entity "cache_create_tokens"))
+       :cachedInputTokens (maybe-long (one facts entity "cached_input_tokens"))
+       :providerContextWindowTokens
+       (maybe-long (one facts entity "provider_context_window_tokens"))
+       :contextWindowStatus (normalized-token (one facts entity "context_window_status"))
+       :effectiveContextBudgetTokens
+       (maybe-long (one facts entity "effective_context_budget_tokens"))
+       :contextBudgetStatus (normalized-token (one facts entity "context_budget_status"))
+       :compactionCount (maybe-long (one facts entity "compaction_count"))
        ;; Historical adapters wrote 0 when they had no wall-clock observation.
        ;; A completed process cannot provide a real zero-millisecond duration, so
        ;; only positive observations count as evidence.
@@ -1331,7 +1350,51 @@
                                 :source (:source provider-effort)))
                    (seq descendants-under-north)
                    (conj (alert "NATIVE_DESCENDANTS_UNDER_NORTH_DISPATCH"
-                                (count descendants-under-north) 0)))]
+                                (count descendants-under-north) 0)))
+        prompt-rows (vec (filter #(and (:promptCompositionVersion %)
+                                       (:capabilityClass %)
+                                       (some? (:promptTotalBytes %))) managed))
+        prompt-coverage (percent (count prompt-rows) (count managed))
+        token-rows (vec (filter #(some? (:tokens %)) prompt-rows))
+        token-coverage (percent (count token-rows) (count managed))
+        headroom-groups
+        (->> managed
+             (group-by (fn [row] [(or (:promptCompositionVersion row) "unobserved")
+                                  (or (:capabilityClass row) "unobserved")]))
+             (map (fn [[[version capability] cohort]]
+                    (let [sum-observed (fn [field]
+                                         (let [values (keep field cohort)]
+                                           (when (seq values) (reduce + 0 values))))
+                          count-observed (fn [field] (count (keep field cohort)))]
+                      {:promptCompositionVersion version
+                       :capabilityClass capability
+                       :runs (count cohort)
+                       :promptByteRuns (count-observed :promptTotalBytes)
+                       :exactTokenRuns (count-observed :tokens)
+                       :stablePrefixBytes (sum-observed :promptStablePrefixBytes)
+                       :uniqueTailBytes (sum-observed :promptUniqueTailBytes)
+                       :totalPromptBytes (sum-observed :promptTotalBytes)
+                       :authoritativeCompositionTokens
+                       (sum-observed :promptTotalCompositionTokens)
+                       :inputTokens (sum-observed :inputTokens)
+                       :outputTokens (sum-observed :outputTokens)
+                       :cacheReadTokens (sum-observed :cacheReadTokens)
+                       :cacheCreateTokens (sum-observed :cacheCreateTokens)
+                       :cachedInputTokens (sum-observed :cachedInputTokens)
+                       :compactions (sum-observed :compactionCount)
+                       :contextWindowObservedRuns
+                       (count (filter #(= "observed" (:contextWindowStatus %)) cohort))
+                       :effectiveContextBudgetObservedRuns
+                       (count (keep :effectiveContextBudgetTokens cohort))})))
+             (sort-by (juxt :promptCompositionVersion :capabilityClass)) vec)
+        savings-reasons
+        (cond-> ["controlled-cohort-unavailable" "matched-workload-identity-unavailable"]
+          (or (nil? prompt-coverage)
+              (< prompt-coverage (:minimumEvidenceCoveragePercent economics-design-gates)))
+          (conj "prompt-evidence-coverage-below-threshold")
+          (or (nil? token-coverage)
+              (< token-coverage (:minimumEvidenceCoveragePercent economics-design-gates)))
+          (conj "exact-token-coverage-below-threshold"))]
     {:start (.toString start) :end (.toString end)
      :boundary "start-inclusive,end-exclusive"
      :usage usage
@@ -1389,6 +1452,18 @@
                                     frequencies (into (sorted-map)))
               :sessionsByDispatchModeAtStart
               (->> native (map :dispatchModeAtStart) frequencies (into (sorted-map)))}
+     :headroomAttribution
+     {:scope "prompt-version-by-capability-class"
+      :policy "observational-alert-only"
+      :runs (count managed)
+      :promptEvidenceRuns (count prompt-rows)
+      :promptEvidenceCoveragePercent prompt-coverage
+      :exactTokenRuns (count token-rows)
+      :exactTokenCoveragePercent token-coverage
+      :groups headroom-groups
+      :savingsVerdict {:status "cannot-determine" :reasons savings-reasons
+                       :claim (str "Realized savings require a controlled, matched-workload cohort; "
+                                   "observational cache, token, and compaction differences are not causal.")}}
      :findings findings
      :alerts (vec (filter #(= "alert" (:status %)) findings))}))
 
@@ -1784,6 +1859,21 @@
                          (or (get-in interval [:native :latestSessionEffortSnapshot
                                                :ultraSessions]) 0)))
         (print-account-interval "  ACCOUNT LEDGER" (:usage interval))
+        (let [headroom (:headroomAttribution interval)]
+          (println (format "  HEADROOM prompt=%d/%d coverage=%s exact-token=%d/%d savings=%s reasons=%s"
+                           (:promptEvidenceRuns headroom) (:runs headroom)
+                           (if-let [pct (:promptEvidenceCoveragePercent headroom)]
+                             (format "%.2f%%" pct) "unobserved")
+                           (:exactTokenRuns headroom) (:runs headroom)
+                           (get-in headroom [:savingsVerdict :status])
+                           (str/join "," (get-in headroom [:savingsVerdict :reasons]))))
+          (doseq [row (:groups headroom)]
+            (println (format "    %s/%s runs=%d prompt-bytes=%s cache-read=%s cache-create=%s compactions=%s"
+                             (:promptCompositionVersion row) (:capabilityClass row) (:runs row)
+                             (or (:totalPromptBytes row) "unobserved")
+                             (or (:cacheReadTokens row) "unobserved")
+                             (or (:cacheCreateTokens row) "unobserved")
+                             (or (:compactions row) "unobserved")))))
         (doseq [{:keys [code status reason observed threshold
                         eligibleRuns evidenceCoveragePercent]} (:findings interval)]
           (if (= "cannot-determine" status)

@@ -11,8 +11,22 @@
       "allowed": ["provider", "account", "model", "effort", "reasonCode"]
     },
     "prompt_constructed": {
-      "required": ["compositionVersion", "compositionDigest"],
-      "allowed": ["compositionVersion", "compositionDigest", "capabilityClass", "capabilityCount"]
+      "required": [
+        "compositionVersion", "compositionDigest", "capabilityClass", "capabilityCount",
+        "stablePrefixBytes", "uniqueTailBytes", "totalBytes", "byteMeasurementSource",
+        "tokenMeasurementStatus", "tokenMeasurementSource", "contextWindowStatus",
+        "contextWindowSource", "contextBudgetStatus", "contextBudgetSource",
+        "compactionPolicy", "compactionPolicyVersion"
+      ],
+      "allowed": [
+        "compositionVersion", "compositionDigest", "capabilityClass", "capabilityCount",
+        "stablePrefixBytes", "uniqueTailBytes", "totalBytes", "byteMeasurementSource",
+        "stablePrefixTokens", "uniqueTailTokens", "totalCompositionTokens",
+        "tokenMeasurementStatus", "tokenMeasurementSource", "providerContextWindowTokens",
+        "contextWindowEffectiveFrom", "contextWindowStatus", "contextWindowSource",
+        "effectiveContextBudgetTokens", "contextBudgetStatus", "contextBudgetSource",
+        "compactionPolicy", "compactionPolicyVersion"
+      ]
     },
     "tool_observed": {
       "required": ["toolName", "activity"],
@@ -25,6 +39,10 @@
     "cache_observed": {
       "required": [],
       "allowed": ["cacheReadTokens", "cacheCreateTokens", "cachedInputTokens"]
+    },
+    "compaction_observed": {
+      "required": ["compactionCount", "compactionPolicy", "compactionPolicyVersion", "compactionEvidence"],
+      "allowed": ["compactionCount", "compactionPolicy", "compactionPolicyVersion", "compactionEvidence"]
     },
     "escalation_observed": {
       "required": ["fromTier", "toTier", "reasonCode"],
@@ -51,6 +69,17 @@
     "reasonCode": "identifier",
     "compositionVersion": "identifier",
     "capabilityClass": "identifier",
+    "byteMeasurementSource": "identifier",
+    "tokenMeasurementStatus": "identifier",
+    "tokenMeasurementSource": "identifier",
+    "contextWindowEffectiveFrom": "identifier",
+    "contextWindowStatus": "identifier",
+    "contextWindowSource": "identifier",
+    "contextBudgetStatus": "identifier",
+    "contextBudgetSource": "identifier",
+    "compactionPolicy": "identifier",
+    "compactionPolicyVersion": "identifier",
+    "compactionEvidence": "identifier",
     "toolName": "identifier",
     "activity": "identifier",
     "fromTier": "identifier",
@@ -60,6 +89,15 @@
     "childRun": "entity",
     "childThread": "entity",
     "capabilityCount": "count",
+    "stablePrefixBytes": "count",
+    "uniqueTailBytes": "count",
+    "totalBytes": "count",
+    "stablePrefixTokens": "count",
+    "uniqueTailTokens": "count",
+    "totalCompositionTokens": "count",
+    "providerContextWindowTokens": "count",
+    "effectiveContextBudgetTokens": "count",
+    "compactionCount": "count",
     "successCount": "count",
     "errorCount": "count",
     "inputTokens": "count",
