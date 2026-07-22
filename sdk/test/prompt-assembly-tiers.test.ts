@@ -3,8 +3,9 @@
 // byte-identity of the shared tiers for same-class lanes, and that the per-lane
 // UNIQUE coordination tail lands after every shared tier.
 import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { constitutionTiers, harnessOptions } from "../src/harness";
+import { constitutionTiers, harnessCompositionEvidence, harnessOptions } from "../src/harness";
 import { applyGafferStaffing } from "../src/gaffer-staffing";
 import type { GafferCapability } from "../src/gaffer-capabilities";
 
@@ -39,7 +40,7 @@ const M = {
   fleet: "Banned vocabulary",
   apiStub: "subscription entitlements only, never API credits",
   donePara1: "Done-claims carry a bar",
-  billing: "clock or it didn't happen",
+  billing: "Human/client presence is the billing clock",
   preEdit: "Pre-edit gate — MANDATORY",
   routing: "Model + payload routing",
   donePara2: "Evidence attaches where the done-claim lives",
@@ -156,6 +157,19 @@ test("the per-lane UNIQUE coordination tail lands after every shared tier (P1)",
   expect(coord).toBeGreaterThan(sp.indexOf(M.blocked));
   // The DEFAULT head is still first.
   expect(sp.indexOf("north agent")).toBeLessThan(coord);
+  const economics = harnessCompositionEvidence(opts)?.promptEconomics;
+  expect(economics).toBeDefined();
+  expect(economics!.stablePrefixBytes + economics!.uniqueTailBytes).toBe(economics!.totalBytes);
+  expect(economics!.totalBytes).toBe(Buffer.byteLength(sp, "utf8"));
+  expect(economics!.compositionDigest).toBe(createHash("sha256").update(sp).digest("hex"));
+  expect(economics!.tokenMeasurementStatus).toBe("unknown");
+  expect(economics!.effectiveContextBudgetTokens).toBeUndefined();
+  expect(economics!.contextBudgetStatus).toBe("unknown");
+  expect(economics!.contextWindowStatus).toBe("observed");
+  expect(economics!.providerContextWindowTokens).toBeGreaterThan(0);
+  const encoded = JSON.stringify(economics);
+  expect(encoded).not.toContain(sp.slice(0, 80));
+  expect(encoded).not.toContain('You are agent "tier-unique-tail"');
 });
 
 test("auto-compaction is explicitly pinned in harnessOptions (audit fix 4)", () => {

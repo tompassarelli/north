@@ -176,16 +176,16 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     if (!LEDGER_IDENTIFIER.test(coordinator)) throw new Error("invalid run ledger coordinator");
     facts.push(["run_coordinator", coordinator]);
   }
-  if (rec.promptCompositionVersion)
+  if (rec.promptCompositionVersion && !rec.promptComposition?.promptEconomics)
     if (LEDGER_IDENTIFIER.test(rec.promptCompositionVersion))
       facts.push(["prompt_composition_version", rec.promptCompositionVersion]);
     else throw new Error("invalid prompt composition version");
-  if (rec.promptCompositionDigest) {
+  if (rec.promptCompositionDigest && !rec.promptComposition?.promptEconomics) {
     if (!/^[a-f0-9]{64}$/.test(rec.promptCompositionDigest))
       throw new Error("invalid prompt composition digest");
     facts.push(["prompt_composition_sha256", rec.promptCompositionDigest]);
   }
-  if (rec.capabilityClass) {
+  if (rec.capabilityClass && !rec.promptComposition?.promptEconomics) {
     if (!LEDGER_IDENTIFIER.test(rec.capabilityClass)) throw new Error("invalid capability class");
     facts.push(["capability_class", rec.capabilityClass]);
   }
@@ -437,6 +437,39 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       if (delta.path) facts.push(["model_delta_path", delta.path]);
       if (delta.reason) facts.push(["model_delta_reason", delta.reason]);
     }
+    const economics = applied.promptEconomics;
+    if (economics) {
+      const counts = [
+        ["prompt_stable_prefix_bytes", economics.stablePrefixBytes],
+        ["prompt_unique_tail_bytes", economics.uniqueTailBytes],
+        ["prompt_total_bytes", economics.totalBytes],
+        ["prompt_capability_count", economics.capabilityCount],
+        ["prompt_stable_prefix_tokens", economics.stablePrefixTokens],
+        ["prompt_unique_tail_tokens", economics.uniqueTailTokens],
+        ["prompt_total_composition_tokens", economics.totalCompositionTokens],
+        ["provider_context_window_tokens", economics.providerContextWindowTokens],
+        ["effective_context_budget_tokens", economics.effectiveContextBudgetTokens],
+      ] as const;
+      if (economics.stablePrefixBytes + economics.uniqueTailBytes !== economics.totalBytes)
+        throw new Error("prompt byte measurements do not sum to total");
+      facts.push(["prompt_composition_version", economics.compositionVersion]);
+      facts.push(["prompt_composition_sha256", economics.compositionDigest]);
+      facts.push(["capability_class", economics.capabilityClass]);
+      facts.push(["prompt_byte_measurement_source", economics.byteMeasurementSource]);
+      facts.push(["prompt_token_measurement_status", economics.tokenMeasurementStatus]);
+      facts.push(["prompt_token_measurement_source", economics.tokenMeasurementSource]);
+      facts.push(["context_window_status", economics.contextWindowStatus]);
+      facts.push(["context_window_source", economics.contextWindowSource]);
+      facts.push(["context_budget_status", economics.contextBudgetStatus]);
+      facts.push(["context_budget_source", economics.contextBudgetSource]);
+      facts.push(["compaction_policy", economics.compactionPolicy]);
+      facts.push(["compaction_policy_version", economics.compactionPolicyVersion]);
+      if (economics.contextWindowEffectiveFrom)
+        facts.push(["context_window_effective_from", economics.contextWindowEffectiveFrom]);
+      for (const [predicate, value] of counts) {
+        if (value !== undefined) facts.push([predicate, String(value)]);
+      }
+    }
   }
   if (rec.spendTarget && rec.spendReservationMicrousd != null) {
     // spend_evidence mirrors the settlement rule: exact terminal token usage
@@ -448,7 +481,11 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["spend_evidence", exactSpend ? "exact" : "reserved-worst-case"]);
   }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
-  if (rec.compactions) facts.push(["compactions", String(rec.compactions)]);
+  if (rec.compactions != null) {
+    facts.push(["compactions", String(rec.compactions)]);
+    facts.push(["compaction_count", String(rec.compactions)]);
+    facts.push(["compaction_evidence", "sdk-compact-boundary"]);
+  }
   if (rec.judgmentGrade) {
     const snapshot = rec.judgmentGrade;
     const validGrade = parseJudgmentGrade(snapshot.grade);

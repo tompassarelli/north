@@ -9,6 +9,7 @@ import {
 import { inputChannel, subscribeFeed } from "./coordination";
 import { normalizeUsage } from "./usage";
 import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
+import { publishRunLifecycleLedger } from "./run-ledger";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
@@ -411,7 +412,7 @@ async function runDispatch(
       `[dispatch] posture: ${postureLabel}, provider: ${routing.provider}, `
       + `target: ${routing.target} (${routing.reason})`,
     );
-    if (queryFn) injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
+    injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
     const queryArgs = {
       prompt: ch.stream(),
       options: agentOptions,
@@ -746,8 +747,29 @@ async function runDispatch(
     undefined,
     threadId,
   );
+  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
+    writeAuxiliary(
+      publicationBudget.publicationTimeout(
+        terminalAuxiliaryWrites.length - index + 2,
+      ),
+    );
+  }
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
+  const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const runLedger = await publishRunLifecycleLedger({
+    run: runId,
+    thread: threadId,
+    agent: agentId,
+    ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
+    ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
+    ...(coordHandle ? { coordinator: coordHandle } : {}),
+  }, {
+    promptEconomics: promptComposition?.promptEconomics,
+    tokenUsage,
+    compactions,
+    outcome,
+  }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
   const numTurns = typeof resultMsg?.num_turns === "number"
     ? resultMsg.num_turns
     // A retry-safe preflight block proves the provider accepted no turn. This
@@ -785,7 +807,11 @@ async function runDispatch(
               northSessionId,
               threadProvenance: "exact",
               turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
-              promptComposition: admittedRoute?.evidence ?? injectedCompositionEvidence,
+              promptComposition,
+              promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,
+              promptCompositionDigest: promptComposition?.promptEconomics?.compositionDigest,
+              capabilityClass: promptComposition?.promptEconomics?.capabilityClass,
+              runLedger,
               effectiveAuthority: admittedRoute?.authority,
               compactions,
               durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
@@ -800,13 +826,6 @@ async function runDispatch(
               struggleObservation: struggle.snapshot(),
               preflightCause,
               }, runId, publicationBudget.publicationTimeout(1));
-  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
-    writeAuxiliary(
-      publicationBudget.publicationTimeout(
-        terminalAuxiliaryWrites.length - index,
-      ),
-    );
-  }
   notifyTerminalSettlement(
     agentId,
     coordHandle,

@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { PromptEconomicsEvidence } from "./harness";
+import type { NormalizedTokenUsage } from "./usage";
 
 const REPO = resolve(import.meta.dir, "../..");
 const CONTRACT_PATH = resolve(REPO, "contracts/agent-run-ledger-v1.json");
@@ -279,4 +281,113 @@ export function recordRunEvent(
       });
     } catch { resolvePublication("unavailable"); }
   });
+}
+
+export interface RunLifecycleObservations {
+  promptEconomics?: PromptEconomicsEvidence;
+  tokenUsage: NormalizedTokenUsage;
+  compactions: number;
+  outcome: string;
+}
+
+/**
+ * Publish the privacy-bounded lifecycle evidence that is available at the
+ * terminal seam. A summary is returned only when every append reached the
+ * coordinator; callers therefore cannot label a partial ledger complete.
+ */
+export async function publishRunLifecycleLedger(
+  identity: RunLedgerIdentity,
+  observations: RunLifecycleObservations,
+  timeoutMs = 10_000,
+  writer: (event: AgentRunEvent, timeoutMs: number) => Promise<RunEventPublicationStatus>
+    = recordRunEvent,
+): Promise<AgentRunLedgerSummary | undefined> {
+  const ledger = new AgentRunLedger(identity);
+  const events: AgentRunEvent[] = [];
+  const economics = observations.promptEconomics;
+  if (economics) {
+    const payload: Record<string, string | number> = {
+      compositionVersion: economics.compositionVersion,
+      compositionDigest: economics.compositionDigest,
+      capabilityClass: economics.capabilityClass,
+      capabilityCount: economics.capabilityCount,
+      stablePrefixBytes: economics.stablePrefixBytes,
+      uniqueTailBytes: economics.uniqueTailBytes,
+      totalBytes: economics.totalBytes,
+      byteMeasurementSource: economics.byteMeasurementSource,
+      tokenMeasurementStatus: economics.tokenMeasurementStatus,
+      tokenMeasurementSource: economics.tokenMeasurementSource,
+      contextWindowStatus: economics.contextWindowStatus,
+      contextWindowSource: economics.contextWindowSource,
+      contextBudgetStatus: economics.contextBudgetStatus,
+      contextBudgetSource: economics.contextBudgetSource,
+      compactionPolicy: economics.compactionPolicy,
+      compactionPolicyVersion: economics.compactionPolicyVersion,
+    };
+    for (const key of [
+      "stablePrefixTokens", "uniqueTailTokens", "totalCompositionTokens",
+      "providerContextWindowTokens", "contextWindowEffectiveFrom",
+      "effectiveContextBudgetTokens",
+    ] as const) {
+      const value = economics[key];
+      if (value !== undefined) payload[key] = value;
+    }
+    events.push(ledger.append(
+      "prompt_constructed", payload, "north-harness-composer", "exact",
+    ));
+  }
+
+  const usage = observations.tokenUsage;
+  const usagePayload: Record<string, string | number> = { terminalCount: usage.terminalCount };
+  for (const [key, value] of [
+    ["inputTokens", usage.inputTokens],
+    ["outputTokens", usage.outputTokens],
+    ["reasoningOutputTokens", usage.reasoningOutputTokens],
+  ] as const) if (value !== undefined) usagePayload[key] = value;
+  if (usage.totalStatus === "exact" && usage.total !== undefined)
+    usagePayload.totalTokens = usage.total;
+  const componentCount = Object.keys(usagePayload).length - 1;
+  events.push(ledger.append(
+    "usage_observed", usagePayload, "provider-terminal",
+    usage.totalStatus === "exact" ? "exact" : componentCount > 0 ? "partial" : "unknown",
+  ));
+
+  const cachePayload: Record<string, number> = {};
+  for (const [key, value] of [
+    ["cacheReadTokens", usage.cacheReadTokens],
+    ["cacheCreateTokens", usage.cacheCreateTokens],
+    ["cachedInputTokens", usage.cachedInputTokens],
+  ] as const) if (value !== undefined) cachePayload[key] = value;
+  events.push(ledger.append(
+    "cache_observed", cachePayload, "provider-terminal-cache",
+    Object.keys(cachePayload).length === 3 ? "exact"
+      : Object.keys(cachePayload).length > 0 ? "partial" : "unknown",
+  ));
+  events.push(ledger.append("compaction_observed", {
+    compactionCount: observations.compactions,
+    compactionPolicy: economics?.compactionPolicy ?? "auto-compact-enabled",
+    compactionPolicyVersion: economics?.compactionPolicyVersion
+      ?? "north-native-auto-compact:v1",
+    compactionEvidence: "sdk-compact-boundary",
+  }, "north-sdk-stream", "exact"));
+  events.push(ledger.append("terminal_cleanup", {
+    outcome: observations.outcome,
+    cleanupStatus: "observed",
+  }, "north-managed-terminal", "exact"));
+
+  const eventTimeout = Math.max(1, Math.floor(timeoutMs / Math.max(1, events.length)));
+  // Event subjects carry immutable sequence slots, so publication may proceed
+  // concurrently without weakening order. This keeps the ledger inside the
+  // shared terminal budget instead of starving existing cleanup writers.
+  const publications = await Promise.allSettled(
+    events.map((event) => writer(event, eventTimeout)),
+  );
+  const complete = publications.every(
+    (result) => result.status === "fulfilled" && result.value === "recorded",
+  );
+  // A caught transport crash has no provider terminal boundary. Its attempted
+  // observations remain useful events, but the @run header must not claim a
+  // complete lifecycle ledger.
+  const terminalBoundaryObserved = !new Set(["died", "stalled"]).has(observations.outcome);
+  return complete && terminalBoundaryObserved ? ledger.finalize() : undefined;
 }

@@ -11,6 +11,7 @@ import {
 } from "./worktree";
 import { normalizeUsage } from "./usage";
 import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
+import { publishRunLifecycleLedger } from "./run-ledger";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import { inputChannel, subscribeFeed } from "./coordination";
 import {
@@ -442,7 +443,7 @@ async function runSpawn(
     // per-spawn dial wins over ambient env; env-or-full is the harness fallback
     caveman: opts.caveman ?? process.env.AGENT_CAVEMAN ?? "full",
   });
-  if (injected.queryFn) injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
+  injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
   if (injected.queryFn && injected.feedSubscriber)
     await liveInputRoute.activate(activeRoute());
   termination.throwIfTerminated();
@@ -788,9 +789,30 @@ async function runSpawn(
     terminal,
     publicationBudget.publicationTimeout(1),
   );
+  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
+    writeAuxiliary(
+      publicationBudget.publicationTimeout(
+        terminalAuxiliaryWrites.length - index + 2,
+      ),
+    );
+  }
 
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
   const finalRoute = activeRoute();
+  const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const runLedger = await publishRunLifecycleLedger({
+    run: runId,
+    thread: opts.thread ?? "(ad-hoc)",
+    agent: agentId,
+    ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
+    ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
+    ...(coordHandle ? { coordinator: coordHandle } : {}),
+  }, {
+    promptEconomics: promptComposition?.promptEconomics,
+    tokenUsage,
+    compactions,
+    outcome,
+  }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
   const numTurns = typeof resultMsg?.num_turns === "number"
     ? resultMsg.num_turns
     // A retry-safe preflight block proves the provider accepted no turn. This
@@ -827,7 +849,11 @@ async function runSpawn(
     northSessionId: opts.sessionId,
     threadProvenance: opts.thread ? "exact" : "ad-hoc",
     turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
-    promptComposition: admittedRoute?.evidence ?? injectedCompositionEvidence,
+    promptComposition,
+    promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,
+    promptCompositionDigest: promptComposition?.promptEconomics?.compositionDigest,
+    capabilityClass: promptComposition?.promptEconomics?.capabilityClass,
+    runLedger,
     effectiveAuthority: admittedRoute?.authority,
     tokenUsage,
     durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
@@ -841,13 +867,6 @@ async function runSpawn(
     struggleObservation: struggle.snapshot(),
     preflightCause,
   }, runId, publicationBudget.publicationTimeout(1));
-  for (const [index, writeAuxiliary] of terminalAuxiliaryWrites.entries()) {
-    writeAuxiliary(
-      publicationBudget.publicationTimeout(
-        terminalAuxiliaryWrites.length - index,
-      ),
-    );
-  }
   notifyTerminalSettlement(
     agentId,
     coordHandle,

@@ -19,7 +19,9 @@ import {
   authoringGuardsOff, evaluateGuards, HOOKS_DIR, resolveManagedGuardChain,
 } from "./authoring-guards";
 import { recordDenial } from "./guard-log";
-import { resolveModelAlias, resolveModelDelta, resolveTier } from "./providers/catalog";
+import {
+  observeProviderContextWindow, resolveModelAlias, resolveModelDelta, resolveTier,
+} from "./providers/catalog";
 import type { ProviderId } from "./providers/types";
 import {
   type RoutingDraft, type RoutingOverrideField, type RoutingRequest, type Topology,
@@ -560,7 +562,7 @@ const API_KEYS_CORE_STUB =
 // Whole-section gate by heading. Unknown headings fail safe into CORE.
 function constitutionGateForHeading(heading: string): ConstitutionBucket {
   const h = heading.toLowerCase();
-  if (h.includes("billable")) return "client";
+  if (h.includes("billable") || h.includes("client time and agent time")) return "client";
   if (h.includes("pre-edit gate")) return "orch";
   if (h.includes("model +")) return "orch";
   if (h.includes("push freely")) return "write";
@@ -930,6 +932,46 @@ export interface HarnessCompositionEvidence {
   reasoning?: string;
   posture?: string;
   modelDelta?: ModelDeltaEvidence;
+  promptEconomics?: PromptEconomicsEvidence;
+}
+
+export const PROMPT_COMPOSITION_VERSION = "north-harness-prompt:v1";
+export const COMPACTION_POLICY_VERSION = "north-native-auto-compact:v1";
+
+export interface PromptEconomicsEvidence {
+  compositionVersion: typeof PROMPT_COMPOSITION_VERSION;
+  compositionDigest: string;
+  capabilityClass: "unknown" | "readonly" | "readonly-web" | "authoring" | "orchestrator";
+  capabilityCount: number;
+  stablePrefixBytes: number;
+  uniqueTailBytes: number;
+  totalBytes: number;
+  byteMeasurementSource: "node-buffer-byte-length:utf8";
+  stablePrefixTokens?: number;
+  uniqueTailTokens?: number;
+  totalCompositionTokens?: number;
+  tokenMeasurementStatus: "observed" | "unknown";
+  tokenMeasurementSource: "authoritative-tokenizer-unavailable" | "provider-authoritative-tokenizer";
+  providerContextWindowTokens?: number;
+  contextWindowEffectiveFrom?: string;
+  contextWindowStatus: "observed" | "unknown";
+  contextWindowSource: "gaffer-provider-catalog" | "provider-or-model-unresolved" | "catalog-metadata-unavailable";
+  effectiveContextBudgetTokens?: number;
+  contextBudgetStatus: "unknown";
+  contextBudgetSource: "north-harness-unconfigured";
+  compactionPolicy: "native-auto-compact-enabled";
+  compactionPolicyVersion: typeof COMPACTION_POLICY_VERSION;
+}
+
+function capabilityClass(
+  capabilities: readonly GafferCapability[] | undefined,
+  topology: Topology | undefined,
+): PromptEconomicsEvidence["capabilityClass"] {
+  if (!capabilities) return "unknown";
+  if (topology === "orchestrator" && capabilities.includes("coordination")) return "orchestrator";
+  if (capabilities.includes("filesystem.write") || capabilities.includes("shell")) return "authoring";
+  if (capabilities.includes("web")) return "readonly-web";
+  return "readonly";
 }
 
 interface HarnessCompositionState {
@@ -960,7 +1002,7 @@ function composeSystemPrompt(
   state: HarnessCompositionState,
   provider: ProviderId | undefined,
   model: string | undefined,
-): { prompt: string; deltaEvidence: ModelDeltaEvidence } {
+): { prompt: string; deltaEvidence: ModelDeltaEvidence; economics: PromptEconomicsEvidence } {
   const includeConstitution = provider === undefined || provider === "anthropic";
   const constitution = includeConstitution
     ? constitutionTiers(state.capabilities, state.cwd)
@@ -970,7 +1012,37 @@ function composeSystemPrompt(
   const cap = state.gafferAppendix + constitution.cap;
   const repo = projectAgentsAppendix(state.cwd) + constitution.repo;
   const tail = coordinationBlock(state.self, state.cwd) + delta.appendix;
-  return { prompt: core + cap + repo + tail, deltaEvidence: delta.evidence };
+  const stablePrefix = core + cap + repo;
+  const prompt = stablePrefix + tail;
+  let contextWindow: ReturnType<typeof observeProviderContextWindow>;
+  try {
+    contextWindow = provider && model ? observeProviderContextWindow(provider, model) : undefined;
+  } catch { contextWindow = undefined; }
+  const economics: PromptEconomicsEvidence = {
+    compositionVersion: PROMPT_COMPOSITION_VERSION,
+    compositionDigest: createHash("sha256").update(prompt).digest("hex"),
+    capabilityClass: capabilityClass(state.capabilities, state.evidence.topology),
+    capabilityCount: state.capabilities?.length ?? 0,
+    stablePrefixBytes: Buffer.byteLength(stablePrefix, "utf8"),
+    uniqueTailBytes: Buffer.byteLength(tail, "utf8"),
+    totalBytes: Buffer.byteLength(prompt, "utf8"),
+    byteMeasurementSource: "node-buffer-byte-length:utf8",
+    tokenMeasurementStatus: "unknown",
+    tokenMeasurementSource: "authoritative-tokenizer-unavailable",
+    ...(contextWindow ? {
+      providerContextWindowTokens: contextWindow.tokens,
+      contextWindowEffectiveFrom: contextWindow.effectiveFrom,
+    } : {}),
+    contextWindowStatus: contextWindow ? "observed" : "unknown",
+    contextWindowSource: contextWindow
+      ? "gaffer-provider-catalog"
+      : provider && model ? "catalog-metadata-unavailable" : "provider-or-model-unresolved",
+    contextBudgetStatus: "unknown",
+    contextBudgetSource: "north-harness-unconfigured",
+    compactionPolicy: "native-auto-compact-enabled",
+    compactionPolicyVersion: COMPACTION_POLICY_VERSION,
+  };
+  return { prompt, deltaEvidence: delta.evidence, economics };
 }
 
 const harnessComposition = new WeakMap<object, HarnessCompositionState>();
@@ -1349,7 +1421,11 @@ export function applyHarnessRoute(
   const renewActivity = harnessActivityRenewers.get(options as object);
   if (renewActivity) harnessActivityRenewers.set(next as object, renewActivity);
   inheritAuthoringHookSeal(options, next);
-  const evidence = { ...state.evidence, modelDelta: composed.deltaEvidence };
+  const evidence = {
+    ...state.evidence,
+    modelDelta: composed.deltaEvidence,
+    promptEconomics: composed.economics,
+  };
   appliedEvidence.set(next as object, deepFreeze(evidence));
   sealHarnessAuthority(next, provider);
   return { options: next, evidence };
@@ -1588,8 +1664,8 @@ export function harnessOptions(o: HarnessOpts): Options {
   const initialRouteModel = o.provider
     ? resolveModelAlias(o.provider, effectiveModel)
     : effectiveModel;
-  const initialSystemPrompt =
-    composeSystemPrompt(compositionSeed, o.provider, initialRouteModel).prompt;
+  const initialComposition = composeSystemPrompt(compositionSeed, o.provider, initialRouteModel);
+  const initialSystemPrompt = initialComposition.prompt;
   if (!o.provider) assertCanonicalGlobalAgentsExactlyOnce(initialSystemPrompt);
   const options = {
     mcpServers,
@@ -1655,7 +1731,11 @@ export function harnessOptions(o: HarnessOpts): Options {
   harnessComposition.set(options as object, state);
   if (presenceRenewer)
     harnessActivityRenewers.set(options as object, () => presenceRenewer(o.self));
-  appliedEvidence.set(options as object, deepFreeze(gaffer.evidence));
+  appliedEvidence.set(options as object, deepFreeze({
+    ...gaffer.evidence,
+    modelDelta: initialComposition.deltaEvidence,
+    promptEconomics: initialComposition.economics,
+  }));
   sealAuthoringHooks(options);
   // Presence is an assertion that a runnable lane exists. Every synchronous
   // prompt/bootstrap contract for the initial route must succeed first, or a

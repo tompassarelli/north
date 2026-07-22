@@ -6,6 +6,8 @@ import {
   AGENT_RUN_LEDGER_VERSION,
   AgentRunLedger,
   eventFacts,
+  publishRunLifecycleLedger,
+  type AgentRunEvent,
 } from "../src/run-ledger";
 import { runFacts } from "../src/telemetry";
 
@@ -28,10 +30,25 @@ const examples: Record<string, Record<string, string | number>> = {
   prompt_constructed: {
     compositionVersion: "gaffer-v3", compositionDigest: digest("composition"),
     capabilityClass: "authoring", capabilityCount: 4,
+    stablePrefixBytes: 1200, uniqueTailBytes: 300, totalBytes: 1500,
+    byteMeasurementSource: "node-buffer-byte-length:utf8",
+    tokenMeasurementStatus: "unknown",
+    tokenMeasurementSource: "authoritative-tokenizer-unavailable",
+    contextWindowStatus: "observed", contextWindowSource: "gaffer-provider-catalog",
+    providerContextWindowTokens: 400000,
+    contextWindowEffectiveFrom: "2026-01-01",
+    contextBudgetStatus: "unknown", contextBudgetSource: "north-harness-unconfigured",
+    compactionPolicy: "native-auto-compact-enabled",
+    compactionPolicyVersion: "north-native-auto-compact:v1",
   },
   tool_observed: { toolName: "mcp__north__tell", activity: "completed", successCount: 2, errorCount: 0 },
   usage_observed: { inputTokens: 120, outputTokens: 40, totalTokens: 160, terminalCount: 1 },
   cache_observed: { cacheReadTokens: 80, cacheCreateTokens: 20, cachedInputTokens: 50 },
+  compaction_observed: {
+    compactionCount: 0, compactionPolicy: "native-auto-compact-enabled",
+    compactionPolicyVersion: "north-native-auto-compact:v1",
+    compactionEvidence: "sdk-compact-boundary",
+  },
   escalation_observed: { fromTier: "standard", toTier: "senior", reasonCode: "scope-overrun" },
   child_settled: {
     childRun: "@run:child-001", childThread: "@019f89ac-child", outcome: "ran",
@@ -158,4 +175,83 @@ test("new run headers explicitly distinguish unavailable event evidence from zer
   expect(header).toContainEqual(["agent_run_ledger_version", AGENT_RUN_LEDGER_VERSION]);
   expect(header).toContainEqual(["run_event_status", "unavailable"]);
   expect(header.some(([predicate]) => predicate === "run_event_count")).toBe(false);
+});
+
+const promptEconomics = {
+  compositionVersion: "north-harness-prompt:v1",
+  compositionDigest: digest("terminal-composition"),
+  capabilityClass: "authoring",
+  capabilityCount: 4,
+  stablePrefixBytes: 1200,
+  uniqueTailBytes: 300,
+  totalBytes: 1500,
+  byteMeasurementSource: "node-buffer-byte-length:utf8",
+  tokenMeasurementStatus: "unknown",
+  tokenMeasurementSource: "authoritative-tokenizer-unavailable",
+  providerContextWindowTokens: 400000,
+  contextWindowEffectiveFrom: "2026-01-01",
+  contextWindowStatus: "observed",
+  contextWindowSource: "gaffer-provider-catalog",
+  contextBudgetStatus: "unknown",
+  contextBudgetSource: "north-harness-unconfigured",
+  compactionPolicy: "native-auto-compact-enabled",
+  compactionPolicyVersion: "north-native-auto-compact:v1",
+} as const;
+
+test("terminal success publishes exact ordered lifecycle evidence and a complete summary", async () => {
+  const published: AgentRunEvent[] = [];
+  const summary = await publishRunLifecycleLedger(identity, {
+    promptEconomics,
+    tokenUsage: {
+      inputTokens: 100, outputTokens: 20, cacheReadTokens: 40, cacheCreateTokens: 10,
+      cachedInputTokens: 30, total: 170, terminalCount: 1,
+      terminalScope: "anthropic_result_terminal", totalStatus: "exact",
+    },
+    compactions: 0,
+    outcome: "ran",
+  }, 1000, async (event) => { published.push(event); return "recorded"; });
+  expect(summary?.eventCount).toBe(5);
+  expect(published.map(({ type }) => type)).toEqual([
+    "prompt_constructed", "usage_observed", "cache_observed",
+    "compaction_observed", "terminal_cleanup",
+  ]);
+  expect(published.at(-1)?.payload).toEqual({ outcome: "ran", cleanupStatus: "observed" });
+});
+
+test("a provider failure is a terminal lifecycle but missing usage stays explicitly unknown", async () => {
+  const published: AgentRunEvent[] = [];
+  const summary = await publishRunLifecycleLedger(identity, {
+    promptEconomics,
+    tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
+    compactions: 1,
+    outcome: "provider_error",
+  }, 1000, async (event) => { published.push(event); return "recorded"; });
+  expect(summary).toBeDefined();
+  expect(published.find(({ type }) => type === "usage_observed")?.coverage).toBe("unknown");
+  expect(published.at(-1)?.payload.outcome).toBe("provider_error");
+});
+
+test("final run-id rotation never copies partial events or manufactures a summary", async () => {
+  const finalIdentity = { ...identity, run: "@run:lane-ledger-final" };
+  const published: AgentRunEvent[] = [];
+  const summary = await publishRunLifecycleLedger(finalIdentity, {
+    promptEconomics,
+    tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
+    compactions: 0,
+    outcome: "ran",
+  }, 1000, async (event) => {
+    published.push(event);
+    return event.type === "cache_observed" ? "unavailable" : "recorded";
+  });
+  expect(summary).toBeUndefined();
+  expect(published.every(({ run, subject }) =>
+    run === "@run:lane-ledger-final" && subject.startsWith("@run:lane-ledger-final:event:"),
+  )).toBe(true);
+
+  const crashed = await publishRunLifecycleLedger(finalIdentity, {
+    tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
+    compactions: 0,
+    outcome: "died",
+  }, 1000, async () => "recorded");
+  expect(crashed).toBeUndefined();
 });

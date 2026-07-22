@@ -118,10 +118,10 @@ tree; public docs stay end-user-facing only.
 Ladder down for incidental glue and stop at the first sufficient rung; hand-roll
 the core deliberately. Correctness and security are never laddered away.
 
-## Billable clock — clock or it didn't happen
+## Client time and agent time — two orthogonal clocks
 
-Billable edit volume rides a live clock; a proven nonbillable envelope is the
-only exemption from clocking in first.
+Human/client presence is the billing clock. Agent/task duration remains
+telemetry, not billing authority, and never satisfies the client-edit guard.
 
 ## Global agent config goes through nixos-config
 
