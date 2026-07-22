@@ -152,6 +152,8 @@ test("run telemetry is token- and routing-based with no price-derived fields", (
     ["kind", "run"],
     ["thread", "thread-1"],
     ["agent", "lane-1"],
+    ["agent_run_ledger_version", "north-agent-run-ledger:v1"],
+    ["run_event_status", "unavailable"],
     ["tokens", "321"],
     ["duration_ms", "45"],
     ["posture", "spawn"],

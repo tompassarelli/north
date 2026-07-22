@@ -32,16 +32,27 @@ import type { ProviderId } from "./providers/types";
 import type {
   RoutingAdmissionReceipt, RoutingAssessment, RoutingPinEvidence,
 } from "./routing-economics";
+import {
+  AGENT_RUN_LEDGER_VERSION,
+  type AgentRunLedgerSummary,
+} from "./run-ledger";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
 const STRUGGLE_TRIGGER_VALUES: ReadonlySet<string> = new Set([
   "consecutive_errors", "tool_loop", "no_progress",
 ]);
+const LEDGER_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,127}$/;
+const LEDGER_ENTITY = /^@?[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
+const LEDGER_COVERAGE: ReadonlySet<string> = new Set(["exact", "partial", "unknown"]);
 
 export interface RunRecord {
   thread: string; // the thread driven, or "(ad-hoc)" for a bare spawn
   agent: string; // agent id / handle
+  /** Exact managed lineage. Absence is rendered as unknown, never inferred. */
+  parentRun?: string;
+  parentThread?: string;
+  coordinator?: string;
   tokens?: number; // legacy exact total for producers without structured terminal usage
   tokenUsage?: NormalizedTokenUsage; // observed components plus terminal scope/status
   durationMs: number; // North-observed wall-clock duration
@@ -76,6 +87,12 @@ export interface RunRecord {
   turnProvenance?: "provider-terminal" | "pre-provider" | "unknown";
   /** Redacted identifiers proving which operational prompt/tool contracts were applied. */
   promptComposition?: HarnessCompositionEvidence;
+  /** Privacy-bounded prompt construction identity; never prompt text. */
+  promptCompositionVersion?: string;
+  promptCompositionDigest?: string;
+  capabilityClass?: string;
+  /** Finalized append-only observation ledger summary. */
+  runLedger?: AgentRunLedgerSummary;
   /** Exact provider-executable authority from the final admitted route. */
   effectiveAuthority?: ProviderAuthoritySurface;
   allocationMode?: string;
@@ -140,7 +157,59 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     ["kind", "run"],
     ["thread", rec.thread],
     ["agent", rec.agent],
+    ["agent_run_ledger_version", AGENT_RUN_LEDGER_VERSION],
+    ["run_event_status", rec.runLedger ? "complete" : "unavailable"],
   ];
+  if (rec.parentRun) {
+    if (!/^@?run:[A-Za-z0-9_.:-]+$/.test(rec.parentRun))
+      throw new Error("invalid run ledger parent run identity");
+    facts.push(["parent_run", rec.parentRun.startsWith("@") ? rec.parentRun : `@${rec.parentRun}`]);
+  }
+  if (rec.parentThread) {
+    if (!LEDGER_ENTITY.test(rec.parentThread))
+      throw new Error("invalid run ledger parent thread identity");
+    facts.push(["parent_thread", rec.parentThread.startsWith("@")
+      ? rec.parentThread : `@${rec.parentThread}`]);
+  }
+  if (rec.coordinator) {
+    const coordinator = rec.coordinator.replace(/^@agent:/, "");
+    if (!LEDGER_IDENTIFIER.test(coordinator)) throw new Error("invalid run ledger coordinator");
+    facts.push(["run_coordinator", coordinator]);
+  }
+  if (rec.promptCompositionVersion)
+    if (LEDGER_IDENTIFIER.test(rec.promptCompositionVersion))
+      facts.push(["prompt_composition_version", rec.promptCompositionVersion]);
+    else throw new Error("invalid prompt composition version");
+  if (rec.promptCompositionDigest) {
+    if (!/^[a-f0-9]{64}$/.test(rec.promptCompositionDigest))
+      throw new Error("invalid prompt composition digest");
+    facts.push(["prompt_composition_sha256", rec.promptCompositionDigest]);
+  }
+  if (rec.capabilityClass) {
+    if (!LEDGER_IDENTIFIER.test(rec.capabilityClass)) throw new Error("invalid capability class");
+    facts.push(["capability_class", rec.capabilityClass]);
+  }
+  if (rec.runLedger) {
+    const ledger = rec.runLedger;
+    if (ledger.version !== AGENT_RUN_LEDGER_VERSION
+        || !Number.isSafeInteger(ledger.eventCount) || ledger.eventCount < 1
+        || ledger.firstSequence !== 0
+        || ledger.lastSequence !== ledger.eventCount - 1
+        || ledger.terminalSequence !== ledger.lastSequence
+        || !/^[a-f0-9]{64}$/.test(ledger.digest)
+        || ledger.coverage.some(({ source, coverage }) =>
+          !LEDGER_IDENTIFIER.test(source) || !LEDGER_COVERAGE.has(coverage))) {
+      throw new Error("invalid finalized run ledger summary");
+    }
+    facts.push(["run_event_count", String(ledger.eventCount)]);
+    facts.push(["run_event_first_sequence", String(ledger.firstSequence)]);
+    facts.push(["run_event_last_sequence", String(ledger.lastSequence)]);
+    facts.push(["run_event_terminal_sequence", String(ledger.terminalSequence)]);
+    facts.push(["run_event_ledger_sha256", ledger.digest]);
+    for (const observation of ledger.coverage) {
+      facts.push(["run_observation_coverage", JSON.stringify(observation)]);
+    }
+  }
   // Structured usage owns the aggregate whenever it is present. This prevents a
   // caller from reintroducing zero/summed guesses alongside an unknown terminal
   // status, or from drifting away from an adapter-computed exact total.

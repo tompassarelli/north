@@ -18,6 +18,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/run-ledger.clj"))
 (def send-op  north.coord/send-op)
 (def resolved north.coord/resolved)
 (def many     north.coord/many)
@@ -31,6 +32,14 @@
 (def NOW (System/currentTimeMillis))
 (def max-trace-run-candidates 128)
 (def trace-agent-predicates north.lifecycle-projection/trace-agent-predicates)
+(def forensic-run-header-predicates
+  ["kind" "thread" "agent" "at" "outcome" "provider" "provider_target"
+   "model" "effort" "agent_run_ledger_version" "run_event_status"
+   "parent_run" "parent_thread" "run_coordinator" "prompt_composition_version"
+   "prompt_composition_sha256" "capability_class" "run_event_count"
+   "run_event_first_sequence" "run_event_last_sequence"
+   "run_event_terminal_sequence" "run_event_ledger_sha256"
+   "run_observation_coverage"])
 
 (def use-color? (some? (System/console)))
 (defn c [code s] (if use-color? (str "\033[" code "m" s "\033[0m") (str s)))
@@ -57,6 +66,95 @@
 (defn q [project body]
   (:ok (send-op PORT {:op :query
         :query {:find "row" :rules [{:head {:rel "row" :args (mapv (fn [v] {:var v}) project)} :body body}]}})))
+
+;; ---- forensic AgentRun ledger ------------------------------------------------
+(defn point-facts [subject predicates]
+  (into {}
+        (keep (fn [predicate]
+                (let [values (vec (distinct (many PORT subject predicate)))]
+                  (when (= 1 (count values)) [predicate (first values)]))))
+        predicates))
+
+(defn run-event-entries [run-id]
+  (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
+        rows (north.coord/query-page
+              PORT
+              {:find "forensic_run_event"
+               :rules [{:head {:rel "forensic_run_event" :args [{:var "e"}]}
+                        :body [{:rel "triple" :args [{:var "e"} "run" canonical-run]}
+                               {:rel "triple" :args [{:var "e"} "kind" "run_event"]}]}]}
+              512 nil)]
+    (when (or (:more rows) (> (count (:ok rows)) 512))
+      (throw (ex-info "run event trace exceeds bounded 512-event read" {:run canonical-run})))
+    (mapv
+     (fn [[subject]]
+       (let [facts (mapcat (fn [predicate]
+                             (map (fn [value] [predicate value])
+                                  (many PORT subject predicate)))
+                           north.run-ledger/event-predicates)]
+         (north.run-ledger/validate-event-facts! subject facts)))
+     (:ok rows))))
+
+(defn thread-run-ids [thread-id]
+  (let [canonical-thread (north.run-ledger/canonical-entity thread-id "thread")
+        rows (north.coord/query-page
+              PORT
+              {:find "forensic_thread_run"
+               :rules [{:head {:rel "forensic_thread_run" :args [{:var "e"}]}
+                        :body [{:rel "triple" :args [{:var "e"} "thread" canonical-thread]}
+                               {:rel "triple" :args [{:var "e"} "kind" "run"]}]}]}
+              128 nil)]
+    (when (or (:more rows) (> (count (:ok rows)) 128))
+      (throw (ex-info "thread trace exceeds bounded 128-run read" {:thread canonical-thread})))
+    (->> (:ok rows) (map first) distinct sort vec)))
+
+(defn forensic-run [run-id header events]
+  (north.run-ledger/timeline run-id header events))
+
+(defn unknown-label [value source]
+  (or value (str "unknown (source coverage " (or source "unavailable") ")")))
+
+(defn render-forensic-run [{:keys [run thread agent parent-run parent-thread coordinator
+                                   observations valid-order? finalized?
+                                   header-count-valid? header-digest-valid?]}]
+  (let [lineage-source (when (or parent-run parent-thread coordinator) "partial")]
+    (str/join
+     "\n"
+     (concat
+      [(str "run " run)
+       (str "  thread: " (unknown-label thread nil))
+       (str "  agent: " (unknown-label agent nil))
+       (str "  parent run: " (unknown-label parent-run lineage-source))
+       (str "  parent thread: " (unknown-label parent-thread lineage-source))
+       (str "  coordinator: " (unknown-label coordinator lineage-source))
+       (str "  ledger order: " (if valid-order? "exact" "invalid"))
+       (str "  ledger finalization: " (if finalized? "exact" "unknown (source coverage unavailable)"))
+       (str "  header event count: " (if header-count-valid? "consistent" "invalid"))
+       (str "  header digest: " (if header-digest-valid? "consistent" "invalid"))]
+      (mapcat
+       (fn [{:keys [type status coverage source events]}]
+         (if (= :unknown status)
+           [(format "  %-22s unknown (source coverage unavailable)" type)]
+           (map (fn [event]
+                  (format "  %08d %-22s observed coverage=%s source=%s at=%s"
+                          (get event "sequence") type coverage source
+                          (get event "observedAt")))
+                events)))
+       observations)))))
+
+(defn live-forensic-run [run-id]
+  (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
+        header (point-facts canonical-run forensic-run-header-predicates)]
+    (forensic-run canonical-run header (run-event-entries canonical-run))))
+
+(defn forensic-main! [kind selector]
+  (let [run-ids (if (= kind :run) [selector] (thread-run-ids selector))]
+    (println (str (bold "north trace ") selector "  ·  AgentRun ledger v1"))
+    (if (seq run-ids)
+      (doseq [run-id run-ids]
+        (println)
+        (println (render-forensic-run (live-forensic-run run-id))))
+      (println "no committed runs observed; all run observations unknown (source coverage unavailable)"))))
 
 (defn owned-concerns [id]
   (->> (q ["e"] [{:rel "triple" :args [{:var "e"} "kind" "concern"]}
@@ -236,7 +334,20 @@
 (defn -main [args]
   (let [raw (first args)]
     (when (str/blank? raw)
-      (println (red "usage:") "north trace <agent-id>") (System/exit 2))
+      (println (red "usage:") "north trace <agent-id|run:ID|thread:ID>") (System/exit 2))
+    (let [run-selector (when (re-find #"^@?run:" raw)
+                         (north.run-ledger/canonical-entity raw "run"))
+          thread-selector (when (str/starts-with? raw "thread:")
+                            (north.run-ledger/canonical-entity
+                             (subs raw (count "thread:")) "thread"))]
+      (when (or run-selector thread-selector)
+        (let [probe (try (send-op PORT {:op :version}) (catch Exception _ ::down))]
+          (when (= probe ::down)
+            (println (red (str "north trace — coordinator :" PORT " unreachable")))
+            (System/exit 1))
+          (forensic-main! (if run-selector :run :thread)
+                          (or run-selector thread-selector))
+          (System/exit 0))))
     (let [id (str/replace raw #"^@?(agent:)?" "")
           probe (try (send-op PORT {:op :version}) (catch Exception _ ::down))]
       (when (= probe ::down)

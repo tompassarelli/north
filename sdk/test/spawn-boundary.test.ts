@@ -22,6 +22,18 @@ function readySubscription(stop: () => void = () => {}) {
   });
 }
 
+function pinEvidence(provider: "anthropic" | "openai") {
+  const issuedAt = new Date();
+  return {
+    policyVersion: "north-routing-pin-v1" as const,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: new Date(issuedAt.getTime() + 60 * 60 * 1000).toISOString(),
+    reasonCode: "explicit-human-request" as const,
+    detail: "spawn boundary fixture",
+    pins: [{ kind: "provider" as const, value: provider }],
+  };
+}
+
 // Every env key this test mutates — snapshot for exact restore (set-or-delete) in afterAll,
 // so a scrub here never leaks into sibling suites. Includes the INHERITED IDENTITY keys:
 // a real north session runs with AGENT_ID / NORTH_AGENT_ID / AGENT_COORDINATOR (+ model/
@@ -33,6 +45,7 @@ const MANAGED_ENV = [
   "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_TOPOLOGY", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
+  "NORTH_AUTH_STATE_CACHE",
   "NORTH_PROVIDER_OBSERVATIONS", "NORTH_ALLOCATION_MODE", "NORTH_PROVIDER_ORDER",
   "NORTH_PROVIDER_WEIGHTS", "NORTH_RESERVED_FRONTIER_PROVIDER",
   "NORTH_ANTHROPIC_ENTITLEMENT_PRESSURE", "NORTH_OPENAI_ENTITLEMENT_PRESSURE",
@@ -56,6 +69,23 @@ beforeAll(() => {
   const fakeBb = join(dir, "bb");
   writeFileSync(fakeBb, `#!/usr/bin/env bash\nprintf 'bb %s\\n' "$*" >> "${log}"\nexit 0\n`);
   chmodSync(fakeBb, 0o755);
+  const fakeClaude = join(dir, "claude");
+  writeFileSync(fakeClaude, `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then printf '%s\n' '2.1.0-test'; exit 0; fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}'
+  exit 0
+fi
+exit 2
+`);
+  chmodSync(fakeClaude, 0o755);
+  const fakeCodex = join(dir, "codex");
+  writeFileSync(fakeCodex, `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then printf '%s\n' 'codex-test'; exit 0; fi
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then printf '%s\n' 'Logged in using ChatGPT'; exit 0; fi
+exit 2
+`);
+  chmodSync(fakeCodex, 0o755);
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;
@@ -67,6 +97,7 @@ beforeAll(() => {
   process.env.AGENT_PRAXIS = "off";
   process.env.NORTH_ROUTING_POLICY = join(dir, "absent-routing-policy.json");
   process.env.NORTH_PROVIDER_OBSERVATIONS = join(dir, "absent-provider-observations.json");
+  process.env.NORTH_AUTH_STATE_CACHE = join(dir, "auth-state.json");
   delete process.env.NORTH_ALLOCATION_MODE;
   delete process.env.NORTH_PROVIDER_ORDER;
   delete process.env.NORTH_PROVIDER_WEIGHTS;
@@ -148,6 +179,7 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
     prompt: "coordinate one child",
     agentId: "test-spawn-live-feed",
     provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
     routingMetadata: presetRequest("integrator"),
     feedSubscriber: (agentId, onMail) => {
       subscribedAgent = agentId;
@@ -185,6 +217,7 @@ test("OpenAI exec lanes never arm a live-input subscription", async () => {
     prompt: "one-shot Codex run",
     agentId: "test-openai-no-live-feed",
     provider: "openai",
+    pinEvidence: pinEvidence("openai"),
     routingMetadata: presetRequest("integrator"),
     feedSubscriber: () => {
       subscriptions++;
@@ -221,6 +254,7 @@ test("a terminal live-feed drain failure AFTER a completed provider turn preserv
     prompt: "finish the turn, then let the feed drain fail",
     agentId: "test-drain-safe-completion",
     provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
     routingMetadata: presetRequest("integrator"),
     feedSubscriber: () => failingDrainSubscription(),
     queryFn: () => ({
@@ -258,6 +292,7 @@ test("a terminal live-feed drain failure with NO completed provider result stays
       prompt: "die before any result, then let the feed drain fail too",
       agentId: "test-drain-fail-closed",
       provider: "anthropic",
+      pinEvidence: pinEvidence("anthropic"),
       routingMetadata: presetRequest("integrator"),
       feedSubscriber: () => failingDrainSubscription(),
       queryFn: () => ({
