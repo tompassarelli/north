@@ -1,7 +1,7 @@
 (ns north.corpus-transaction
   "Journaled, all-old/all-new replacement for North's split fact corpus.
 
-  Callers seal exact live and candidate file records plus bounded schema
+  Callers seal exact live and candidate file records plus bounded tagged
   artifact provenance into a plan, then provide coordinator lifecycle
   callbacks. The core owns the state singleton, writer fences, durable
   preimage, journal, replacement, and crash recovery."
@@ -17,9 +17,14 @@
 (def roles [:coordination :telemetry])
 (def plan-id-pattern #"plan-[0-9a-f]{64}")
 (def provenance-max-bytes 1024)
+(def schema-candidate-provenance-format
+  "north-corpus-provenance/schema-candidate-v1")
+(def snapshot-restore-provenance-format
+  "north-corpus-provenance/snapshot-restore-v1")
 (def sha256-pattern #"[0-9a-f]{64}")
 (def snapshot-id-pattern #"snapshot-[0-9a-f]{64}")
 (def finalized-candidate-id-pattern #"schema-candidate-[0-9a-f]{64}")
+(def restore-candidate-id-pattern #"candidate-[0-9a-f]{64}")
 (def schema-receipt-id-pattern #"schema-converged-[0-9a-f]{64}\.edn")
 
 (defn fail!
@@ -211,34 +216,50 @@
 (defn exact-keys? [value expected]
   (and (map? value) (= expected (set (keys value)))))
 
+(defn- valid-source-snapshot? [source]
+  (and (exact-keys? source #{:snapshot_id :manifest_sha256})
+       (string? (:snapshot_id source))
+       (re-matches snapshot-id-pattern (:snapshot_id source))
+       (string? (:manifest_sha256 source))
+       (re-matches sha256-pattern (:manifest_sha256 source))))
+
+(defn- valid-candidate? [candidate id-pattern]
+  (and (exact-keys? candidate #{:candidate_id :manifest_sha256})
+       (string? (:candidate_id candidate))
+       (re-matches id-pattern (:candidate_id candidate))
+       (string? (:manifest_sha256 candidate))
+       (re-matches sha256-pattern (:manifest_sha256 candidate))))
+
 (defn validate-provenance! [provenance]
   (let [size (alength ^bytes (canonical-edn-bytes provenance))]
     (when (> size provenance-max-bytes)
       (fail! "corpus transaction provenance exceeds its canonical size limit"
              {:type :provenance-too-large
               :bytes size :limit provenance-max-bytes})))
-  (let [source (:source_snapshot provenance)
-        candidate (:finalized_candidate provenance)]
-    (when-not
-     (and (exact-keys? provenance
-                       #{:source_snapshot :finalized_candidate
-                         :schema_receipt_id})
-          (exact-keys? source #{:snapshot_id :manifest_sha256})
-          (exact-keys? candidate #{:candidate_id :manifest_sha256})
-          (string? (:snapshot_id source))
-          (re-matches snapshot-id-pattern (:snapshot_id source))
-          (string? (:manifest_sha256 source))
-          (re-matches sha256-pattern (:manifest_sha256 source))
-          (string? (:candidate_id candidate))
-          (re-matches finalized-candidate-id-pattern
-                      (:candidate_id candidate))
-          (string? (:manifest_sha256 candidate))
-          (re-matches sha256-pattern (:manifest_sha256 candidate))
-          (string? (:schema_receipt_id provenance))
-          (re-matches schema-receipt-id-pattern
-                      (:schema_receipt_id provenance)))
+  (let [valid?
+        (cond
+          (= schema-candidate-provenance-format (:format provenance))
+          (and (exact-keys? provenance
+                            #{:format :source_snapshot :finalized_candidate
+                              :schema_receipt_id})
+               (valid-source-snapshot? (:source_snapshot provenance))
+               (valid-candidate? (:finalized_candidate provenance)
+                                 finalized-candidate-id-pattern)
+               (string? (:schema_receipt_id provenance))
+               (re-matches schema-receipt-id-pattern
+                           (:schema_receipt_id provenance)))
+
+          (= snapshot-restore-provenance-format (:format provenance))
+          (and (exact-keys? provenance
+                            #{:format :source_snapshot :restore_candidate})
+               (valid-source-snapshot? (:source_snapshot provenance))
+               (valid-candidate? (:restore_candidate provenance)
+                                 restore-candidate-id-pattern))
+
+          :else false)]
+    (when-not valid?
       (fail! "corpus transaction provenance is missing, malformed, or contains unknown fields"
-             {:type :provenance-invalid})))
+             {:type :provenance-invalid :format (:format provenance)})))
   (canonical-form provenance))
 
 (defn plan-payload [plan]

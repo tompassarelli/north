@@ -5,13 +5,69 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
-fram=${FRAM_PATH:-$root/../fram}
-for required in "$root/bin/north" "$fram/bin/fram-daemon" "$fram/out/fram/rt.clj"; do
+for required_command in nix bb; do
+  command -v "$required_command" >/dev/null || {
+    printf 'corpus transaction integration: missing command: %s\n' \
+      "$required_command" >&2
+    exit 2
+  }
+done
+
+# Production resolves Fram through North's flake lock, so this proof must do the
+# same. Deliberately poison FRAM_PATH while resolving: a future regression back
+# to the mutable sibling checkout will fail the exact-revision checks below.
+ambient_fram=$root/../fram
+locked_fram_rev=$(
+  nix flake metadata --json "$root" |
+    bb -e '(require (quote [cheshire.core :as json]))
+           (print (get-in (json/parse-string (slurp *in*) true)
+                          [:locks :nodes :fram :locked :rev]))'
+)
+if [[ ! "$locked_fram_rev" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'corpus transaction integration: invalid locked Fram revision: %s\n' \
+    "$locked_fram_rev" >&2
+  exit 2
+fi
+
+if [[ -n "${NORTH_TEST_LOCKED_FRAM_SOURCE:-}" ]]; then
+  command -v git >/dev/null || {
+    printf 'corpus transaction integration: missing command: git\n' >&2
+    exit 2
+  }
+  fram=$(cd "$NORTH_TEST_LOCKED_FRAM_SOURCE" && pwd -P)
+  source_rev=$(git -C "$fram" rev-parse --verify HEAD 2>/dev/null || true)
+  source_dirty=$(git -C "$fram" status --porcelain 2>/dev/null || true)
+  if [[ "$source_rev" != "$locked_fram_rev" || -n "$source_dirty" ||
+        "$(readlink -f "$fram")" == "$(readlink -f "$ambient_fram")" ]]; then
+    printf 'corpus transaction integration: explicit Fram source is not a clean, non-ambient checkout of %s: %s\n' \
+      "$locked_fram_rev" "$fram" >&2
+    exit 2
+  fi
+  fram_bin=$fram/bin
+  fram_out=$fram/out
+  fram_runtime=$fram
+else
+  resolve_locked_fram() {
+    nix build --no-link --print-out-paths "$root#fram-engine"
+  }
+  fram_pkg=$(FRAM_PATH="$ambient_fram" resolve_locked_fram)
+  if [[ "$fram_pkg" != /nix/store/* || "$fram_pkg" == *$'\n'* ]]; then
+    printf 'corpus transaction integration: Fram package did not resolve from the lock: %s\n' \
+      "$fram_pkg" >&2
+    exit 2
+  fi
+  fram=$fram_pkg/libexec/fram
+  fram_bin=$fram_pkg/bin
+  fram_out=$fram/out
+  fram_runtime=$fram_pkg
+fi
+for required in "$root/bin/north" "$fram_bin/fram-daemon" "$fram_out/fram/rt.clj"; do
   [[ -e "$required" ]] || {
     printf 'corpus transaction integration: missing runtime: %s\n' "$required" >&2
     exit 2
   }
 done
+printf 'corpus transaction locked Fram: %s (%s)\n' "$locked_fram_rev" "$fram_runtime"
 
 scratch=$(mktemp -d -t 'north-corpus-transaction.XXXXXX')
 pid_file=$scratch/coordinator.pid
@@ -92,13 +148,15 @@ make_plan() {
   TEST_ROOT=$root TEST_PLAN=$plan_file TEST_COORD=$coord_log \
   TEST_TELEMETRY=$telemetry_log TEST_CANDIDATE_COORD=$candidate_coord \
   TEST_CANDIDATE_TELEMETRY=$candidate_telemetry \
-    bb -cp "$fram/out" -e '
+    bb -cp "$fram_out" -e '
       (load-file (str (System/getenv "TEST_ROOT") "/cli/corpus-transaction.clj"))
       (let [hex (fn [character] (apply str (repeat 64 character)))
             plan (north.corpus-transaction/make-plan
                   {:purpose "real-split-integration"
                    :provenance
-                   {:source_snapshot
+                   {:format
+                    north.corpus-transaction/schema-candidate-provenance-format
+                    :source_snapshot
                     {:snapshot_id (str "snapshot-" (hex "a"))
                      :manifest_sha256 (hex "b")}
                     :finalized_candidate
@@ -122,7 +180,8 @@ assert_provenance() {
     (require (quote [clojure.edn :as edn]))
     (let [hex (fn [character] (apply str (repeat 64 character)))
           expected
-          {:source_snapshot
+          {:format "north-corpus-provenance/schema-candidate-v1"
+           :source_snapshot
            {:snapshot_id (str "snapshot-" (hex "a"))
             :manifest_sha256 (hex "b")}
            :finalized_candidate
@@ -145,7 +204,7 @@ coord_value() {
   local subject=$1 predicate=$2
   FRAM_LOG=$coord_log FRAM_TELEMETRY_LOG=$telemetry_log \
   TEST_ROOT=$root TEST_PORT=$port TEST_SUBJECT=$subject TEST_PREDICATE=$predicate \
-    bb -cp "$fram/out" -e '
+    bb -cp "$fram_out" -e '
       (load-file (str (System/getenv "TEST_ROOT") "/cli/coord.clj"))
       (println (or (north.coord/resolved
                     (parse-long (System/getenv "TEST_PORT"))
@@ -155,7 +214,7 @@ coord_value() {
 
 coord_version() {
   FRAM_LOG=$coord_log FRAM_TELEMETRY_LOG=$telemetry_log \
-  TEST_ROOT=$root TEST_PORT=$port bb -cp "$fram/out" -e '
+  TEST_ROOT=$root TEST_PORT=$port bb -cp "$fram_out" -e '
     (load-file (str (System/getenv "TEST_ROOT") "/cli/coord.clj"))
     (println (north.coord/cur-ver (parse-long (System/getenv "TEST_PORT"))))'
 }
@@ -163,8 +222,8 @@ coord_version() {
 common_env=(
   HOME="$scratch/home"
   FRAM_HOME="$fram"
-  FRAM_BIN="$fram/bin"
-  FRAM_OUT="$fram/out"
+  FRAM_BIN="$fram_bin"
+  FRAM_OUT="$fram_out"
   FRAM_LOG="$coord_log"
   FRAM_TELEMETRY_LOG="$telemetry_log"
   FRAM_PORT="$port"
@@ -173,7 +232,7 @@ common_env=(
   NORTH_COORD_LAUNCHER="$launcher"
   NORTH_CORPUS_TRANSACTION_DIR="$state_dir"
   TEST_ROOT="$root"
-  TEST_DAEMON="$fram/bin/fram-daemon"
+  TEST_DAEMON="$fram_bin/fram-daemon"
   TEST_DAEMON_LOG="$daemon_log"
   TEST_PID_FILE="$pid_file"
 )
@@ -240,7 +299,7 @@ set -e
 [[ -e "$state_dir/active.edn" ]]
 assert_provenance "$state_dir/active.edn" top
 if env "${common_env[@]}" TEST_ROOT=$root TEST_PORT=$port TEST_LOG=$coord_log \
-     bb -cp "$fram/out" -e '
+     bb -cp "$fram_out" -e '
        (load-file (str (System/getenv "TEST_ROOT") "/cli/coord.clj"))
        (when (:ready (north.coord/strict-coordinator-status
                       (parse-long (System/getenv "TEST_PORT"))
