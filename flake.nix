@@ -443,7 +443,7 @@ PY
               --prefix PATH : ${runtimePath} \
               --set NORTH_HOME $out
 
-            impurity_pattern='/(home|Users)/|/run/current-system/sw|/code/north(?:/|\b)|~/code/north|[$]HOME/code/north|[.]m2|[.]cpcache|[.]cache/babashka'
+            impurity_pattern='/(home|Users)/|/run/current-system/sw|/code/north(?:/|$|[^[:alnum:]_.-])|~/code/north|[$]HOME/code/north|[.]m2|[.]cpcache|[.]cache/babashka'
             # Two audited exceptions to the store-external scan, and only these:
             # sdk/src/trusted-runtime.ts's NixOS entry-hint pointers
             # /run/current-system/sw/bin/{git,bb}. They are root-managed runtime
