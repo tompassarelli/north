@@ -233,8 +233,23 @@ export class ManagedLiveInputRoute {
       this.publish(route, "frozen", true);
       return;
     }
-    if (this.subscription)
+    if (this.subscription) {
+      // A resumed continuation turn (thread 019f8ec5) re-enters provider
+      // admission, whose callback re-invokes activate on the SAME managed route.
+      // The turn-1 streaming feed is still bound and armed; minting a second
+      // coordinator subscription against one route is the "already has a bound
+      // feed" death. An armed feed on a semantically-identical route already IS
+      // this turn's feed — reuse it. A genuinely different route while a feed is
+      // bound stays a bug (fallback freezes+unbinds before re-activating).
+      if (
+        this.published.liveInputState === "armed"
+        && semanticKey(route, "armed")
+           === semanticKey(this.published, this.published.liveInputState)
+      ) {
+        return;
+      }
       throw new Error("managed live-input route already has a bound feed");
+    }
     let subscription: FeedSubscription | undefined;
     try {
       subscription = this.feedSubscriber(this.agentId, this.pushMessage);

@@ -43,6 +43,57 @@ const inputAdmission = {
   cancel: () => {},
 };
 
+// Resumed continuation turn (thread 019f8ec5): a streaming orchestrator that
+// ends its turn to open a fresh RESUMED provider turn re-enters provider
+// admission, whose callback re-invokes activate on the SAME managed route. The
+// turn-1 feed is still bound and armed; re-arming it once minted a second
+// coordinator subscription and killed the lane with "already has a bound feed".
+// The armed feed on an identical route IS the resumed turn's feed — reuse it,
+// no second subscription, no throw.
+test("activate is idempotent for an already-armed identical route (resumed turn)", async () => {
+  let feeds = 0;
+  const writes: string[] = [];
+  const route = new ManagedLiveInputRoute(
+    "lane-resume-rebind",
+    { kind: "lane" },
+    initialRoute,
+    () => inputAdmission,
+    () => {
+      feeds++;
+      return subscription(Promise.resolve());
+    },
+    (_agentId, facts) => { writes.push(facts.liveInputState!); },
+  );
+  await route.activate(initialRoute);
+  // The resumed turn's admission callback activates the SAME route again.
+  await route.activate(initialRoute);
+  expect(feeds).toBe(1); // no second subscription minted
+  expect(writes).toEqual(["armed"]); // no re-publish churn
+});
+
+// A genuinely different route while a feed is still bound is NOT a resume — it
+// is a lifecycle bug (a real fallback freezes+unbinds before re-activating). The
+// idempotent path must not mask it: a divergent route still throws.
+test("activate still refuses a divergent route while a feed is bound", async () => {
+  const route = new ManagedLiveInputRoute(
+    "lane-resume-divergent",
+    { kind: "lane" },
+    initialRoute,
+    () => inputAdmission,
+    () => subscription(Promise.resolve()),
+    () => {},
+  );
+  await route.activate(initialRoute);
+  const error = await route.activate({
+    ...initialRoute,
+    providerTarget: "claude-work",
+  }).catch((cause) => cause);
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toBe(
+    "managed live-input route already has a bound feed",
+  );
+});
+
 test("terminal unbind waits for direct feed-child settlement", async () => {
   const stopGate = deferred();
   const events: string[] = [];
