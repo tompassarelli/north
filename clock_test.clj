@@ -4,7 +4,10 @@
 ;; roll up to per-thread actual seconds, the open session is detected, and the
 ;; estimate-vs-actual calibration % is computed over DONE threads only.
 ;;
-;;   bb -cp out clock_test.clj      (run from the repo root)
+;;   bb -cp "out:$FRAM_HOME/out" clock_test.clj    (run from the repo root with
+;;   inherited FRAM_LOG / FRAM_TELEMETRY_LOG / FRAM_SINGLE_VALUED unset — the
+;;   isolated daemons here must never see the live split-log selectors, and the
+;;   pure folds declare their own cardinality via each fixture's env)
 (require '[babashka.fs :as fs]
          '[babashka.process :as proc]
          '[clojure.java.io :as io]
@@ -367,7 +370,112 @@
         (try @daemon (catch Throwable _ nil))
         (fs/delete-tree temp)))))
 
-(def all-checks (vec (concat checks checks2 integration-checks)))
+;; --- two-process clock-in contention ----------------------------------------
+;; The atomic boundary under test: `kind client_session` (the visibility
+;; marker) commits via the coordinator's :assert-at-version global-version CAS
+;; after re-checking the open-human-session set at that exact version. Two
+;; probes, both with deterministic assertions:
+;;   (a) two REAL concurrent `north clock in` processes — exactly one succeeds,
+;;       exactly one refuses, exactly one complete owner-scoped
+;;       clocked_by=user client_session remains;
+;;   (b) a wire-level deterministic replay of the race — a racer frozen right
+;;       after its open-check (prefix written, marker not yet published) must
+;;       have its stale-base marker publish rejected :conflict, while its
+;;       kind-less prefix never blocks a live clock-in.
+;; Synthetic acme-test owner + 123.45 rate only; never a real client rate.
+(def contention-checks
+  (let [root (.getCanonicalPath (.getParentFile (io/file *file*)))
+        fram (.getCanonicalPath (io/file root "../fram"))
+        temp (.toFile (java.nio.file.Files/createTempDirectory
+                       "north-clock-contention-"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        log (.getCanonicalPath (io/file temp "facts.log"))
+        port (free-port)
+        singles "owner rate kind clocked_by start_time end_time"
+        environment {"FRAM_LOG" log
+                     "FRAM_PORT" (str port)
+                     "FRAM_SINGLE_VALUED" singles
+                     "NORTH_AGENT_ID" ""
+                     "AGENT_ID" ""
+                     "AGENT_TOPOLOGY" ""}
+        fixture [(op-line 1 "@client-rate:acme-test" "owner" "acme-test")
+                 (op-line 2 "@client-rate:acme-test" "rate" "123.45")
+                 (op-line 3 "@client-rate:acme-test" "kind" "client_rate_config")]
+        _ (spit log (str (str/join "\n" fixture) "\n"))
+        daemon (proc/process
+                {:dir fram :out :string :err :string
+                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+                             "FRAM_SINGLE_VALUED" singles}}
+                "bb" "-cp" "out" "coord_daemon.clj"
+                "serve-flat" (str port) log)]
+    (try
+      (if (not (await-port port))
+        [["isolated contention coordinator starts" false]]
+        (let [;; (a) two live processes race the same clock-in
+              p1 (proc/process
+                  {:dir root :out :string :err :string :continue true :extra-env environment}
+                  (str root "/bin/north") "clock" "in" "acme-test")
+              p2 (proc/process
+                  {:dir root :out :string :err :string :continue true :extra-env environment}
+                  (str root "/bin/north") "clock" "in" "acme-test")
+              outs [(:out @p1) (:out @p2)]
+              ;; anchored: the refusal line "already clocked in for client …"
+              ;; CONTAINS the success substring, so a success must match the
+              ;; line start, never a substring
+              wins (filterv #(str/starts-with? % "clocked in for client acme-test at ") outs)
+              refusals (filterv #(or (str/includes? % "already clocked in for client acme-test")
+                                     (str/includes? % "concurrent clock-in already opened"))
+                                outs)
+              raced-idx (live-index log)
+              raced-sessions (filterv #(= (k/one-i raced-idx % "kind") "client_session")
+                                      (:subjects raced-idx))
+              raced (first raced-sessions)
+              ;; (b) deterministic replay: close the live session, then freeze
+              ;; a racer immediately after its open-check would have passed —
+              ;; prefix written, marker unpublished, base captured
+              _ (clock-run root environment "out")
+              _ (rt/coord-assert-for-log port log "@race-frozen" "owner" "acme-test"
+                                         (rt/coord-version-for-log port log))
+              _ (rt/coord-assert-for-log port log "@race-frozen" "clocked_by" "user"
+                                         (rt/coord-version-for-log port log))
+              _ (rt/coord-assert-for-log port log "@race-frozen" "rate" "123.45"
+                                         (rt/coord-version-for-log port log))
+              _ (rt/coord-assert-for-log port log "@race-frozen" "start_time" "2026-07-24T10:00:00"
+                                         (rt/coord-version-for-log port log))
+              stale-base (rt/coord-version-for-log port log)
+              ;; the frozen racer's kind-less prefix must not block a live win
+              relive (clock-run root environment "in" "acme-test")
+              replay (rt/coord-request-for-log
+                      port log {:op :assert-at-version :te "@race-frozen" :p "kind"
+                                :r "client_session" :base stale-base :frame "agent"})
+              final-idx (live-index log)
+              final-open (filterv #(and (= (k/one-i final-idx % "kind") "client_session")
+                                        (nil? (k/one-i final-idx % "end_time")))
+                                  (:subjects final-idx))]
+          [["two concurrent clock-ins: exactly one succeeds" (= 1 (count wins))]
+           ["two concurrent clock-ins: exactly one refuses" (= 1 (count refusals))]
+           ["race leaves exactly one client_session" (= 1 (count raced-sessions))]
+           ["raced session is complete and owner-scoped"
+            (and (some? raced)
+                 (= (k/one-i raced-idx raced "owner") "acme-test")
+                 (= (k/one-i raced-idx raced "clocked_by") "user")
+                 (= (k/one-i raced-idx raced "rate") "123.45")
+                 (some? (k/one-i raced-idx raced "start_time"))
+                 (nil? (k/one-i raced-idx raced "end_time")))]
+           ["kind-less racer prefix never blocks a live clock-in"
+            (str/starts-with? (:out relive) "clocked in for client acme-test at ")]
+           ["stale-base marker publish rejects :conflict"
+            (= :conflict (:reject replay))]
+           ["frozen racer never becomes a session"
+            (nil? (k/one-i final-idx "@race-frozen" "kind"))]
+           ["exactly one open session survives the replay"
+            (= 1 (count final-open))]]))
+      (finally
+        (try (proc/destroy-tree daemon) (catch Throwable _ nil))
+        (try @daemon (catch Throwable _ nil))
+        (fs/delete-tree temp)))))
+
+(def all-checks (vec (concat checks checks2 integration-checks contention-checks)))
 
 (let [fails (remove second all-checks)]
   (doseq [[nm ok] all-checks] (println (if ok "  [PASS] " "  [FAIL] ") nm))
