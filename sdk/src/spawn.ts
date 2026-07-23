@@ -501,12 +501,19 @@ async function runSpawn(
         if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
         deliveryReservationReady = true;
       }
-    } catch {
+    } catch (error) {
       const abandonedRunId = runId;
       runId = newRunId(agentId);
       if (wt) recordWorktreeRunRotation(wt.allocation, runId);
+      // Loud + diagnosable (thread 019f9063): the prior message swallowed the
+      // writer's exact rejection (freshness, thread-identity, or malformed-ack
+      // reasons all read identically as "unavailable"), so a real ordering
+      // defect and a healthy-but-raced reservation were indistinguishable from
+      // the log alone. The underlying message is a bounded, already-sanitized
+      // Fram rejection or JS Error text — safe to surface directly.
       console.error(
-        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} and leaving delivery unverified`,
+        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} `
+        + `and leaving delivery unverified: ${(error as Error)?.message ?? String(error)}`,
       );
     }
   }
@@ -935,10 +942,12 @@ async function runSpawn(
     } else {
       const reservedRunId = runId;
       let runState: DeliveryRunState | undefined;
+      let loadError: unknown;
       try {
         runState = deliveryRuntime.load(runId);
-      } catch {
+      } catch (error) {
         runState = undefined;
+        loadError = error;
       }
       if (!runState?.reservationValid) {
         runId = newRunId(agentId);
@@ -951,8 +960,14 @@ async function runSpawn(
           }
         }
         deliveryReservationReady = false;
+        // Loud + diagnosable (thread 019f9063): a load failure and a load that
+        // simply found no valid reservation both used to read identically.
         console.error(
-          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} and leaving delivery unverified`,
+          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} `
+          + `and leaving delivery unverified`
+          + (loadError !== undefined
+            ? `: ${(loadError as Error)?.message ?? String(loadError)}`
+            : ""),
         );
         delivery = {
           deliveryOutcome: "unverified",

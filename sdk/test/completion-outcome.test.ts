@@ -6,7 +6,7 @@
 // Hermetic: a fake `north` on PATH + NORTH_BIN captures every tell to a temp log; the
 // injected queryFn owns the whole SDK boundary, so no live coordinator / network / model.
 // This is the same fake-engine pattern as spawn-boundary.test.ts.
-import { test, expect, beforeAll, afterAll } from "bun:test";
+import { test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import {
   chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
   rmSync, writeFileSync,
@@ -2066,6 +2066,48 @@ test("spawn abandons a failed reservation subject and publishes unverified telem
   expect(loadCalled).toBe(false);
 });
 
+// Thread 019f9063 seam 2: the observed 2026-07-24 delegate-lane log recorded
+// only "reservation unavailable; rotating telemetry to @<id> and leaving
+// delivery unverified" — every writer rejection (freshness, thread-identity,
+// malformed-ack, or a genuine ordering race) read identically, so the
+// rotation gave no signal for diagnosing which. The rotation and its
+// projection-safety are unchanged (asserted above); this only asserts the
+// writer's exact rejection is no longer swallowed.
+test("spawn's reservation-unavailable rotation surfaces the writer's exact rejection", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const errorSpy = spyOn(console, "error");
+  try {
+    await spawn({
+      prompt: "recover from a partial reservation, loudly",
+      agentId: "test-spawn-reservation-rotation-loud",
+      role: "integrator", routingMetadata: presetRequest("integrator"),
+      thread: "thread-spawn-reservation-rotation-loud",
+      deliveryRuntime: {
+        reserve() {
+          throw new Error("run subject is not fresh");
+        },
+        load() {
+          return { reservationValid: false, evidence: [] };
+        },
+      },
+      queryFn: () => (async function* () {
+        yield {
+          type: "result", subtype: "success", result: "done",
+          duration_ms: 1, num_turns: 1,
+        };
+      })(),
+    });
+    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) =>
+      message.includes("reservation unavailable")
+      && message.includes("run subject is not fresh"),
+    )).toBe(true);
+  } finally {
+    errorSpy.mockRestore();
+  }
+});
+
 test("dispatch rotates away from a reservation that is invalid at finalization", async () => {
   const { dispatch } = await import("./support/dispatch");
   writeFileSync(log, "");
@@ -2109,6 +2151,41 @@ test("dispatch rotates away from a reservation that is invalid at finalization",
   expect(lines.some((line) =>
     line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
   )).toBe(true);
+});
+
+test("spawn's finalize-rotation surfaces the load failure that invalidated the reservation", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const errorSpy = spyOn(console, "error");
+  try {
+    await spawn({
+      prompt: "recover at finalization, loudly",
+      agentId: "test-spawn-finalize-rotation-loud",
+      role: "integrator", routingMetadata: presetRequest("integrator"),
+      thread: "thread-spawn-finalize-rotation-loud",
+      deliveryRuntime: {
+        reserve(context) {
+          return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+        },
+        load() {
+          throw new Error("torn rotated-run predicate row");
+        },
+      },
+      queryFn: () => (async function* () {
+        yield {
+          type: "result", subtype: "success", result: "done",
+          duration_ms: 1, num_turns: 1,
+        };
+      })(),
+    });
+    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) =>
+      message.includes("reservation invalid at finalize")
+      && message.includes("torn rotated-run predicate row"),
+    )).toBe(true);
+  } finally {
+    errorSpy.mockRestore();
+  }
 });
 
 test("spawn rotates away from a reservation that is invalid at finalization", async () => {

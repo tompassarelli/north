@@ -338,79 +338,115 @@
           ;; projection is an unavailable roster, never 256 fabricated empties.
           {:err "agent subject projection unavailable"})))))
 
+(defn- roster-run-entries-attempt
+  "One non-recursive attempt to resolve run candidates for IDS: a single
+  bounded union query for candidate subjects, then per-subject predicate
+  hydration. Structurally identical to the original single-shot
+  implementation. `roster-run-entries` bisects across attempts on failure to
+  isolate which id's underlying data is actually at fault."
+  [ids]
+  (try
+    (let [rules
+          (mapv
+           (fn [control]
+             {:head {:rel "roster_run_candidate"
+                     :args [{:var "e"}]}
+              :body [{:rel "triple"
+                      :args [{:var "e"} "agent" control]}]})
+           ids)
+          response
+          (north.coord/query-page
+           (Integer/parseInt PORT)
+           {:find "roster_run_candidate" :rules rules}
+           max-roster-run-candidates nil)
+          rows (:ok response)]
+      (if-not
+       (and (map? response) (vector? rows)
+            (false? (:more response))
+            (<= (count rows) max-roster-run-candidates)
+            (every? #(and (vector? %) (= 1 (count %))
+                          (every? string? %))
+                    rows))
+        {:ok false :reason :run-projection-malformed}
+        (let [subjects
+              (->> rows
+                   (map first)
+                   (filter north.terminal-projection/valid-run-entity?)
+                   distinct
+                   sort)
+              entries
+              (mapv
+               (fn [subject]
+                 {:subject subject
+                  :facts
+                  (into {}
+                        (keep
+                         (fn [predicate]
+                           (let [values
+                                 (set (north.coord/many
+                                       (Integer/parseInt PORT)
+                                       subject predicate))]
+                             (when (seq values) [predicate values]))))
+                        north.terminal-projection/run-resolution-predicates)})
+               subjects)]
+          {:ok true
+           :by-agent
+           (into {}
+                 (map (fn [control]
+                        [control
+                         (filterv
+                          #(contains? (get-in % [:facts "agent"] #{}) control)
+                          entries)]))
+                 ids)})))
+    (catch Exception _
+      {:ok false :reason :run-projection-unavailable})))
+
 (defn roster-run-entries
-  "Read run candidates for every live control in one indexed union query. The
-  response is proportional to those lane handles, never to global run history."
+  "Read run candidates for every live control. The common case is one bounded
+  union query for the whole batch (`roster-run-entries-attempt`). On failure,
+  bisect the id set and retry each half: a rotated/partial run's hydration
+  fault is thereby isolated to the specific id(s) whose data is actually
+  torn — each such id's `:by-agent` entry becomes an error sentinel — while
+  every other id in the batch still resolves from its own real data. The
+  single try/catch this replaces turned one bad run into
+  :run-projection-malformed/-unavailable for every requested id, including
+  unrelated live sessions (observed 2026-07-24: a delegate lane's rotated
+  telemetry malformed the roster for the coordinator's own native session)."
   [ids]
   (let [ids (vec (distinct ids))]
     (if (empty? ids)
       {:ok true :by-agent {}}
-      (try
-        (let [rules
-              (mapv
-               (fn [control]
-                 {:head {:rel "roster_run_candidate"
-                         :args [{:var "e"}]}
-                  :body [{:rel "triple"
-                          :args [{:var "e"} "agent" control]}]})
-               ids)
-              response
-              (north.coord/query-page
-               (Integer/parseInt PORT)
-               {:find "roster_run_candidate" :rules rules}
-               max-roster-run-candidates nil)
-              rows (:ok response)]
-          (if-not
-           (and (map? response) (vector? rows)
-                (false? (:more response))
-                (<= (count rows) max-roster-run-candidates)
-                (every? #(and (vector? %) (= 1 (count %))
-                              (every? string? %))
-                        rows))
-            {:ok false :reason :run-projection-malformed}
-            (let [subjects
-                  (->> rows
-                       (map first)
-                       (filter north.terminal-projection/valid-run-entity?)
-                       distinct
-                       sort)
-                  entries
-                  (mapv
-                   (fn [subject]
-                     {:subject subject
-                      :facts
-                      (into {}
-                            (keep
-                             (fn [predicate]
-                               (let [values
-                                     (set (north.coord/many
-                                           (Integer/parseInt PORT)
-                                           subject predicate))]
-                                 (when (seq values) [predicate values]))))
-                            north.terminal-projection/run-resolution-predicates)})
-                   subjects)]
-              {:ok true
-               :by-agent
-               (into {}
-                     (map (fn [control]
-                            [control
-                             (filterv
-                              #(contains? (get-in % [:facts "agent"] #{}) control)
-                              entries)]))
-                     ids)})))
-        (catch Exception _
-          {:ok false :reason :run-projection-unavailable})))))
+      (let [result (roster-run-entries-attempt ids)]
+        (cond
+          (:ok result) result
+
+          (= 1 (count ids))
+          {:ok true :by-agent {(first ids) {:err (:reason result)}}}
+
+          :else
+          (let [half (quot (count ids) 2)
+                [a b] (split-at half ids)
+                ra (roster-run-entries a)
+                rb (roster-run-entries b)]
+            {:ok true :by-agent (merge (:by-agent ra) (:by-agent rb))}))))))
 
 (defn attach-lane-resolutions [ids agents run-projection]
   (into {}
         (map
          (fn [control]
            (let [facts (get agents control {})
+                 agent-projection (get-in run-projection [:by-agent control])
                  resolution
-                 (if (:ok run-projection)
+                 (cond
+                   (not (:ok run-projection))
+                   {:status :indeterminate :reason (:reason run-projection)}
+
+                   (map? agent-projection)
+                   {:status :indeterminate :reason (:err agent-projection)}
+
+                   :else
                    (north.terminal-projection/lane-resolution
-                    control facts (get-in run-projection [:by-agent control] []))
-                   {:status :indeterminate :reason (:reason run-projection)})]
+                    control facts (or agent-projection [])))]
              [control (assoc facts lane-resolution-key resolution)])))
         ids))
 
