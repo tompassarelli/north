@@ -8,6 +8,10 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { codexConfigArguments } from "../accounts";
 import { managedNorthMcpEnvironment } from "../execution-admission";
+import {
+  NativeCommandActivityAccumulator, unknownNativeCommandActivity,
+  type NativeCommandActivityObservation, type NativeCommandStatus,
+} from "../native-command-activity";
 import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
 import { trustedGitProjectRoot, trustedManagedCodexExecutable } from "../trusted-runtime";
 import type { TerminalTokenUsage } from "../usage";
@@ -939,6 +943,116 @@ interface RuntimeNotificationState {
   usage?: ManagedCodexResult["usage"];
   terminalSeen: boolean;
   mcpActivity: McpActivityAccumulator;
+  nativeCommands: NativeCommandActivityAccumulator;
+}
+
+function commandText(value: unknown, label: string, maxBytes = MAX_LINE_BYTES): string {
+  if (typeof value !== "string" || !value
+      || Buffer.byteLength(value, "utf8") > maxBytes)
+    throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function nullableCommandText(value: unknown, label: string): string {
+  if (value === null) return "";
+  if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > MAX_LINE_BYTES)
+    throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function validateCommandAction(value: unknown): void {
+  const action = record(value, "Codex command action");
+  const type = boundedString(action.type, "Codex command action type", 32);
+  if (type === "read") {
+    onlyKeys(action, ["type", "command", "name", "path"], "Codex read command action");
+    commandText(action.command, "Codex read command action command");
+    commandText(action.name, "Codex read command action name", 4_096);
+    commandText(action.path, "Codex read command action path");
+    return;
+  }
+  if (type === "listFiles") {
+    onlyKeys(action, ["type", "command", "path"], "Codex list-files command action");
+    commandText(action.command, "Codex list-files command action command");
+    if (action.path !== null) commandText(action.path, "Codex list-files command action path");
+    return;
+  }
+  if (type === "search") {
+    onlyKeys(action, ["type", "command", "query", "path"], "Codex search command action");
+    commandText(action.command, "Codex search command action command");
+    if (action.query !== null) commandText(action.query, "Codex search command action query");
+    if (action.path !== null) commandText(action.path, "Codex search command action path");
+    return;
+  }
+  if (type === "unknown") {
+    onlyKeys(action, ["type", "command"], "Codex unknown command action");
+    commandText(action.command, "Codex unknown command action command");
+    return;
+  }
+  throw new Error("Codex command action type is invalid");
+}
+
+function completedNativeCommand(
+  item: JsonObject,
+  state: RuntimeNotificationState,
+): void {
+  onlyKeys(item, [
+    "id", "type", "command", "cwd", "processId", "source", "status",
+    "commandActions", "aggregatedOutput", "exitCode", "durationMs",
+  ], "Codex completed command execution");
+  const id = protocolId(item.id, "Codex completed command execution id");
+  if (item.type !== "commandExecution" || item.cwd !== state.cwd)
+    throw new Error("Codex completed command execution changed authority");
+  const command = commandText(item.command, "Codex completed command execution command");
+  if (item.processId !== null) protocolId(item.processId, "Codex command process id");
+  const source = String(item.source);
+  if (!["agent", "userShell", "unifiedExecStartup", "unifiedExecInteraction"].includes(source))
+    throw new Error("Codex completed command execution source is invalid");
+  const status = String(item.status) as NativeCommandStatus;
+  if (!["completed", "failed", "declined"].includes(status))
+    throw new Error("Codex completed command execution status is not terminal");
+  if (!Array.isArray(item.commandActions) || item.commandActions.length > 256)
+    throw new Error("Codex completed command actions are invalid");
+  for (const action of item.commandActions) validateCommandAction(action);
+  const aggregatedOutput = nullableCommandText(
+    item.aggregatedOutput, "Codex completed command execution output",
+  );
+  if (!Number.isSafeInteger(item.exitCode)
+      || (item.exitCode as number) < -2_147_483_648
+      || (item.exitCode as number) > 2_147_483_647)
+    throw new Error("Codex completed command execution exit code is invalid");
+  if (!Number.isSafeInteger(item.durationMs) || (item.durationMs as number) < 0)
+    throw new Error("Codex completed command execution duration is invalid");
+  if (!state.nativeCommands.observe({
+    id: `${state.turnId}:${id}`,
+    command,
+    cwd: state.cwd,
+    source: source as "agent" | "userShell" | "unifiedExecStartup" | "unifiedExecInteraction",
+    status,
+    aggregatedOutput,
+    exitCode: item.exitCode as number,
+  })) throw new Error("Codex command completion is missing its exact start");
+}
+
+function startedNativeCommand(item: JsonObject, state: RuntimeNotificationState): void {
+  onlyKeys(item, [
+    "id", "type", "command", "cwd", "processId", "source", "status",
+    "commandActions", "aggregatedOutput", "exitCode", "durationMs",
+  ], "Codex started command execution");
+  const id = protocolId(item.id, "Codex started command execution id");
+  if (item.type !== "commandExecution" || item.cwd !== state.cwd
+      || item.status !== "inProgress" || item.aggregatedOutput !== null
+      || item.exitCode !== null || item.durationMs !== null)
+    throw new Error("Codex started command execution lifecycle is invalid");
+  commandText(item.command, "Codex started command execution command");
+  if (item.processId !== null) protocolId(item.processId, "Codex command process id");
+  if (!["agent", "userShell", "unifiedExecStartup", "unifiedExecInteraction"]
+    .includes(String(item.source)))
+    throw new Error("Codex started command execution source is invalid");
+  if (!Array.isArray(item.commandActions) || item.commandActions.length > 256)
+    throw new Error("Codex started command actions are invalid");
+  for (const action of item.commandActions) validateCommandAction(action);
+  if (!state.nativeCommands.start(`${state.turnId}:${id}`))
+    throw new Error("Codex command start lifecycle is invalid");
 }
 
 function validateMcpStartupNotification(
@@ -1149,6 +1263,8 @@ function validateProgressNotification(
     const item = record(params.item, `Codex ${method} item`);
     protocolId(item.id, `Codex ${method} item id`);
     boundedString(item.type, `Codex ${method} item type`, 128);
+    if (method === "item/started" && item.type === "commandExecution")
+      startedNativeCommand(item, state);
     if (method === "item/completed" && item.type === "agentMessage") {
       if (typeof item.text !== "string") throw new Error("Codex agent message text is invalid");
       state.text = item.text;
@@ -1159,6 +1275,8 @@ function validateProgressNotification(
         normalizeCodexMcpIdentity(item.server, item.tool),
       );
     }
+    if (method === "item/completed" && item.type === "commandExecution")
+      completedNativeCommand(item, state);
     return;
   }
   if (method === "turn/completed") {
@@ -1374,10 +1492,15 @@ export class ManagedCodexAppServerRun {
   private control?: SupervisorControl;
   private threadStarted = false;
   private readonly mcp = new McpActivityAccumulator("codex-app-server:item-completed");
+  private nativeCommands?: NativeCommandActivityAccumulator;
 
   constructor(private options: ManagedCodexAppServerOptions) {}
 
   mcpActivity() { return this.mcp.snapshot(); }
+  nativeCommandActivity(): NativeCommandActivityObservation {
+    return this.nativeCommands?.snapshot()
+      ?? unknownNativeCommandActivity("codex-app-server:not-started");
+  }
 
   async interrupt(): Promise<void> {
     if (this.child) await closeProcess(this.child, this.rpc, this.control);
@@ -1408,6 +1531,7 @@ export class ManagedCodexAppServerRun {
       if (error instanceof ManagedCodexPreThreadError) throw error;
       throw new ManagedCodexPreThreadError("openai_codex_launch_contract_invalid", { cause: error });
     }
+    this.nativeCommands = new NativeCommandActivityAccumulator(contract.cwd, ENGINE);
     const supervised = this.options.useSupervisor !== false;
     const spawnProcess = this.options.spawnProcess ?? spawn;
     const control = supervised
@@ -1640,6 +1764,7 @@ export class ManagedCodexAppServerRun {
         text: "",
         terminalSeen: false,
         mcpActivity: this.mcp,
+        nativeCommands: this.nativeCommands,
       };
       drainQueued(false);
       if (runtimeState.hookRuns.size || queuedNotifications.length)
@@ -1693,6 +1818,8 @@ export class ManagedCodexAppServerRun {
         rpc.assertHealthy();
         protocolSucceeded = true;
         this.mcp.complete();
+        if (!this.nativeCommands.complete())
+          throw new Error("Codex turn completed with unfinished native commands");
         yield {
           text: runtimeState.text,
           usage: runtimeState.usage,
@@ -1709,6 +1836,7 @@ export class ManagedCodexAppServerRun {
         input = await nextInput();
         if (input === undefined) break;
         this.mcp.reopen();
+        this.nativeCommands.reopen();
       }
     } catch (error) {
       primaryFailed = true;

@@ -223,6 +223,60 @@ test("telemetry accepts the managed Codex app-server transport distinctly from C
   expect(facts).toContainEqual(["execution_transport", "codex-app-server"]);
 });
 
+test("run telemetry carries bounded native command evidence without raw command or output", () => {
+  const facts = runFacts({
+    thread: "thread-native-command", agent: "lane-native-command", durationMs: 1,
+    posture: "spawn", outcome: "ran", provider: "openai",
+    nativeCommandActivity: {
+      source: "codex-app-server:item-completed", coverage: "exact",
+      totalCommands: 1, successfulCommands: 1, failedCommands: 0, declinedCommands: 0,
+      northBinaryProbe: "passed",
+      completions: [{
+        commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
+        status: "completed", exitCode: 0,
+      }],
+    },
+  });
+  for (const expected of [
+    ["native_command_activity_source", "codex-app-server:item-completed"],
+    ["native_command_activity_coverage", "exact"],
+    ["native_north_binary_probe", "passed"],
+    ["native_command_total", "1"],
+    ["native_command_successful", "1"],
+  ]) expect(facts).toContainEqual(expected);
+  const serialized = JSON.stringify(facts);
+  expect(serialized).not.toContain("command -v north");
+  expect(serialized).not.toContain("/nix/store/");
+  expect(facts.filter(([predicate]) => predicate === "native_command_completion"))
+    .toHaveLength(1);
+});
+
+test("run telemetry rejects incomplete or unbounded native command evidence", () => {
+  const base = {
+    thread: "thread-native-command", agent: "lane-native-command", durationMs: 1,
+    posture: "spawn", outcome: "ran",
+  };
+  expect(() => runFacts({
+    ...base,
+    nativeCommandActivity: {
+      source: "codex-app-server:unsettled", coverage: "unknown",
+      totalCommands: 0, northBinaryProbe: "passed", completions: [],
+    },
+  } as any)).toThrow("unknown native command activity carries terminal evidence");
+  expect(() => runFacts({
+    ...base,
+    nativeCommandActivity: {
+      source: "codex-app-server:item-completed", coverage: "exact",
+      totalCommands: 33, successfulCommands: 33, failedCommands: 0, declinedCommands: 0,
+      northBinaryProbe: "passed",
+      completions: Array.from({ length: 33 }, () => ({
+        commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
+        status: "completed", exitCode: 0,
+      })),
+    },
+  } as any)).toThrow("invalid native command activity observation");
+});
+
 test("run telemetry preserves requested, active, and fallback account targets", () => {
   const facts = runFacts({
     thread: "thread-target", agent: "lane-target", durationMs: 2, posture: "spawn", outcome: "ran",

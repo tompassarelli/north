@@ -883,6 +883,7 @@ async function runSpawn(
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
   const mcpActivity = activeExecutionQuery?.mcpActivity?.()
     ?? unknownMcpActivity("provider-activity-unavailable");
+  const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.();
   const runLedger = await publishRunLifecycleLedger({
     run: runId,
     thread: opts.thread ?? "(ad-hoc)",
@@ -932,7 +933,7 @@ async function runSpawn(
     executionSource: "north-managed",
     executionTransport: activeExecutionQuery?.executionTransport
       ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
-    caveman, mcpActivity,
+    caveman, mcpActivity, nativeCommandActivity,
     providerSessionPersistence: providerJoin?.sessionPersistence ?? "unknown",
     providerJoin,
     northSessionId: opts.sessionId,

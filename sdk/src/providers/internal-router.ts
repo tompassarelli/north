@@ -103,6 +103,10 @@ export function routedQueryWithRegistry(
     mcpActivity: () => active?.mcpActivity?.() ?? {
       source: "provider-route-unavailable", coverage: "unknown", tools: [],
     },
+    nativeCommandActivity: () => active?.nativeCommandActivity?.() ?? {
+      source: "provider-route-unavailable", coverage: "unknown",
+      northBinaryProbe: "not_observed", completions: [],
+    },
     interrupt: async () => { await active?.interrupt?.(); },
     close: () => closePromise ??= (async () => {
       closed = true;
