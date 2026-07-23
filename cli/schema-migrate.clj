@@ -87,6 +87,29 @@
    "thread" "A durable unit of intended or possible work."
    "topic" "A thread-shaped relatedness anchor."))
 
+;; North Orchestration vocabulary kinds (Gaffer -> North Orchestration migration,
+;; Phase 0 inert seed; thread 019f8f5c, design doc sections 1-2). Registration
+;; only: no interpreter reads these entity_kind values yet, and the sibling
+;; @shape:<kind> subjects (seeded by orchestration-vocab-cli.clj) carry an
+;; explicit unshaped/warn enforcement dial per design section 2.3 — nothing here
+;; rejects a write. Kept as a separate table so the Phase-0 vocabulary is
+;; mechanically distinguishable from core North domain kinds above.
+(def ORCHESTRATION-ENTITY-KINDS
+  (sorted-map
+   "template" "A named role composition (axes + capabilities + prompt block) resolved by spawn."
+   "axis_value" "A first-class value of an orchestration axis (task_grade/tier/reasoning/posture/topology/capability/...)."
+   "provider_catalog" "A provider's calibrated model/transport/provenance catalog vintage."
+   "model" "One provider model with its calibrated routes, context window, and delta."
+   "tier_row" "The canonical model + deliberation levels resolved for one provider/tier pair."
+   "selection_policy" "A named, digest-pinned set of selection_rule subjects (e.g. minimum-sufficient-v1)."
+   "selection_rule" "One signal -> minimum tier/reasoning floor rule under a selection_policy."
+   "selection_signal" "A routing signal's name and enumerated legal values."
+   "shape" "A kind-scoped default-deny predicate allowlist, itself governed by @shape:shape."
+   "wire_contract" "A queryable subject documenting one coordinator wire contract (fields, example, error codes)."
+   "staffing_catalog" "Catalog-level defaults for template axes (task_grade/tier/reasoning/posture/topology)."
+   "doctrine_block" "A graph-resident prompt_block not attached to a template (e.g. comms doctrine)."
+   "task" "An accepted delegation subject: proposed_by (director) != delegate (child lane), position 3."))
+
 (def LEGACY-ENTITY-KINDS
   (sorted-map
    "north/clock_audit_run" "One historical clock-coverage audit execution."
@@ -98,7 +121,8 @@
    "north/linear_bootstrap_reservation" "A deterministic Linear bootstrap reservation."
    "north/test_fixture" "A historical test or scratch entity retained outside domain authority."))
 
-(def ENTITY-KINDS (into (sorted-map) (concat CORE-ENTITY-KINDS LEGACY-ENTITY-KINDS)))
+(def ENTITY-KINDS
+  (into (sorted-map) (concat CORE-ENTITY-KINDS LEGACY-ENTITY-KINDS ORCHESTRATION-ENTITY-KINDS)))
 
 (def ENTITY-KIND-DEFINITION "north/entity_kind_definition")
 
