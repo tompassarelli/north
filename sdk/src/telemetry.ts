@@ -143,6 +143,12 @@ export interface RunRecord {
   spendTarget?: string;
   spendPeriod?: string;
   spendReservationMicrousd?: number;
+  /** Bounded auto-retry provenance (thread 019f8f81): set only on a retry run,
+   * naming the original provider-process-death run it followed. The original
+   * run's own facts are never rewritten — this is an additive forward link. */
+  retryOfRun?: string;
+  /** 1-based attempt number; 1 on the (sole, bounded) retry. */
+  retryAttempt?: number;
 }
 
 export function classifyTurnProvenance(
@@ -181,6 +187,16 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       throw new Error("invalid run ledger parent thread identity");
     facts.push(["parent_thread", rec.parentThread.startsWith("@")
       ? rec.parentThread : `@${rec.parentThread}`]);
+  }
+  if (rec.retryOfRun) {
+    if (!/^@?run:[A-Za-z0-9_.:-]+$/.test(rec.retryOfRun))
+      throw new Error("invalid retry-of-run identity");
+    facts.push(["retry_of_run", rec.retryOfRun.startsWith("@") ? rec.retryOfRun : `@${rec.retryOfRun}`]);
+  }
+  if (rec.retryAttempt !== undefined) {
+    if (!Number.isSafeInteger(rec.retryAttempt) || rec.retryAttempt < 1)
+      throw new Error("invalid retry attempt number");
+    facts.push(["retry_attempt", String(rec.retryAttempt)]);
   }
   if (rec.coordinator) {
     const coordinator = rec.coordinator.replace(/^@agent:/, "");
