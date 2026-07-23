@@ -23,6 +23,19 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_") || key.startsWith("NORTH_CAVEMAN_"))
     delete process.env[key];
 }
+
+// Same leak, different shape: a managed dev lane also exports a REAL babashka
+// path (NORTH_PEER_BB/NORTH_BB/NORTH_MCP_BB — src/watchdog.ts:30, src/spend-guard.ts:180,
+// src/harness.ts:68) so its own peer-command/spend-cli plumbing shells out to the
+// real coordinator. Every SDK test that exercises those code paths supplies its
+// own fake `bb` explicitly; none of them expect (or scrub) this ambient override
+// themselves, so under a live managed lane's `bun run test` it silently replaces
+// the intended fake with the real binary — observed 2026-07-24: watchdog.test.ts
+// and spend-guard.test.ts fail under lane env (`bb` expected, real nix-store
+// babashka path received; a real spend-cli reservation refusal instead of the
+// fixture's), green under a clean shell. Delete it up front for the same reason
+// as the AGENT_*/NORTH_ROUTING_* scrub above.
+for (const key of ["NORTH_PEER_BB", "NORTH_BB", "NORTH_MCP_BB"]) delete process.env[key];
 //
 // When the suite runs inside a live managed north lane, the ambient
 // NORTH_PORT points at the REAL coordinator on the session's port. Admission
@@ -157,4 +170,24 @@ if (!process.env.AGENT_LAWS_PATH) {
   const fixture = join(tmpdir(), `north-sdk-global-agents-${process.pid}.md`);
   writeFileSync(fixture, SYNTHETIC_GLOBAL_AGENTS);
   process.env.AGENT_LAWS_PATH = fixture;
+}
+
+// Same class of leak as NORTH_PORT/AGENT_LAWS_PATH above, for the authoring-guard
+// killswitch: authoringGuardsOff() (src/authoring-guards.ts) falls back to reading
+// $NORTH_HARNESS_STATE / $AUTHORING_KILLSWITCH_STATE / ~/.local/state/north/harness.conf
+// when neither override is set. On a real dev box that file tracks the operator's own
+// live `north config` state (e.g. "guards=off" while doing unrelated authoring-guard
+// work) — an ambient value with nothing to do with the suite. Any harness test that
+// exercises a PreToolUse guard chain (gaffer-operational-semantics topology test
+// included) would then silently no-op every guard and pass/fail on host mood instead
+// of code (observed 2026-07-24: host harness.conf had guards=off, which alone flips
+// "topology controls prompt and tools with positive-only orchestration authority"
+// from 14/14 to 13/14 with NO src/ diff at all — confirmed by toggling the real file
+// to guards=on and rerunning green). Pin the killswitch state path to a file that
+// never exists, so the fallback always resolves to guards-on (the safe hermetic
+// default) unless a test explicitly opts into its own fixture.
+if (!process.env.NORTH_HARNESS_STATE && !process.env.AUTHORING_KILLSWITCH_STATE) {
+  process.env.NORTH_HARNESS_STATE = join(
+    tmpdir(), `north-sdk-no-harness-state-${process.pid}.conf`,
+  );
 }
