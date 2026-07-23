@@ -9,7 +9,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { codexConfigArguments } from "../accounts";
 import { managedNorthMcpEnvironment } from "../execution-admission";
 import {
-  NativeCommandActivityAccumulator, unknownNativeCommandActivity,
+  NativeCommandActivityAccumulator, NORTH_BINARY_PROBE_SCRIPT, unknownNativeCommandActivity,
   type NativeCommandActivityObservation, type NativeCommandStatus,
 } from "../native-command-activity";
 import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
@@ -38,6 +38,11 @@ const MAX_SAFETY_BUFFERING_VALUES = 64;
 const MAX_SAFETY_BUFFERING_VALUE_BYTES = 4_096;
 const MANAGED_CODEX_VERSION = "0.144.4";
 const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
+const CODEX_SHELL_PREFLIGHT_TIMEOUT_MS = 5_000;
+const CODEX_SHELL_PREFLIGHT_OUTPUT_BYTES = 4_096;
+const CODEX_SHELL_PREFLIGHT_COMMAND = Object.freeze([
+  "bash", "--noprofile", "--norc", "-c", NORTH_BINARY_PROBE_SCRIPT,
+]);
 
 // This is the complete non-removed feature registry in Codex 0.144.4.  The
 // initialize version attestation below makes a newly-added default fail closed
@@ -198,6 +203,15 @@ function canonical(value: unknown): unknown {
 function exact(value: unknown, expected: unknown, label: string): void {
   if (JSON.stringify(canonical(value)) !== JSON.stringify(canonical(expected)))
     throw new Error(`${label} does not match North's exact managed Codex contract`);
+}
+
+function validateShellPreflight(response: unknown): void {
+  const result = record(response, "Codex command/exec response");
+  onlyKeys(result, ["exitCode", "stdout", "stderr"], "Codex command/exec response");
+  const expectedOutput = `${ENGINE}\n${ENGINE}\n`;
+  if (!Number.isSafeInteger(result.exitCode) || result.exitCode !== 0
+      || result.stdout !== expectedOutput || result.stderr !== "")
+    throw new Error("Codex command/exec did not preserve North's managed shell identity");
 }
 
 function onlyKeys(value: JsonObject, expected: readonly string[], label: string): void {
@@ -1741,6 +1755,27 @@ export class ManagedCodexAppServerRun {
       await validateMcp(rpc, this.options.surface.northEnabledTools);
       if (!remoteDisabled) throw new Error("Codex did not prove remote control disabled");
       assertNoFilesystemAuthority(contract.codexHome);
+      const shellPolicy = record(
+        contract.expectedSessionConfig.shell_environment_policy,
+        "Codex managed shell policy",
+      );
+      const shellEnvironment = record(shellPolicy.set, "Codex managed shell environment");
+      validateShellPreflight(await rpc.request("command/exec", {
+        command: [...CODEX_SHELL_PREFLIGHT_COMMAND],
+        processId: null,
+        tty: false,
+        streamStdin: false,
+        streamStdoutStderr: false,
+        outputBytesCap: CODEX_SHELL_PREFLIGHT_OUTPUT_BYTES,
+        disableOutputCap: false,
+        disableTimeout: false,
+        timeoutMs: CODEX_SHELL_PREFLIGHT_TIMEOUT_MS,
+        cwd: contract.cwd,
+        env: { PATH: shellEnvironment.PATH, NORTH_BIN: shellEnvironment.NORTH_BIN },
+        size: null,
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        permissionProfile: null,
+      }));
 
       // thread/start may execute SessionStart hooks. From this dispatch onward,
       // every failure is terminal and must never be presented as fallback-safe.

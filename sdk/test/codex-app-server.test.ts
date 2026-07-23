@@ -554,6 +554,19 @@ function setup(mode = "ok") {
         else result(request, { data: [mcpServer()], nextCursor: null });
         return;
       }
+      if (request.method === "command/exec") {
+        const response: any = {
+          exitCode: 0,
+          stdout: mode === "preflight-system-wrapper"
+            ? `/run/current-system/sw/bin/north\n${engine}\n`
+            : `${engine}\n${engine}\n`,
+          stderr: "",
+        };
+        if (mode === "preflight-malformed-response") response.futureProtocol = true;
+        if (mode === "preflight-nonzero") response.exitCode = 17;
+        result(request, response);
+        return;
+      }
       if (request.method === "thread/start") {
         if (mode === "thread-failure") { fail(request); return; }
         if (mode === "mcp-startup-before-thread-response"
@@ -660,8 +673,25 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(requests.filter(({ method }) => method === "config/read")).toHaveLength(3);
   expect(requests.filter(({ method }) => method === "hooks/list")).toHaveLength(2);
   expect(requests.filter(({ method }) => method === "mcpServerStatus/list")).toHaveLength(4);
+  const preflight = requests.find(({ method }) => method === "command/exec");
   const thread = requests.find(({ method }) => method === "thread/start");
   const turnRequest = requests.find(({ method }) => method === "turn/start");
+  expect(preflight.params).toEqual({
+    command: ["bash", "--noprofile", "--norc", "-c", NORTH_BINARY_PROBE_SCRIPT],
+    processId: null,
+    tty: false,
+    streamStdin: false,
+    streamStdoutStderr: false,
+    outputBytesCap: 4_096,
+    disableOutputCap: false,
+    disableTimeout: false,
+    timeoutMs: 5_000,
+    cwd: options.cwd,
+    env: { PATH: options.env.PATH, NORTH_BIN: options.env.NORTH_BIN },
+    size: null,
+    sandboxPolicy: { type: "readOnly", networkAccess: false },
+    permissionProfile: null,
+  });
   expect(thread.params).toEqual({
     model: "gpt-fixture-exact", modelProvider: "openai", approvalPolicy: "never",
     approvalsReviewer: "user", sandbox: "workspace-write",
@@ -702,6 +732,19 @@ test("native command evidence fails closed for absent, failed, and mismatched pr
     await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
     expect(run.nativeCommandActivity().coverage).toBe("exact");
     expect(run.nativeCommandActivity().northBinaryProbe).toBe(expected);
+  }
+});
+
+test("model-free shell readiness fails retry-safe before thread or provider turn", async () => {
+  for (const mode of [
+    "preflight-system-wrapper", "preflight-malformed-response", "preflight-nonzero",
+  ]) {
+    const { options, requests } = setup(mode);
+    await expect(new ManagedCodexAppServerRun(options).execute())
+      .rejects.toBeInstanceOf(ManagedCodexPreThreadError);
+    expect(requests.filter(({ method }) => method === "command/exec")).toHaveLength(1);
+    expect(requests.some(({ method }) => method === "thread/start")).toBe(false);
+    expect(requests.some(({ method }) => method === "turn/start")).toBe(false);
   }
 });
 
