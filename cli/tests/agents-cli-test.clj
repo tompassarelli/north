@@ -274,6 +274,65 @@
                                        (get malformed control) {})
                       "lifecycle")))))
 
+(let [rotated-subject "@run:lane-rotated-run-2"
+      native-subject "@run:lane-native-run-1"
+      native-run-facts
+      (merge (marked-terminal {}) {"agent" "lane-native" "kind" "run"
+                                    "at" "2026-07-20T09:00:00Z"})
+      query-calls (atom 0)
+      many-calls (atom 0)
+      subject-by-control {"lane-rotated" rotated-subject "lane-native" native-subject}
+      projection
+      (with-redefs
+       [north.coord/query-page
+        (fn [_port query _limit _after]
+          (swap! query-calls inc)
+          (let [requested-controls
+                (into #{}
+                      (map #(get-in % [:body 0 :args 2]))
+                      (:rules query))]
+            {:ok (mapv vector
+                       (keep #(get subject-by-control %) requested-controls))
+             :more false :version 1 :engine "scan"}))
+        north.coord/many
+        (fn [_port subject predicate]
+          (swap! many-calls inc)
+          (cond
+            ;; The rotated lane's run rows are torn mid-write: reading any of
+            ;; its predicates throws, simulating the observed 2026-07-24
+            ;; reservation-rotation failure on delivery.
+            (= subject rotated-subject)
+            (throw (ex-info "torn rotated-run predicate row" {}))
+
+            (= subject native-subject)
+            (if-let [value (get native-run-facts predicate)]
+              [value]
+              [])
+
+            :else []))]
+       (roster-run-entries ["lane-rotated" "lane-native"]))
+      resolutions
+      (attach-lane-resolutions
+       ["lane-rotated" "lane-native"]
+       {"lane-rotated" {"kind" "lane"} "lane-native" {"kind" "lane"}}
+       projection)]
+  (check "roster-run-entries isolates a rotated/torn run to its own id, never poisoning a batch-mate"
+         (and (:ok projection)
+              (map? (get-in projection [:by-agent "lane-rotated"]))
+              (contains? (get-in projection [:by-agent "lane-rotated"]) :err)
+              (vector? (get-in projection [:by-agent "lane-native"]))))
+  (check "the unrelated batch-mate's roster resolution stays real, not run-projection-malformed"
+         (and (= :indeterminate
+                 (get-in resolutions ["lane-rotated" lane-resolution-key :status]))
+              (= :run-projection-unavailable
+                 (get-in resolutions ["lane-rotated" lane-resolution-key :reason]))
+              (= :resolved
+                 (get-in resolutions ["lane-native" lane-resolution-key :status]))
+              (= "ran"
+                 (get-in resolutions ["lane-native" lane-resolution-key :outcome]))))
+  (check "isolation degrades to per-id retries rather than one shared union call"
+         (>= @query-calls 2)))
+
 (check "terminal roster state separates process exit from delivery truth"
        (and (str/includes?
              (agent-primary-line

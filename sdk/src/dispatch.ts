@@ -411,11 +411,15 @@ async function runDispatch(
         if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
         deliveryReservationReady = true;
       }
-    } catch {
+    } catch (error) {
       const abandonedRunId = runId;
       runId = newRunId(agentId);
+      // Loud + diagnosable (thread 019f9063): surface the writer's exact
+      // rejection instead of a uniform "unavailable" that hides freshness,
+      // thread-identity, and malformed-ack failures alike.
       console.error(
-        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} and leaving delivery unverified`,
+        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} `
+        + `and leaving delivery unverified: ${(error as Error)?.message ?? String(error)}`,
       );
     }
     const agentOptions = harnessOptions({
@@ -808,16 +812,22 @@ async function runDispatch(
     } else {
       const reservedRunId = runId;
       let runState: DeliveryRunState | undefined;
+      let loadError: unknown;
       try {
         runState = runtime.load(runId);
-      } catch {
+      } catch (error) {
         runState = undefined;
+        loadError = error;
       }
       if (!runState?.reservationValid) {
         runId = newRunId(agentId);
         deliveryReservationReady = false;
         console.error(
-          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} and leaving delivery unverified`,
+          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} `
+          + `and leaving delivery unverified`
+          + (loadError !== undefined
+            ? `: ${(loadError as Error)?.message ?? String(loadError)}`
+            : ""),
         );
         delivery = {
           deliveryOutcome: "unverified",
