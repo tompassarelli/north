@@ -15,6 +15,13 @@
     "promotion_candidate" "composition_contract_sha256"
     "composition_contract_fingerprint_version" "composition_contract_fingerprint_domain"
     "repo" "goal"
+    ;; Writable lanes provision an isolated git worktree before identity publish
+    ;; and carry its abspath + branch as authoritative execution-location facts
+    ;; (like repo). Optional: read-only lanes never allocate one and omit both,
+    ;; so they stay out of required-identity-predicates. Membership here is the
+    ;; single source that flows to the validate-publish! whitelist, the facts-of
+    ;; readback set, and the identity marker on both writer and reader.
+    "worktree" "branch"
     "coordinator" "spawned_at"})
 (def required-identity-predicates
   ["kind" "role" "goal" "provider" "provider_target" "live_input"
