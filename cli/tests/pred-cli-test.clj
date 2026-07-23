@@ -174,7 +174,7 @@
     "fallback_reason" "routing_pin" "routing_receipt_override" "routing_rule_code"
     "run_observation_coverage" "struggle" "mcp_actual_tool" "provider_turn_key"
     "native_command_completion"})
-(def audited-run-ref #{"parent_run" "parent_thread"})
+(def audited-run-ref #{"parent_run" "parent_thread" "retry_of_run"})
 (def audited-run-single
   #{"agent" "agent_run_ledger_version" "allocation_mode" "applied_bespoke_contract_sha256"
     "applied_bespoke_contract_fingerprint_domain"
@@ -243,7 +243,8 @@
     "native_north_binary_probe" "native_command_total" "native_command_successful"
     "native_command_failed" "native_command_declined" "native_command_truncated"
     "completed" "passed"
-    "topology" "usage_scope" "usage_terminal_count" "usage_total_status"})
+    "topology" "usage_scope" "usage_terminal_count" "usage_total_status"
+    "retry_attempt"})
 (def audited-run-predicates
   (set/union audited-run-single audited-run-multi audited-run-ref))
 (def audited-run-event-ref #{"run" "parent_run" "parent_thread"})

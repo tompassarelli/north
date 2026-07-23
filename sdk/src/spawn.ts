@@ -64,7 +64,10 @@ import {
 } from "./resource-envelopes";
 import { assertCoordinationAuthority } from "./topology-authority";
 import { admitPinnedProvider } from "./execution-admission";
-import { classifyExecutionTerminal, EMPTY_RESULT_OUTCOME, isEmptyResultTerminal } from "./execution-outcome";
+import {
+  classifyExecutionTerminal, EMPTY_RESULT_OUTCOME, isEmptyResultTerminal,
+  PROVIDER_PROCESS_DEATH_OUTCOME,
+} from "./execution-outcome";
 import { ManagedLiveInputRoute } from "./live-input-route";
 import {
   admitRoutingEconomics, type AdmittedRoutingEconomics,
@@ -165,6 +168,41 @@ interface ManagedWorktreeLease extends ProvisionedWorktree {
   finalized: boolean;
 }
 
+// Bounded auto-retry for retry-safe provider-process deaths (thread 019f8f81,
+// 2026-07-23 gen-1018 cluster: 4x openai_provider_execution_failed, zero retry).
+// Constant-in-code, deliberately not env-tunable — a single fresh-run retry,
+// never a loop. Terminal truthfulness: if the retry also dies, BOTH runs are
+// recorded and the original death fact is never rewritten (see recordRun's
+// retryOfRun/retryAttempt provenance below).
+const PROVIDER_PROCESS_DEATH_MAX_RETRIES = 1;
+
+/**
+ * All three must hold before a provider-process death is retried:
+ *  - the death class is provider-process-level (PROVIDER_PROCESS_DEATH_OUTCOME,
+ *    i.e. openai_provider_execution_failed / provider_process_died), never a
+ *    preflight block, stall, cap, or resource-envelope refusal;
+ *  - topology is worker — an orchestrator's live child obligations make retry
+ *    semantics wrong (a fresh run cannot honestly re-inherit them);
+ *  - the lane's capability surface is read-only (no filesystem.write/shell) —
+ *    a writable lane may already have mutated the checkout, so re-running it
+ *    is unsafe.
+ */
+export function eligibleForProviderProcessDeathRetry(
+  outcome: string,
+  topology: string | undefined,
+  capabilities: readonly string[],
+): boolean {
+  if (outcome !== PROVIDER_PROCESS_DEATH_OUTCOME) return false;
+  if (topology !== "worker") return false;
+  if (capabilities.includes("filesystem.write") || capabilities.includes("shell")) return false;
+  return true;
+}
+
+interface RetryContext {
+  retryOfRun: string;
+  retryAttempt: number;
+}
+
 // Only the executable bootstrap can classify selectors inherited from a
 // serialized pre-evidence envelope as legacy. Programmatic callers cannot opt
 // themselves into the compatibility warning path.
@@ -226,7 +264,8 @@ async function runSpawn(
   injected: SpawnRuntime = {},
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
   worktreeLease?: ManagedWorktreeLease,
-): Promise<string> {
+  retryContext?: RetryContext,
+): Promise<{ result: string; outcome: string; runId: string }> {
   const runStartedAt = process.hrtime.bigint();
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
@@ -986,6 +1025,8 @@ async function runSpawn(
     judgmentGrade,
     struggleObservation: struggle.snapshot(),
     preflightCause,
+    retryOfRun: retryContext?.retryOfRun,
+    retryAttempt: retryContext?.retryAttempt,
   }, runId, publicationBudget.publicationTimeout(1));
   notifyTerminalSettlement(
     agentId,
@@ -1008,7 +1049,7 @@ async function runSpawn(
   console.log(`[spawn] @agent:${agentId} complete (process=${outcome}, delivery=${terminal.deliveryOutcome}` +
     `, turns=${numTurns ?? "?"}, result=${result.length}b` +
     `${struggleSnapshot.triggers.length ? `, struggle: ${struggleSnapshot.triggers.join(",")}` : ""})`);
-  return result;
+  return { result, outcome, runId };
 }
 
 // TRUE only in the import.meta.main adapter bootstrap below: that process runs
@@ -1172,10 +1213,34 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     termination.throwIfTerminated();
     for (const advisory of admission?.advisories ?? [])
       console.warn(`[envelope] advisory: ${advisory}`);
-    result = await runSpawn(
-      composed, judgmentGrade, strugglePolicy,
+    // Each attempt gets its OWN shallow copy: runSpawn resolves opts.model/
+    // opts.effort onto its argument in place, and a retry must re-resolve from
+    // the original request, not inherit the prior attempt's pinned resolution.
+    let attempt = await runSpawn(
+      { ...composed }, judgmentGrade, strugglePolicy,
       caveman, admission, injected, termination, worktreeLease,
     );
+    let retries = 0;
+    while (
+      retries < PROVIDER_PROCESS_DEATH_MAX_RETRIES
+      && eligibleForProviderProcessDeathRetry(
+        attempt.outcome, composed.routingMetadata.topology, requestedCapabilities,
+      )
+    ) {
+      retries++;
+      const deadRunId = attempt.runId;
+      console.error(
+        `[spawn] @agent:${agentId} provider-process death (run @${deadRunId}) is retry-safe `
+        + `(worker + read-only capabilities) — retrying once as a fresh run (attempt ${retries})`,
+      );
+      termination.throwIfTerminated();
+      attempt = await runSpawn(
+        { ...composed }, judgmentGrade, strugglePolicy,
+        caveman, admission, injected, termination, worktreeLease,
+        { retryOfRun: deadRunId, retryAttempt: retries },
+      );
+    }
+    result = attempt.result;
   } catch (error) {
     failed = true;
     primaryError = error;

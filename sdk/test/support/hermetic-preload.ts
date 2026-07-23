@@ -5,6 +5,25 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 //
+// A managed dev lane runs `bun run test` with its OWN routing/topology/caveman
+// env exported into the shell (AGENT_TOPOLOGY=worker, AGENT_ID, AGENT_MODEL,
+// NORTH_ROUTING_PIN_EVIDENCE=RECORDED (a sentinel, not JSON — dispatch.ts:1038
+// parses it), NORTH_CAVEMAN_HOME/_REV, ...). Those ambient values leak into
+// every suite process exactly like the live-coordinator NORTH_PORT leak below:
+// a managed lane's `bun run test` sees failures (18 completion-outcome +
+// agents-cli-routing) that do not exist under a clean shell, because the
+// lane's own identity/routing/caveman env got adopted instead of each test's
+// explicit hermetic fixture (thread 019f8efb, verified 2026-07-23 against
+// main 8391e37: clean-env 39/39 green vs 18 fail in lane env, byte-identical
+// baseline diff otherwise). Scrub the whole AGENT_*/NORTH_ROUTING_*/
+// NORTH_CAVEMAN_* surface (AGENT_WORKTREE included — it already matches
+// AGENT_*) BEFORE any test file's own module-load snapshot, so `bun run test`
+// is env-independent and no `env -u ...` prefix is ever required again.
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_") || key.startsWith("NORTH_CAVEMAN_"))
+    delete process.env[key];
+}
+//
 // When the suite runs inside a live managed north lane, the ambient
 // NORTH_PORT points at the REAL coordinator on the session's port. Admission
 // (requireCoordinator) and presence probes read NORTH_PORT, so a test that

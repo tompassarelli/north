@@ -292,6 +292,8 @@
    ["parent_run" "single" "ref" "exact parent run identity recorded without lineage inference"]
    ["parent_thread" "single" "ref" "exact parent thread identity recorded without lineage inference"]
    ["run_coordinator" "single" "literal" "exact coordinator handle responsible for the run"]
+   ["retry_of_run" "single" "ref" "bounded auto-retry: the prior provider-process-death run this fresh run followed; original run facts are never rewritten"]
+   ["retry_attempt" "single" "literal" "bounded auto-retry: 1-based attempt number of this retry run"]
    ["prompt_composition_version" "single" "literal" "version of the prompt construction contract; prompt content is never retained"]
    ["prompt_composition_sha256" "single" "literal" "SHA-256 of the privacy-bounded prompt composition identity"]
    ["capability_class" "single" "literal" "canonical capability class used to construct the run prompt"]

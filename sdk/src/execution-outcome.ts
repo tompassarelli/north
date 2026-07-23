@@ -24,6 +24,17 @@ export interface ExecutionTerminal {
  */
 export const EMPTY_RESULT_OUTCOME = "ran_empty";
 
+/**
+ * The provider-process-level death class: the SDK subprocess itself died
+ * (OOM SIGKILL / parent SIGTERM / idle Transport-closed / openai_provider_execution_failed),
+ * classified below as processOutcome "provider_process_died". Bounded auto-retry
+ * (spawn.ts, thread 019f8f81) gates eligibility against this exact constant rather
+ * than a repeated string literal, so the retry gate and this classification can
+ * never drift apart. Distinct from blocked_preflight/stalled/resource_envelope_*,
+ * which are NOT provider-process deaths and are never retried by that policy.
+ */
+export const PROVIDER_PROCESS_DEATH_OUTCOME = "died";
+
 /** True when a provider success terminal carried no committed deliverable text. */
 export function isEmptyResultTerminal(outcome: string, result: string): boolean {
   return outcome === "ran" && result.trim() === "";
