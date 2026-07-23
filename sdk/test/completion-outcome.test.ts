@@ -1414,6 +1414,67 @@ test("a spawn orchestrator whose resumed reduction turn returns empty records th
   )).toBe(false);
 });
 
+// Recursive child admission across a resumed continuation turn (thread
+// 019f8ec5): mcp__north__spawn's bind-child-thread validates the parent context
+// from NORTH_RUN_ID/NORTH_THREAD_ID/NORTH_RUN_CAPABILITY on the orchestrator's
+// provider process. Those env vars are set ONCE on the harness options
+// (deliveryRun) and the resumed turn re-invokes the SAME options object — so a
+// resume can never strip the parent context. A threaded orchestrator therefore
+// keeps a valid parent reservation on turn 1 AND on its resumed reduction turn.
+test("a resumed continuation turn carries the same parent-run context for recursive child admission", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const settlement = {
+    kind: "settled" as const,
+    children: ["@agent:child-a", "@agent:child-b"],
+  };
+  const optionsPerTurn: any[] = [];
+  let turn = 0;
+  const queryFn: any = (args: any) => ({
+    async *[Symbol.asyncIterator]() {
+      turn++;
+      optionsPerTurn.push(args.options);
+      const input = args.prompt[Symbol.asyncIterator]();
+      await input.next();
+      yield {
+        type: "result", subtype: "success",
+        result: turn === 1 ? "children coordinated" : "reduced",
+        session_id: "sess-anthropic-3",
+        duration_ms: turn, num_turns: 1,
+      };
+    },
+  });
+
+  await spawn({
+    prompt: "coordinate two children then reduce",
+    agentId: "test-spawn-resume-parent-context",
+    thread: "2026-07-23-101500",
+    role: "director",
+    routingMetadata: presetRequest("director"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    coordinator: TEST_COORDINATOR,
+    queryFn,
+    deliveryRuntime: { reserve: () => ({}), load: () => ({}) },
+    childSettlementReader: () => settlement,
+  });
+
+  expect(turn).toBe(2); // the resumed reduction turn opened
+  const turn1Env = optionsPerTurn[0].env;
+  const resumedEnv = optionsPerTurn[1].env;
+  // Parent context present on turn 1 (bind-child-thread reads exactly these).
+  expect(turn1Env.NORTH_THREAD_ID).toBe("2026-07-23-101500");
+  expect(typeof turn1Env.NORTH_RUN_ID).toBe("string");
+  expect(turn1Env.NORTH_RUN_ID.length).toBeGreaterThan(0);
+  expect(turn1Env.NORTH_RUN_CAPABILITY).toMatch(/^[0-9a-f]{64}$/);
+  // The resumed turn reuses the identical options+env — parent context is byte-
+  // identical, so recursive mcp__north__spawn admits children from the resume.
+  expect(optionsPerTurn[1]).toBe(optionsPerTurn[0]);
+  expect(resumedEnv.NORTH_RUN_ID).toBe(turn1Env.NORTH_RUN_ID);
+  expect(resumedEnv.NORTH_THREAD_ID).toBe(turn1Env.NORTH_THREAD_ID);
+  expect(resumedEnv.NORTH_RUN_CAPABILITY).toBe(turn1Env.NORTH_RUN_CAPABILITY);
+});
+
 test("spawn and dispatch force a zero-child director to dispatch two children before reduction", async () => {
   const { spawn } = await import("./support/spawn");
   const { dispatch } = await import("./support/dispatch");
