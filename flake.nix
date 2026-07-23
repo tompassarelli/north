@@ -162,6 +162,12 @@
           + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin
             ":/usr/bin:/bin:/usr/sbin:/sbin";
         framPkg = fram.packages.${system}.default;
+        framPackageRev =
+          let revision = fram.rev or (throw "North requires a revision-pinned Fram input");
+          in if builtins.stringLength revision == 40
+                && builtins.match "[0-9a-f]+" revision != null
+             then revision
+             else throw "North requires Fram's exact 40-character Git revision";
         framRuntimeRoot =
           framPkg.runtimeRoot or
             (throw "Fram package must publish passthru.runtimeRoot");
@@ -409,7 +415,7 @@ PY
               --set NORTH_MANAGED_CODEX_BIN ${codexPkg}/bin/codex \
               --set NORTH_PACKAGE_MODE nix-store \
               --set NORTH_PACKAGE_REV ${builtins.substring 0 12 (self.rev or self.dirtyRev or "dirty")} \
-              --set FRAM_PACKAGE_REV ${builtins.substring 0 12 (fram.rev or fram.dirtyRev or "local")}
+              --set FRAM_PACKAGE_REV ${framPackageRev}
 
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
@@ -530,6 +536,9 @@ EOF
             expected_codex_export="export NORTH_MANAGED_CODEX_BIN='${codexPkg}/bin/codex'"
             expected_mkfifo_export="export NORTH_MKFIFO_BIN='${pkgs.coreutils}/bin/mkfifo'"
             expected_schema_python_export="export NORTH_SCHEMA_STAGE_PYTHON='${pkgs.python3}/bin/python3'"
+            expected_fram_rev_export="export FRAM_PACKAGE_REV='${framPackageRev}'"
+            test "$(grep -Fxc "$expected_fram_rev_export" "$out/bin/north")" -eq 1
+            test "$(grep -Fc 'FRAM_PACKAGE_REV=' "$out/bin/north")" -eq 1
             for wrapper in "$out/bin/north" "$out/bin/north-mcp"; do
               test "$(grep -Fxc "$expected_codex_export" "$wrapper")" -eq 1
               test "$(grep -Fc 'NORTH_MANAGED_CODEX_BIN=' "$wrapper")" -eq 1
