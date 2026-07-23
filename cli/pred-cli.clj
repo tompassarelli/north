@@ -546,7 +546,59 @@
    ;; --- aggregate batch usage rollup (north-map aggregate harness) ---
    ["agg_run_tokens" "single" "literal" "tokens attributed to one aggregate batch run member"]
    ["agg_done_worker" "single" "literal" "worker handle recorded for one aggregate batch DONE slot"]
-   ["agg_charge_tokens" "single" "literal" "charge tokens attributed to one aggregate batch member"]])
+   ["agg_charge_tokens" "single" "literal" "charge tokens attributed to one aggregate batch member"]
+   ;; --- North Orchestration vocabulary (Gaffer -> North Orchestration migration,
+   ;;     Phase 0 inert seed; thread 019f8f5c). Registration only: no interpreter
+   ;;     reads these yet, nothing is emitted from code, enforcement stays
+   ;;     unshaped/warn-only (design doc section 2.3). `task_grade`, `topology`,
+   ;;     `posture`, `provider`, `kind`, `alias`(placeholder), `doc`, `name`-adjacent
+   ;;     predicates already registered above are deliberately reused, not redefined.
+   ["tier" "single" "literal" "semantic model-capability floor for a template or tier_row"]
+   ["reasoning" "single" "literal" "deliberation budget requested for a template, independent of tier"]
+   ["capability" "multi" "literal" "provider-neutral enforceable authority requirement on a template"]
+   ["axis" "single" "literal" "which orchestration axis an axis_value subject belongs to"]
+   ["rank" "single" "literal" "ordinal position on an ordered axis (ramps: tier, reasoning, task_grade)"]
+   ["prompt_block" "single" "literal" "exact fenced prompt text for a template/axis_value/doctrine_block/model subject"]
+   ["doctrine_source" "single" "literal" "<repo-relative path>#<section> provenance that authored a prompt_block"]
+   ["tagline" "single" "literal" "one-line summary of a template"]
+   ["name" "single" "literal" "canonical display name of a template, model, or axis_value subject"]
+   ["min_tier" "single" "literal" "minimum semantic tier a selection_rule or route admits"]
+   ["min_reasoning" "single" "literal" "minimum reasoning level a selection_rule or route admits"]
+   ["rule_code" "single" "literal" "canonical selection_rule code surfaced in routing evidence"]
+   ["signal" "single" "literal" "routing signal name a selection_rule keys on"]
+   ["signal_value" "single" "literal" "routing signal value a selection_rule matches"]
+   ["calibrated_route" "multi" "literal" "calibrated tier/reasoning route admitted for a model (shingle-disjoint)"]
+   ["deliberation_support" "multi" "literal" "deliberation levels a model supports"]
+   ["default_level" "single" "literal" "default deliberation level for a tier_row"]
+   ["level" "multi" "literal" "deliberation level available on a tier_row"]
+   ["alias" "multi" "literal" "provider-facing alternate name for a model"]
+   ["as_of" "single" "literal" "date a provider_catalog or model entry was calibrated"]
+   ["review_after" "single" "literal" "date a catalog entry's freshness should be reviewed"]
+   ["transport" "multi" "literal" "provider execution transport supported by a provider_catalog"]
+   ["provenance_source" "multi" "literal" "canonical JSON of one provenance source row for a provider_catalog"]
+   ["context_window_tokens" "single" "literal" "model context-window size in tokens"]
+   ["context_window_from" "single" "literal" "date a model's context-window figure was observed"]
+   ["delta_kind" "single" "literal" "kind of applied model delta on a model subject (none|calibrated|...)"]
+   ["delta_reason" "single" "literal" "rationale for a model's delta_kind, including explicit none"]
+   ["one_of" "multi" "literal" "enumerated legal value of a selection_signal"]
+   ["one_of_kind" "single" "literal" "predicate-entity meta fact: legal objects of this axis predicate come from the named axis_value kind"]
+   ["applies_to_kind" "single" "literal" "the kind a shape subject governs"]
+   ["required_predicate" "multi" "literal" "predicate a shape's governed kind must carry"]
+   ["allowed_predicate" "multi" "literal" "predicate a shape's governed kind may carry (default-deny superset of required_predicate)"]
+   ["structural_rule" "multi" "literal" "named finite structural invariant bound to a shape (e.g. distinct:proposed_by,delegate)"]
+   ["policy_sha256" "single" "literal" "digest of a selection_policy's canonical rule projection"]
+   ["rule" "multi" "ref" "selection_rule subject bound under a selection_policy"]
+   ["catalog_version" "single" "literal" "staffing_catalog or provider_catalog vintage marker"]
+   ["default_task_grade" "single" "literal" "staffing_catalog default task_grade"]
+   ["default_tier" "single" "literal" "staffing_catalog default tier"]
+   ["default_reasoning" "single" "literal" "staffing_catalog default reasoning"]
+   ["default_posture" "single" "literal" "staffing_catalog default posture"]
+   ["default_topology" "single" "literal" "staffing_catalog default topology"]
+   ["payload_field" "multi" "literal" "one documented field of a wire_contract"]
+   ["example_payload" "single" "literal" "canonical JSON example payload for a wire_contract"]
+   ["error_code" "multi" "literal" "canonical rejection code documented on a wire_contract"]
+   ["enforcement" "single" "literal" "shape rollout dial: unshaped | warn | enforce (design section 2.3)"]
+   ["delegate" "single" "ref" "accepting lane of a kind-task delegation (proposed_by != delegate, position 3)"]])
 
 ;; These are deliberately open predicate-authoring surfaces. Internal transports
 ;; with variable names (runFacts -> recordRun, identity projection -> scoped
