@@ -19,6 +19,7 @@ import { expectedManagedCodexHooks } from "../src/providers/codex-managed-hooks"
 import { codexSupervisorStatusLine } from "../src/providers/codex-supervisor-protocol";
 import type { OpenAIAuthoritySurface } from "../src/providers/authority";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
+import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
 
 function firstLine(stream: NodeJS.ReadableStream, label: string): Promise<string> {
   return new Promise((resolveLine, reject) => {
@@ -373,13 +374,35 @@ function setup(mode = "ok") {
       emitHook("preToolUse", mode === "hook-pretool-failed" ? "failed"
         : mode === "hook-pretool-blocked" ? "blocked"
         : mode === "hook-pretool-stopped" ? "stopped" : "completed", "hook-pre");
-      const command = item("command-1", "commandExecution");
-      lifecycle("started", command, 10);
-      notify("item/commandExecution/outputDelta", { threadId, turnId, itemId: command.id, delta: "ok\n" });
-      notify("item/commandExecution/terminalInteraction", {
-        threadId, turnId, itemId: command.id, processId: "process-1", stdin: "",
-      });
-      lifecycle("completed", command, 11);
+      if (mode !== "command-none") {
+        const probeCommand = `/bin/bash -c '${NORTH_BINARY_PROBE_SCRIPT}'`;
+        const action: any = { type: "unknown", command: NORTH_BINARY_PROBE_SCRIPT };
+        if (mode === "command-action-extra") action.futureAuthority = true;
+        const startedCommand = item("command-1", "commandExecution", {
+          command: probeCommand, cwd, processId: "process-1", source: "unifiedExecStartup",
+          status: "inProgress", commandActions: [action],
+          aggregatedOutput: null, exitCode: null, durationMs: null,
+        });
+        lifecycle("started", startedCommand, 10);
+        notify("item/commandExecution/outputDelta", {
+          threadId, turnId, itemId: startedCommand.id, delta: "ok\n",
+        });
+        notify("item/commandExecution/terminalInteraction", {
+          threadId, turnId, itemId: startedCommand.id, processId: "process-1", stdin: "",
+        });
+        const completedCommand: any = {
+          ...startedCommand,
+          status: mode === "command-failed" ? "failed" : "completed",
+          command: mode === "command-wrapper-mismatch"
+            ? `/bin/bash -lc '${NORTH_BINARY_PROBE_SCRIPT}'` : probeCommand,
+          aggregatedOutput: mode === "command-output-mismatch"
+            ? "/run/current-system/sw/bin/north\n" : `${engine}\n${engine}\n`,
+          exitCode: mode === "command-failed" ? 1 : 0,
+          durationMs: 1,
+        };
+        if (mode === "command-schema-extra") completedCommand.futureAuthority = true;
+        if (mode !== "command-missing-completion") lifecycle("completed", completedCommand, 11);
+      }
       const file = item("file-1", "fileChange");
       lifecycle("started", file, 12);
       notify("item/fileChange/outputDelta", { threadId, turnId, itemId: file.id, delta: "patched" });
@@ -653,7 +676,43 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
     source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 1,
     tools: [{ server: "north", tool: "tell", count: 1 }],
   });
+  expect(run.nativeCommandActivity()).toMatchObject({
+    source: "codex-app-server:item-completed",
+    coverage: "exact",
+    totalCommands: 1,
+    successfulCommands: 1,
+    failedCommands: 0,
+    declinedCommands: 0,
+    northBinaryProbe: "passed",
+  });
+  expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(NORTH_BINARY_PROBE_SCRIPT);
+  expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(options.env.NORTH_BIN);
   expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
+});
+
+test("native command evidence fails closed for absent, failed, and mismatched probes", async () => {
+  for (const [mode, expected] of [
+    ["command-none", "not_observed"],
+    ["command-failed", "failed"],
+    ["command-wrapper-mismatch", "failed"],
+    ["command-output-mismatch", "failed"],
+  ] as const) {
+    const { options } = setup(mode);
+    const run = new ManagedCodexAppServerRun(options);
+    await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
+    expect(run.nativeCommandActivity().coverage).toBe("exact");
+    expect(run.nativeCommandActivity().northBinaryProbe).toBe(expected);
+  }
+});
+
+test("native command lifecycle and completion schema fail closed", async () => {
+  for (const mode of [
+    "command-schema-extra", "command-action-extra", "command-missing-completion",
+  ]) {
+    const { options } = setup(mode);
+    await expect(new ManagedCodexAppServerRun(options).execute())
+      .rejects.toThrow("openai_provider_execution_failed");
+  }
 });
 
 test("launch seals the exact package shell environment policy", () => {
@@ -812,6 +871,11 @@ test("a later North frame drives a same-thread continuation turn under re-proven
     expected("019f7abc-0000-7000-8000-000000000003"),
   ]);
   expect(run.mcpActivity()?.totalCalls).toBe(2);
+  expect(run.nativeCommandActivity()).toMatchObject({
+    coverage: "exact", totalCommands: 2, successfulCommands: 2,
+    northBinaryProbe: "passed",
+  });
+  expect(run.nativeCommandActivity().completions).toHaveLength(2);
 
   // Exactly one provider thread, two turns bound to it.
   expect(requests.filter(({ method }) => method === "thread/start")).toHaveLength(1);

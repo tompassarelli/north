@@ -34,6 +34,7 @@ import {
 } from "./providers/provider-join";
 import type { CavemanResolution } from "./caveman";
 import type { McpActivityObservation } from "./tool-activity";
+import type { NativeCommandActivityObservation } from "./native-command-activity";
 import type {
   RoutingAdmissionReceipt, RoutingAssessment, RoutingPinEvidence,
 } from "./routing-economics";
@@ -102,6 +103,7 @@ export interface RunRecord {
   runLedger?: AgentRunLedgerSummary;
   caveman?: CavemanResolution;
   mcpActivity?: McpActivityObservation;
+  nativeCommandActivity?: NativeCommandActivityObservation;
   /** Exact provider-executable authority from the final admitted route. */
   effectiveAuthority?: ProviderAuthoritySurface;
   allocationMode?: string;
@@ -248,6 +250,48 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     if (activity.totalCalls !== undefined)
       facts.push(["mcp_actual_calls", String(activity.totalCalls)]);
     for (const tool of activity.tools) facts.push(["mcp_actual_tool", JSON.stringify(tool)]);
+  }
+  if (rec.nativeCommandActivity) {
+    const activity = rec.nativeCommandActivity;
+    if (!LEDGER_IDENTIFIER.test(activity.source)
+        || !LEDGER_COVERAGE.has(activity.coverage)
+        || !["passed", "failed", "not_observed"].includes(activity.northBinaryProbe)
+        || activity.completions.length > 32)
+      throw new Error("invalid native command activity observation");
+    const counts = [
+      activity.totalCommands, activity.successfulCommands, activity.failedCommands,
+      activity.declinedCommands, activity.truncatedCommands,
+    ];
+    if (counts.some((value) => value !== undefined
+      && (!Number.isSafeInteger(value) || (value as number) < 0)))
+      throw new Error("invalid native command activity count");
+    if (activity.coverage === "unknown"
+        && (activity.totalCommands !== undefined || activity.completions.length
+          || activity.northBinaryProbe !== "not_observed"))
+      throw new Error("unknown native command activity carries terminal evidence");
+    if (activity.totalCommands !== undefined
+        && (activity.successfulCommands ?? 0) + (activity.failedCommands ?? 0)
+          + (activity.declinedCommands ?? 0) !== activity.totalCommands)
+      throw new Error("native command activity counts do not reconcile");
+    facts.push(["native_command_activity_source", activity.source]);
+    facts.push(["native_command_activity_coverage", activity.coverage]);
+    facts.push(["native_north_binary_probe", activity.northBinaryProbe]);
+    for (const [predicate, value] of [
+      ["native_command_total", activity.totalCommands],
+      ["native_command_successful", activity.successfulCommands],
+      ["native_command_failed", activity.failedCommands],
+      ["native_command_declined", activity.declinedCommands],
+      ["native_command_truncated", activity.truncatedCommands],
+    ] as const) if (value !== undefined) facts.push([predicate, String(value)]);
+    for (const completion of activity.completions) {
+      if (!/^[a-f0-9]{64}$/.test(completion.commandSha256)
+          || !/^[a-f0-9]{64}$/.test(completion.outputSha256)
+          || !["completed", "failed", "declined"].includes(completion.status)
+          || !Number.isSafeInteger(completion.exitCode)
+          || completion.exitCode < -2_147_483_648 || completion.exitCode > 2_147_483_647)
+        throw new Error("invalid native command completion evidence");
+      facts.push(["native_command_completion", JSON.stringify(completion)]);
+    }
   }
   // Structured usage owns the aggregate whenever it is present. This prevents a
   // caller from reintroducing zero/summed guesses alongside an unknown terminal

@@ -188,6 +188,8 @@ export interface AgentQuery {
   supportsInFlightEscalation?(): boolean;
   /** Argument-free actual MCP activity observed by the selected adapter. */
   mcpActivity?(): import("../tool-activity").McpActivityObservation;
+  /** Privacy-bounded native command completion evidence observed by the adapter. */
+  nativeCommandActivity?(): import("../native-command-activity").NativeCommandActivityObservation;
 }
 
 export class ProviderEscalationUnsupportedError extends Error {

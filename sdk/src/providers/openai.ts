@@ -13,6 +13,10 @@ import type { AdapterUsageMetadata, TerminalTokenUsage } from "../usage";
 import { codexConfigArguments, providerEnvironmentForTarget } from "../accounts";
 import type { GafferCapability } from "../gaffer-capabilities";
 import {
+  unknownNativeCommandActivity,
+  type NativeCommandActivityObservation,
+} from "../native-command-activity";
+import {
   admitExecution, admitPinnedProvider, consumeExecutionAdmission,
   managedNorthMcpEnvironment, validateManagedExecutionEnvelope,
 } from "../execution-admission";
@@ -777,6 +781,7 @@ class CodexQuery implements AgentQuery {
   private managedRun?: ManagedCodexAppServerRun;
   private interruptPromise?: Promise<void>;
   private completedMcpActivity?: McpActivityObservation;
+  private completedNativeCommandActivity?: NativeCommandActivityObservation;
   constructor(
     private prompt: string | AsyncIterable<any>,
     private options: any,
@@ -797,6 +802,12 @@ class CodexQuery implements AgentQuery {
     return this.managedRun?.mcpActivity() ?? this.completedMcpActivity
       ?? unknownMcpActivity(this.executionTransport === "codex-cli"
         ? "codex-cli:structured-mcp-unavailable" : "codex-app-server:unsettled");
+  }
+
+  nativeCommandActivity(): NativeCommandActivityObservation {
+    return this.managedRun?.nativeCommandActivity() ?? this.completedNativeCommandActivity
+      ?? unknownNativeCommandActivity(this.executionTransport === "codex-cli"
+        ? "codex-cli:structured-command-unavailable" : "codex-app-server:unsettled");
   }
 
   async interrupt(): Promise<void> {
@@ -905,6 +916,7 @@ class CodexQuery implements AgentQuery {
       } finally {
         await frames?.close().catch(() => { /* teardown owns the terminal error */ });
         this.completedMcpActivity = this.managedRun?.mcpActivity();
+        this.completedNativeCommandActivity = this.managedRun?.nativeCommandActivity();
         this.managedRun = undefined;
         managedLaunch!.home.dispose();
       }
