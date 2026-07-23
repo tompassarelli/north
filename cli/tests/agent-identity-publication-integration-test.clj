@@ -274,6 +274,42 @@
              (= (north.agent-provenance/manifest-sha256 stored)
                 (get stored "identity_manifest_sha256"))))
 
+    ;; Writable lanes provision an isolated worktree and publish its abspath +
+    ;; branch alongside the base identity. Regression: validate-publish! once
+    ;; rejected both with "unsupported managed identity predicate", so no
+    ;; worktree-allocated lane could reach startup acknowledgement.
+    (let [writable-subject "@agent:identity-publication-writable"
+          writable (assoc preset
+                          "worktree" "/home/tom/code/worktrees/north/lane-probe"
+                          "branch" "agent/lane-probe")
+          result (run-writer port "publish" writable-subject
+                             (json/generate-string writable))
+          raw-stored (entity-facts port writable-subject)
+          stored (scalar-facts raw-stored)]
+      (check "writable identity carrying worktree+branch publishes"
+             (zero? (:exit result)))
+      (check "writable identity stores exactly one worktree and one branch value"
+             (and (= #{"/home/tom/code/worktrees/north/lane-probe"}
+                     (get raw-stored "worktree"))
+                  (= #{"agent/lane-probe"} (get raw-stored "branch"))))
+      (check "identity marker binds worktree+branch across writer and reader"
+             (and (= "/home/tom/code/worktrees/north/lane-probe"
+                     (get stored "worktree"))
+                  (= "agent/lane-probe" (get stored "branch"))
+                  (= (north.agent-provenance/manifest-sha256 stored)
+                     (get stored "identity_manifest_sha256")))))
+
+    ;; Fail-closed is preserved: only the registered vocabulary is accepted.
+    (let [bogus-subject "@agent:identity-publication-bogus-predicate"
+          bogus (assoc preset "totally_unregistered_pred" "x")
+          rejected (run-writer port "publish" bogus-subject
+                               (json/generate-string bogus))]
+      (check "unregistered identity predicate is still rejected before mutation"
+             (and (not (zero? (:exit rejected)))
+                  (str/includes? (:err rejected)
+                                 "unsupported managed identity predicate")
+                  (empty? (entity-facts port bogus-subject)))))
+
     (let [terminal {"outcome" "ran" "process_outcome" "ran"
                     "delivery_outcome" "unverified"
                     "delivery_reason" "provider_terminal_success_without_external_verification"}
