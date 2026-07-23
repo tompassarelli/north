@@ -691,6 +691,29 @@
    r3 (if (str/starts-with? r2 "ok:") (tell-retry port log "assert" subject "kind" "client_rate_config" 5) "skipped: rate failed")]
   (if (and (str/starts-with? r1 "ok:") (and (str/starts-with? r2 "ok:") (str/starts-with? r3 "ok:"))) (println (str "client " owner " billing rate configured at " new-rate "/h  (" (short-id subject) ")")) (println (str "clock rate FAILED to record (" r1 "/" r2 "/" r3 ") — retry")))))))))
 
+(defn- ^String assert-marker-at-version [port ^String log ^String te ^String pred ^String rv base]
+  (let [resp (try
+  (fram.rt/coord-request-for-log port log {:op :assert-at-version :te te :p pred :r rv :base base :frame "agent"})
+  (catch Exception _
+    nil))]
+  (cond
+  (nil? resp) "error:nodaemon"
+  (some? (:ok resp)) (str "ok:" (:ok resp))
+  (= (:reject resp) :conflict) "conflict"
+  :else (str "reject:" (fram.rt/to-json resp)))))
+
+(defn- ^String commit-client-session-marker [port ^String log ^String ssub tries]
+  (let [base (fram.rt/coord-version-for-log port log)]
+  (if (< base 0) "error:nodaemon" (if (not (empty? (clk/open-human-sessions (live-idx log)))) "lost-race" (let [resp (assert-marker-at-version port log ssub "kind" "client_session" base)]
+  (if (and (= resp "conflict") (> tries 0)) (commit-client-session-marker port log ssub (- tries 1)) resp))))))
+
+(defn- ^Boolean retract-clock-in-prefix [port ^String log ^String ssub ^String owner ^String rate ^String now]
+  (let [r1 (tell-retry port log "retract" ssub "owner" owner 5)
+   r2 (tell-retry port log "retract" ssub "clocked_by" "user" 5)
+   r3 (tell-retry port log "retract" ssub "rate" rate 5)
+   r4 (tell-retry port log "retract" ssub "start_time" now 5)]
+  (and (str/starts-with? r1 "ok:") (and (str/starts-with? r2 "ok:") (and (str/starts-with? r3 "ok:") (str/starts-with? r4 "ok:"))))))
+
 (defn cmd-clock-in [^String log ^String owner]
   (let [idx (live-idx log)
    me (agent-id)
@@ -706,15 +729,24 @@
   (not= (:status authority) "ok") (println (str "clock in refused: " (client-rate-problem owner authority)))
   :else (let [port (fram.rt/coord-port)
    coord-v (fram.rt/coord-version-for-log port log)]
-  (if (< coord-v 0) (println (coordinator-failure-message coord-v port log "client clock in was not recorded")) (let [sid (fresh-sid idx (fram.rt/now-id))
+  (if (< coord-v 0) (println (coordinator-failure-message coord-v port log "client clock in was not recorded")) (let [sid (uuidv7)
    ssub (str "@" sid)
    now (fram.rt/now-iso)
    r1 (tell-retry port log "assert" ssub "owner" owner 5)
    r2 (if (str/starts-with? r1 "ok:") (tell-retry port log "assert" ssub "clocked_by" "user" 5) "skipped: owner failed")
    r3 (if (str/starts-with? r2 "ok:") (tell-retry port log "assert" ssub "rate" rate 5) "skipped: clocked_by failed")
    r4 (if (str/starts-with? r3 "ok:") (tell-retry port log "assert" ssub "start_time" now 5) "skipped: rate failed")
-   r5 (if (str/starts-with? r4 "ok:") (tell-retry port log "assert" ssub "kind" "client_session" 5) "skipped: start_time failed")]
-  (if (and (str/starts-with? r1 "ok:") (and (str/starts-with? r2 "ok:") (and (str/starts-with? r3 "ok:") (and (str/starts-with? r4 "ok:") (str/starts-with? r5 "ok:"))))) (println (str "clocked in for client " owner " at " now "  (session " sid ", rate " rate "/h)")) (println (str "clock in FAILED to record (" r1 "/" r2 "/" r3 "/" r4 "/" r5 ") — retry")))))))))
+   r5 (if (str/starts-with? r4 "ok:") (commit-client-session-marker port log ssub 16) "skipped: start_time failed")]
+  (cond
+  (and (str/starts-with? r1 "ok:") (and (str/starts-with? r2 "ok:") (and (str/starts-with? r3 "ok:") (and (str/starts-with? r4 "ok:") (str/starts-with? r5 "ok:"))))) (println (str "clocked in for client " owner " at " now "  (session " sid ", rate " rate "/h)"))
+  (= r5 "lost-race") (do
+  (retract-clock-in-prefix port log ssub owner rate now)
+  (let [idx2 (live-idx log)
+   opens (clk/open-human-sessions idx2)]
+  (if (empty? opens) (println "clock in refused: a concurrent clock-in already opened the client session — inspect `north clock status`, then retry") (let [run (first opens)
+   current (clk/session-owner idx2 run)]
+  (println (str "already clocked in for client " (if (some? current) current "?") " (session " (short-id run) ") — `clock out` first"))))))
+  :else (println (str "clock in FAILED to record (" r1 "/" r2 "/" r3 "/" r4 "/" r5 ") — retry")))))))))
 
 (defn cmd-clock-out [^String log]
   (let [idx (live-idx log)

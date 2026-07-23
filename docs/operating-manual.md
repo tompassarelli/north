@@ -1211,15 +1211,15 @@ This section is when an AI should act on the human clock (`clock in`/`out`).
    moment.
 6. **Clockify sync is on-demand.** `clock sync` runs when Tom asks. Never automatic.
 
-Human clock-in is fail-closed across its one remaining coordinator limitation.
-The current domain wire commits one fact at a time; it cannot atomically compare
-the global open-session set and publish all fields of a new session. North writes
-owner, actor, captured rate, and start first, then publishes `kind=client_session`
-as the visibility marker. A failed prefix is inert. If two interactive clock-ins
-race and both publish, `north clock status` reports the duplicate state and managed
-client admission refuses to run; neither silently wins. Resolve the duplicate
-sessions explicitly before continuing. A future atomic multi-fact coordinator
-operation can close this narrow check/write race without changing the clock model.
+Human clock-in is fail-closed and race-atomic. North writes owner, actor,
+captured rate, and start first — a failed prefix is inert and never opens a
+session — then publishes `kind=client_session` as the visibility marker through
+the coordinator's global-version CAS (`:assert-at-version`): the open-session
+re-check and the marker publication commit against one coordinator version, so
+of two racing interactive clock-ins exactly one publishes; the loser retracts
+its own inert prefix and refuses. Pre-existing duplicate/corrupt open state
+remains fail-closed: `north clock status` reports it and managed client
+admission refuses to run; resolve it explicitly before continuing.
 
 ---
 

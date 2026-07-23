@@ -49,6 +49,10 @@
 (declare-extern fram.rt/coord-version-for-log [Int String -> Int])
 (declare-extern fram.rt/coord-assert-for-log [Int String String String String Int -> String])
 (declare-extern fram.rt/coord-retract-for-log [Int String String String String Int -> String])
+;; Raw for-log request — used ONLY for the :assert-at-version global-version CAS
+;; (the atomic read-set commit seam cli/coord.clj assert-after-read! also rides).
+;; Ordinary writes stay on the typed coord-assert/retract wrappers above.
+(declare-extern fram.rt/coord-request-for-log [Int String Any -> Any])
 (declare-extern fram.rt/coord-port [-> Int])
 (declare-extern fram.rt/coord-status-for-log [Int String -> String])
 (declare-extern fram.rt/coord-live-facts [Int String -> (Vec k/Fact)])
@@ -1171,6 +1175,58 @@
                              "/h  (" (short-id subject) ")"))
                (println (str "clock rate FAILED to record (" r1 "/" r2 "/" r3 ") — retry"))))))])))
 
+;; --- the atomic clock-in boundary -------------------------------------------
+;; Fram's :assert-at-version compares the caller's GLOBAL graph version and
+;; performs the assert in the same serialized coordinator turn (the read-set
+;; commit seam cli/coord.clj assert-after-read! documents). Ordinary :assert's
+;; :base is only per-(subject,predicate) OCC, so it can never serialize a check
+;; that spans OTHER subjects — exactly what the global open-human-session
+;; invariant needs. Contract: capture BASE first, perform every load-bearing
+;; read after it, then commit; a concurrent write anywhere in the graph makes
+;; the commit reject instead of blessing a stale read. Conservative by design:
+;; unrelated traffic can force a retry, never a false success.
+(defn- assert-marker-at-version [port :- Int log :- String te :- String pred :- String rv :- String base :- Int] :- String
+  (let [resp (try (fram.rt/coord-request-for-log
+                   port log {:op :assert-at-version :te te :p pred :r rv :base base :frame "agent"})
+                  (catch Exception _ nil))]
+    (cond
+      [(nil? resp) "error:nodaemon"]
+      [(some? (:ok resp)) (str "ok:" (:ok resp))]
+      [(= (:reject resp) :conflict) "conflict"]
+      [:else (str "reject:" (fram.rt/to-json resp))])))
+
+;; Commit `kind client_session` — the session's visibility marker — against the
+;; exact version at which the global open-human-session set was re-checked. Of
+;; two concurrent clock-ins exactly one marker lands; the other's CAS rejects,
+;; re-validates over the fresh graph, sees the winner's open session, and
+;; reports "lost-race" so the caller can compensate its inert prefix and
+;; refuse. Retries only re-run the re-check + CAS, never the prefix writes.
+(defn- commit-client-session-marker [port :- Int log :- String ssub :- String tries :- Int] :- String
+  (let [base (fram.rt/coord-version-for-log port log)]
+    (if (< base 0)
+      "error:nodaemon"
+      (if (not (empty? (clk/open-human-sessions (live-idx log))))
+        "lost-race"
+        (let [resp (assert-marker-at-version port log ssub "kind" "client_session" base)]
+          (if (and (= resp "conflict") (> tries 0))
+            (commit-client-session-marker port log ssub (- tries 1))
+            resp))))))
+
+;; Compensate a clock-in that lost the marker race: retract exactly this
+;; attempt's four prefix facts (they are inert without kind, but leaving them
+;; would accrete noise). Always attempts every retract, mirroring
+;; retract-committed-capture-facts. Safe ONLY because session subjects are
+;; collision-proof UUIDs — a shared subject would make this delete the
+;; winner's live session.
+(defn- retract-clock-in-prefix [port :- Int log :- String ssub :- String owner :- String rate :- String now :- String] :- Bool
+  (let [r1 (tell-retry port log "retract" ssub "owner" owner 5)
+        r2 (tell-retry port log "retract" ssub "clocked_by" "user" 5)
+        r3 (tell-retry port log "retract" ssub "rate" rate 5)
+        r4 (tell-retry port log "retract" ssub "start_time" now 5)]
+    (and (str/starts-with? r1 "ok:")
+         (and (str/starts-with? r2 "ok:")
+              (and (str/starts-with? r3 "ok:") (str/starts-with? r4 "ok:"))))))
+
 (defn cmd-clock-in [log :- String owner :- String] :- Nil
   (let [idx (live-idx log)
         me (agent-id)
@@ -1194,7 +1250,12 @@
          (if (< coord-v 0)
            (println (coordinator-failure-message
                      coord-v port log "client clock in was not recorded"))
-           (let [sid (fresh-sid idx (fram.rt/now-id))
+           ;; UUIDv7 session ids ON PURPOSE (not fresh-sid over now-id): two
+           ;; same-second clock-ins seeded from the same stale index would
+           ;; collide on one subject, making the loser's compensation retract
+           ;; the winner's live session. Collision-proof ids keep every
+           ;; attempt — and its compensation — strictly self-scoped.
+           (let [sid (uuidv7)
                  ssub (str "@" sid)
                  now (fram.rt/now-iso)
                  r1 (tell-retry port log "assert" ssub "owner" owner 5)
@@ -1207,24 +1268,38 @@
                  r4 (if (str/starts-with? r3 "ok:")
                       (tell-retry port log "assert" ssub "start_time" now 5)
                       "skipped: rate failed")
-                 ;; kind is the visibility marker: a failed prefix never opens
-                 ;; a partially attributed human billing session. Fram's domain
-                 ;; coordinator currently commits one fact per OCC request; it
-                 ;; has no atomic transaction spanning the global open-session
-                 ;; check and this new subject. Concurrent interactive clock-ins
-                 ;; can therefore both publish. Status (and SDK admission) sees
-                 ;; multiple opens and fails closed; it never guesses a winner.
+                 ;; kind is the visibility marker AND the atomic boundary: a
+                 ;; failed prefix never opens a partially attributed human
+                 ;; billing session, and the marker itself commits through
+                 ;; commit-client-session-marker's global-version CAS, so the
+                 ;; open-session re-check and the publication happen against
+                 ;; one coordinator version. Of two concurrent clock-ins
+                 ;; exactly one publishes; the other compensates and refuses
+                 ;; below. Pre-existing duplicate/corrupt open state remains
+                 ;; fail-closed via status and SDK admission, unchanged.
                  r5 (if (str/starts-with? r4 "ok:")
-                      (tell-retry port log "assert" ssub "kind" "client_session" 5)
+                      (commit-client-session-marker port log ssub 16)
                       "skipped: start_time failed")]
-             (if (and (str/starts-with? r1 "ok:")
-                      (and (str/starts-with? r2 "ok:")
-                           (and (str/starts-with? r3 "ok:")
-                                (and (str/starts-with? r4 "ok:")
-                                     (str/starts-with? r5 "ok:")))))
-               (println (str "clocked in for client " owner " at " now
-                             "  (session " sid ", rate " rate "/h)"))
-               (println (str "clock in FAILED to record (" r1 "/" r2 "/" r3 "/" r4 "/" r5 ") — retry"))))))])))
+             (cond
+               [(and (str/starts-with? r1 "ok:")
+                     (and (str/starts-with? r2 "ok:")
+                          (and (str/starts-with? r3 "ok:")
+                               (and (str/starts-with? r4 "ok:")
+                                    (str/starts-with? r5 "ok:")))))
+                (println (str "clocked in for client " owner " at " now
+                              "  (session " sid ", rate " rate "/h)"))]
+               [(= r5 "lost-race")
+                (do (retract-clock-in-prefix port log ssub owner rate now)
+                    (let [idx2 (live-idx log)
+                          opens (clk/open-human-sessions idx2)]
+                      (if (empty? opens)
+                        (println "clock in refused: a concurrent clock-in already opened the client session — inspect `north clock status`, then retry")
+                        (let [run (first opens)
+                              current (clk/session-owner idx2 run)]
+                          (println (str "already clocked in for client " (if (some? current) current "?")
+                                        " (session " (short-id run) ") — `clock out` first"))))))]
+               [:else
+                (println (str "clock in FAILED to record (" r1 "/" r2 "/" r3 "/" r4 "/" r5 ") — retry"))]))))])))
 
 (defn cmd-clock-out [log :- String] :- Nil
   (let [idx (live-idx log)
