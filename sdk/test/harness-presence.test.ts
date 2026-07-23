@@ -16,8 +16,10 @@ async function capturedLines(path: string, count: number): Promise<string[]> {
 }
 
 test("presence resolves its fake executable and NORTH_PORT after harness import for every call", async () => {
-  const saved = Object.fromEntries(["PATH", "NORTH_PORT", "HARNESS_PRESENCE_LOG", "AGENT_LAWS", "AGENT_PRAXIS"]
-    .map((key) => [key, process.env[key]]));
+  const saved = Object.fromEntries(
+    ["PATH", "NORTH_PORT", "HARNESS_PRESENCE_LOG", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_PEER_BB"]
+      .map((key) => [key, process.env[key]]),
+  );
   const dir = mkdtempSync(join(tmpdir(), "north-harness-presence-"));
   const log = join(dir, "presence.log");
   const fakeBb = join(dir, "bb");
@@ -32,6 +34,13 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
     process.env.NORTH_PORT = "64123";
     process.env.AGENT_LAWS = "off";
     process.env.AGENT_PRAXIS = "off";
+    // presenceBb() honors NORTH_PEER_BB ahead of a PATH lookup (src/harness.ts:68).
+    // An ambient managed-lane NORTH_PEER_BB (real babashka) would shadow this
+    // test's fake `bb` and try to register against a real coordinator on the
+    // fake port, failing with exit 1. Delete it so PATH resolution is exercised
+    // as intended, matching the same NORTH_PEER_BB scrub other harness tests
+    // apply (topology-authority.test.ts, spawn-boundary.test.ts).
+    delete process.env.NORTH_PEER_BB;
     const self = `test-late-presence-${process.pid}`;
     const options = harnessOptions({ self });
     const repoCwd = join(dir, "gaffer");
