@@ -62,3 +62,20 @@ test("native command evidence stays bounded and partial on overflow", () => {
   });
   expect(activity.snapshot().completions).toHaveLength(32);
 });
+
+test("a wrapped two-line North identity mismatch is a redacted failed probe", () => {
+  const activity = new NativeCommandActivityAccumulator(cwd, north);
+  activity.start("turn-1:command-1");
+  activity.observe(completion(
+    "turn-1:command-1",
+    "/bin/sh -c managed-wrapper",
+    `/run/current-system/sw/bin/north\n${north}\n`,
+  ));
+  expect(activity.complete()).toBe(true);
+  expect(activity.snapshot()).toMatchObject({
+    coverage: "exact", totalCommands: 1, northBinaryProbe: "failed",
+  });
+  const serialized = JSON.stringify(activity.snapshot());
+  expect(serialized).not.toContain("/run/current-system/sw/bin/north");
+  expect(serialized).not.toContain(north);
+});

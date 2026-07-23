@@ -56,7 +56,12 @@ function isExactProbeCommand(command: string): boolean {
 }
 
 function isProbeCandidate(command: string, output: string, expectedOutput: string): boolean {
-  return command.includes(NORTH_BINARY_PROBE_SCRIPT) || output === expectedOutput;
+  if (command.includes(NORTH_BINARY_PROBE_SCRIPT) || output === expectedOutput) return true;
+  const expectedNorthBin = expectedOutput.split("\n", 1)[0];
+  const lines = output.endsWith("\n") ? output.slice(0, -1).split("\n") : [];
+  return lines.length === 2
+    && lines[1] === expectedNorthBin
+    && /^\/(?:[^\0\r\n/]+\/)*north$/.test(lines[0]!);
 }
 
 export class NativeCommandActivityAccumulator {
