@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "unchanged preset",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "deliver",
+        "composition": { "kind": "preset", "id": "integrator", "overrides": [] }
+      }
+    },
+    {
+      "name": "justified preset override",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": ["Nix"],
+        "topology": "worker", "tier": "frontier", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "preset", "id": "integrator",
+          "overrides": ["domainRequirements", "tier", "reasoning"],
+          "overrideReason": "foundational configuration work with a novel cross-provider contract"
+        }
+      }
+    },
+    {
+      "name": "evaluate posture stock template",
+      "request": {
+        "role": "verifier",
+        "taskGrade": "senior",
+        "domainRequirements": [],
+        "topology": "worker",
+        "tier": "senior",
+        "reasoning": "high",
+        "posture": "evaluate",
+        "composition": {
+          "kind": "preset",
+          "id": "verifier",
+          "overrides": []
+        }
+      }
+    },
+    {
+      "name": "reviewer stock template",
+      "request": {
+        "role": "reviewer",
+        "taskGrade": "senior",
+        "domainRequirements": [],
+        "topology": "worker",
+        "tier": "senior",
+        "reasoning": "high",
+        "posture": "evaluate",
+        "composition": {
+          "kind": "preset",
+          "id": "reviewer",
+          "overrides": []
+        }
+      }
+    },
+    {
+      "name": "complete bespoke contract",
+      "request": {
+        "role": "migration-forensics", "taskGrade": "senior", "domainRequirements": ["schema history"],
+        "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-forensics",
+          "bespokeReason": "requires provenance reconstruction as the primary responsibility",
+          "promotionCandidate": false,
+          "contract": {
+            "responsibility": "reconstruct how a persisted schema changed",
+            "deliverable": "an evidence-linked migration history and failure boundary",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["which read-only traces to follow"],
+            "mustEscalate": ["a destructive recovery step"],
+            "doneWhen": ["each claimed transition has a source and timestamp"],
+            "report": "timeline, evidence, contradictions, and unresolved gaps"
+          }
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "preset override missing reason",
+      "errorContains": "overrideReason",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "tier": "frontier", "reasoning": "xhigh", "posture": "deliver",
+        "composition": { "kind": "preset", "id": "integrator", "overrides": ["tier", "reasoning"] }
+      }
+    },
+    {
+      "name": "unchanged preset carries a fake reason",
+      "errorContains": "must omit composition.overrideReason",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "deliver",
+        "composition": {
+          "kind": "preset", "id": "integrator", "overrides": [],
+          "overrideReason": "this must not masquerade as a change"
+        }
+      }
+    },
+    {
+      "name": "director stock topology mutation requires bespoke",
+      "errorContains": "stock-template topology is fixed at 'orchestrator'",
+      "request": {
+        "role": "director", "taskGrade": "staff", "domainRequirements": [],
+        "topology": "worker", "tier": "frontier", "reasoning": "xhigh", "posture": "deliver",
+        "composition": {
+          "kind": "preset", "id": "director", "overrides": []
+        }
+      }
+    },
+    {
+      "name": "bespoke missing authority contract",
+      "errorContains": "contract",
+      "request": {
+        "role": "migration-forensics", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-forensics",
+          "bespokeReason": "specialized trace", "promotionCandidate": false
+        }
+      }
+    },
+    {
+      "name": "bespoke promotion decision omitted",
+      "errorContains": "promotionCandidate",
+      "request": {
+        "role": "migration-forensics", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-forensics",
+          "bespokeReason": "specialized trace",
+          "contract": {
+            "responsibility": "trace migrations", "deliverable": "timeline",
+            "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+            "mayDecide": ["read-only probes"], "mustEscalate": ["writes"],
+            "doneWhen": ["timeline sourced"], "report": "timeline and gaps"
+          }
+        }
+      }
+    },
+    {
+      "name": "worker stock topology mutation requires bespoke",
+      "errorContains": "stock-template topology is fixed at 'worker'",
+      "request": {
+        "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "orchestrator", "tier": "senior", "reasoning": "high", "posture": "deliver",
+        "composition": {
+          "kind": "preset", "id": "integrator", "overrides": []
+        }
+      }
+    },
+    {
+      "name": "bespoke worker illegally carries coordination",
+      "errorContains": "worker topology forbids coordination",
+      "request": {
+        "role": "migration-coordinator", "taskGrade": "senior", "domainRequirements": [],
+        "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "explore",
+        "composition": {
+          "kind": "bespoke", "id": "migration-coordinator",
+          "bespokeReason": "invariant probe", "promotionCandidate": false,
+          "contract": {
+            "responsibility": "trace migrations", "deliverable": "timeline",
+            "capabilities": ["filesystem.read", "coordination"],
+            "mayDecide": ["read-only probes"], "mustEscalate": ["writes"],
+            "doneWhen": ["timeline sourced"], "report": "timeline and gaps"
+          }
+        }
+      }
+    }
+  ]
+}

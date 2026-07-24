@@ -1,0 +1,84 @@
+{
+  "$schema": "./catalog.schema.json",
+  "version": 2,
+  "vocabulary": {
+    "taskGrades": ["novice", "junior", "mid", "senior", "staff", "principal", "research-grade"],
+    "semanticTiers": ["economy", "standard", "senior", "frontier"],
+    "deliberations": ["low", "medium", "high", "xhigh", "max"],
+    "topologies": ["worker", "orchestrator"],
+    "postures": ["explore", "deliver", "preserve", "evaluate"],
+    "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination", "graph-authoring.fram"]
+  },
+  "defaults": {
+    "taskGrade": "mid", "tier": "standard", "deliberation": "medium", "topology": "worker", "posture": "explore"
+  },
+  "presets": [
+    {
+      "name": "executor", "taskGrade": "novice", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "the specified change, applied exactly",
+      "description": "Execute-shaped tasks — bounded, mechanical, fully specified. Apply a patch, rename a symbol, add obvious tests, fix lint. Economy remains valid for foundational implementation-only work when no invariant decision is owned. Do NOT use when any judgment call is needed (→ implementer) or when behavior crosses a seam (→ integrator)."
+    },
+    {
+      "name": "implementer", "taskGrade": "mid", "tier": "standard", "deliberation": "medium", "topology": "worker", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "a working feature or fix inside existing patterns",
+      "description": "Implement-shaped tasks — one feature or fix inside known patterns. The junior/mid-level development stock template. Foundational implementation inside established invariants may remain standard; owning an invariant decision raises the minimum without changing the deliverable into integration. Do NOT use for ambiguous cross-seam debugging (→ integrator) or for anything choosing a new shape (→ designer)."
+    },
+    {
+      "name": "integrator", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "a working change across seams, with the map of what moved",
+      "description": "Integrate-shaped tasks — changes across consequential behavioral seams, ambiguous debugging, and refactors with behavior at stake. Senior engineering stock template. Cross-boundary decision ownership or consequential seams establish the senior floor; repository layer alone does not. For choosing a new design shape rather than working within one, use designer instead."
+    },
+    {
+      "name": "designer", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "a decision with trade-offs, not code",
+      "description": "Design-shaped tasks — choosing the shape of things: APIs, data models, decomposition, lifecycle semantics, naming that commits the system. Also small-looking decisions with large blast radius (a one-line naming choice that shapes an API is design, not execute). Tech-lead grade. Produces a DECISION with trade-offs, not code — read-only tools by design."
+    },
+    {
+      "name": "director", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "independent work reconciled into one evidence-backed result",
+      "description": "Director-shaped work — a task with two or more genuinely independent pieces whose seams must be designed, staffed, evidence-reconciled, and integrated. The standard high-capability orchestrator function: classifies each direct child from its local dependency shape, routes every worker or child orchestrator through fresh North admission and metering, consumes worker evidence and reconciled child outcomes, drives the aggregate end-to-end, independently spot-checks materially load-bearing seams, owns direct-child reduction and cross-cutting constraints, and returns one result. It does not execute terminal worker subtasks or absorb their full local-probe burden. Use a worker role for atomic or tightly coupled work; override taskGrade to principal when direction spans systems or long-lived constraints."
+    },
+    {
+      "name": "scout", "taskGrade": "junior", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+      "tagline": "gathered findings, with provenance",
+      "description": "Research-assistant/scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources, map unknown territory. Read-only, low-cost fan-out unit — spawn several in parallel for multi-angle sweeps. GATHERS and reports; does not deep-synthesize or conclude. For deep analysis / root-cause / grounding a design in real behavior, use analyst instead; for cutting-edge inquiry use research-scientist."
+    },
+    {
+      "name": "analyst", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+      "tagline": "understanding, grounded in real behavior",
+      "description": "Research deep-dive work — how a system actually works, why it behaves as it does, root-cause, or grounding a proposed design against real behavior. Read-only: depth over breadth, traces to ground truth when an enforceable read-only execution surface exists, and otherwise falls back to explicitly static-only analysis with unobserved behavior named. Produces UNDERSTANDING, not an artifact disposition (→ reviewer), a decision (→ designer), or a change (→ integrator). Fan out when independently traceable mechanisms benefit from separate evidence trails and later synthesis; keep tightly coupled traces together regardless of subsystem count. Do NOT use for mere location/gathering (→ scout)."
+    },
+    {
+      "name": "reviewer", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "one supplied artifact reviewed across multiple criteria, with prioritized findings and a disposition",
+      "description": "Artifact-review work — one supplied artifact or change in; multi-criterion, evidence-backed prioritized findings plus accept, changes-required, or cannot-assess out. Read-only senior evaluation. It does not fix or redesign the artifact, explain a mechanism as its primary deliverable (→ analyst), verify only one claim (→ verifier), rank multiple alternatives (→ judge), choose a new shape (→ designer), or apply a cross-seam change (→ integrator)."
+    },
+    {
+      "name": "verifier", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "one claim in, one adversarial verdict out",
+      "description": "Adversarial verification of one specific claim at any leverage — \"is this bug real\", \"does this fix actually hold\", \"try to refute this\". The standard fan-out unit for workflow verify stages. A justified stock-template override may move task grade, tier, and deliberation up or down while the task's quality floor remains binding; changing leverage does not turn verification into reviewing or judging."
+    },
+    {
+      "name": "judge", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "evaluate",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "competing alternatives in, a ranked decision out",
+      "description": "Rubric-backed scoring and selection among two or more supplied alternatives — judge panels over design attempts, choosing a winner, and identifying what to graft from runners-up. It does not verify a single claim or invent the candidate set. Staff-grade frontier judgment; produces a ranked decision, not code — read-only tools by design."
+    },
+    {
+      "name": "research-scientist", "taskGrade": "research-grade", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+      "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
+      "description": "Research-grade inquiry — open solution class, novel method, or cutting-edge computer-science work. Frames competing hypotheses, designs discriminating experiments, and may invoke existing non-mutating tools or probes only. It does not author a new script, fixture, experimental apparatus, or code, even as ephemeral scratch; hand that work to an authoring role. Frontier capability with high deliberation; do NOT use for source gathering (→ scout), ordinary root-cause analysis (→ analyst), or selecting among known designs (→ designer)."
+    }
+  ],
+  "aliases": []
+}

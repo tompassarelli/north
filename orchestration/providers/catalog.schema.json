@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provider", "provenance", "transports", "modelAliases", "models", "modelDeltas", "tiers"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "provider": { "type": "string", "enum": ["anthropic", "openai"] },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "transports": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "modelAliases": {
+      "type": "object", "minProperties": 1,
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "models": {
+      "description": "Fail-closed exact-model routing allowlist. It records static tier and deliberation compatibility, not account entitlement or live target availability.",
+      "type": "object", "minProperties": 1,
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/modelCompatibility" }
+    },
+    "modelDeltas": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/modelDelta" }
+    },
+    "tiers": {
+      "type": "object",
+      "required": ["economy", "standard", "senior", "frontier"],
+      "additionalProperties": false,
+      "properties": {
+        "economy": { "$ref": "#/$defs/tier" },
+        "standard": { "$ref": "#/$defs/tier" },
+        "senior": { "$ref": "#/$defs/tier" },
+        "frontier": { "$ref": "#/$defs/tier" }
+      }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asOf", "reviewAfter", "sources"],
+      "properties": {
+        "asOf": { "$ref": "#/$defs/date" },
+        "reviewAfter": { "$ref": "#/$defs/date" },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/source" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "modelFamilies", "scopes"],
+      "properties": {
+        "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "modelFamilies": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "scopes": {
+          "description": "Official-source fact categories only; these do not establish Gaffer's semantic tier placement or rung economics.",
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "enum": ["model-family", "availability", "effort-support", "context-window", "effective-date"] }
+        }
+      }
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "modelDelta": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "calibrated" },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "reason"],
+          "properties": {
+            "kind": { "const": "none" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "modelCompatibility": {
+      "description": "Provider-supported deliberation levels intersected with Gaffer's vocabulary, plus the calibrated exact per-tier routing subset and the provider-published context-window ceiling. The support list is not an exhaustive provider API enum.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["routes", "contextWindow"],
+      "properties": {
+        "routes": { "$ref": "#/$defs/modelRoutes" },
+        "contextWindow": { "$ref": "#/$defs/contextWindow" },
+        "efforts": { "$ref": "#/$defs/reasoning" },
+        "reasoning": { "$ref": "#/$defs/reasoning" }
+      },
+      "oneOf": [
+        { "required": ["efforts"] },
+        { "required": ["reasoning"] }
+      ]
+    },
+    "contextWindow": {
+      "description": "Provider-published maximum context-window token ceiling for this exact model. This is the raw provider limit, not the usable harness budget; the runtime derives a strictly smaller dispatchable budget as an independent fact.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens", "effectiveFrom"],
+      "properties": {
+        "tokens": { "type": "integer", "minimum": 1 },
+        "effectiveFrom": { "$ref": "#/$defs/date" }
+      }
+    },
+    "modelRoutes": {
+      "description": "Calibrated exact model×tier×deliberation shingles. Route lists for one model must be disjoint; runtime validation enforces that invariant.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "economy": { "$ref": "#/$defs/reasoning" },
+        "standard": { "$ref": "#/$defs/reasoning" },
+        "senior": { "$ref": "#/$defs/reasoning" },
+        "frontier": { "$ref": "#/$defs/reasoning" }
+      }
+    },
+    "tier": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model"],
+        "properties": {
+          "model": { "type": "string", "minLength": 1 },
+          "efforts": { "$ref": "#/$defs/reasoning" },
+          "defaultEffort": { "type": "string" },
+          "reasoning": { "$ref": "#/$defs/reasoning" },
+          "defaultReasoning": { "type": "string" }
+        },
+        "oneOf": [
+          { "required": ["efforts", "defaultEffort"] },
+          { "required": ["reasoning", "defaultReasoning"] }
+        ]
+      },
+      "reasoning": {
+        "type": "array", "minItems": 1, "uniqueItems": true,
+        "items": { "enum": ["low", "medium", "high", "xhigh", "max"] }
+      }
+  }
+}
