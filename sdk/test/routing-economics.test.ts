@@ -30,7 +30,7 @@ const assessment: RoutingAssessment = {
 };
 
 test("North's strict Ajv 2020 consumer compiles Gaffer's assessment schema before admission", () => {
-  const gafferRoot = resolve(process.env.GAFFER_HOME ?? resolve(homedir(), "code/gaffer"));
+  const gafferRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(homedir(), "code/gaffer"));
   const schema = JSON.parse(readFileSync(
     resolve(gafferRoot, "contracts/selection-assessment.schema.json"), "utf8",
   ));

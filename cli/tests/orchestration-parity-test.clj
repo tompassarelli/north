@@ -17,8 +17,8 @@
 
 (def port (or (some-> (first *command-line-args*) Integer/parseInt) 7977))
 (def root (or (second *command-line-args*)
-              (System/getenv "GAFFER_HOME")
-              (str (System/getenv "HOME") "/code/gaffer")))
+              (System/getenv "NORTH_ORCHESTRATION_HOME")
+              (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 (def cli-dir (.getParent (io/file (System/getProperty "babashka.file"))))
 (def project-cli (str (io/file (.getParentFile (io/file cli-dir)) "orchestration-project-cli.clj")))
 

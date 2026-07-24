@@ -272,7 +272,7 @@ export function admitRoutingAssessment(
     ...(exception ? { exception } : {}),
     ...(exceptionalDeliberation ? { exceptionalDeliberation } : {}),
   };
-  const gafferRoot = resolve(process.env.GAFFER_HOME ?? resolve(homedir(), "code/gaffer"));
+  const gafferRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
   const validator = process.env.GAFFER_SELECTION_ASSESSMENT_MODULE
     ?? resolve(gafferRoot, "scripts/selection-assessment.mjs");
   const validation = spawnSync(process.execPath, [
@@ -411,7 +411,7 @@ export function admitRoutingEconomics(args: {
   // watermarks) instead of digesting catalog FILES; file mode keeps the FILE
   // digests as the packaged rollback evidence.
   const catalogPin = graphMode ? graphCatalogPin() : undefined;
-  const gafferRoot = resolve(process.env.GAFFER_HOME ?? resolve(homedir(), "code/gaffer"));
+  const gafferRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
   const providerDigests = graphMode ? undefined : {
     anthropic: fileDigest(resolve(gafferRoot, "providers/anthropic.json")),
     openai: fileDigest(resolve(gafferRoot, "providers/openai.json")),

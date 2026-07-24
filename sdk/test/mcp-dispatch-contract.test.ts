@@ -7,7 +7,7 @@ import { presetRequest } from "./routing-fixtures";
 import type { RoutingRequest } from "../src/routing-metadata";
 
 const temporary: string[] = [];
-const GAFFER_ROOT = resolve(import.meta.dir, "../../..", "gaffer");
+const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../../..", "gaffer");
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
@@ -63,7 +63,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_MCP_BUN: fakeBun,
     NORTH_MCP_CAPTURE: capture,
     NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
-    GAFFER_HOME: GAFFER_ROOT,
+    NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
     NO_COLOR: "1",
     // Every ambient routing/proof axis below must be absent from the child.
     // The complete request-owned Gaffer contract is rebuilt below.
@@ -428,7 +428,7 @@ test("the dispatch wire rejects graph-authoring.fram on an orchestrator composit
       } },
     })}\n`,
     encoding: "utf8",
-    env: { ...cleanEnv, GAFFER_HOME: GAFFER_ROOT, NORTH_MCP_BUN: fakeBun },
+    env: { ...cleanEnv, NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT, NORTH_MCP_BUN: fakeBun },
   });
   expect(result.status, result.stderr).toBe(0);
   const response = JSON.parse(result.stdout.trim());
@@ -511,7 +511,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       NORTH_MCP_EVENTS: events,
       NORTH_BIN: fakeNorth,
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
-      GAFFER_HOME: GAFFER_ROOT,
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       FRAM_LOG: exactFramLog,
     },
   });
@@ -657,7 +657,7 @@ test("MCP spawn reports pre-identity construction failure instead of fabricating
     env: {
       ...process.env,
       HOME: directory,
-      GAFFER_HOME: GAFFER_ROOT,
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_BIN: fakeNorth,
       NORTH_MCP_BUN: "/bin/false",
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "500",

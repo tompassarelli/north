@@ -38,7 +38,7 @@ const savedHome = process.env.HOME;
 const savedPort = process.env.NORTH_PORT;
 const savedFramLog = process.env.FRAM_LOG;
 const savedLaws = process.env.AGENT_LAWS;
-const savedGaffer = process.env.GAFFER_HOME;
+const savedOrchestration = process.env.NORTH_ORCHESTRATION_HOME;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
 const temporary: string[] = [];
 beforeEach(() => {
@@ -87,8 +87,8 @@ afterEach(() => {
   else process.env.FRAM_LOG = savedFramLog;
   if (savedLaws === undefined) delete process.env.AGENT_LAWS;
   else process.env.AGENT_LAWS = savedLaws;
-  if (savedGaffer === undefined) delete process.env.GAFFER_HOME;
-  else process.env.GAFFER_HOME = savedGaffer;
+  if (savedOrchestration === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
+  else process.env.NORTH_ORCHESTRATION_HOME = savedOrchestration;
   for (const path of liveProcessPidFiles) killRecordedProcess(path);
   liveProcessPidFiles.clear();
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
@@ -884,7 +884,7 @@ test("managed executable resolution fails retry-safe before onRoute or query con
   temporary.push(home);
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
-  process.env.GAFFER_HOME = realpathSync(savedGaffer ?? join(northRoot, "../gaffer"));
+  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
   process.env.NORTH_PORT = "65534";
   const coordinatorLogPath = join(home, "must-not-reach-coordinator.log");
   process.env.FRAM_LOG = coordinatorLogPath;
@@ -977,7 +977,7 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
   temporary.push(home);
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
-  process.env.GAFFER_HOME = realpathSync(savedGaffer ?? join(northRoot, "../gaffer"));
+  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
   process.env.NORTH_PORT = String((server.address() as AddressInfo).port);
   process.env.FRAM_LOG = join(home, "north target admission.log");
   coordinatorLog = process.env.FRAM_LOG;

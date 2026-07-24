@@ -272,7 +272,7 @@ test("a synchronous provider-construction failure records run telemetry without 
 test("a Gaffer prompt-composition failure is blocked preflight before query construction", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  const sourceGaffer = process.env.GAFFER_HOME
+  const sourceGaffer = process.env.NORTH_ORCHESTRATION_HOME
     ?? resolve(import.meta.dir, "../../..", "gaffer");
   const brokenGaffer = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
   mkdirSync(join(brokenGaffer, "providers"), { recursive: true });
@@ -286,10 +286,10 @@ test("a Gaffer prompt-composition failure is blocked preflight before query cons
   for (const name of ["roles.md", "comms.md", "task-grades.md", "topologies.md", "postures.md"]) {
     copyFileSync(join(sourceGaffer, "docs", name), join(brokenGaffer, "docs", name));
   }
-  const priorGafferHome = process.env.GAFFER_HOME;
+  const priorGafferHome = process.env.NORTH_ORCHESTRATION_HOME;
   let queryConstructionCalls = 0;
   try {
-    process.env.GAFFER_HOME = brokenGaffer;
+    process.env.NORTH_ORCHESTRATION_HOME = brokenGaffer;
     const routingMetadata = applyGafferStaffing({
       role: "scout",
       tier: "standard",
@@ -316,8 +316,8 @@ test("a Gaffer prompt-composition failure is blocked preflight before query cons
     });
     expect(result).toBe("");
   } finally {
-    if (priorGafferHome === undefined) delete process.env.GAFFER_HOME;
-    else process.env.GAFFER_HOME = priorGafferHome;
+    if (priorGafferHome === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
+    else process.env.NORTH_ORCHESTRATION_HOME = priorGafferHome;
     rmSync(brokenGaffer, { recursive: true, force: true });
   }
 

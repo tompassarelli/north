@@ -177,8 +177,8 @@
 (def model-alias-catalog-providers ["anthropic" "openai"])
 
 (defn- gaffer-catalog-root []
-  (or (System/getenv "GAFFER_HOME")
-      (str (System/getProperty "user.home") "/code/gaffer")))
+  (or (System/getenv "NORTH_ORCHESTRATION_HOME")
+      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 
 (defn- load-provider-catalog [provider]
   (try

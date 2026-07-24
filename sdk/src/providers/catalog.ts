@@ -119,7 +119,7 @@ export class ProviderCatalogFileCache<T> {
 const providerCatalogCache = new ProviderCatalogFileCache<ProviderCatalog>();
 
 function gafferHome(): string {
-  return resolve(process.env.GAFFER_HOME ?? `${process.env.HOME}/code/gaffer`);
+  return resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
 }
 
 function validateProviderCatalog(

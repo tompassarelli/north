@@ -4,7 +4,7 @@
 ;; north-orchestration-vocabulary-design.md in the repo's private docs —
 ;; packaged code must not embed checkout/home paths, per the package
 ;; path-hygiene lint, so the Gaffer source root is resolved at runtime from
-;; $GAFFER_HOME / $HOME, never a literal).
+;; $NORTH_ORCHESTRATION_HOME / $HOME, never a literal).
 ;;
 ;; Lifts the machine catalog into the fact graph as DRAFT subjects under a
 ;; version namespace (@catalog:v<N>:*), then flips the @catalog:current
@@ -43,8 +43,8 @@
 ;; ---------------------------------------------------------------------------
 (defn gaffer-home [arg]
   (or arg
-      (System/getenv "GAFFER_HOME")
-      (str (System/getenv "HOME") "/code/gaffer")))
+      (System/getenv "NORTH_ORCHESTRATION_HOME")
+      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 
 (defn read-json [root & segs]
   (json/parse-string (slurp (apply io/file root segs))))
@@ -52,7 +52,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Prompt-block fence extraction — mirrors sdk/src/harness.ts
 ;; extractFenceFromSection / extractFirstFence so the imported prompt_block is
-;; byte-identical to what the harness reads from GAFFER_HOME today.
+;; byte-identical to what the harness reads from NORTH_ORCHESTRATION_HOME today.
 ;; ---------------------------------------------------------------------------
 (defn extract-section-fence [text heading]
   (let [lines (str/split text #"\n" -1)
