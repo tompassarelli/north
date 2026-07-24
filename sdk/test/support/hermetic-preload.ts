@@ -61,6 +61,19 @@ if (process.env.NORTH_TEST_ALLOW_AMBIENT_COORDINATOR !== "1") {
   process.env.NORTH_PORT = HERMETIC_DEAD_PORT;
 }
 
+// Phase 2 flipped NORTH_STAFFING_SOURCE's default from `file` to `graph`
+// (thread 019f8f5c): production spawn/admission now reads the staffing +
+// provider catalogs from @catalog:current and runs the §3.2 digest pin, both of
+// which require a live coordinator (R6, accepted). A hermetic unit suite has no
+// coordinator, so a bare default would make every catalog read and admission
+// fail closed against the dead sentinel port above. Pin the source to `file`
+// here — the same class of ambient-default pin as NORTH_PORT — so the suite
+// exercises the byte-parity-proven file path. Graph mode is proven separately
+// by the live orchestration-dual-read-probe and by tests that opt in explicitly
+// (orchestration-dual-read / orchestration-policy-pin), which set the flag and
+// stand up their own fixture. Tests asserting the true default delete this var.
+if (!process.env.NORTH_STAFFING_SOURCE) process.env.NORTH_STAFFING_SOURCE = "file";
+
 // Global-authority hermeticity. The laws bootstrap now resolves an exact
 // AGENT_LAWS_PATH or ~/.agents/AGENTS.md — never a provider config home. So a
 // bare suite run (no ambient AGENT_LAWS_PATH, no ~/.agents on the box) would

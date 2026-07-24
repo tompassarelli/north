@@ -2,22 +2,25 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
 /**
- * Phase 1 dual-read seam for the Gaffer -> North Orchestration migration
+ * Dual-read seam for the Gaffer -> North Orchestration migration
  * (thread 019f8f5c). `NORTH_STAFFING_SOURCE` selects where the staffing catalog
  * and provider catalogs are read from:
  *
- *   file  (DEFAULT) — the Gaffer JSON files, byte-for-byte as today.
- *   graph           — the imported @catalog:current subgraph, reconstructed to
- *                     the identical JSON shape by orchestration-project-cli.clj.
+ *   graph (DEFAULT, Phase 2) — the imported @catalog:current subgraph,
+ *                     reconstructed to the identical JSON shape by
+ *                     orchestration-project-cli.clj; the graph is authoritative.
+ *   file            — the Gaffer JSON files, byte-for-byte as today; the
+ *                     retained rollback flag (retirement is Phase 4).
  *
  * The equality gate (cli/tests/orchestration-parity-test.clj) proves the two
  * sources are byte-equal after normalization, so switching the flag never
- * changes a routing decision. The default is NOT flipped in Phase 1.
+ * changes a routing decision. Phase 2 flips the default to GRAPH; only an
+ * explicit NORTH_STAFFING_SOURCE=file falls back to the packaged files.
  */
 export type StaffingSource = "file" | "graph";
 
 export function staffingSource(): StaffingSource {
-  return process.env.NORTH_STAFFING_SOURCE === "graph" ? "graph" : "file";
+  return process.env.NORTH_STAFFING_SOURCE === "file" ? "file" : "graph";
 }
 
 const REPO = resolve(import.meta.dir, "..", "..");

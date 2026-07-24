@@ -28,11 +28,15 @@
          '[cheshire.core :as json]
          '[babashka.process :as p])
 
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def CLI-DIR (.getParent (io/file (System/getProperty "babashka.file"))))
+(load-file (str CLI-DIR "/coord.clj"))
+(load-file (str CLI-DIR "/orchestration-selection.clj"))
 (def send-op  north.coord/send-op)
 (def put!     north.coord/put!)
 (def append!  north.coord/append!)
 (def retract! north.coord/retract!)
+(def enumerate-selection-rules north.orchestration-selection/enumerate-selection-rules)
+(def rules-digest              north.orchestration-selection/rules-digest)
 
 ;; ---------------------------------------------------------------------------
 ;; Source resolution — runtime only, never an embedded path.
@@ -82,53 +86,10 @@
       (throw (ex-info (str "no fenced block: " doc " ## " heading) {})))
     block))
 
-;; ---------------------------------------------------------------------------
-;; Selection rules — enumerated FROM the canonical validator (never mirrored).
-;; A tiny node module imports selection-assessment.mjs and probes each single
-;; signal value through deriveSelectionAssessment, so the route floor recorded
-;; per rule is exactly what the canonical policy computes. Baseline holds every
-;; other signal at its no-route floor.
-;; ---------------------------------------------------------------------------
-(defn selection-enum-js [mjs-url]
-  (str "
-import { deriveSelectionAssessment } from '" mjs-url "';
-const SIGNAL_VALUES = {
-  decisionOwnership: ['none','bounded','cross-boundary','system-shaping','open-solution-class'],
-  seamScope: ['none','established','consequential','system-wide'],
-  errorExposure: ['contained-reversible','material-recoverable','high-or-hard-to-reverse'],
-  oracleStrength: ['not-applicable','objective-local','objective-end-to-end','partial','judgment-only'],
-  foundationalImpact: ['none','implementation-only','invariant-decision-owned'],
-  dependencyShape: ['atomic-cohesive','deterministic-workflow','parallel-breadth','dynamic-decomposition','tightly-coupled-sequential'],
-  reasoningShape: ['deterministic','bounded-branching','multi-hypothesis','system-synthesis','exceptional'],
-};
-const kebab = { decisionOwnership:'decision-ownership', seamScope:'seam-scope', errorExposure:'error-exposure', oracleStrength:'oracle-strength', foundationalImpact:'foundational-impact', dependencyShape:'dependency-shape', reasoningShape:'reasoning-shape' };
-const baseline = { decisionOwnership:'none', seamScope:'none', errorExposure:'contained-reversible', oracleStrength:'not-applicable', foundationalImpact:'none', dependencyShape:'atomic-cohesive', reasoningShape:'deterministic' };
-const rules = [];
-for (const [sig, values] of Object.entries(SIGNAL_VALUES)) {
-  for (const v of values) {
-    const code = `${kebab[sig]}:${v}`;
-    const signals = { ...baseline, [sig]: v };
-    const d = deriveSelectionAssessment(signals);
-    if (!d.ruleCodes.includes(code)) continue; // this value imposes no route floor
-    rules.push({ signal: sig, signal_value: v, rule_code: code, min_tier: d.minimumTier, min_reasoning: d.minimumReasoning });
-  }
-}
-process.stdout.write(JSON.stringify(rules));
-"))
-
-;; The Gaffer contract root is read-only (nix store), so the probe module lives
-;; in a writable temp dir and imports the canonical validator by absolute URL.
-(defn enumerate-selection-rules [root]
-  (let [mjs (io/file root "scripts" "selection-assessment.mjs")
-        url (str (.toURI (.getCanonicalFile mjs)))
-        js (java.io.File/createTempFile "north-selection-enum" ".mjs")]
-    (try
-      (spit js (selection-enum-js url))
-      (let [{:keys [exit out err]} (p/sh "node" (.getCanonicalPath js))]
-        (when-not (zero? exit)
-          (throw (ex-info (str "selection enum failed: " err) {})))
-        (json/parse-string out))
-      (finally (.delete js)))))
+;; Selection rules are enumerated FROM the canonical validator (never mirrored)
+;; by the shared north.orchestration-selection ns — the same code the projector
+;; runs at admission, so the policy_sha256 written here is byte-comparable to
+;; the digest the §3.2 pin recomputes.
 
 (defn selection-signal-values []
   {"decisionOwnership" ["none" "bounded" "cross-boundary" "system-shaping" "open-solution-class"]
@@ -289,12 +250,9 @@ process.stdout.write(JSON.stringify(rules));
         (s1! port subj "min_reasoning" (get r "min_reasoning"))
         (s1! port subj "rule_code" code)
         (append! port policy "rule" subj)))
-    ;; digest over the canonical rule projection (design section 1.5)
-    (let [digest (-> (java.security.MessageDigest/getInstance "SHA-256")
-                     (.digest (.getBytes (json/generate-string (sort-by #(get % "rule_code") rules))
-                                         java.nio.charset.StandardCharsets/UTF_8)))]
-      (s1! port policy "policy_sha256"
-           (apply str (map #(format "%02x" %) digest))))))
+    ;; digest over the canonical rule projection (design section 1.5) — the
+    ;; §3.2 pin recomputes this exact value at admission.
+    (s1! port policy "policy_sha256" (rules-digest rules))))
 
 ;; ---------------------------------------------------------------------------
 ;; Verbs.

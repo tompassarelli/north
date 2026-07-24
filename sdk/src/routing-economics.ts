@@ -8,6 +8,8 @@ import type {
 } from "./routing-metadata";
 import { DEFAULT_GAFFER_STAFFING_PATH } from "./gaffer-staffing";
 import { DEFAULT_ROUTING_POLICY_PATH } from "./resource-policy";
+import { staffingSource } from "./orchestration-graph-source";
+import { verifyPolicyDigestPin } from "./orchestration-policy-pin";
 
 export const ROUTING_ASSESSMENT_POLICY_VERSION = "minimum-sufficient-v1" as const;
 export const ROUTING_PIN_POLICY_VERSION = "north-routing-pin-v1" as const;
@@ -96,6 +98,13 @@ export interface RoutingAdmissionReceipt {
     exceptionCode?: RoutingExceptionCode;
   };
   pinEvidenceStatus: "none" | "missing" | "legacy-missing" | "current";
+  /**
+   * §3.2 digest pin: present only when the staffing source is the graph (the
+   * Phase 2 default). It is the verified three-way-equal digest of the
+   * canonical selection-rule table, so the receipt names the exact policy state
+   * admission accepted. Absent under NORTH_STAFFING_SOURCE=file.
+   */
+  orchestrationPolicyPinSha256?: string;
 }
 
 export interface AdmittedRoutingEconomics {
@@ -311,6 +320,16 @@ export function admitRoutingPinEvidence(
   });
 }
 
+// §3.2 digest pin memo: the projection subprocess is identical across every
+// admission in a process (the catalog pointer is atomic), so verify once and
+// cache the pinned digest. Failure is NOT cached — a transient dead coordinator
+// must be re-probed on the next admission rather than poisoning the process.
+let policyPinDigest: string | undefined;
+function graphPolicyPin(surface: string): string {
+  if (policyPinDigest === undefined) policyPinDigest = verifyPolicyDigestPin(undefined, surface);
+  return policyPinDigest;
+}
+
 function stockAxes(request: RoutingRequest): RoutingAdmissionReceipt["stockAxes"] {
   if (request.composition.kind !== "preset") return undefined;
   const catalog = JSON.parse(readFileSync(
@@ -357,6 +376,11 @@ export function admitRoutingEconomics(args: {
       `${surface} explicit provider/account/model selectors require current typed pinEvidence`,
     );
   }
+  // §3.2 fail-closed digest pin: when the graph is the authoritative staffing
+  // source (Phase 2 default), admission refuses unless the graph policy digest
+  // matches the canonical validator's baked table. File mode keeps the packaged
+  // rollback path with no pin.
+  const policyPin = staffingSource() === "graph" ? graphPolicyPin(surface) : undefined;
   const gafferRoot = resolve(process.env.GAFFER_HOME ?? resolve(homedir(), "code/gaffer"));
   const providerDigests = {
     anthropic: fileDigest(resolve(gafferRoot, "providers/anthropic.json")),
@@ -390,6 +414,7 @@ export function admitRoutingEconomics(args: {
     },
     pinEvidenceStatus: Object.keys(explicitPins).length === 0
       ? "none" : pinEvidence ? "current" : "legacy-missing",
+    ...(policyPin ? { orchestrationPolicyPinSha256: policyPin } : {}),
   };
   return deepFreeze({
     ...(assessment ? { assessment } : {}),

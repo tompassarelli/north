@@ -15,8 +15,13 @@
          '[clojure.string :as str]
          '[cheshire.core :as json])
 
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def CLI-DIR (.getParent (io/file (System/getProperty "babashka.file"))))
+(load-file (str CLI-DIR "/coord.clj"))
+(load-file (str CLI-DIR "/orchestration-selection.clj"))
 (def send-op north.coord/send-op)
+(def enumerate-selection-rules north.orchestration-selection/enumerate-selection-rules)
+(def rule-map                  north.orchestration-selection/rule-map)
+(def rules-digest              north.orchestration-selection/rules-digest)
 
 (def POINTER "@catalog:current")
 (def REASONING-RANK ["low" "medium" "high" "xhigh" "max"])
@@ -140,10 +145,44 @@
      "modelDeltas" deltas
      "tiers" tiers}))
 
+;; ---------------------------------------------------------------------------
+;; §3.2 digest pin. Three digests over the canonical selection-rule table that
+;; MUST be equal for admission to proceed (the TS consumer refuses otherwise):
+;;   storedSha256     — the policy_sha256 fact the importer wrote.
+;;   projectionSha256 — recomputed here from the live rule subjects (a bare
+;;                      graph write to a floor changes THIS but not the stored
+;;                      fact, so the pin catches it).
+;;   validatorSha256  — enumerated from the canonical validator's baked table
+;;                      (changing a floor without a validator/policy version
+;;                      bump changes stored+projection but not THIS).
+;; A floor therefore moves only by a policy version bump, never a bare write.
+;; ---------------------------------------------------------------------------
+(defn gaffer-root []
+  (or (System/getenv "GAFFER_HOME")
+      (str (System/getenv "HOME") "/code/gaffer")))
+
+(defn project-policy-pin [port]
+  (let [ver (current-version port)
+        policy (str "@catalog:v" ver ":selection-policy:minimum-sufficient-v1")
+        pf (facts port policy)
+        stored (one pf "policy_sha256")
+        rule-subjs (many pf "rule")
+        graph-rules (for [s rule-subjs]
+                      (let [f (facts port s)]
+                        (rule-map (one f "signal") (one f "signal_value")
+                                  (one f "rule_code") (one f "min_tier") (one f "min_reasoning"))))
+        validator-rules (enumerate-selection-rules (gaffer-root))]
+    {"policyVersion" "minimum-sufficient-v1"
+     "catalogVersion" ver
+     "storedSha256" stored
+     "projectionSha256" (rules-digest graph-rules)
+     "validatorSha256" (rules-digest validator-rules)}))
+
 (let [[ps verb arg] *command-line-args*
       port (Integer/parseInt (or ps "7977"))]
   (case verb
-    "staffing" (println (json/generate-string (project-staffing port)))
-    "provider" (println (json/generate-string (project-provider port arg)))
-    (do (println "usage: orchestration-project-cli.clj <port> {staffing | provider <name>}")
+    "staffing"   (println (json/generate-string (project-staffing port)))
+    "provider"   (println (json/generate-string (project-provider port arg)))
+    "policy-pin" (println (json/generate-string (project-policy-pin port)))
+    (do (println "usage: orchestration-project-cli.clj <port> {staffing | provider <name> | policy-pin}")
         (System/exit 2))))
