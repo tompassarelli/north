@@ -22,6 +22,13 @@
     ;; single source that flows to the validate-publish! whitelist, the facts-of
     ;; readback set, and the identity marker on both writer and reader.
     "worktree" "branch"
+    ;; Bounded auto-retry: bare agent id of the prior terminal-committed lane
+    ;; this fresh identity followed (cli/pred-cli.clj registers the predicate).
+    ;; Optional like worktree/branch — first attempts never carry it, so it
+    ;; stays out of required-identity-predicates — but membership here is what
+    ;; flows it into the validate-publish! whitelist, the canonical marker, and
+    ;; the writer/reader readback set alongside every other identity fact.
+    "retry_of_agent"
     "coordinator" "spawned_at"})
 (def required-identity-predicates
   ["kind" "role" "goal" "provider" "provider_target" "live_input"
