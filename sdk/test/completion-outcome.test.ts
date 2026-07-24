@@ -273,7 +273,7 @@ test("a Orchestration prompt-composition failure is blocked preflight before que
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   const sourceOrchestration = process.env.NORTH_ORCHESTRATION_HOME
-    ?? resolve(import.meta.dir, "../../..", "orchestration");
+    ?? resolve(import.meta.dir, "../..", "orchestration");
   const brokenOrchestration = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
   mkdirSync(join(brokenOrchestration, "providers"), { recursive: true });
   mkdirSync(join(brokenOrchestration, "docs", "deltas"), { recursive: true });
@@ -2388,7 +2388,7 @@ test("public role-only integrator spawn hydrates the complete Orchestration pres
     pinEvidence: pinEvidence("anthropic"), queryFn,
   });
 
-  expect(queryOptions.model).toBe("claude-opus-4-8");
+  expect(queryOptions.model).toBe("claude-opus-5");
   expect(queryOptions.effort).toBe("high");
   const logged = await waitForLog("requested_role integrator");
   for (const fact of [
@@ -2398,7 +2398,7 @@ test("public role-only integrator spawn hydrates the complete Orchestration pres
   for (const fact of [
     "tell agent:test-role-only-integrator provider anthropic",
     "tell agent:test-role-only-integrator provider_target anthropic",
-    "tell agent:test-role-only-integrator model claude-opus-4-8",
+    "tell agent:test-role-only-integrator model claude-opus-5",
     "tell agent:test-role-only-integrator effort high",
     "tell agent:test-role-only-integrator composition_kind preset",
     "tell agent:test-role-only-integrator composition_id integrator",
@@ -2498,6 +2498,6 @@ test("a struggle sensor firing records a struggle run fact without any in-flight
   console.log(`[bar-evidence] ${logged.split("\n").find((l) => l.includes("struggle consecutive_errors"))}`);
   // The run still finished normally at its immutable admitted route.
   expect(modelChanged).toBe(false);
-  expect(logged).toContain("tell agent:test-struggle-lane model claude-opus-4-8");
+  expect(logged).toContain("tell agent:test-struggle-lane model claude-opus-5");
   expect(logged).not.toContain("outcome provider_escalation_unsupported");
 });

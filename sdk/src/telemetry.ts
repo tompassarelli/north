@@ -686,10 +686,22 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   return facts;
 }
 
+// Terminal telemetry budget. The writer issues ONE coordinator round-trip per
+// fact and a run record carries ~150 of them, so a 10s budget allowed ~67ms per
+// write — unmeetable whenever the coordinator is under write churn. execFile
+// then SIGTERMs the writer, and a killed process emits no stderr, which is why
+// 170 of 765 runs over 2026-07-22..25 recorded "died" with no cause. This is a
+// bounded background write with no interactive consumer, so give it room; the
+// coordinator's own serialization still bounds real concurrency.
+const RUN_WRITE_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.NORTH_RUN_WRITE_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
+})();
+
 export function recordRun(
   rec: ObservedRunRecord,
   id = newRunId(rec.agent),
-  timeoutMs = 10_000,
+  timeoutMs = RUN_WRITE_TIMEOUT_MS,
 ): Promise<RunPublicationStatus> {
   let facts: Array<[string, string]>;
   try {
@@ -764,9 +776,22 @@ export function recordRun(
         // leaves the run's tokens/outcome/duration unrecorded, so leave a loud
         // stderr breadcrumb — never a throw; the run's real result stands.
         if (error) {
-          const detail = (stderr && String(stderr).trim()) || error.message;
+          // A timeout-killed writer produces NO stderr, so error.message alone
+          // ("Command failed: bb …") is indistinguishable from a coordinator
+          // rejection. Name the kill explicitly: the 2026-07 telemetry outage
+          // was undiagnosable for days precisely because these two collapsed
+          // into one opaque string.
+          const killed = (error as any).killed === true;
+          const signal = (error as any).signal ?? null;
+          const code = (error as any).code ?? null;
+          const cause = killed
+            ? `writer exceeded ${Math.floor(timeoutMs)}ms budget and was killed`
+              + (signal ? ` (${signal})` : "")
+              + `; ${facts.length} facts = ${facts.length} coordinator writes`
+            : (stderr && String(stderr).trim())
+              || `${error.message}${code === null ? "" : ` (exit ${code})`}`;
           process.stderr.write(
-            "[telemetry] recordRun write FAILED for " + id + ": " + detail + "\n",
+            "[telemetry] recordRun write FAILED for " + id + ": " + cause + "\n",
           );
         }
         settle(error ? "unavailable" : "recorded");

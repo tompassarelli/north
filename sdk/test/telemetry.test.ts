@@ -62,7 +62,7 @@ test("a @run model fact is canonicalized at write, never a bare family alias", (
     thread: "@run-alias", agent: "lane-alias", durationMs: 1,
     posture: "spawn", outcome: "ran", provider: "anthropic", model: "opus",
   });
-  expect(facts).toContainEqual(["model", "claude-opus-4-8"]);
+  expect(facts).toContainEqual(["model", "claude-opus-5"]);
   expect(facts.some(([, v]) => v === "opus")).toBe(false);
 });
 

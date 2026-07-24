@@ -91,7 +91,7 @@ test("status-only model rejection remains scoped and unknown type text stays pri
     availability, policy, "standard", "medium", "claude-sonnet-5",
   )[0]).toMatchObject({ pressure: "unknown", eligible: true });
   expect(balancedAllocationEstimates(
-    availability, policy, "senior", "high", "claude-opus-4-8",
+    availability, policy, "senior", "high", "claude-opus-5",
   )[0]).toMatchObject({ pressure: "exhausted", eligible: false });
 
   const opaque = observationFromAnthropicRateLimit(event({
