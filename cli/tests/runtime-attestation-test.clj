@@ -582,6 +582,199 @@
       (.close socket)
       (delete-tree! temp))))
 
+;; Layout-aware daemon/source/origin binding. parse-active-record! is exercised
+;; directly (no live listener) so both the sealed checkout layout and the
+;; immutable package layout can be reconciled, along with the fail-closed
+;; negatives for a mismatched source, origin, daemon, and mode. The live
+;; process/listener bindings are covered by the direct-fixture block above.
+(def resolve-active-selection! #'north.runtime-attestation/resolve-active-selection!)
+(def parse-active-record! #'north.runtime-attestation/parse-active-record!)
+
+(defn write-sealed-0600! [path content]
+  (spit path content)
+  (java.nio.file.Files/setPosixFilePermissions
+   (.toPath (io/file path))
+   (java.util.HashSet.
+    ^java.util.Collection
+    [java.nio.file.attribute.PosixFilePermission/OWNER_READ
+     java.nio.file.attribute.PosixFilePermission/OWNER_WRITE])))
+
+(defn touch-file! [path]
+  (.mkdirs (.getParentFile (io/file path)))
+  (spit path "")
+  (.getCanonicalPath (io/file path)))
+
+(defn make-dir! [path]
+  (.mkdirs (io/file path))
+  (.getCanonicalPath (io/file path)))
+
+(def layout-rev (apply str (repeat 40 "a")))
+(def layout-tree (str "immutable:" layout-rev))
+
+(defn build-layout-selection!
+  "Materialize a generation-scoped selection whose sealed static identity binds
+  the given layout, then resolve it exactly as the launcher would.  Each
+  scenario gets its own state root: the current/active selector links are
+  create-only, so reusing one root would collide across scenarios."
+  [temp gen-name mode source origin daemon]
+  (let [root (.getCanonicalPath (io/file temp (str "state-" gen-name)))
+        generation (io/file root "generations" gen-name)
+        source (.getCanonicalPath (io/file source))
+        origin (.getCanonicalPath (io/file origin))
+        daemon (.getCanonicalPath (io/file daemon))
+        identity (io/file generation "current.identity")]
+    (.mkdirs generation)
+    (create-symlink! (str root "/current") "active/current")
+    (create-symlink! (str root "/active") (str "generations/" gen-name))
+    (create-symlink! (str generation "/current") source)
+    (write-sealed-0600! (.getPath identity)
+                        (str "north-fram-runtime-v1\n" mode "\n" source "\n"
+                             layout-rev "\n" layout-tree "\n" origin "\n"
+                             daemon "\n"))
+    (resolve-active-selection! root)))
+
+(defn layout-record-values
+  [selection mode source origin daemon port log telemetry pid token]
+  {"FORMAT" attestation/active-runtime-record-format
+   "GENERATION" (:generation selection)
+   "GENERATION_IDENTITY" (:path (:identity selection))
+   "GENERATION_IDENTITY_SHA256" (:sha256 (:identity selection))
+   "NORTH_FRAM_RUNTIME" mode
+   "FRAM_RUNTIME_SOURCE" source
+   "FRAM_RUNTIME_REV" layout-rev
+   "FRAM_RUNTIME_TREE" layout-tree
+   "FRAM_RUNTIME_ORIGIN" origin
+   "FRAM_RUNTIME_DAEMON" daemon
+   "FRAM_PORT" (str port)
+   "FRAM_LOG" log
+   "FRAM_TELEMETRY_LOG" telemetry
+   "PID" (str pid)
+   "PID_BIRTH" "proc:12345"
+   "OWNER_TOKEN" token
+   "CONTROLLER_UNIT" "direct"
+   "CONTROLLER_MAIN_PID" (str pid)})
+
+(defn write-layout-record! [record-path values]
+  (write-sealed-0600! record-path
+                      (str (str/join "\n"
+                                     (map #(str % "=" (get values %))
+                                          active-record-order))
+                           "\n")))
+
+(defn parse-layout!
+  "Build the record for `values`, then reconcile it through the private
+  parse-active-record! with a matched port/log pair (no live process)."
+  [selection values port log telemetry]
+  (write-layout-record! (:record-path selection) values)
+  (parse-active-record! selection nil port log telemetry))
+
+(let [temp (.toFile
+            (java.nio.file.Files/createTempDirectory
+             "north-runtime-layout-"
+             (make-array java.nio.file.attribute.FileAttribute 0)))
+      log (touch-file! (.getCanonicalPath (io/file temp "coordination.log")))
+      telemetry (touch-file! (.getCanonicalPath (io/file temp "telemetry.log")))
+      port (free-port)
+      pid 12345
+      token (str (java.util.UUID/randomUUID))]
+  (try
+    ;; Valid sealed checkout: source == origin, daemon == source/bin/fram-daemon.
+    (let [co (make-dir! (.getCanonicalPath (io/file temp "checkout")))
+          daemon (touch-file! (str co "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-checkout"
+                                             "checkout" co co daemon)
+          values (layout-record-values selection "checkout" co co daemon
+                                       port log telemetry pid token)
+          parsed (parse-layout! selection values port log telemetry)]
+      (check! "valid checkout active-runtime record binds source-rooted daemon"
+              (and (map? parsed)
+                   (= co (:source parsed))
+                   (= daemon (:daemon parsed)))))
+
+    ;; Valid immutable package: source == origin/libexec/fram,
+    ;; daemon == origin/bin/fram-daemon.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg")))
+          source (make-dir! (str origin "/libexec/fram"))
+          daemon (touch-file! (str origin "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-package"
+                                             "package" source origin daemon)
+          values (layout-record-values selection "package" source origin daemon
+                                       port log telemetry pid token)
+          parsed (parse-layout! selection values port log telemetry)]
+      (check! "valid package active-runtime record binds origin-rooted daemon"
+              (and (map? parsed)
+                   (= source (:source parsed))
+                   (= daemon (:daemon parsed)))))
+
+    ;; Negative: package source is not origin/libexec/fram.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-src")))
+          source (make-dir! (str origin "/elsewhere"))
+          daemon (touch-file! (str origin "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-badsrc"
+                                             "package" source origin daemon)
+          values (layout-record-values selection "package" source origin daemon
+                                       port log telemetry pid token)]
+      (check! "package record with source outside origin/libexec/fram is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+
+    ;; Negative: package origin disagrees with the daemon's own bin prefix.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-origin")))
+          other (make-dir! (.getCanonicalPath (io/file temp "pkg-other")))
+          source (make-dir! (str origin "/libexec/fram"))
+          daemon (touch-file! (str origin "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-badorigin"
+                                             "package" source other daemon)
+          values (layout-record-values selection "package" source other daemon
+                                       port log telemetry pid token)]
+      (check! "package record whose origin is not the daemon's bin prefix is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+
+    ;; Negative: package daemon's two-level root is not the sealed origin.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-daemon")))
+          other (make-dir! (.getCanonicalPath (io/file temp "pkg-daemon-other")))
+          source (make-dir! (str origin "/libexec/fram"))
+          daemon (touch-file! (str other "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-baddaemon"
+                                             "package" source origin daemon)
+          values (layout-record-values selection "package" source origin daemon
+                                       port log telemetry pid token)]
+      (check! "package record whose daemon root is outside origin is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+
+    ;; Negative: cross-layout — a package-shaped install (daemon rooted at an
+    ;; origin that is not the executed source) claiming checkout mode.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "cross")))
+          source (make-dir! (str origin "/libexec/fram"))
+          daemon (touch-file! (str origin "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-cross"
+                                             "checkout" source origin daemon)
+          values (layout-record-values selection "checkout" source origin daemon
+                                       port log telemetry pid token)]
+      (check! "checkout record whose daemon roots outside the executed source is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+
+    ;; Negative: unsupported runtime layout mode.
+    (let [co (make-dir! (.getCanonicalPath (io/file temp "hybrid")))
+          daemon (touch-file! (str co "/bin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-badmode"
+                                             "hybrid" co co daemon)
+          values (layout-record-values selection "hybrid" co co daemon
+                                       port log telemetry pid token)]
+      (check! "active-runtime record with an unsupported layout mode is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+    (finally
+      (delete-tree! temp))))
+
 (delete-tree! fram-fixture-root)
 
 (if (seq @failures)
