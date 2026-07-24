@@ -380,6 +380,11 @@ PY
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
+            # Self-contained orchestration contract. The runtime's in-repo
+            # fallback resolves <root>/orchestration, so the packaged tree must
+            # carry it too; otherwise every resolution depends on the wrapper's
+            # ORCHESTRATION_HOME being set, and any direct invocation ENOENTs.
+            ln -s ${orchestrationContract} $out/orchestration
             cp bin/north bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-up \
