@@ -391,7 +391,7 @@ Managed lanes preserve a stronger run-scoped delivery projection:
    misuse and supplies scoped correlation; it is not an unforgeable boundary
    against another same-UID process, which can inspect peer state or speak the
    coordinator protocol directly. `reported` is explicitly same-UID
-   self-report and never qualifies a Gaffer promotion. Likewise, `AGENT_ID` is
+   self-report and never qualifies a Orchestration promotion. Likewise, `AGENT_ID` is
    provenance rather than an unforgeable independent-verifier identity, so
    `north delivery attest` fails closed. Historical attestation envelopes may
    be inspected as legacy data, but they do not validate a current `verified`
@@ -744,23 +744,23 @@ north account usage       # per-account subscription windows, resets, fixed fail
 north providers           # auth/headroom + approximate balanced routing shares
 north providers --json    # stable machine status; automation uses this, not prose
 north config routing      # allocation mode, configured order, reserve, pressure, envelopes
-north templates           # Gaffer's reusable stock templates and routing defaults
+north templates           # Orchestration's reusable stock templates and routing defaults
 north routing report performance       # complete current managed-run evidence
 north routing report performance --all # include legacy/incomplete historical rows
 north routing report usage             # observed-token lower bounds + exact coverage
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
-**division of labor** the fold preserves: **Gaffer answers WHO does the work**
+**division of labor** the fold preserves: **Orchestration answers WHO does the work**
 (role, composition, semantic tier, reasoning, and posture); **North answers WHERE
 it runs and HOW you see and drive it** (account target, subscription pressure,
-dashboard, spawn, watch, steer, profile). Gaffer is account-blind. `north spawn`
-reads `~/code/gaffer/staffing/catalog.json`, then North selects an eligible target
+dashboard, spawn, watch, steer, profile). Orchestration is account-blind. `north spawn`
+reads `~/code/orchestration/staffing/catalog.json`, then North selects an eligible target
 and resolves the semantic tier through that provider's catalog. Generated agent
-markdown and `~/code/gaffer/docs/adapters/north.md` remain provider-adapter
+markdown and `~/code/orchestration/docs/adapters/north.md` remain provider-adapter
 artifacts, never North's metadata source.
 
-`north templates` is the human view of Gaffer's stock library. It deliberately
+`north templates` is the human view of Orchestration's stock library. It deliberately
 says **template** while the versioned machine contract retains `presets`,
 `composition.kind="preset"`, and `nearestPreset`. Templates are reusable
 starting points, not limits: select an exact template, justify an axis override,
@@ -770,7 +770,7 @@ proof-valid process/delivery outcomes plus the applied role, capabilities, and
 every routing axis. The applied role must match the composition ID, preset IDs
 must still exist in the current stock catalog, and bespoke compositions need
 matching fingerprint evidence. `--all` exposes legacy and unattributed history.
-Empirical Gaffer promotion qualification is paused until North has an
+Empirical Orchestration promotion qualification is paused until North has an
 independently enforceable verifier boundary. Current `reported` runs and
 historical same-UID `verified` projections cannot manufacture qualified
 recurrence; the promotions report labels this
@@ -809,8 +809,8 @@ window.
 The final `north providers` route probe uses one fixed diagnostic key. It is a
 health check, not a provider preference and not the next route prediction.
 
-Explicit spawn axes override Gaffer defaults independently, so a staffing change
-in Gaffer requires no North edit and an account-policy change requires no Gaffer
+Explicit spawn axes override Orchestration defaults independently, so a staffing change
+in Orchestration requires no North edit and an account-policy change requires no Orchestration
 edit.
 
 Delegation intake makes dependency shape explicit without asking North to guess
@@ -882,7 +882,7 @@ decides continue, narrow, or split by creating new lanes; topology and authority
 are never mutated in place.
 
 **Ownership rule** (2026-07-09): a cockpit verb earns its place ONLY when it
-COMPOSES multiple tools (`dashboard`, `doctor`, `profile`, `spawn` = gaffer dials
+COMPOSES multiple tools (`dashboard`, `doctor`, `profile`, `spawn` = orchestration dials
 × north SDK) or fixes a hostile invocation (`watch`, `steer`, `retask` over raw
 `msg-cli`/`tail`). If ONE tool already owns the concern, the cockpit TEACHES that
 tool's command — it never re-badges it. `north board` is typed as `north board`,

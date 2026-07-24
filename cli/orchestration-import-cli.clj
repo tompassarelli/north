@@ -1,16 +1,16 @@
 ;; orchestration-import-cli.clj — Phase 1 (publish + dual-read) catalog importer
-;; for the Gaffer -> North Orchestration migration (thread
+;; for the Orchestration -> North Orchestration migration (thread
 ;; 019f8f5c-74e0-7be7-ba65-3179f1bccde1; design doc:
 ;; north-orchestration-vocabulary-design.md in the repo's private docs —
 ;; packaged code must not embed checkout/home paths, per the package
-;; path-hygiene lint, so the Gaffer source root is resolved at runtime from
+;; path-hygiene lint, so the Orchestration source root is resolved at runtime from
 ;; $NORTH_ORCHESTRATION_HOME / $HOME, never a literal).
 ;;
 ;; Lifts the machine catalog into the fact graph as DRAFT subjects under a
 ;; version namespace (@catalog:v<N>:*), then flips the @catalog:current
 ;; pointer in one serialized coordinator write — the atomic pointer flip of
 ;; design R3. Consumers read the pointer, so a torn/partial import is never
-;; visible. Sources (all Gaffer-repo-relative, read at runtime):
+;; visible. Sources (all Orchestration-repo-relative, read at runtime):
 ;;   staffing/catalog.json          templates + axis vocabulary + defaults
 ;;   providers/{anthropic,openai}.json  provider_catalog/model/tier_row
 ;;   docs/{roles,comms,task-grades,topologies,postures}.md  prompt_block fences
@@ -19,8 +19,8 @@
 ;;                                     the canonical source — no hand-mirror)
 ;;
 ;; usage:
-;;   bb orchestration-import-cli.clj <port> import   [gaffer-home]  stage + flip pointer
-;;   bb orchestration-import-cli.clj <port> measure  [gaffer-home]  R2 throwaway interning probe
+;;   bb orchestration-import-cli.clj <port> import   [orchestration-home]  stage + flip pointer
+;;   bb orchestration-import-cli.clj <port> measure  [orchestration-home]  R2 throwaway interning probe
 ;;   bb orchestration-import-cli.clj <port> retract  <version>      undo one imported version
 ;;   bb orchestration-import-cli.clj <port> show     [version]      print the pointed subgraph ids
 (require '[clojure.java.io :as io]
@@ -41,7 +41,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Source resolution — runtime only, never an embedded path.
 ;; ---------------------------------------------------------------------------
-(defn gaffer-home [arg]
+(defn orchestration-home [arg]
   (or arg
       (System/getenv "NORTH_ORCHESTRATION_HOME")
       (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
@@ -332,13 +332,13 @@
 (let [[ps verb arg] *command-line-args*
       port (Integer/parseInt (or ps "7977"))]
   (case verb
-    "import"  (let [ver (import! port (gaffer-home arg))]
+    "import"  (let [ver (import! port (orchestration-home arg))]
                 (println (format "✓ imported catalog v%d on :%d; @catalog:current -> v%d" ver port ver)))
-    "measure" (let [m (measure! port (gaffer-home arg))]
+    "measure" (let [m (measure! port (orchestration-home arg))]
                 (println (json/generate-string m)))
     "retract" (let [ver (Integer/parseInt (or arg (str (current-version port))))
                     n (retract-version! port ver)]
                 (println (format "✓ retracted %d facts under @catalog:v%d:" n ver)))
     "show"    (show! port (or (some-> arg parse-long) (current-version port)))
-    (do (println "usage: orchestration-import-cli.clj <port> {import|measure|retract <ver>|show [ver]} [gaffer-home]")
+    (do (println "usage: orchestration-import-cli.clj <port> {import|measure|retract <ver>|show [ver]} [orchestration-home]")
         (System/exit 2))))

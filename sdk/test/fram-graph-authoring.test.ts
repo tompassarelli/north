@@ -3,11 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  GAFFER_CAPABILITIES, hasAuthoringCapability,
-} from "../src/gaffer-capabilities";
+  ORCHESTRATION_CAPABILITIES, hasAuthoringCapability,
+} from "../src/orchestration-capabilities";
 import {
-  gafferCapabilities, loadGafferStaffing,
-} from "../src/gaffer-staffing";
+  orchestrationCapabilities, loadOrchestrationStaffing,
+} from "../src/orchestration-staffing";
 import type { RoutingRequest } from "../src/routing-metadata";
 import {
   hasCanonicalHarnessAuthority, harnessOptions, managedToolPolicy,
@@ -89,14 +89,14 @@ const graphAuthoringRequest: RoutingRequest = {
 };
 
 test("graph-authoring.fram is bespoke-only and classed as mutation authority", () => {
-  const catalog = loadGafferStaffing();
-  expect(GAFFER_CAPABILITIES).toContain("graph-authoring.fram");
+  const catalog = loadOrchestrationStaffing();
+  expect(ORCHESTRATION_CAPABILITIES).toContain("graph-authoring.fram");
   // The wire vocabulary admits the sealed capability so bespoke contracts can
   // request it; no stock preset may ever carry it.
   expect(catalog.vocabulary.capabilities).toContain("graph-authoring.fram");
   for (const preset of catalog.presets)
     expect(preset.capabilities).not.toContain("graph-authoring.fram");
-  expect(gafferCapabilities(graphAuthoringRequest)).toContain("graph-authoring.fram");
+  expect(orchestrationCapabilities(graphAuthoringRequest)).toContain("graph-authoring.fram");
   expect(hasAuthoringCapability(["graph-authoring.fram"])).toBe(true);
   expect(eligibleForProviderProcessDeathRetry(
     "openai_provider_execution_failed", "worker", ["graph-authoring.fram"],

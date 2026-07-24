@@ -1,4 +1,4 @@
-import { applyGafferStaffing } from "./gaffer-staffing";
+import { applyOrchestrationStaffing } from "./orchestration-staffing";
 import {
   ROUTING_REQUEST_FIELDS, parseCompleteRoutingRequest, routingMetadataFromEnv,
   type RoutingDraft, type RoutingRequest,
@@ -14,7 +14,7 @@ function deepFreeze<T>(value: T): T {
 
 /**
  * Strict managed-wire admission: prove both the complete structural request
- * and Gaffer's stock/bespoke catalog semantics without allowing this boundary
+ * and Orchestration's stock/bespoke catalog semantics without allowing this boundary
  * to hydrate or rewrite any caller-owned axis.
  */
 export function admitRoutingRequest(
@@ -22,12 +22,12 @@ export function admitRoutingRequest(
   surface = "managed North agent",
 ): RoutingRequest {
   const request = parseCompleteRoutingRequest(value, surface);
-  const admitted = applyGafferStaffing(request);
+  const admitted = applyOrchestrationStaffing(request);
   const changed = ROUTING_REQUEST_FIELDS.filter((field) =>
     JSON.stringify(admitted[field]) !== JSON.stringify(request[field]));
   if (changed.length) {
     throw new Error(
-      `${surface} must carry a canonical complete Gaffer request; composer changed: `
+      `${surface} must carry a canonical complete Orchestration request; composer changed: `
       + changed.join(", ")
       + " (recover the valid payload shape: north show @contract:dispatch)",
     );

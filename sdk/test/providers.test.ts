@@ -18,7 +18,7 @@ import {
   READONLY_SHELL_SERVER, READONLY_SHELL_TOOL,
 } from "../src/readonly-shell";
 import { harnessOptions, type HarnessCompositionEvidence } from "../src/harness";
-import { applyGafferStaffing, gafferCapabilities } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing, orchestrationCapabilities } from "../src/orchestration-staffing";
 import { agentRouteFacts } from "../src/identity";
 import { OfflineProviderSimulator } from "./support/provider-simulator";
 import { join } from "node:path";
@@ -318,7 +318,7 @@ test("provider catalog cache fails closed when the file changes throughout both 
   });
 
   expect(() => cache.load("/changing/provider.json", JSON.parse))
-    .toThrow("Gaffer provider catalog changed while reading /changing/provider.json");
+    .toThrow("Orchestration provider catalog changed while reading /changing/provider.json");
   expect(identityCalls).toBe(4);
   expect(reads).toBe(2);
 });
@@ -653,7 +653,7 @@ test("provider selection filters unenforceable capability shapes before side eff
   expect(decision.fallbackProviders).toEqual([]);
   expect(() => selectProviderFromAvailability(
     "openai", available, policy(), "senior", "capability-pin", "high", undefined, capabilities,
-  )).toThrow("cannot enforce the requested Gaffer capabilities");
+  )).toThrow("cannot enforce the requested Orchestration capabilities");
 
   const webCapabilities = [
     "filesystem.read", "filesystem.search", "shell.readonly", "web",
@@ -694,7 +694,7 @@ test("provider selection filters unenforceable capability shapes before side eff
   expect(pinnedTarget.target).toBe("codex-personal");
 });
 
-test("Anthropic frontier follows Gaffer's static route without a hidden time swap", () => {
+test("Anthropic frontier follows Orchestration's static route without a hidden time swap", () => {
   expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
   expect(() => resolveTier("anthropic", "frontier", undefined, "high"))
     .toThrow("provider anthropic cannot resolve semantic tier frontier with reasoning high");
@@ -763,8 +763,8 @@ async function assertReadonlyCrossProviderFallback(
   initial: ProviderId,
   fallback: ProviderId,
 ): Promise<void> {
-  const metadata = applyGafferStaffing({ role: "designer" });
-  const capabilities = gafferCapabilities(metadata);
+  const metadata = applyOrchestrationStaffing({ role: "designer" });
+  const capabilities = orchestrationCapabilities(metadata);
   const decision = selectProviderFromAvailability(
     "auto",
     available,
@@ -946,7 +946,7 @@ test("Anthropic managed admission rejects every omitted authority boundary befor
     provider: "anthropic",
     model: "claude-opus-4-8",
     modelAvailability: { exactModelPinned: false, targetId: "anthropic" },
-    routingMetadata: applyGafferStaffing({ role: "designer" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
     presenceRegistrar: false,
   }) as any;
   const changed = (mutate: (options: any) => void) => {
@@ -972,7 +972,7 @@ test("Anthropic managed admission rejects every omitted authority boundary befor
     provider: "anthropic",
     model: "claude-opus-4-8",
     modelAvailability: { exactModelPinned: false, targetId: "anthropic" },
-    routingMetadata: applyGafferStaffing({ role: "integrator" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "integrator" }),
     presenceRegistrar: false,
   }) as any;
   const writableWithoutGuards = {
@@ -1169,7 +1169,7 @@ test("concurrent auto routes accept CLI-owned subscription init with honest iden
       compositionKind: "preset", compositionId: "implementer", compositionOverrides: [], goal: `task-${index}`,
     }));
     expect(identity).toMatchObject({ provider: "anthropic", provider_target: "claude-personal" });
-    expect(identity.display_name).toContain("anthropic:claude-personal · sonnet · medium · gaffer:implementer");
+    expect(identity.display_name).toContain("anthropic:claude-personal · sonnet · medium · orchestration:implementer");
   }
 });
 

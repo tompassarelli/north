@@ -26,7 +26,7 @@ Without --nearest, a bespoke composition must explicitly set --task-grade,
 --topology, --tier, --deliberation/--reasoning, and --posture. Domain
 requirements remain an explicit empty list when no --domain is supplied.
 
-Prints one provider-neutral GAFFER_ROUTING JSON payload. Machine output retains
+Prints one provider-neutral ORCHESTRATION_ROUTING JSON payload. Machine output retains
 the v2 keys kind:"preset" and nearestPreset for compatibility.`;
 
 function die(message) { console.error(message); console.error(usage); process.exit(1); }

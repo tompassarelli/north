@@ -1,7 +1,7 @@
 import { ProviderRetrySafeError, type ProviderId } from "./types";
 import type { LiveInputCapability } from "./types";
-import type { GafferCapability } from "../gaffer-capabilities";
-import { gafferCapabilities } from "../gaffer-staffing";
+import type { OrchestrationCapability } from "../orchestration-capabilities";
+import { orchestrationCapabilities } from "../orchestration-staffing";
 import { admitPinnedProvider } from "../execution-admission";
 import { admitRoutingRequest } from "../routing-admission";
 import {
@@ -23,7 +23,7 @@ const CODEX_ORCHESTRATOR_NORTH_ENABLED_TOOLS = Object.freeze([
 
 interface AuthoritySurfaceBase {
   provider: ProviderId;
-  capabilities: readonly GafferCapability[];
+  capabilities: readonly OrchestrationCapability[];
   nativeMultiAgent: "disabled";
   liveInput: LiveInputCapability;
   northEnabledTools: readonly string[];
@@ -45,7 +45,7 @@ export interface AnthropicAuthoritySurface extends AuthoritySurfaceBase {
 
 export type ProviderAuthoritySurface = OpenAIAuthoritySurface | AnthropicAuthoritySurface;
 
-/** Compile the exact provider authority from one sealed, admitted Gaffer request. */
+/** Compile the exact provider authority from one sealed, admitted Orchestration request. */
 export function compileProviderAuthoritySurface(
   provider: ProviderId,
   options: any,
@@ -55,7 +55,7 @@ export function compileProviderAuthoritySurface(
   const request = admitRoutingRequest(
     options.northRoutingRequest, `${provider} authority compiler`,
   );
-  const capabilities = Object.freeze(gafferCapabilities(request));
+  const capabilities = Object.freeze(orchestrationCapabilities(request));
   // A surface is evidence of executable authority, not a requested wish list.
   // Reject provider-inexpressible shapes before any caller can log or persist
   // a fictitious "effective" boundary.

@@ -61,7 +61,7 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "scopes": {
-          "description": "Official-source fact categories only; these do not establish Gaffer's semantic tier placement or rung economics.",
+          "description": "Official-source fact categories only; these do not establish Orchestration's semantic tier placement or rung economics.",
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": { "enum": ["model-family", "availability", "effort-support", "context-window", "effective-date"] }
         }
@@ -92,7 +92,7 @@
       ]
     },
     "modelCompatibility": {
-      "description": "Provider-supported deliberation levels intersected with Gaffer's vocabulary, plus the calibrated exact per-tier routing subset and the provider-published context-window ceiling. The support list is not an exhaustive provider API enum.",
+      "description": "Provider-supported deliberation levels intersected with Orchestration's vocabulary, plus the calibrated exact per-tier routing subset and the provider-published context-window ceiling. The support list is not an exhaustive provider API enum.",
       "type": "object",
       "additionalProperties": false,
       "required": ["routes", "contextWindow"],

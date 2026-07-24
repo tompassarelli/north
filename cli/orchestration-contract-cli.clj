@@ -44,11 +44,11 @@
    {"name" "signals"   "required" false "doc" "optional 7-signal routing assessment; required only to select ABOVE the derived minimum"}])
 
 ;; Rejection classes — the real admission failures a caller recovers from by
-;; reading this contract (routing-metadata.ts / routing-admission.ts / gaffer-
+;; reading this contract (routing-metadata.ts / routing-admission.ts / orchestration-
 ;; staffing.ts). Dispatch rejection messages cite @contract:dispatch.
 (def ERROR-CODES
   [{"code" "unknown-field"          "doc" "payload carries a field outside this contract"}
-   {"code" "incomplete-request"     "doc" "the complete eight-field Gaffer request is missing one or more axes"}
+   {"code" "incomplete-request"     "doc" "the complete eight-field Orchestration request is missing one or more axes"}
    {"code" "role-unknown"           "doc" "role is not a stock template and lacks a complete bespoke composition"}
    {"code" "override-undeclared"    "doc" "a preset axis changed without composition.overrides + overrideReason"}
    {"code" "topology-fixed"         "doc" "attempt to change a stock template's fixed topology through a preset"}

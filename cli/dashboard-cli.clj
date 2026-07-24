@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; north dashboard / doctor — the cockpit over the agentic stack (fram · north ·
-;; gaffer · beagle/firn). Ported from convoy/bin/my-agents (2026-07-10): convoy
+;; orchestration · beagle/firn). Ported from convoy/bin/my-agents (2026-07-10): convoy
 ;; folded into north — dashboard answers "what is happening", doctor answers "is
 ;; everything healthy". Both WRAP primitives and PRINT the one they run: teach
 ;; the tool, don't hide it. Never re-derives doctrine, never owns state beyond
@@ -516,7 +516,7 @@
         health (dashboard-health) ; cached 300s; cold seed alone
         dh @f-daemon, pf @f-profile
         agfacts (or @f-agfacts {})]
-    (println (bold "north dashboard") (dim "— the cockpit over fram · north · gaffer"))
+    (println (bold "north dashboard") (dim "— the cockpit over fram · north · orchestration"))
     (println)
     ;; agents (lead with active work)
     (let [live (filter :online (:agents pr))]

@@ -41,13 +41,13 @@ done
 
 # These are literal workflow expressions, not shell expansions in this process.
 # shellcheck disable=SC2016
-grep -Fq 'gaffer_repository=$(north/bin/github-flake-input-pin north/flake.lock gaffer repository)' "$WORKFLOW"
+grep -Fq 'orchestration_repository=$(north/bin/github-flake-input-pin north/flake.lock orchestration repository)' "$WORKFLOW"
 # shellcheck disable=SC2016
-grep -Fq 'gaffer_ref=$(north/bin/github-flake-input-pin north/flake.lock gaffer revision)' "$WORKFLOW"
+grep -Fq 'orchestration_ref=$(north/bin/github-flake-input-pin north/flake.lock orchestration revision)' "$WORKFLOW"
 # shellcheck disable=SC2016
 grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram' "$WORKFLOW"
 # shellcheck disable=SC2016
-grep -Fq 'GAFFER_HOME: ${{ github.workspace }}/gaffer' "$WORKFLOW"
+grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration' "$WORKFLOW"
 grep -Fq 'test -s ../fram/coordination.log' "$WORKFLOW"
 grep -Fq 'FRAM_LOG=../fram/coordination.log' "$WORKFLOW"
 grep -Fq "grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS'" "$WORKFLOW"

@@ -18,7 +18,7 @@ import { ProviderRetrySafeError } from "../src/providers";
 import { anthropicProvider } from "../src/providers/anthropic";
 import { routedQueryWithRegistry } from "../src/providers/internal-router";
 import { harnessOptions } from "../src/harness";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { markExecutionAdmission } from "../src/execution-admission";
 import { selectProviderFromAvailability } from "../src/provider-routing";
 import { providerEnvironmentForTarget } from "../src/accounts";
@@ -774,7 +774,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     self: "openai-authority-probe",
     provider: "openai",
     model: "gpt-5.6-terra",
-    routingMetadata: applyGafferStaffing({ role: "implementer" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "implementer" }),
     presenceRegistrar: false,
   }) as any;
   // A direct adapter caller cannot clone and weaken a sealed route.
@@ -812,7 +812,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     provider: "openai",
     cwd: nestedCwd,
     model: "gpt-5.6-terra",
-    routingMetadata: applyGafferStaffing({ role: "implementer" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "implementer" }),
     presenceRegistrar: false,
   }) as any;
   const nestedArgs = codexHarnessArguments(nested);
@@ -828,7 +828,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     self: "openai-web-admission-proof",
     provider: "openai",
     model: "gpt-5.6-luna",
-    routingMetadata: applyGafferStaffing({ role: "scout" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "scout" }),
     presenceRegistrar: false,
   }) as any;
   expect(codexHarnessArguments(web)).toEqual(expected);
@@ -870,7 +870,7 @@ test("the executable Codex adapter admits exact managed orchestrator authority",
     self: "openai-orchestrator-admission-proof",
     provider: "openai",
     cwd: northRoot,
-    routingMetadata: applyGafferStaffing({ role: "director" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "director" }),
     presenceRegistrar: false,
   }) as any;
   expect(codexHarnessArguments(options)).toEqual([
@@ -902,7 +902,7 @@ test("managed executable resolution fails retry-safe before onRoute or query con
     self: "openai-command-preflight-proof",
     provider: "openai",
     cwd: northRoot,
-    routingMetadata: applyGafferStaffing({ role: "executor" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "executor" }),
     presenceRegistrar: false,
   });
   const decision = selectProviderFromAvailability(
@@ -1005,7 +1005,7 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
     self: "openai-target-admission-proof",
     provider: "openai",
     cwd: northRoot,
-    routingMetadata: applyGafferStaffing({ role: "executor" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "executor" }),
     presenceRegistrar: false,
   });
   await expect(openaiProvider.admit!({

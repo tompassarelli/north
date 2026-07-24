@@ -1,10 +1,10 @@
 import { accessSync, constants } from "node:fs";
 import { spawn as procSpawn } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
-import type { GafferCapability } from "./gaffer-capabilities";
+import type { OrchestrationCapability } from "./orchestration-capabilities";
 import {
   hasAuthoringCapability, providerCapabilityRejectionCode,
-} from "./gaffer-capabilities";
+} from "./orchestration-capabilities";
 import {
   FRAM_GRAPH_AUTHORING_CAPABILITY, framMcpCommand, hasCanonicalFramMcpServer,
 } from "./fram-graph-authoring";
@@ -16,7 +16,7 @@ import {
   type RoutingTarget,
 } from "./providers/types";
 import { admitRoutingRequest } from "./routing-admission";
-import { gafferCapabilities } from "./gaffer-staffing";
+import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
 
 const REPO = resolve(import.meta.dir, "../..");
@@ -76,7 +76,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "FRAM_TIME_DIR",
   "FRAM_WITHDRAWN_PREDS",
   "NORTH_ORCHESTRATION_HOME",
-  "GAFFER_STAFFING_CATALOG",
+  "ORCHESTRATION_STAFFING_CATALOG",
   "NORTH_ROUTING_POLICY",
   "NORTH_PROVIDER_OBSERVATIONS",
   "NORTH_PROVIDER_MODEL_OBSERVATIONS",
@@ -231,7 +231,7 @@ export function admitSpendReservation(provider: string, target?: RoutingTarget):
  */
 export function validateManagedExecutionEnvelope(
   provider: ProviderId,
-  capabilities: readonly GafferCapability[],
+  capabilities: readonly OrchestrationCapability[],
   options: any,
 ): void {
   const topology = capabilities.includes("coordination") ? "orchestrator" : "worker";
@@ -241,14 +241,14 @@ export function validateManagedExecutionEnvelope(
     const request = admitRoutingRequest(
       options.northRoutingRequest, `${provider} managed execution`,
     );
-    const expectedCapabilities = gafferCapabilities(request);
+    const expectedCapabilities = orchestrationCapabilities(request);
     if (request.topology !== topology
         || JSON.stringify(expectedCapabilities) !== JSON.stringify(capabilities)) {
       throw new Error("managed routing request disagrees with compiled capability authority");
     }
   } catch (cause) {
     throw new ExecutionAdmissionError(
-      `${provider}_managed_gaffer_request_contract_missing`, { cause },
+      `${provider}_managed_orchestration_request_contract_missing`, { cause },
     );
   }
   const agentId = typeof options?.env?.AGENT_ID === "string"
@@ -401,7 +401,7 @@ async function requireCoordinator(
  */
 export async function admitExecution(
   provider: ProviderId,
-  capabilities: readonly GafferCapability[],
+  capabilities: readonly OrchestrationCapability[],
   cwd: string,
   options?: any,
   target?: RoutingTarget,
@@ -452,7 +452,7 @@ export async function admitExecution(
 
 export function admitPinnedProvider(
   provider: ProviderId | "auto" | undefined,
-  capabilities: readonly GafferCapability[],
+  capabilities: readonly OrchestrationCapability[],
 ): void {
   if (!provider || provider === "auto") return;
   const capabilityRejection = providerCapabilityRejectionCode(provider, capabilities);

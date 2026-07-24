@@ -1,4 +1,4 @@
-GAFFER ACTIVE — routing doctrine for delegated work.
+ORCHESTRATION ACTIVE — routing doctrine for delegated work.
 
 When you delegate (Agent tool, Workflow, any spawn surface), select the
 FUNCTION by TASK SHAPE. Do not use importance or felt difficulty as a proxy for
@@ -48,34 +48,34 @@ neither a fake override nor a reason.
 
 SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
 - direct — decompose, staff, verify, and reconcile ≥2 independent pieces;
-  never execute the worker pieces → gaffer:director (frontier; orchestrator)
+  never execute the worker pieces → orchestration:director (frontier; orchestrator)
 - execute — bounded, mechanical: apply a patch, rename, obvious tests
-  → gaffer:executor (economy)
+  → orchestration:executor (economy)
 - implement — one feature/fix inside known patterns, well-trodden code
-  → gaffer:implementer (standard)
+  → orchestration:implementer (standard)
 - integrate — cross-file change, ambiguous debugging, refactor with behavior
-  at stake → gaffer:integrator (senior)
+  at stake → orchestration:integrator (senior)
 - design — choose the shape: APIs, data models, decomposition, naming that
-  commits the system → gaffer:designer (frontier)
+  commits the system → orchestration:designer (frontier)
 - scout — locate, map, gather sources; breadth, cheap, fan-out
-  → gaffer:scout (economy)
+  → orchestration:scout (economy)
 - analyze — deep-dive: how does this work, why does it break, does this
-  design hold against real behavior; depth, read-only → gaffer:analyst
+  design hold against real behavior; depth, read-only → orchestration:analyst
   (senior). Fan out when independently traceable mechanisms benefit from
   separate evidence trails and later synthesis; keep tightly coupled traces
   together regardless of subsystem count.
 - review — evaluate one supplied artifact or change across multiple criteria;
   return evidence-backed prioritized findings plus accept, changes-required,
-  or cannot-assess → gaffer:reviewer (senior)
+  or cannot-assess → orchestration:reviewer (senior)
 - verify — test one specific claim at any leverage; affirmative evidence
   confirms, counterevidence refutes, missing/ambiguous coverage cannot
-  determine → gaffer:verifier (senior default; justified overrides may move
+  determine → orchestration:verifier (senior default; justified overrides may move
   task grade, tier, and deliberation up or down, while the task's quality floor
   remains binding)
 - judge — rank two or more supplied alternatives against a stated rubric
-  → gaffer:judge (frontier)
+  → orchestration:judge (frontier)
 - research-science — novel hypothesis formation, experiment design, and work
-  whose result or method is not already known → gaffer:research-scientist
+  whose result or method is not already known → orchestration:research-scientist
   (frontier; research-grade). It may invoke existing non-mutating tools and
   probes only; authoring any new script, fixture, apparatus, or code, even
   ephemeral scratch, is handed to an authoring role. This is not ordinary
@@ -100,7 +100,7 @@ LAWS
    provider adapter MUST resolve and record concrete model + effort/reasoning.
    Never silently inherit the session model. Unpinned resolution uses the
    canonical tier row. An explicit exact-model pin must pass that model's
-   provider-supported Gaffer-vocabulary list AND its exact per-tier route;
+   provider-supported Orchestration-vocabulary list AND its exact per-tier route;
    never infer a cross-product or filter an alternate model through the default
    tier model. Static route compatibility does not prove an authenticated target
    is currently available — the harness must establish that independently.
@@ -161,7 +161,7 @@ the cheapest rung that clears its quality floor.
   RESERVED (protect frontier capacity for high-leverage work). Subscription
   entitlements and their pressure are runtime facts, not API-credit balances.
 
-GAFFER owns the semantic request — role, grade, domain, topology, tier,
+ORCHESTRATION owns the semantic request — role, grade, domain, topology, tier,
 deliberation, posture, composition — and the planner reasoning that DERIVES it.
 `minimum-sufficient-v1` records seven independent selection signals in a
 versioned sidecar, mechanically recomputes minimum tier/reasoning and rule
@@ -173,7 +173,7 @@ template change; derived rule codes do not replace it. NORTH owns runtime alloca
 authenticated accounts, subscription envelopes and reserves, allocation, safe
 substitution, resolved model, and decision/outcome telemetry. Provider model
 names remain adapter facts. Neither layer silently rewrites the other's facts.
-Raw provider support within Gaffer's deliberation vocabulary, Gaffer's calibrated
+Raw provider support within Orchestration's deliberation vocabulary, Orchestration's calibrated
 exact route, account entitlement, and current target availability are four
 separate facts. No support entry, route, or dated provenance review implies any
 of the other three.
@@ -182,7 +182,7 @@ ORCHESTRATION — topology is conceptually independent of function, grade,
 domain requirements, tier, deliberation, and posture; templates enforce their
 fixed pairings. Topology grants a jurisdiction, not a global tree position.
 Every admitted child is one of:
-- ORCHESTRATOR — normally the gaffer:director function, a fork whose contract
+- ORCHESTRATOR — normally the orchestration:director function, a fork whose contract
   is DECOMPOSE AND FAN OUT. It does NOT
   execute subtasks itself; its only tools of substance are read/analyze,
   spawn, steer, consume and reconcile verification evidence, run bounded
@@ -199,7 +199,7 @@ Every admitted child is one of:
   piece turns out to decompose ESCALATES to its immediate parent for fresh
   classification and restaffing; it never changes its own jurisdiction.
 Every child — worker or orchestrator — is freshly classified and receives its
-own complete Gaffer request, North admission, provider/account resolution,
+own complete Orchestration request, North admission, provider/account resolution,
 resource envelope, and telemetry. A child never inherits the parent's role,
 grade, tier, reasoning, provider, account, or budget merely because it is
 nested. Provider-native opaque fanout is a separate substrate behavior and is
@@ -268,14 +268,14 @@ bars; a verifier supplies an independently staffed report with its verdict,
 probe, and observed result when law 7 requires one. A bare "done" is never
 accepted.
 
-<!-- gaffer:spawn-surfaces adapter=native (default; inject-doctrine.sh swaps this block per GAFFER_SPAWN_ADAPTER / dispatch=) -->
+<!-- orchestration:spawn-surfaces adapter=native (default; inject-doctrine.sh swaps this block per ORCHESTRATION_SPAWN_ADAPTER / dispatch=) -->
 ADAPTER EXAMPLE (native spawn surface; invocation syntax in this fenced block
-is not portable doctrine) — a squad member is an eight-field Gaffer request: role,
+is not portable doctrine) — a squad member is an eight-field Orchestration request: role,
 taskGrade, domainRequirements, topology, tier, reasoning, posture, and
 composition. It is not a tool. Invoke it through whatever spawn surface your
 harness gives you:
-- native Agent tool available → subagent_type: 'gaffer:<role>'
-- Workflow → agent(prompt, {agentType: 'gaffer:<role>'})
+- native Agent tool available → subagent_type: 'orchestration:<role>'
+- Workflow → agent(prompt, {agentType: 'orchestration:<role>'})
 - a custom dispatch (SDK / MCP / a substrate that denies the native Agent
   tool) → spawn on that surface passing the role's pinned semantic tier (the
   SHAPES→TEMPLATES list above gives every pin), provider=`auto` unless overridden,
@@ -284,24 +284,24 @@ harness gives you:
   blocks regardless of surface. If the native Agent tool is denied, that is a routing
   instruction, not a wall — translate to the available surface, never abandon
   the squad pick or drop to an unrouted spawn.
-<!-- /gaffer:spawn-surfaces -->
+<!-- /orchestration:spawn-surfaces -->
 
 WORKFLOWS: these laws govern STAFFING every stage of any workflow. Use the
 active adapter's fenced invocation example for its concrete syntax, and pin
 the semantic route per stage:
-- discovery/finder stages → gaffer:scout (economy), fan out wide
-- deep-analysis/root-cause stages → gaffer:analyst (senior); fan out when
+- discovery/finder stages → orchestration:scout (economy), fan out wide
+- deep-analysis/root-cause stages → orchestration:analyst (senior); fan out when
   independently traceable mechanisms benefit from separate evidence trails
   and later synthesis, not because a subsystem count was crossed
-- build/transform stages → gaffer:implementer (standard); foundational
+- build/transform stages → orchestration:implementer (standard); foundational
   implementation-only work stays on its minimum-sufficient route, while
   invariant decision ownership raises tier/reasoning without changing the
-  function; use gaffer:integrator only for integrate-shaped work
-- artifact-review stages → gaffer:reviewer per supplied artifact/change
-- verify stages → gaffer:verifier per claim, in parallel; start at senior/high
+  function; use orchestration:integrator only for integrate-shaped work
+- artifact-review stages → orchestration:reviewer per supplied artifact/change
+- verify stages → orchestration:verifier per claim, in parallel; start at senior/high
   and justify task-grade/tier/reasoning overrides up or down while preserving
   the task's quality floor
-- rank two or more supplied alternatives → gaffer:judge (frontier)
+- rank two or more supplied alternatives → orchestration:judge (frontier)
 Never let a stage inherit the session's model/effort implicitly (in a
 top-tier session that silently runs every worker at top tier).
 

@@ -25,12 +25,12 @@ test("MCP startup observation reads the structured provider:auto identity", () =
 n=$(cat ${JSON.stringify(count)})
 n=$((n + 1))
 printf '%s' "$n" > ${JSON.stringify(count)}
-printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"provider","value":"openai"},{"predicate":"display_handle","value":"openai-sol-xhigh-gaffer-designer-a205e9ce"}]'
+printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"provider","value":"openai"},{"predicate":"display_handle","value":"openai-sol-xhigh-orchestration-designer-a205e9ce"}]'
 `);
   chmodSync(fake, 0o700);
 
   expect(evaluateMcp('(println (get (observed-agent-facts "sdk-a205e9ce") "display_handle"))', fake))
-    .toBe("openai-sol-xhigh-gaffer-designer-a205e9ce");
+    .toBe("openai-sol-xhigh-orchestration-designer-a205e9ce");
   expect(Number(readFileSync(count, "utf8"))).toBe(1);
 });
 

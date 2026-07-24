@@ -11,7 +11,7 @@ import type { RoutingTarget } from "./types";
 import { probeOpenAI } from "../provider-routing";
 import type { AdapterUsageMetadata, TerminalTokenUsage } from "../usage";
 import { codexConfigArguments, providerEnvironmentForTarget } from "../accounts";
-import type { GafferCapability } from "../gaffer-capabilities";
+import type { OrchestrationCapability } from "../orchestration-capabilities";
 import {
   unknownNativeCommandActivity,
   type NativeCommandActivityObservation,
@@ -233,7 +233,7 @@ export function probeCodex(target?: RoutingTarget): ProviderAvailability {
   return probeOpenAI(target);
 }
 
-function validateOpenAIHarness(options: any): GafferCapability[] | undefined {
+function validateOpenAIHarness(options: any): OrchestrationCapability[] | undefined {
   if (options?.northCapabilities === undefined) return undefined;
   if (!hasCanonicalHarnessAuthority(options, "openai"))
     throw new ProviderRetrySafeError("openai_harness_authority_seal_missing");

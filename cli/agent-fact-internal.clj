@@ -209,7 +209,7 @@
       (fail! "unsupported live_input must remain frozen"
              {:live-input-state (get facts "live_input_state")}))
     (when-not (= (get facts "role") (get facts "composition_id"))
-      (fail! "managed role and Gaffer composition id must agree"
+      (fail! "managed role and Orchestration composition id must agree"
              {:role (get facts "role") :composition-id (get facts "composition_id")}))
     (case (get facts "composition_kind")
       "preset" (do

@@ -43,7 +43,7 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
     delete process.env.NORTH_PEER_BB;
     const self = `test-late-presence-${process.pid}`;
     const options = harnessOptions({ self });
-    const repoCwd = join(dir, "gaffer");
+    const repoCwd = join(dir, "orchestration");
     const repoSelf = `${self}-repo`;
     const repoOptions = harnessOptions({ self: repoSelf, cwd: repoCwd });
 
@@ -54,7 +54,7 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
       `${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${repoSelf} ${repoCwd} ${repoSelf}`,
     ]) expect(registrations).toContain(expected);
     expect(repoOptions.cwd).toBe(repoCwd);
-    expect(repoOptions.systemPrompt).toContain(`in "gaffer"`);
+    expect(repoOptions.systemPrompt).toContain(`in "orchestration"`);
 
     process.env.NORTH_PORT = "64124";
     const renew = (options.hooks as any).PostToolUse[0].hooks[0];

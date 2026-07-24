@@ -43,8 +43,8 @@ import type {
 } from "./providers/types";
 import { codexConfigArguments, isClaudeSubscriptionStatus, observeEnvironmentForTarget } from "./accounts";
 import {
-  providerSupportsCapabilities, type GafferCapability,
-} from "./gaffer-capabilities";
+  providerSupportsCapabilities, type OrchestrationCapability,
+} from "./orchestration-capabilities";
 import { spendGuardEligible } from "./spend-guard";
 import {
   authCacheKey,
@@ -702,7 +702,7 @@ export function balancedAllocationEstimates(
   tier?: SemanticTier,
   reasoning?: Effort,
   model?: string,
-  capabilities?: readonly GafferCapability[],
+  capabilities?: readonly OrchestrationCapability[],
 ): BalancedAllocationEstimate[] {
   const estimates = orderedTargets(policy).map((target) => {
     const targetPressure = routePressure(target, policy, tier, reasoning, model);
@@ -777,7 +777,7 @@ function routeRequiresModelObservation(
 ): boolean {
   if (target.provider !== "anthropic") return false;
   if (model !== undefined) return true;
-  // Today every automatic route is the canonical Gaffer tier row. When a
+  // Today every automatic route is the canonical Orchestration tier row. When a
   // provider adapter gains an automatic non-default alternate, its selected
   // exact model must be threaded here and compared before admission.
   return false;
@@ -806,7 +806,7 @@ export function selectProviderFromAvailability(
   stableKey = "default",
   reasoning?: Effort,
   model?: string,
-  capabilities?: readonly GafferCapability[],
+  capabilities?: readonly OrchestrationCapability[],
   modelEvidence: ProviderModelSelectionEvidence = {},
 ): RoutingDecision {
   const request = typeof requested === "string" ? { provider: requested } : requested;
@@ -866,7 +866,7 @@ export function selectProviderFromAvailability(
     if (!capabilityCompatible(target))
       throw new ProviderSelectionError(
         "blocked_preflight",
-        `routing target ${target.id} cannot enforce the requested Gaffer capabilities`,
+        `routing target ${target.id} cannot enforce the requested Orchestration capabilities`,
       );
     if (!staticRouteCompatible(target)) throw routeFailure([target.provider]);
     if (!modelCompatible(target))
@@ -888,7 +888,7 @@ export function selectProviderFromAvailability(
     if (capabilities && providerTargets.every((target) => !capabilityCompatible(target)))
       throw new ProviderSelectionError(
         "blocked_preflight",
-        `provider ${requestedProvider} cannot enforce the requested Gaffer capabilities`,
+        `provider ${requestedProvider} cannot enforce the requested Orchestration capabilities`,
       );
     const staticCompatibleTargets = providerTargets.filter(staticRouteCompatible);
     if (!staticCompatibleTargets.length) throw routeFailure([requestedProvider]);
@@ -1044,7 +1044,7 @@ export function selectProvider(
   policy: ResourcePolicy = resourcePolicyFromEnv(),
   context: {
     tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string;
-    capabilities?: readonly GafferCapability[];
+    capabilities?: readonly OrchestrationCapability[];
   } = {},
   dependencies: {
     probeAnthropic?: typeof probeAnthropic;
@@ -1120,7 +1120,7 @@ export async function selectProviderForExecution(
   policy: ResourcePolicy = resourcePolicyFromEnv(),
   context: {
     tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string;
-    capabilities?: readonly GafferCapability[];
+    capabilities?: readonly OrchestrationCapability[];
     signal?: AbortSignal;
   } = {},
   dependencies: {

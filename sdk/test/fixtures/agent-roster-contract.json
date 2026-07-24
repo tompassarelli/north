@@ -16,10 +16,10 @@
       "providerLabel": "openai:codex-personal-tom-passarelli-proton",
       "modelDisplay": "sol",
       "effortDisplay": "effort:unobserved",
-      "gafferProvenance": "gaffer:not-selected",
-      "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-unobserved-gaffer-not-selected-7841e6b2",
-      "displayName": "openai:codex-personal-tom-passarelli-proton · sol · unobserved · gaffer:not-selected · unknown",
-      "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · effort:unobserved · gaffer:not-selected · working: native session in north"
+      "orchestrationProvenance": "orchestration:not-selected",
+      "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-unobserved-orchestration-not-selected-7841e6b2",
+      "displayName": "openai:codex-personal-tom-passarelli-proton · sol · unobserved · orchestration:not-selected · unknown",
+      "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · effort:unobserved · orchestration:not-selected · working: native session in north"
     },
     "observationCases": [
       {
@@ -33,17 +33,17 @@
           ["effort", "unobserved"],
           ["display_handle", "unknown-gpt-5-6-sol-unknown-native-7841e6b2"],
           ["display_handle", "stale native designer receipt"],
-          ["display_name", "STALE native receipt claims gaffer:designer"]
+          ["display_name", "STALE native receipt claims orchestration:designer"]
         ],
         "expected": {
           "providerLabel": "openai:codex-personal-tom-passarelli-proton",
           "modelDisplay": "sol",
           "effortDisplay": "effort:unobserved",
-          "gafferProvenance": "gaffer:not-selected",
-          "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-unobserved-gaffer-not-selected-7841e6b2",
-          "displayName": "openai:codex-personal-tom-passarelli-proton · sol · unobserved · gaffer:not-selected · unknown",
-          "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · effort:unobserved · gaffer:not-selected · working: unknown",
-          "displayHandle": "openai-codex-personal-tom-passarelli-proton-sol-unobserved-gaffer-not-selected-7841e6b2"
+          "orchestrationProvenance": "orchestration:not-selected",
+          "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-unobserved-orchestration-not-selected-7841e6b2",
+          "displayName": "openai:codex-personal-tom-passarelli-proton · sol · unobserved · orchestration:not-selected · unknown",
+          "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · effort:unobserved · orchestration:not-selected · working: unknown",
+          "displayHandle": "openai-codex-personal-tom-passarelli-proton-sol-unobserved-orchestration-not-selected-7841e6b2"
         }
       },
       {
@@ -60,11 +60,11 @@
           "providerLabel": "provider:conflict",
           "modelDisplay": "sol",
           "effortDisplay": "effort:unobserved",
-          "gafferProvenance": "gaffer:not-selected",
-          "semanticHandle": "provider-conflict-sol-unobserved-gaffer-not-selected-7841e6b2",
-          "displayName": "provider-conflict-sol-unobserved-gaffer-not-selected-7841e6b2",
-          "primaryLine": "provider:conflict · sol · effort:unobserved · gaffer:not-selected · working: unknown",
-          "displayHandle": "provider-conflict-sol-unobserved-gaffer-not-selected-7841e6b2"
+          "orchestrationProvenance": "orchestration:not-selected",
+          "semanticHandle": "provider-conflict-sol-unobserved-orchestration-not-selected-7841e6b2",
+          "displayName": "provider-conflict-sol-unobserved-orchestration-not-selected-7841e6b2",
+          "primaryLine": "provider:conflict · sol · effort:unobserved · orchestration:not-selected · working: unknown",
+          "displayHandle": "provider-conflict-sol-unobserved-orchestration-not-selected-7841e6b2"
         }
       }
     ]
@@ -88,7 +88,7 @@
       "composition_overrides": "[]",
       "repo": "~/code/north",
       "spawned_at": "2026-07-19T01:00:00Z",
-      "display_handle": "openai-old-account-sol-high-gaffer-designer-a205e9ce",
+      "display_handle": "openai-old-account-sol-high-orchestration-designer-a205e9ce",
       "display_name": "STALE openai route receipt says high effort and an old task",
       "identity_manifest_sha256": "4327abdf5e042242baf66944b30b71bae152f9543166a8b55d983ae88d828bea"
     },
@@ -96,10 +96,10 @@
       "providerLabel": "anthropic:claude-personal-tompas0x-gmail",
       "modelDisplay": "opus",
       "effortDisplay": "xhigh",
-      "gafferProvenance": "gaffer:designer",
-      "semanticHandle": "anthropic-claude-personal-tompas0x-gmail-opus-xhigh-gaffer-designer-a205e9ce",
-      "displayName": "anthropic:claude-personal-tompas0x-gmail · opus · xhigh · gaffer:designer · Design semantic roster",
-      "primaryLine": "anthropic:claude-personal-tompas0x-gmail · opus · xhigh · gaffer:designer · working: Design semantic roster"
+      "orchestrationProvenance": "orchestration:designer",
+      "semanticHandle": "anthropic-claude-personal-tompas0x-gmail-opus-xhigh-orchestration-designer-a205e9ce",
+      "displayName": "anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:designer · Design semantic roster",
+      "primaryLine": "anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:designer · working: Design semantic roster"
     }
   },
   {
@@ -122,18 +122,18 @@
       "composition_override_reason": "high leverage integration seam",
       "repo": "~/code/north",
       "spawned_at": "2026-07-19T01:01:00Z",
-      "display_handle": "openai-codex-personal-tom-passarelli-proton-sol-xhigh-gaffer-integrator-override-tier-reasoning-fb3ba9b4",
-      "display_name": "openai:codex-personal-tom-passarelli-proton · sol · xhigh · gaffer:integrator+override(tier,reasoning) · Integrate provider seams",
+      "display_handle": "openai-codex-personal-tom-passarelli-proton-sol-xhigh-orchestration-integrator-override-tier-reasoning-fb3ba9b4",
+      "display_name": "openai:codex-personal-tom-passarelli-proton · sol · xhigh · orchestration:integrator+override(tier,reasoning) · Integrate provider seams",
       "identity_manifest_sha256": "cf53f763efbae55ae28777467adbe890cf7b787d4d6dba8a528095a2cc7cd274"
     },
     "expected": {
       "providerLabel": "openai:codex-personal-tom-passarelli-proton",
       "modelDisplay": "sol",
       "effortDisplay": "xhigh",
-      "gafferProvenance": "gaffer:integrator+override(tier,reasoning)",
-      "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-xhigh-gaffer-integrator-override-tier-reasoning-fb3ba9b4",
-      "displayName": "openai:codex-personal-tom-passarelli-proton · sol · xhigh · gaffer:integrator+override(tier,reasoning) · Integrate provider seams",
-      "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · xhigh · gaffer:integrator+override(tier,reasoning) · working: Integrate provider seams"
+      "orchestrationProvenance": "orchestration:integrator+override(tier,reasoning)",
+      "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-xhigh-orchestration-integrator-override-tier-reasoning-fb3ba9b4",
+      "displayName": "openai:codex-personal-tom-passarelli-proton · sol · xhigh · orchestration:integrator+override(tier,reasoning) · Integrate provider seams",
+      "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · xhigh · orchestration:integrator+override(tier,reasoning) · working: Integrate provider seams"
     }
   },
   {
@@ -160,18 +160,18 @@
       "composition_contract_fingerprint_domain": "north:bespoke-contract:v1",
       "repo": "~/code/north",
       "spawned_at": "2026-07-19T01:02:00Z",
-      "display_handle": "anthropic-claude-personal-tom-passarelli-proton-opus-xhigh-gaffer-bespoke-migration-forensics-6bcf1234",
-      "display_name": "anthropic:claude-personal-tom-passarelli-proton · opus · xhigh · gaffer:bespoke:migration-forensics · Trace historical identity drift",
+      "display_handle": "anthropic-claude-personal-tom-passarelli-proton-opus-xhigh-orchestration-bespoke-migration-forensics-6bcf1234",
+      "display_name": "anthropic:claude-personal-tom-passarelli-proton · opus · xhigh · orchestration:bespoke:migration-forensics · Trace historical identity drift",
       "identity_manifest_sha256": "f1817a83cda42be331d8b7069f7a3a5b832904e2c80ab85ba9eca31159defbb2"
     },
     "expected": {
       "providerLabel": "anthropic:claude-personal-tom-passarelli-proton",
       "modelDisplay": "opus",
       "effortDisplay": "xhigh",
-      "gafferProvenance": "gaffer:bespoke:migration-forensics",
-      "semanticHandle": "anthropic-claude-personal-tom-passarelli-proton-opus-xhigh-gaffer-bespoke-migration-forensics-6bcf1234",
-      "displayName": "anthropic:claude-personal-tom-passarelli-proton · opus · xhigh · gaffer:bespoke:migration-forensics · Trace historical identity drift",
-      "primaryLine": "anthropic:claude-personal-tom-passarelli-proton · opus · xhigh · gaffer:bespoke:migration-forensics · working: Trace historical identity drift"
+      "orchestrationProvenance": "orchestration:bespoke:migration-forensics",
+      "semanticHandle": "anthropic-claude-personal-tom-passarelli-proton-opus-xhigh-orchestration-bespoke-migration-forensics-6bcf1234",
+      "displayName": "anthropic:claude-personal-tom-passarelli-proton · opus · xhigh · orchestration:bespoke:migration-forensics · Trace historical identity drift",
+      "primaryLine": "anthropic:claude-personal-tom-passarelli-proton · opus · xhigh · orchestration:bespoke:migration-forensics · working: Trace historical identity drift"
     }
   },
   {
@@ -190,10 +190,10 @@
       "providerLabel": "openai:codex-personal-tom-passarelli-proton",
       "modelDisplay": "sol",
       "effortDisplay": "high",
-      "gafferProvenance": "gaffer:legacy-debt",
-      "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-high-gaffer-legacy-debt-legacy",
-      "displayName": "openai:codex-personal-tom-passarelli-proton · sol · high · gaffer:legacy-debt · unknown",
-      "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · high · gaffer:legacy-debt · working: unknown"
+      "orchestrationProvenance": "orchestration:legacy-debt",
+      "semanticHandle": "openai-codex-personal-tom-passarelli-proton-sol-high-orchestration-legacy-debt-legacy",
+      "displayName": "openai:codex-personal-tom-passarelli-proton · sol · high · orchestration:legacy-debt · unknown",
+      "primaryLine": "openai:codex-personal-tom-passarelli-proton · sol · high · orchestration:legacy-debt · working: unknown"
     }
   }
 ]

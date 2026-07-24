@@ -7,7 +7,7 @@ import { presetRequest } from "./routing-fixtures";
 import type { RoutingRequest } from "../src/routing-metadata";
 
 const temporary: string[] = [];
-const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../../..", "gaffer");
+const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../../..", "orchestration");
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
@@ -41,7 +41,7 @@ exit 0
 `);
   chmodSync(fakeBun, 0o755);
   writeFileSync(fakeNorth, `#!/usr/bin/env bash
-printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"preset"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · gaffer:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
+printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"preset"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
 `);
   chmodSync(fakeNorth, 0o755);
 
@@ -66,7 +66,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
     NO_COLOR: "1",
     // Every ambient routing/proof axis below must be absent from the child.
-    // The complete request-owned Gaffer contract is rebuilt below.
+    // The complete request-owned Orchestration contract is rebuilt below.
     AGENT_MODEL: "ambient-model",
     AGENT_PROVIDER: "openai",
     AGENT_TARGET: "ambient-account",
@@ -136,7 +136,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
 }
 
 // Anti-rot: the advertised tools/list schema must surface the work identifier
-// first, then the eight Gaffer routing fields contiguously, before any optional
+// first, then the eight Orchestration routing fields contiguously, before any optional
 // compat/provider field. The properties map in bin/north-mcp is a >8-key map, so
 // a plain `{}` literal degrades to a scrambled PersistentHashMap; this test fails
 // if a field is dropped, reordered, or displaced from those leading positions.
@@ -178,7 +178,7 @@ function toolsListSchemaKeys(): Record<string, string[]> {
   );
 }
 
-test("MCP tools/list advertises the work identifier then the eight Gaffer fields first, in order", () => {
+test("MCP tools/list advertises the work identifier then the eight Orchestration fields first, in order", () => {
   const keysByTool = toolsListSchemaKeys();
   for (const [tool, identifier] of [["dispatch", "id"], ["spawn", "prompt"]] as const) {
     const keys = keysByTool[tool];
@@ -188,7 +188,7 @@ test("MCP tools/list advertises the work identifier then the eight Gaffer fields
     // The eight routing fields occupy positions 1..8 contiguously, in exact order.
     expect(
       keys.slice(1, 1 + EIGHT_ROUTING_FIELDS.length),
-      `${tool} must advertise the eight Gaffer routing fields contiguously, in order, right after ${identifier}`,
+      `${tool} must advertise the eight Orchestration routing fields contiguously, in order, right after ${identifier}`,
     ).toEqual([...EIGHT_ROUTING_FIELDS]);
     // Presence guard, independent of the ordering slice above.
     for (const field of EIGHT_ROUTING_FIELDS) {
@@ -349,7 +349,7 @@ test("env-less MCP SDK launches materialize the canonical North instance exactly
 
 // Bar: a bespoke WORKER contract carrying the sealed graph-authoring.fram
 // capability is admitted through the whole dispatch wire (schema enum built from
-// the Gaffer catalog vocabulary + clj exact-wire-vocabulary + contract
+// the Orchestration catalog vocabulary + clj exact-wire-vocabulary + contract
 // validation) and reaches SDK launch, while the same capability on an
 // ORCHESTRATOR composition is rejected before any launch.
 const graphAuthoringWorkerRoute: RoutingRequest = {
@@ -479,7 +479,7 @@ for _ in $(seq 1 200); do
   grep -q '^driver:release:' "$NORTH_MCP_EVENTS" 2>/dev/null && break
   sleep 0.01
 done
-printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"preset"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · gaffer:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
+printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"preset"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
 `);
   chmodSync(fakeNorth, 0o755);
 
@@ -594,7 +594,7 @@ test("canonical assessment preflight rejects tampering before driver claim or SD
   expect(result.status).toBe(0);
   const response = JSON.parse(result.stdout.trim());
   expect(response.result.isError).toBe(true);
-  expect(response.result.content[0].text).toContain("canonical Gaffer validation");
+  expect(response.result.content[0].text).toContain("canonical Orchestration validation");
   expect(() => readFileSync(driverMarker)).toThrow();
   expect(() => readFileSync(sdkMarker)).toThrow();
 });
@@ -708,7 +708,7 @@ exit 3
   expect(() => readFileSync(marker)).toThrow();
 });
 
-test("raw MCP rejects non-contract Gaffer fields and verifier-as-topology before spawning", () => {
+test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology before spawning", () => {
   const north = resolve(import.meta.dir, "../..");
   for (const [name, arguments_, expected] of [
     ["spawn", [], "arguments must be an object"],
@@ -726,8 +726,8 @@ test("raw MCP rejects non-contract Gaffer fields and verifier-as-topology before
     }, "dispatch id must be a safe North thread id (bare or single @ prefix)"],
     ["spawn", {}, "spawn prompt must be a non-empty string"],
     ["spawn", { prompt: "" }, "spawn prompt must be a non-empty string"],
-    ["spawn", { prompt: "probe" }, "managed spawn requires the complete eight-field Gaffer request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
-    ["dispatch", { id: "019f6c5e-61d0-7880-98a0-f8999eac7b03" }, "managed dispatch requires the complete eight-field Gaffer request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
+    ["spawn", { prompt: "probe" }, "managed spawn requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
+    ["dispatch", { id: "019f6c5e-61d0-7880-98a0-f8999eac7b03" }, "managed dispatch requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), model: 42 }, "model must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), coordinator: { raw: "value" } }, "coordinator must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), caveman: "extreme" }, "invalid caveman mode"],

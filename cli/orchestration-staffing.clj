@@ -1,5 +1,5 @@
-;; One fail-closed boundary for Gaffer's canonical v2 staffing catalog.
-(ns north.gaffer-staffing
+;; One fail-closed boundary for Orchestration's canonical v2 staffing catalog.
+(ns north.orchestration-staffing
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -26,19 +26,19 @@
                     "shell.readonly" "web" "coordination" "graph-authoring.fram"}})
 
 (defn catalog-path []
-  (or (System/getenv "GAFFER_STAFFING_CATALOG")
+  (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
       (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
                (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration"))
            "/staffing/catalog.json")))
 
-(defn- gaffer-root []
+(defn- orchestration-root []
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
       (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 
 (defn- provider-supports-route? [provider tier reasoning]
   (try
     (let [catalog (json/parse-string
-                   (slurp (io/file (gaffer-root) "providers" (str provider ".json")))
+                   (slurp (io/file (orchestration-root) "providers" (str provider ".json")))
                    false)
           entry (get-in catalog ["tiers" tier])
           levels (or (get entry "efforts") (get entry "reasoning"))]
@@ -92,7 +92,7 @@
                        (str "vocabulary." axis) path)
       (when-not (= (get exact-wire-vocabulary axis)
                    (set (get-in catalog ["vocabulary" axis])))
-        (throw (ex-info (str "Gaffer wire vocabulary drift at " path ": " axis)
+        (throw (ex-info (str "Orchestration wire vocabulary drift at " path ": " axis)
                         {:path path :axis axis}))))
     (exact-keys! (get catalog "defaults") default-fields default-fields "defaults" path)
     (doseq [[field axis] [["taskGrade" "taskGrades"] ["tier" "semanticTiers"]
@@ -104,7 +104,7 @@
                         {:path path :field field}))))
     (let [presets (get catalog "presets")]
       (when-not (and (vector? presets) (seq presets) (vector? (get catalog "aliases")))
-        (throw (ex-info (str "invalid Gaffer staffing catalog at " path)
+        (throw (ex-info (str "invalid Orchestration staffing catalog at " path)
                         {:path path :version version})))
       (doseq [preset presets]
         (exact-keys! preset preset-fields preset-fields
@@ -128,20 +128,20 @@
     (let [names (mapv #(get % "name") presets)
           known (set names)]
       (when (or (some nil? names) (not= (count names) (count known)))
-        (throw (ex-info (str "invalid or duplicate Gaffer preset name at " path)
+        (throw (ex-info (str "invalid or duplicate Orchestration preset name at " path)
                         {:path path :names names})))
       (when-not (= stock-preset-names known)
-        (throw (ex-info (str "Gaffer stock preset set drift at " path)
+        (throw (ex-info (str "Orchestration stock preset set drift at " path)
                         {:path path :expected stock-preset-names :actual known})))
       (let [orchestrators (->> presets
                                (filter #(= "orchestrator" (get % "topology")))
                                (mapv #(get % "name")))]
         (when-not (= ["director"] orchestrators)
-          (throw (ex-info (str "Gaffer stock topology drift at " path
+          (throw (ex-info (str "Orchestration stock topology drift at " path
                                ": only director may orchestrate")
                           {:path path :orchestrators orchestrators}))))
       (when (seq (get catalog "aliases"))
-        (throw (ex-info (str "Gaffer stock alias drift at " path
+        (throw (ex-info (str "Orchestration stock alias drift at " path
                              ": canonical release has no aliases")
                         {:path path :aliases (get catalog "aliases")})))
       (doseq [preset presets]
@@ -149,23 +149,23 @@
               capabilities (set (get preset "capabilities"))]
           (when-not (and (capabilities "filesystem.read")
                          (capabilities "filesystem.search"))
-            (throw (ex-info (str "Gaffer stock role " name
+            (throw (ex-info (str "Orchestration stock role " name
                                  " must retain read and search authority")
                             {:path path :preset name})))
           (if (stock-authoring-roles name)
             (when-not (and (capabilities "filesystem.write")
                            (capabilities "shell"))
-              (throw (ex-info (str "Gaffer stock authoring role " name
+              (throw (ex-info (str "Orchestration stock authoring role " name
                                    " must retain write and shell authority")
                               {:path path :preset name})))
             (when (or (capabilities "filesystem.write")
                       (capabilities "shell")
                       (not (capabilities "shell.readonly")))
-              (throw (ex-info (str "Gaffer stock nonauthoring role " name
+              (throw (ex-info (str "Orchestration stock nonauthoring role " name
                                    " must remain read-only")
                               {:path path :preset name}))))
           (when-not (= (= name "director") (boolean (capabilities "coordination")))
-            (throw (ex-info "Gaffer stock coordination authority belongs only to director"
+            (throw (ex-info "Orchestration stock coordination authority belongs only to director"
                             {:path path :preset name})))
           (when (and (capabilities "shell") (capabilities "shell.readonly"))
             (throw (ex-info (str name ": shell and shell.readonly are mutually exclusive")
@@ -173,7 +173,7 @@
       (doseq [alias (get catalog "aliases")]
         (when-not (and (string? (get alias "name"))
                        (contains? known (get alias "target")))
-          (throw (ex-info (str "invalid Gaffer staffing alias at " path)
+          (throw (ex-info (str "invalid Orchestration staffing alias at " path)
                           {:path path :alias alias}))))
       catalog))))
 

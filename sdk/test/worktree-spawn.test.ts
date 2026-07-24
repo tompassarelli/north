@@ -84,7 +84,7 @@ beforeAll(() => {
   delete process.env.AGENT_EFFORT;
   delete process.env.AGENT_WORKTREE;
   delete process.env.AGENT_SETUP_CMD;
-  // A live managed lane exports its own Gaffer envelope; a hermetic spawn test
+  // A live managed lane exports its own Orchestration envelope; a hermetic spawn test
   // must not inherit worker topology (spawn would be denied) or any routing pin.
   delete process.env.AGENT_TOPOLOGY;
   delete process.env.AGENT_TASK_GRADE;

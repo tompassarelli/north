@@ -21,7 +21,7 @@ import {
 } from "./role-id.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const licenseChooser = `Gaffer is licensed under either of
+const licenseChooser = `Orchestration is licensed under either of
 
 * the MIT License (see LICENSE-MIT), or
 * the Apache License, Version 2.0 (see LICENSE-APACHE),
@@ -75,7 +75,7 @@ if (staffing.version !== 2 || staffingSchema.properties?.version?.const !== 2 ||
     JSON.stringify(Object.keys(staffingSchema.$defs?.preset?.properties ?? {}).sort()) !== JSON.stringify([...staffingPresetKeys].sort()))
   throw new Error("canonical staffing catalog/schema must use the exact v2 preset shape");
 if (JSON.stringify([...routingSchema.required].sort()) !== JSON.stringify([...ROUTING_FIELDS].sort()))
-  throw new Error("canonical routing schema must require exactly the eight Gaffer fields");
+  throw new Error("canonical routing schema must require exactly the eight Orchestration fields");
 const selectionFields = ["version", "signals", "derived", "selected"];
 if (JSON.stringify([...(selectionSchema.required ?? [])].sort()) !== JSON.stringify([...selectionFields].sort()) ||
     selectionSchema.properties?.version?.const !== SELECTION_ASSESSMENT_VERSION ||
@@ -578,7 +578,7 @@ for (const [label, invalid, errorContains] of [
   ["missing model delta", { ...openaiFixture, modelDeltas: missingModelDeltas }],
   ["empty raw model support", mutateCatalog(openaiFixture, (catalog) => {
     catalog.models[openaiEconomyModel].reasoning = [];
-  }), "provider-supported levels within Gaffer's vocabulary"],
+  }), "provider-supported levels within Orchestration's vocabulary"],
   ["empty exact route map", mutateCatalog(openaiFixture, (catalog) => {
     catalog.models[openaiEconomyModel].routes = {};
   }), "routes must be a non-empty exact per-tier map"],
@@ -599,9 +599,9 @@ for (const [label, invalid, errorContains] of [
     catalog.models[openaiEconomyModel].efforts = catalog.models[openaiEconomyModel].reasoning;
     delete catalog.models[openaiEconomyModel].reasoning;
   }), `models.${openaiEconomyModel} must use reasoning`],
-  ["provider support outside Gaffer vocabulary", mutateCatalog(openaiFixture, (catalog) => {
+  ["provider support outside Orchestration vocabulary", mutateCatalog(openaiFixture, (catalog) => {
     catalog.models[openaiEconomyModel].reasoning.push("none");
-  }), "provider-supported levels within Gaffer's vocabulary"],
+  }), "provider-supported levels within Orchestration's vocabulary"],
   ["forbidden model expiry", mutateCatalog(openaiFixture, (catalog) => {
     catalog.models[openaiEconomyModel].validUntil = "2026-07-19";
   }), "unknown field(s): validUntil"],
@@ -906,8 +906,8 @@ for (const preset of staffing.presets) {
   if (!hasExactRoutingFields(payload))
     throw new Error(`preset ${preset.name} payload must contain exactly the eight routing fields`);
   const generated = readFileSync(resolve(root, `agents/${preset.name}.md`), "utf8");
-  const marker = generated.match(/<!-- GAFFER_ROUTING (\{.*\}) -->/);
-  if (!marker) throw new Error(`generated ${preset.name} is missing GAFFER_ROUTING`);
+  const marker = generated.match(/<!-- ORCHESTRATION_ROUTING (\{.*\}) -->/);
+  if (!marker) throw new Error(`generated ${preset.name} is missing ORCHESTRATION_ROUTING`);
   validateRoutingRequest(JSON.parse(marker[1]), staffing);
   const posture = preset.posture ?? staffing.defaults.posture;
   if (!generated.includes(`TASK GRADE: ${preset.taskGrade.toUpperCase()}`) ||
@@ -939,7 +939,7 @@ for (const preset of staffing.presets) {
   if (!generatedDirector.includes("TOPOLOGY: ORCHESTRATOR") ||
       !generatedDirector.includes("TASK GRADE: STAFF") ||
       !generatedDirector.includes("child orchestrator") ||
-      !generatedDirector.includes("fresh complete Gaffer") ||
+      !generatedDirector.includes("fresh complete Orchestration") ||
       !generatedDirector.includes("immediate parent") ||
       generatedDirector.includes("TOPOLOGY: WORKER") || generatedDirector.includes("INTERNED WORKER") ||
       /orchestrator[\s\S]{0,240}drops? to worker behavior/i.test(doctrine) ||
@@ -1037,7 +1037,7 @@ for (const alias of staffing.aliases) {
   }
   if (novel.payload.domainRequirements.length !== 0)
     throw new Error("bespoke composition without --domain must emit an explicit empty domainRequirements list");
-  const directory = mkdtempSync(resolve(tmpdir(), "gaffer-contract-"));
+  const directory = mkdtempSync(resolve(tmpdir(), "orchestration-contract-"));
   try {
     const path = resolve(directory, "contract.json");
     writeFileSync(path, contract);
@@ -1253,7 +1253,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
     `${doctrine}\n${topologies}`,
   ) ||
       !/TOPOLOGY: ORCHESTRATOR[\s\S]{0,700}child orchestrator/i.test(topologies) ||
-      !/Every child[\s\S]{0,180}fresh(?:ly)?[\s\S]{0,120}(?:Gaffer request|admission)/i.test(
+      !/Every child[\s\S]{0,180}fresh(?:ly)?[\s\S]{0,120}(?:Orchestration request|admission)/i.test(
         `${doctrine}\n${topologies}`,
       ) ||
       !/every node that decomposes work OWNS the reduction of its DIRECT\s+children/i.test(doctrine) ||
@@ -1268,7 +1268,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
   }
   if (/\b(?:feature or fix|existing architecture|cross-seam integration|engineering trade-offs|migration paths)\b/i.test(taskGradeSource))
     throw new Error("shared task-grade blocks leaked authoring-role semantics");
-  if (/layer floor\s*(?:→|->)\s*integrator|foundational targets? get gaffer:integrator|ANY work on foundational/i.test(
+  if (/layer floor\s*(?:→|->)\s*integrator|foundational targets? get orchestration:integrator|ANY work on foundational/i.test(
     `${readme}\n${doctrine}\n${JSON.stringify(staffing.presets)}`))
     throw new Error("layer floor must raise capability without renaming the task function");
   const selectionPolicyText = `${readme}\n${doctrine}\n${method}\n${routing}\n${composeSkill}\n${JSON.stringify(staffing.presets)}`;
@@ -1290,7 +1290,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
   if (/\b(?:Sonnet|Opus)\b/.test(methodSection))
     throw new Error("shared calibration method must not hardcode Anthropic model names");
   const portableDoctrine = doctrine.replace(
-    /<!-- gaffer:spawn-surfaces[\s\S]*?<!-- \/gaffer:spawn-surfaces -->/,
+    /<!-- orchestration:spawn-surfaces[\s\S]*?<!-- \/orchestration:spawn-surfaces -->/,
     "",
   );
   if (/subagent_type\s*:|\bagent\s*\(|mcp__north|provider\s*=\s*`?auto/i.test(portableDoctrine))
@@ -1312,7 +1312,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
     throw new Error("verifier role lost its single-claim boundary or strict verdict epistemics");
   if (!/ROLE: REVIEWER[\s\S]{0,180}one supplied artifact[\s\S]{0,120}multiple[\s\S]{0,220}prioritized/i.test(roles) ||
       !/accept \/ changes-required \/\s*cannot-assess/i.test(roles) ||
-      !/REVIEWER[\s\S]{0,1800}gaffer:verifier[\s\S]{0,300}gaffer:analyst[\s\S]{0,300}gaffer:designer[\s\S]{0,300}gaffer:judge[\s\S]{0,300}gaffer:integrator/i.test(roles) ||
+      !/REVIEWER[\s\S]{0,1800}orchestration:verifier[\s\S]{0,300}orchestration:analyst[\s\S]{0,300}orchestration:designer[\s\S]{0,300}orchestration:judge[\s\S]{0,300}orchestration:integrator/i.test(roles) ||
       !["google.github.io/eng-practices/review/reviewer/looking-for.html",
         "google.github.io/eng-practices/review/reviewer/standard.html",
         "docs.github.com/en/pull-requests"].every((source) => `${roles}\n${method}`.includes(source)) ||
@@ -1374,7 +1374,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
       !/RESEARCH-SCIENTIST[\s\S]{0,900}new script[\s\S]{0,160}ephemeral scratch/i.test(roles))
     throw new Error("research-scientist must use existing non-mutating probes and hand off all new apparatus authoring");
   if (!providerMatrix.includes("sources do not") || !providerMatrix.includes("exact rung economics"))
-    throw new Error("generated provider matrix must distinguish official provenance from Gaffer calibration judgments");
+    throw new Error("generated provider matrix must distinguish official provenance from Orchestration calibration judgments");
   if (!providerMatrix.includes("every exact catalog model covered for each fact") ||
       !providerMatrix.includes("category"))
     throw new Error("generated provider matrix must state that provenance scope coverage is per exact model");
@@ -1382,7 +1382,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
       !providerMatrix.includes("warning but remains reproducible and nonfatal"))
     throw new Error("generated provider matrix must explain nonfatal review freshness");
   for (const phrase of [
-    "provider-supported levels only within Gaffer's", "not an exhaustive provider API",
+    "provider-supported levels only within Orchestration's", "not an exhaustive provider API",
     "never a cross-product", "Raw support does", "not make an omitted shingle routable",
     "Supported-but-unrouted levels remain", "future calibration inputs",
     "Account entitlement and current", "target availability are independent North facts",
@@ -1422,13 +1422,13 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
       !northAdapter.includes("never edits, implements, or repairs the deliverable") ||
       !/or absorbs a worker's full\s+local-probe burden/.test(northAdapter))
     throw new Error("generated North adapter lost reviewer, topology, or director evidence boundaries");
-  for (const provenanceState of ["gaffer:<preset>", "gaffer:<preset>+override", "gaffer:bespoke:<id>",
-    "gaffer:not-selected", "gaffer:legacy-debt"])
+  for (const provenanceState of ["orchestration:<preset>", "orchestration:<preset>+override", "orchestration:bespoke:<id>",
+    "orchestration:not-selected", "orchestration:legacy-debt"])
     if (!northAdapter.includes(provenanceState) || !routing.includes(provenanceState))
       throw new Error(`composition provenance state is not documented across adapters: ${provenanceState}`);
-  if (!northAdapter.includes("Never collapse these states to `gaffer:none`") ||
-      !routing.includes("`gaffer:none` is not a valid display state"))
-    throw new Error("ambiguous gaffer:none display state was not explicitly retired");
+  if (!northAdapter.includes("Never collapse these states to `orchestration:none`") ||
+      !routing.includes("`orchestration:none` is not a valid display state"))
+    throw new Error("ambiguous orchestration:none display state was not explicitly retired");
   for (const catalog of Object.values(providerCatalogs)) {
     for (const value of [catalog.provenance.asOf, catalog.provenance.reviewAfter,
       ...catalog.provenance.sources.flatMap(({ url, scopes }) => [url, ...scopes]),

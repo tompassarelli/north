@@ -1,5 +1,5 @@
 (ns north.agent-provenance
-  "Canonical managed-agent identity and Gaffer provenance validation shared by
+  "Canonical managed-agent identity and Orchestration provenance validation shared by
   startup acknowledgement, roster rendering, and lifecycle trace.")
 
 (require '[cheshire.core :as json]
@@ -183,7 +183,7 @@
                     ["composition_kind(preset|bespoke)"])
                   (when (and (known role) (known composition-id) (not= role composition-id))
                     ["composition_id(matches role)"])
-                  (when (and (some? role) (not (safe-role-id? role))) ["role(safe Gaffer id)"])
+                  (when (and (some? role) (not (safe-role-id? role))) ["role(safe Orchestration id)"])
                   (when (and live-input
                              (not (contains? #{"streaming" "unsupported"} live-input)))
                     ["live_input(streaming|unsupported)"])
@@ -200,7 +200,7 @@
                                    live-input-epoch)))
                     ["live_input_epoch(UUIDv4)"])
                   (when (and (some? composition-id) (not (safe-role-id? composition-id)))
-                    ["composition_id(safe Gaffer id)"])
+                    ["composition_id(safe Orchestration id)"])
                   (case composition-kind
                     "preset" (preset-evidence-defects facts)
                     "bespoke" (bespoke-evidence-defects facts)
@@ -210,24 +210,24 @@
 
 (defn managed-valid? [facts] (empty? (identity-defects facts)))
 
-(defn gaffer-provenance
+(defn orchestration-provenance
   "Exact public provenance state. Native provider sessions are honest absence;
   malformed or uncommitted managed lanes are migration/corruption debt."
   [{:strs [kind role composition_kind composition_id] :as facts}]
   (cond
-    (= kind "session") "gaffer:not-selected"
-    (not (managed-valid? facts)) "gaffer:legacy-debt"
+    (= kind "session") "orchestration:not-selected"
+    (not (managed-valid? facts)) "orchestration:legacy-debt"
     (= composition_kind "preset")
     (let [{:keys [value]} (composition-overrides facts)
-          base (str "gaffer:" composition_id)]
+          base (str "orchestration:" composition_id)]
       (if (seq value) (str base "+override(" (str/join "," value) ")") base))
-    (= composition_kind "bespoke") (str "gaffer:bespoke:" composition_id)
-    :else "gaffer:legacy-debt"))
+    (= composition_kind "bespoke") (str "orchestration:bespoke:" composition_id)
+    :else "orchestration:legacy-debt"))
 
 (defn provenance-detail [facts]
   (let [kind (get facts "composition_kind")
         {:keys [value]} (composition-overrides facts)]
-    (cond-> {:label (gaffer-provenance facts) :kind kind}
+    (cond-> {:label (orchestration-provenance facts) :kind kind}
       (= kind "preset")
       (assoc :overrides value :override-reason (known (get facts "composition_override_reason")))
       (= kind "bespoke")

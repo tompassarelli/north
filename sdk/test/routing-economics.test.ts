@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import Ajv2020 from "ajv/dist/2020";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import {
   admitRoutingEconomics, MAX_PIN_LIFETIME_MS,
   type RoutingAssessment,
@@ -29,20 +29,20 @@ const assessment: RoutingAssessment = {
   selected: { tier: "economy", reasoning: "low" },
 };
 
-test("North's strict Ajv 2020 consumer compiles Gaffer's assessment schema before admission", () => {
-  const gafferRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(homedir(), "code/gaffer"));
+test("North's strict Ajv 2020 consumer compiles Orchestration's assessment schema before admission", () => {
+  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(homedir(), "code/orchestration"));
   const schema = JSON.parse(readFileSync(
-    resolve(gafferRoot, "contracts/selection-assessment.schema.json"), "utf8",
+    resolve(orchestrationRoot, "contracts/selection-assessment.schema.json"), "utf8",
   ));
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
   expect(validate(assessment), JSON.stringify(validate.errors)).toBe(true);
 
-  const request = applyGafferStaffing({ role: "executor" });
+  const request = applyOrchestrationStaffing({ role: "executor" });
   expect(admitRoutingEconomics({ request, routingAssessment: assessment }).assessment).toEqual(assessment);
 });
 
-test("North freezes the canonical Gaffer assessment and immutable catalog receipt", () => {
-  const request = applyGafferStaffing({ role: "executor" });
+test("North freezes the canonical Orchestration assessment and immutable catalog receipt", () => {
+  const request = applyOrchestrationStaffing({ role: "executor" });
   const admitted = admitRoutingEconomics({ request, routingAssessment: assessment });
   expect(admitted.assessment).toEqual(assessment);
   expect(Object.isFrozen(admitted)).toBe(true);
@@ -64,8 +64,8 @@ test("North freezes the canonical Gaffer assessment and immutable catalog receip
   expect(admitted.receipt.overrideEvidence).toEqual({ changedAxes: [], status: "none" });
 });
 
-test("North rejects a forged derived assessment through Gaffer's canonical validator", () => {
-  const request = applyGafferStaffing({ role: "executor" });
+test("North rejects a forged derived assessment through Orchestration's canonical validator", () => {
+  const request = applyOrchestrationStaffing({ role: "executor" });
   expect(() => admitRoutingEconomics({
     request,
     routingAssessment: {
@@ -74,11 +74,11 @@ test("North rejects a forged derived assessment through Gaffer's canonical valid
       selected: { tier: "economy", reasoning: "low" },
       exception: { code: "calibration-experiment", detail: "forgery probe" },
     },
-  })).toThrow(/canonical Gaffer validation|below derived minimum/);
+  })).toThrow(/canonical Orchestration validation|below derived minimum/);
 });
 
 test("pin evidence is exact, bounded, immutable, and visible when missing", () => {
-  const request = applyGafferStaffing({ role: "executor" });
+  const request = applyOrchestrationStaffing({ role: "executor" });
   const now = new Date("2026-07-22T12:00:00Z");
   const admitted = admitRoutingEconomics({
     request, provider: "openai", target: "codex-personal", model: "gpt-5.6-luna", now,
@@ -117,7 +117,7 @@ test("pin evidence is exact, bounded, immutable, and visible when missing", () =
 });
 
 test("new max reasoning fails closed without canonical exceptional assessment", () => {
-  const request = applyGafferStaffing({
+  const request = applyOrchestrationStaffing({
     role: "executor", tier: "frontier", reasoning: "max",
     composition: {
       kind: "preset", id: "executor", overrides: ["tier", "reasoning"],

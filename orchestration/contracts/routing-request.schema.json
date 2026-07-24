@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gaffer.local/contracts/routing-request.schema.json",
-  "title": "Gaffer provider-neutral routing request",
+  "$id": "https://orchestration.local/contracts/routing-request.schema.json",
+  "title": "Orchestration provider-neutral routing request",
   "type": "object",
   "additionalProperties": false,
   "required": ["role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition"],

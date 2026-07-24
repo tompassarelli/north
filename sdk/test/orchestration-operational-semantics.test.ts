@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  applyHarnessRoute, gafferAppendix, harnessCompositionEvidence, harnessOptions,
+  applyHarnessRoute, orchestrationAppendix, harnessCompositionEvidence, harnessOptions,
 } from "../src/harness";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import type { RoutingMetadata } from "../src/routing-metadata";
 import { runFacts } from "../src/telemetry";
 import { codexGlobalArguments, codexHarnessArguments } from "../src/providers/openai";
@@ -31,7 +31,7 @@ afterEach(() => {
   }
 });
 
-const preset = (role: string): RoutingMetadata => applyGafferStaffing({ role });
+const preset = (role: string): RoutingMetadata => applyOrchestrationStaffing({ role });
 const managedCodexPreview = [
   ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
   ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
@@ -64,22 +64,22 @@ const bespoke: RoutingMetadata = {
 };
 
 test("preset roles receive the exact canonical role contract and fail closed when it is absent", () => {
-  const composed = gafferAppendix(preset("integrator"), north);
-  expect(composed.appendix).toContain("## Gaffer role contract — preset:integrator");
+  const composed = orchestrationAppendix(preset("integrator"), north);
+  expect(composed.appendix).toContain("## Orchestration role contract — preset:integrator");
   expect(composed.appendix).toContain("ROLE: INTEGRATOR. Deliverable: a working change across seams");
   expect(composed.evidence).toMatchObject({ roleKind: "preset", roleId: "integrator" });
 
-  const empty = mkdtempSync(join(tmpdir(), "north-gaffer-missing-"));
+  const empty = mkdtempSync(join(tmpdir(), "north-orchestration-missing-"));
   try {
     process.env.NORTH_ORCHESTRATION_HOME = empty;
-    expect(() => gafferAppendix(preset("integrator"), north))
+    expect(() => orchestrationAppendix(preset("integrator"), north))
       .toThrow("/providers/anthropic.json");
   } finally { rmSync(empty, { recursive: true, force: true }); }
 });
 
 test("bespoke composition executes its structured contract without impersonating nearest preset", () => {
-  const composed = gafferAppendix(bespoke, north);
-  expect(composed.appendix).toContain("## Gaffer role contract — bespoke:migration-forensics");
+  const composed = orchestrationAppendix(bespoke, north);
+  expect(composed.appendix).toContain("## Orchestration role contract — bespoke:migration-forensics");
   expect(composed.appendix).toContain("Responsibility: trace the historical migration without changing it");
   expect(composed.appendix).toContain("Must escalate:\n- any destructive recovery");
   expect(composed.appendix).not.toContain("ROLE: ANALYST");
@@ -87,7 +87,7 @@ test("bespoke composition executes its structured contract without impersonating
 });
 
 test("task grade is an exact authority block and remains orthogonal to semantic tier", () => {
-  const composed = gafferAppendix({ taskGrade: "novice", tier: "frontier", reasoning: "xhigh" }, north);
+  const composed = orchestrationAppendix({ taskGrade: "novice", tier: "frontier", reasoning: "xhigh" }, north);
   expect(composed.appendix).toContain("TASK GRADE: NOVICE. The brief must be fully specified");
   expect(composed.appendix).toContain("Semantic tier: frontier.");
   expect(composed.appendix).toContain("Reasoning: xhigh.");
@@ -95,7 +95,7 @@ test("task grade is an exact authority block and remains orthogonal to semantic 
 });
 
 test("domain requirements install a before-side-effect context gate, not an expertise claim", () => {
-  const composed = gafferAppendix({ domainRequirements: ["Beagle", "unknown-specialty"] }, north);
+  const composed = orchestrationAppendix({ domainRequirements: ["Beagle", "unknown-specialty"] }, north);
   expect(composed.appendix).toContain("Before any side effect, satisfy every domain requirement");
   expect(composed.appendix).toContain("candidates are not proof of expertise");
   expect(composed.appendix).toContain("DOMAIN CONTEXT MISSING:");
@@ -140,7 +140,7 @@ test("topology controls prompt and tools with positive-only orchestration author
   expect(neutral.disallowedTools).toContain("Agent");
 });
 
-test("Gaffer capabilities compile to exact provider authority before work starts", () => {
+test("Orchestration capabilities compile to exact provider authority before work starts", () => {
   process.env.AGENT_LAWS = "off";
   const designer = harnessOptions({
     self: "capability-designer", provider: "anthropic", model: "opus", cwd: north,
@@ -236,7 +236,7 @@ test("managed capacity resolves from the complete request before the provider se
 
 test("posture remains effective even when the retired praxis toggle is off", () => {
   process.env.AGENT_PRAXIS = "off";
-  const composed = gafferAppendix({ posture: "preserve" }, north);
+  const composed = orchestrationAppendix({ posture: "preserve" }, north);
   expect(composed.appendix).toContain("POSTURE: PRESERVE — legacy, shared infra");
 });
 
@@ -247,13 +247,13 @@ test("model calibration uses exact catalog keys and never applies stale alias de
     presenceRegistrar: false,
     routingMetadata: preset("integrator"),
   });
-  expect(opus.systemPrompt).not.toContain("Gaffer exact-model delta");
+  expect(opus.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(opus)?.modelDelta).toMatchObject({
     provider: "anthropic", model: "claude-opus-4-8", kind: "none",
   });
 
   const fallback = applyHarnessRoute(opus, "openai", "gpt-5.6-sol");
-  expect(fallback.options.systemPrompt).toContain("Gaffer exact-model delta — openai:gpt-5.6-sol");
+  expect(fallback.options.systemPrompt).toContain("Orchestration exact-model delta — openai:gpt-5.6-sol");
   expect(fallback.options.systemPrompt).toContain("ANCHOR LINE");
   expect(fallback.evidence?.modelDelta).toMatchObject({
     provider: "openai", model: "gpt-5.6-sol", kind: "calibrated",
@@ -271,7 +271,7 @@ test("model calibration uses exact catalog keys and never applies stale alias de
     presenceRegistrar: false,
     routingMetadata: preset("designer"),
   });
-  expect(fable.systemPrompt).not.toContain("Gaffer exact-model delta");
+  expect(fable.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(fable)?.modelDelta).toMatchObject({
     provider: "anthropic", model: "claude-fable-5", kind: "none",
   });
@@ -284,7 +284,7 @@ test("cross-model escalation omits calibration explicitly instead of retaining s
     presenceRegistrar: false,
     routingMetadata: preset("integrator"), omitModelDeltaReason: "cross_model_escalation_enabled",
   });
-  expect(options.systemPrompt).not.toContain("Gaffer exact-model delta");
+  expect(options.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(options)?.modelDelta).toEqual({
     provider: "anthropic", model: "claude-opus-4-8", kind: "omitted", reason: "cross_model_escalation_enabled",
   });
@@ -316,7 +316,7 @@ test("nested North MCP attribution pins the immediate agent and drops inherited 
 });
 
 test("telemetry proves bespoke composition without exposing contract text", () => {
-  const composed = gafferAppendix(bespoke, north);
+  const composed = orchestrationAppendix(bespoke, north);
   const canary = bespoke.composition?.kind === "bespoke" ? bespoke.composition.contract.responsibility : "";
   const facts = runFacts({
     thread: "thread", agent: "lane", durationMs: 1, posture: "spawn", outcome: "ran",
@@ -339,7 +339,7 @@ test("telemetry proves bespoke composition without exposing contract text", () =
 });
 
 test("preset override rationale is preserved as requested audit and hashed applied evidence", () => {
-  const metadata = applyGafferStaffing({
+  const metadata = applyOrchestrationStaffing({
     role: "integrator",
     tier: "frontier",
     reasoning: "xhigh",
@@ -348,7 +348,7 @@ test("preset override rationale is preserved as requested audit and hashed appli
       overrideReason: "this integrator owns the cross-seam reduction",
     },
   });
-  const composed = gafferAppendix(metadata, north);
+  const composed = orchestrationAppendix(metadata, north);
   const facts = runFacts({
     thread: "thread", agent: "lane", durationMs: 1, posture: "spawn", outcome: "ran",
     routingMetadata: metadata, promptComposition: composed.evidence,

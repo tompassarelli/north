@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gaffer.local/contracts/selection-assessment.schema.json",
-  "title": "Gaffer minimum-sufficient selection assessment sidecar",
+  "$id": "https://orchestration.local/contracts/selection-assessment.schema.json",
+  "title": "Orchestration minimum-sufficient selection assessment sidecar",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "signals", "derived", "selected"],

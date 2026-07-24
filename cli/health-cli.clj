@@ -175,7 +175,7 @@
          retired " abandoned-stale retired")))
 
 ;; ---- zombie forks (F4): agent-handle git authors absent from the roster --------
-(def known-repos ["north" "convoy" "fram" "gaffer" "nixos-config" "beagle"])
+(def known-repos ["north" "convoy" "fram" "orchestration" "nixos-config" "beagle"])
 (def handle-shape #"^(lane-|sdk-|session-|cc-|dispatch-|agent-)")
 (defn zombie-forks [facts since-h]
   (let [known (agent-ids facts)]

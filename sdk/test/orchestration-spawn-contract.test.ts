@@ -3,11 +3,11 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { validateRoutingMetadata } from "../src/routing-metadata";
 import { runFacts } from "../src/telemetry";
-import { applyGafferStaffing, loadGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing, loadOrchestrationStaffing } from "../src/orchestration-staffing";
 
 const north = resolve(import.meta.dir, "../..");
-const gaffer = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "../gaffer");
-const compose = resolve(gaffer, "scripts/compose-routing.mjs");
+const orchestration = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "orchestration");
+const compose = resolve(orchestration, "scripts/compose-routing.mjs");
 
 function composed(...args: string[]): any {
   const result = spawnSync(process.execPath, [compose, ...args], { encoding: "utf8" });
@@ -22,7 +22,7 @@ const contract = JSON.stringify({
   doneWhen: ["every transition is sourced"], report: "timeline, contradictions, and gaps",
 });
 
-test("Gaffer composition survives North validation into complete run telemetry", () => {
+test("Orchestration composition survives North validation into complete run telemetry", () => {
   const request = composed("integrator", "--taskGrade", "staff", "--domain", "Nix,Beagle",
     "--tier", "frontier", "--deliberation", "xhigh", "--posture", "preserve",
     "--override-reason", "cross-provider foundational contract");
@@ -51,10 +51,10 @@ test("Gaffer composition survives North validation into complete run telemetry",
 });
 
 test("SDK presets inherit catalog axes while declared compatible overrides win independently", () => {
-  const catalog = loadGafferStaffing(resolve(gaffer, "staffing/catalog.json"));
-  expect(() => applyGafferStaffing({ role: "integrator", tier: "frontier" }, catalog))
+  const catalog = loadOrchestrationStaffing(resolve(orchestration, "staffing/catalog.json"));
+  expect(() => applyOrchestrationStaffing({ role: "integrator", tier: "frontier" }, catalog))
     .toThrow("supply preset composition.overrides");
-  expect(applyGafferStaffing({ role: "integrator", tier: "frontier", reasoning: "xhigh",
+  expect(applyOrchestrationStaffing({ role: "integrator", tier: "frontier", reasoning: "xhigh",
     composition: { kind: "preset", id: "integrator", overrides: ["tier", "reasoning"],
       overrideReason: "cross-seam direction" } }, catalog)).toEqual({
     role: "integrator", taskGrade: "senior", domainRequirements: [], topology: "worker",
@@ -62,12 +62,12 @@ test("SDK presets inherit catalog axes while declared compatible overrides win i
     composition: { kind: "preset", id: "integrator", overrides: ["tier", "reasoning"],
       overrideReason: "cross-seam direction" },
   });
-  expect(applyGafferStaffing({ role: "director" }, catalog)).toEqual({
+  expect(applyOrchestrationStaffing({ role: "director" }, catalog)).toEqual({
     role: "director", taskGrade: "staff", domainRequirements: [], topology: "orchestrator",
     tier: "frontier", reasoning: "xhigh", posture: "deliver",
     composition: { kind: "preset", id: "director", overrides: [] },
   });
-  expect(() => applyGafferStaffing({ role: "researcher" }, catalog))
+  expect(() => applyOrchestrationStaffing({ role: "researcher" }, catalog))
     .toThrow("role researcher is retired because it was ambiguous");
 });
 
@@ -77,7 +77,7 @@ test("North CLI reads staffing/catalog.json and carries independent overrides", 
     "--tier", "frontier", "--reasoning", "xhigh", "--posture", "preserve",
     "--override-reason", "principal research direction"], {
     encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1", GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+    env: { ...process.env, NO_COLOR: "1", ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");
@@ -87,13 +87,13 @@ test("North CLI reads staffing/catalog.json and carries independent overrides", 
 });
 
 test("North rejects unlogged bespoke roles and composition identity mismatches", () => {
-  const catalog = loadGafferStaffing(resolve(gaffer, "staffing/catalog.json"));
-  expect(() => applyGafferStaffing({ role: "special" }, catalog))
-    .toThrow("unknown Gaffer role special requires composition.kind=bespoke");
+  const catalog = loadOrchestrationStaffing(resolve(orchestration, "staffing/catalog.json"));
+  expect(() => applyOrchestrationStaffing({ role: "special" }, catalog))
+    .toThrow("unknown Orchestration role special requires composition.kind=bespoke");
   expect(() => validateRoutingMetadata({
     role: "integrator", composition: { kind: "preset", id: "scout", overrides: [] },
   })).toThrow("composition.id must match canonical role integrator");
-  expect(() => applyGafferStaffing({
+  expect(() => applyOrchestrationStaffing({
     role: "special", taskGrade: "staff", domainRequirements: [], topology: "worker",
     tier: "frontier", reasoning: "xhigh", posture: "explore",
     composition: { kind: "bespoke", id: "special", nearestPreset: "analyst",
@@ -101,7 +101,7 @@ test("North rejects unlogged bespoke roles and composition identity mismatches",
   }, catalog)).not.toThrow();
 });
 
-test("bespoke Gaffer composition rationale reaches North telemetry", () => {
+test("bespoke Orchestration composition rationale reaches North telemetry", () => {
   const request = composed("migration-forensics", "--rationale",
     "provenance tracing plus schema recovery", "--contract", contract, "--no-promotion-candidate",
     "--task-grade", "senior", "--topology", "worker", "--tier", "senior",

@@ -36,7 +36,7 @@ function declaredExact(value: string): string | undefined {
 }
 
 /**
- * Project provider-controlled ModelInfo onto Gaffer's exact allowlist. Unknown
+ * Project provider-controlled ModelInfo onto Orchestration's exact allowlist. Unknown
  * provider models are ignored and can never prove availability. `value` is the
  * only SDK-declared authority field; display text and undocumented fields never
  * participate in routing.

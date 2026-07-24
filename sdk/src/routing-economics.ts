@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import type {
   ReasoningLevel, RoutingOverrideField, RoutingRequest, RoutingTier,
 } from "./routing-metadata";
-import { DEFAULT_GAFFER_STAFFING_PATH } from "./gaffer-staffing";
+import { DEFAULT_ORCHESTRATION_STAFFING_PATH } from "./orchestration-staffing";
 import { DEFAULT_ROUTING_POLICY_PATH } from "./resource-policy";
 import { projectCatalogGraphPin, staffingSource, type CatalogGraphPin } from "./orchestration-graph-source";
 import { verifyPolicyDigestPin } from "./orchestration-policy-pin";
@@ -76,7 +76,7 @@ export interface RoutingAdmissionReceipt {
   routingAssessmentSha256?: string;
   pinEvidenceSha256?: string;
   /**
-   * Catalog-FILE digests over the Gaffer JSON on disk. Present ONLY under
+   * Catalog-FILE digests over the Orchestration JSON on disk. Present ONLY under
    * NORTH_STAFFING_SOURCE=file (the retained rollback path). In graph mode
    * (the Phase 2 default) they are absent — the graph pin below replaces them
    * so the receipt never digests a file the graph may no longer mirror.
@@ -272,9 +272,9 @@ export function admitRoutingAssessment(
     ...(exception ? { exception } : {}),
     ...(exceptionalDeliberation ? { exceptionalDeliberation } : {}),
   };
-  const gafferRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
-  const validator = process.env.GAFFER_SELECTION_ASSESSMENT_MODULE
-    ?? resolve(gafferRoot, "scripts/selection-assessment.mjs");
+  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+  const validator = process.env.ORCHESTRATION_SELECTION_ASSESSMENT_MODULE
+    ?? resolve(orchestrationRoot, "scripts/selection-assessment.mjs");
   const validation = spawnSync(process.execPath, [
     "--eval",
     "import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);let s='';for await(const c of process.stdin)s+=c;process.stdout.write(JSON.stringify(m.validateSelectionAssessment(JSON.parse(s))));",
@@ -282,13 +282,13 @@ export function admitRoutingAssessment(
   ], { input: JSON.stringify(admitted), encoding: "utf8", timeout: 5_000 });
   if (validation.error || validation.status !== 0) {
     const detail = validation.stderr?.trim() || validation.error?.message || "canonical validator failed";
-    throw new Error(`${surface} failed canonical Gaffer validation: ${detail}`);
+    throw new Error(`${surface} failed canonical Orchestration validation: ${detail}`);
   }
   let canonicalAssessment: unknown;
   try { canonicalAssessment = JSON.parse(validation.stdout); }
-  catch { throw new Error(`${surface} canonical Gaffer validator returned invalid JSON`); }
+  catch { throw new Error(`${surface} canonical Orchestration validator returned invalid JSON`); }
   if (canonicalJson(canonicalAssessment) !== canonicalJson(admitted))
-    throw new Error(`${surface} canonical Gaffer validator changed the admitted assessment`);
+    throw new Error(`${surface} canonical Orchestration validator changed the admitted assessment`);
   return deepFreeze(admitted);
 }
 
@@ -358,10 +358,10 @@ function graphCatalogPin(): CatalogGraphPin {
 function stockAxes(request: RoutingRequest): RoutingAdmissionReceipt["stockAxes"] {
   if (request.composition.kind !== "preset") return undefined;
   const catalog = JSON.parse(readFileSync(
-    process.env.GAFFER_STAFFING_CATALOG ?? DEFAULT_GAFFER_STAFFING_PATH, "utf8",
+    process.env.ORCHESTRATION_STAFFING_CATALOG ?? DEFAULT_ORCHESTRATION_STAFFING_PATH, "utf8",
   )) as { presets?: Array<Record<string, unknown>> };
   const preset = catalog.presets?.find(({ name }) => name === request.role);
-  if (!preset) throw new Error(`Gaffer stock preset ${request.role} is absent while issuing admission receipt`);
+  if (!preset) throw new Error(`Orchestration stock preset ${request.role} is absent while issuing admission receipt`);
   return {
     taskGrade: String(preset.taskGrade), topology: String(preset.topology),
     tier: String(preset.tier), reasoning: String(preset.deliberation), posture: String(preset.posture),
@@ -411,10 +411,10 @@ export function admitRoutingEconomics(args: {
   // watermarks) instead of digesting catalog FILES; file mode keeps the FILE
   // digests as the packaged rollback evidence.
   const catalogPin = graphMode ? graphCatalogPin() : undefined;
-  const gafferRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
   const providerDigests = graphMode ? undefined : {
-    anthropic: fileDigest(resolve(gafferRoot, "providers/anthropic.json")),
-    openai: fileDigest(resolve(gafferRoot, "providers/openai.json")),
+    anthropic: fileDigest(resolve(orchestrationRoot, "providers/anthropic.json")),
+    openai: fileDigest(resolve(orchestrationRoot, "providers/openai.json")),
   };
   const stock = stockAxes(args.request);
   const overrides = args.request.composition.kind === "preset"
@@ -426,7 +426,7 @@ export function admitRoutingEconomics(args: {
     ...(pinEvidence ? { pinEvidenceSha256: digest(pinEvidence) } : {}),
     ...(graphMode ? {} : {
       staffingCatalogSha256: fileDigest(
-        process.env.GAFFER_STAFFING_CATALOG ?? DEFAULT_GAFFER_STAFFING_PATH,
+        process.env.ORCHESTRATION_STAFFING_CATALOG ?? DEFAULT_ORCHESTRATION_STAFFING_PATH,
       ),
       providerCatalogsSha256: digest(providerDigests),
     }),

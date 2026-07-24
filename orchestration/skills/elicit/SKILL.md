@@ -1,6 +1,6 @@
 ---
 name: elicit
-description: Calibrate a gaffer delta for a model the plugin doesn't cover yet (a new Claude tier, a new generation, or any agent model) using the elicit → subtract → compile method. Use when adding a new model to the squad or when a model generation changes and its delta may be stale.
+description: Calibrate a orchestration delta for a model the plugin doesn't cover yet (a new Claude tier, a new generation, or any agent model) using the elicit → subtract → compile method. Use when adding a new model to the squad or when a model generation changes and its delta may be stale.
 ---
 
 # Elicit → subtract → compile a new model delta

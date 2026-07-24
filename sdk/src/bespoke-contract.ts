@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { GAFFER_CAPABILITIES, type GafferCapability } from "./gaffer-capabilities";
+import { ORCHESTRATION_CAPABILITIES, type OrchestrationCapability } from "./orchestration-capabilities";
 import type { BespokeContract } from "./routing-metadata";
 
 const CONTRACT_FIELDS = [
@@ -41,17 +41,17 @@ function canonicalTextSet(value: unknown, field: string): string[] {
   return [...new Set(normalized)].sort();
 }
 
-export function canonicalGafferCapabilities(value: unknown): GafferCapability[] {
+export function canonicalOrchestrationCapabilities(value: unknown): OrchestrationCapability[] {
   if (!Array.isArray(value) || value.length === 0)
     throw new Error("bespoke contract capabilities must be a non-empty array");
   const normalized = value.map((entry) => canonicalText(entry, "capabilities"));
   if (new Set(normalized).size !== normalized.length)
     throw new Error("bespoke contract capabilities must not contain duplicates");
   const requested = new Set(normalized);
-  const unknown = [...requested].filter((entry) => !GAFFER_CAPABILITIES.includes(entry as GafferCapability));
+  const unknown = [...requested].filter((entry) => !ORCHESTRATION_CAPABILITIES.includes(entry as OrchestrationCapability));
   if (unknown.length)
     throw new Error(`bespoke contract capabilities contain unknown values: ${unknown.join(", ")}`);
-  return GAFFER_CAPABILITIES.filter((capability) => requested.has(capability));
+  return ORCHESTRATION_CAPABILITIES.filter((capability) => requested.has(capability));
 }
 
 /**
@@ -63,7 +63,7 @@ export function canonicalBespokeContract(value: unknown): BespokeContract {
   return {
     responsibility: canonicalText(contract.responsibility, "responsibility"),
     deliverable: canonicalText(contract.deliverable, "deliverable"),
-    capabilities: canonicalGafferCapabilities(contract.capabilities),
+    capabilities: canonicalOrchestrationCapabilities(contract.capabilities),
     mayDecide: canonicalTextSet(contract.mayDecide, "mayDecide"),
     mustEscalate: canonicalTextSet(contract.mustEscalate, "mustEscalate"),
     doneWhen: canonicalTextSet(contract.doneWhen, "doneWhen"),

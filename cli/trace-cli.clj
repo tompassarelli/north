@@ -408,7 +408,7 @@
                                        (when-let [co (get facts "coordinator")] (str " coord=" co)))
                            (= lineage :sdk-lane) (str "CORRUPT: " (str/join ", " identity-defects))
                            (= kind "session") (str "kind=session repo=" (or (get facts "repo") "?")
-                                                   " gaffer:not-selected (native — expected)")
+                                                   " orchestration:not-selected (native — expected)")
                            (= lineage :corrupt-managed) "CORRUPT: roster evidence without managed identity kind"
                            :else "absent")]
           (println (stage 2 mark "2 IDENTITY" detail (str "north show @agent:" id)))
@@ -421,7 +421,7 @@
               "bespoke" (do
                           (println (str "    why          " (or (:why provenance) "MISSING")))
                           (when-let [nearest (:nearest-reference-only provenance)]
-                            (println (str "    nearest      gaffer:" nearest " (reference only; no inherited authority)")))
+                            (println (str "    nearest      orchestration:" nearest " (reference only; no inherited authority)")))
                           (println (str "    promotion    " (or (:promotion-candidate provenance) "MISSING")))
                           (println (str "    contract     sha256:" (or (:contract-sha256 provenance) "MISSING"))))
               nil)))

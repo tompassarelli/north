@@ -1,5 +1,5 @@
 ;; orchestration-selection.clj — shared canonical selection-rule enumeration +
-;; digest for the Gaffer -> North Orchestration migration (thread 019f8f5c).
+;; digest for the Orchestration -> North Orchestration migration (thread 019f8f5c).
 ;;
 ;; ONE canonicalization authority, loaded by both the importer (writes the
 ;; policy_sha256 fact) and the projector (recomputes it at admission for the
@@ -58,7 +58,7 @@ for (const [sig, values] of Object.entries(SIGNAL_VALUES)) {
 process.stdout.write(JSON.stringify(rules));
 "))
 
-;; The Gaffer contract root may be read-only (nix store), so the probe module
+;; The Orchestration contract root may be read-only (nix store), so the probe module
 ;; lives in a writable temp dir and imports the canonical validator by URL.
 (defn enumerate-selection-rules [root]
   (let [mjs (io/file root "scripts" "selection-assessment.mjs")

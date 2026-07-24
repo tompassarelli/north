@@ -77,7 +77,7 @@ exit 2
 
   const env = {
     ...process.env,
-    // Keep the real Gaffer catalog resolvable once HOME is redirected.
+    // Keep the real Orchestration catalog resolvable once HOME is redirected.
     NORTH_ORCHESTRATION_HOME: process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"),
     HOME: home,
     PATH: `${bin}:${process.env.PATH}`,

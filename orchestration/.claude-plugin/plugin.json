@@ -1,6 +1,6 @@
 {
-  "name": "gaffer",
-  "description": "The gaffer picks the squad: provider-neutral task-shape and semantic-tier routing, with a Claude adapter and calibrated agent payloads.",
+  "name": "orchestration",
+  "description": "The orchestration picks the squad: provider-neutral task-shape and semantic-tier routing, with a Claude adapter and calibrated agent payloads.",
   "author": {
     "name": "Tom Passarelli",
     "url": "https://github.com/tompassarelli"
@@ -13,7 +13,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/inject-doctrine.sh\"",
             "timeout": 5,
-            "statusMessage": "Gaffer picking the squad..."
+            "statusMessage": "Orchestration picking the squad..."
           }
         ]
       }

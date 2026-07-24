@@ -162,7 +162,7 @@
 ;; 8. NO ROUTING MUTATION — the emitter's fact projection is provably confined
 (def FORBIDDEN
   #{"posture" "model" "provider" "reasoning" "composition" "role" "tier" "taskGrade"
-    "task_grade" "gaffer_role" "prompt" "driver" "committed" "depends_on" "part_of"
+    "task_grade" "orchestration_role" "prompt" "driver" "committed" "depends_on" "part_of"
     "abandoned" "canceled" "outcome" "title"})
 (let [adv (advisory-of (repeat 3 (unit 20 10 40000 2 0 0)))
       facts (advisory-facts adv "2026-07-20")]

@@ -53,7 +53,7 @@ export function resolveContextWindow(catalog, modelOrAlias) {
 }
 
 // An exact-model pin is an execution-envelope constraint layered over the
-// canonical Gaffer tier+reasoning request. Static catalog compatibility is
+// canonical Orchestration tier+reasoning request. Static catalog compatibility is
 // necessary but not sufficient: the harness must independently establish an
 // available authenticated target before dispatch.
 export function resolvePinnedModelRoute(catalog, request = {}) {
@@ -74,7 +74,7 @@ export function resolvePinnedModelRoute(catalog, request = {}) {
   if (!Array.isArray(modelLevels) || !modelLevels.length)
     throw new Error(`${catalog.provider}: pinned model ${model} has empty ${listName} support; exact-model compatibility fails closed`);
   if (!modelLevels.includes(reasoning))
-    throw new Error(`${catalog.provider}: pinned model ${model} does not support ${listName} level ${reasoning} within Gaffer's vocabulary`);
+    throw new Error(`${catalog.provider}: pinned model ${model} does not support ${listName} level ${reasoning} within Orchestration's vocabulary`);
   if (descriptor.routes == null || typeof descriptor.routes !== "object" || Array.isArray(descriptor.routes) ||
       !Object.keys(descriptor.routes).length)
     throw new Error(`${catalog.provider}: pinned model ${model} has no calibrated routes; exact-model compatibility fails closed`);
@@ -202,7 +202,7 @@ export function validateProviderCatalog(catalog, expectedProvider, root = ROOT) 
     const levels = descriptor[listName];
     if (!Array.isArray(levels) || !levels.length || levels.some((level) => !REASONING.includes(level)) ||
         new Set(levels).size !== levels.length)
-      throw new Error(`${expectedProvider}.models.${model}.${listName} must contain unique provider-supported levels within Gaffer's vocabulary`);
+      throw new Error(`${expectedProvider}.models.${model}.${listName} must contain unique provider-supported levels within Orchestration's vocabulary`);
     if (listName !== expectedLevels)
       throw new Error(`${expectedProvider}.models.${model} must use ${expectedLevels}`);
     if (descriptor.routes == null || typeof descriptor.routes !== "object" || Array.isArray(descriptor.routes) ||

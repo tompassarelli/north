@@ -1,4 +1,4 @@
-;; orchestration-project-cli.clj — Phase 1 catalog PROJECTOR for the Gaffer ->
+;; orchestration-project-cli.clj — Phase 1 catalog PROJECTOR for the Orchestration ->
 ;; North Orchestration migration (thread 019f8f5c-74e0-7be7-ba65-3179f1bccde1).
 ;;
 ;; Reconstructs the canonical JSON of the imported catalog subgraph (staffing
@@ -197,7 +197,7 @@
 ;;                      bump changes stored+projection but not THIS).
 ;; A floor therefore moves only by a policy version bump, never a bare write.
 ;; ---------------------------------------------------------------------------
-(defn gaffer-root []
+(defn orchestration-root []
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
       (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 
@@ -211,7 +211,7 @@
                       (let [f (facts port s)]
                         (rule-map (one f "signal") (one f "signal_value")
                                   (one f "rule_code") (one f "min_tier") (one f "min_reasoning"))))
-        validator-rules (enumerate-selection-rules (gaffer-root))]
+        validator-rules (enumerate-selection-rules (orchestration-root))]
     {"policyVersion" "minimum-sufficient-v1"
      "catalogVersion" ver
      "storedSha256" stored
@@ -221,7 +221,7 @@
 ;; ---------------------------------------------------------------------------
 ;; §3.1 point 6 — receipt catalog pin. The admission receipt's catalog-FILE
 ;; sha256s (staffingCatalogSha256/providerCatalogsSha256 in routing-economics.ts,
-;; computed over Gaffer JSON on disk) are replaced, under NORTH_STAFFING_SOURCE=
+;; computed over Orchestration JSON on disk) are replaced, under NORTH_STAFFING_SOURCE=
 ;; graph, by (a) the digest of the canonical JSON projection of the catalog
 ;; subgraph and (b) two version watermarks — so the receipt names the EXACT graph
 ;; state admission accepted rather than a file the graph may no longer mirror:

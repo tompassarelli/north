@@ -252,8 +252,8 @@
               "composition_overrides" "[\"tier\"]"
               "composition_override_reason" "critical seam" "repo" "north"
               "goal" "prove atomic publication" "spawned_at" "2026-07-17T01:00:00Z"
-              "display_handle" "anthropic-a-opus-high-gaffer-integrator-probe"
-              "display_name" "anthropic:claude-a · opus · high · gaffer:integrator"}
+              "display_handle" "anthropic-a-opus-high-orchestration-integrator-probe"
+              "display_name" "anthropic:claude-a · opus · high · orchestration:integrator"}
       bespoke {"kind" "lane" "role" "migration-forensics" "model" "gpt-5.6-sol"
                "provider" "openai" "provider_target" "codex-b" "effort" "xhigh"
                "live_input" "unsupported" "live_input_state" "frozen"
@@ -266,8 +266,8 @@
                "composition_contract_fingerprint_domain" "north:bespoke-contract:v1"
                "repo" "north" "goal" "prove clean sequential reuse"
                "spawned_at" "2026-07-17T01:01:00Z"
-               "display_handle" "openai-b-sol-xhigh-gaffer-bespoke-probe"
-               "display_name" "openai:codex-b · sol · xhigh · gaffer:bespoke:migration-forensics"}]
+               "display_handle" "openai-b-sol-xhigh-orchestration-bespoke-probe"
+               "display_name" "openai:codex-b · sol · xhigh · orchestration:bespoke:migration-forensics"}]
   (reset! test-log (.getCanonicalPath log))
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] @test-log)))
@@ -430,8 +430,8 @@
                  "live_input" "streaming" "live_input_state" "armed"
                  "live_input_epoch" "00000000-0000-4000-8000-000000000103"
                  "model" "claude-opus-4-8" "effort" "high"
-                 "display_handle" "anthropic-c-opus-high-gaffer-bespoke-probe"
-                 "display_name" "anthropic:claude-c · opus · high · gaffer:bespoke:migration-forensics"}
+                 "display_handle" "anthropic-c-opus-high-orchestration-bespoke-probe"
+                 "display_name" "anthropic:claude-c · opus · high · orchestration:bespoke:migration-forensics"}
           route-result (run-writer port "route" subject (json/generate-string route))
           raw-stored (entity-facts port subject)
           stored (scalar-facts raw-stored)]
@@ -445,7 +445,7 @@
                 (get stored "identity_manifest_sha256"))))
 
     (let [retask {"goal" "new durable goal"
-                  "display_name" "anthropic:claude-c · opus · high · gaffer:bespoke:migration-forensics · new durable goal"}
+                  "display_name" "anthropic:claude-c · opus · high · orchestration:bespoke:migration-forensics · new durable goal"}
           retask-result (run-writer port "retask" subject (json/generate-string retask))
           raw-stored (entity-facts port subject)
           stored (scalar-facts raw-stored)]
@@ -521,7 +521,7 @@
                         "live_input_epoch" "00000000-0000-4000-8000-000000000104"
                         "model" "gpt-5.6-sol" "effort" "high"
                         "display_handle" "openai-held-sol-high-integrator"
-                        "display_name" "openai:codex-held · sol · high · gaffer:integrator"}
+                        "display_name" "openai:codex-held · sol · high · orchestration:integrator"}
               :verify #(= #{"gpt-5.6-sol"} (get % "model"))}
              {:operation "retask"
               :payload {"goal" "held retask committed"
@@ -689,7 +689,7 @@
            "live_input_epoch" "00000000-0000-4000-8000-000000000105"
            "model" "gpt-5.6-sol" "effort" "high"
            "display_handle" "openai-race-sol-high-integrator"
-           "display_name" "openai:codex-race · sol · high · gaffer:integrator"}
+           "display_name" "openai:codex-race · sol · high · orchestration:integrator"}
           operations
           (mapv
            (fn [index]
@@ -1048,7 +1048,7 @@
            "model" "gpt-5.6-sol"
            "effort" "xhigh"
            "display_handle" "openai-recovery-sol-xhigh-integrator"
-           "display_name" "openai:codex-recovery · sol · xhigh · gaffer:integrator"}
+           "display_name" "openai:codex-recovery · sol · xhigh · orchestration:integrator"}
           desired (merge preset route-delta)
           old-marker (north.agent-provenance/manifest-sha256 preset)
           new-marker (north.agent-provenance/manifest-sha256 desired)
@@ -1099,7 +1099,7 @@
            "live_input_epoch" "00000000-0000-4000-8000-000000000122"
            "model" "gpt-5.6-sol" "effort" "xhigh"
            "display_handle" "openai-lost-ack-sol-xhigh-integrator"
-           "display_name" "openai:codex-lost-ack · sol · xhigh · gaffer:integrator"}
+           "display_name" "openai:codex-lost-ack · sol · xhigh · orchestration:integrator"}
           desired (merge preset route-delta)
           holder "managed-agent-writer:00000000-0000-4000-8000-000000000122"
           resource (identity-write-resource subject)
@@ -1137,13 +1137,13 @@
            "live_input_epoch" "00000000-0000-4000-8000-000000000123"
            "model" "gpt-5.6-sol" "effort" "xhigh"
            "display_handle" "openai-intended-sol-xhigh-integrator"
-           "display_name" "openai:codex-intended · sol · xhigh · gaffer:integrator"}
+           "display_name" "openai:codex-intended · sol · xhigh · orchestration:integrator"}
           desired (merge preset route-delta)
           successor (assoc desired
                            "provider_target" "codex-successor"
                            "live_input_epoch" "00000000-0000-4000-8000-000000000124"
                            "display_handle" "openai-successor-sol-xhigh-integrator"
-                           "display_name" "openai:codex-successor · sol · xhigh · gaffer:integrator")
+                           "display_name" "openai:codex-successor · sol · xhigh · orchestration:integrator")
           _ (seed-identity! port subject successor)
           before (entity-facts port subject)
           result (run-managed-writer
@@ -1542,7 +1542,7 @@
            "live_input_epoch" "00000000-0000-4000-8000-000000000125"
            "model" "gpt-5.6-sol" "effort" "xhigh"
            "display_handle" "openai-after-terminal-sol-xhigh-integrator"
-           "display_name" "openai:codex-after-terminal · sol · xhigh · gaffer:integrator"}
+           "display_name" "openai:codex-after-terminal · sol · xhigh · orchestration:integrator"}
           desired (merge preset route-delta)
           _ (seed-identity! port subject preset)
           terminal-result
@@ -1566,12 +1566,12 @@
                         "role" "integrator" "composition_id" "integrator"
                         "goal" "deliver a proof-carrying change"
                         "display_handle" "anthropic-a-opus-high-integrator-worker"
-                        "display_name" "anthropic:claude-a · opus · high · gaffer:integrator")
+                        "display_name" "anthropic:claude-a · opus · high · orchestration:integrator")
           verifier (assoc preset
                           "role" "verifier" "composition_id" "verifier"
                           "goal" "independently attest delivery"
                           "display_handle" "anthropic-a-opus-high-verifier-proof"
-                          "display_name" "anthropic:claude-a · opus · high · gaffer:verifier")
+                          "display_name" "anthropic:claude-a · opus · high · orchestration:verifier")
           run-evidence (array-map
                         "bar" "tests pass"
                         "observed" "24/24"

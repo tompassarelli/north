@@ -1,17 +1,17 @@
-# gaffer
+# orchestration
 
-*Every squad needs a gaffer.*
+*Every squad needs a orchestration.*
 
-**Gaffer is a provider-neutral routing doctrine for multi-agent orchestration**
+**Orchestration is a provider-neutral routing doctrine for multi-agent orchestration**
 — usable from any CLI or harness, not tied to one vendor. Orchestrating
 agentic workflows is complicated. Which models, at what deliberation?
 Template workers or purpose-built compositions? How should each worker be
-prompted, and what should each report back? **Let the gaffer figure it out.**
+prompted, and what should each report back? **Let the orchestration figure it out.**
 
-Gaffer's portable core (routing laws, template library, payload method) is
+Orchestration's portable core (routing laws, template library, payload method) is
 adapter-agnostic; concrete delivery happens through adapters, of which two
 ship today: a Claude Code plugin adapter and a [North multi-provider execution
-adapter](docs/adapters/north.md). Gaffer chooses the semantic route; the
+adapter](docs/adapters/north.md). Orchestration chooses the semantic route; the
 adapter resolves it to the provider, model, and reasoning/effort — whether
 it's a single worker or a multi-stage workflow.
 
@@ -41,24 +41,24 @@ Install it and your sessions gain:
 
    | Agent | Semantic route | Shape it plays |
    |---|---|---|
-   | `gaffer:executor` | economy / low | bounded mechanical changes |
-   | `gaffer:implementer` | standard / medium | one feature/fix inside known patterns |
-   | `gaffer:integrator` | senior / high | cross-seam work, ambiguous debugging, behavior-at-stake refactors |
-   | `gaffer:designer` | frontier / xhigh | choosing shapes: APIs, data models, decomposition (decision-only, read-only tools) |
-   | `gaffer:director` | frontier / xhigh | decompose, independently staff, consume evidence, and reconcile multi-agent work |
-   | `gaffer:scout` | economy / low | locate, map, gather sources (breadth, fan-out) |
-   | `gaffer:analyst` | senior / high | deep-dive: how/why it works, root-cause, design-grounding (read-only) |
-   | `gaffer:reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
-   | `gaffer:verifier` | senior / high | adversarial verification of one claim (justified overrides may move up or down; quality floor binds) |
-   | `gaffer:judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
-   | `gaffer:research-scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
+   | `orchestration:executor` | economy / low | bounded mechanical changes |
+   | `orchestration:implementer` | standard / medium | one feature/fix inside known patterns |
+   | `orchestration:integrator` | senior / high | cross-seam work, ambiguous debugging, behavior-at-stake refactors |
+   | `orchestration:designer` | frontier / xhigh | choosing shapes: APIs, data models, decomposition (decision-only, read-only tools) |
+   | `orchestration:director` | frontier / xhigh | decompose, independently staff, consume evidence, and reconcile multi-agent work |
+   | `orchestration:scout` | economy / low | locate, map, gather sources (breadth, fan-out) |
+   | `orchestration:analyst` | senior / high | deep-dive: how/why it works, root-cause, design-grounding (read-only) |
+   | `orchestration:reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
+   | `orchestration:verifier` | senior / high | adversarial verification of one claim (justified overrides may move up or down; quality floor binds) |
+   | `orchestration:judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
+   | `orchestration:research-scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
 
    Exact versioned model pins are generated from the dated provider catalogs;
    see [`docs/provider-matrix.md`](docs/provider-matrix.md). Every exact catalog
    model must have official model-family, availability, and effort-support
    provenance; provider-wide union coverage cannot substitute for a model's
    missing scope. Model entries separately record provider-supported levels
-   within Gaffer's deliberation vocabulary and calibrated exact per-tier route
+   within Orchestration's deliberation vocabulary and calibrated exact per-tier route
    shingles. Raw support never implies a tier cross-product or a live account.
 
    The template library also staffs **workflow stages**. The doctrine tells the
@@ -70,14 +70,14 @@ Install it and your sessions gain:
    coordinator drives the assembled result end-to-end and independently
    spot-checks materially load-bearing seams, and an independently staffed
    verifier returns a verdict with the probe and observed result where the
-   outcome calls for one. Current lanes share one OS uid, so Gaffer does not
+   outcome calls for one. Current lanes share one OS uid, so Orchestration does not
    treat that staffing separation as security-grade attestation; `attested` or
    `verified` status is reserved for a future protected trust boundary.
 
 3. **Skills**:
    - `compose` — assemble a bespoke (custom) composition for spawns the
      templates do not cover (Workflow calls, unusual pairings).
-   - `elicit` — calibrate a payload for a model gaffer doesn't know yet,
+   - `elicit` — calibrate a payload for a model orchestration doesn't know yet,
      using the method below.
 
 ## The payload method (the interesting part)
@@ -107,22 +107,22 @@ Full rationale: [`docs/method.md`](docs/method.md).
 ### Claude Code plugin
 
 ```
-/plugin marketplace add tompassarelli/gaffer
-/plugin install gaffer@gaffer
+/plugin marketplace add tompassarelli/orchestration
+/plugin install orchestration@orchestration
 ```
 
-Start a new session — you'll see `GAFFER ACTIVE` in the session context.
+Start a new session — you'll see `ORCHESTRATION ACTIVE` in the session context.
 Then delegate normally: the session routes by shape, or spawn a template
-worker directly via the Agent tool (`subagent_type: "gaffer:implementer"`).
+worker directly via the Agent tool (`subagent_type: "orchestration:implementer"`).
 
 ### North multi-provider harness
 
-North consumes Gaffer's `staffing/catalog.json` and `providers/*.json` directly,
+North consumes Orchestration's `staffing/catalog.json` and `providers/*.json` directly,
 accepts the portable eight-field routing request, then selects an authenticated
 subscription account and concrete provider runtime. The generated
 [North adapter contract](docs/adapters/north.md) documents the spawn surface
 and fail-closed capability mapping. Exact-model pins additionally require both
-Gaffer's static exact-route acceptance and North's independent proof of an
+Orchestration's static exact-route acceptance and North's independent proof of an
 available authenticated target; install and bootstrap North itself rather
 than applying the Claude plugin commands above.
 
@@ -175,11 +175,11 @@ Worker authority is terminal. Orchestrator authority may recursively staff a
 worker or child orchestrator when that child's local dependency shape warrants
 it, but every child crosses a fresh North admission, routing, resource, metering,
 and settlement boundary. The immediate parent owns reduction. Explicit budgets,
-cycle/no-progress controls, and settlement gates stop recursion; Gaffer does not
+cycle/no-progress controls, and settlement gates stop recursion; Orchestration does not
 impose a global depth cap. Provider-native opaque fanout is not equivalent and
 remains unavailable under North until the same per-child boundary is enforceable.
 
-Gaffer also separates task economics from provider state. The seven
+Orchestration also separates task economics from provider state. The seven
 minimum-sufficient signals capture where better judgment changes outcomes and
 how work composes; dependency shape argues for one worker, a fixed workflow, a
 director with parallel workers, or a strong sequential worker plus a verifier
@@ -189,7 +189,7 @@ only role, task grade, domain requirements, topology (`worker`/`orchestrator`),
 tier, reasoning, posture, and composition; the composer validates the semantic
 pair and North resolves its provider/account/model. Allocation strategy,
 candidate waterfalls, resolved model, account identity, and resource pressure
-are North's runtime facts, never Gaffer request fields. Same-tier substitution
+are North's runtime facts, never Orchestration request fields. Same-tier substitution
 may happen automatically before side effects; lowering capability or
 verification is explicit degradation.
 
@@ -228,23 +228,23 @@ remain compatible.
   [LangChain](https://docs.langchain.com/oss/python/langchain/multi-agent),
   [AutoGen](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/teams.html),
   and [Google ADK](https://adk.dev/workflows/patterns/) likewise emphasize
-  choosing multi-agent patterns only when coordination pays. Gaffer borrows
+  choosing multi-agent patterns only when coordination pays. Orchestration borrows
   those patterns; its own layer is the independent routing axes, enforceable
   template/bespoke contracts, and the semantic-tier/deliberation boundary with
   runtime subscription allocation.
 - [tzachbon/claude-model-router-hook](https://github.com/tzachbon/claude-model-router-hook) —
   same delivery mechanism (SessionStart-injected routing rules), keyword-based
-  three-model tiers. Gaffer adds the shape taxonomy, effort as a first-class
+  three-model tiers. Orchestration adds the shape taxonomy, effort as a first-class
   dial, and the layer-floor / shingle laws.
 - [wshobson/agents](https://github.com/wshobson/agents) — model pinning at
   scale (194 domain agents). No effort pinning; domain taxonomy rather than
   task-shape taxonomy.
 - [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)'s
   cavecrew agents — the scope-refusal, redirect-protocol, and compact
-  report-contract patterns, which gaffer's agents adopt. Cavecrew optimizes
-  coordinator context; gaffer optimizes routing + calibration.
+  report-contract patterns, which orchestration's agents adopt. Cavecrew optimizes
+  coordinator context; orchestration optimizes routing + calibration.
 - Anthropic's per-model prompting guides — prior art for per-model
-  behavioral calibration as a concept. Gaffer's contribution is the
+  behavioral calibration as a concept. Orchestration's contribution is the
   mechanism: elicit a contamination-guarded self-report from the model,
   subtract what it already does natively, compile only the residue into the
   agent's system prompt. We did not find model-and-effort pinning per agent or
@@ -253,6 +253,6 @@ remain compatible.
 
 ## License
 
-Gaffer is dual-licensed under your choice of the [MIT License](LICENSE-MIT) or
+Orchestration is dual-licensed under your choice of the [MIT License](LICENSE-MIT) or
 the [Apache License, Version 2.0](LICENSE-APACHE)
 (`MIT OR Apache-2.0`).

@@ -1,5 +1,5 @@
 /**
- * Phase 1 dual-read parity probe for the Gaffer -> North Orchestration migration
+ * Phase 1 dual-read parity probe for the Orchestration -> North Orchestration migration
  * (thread 019f8f5c). The `north spawn ... --dry-run` equivalent: it composes the
  * exact staffing + provider resolution the spawn path uses, once with
  * NORTH_STAFFING_SOURCE=file and once with =graph, and asserts the two are
@@ -9,7 +9,7 @@
  *
  * Exit 0 on byte-identical parity across both flag values; 1 on any divergence.
  */
-import { applyGafferStaffing, gafferCapabilities, loadGafferStaffing } from "./gaffer-staffing";
+import { applyOrchestrationStaffing, orchestrationCapabilities, loadOrchestrationStaffing } from "./orchestration-staffing";
 import { resolveTier, SEMANTIC_TIER_ORDER } from "./providers/catalog";
 import type { ProviderId } from "./providers/types";
 import type { RoutingDraft } from "./routing-metadata";
@@ -17,9 +17,9 @@ import type { RoutingDraft } from "./routing-metadata";
 const PROVIDERS: ProviderId[] = ["anthropic", "openai"];
 
 function composeAll(role: string): unknown {
-  const catalog = loadGafferStaffing();
-  const request = applyGafferStaffing({ role } as RoutingDraft, catalog);
-  const capabilities = gafferCapabilities(request, catalog);
+  const catalog = loadOrchestrationStaffing();
+  const request = applyOrchestrationStaffing({ role } as RoutingDraft, catalog);
+  const capabilities = orchestrationCapabilities(request, catalog);
   const routes: Record<string, unknown> = {};
   for (const provider of PROVIDERS) {
     for (const tier of SEMANTIC_TIER_ORDER) {

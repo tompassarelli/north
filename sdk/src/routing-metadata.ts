@@ -1,7 +1,7 @@
 import {
-  validateTopologyCapabilities, type GafferCapability,
-} from "./gaffer-capabilities";
-import { requireGafferRoleId } from "./gaffer-role-id";
+  validateTopologyCapabilities, type OrchestrationCapability,
+} from "./orchestration-capabilities";
+import { requireOrchestrationRoleId } from "./orchestration-role-id";
 import { canonicalBespokeContract } from "./bespoke-contract";
 import { requireProviderNeutralRoute } from "./provider-neutral-route";
 
@@ -28,7 +28,7 @@ export type RoutingOverrideField = typeof ROUTING_OVERRIDE_FIELDS[number];
 export interface BespokeContract {
   responsibility: string;
   deliverable: string;
-  capabilities: GafferCapability[];
+  capabilities: OrchestrationCapability[];
   mayDecide: string[];
   mustEscalate: string[];
   doneWhen: string[];
@@ -111,14 +111,14 @@ function nonEmptyStrings(value: unknown, field: string, requireItems = false): s
 }
 
 export function canonicalRole(role?: string): string | undefined {
-  return role === undefined ? undefined : requireGafferRoleId(role);
+  return role === undefined ? undefined : requireOrchestrationRoleId(role);
 }
 
 export function validateRoutingMetadata(value: RoutingDraft): RoutingDraft {
   if (value == null || typeof value !== "object" || Array.isArray(value))
     throw new Error("routing metadata must be an object");
   rejectUnknownFields(value, ROUTING_FIELDS, "routing metadata");
-  const role = value.role === undefined ? undefined : requireGafferRoleId(value.role);
+  const role = value.role === undefined ? undefined : requireOrchestrationRoleId(value.role);
   const taskGrade = member(TASK_GRADES, value.taskGrade, "taskGrade");
   const topology = member(TOPOLOGIES, value.topology, "topology");
   const tier = member(SEMANTIC_TIERS, value.tier, "tier");
@@ -211,7 +211,7 @@ export function parseCompleteRoutingRequest(
   const missing = ROUTING_REQUEST_FIELDS.filter((field) => normalized[field] === undefined);
   if (missing.length) {
     throw new Error(
-      `${surface} requires the complete eight-field Gaffer request; missing: ${missing.join(", ")}`
+      `${surface} requires the complete eight-field Orchestration request; missing: ${missing.join(", ")}`
       + " (recover the valid payload shape: north show @contract:dispatch)",
     );
   }

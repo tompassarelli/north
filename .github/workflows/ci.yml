@@ -25,8 +25,8 @@ jobs:
           {
             echo "fram_repository=$(north/bin/github-flake-input-pin north/flake.lock fram repository)"
             echo "fram_ref=$(north/bin/github-flake-input-pin north/flake.lock fram revision)"
-            echo "gaffer_repository=$(north/bin/github-flake-input-pin north/flake.lock gaffer repository)"
-            echo "gaffer_ref=$(north/bin/github-flake-input-pin north/flake.lock gaffer revision)"
+            echo "orchestration_repository=$(north/bin/github-flake-input-pin north/flake.lock orchestration repository)"
+            echo "orchestration_ref=$(north/bin/github-flake-input-pin north/flake.lock orchestration revision)"
           } >> "$GITHUB_OUTPUT"
       - name: Checkout Fram engine (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -159,7 +159,7 @@ jobs:
       - name: Agent projection and routing report boundaries
         working-directory: north
         env:
-          GAFFER_HOME: ${{ github.workspace }}/gaffer
+          ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration
         run: |
           set -euo pipefail
           timeout --foreground 120s bb cli/tests/agents-cli-test.clj

@@ -6,14 +6,14 @@
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def cli (str root "/cli/north-map.clj"))
-(def gaffer (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-                (str (.getParent (io/file root)) "/gaffer")))
+(def orchestration (or (System/getenv "NORTH_ORCHESTRATION_HOME")
+                (str (.getParent (io/file root)) "/orchestration")))
 (def checks (atom []))
 (defn check [label value] (swap! checks conj [label (boolean value)]))
 (load-file (str root "/cli/batch-id.clj"))
 (defn run [role]
   (proc/shell {:out :string :err :string :continue true
-               :extra-env {"NORTH_ORCHESTRATION_HOME" gaffer "AGENT_TOPOLOGY" "orchestrator"}}
+               :extra-env {"NORTH_ORCHESTRATION_HOME" orchestration "AGENT_TOPOLOGY" "orchestrator"}}
               "bb" cli "59999" "map" role "1" "probe"))
 
 (let [director (run "director") unknown (run "made-up")]
@@ -23,7 +23,7 @@
               (not (str/includes? (str (:out director) (:err director)) "Connection refused"))))
   (check "unknown role is rejected before batch registration"
          (and (not (zero? (:exit unknown)))
-              (str/includes? (:err unknown) "unknown Gaffer worker preset")
+              (str/includes? (:err unknown) "unknown Orchestration worker preset")
               (not (str/includes? (str (:out unknown) (:err unknown)) "Connection refused")))))
 
 (let [now (java.time.LocalDateTime/of 2026 7 19 23 59 59)
@@ -47,7 +47,7 @@
       _ (.setExecutable sentinel true)
       result
       (proc/shell {:out :string :err :string :continue true
-                   :extra-env {"NORTH_ORCHESTRATION_HOME" gaffer
+                   :extra-env {"NORTH_ORCHESTRATION_HOME" orchestration
                                "AGENT_TOPOLOGY" "orchestrator"
                                "NORTH_BUN" (.getCanonicalPath sentinel)}}
                   "bb" cli "59999" "map" "verifier" "1" "probe")]

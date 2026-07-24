@@ -7,7 +7,7 @@ import { probeAnthropic } from "../provider-routing";
 import { observeAnthropicQuery } from "./anthropic-observations";
 import { providerEnvironmentForTarget } from "../accounts";
 import { resolve } from "node:path";
-import { requireGafferCapabilities } from "../gaffer-capabilities";
+import { requireOrchestrationCapabilities } from "../orchestration-capabilities";
 import {
   admitExecution, admitPinnedProvider, consumeExecutionAdmission,
   validateManagedExecutionEnvelope,
@@ -122,9 +122,9 @@ export function normalizeAnthropicQueryDiagnostics(source: AgentQuery): AgentQue
   };
 }
 
-function validateAnthropicHarness(options: any): ReturnType<typeof requireGafferCapabilities> | undefined {
+function validateAnthropicHarness(options: any): ReturnType<typeof requireOrchestrationCapabilities> | undefined {
   if (!options || !("northCapabilities" in options)) return undefined;
-  const capabilities = requireGafferCapabilities(
+  const capabilities = requireOrchestrationCapabilities(
     options.northCapabilities, "northCapabilities",
   );
   if (!hasCanonicalHarnessAuthority(options, "anthropic"))
@@ -305,7 +305,12 @@ export function createAnthropicQuery(
         source = runtime.observe(
           normalizeAnthropicQueryDiagnostics({
             executionTransport: "anthropic-agent-sdk",
-            interrupt: () => rawQuery!.interrupt(),
+            // agent-sdk 0.3.219 widened interrupt() to resolve an
+            // SDKControlInterruptResponse; AgentQuery.interrupt stays
+            // Promise<void>, so await and discard. Rejections still propagate
+            // to normalizeAnthropicQueryDiagnostics, which maps them onto
+            // anthropic_provider_execution_failed exactly as before.
+            interrupt: async () => { await rawQuery!.interrupt(); },
             close: async () => {
               try { await disposeAnthropicSdkQuery(rawQuery, lifecycle, ownedAbort); }
               finally { detachCallerAbort?.(); }

@@ -32,7 +32,7 @@
 ;; sample (MIN-ADVISORY-RESPONSES / MIN-ADVISORY-SESSIONS) the verdict is always
 ;; insufficient-evidence — a small corpus never yields a recommendation. This is
 ;; ADVICE ONLY: it writes facts on @advisory:*/@mine:* subjects and NEVER touches a
-;; prompt, posture, model, provider, or any Gaffer routing predicate.
+;; prompt, posture, model, provider, or any Orchestration routing predicate.
 ;;
 ;; Facts land on a titleless "@mine:<transcript-stem>" subject (the @run:* pattern —
 ;; queryable via fram, invisible to the work views). Predicate vocabulary is kept SMALL,
@@ -403,7 +403,7 @@
      :verdict verdict}))
 
 ;; PURE projection of an advisory to the fact tuples it would write, so a test can
-;; PROVE the emitter never touches a routing/prompt/posture/model/Gaffer predicate:
+;; PROVE the emitter never touches a routing/prompt/posture/model/Orchestration predicate:
 ;; every tuple is a fact write ([:put|:append]) on an @advisory:*/@mine:* subject
 ;; drawn from ADVISORY-PREDS alone. This is the no-mutation contract in code.
 (def ^:const ADVISORY-SUBJECT "@advisory:verbosity")

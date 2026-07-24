@@ -27,7 +27,7 @@
 
 (defn identity-defects
   "Return the load-bearing identity proofs that are absent or contradictory.
-  Managed lanes are always Gaffer-selected: `none` is valid only for native
+  Managed lanes are always Orchestration-selected: `none` is valid only for native
   provider sessions and can never cross this startup acknowledgement gate."
   [facts]
   (north.agent-provenance/identity-defects facts))

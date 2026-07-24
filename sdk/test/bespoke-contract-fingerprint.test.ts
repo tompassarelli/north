@@ -8,13 +8,13 @@ import {
   canonicalBespokeContract,
   canonicalBespokeContractPayload,
 } from "../src/bespoke-contract";
-import { gafferAppendix } from "../src/harness";
+import { orchestrationAppendix } from "../src/harness";
 import { agentIdentityFacts } from "../src/identity";
 import { validateRoutingMetadata } from "../src/routing-metadata";
 import { runFacts } from "../src/telemetry";
 
 const north = resolve(import.meta.dir, "../..");
-const gaffer = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "../gaffer");
+const orchestration = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "orchestration");
 const cli = resolve(north, "cli/agents-cli.clj");
 const pinIssuedAt = new Date();
 const openaiPinEvidence = JSON.stringify({
@@ -88,7 +88,7 @@ test("bespoke semantic sets reject duplicates instead of silently weakening the 
 test("routing and harness consume the same canonical contract and fingerprint", () => {
   const metadata = routing(semanticallyEquivalent);
   expect((metadata.composition as any).contract).toEqual(canonicalBespokeContract(contract));
-  const composed = gafferAppendix(metadata, north);
+  const composed = orchestrationAppendix(metadata, north);
   expect(composed.evidence).toMatchObject({
     bespokeContractHash: bespokeContractFingerprint(contract),
     bespokeContractFingerprintVersion: BESPOKE_FINGERPRINT_VERSION,
@@ -149,8 +149,8 @@ test("Clojure dry-run fingerprint is byte-identical and its UI is contract-redac
     env: {
       ...process.env,
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
     },
   });
   expect(result.status).toBe(0);
@@ -188,8 +188,8 @@ test("CLI forwards the canonical contract to the child behind the redacted displ
       ...process.env,
       NORTH_AGENTS_LIB: "1",
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
     },
   });
   expect(result.status).toBe(0);

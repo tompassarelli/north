@@ -1,4 +1,4 @@
-# The method — why gaffer works this way
+# The method — why orchestration works this way
 
 ## Routing: shape, not difficulty
 
@@ -75,13 +75,13 @@ perfection
 ([review standard](https://google.github.io/eng-practices/review/reviewer/standard.html));
 and GitHub gives review an explicit approve/request-changes/comment disposition
 ([pull-request reviews](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews)).
-Gaffer generalizes beyond code to any one supplied artifact while preserving
+Orchestration generalizes beyond code to any one supplied artifact while preserving
 read-only authority.
 
 ## Payloads: consumer-calibrated deltas
 
 Generic "best practices" prompts waste budget restating what a model
-already does and dilute the items it actually needs. A gaffer delta is
+already does and dilute the items it actually needs. A orchestration delta is
 built by **elicit → subtract → compile** (see the elicit skill):
 
 1. Elicit the model's own introspective self-report, contamination-guarded.
