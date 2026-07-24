@@ -7,7 +7,7 @@
   "required": ["role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition"],
   "properties": {
     "role": { "$ref": "#/$defs/roleId" },
-    "taskGrade": { "enum": ["novice", "junior", "mid", "senior", "staff", "principal", "research-grade"] },
+    "taskGrade": { "enum": ["novice", "junior", "mid", "senior", "staff", "principal", "distinguished"] },
     "domainRequirements": {
       "type": "array", "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 }

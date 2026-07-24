@@ -64,6 +64,7 @@ const providerDefinitionKeys = [
 ];
 const stockTemplateNames = [
   "executor", "implementer", "integrator", "designer", "director",
+  "team-lead", "program", "portfolio",
   "scout", "analyst", "reviewer", "verifier", "judge", "research-scientist",
 ];
 if (staffing.version !== 2 || staffingSchema.properties?.version?.const !== 2 ||
@@ -494,9 +495,14 @@ try {
 const unrelatedProseFixture = { ...staffing, presets: staffing.presets.map((preset, index) =>
   index === 0 ? { ...preset, description: `${preset.description} Consolidated, fabled resolution.` } : preset) };
 validateProviderNeutralPresetProse(unrelatedProseFixture);
+// Research is a FUNCTION, not a grade: research-scientist is decoupled from the
+// retired research-grade rung and defaults to the staff frontier/xhigh contract
+// it shares with designer and judge. Distinctness from scout is enforced on the
+// task-shape axes (frontier/xhigh worker vs scout's economy/junior), not a grade.
 if (staffing.aliases.some(({ name }) => name === "researcher") ||
     !staffing.presets.find(({ name, taskGrade }) => name === "scout" && taskGrade === "junior") ||
-    !staffing.presets.find(({ name, taskGrade }) => name === "research-scientist" && taskGrade === "research-grade"))
+    !staffing.presets.find(({ name, tier, deliberation, topology }) =>
+      name === "research-scientist" && tier === "frontier" && deliberation === "xhigh" && topology === "worker"))
   throw new Error("research assistant/scout and cutting-edge research-scientist must remain distinct");
 const openaiFixture = providerCatalogs.openai;
 const missingModelDeltas = { ...openaiFixture.modelDeltas };
@@ -868,10 +874,30 @@ if (!reviewer || reviewer.taskGrade !== "senior" || reviewer.tier !== "senior" |
       "filesystem.read", "filesystem.search", "shell.readonly",
     ]))
   throw new Error("reviewer must remain the senior/senior/high read-only worker/evaluate stock template");
-for (const preset of staffing.presets.filter(({ name }) => name !== "director"))
-  if (preset.topology !== "worker") throw new Error(`${preset.name} unexpectedly grants orchestrator topology`);
+// The scope / influence ladder: one orchestrator function at rising
+// coordination breadth. director is the retained un-laddered generic composite
+// orchestrator at the team-lead altitude. Effort rises with breadth but never
+// maxes — team-lead senior/high, program and portfolio frontier/xhigh.
+const orchestratorSeats = new Set(["director", "team-lead", "program", "portfolio"]);
+for (const preset of staffing.presets)
+  if (!orchestratorSeats.has(preset.name) && preset.topology !== "worker")
+    throw new Error(`${preset.name} unexpectedly grants orchestrator topology`);
+for (const name of orchestratorSeats)
+  if (staffing.presets.find((preset) => preset.name === name)?.topology !== "orchestrator")
+    throw new Error(`${name} must remain an orchestrator-topology scope-ladder seat`);
+for (const [name, taskGrade, tier, deliberation] of [
+  ["team-lead", "staff", "senior", "high"],
+  ["program", "principal", "frontier", "xhigh"],
+  ["portfolio", "distinguished", "frontier", "xhigh"],
+]) {
+  const seat = staffing.presets.find((preset) => preset.name === name);
+  if (!seat || seat.taskGrade !== taskGrade || seat.tier !== tier ||
+      seat.deliberation !== deliberation || seat.posture !== "deliver")
+    throw new Error(`${name} must remain the ${taskGrade}/${tier}/${deliberation} deliver scope-ladder orchestrator`);
+}
 const nonAuthoringPresets = [
-  "designer", "director", "scout", "analyst", "reviewer", "verifier", "judge",
+  "designer", "director", "team-lead", "program", "portfolio",
+  "scout", "analyst", "reviewer", "verifier", "judge",
   "research-scientist",
 ];
 for (const name of nonAuthoringPresets) {
@@ -1014,7 +1040,7 @@ for (const alias of staffing.aliases) {
   if (nominated.status !== 0 || nominated.payload.composition.kind !== "bespoke" ||
       nominated.payload.composition.promotionCandidate !== true || nominated.payload.composition.contract.doneWhen.length !== 1)
     throw new Error(`bespoke contract/promotion decision failed: ${nominated.stderr}`);
-  const explicitAxes = ["--task-grade", "research-grade", "--topology", "worker",
+  const explicitAxes = ["--task-grade", "distinguished", "--topology", "worker",
     "--tier", "frontier", "--deliberation", "xhigh", "--posture", "explore"];
   const novel = compose(["novel-systems-inquiry", ...explicitAxes,
     "--rationale", "no existing stock template is a truthful reference",

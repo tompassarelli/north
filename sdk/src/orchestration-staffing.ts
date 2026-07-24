@@ -42,6 +42,7 @@ interface StaffingCatalog {
 export const ORCHESTRATION_STOCK_ROLE_IDS = [
   "executor", "implementer", "integrator", "designer", "director", "scout",
   "analyst", "reviewer", "verifier", "judge", "research-scientist",
+  "team-lead", "program", "portfolio",
 ] as const;
 const STOCK_AUTHORING_ROLES = new Set(["executor", "implementer", "integrator"]);
 

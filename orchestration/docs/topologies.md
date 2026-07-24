@@ -3,10 +3,24 @@
 Topology is conceptually independent of role, grade, tier, reasoning, and
 posture. It says whether an agent owns one terminal piece or owns decomposition
 and reduction. Orchestration's current stock templates deliberately ship fixed,
-enforceable topology/capability pairings: director is an orchestrator with
-coordination authority; every other stock template is a worker without it.
-Use a bespoke composition when a different pairing is required rather than
-assuming that a stock topology can be overridden.
+enforceable topology/capability pairings: the orchestrator seats — director and
+the team-lead → program → portfolio scope ladder — carry coordination
+authority; every other stock template is a worker without it. Use a bespoke
+composition when a different pairing is required rather than assuming that a
+stock topology can be overridden.
+
+The orchestrator seats form a SCOPE / INFLUENCE ladder that rises in
+coordination breadth, not raw intelligence: a team-lead (staff) holds one
+workstream, a program (principal) holds several, a portfolio (distinguished)
+holds the board of programs. Each seat declares an explicit CONTEXT ENVELOPE —
+it is given its own layer in full and the layer above only as constraints, and
+is deliberately NOT given the interior detail of the layer below. Getting this
+wrong in either direction fails: too little context tunnel-visions the seat,
+too much drowns it and dissolves the altitude that justified it. When work
+exceeds a seat's envelope, escalation is uniform — `north escalate needs-replan`
+up the declared parent chain — never a silent reach into a neighbor's layer.
+director is the un-laddered generic composite orchestrator and sits at the
+team-lead altitude.
 
 ## worker
 

@@ -72,7 +72,7 @@ type OverrideField =
 
 type RoutingRequest = {
   role: string;                 // function / deliverable; stock-template or bespoke name
-  taskGrade: "novice" | "junior" | "mid" | "senior" | "staff" | "principal" | "research-grade";
+  taskGrade: "novice" | "junior" | "mid" | "senior" | "staff" | "principal" | "distinguished";
   domainRequirements: string[];
   topology: "worker" | "orchestrator";                       // coordination authority; reviewer/verifier/judge are worker ROLES
   tier: "economy" | "standard" | "senior" | "frontier";      // model capability floor

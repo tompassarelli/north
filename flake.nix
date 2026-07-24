@@ -16,13 +16,9 @@
       url = "github:tompassarelli/fram";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    orchestration = {
-      url = "github:tompassarelli/orchestration";
-      flake = false;
-    };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, fram, orchestration }:
+  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, fram }:
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [
@@ -299,8 +295,8 @@ PY
         # skills, and private docs stay out of North's closure.
         orchestrationContract = pkgs.stdenvNoCC.mkDerivation {
           pname = "orchestration-runtime-contract";
-          version = builtins.substring 0 12 (orchestration.rev or "local");
-          src = orchestration;
+          version = builtins.substring 0 12 (self.rev or self.dirtyRev or "local");
+          src = ./orchestration;
           dontConfigure = true;
           dontBuild = true;
           installPhase = ''
@@ -1146,7 +1142,7 @@ PY
                    : delta.kind === "none" && Boolean(delta.reason?.trim()));
                if (route.model !== "gpt-5.6-sol" || terra !== "gpt-5.6-terra"
                  || !validTerraDelta || opus !== "claude-opus-4-8" || !validDelta) process.exit(1);'
-            grep -q '^## research-grade$' ${orchestrationContract}/docs/task-grades.md
+            grep -q '^## distinguished$' ${orchestrationContract}/docs/task-grades.md
             grep -q '^## worker$' ${orchestrationContract}/docs/topologies.md
             grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \

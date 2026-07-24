@@ -4,6 +4,24 @@ Task grade describes the work contract, not the worker's identity and not a
 model selection. A higher grade usually widens autonomy, novelty, and
 integration responsibility; semantic tier is chosen separately.
 
+The ladder reads as TWO SEGMENTS on different axes, not one line of "smarter":
+
+- IC / CAPABILITY (novice → junior → mid → senior). Senior is the terminal
+  individual-contributor rung. This segment is the horsepower a task demands,
+  and it drives semantic tier and effort — a harder terminal piece routes
+  higher on this segment.
+- SCOPE / INFLUENCE (staff → principal → distinguished). This segment is the
+  organizational breadth and reduction complexity of the work contract, NOT
+  more raw intelligence. Paired with orchestrator topology it sets coordination
+  breadth — the team-lead (staff) → program (principal) → portfolio
+  (distinguished) seats. Paired with worker topology it marks a terminal
+  deliverable that carries that blast radius (a staff-grade designer or judge
+  decides a system-wide shape but still owns one piece).
+
+Grade stays orthogonal to topology: a staff grade can name a coordinating seat
+or a broad-blast-radius terminal worker. Read capability and scope as separate
+questions and never collapse them into a single "seniority" scalar.
+
 ## novice
 
 ```
@@ -55,10 +73,13 @@ platform direction. Optimize for coherent invariants and reversibility; expose
 second-order effects, governance boundaries, and decisions requiring a human.
 ```
 
-## research-grade
+## distinguished
 
 ```
-TASK GRADE: RESEARCH-GRADE. The answer or method is not assumed known. Frame
-falsifiable hypotheses, design discriminating and reproducible tests, separate
-observation from inference, and state threats to validity and the next test.
+TASK GRADE: DISTINGUISHED. Own the widest organizational scope and influence:
+direction that shapes the board across programs and long horizons. Set the
+priorities and invariants that hold between whole initiatives, expose the
+second-order and cross-program consequences, and name the decisions that
+require a human owner. Reach and influence, not raw problem-solving horsepower,
+define this grade.
 ```

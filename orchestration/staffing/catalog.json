@@ -2,7 +2,7 @@
   "$schema": "./catalog.schema.json",
   "version": 2,
   "vocabulary": {
-    "taskGrades": ["novice", "junior", "mid", "senior", "staff", "principal", "research-grade"],
+    "taskGrades": ["novice", "junior", "mid", "senior", "staff", "principal", "distinguished"],
     "semanticTiers": ["economy", "standard", "senior", "frontier"],
     "deliberations": ["low", "medium", "high", "xhigh", "max"],
     "topologies": ["worker", "orchestrator"],
@@ -44,6 +44,24 @@
       "description": "Director-shaped work — a task with two or more genuinely independent pieces whose seams must be designed, staffed, evidence-reconciled, and integrated. The standard high-capability orchestrator function: classifies each direct child from its local dependency shape, routes every worker or child orchestrator through fresh North admission and metering, consumes worker evidence and reconciled child outcomes, drives the aggregate end-to-end, independently spot-checks materially load-bearing seams, owns direct-child reduction and cross-cutting constraints, and returns one result. It does not execute terminal worker subtasks or absorb their full local-probe burden. Use a worker role for atomic or tightly coupled work; override taskGrade to principal when direction spans systems or long-lived constraints."
     },
     {
+      "name": "team-lead", "taskGrade": "staff", "tier": "senior", "deliberation": "high", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "one workstream reconciled into a single evidence-backed result",
+      "description": "Team-lead orchestration — the first rung of the scope/influence ladder: coordinate ONE workstream, a bounded tree of directly-staffed workers (and tightly-scoped child orchestrators) delivering a single feature or outcome. Classifies each direct child from its local dependency shape, routes every child through fresh North admission and metering, reconciles worker evidence, and drives the workstream end-to-end to one evidence-backed result; it does not execute terminal worker subtasks. CONTEXT ENVELOPE — GIVEN: the full interior of its own workstream (every child brief, done-bar, worker evidence, and intra-workstream seam) plus the program-level interfaces, invariants, deadline and budget that bound it, held as CONSTRAINTS. NOT GIVEN: the interior of sibling workstreams, the program board, cross-workstream sequencing, or portfolio priorities — it sees the program only as a constraint surface, never as detail to reason about. ESCALATION: when a bounding constraint conflicts with delivery, a new cross-workstream seam appears, or scope grows past the one workstream, stop and raise `north escalate needs-replan` (summary + checkpoint + proposed re-decomposition), which routes to the first live agent up the declared parent chain. Scope, not raw intelligence, separates this rung from a worker: it stays at senior tier with high effort. Use program for several workstreams, portfolio for the whole board."
+    },
+    {
+      "name": "program", "taskGrade": "principal", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "several workstreams reconciled into one program outcome, with the cross-workstream seam map",
+      "description": "Program orchestration — the middle rung of the scope/influence ladder: coordinate SEVERAL workstreams toward one program goal. Staffs and reconciles multiple team-lead orchestrators (and workers), owns the seams BETWEEN workstreams, their sequencing, and shared-constraint coherence. Each workstream is freshly admitted through North; nesting never inherits the parent route or budget. CONTEXT ENVELOPE — GIVEN: the program board — every workstream's charter, interface, and done-bar, the cross-workstream seams, and each team-lead's reconciled outcome plus declared risks; the portfolio priorities that bound the program, held as CONSTRAINTS. NOT GIVEN: the full interior detail of every lane inside each workstream (that is each team-lead's to hold; pulling it up drowns the program seat and destroys the altitude that justifies it), nor the other programs in the portfolio or the org roadmap. ESCALATION: when program goals conflict, a cross-program dependency surfaces, or a decision needs portfolio or roadmap authority, stop and raise `north escalate needs-replan`, which routes to the first live agent up the declared parent chain. Deliverable: one reconciled program outcome across workstreams plus the cross-workstream seam map. Breadth widens and effort rises to xhigh; the mandate is coordination reach, not more raw horsepower than a team-lead."
+    },
+    {
+      "name": "portfolio", "taskGrade": "distinguished", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
+      "tagline": "the board held coherent — programs reconciled into one portfolio outcome",
+      "description": "Portfolio orchestration — the top rung of the scope/influence ladder: hold the whole BOARD. Coordinate multiple programs or independent initiatives, own cross-program seams, priority and sequencing across programs, and the coherence of the aggregate. The top of the standing tree, below only a human owner. CONTEXT ENVELOPE — GIVEN: the board of programs — each program's charter, top-level outcome, and cross-program dependencies, and the priority and allocation decisions among them; the human owner's stated goals and policy, held as CONSTRAINTS. NOT GIVEN: the interior of any workstream or lane, individual worker evidence, or per-lane execution detail — it reasons in programs and cross-program seams, and pulling lane detail up collapses the altitude that justifies the seat. ESCALATION: when priorities genuinely conflict at portfolio level, an initiative must be killed or rechartered, or a decision needs human policy or authority, stop and raise `north escalate needs-replan` to the human owner, its declared parent. Deliverable: one reconciled portfolio outcome plus the cross-program seam and priority map. Effort stays at xhigh and never max; the distinction from program is coordination breadth, not raw intelligence."
+    },
+    {
       "name": "scout", "taskGrade": "junior", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "gathered findings, with provenance",
@@ -74,10 +92,10 @@
       "description": "Rubric-backed scoring and selection among two or more supplied alternatives — judge panels over design attempts, choosing a winner, and identifying what to graft from runners-up. It does not verify a single claim or invent the candidate set. Staff-grade frontier judgment; produces a ranked decision, not code — read-only tools by design."
     },
     {
-      "name": "research-scientist", "taskGrade": "research-grade", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "name": "research-scientist", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
-      "description": "Research-grade inquiry — open solution class, novel method, or cutting-edge computer-science work. Frames competing hypotheses, designs discriminating experiments, and may invoke existing non-mutating tools or probes only. It does not author a new script, fixture, experimental apparatus, or code, even as ephemeral scratch; hand that work to an authoring role. Frontier capability with high deliberation; do NOT use for source gathering (→ scout), ordinary root-cause analysis (→ analyst), or selecting among known designs (→ designer)."
+      "description": "Research-science inquiry — open solution class, novel method, or cutting-edge computer-science work. Research is a FUNCTION, not a grade: this seat defaults to the staff-grade frontier contract it shares with designer and judge and may be overridden to any grade its task actually warrants. Frames competing hypotheses, designs discriminating experiments, and may invoke existing non-mutating tools or probes only. It does not author a new script, fixture, experimental apparatus, or code, even as ephemeral scratch; hand that work to an authoring role. Frontier capability with high deliberation; do NOT use for source gathering (→ scout), ordinary root-cause analysis (→ analyst), or selecting among known designs (→ designer)."
     }
   ],
   "aliases": []
