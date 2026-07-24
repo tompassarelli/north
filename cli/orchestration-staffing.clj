@@ -26,15 +26,20 @@
    "capabilities" #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
                     "shell.readonly" "web" "coordination" "graph-authoring.fram"}})
 
-(defn catalog-path []
-  (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-      (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-               (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration"))
-           "/staffing/catalog.json")))
+;; Derive the repo root from THIS file's own location (<root>/cli/…), never
+;; user.dir: an MCP subprocess inherits whatever cwd its parent had, which
+;; resolved to ~/code and produced ~/code/orchestration.
+(def ^:private this-root
+  (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile .getPath))
 
 (defn- orchestration-root []
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
+      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
+
+(defn catalog-path []
+  (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
+      (str (orchestration-root) "/staffing/catalog.json")))
+
 
 (defn- provider-supports-route? [provider tier reasoning]
   (try

@@ -30,7 +30,7 @@ const assessment: RoutingAssessment = {
 };
 
 test("North's strict Ajv 2020 consumer compiles Orchestration's assessment schema before admission", () => {
-  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(homedir(), "code/orchestration"));
+  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "../..", "orchestration"));
   const schema = JSON.parse(readFileSync(
     resolve(orchestrationRoot, "contracts/selection-assessment.schema.json"), "utf8",
   ));

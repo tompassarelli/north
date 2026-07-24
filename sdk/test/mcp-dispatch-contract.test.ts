@@ -7,7 +7,7 @@ import { presetRequest } from "./routing-fixtures";
 import type { RoutingRequest } from "../src/routing-metadata";
 
 const temporary: string[] = [];
-const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../../..", "orchestration");
+const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../..", "orchestration");
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
@@ -264,6 +264,7 @@ test("managed parent copied selectors without pin evidence are rejected before S
       AGENT_PROVIDER: copiedSelectors.provider,
       AGENT_TARGET: copiedSelectors.target,
       AGENT_MODEL: copiedSelectors.model,
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_MCP_BUN: fakeBun,
       NORTH_POLICY_BUN: fakeBun,
     },
@@ -296,6 +297,7 @@ test("MCP rejects an invalid detector override before SDK launch", () => {
     encoding: "utf8",
     env: {
       ...process.env,
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_MCP_BUN: fakeBun,
       NORTH_POLICY_BUN: process.execPath,
       STRUGGLE_STALL_TURNS: "0",
@@ -587,6 +589,7 @@ test("canonical assessment preflight rejects tampering before driver claim or SD
     env: {
       ...process.env,
       NORTH_POLICY_BUN: process.execPath,
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_MCP_BUN: fakeBun,
       NORTH_MCP_BB: fakeBb,
     },
@@ -624,6 +627,7 @@ test("MCP rejects a new unassessed max request before SDK launch", () => {
     env: {
       ...process.env,
       NORTH_POLICY_BUN: process.execPath,
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_MCP_BUN: fakeBun,
     },
   });
@@ -698,7 +702,8 @@ exit 3
         ...presetRequest("verifier"),
       } } })}\n`,
     encoding: "utf8",
-    env: { ...process.env, NORTH_MCP_BUN: fakeBun, NORTH_MCP_BB: fakeBb, NORTH_MCP_MARKER: marker },
+    env: { ...process.env, NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      NORTH_MCP_BUN: fakeBun, NORTH_MCP_BB: fakeBb, NORTH_MCP_MARKER: marker },
   });
   expect(result.status).toBe(0);
   const response = JSON.parse(result.stdout.trim());
