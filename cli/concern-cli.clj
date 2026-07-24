@@ -209,11 +209,13 @@
 ;; the split-brain that stranded `reached landed` facts invisibly (2026-07-02).
 (defn norm-cid [c] (if (or (nil? c) (str/starts-with? c "@")) c (str "@" c)))
 
-;; one-column datalog query: bind ?e in `body`, return the column
+;; one-column datalog query: bind ?e in `body`, return the column. Reads through
+;; coord/query-rows so a coordinator error map fails closed (typed throw) instead
+;; of masquerading as an empty concern list.
 (defn q-col [port body]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "e"
-                                   :rules [{:head {:rel "e" :args [{:var "e"}]} :body body}]}}))
+  (->> (north.coord/query-rows
+        port {:find "e"
+              :rules [{:head {:rel "e" :args [{:var "e"}]} :body body}]})
        (map first)))
 
 ;; ---- monotone maturity (decision 8: status is DERIVED, never SET) -----------

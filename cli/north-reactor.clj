@@ -205,23 +205,32 @@
 
 (defn lane-resolution* [h]
   (let [run-projection (runs-tagged-agent h)
-        subjects (:subjects run-projection)
-        lane-facts
-        (subject-facts
-         (str "@agent:" h)
-         (conj north.terminal-projection/terminal-projection-predicates
-               "terminal_manifest_sha256"))]
+        subjects (:subjects run-projection)]
     (if-not (:ok run-projection)
       {:status :indeterminate :reason (:reason run-projection)}
-      (north.terminal-projection/lane-resolution
-       h lane-facts
-       (mapv
-        (fn [subject]
-          {:subject subject
-           :facts
-           (subject-facts
-            subject north.terminal-projection/run-resolution-predicates)})
-        subjects)))))
+      ;; The lifecycle predicates now read through the validated resolved
+      ;; primitive, so an error map / malformed / timed-out projection THROWS
+      ;; instead of silently reading as "no terminal facts". Catch it as
+      ;; :indeterminate — an unreadable lane is reap-BLOCKED (lane-reap-blocked?*
+      ;; treats every non-:unresolved status as protective), never falsely
+      ;; :unresolved and never a bare throw out of the sweep.
+      (try
+        (let [lane-facts
+              (subject-facts
+               (str "@agent:" h)
+               (conj north.terminal-projection/terminal-projection-predicates
+                     "terminal_manifest_sha256"))]
+          (north.terminal-projection/lane-resolution
+           h lane-facts
+           (mapv
+            (fn [subject]
+              {:subject subject
+               :facts
+               (subject-facts
+                subject north.terminal-projection/run-resolution-predicates)})
+            subjects)))
+        (catch Exception _
+          {:status :indeterminate :reason :lane-facts-unavailable})))))
 
 (defn lane-resolved?* [h]
   (= :resolved (:status (lane-resolution* h))))

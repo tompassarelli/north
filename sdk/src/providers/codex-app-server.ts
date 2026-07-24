@@ -1563,8 +1563,20 @@ export class ManagedCodexAppServerRun {
   async execute(): Promise<ManagedCodexResult> {
     const session = this.session(async () => undefined);
     const first = await session.next();
-    if (first.done || !first.value)
-      throw new Error("openai_provider_execution_failed");
+    if (first.done || !first.value) {
+      // This is the arm 94 of 112 deaths took over 2026-07-22..25, and it threw
+      // bare — so death.ts's causeChain had nothing to render and every one of
+      // them logged as an unexplained `openai_provider_execution_failed`. Name
+      // the observed session state so the transport is diagnosable at all: a
+      // generator that completed without yielding is a different failure from
+      // one that yielded an empty value.
+      throw new Error("openai_provider_execution_failed", {
+        cause: new Error(
+          `codex app-server session produced no result on first turn `
+          + `(done=${String(first.done)}, value=${first.value === undefined ? "undefined" : "empty"})`,
+        ),
+      });
+    }
     // Resume into the generator's finally so teardown (and any unclean-close
     // failure) is observed exactly as the pre-continuation flow observed it.
     await session.return(first.value);

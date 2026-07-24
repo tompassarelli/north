@@ -30,11 +30,18 @@
                           writer (io/writer (.getOutputStream socket))]
                 (let [request (edn/read-string (.readLine reader))
                       inner (:request request)
+                      ;; Mirror the coordinator's exclusive-success :resolved
+                      ;; envelope exactly — the validated read primitives reject a
+                      ;; partial shape, as they must (a partial envelope was the
+                      ;; false-empty channel this fix closes).
+                      empty-env {:value nil :members 0 :ambiguous? false
+                                 :values [] :version 1}
                       response
                       (case (:p inner)
-                        "needs_rotation" {:value "true"}
-                        "learning" {:values []}
-                        {:value nil})]
+                        "needs_rotation" {:value "true" :members 1 :ambiguous? false
+                                          :values ["true"] :version 1}
+                        "learning" empty-env
+                        empty-env)]
                   (swap! seen conj request)
                   (.write writer (str (pr-str response) "\n"))
                   (.flush writer)))))
