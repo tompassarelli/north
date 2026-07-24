@@ -2,7 +2,7 @@
   "$schema": "./catalog.schema.json",
   "provider": "anthropic",
   "provenance": {
-    "asOf": "2026-07-16",
+    "asOf": "2026-07-24",
     "reviewAfter": "2026-08-16",
     "sources": [
       {
@@ -40,6 +40,7 @@
       {
         "url": "https://platform.claude.com/docs/en/build-with-claude/effort",
         "modelFamilies": [
+          "claude-opus-5",
           "claude-fable-5",
           "claude-sonnet-5",
           "claude-opus-4-8"
@@ -51,11 +52,14 @@
       {
         "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
         "modelFamilies": [
+          "claude-opus-5",
           "claude-fable-5",
           "claude-sonnet-5",
           "claude-opus-4-8"
         ],
         "scopes": [
+          "availability",
+          "model-family",
           "context-window",
           "effective-date"
         ]
@@ -91,7 +95,7 @@
       },
       "contextWindow": {
         "tokens": 1000000,
-        "effectiveFrom": "2026-07-25"
+        "effectiveFrom": "2026-07-24"
       }
     },
     "claude-sonnet-5": {
