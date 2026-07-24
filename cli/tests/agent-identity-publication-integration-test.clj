@@ -299,6 +299,42 @@
                   (= (north.agent-provenance/manifest-sha256 stored)
                      (get stored "identity_manifest_sha256")))))
 
+    ;; Bounded auto-retry: a fresh identity carrying retry_of_agent (bare prior
+    ;; agent id) must publish exactly like any other optional identity fact
+    ;; (worktree/branch above). Regression: identity-predicates once omitted
+    ;; retry_of_agent, so validate-publish! rejected the SDK's own emitted
+    ;; retry_of_agent as an unsupported managed identity predicate.
+    (let [retry-subject "@agent:identity-publication-retry-lane"
+          retry-identity (assoc preset "retry_of_agent" "identity-publication-dead-lane")
+          result (run-writer port "publish" retry-subject
+                             (json/generate-string retry-identity))
+          raw-stored (entity-facts port retry-subject)
+          stored (scalar-facts raw-stored)]
+      (check "retry lane carrying retry_of_agent publishes"
+             (zero? (:exit result)))
+      (check "retry lane stores exactly one retry_of_agent value"
+             (= #{"identity-publication-dead-lane"} (get raw-stored "retry_of_agent")))
+      (check "identity marker binds retry_of_agent across writer and reader"
+             (and (= "identity-publication-dead-lane" (get stored "retry_of_agent"))
+                  (north.agent-provenance/managed-valid? stored)
+                  (= (north.agent-provenance/manifest-sha256 stored)
+                     (get stored "identity_manifest_sha256")))))
+
+    ;; A normal first attempt (no retry_of_agent at all) remains valid: the
+    ;; predicate stays optional, never required-identity-predicates.
+    (let [first-attempt-subject "@agent:identity-publication-first-attempt"
+          result (run-writer port "publish" first-attempt-subject
+                             (json/generate-string preset))
+          raw-stored (entity-facts port first-attempt-subject)
+          stored (scalar-facts raw-stored)]
+      (check "first-attempt identity without retry_of_agent publishes"
+             (zero? (:exit result)))
+      (check "first-attempt identity carries no retry_of_agent and stays valid"
+             (and (nil? (get raw-stored "retry_of_agent"))
+                  (north.agent-provenance/managed-valid? stored)
+                  (= (north.agent-provenance/manifest-sha256 stored)
+                     (get stored "identity_manifest_sha256")))))
+
     ;; Fail-closed is preserved: only the registered vocabulary is accepted.
     (let [bogus-subject "@agent:identity-publication-bogus-predicate"
           bogus (assoc preset "totally_unregistered_pred" "x")
