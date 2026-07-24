@@ -180,13 +180,13 @@
               {
                 packageName = "@anthropic-ai/claude-agent-sdk-linux-x64";
                 url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-${sdkVersion}.tgz";
-                hash = "sha512-s1lNi1cL93luoqsItH+fNO4KpIhdkvnVhWGGQUQ/8ftwa2gfmcIQnOg1hG8Ks+KzeD3UUQ8L9YEVHVADnFI/9A==";
+                hash = "sha256-8/GE6r4O8xV5d1ldbdt0pbOrAJh9Wj7BUHkzMkfaH+c=";
               }
             else if pkgs.stdenv.hostPlatform.isAarch64 then
               {
                 packageName = "@anthropic-ai/claude-agent-sdk-linux-arm64";
                 url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-${sdkVersion}.tgz";
-                hash = "sha512-JuIq5Fnz/F1snl0aqi1gcuRZqPWoPNrL9dJ0DuievCxKkO8hnEz/Mmn5Zos7x1X8HE//ZnEvmQXoEQEZXonJew==";
+                hash = "sha256-1TvCr4FpvGorgeBvzTDZhN+/10+KTV3mFpfK6USWr/8=";
               }
             else throw "North's Claude SDK package does not support ${system}"
           else if pkgs.stdenv.hostPlatform.isDarwin then
@@ -194,13 +194,13 @@
               {
                 packageName = "@anthropic-ai/claude-agent-sdk-darwin-arm64";
                 url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-${sdkVersion}.tgz";
-                hash = "sha512-WIMM/8HRCLsTDHFTIwQvvE8WCA/oaMJtdQxsP7iNyfzIGwXbuOyU95V8vYIhZfaO2yaSpbBRncunq4CtR5H4ng==";
+                hash = "sha256-7QSObN3pKI9xyqIUNM/wYBU/z9xhzf76fAgm3/w0RRU=";
               }
             else throw "North's Claude SDK package does not support ${system}"
           else throw "North's Claude SDK package does not support ${system}";
         sdkSource = pkgs.fetchurl {
           url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-${sdkVersion}.tgz";
-          hash = "sha512-FVmXu9pvOMbuBKWrF8YsYQdQ/upOpv5rS8lFAnFO5jbyXT/2hN7kEPd2vd2GJpaMvNcO/KptyQUK5AxjjTz3+w==";
+          hash = "sha256-H86L8GA5ar4iZzzqLmWcdOWWFg0G8OIJM2mZfu0WQAo=";
         };
         sdkPlatformSource = pkgs.fetchurl {
           inherit (sdkPlatform) url hash;
