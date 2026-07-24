@@ -14,7 +14,7 @@ import { validateRoutingMetadata } from "../src/routing-metadata";
 import { runFacts } from "../src/telemetry";
 
 const north = resolve(import.meta.dir, "../..");
-const gaffer = process.env.GAFFER_HOME ?? resolve(north, "../gaffer");
+const gaffer = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "../gaffer");
 const cli = resolve(north, "cli/agents-cli.clj");
 const pinIssuedAt = new Date();
 const openaiPinEvidence = JSON.stringify({
@@ -149,7 +149,7 @@ test("Clojure dry-run fingerprint is byte-identical and its UI is contract-redac
     env: {
       ...process.env,
       NO_COLOR: "1",
-      GAFFER_HOME: gaffer,
+      NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
     },
   });
@@ -188,7 +188,7 @@ test("CLI forwards the canonical contract to the child behind the redacted displ
       ...process.env,
       NORTH_AGENTS_LIB: "1",
       NO_COLOR: "1",
-      GAFFER_HOME: gaffer,
+      NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
     },
   });

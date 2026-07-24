@@ -17,7 +17,7 @@
 (def NORTH (or (System/getenv "NORTH_HOME")
                (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)))
 (def NORTH-CLI (or (System/getenv "NORTH_BIN") (str NORTH "/bin/north")))
-(def GAFFER (or (System/getenv "GAFFER_HOME") (str HOME "/code/gaffer")))
+(def GAFFER (or (System/getenv "NORTH_ORCHESTRATION_HOME") (str HOME "/code/gaffer")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (def AGENT-STREAMDIR (or (System/getenv "NORTH_STREAM_DIR")
                          (str HOME "/code/agent-data")))

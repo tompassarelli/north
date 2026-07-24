@@ -20,7 +20,7 @@ import { READONLY_SHELL_SERVER, READONLY_SHELL_TOOL } from "../src/readonly-shel
 
 const north = resolve(import.meta.dir, "../..");
 const savedEnv = Object.fromEntries(
-  ["GAFFER_HOME", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_BIN", "NORTH_DISPATCH_DRIVER_PRECLAIMED"]
+  ["NORTH_ORCHESTRATION_HOME", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_BIN", "NORTH_DISPATCH_DRIVER_PRECLAIMED"]
     .map((key) => [key, process.env[key]]),
 );
 
@@ -71,7 +71,7 @@ test("preset roles receive the exact canonical role contract and fail closed whe
 
   const empty = mkdtempSync(join(tmpdir(), "north-gaffer-missing-"));
   try {
-    process.env.GAFFER_HOME = empty;
+    process.env.NORTH_ORCHESTRATION_HOME = empty;
     expect(() => gafferAppendix(preset("integrator"), north))
       .toThrow("/providers/anthropic.json");
   } finally { rmSync(empty, { recursive: true, force: true }); }

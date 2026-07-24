@@ -6,7 +6,7 @@ import { runFacts } from "../src/telemetry";
 import { applyGafferStaffing, loadGafferStaffing } from "../src/gaffer-staffing";
 
 const north = resolve(import.meta.dir, "../..");
-const gaffer = process.env.GAFFER_HOME ?? resolve(north, "../gaffer");
+const gaffer = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "../gaffer");
 const compose = resolve(gaffer, "scripts/compose-routing.mjs");
 
 function composed(...args: string[]): any {

@@ -48,7 +48,7 @@ function dry(role: string, provider: string, ...extra: string[]): string {
   const result = spawnSync("bb", [
     cli, "spawn", role, "probe", "--provider", provider, ...providerPin(provider), "--dry-run", ...extra,
   ], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
   });
   expect(result.status).toBe(0);
@@ -63,7 +63,7 @@ test("director is the canonical orchestrator role and topology names fail pedago
   expect(director).not.toContain("AGENT_MODEL=");
   for (const topology of ["orchestrator", "worker"]) {
     const result = spawnSync("bb", [cli, "spawn", topology, "probe", "--dry-run"], {
-      encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
+      encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
         GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
     });
     expect(result.status).toBe(1);
@@ -87,7 +87,7 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
     env: {
       ...process.env,
       NO_COLOR: "1",
-      GAFFER_HOME: gaffer,
+      NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
       STRUGGLE_ERROR_STREAK: "5",
       STRUGGLE_LOOP_REPEAT: "4",
@@ -111,7 +111,7 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
     env: {
       ...process.env,
       NO_COLOR: "1",
-      GAFFER_HOME: gaffer,
+      NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
       STRUGGLE_STALL_TURNS: "0",
     },
@@ -129,7 +129,7 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
       AGENT_TOPOLOGY: "orchestrator",
       AGENT_ID: "parent-director",
       NO_COLOR: "1",
-      GAFFER_HOME: gaffer,
+      NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
     },
   });
@@ -158,7 +158,7 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
 
 test("ambiguous researcher role fails with the three explicit research functions", () => {
   const result = spawnSync("bb", [cli, "spawn", "researcher", "probe", "--dry-run"], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
   });
   expect(result.status).toBe(1);
@@ -167,7 +167,7 @@ test("ambiguous researcher role fails with the three explicit research functions
 });
 
 const delegate = (...args: string[]) => spawnSync("bb", [cli, "delegate", ...args], {
-  encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
+  encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
     GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
 });
 
@@ -213,7 +213,7 @@ test("composite preview and execution share pinned-provider admission before sid
     NORTH_THREAD_ID: "",
     NORTH_RUN_CAPABILITY: "",
     NO_COLOR: "1",
-    GAFFER_HOME: gaffer,
+    NORTH_ORCHESTRATION_HOME: gaffer,
     GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
   };
   try {
@@ -559,7 +559,7 @@ test("delegate explicit binding reuses its thread while a managed parent receive
         ...process.env,
         NORTH_BIN: fake.command,
         NO_COLOR: "1",
-        GAFFER_HOME: gaffer,
+        NORTH_ORCHESTRATION_HOME: gaffer,
         GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
       },
     });
@@ -619,7 +619,7 @@ test("a partial structured capture fails closed before any provider process star
         NORTH_THREAD_ID: "",
         NORTH_RUN_CAPABILITY: "",
         NO_COLOR: "1",
-        GAFFER_HOME: gaffer,
+        NORTH_ORCHESTRATION_HOME: gaffer,
         GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
       },
     });
@@ -633,7 +633,7 @@ test("a partial structured capture fails closed before any provider process star
 
 test("legacy unclassified delegate no longer silently buys a director", () => {
   const result = spawnSync("bb", [cli, "delegate", "coordinate this", "--dry-run"], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
   });
   expect(result.status).toBe(1);
@@ -670,7 +670,7 @@ test("bespoke roles require a structured contract and explicit promotion decisio
 
 test("bespoke help is discoverable and invalid bespoke inputs exit nonzero", () => {
   const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GAFFER_HOME: gaffer,
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
       GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
   });
   const help = run();

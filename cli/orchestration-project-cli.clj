@@ -198,8 +198,8 @@
 ;; A floor therefore moves only by a policy version bump, never a bare write.
 ;; ---------------------------------------------------------------------------
 (defn gaffer-root []
-  (or (System/getenv "GAFFER_HOME")
-      (str (System/getenv "HOME") "/code/gaffer")))
+  (or (System/getenv "NORTH_ORCHESTRATION_HOME")
+      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 
 (defn project-policy-pin [port]
   (let [ver (current-version port)

@@ -40,7 +40,7 @@ const temporary: string[] = [];
 const envKeys = [
   "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "AGENT_SKILLS_DIR", "NORTH_PORT",
   "FRAM_LOG", "FRAM_TELEMETRY_LOG",
-  "FRAM_THREADS", "UNRELATED_SECRET_CANARY", "GAFFER_HOME", "NORTH_MANAGED_LANE",
+  "FRAM_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
   "NORTH_CODEX_BIN", "NORTH_MANAGED_CODEX_BIN",
   "NORTH_BIN", "PATH",
 ] as const;
@@ -594,7 +594,7 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
   process.env.HOME = home;
   delete process.env.AGENT_LAWS_PATH;
   process.env.AGENT_LAWS = "on";
-  process.env.GAFFER_HOME = inheritedEnv.GAFFER_HOME ?? join(north, "../gaffer");
+  process.env.NORTH_ORCHESTRATION_HOME = inheritedEnv.NORTH_ORCHESTRATION_HOME ?? join(north, "../gaffer");
 
   const appendix = projectAgentsAppendix(nested);
   expect(appendix.indexOf("ROOT_PROJECT_CANARY")).toBeLessThan(appendix.indexOf("SRC_PROJECT_CANARY"));

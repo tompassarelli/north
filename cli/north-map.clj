@@ -45,8 +45,8 @@
 
 (defn canonical-worker-preset [role]
   (let [path (or (System/getenv "GAFFER_STAFFING_CATALOG")
-                 (str (or (System/getenv "GAFFER_HOME")
-                          (str (System/getenv "HOME") "/code/gaffer"))
+                 (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
+                          (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration"))
                       "/staffing/catalog.json"))]
     (try
       (let [catalog (north.gaffer-staffing/load-catalog path)

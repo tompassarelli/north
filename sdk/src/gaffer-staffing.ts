@@ -46,7 +46,7 @@ export const GAFFER_STOCK_ROLE_IDS = [
 const STOCK_AUTHORING_ROLES = new Set(["executor", "implementer", "integrator"]);
 
 export const DEFAULT_GAFFER_STAFFING_PATH = resolve(
-  process.env.GAFFER_HOME ?? resolve(homedir(), "code/gaffer"), "staffing/catalog.json",
+  process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"), "staffing/catalog.json",
 );
 
 const TOP_LEVEL_FIELDS = ["$schema", "version", "vocabulary", "defaults", "presets", "aliases"];

@@ -154,8 +154,8 @@ test("North validates Gaffer's shared cross-harness routing fixtures", () => {
 
   // Gaffer is canonical when present in a development workspace, but North's
   // packaged acceptance test never requires a sibling checkout.
-  const gafferHome = process.env.GAFFER_HOME ?? resolve(import.meta.dir, "../../../gaffer");
-  const canonicalPath = resolve(gafferHome, "contracts/routing-request.fixtures.json");
+  const orchestrationHome = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "../../orchestration");
+  const canonicalPath = resolve(orchestrationHome, "contracts/routing-request.fixtures.json");
   if (existsSync(canonicalPath))
     expect(JSON.parse(readFileSync(canonicalPath, "utf8"))).toEqual(fixtures);
 });

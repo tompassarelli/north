@@ -78,7 +78,7 @@ exit 2
   const env = {
     ...process.env,
     // Keep the real Gaffer catalog resolvable once HOME is redirected.
-    GAFFER_HOME: process.env.GAFFER_HOME ?? `${process.env.HOME}/code/gaffer`,
+    NORTH_ORCHESTRATION_HOME: process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"),
     HOME: home,
     PATH: `${bin}:${process.env.PATH}`,
     NORTH_ROUTING_POLICY: policy,
