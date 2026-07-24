@@ -708,10 +708,47 @@
       (let [res (send-op port {:op :retract :te te :p p :r rv :base (cur-ver port)})]
         (if (and (:reject res) (pos? tries)) (recur (dec tries)) res)))))
 
+;; The :resolved op's exclusive-success envelope. Same discipline indexed-query
+;; (line ~386) documents for :query and reserve-link's values-of enforces for
+;; this exact op: a coordinator ERROR MAP, a malformed envelope, or a
+;; self-contradictory response NEVER degrades to nil/empty — it fails closed with
+;; a typed cause so a caller can tell an absent value from an unreadable one.
+;; This is the false-empty generator the read layer was built on; validating it
+;; here is what makes resolved/many honest for every downstream read surface.
+(defn resolved-envelope
+  "Send one :resolved op and return the validated success envelope
+   {:value :members :ambiguous? :values :version}, or THROW
+   :malformed-resolved-response. Never returns an error map."
+  [port te p]
+  (let [response (send-op port {:op :resolved :te te :p p})
+        success?
+        (and (map? response)
+             (= #{:value :members :ambiguous? :values :version}
+                (set (keys response)))
+             (integer? (:version response))
+             (not (neg? (:version response)))
+             (integer? (:members response))
+             (not (neg? (:members response)))
+             (boolean? (:ambiguous? response))
+             (vector? (:values response))
+             (every? string? (:values response))
+             (= (:members response) (count (:values response)))
+             (= (:members response) (count (set (:values response))))
+             (= (:ambiguous? response) (> (:members response) 1))
+             (or (nil? (:value response)) (string? (:value response)))
+             (if (zero? (:members response))
+               (nil? (:value response))
+               (boolean (some #{(:value response)} (:values response)))))]
+    (if success?
+      response
+      (throw
+       (ex-info "coordinator returned a malformed resolved response"
+                {:type :malformed-resolved-response :te te :p p})))))
+
 ;; single live value of (te,p)  (the resolved/one/rf variants collapse here).
-(defn resolved [port te p] (:value (send-op port {:op :resolved :te te :p p})))
+(defn resolved [port te p] (:value (resolved-envelope port te p)))
 ;; all live values of (te,p) — multi-valued  (the many/rmany variants).
-(defn many     [port te p] (:values (send-op port {:op :resolved :te te :p p})))
+(defn many     [port te p] (:values (resolved-envelope port te p)))
 
 ;; --- presence liveness: the renewable-LEASE rule (presence-cli #30 is the origin) ---
 ;; A session's liveness is a lease fact @lease:session:<h> = "holder|exp|epoch"; the
@@ -773,13 +810,28 @@
    collapse. This asymmetry is why Σ projects [key val] and count-distinct [key]."
   {:init 0 :step (fn [n row] (+ n (or (parse-double (str (second row))) 0))) :final identity})
 
+;; A general :query row read that fails closed the way indexed-query does: an
+;; error map or a response whose :ok is not a row vector THROWS rather than
+;; plucking nil and passing an empty fold downstream. This is the same
+;; false-empty class as resolved/many — a coordinator error map must never look
+;; like "zero rows" to a projection (the `concern ls` blank, the roster gaps).
+;; A genuinely empty result stays an honest [] (:ok is still a vector).
+(defn query-rows [port query]
+  (let [response (send-op port {:op :query :query query})]
+    (if (and (map? response)
+             (not (contains? response :error))
+             (vector? (:ok response)))
+      (:ok response)
+      (throw
+       (ex-info "coordinator returned a malformed query response"
+                {:type :malformed-query-response})))))
+
 ;; The rows a Datalog BODY binds, projected onto PROJECT (the head vars). One
 ;; scan-engine query; a 1- or 2-literal body routes to the join engine (q/run).
 (defn agg-rows [port project body]
-  (:ok (send-op port {:op :query
-                      :query {:find "agg"
-                              :rules [{:head {:rel "agg" :args (mapv (fn [v] {:var v}) project)}
-                                       :body body}]}})))
+  (query-rows port {:find "agg"
+                    :rules [{:head {:rel "agg" :args (mapv (fn [v] {:var v}) project)}
+                             :body body}]}))
 
 ;; Apply a REDUCER to a row-seq you already hold. The seam for callers that must
 ;; scope rows with a predicate the scan body can't express (e.g. an entity-id

@@ -44,13 +44,23 @@
   (binding [*out* *err*] (println (str "REJECTED: steer " message)))
   (System/exit 2))
 
+;; A read that could not be completed (coordinator error map, malformed envelope,
+;; timeout, disconnect) is NOT evidence the target is dead. Distinguish it from a
+;; genuine negative (offline/terminal/unsupported, exit 2) with its own exit code
+;; so a transient projection failure never gets recorded as "target not live" and
+;; a caller may retry rather than treat the lane as gone.
+(defn reject-steer-unavailable! [message]
+  (binding [*out* *err*]
+    (println (str "REJECTED: steer read-unavailable: " message)))
+  (System/exit 3))
+
 (defn steer-agent-facts [port control]
   (try
     (north.lifecycle-projection/folded-agent-point-facts
      (fn [subject predicate] (many port subject predicate))
      (str "@agent:" control))
     (catch Exception _
-      (reject-steer! "target identity is unavailable"))))
+      (reject-steer-unavailable! "target identity projection is unreadable"))))
 
 (defn steer-run-entries [port control]
   (try
@@ -72,7 +82,7 @@
             (every? #(and (vector? %) (= 1 (count %))
                           (every? string? %))
                     rows))
-        (reject-steer! "target lifecycle is unavailable"))
+        (reject-steer-unavailable! "target lifecycle projection is unreadable"))
       (->> rows
            (map first)
            (filter north.terminal-projection/valid-run-entity?)
@@ -88,7 +98,7 @@
                                (when (seq values) [predicate values]))))
                      north.terminal-projection/run-resolution-predicates)}))))
     (catch Exception _
-      (reject-steer! "target lifecycle is unavailable"))))
+      (reject-steer-unavailable! "target lifecycle projection is unreadable"))))
 
 (defn require-live-steer! [port control]
   (when-not (and (string? control)
@@ -111,7 +121,7 @@
           (try (north.coord/online? port control)
                (catch Exception _ ::unavailable))]
       (when (= ::unavailable online?)
-        (reject-steer! "target liveness is unavailable"))
+        (reject-steer-unavailable! "target liveness projection is unreadable"))
       (when-not online?
         (reject-steer! "target is offline")))
     (when-not (= "streaming" live-input)
