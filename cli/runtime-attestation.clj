@@ -687,6 +687,26 @@
     (= value (str (java.util.UUID/fromString value)))
     (catch Throwable _ false)))
 
+(defn- daemon-layout-bound?
+  "Fail-closed daemon/source/origin relation, resolved by runtime layout.
+
+  A source checkout roots the daemon two levels under the executed source
+  (source/bin/fram-daemon), so parent(parent(daemon)) is the source itself. An
+  immutable package instead roots the daemon two levels under the origin while
+  the executed source lives at origin/libexec/fram. Any unsupported mode,
+  cross-layout relation, or mismatched origin/source/daemon is rejected."
+  [mode source origin daemon]
+  (let [daemon-root
+        (some-> (io/file daemon) .getParentFile .getParentFile
+                .getCanonicalPath)]
+    (case mode
+      "checkout" (= source daemon-root)
+      "package" (and (= origin daemon-root)
+                     (= source
+                        (.getCanonicalPath
+                         (io/file origin "libexec/fram"))))
+      false)))
+
 (defn- parse-active-record!
   [selection explicit-record port served-log telemetry-log]
   (let [expected-path (:record-path selection)
@@ -737,9 +757,10 @@
                    (= (:tree static) (get record "FRAM_RUNTIME_TREE"))
                    (= (:origin static) (get record "FRAM_RUNTIME_ORIGIN"))
                    (= (:daemon static) (get record "FRAM_RUNTIME_DAEMON"))
-                   (= source (.getCanonicalPath (.getParentFile
-                                                 (.getParentFile
-                                                  (io/file daemon)))))
+                   (daemon-layout-bound? (:mode static)
+                                         source
+                                         (get record "FRAM_RUNTIME_ORIGIN")
+                                         daemon)
                    (= record-port (long port))
                    (= pid main-pid)
                    (= record-log (.getCanonicalPath (io/file served-log)))
