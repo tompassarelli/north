@@ -52,7 +52,7 @@ function observation(
   );
 }
 
-test("supportedModels trusts only value, maps Gaffer aliases, and detects normalized collisions", () => {
+test("supportedModels trusts only value, maps Orchestration aliases, and detects normalized collisions", () => {
   expect(normalizeAnthropicSupportedModels([
     { value: "fable", displayName: "not authority", description: "PRIVATE CANARY" },
     { value: "future-provider-model", aliases: ["fable"] },
@@ -83,7 +83,7 @@ test("strict store rejects future, malformed, duplicate-target, and unknown mode
   }, now)).toThrow("not canonical");
   expect(() => parseProviderModelObservationStore({
     version: 1, observations: [{ ...valid, models: ["unknown-model"] }],
-  }, now)).toThrow("not an exact Gaffer declaration");
+  }, now)).toThrow("not an exact Orchestration declaration");
   expect(() => parseProviderModelObservationStore({
     version: 1, observations: [valid, valid],
   }, now)).toThrow("duplicate target");

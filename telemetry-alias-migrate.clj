@@ -27,7 +27,7 @@
 ;;   fable  -> claude-fable-5    (unambiguous: only canonical id ever observed)
 ;;   sonnet -> AMBIGUOUS era (every bare row predates BOTH claude-sonnet-4-6 and
 ;;             claude-sonnet-5) -> keep alias, mark model_provenance=alias_unresolved_era
-;;   haiku  -> no canonical mapping ever existed in the gaffer catalog history
+;;   haiku  -> no canonical mapping ever existed in the orchestration catalog history
 ;;             -> keep alias, mark model_provenance=alias_unresolved_era
 ;; Provenance-only marks (not bare-alias; already-canonical model value, but the
 ;; row is misleading about what actually executed):

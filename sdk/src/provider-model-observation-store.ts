@@ -24,7 +24,7 @@ export interface ProviderModelObservation {
   profile?: string;
   observedAt: string;
   source: typeof ANTHROPIC_MODEL_OBSERVATION_SOURCE;
-  /** Exact Gaffer model IDs only; provider aliases are normalized before persistence. */
+  /** Exact Orchestration model IDs only; provider aliases are normalized before persistence. */
   models: string[];
   /** A newer failed control read is unknown evidence, never a reusable positive. */
   collectionFailure?: {
@@ -112,7 +112,7 @@ function parseObservation(value: unknown, now: Date): ProviderModelObservation {
   for (const model of models) {
     if (!providerSupportsModel("anthropic", model)
         || resolveModelAlias("anthropic", model) !== model) {
-      throw new Error("invalid provider model observation: model is not an exact Gaffer declaration");
+      throw new Error("invalid provider model observation: model is not an exact Orchestration declaration");
     }
   }
   let collectionFailure: ProviderModelObservation["collectionFailure"];

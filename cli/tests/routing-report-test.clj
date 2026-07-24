@@ -115,7 +115,7 @@
      (fact telem run "applied_bespoke_contract_fingerprint_version" fingerprint-version)
      (fact telem run "applied_bespoke_contract_fingerprint_domain" fingerprint-domain)
      (requested-fingerprint! run hash fingerprint-version fingerprint-domain))
-   ;; Reverse input order on selected fixtures; the report must restore Gaffer's
+   ;; Reverse input order on selected fixtures; the report must restore Orchestration's
    ;; canonical vocabulary order before building the semantic variant key.
    (doseq [capability (if (= run "@run-b")
                         ["web" "filesystem.read" "filesystem.search"]
@@ -248,12 +248,12 @@
          (= ["unexpected-preset-override-evidence"] unexpected))
   (check "current template capability drift is rejected"
          (= ["preset-applied-capabilities-mismatch"] capability-drift))
-  (check "requested Gaffer axes matching applied evidence add no debt"
+  (check "requested Orchestration axes matching applied evidence add no debt"
          (empty? requested-exact))
   (check "requested tier and normalized domains cannot mislabel applied cohorts"
          (= ["requested-applied-axes-mismatch:tier,domainRequirements"]
             requested-corrupt))
-  (check "missing requested Gaffer axes are hard current-evidence debt"
+  (check "missing requested Orchestration axes are hard current-evidence debt"
          (= ["missing-requested-axes:reasoning"]
             requested-missing)))
 
@@ -327,7 +327,7 @@
          (and (not (complete-current-managed-run? incomplete))
               (= #{"role-composition-id-mismatch" "applied-role-contract-mismatch"}
                  (set (:legacyDebtReasons incomplete)))))
-  (check "a removed or corrupt preset cannot claim current Gaffer evidence"
+  (check "a removed or corrupt preset cannot claim current Orchestration evidence"
          (and (not (complete-current-managed-run? unknown-preset))
               (= ["unknown-current-preset"]
                  (:legacyDebtReasons unknown-preset))))
@@ -337,7 +337,7 @@
          (and (= "requested-route:senior" (:tier historical-zero-duration))
               (= "requested:staff" (:taskGrade historical-zero-duration))
               (= "requested-route-fallback" (:tierProvenance historical-zero-duration))
-              (= "requested-gaffer-fallback"
+              (= "requested-orchestration-fallback"
                  (:taskGradeProvenance historical-zero-duration))))
   (check "legacy zero-turn success is absence, not exact turn evidence"
          (nil? (:turns historical-zero-turn-success)))
@@ -486,7 +486,7 @@
   (check "missing applied hashes are isolated as per-run legacy debt"
          (and (= 2 (count missing-hash-debt))
               (every? #(and (= 1 (:runs %)) (false? (:recurrent %))
-                            (= ["gaffer:legacy-debt"] (:compositionLabels %))
+                            (= ["orchestration:legacy-debt"] (:compositionLabels %))
                             (= "legacy-debt" (:reviewStatus %)))
                       missing-hash-debt)))
   (check "failed or unverified rows cannot manufacture qualified recurrence"

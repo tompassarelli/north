@@ -191,7 +191,7 @@ if (!process.env.AGENT_LAWS_PATH) {
 // when neither override is set. On a real dev box that file tracks the operator's own
 // live `north config` state (e.g. "guards=off" while doing unrelated authoring-guard
 // work) — an ambient value with nothing to do with the suite. Any harness test that
-// exercises a PreToolUse guard chain (gaffer-operational-semantics topology test
+// exercises a PreToolUse guard chain (orchestration-operational-semantics topology test
 // included) would then silently no-op every guard and pass/fail on host mood instead
 // of code (observed 2026-07-24: host harness.conf had guards=off, which alone flips
 // "topology controls prompt and tools with positive-only orchestration authority"

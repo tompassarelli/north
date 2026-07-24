@@ -112,14 +112,14 @@ export class ProviderCatalogFileCache<T> {
       this.#entries.set(path, { identity: after, value });
       return value;
     }
-    throw new Error(`Gaffer provider catalog changed while reading ${path}`);
+    throw new Error(`Orchestration provider catalog changed while reading ${path}`);
   }
 }
 
 const providerCatalogCache = new ProviderCatalogFileCache<ProviderCatalog>();
 
-function gafferHome(): string {
-  return resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+function orchestrationHome(): string {
+  return resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "..", "orchestration"));
 }
 
 function validateProviderCatalog(
@@ -129,7 +129,7 @@ function validateProviderCatalog(
 ): ProviderCatalog {
   if (catalog.provider !== provider || !catalog.tiers || !catalog.modelAliases
       || !catalog.models || !catalog.modelDeltas)
-    throw new Error(`invalid Gaffer provider catalog for ${provider} at ${where}`);
+    throw new Error(`invalid Orchestration provider catalog for ${provider} at ${where}`);
   return catalog;
 }
 
@@ -150,7 +150,7 @@ function providerCatalog(provider: ProviderId): ProviderCatalog {
       warnGraphCatalogFallback(`provider catalog ${provider}`, error);
     }
   }
-  const path = resolve(gafferHome(), "providers", `${provider}.json`);
+  const path = resolve(orchestrationHome(), "providers", `${provider}.json`);
   return providerCatalogCache.load(
     path,
     (source) => validateProviderCatalog(JSON.parse(source) as ProviderCatalog, provider, path),
@@ -192,10 +192,10 @@ export interface ProviderContextWindowObservation {
   model: string;
   tokens: number;
   effectiveFrom: string;
-  source: "gaffer-provider-catalog";
+  source: "orchestration-provider-catalog";
 }
 
-/** Observe Gaffer's exact-model provider ceiling without changing allocation. */
+/** Observe Orchestration's exact-model provider ceiling without changing allocation. */
 export function observeProviderContextWindow(
   provider: ProviderId,
   model?: string,
@@ -208,7 +208,7 @@ export function observeProviderContextWindow(
       || typeof value.effectiveFrom !== "string") return undefined;
   return {
     provider, model: concrete, tokens: value.tokens,
-    effectiveFrom: value.effectiveFrom, source: "gaffer-provider-catalog",
+    effectiveFrom: value.effectiveFrom, source: "orchestration-provider-catalog",
   };
 }
 
@@ -261,7 +261,7 @@ export function resolveModelDelta(provider: ProviderId, model: string): Resolved
   if (!descriptor) {
     throw new Error(
       `provider ${provider} model ${model} has no exact modelDeltas entry; `
-      + "declare a calibrated path or explicit none in Gaffer's provider catalog",
+      + "declare a calibrated path or explicit none in Orchestration's provider catalog",
     );
   }
   if (descriptor.kind === "none") {
@@ -271,10 +271,10 @@ export function resolveModelDelta(provider: ProviderId, model: string): Resolved
   }
   if (descriptor.kind !== "calibrated" || typeof descriptor.path !== "string" || !descriptor.path.trim())
     throw new Error(`provider ${provider} model ${model} has malformed calibrated model delta`);
-  const root = gafferHome();
+  const root = orchestrationHome();
   const absolutePath = resolve(root, descriptor.path);
   if (!absolutePath.startsWith(`${root}${sep}`))
-    throw new Error(`provider ${provider} model ${model} delta path escapes Gaffer contract root`);
+    throw new Error(`provider ${provider} model ${model} delta path escapes Orchestration contract root`);
   return { provider, model, kind: "calibrated", path: descriptor.path, absolutePath };
 }
 

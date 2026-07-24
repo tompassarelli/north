@@ -1,10 +1,10 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resetCatalogBundleCache, staffingSource } from "../src/orchestration-graph-source";
-import { loadGafferStaffing } from "../src/gaffer-staffing";
+import { loadOrchestrationStaffing } from "../src/orchestration-staffing";
 
 // Dual-read seam (thread 019f8f5c). These assertions are hermetic. Phase 2
 // flipped the default source to GRAPH: unset resolves graph, and only an
-// explicit `file` reads the packaged Gaffer contract. The graph path is
+// explicit `file` reads the packaged Orchestration contract. The graph path is
 // exercised against an unreachable coordinator so its wiring is proven without
 // depending on a live import. Byte-parity of the two live sources is proven
 // separately by cli/tests/orchestration-parity-test.clj and
@@ -34,7 +34,7 @@ test("staffing source defaults to graph; only explicit file falls back", () => {
 
 test("explicit file source loads the packaged stock catalog", () => {
   process.env.NORTH_STAFFING_SOURCE = "file";
-  const catalog = loadGafferStaffing();
+  const catalog = loadOrchestrationStaffing();
   expect(catalog.sourceVersion).toBe(2);
   expect(catalog.presets.map((p) => p.name).sort()).toEqual([
     "analyst", "designer", "director", "executor", "implementer", "integrator",
@@ -45,13 +45,13 @@ test("explicit file source loads the packaged stock catalog", () => {
 test("graph source falls back to the packaged catalog when the projector is unreachable", () => {
   // Spawn admission must never block on the graph: a failed projection (here an
   // unreachable coordinator) logs the named failure and falls back to the
-  // packaged Gaffer JSON rather than throwing.
+  // packaged Orchestration JSON rather than throwing.
   process.env.NORTH_STAFFING_SOURCE = "graph";
   process.env.NORTH_PORT = "1"; // unreachable coordinator
   resetCatalogBundleCache();
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   try {
-    const catalog = loadGafferStaffing();
+    const catalog = loadOrchestrationStaffing();
     expect(catalog.sourceVersion).toBe(2);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toMatch(/graph catalog projection failed for staffing catalog/);

@@ -165,7 +165,7 @@ run_hook "$TOOLUSE" \
   "{\"session_id\":\"$RECOVERY_SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"PostToolUse\",\"effort\":{\"level\":\"medium\"}}" \
   CLAUDECODE=1 CLAUDE_EFFORT=medium
 has "repairs the session kind before the next presence renewal" "tell agent:$RECOVERY_ID kind session"
-lacks "native repair omits managed Gaffer composition" "tell agent:$RECOVERY_ID composition_kind "
+lacks "native repair omits managed Orchestration composition" "tell agent:$RECOVERY_ID composition_kind "
 has "retains the observable provider during repair" "tell agent:$RECOVERY_ID provider anthropic"
 has "repairs the exact SessionStart model from the observation seed" "tell agent:$RECOVERY_ID model claude-opus-4-8"
 has "records the exact recovery-turn effort" "tell agent:$RECOVERY_ID effort medium"

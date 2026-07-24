@@ -1,8 +1,8 @@
 SPAWN SURFACES (adapter: north) — a squad member is the eight-field
-Gaffer request (role, taskGrade, domainRequirements, topology, tier, reasoning,
+Orchestration request (role, taskGrade, domainRequirements, topology, tier, reasoning,
 posture, composition), delivered on the North substrate. Provider, account,
 and an optional exact-model pin are North execution-envelope controls. Native Agent/Task/Workflow are DENIED
-here (dispatch=north) — the harness still advertises gaffer:* + native agent
+here (dispatch=north) — the harness still advertises orchestration:* + native agent
 types, IGNORE that and go STRAIGHT to north; never let the advertised list bait a
 native call (that is the recurring misfire).
 - contract-v2 job → mcp__north__spawn {prompt, provider, model, tier, role, posture,
@@ -43,10 +43,10 @@ OpenAI orchestration is currently ineligible and fails pre-turn; with
 Claude plugin-agent frontmatter cannot encode a hard sandbox, so the generated
 plugin adapter withholds Bash for `shell.readonly` stock templates rather
 than claiming a boundary it cannot provide.
-North presents composition provenance as `gaffer:<preset>`,
-`gaffer:<preset>+override`, or `gaffer:bespoke:<id>`. A native session that
-did not select Gaffer is `gaffer:not-selected`; only pre-contract records may
-use `gaffer:legacy-debt`. Never collapse these states to `gaffer:none`.
+North presents composition provenance as `orchestration:<preset>`,
+`orchestration:<preset>+override`, or `orchestration:bespoke:<id>`. A native session that
+did not select Orchestration is `orchestration:not-selected`; only pre-contract records may
+use `orchestration:legacy-debt`. Never collapse these states to `orchestration:none`.
 Comparable successful bespoke recurrence is evidence for review, never
 automatic promotion: responsibility, deliverable, capability/authority
 boundary, done criteria, and report shape recur, and each use carries
@@ -55,17 +55,17 @@ For an unpinned request, North resolves tier+reasoning through the catalog's
 canonical tier row and records both requested and concrete routes. An explicit
 exact-model pin is a separate execution-envelope constraint: first resolve its
 alias, then require the reasoning level in that model's provider-supported
-Gaffer-vocabulary list AND in `models[exact].routes[tier]`. Never infer a
+Orchestration-vocabulary list AND in `models[exact].routes[tier]`. Never infer a
 tier×reasoning cross-product from independent lists, and never filter an
 alternate model through the tier's default model. Unknown models, missing or
 empty support/routes, and unsupported exact shingles fail closed. This static
-Gaffer result is necessary but never proves subscription entitlement or live
+Orchestration result is necessary but never proves subscription entitlement or live
 availability; North must independently establish an available authenticated
 target for that exact provider/model before the turn. Both checks are required.
 Routing defaults
 (canonical stock templates — generated from the machine `presets` key, do not hand-edit):
 
-  gaffer role         task grade      tier      reasoning  topology      posture   capabilities
+  orchestration role         task grade      tier      reasoning  topology      posture   capabilities
   ------------------  --------------  --------  ---------  ------------  --------  -----------------------------------------------------------------
   executor            novice          economy   low        worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
   implementer         mid             standard  medium     worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
@@ -84,7 +84,7 @@ terminal piece and MUST NOT delegate. An ORCHESTRATOR coordinates rather than
 executing terminal work. It classifies every direct child from that child's
 LOCAL dependency shape: atomic or tightly coupled → worker; independently
 decomposable → child orchestrator. Every child is a fresh mcp__north__spawn or
-dispatch with its own complete Gaffer request, North admission, provider/account
+dispatch with its own complete Orchestration request, North admission, provider/account
 resolution, resource envelope, telemetry, and settlement; no route or budget is
 inherited by nesting. Verification is a sibling lane owned by the immediate
 orchestrator. The parent consumes worker evidence or a child orchestrator's

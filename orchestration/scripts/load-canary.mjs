@@ -164,7 +164,7 @@ const verdicts = {
   correctness: aggregate.correctnessViolations === 0,
 };
 const receipt = {
-  version: "gaffer-load-canary:v1",
+  version: "orchestration-load-canary:v1",
   workload: {
     samples: ENVELOPE.samples,
     warmupAdmissions: ENVELOPE.warmupAdmissions,
@@ -185,11 +185,11 @@ const receipt = {
   verdicts,
 };
 
-console.log(`GAFFER_LOAD_RECEIPT ${JSON.stringify(receipt)}`);
+console.log(`ORCHESTRATION_LOAD_RECEIPT ${JSON.stringify(receipt)}`);
 if (Object.values(verdicts).every(Boolean)) {
-  console.log("gaffer load canary: PASS");
+  console.log("orchestration load canary: PASS");
 } else {
-  console.error(`gaffer load canary: FAIL ${Object.entries(verdicts)
+  console.error(`orchestration load canary: FAIL ${Object.entries(verdicts)
     .filter(([, passed]) => !passed).map(([name]) => name).join(",")}`);
   process.exitCode = 1;
 }

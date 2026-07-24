@@ -42,8 +42,8 @@ import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
 import {
-  gafferCapabilities,
-} from "./gaffer-staffing";
+  orchestrationCapabilities,
+} from "./orchestration-staffing";
 import { refreshAccountUsages } from "./account-usage";
 import { resolveDispatchWorkingDirectory } from "./dispatch-context";
 import {
@@ -195,7 +195,7 @@ async function runDispatch(
   if (!routingMetadata) throw new Error("managed North dispatch execution requires explicit routingMetadata");
   if (!routingEconomics) throw new Error("managed North dispatch execution requires routing economics admission");
   const role = routingMetadata.role!;
-  const capabilities = gafferCapabilities(routingMetadata);
+  const capabilities = orchestrationCapabilities(routingMetadata);
   const facts = hydratedFacts ?? getThreadFacts(threadId);
   if (!facts.length) {
     throw new Error(`Thread @${threadId} not found or has no facts`);
@@ -1043,7 +1043,7 @@ export async function dispatch(
   try {
     (injected.admitBillableClock ?? admitBillableClock)({
       agentId,
-      capabilities: gafferCapabilities(routingMetadata),
+      capabilities: orchestrationCapabilities(routingMetadata),
       cwd: workingDirectory,
       threadId,
     });

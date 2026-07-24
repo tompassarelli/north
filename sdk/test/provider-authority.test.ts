@@ -20,7 +20,7 @@ import {
   projectAgentsAppendix,
 } from "../src/harness";
 import { providerEnvironmentForTarget } from "../src/accounts";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { admitRoutingRequest } from "../src/routing-admission";
 import {
   MANAGED_NORTH_MCP_ENV_KEYS, validateManagedExecutionEnvelope,
@@ -61,7 +61,7 @@ function designer(provider: "anthropic" | "openai", self: string): any {
     provider,
     cwd: north,
     presenceRegistrar: false,
-    routingMetadata: applyGafferStaffing({ role: "designer" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
   }) as any;
 }
 
@@ -113,7 +113,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
     provider: "openai",
     cwd: north,
     presenceRegistrar: false,
-    routingMetadata: applyGafferStaffing({ role: "director" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "director" }),
   }) as any;
   const directorSurface = compileProviderAuthoritySurface("openai", director);
   expect(directorSurface.northEnabledTools).toEqual(expect.arrayContaining(["dispatch", "spawn"]));
@@ -127,7 +127,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
 test("route application rejects request laundering and authoring hooks are an exact frozen surface", () => {
   const requestLaundered = designer("anthropic", "anthropic-request-laundering") as any;
   requestLaundered.northRoutingRequest = admitRoutingRequest(
-    applyGafferStaffing({ role: "judge" }),
+    applyOrchestrationStaffing({ role: "judge" }),
   );
   expect(() => applyHarnessRoute(
     requestLaundered, "anthropic", "claude-opus-4-6", "xhigh",
@@ -594,7 +594,7 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
   process.env.HOME = home;
   delete process.env.AGENT_LAWS_PATH;
   process.env.AGENT_LAWS = "on";
-  process.env.NORTH_ORCHESTRATION_HOME = inheritedEnv.NORTH_ORCHESTRATION_HOME ?? join(north, "../gaffer");
+  process.env.NORTH_ORCHESTRATION_HOME = inheritedEnv.NORTH_ORCHESTRATION_HOME ?? join(north, "orchestration");
 
   const appendix = projectAgentsAppendix(nested);
   expect(appendix.indexOf("ROOT_PROJECT_CANARY")).toBeLessThan(appendix.indexOf("SRC_PROJECT_CANARY"));
@@ -619,7 +619,7 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
     provider: "openai",
     cwd: nested,
     presenceRegistrar: false,
-    routingMetadata: applyGafferStaffing({ role: "designer" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
   }) as any;
   expect(codexHarnessArguments(managedOpenAI)).not.toContain("project_doc_max_bytes=0");
 

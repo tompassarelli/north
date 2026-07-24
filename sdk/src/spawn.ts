@@ -55,9 +55,9 @@ import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
 import {
-  gafferCapabilities,
-} from "./gaffer-staffing";
-import { hasAuthoringCapability } from "./gaffer-capabilities";
+  orchestrationCapabilities,
+} from "./orchestration-staffing";
+import { hasAuthoringCapability } from "./orchestration-capabilities";
 import { refreshAccountUsages } from "./account-usage";
 import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
@@ -111,7 +111,7 @@ export interface SpawnOptions {
   target?: string;
   tier?: SemanticTier;
   routingMetadata: RoutingRequest;
-  /** Gaffer-owned minimum-sufficient assessment; separate from the eight-field request. */
+  /** Orchestration-owned minimum-sufficient assessment; separate from the eight-field request. */
   routingAssessment?: RoutingAssessment;
   /** North-owned evidence for explicit provider/account/model pins. */
   pinEvidence?: RoutingPinEvidence;
@@ -276,7 +276,7 @@ async function runSpawn(
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
   const routingMetadata = opts.routingMetadata;
-  const capabilities = gafferCapabilities(routingMetadata);
+  const capabilities = orchestrationCapabilities(routingMetadata);
   const requested = { provider: opts.provider, target: opts.target,
     tier: opts.tier, model: opts.model, effort: opts.effort };
   const agentId = opts.agentId ?? createSpawnAgentId();
@@ -337,7 +337,7 @@ async function runSpawn(
   const resolved = resolveTier(routing.provider, requestedTier, opts.model, opts.effort);
   opts.model = resolved.model;
   opts.effort = resolved.effort;
-  // The hydrated Gaffer selection is canonical. Never let an inherited parent
+  // The hydrated Orchestration selection is canonical. Never let an inherited parent
   // env relabel this child as an alias or a different role.
   const identityRole = routingMetadata.role!;
   const composition = routingMetadata.composition!;
@@ -443,7 +443,7 @@ async function runSpawn(
       }
     },
   ));
-  // This boundary distinguishes North/Gaffer prompt assembly from the provider
+  // This boundary distinguishes North/Orchestration prompt assembly from the provider
   // query itself. A throw before construction cannot honestly be a provider
   // process death because no provider query has been created or accepted.
   let providerQueryConstructionStarted = false;
@@ -1202,7 +1202,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       composed, callerTopology, injected.loadThreadFacts ?? getThreadFacts,
     );
   }
-  const requestedCapabilities = gafferCapabilities(composed.routingMetadata);
+  const requestedCapabilities = orchestrationCapabilities(composed.routingMetadata);
   const requestsMutation = hasAuthoringCapability(requestedCapabilities);
   const requestsRegisteredWorkspace = composed.worktree
     ?? process.env.AGENT_WORKTREE === "1";
@@ -1272,7 +1272,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   try {
     (injected?.admitBillableClock ?? admitBillableClock)({
       agentId,
-      capabilities: gafferCapabilities(composed.routingMetadata),
+      capabilities: orchestrationCapabilities(composed.routingMetadata),
       cwd: process.cwd(),
       threadId: composed.thread,
     });

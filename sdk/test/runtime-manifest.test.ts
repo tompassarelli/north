@@ -41,13 +41,13 @@ const input: RuntimeManifestInputV1 = {
   commits: {
     north: commit("1"),
     fram: commit("2"),
-    gaffer: commit("3"),
+    orchestration: commit("3"),
     firnAgentConfig: commit("4"),
   },
   artifacts: {
     north: { path: store("a".repeat(32), "north-sdk"), sha256: digest("5") },
     fram: { path: store("b".repeat(32), "fram-runtime"), sha256: digest("6") },
-    gaffer: { path: store("c".repeat(32), "gaffer-catalog") + "/catalog.json", sha256: digest("7") },
+    orchestration: { path: store("c".repeat(32), "orchestration-catalog") + "/catalog.json", sha256: digest("7") },
     firnAgentConfig: { path: store("d".repeat(32), "agent-config"), sha256: digest("8") },
   },
 };
@@ -92,7 +92,7 @@ test("strict parser round-trips canonical serialization and recomputes identity"
 test("every pinned commit, artifact path, and digest participates in identity", () => {
   const baseline = createRuntimeManifest(input).identity;
   const mutations: RuntimeManifestInputV1[] = [];
-  for (const component of ["north", "fram", "gaffer", "firnAgentConfig"] as const) {
+  for (const component of ["north", "fram", "orchestration", "firnAgentConfig"] as const) {
     const changedCommit = structuredClone(input);
     changedCommit.commits[component] = commit("9");
     mutations.push(changedCommit);
@@ -184,7 +184,7 @@ test("published JSON schema names exact v1 fields and rejects extensions", () =>
     "version", "identity", "commits", "artifacts",
   ]);
   expect(RUNTIME_MANIFEST_JSON_SCHEMA.properties.commits.required).toEqual([
-    "north", "fram", "gaffer", "firnAgentConfig",
+    "north", "fram", "orchestration", "firnAgentConfig",
   ]);
   expect(RUNTIME_MANIFEST_JSON_SCHEMA.properties.artifacts.additionalProperties).toBe(false);
   const pathPattern = new RegExp(

@@ -5,7 +5,7 @@ export const RUNTIME_MANIFEST_VERSION = "north:runtime-manifest:v1" as const;
 export const RUNTIME_MANIFEST_IDENTITY_DOMAIN = "north:runtime-manifest-identity:v1";
 export const MAX_RUNTIME_MANIFEST_UTF8_BYTES = 64 * 1024;
 
-const COMPONENTS = ["north", "fram", "gaffer", "firnAgentConfig"] as const;
+const COMPONENTS = ["north", "fram", "orchestration", "firnAgentConfig"] as const;
 const COMMIT_PATTERN = "^[0-9a-f]{40}$";
 const SHA256_PATTERN = "^[0-9a-f]{64}$";
 // node:fs rejects NUL and maps lone UTF-16 surrogates to U+FFFD during UTF-8 encoding.

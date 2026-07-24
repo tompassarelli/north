@@ -88,7 +88,7 @@
    "thread" "A durable unit of intended or possible work."
    "topic" "A thread-shaped relatedness anchor."))
 
-;; North Orchestration vocabulary kinds (Gaffer -> North Orchestration migration,
+;; North Orchestration vocabulary kinds (Orchestration -> North Orchestration migration,
 ;; Phase 0 inert seed; thread 019f8f5c, design doc sections 1-2). Registration
 ;; only: no interpreter reads these entity_kind values yet, and the sibling
 ;; @shape:<kind> subjects (seeded by orchestration-vocab-cli.clj) carry an

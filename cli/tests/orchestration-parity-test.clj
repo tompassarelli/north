@@ -1,15 +1,15 @@
-;; orchestration-parity-test.clj — Phase 1 EQUALITY GATE for the Gaffer -> North
+;; orchestration-parity-test.clj — Phase 1 EQUALITY GATE for the Orchestration -> North
 ;; Orchestration migration (thread 019f8f5c-74e0-7be7-ba65-3179f1bccde1).
 ;;
 ;; Proves the graph catalog projection is byte-equal (AFTER normalization) to the
-;; Gaffer source files. Normalization = deep key-sort + scalar/object array sort
+;; Orchestration source files. Normalization = deep key-sort + scalar/object array sort
 ;; + the deliberation-knob unification (efforts/defaultEffort -> reasoning/
 ;; defaultReasoning, the graph's canonical vocabulary) + $schema drop. So the gate
 ;; proves every template, axis value, model, route, tier, alias, contextWindow,
 ;; delta, and provenance survived the round-trip; a genuine content divergence
 ;; fails it. Requires a live coordinator with @catalog:current already imported.
 ;;
-;;   bb cli/tests/orchestration-parity-test.clj [port] [gaffer-home]
+;;   bb cli/tests/orchestration-parity-test.clj [port] [orchestration-home]
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[cheshire.core :as json]

@@ -78,8 +78,8 @@ pass it through the selected adapter's documented spawn surface.
    resolves the concrete model and effort/reasoning. Pass the assessment to
    `scripts/compose-routing.mjs --assessment @<absolute-path>`; it remains a
    sidecar and the emitted request retains exactly eight fields.
-   Done: tier + deliberation are literal Gaffer request values; provider is a
-   literal North envelope value (normally `auto`), never a ninth Gaffer field.
+   Done: tier + deliberation are literal Orchestration request values; provider is a
+   literal North envelope value (normally `auto`), never a ninth Orchestration field.
 5. **Paste** the blocks above the task text. Trim the delta before trimming
    role/posture.
    Done: `wc -l` of the assembled payload ≤ 60, every block above the task.
@@ -99,7 +99,7 @@ pass it through the selected adapter's documented spawn surface.
 ## Adapter example (North execution envelope)
 
 The following fenced syntax belongs to the North adapter; it is not part of
-the portable Gaffer request contract.
+the portable Orchestration request contract.
 
 ```js
 const prompt = roleBlock + gradeBlock + topologyBlock + postureBlock +

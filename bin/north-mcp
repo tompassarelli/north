@@ -20,7 +20,7 @@
 (def here (-> *file* io/file .getCanonicalFile .getParentFile))
 (def engine (or (System/getenv "NORTH_BIN") (str here "/north")))
 (load-file (str (.getParentFile here) "/cli/managed-child-env.clj"))
-(load-file (str (.getParentFile here) "/cli/gaffer-staffing.clj"))
+(load-file (str (.getParentFile here) "/cli/orchestration-staffing.clj"))
 
 ;; The `instructions` block teaches the FACT MODEL + cross-tool norms ONCE —
 ;; things no single tool description can carry. Per-verb "what it does" lives in
@@ -202,18 +202,18 @@
 (def route-preflight (str sdk-dir "/mcp-route-preflight.ts"))
 (def routing-economics-preflight (str sdk-dir "/routing-economics-preflight-cli.ts"))
 (def struggle-policy-cli (str sdk-dir "/struggle.ts"))
-(def gaffer-staffing-path
-  (or (System/getenv "GAFFER_STAFFING_CATALOG")
-      (str (or (System/getenv "GAFFER_HOME")
-               (str (System/getProperty "user.home") "/code/gaffer"))
+(def orchestration-staffing-path
+  (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
+      (str (or (System/getenv "ORCHESTRATION_HOME")
+               (str (System/getProperty "user.home") "/code/orchestration"))
            "/staffing/catalog.json")))
-(def gaffer-staffing
-  (try (north.gaffer-staffing/load-catalog gaffer-staffing-path)
+(def orchestration-staffing
+  (try (north.orchestration-staffing/load-catalog orchestration-staffing-path)
        (catch Exception _ nil)))
-(def gaffer-role-names
-  (set (keep #(get % "name") (get gaffer-staffing "presets"))))
-(def gaffer-presets-by-name
-  (north.gaffer-staffing/presets-by-name gaffer-staffing))
+(def orchestration-role-names
+  (set (keep #(get % "name") (get orchestration-staffing "presets"))))
+(def orchestration-presets-by-name
+  (north.orchestration-staffing/presets-by-name orchestration-staffing))
 
 (def task-grade-values ["novice" "junior" "mid" "senior" "staff" "principal" "research-grade"])
 (def topology-values ["worker" "orchestrator"])
@@ -222,7 +222,7 @@
 (def posture-values ["explore" "evaluate" "deliver" "preserve"])
 (def role-id-pattern "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 (def capability-values
-  (vec (or (get-in gaffer-staffing ["vocabulary" "capabilities"]) [])))
+  (vec (or (get-in orchestration-staffing ["vocabulary" "capabilities"]) [])))
 (def capabilities-schema
   {:type "array" :minItems 1 :uniqueItems true
    :items {:type "string" :enum capability-values}})
@@ -325,12 +325,12 @@
     ;; Property ORDER is load-bearing, not cosmetic: cheshire serializes a map in
     ;; its seq order, and a >8-key literal `{}` is a PersistentHashMap (scrambled,
     ;; unstable). `array-map` pins insertion order so tools/list advertises the work
-    ;; identifier first, then the eight Gaffer routing fields contiguously, then the
+    ;; identifier first, then the eight Orchestration routing fields contiguously, then the
     ;; optional compat/provider fields. Anti-rot: mcp-dispatch-contract.test.ts.
     :schema {:type "object"
              :properties (array-map
                           :id {:type "string" :minLength 1 :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
-                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
+                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Orchestration's staffing catalog, or a reasoned bespoke role."}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
@@ -351,11 +351,11 @@
    {:name "spawn"
     :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
     ;; Same deterministic contract as dispatch (see note there): work identifier
-    ;; (prompt) first, then the eight Gaffer routing fields, then optional fields.
+    ;; (prompt) first, then the eight Orchestration routing fields, then optional fields.
     :schema {:type "object"
              :properties (array-map
                           :prompt {:type "string" :minLength 1 :description "The task prompt"}
-                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Gaffer's staffing catalog, or a reasoned bespoke role."}
+                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Orchestration's staffing catalog, or a reasoned bespoke role."}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
@@ -656,13 +656,13 @@
         unknown-contract (when (map? contract)
                            (seq (sort (remove bespoke-contract-fields (keys contract)))))
         canonical-role role
-        known-role? (contains? gaffer-role-names canonical-role)
-        preset (get gaffer-presets-by-name canonical-role)
+        known-role? (contains? orchestration-role-names canonical-role)
+        preset (get orchestration-presets-by-name canonical-role)
         effective-capabilities (if known-role? (get preset "capabilities") contract-capabilities)
         effective-topology topology
         capability-problem (when (and effective-topology (sequential? effective-capabilities))
                              (topology-capability-problem effective-topology effective-capabilities))
-        base-posture (or (get preset "posture") (get-in gaffer-staffing ["defaults" "posture"]))
+        base-posture (or (get preset "posture") (get-in orchestration-staffing ["defaults" "posture"]))
         actual-overrides (set (keep (fn [[field supplied base]]
                                       (when (and (some? supplied) (not= supplied base)) field))
                                     [["taskGrade" grade (get preset "taskGrade")]
@@ -671,7 +671,7 @@
                                      ["reasoning" effective-reasoning (get preset "deliberation")]
                                      ["posture" posture base-posture]]))
         declared-overrides (when (= kind "preset") (get composition "overrides"))
-        route-problem (north.gaffer-staffing/unsupported-route-problem tier effective-reasoning)
+        route-problem (north.orchestration-staffing/unsupported-route-problem tier effective-reasoning)
         missing-bespoke-axes (when (and role (not known-role?))
                                (seq (keep (fn [[label value]] (when (nil? value) label))
                                           [["taskGrade" grade] ["domainRequirements" domains]
@@ -684,19 +684,19 @@
       "dispatch id must be a safe North thread id (bare or single @ prefix)"
       (and (= nm "spawn") (not (non-empty-string? prompt))) "spawn prompt must be a non-empty string"
       missing-routing
-      (str "managed " nm " requires the complete eight-field Gaffer request; missing: "
+      (str "managed " nm " requires the complete eight-field Orchestration request; missing: "
            (str/join ", " missing-routing)
            " (recover the valid payload shape: north show @contract:dispatch)")
       (and (#{"dispatch" "spawn"} nm) (not (non-empty-string? role)))
-      (str "managed " nm " requires role selecting a canonical Gaffer preset or a complete bespoke composition")
+      (str "managed " nm " requires role selecting a canonical Orchestration preset or a complete bespoke composition")
       (and (some? model) (not (non-empty-string? model))) "model must be a non-empty string"
       (and (some? coordinator) (not (non-empty-string? coordinator))) "coordinator must be a non-empty string"
       (and (some? caveman) (not (some #{caveman} ["off" "lite" "full"]))) "invalid caveman mode"
       (and role (or (not (string? role)) (str/blank? role))) "role must be a non-empty string"
-      (and role (not (safe-role-id? role))) "role must be a lowercase kebab-case Gaffer role id"
+      (and role (not (safe-role-id? role))) "role must be a lowercase kebab-case Orchestration role id"
       (= role "researcher") "role researcher is retired because it was ambiguous; use scout, analyst, or research-scientist"
       (#{"worker" "orchestrator"} role) (str role " is a topology, not a role; use director for orchestration or a functional worker role")
-      (and role (nil? gaffer-staffing)) (str "Gaffer staffing catalog unavailable: " gaffer-staffing-path)
+      (and role (nil? orchestration-staffing)) (str "Orchestration staffing catalog unavailable: " orchestration-staffing-path)
       (not (some #{grade} task-grade-values)) "invalid taskGrade"
       (not (valid-string-list? domains false))
       "domainRequirements must contain unique non-empty strings"
@@ -718,7 +718,7 @@
       (and composition (not (#{"preset" "bespoke"} kind))) "invalid composition.kind"
       (and composition (let [v (get composition "id")] (or (not (string? v)) (str/blank? v)))) "composition.id is required"
       (and composition (not (safe-role-id? (get composition "id"))))
-      "composition.id must be a lowercase kebab-case Gaffer role id"
+      "composition.id must be a lowercase kebab-case Orchestration role id"
       (and composition (nil? role)) "composition requires role"
       (and role (not known-role?) (= kind "preset"))
       (str "unknown role " role " requires a bespoke composition")
@@ -748,7 +748,7 @@
            (let [v (get composition "nearestPreset")] (or (not (string? v)) (str/blank? v))))
       "bespoke composition.nearestPreset must be a non-empty string when supplied"
       (and (= kind "bespoke") (some? (get composition "nearestPreset"))
-           (not (contains? gaffer-role-names (get composition "nearestPreset"))))
+           (not (contains? orchestration-role-names (get composition "nearestPreset"))))
       "bespoke composition.nearestPreset must name a canonical preset"
       (and (= kind "bespoke")
            (let [v (get composition "bespokeReason")] (or (not (string? v)) (str/blank? v))))
@@ -790,7 +790,7 @@
           (if (str/blank? message) "exact routing target preflight failed" message))))))
 
 (defn preflight-routing-economics [args]
-  ;; This is the single canonical admission seam shared with execution. Gaffer
+  ;; This is the single canonical admission seam shared with execution. Orchestration
   ;; derives and validates the sidecar inside the SDK; the MCP edge does not
   ;; carry a weaker copy that could claim a driver before detecting tampering.
   (let [payload (cond-> {"routingMetadata" (select-keys args managed-routing-fields)}

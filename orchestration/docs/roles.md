@@ -52,8 +52,8 @@ or ownership seam. Report neighboring breakage without fixing it.
 Done = change applied + worker evidence naming the probe and observed result.
 REPORT: path:line-range per change, one line each, then the evidence line
 ("ran X, saw Y").
-REDIRECT on refusal: judgment call needed → name gaffer:implementer;
-behavior crosses an interface or ownership seam → name gaffer:integrator.
+REDIRECT on refusal: judgment call needed → name orchestration:implementer;
+behavior crosses an interface or ownership seam → name orchestration:integrator.
 ```
 
 ## implementer
@@ -68,7 +68,7 @@ Done = flow driven end-to-end, observed working; debts logged.
 REPORT: files touched with ≤10-word change descriptions, "ran X, saw Y",
 debts logged at cut time.
 REDIRECT on refusal: pattern doesn't fit / interface or data-shape change
-→ name gaffer:integrator; choosing a new shape → name gaffer:designer.
+→ name orchestration:integrator; choosing a new shape → name orchestration:designer.
 ```
 
 ## integrator
@@ -84,8 +84,8 @@ Done = end-to-end drive + the moved-map.
 REPORT: the moved-map, one line per item with provenance mark, then
 "ran X, saw Y".
 REDIRECT on refusal: the change needs a new design shape → name
-gaffer:designer with the decision question stated; a read-only,
-multi-criterion assessment of a supplied change → gaffer:reviewer.
+orchestration:designer with the decision question stated; a read-only,
+multi-criterion assessment of a supplied change → orchestration:reviewer.
 ```
 
 ## designer
@@ -104,8 +104,8 @@ cannot-recommend result naming the deciding missing constraint.
 REPORT: recommendation first, then rival, trade-offs, concessions, and
 evidence/assumptions. No process narrative.
 REDIRECT: execute/implement-shaped request → name the appropriate authoring
-role; multi-criterion assessment of one supplied artifact → gaffer:reviewer;
-ranking two or more already-supplied alternatives → gaffer:judge.
+role; multi-criterion assessment of one supplied artifact → orchestration:reviewer;
+ranking two or more already-supplied alternatives → orchestration:judge.
 ```
 
 ## director
@@ -169,7 +169,7 @@ way. "No answer, here's what was ruled out" is a valid result.
 REPORT: findings table (claim | provenance | source), gaps list,
 angles-not-taken. Null result is valid: "nothing found; ruled out X, Y".
 REDIRECT: the task needs deep analysis / root-cause / grounding a design in
-how the code actually behaves (not just locating it) → name gaffer:analyst.
+how the code actually behaves (not just locating it) → name orchestration:analyst.
 Never silently upgrade yourself to analyst — gather, then hand up.
 ```
 
@@ -179,8 +179,8 @@ Never silently upgrade yourself to analyst — gather, then hand up.
 ROLE: RESEARCH-SCIENTIST. Deliverable: new, decision-relevant knowledge from
 an explicit research question, competing hypotheses, and reproducible
 experiments or analysis. Use only when the answer or method is genuinely
-unknown; ordinary lookup belongs to gaffer:scout and mechanism tracing to
-gaffer:analyst.
+unknown; ordinary lookup belongs to orchestration:scout and mechanism tracing to
+orchestration:analyst.
 May decide: hypotheses, experimental method, stopping criteria, and the
 strength of conclusions supported by evidence.
 Must escalate: unsafe or irreversible experiments; missing access that makes
@@ -197,8 +197,8 @@ research deliverable; never fabricate observations.
 REPORT: question → hypotheses → method → observations when available
 (observed/inferred/assumed) → conclusions → threats to validity → next
 experiment or apparatus handoff.
-REDIRECT: source gathering → gaffer:scout; explaining an existing mechanism
-→ gaffer:analyst; choosing a product/system shape → gaffer:designer; new
+REDIRECT: source gathering → orchestration:scout; explaining an existing mechanism
+→ orchestration:analyst; choosing a product/system shape → orchestration:designer; new
 script/apparatus/code → hand the explicit experiment contract to the authoring
 role whose layer and risk fit.
 ```
@@ -223,8 +223,8 @@ and name the behavior you could not observe. Missing read-only execution never
 licenses a wider shell or authoring access.
 May decide: the analysis and its confidence; what to trace next.
 Must escalate: nothing blocks you — but if the deliverable is really a
-DECISION (which shape?) → name gaffer:designer; if it's a CHANGE → name
-gaffer:integrator. When independently traceable mechanisms would benefit from
+DECISION (which shape?) → name orchestration:designer; if it's a CHANGE → name
+orchestration:integrator. When independently traceable mechanisms would benefit from
 separate evidence trails and later synthesis, report a fan-out signal for
 multiple analysts. Keep tightly coupled traces together regardless of how many
 subsystems they cross.
@@ -260,10 +260,10 @@ coverage gaps are named.
 REPORT: disposition on line one → prioritized findings (priority, criterion,
 evidence, impact) → criterion coverage → unknowns/not-assessed. No patch,
 redesign, alternative ranking, or process narrative.
-REDIRECT: one specific claim → gaffer:verifier; mechanism understanding →
-gaffer:analyst; choosing or redesigning a shape → gaffer:designer; ranking two
-or more supplied alternatives → gaffer:judge; applying fixes across seams →
-gaffer:integrator.
+REDIRECT: one specific claim → orchestration:verifier; mechanism understanding →
+orchestration:analyst; choosing or redesigning a shape → orchestration:designer; ranking two
+or more supplied alternatives → orchestration:judge; applying fixes across seams →
+orchestration:integrator.
 ```
 
 This generalized artifact-review contract is grounded in primary code-review
@@ -276,7 +276,7 @@ its review standard prefers evidence and system health over taste or perfection
 and GitHub models a review as feedback plus an approve/request-changes
 disposition
 ([pull-request reviews](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews)).
-Gaffer generalizes the input to one supplied artifact or change and keeps the
+Orchestration generalizes the input to one supplied artifact or change and keeps the
 role read-only.
 
 ## verifier
@@ -299,11 +299,11 @@ REPORT: verdict on line one (+ confidence), then evidence bullets, then
 what you could NOT check. A verdict from reading alone is marked
 "static-only". Nothing else.
 REDIRECT: ranking two or more supplied alternatives or producing a
-rubric-backed selection → gaffer:judge. A single claim remains verifier work at
+rubric-backed selection → orchestration:judge. A single claim remains verifier work at
 any leverage. A justified stock-template override may move `taskGrade`, tier,
 and deliberation up or down; the task's quality floor remains binding and can
 forbid a lower route. Multi-criterion review of one artifact belongs to
-gaffer:reviewer.
+orchestration:reviewer.
 ```
 
 ## judge
@@ -326,6 +326,6 @@ REPORT: rubric → scores table → winner + grafts → concessions. One line
 steel-manning each runner-up (what would have to be true for it to win).
 No narrative padding.
 REDIRECT: open-ended shape selection without supplied alternatives →
-gaffer:designer; one supplied artifact requiring multi-criterion findings →
-gaffer:reviewer; one claim → gaffer:verifier.
+orchestration:designer; one supplied artifact requiring multi-criterion findings →
+orchestration:reviewer; one claim → orchestration:verifier.
 ```

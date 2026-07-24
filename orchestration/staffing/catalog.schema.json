@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Gaffer staffing catalog",
+  "title": "Orchestration staffing catalog",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "vocabulary", "defaults", "presets", "aliases"],

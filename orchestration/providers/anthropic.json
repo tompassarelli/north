@@ -161,7 +161,7 @@
   "modelDeltas": {
     "claude-opus-5": {
       "kind": "none",
-      "reason": "adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a gaffer:elicit calibration pass"
+      "reason": "adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a orchestration:elicit calibration pass"
     },
     "claude-sonnet-5": {
       "kind": "none",

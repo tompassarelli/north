@@ -492,7 +492,7 @@ test("an enabled Caveman request with unproved fork provenance rejects before pr
   }
 });
 
-test("Gaffer-derived frontier tier is hydrated before envelope admission", async () => {
+test("Orchestration-derived frontier tier is hydrated before envelope admission", async () => {
   const policy = join(dir, "denied-frontier-policy.json");
   writeFileSync(policy, JSON.stringify({
     version: 1, mode: "preferential",
@@ -507,7 +507,7 @@ test("Gaffer-derived frontier tier is hydrated before envelope admission", async
     process.env.NORTH_ENVELOPE_ACCOUNTING = join(dir, "denied-frontier-accounting.json");
     let providerCalls = 0;
     await expect((await import("./support/spawn")).spawn({
-      prompt: "must not run", agentId: "gaffer-frontier-before-provider",
+      prompt: "must not run", agentId: "orchestration-frontier-before-provider",
       routingMetadata: presetRequest("designer"),
       queryFn: () => { providerCalls++; return { async *[Symbol.asyncIterator]() {} } as any; },
     })).rejects.toThrow("frontierRuns 0/0");

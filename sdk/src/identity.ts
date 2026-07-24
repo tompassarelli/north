@@ -199,20 +199,20 @@ function validPresetOverrides(f: AgentIdentity): string[] | undefined {
   return overrides;
 }
 
-export function gafferProvenance(f: AgentIdentity): string {
+export function orchestrationProvenance(f: AgentIdentity): string {
   // A provider-native session did not pass through North staffing. Managed
   // lanes never borrow that honest label: missing or malformed composition
   // facts are migration debt, not an unselected current routing decision.
-  if (f.kind === "session") return "gaffer:not-selected";
+  if (f.kind === "session") return "orchestration:not-selected";
   const role = f.role?.trim();
   const compositionId = f.compositionId?.trim();
   if (!role || !compositionId || !SAFE_ROLE_ID.test(role)
       || !SAFE_ROLE_ID.test(compositionId) || role !== compositionId)
-    return "gaffer:legacy-debt";
+    return "orchestration:legacy-debt";
   if (f.compositionKind === "preset") {
     const overrides = validPresetOverrides(f);
-    if (!overrides) return "gaffer:legacy-debt";
-    const base = `gaffer:${compositionId}`;
+    if (!overrides) return "orchestration:legacy-debt";
+    const base = `orchestration:${compositionId}`;
     return overrides.length ? `${base}+override(${overrides.map(component).join(",")})` : base;
   }
   if (f.compositionKind === "bespoke"
@@ -221,8 +221,8 @@ export function gafferProvenance(f: AgentIdentity): string {
       && SHA256.test(f.compositionContractFingerprint ?? "")
       && f.compositionContractFingerprintVersion === BESPOKE_FINGERPRINT_VERSION
       && f.compositionContractFingerprintDomain === BESPOKE_FINGERPRINT_DOMAIN)
-    return `gaffer:bespoke:${compositionId}`;
-  return "gaffer:legacy-debt";
+    return `orchestration:bespoke:${compositionId}`;
+  return "orchestration:legacy-debt";
 }
 
 /** Preserve an unknown native session as provider-only; managed routes always supply providerTarget. */
@@ -234,7 +234,7 @@ export function providerTargetLabel(f: AgentIdentity): string {
 }
 
 export function semanticHandle(id: string, f: AgentIdentity): string {
-  const composition = component(gafferProvenance(f));
+  const composition = component(orchestrationProvenance(f));
   return [component(providerTargetLabel(f)), shortModel(f.model), component(f.effort), composition, idSuffix(id)].join("-");
 }
 
@@ -242,7 +242,7 @@ export function renderDisplayName(id: string, f: AgentIdentity): string {
   const goal = f.goal ? ` — ${f.goal.length > 40 ? f.goal.slice(0, 37) + "…" : f.goal}` : "";
   if (f.providerTarget) {
     const task = f.goal ? (f.goal.length > 40 ? f.goal.slice(0, 37) + "…" : f.goal) : "unknown";
-    return `${providerTargetLabel(f)} · ${shortModel(f.model)} · ${component(f.effort)} · ${gafferProvenance(f)} · ${task}`;
+    return `${providerTargetLabel(f)} · ${shortModel(f.model)} · ${component(f.effort)} · ${orchestrationProvenance(f)} · ${task}`;
   }
   return `${semanticHandle(id, f)}${goal}`;
 }

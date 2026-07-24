@@ -417,7 +417,7 @@
  2  DISPATCH   who runs agents                 [guard: " (wired "agent-spawn-guard") "]
     " (mark d "north") " north    SDK workers — persistent, steerable, fact trail;
                model, effort, caveman all have per-spawn opts on mcp__north__spawn;
-               model/effort resolve from the requested Gaffer composition and
+               model/effort resolve from the requested Orchestration composition and
                provider catalog; managed response compression resolves explicit
                request > AGENT_CAVEMAN > off, then freezes for worker lifetime
     " (mark d "warn") " warn     native Agent/Workflow allowed, nudged toward north
@@ -489,7 +489,7 @@
            steerable (msg-cli :7977). Model, effort, and caveman all have
            per-spawn opts on mcp__north__spawn. Managed children scrub ambient
            routing/staffing variables: model and effort come from the request's
-           Gaffer composition and provider catalog unless explicitly pinned.
+           Orchestration composition and provider catalog unless explicitly pinned.
            Response compression may inherit an explicit AGENT_CAVEMAN when the
            request omits it; with neither input it defaults off. The result is
            frozen for each worker's lifetime.

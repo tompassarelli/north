@@ -16,13 +16,13 @@
       url = "github:tompassarelli/fram";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    gaffer = {
-      url = "github:tompassarelli/gaffer";
+    orchestration = {
+      url = "github:tompassarelli/orchestration";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, fram, gaffer }:
+  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, fram, orchestration }:
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [
@@ -295,12 +295,12 @@ PY
               schema-stage-runtime-read.out
             touch $out
           '';
-        # Runtime-only Gaffer contract. Generated adapters, authoring scripts,
+        # Runtime-only Orchestration contract. Generated adapters, authoring scripts,
         # skills, and private docs stay out of North's closure.
-        gafferContract = pkgs.stdenvNoCC.mkDerivation {
-          pname = "gaffer-runtime-contract";
-          version = builtins.substring 0 12 (gaffer.rev or "local");
-          src = gaffer;
+        orchestrationContract = pkgs.stdenvNoCC.mkDerivation {
+          pname = "orchestration-runtime-contract";
+          version = builtins.substring 0 12 (orchestration.rev or "local");
+          src = orchestration;
           dontConfigure = true;
           dontBuild = true;
           installPhase = ''
@@ -312,7 +312,7 @@ PY
             cp -r docs/deltas/. $out/docs/deltas/
             # Canonical assessment validator + its only import. North's runtime
             # (routing-economics.ts) resolves selection-assessment.mjs under
-            # GAFFER_HOME/scripts; provider-catalog.mjs reads the provider JSON
+            # ORCHESTRATION_HOME/scripts; provider-catalog.mjs reads the provider JSON
             # already installed above. No authoring or private material.
             cp scripts/selection-assessment.mjs scripts/provider-catalog.mjs $out/scripts/
             runHook postInstall
@@ -406,7 +406,7 @@ PY
               --set FRAM_HOME ${framRuntimeRoot} \
               --set FRAM_BIN ${framPkg}/bin \
               --set FRAM_OUT ${framBabashkaClasspath} \
-              --set GAFFER_HOME ${gafferContract} \
+              --set ORCHESTRATION_HOME ${orchestrationContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
@@ -427,7 +427,7 @@ PY
               --set FRAM_HOME ${framRuntimeRoot} \
               --set FRAM_BIN ${framPkg}/bin \
               --set FRAM_OUT ${framBabashkaClasspath} \
-              --set GAFFER_HOME ${gafferContract} \
+              --set ORCHESTRATION_HOME ${orchestrationContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
@@ -1087,9 +1087,9 @@ PY
               --dry-run > "$smoke/spawn.out"
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
-            # Assessed dispatch must resolve Gaffer's canonical selection
+            # Assessed dispatch must resolve Orchestration's canonical selection
             # validator from the packaged contract alone. The sandbox has no
-            # ~/code/gaffer, and the wrapper forces GAFFER_HOME at the runtime
+            # ~/code/orchestration, and the wrapper forces ORCHESTRATION_HOME at the runtime
             # contract, so this exercises the exact shape (stock verifier
             # composition + assessment sidecar, dry-run) that failed before
             # scripts/selection-assessment.mjs + provider-catalog.mjs were
@@ -1098,7 +1098,7 @@ PY
             # no worker, no provider turn, and no lane.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["oracle-strength:judgment-only","reasoning-shape:multi-hypothesis"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment.json"
-            GAFFER_HOME=${gafferContract} HOME="$smoke/home" NO_COLOR=1 \
+            ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
               NORTH_STAFFING_SOURCE=file \
               $out/bin/north spawn verifier probe \
               --assessment "@$smoke/verifier-assessment.json" --dry-run \
@@ -1110,7 +1110,7 @@ PY
             # the packaged canonical validator, never silently admitted.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["forged"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment-forged.json"
-            if GAFFER_HOME=${gafferContract} HOME="$smoke/home" NO_COLOR=1 \
+            if ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
                  NORTH_STAFFING_SOURCE=file \
                  $out/bin/north spawn verifier probe \
                  --assessment "@$smoke/verifier-assessment-forged.json" --dry-run \
@@ -1119,12 +1119,12 @@ PY
               cat "$smoke/assessed-forged.out" >&2
               exit 1
             fi
-            grep -q 'canonical Gaffer validation' "$smoke/assessed-forged.out"
-            # Runtime Gaffer reads must be hermetic: exercise exact provider/model
+            grep -q 'canonical Orchestration validation' "$smoke/assessed-forged.out"
+            # Runtime Orchestration reads must be hermetic: exercise exact provider/model
             # resolution against the packaged contract, with no sibling checkout.
             # File staffing source: the graph default needs a live coordinator,
             # which a sandboxed build never has.
-            GAFFER_HOME=${gafferContract} HOME="$smoke/home" \
+            ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" \
               NORTH_STAFFING_SOURCE=file ${pkgs.bun}/bin/bun -e \
               'import { readFileSync } from "node:fs";
                import { resolveModelAlias, resolveModelDelta, resolveTier } from "'$out'/sdk/src/providers/catalog.ts";
@@ -1146,9 +1146,9 @@ PY
                    : delta.kind === "none" && Boolean(delta.reason?.trim()));
                if (route.model !== "gpt-5.6-sol" || terra !== "gpt-5.6-terra"
                  || !validTerraDelta || opus !== "claude-opus-4-8" || !validDelta) process.exit(1);'
-            grep -q '^## research-grade$' ${gafferContract}/docs/task-grades.md
-            grep -q '^## worker$' ${gafferContract}/docs/topologies.md
-            grep -q '^## universal$' ${gafferContract}/docs/comms.md
+            grep -q '^## research-grade$' ${orchestrationContract}/docs/task-grades.md
+            grep -q '^## worker$' ${orchestrationContract}/docs/topologies.md
+            grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \
               ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= \
               $out/bin/north-mcp > "$smoke/north-mcp-tools.json"

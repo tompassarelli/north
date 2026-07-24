@@ -13,7 +13,7 @@ import type { RoutingRequest } from "./routing-metadata";
 import type { NormalizedTokenUsage } from "./usage";
 import type { AllocationEvidence, RoutingFallbackReason } from "./providers/types";
 import type { HarnessCompositionEvidence } from "./harness";
-import { GAFFER_CAPABILITIES } from "./gaffer-capabilities";
+import { ORCHESTRATION_CAPABILITIES } from "./orchestration-capabilities";
 import type { DeliveryProof } from "./delivery-verification";
 import type { ProviderAuthoritySurface } from "./providers";
 import { providerBilling, settleSpend } from "./spend-guard";
@@ -337,7 +337,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.deliveryProof?.deliveryAttestationSha256)
     facts.push(["delivery_attestation_sha256", rec.deliveryProof.deliveryAttestationSha256]);
   // Canonicalize AT WRITE: every caller (spawn/dispatch admission, fallback,
-  // legacy env-fallback) funnels through the one shared alias map (Gaffer
+  // legacy env-fallback) funnels through the one shared alias map (Orchestration
   // catalogs' modelAliases, see providers/catalog.ts) so a `model` fact is
   // never a bare family alias (opus/sonnet/fable/haiku/...), and a model that
   // does not belong to the executed provider (fallback-death lag) writes no
@@ -545,7 +545,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     for (const field of applied.presetOverrides ?? []) facts.push(["applied_preset_override", field]);
     if (applied.presetOverrideReasonHash)
       facts.push(["applied_preset_override_reason_sha256", applied.presetOverrideReasonHash]);
-    const capabilityOrder = new Map(GAFFER_CAPABILITIES.map((capability, index) => [capability, index]));
+    const capabilityOrder = new Map(ORCHESTRATION_CAPABILITIES.map((capability, index) => [capability, index]));
     for (const capability of [...(applied.capabilities ?? [])]
       .sort((left, right) => capabilityOrder.get(left)! - capabilityOrder.get(right)!))
       facts.push(["applied_capability", capability]);

@@ -8,7 +8,7 @@ import { getThreadFacts, type Fact } from "./north-client";
 import {
   trustedGitBranchName, trustedGitExecutable, trustedGitProjectRoot,
 } from "./trusted-runtime";
-import { hasAuthoringCapability } from "./gaffer-capabilities";
+import { hasAuthoringCapability } from "./orchestration-capabilities";
 export { trustedGitExecutable } from "./trusted-runtime";
 
 const REPO = resolve(import.meta.dir, "..", "..");

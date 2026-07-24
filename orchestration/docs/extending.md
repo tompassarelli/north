@@ -1,10 +1,10 @@
-# Extending Gaffer — stock templates and bespoke compositions
+# Extending Orchestration — stock templates and bespoke compositions
 
-Gaffer is a stdlib, not a framework: the templates are precompiled convenience
+Orchestration is a stdlib, not a framework: the templates are precompiled convenience
 for hot paths, the blocks are parts, and only the LAWS bind everything.
 This is the specification for building on it.
 
-## The contract — what makes an agent "gaffer-valid"
+## The contract — what makes an agent "orchestration-valid"
 
 Four requirements, everything else is free:
 
@@ -84,7 +84,7 @@ or report shape requires a bespoke composition. The v2 machine schema retains
    path under that exact model in `providers/<provider>.json`. Runtime models
    without a calibration use an explicit `none`; they never inherit one.
 - **New provider model route**: add the model's provider-supported
-  effort/reasoning levels *within Gaffer's canonical vocabulary* and official
+  effort/reasoning levels *within Orchestration's canonical vocabulary* and official
   per-model `effort-support` provenance, then calibrate explicit disjoint
   `routes.<tier>` shingles. Do not cross-product independent tier and effort
   lists. Raw support may remain unrouted. A model used by a canonical tier row
@@ -107,7 +107,7 @@ or report shape requires a bespoke composition. The v2 machine schema retains
 
 ## Anatomy of an agent — the axes and where each is encoded
 
-| Axis | Sets | Enforcement | In gaffer | At runtime |
+| Axis | Sets | Enforcement | In orchestration | At runtime |
 |---|---|---|---|---|
 | Routing | semantic tier + deliberation | hard at dispatch | stock template + routing request | semantic spawn opts |
 | Substrate | model + effort/reasoning | hard (API params) | provider raw-support intersection + exact per-tier routes / compiled adapter | resolved spawn opts |
@@ -120,18 +120,18 @@ or report shape requires a bespoke composition. The v2 machine schema retains
 | Leverage | value of improved judgment / cost of plausible error | planner input (advisory) | doctrine — derives tier | selection reason |
 | Quality floor | minimum responsible semantic tier | planner input (advisory) | doctrine — bounds tier | tier-selection bound |
 | Deliberation | reasoning budget independent of model capability | hard at dispatch | routing request | resolved spawn opts |
-| Allocation | preferential / balanced / reserved subscription use | host-enforced | NOT gaffer's — North policy | North resource pools |
+| Allocation | preferential / balanced / reserved subscription use | host-enforced | NOT orchestration's — North policy | North resource pools |
 | Posture | value-collision ordering | advisory | `docs/postures.md` | — |
 | Calibration | exact-concrete-model compensations | advisory | provider `modelDeltas` → `docs/deltas/<model>.md` or explicit none | prompt |
 | Comms | universal output norms | advisory | `docs/comms.md` | host may add layers (register, wire formats) |
-| Coordination membership | peer coexistence (presence, claims) | host-specific | NOT gaffer's | host harness |
+| Coordination membership | peer coexistence (presence, claims) | host-specific | NOT orchestration's | host harness |
 | Laws | house constitution | advisory | `doctrine.md` (routing laws only) | host config |
 | Hierarchy | escalation target | thin | REDIRECT lines in role blocks | host orchestration |
 | Task + identity | the brief, agent id, state | — | never — arrives at spawn | prompt body / host state |
 
 The compiler (`scripts/build-agents.mjs`) flattens the source-layer prompt and
 adapter axes into agent files where the adapter format requires it. Host
-coordination, hierarchy, and task identity remain runtime concerns: gaffer
+coordination, hierarchy, and task identity remain runtime concerns: orchestration
 stays portable precisely by not encoding them as provider-specific doctrine.
 Capability labels describe enforceable authority, not decorative tool hints.
 `shell.readonly` requires a hard working-tree write denial; an adapter that
@@ -153,5 +153,5 @@ owns the changing runtime alternatives, and records which pool it selected.
 Automatic alternatives remain same-capability substitutions before side
 effects; any degradation is explicit and evidenced.
 An explicit exact-model pin is an execution-envelope constraint, not a ninth
-Gaffer request field. Its static catalog check and North's live authenticated
+Orchestration request field. Its static catalog check and North's live authenticated
 target check are both required and independent.

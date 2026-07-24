@@ -23,7 +23,7 @@ afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-test("peer command accepts a complete Gaffer envelope, never role-only or partial routing", () => {
+test("peer command accepts a complete Orchestration envelope, never role-only or partial routing", () => {
   expect(() => validatePeerCommandArgs("spawn", {
     prompt: "probe", ...presetRequest("verifier"),
   })).not.toThrow();

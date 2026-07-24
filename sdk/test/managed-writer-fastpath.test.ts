@@ -30,7 +30,7 @@ const PRESET: Record<string, string> = {
   repo: "north",
   spawned_at: "2026-07-17T01:00:00Z",
   display_handle: "anthropic-a-opus-high-integrator",
-  display_name: "anthropic:claude-a · opus · high · gaffer:integrator",
+  display_name: "anthropic:claude-a · opus · high · orchestration:integrator",
 };
 
 const opName = (value: unknown): string | undefined =>

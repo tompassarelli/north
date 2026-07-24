@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { canonicalRole, routingMetadataFromEnv, validateRoutingMetadata } from "../src/routing-metadata";
 import { newRunId, runFacts } from "../src/telemetry";
 
@@ -21,7 +21,7 @@ const bespokeContract = {
   report: "timeline, contradictions, and gaps",
 };
 
-describe("Gaffer routing metadata boundary", () => {
+describe("Orchestration routing metadata boundary", () => {
   test("accepts and normalizes the complete composition payload", () => {
     process.env.AGENT_TASK_GRADE = "staff";
     process.env.AGENT_ROLE = "migration-forensics";
@@ -144,15 +144,15 @@ test("run telemetry records requested routing, composition, and outcome together
   expect(facts).toContainEqual(["composition_id", "research-scientist"]);
 });
 
-test("North validates Gaffer's shared cross-harness routing fixtures", () => {
-  const packagedPath = resolve(import.meta.dir, "fixtures/gaffer-routing-request.fixtures.json");
+test("North validates Orchestration's shared cross-harness routing fixtures", () => {
+  const packagedPath = resolve(import.meta.dir, "fixtures/orchestration-routing-request.fixtures.json");
   const fixtures = JSON.parse(readFileSync(packagedPath, "utf8"));
   for (const fixture of fixtures.valid)
-    expect(() => applyGafferStaffing(validateRoutingMetadata(fixture.request))).not.toThrow();
+    expect(() => applyOrchestrationStaffing(validateRoutingMetadata(fixture.request))).not.toThrow();
   for (const fixture of fixtures.invalid)
-    expect(() => applyGafferStaffing(validateRoutingMetadata(fixture.request))).toThrow(fixture.errorContains);
+    expect(() => applyOrchestrationStaffing(validateRoutingMetadata(fixture.request))).toThrow(fixture.errorContains);
 
-  // Gaffer is canonical when present in a development workspace, but North's
+  // Orchestration is canonical when present in a development workspace, but North's
   // packaged acceptance test never requires a sibling checkout.
   const orchestrationHome = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "../../orchestration");
   const canonicalPath = resolve(orchestrationHome, "contracts/routing-request.fixtures.json");

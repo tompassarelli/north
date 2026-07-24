@@ -2,7 +2,7 @@
 
 Topology is conceptually independent of role, grade, tier, reasoning, and
 posture. It says whether an agent owns one terminal piece or owns decomposition
-and reduction. Gaffer's current stock templates deliberately ship fixed,
+and reduction. Orchestration's current stock templates deliberately ship fixed,
 enforceable topology/capability pairings: director is an orchestrator with
 coordination authority; every other stock template is a worker without it.
 Use a bespoke composition when a different pairing is required rather than
@@ -27,7 +27,7 @@ TOPOLOGY: ORCHESTRATOR. Coordinate; do not execute terminal worker subtasks
 yourself. Decompose on real independence and classify every direct child from
 its LOCAL dependency shape. Staff an atomic or tightly coupled child as a
 worker; when a child itself needs dynamic decomposition, staff it as a child
-orchestrator through North. Every child receives a fresh complete Gaffer
+orchestrator through North. Every child receives a fresh complete Orchestration
 request, North admission, provider/account resolution, resource envelope, and
 telemetry; never inherit the parent's route or budget by nesting. Require
 explicit done-bars, await settlement, and own reduction of every DIRECT child.

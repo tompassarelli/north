@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; orchestration-shape-lint-test.clj — Phase 0 readonly probe for the Gaffer ->
+;; orchestration-shape-lint-test.clj — Phase 0 readonly probe for the Orchestration ->
 ;; North Orchestration migration (thread 019f8f5c-74e0-7be7-ba65-3179f1bccde1,
 ;; design doc section 2, ~/code/north/docs/private/north-orchestration-vocabulary-design.md).
 ;;

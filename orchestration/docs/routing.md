@@ -1,19 +1,19 @@
 # Provider-neutral routing
 
-Gaffer chooses semantics; a provider adapter chooses a concrete runtime. Three
+Orchestration chooses semantics; a provider adapter chooses a concrete runtime. Three
 layers sit above that choice, and keeping them apart is the whole contract:
 
 - **Planner inputs** are how a caller REASONS ITS WAY to a request. Task shape
   proposes a role; seven versioned minimum-sufficient signals derive the
   capability/deliberation floor. They live in a validated sidecar, not on the
   wire, and DERIVE the routing fields below.
-- **The routing request** is the provider-neutral payload Gaffer emits and a
+- **The routing request** is the provider-neutral payload Orchestration emits and a
   harness consumes. Hard controls such as tier/reasoning/topology affect
   dispatch; descriptive fields such as grade/domains/contracts are validated
   and recorded, then matter only when a prompt or adapter actually consumes
   them. Metadata is never described as magic execution.
 - **Runtime allocation** — which account, which concrete model, resource
-  pressure, fallback — is owned entirely by the harness. Gaffer never names an
+  pressure, fallback — is owned entirely by the harness. Orchestration never names an
   account or a model and does not define allocation's schema.
 
 ## Planner inputs (upstream — they derive the request, they are not it)
@@ -51,7 +51,7 @@ coded detailed exception above either minimum. `max` additionally requires
 `reasoningShape=exceptional` and a concrete `exceptionalDeliberation`. That
 field is rejected below max. The assessment is not part of `RoutingRequest`.
 
-## The routing request (Gaffer's contract)
+## The routing request (Orchestration's contract)
 
 ```json
 {
@@ -172,7 +172,7 @@ An emergent aggregate always receives an independently staffed,
 context-carrying whole-outcome verifier report. These obligations affect how
 the topology is staffed and prompted; they do not add a ninth routing field.
 An orchestrator may create a child orchestrator only through the same North
-execution boundary used for any child: a fresh eight-field Gaffer request plus
+execution boundary used for any child: a fresh eight-field Orchestration request plus
 independent admission, provider/account resolution, resource envelope,
 telemetry, and settlement. No route or budget is inherited by tree position,
 and each immediate parent reduces its direct children. Provider-native opaque
@@ -197,7 +197,7 @@ node scripts/compose-routing.mjs migration-forensics --nearest analyst \
   --no-promotion-candidate
 ```
 
-The command prints the JSON that follows a `GAFFER_ROUTING` marker.
+The command prints the JSON that follows a `ORCHESTRATION_ROUTING` marker.
 Stock-template values are defaults only: every changed overrideable axis
 replaces only itself and is auditable. Their topology is fixed. Unknown roles
 are valid bespoke compositions only with a reason, promotion status,
@@ -240,7 +240,7 @@ runtime model declares either a calibrated repo path or explicit `none` in its
 provider catalog.
 
 Provider catalogs keep two model-level facts separate. `models.<exact>.efforts`
-or `.reasoning` records provider-supported levels intersected with Gaffer's
+or `.reasoning` records provider-supported levels intersected with Orchestration's
 canonical deliberation vocabulary; it is not an exhaustive provider API enum.
 `models.<exact>.routes.<tier>` is the smaller calibrated set of exact
 model×tier×deliberation shingles. Route lists are explicit and disjoint: raw
@@ -255,17 +255,17 @@ instead validates the request's tier+reasoning against that selected model's
 raw-support intersection and exact route. It never filters an alternate model
 through the canonical tier model's effort list.
 
-## Target resolution — owned by the harness, not by Gaffer
+## Target resolution — owned by the harness, not by Orchestration
 
-Gaffer stops at the semantic request. Choosing an account, a concrete model, a
+Orchestration stops at the semantic request. Choosing an account, a concrete model, a
 transport, and an allocation strategy — and reporting what actually ran — is the
-harness's job. That resolution is North's contract, not Gaffer's: Gaffer does
+harness's job. That resolution is North's contract, not Orchestration's: Orchestration does
 not enumerate its fields or name any account, pool, or model.
 
-A conforming harness accepts the eight-field Gaffer request inside its own
+A conforming harness accepts the eight-field Orchestration request inside its own
 execution envelope. That envelope may additionally pin a provider, account, or
 exact model,
-but those are North inputs rather than Gaffer fields. The harness:
+but those are North inputs rather than Orchestration fields. The harness:
 
 1. Honors an explicit provider/account/model pin from its execution envelope, else
    selects freely among compatible accounts.
@@ -300,26 +300,26 @@ deliberation, scope, or verification is DEGRADATION — an explicit, recorded
 decision, never a disguised fallback. Allocation strategy (preferential /
 balanced / reserved), account and pool identity, resource pressure, and resolved
 model names are runtime facts the harness owns and records; they are never
-Gaffer request fields and carry no API-credit meaning.
+Orchestration request fields and carry no API-credit meaning.
 
-`auto` is a North execution-envelope value, not a Gaffer field or model name.
-Gaffer intentionally does not claim that model aliases or effort labels are
+`auto` is a North execution-envelope value, not a Orchestration field or model name.
+Orchestration intentionally does not claim that model aliases or effort labels are
 equivalent between providers.
 
 ## Bespoke compositions
 
 Composition provenance has five deliberately distinct presentation states:
 
-- `gaffer:<preset>` — an unchanged stock template.
-- `gaffer:<preset>+override` — a stock template with recorded axis changes and
+- `orchestration:<preset>` — an unchanged stock template.
+- `orchestration:<preset>+override` — a stock template with recorded axis changes and
   an `overrideReason`.
-- `gaffer:bespoke:<id>` — an improvised, structured composition with its own
+- `orchestration:bespoke:<id>` — an improvised, structured composition with its own
   capabilities and authority contract.
-- `gaffer:not-selected` — a native session that did not select Gaffer at all.
-- `gaffer:legacy-debt` — a pre-contract record whose provenance cannot yet be
+- `orchestration:not-selected` — a native session that did not select Orchestration at all.
+- `orchestration:legacy-debt` — a pre-contract record whose provenance cannot yet be
   reconstructed; this is migration debt, not a stock template.
 
-`gaffer:none` is not a valid display state because it collapses intentional
+`orchestration:none` is not a valid display state because it collapses intentional
 non-selection, bespoke composition, and missing legacy data into one ambiguous
 label. A refreshed legacy record should be reclassified into one of the first
 four states; it is never guessed into a stock template.
@@ -334,7 +334,7 @@ the nearest stock template can seed composition defaults but never grants author
 implication. A harness records the
 requested composition beside the resolved route and evidence-backed outcome. Repeated
 successful fingerprints are visible for review regardless of nomination; runtime observations never
-rewrite Gaffer's stock-template library automatically. Comparable successful
+rewrite Orchestration's stock-template library automatically. Comparable successful
 recurrence means the same responsibility, deliverable, capability/authority
 boundary, done criteria, and report shape has been used more than once and each
 use has evidence against its done criteria. Domain wording alone does not make

@@ -109,15 +109,15 @@
                 axes (str (get expected "providerLabel")
                           " · " (get expected "modelDisplay")
                           " · " (get expected "effortDisplay")
-                          " · " (get expected "gafferProvenance"))]]
-      (and (= (get expected "gafferProvenance") (gaffer-provenance facts))
+                          " · " (get expected "orchestrationProvenance"))]]
+      (and (= (get expected "orchestrationProvenance") (orchestration-provenance facts))
            (= (get expected "semanticHandle") (semantic-handle id facts))
            (= (get expected "primaryLine") line)
            (str/starts-with? line axes)
            (not= line (get facts "display_name"))
            ;; Display text is output only. It cannot repair missing structured axes.
            (or (not= name "missing-managed-axes")
-               (and (str/includes? line "gaffer:legacy-debt")
+               (and (str/includes? line "orchestration:legacy-debt")
                     (not (str/includes? line "designer")))))))))
 
 (let [native (first (json/parse-string
@@ -133,13 +133,13 @@
                               {} observations)
                 line (agent-primary-line {:online true} facts)]]
       (and (= (get expected "providerLabel") (provider-target-label facts))
-           (= (get expected "gafferProvenance") (gaffer-provenance facts))
+           (= (get expected "orchestrationProvenance") (orchestration-provenance facts))
            (= (get expected "semanticHandle")
               (semantic-handle "session-native-7841e6b2" facts))
            (= (get expected "primaryLine") line))))))
 
 (check "session current task outranks stale lane goal and stored presentation receipts"
-       (= "anthropic:ambient · opus · xhigh · gaffer:designer · working: Current session task"
+       (= "anthropic:ambient · opus · xhigh · orchestration:designer · working: Current session task"
           (agent-primary-line
            {:online true}
            (managed
@@ -150,7 +150,7 @@
            {"current_thread" "Current session task"})))
 
 (check "preset roster line uses canonical structured axes"
-       (= "anthropic:ambient · opus · xhigh · gaffer:designer · working: build the roster"
+       (= "anthropic:ambient · opus · xhigh · orchestration:designer · working: build the roster"
           (agent-primary-line {:online true}
                               (managed
                                {"kind" "lane" "provider" "anthropic" "model" "claude-opus-4-8"
@@ -171,10 +171,10 @@
                               "composition_contract_fingerprint_version" "v1"
                               "composition_contract_fingerprint_domain" "north:bespoke-contract:v1"
                               "goal" "trace schema"}))
-        "gaffer:bespoke:migration-forensics"))
+        "orchestration:bespoke:migration-forensics"))
 
-(check "account target and Gaffer template are first-class in the roster"
-       (= "openai:codex-work · sol · high · gaffer:designer · working: trace schema"
+(check "account target and Orchestration template are first-class in the roster"
+       (= "openai:codex-work · sol · high · orchestration:designer · working: trace schema"
           (agent-primary-line {:online true}
                               (managed
                                {"kind" "lane" "provider" "openai" "provider_target" "codex-work"
@@ -183,7 +183,7 @@
                                 "composition_overrides" "[]" "goal" "trace schema"}))))
 
 (check "preset overrides are a compact projection of structured facts"
-       (= "openai:ambient · sol · xhigh · gaffer:integrator+override(tier,reasoning) · working: cross-seam repair"
+       (= "openai:ambient · sol · xhigh · orchestration:integrator+override(tier,reasoning) · working: cross-seam repair"
           (agent-primary-line {:online true}
                               (managed
                                {"kind" "lane" "provider" "openai" "model" "gpt-5.6-sol"
@@ -201,7 +201,7 @@
                               "effort" "xhigh" "composition_kind" "preset"
                               "role" "integrator" "composition_id" "integrator"
                               "composition_overrides" "[\"tier\"]"}))
-        "gaffer:legacy-debt"))
+        "orchestration:legacy-debt"))
 
 (check "default managed target is displayed as ambient"
        (str/starts-with?
@@ -211,10 +211,10 @@
                               "model" "opus" "effort" "high" "composition_kind" "preset"
                               "role" "integrator" "composition_id" "integrator"
                               "composition_overrides" "[]"}))
-        "anthropic:ambient · opus · high · gaffer:integrator"))
+        "anthropic:ambient · opus · high · orchestration:integrator"))
 
 (check "historical native gaps are explicit provenance labels, never model names"
-       (= "provider:historical-unrecorded · model:historical-unrecorded · effort:historical-unrecorded · gaffer:not-selected · working: unknown"
+       (= "provider:historical-unrecorded · model:historical-unrecorded · effort:historical-unrecorded · orchestration:not-selected · working: unknown"
           (agent-primary-line {:online true :focus "CONTEXT BRIEF:"} {"kind" "session"})))
 
 (check "native session with a repo has an honest useful activity fallback"
@@ -228,7 +228,7 @@
        (str/includes?
         (agent-primary-line {:online true} {"kind" "session" "provider" "openai"
                                             "model" "gpt-5.6-sol" "effort" "unobserved"})
-        "openai · sol · effort:unobserved · gaffer:not-selected"))
+        "openai · sol · effort:unobserved · orchestration:not-selected"))
 
 (check "roster lifecycle categories do not call terminal TTL rows active"
        (and (= :active-agent (roster-category {"kind" "lane"}))
@@ -400,17 +400,17 @@
                              " · inconsistent(lifecycle:invalid-lane-terminal): conflict probe")
               (= :inconsistent (roster-category marker-conflict)))))
 
-(check "uncomposed role remains visible without inventing Gaffer provenance"
+(check "uncomposed role remains visible without inventing Orchestration provenance"
        (let [facts {"kind" "lane" "provider" "anthropic" "model" "opus"
                     "effort" "xhigh"
                     "role" "orchestrator" "goal" "coordinate work"}]
          (and (str/includes? (agent-primary-line {:online true} facts)
-                             "gaffer:legacy-debt · role:orchestrator")
-              (= "anthropic-opus-xhigh-gaffer-legacy-debt-legacy"
+                             "orchestration:legacy-debt · role:orchestrator")
+              (= "anthropic-opus-xhigh-orchestration-legacy-debt-legacy"
                  (semantic-handle "lane-legacy" facts)))))
 
 (check "only provider-native sessions receive the native handle segment"
-       (= "openai-sol-unobserved-gaffer-not-selected-native"
+       (= "openai-sol-unobserved-orchestration-not-selected-native"
           (semantic-handle "session-native"
                            {"kind" "session" "provider" "openai" "model" "gpt-5.6-sol"
                             "effort" "unobserved"})))
@@ -419,21 +419,21 @@
        (and (str/includes?
              (agent-primary-line {:online true}
                                  {"kind" "lane" "composition_kind" "none"})
-             "gaffer:legacy-debt")
+             "orchestration:legacy-debt")
             (str/includes?
              (agent-primary-line {:online true}
                                  {"kind" "session" "composition_kind" "none"})
-             "gaffer:not-selected")))
+             "orchestration:not-selected")))
 
 (check "display labels are never reverse-parsed into missing structured facts"
        (let [facts {"kind" "lane" "display_name" "anthropic opus xhigh designer"}]
          (and (str/starts-with? (agent-primary-line {:online true} facts)
-                                "unknown · unknown · unknown · gaffer:legacy-debt")
+                                "unknown · unknown · unknown · orchestration:legacy-debt")
               (str/starts-with? (semantic-handle "sdk-a205e9ce" facts)
-                                "unknown-unknown-unknown-gaffer-legacy-debt-"))))
+                                "unknown-unknown-unknown-orchestration-legacy-debt-"))))
 
 (check "current structured effort overrides a stale stored handle"
-       (= "openai-ambient-sol-xhigh-gaffer-designer-a205e9ce"
+       (= "openai-ambient-sol-xhigh-orchestration-designer-a205e9ce"
           (semantic-handle "sdk-a205e9ce"
                            (managed
                             {"kind" "lane" "provider" "openai" "model" "gpt-5.6-sol"
@@ -442,7 +442,7 @@
                              "composition_overrides" "[]"
                              "display_handle" "openai-sol-high-designer-a205e9ce"}))))
 
-(check "dry-run route: Anthropic frontier resolves to the Gaffer config model, no Fable window swap"
+(check "dry-run route: Anthropic frontier resolves to the Orchestration config model, no Fable window swap"
        (let [route (dry-resolved-route "anthropic" "frontier" nil nil)]
          (and (= "anthropic" (:provider route))
               (not= "fable" (:model route)))))
@@ -474,7 +474,7 @@
   (check "a fact-less legacy row stays honestly unknown"
          (and (= {} (get facts "legacy-session"))
               (str/starts-with? (agent-primary-line {:online true} (get facts "legacy-session" {}))
-                                "unknown · unknown · unknown · gaffer:legacy-debt")))
+                                "unknown · unknown · unknown · orchestration:legacy-debt")))
   (check "fallback uses one bounded coordinator query per missing live id and no show subprocess"
          (and (= [bulk] @calls)
               (= [7977 7977] (mapv first @indexed))
@@ -635,9 +635,9 @@
 (let [templates (proc/shell {:out :string :err :string :continue true
                              :extra-env {"NO_COLOR" "1"}}
                             (str root "/bin/north") "templates")]
-  (check "north templates is a routed human view over the Gaffer catalog"
+  (check "north templates is a routed human view over the Orchestration catalog"
          (and (zero? (:exit templates))
-              (str/includes? (:out templates) "GAFFER STOCK TEMPLATES")
+              (str/includes? (:out templates) "ORCHESTRATION STOCK TEMPLATES")
               (str/includes? (:out templates)
                              "exact template → justified axis override → bespoke composition")
               (str/includes? (:out templates) "integrator")
@@ -659,7 +659,7 @@
                       "--dry-run")]
   (check "spawn dry-run leads with semantic identity and retains control key separately"
          (and (zero? (:exit dry))
-              (re-find #"openai-ambient-sol-xhigh-gaffer-designer-[0-9a-f]{12}" (:out dry))
+              (re-find #"openai-ambient-sol-xhigh-orchestration-designer-[0-9a-f]{12}" (:out dry))
               (re-find #"control: lane-[0-9a-z]+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}" (:out dry))
               (not (str/includes? (:out dry) "agent-id would be")))))
 
@@ -669,9 +669,9 @@
                          "--provider" "anthropic"
                          "--pin-evidence" (pin-evidence-json [{:kind "provider" :value "anthropic"}])
                          "--dry-run")]
-  (check "CLI dry route resolves anthropic frontier to the static Gaffer fable/xhigh route"
+  (check "CLI dry route resolves anthropic frontier to the static Orchestration fable/xhigh route"
          (and (zero? (:exit closed))
-              (re-find #"anthropic-ambient-fable-xhigh-gaffer-designer-[a-z0-9]+" (:out closed))
+              (re-find #"anthropic-ambient-fable-xhigh-orchestration-designer-[a-z0-9]+" (:out closed))
               (not (str/includes? (:out closed) "anthropic-ambient-opus")))))
 
 (let [dry (proc/shell {:out :string :err :string :continue true
@@ -685,7 +685,7 @@
   (check "spawn target becomes AGENT_TARGET and appears in the fallback identity"
          (and (zero? (:exit dry))
               (str/includes? (:out dry) "AGENT_TARGET=codex-work")
-              (re-find #"openai-codex-work-sol-xhigh-gaffer-designer-[a-z0-9]+" (:out dry)))))
+              (re-find #"openai-codex-work-sol-xhigh-orchestration-designer-[a-z0-9]+" (:out dry)))))
 
 (let [missing-pin (proc/shell {:out :string :err :string :continue true
                                :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
@@ -701,7 +701,7 @@
                             :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
                            "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
                            "--assessment" (economy-assessment-json) "--dry-run")]
-  (check "public CLI accepts a canonical Gaffer assessment and forwards only its recorded marker"
+  (check "public CLI accepts a canonical Orchestration assessment and forwards only its recorded marker"
          (and (zero? (:exit assessed))
               (str/includes? (:out assessed) "AGENT_ROUTING_ASSESSMENT=RECORDED")
               (not (str/includes? (:out assessed) "reasoning-shape:deterministic")))))

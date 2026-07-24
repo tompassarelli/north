@@ -1,5 +1,5 @@
 import { ExecutionAdmissionError, admitPinnedProvider } from "./execution-admission";
-import { requireGafferCapabilities, type GafferCapability } from "./gaffer-capabilities";
+import { requireOrchestrationCapabilities, type OrchestrationCapability } from "./orchestration-capabilities";
 import type { ProviderId } from "./providers/types";
 import { parseStrictJson } from "./strict-json";
 
@@ -9,7 +9,7 @@ export const PROVIDER_CAPABILITY_ADMISSION_SCHEMA =
 interface ProviderCapabilityAdmissionBase {
   schema: typeof PROVIDER_CAPABILITY_ADMISSION_SCHEMA;
   provider: ProviderId;
-  capabilities: GafferCapability[];
+  capabilities: OrchestrationCapability[];
   requestedTarget?: string;
 }
 
@@ -46,7 +46,7 @@ export function inspectPinnedProviderCapabilityAdmission(
   requestedTargetValue?: unknown,
 ): ProviderCapabilityAdmission {
   const provider = providerId(providerValue);
-  const capabilities = requireGafferCapabilities(
+  const capabilities = requireOrchestrationCapabilities(
     capabilitiesValue, "provider capability admission capabilities",
   );
   const target = requestedTarget(requestedTargetValue);

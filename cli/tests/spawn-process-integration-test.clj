@@ -37,7 +37,7 @@
    "repo" "north"
    "spawned_at" "2026-07-17T00:00:00Z"
    "display_handle" "openai-sol-high-verifier-probe"
-   "display_name" "openai:codex-personal · sol · high · gaffer:verifier · verify startup identity"})
+   "display_name" "openai:codex-personal · sol · high · orchestration:verifier · verify startup identity"})
 (defn committed [facts]
   (assoc facts "identity_manifest_sha256"
          (north.agent-provenance/manifest-sha256 facts)))
@@ -64,7 +64,7 @@
               (not (north.spawn-process/identity-ready? (assoc ready-facts "composition_kind" "invalid")))
               (not (north.spawn-process/identity-ready? (assoc ready-facts "composition_id" "designer")))))
 
-  (check "managed startup defects name invalid Gaffer provenance"
+  (check "managed startup defects name invalid Orchestration provenance"
          (= ["composition_kind(preset|bespoke)"]
             (north.spawn-process/identity-defects
              (committed (assoc ready-base "composition_kind" "invalid")))))

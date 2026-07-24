@@ -212,10 +212,10 @@ test("a shell-bearing capability set cannot hide effective file authority", asyn
     "anthropic",
     ["filesystem.read", "filesystem.search", "shell"],
     process.cwd(),
-  )).rejects.toThrow("anthropic_adapter_cannot_enforce_gaffer_capabilities");
+  )).rejects.toThrow("anthropic_adapter_cannot_enforce_orchestration_capabilities");
   await expect(admitExecution(
     "openai",
     ["shell.readonly"],
     process.cwd(),
-  )).rejects.toThrow("openai_adapter_cannot_enforce_gaffer_capabilities");
+  )).rejects.toThrow("openai_adapter_cannot_enforce_orchestration_capabilities");
 });

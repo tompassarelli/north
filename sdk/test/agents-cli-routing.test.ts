@@ -13,7 +13,7 @@ import { admitPinnedProvider } from "../src/execution-admission";
 
 const north = resolve(import.meta.dir, "../..");
 const cli = resolve(north, "cli/agents-cli.clj");
-const gaffer = resolve(north, "../gaffer");
+const orchestration = resolve(north, "orchestration");
 const bespokeContract = JSON.stringify({
   responsibility: "reconstruct migration provenance", deliverable: "evidence-linked timeline",
   capabilities: ["filesystem.read", "filesystem.search", "shell.readonly"],
@@ -48,8 +48,8 @@ function dry(role: string, provider: string, ...extra: string[]): string {
   const result = spawnSync("bb", [
     cli, "spawn", role, "probe", "--provider", provider, ...providerPin(provider), "--dry-run", ...extra,
   ], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
   expect(result.status).toBe(0);
   return result.stdout;
@@ -63,8 +63,8 @@ test("director is the canonical orchestrator role and topology names fail pedago
   expect(director).not.toContain("AGENT_MODEL=");
   for (const topology of ["orchestrator", "worker"]) {
     const result = spawnSync("bb", [cli, "spawn", topology, "probe", "--dry-run"], {
-      encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
-        GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+      encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
     });
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(`${topology} is a topology, not a role`);
@@ -87,8 +87,8 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
     env: {
       ...process.env,
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
       STRUGGLE_ERROR_STREAK: "5",
       STRUGGLE_LOOP_REPEAT: "4",
       STRUGGLE_LOOP_WINDOW: "30",
@@ -111,8 +111,8 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
     env: {
       ...process.env,
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
       STRUGGLE_STALL_TURNS: "0",
     },
   });
@@ -129,8 +129,8 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
       AGENT_TOPOLOGY: "orchestrator",
       AGENT_ID: "parent-director",
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+      NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
     },
   });
   const refused = [
@@ -158,8 +158,8 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
 
 test("ambiguous researcher role fails with the three explicit research functions", () => {
   const result = spawnSync("bb", [cli, "spawn", "researcher", "probe", "--dry-run"], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
   expect(result.status).toBe(1);
   expect(result.stdout).toContain("researcher is retired because it was ambiguous");
@@ -167,8 +167,8 @@ test("ambiguous researcher role fails with the three explicit research functions
 });
 
 const delegate = (...args: string[]) => spawnSync("bb", [cli, "delegate", ...args], {
-  encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
-    GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+  encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+    ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
 });
 
 test("composite preview and execution share pinned-provider admission before side effects", () => {
@@ -213,8 +213,8 @@ test("composite preview and execution share pinned-provider admission before sid
     NORTH_THREAD_ID: "",
     NORTH_RUN_CAPABILITY: "",
     NO_COLOR: "1",
-    NORTH_ORCHESTRATION_HOME: gaffer,
-    GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+    NORTH_ORCHESTRATION_HOME: orchestration,
+    ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
   };
   try {
     const requests = [
@@ -251,7 +251,7 @@ test("composite preview and execution share pinned-provider admission before sid
       "--dry-run",
     ], { encoding: "utf8", env });
     expect(anthropic.status).toBe(0);
-    expect(anthropic.stdout).toContain("# gaffer dials for role director");
+    expect(anthropic.stdout).toContain("# orchestration dials for role director");
     expect(anthropic.stdout).toContain("AGENT_ROLE=director");
     expect(anthropic.stdout).toContain("AGENT_TOPOLOGY=orchestrator");
     expect(anthropic.stdout).toContain("NORTH_DELEGATE_THREAD_ID=capture-on-execution");
@@ -278,7 +278,7 @@ test("delegate requires one explicit dependency-shape classification", () => {
 test("composite delegate alone hydrates the canonical director preset", () => {
   const result = delegate("coordinate this", "--composite", "--dry-run");
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain("# gaffer dials for role director");
+  expect(result.stdout).toContain("# orchestration dials for role director");
   expect(result.stdout).toContain("AGENT_ROLE=director");
   expect(result.stdout).toContain("AGENT_TOPOLOGY=orchestrator");
   expect(result.stdout).toContain("COMPOSITE INTAKE");
@@ -293,7 +293,7 @@ test("atomic delegate starts exactly the selected terminal worker and forwards r
     "--override-reason", "the implementation boundary is already settled", "--dry-run",
   );
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain("# gaffer dials for role integrator");
+  expect(result.stdout).toContain("# orchestration dials for role integrator");
   expect(result.stdout).toContain("AGENT_ROLE=integrator");
   expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
   expect(result.stdout).toContain("AGENT_TIER=standard");
@@ -310,7 +310,7 @@ test("atomic delegate forwards first-class bespoke composition options", () => {
   );
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("AGENT_ROLE=migration-forensics");
-  expect(result.stdout).toContain("gaffer:bespoke:migration-forensics");
+  expect(result.stdout).toContain("orchestration:bespoke:migration-forensics");
   expect(result.stdout).toContain("AGENT_COMPOSITION=REDACTED_BESPOKE_CONTRACT");
   expect(result.stdout).not.toContain('"nearestPreset":"analyst"');
 });
@@ -326,7 +326,7 @@ test("delegate context remains an orthogonal handoff payload", () => {
   expect(result.stdout).toContain("settled fact: use the canonical parser");
 });
 
-test("delegate prompt keeps North deltas and does not duplicate canonical Gaffer law", () => {
+test("delegate prompt keeps North deltas and does not duplicate canonical Orchestration law", () => {
   const result = delegate("coordinate this", "--composite", "--dry-run");
   expect(result.status).toBe(0);
   for (const duplicate of [
@@ -559,8 +559,8 @@ test("delegate explicit binding reuses its thread while a managed parent receive
         ...process.env,
         NORTH_BIN: fake.command,
         NO_COLOR: "1",
-        NORTH_ORCHESTRATION_HOME: gaffer,
-        GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+        NORTH_ORCHESTRATION_HOME: orchestration,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
       },
     });
     expect(dryCli.status).toBe(0);
@@ -619,8 +619,8 @@ test("a partial structured capture fails closed before any provider process star
         NORTH_THREAD_ID: "",
         NORTH_RUN_CAPABILITY: "",
         NO_COLOR: "1",
-        NORTH_ORCHESTRATION_HOME: gaffer,
-        GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json"),
+        NORTH_ORCHESTRATION_HOME: orchestration,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
       },
     });
     expect(result.status).toBe(1);
@@ -633,11 +633,11 @@ test("a partial structured capture fails closed before any provider process star
 
 test("legacy unclassified delegate no longer silently buys a director", () => {
   const result = spawnSync("bb", [cli, "delegate", "coordinate this", "--dry-run"], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
   expect(result.status).toBe(1);
-  expect(result.stdout).not.toContain("# gaffer dials for role director");
+  expect(result.stdout).not.toContain("# orchestration dials for role director");
 });
 
 test("judge is the premium high-leverage verdict role", () => {
@@ -663,15 +663,15 @@ test("bespoke roles require a structured contract and explicit promotion decisio
     "--contract", bespokeContract, "--no-promotion-candidate");
   expect(nearest).toContain('AGENT_ROLE=migration-cartographer');
   expect(nearest).toContain("AGENT_COMPOSITION=REDACTED_BESPOKE_CONTRACT");
-  expect(nearest).toContain("gaffer:bespoke:migration-cartographer");
+  expect(nearest).toContain("orchestration:bespoke:migration-cartographer");
   expect(nearest).not.toContain("schema archaeology");
   expect(nearest).not.toContain("timeline and gaps");
 });
 
 test("bespoke help is discoverable and invalid bespoke inputs exit nonzero", () => {
   const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: gaffer,
-      GAFFER_STAFFING_CATALOG: resolve(gaffer, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
   const help = run();
   expect(help.stdout).toContain("--nearest PRESET");

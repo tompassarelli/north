@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  agentRouteFacts, gafferProvenance, goalFromPrompt, providerTargetLabel, renderDisplayName, semanticHandle,
+  agentRouteFacts, orchestrationProvenance, goalFromPrompt, providerTargetLabel, renderDisplayName, semanticHandle,
 } from "../src/identity";
 import type { ObservedAgentIdentity } from "../src/identity";
 
@@ -13,7 +13,7 @@ interface RosterFixture {
     providerLabel: string;
     modelDisplay: string;
     effortDisplay: string;
-    gafferProvenance: string;
+    orchestrationProvenance: string;
     semanticHandle: string;
     displayName: string;
     primaryLine: string;
@@ -55,7 +55,7 @@ test("shared roster fixtures preserve semantic identity across provider adapters
   for (const fixture of rosterFixtures) {
     const identity = observedIdentity(fixture.facts);
     expect(providerTargetLabel(identity), fixture.name).toBe(fixture.expected.providerLabel);
-    expect(gafferProvenance(identity), fixture.name).toBe(fixture.expected.gafferProvenance);
+    expect(orchestrationProvenance(identity), fixture.name).toBe(fixture.expected.orchestrationProvenance);
     expect(semanticHandle(fixture.id, identity), fixture.name).toBe(fixture.expected.semanticHandle);
     expect(renderDisplayName(fixture.id, identity), fixture.name).toBe(fixture.expected.displayName);
     expect(fixture.facts.display_name, fixture.name).not.toBe(fixture.expected.primaryLine);
@@ -66,10 +66,10 @@ test("semantic handles keep provider-specific model families and stable control 
   expect(semanticHandle("sdk-a205e9ce", {
     kind: "lane", provider: "openai", model: "gpt-5.6-sol", effort: "xhigh",
     role: "designer", compositionKind: "preset", compositionId: "designer", compositionOverrides: [],
-  })).toBe("openai-sol-xhigh-gaffer-designer-a205e9ce");
+  })).toBe("openai-sol-xhigh-orchestration-designer-a205e9ce");
 });
 
-test("managed identity exposes the exact account target and Gaffer template", () => {
+test("managed identity exposes the exact account target and Orchestration template", () => {
   const identity = {
     kind: "lane" as const, provider: "openai", providerTarget: "codex-work",
     model: "gpt-5.6-sol", effort: "xhigh", compositionKind: "preset" as const,
@@ -78,8 +78,8 @@ test("managed identity exposes the exact account target and Gaffer template", ()
   };
   expect(providerTargetLabel(identity)).toBe("openai:codex-work");
   expect(renderDisplayName("lane-a205e9ce", identity))
-    .toBe("openai:codex-work · sol · xhigh · gaffer:designer · Build the account-aware roster");
-  expect(semanticHandle("lane-a205e9ce", identity)).toBe("openai-codex-work-sol-xhigh-gaffer-designer-a205e9ce");
+    .toBe("openai:codex-work · sol · xhigh · orchestration:designer · Build the account-aware roster");
+  expect(semanticHandle("lane-a205e9ce", identity)).toBe("openai-codex-work-sol-xhigh-orchestration-designer-a205e9ce");
   expect(providerTargetLabel({ kind: "lane", provider: "anthropic", providerTarget: "anthropic" }))
     .toBe("anthropic:ambient");
   expect(providerTargetLabel({ kind: "session", provider: "anthropic" })).toBe("anthropic");
@@ -98,46 +98,46 @@ test("fallback route facts replace provider target and refresh public identity",
   }));
   expect(initial.provider_target).toBe("claude-personal");
   expect(fallback).toMatchObject({ provider: "openai", provider_target: "codex-work" });
-  expect(fallback.display_name).toContain("openai:codex-work · sol · xhigh · gaffer:integrator");
+  expect(fallback.display_name).toContain("openai:codex-work · sol · xhigh · orchestration:integrator");
 });
 
-test("Gaffer provenance distinguishes exact, overridden, bespoke, native, and legacy debt", () => {
-  expect(gafferProvenance({
+test("Orchestration provenance distinguishes exact, overridden, bespoke, native, and legacy debt", () => {
+  expect(orchestrationProvenance({
     kind: "lane", role: "designer", compositionKind: "preset",
     compositionId: "designer", compositionOverrides: [],
   }))
-    .toBe("gaffer:designer");
-  expect(gafferProvenance({
+    .toBe("orchestration:designer");
+  expect(orchestrationProvenance({
     kind: "lane", role: "integrator", compositionKind: "preset", compositionId: "integrator",
     compositionOverrides: ["tier", "reasoning"], compositionOverrideReason: "high leverage seam",
-  })).toBe("gaffer:integrator+override(tier,reasoning)");
-  expect(gafferProvenance({
+  })).toBe("orchestration:integrator+override(tier,reasoning)");
+  expect(orchestrationProvenance({
     kind: "lane", role: "migration-forensics", compositionKind: "bespoke",
     compositionId: "migration-forensics", compositionBespokeReason: "one-off provenance analysis",
     compositionPromotionCandidate: false, compositionContractFingerprint: "a".repeat(64),
     compositionContractFingerprintVersion: "v1",
     compositionContractFingerprintDomain: "north:bespoke-contract:v1",
   }))
-    .toBe("gaffer:bespoke:migration-forensics");
-  expect(gafferProvenance({ kind: "session" }))
-    .toBe("gaffer:not-selected");
-  expect(gafferProvenance({ kind: "lane" })).toBe("gaffer:legacy-debt");
-  expect(gafferProvenance({
+    .toBe("orchestration:bespoke:migration-forensics");
+  expect(orchestrationProvenance({ kind: "session" }))
+    .toBe("orchestration:not-selected");
+  expect(orchestrationProvenance({ kind: "lane" })).toBe("orchestration:legacy-debt");
+  expect(orchestrationProvenance({
     kind: "lane", compositionKind: "preset", compositionId: "integrator",
     compositionOverrides: ["tier"],
-  })).toBe("gaffer:legacy-debt");
+  })).toBe("orchestration:legacy-debt");
 });
 
 test("managed missing composition and historical none are decode-only legacy debt", () => {
   expect(semanticHandle("lane-legacy", {
     kind: "lane", provider: "openai", providerTarget: "codex-work",
     model: "gpt-5.6-sol", effort: "high",
-  })).toBe("openai-codex-work-sol-high-gaffer-legacy-debt-legacy");
+  })).toBe("openai-codex-work-sol-high-orchestration-legacy-debt-legacy");
   // Migration compatibility only: current native writers omit composition_kind.
   expect(semanticHandle("session-native", {
     kind: "session", provider: "openai", model: "gpt-5.6-sol", effort: "unobserved",
     compositionKind: "none",
-  })).toBe("openai-sol-unobserved-gaffer-not-selected-native");
+  })).toBe("openai-sol-unobserved-orchestration-not-selected-native");
 });
 
 test("delegated prompt scaffolding yields the actual delegated task", () => {

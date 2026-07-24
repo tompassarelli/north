@@ -1,7 +1,7 @@
 # Provider accounts, routing, and usage truth
 
 North owns durable coordination, account selection, and run evidence. Provider
-surfaces execute a prepared run. Gaffer remains account-blind: it chooses the
+surfaces execute a prepared run. Orchestration remains account-blind: it chooses the
 role, composition, semantic tier, reasoning, and posture; North chooses an
 eligible provider target and resolves that semantic tier through the selected
 provider's model catalog.
@@ -277,29 +277,29 @@ telemetry records the requested and resolved route separately:
 
 Roster composition provenance has five deliberate states:
 
-- `gaffer:<id>` — the named Gaffer preset was selected unchanged.
-- `gaffer:<id>+override(tier,reasoning)` — the named preset was selected with
+- `orchestration:<id>` — the named Orchestration preset was selected unchanged.
+- `orchestration:<id>+override(tier,reasoning)` — the named preset was selected with
   deliberate axis changes. The ordered axes and full rationale remain separate
   facts (`composition_overrides`, `composition_override_reason`); the display
   label is only their compact projection.
-- `gaffer:bespoke:<id>` — a first-class bespoke composition was selected. It
+- `orchestration:bespoke:<id>` — a first-class bespoke composition was selected. It
   carries responsibility, deliverable, canonical capabilities,
   authority/escalation bounds, done-bars, and report contract. `nearestPreset`
   is optional reference provenance, never a
   requirement to pretend a novel composition resembles an existing preset.
-- `gaffer:not-selected` — a provider-native Claude Code or Codex session did
+- `orchestration:not-selected` — a provider-native Claude Code or Codex session did
   not pass through North staffing. This state is valid only for native sessions.
-- `gaffer:legacy-debt` — a historical or malformed managed lane lacks enough
+- `orchestration:legacy-debt` — a historical or malformed managed lane lacks enough
   structured facts to prove its staffing selection. The roster never guesses
   provenance by parsing an old display label.
 
 Every bespoke run records `promotionCandidate` (false by default; nomination is
 explicit). Recurrence is visible independently of nomination. Promotion reports
-only surface evidence for review; they never mutate Gaffer's library or promote
+only surface evidence for review; they never mutate Orchestration's library or promote
 a composition without an explicit source-control change.
 
-This division keeps Gaffer reusable across account layouts. Gaffer's canonical
-staffing catalog at `~/code/gaffer/staffing/catalog.json` names roles and semantic
+This division keeps Orchestration reusable across account layouts. Orchestration's canonical
+staffing catalog at `~/code/orchestration/staffing/catalog.json` names roles and semantic
 tiers; it contains no personal account IDs or subscription state.
 
 ## Token truth
@@ -345,7 +345,7 @@ the Claude query. Codex independently disables its native multi-agent surface
 and restricts worker-visible North tools from the canonical capability contract,
 not from optional Claude-shaped deny metadata.
 
-Gaffer supplies static model/tier/reasoning compatibility. North intersects
+Orchestration supplies static model/tier/reasoning compatibility. North intersects
 that contract with fresh authenticated, target-scoped model availability before
 admitting a concrete route. Missing, stale, malformed, or cross-account model
 evidence never proves availability, and usage pressure never substitutes for
@@ -362,7 +362,7 @@ peer-command publication, listener reaction, map fan-out, and presence control.
 A managed `worker` cannot create or command another agent, and a requested child
 topology cannot elevate its caller. A managed `orchestrator` may recursively
 create workers or child orchestrators, but every child crosses the complete
-Gaffer/admission/provider/budget boundary and gets a fresh run reservation,
+Orchestration/admission/provider/budget boundary and gets a fresh run reservation,
 immediate-parent coordinator edge, and local child-set reduction gate. Ordinary
 completion/death mail, thread facts, and structured scope-overrun checkpoints
 remain writable because workers need to report outcomes and request replanning.

@@ -1,6 +1,6 @@
 import type { ProviderId } from "./providers/types";
 
-export const GAFFER_PRESET_CAPABILITIES = [
+export const ORCHESTRATION_PRESET_CAPABILITIES = [
   "filesystem.read",
   "filesystem.search",
   "filesystem.write",
@@ -9,11 +9,11 @@ export const GAFFER_PRESET_CAPABILITIES = [
   "web",
   "coordination",
 ] as const;
-export const GAFFER_CAPABILITIES = [
-  ...GAFFER_PRESET_CAPABILITIES,
+export const ORCHESTRATION_CAPABILITIES = [
+  ...ORCHESTRATION_PRESET_CAPABILITIES,
   "graph-authoring.fram",
 ] as const;
-export type GafferCapability = typeof GAFFER_CAPABILITIES[number];
+export type OrchestrationCapability = typeof ORCHESTRATION_CAPABILITIES[number];
 
 export function hasAuthoringCapability(capabilities: readonly string[]): boolean {
   return capabilities.includes("filesystem.write")
@@ -21,22 +21,22 @@ export function hasAuthoringCapability(capabilities: readonly string[]): boolean
     || capabilities.includes("graph-authoring.fram");
 }
 
-export function requireGafferCapabilities(value: unknown, label = "capabilities"): GafferCapability[] {
+export function requireOrchestrationCapabilities(value: unknown, label = "capabilities"): OrchestrationCapability[] {
   if (!Array.isArray(value) || value.length === 0
       || value.some((capability) => typeof capability !== "string"
-        || !GAFFER_CAPABILITIES.includes(capability as GafferCapability))) {
-    throw new Error(label + " must be a non-empty array of canonical Gaffer capabilities");
+        || !ORCHESTRATION_CAPABILITIES.includes(capability as OrchestrationCapability))) {
+    throw new Error(label + " must be a non-empty array of canonical Orchestration capabilities");
   }
   if (new Set(value).size !== value.length) throw new Error(label + " must not contain duplicates");
-  return [...value] as GafferCapability[];
+  return [...value] as OrchestrationCapability[];
 }
 
 export function validateTopologyCapabilities(
   topology: "worker" | "orchestrator",
-  capabilities: readonly GafferCapability[],
+  capabilities: readonly OrchestrationCapability[],
   label = "capabilities",
 ): void {
-  const has = (capability: GafferCapability) => capabilities.includes(capability);
+  const has = (capability: OrchestrationCapability) => capabilities.includes(capability);
   if (has("shell") && has("shell.readonly"))
     throw new Error(label + ": shell and shell.readonly are mutually exclusive");
   if (topology === "orchestrator") {
@@ -56,10 +56,10 @@ export function validateTopologyCapabilities(
 /** Exact pre-acceptance reason when an adapter cannot realize the authority. */
 export function providerCapabilityRejectionCode(
   provider: ProviderId,
-  capabilities: readonly GafferCapability[] | undefined,
+  capabilities: readonly OrchestrationCapability[] | undefined,
 ): string | undefined {
   if (!capabilities) return undefined;
-  const generic = `${provider}_adapter_cannot_enforce_gaffer_capabilities`;
+  const generic = `${provider}_adapter_cannot_enforce_orchestration_capabilities`;
   const fileRead = capabilities.includes("filesystem.read");
   const fileSearch = capabilities.includes("filesystem.search");
   const fileWrite = capabilities.includes("filesystem.write");
@@ -87,7 +87,7 @@ export function providerCapabilityRejectionCode(
 /** Whether the adapter can realize this exact authority boundary before work starts. */
 export function providerSupportsCapabilities(
   provider: ProviderId,
-  capabilities: readonly GafferCapability[] | undefined,
+  capabilities: readonly OrchestrationCapability[] | undefined,
 ): boolean {
   return providerCapabilityRejectionCode(provider, capabilities) === undefined;
 }

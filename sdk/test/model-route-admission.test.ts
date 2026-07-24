@@ -30,7 +30,7 @@ import {
   canonicalHarnessModelAvailability,
   harnessOptions,
 } from "../src/harness";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { ProviderRetrySafeError } from "../src/providers/types";
 import type { StartAnthropicControl } from "../src/providers/anthropic-control";
 import type {
@@ -144,7 +144,7 @@ function nextLeaseContender(directory: string, lockPath: string): {
   return { seen, close };
 }
 
-test("Gaffer exact routes do not cross-product tier defaults", () => {
+test("Orchestration exact routes do not cross-product tier defaults", () => {
   expect(resolveTier("anthropic", "frontier", "fable", "xhigh")).toEqual({
     tier: "frontier", model: "claude-fable-5", effort: "xhigh",
   });
@@ -723,7 +723,7 @@ test("direct managed exact-model adapter calls cannot bypass sealed availability
     provider: "anthropic",
     model: "claude-fable-5",
     effort: "xhigh",
-    routingMetadata: applyGafferStaffing({ role: "designer" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
     presenceRegistrar: false,
   }) as any;
   expect(canonicalHarnessModelAvailability(direct, "anthropic")).toMatchObject({
@@ -765,7 +765,7 @@ test("Anthropic adapter revalidates a sealed receipt and rejects TOCTOU revocati
         targetId: anthropic.id,
         receipt,
       },
-      routingMetadata: applyGafferStaffing({ role: "designer" }),
+      routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
       presenceRegistrar: false,
     });
     expect(canonicalHarnessModelAvailability(options, "anthropic")?.observationPath)

@@ -1,12 +1,12 @@
 {
-  "name": "gaffer",
+  "name": "orchestration",
   "owner": {
     "name": "Tom Passarelli",
     "url": "https://github.com/tompassarelli"
   },
   "plugins": [
     {
-      "name": "gaffer",
+      "name": "orchestration",
       "source": "./",
       "description": "Provider-neutral task-shape and semantic-tier routing, with a Claude adapter and calibrated agent payloads."
     }

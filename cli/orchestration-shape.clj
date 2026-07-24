@@ -1,5 +1,5 @@
 ;; orchestration-shape.clj — the generic default-deny SHAPE INTERPRETER for the
-;; Gaffer -> North Orchestration migration (thread 019f8f5c-74e0-7be7-ba65-
+;; Orchestration -> North Orchestration migration (thread 019f8f5c-74e0-7be7-ba65-
 ;; 3179f1bccde1, design §2.1-2.3). Pure + stdlib-only by design so it can be
 ;; exercised offline (the shape-lint corpus fold, cli/tests/*) AND lifted verbatim
 ;; onto the coordinator's ONE serialized write path when that is authorized.

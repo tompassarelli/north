@@ -10,7 +10,7 @@
          '[clojure.string :as str])
 
 (def NORTH (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
-(load-file (str NORTH "/cli/gaffer-staffing.clj"))
+(load-file (str NORTH "/cli/orchestration-staffing.clj"))
 (load-file (str NORTH "/cli/terminal-projection.clj"))
 (load-file (str NORTH "/cli/harness-state.clj"))
 
@@ -20,7 +20,7 @@
                    "routing_rule_code" "routing_pin" "routing_receipt_override"
                    "mcp_actual_tool" "provider_turn_key"})
 
-(def canonical-gaffer-capabilities
+(def canonical-orchestration-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
    "shell.readonly" "web" "coordination" "graph-authoring.fram"])
 (def bespoke-fingerprint-version "v1")
@@ -32,7 +32,7 @@
    [:reasoning "applied_reasoning"]
    [:posture "applied_posture"]])
 (def applied-axis-values
-  {:taskGrade #{"novice" "junior" "mid" "senior" "staff" "principal" "research-grade"}
+  {:taskGrade #{"novice" "junior" "mid" "senior" "staff" "principal" "research-grade" "distinguished"}
    :topology #{"worker" "orchestrator"}
    :tier #{"economy" "standard" "senior" "frontier"}
    :reasoning #{"low" "medium" "high" "xhigh" "max"}
@@ -63,12 +63,12 @@
 
 (defn current-preset-catalog []
   (try
-    (let [catalog (north.gaffer-staffing/load-catalog)
+    (let [catalog (north.orchestration-staffing/load-catalog)
           defaults (get catalog "defaults")
           presets (into {}
                         (map (fn [[id preset]]
                                [id (normalized-preset-template defaults preset)]))
-                        (north.gaffer-staffing/presets-by-name catalog))]
+                        (north.orchestration-staffing/presets-by-name catalog))]
       (if (seq presets)
         {:available true :ids (set (keys presets)) :presets presets}
         {:available false :ids #{} :presets {}}))
@@ -176,18 +176,18 @@
       parsed)))
 (def model-alias-catalog-providers ["anthropic" "openai"])
 
-(defn- gaffer-catalog-root []
+(defn- orchestration-catalog-root []
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
       (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
 
 (defn- load-provider-catalog [provider]
   (try
-    (let [file (io/file (gaffer-catalog-root) "providers" (str provider ".json"))]
+    (let [file (io/file (orchestration-catalog-root) "providers" (str provider ".json"))]
       (when (.exists file) (json/parse-string (slurp file))))
     (catch Exception _ nil)))
 
 (defn model-alias-map
-  "Read-time alias -> canonical model id, assembled from the Gaffer provider
+  "Read-time alias -> canonical model id, assembled from the Orchestration provider
   catalogs' modelAliases (bare tier names like opus/sonnet/fable/luna/terra/sol
   never appear as canonical model ids). This is the ONE place aliases are
   normalized until the write-side fix + migration land; that fix should reuse
@@ -236,8 +236,8 @@
 (defn capability-summary [values]
   (let [normalized (->> values (keep normalized-token) distinct vec)
         requested (set normalized)
-        unknown (->> normalized (remove (set canonical-gaffer-capabilities)) sort vec)]
-    {:canonical (vec (filter requested canonical-gaffer-capabilities))
+        unknown (->> normalized (remove (set canonical-orchestration-capabilities)) sort vec)]
+    {:canonical (vec (filter requested canonical-orchestration-capabilities))
      :unknown unknown}))
 
 (defn sha256 [value]
@@ -568,7 +568,7 @@
                  "unattributed")
        :tierProvenance (cond
                          (:tier effective-axes) "applied"
-                         (:tier requested-axes) "requested-gaffer-fallback"
+                         (:tier requested-axes) "requested-orchestration-fallback"
                          (attributed? (get' "requested_tier" nil)) "requested-route-fallback"
                          :else "unattributed")
        :model (or raw-model "unattributed") :effort (get' "effort" "unattributed")
@@ -677,7 +677,7 @@
                       "unattributed")
        :taskGradeProvenance (cond
                               (:taskGrade effective-axes) "applied"
-                              (:taskGrade requested-axes) "requested-gaffer-fallback"
+                              (:taskGrade requested-axes) "requested-orchestration-fallback"
                               :else "unattributed")
        :outcome (get' "outcome" "unrecorded")
        :processOutcome effective-process-outcome
@@ -851,7 +851,7 @@
      {:report "performance"
       :scope (if all? "all-history" "complete-current-managed")
       :evidenceVersion "v4"
-      :claim "complete applied Gaffer contract plus proof-valid process/delivery outcomes; reported is run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread review context is separate; not causal model quality"
+      :claim "complete applied Orchestration contract plus proof-valid process/delivery outcomes; reported is run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread review context is separate; not causal model quality"
       :runs (count selected)
       :availableRuns (count all-rows)
       :excludedRuns (- (count all-rows) (count selected))
@@ -1941,8 +1941,8 @@
                         :else "review-candidate")
         composition-ids (vec (sort (set (keep :compositionId rows))))
         labels (if legacy?
-                 ["gaffer:legacy-debt"]
-                 (mapv #(str "gaffer:bespoke:" %) composition-ids))
+                 ["orchestration:legacy-debt"]
+                 (mapv #(str "orchestration:bespoke:" %) composition-ids))
         representative (first rows)]
     {:compositionId (when (= 1 (count composition-ids)) (first composition-ids))
      :compositionIds composition-ids :compositionLabels labels
@@ -2164,7 +2164,7 @@
                       (if (= "all-history" (:scope data))
                         "all historical rows"
                         "complete current managed runs")))
-        (println "Current rows require complete applied Gaffer evidence; reported delivery is exact run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread evidence is not model quality.")
+        (println "Current rows require complete applied Orchestration evidence; reported delivery is exact run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread evidence is not model quality.")
         (when (pos? (:excludedRuns data))
           (println (format "%d legacy/incomplete/unattributed row(s) excluded; use --all to inspect them."
                            (:excludedRuns data))))

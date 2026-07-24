@@ -17,12 +17,12 @@
 (def NORTH (or (System/getenv "NORTH_HOME")
                (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)))
 (def NORTH-CLI (or (System/getenv "NORTH_BIN") (str NORTH "/bin/north")))
-(def GAFFER (or (System/getenv "NORTH_ORCHESTRATION_HOME") (str HOME "/code/gaffer")))
+(def ORCHESTRATION (or (System/getenv "NORTH_ORCHESTRATION_HOME") (str HOME "/code/orchestration")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (def AGENT-STREAMDIR (or (System/getenv "NORTH_STREAM_DIR")
                          (str HOME "/code/agent-data")))
-(def GAFFER-STAFFING (or (System/getenv "GAFFER_STAFFING_CATALOG")
-                         (str GAFFER "/staffing/catalog.json")))
+(def ORCHESTRATION-STAFFING (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
+                         (str ORCHESTRATION "/staffing/catalog.json")))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION "north:agent-roster:v1")
 (def STRUGGLE-POLICY-CLI (str NORTH "/sdk/src/struggle.ts"))
@@ -42,7 +42,7 @@
 (load-file (str NORTH "/cli/coord.clj"))
 (load-file (str NORTH "/cli/topology-authority.clj"))
 (load-file (str NORTH "/cli/managed-child-env.clj"))
-(load-file (str NORTH "/cli/gaffer-staffing.clj"))
+(load-file (str NORTH "/cli/orchestration-staffing.clj"))
 
 (def color? (and (nil? (System/getenv "NO_COLOR"))
                  (some? (System/console))))
@@ -138,29 +138,29 @@
                               "provider capability admission unavailable"))))
           (System/exit 1))))))
 
-;; ---- gaffer staffing catalog (canonical; generated markdown is adapter-only) -
-(defn gaffer-catalog []
-  (let [f (io/file GAFFER-STAFFING)]
+;; ---- orchestration staffing catalog (canonical; generated markdown is adapter-only) -
+(defn orchestration-catalog []
+  (let [f (io/file ORCHESTRATION-STAFFING)]
     (when (.isFile f)
-      (walk/keywordize-keys (north.gaffer-staffing/load-catalog (.getPath f))))))
+      (walk/keywordize-keys (north.orchestration-staffing/load-catalog (.getPath f))))))
 
-(defn gaffer-routing []
-  (when-let [{:keys [presets defaults]} (gaffer-catalog)]
+(defn orchestration-routing []
+  (when-let [{:keys [presets defaults]} (orchestration-catalog)]
     (into {}
           (map (fn [r]
                  (let [name (:name r)]
                    [name (-> (merge defaults r)
-                             (assoc :role name :gaffer-preset true
+                             (assoc :role name :orchestration-preset true
                                     :composition {:kind "preset" :id name :overrides []}))])))
           presets)))
 
-(defn gaffer-templates []
-  (when-let [{:keys [presets defaults]} (gaffer-catalog)]
+(defn orchestration-templates []
+  (when-let [{:keys [presets defaults]} (orchestration-catalog)]
     (mapv #(merge defaults %) presets)))
 
 (defn cmd-templates [args]
   (when (some #{"--help" "-h" "help"} args)
-    (println "north templates — inspect Gaffer's reusable stock templates")
+    (println "north templates — inspect Orchestration's reusable stock templates")
     (println)
     (println "Usage:")
     (println "  north templates             compact template catalog")
@@ -172,14 +172,14 @@
       (println "usage: north templates [--verbose]"))
     (System/exit 2))
   (let [verbose? (some #{"--verbose"} args)
-        templates (gaffer-templates)]
+        templates (orchestration-templates)]
     (if-not (seq templates)
       (do
         (binding [*out* *err*]
-          (println (red (str "Gaffer staffing catalog unavailable: " GAFFER-STAFFING))))
+          (println (red (str "Orchestration staffing catalog unavailable: " ORCHESTRATION-STAFFING))))
         (System/exit 1))
       (do
-        (println (bold "GAFFER STOCK TEMPLATES — reusable starting points, not limits"))
+        (println (bold "ORCHESTRATION STOCK TEMPLATES — reusable starting points, not limits"))
         (println (dim "Selection ladder: exact template → justified axis override → bespoke composition."))
         (println (dim "Machine payloads retain composition.kind=preset; this view uses the human word template."))
         (doseq [{:keys [name tagline taskGrade tier deliberation topology posture
@@ -192,14 +192,14 @@
           (when verbose? (println (str "  " description))))))))
 
 ;; Dry-run route preview. Explicit pins reach this only after the SDK's
-;; capability gate admits them. Resolve the provider route declared by Gaffer
+;; capability gate admits them. Resolve the provider route declared by Orchestration
 ;; with no hidden time-gated model substitution (twin of
 ;; sdk/src/providers/catalog.ts).
 (defn dry-resolved-route [provider tier explicit-model reasoning]
   (when (and provider (not= provider "auto"))
     (try
       (let [entry (get-in (json/parse-string
-                           (slurp (io/file GAFFER "providers" (str provider ".json"))) true)
+                           (slurp (io/file ORCHESTRATION "providers" (str provider ".json"))) true)
                           [:tiers (keyword tier)])]
         {:provider provider
          :model (or explicit-model (:model entry))
@@ -498,8 +498,8 @@
 (defn- composition-overrides [facts]
   (north.agent-provenance/composition-overrides facts))
 
-(defn- gaffer-provenance [facts]
-  (north.agent-provenance/gaffer-provenance facts))
+(defn- orchestration-provenance [facts]
+  (north.agent-provenance/orchestration-provenance facts))
 
 (defn- provider-target-label [facts]
   (let [provider-observation (axis-observation facts "provider")
@@ -646,7 +646,7 @@
 
 (defn semantic-handle [id facts]
   (let [provider-axis (provider-target-label facts)
-        composition (gaffer-provenance facts)
+        composition (orchestration-provenance facts)
         model-observation (axis-observation facts "model")
         effort-observation (axis-observation facts "effort")
         model (if (:conflict model-observation) "model:conflict"
@@ -670,7 +670,7 @@
    (let [task (task-of presence facts session)
          state (:state-label (terminal-state presence facts))]
      (str (provider-axis-label facts) " · " (model-axis-label facts) " · "
-          (effort-axis-label facts) " · " (gaffer-provenance facts)
+          (effort-axis-label facts) " · " (orchestration-provenance facts)
           (role-axis facts) " · " state ": " task))))
 
 (defn roster-json-row [presence facts session]
@@ -693,7 +693,7 @@
      "model" (raw-model facts)
      "model_display" (model-axis-label facts)
      "effort" (effort-axis-label facts)
-     "gaffer_provenance" (gaffer-provenance facts)
+     "orchestration_provenance" (orchestration-provenance facts)
      "goal" (or (fact-one facts "goal") "")
      "task" task
      "state" state
@@ -817,7 +817,7 @@
   ;; following HTTP read, so volatile presentation/state fields are excluded.
   ["control_id" "display_handle" "kind"
    "provider" "provider_target" "provider_label"
-   "model" "model_display" "effort" "gaffer_provenance"])
+   "model" "model_display" "effort" "orchestration_provenance"])
 
 (defn- read-roster-snapshot []
   (let [presence (presence-rows)]
@@ -925,15 +925,15 @@
    "--pin-evidence" :pinEvidence})
 
 (defn cmd-spawn-help []
-  (let [roles (sort (keys (or (gaffer-routing) {})))]
-    (println "north spawn — start one managed lane with an explicit Gaffer composition")
+  (let [roles (sort (keys (or (orchestration-routing) {})))]
+    (println "north spawn — start one managed lane with an explicit Orchestration composition")
     (println)
     (println "Usage:")
     (println "  north spawn <template-role> \"<prompt>\" [routing options] [--dry-run]")
     (println "  north spawn <new-role> \"<prompt>\" --rationale WHY --contract JSON|@file [bespoke options]")
     (println)
     (println "Stock template:")
-    (println "  The role hydrates Gaffer's task grade, tier, reasoning, topology, posture, and capabilities.")
+    (println "  The role hydrates Orchestration's task grade, tier, reasoning, topology, posture, and capabilities.")
     (println "  Override an axis with --task-grade, --domain, --tier, --reasoning, or --posture;")
     (println "  any changed template axis requires --override-reason WHY. Exact templates carry no override reason.")
     (println "  Stock topology is fixed; --topology applies only to bespoke compositions.")
@@ -957,7 +957,7 @@
     (println "  --provider auto|anthropic|openai   provider preference (default auto)")
     (println "  --target ACCOUNT                  exact account pin; unavailable means no fallback")
     (println "  --model MODEL                     exact model pin")
-    (println "  --assessment JSON|@file           canonical Gaffer selection-assessment sidecar")
+    (println "  --assessment JSON|@file           canonical Orchestration selection-assessment sidecar")
     (println "  --pin-evidence JSON|@file         typed reason + <=24h expiry for provider/account/model pins")
     (println "  New explicit pins fail closed without --pin-evidence; reasoning=max requires --assessment.")
     (println "  --domain D[,D...]                 repeatable domain requirement")
@@ -1033,14 +1033,14 @@
    may label a handoff atomic."
   [{:keys [topology nearest composition positionals]}]
   (let [role (first positionals)
-        templates (or (gaffer-routing) {})
+        templates (or (orchestration-routing) {})
         supplied-composition (parse-json-input "--composition" composition)
         nearest-role (or nearest (:nearestPreset supplied-composition))
         base (or (get templates role) (get templates nearest-role))]
     (or topology (:topology base))))
 
-(def canonical-gaffer-capabilities
-  ;; This order is part of the cross-language fingerprint contract. Gaffer's
+(def canonical-orchestration-capabilities
+  ;; This order is part of the cross-language fingerprint contract. Orchestration's
   ;; catalog must agree exactly; silently accepting a reordered vocabulary
   ;; would split one semantic contract into two identities.
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
@@ -1065,7 +1065,7 @@
     (array-map
      :responsibility (canonical-contract-text (:responsibility contract))
      :deliverable (canonical-contract-text (:deliverable contract))
-     :capabilities (vec (filter requested-capabilities canonical-gaffer-capabilities))
+     :capabilities (vec (filter requested-capabilities canonical-orchestration-capabilities))
      :mayDecide (canonical-contract-list (:mayDecide contract))
      :mustEscalate (canonical-contract-list (:mustEscalate contract))
      :doneWhen (canonical-contract-list (:doneWhen contract))
@@ -1145,8 +1145,8 @@
                 promotion-specified? promotionCandidate positionals]}
         (parse-spawn-args args)
         [invoked-role prompt & extra] positionals
-        catalog (gaffer-catalog)
-        dt (or (gaffer-routing) {})
+        catalog (orchestration-catalog)
+        dt (or (orchestration-routing) {})
         raw-supplied-composition (parse-json-input "--composition" composition)
         routing-assessment (parse-json-input "--assessment" assessment)
         pin-evidence (parse-json-input "--pin-evidence" pinEvidence)
@@ -1169,7 +1169,7 @@
         nearest-template (get dt nearest-role)
         contract-value (or supplied-contract (:contract supplied-composition))
         catalog-capability-order (vec (get-in catalog [:vocabulary :capabilities]))
-        capability-values (set canonical-gaffer-capabilities)
+        capability-values (set canonical-orchestration-capabilities)
         promotion-value (if promotion-specified? promotionCandidate
                             (if (and (map? supplied-composition)
                                      (contains? supplied-composition :promotionCandidate))
@@ -1194,7 +1194,7 @@
                       ["--tier" tier]
                       ["--reasoning" reasoning]
                       ["--posture" posture]])))
-        route-problem (north.gaffer-staffing/unsupported-route-problem
+        route-problem (north.orchestration-staffing/unsupported-route-problem
                        selected-tier selected-reasoning)
         actual-overrides (when canonical
                            (vec (keep (fn [[field selected preset]] (when (not= selected preset) field))
@@ -1244,10 +1244,10 @@
           (println "use scout for source gathering, analyst for deep mechanism research, or research-scientist for cutting-edge inquiry")
           (System/exit 1))
       (and invoked-role (not (re-matches role-id-pattern invoked-role)))
-      (do (println (red "role must be a lowercase kebab-case Gaffer role id")) (System/exit 1))
-      (nil? catalog) (do (println (red (str "Gaffer staffing catalog unavailable: " GAFFER-STAFFING))) (System/exit 1))
-      (not= canonical-gaffer-capabilities catalog-capability-order)
-      (do (println (red "Gaffer capability vocabulary order disagrees with North's canonical fingerprint vocabulary"))
+      (do (println (red "role must be a lowercase kebab-case Orchestration role id")) (System/exit 1))
+      (nil? catalog) (do (println (red (str "Orchestration staffing catalog unavailable: " ORCHESTRATION-STAFFING))) (System/exit 1))
+      (not= canonical-orchestration-capabilities catalog-capability-order)
+      (do (println (red "Orchestration capability vocabulary order disagrees with North's canonical fingerprint vocabulary"))
           (System/exit 1))
       (and canonical (or rationale nearest contract promotion-specified?))
       (do (println (red "--nearest, --rationale, --contract, and promotion decisions apply only to bespoke roles")) (System/exit 1))
@@ -1350,10 +1350,10 @@
             catalog-model (:model base)
             effective-model (or model
                                 (when (and (not (:semantic base))
-                                           (not (:gaffer-preset base)))
+                                           (not (:orchestration-preset base)))
                                   catalog-model))
             synthetic-effort (:effort base) synthetic-reasoning (:reasoning base)
-            gaffer-preset (:gaffer-preset base) semantic (:semantic base)
+            orchestration-preset (:orchestration-preset base) semantic (:semantic base)
             delegate-binding (cond
                                *delegate-request*
                                (resolve-delegate-thread! *delegate-request* dry?)
@@ -1432,12 +1432,12 @@
                                             "display_handle" "dry-run" "display_name" "dry-run"}))
             fallback-facts (assoc fallback-base "identity_manifest_sha256"
                                   (north.agent-provenance/manifest-sha256 fallback-base))]
-        (println (dim "# gaffer dials for role") (bold invoked-role) (dim "->")
+        (println (dim "# orchestration dials for role") (bold invoked-role) (dim "->")
                  (str "grade=" selected-grade " tier=" selected-tier " reasoning=" selected-reasoning
-                      (when (and (not semantic) (not gaffer-preset) model) (str " model=" model))
+                      (when (and (not semantic) (not orchestration-preset) model) (str " model=" model))
                       (when selected-role (str " role=" selected-role))
                       (when selected-composition
-                        (str " selection=" (gaffer-provenance fallback-facts)))
+                        (str " selection=" (orchestration-provenance fallback-facts)))
                       (when target (str " target=" target))
                       (when selected-posture (str " posture=" selected-posture))
                       (when selected-topology (str " topology=" selected-topology))
@@ -1490,7 +1490,7 @@
                   (System/exit 1))))))))))
 
 ;; delegate = the ONE handoff verb. The intelligent intake boundary must classify
-;; dependency shape explicitly: one terminal Gaffer role for atomic work, or a
+;; dependency shape explicitly: one terminal Orchestration role for atomic work, or a
 ;; director for genuinely composite work. North does not guess from task prose and
 ;; never charges a director+worker pair for an atomic handoff. All ordinary spawn
 ;; axes and bespoke-composition flags pass through to cmd-spawn unchanged.
@@ -1740,7 +1740,7 @@
           "--role"
           (let [role (second xs)]
             (when (or (nil? role) (str/starts-with? role "--"))
-              (delegate-die "--role requires a Gaffer worker role"))
+              (delegate-die "--role requires a Orchestration worker role"))
             (when (:mode parsed)
               (delegate-die "choose exactly one delegation mode: --role or --composite"))
             (recur (nnext xs) (assoc parsed :mode :atomic :role role)))

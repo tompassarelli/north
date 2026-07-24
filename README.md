@@ -7,7 +7,7 @@ object)` triples, two faces derived from it:
   **blocked**, and the highest-leverage keystone. The board is *derived*, never
   hand-maintained.
 - **A managed multi-agent orchestrator** — a canonical coordinator daemon,
-  agent lanes spawned with full identity/telemetry/attribution, Gaffer-routed
+  agent lanes spawned with full identity/telemetry/attribution, Orchestration-routed
   dispatch, and concurrent-agent coordination (concerns, leases, mail).
 
 These are not two products. **Agents are threads; coordination is facts.** A
@@ -41,7 +41,7 @@ north clock in <owner>      # one human client billing session (Clockify sync ta
 Time tracking (`north clock`), staleness/`needs-review`, and billing are all
 fact-native projections — `src/north/{projections,clock,clockify,staleness,audit}.bclj`.
 
-### The agent substrate — coordinator → lanes → Gaffer routing → attribution
+### The agent substrate — coordinator → lanes → Orchestration routing → attribution
 
 The same graph is the coordination plane for managed multi-agent work:
 
@@ -56,10 +56,10 @@ The same graph is the coordination plane for managed multi-agent work:
   full-UUID identity, a run reservation with a capability minted *before*
   provider execution, a run ledger, and a truthful terminal
   (`delivery=reported|unverified|blocked`).
-- **Gaffer routing** — `north spawn`/`delegate` read Gaffer's staffing catalog
-  (`~/code/gaffer/staffing/catalog.json`) to answer *who* does the work
+- **Orchestration routing** — `north spawn`/`delegate` read Orchestration's staffing catalog
+  (`~/code/orchestration/staffing/catalog.json`) to answer *who* does the work
   (role/tier/reasoning/posture); North answers *where* it runs and *how* you see
-  it (provider account, subscription pressure, dashboard). Gaffer is
+  it (provider account, subscription pressure, dashboard). Orchestration is
   account-blind; North resolves the tier through the chosen provider's catalog.
   See [docs/provider-architecture.md](docs/provider-architecture.md).
 - **Done-bar evidence** — dispatch warns when a committed thread lacks a
@@ -71,7 +71,7 @@ The same graph is the coordination plane for managed multi-agent work:
 
 ```sh
 north agents [--json]           # who's live now + the stable machine roster
-north spawn <role> "<prompt>"   # compose a worker from Gaffer's catalog
+north spawn <role> "<prompt>"   # compose a worker from Orchestration's catalog
 north delegate "<task>" ...     # atomic (--role) or --composite handoff
 north watch <id>                # tail a running lane's transcript
 north steer <id> "<msg>"        # inject a message into a running lane

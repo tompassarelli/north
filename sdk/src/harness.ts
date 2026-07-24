@@ -1,5 +1,5 @@
 // The provider-neutral harness contract. One place builds the query Options that
-// both the Claude SDK and Codex adapter consume, so graph tools, Gaffer authority,
+// both the Claude SDK and Codex adapter consume, so graph tools, Orchestration authority,
 // topology enforcement, reasoning, model calibration, and system instructions
 // stay identical across dispatch.ts and spawn.ts.
 //
@@ -27,14 +27,14 @@ import {
   type RoutingDraft, type RoutingOverrideField, type RoutingRequest, type Topology,
 } from "./routing-metadata";
 import { admitRoutingRequest } from "./routing-admission";
-import { gafferCapabilities } from "./gaffer-staffing";
-import { hasAuthoringCapability, type GafferCapability } from "./gaffer-capabilities";
+import { orchestrationCapabilities } from "./orchestration-staffing";
+import { hasAuthoringCapability, type OrchestrationCapability } from "./orchestration-capabilities";
 import {
   FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOLS, framMcpServer,
 } from "./fram-graph-authoring";
 import {
   BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION,
-  bespokeContractFingerprint, canonicalGafferCapabilities,
+  bespokeContractFingerprint, canonicalOrchestrationCapabilities,
 } from "./bespoke-contract";
 import { assertCoordinationAuthority } from "./topology-authority";
 import {
@@ -114,12 +114,12 @@ export function validatePeerCommandArgs(op: PeerOperation, args: Record<string, 
   const workField = op === "spawn" ? "prompt" : "thread";
   exactPeerFields(args, [workField, ...PEER_ROUTING_FIELDS, ...PEER_ROUTE_ADAPTER_FIELDS], op);
   if (!nonEmpty(workField) || !nonEmpty("role"))
-    throw new Error(`${op} requires ${workField} and an explicit Gaffer role`);
+    throw new Error(`${op} requires ${workField} and an explicit Orchestration role`);
   const presentRouting = PEER_ROUTING_FIELDS.filter((field) => Object.hasOwn(args, field));
   if (presentRouting.length !== PEER_ROUTING_FIELDS.length) {
     const missing = PEER_ROUTING_FIELDS.filter((field) => !Object.hasOwn(args, field));
     throw new Error(
-      `${op} requires the complete eight-field Gaffer request; missing: ${missing.join(", ")}`
+      `${op} requires the complete eight-field Orchestration request; missing: ${missing.join(", ")}`
       + " (recover the valid payload shape: north show @contract:dispatch)",
     );
   }
@@ -230,7 +230,7 @@ export const NORTH_MCP_TOOL_NAMES = [
   "spawn",
 ] as const;
 const ALL_NORTH_MCP_TOOLS = NORTH_MCP_TOOL_NAMES.map((name) => `mcp__north__${name}`);
-const CAPABILITY_TOOLS: Record<GafferCapability, string[]> = {
+const CAPABILITY_TOOLS: Record<OrchestrationCapability, string[]> = {
   "filesystem.read": ["Read"],
   "filesystem.search": ["Grep", "Glob"],
   "filesystem.write": ["Edit", "Write", "NotebookEdit"],
@@ -252,7 +252,7 @@ export interface ManagedToolPolicy {
 }
 
 export function managedToolPolicy(
-  capabilities: readonly GafferCapability[],
+  capabilities: readonly OrchestrationCapability[],
 ): ManagedToolPolicy {
   const selectedCapabilityTools = [
     ...new Set(capabilities.flatMap((capability) => CAPABILITY_TOOLS[capability])),
@@ -632,7 +632,7 @@ function constitutionRepoClass(cwd: string): { client: boolean; nixos: boolean; 
  * is a capability set to gate on.
  */
 export function constitutionTiers(
-  capabilities: readonly GafferCapability[] | undefined,
+  capabilities: readonly OrchestrationCapability[] | undefined,
   cwd: string,
 ): { core: string; cap: string; repo: string } {
   const laws = canonicalGlobalAgents();
@@ -790,11 +790,11 @@ function assertCanonicalGlobalAgentsExactlyOnce(prompt: string): void {
     throw new Error(`Anthropic global AGENTS bootstrap expected exactly once, observed ${count}`);
 }
 
-function gafferHome(): string {
+function orchestrationHome(): string {
   return resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
 }
 
-function gafferDocs(): string { return resolve(gafferHome(), "docs"); }
+function orchestrationDocs(): string { return resolve(orchestrationHome(), "docs"); }
 
 function extractFenceFromSection(text: string, heading: string): string | null {
   const lines = text.split("\n");
@@ -828,18 +828,18 @@ function extractFirstFence(text: string): string | null {
 function exactSectionFence(path: string, heading: string, label: string): string {
   let source: string;
   try { source = readFileSync(path, "utf8"); }
-  catch { throw new Error(`Gaffer contract unavailable: ${label} (${path})`); }
+  catch { throw new Error(`Orchestration contract unavailable: ${label} (${path})`); }
   const block = extractFenceFromSection(source, heading);
-  if (!block?.trim()) throw new Error(`Gaffer contract malformed: ${label} has no fenced block (${path})`);
+  if (!block?.trim()) throw new Error(`Orchestration contract malformed: ${label} has no fenced block (${path})`);
   return block;
 }
 
 function exactFirstFence(path: string, label: string): string {
   let source: string;
   try { source = readFileSync(path, "utf8"); }
-  catch { throw new Error(`Gaffer contract unavailable: ${label} (${path})`); }
+  catch { throw new Error(`Orchestration contract unavailable: ${label} (${path})`); }
   const block = extractFirstFence(source);
-  if (!block?.trim()) throw new Error(`Gaffer contract malformed: ${label} has no fenced block (${path})`);
+  if (!block?.trim()) throw new Error(`Orchestration contract malformed: ${label} has no fenced block (${path})`);
   return block;
 }
 
@@ -885,7 +885,7 @@ function domainContextCandidates(cwd: string, requirement: string): string[] {
     resolve(cwd, "docs", `${slug}.md`),
     resolve(cwd, "docs", "domains", `${slug}.md`),
     resolve(domainSkillsDir(), slug, "SKILL.md"),
-    resolve(gafferHome(), "docs", "domains", `${slug}.md`),
+    resolve(orchestrationHome(), "docs", "domains", `${slug}.md`),
   ];
   return [...new Set(candidates.filter(existsSync))];
 }
@@ -902,7 +902,7 @@ function domainContextGate(requirements: string[], cwd: string): string {
     ].join("\n");
   });
   return [
-    "## Gaffer domain-context gate",
+    "## Orchestration domain-context gate",
     "Before any side effect, satisfy every domain requirement by reading the relevant",
     "repo-local authoritative docs, triggered skills, or provider capability contract.",
     "For each requirement, name the exact artifact actually read and apply it. A candidate",
@@ -929,7 +929,7 @@ export interface HarnessCompositionEvidence {
   bespokeContractFingerprintDomain?: string;
   presetOverrides?: RoutingOverrideField[];
   presetOverrideReasonHash?: string;
-  capabilities?: GafferCapability[];
+  capabilities?: OrchestrationCapability[];
   commsContractHash?: string;
   taskGrade?: string;
   domainRequirements?: string[];
@@ -961,7 +961,7 @@ export interface PromptEconomicsEvidence {
   providerContextWindowTokens?: number;
   contextWindowEffectiveFrom?: string;
   contextWindowStatus: "observed" | "unknown";
-  contextWindowSource: "gaffer-provider-catalog" | "provider-or-model-unresolved" | "catalog-metadata-unavailable";
+  contextWindowSource: "orchestration-provider-catalog" | "provider-or-model-unresolved" | "catalog-metadata-unavailable";
   effectiveContextBudgetTokens?: number;
   contextBudgetStatus: "unknown";
   contextBudgetSource: "north-harness-unconfigured";
@@ -970,7 +970,7 @@ export interface PromptEconomicsEvidence {
 }
 
 function capabilityClass(
-  capabilities: readonly GafferCapability[] | undefined,
+  capabilities: readonly OrchestrationCapability[] | undefined,
   topology: Topology | undefined,
 ): PromptEconomicsEvidence["capabilityClass"] {
   if (!capabilities) return "unknown";
@@ -985,8 +985,8 @@ interface HarnessCompositionState {
   // -> REPO -> UNIQUE-TAIL) is rebuilt identically on every provider fallback.
   self: string;
   basePrompt: string; // DEFAULT (or caller override) + caveman + eso — the shared head
-  gafferAppendix: string;
-  capabilities?: GafferCapability[];
+  orchestrationAppendix: string;
+  capabilities?: OrchestrationCapability[];
   cwd: string;
   evidence: HarnessCompositionEvidence;
   routingRequest?: RoutingRequest;
@@ -1015,7 +1015,7 @@ function composeSystemPrompt(
     : { core: "", cap: "", repo: "" };
   const delta = modelDeltaAppendix(provider, model, state.omitModelDeltaReason);
   const core = state.basePrompt + constitution.core;
-  const cap = state.gafferAppendix + constitution.cap;
+  const cap = state.orchestrationAppendix + constitution.cap;
   const repo = projectAgentsAppendix(state.cwd) + constitution.repo;
   const tail = coordinationBlock(state.self, state.cwd) + delta.appendix;
   const stablePrefix = core + cap + repo;
@@ -1041,7 +1041,7 @@ function composeSystemPrompt(
     } : {}),
     contextWindowStatus: contextWindow ? "observed" : "unknown",
     contextWindowSource: contextWindow
-      ? "gaffer-provider-catalog"
+      ? "orchestration-provider-catalog"
       : provider && model ? "catalog-metadata-unavailable" : "provider-or-model-unresolved",
     contextBudgetStatus: "unknown",
     contextBudgetSource: "north-harness-unconfigured",
@@ -1060,7 +1060,7 @@ interface HarnessAuthoritySeal {
   optionValues: readonly unknown[];
   systemPrompt: string;
   routingRequest: RoutingRequest;
-  capabilities: readonly GafferCapability[];
+  capabilities: readonly OrchestrationCapability[];
   evidence: HarnessCompositionEvidence;
   env: object;
   mcpServers: object;
@@ -1255,8 +1255,8 @@ export function hasCanonicalAuthoringHooks(options: Options): boolean {
     && exactEntries(postEntries, seal.postEntries);
 }
 
-/** Compose Gaffer's authority contracts. Missing canonical artifacts are fatal. */
-export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process.cwd()): {
+/** Compose Orchestration's authority contracts. Missing canonical artifacts are fatal. */
+export function orchestrationAppendix(metadata: RoutingDraft | undefined, cwd = process.cwd()): {
   appendix: string;
   evidence: HarnessCompositionEvidence;
 } {
@@ -1265,7 +1265,7 @@ export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process
   // selecting a managed role is an execution-grade act and therefore admits
   // only the complete request before any authority prompt is constructed.
   const admitted = metadata.role || metadata.composition
-    ? admitRoutingRequest(metadata, "Gaffer appendix")
+    ? admitRoutingRequest(metadata, "Orchestration appendix")
     : undefined;
   const routing: RoutingDraft = admitted ?? metadata;
   const blocks: string[] = [];
@@ -1273,13 +1273,13 @@ export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process
   if (admitted) {
     const composition = admitted.composition;
     if (composition.id !== admitted.role)
-      throw new Error(`Gaffer composition ${composition.id} does not match role ${admitted.role}`);
+      throw new Error(`Orchestration composition ${composition.id} does not match role ${admitted.role}`);
     if (composition.kind === "preset") {
-      const role = exactSectionFence(resolve(gafferDocs(), "roles.md"), admitted.role, `role:${admitted.role}`);
-      blocks.push(`## Gaffer role contract — preset:${admitted.role}\n${role}`);
+      const role = exactSectionFence(resolve(orchestrationDocs(), "roles.md"), admitted.role, `role:${admitted.role}`);
+      blocks.push(`## Orchestration role contract — preset:${admitted.role}\n${role}`);
       if (composition.overrides.length) {
         blocks.push([
-          "## Gaffer preset override",
+          "## Orchestration preset override",
           `Axes changed: ${composition.overrides.join(", ")}.`,
           `Reason: ${composition.overrideReason}`,
         ].join("\n"));
@@ -1288,7 +1288,7 @@ export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process
           .update(composition.overrideReason!).digest("hex");
       }
     } else {
-      blocks.push(`## Gaffer role contract — bespoke:${composition.id}\n${bespokeRoleBlock(admitted)}`);
+      blocks.push(`## Orchestration role contract — bespoke:${composition.id}\n${bespokeRoleBlock(admitted)}`);
       evidence.bespokeContractHash = bespokeContractFingerprint(composition.contract);
       evidence.bespokeContractFingerprintVersion = BESPOKE_FINGERPRINT_VERSION;
       evidence.bespokeContractFingerprintDomain = BESPOKE_FINGERPRINT_DOMAIN;
@@ -1296,17 +1296,17 @@ export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process
     evidence.roleKind = composition.kind;
     evidence.roleId = composition.id;
     evidence.capabilities = composition.kind === "bespoke"
-      ? canonicalGafferCapabilities(composition.contract.capabilities)
-      : gafferCapabilities(admitted);
-    const comms = exactSectionFence(resolve(gafferDocs(), "comms.md"), "universal", "comms:universal");
-    blocks.push(`## Gaffer communication contract — universal\n${comms}`);
+      ? canonicalOrchestrationCapabilities(composition.contract.capabilities)
+      : orchestrationCapabilities(admitted);
+    const comms = exactSectionFence(resolve(orchestrationDocs(), "comms.md"), "universal", "comms:universal");
+    blocks.push(`## Orchestration communication contract — universal\n${comms}`);
     evidence.commsContractHash = createHash("sha256").update(comms).digest("hex");
   }
   if (routing.taskGrade) {
     const block = exactSectionFence(
-      resolve(gafferDocs(), "task-grades.md"), routing.taskGrade, `task-grade:${routing.taskGrade}`,
+      resolve(orchestrationDocs(), "task-grades.md"), routing.taskGrade, `task-grade:${routing.taskGrade}`,
     );
-    blocks.push(`## Gaffer task grade — ${routing.taskGrade}\n${block}`);
+    blocks.push(`## Orchestration task grade — ${routing.taskGrade}\n${block}`);
     evidence.taskGrade = routing.taskGrade;
   }
   if (routing.domainRequirements?.length) {
@@ -1315,14 +1315,14 @@ export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process
   }
   if (routing.topology) {
     const block = exactSectionFence(
-      resolve(gafferDocs(), "topologies.md"), routing.topology, `topology:${routing.topology}`,
+      resolve(orchestrationDocs(), "topologies.md"), routing.topology, `topology:${routing.topology}`,
     );
-    blocks.push(`## Gaffer topology — ${routing.topology}\n${block}`);
+    blocks.push(`## Orchestration topology — ${routing.topology}\n${block}`);
     evidence.topology = routing.topology;
   }
   if (routing.tier || routing.reasoning) {
     blocks.push([
-      "## Gaffer capacity route",
+      "## Orchestration capacity route",
       `Semantic tier: ${routing.tier ?? "unselected"}.`,
       `Reasoning: ${routing.reasoning ?? "unselected"}.`,
       "Capacity does not widen the role, grade, topology, or domain authority above.",
@@ -1332,9 +1332,9 @@ export function gafferAppendix(metadata: RoutingDraft | undefined, cwd = process
   }
   if (routing.posture) {
     const block = exactSectionFence(
-      resolve(gafferDocs(), "postures.md"), routing.posture, `posture:${routing.posture}`,
+      resolve(orchestrationDocs(), "postures.md"), routing.posture, `posture:${routing.posture}`,
     );
-    blocks.push(`## Gaffer posture — ${routing.posture}\n${block}`);
+    blocks.push(`## Orchestration posture — ${routing.posture}\n${block}`);
     evidence.posture = routing.posture;
   }
   return { appendix: blocks.length ? `\n\n${blocks.join("\n\n")}` : "", evidence };
@@ -1354,7 +1354,7 @@ function modelDeltaAppendix(provider?: ProviderId, model?: string, omitReason?: 
   };
   const block = exactFirstFence(delta.absolutePath!, `model-delta:${provider}:${model}`);
   return {
-    appendix: `\n\n## Gaffer exact-model delta — ${provider}:${model}\n${block}`,
+    appendix: `\n\n## Orchestration exact-model delta — ${provider}:${model}\n${block}`,
     evidence: { provider, model, kind: "calibrated", path: delta.path },
   };
 }
@@ -1455,10 +1455,10 @@ export function renewHarnessPresence(options: Options): void {
 export function praxisAppendix(_model?: string, role?: string, posture?: string): string {
   const blocks: string[] = [];
   if (role) blocks.push(`## Praxis — role: ${role}\n${exactSectionFence(
-    resolve(gafferDocs(), "roles.md"), role, `role:${role}`,
+    resolve(orchestrationDocs(), "roles.md"), role, `role:${role}`,
   )}`);
   if (posture) blocks.push(`## Praxis — posture: ${posture}\n${exactSectionFence(
-    resolve(gafferDocs(), "postures.md"), posture, `posture:${posture}`,
+    resolve(orchestrationDocs(), "postures.md"), posture, `posture:${posture}`,
   )}`);
   return blocks.length ? `\n\n${blocks.join("\n\n")}` : "";
 }
@@ -1539,8 +1539,8 @@ export function harnessOptions(o: HarnessOpts): Options {
     ? resolveTier(o.provider, metadata.tier, o.model, effectiveEffort).model
     : o.model;
   const topology = metadata?.topology;
-  const gaffer = gafferAppendix(metadata, cwd);
-  const capabilities = gaffer.evidence.capabilities;
+  const orchestration = orchestrationAppendix(metadata, cwd);
+  const capabilities = orchestration.evidence.capabilities;
   // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
   // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
@@ -1570,7 +1570,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     NORTH_CODEX_BIN: _inheritedCodexOverride,
     NORTH_BIN: _inheritedNorthBin,
     // Never let a parent's pinned dials leak into a child's bootstrap: every
-    // managed spawn re-resolves model/effort from its Gaffer tier, but a
+    // managed spawn re-resolves model/effort from its Orchestration tier, but a
     // tier-less import.meta.main bootstrap reads process.env.AGENT_MODEL, so an
     // inherited value would silently pin the child. Strip them at the boundary.
     AGENT_MODEL: _inheritedModel,
@@ -1651,10 +1651,10 @@ export function harnessOptions(o: HarnessOpts): Options {
   const compositionSeed: HarnessCompositionState = {
     self: o.self,
     basePrompt,
-    gafferAppendix: gaffer.appendix,
+    orchestrationAppendix: orchestration.appendix,
     capabilities: capabilities ? [...capabilities] : undefined,
     cwd,
-    evidence: gaffer.evidence,
+    evidence: orchestration.evidence,
     routingRequest: metadata,
     initialProvider: o.provider,
     initialModel: effectiveModel,
@@ -1684,7 +1684,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     env: childEnv,
     permissionMode: capabilities && !capabilities.includes("filesystem.write") ? "default" : "acceptEdits",
     ...(capabilities ? {
-      northCapabilities: Object.freeze([...capabilities]) as unknown as GafferCapability[],
+      northCapabilities: Object.freeze([...capabilities]) as unknown as OrchestrationCapability[],
     } : {}),
     ...(metadata ? { northRoutingRequest: metadata } : {}),
     cwd,
@@ -1721,7 +1721,7 @@ export function harnessOptions(o: HarnessOpts): Options {
         return { continue: true };
       }] }],
     },
-  } as Options & { northCapabilities?: GafferCapability[] };
+  } as Options & { northCapabilities?: OrchestrationCapability[] };
   // Hooks are executable authority, not an advisory bag. Freeze the exact
   // harness-owned surface and make every routed provider rebuild from this
   // canonical root rather than spreading a caller-mutated retry object.
@@ -1735,14 +1735,14 @@ export function harnessOptions(o: HarnessOpts): Options {
   if (presenceRenewer)
     harnessActivityRenewers.set(options as object, () => presenceRenewer(o.self));
   appliedEvidence.set(options as object, deepFreeze({
-    ...gaffer.evidence,
+    ...orchestration.evidence,
     modelDelta: initialComposition.deltaEvidence,
     promptEconomics: initialComposition.economics,
   }));
   sealAuthoringHooks(options);
   // Presence is an assertion that a runnable lane exists. Every synchronous
   // prompt/bootstrap contract for the initial route must succeed first, or a
-  // malformed AGENTS/Gaffer/model source would leave a ghost roster entry.
+  // malformed AGENTS/Orchestration/model source would leave a ghost roster entry.
   const routedOptions = o.provider
     ? applyHarnessRoute(
         options, o.provider, effectiveModel, effectiveEffort,
@@ -1759,5 +1759,5 @@ export function harnessOptions(o: HarnessOpts): Options {
 export const DEFAULT_SYSTEM_PROMPT =
   "You are a north agent on a shared fact graph. Prefer native north coordination " +
   "tools over editing coordination state: capture/tell to record work and ready/next " +
-  "to find it. Your Gaffer topology contract, when present, is the sole source of " +
+  "to find it. Your Orchestration topology contract, when present, is the sole source of " +
   "delegation authority. Acquire before editing shared code. Report concisely.";

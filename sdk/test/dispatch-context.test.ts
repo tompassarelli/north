@@ -9,31 +9,31 @@ afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function workspace(): { home: string; north: string; gaffer: string } {
+function workspace(): { home: string; north: string; orchestration: string } {
   const home = mkdtempSync(join(tmpdir(), "north-dispatch-context-"));
   temporary.push(home);
   const north = join(home, "code/north");
-  const gaffer = join(home, "code/gaffer");
+  const orchestration = join(home, "code/orchestration");
   mkdirSync(north, { recursive: true });
-  mkdirSync(gaffer, { recursive: true });
-  return { home, north, gaffer };
+  mkdirSync(orchestration, { recursive: true });
+  return { home, north, orchestration };
 }
 
 test("a thread repo fact overrides the MCP server cwd", () => {
-  const { home, north, gaffer } = workspace();
+  const { home, north, orchestration } = workspace();
   expect(resolveDispatchWorkingDirectory([
-    { predicate: "title", value: "Gaffer repair" },
-    { predicate: "repo", value: "~/code/gaffer" },
-  ], { home, cwd: north })).toBe(gaffer);
+    { predicate: "title", value: "Orchestration repair" },
+    { predicate: "repo", value: "~/code/orchestration" },
+  ], { home, cwd: north })).toBe(orchestration);
 });
 
 test("parallel-safe resolution disambiguates multi-repo threads without process.chdir", () => {
-  const { home, north, gaffer } = workspace();
+  const { home, north, orchestration } = workspace();
   const facts = [
     { predicate: "repo", value: "~/code/north" },
-    { predicate: "repo", value: "~/code/gaffer" },
+    { predicate: "repo", value: "~/code/orchestration" },
   ];
-  expect(resolveDispatchWorkingDirectory(facts, { home, cwd: gaffer })).toBe(gaffer);
+  expect(resolveDispatchWorkingDirectory(facts, { home, cwd: orchestration })).toBe(orchestration);
   expect(resolveDispatchWorkingDirectory(facts, { home, cwd: north })).toBe(north);
 });
 
@@ -47,7 +47,7 @@ test("ambiguous, relative, missing, non-directory, and escaping repo facts fail 
 
   expect(() => resolveDispatchWorkingDirectory([
     { predicate: "repo", value: "~/code/north" },
-    { predicate: "repo", value: "~/code/gaffer" },
+    { predicate: "repo", value: "~/code/orchestration" },
   ], { home, cwd: home })).toThrow("multiple repository facts");
   expect(() => resolveDispatchWorkingDirectory([{ predicate: "repo", value: "code/north" }], { home, cwd: north }))
     .toThrow("must be absolute or ~-anchored");

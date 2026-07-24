@@ -17,7 +17,7 @@ import { ProviderRetrySafeError } from "../src/providers";
 import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
 import type { DeliveryRunContext } from "../src/delivery-evidence";
 import { presetRequest } from "./routing-fixtures";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
 
 let dir: string;
@@ -269,28 +269,28 @@ test("a synchronous provider-construction failure records run telemetry without 
   expect(logged).not.toContain("clock orphan test-sync-construction-failure");
 });
 
-test("a Gaffer prompt-composition failure is blocked preflight before query construction", async () => {
+test("a Orchestration prompt-composition failure is blocked preflight before query construction", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  const sourceGaffer = process.env.NORTH_ORCHESTRATION_HOME
-    ?? resolve(import.meta.dir, "../../..", "gaffer");
-  const brokenGaffer = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
-  mkdirSync(join(brokenGaffer, "providers"), { recursive: true });
-  mkdirSync(join(brokenGaffer, "docs", "deltas"), { recursive: true });
+  const sourceOrchestration = process.env.NORTH_ORCHESTRATION_HOME
+    ?? resolve(import.meta.dir, "../../..", "orchestration");
+  const brokenOrchestration = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
+  mkdirSync(join(brokenOrchestration, "providers"), { recursive: true });
+  mkdirSync(join(brokenOrchestration, "docs", "deltas"), { recursive: true });
   for (const name of ["anthropic.json", "openai.json"]) {
     copyFileSync(
-      join(sourceGaffer, "providers", name),
-      join(brokenGaffer, "providers", name),
+      join(sourceOrchestration, "providers", name),
+      join(brokenOrchestration, "providers", name),
     );
   }
   for (const name of ["roles.md", "comms.md", "task-grades.md", "topologies.md", "postures.md"]) {
-    copyFileSync(join(sourceGaffer, "docs", name), join(brokenGaffer, "docs", name));
+    copyFileSync(join(sourceOrchestration, "docs", name), join(brokenOrchestration, "docs", name));
   }
-  const priorGafferHome = process.env.NORTH_ORCHESTRATION_HOME;
+  const priorOrchestrationHome = process.env.NORTH_ORCHESTRATION_HOME;
   let queryConstructionCalls = 0;
   try {
-    process.env.NORTH_ORCHESTRATION_HOME = brokenGaffer;
-    const routingMetadata = applyGafferStaffing({
+    process.env.NORTH_ORCHESTRATION_HOME = brokenOrchestration;
+    const routingMetadata = applyOrchestrationStaffing({
       role: "scout",
       tier: "standard",
       reasoning: "low",
@@ -316,9 +316,9 @@ test("a Gaffer prompt-composition failure is blocked preflight before query cons
     });
     expect(result).toBe("");
   } finally {
-    if (priorGafferHome === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
-    else process.env.NORTH_ORCHESTRATION_HOME = priorGafferHome;
-    rmSync(brokenGaffer, { recursive: true, force: true });
+    if (priorOrchestrationHome === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
+    else process.env.NORTH_ORCHESTRATION_HOME = priorOrchestrationHome;
+    rmSync(brokenOrchestration, { recursive: true, force: true });
   }
 
   expect(queryConstructionCalls).toBe(0);
@@ -2340,7 +2340,7 @@ async function settledRunLines(agent: string, requiredSuffix = "error_count 0"):
   throw new Error(`timed out waiting for settled run telemetry: ${agent}`);
 }
 
-test("public spawn composes justified explicit axes before Gaffer hydration", async () => {
+test("public spawn composes justified explicit axes before Orchestration hydration", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let queryOptions: any;
@@ -2354,7 +2354,7 @@ test("public spawn composes justified explicit axes before Gaffer hydration", as
   await spawn({
     prompt: "exercise the real composition boundary", agentId: "test-composed-director",
     role: "director", tier: "economy", effort: "low", posture: "preserve",
-    routingMetadata: applyGafferStaffing({
+    routingMetadata: applyOrchestrationStaffing({
       role: "director", tier: "economy", reasoning: "low", posture: "preserve",
       composition: { kind: "preset", id: "director",
         overrides: ["tier", "reasoning", "posture"],
@@ -2371,7 +2371,7 @@ test("public spawn composes justified explicit axes before Gaffer hydration", as
   ]) expect(logged).toContain(fact);
 });
 
-test("public role-only integrator spawn hydrates the complete Gaffer preset", async () => {
+test("public role-only integrator spawn hydrates the complete Orchestration preset", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let queryOptions: any;
@@ -2402,7 +2402,7 @@ test("public role-only integrator spawn hydrates the complete Gaffer preset", as
     "tell agent:test-role-only-integrator effort high",
     "tell agent:test-role-only-integrator composition_kind preset",
     "tell agent:test-role-only-integrator composition_id integrator",
-    "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-gaffer-integrator-integrator",
+    "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-orchestration-integrator-integrator",
   ]) expect(logged).toContain(fact);
 });
 
@@ -2429,11 +2429,11 @@ test("tier-routed OpenAI identity records the resolved Sol route, not requested 
     "tell agent:test-openai-designer provider_target openai",
     "tell agent:test-openai-designer model gpt-5.6-sol",
     "tell agent:test-openai-designer effort xhigh",
-    "tell agent:test-openai-designer display_handle openai-ambient-sol-xhigh-gaffer-designer-designer",
+    "tell agent:test-openai-designer display_handle openai-ambient-sol-xhigh-orchestration-designer-designer",
   ]) expect(logged).toContain(fact);
 });
 
-test("public SpawnOptions target and Gaffer role land on exact account identity", async () => {
+test("public SpawnOptions target and Orchestration role land on exact account identity", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   const policyPath = process.env.NORTH_ROUTING_POLICY!;

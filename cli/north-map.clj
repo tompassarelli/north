@@ -30,7 +30,7 @@
 ;; the validator's own CLI dormant (main-guard).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/schema-validate.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/gaffer-staffing.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/orchestration-staffing.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/batch-id.clj"))
 
 ;; shared coord substrate: cardinality-typed write verbs (move-C) live once in
@@ -44,24 +44,24 @@
 (def distinct-of north.coord/distinct-of)   ; count-distinct quorum, set form
 
 (defn canonical-worker-preset [role]
-  (let [path (or (System/getenv "GAFFER_STAFFING_CATALOG")
+  (let [path (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
                  (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
                           (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration"))
                       "/staffing/catalog.json"))]
     (try
-      (let [catalog (north.gaffer-staffing/load-catalog path)
-            preset (get (north.gaffer-staffing/presets-by-name catalog) role)
+      (let [catalog (north.orchestration-staffing/load-catalog path)
+            preset (get (north.orchestration-staffing/presets-by-name catalog) role)
             route-problem (when preset
-                            (north.gaffer-staffing/unsupported-route-problem
+                            (north.orchestration-staffing/unsupported-route-problem
                              (get preset "tier") (get preset "deliberation")))]
         (cond
-          (nil? preset) {:error (str "unknown Gaffer worker preset: " role)}
+          (nil? preset) {:error (str "unknown Orchestration worker preset: " role)}
           (not= "worker" (get preset "topology"))
           {:error (str "north map requires a terminal worker preset; " role " is " (get preset "topology"))}
           route-problem {:error route-problem}
           :else {:preset preset}))
       (catch Exception e
-        {:error (str "Gaffer staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
+        {:error (str "Orchestration staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
 
 (defn q [port query] (:ok (send-op port {:op :query :query query})))
 

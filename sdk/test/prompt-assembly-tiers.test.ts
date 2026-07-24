@@ -6,22 +6,22 @@ import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { constitutionTiers, harnessCompositionEvidence, harnessOptions } from "../src/harness";
-import { applyGafferStaffing } from "../src/gaffer-staffing";
-import type { GafferCapability } from "../src/gaffer-capabilities";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
+import type { OrchestrationCapability } from "../src/orchestration-capabilities";
 
 const north = resolve(import.meta.dir, "../..");
 const B = (s: string) => Buffer.byteLength(s, "utf8");
 
 // Coarse capability classes (catalog-consistent). Read-only classes carry no
 // filesystem.write, shell.readonly only, and no coordination.
-const CLASS: Record<string, GafferCapability[]> = {
+const CLASS: Record<string, OrchestrationCapability[]> = {
   roEval: ["filesystem.read", "filesystem.search", "shell.readonly"],
   roExplore: ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
   writer: ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
   orch: ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
 };
 
-const whole = (caps: GafferCapability[]) => {
+const whole = (caps: OrchestrationCapability[]) => {
   const t = constitutionTiers(caps, north);
   return t.core + t.cap + t.repo;
 };
@@ -144,15 +144,15 @@ test("the per-lane UNIQUE coordination tail lands after every shared tier (P1)",
     provider: "anthropic",
     cwd: north,
     presenceRegistrar: false,
-    routingMetadata: applyGafferStaffing({ role: "integrator" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "integrator" }),
   }) as any;
   const sp: string = opts.systemPrompt;
   const coord = sp.indexOf('You are agent "tier-unique-tail"');
   expect(coord).toBeGreaterThan(0);
-  // After the shared CORE constitution, the CAP gaffer/law blocks, and the REPO
+  // After the shared CORE constitution, the CAP orchestration/law blocks, and the REPO
   // project instructions — i.e. nothing shared follows the unique bytes.
   expect(coord).toBeGreaterThan(sp.indexOf("## Global laws —"));
-  expect(coord).toBeGreaterThan(sp.lastIndexOf("## Gaffer"));
+  expect(coord).toBeGreaterThan(sp.lastIndexOf("## Orchestration"));
   expect(coord).toBeGreaterThan(sp.indexOf("## Project instructions"));
   expect(coord).toBeGreaterThan(sp.indexOf(M.blocked));
   // The DEFAULT head is still first.
@@ -178,7 +178,7 @@ test("auto-compaction is explicitly pinned in harnessOptions (audit fix 4)", () 
     provider: "anthropic",
     cwd: north,
     presenceRegistrar: false,
-    routingMetadata: applyGafferStaffing({ role: "integrator" }),
+    routingMetadata: applyOrchestrationStaffing({ role: "integrator" }),
   }) as any;
   expect(opts.settings).toMatchObject({ autoCompactEnabled: true });
 });

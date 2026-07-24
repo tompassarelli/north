@@ -1,4 +1,4 @@
-name: Gaffer validation
+name: Orchestration validation
 
 on:
   push:

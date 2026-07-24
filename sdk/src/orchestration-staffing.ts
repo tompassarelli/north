@@ -9,11 +9,11 @@ import {
   parseCompleteRoutingRequest,
 } from "./routing-metadata";
 import {
-  GAFFER_CAPABILITIES, GAFFER_PRESET_CAPABILITIES, requireGafferCapabilities,
+  ORCHESTRATION_CAPABILITIES, ORCHESTRATION_PRESET_CAPABILITIES, requireOrchestrationCapabilities,
   validateTopologyCapabilities,
-  type GafferCapability,
-} from "./gaffer-capabilities";
-import { requireGafferRoleId } from "./gaffer-role-id";
+  type OrchestrationCapability,
+} from "./orchestration-capabilities";
+import { requireOrchestrationRoleId } from "./orchestration-role-id";
 import { requireProviderNeutralRoute } from "./provider-neutral-route";
 import {
   projectStaffingCatalog, staffingSource, warnGraphCatalogFallback,
@@ -22,7 +22,7 @@ import {
 interface StaffingPreset {
   name: string; taskGrade: string; tier: string; deliberation: string;
   topology: string; posture: string; tagline: string; description: string;
-  capabilities: GafferCapability[];
+  capabilities: OrchestrationCapability[];
 }
 interface StaffingDefaults {
   taskGrade: string;
@@ -33,19 +33,19 @@ interface StaffingDefaults {
 }
 interface StaffingCatalog {
   sourceVersion: 2;
-  vocabulary: { capabilities: GafferCapability[] };
+  vocabulary: { capabilities: OrchestrationCapability[] };
   defaults: StaffingDefaults;
   presets: StaffingPreset[];
   aliases: Array<{ name: string; target: string }>;
 }
 
-export const GAFFER_STOCK_ROLE_IDS = [
+export const ORCHESTRATION_STOCK_ROLE_IDS = [
   "executor", "implementer", "integrator", "designer", "director", "scout",
   "analyst", "reviewer", "verifier", "judge", "research-scientist",
 ] as const;
 const STOCK_AUTHORING_ROLES = new Set(["executor", "implementer", "integrator"]);
 
-export const DEFAULT_GAFFER_STAFFING_PATH = resolve(
+export const DEFAULT_ORCHESTRATION_STAFFING_PATH = resolve(
   process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"), "staffing/catalog.json",
 );
 
@@ -79,11 +79,11 @@ function uniqueVocabulary(value: unknown, label: string): string[] {
   return value;
 }
 
-export function loadGafferStaffing(
-  path = process.env.GAFFER_STAFFING_CATALOG ?? DEFAULT_GAFFER_STAFFING_PATH,
+export function loadOrchestrationStaffing(
+  path = process.env.ORCHESTRATION_STAFFING_CATALOG ?? DEFAULT_ORCHESTRATION_STAFFING_PATH,
 ): StaffingCatalog {
   // Dual-read seam (Phase 1): graph mode reconstructs the identical catalog
-  // shape from @catalog:current; file mode (default) reads the Gaffer JSON.
+  // shape from @catalog:current; file mode (default) reads the Orchestration JSON.
   // On projector failure graph mode FALLS BACK to the packaged JSON so spawn
   // admission never blocks on the graph (the named failure is logged).
   let value: Record<string, any>;
@@ -110,11 +110,11 @@ export function loadGafferStaffing(
     deliberations: REASONING_LEVELS,
     topologies: TOPOLOGIES,
     postures: POSTURES,
-    capabilities: GAFFER_CAPABILITIES,
+    capabilities: ORCHESTRATION_CAPABILITIES,
   })) {
     const actual = [...vocabularyByAxis[axis]].sort();
     if (JSON.stringify(actual) !== JSON.stringify([...expected].sort()))
-      throw new Error(`Gaffer wire vocabulary drift at ${path}: ${axis}`);
+      throw new Error(`Orchestration wire vocabulary drift at ${path}: ${axis}`);
   }
   exactKeys(value.defaults, DEFAULT_FIELDS, "defaults");
   for (const [field, axis] of [
@@ -129,22 +129,22 @@ export function loadGafferStaffing(
     throw new Error("staffing catalog: presets must be non-empty");
   if (!Array.isArray(value.aliases))
     throw new Error("staffing catalog: aliases must be an array");
-  const vocabulary = requireGafferCapabilities(
+  const vocabulary = requireOrchestrationCapabilities(
     value.vocabulary?.capabilities, "staffing catalog vocabulary.capabilities",
   );
   if (JSON.stringify([...vocabulary].sort())
-      !== JSON.stringify([...GAFFER_CAPABILITIES].sort()))
-    throw new Error(`Gaffer capability vocabulary drift at ${path}`);
+      !== JSON.stringify([...ORCHESTRATION_CAPABILITIES].sort()))
+    throw new Error(`Orchestration capability vocabulary drift at ${path}`);
   const presetNames = new Set<string>();
   for (const preset of presets) {
     exactKeys(preset, PRESET_FIELDS, `preset ${preset?.name ?? "<unknown>"}`);
-    requireGafferRoleId(preset.name, "staffing catalog preset");
-    if (presetNames.has(preset.name)) throw new Error(`duplicate Gaffer preset ${preset.name}`);
+    requireOrchestrationRoleId(preset.name, "staffing catalog preset");
+    if (presetNames.has(preset.name)) throw new Error(`duplicate Orchestration preset ${preset.name}`);
     presetNames.add(preset.name);
-    preset.capabilities = requireGafferCapabilities(
+    preset.capabilities = requireOrchestrationCapabilities(
       preset.capabilities, `staffing preset ${preset.name}.capabilities`,
     );
-    if (preset.capabilities.some((capability: GafferCapability) => !GAFFER_PRESET_CAPABILITIES.includes(capability as typeof GAFFER_PRESET_CAPABILITIES[number])))
+    if (preset.capabilities.some((capability: OrchestrationCapability) => !ORCHESTRATION_PRESET_CAPABILITIES.includes(capability as typeof ORCHESTRATION_PRESET_CAPABILITIES[number])))
       throw new Error(`staffing preset ${preset.name}.capabilities contains a bespoke-only capability`);
     for (const [field, axis] of [
       ["taskGrade", "taskGrades"], ["tier", "semanticTiers"], ["deliberation", "deliberations"],
@@ -157,72 +157,72 @@ export function loadGafferStaffing(
         || typeof preset.description !== "string" || !preset.description.trim())
       throw new Error(`${preset.name}: missing tagline or description`);
     if (preset.topology !== "worker" && preset.topology !== "orchestrator")
-      throw new Error(`invalid Gaffer topology for ${preset.name}`);
+      throw new Error(`invalid Orchestration topology for ${preset.name}`);
     validateTopologyCapabilities(preset.topology, preset.capabilities, `${preset.name}.capabilities`);
   }
-  const exactNames = [...GAFFER_STOCK_ROLE_IDS].sort();
+  const exactNames = [...ORCHESTRATION_STOCK_ROLE_IDS].sort();
   const actualNames = [...presetNames].sort();
   if (JSON.stringify(actualNames) !== JSON.stringify(exactNames))
-    throw new Error(`Gaffer stock preset set drift at ${path}`);
+    throw new Error(`Orchestration stock preset set drift at ${path}`);
   const orchestrators = presets.filter(({ topology }) => topology === "orchestrator")
     .map(({ name }) => name);
   if (orchestrators.length !== 1 || orchestrators[0] !== "director")
-    throw new Error(`Gaffer stock topology drift at ${path}: only director may orchestrate`);
+    throw new Error(`Orchestration stock topology drift at ${path}: only director may orchestrate`);
   if (value.aliases.length !== 0)
-    throw new Error(`Gaffer stock alias drift at ${path}: canonical release has no aliases`);
+    throw new Error(`Orchestration stock alias drift at ${path}: canonical release has no aliases`);
   for (const preset of presets) {
     const capabilities = new Set(preset.capabilities);
     if (!capabilities.has("filesystem.read") || !capabilities.has("filesystem.search"))
-      throw new Error(`Gaffer stock role ${preset.name} must retain read and search authority`);
+      throw new Error(`Orchestration stock role ${preset.name} must retain read and search authority`);
     if (STOCK_AUTHORING_ROLES.has(preset.name)) {
       if (!capabilities.has("filesystem.write") || !capabilities.has("shell"))
-        throw new Error(`Gaffer stock authoring role ${preset.name} must retain write and shell authority`);
+        throw new Error(`Orchestration stock authoring role ${preset.name} must retain write and shell authority`);
     } else if (capabilities.has("filesystem.write") || capabilities.has("shell")
                || !capabilities.has("shell.readonly")) {
-      throw new Error(`Gaffer stock nonauthoring role ${preset.name} must remain read-only`);
+      throw new Error(`Orchestration stock nonauthoring role ${preset.name} must remain read-only`);
     }
     if ((preset.name === "director") !== capabilities.has("coordination"))
-      throw new Error("Gaffer stock coordination authority belongs only to director");
+      throw new Error("Orchestration stock coordination authority belongs only to director");
   }
   for (const alias of value.aliases) {
-    requireGafferRoleId(alias.name, "staffing catalog alias");
-    requireGafferRoleId(alias.target, "staffing catalog alias target");
-    if (!presetNames.has(alias.target)) throw new Error(`Gaffer alias target is missing: ${alias.target}`);
+    requireOrchestrationRoleId(alias.name, "staffing catalog alias");
+    requireOrchestrationRoleId(alias.target, "staffing catalog alias target");
+    if (!presetNames.has(alias.target)) throw new Error(`Orchestration alias target is missing: ${alias.target}`);
   }
   return { sourceVersion, vocabulary: value.vocabulary, defaults: value.defaults, presets, aliases: value.aliases };
 }
 
-export function canonicalStaffingRole(role: string | undefined, catalog = loadGafferStaffing()): string | undefined {
+export function canonicalStaffingRole(role: string | undefined, catalog = loadOrchestrationStaffing()): string | undefined {
   if (role === undefined) return undefined;
-  requireGafferRoleId(role);
+  requireOrchestrationRoleId(role);
   const alias = catalog.aliases.find(({ name }) => name === role);
   if (alias) throw new Error(`role must use canonical stock-template name ${alias.target}`);
   return role;
 }
 
-export function gafferCapabilities(
+export function orchestrationCapabilities(
   metadata: RoutingRequest,
-  catalog = loadGafferStaffing(),
-): GafferCapability[] {
+  catalog = loadOrchestrationStaffing(),
+): OrchestrationCapability[] {
   const role = canonicalStaffingRole(metadata.role, catalog);
   if (!role || !metadata.composition)
-    throw new Error("managed Gaffer capabilities require a selected role and composition");
+    throw new Error("managed Orchestration capabilities require a selected role and composition");
   if (metadata.composition.kind === "bespoke")
-    return requireGafferCapabilities(
+    return requireOrchestrationCapabilities(
       metadata.composition.contract.capabilities, "composition.contract.capabilities",
     );
   const preset = catalog.presets.find(({ name }) => name === role);
-  if (!preset) throw new Error(`Gaffer preset ${role} is absent from the staffing catalog`);
+  if (!preset) throw new Error(`Orchestration preset ${role} is absent from the staffing catalog`);
   return [...preset.capabilities];
 }
 
 /** Compose a request: overrideable axes may vary, but stock topology is fixed. */
-export function applyGafferStaffing(
+export function applyOrchestrationStaffing(
   metadata: RoutingDraft,
-  catalog = loadGafferStaffing(),
+  catalog = loadOrchestrationStaffing(),
 ): RoutingRequest {
   const role = canonicalStaffingRole(metadata.role, catalog);
-  if (!role) throw new Error("Gaffer request composer requires an explicit role");
+  if (!role) throw new Error("Orchestration request composer requires an explicit role");
   const preset = catalog.presets.find(({ name }) => name === role);
   if (!preset) {
     const composition = metadata.composition;
@@ -240,7 +240,7 @@ export function applyGafferStaffing(
         typeof composition.promotionCandidate !== "boolean" || !composition.contract || !nearestKnown || missing.length) {
       const detail = missing.length ? `; missing executable axes: ${missing.join(", ")}` : "";
       throw new Error(
-        `unknown Gaffer role ${role} requires composition.kind=bespoke, composition.id=${role}, `
+        `unknown Orchestration role ${role} requires composition.kind=bespoke, composition.id=${role}, `
         + "an optional-but-valid nearestPreset, composition.bespokeReason, explicit promotionCandidate, "
         + `structured contract, and all unseeded routing axes${detail}`,
       );
@@ -259,11 +259,11 @@ export function applyGafferStaffing(
       request.topology, composition.contract.capabilities, `${role}.capabilities`,
     );
     requireProviderNeutralRoute(request.tier, request.reasoning);
-    return parseCompleteRoutingRequest(request, "Gaffer request composer");
+    return parseCompleteRoutingRequest(request, "Orchestration request composer");
   }
   if (metadata.composition && (metadata.composition.kind !== "preset" || metadata.composition.id !== role)) {
     throw new Error(
-      `known Gaffer role ${role} requires composition.kind=preset and composition.id=${role}; `
+      `known Orchestration role ${role} requires composition.kind=preset and composition.id=${role}; `
       + "use a distinct role name for a bespoke composition",
     );
   }
@@ -298,7 +298,7 @@ export function applyGafferStaffing(
   const composition = metadata.composition;
   if (actualOverrides.length && !composition) {
     throw new Error(
-      `known Gaffer role ${role} overrides ${actualOverrides.join(", ")}; supply preset composition.overrides and composition.overrideReason`,
+      `known Orchestration role ${role} overrides ${actualOverrides.join(", ")}; supply preset composition.overrides and composition.overrideReason`,
     );
   }
   if (composition?.kind === "preset") {
@@ -327,16 +327,16 @@ export function applyGafferStaffing(
     composition: composition ?? { kind: "preset", id: role, overrides: [] },
   } as RoutingRequest;
   requireProviderNeutralRoute(request.tier, request.reasoning);
-  return parseCompleteRoutingRequest(request, "Gaffer request composer");
+  return parseCompleteRoutingRequest(request, "Orchestration request composer");
 }
 
 /**
  * Managed North lanes must have an attributable staffing decision. A known
- * role hydrates to a canonical preset in applyGafferStaffing; an unknown role
+ * role hydrates to a canonical preset in applyOrchestrationStaffing; an unknown role
  * survives only with the complete bespoke contract validated there. Native
  * provider sessions are outside this boundary and remain honestly unselected.
  */
-export function requireManagedGafferSelection(
+export function requireManagedOrchestrationSelection(
   metadata: RoutingDraft,
   surface = "managed North agent",
 ): RoutingRequest {
@@ -347,7 +347,7 @@ export function requireManagedGafferSelection(
   const missing = required.filter((field) => metadata[field] === undefined);
   if (missing.length) {
     throw new Error(
-      `${surface} requires the complete eight-field Gaffer request; missing: ${missing.join(", ")}`,
+      `${surface} requires the complete eight-field Orchestration request; missing: ${missing.join(", ")}`,
     );
   }
   return metadata as RoutingRequest;

@@ -478,7 +478,7 @@ test("prompt economics persists only content-free measurements and exact zero co
       tokenMeasurementSource: "authoritative-tokenizer-unavailable",
       providerContextWindowTokens: 400000,
       contextWindowEffectiveFrom: "2026-01-01",
-      contextWindowStatus: "observed", contextWindowSource: "gaffer-provider-catalog",
+      contextWindowStatus: "observed", contextWindowSource: "orchestration-provider-catalog",
       contextBudgetStatus: "unknown", contextBudgetSource: "north-harness-unconfigured",
       compactionPolicy: "native-auto-compact-enabled",
       compactionPolicyVersion: "north-native-auto-compact:v1",

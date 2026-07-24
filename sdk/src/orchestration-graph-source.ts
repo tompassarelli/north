@@ -2,14 +2,14 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
 /**
- * Dual-read seam for the Gaffer -> North Orchestration migration
+ * Dual-read seam for the Orchestration -> North Orchestration migration
  * (thread 019f8f5c). `NORTH_STAFFING_SOURCE` selects where the staffing catalog
  * and provider catalogs are read from:
  *
  *   graph (DEFAULT, Phase 2) — the imported @catalog:current subgraph,
  *                     reconstructed to the identical JSON shape by
  *                     orchestration-project-cli.clj; the graph is authoritative.
- *   file            — the Gaffer JSON files, byte-for-byte as today; the
+ *   file            — the Orchestration JSON files, byte-for-byte as today; the
  *                     retained rollback flag (retirement is Phase 4).
  *
  * The equality gate (cli/tests/orchestration-parity-test.clj) proves the two

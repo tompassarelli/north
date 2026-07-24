@@ -8,7 +8,7 @@ North is the provider-neutral coordination substrate. Read
 
 - Coordination, posture, clocks, telemetry, concerns, and supervision belong to North.
 - Provider SDK/CLI code belongs only under `sdk/src/providers/`.
-- Gaffer owns semantic task routing; provider adapters resolve semantic tiers to models.
+- Orchestration owns semantic task routing; provider adapters resolve semantic tiers to models.
 - MCP is the shared data/tool boundary for interactive Claude Code and Codex sessions.
 - Never add a provider model ID to provider-neutral orchestration code.
 
