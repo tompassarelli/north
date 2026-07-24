@@ -43,7 +43,14 @@ function project(args: string[]): unknown {
       timeout: 30_000,
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    // The projector fails LOUD on a timed-out query or a malformed graph row,
+    // naming the exact model/field on its stderr (strict envelopes). Surface
+    // that stderr in the thrown message so the packaged-JSON fallback upstream
+    // can log precisely what the graph could not answer, never a bare
+    // "Command failed".
+    const err = error as { message?: string; stderr?: Buffer | string };
+    const stderr = err.stderr ? String(err.stderr).trim() : "";
+    const detail = [err.message, stderr].filter(Boolean).join(" :: ") || String(error);
     throw new Error(
       `NORTH_STAFFING_SOURCE=graph projection failed (${args.join(" ")}); `
       + `is @catalog:current imported on port ${port()}? ${detail}`,
@@ -52,14 +59,74 @@ function project(args: string[]): unknown {
   return JSON.parse(out);
 }
 
+/**
+ * ONE catalog bundle — staffing + every provider — pinned to a single
+ * @catalog:current version read by a single projector subprocess. The SDK's
+ * admission path resolves tiers/reasoning/context/delta many times per spawn;
+ * projecting each read independently shelled a fresh `bb` every call (an N+1
+ * that repaid the coordinator's cold per-version scan warmup each time). This
+ * bundle is projected once and cached for the process lifetime.
+ */
+export interface CatalogBundle {
+  catalogVersion: number;
+  staffing: unknown;
+  providers: Record<string, unknown>;
+}
+
+let cachedBundle: { port: string; bundle: CatalogBundle } | undefined;
+
+function projectBundle(): CatalogBundle {
+  const raw = project(["bundle"]) as Record<string, unknown>;
+  if (!raw || typeof raw !== "object"
+      || typeof raw.catalogVersion !== "number"
+      || !raw.staffing || typeof raw.staffing !== "object"
+      || !raw.providers || typeof raw.providers !== "object")
+    throw new Error("NORTH_STAFFING_SOURCE=graph bundle projection returned an unexpected shape");
+  return raw as unknown as CatalogBundle;
+}
+
+/**
+ * The process-cached catalog bundle, pinned to one version per admission
+ * process. Only a SUCCESSFUL projection is cached; a failure re-projects (so a
+ * transient timeout does not poison the whole process), letting the caller fall
+ * back to the packaged JSON per read.
+ */
+export function catalogBundle(): CatalogBundle {
+  const p = port();
+  if (cachedBundle && cachedBundle.port === p) return cachedBundle.bundle;
+  const bundle = projectBundle();
+  cachedBundle = { port: p, bundle };
+  return bundle;
+}
+
+/** @internal Test seam — drop the process bundle cache between fixtures. */
+export function resetCatalogBundleCache(): void {
+  cachedBundle = undefined;
+}
+
+/**
+ * Log a graph->packaged fallback. The projector already named the failing model
+ * or query on its stderr (carried in `error.message`); echo it so a degraded
+ * admission is visible in the logs, never silent.
+ */
+export function warnGraphCatalogFallback(what: string, error: unknown): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn(
+    `[north] graph catalog projection failed for ${what}; falling back to packaged JSON. ${detail}`,
+  );
+}
+
 /** Graph projection of staffing/catalog.json (same shape the file loader parses). */
 export function projectStaffingCatalog(): unknown {
-  return project(["staffing"]);
+  return catalogBundle().staffing;
 }
 
 /** Graph projection of providers/<provider>.json (same shape the file loader parses). */
 export function projectProviderCatalog(provider: string): unknown {
-  return project(["provider", provider]);
+  const catalog = catalogBundle().providers[provider];
+  if (catalog === undefined)
+    throw new Error(`NORTH_STAFFING_SOURCE=graph bundle has no provider catalog for ${provider}`);
+  return catalog;
 }
 
 /**

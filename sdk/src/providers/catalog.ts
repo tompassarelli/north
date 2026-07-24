@@ -2,7 +2,9 @@ import { readFileSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { ProviderId } from "./types";
 import type { ReasoningLevel, RoutingTier } from "../routing-metadata";
-import { projectProviderCatalog, staffingSource } from "../orchestration-graph-source";
+import {
+  projectProviderCatalog, staffingSource, warnGraphCatalogFallback,
+} from "../orchestration-graph-source";
 
 export type SemanticTier = RoutingTier;
 type Effort = ReasoningLevel;
@@ -134,12 +136,19 @@ function validateProviderCatalog(
 function providerCatalog(provider: ProviderId): ProviderCatalog {
   // Dual-read seam (Phase 1): graph mode reconstructs the identical provider
   // catalog shape from @catalog:current; file mode (default) reads the JSON.
+  // On projector failure (query-time-limit or a malformed graph row) graph mode
+  // FALLS BACK to the packaged provider JSON so spawn admission never blocks on
+  // the graph — the projector's named-model error is logged, not fatal.
   if (staffingSource() === "graph") {
-    return validateProviderCatalog(
-      projectProviderCatalog(provider) as ProviderCatalog,
-      provider,
-      `graph @catalog:current provider ${provider}`,
-    );
+    try {
+      return validateProviderCatalog(
+        projectProviderCatalog(provider) as ProviderCatalog,
+        provider,
+        `graph @catalog:current provider ${provider}`,
+      );
+    } catch (error) {
+      warnGraphCatalogFallback(`provider catalog ${provider}`, error);
+    }
   }
   const path = resolve(gafferHome(), "providers", `${provider}.json`);
   return providerCatalogCache.load(

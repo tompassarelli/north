@@ -17,7 +17,10 @@
          '[clojure.string :as str]
          '[cheshire.core :as json])
 
-(def CLI-DIR (.getParent (io/file (System/getProperty "babashka.file"))))
+;; Resolve siblings relative to THIS file (not the entry script) so a test can
+;; load-file the projector as a library — *file* is the loading file in both
+;; direct-run and load-file modes; babashka.file is only ever the entry script.
+(def CLI-DIR (.getParent (io/file *file*)))
 (load-file (str CLI-DIR "/coord.clj"))
 (load-file (str CLI-DIR "/orchestration-selection.clj"))
 (def send-op north.coord/send-op)
@@ -29,20 +32,54 @@
 (def REASONING-RANK ["low" "medium" "high" "xhigh" "max"])
 (defn by-reasoning [xs] (sort-by #(.indexOf REASONING-RANK %) xs))
 
+;; STRICT query envelope. A rules query that times out (query-time-limit) or
+;; errors comes back WITHOUT an :ok vector; the old `(:ok resp)` silently became
+;; nil -> an empty result set -> a downstream `(parse-long nil)` NPE that named
+;; neither the failure nor the model. Fail loud instead, carrying the original
+;; coordinator error and the subject/model context so the packaged-JSON fallback
+;; upstream can log exactly what the graph could not answer.
+(defn query-rows!
+  [port query context]
+  (let [resp (send-op port {:op :query :query query})]
+    (if (vector? (:ok resp))
+      (:ok resp)
+      (throw (ex-info (str "catalog projection query failed for " context)
+                      {:type :catalog-projection-query-failed
+                       :context context
+                       :error (:error resp)
+                       :code (:code resp)})))))
+
 (defn current-version [port]
-  (or (some-> (:value (send-op port {:op :resolved :te POINTER :p "catalog_version"})) parse-long)
-      (throw (ex-info "no @catalog:current pointer — import first" {}))))
+  (let [resp (send-op port {:op :resolved :te POINTER :p "catalog_version"})]
+    (when (or (contains? resp :error) (contains? resp :code))
+      (throw (ex-info "catalog projection failed resolving @catalog:current"
+                      {:type :catalog-projection-query-failed
+                       :context "@catalog:current version"
+                       :error (:error resp)
+                       :code (:code resp)})))
+    (or (some-> (:value resp) parse-long)
+        (throw (ex-info "no @catalog:current pointer — import first"
+                        {:type :catalog-pointer-missing})))))
 
 (defn facts
   "All (p o) facts for one subject."
   [port subj]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "p,o" :rules [{:head {:rel "p,o" :args [{:var "p"} {:var "o"}]}
-                                                        :body [{:rel "triple" :args [subj {:var "p"} {:var "o"}]}]}]}}))
+  (->> (query-rows! port
+                    {:find "p,o" :rules [{:head {:rel "p,o" :args [{:var "p"} {:var "o"}]}
+                                         :body [{:rel "triple" :args [subj {:var "p"} {:var "o"}]}]}]}
+                    (str "facts of " subj))
        (reduce (fn [m [p o]] (update m p (fnil conj []) o)) {})))
 
 (defn one [f p] (first (get f p)))
 (defn many [f p] (vec (get f p)))
+;; Required scalar field: a graph row missing it is a data defect, not an empty
+;; projection. Surface WHICH subject/field is malformed (the bar's "named-model
+;; error, never a crash") rather than feeding nil into parse-long.
+(defn one! [f p subj]
+  (or (one f p)
+      (throw (ex-info (str "catalog projection: " subj " is missing required field " p)
+                      {:type :catalog-projection-missing-field :subject subj :field p}))))
+(defn long! [f p subj] (parse-long (one! f p subj)))
 ;; `name` is an engine-reserved predicate (unwritable), so a subject's display
 ;; name is derived from its id's last colon-segment, not stored.
 (defn id-name [subj] (last (str/split subj #":")))
@@ -51,9 +88,10 @@
   "Version-scoped subject ids carrying kind=k."
   [port ver k]
   (let [prefix (str "@catalog:v" ver ":")]
-    (->> (:ok (send-op port {:op :query
-                             :query {:find "s" :rules [{:head {:rel "s" :args [{:var "s"}]}
-                                                        :body [{:rel "triple" :args [{:var "s"} "kind" k]}]}]}}))
+    (->> (query-rows! port
+                      {:find "s" :rules [{:head {:rel "s" :args [{:var "s"}]}
+                                          :body [{:rel "triple" :args [{:var "s"} "kind" k]}]}]}
+                      (str "subjects of kind " k))
          (map first)
          (filter #(str/starts-with? % prefix))
          sort)))
@@ -70,8 +108,8 @@
         axis-values (subjects-of-kind port ver "axis_value")
         by-axis (reduce (fn [m s]
                           (let [f (facts port s)]
-                            (update m (one f "axis") (fnil conj [])
-                                    [(parse-long (one f "rank")) (id-name s)])))
+                            (update m (one! f "axis" s) (fnil conj [])
+                                    [(long! f "rank" s) (id-name s)])))
                         {} axis-values)
         vocab (reduce (fn [m [axis vk]]
                         (assoc m vk (mapv second (sort-by first (get by-axis axis)))))
@@ -91,7 +129,7 @@
                      "tagline" (one f "tagline")
                      "description" (one f "doc")}))]
     {"$schema" "./catalog.schema.json"
-     "version" (parse-long (one st "catalog_version"))
+     "version" (long! st "catalog_version" "@catalog:staffing")
      "vocabulary" vocab
      "defaults" {"taskGrade" (one st "default_task_grade")
                  "tier" (one st "default_tier")
@@ -123,8 +161,8 @@
                                                    (update acc tier (fnil conj []) lvl)))
                                                {} (many f "calibrated_route"))]
                             [m (cond-> {"reasoning" (by-reasoning (many f "deliberation_support"))
-                                        "contextWindow" {"tokens" (parse-long (one f "context_window_tokens"))
-                                                         "effectiveFrom" (one f "context_window_from")}}
+                                        "contextWindow" {"tokens" (long! f "context_window_tokens" (str provider ":" m))
+                                                         "effectiveFrom" (one! f "context_window_from" (str provider ":" m))}}
                                  (seq routes)
                                  (assoc "routes" (into {} (map (fn [[t ls]] [t (by-reasoning ls)]) routes))))])))
         deltas (into {} (for [[m f] model-facts]
@@ -219,12 +257,35 @@
      "coordinatorVersion"  coord-ver
      "catalogDigestSha256" (sha256-hex (json/generate-string (canon subgraph)))}))
 
-(let [[ps verb arg] *command-line-args*
-      port (Integer/parseInt (or ps "7977"))]
-  (case verb
-    "staffing"    (println (json/generate-string (project-staffing port)))
-    "provider"    (println (json/generate-string (project-provider port arg)))
-    "policy-pin"  (println (json/generate-string (project-policy-pin port)))
-    "catalog-pin" (println (json/generate-string (project-catalog-pin port)))
-    (do (println "usage: orchestration-project-cli.clj <port> {staffing | provider <name> | policy-pin | catalog-pin}")
-        (System/exit 2))))
+;; ---------------------------------------------------------------------------
+;; Whole-catalog BUNDLE — one process, one @catalog:current version, both
+;; consumers. The TS admission path used to shell a fresh `bb` per
+;; resolve/support/context/delta call (an N+1 across the spawn hot path); each
+;; cold projection re-pays the coordinator's per-version scan warmup. Projecting
+;; staffing + every provider ONCE, pinned to a single version read, lets the SDK
+;; cache one bundle per admission process and collapse that N+1 to a single
+;; subprocess.
+;; ---------------------------------------------------------------------------
+(defn project-bundle [port]
+  (let [ver (current-version port)]
+    {"catalogVersion" ver
+     "staffing"  (project-staffing port)
+     "providers" {"anthropic" (project-provider port "anthropic")
+                  "openai"    (project-provider port "openai")}}))
+
+(defn -main [& [ps verb arg]]
+  (let [port (Integer/parseInt (or ps "7977"))]
+    (case verb
+      "staffing"    (println (json/generate-string (project-staffing port)))
+      "provider"    (println (json/generate-string (project-provider port arg)))
+      "bundle"      (println (json/generate-string (project-bundle port)))
+      "policy-pin"  (println (json/generate-string (project-policy-pin port)))
+      "catalog-pin" (println (json/generate-string (project-catalog-pin port)))
+      (do (println "usage: orchestration-project-cli.clj <port> {staffing | provider <name> | bundle | policy-pin | catalog-pin}")
+          (System/exit 2)))))
+
+;; DUAL MODE (the coord.clj precedent): the main-guard keeps the projector
+;; dormant when a sibling test load-file's it as a library to exercise the
+;; strict-envelope + named-field helpers against a stubbed send-op.
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
