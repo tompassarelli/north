@@ -5,7 +5,7 @@ import { requireOrchestrationRoleId } from "./orchestration-role-id";
 import { canonicalBespokeContract } from "./bespoke-contract";
 import { requireProviderNeutralRoute } from "./provider-neutral-route";
 
-export const TASK_GRADES = ["novice", "junior", "mid", "senior", "staff", "principal", "research-grade"] as const;
+export const TASK_GRADES = ["novice", "junior", "mid", "senior", "staff", "principal", "distinguished"] as const;
 export type TaskGrade = typeof TASK_GRADES[number];
 
 export const TOPOLOGIES = ["worker", "orchestrator"] as const;

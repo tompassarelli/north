@@ -8,7 +8,7 @@ import { assertAssessmentSelection, validateSelectionAssessment } from "./select
 const usage = `usage: node scripts/compose-routing.mjs <role> [options]
 
 Routing options:
-  --task-grade <grade>      novice|junior|mid|senior|staff|principal|research-grade
+  --task-grade <grade>      novice|junior|mid|senior|staff|principal|distinguished
   --domain <name[,name]>    repeatable domain requirement
   --topology <kind>         worker|orchestrator (bespoke compositions only)
   --tier <tier>             economy|standard|senior|frontier

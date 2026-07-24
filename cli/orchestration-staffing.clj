@@ -6,7 +6,8 @@
 
 (def stock-preset-names
   #{"executor" "implementer" "integrator" "designer" "director" "scout"
-    "analyst" "reviewer" "verifier" "judge" "research-scientist"})
+    "analyst" "reviewer" "verifier" "judge" "research-scientist"
+    "team-lead" "program" "portfolio"})
 
 (def stock-authoring-roles #{"executor" "implementer" "integrator"})
 ;; Preset compositions may only carry these seven authorities. graph-authoring.fram
@@ -17,7 +18,7 @@
   #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
     "shell.readonly" "web" "coordination"})
 (def exact-wire-vocabulary
-  {"taskGrades" #{"novice" "junior" "mid" "senior" "staff" "principal" "research-grade"}
+  {"taskGrades" #{"novice" "junior" "mid" "senior" "staff" "principal" "distinguished"}
    "semanticTiers" #{"economy" "standard" "senior" "frontier"}
    "deliberations" #{"low" "medium" "high" "xhigh" "max"}
    "topologies" #{"worker" "orchestrator"}
