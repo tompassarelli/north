@@ -9,6 +9,13 @@
     "analyst" "reviewer" "verifier" "judge" "research-scientist"})
 
 (def stock-authoring-roles #{"executor" "implementer" "integrator"})
+;; Preset compositions may only carry these seven authorities. graph-authoring.fram
+;; is a bespoke-worker-only sealed mutating capability: it lives in the wire
+;; vocabulary (so bespoke contracts can request it) but is never grantable to a
+;; stock preset.
+(def preset-capabilities
+  #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
+    "shell.readonly" "web" "coordination"})
 (def exact-wire-vocabulary
   {"taskGrades" #{"novice" "junior" "mid" "senior" "staff" "principal" "research-grade"}
    "semanticTiers" #{"economy" "standard" "senior" "frontier"}
@@ -16,7 +23,7 @@
    "topologies" #{"worker" "orchestrator"}
    "postures" #{"explore" "evaluate" "deliver" "preserve"}
    "capabilities" #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
-                    "shell.readonly" "web" "coordination"}})
+                    "shell.readonly" "web" "coordination" "graph-authoring.fram"}})
 
 (defn catalog-path []
   (or (System/getenv "GAFFER_STAFFING_CATALOG")
@@ -110,8 +117,7 @@
                             {:path path :preset (get preset "name") :field field}))))
         (unique-strings! (get preset "capabilities")
                          (str (get preset "name") ".capabilities") path)
-        (when (some #(not (some #{%} (get-in catalog ["vocabulary" "capabilities"])))
-                    (get preset "capabilities"))
+        (when (some #(not (preset-capabilities %)) (get preset "capabilities"))
           (throw (ex-info (str (get preset "name") ": noncanonical capability")
                           {:path path :preset (get preset "name")})))
         (doseq [field ["tagline" "description"]]

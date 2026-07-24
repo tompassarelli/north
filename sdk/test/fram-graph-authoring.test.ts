@@ -22,6 +22,7 @@ import {
   compileProviderAuthoritySurface,
 } from "../src/providers/authority";
 import { eligibleForProviderProcessDeathRetry } from "../src/spawn";
+import { presetRequest } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
 const originalAgentLaws = process.env.AGENT_LAWS;
@@ -90,7 +91,9 @@ const graphAuthoringRequest: RoutingRequest = {
 test("graph-authoring.fram is bespoke-only and classed as mutation authority", () => {
   const catalog = loadGafferStaffing();
   expect(GAFFER_CAPABILITIES).toContain("graph-authoring.fram");
-  expect(catalog.vocabulary.capabilities).not.toContain("graph-authoring.fram");
+  // The wire vocabulary admits the sealed capability so bespoke contracts can
+  // request it; no stock preset may ever carry it.
+  expect(catalog.vocabulary.capabilities).toContain("graph-authoring.fram");
   for (const preset of catalog.presets)
     expect(preset.capabilities).not.toContain("graph-authoring.fram");
   expect(gafferCapabilities(graphAuthoringRequest)).toContain("graph-authoring.fram");
@@ -146,4 +149,52 @@ test("managed providers compile the exact sealed Fram MCP only when explicitly r
   const absentPolicy = managedToolPolicy(["filesystem.read"]);
   expect(absentPolicy.disallowedTools).toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
   expect(FRAM_MCP_TOOL_NAMES).toHaveLength(10);
+});
+
+// Negative control: an unselected composition (no graph-authoring.fram) must be
+// wholly unaffected by the capability — byte-identical descriptor whether or not
+// the Fram/Beagle deployment roots are present, and never a Fram MCP server.
+test("unselected preset compositions are byte-identical and require no Fram roots", () => {
+  process.env.AGENT_LAWS = "off";
+  const route = presetRequest("integrator");
+  const compose = () => harnessOptions({
+    self: "anthropic-integrator",
+    provider: "anthropic",
+    cwd: north,
+    presenceRegistrar: false,
+    routingMetadata: route,
+  }) as any;
+
+  delete process.env.NORTH_FRAM_HOME;
+  delete process.env.NORTH_BEAGLE_HOME;
+  const withoutRoots = compose(); // must not throw despite absent roots
+
+  process.env.NORTH_FRAM_HOME = framHome;
+  process.env.NORTH_BEAGLE_HOME = beagleHome;
+  const withRoots = compose();
+
+  for (const options of [withoutRoots, withRoots]) {
+    expect(Object.keys(options.mcpServers)).not.toContain("fram");
+    expect(options.allowedTools).not.toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
+    expect(compileProviderAuthoritySurface("anthropic", options).capabilities)
+      .not.toContain("graph-authoring.fram");
+  }
+
+  // The only environment difference is the harness forwarding the two root vars
+  // when the dispatcher happens to carry them; the capability surface itself is
+  // wholly independent of them. Strip that incidental passthrough, then the
+  // mcpServers, tools, routing, and environment are byte-identical.
+  const descriptor = (options: any) => {
+    const env = { ...(options.env ?? {}) };
+    delete env.NORTH_FRAM_HOME;
+    delete env.NORTH_BEAGLE_HOME;
+    return JSON.stringify({
+      mcpServers: options.mcpServers,
+      allowedTools: options.allowedTools,
+      disallowedTools: options.disallowedTools,
+      northCapabilities: options.northCapabilities,
+      env,
+    });
+  };
+  expect(descriptor(withoutRoots)).toBe(descriptor(withRoots));
 });

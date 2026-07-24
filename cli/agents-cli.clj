@@ -945,7 +945,8 @@
     (println "  Contract JSON contains exactly: responsibility, deliverable, capabilities, mayDecide,")
     (println "  mustEscalate, doneWhen, report. Text fields are nonblank; list fields are nonempty.")
     (println "  Canonical capabilities: filesystem.read filesystem.search filesystem.write shell")
-    (println "                          shell.readonly web coordination")
+    (println "                          shell.readonly web coordination graph-authoring.fram")
+    (println "  graph-authoring.fram is a bespoke-worker-only sealed mutating authority, never on a preset.")
     (println "  --nearest TEMPLATE is optional reference provenance, not inheritance.")
     (println "  Without --nearest, explicitly set task grade, topology, tier, reasoning, and posture.")
     (println "  Domain requirements remain an explicit empty list when --domain is omitted.")
@@ -1043,7 +1044,7 @@
   ;; catalog must agree exactly; silently accepting a reordered vocabulary
   ;; would split one semantic contract into two identities.
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
-   "shell.readonly" "web" "coordination"])
+   "shell.readonly" "web" "coordination" "graph-authoring.fram"])
 (def bespoke-fingerprint-version "v1")
 (def bespoke-fingerprint-domain "north:bespoke-contract:v1")
 (def edge-ascii-whitespace #"^[\u0009-\u000d\u0020]+|[\u0009-\u000d\u0020]+$")
