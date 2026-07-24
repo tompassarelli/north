@@ -640,7 +640,6 @@ EOF
             grep -Fq 'package runtime provenance is unknown' \
               "$smoke/mixed-code-fallback.out"
 
-            set -x
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= \
               $out/bin/ensure-private-docs "$client_repo"
@@ -1137,12 +1136,12 @@ PY
                  && terraContents.startsWith("# gpt-5.6-terra delta");
                const opus = resolveModelAlias("anthropic", "opus");
                const delta = resolveModelDelta("anthropic", opus);
-               const validDelta = delta.provider === "anthropic" && delta.model === "claude-opus-4-8"
+               const validDelta = delta.provider === "anthropic" && delta.model === "claude-opus-5"
                  && (delta.kind === "calibrated"
                    ? Boolean(delta.path?.trim() && delta.absolutePath?.trim())
                    : delta.kind === "none" && Boolean(delta.reason?.trim()));
                if (route.model !== "gpt-5.6-sol" || terra !== "gpt-5.6-terra"
-                 || !validTerraDelta || opus !== "claude-opus-4-8" || !validDelta) process.exit(1);'
+                 || !validTerraDelta || opus !== "claude-opus-5" || !validDelta) process.exit(1);'
             grep -q '^## distinguished$' ${orchestrationContract}/docs/task-grades.md
             grep -q '^## worker$' ${orchestrationContract}/docs/topologies.md
             grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
