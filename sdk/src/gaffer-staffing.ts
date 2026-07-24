@@ -110,7 +110,7 @@ export function loadGafferStaffing(
     deliberations: REASONING_LEVELS,
     topologies: TOPOLOGIES,
     postures: POSTURES,
-    capabilities: GAFFER_PRESET_CAPABILITIES,
+    capabilities: GAFFER_CAPABILITIES,
   })) {
     const actual = [...vocabularyByAxis[axis]].sort();
     if (JSON.stringify(actual) !== JSON.stringify([...expected].sort()))
@@ -133,7 +133,7 @@ export function loadGafferStaffing(
     value.vocabulary?.capabilities, "staffing catalog vocabulary.capabilities",
   );
   if (JSON.stringify([...vocabulary].sort())
-      !== JSON.stringify([...GAFFER_PRESET_CAPABILITIES].sort()))
+      !== JSON.stringify([...GAFFER_CAPABILITIES].sort()))
     throw new Error(`Gaffer capability vocabulary drift at ${path}`);
   const presetNames = new Set<string>();
   for (const preset of presets) {
@@ -144,7 +144,7 @@ export function loadGafferStaffing(
     preset.capabilities = requireGafferCapabilities(
       preset.capabilities, `staffing preset ${preset.name}.capabilities`,
     );
-    if (preset.capabilities.some((capability: GafferCapability) => !vocabulary.includes(capability)))
+    if (preset.capabilities.some((capability: GafferCapability) => !GAFFER_PRESET_CAPABILITIES.includes(capability as typeof GAFFER_PRESET_CAPABILITIES[number])))
       throw new Error(`staffing preset ${preset.name}.capabilities contains a bespoke-only capability`);
     for (const [field, axis] of [
       ["taskGrade", "taskGrades"], ["tier", "semanticTiers"], ["deliberation", "deliberations"],

@@ -624,6 +624,8 @@
       "orchestrator topology forbids filesystem.write capability"
       (and (= topology "orchestrator") (caps "shell"))
       "orchestrator topology forbids unrestricted shell capability"
+      (and (= topology "orchestrator") (caps "graph-authoring.fram"))
+      "orchestrator topology forbids graph-authoring.fram capability"
       (and (= topology "worker") (caps "coordination"))
       "worker topology forbids coordination capability"
       :else nil)))

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { presetRequest } from "./routing-fixtures";
+import type { RoutingRequest } from "../src/routing-metadata";
 
 const temporary: string[] = [];
 const GAFFER_ROOT = resolve(import.meta.dir, "../../..", "gaffer");
@@ -25,6 +26,7 @@ function pinEvidence(pins: Array<{ kind: "provider" | "account" | "model"; value
 
 function mcpSpawnEnvironment(
   configure: (home: string, env: Record<string, string>) => void,
+  route: RoutingRequest = presetRequest("integrator"),
 ): { home: string; childEnv: Record<string, string> } {
   const directory = mkdtempSync(join(tmpdir(), "north-mcp-instance-env-"));
   temporary.push(directory);
@@ -80,7 +82,6 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   configure(home, env);
 
   const north = resolve(import.meta.dir, "../..");
-  const route = presetRequest("integrator");
   const request = `${JSON.stringify({
     jsonrpc: "2.0", id: 1, method: "tools/call",
     params: { name: "spawn", arguments: {
@@ -344,6 +345,98 @@ test("env-less MCP SDK launches materialize the canonical North instance exactly
     NORTH_PORT: "64129",
   });
   expect(explicit.childEnv).not.toHaveProperty("FRAM_TELEMETRY_LOG");
+});
+
+// Bar: a bespoke WORKER contract carrying the sealed graph-authoring.fram
+// capability is admitted through the whole dispatch wire (schema enum built from
+// the Gaffer catalog vocabulary + clj exact-wire-vocabulary + contract
+// validation) and reaches SDK launch, while the same capability on an
+// ORCHESTRATOR composition is rejected before any launch.
+const graphAuthoringWorkerRoute: RoutingRequest = {
+  role: "beagle-graph-author",
+  taskGrade: "senior",
+  domainRequirements: ["Beagle graph authoring"],
+  topology: "worker",
+  tier: "senior",
+  reasoning: "high",
+  posture: "deliver",
+  composition: {
+    kind: "bespoke",
+    id: "beagle-graph-author",
+    bespokeReason: "Fram graph editing is a distinct sealed authority",
+    promotionCandidate: false,
+    contract: {
+      responsibility: "author a graph-upstream Beagle module",
+      deliverable: "a compiler-accepted graph edit",
+      capabilities: [
+        "filesystem.read", "filesystem.search", "shell.readonly", "graph-authoring.fram",
+      ],
+      mayDecide: ["which graph edit verb fits the requested change"],
+      mustEscalate: ["any text edit to graph-upstream source"],
+      doneWhen: ["the graph edit recompiles"],
+      report: "edited definitions and compiler result",
+    },
+  },
+};
+
+test("the dispatch wire admits a bespoke worker carrying graph-authoring.fram to launch", () => {
+  const { childEnv } = mcpSpawnEnvironment(() => {}, graphAuthoringWorkerRoute);
+  // Reaching the captured SDK env proves the clj wire (schema enum + exact-wire
+  // vocabulary + contract capability validation) admitted the sealed capability.
+  expect(childEnv.AGENT_ROLE).toBe("beagle-graph-author");
+  expect(childEnv.AGENT_COMPOSITION).toBe(JSON.stringify(graphAuthoringWorkerRoute.composition));
+  expect(childEnv.AGENT_COMPOSITION).toContain("graph-authoring.fram");
+});
+
+test("the dispatch wire rejects graph-authoring.fram on an orchestrator composition before launch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-mcp-graph-orchestrator-"));
+  temporary.push(directory);
+  const marker = join(directory, "sdk-launched");
+  const fakeBun = join(directory, "bun");
+  writeFileSync(fakeBun, `#!/usr/bin/env bash\ntouch ${JSON.stringify(marker)}\n`);
+  chmodSync(fakeBun, 0o755);
+  const north = resolve(import.meta.dir, "../..");
+  const orchestratorComposition = {
+    ...graphAuthoringWorkerRoute,
+    topology: "orchestrator" as const,
+    composition: {
+      ...graphAuthoringWorkerRoute.composition,
+      contract: {
+        ...(graphAuthoringWorkerRoute.composition as any).contract,
+        capabilities: [
+          "filesystem.read", "filesystem.search", "shell.readonly",
+          "coordination", "graph-authoring.fram",
+        ],
+      },
+    },
+  };
+  // Strip this lane's ambient managed-caller identity so the request is
+  // validated as an unmanaged root caller; the rejection under test is the
+  // requested composition's capability boundary, not the caller's authority.
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key, value]) =>
+      value !== undefined
+      && !key.startsWith("AGENT_")
+      && !["NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY"].includes(key)),
+  ) as Record<string, string>;
+  const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
+    input: `${JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "spawn", arguments: {
+        prompt: "orchestrator must not carry sealed graph authority",
+        ...orchestratorComposition,
+      } },
+    })}\n`,
+    encoding: "utf8",
+    env: { ...cleanEnv, GAFFER_HOME: GAFFER_ROOT, NORTH_MCP_BUN: fakeBun },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  const response = JSON.parse(result.stdout.trim());
+  expect(response.result.isError).toBe(true);
+  expect(response.result.content[0].text).toBe(
+    "orchestrator topology forbids graph-authoring.fram capability",
+  );
+  expect(() => readFileSync(marker)).toThrow();
 });
 
 test("MCP dispatch runs warm child preflight within budget and forwards an exact account target", () => {

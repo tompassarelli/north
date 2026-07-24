@@ -22,7 +22,7 @@
 
 (def canonical-gaffer-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
-   "shell.readonly" "web" "coordination"])
+   "shell.readonly" "web" "coordination" "graph-authoring.fram"])
 (def bespoke-fingerprint-version "v1")
 (def bespoke-fingerprint-domain "north:bespoke-contract:v1")
 (def applied-axis-preds
