@@ -1,0 +1,57 @@
+{
+  "$schema": "./catalog.schema.json",
+  "provider": "openai",
+  "provenance": {
+    "asOf": "2026-07-16",
+    "reviewAfter": "2026-08-16",
+    "sources": [
+      {
+        "url": "https://developers.openai.com/api/docs/models",
+        "modelFamilies": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+        "scopes": ["model-family", "effort-support"]
+      },
+      {
+        "url": "https://openai.com/index/gpt-5-6/",
+        "modelFamilies": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+        "scopes": ["availability", "context-window", "effective-date"]
+      }
+    ]
+  },
+  "transports": ["codex-cli"],
+  "modelAliases": {
+    "luna": "gpt-5.6-luna",
+    "terra": "gpt-5.6-terra",
+    "sol": "gpt-5.6-sol"
+  },
+  "models": {
+    "gpt-5.6-luna": {
+      "reasoning": ["low", "medium", "high", "xhigh", "max"],
+      "routes": { "economy": ["low", "medium"] },
+      "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
+    },
+    "gpt-5.6-terra": {
+      "reasoning": ["low", "medium", "high", "xhigh", "max"],
+      "routes": { "standard": ["low", "medium"] },
+      "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
+    },
+    "gpt-5.6-sol": {
+      "reasoning": ["low", "medium", "high", "xhigh", "max"],
+      "routes": {
+        "senior": ["medium", "high"],
+        "frontier": ["xhigh", "max"]
+      },
+      "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
+    }
+  },
+  "modelDeltas": {
+    "gpt-5.6-luna": { "kind": "calibrated", "path": "docs/deltas/gpt-5.6-luna.md" },
+    "gpt-5.6-terra": { "kind": "calibrated", "path": "docs/deltas/gpt-5.6-terra.md" },
+    "gpt-5.6-sol": { "kind": "calibrated", "path": "docs/deltas/gpt-5.6-sol.md" }
+  },
+  "tiers": {
+    "economy": { "model": "gpt-5.6-luna", "reasoning": ["low", "medium"], "defaultReasoning": "medium" },
+    "standard": { "model": "gpt-5.6-terra", "reasoning": ["low", "medium"], "defaultReasoning": "medium" },
+    "senior": { "model": "gpt-5.6-sol", "reasoning": ["medium", "high"], "defaultReasoning": "high" },
+    "frontier": { "model": "gpt-5.6-sol", "reasoning": ["xhigh", "max"], "defaultReasoning": "xhigh" }
+  }
+}

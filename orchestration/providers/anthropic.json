@@ -1,0 +1,210 @@
+{
+  "$schema": "./catalog.schema.json",
+  "provider": "anthropic",
+  "provenance": {
+    "asOf": "2026-07-16",
+    "reviewAfter": "2026-08-16",
+    "sources": [
+      {
+        "url": "https://www.anthropic.com/claude/fable",
+        "modelFamilies": [
+          "claude-fable-5"
+        ],
+        "scopes": [
+          "model-family",
+          "availability"
+        ]
+      },
+      {
+        "url": "https://www.anthropic.com/news/claude-sonnet-5",
+        "modelFamilies": [
+          "claude-sonnet-5"
+        ],
+        "scopes": [
+          "model-family",
+          "availability",
+          "effort-support"
+        ]
+      },
+      {
+        "url": "https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-8",
+        "modelFamilies": [
+          "claude-opus-4-8"
+        ],
+        "scopes": [
+          "model-family",
+          "availability",
+          "effort-support"
+        ]
+      },
+      {
+        "url": "https://platform.claude.com/docs/en/build-with-claude/effort",
+        "modelFamilies": [
+          "claude-fable-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8"
+        ],
+        "scopes": [
+          "effort-support"
+        ]
+      },
+      {
+        "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "modelFamilies": [
+          "claude-fable-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8"
+        ],
+        "scopes": [
+          "context-window",
+          "effective-date"
+        ]
+      }
+    ]
+  },
+  "transports": [
+    "claude-agent-sdk",
+    "claude-code"
+  ],
+  "modelAliases": {
+    "sonnet": "claude-sonnet-5",
+    "opus": "claude-opus-5",
+    "fable": "claude-fable-5"
+  },
+  "models": {
+    "claude-opus-5": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "routes": {
+        "senior": [
+          "medium",
+          "high"
+        ],
+        "frontier": [
+          "xhigh"
+        ]
+      },
+      "contextWindow": {
+        "tokens": 1000000,
+        "effectiveFrom": "2026-07-25"
+      }
+    },
+    "claude-sonnet-5": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "routes": {
+        "economy": [
+          "low"
+        ],
+        "standard": [
+          "medium"
+        ]
+      },
+      "contextWindow": {
+        "tokens": 1000000,
+        "effectiveFrom": "2026-07-16"
+      }
+    },
+    "claude-opus-4-8": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "routes": {
+        "senior": [
+          "medium",
+          "high"
+        ],
+        "frontier": [
+          "xhigh",
+          "max"
+        ]
+      },
+      "contextWindow": {
+        "tokens": 1000000,
+        "effectiveFrom": "2026-07-16"
+      }
+    },
+    "claude-fable-5": {
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "routes": {
+        "frontier": [
+          "xhigh",
+          "max"
+        ]
+      },
+      "contextWindow": {
+        "tokens": 1000000,
+        "effectiveFrom": "2026-07-16"
+      }
+    }
+  },
+  "modelDeltas": {
+    "claude-opus-5": {
+      "kind": "none",
+      "reason": "adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a gaffer:elicit calibration pass"
+    },
+    "claude-sonnet-5": {
+      "kind": "none",
+      "reason": "the existing unversioned Sonnet self-report does not establish an exact Sonnet 5 calibration"
+    },
+    "claude-opus-4-8": {
+      "kind": "none",
+      "reason": "the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration"
+    },
+    "claude-fable-5": {
+      "kind": "none",
+      "reason": "no elicited Fable self-report yet establishes an exact Claude Fable 5 calibration for the canonical frontier default"
+    }
+  },
+  "tiers": {
+    "economy": {
+      "model": "claude-sonnet-5",
+      "efforts": [
+        "low"
+      ],
+      "defaultEffort": "low"
+    },
+    "standard": {
+      "model": "claude-sonnet-5",
+      "efforts": [
+        "medium"
+      ],
+      "defaultEffort": "medium"
+    },
+    "senior": {
+      "model": "claude-opus-5",
+      "efforts": [
+        "medium",
+        "high"
+      ],
+      "defaultEffort": "high"
+    },
+    "frontier": {
+      "model": "claude-opus-5",
+      "efforts": [
+        "xhigh"
+      ],
+      "defaultEffort": "xhigh"
+    }
+  }
+}

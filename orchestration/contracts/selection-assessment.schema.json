@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaffer.local/contracts/selection-assessment.schema.json",
+  "title": "Gaffer minimum-sufficient selection assessment sidecar",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "signals", "derived", "selected"],
+  "properties": {
+    "$schema": { "type": "string", "minLength": 1 },
+    "version": { "const": "minimum-sufficient-v1" },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionOwnership", "seamScope", "errorExposure", "oracleStrength", "foundationalImpact", "dependencyShape", "reasoningShape"],
+      "properties": {
+        "decisionOwnership": { "enum": ["none", "bounded", "cross-boundary", "system-shaping", "open-solution-class"] },
+        "seamScope": { "enum": ["none", "established", "consequential", "system-wide"] },
+        "errorExposure": { "enum": ["contained-reversible", "material-recoverable", "high-or-hard-to-reverse"] },
+        "oracleStrength": { "enum": ["not-applicable", "objective-local", "objective-end-to-end", "partial", "judgment-only"] },
+        "foundationalImpact": { "enum": ["none", "implementation-only", "invariant-decision-owned"] },
+        "dependencyShape": { "enum": ["atomic-cohesive", "deterministic-workflow", "parallel-breadth", "dynamic-decomposition", "tightly-coupled-sequential"] },
+        "reasoningShape": { "enum": ["deterministic", "bounded-branching", "multi-hypothesis", "system-synthesis", "exceptional"] }
+      }
+    },
+    "derived": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumTier", "minimumReasoning", "ruleCodes"],
+      "properties": {
+        "minimumTier": { "$ref": "#/$defs/tier" },
+        "minimumReasoning": { "$ref": "#/$defs/reasoning" },
+        "ruleCodes": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "selected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "reasoning"],
+      "properties": {
+        "tier": { "$ref": "#/$defs/tier" },
+        "reasoning": { "$ref": "#/$defs/reasoning" }
+      }
+    },
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "detail"],
+      "properties": {
+        "code": { "enum": ["explicit-human-floor", "recent-lower-tier-failure", "calibration-experiment", "unmodeled-risk"] },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "exceptionalDeliberation": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "tier": { "enum": ["economy", "standard", "senior", "frontier"] },
+    "reasoning": { "enum": ["low", "medium", "high", "xhigh", "max"] }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "selected": {
+            "type": "object",
+            "properties": { "reasoning": { "const": "max" } },
+            "required": ["reasoning"]
+          }
+        },
+        "required": ["selected"]
+      },
+      "then": {
+        "type": "object",
+        "required": ["exceptionalDeliberation"],
+        "properties": {
+          "exceptionalDeliberation": { "type": "string", "minLength": 1 },
+          "signals": {
+            "type": "object",
+            "properties": { "reasoningShape": { "const": "exceptional" } },
+            "required": ["reasoningShape"]
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "type": "object",
+          "properties": {
+            "exceptionalDeliberation": { "type": "string", "minLength": 1 }
+          },
+          "required": ["exceptionalDeliberation"]
+        }
+      }
+    }
+  ]
+}

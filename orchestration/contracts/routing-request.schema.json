@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gaffer.local/contracts/routing-request.schema.json",
+  "title": "Gaffer provider-neutral routing request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition"],
+  "properties": {
+    "role": { "$ref": "#/$defs/roleId" },
+    "taskGrade": { "enum": ["novice", "junior", "mid", "senior", "staff", "principal", "research-grade"] },
+    "domainRequirements": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "topology": {
+      "enum": ["worker", "orchestrator"],
+      "description": "Coordination jurisdiction: worker is terminal; orchestrator may recursively staff freshly admitted children through an enforcing harness."
+    },
+    "tier": { "enum": ["economy", "standard", "senior", "frontier"] },
+    "reasoning": { "enum": ["low", "medium", "high", "xhigh", "max"] },
+    "posture": { "enum": ["explore", "deliver", "preserve", "evaluate"] },
+    "composition": {
+      "oneOf": [
+        { "$ref": "#/$defs/presetComposition" },
+        { "$ref": "#/$defs/bespokeComposition" }
+      ]
+    }
+  },
+  "$defs": {
+    "overrideField": {
+      "enum": ["taskGrade", "domainRequirements", "tier", "reasoning", "posture"]
+    },
+    "presetComposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "overrides"],
+      "properties": {
+        "kind": { "const": "preset" },
+        "id": { "$ref": "#/$defs/roleId" },
+        "overrides": {
+          "type": "array", "uniqueItems": true,
+          "items": { "$ref": "#/$defs/overrideField" }
+        },
+        "overrideReason": { "type": "string", "minLength": 1 }
+      },
+      "oneOf": [
+        {
+          "properties": { "overrides": { "maxItems": 0 } },
+          "not": { "required": ["overrideReason"] }
+        },
+        {
+          "properties": { "overrides": { "minItems": 1 } },
+          "required": ["overrideReason"]
+        }
+      ]
+    },
+    "bespokeContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["responsibility", "deliverable", "capabilities", "mayDecide", "mustEscalate", "doneWhen", "report"],
+      "properties": {
+        "responsibility": { "type": "string", "minLength": 1 },
+        "deliverable": { "type": "string", "minLength": 1 },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "mayDecide": { "$ref": "#/$defs/nonEmptyStrings" },
+        "mustEscalate": { "$ref": "#/$defs/nonEmptyStrings" },
+        "doneWhen": { "$ref": "#/$defs/nonEmptyStrings" },
+        "report": { "type": "string", "minLength": 1 }
+      }
+    },
+    "bespokeComposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "bespokeReason", "promotionCandidate", "contract"],
+      "properties": {
+        "kind": { "const": "bespoke" },
+        "id": { "$ref": "#/$defs/roleId" },
+        "nearestPreset": { "$ref": "#/$defs/roleId" },
+        "bespokeReason": { "type": "string", "minLength": 1 },
+        "promotionCandidate": { "type": "boolean" },
+        "contract": { "$ref": "#/$defs/bespokeContract" }
+      }
+    },
+    "nonEmptyStrings": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "capabilities": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination", "graph-authoring.fram"] }
+    },
+    "roleId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "not": { "enum": ["researcher"] }
+    }
+  }
+}
