@@ -640,6 +640,7 @@ EOF
             grep -Fq 'package runtime provenance is unknown' \
               "$smoke/mixed-code-fallback.out"
 
+            set -x
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= \
               $out/bin/ensure-private-docs "$client_repo"
