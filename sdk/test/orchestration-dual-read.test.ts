@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
-import { staffingSource } from "../src/orchestration-graph-source";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { resetCatalogBundleCache, staffingSource } from "../src/orchestration-graph-source";
 import { loadGafferStaffing } from "../src/gaffer-staffing";
 
 // Dual-read seam (thread 019f8f5c). These assertions are hermetic. Phase 2
@@ -18,6 +18,7 @@ afterEach(() => {
   else process.env.NORTH_STAFFING_SOURCE = priorSource;
   if (priorPort === undefined) delete process.env.NORTH_PORT;
   else process.env.NORTH_PORT = priorPort;
+  resetCatalogBundleCache();
 });
 
 test("staffing source defaults to graph; only explicit file falls back", () => {
@@ -41,8 +42,20 @@ test("explicit file source loads the packaged stock catalog", () => {
   ]);
 });
 
-test("graph source routes through the projector (fails closed when unreachable)", () => {
+test("graph source falls back to the packaged catalog when the projector is unreachable", () => {
+  // Spawn admission must never block on the graph: a failed projection (here an
+  // unreachable coordinator) logs the named failure and falls back to the
+  // packaged Gaffer JSON rather than throwing.
   process.env.NORTH_STAFFING_SOURCE = "graph";
   process.env.NORTH_PORT = "1"; // unreachable coordinator
-  expect(() => loadGafferStaffing()).toThrow(/NORTH_STAFFING_SOURCE=graph projection failed/);
+  resetCatalogBundleCache();
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const catalog = loadGafferStaffing();
+    expect(catalog.sourceVersion).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/graph catalog projection failed for staffing catalog/);
+  } finally {
+    warn.mockRestore();
+  }
 });

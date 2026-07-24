@@ -14,7 +14,9 @@ import {
 } from "./gaffer-capabilities";
 import { requireGafferRoleId } from "./gaffer-role-id";
 import { requireProviderNeutralRoute } from "./provider-neutral-route";
-import { projectStaffingCatalog, staffingSource } from "./orchestration-graph-source";
+import {
+  projectStaffingCatalog, staffingSource, warnGraphCatalogFallback,
+} from "./orchestration-graph-source";
 
 interface StaffingPreset {
   name: string; taskGrade: string; tier: string; deliberation: string;
@@ -81,9 +83,19 @@ export function loadGafferStaffing(
 ): StaffingCatalog {
   // Dual-read seam (Phase 1): graph mode reconstructs the identical catalog
   // shape from @catalog:current; file mode (default) reads the Gaffer JSON.
-  const value = (staffingSource() === "graph"
-    ? projectStaffingCatalog()
-    : JSON.parse(readFileSync(path, "utf8"))) as Record<string, any>;
+  // On projector failure graph mode FALLS BACK to the packaged JSON so spawn
+  // admission never blocks on the graph (the named failure is logged).
+  let value: Record<string, any>;
+  if (staffingSource() === "graph") {
+    try {
+      value = projectStaffingCatalog() as Record<string, any>;
+    } catch (error) {
+      warnGraphCatalogFallback("staffing catalog", error);
+      value = JSON.parse(readFileSync(path, "utf8"));
+    }
+  } else {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  }
   const sourceVersion = value.version;
   if (sourceVersion !== 2) throw new Error("staffing catalog: version must be 2");
   exactKeys(value, TOP_LEVEL_FIELDS, "top level");
