@@ -308,7 +308,7 @@ PY
             cp -r docs/deltas/. $out/docs/deltas/
             # Canonical assessment validator + its only import. North's runtime
             # (routing-economics.ts) resolves selection-assessment.mjs under
-            # ORCHESTRATION_HOME/scripts; provider-catalog.mjs reads the provider JSON
+            # NORTH_ORCHESTRATION_HOME/scripts; provider-catalog.mjs reads the provider JSON
             # already installed above. No authoring or private material.
             cp scripts/selection-assessment.mjs scripts/provider-catalog.mjs $out/scripts/
             runHook postInstall
@@ -380,11 +380,6 @@ PY
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
-            # Self-contained orchestration contract. The runtime's in-repo
-            # fallback resolves <root>/orchestration, so the packaged tree must
-            # carry it too; otherwise every resolution depends on the wrapper's
-            # ORCHESTRATION_HOME being set, and any direct invocation ENOENTs.
-            ln -s ${orchestrationContract} $out/orchestration
             cp bin/north bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-up \
@@ -407,7 +402,7 @@ PY
               --set FRAM_HOME ${framRuntimeRoot} \
               --set FRAM_BIN ${framPkg}/bin \
               --set FRAM_OUT ${framBabashkaClasspath} \
-              --set ORCHESTRATION_HOME ${orchestrationContract} \
+              --set NORTH_ORCHESTRATION_HOME ${orchestrationContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
@@ -428,7 +423,7 @@ PY
               --set FRAM_HOME ${framRuntimeRoot} \
               --set FRAM_BIN ${framPkg}/bin \
               --set FRAM_OUT ${framBabashkaClasspath} \
-              --set ORCHESTRATION_HOME ${orchestrationContract} \
+              --set NORTH_ORCHESTRATION_HOME ${orchestrationContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
@@ -1090,7 +1085,7 @@ PY
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
             # Assessed dispatch must resolve Orchestration's canonical selection
             # validator from the packaged contract alone. The sandbox has no
-            # ~/code/orchestration, and the wrapper forces ORCHESTRATION_HOME at the runtime
+            # ~/code/orchestration, and the wrapper forces NORTH_ORCHESTRATION_HOME at the runtime
             # contract, so this exercises the exact shape (stock verifier
             # composition + assessment sidecar, dry-run) that failed before
             # scripts/selection-assessment.mjs + provider-catalog.mjs were
@@ -1099,7 +1094,7 @@ PY
             # no worker, no provider turn, and no lane.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["oracle-strength:judgment-only","reasoning-shape:multi-hypothesis"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment.json"
-            ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
+            NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
               NORTH_STAFFING_SOURCE=file \
               $out/bin/north spawn verifier probe \
               --assessment "@$smoke/verifier-assessment.json" --dry-run \
@@ -1111,7 +1106,7 @@ PY
             # the packaged canonical validator, never silently admitted.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["forged"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment-forged.json"
-            if ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
+            if NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
                  NORTH_STAFFING_SOURCE=file \
                  $out/bin/north spawn verifier probe \
                  --assessment "@$smoke/verifier-assessment-forged.json" --dry-run \
@@ -1125,7 +1120,7 @@ PY
             # resolution against the packaged contract, with no sibling checkout.
             # File staffing source: the graph default needs a live coordinator,
             # which a sandboxed build never has.
-            ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" \
+            NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" \
               NORTH_STAFFING_SOURCE=file ${pkgs.bun}/bin/bun -e \
               'import { readFileSync } from "node:fs";
                import { resolveModelAlias, resolveModelDelta, resolveTier } from "'$out'/sdk/src/providers/catalog.ts";

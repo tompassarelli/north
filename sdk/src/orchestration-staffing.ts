@@ -167,8 +167,11 @@ export function loadOrchestrationStaffing(
     throw new Error(`Orchestration stock preset set drift at ${path}`);
   const orchestrators = presets.filter(({ topology }) => topology === "orchestrator")
     .map(({ name }) => name);
-  if (orchestrators.length !== 1 || orchestrators[0] !== "director")
-    throw new Error(`Orchestration stock topology drift at ${path}: only director may orchestrate`);
+  const stockOrchestrators = ["director", "team-lead", "program", "portfolio"];
+  if (JSON.stringify([...orchestrators].sort()) !== JSON.stringify([...stockOrchestrators].sort()))
+    throw new Error(
+      `Orchestration stock topology drift at ${path}: orchestrator topology is the director plus the scope ladder`,
+    );
   if (value.aliases.length !== 0)
     throw new Error(`Orchestration stock alias drift at ${path}: canonical release has no aliases`);
   for (const preset of presets) {
@@ -182,8 +185,9 @@ export function loadOrchestrationStaffing(
                || !capabilities.has("shell.readonly")) {
       throw new Error(`Orchestration stock nonauthoring role ${preset.name} must remain read-only`);
     }
-    if ((preset.name === "director") !== capabilities.has("coordination"))
-      throw new Error("Orchestration stock coordination authority belongs only to director");
+    const ORCHESTRATOR_LADDER = new Set(["director", "team-lead", "program", "portfolio"]);
+    if (ORCHESTRATOR_LADDER.has(preset.name) !== capabilities.has("coordination"))
+      throw new Error("Orchestration stock coordination authority belongs to the orchestrator ladder");
   }
   for (const alias of value.aliases) {
     requireOrchestrationRoleId(alias.name, "staffing catalog alias");

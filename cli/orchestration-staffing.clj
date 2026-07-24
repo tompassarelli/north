@@ -137,9 +137,9 @@
       (let [orchestrators (->> presets
                                (filter #(= "orchestrator" (get % "topology")))
                                (mapv #(get % "name")))]
-        (when-not (= ["director"] orchestrators)
+        (when-not (= #{"director" "team-lead" "program" "portfolio"} (set orchestrators))
           (throw (ex-info (str "Orchestration stock topology drift at " path
-                               ": only director may orchestrate")
+                               ": orchestrator topology is the director plus the scope ladder")
                           {:path path :orchestrators orchestrators}))))
       (when (seq (get catalog "aliases"))
         (throw (ex-info (str "Orchestration stock alias drift at " path
@@ -165,8 +165,9 @@
               (throw (ex-info (str "Orchestration stock nonauthoring role " name
                                    " must remain read-only")
                               {:path path :preset name}))))
-          (when-not (= (= name "director") (boolean (capabilities "coordination")))
-            (throw (ex-info "Orchestration stock coordination authority belongs only to director"
+          (when-not (= (contains? #{"director" "team-lead" "program" "portfolio"} name)
+                       (boolean (capabilities "coordination")))
+            (throw (ex-info "Orchestration stock coordination authority belongs to the orchestrator ladder"
                             {:path path :preset name})))
           (when (and (capabilities "shell") (capabilities "shell.readonly"))
             (throw (ex-info (str name ": shell and shell.readonly are mutually exclusive")
