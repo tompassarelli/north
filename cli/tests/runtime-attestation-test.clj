@@ -706,43 +706,57 @@
                    (= source (:source parsed))
                    (= daemon (:daemon parsed)))))
 
-    ;; Negative: package source is not origin/libexec/fram.
+    ;; Negative: package daemon cannot be origin/libexec/fram-daemon.
     (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-src")))
-          source (make-dir! (str origin "/elsewhere"))
-          daemon (touch-file! (str origin "/bin/fram-daemon"))
+          source (make-dir! (str origin "/libexec/fram"))
+          daemon (touch-file! (str origin "/libexec/fram-daemon"))
           selection (build-layout-selection! temp "gen-badsrc"
                                              "package" source origin daemon)
           values (layout-record-values selection "package" source origin daemon
                                        port log telemetry pid token)]
-      (check! "package record with source outside origin/libexec/fram is rejected"
+      (check! "package record with origin/libexec/fram-daemon as daemon is rejected"
               (= :active-runtime-record-invalid
                  (denied-type
                   #(parse-layout! selection values port log telemetry)))))
 
-    ;; Negative: package origin disagrees with the daemon's own bin prefix.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-origin")))
-          other (make-dir! (.getCanonicalPath (io/file temp "pkg-other")))
+    ;; Negative: package daemon cannot be origin/sbin/fram-daemon.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-sbin")))
           source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str origin "/bin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-badorigin"
-                                             "package" source other daemon)
-          values (layout-record-values selection "package" source other daemon
-                                       port log telemetry pid token)]
-      (check! "package record whose origin is not the daemon's bin prefix is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
-
-    ;; Negative: package daemon's two-level root is not the sealed origin.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-daemon")))
-          other (make-dir! (.getCanonicalPath (io/file temp "pkg-daemon-other")))
-          source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str other "/bin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-baddaemon"
+          daemon (touch-file! (str origin "/sbin/fram-daemon"))
+          selection (build-layout-selection! temp "gen-badsbin"
                                              "package" source origin daemon)
           values (layout-record-values selection "package" source origin daemon
                                        port log telemetry pid token)]
-      (check! "package record whose daemon root is outside origin is rejected"
+      (check! "package record with origin/sbin/fram-daemon is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+
+    ;; Negative: package daemon cannot be origin/bin/evilname.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-evil")))
+          source (make-dir! (str origin "/libexec/fram"))
+          daemon (touch-file! (str origin "/bin/evilname"))
+          selection (build-layout-selection! temp "gen-badevil"
+                                             "package" source origin daemon)
+          values (layout-record-values selection "package" source origin daemon
+                                       port log telemetry pid token)]
+      (check! "package record with origin/bin/evilname is rejected"
+              (= :active-runtime-record-invalid
+                 (denied-type
+                  #(parse-layout! selection values port log telemetry)))))
+
+    ;; Negative: a symlink in the canonical package member path cannot escape.
+    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-symlink")))
+          source (make-dir! (str origin "/libexec/fram"))
+          escaped (touch-file! (.getCanonicalPath (io/file temp "escaped-daemon")))
+          _ (make-dir! (str origin "/bin"))
+          _ (create-symlink! (str origin "/bin/fram-daemon") escaped)
+          daemon (.getCanonicalPath (io/file (str origin "/bin/fram-daemon")))
+          selection (build-layout-selection! temp "gen-badlink"
+                                             "package" source origin daemon)
+          values (layout-record-values selection "package" source origin daemon
+                                       port log telemetry pid token)]
+      (check! "package record with a symlink escape is rejected"
               (= :active-runtime-record-invalid
                  (denied-type
                   #(parse-layout! selection values port log telemetry)))))

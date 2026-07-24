@@ -687,6 +687,19 @@
     (= value (str (java.util.UUID/fromString value)))
     (catch Throwable _ false)))
 
+(defn- canonical-package-member
+  [origin relative]
+  (let [root (.toPath (io/file origin))
+        member (.resolve root relative)]
+    (loop [current root
+           segments (iterator-seq (.iterator (.relativize root member)))]
+      (if-let [segment (first segments)]
+        (let [child (.resolve current segment)]
+          (if (java.nio.file.Files/isSymbolicLink child)
+            nil
+            (recur child (next segments))))
+        (.getCanonicalPath (.toFile member))))))
+
 (defn- daemon-layout-bound?
   "Fail-closed daemon/source/origin relation, resolved by runtime layout.
 
@@ -696,16 +709,19 @@
   the executed source lives at origin/libexec/fram. Any unsupported mode,
   cross-layout relation, or mismatched origin/source/daemon is rejected."
   [mode source origin daemon]
-  (let [daemon-root
-        (some-> (io/file daemon) .getParentFile .getParentFile
-                .getCanonicalPath)]
-    (case mode
-      "checkout" (= source daemon-root)
-      "package" (and (= origin daemon-root)
-                     (= source
-                        (.getCanonicalPath
-                         (io/file origin "libexec/fram"))))
-      false)))
+  (case mode
+    "checkout"
+    (= source
+       (some-> (io/file daemon) .getParentFile .getParentFile
+               .getCanonicalPath))
+
+    "package"
+    (let [expected-source (canonical-package-member origin "libexec/fram")
+          expected-daemon (canonical-package-member origin "bin/fram-daemon")]
+      (and (= source expected-source)
+           (= daemon expected-daemon)))
+
+    false))
 
 (defn- parse-active-record!
   [selection explicit-record port served-log telemetry-log]
