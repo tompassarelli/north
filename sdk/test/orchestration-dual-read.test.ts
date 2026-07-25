@@ -38,7 +38,8 @@ test("explicit file source loads the packaged stock catalog", () => {
   expect(catalog.sourceVersion).toBe(2);
   expect(catalog.presets.map((p) => p.name).sort()).toEqual([
     "analyst", "designer", "director", "executor", "implementer", "integrator",
-    "judge", "research-scientist", "reviewer", "scout", "verifier",
+    "judge", "portfolio", "program", "research-scientist", "reviewer", "scout",
+    "team-lead", "verifier",
   ]);
 });
 

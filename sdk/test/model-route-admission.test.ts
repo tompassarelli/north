@@ -163,7 +163,7 @@ test("Orchestration exact routes do not cross-product tier defaults", () => {
 test("canonicalWriteModel resolves aliases, guards cross-provider phantoms, and never crashes", () => {
   // Bare family alias -> concrete catalog id. A `model` fact must never be a raw
   // tier name (opus/sonnet/fable/luna/terra/sol).
-  expect(canonicalWriteModel("anthropic", "opus")).toBe("claude-opus-4-8");
+  expect(canonicalWriteModel("anthropic", "opus")).toBe("claude-opus-5");
   expect(canonicalWriteModel("anthropic", "sonnet")).toBe("claude-sonnet-5");
   expect(canonicalWriteModel("openai", "sol")).toBe("gpt-5.6-sol");
   // Already-concrete id passes through unchanged.
@@ -187,7 +187,7 @@ test("lane-identity model facts are canonicalized at write, not left as bare ali
   const facts = Object.fromEntries(
     agentRouteFacts("agent-x", { kind: "lane", provider: "anthropic", model: "opus" }),
   );
-  expect(facts.model).toBe("claude-opus-4-8");
+  expect(facts.model).toBe("claude-opus-5");
   // Cross-provider phantom drops the model fact on the identity path too.
   const phantom = Object.fromEntries(
     agentRouteFacts("agent-y", { kind: "lane", provider: "anthropic", model: "gpt-5.6-sol" }),
