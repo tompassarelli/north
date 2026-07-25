@@ -71,18 +71,25 @@
              (if (run-subject? l)
                (assoc-in acc [:run l p] (if (= p "thread") (str/replace v #"^@" "") v))
                (case p
-               "pinned"   (if (= v "true") (update acc :pinned conj l) (update acc :pinned disj l))
+               ;; :ever records that this thread was pinned AT SOME POINT. A retract
+               ;; removes it from :pinned but never from :ever — closing a fish is
+               ;; how the board is supposed to shrink, and losing the fact that it
+               ;; was ever a fish would make the closed work unfindable.
+               "pinned"   (if (= v "true")
+                            (-> acc (update :pinned conj l) (update :ever conj l))
+                            (update acc :pinned disj l))
                "priority" (assoc-in acc [:prio l] v)
                "title"    (assoc-in acc [:title l] v)
                "progress" (-> acc (update-in [:prog l] (fnil inc 0)) (assoc-in [:last l] (subs (str (:ts f)) 0 10)))
-               ("outcome" "abandoned" "superseded_by") (assoc-in acc [:term l] p)
+               ("outcome" "abandoned" "superseded_by")
+               (-> acc (assoc-in [:term l] p) (assoc-in [:termtext l] v))
                "part_of"  (update-in acc [:kids (str/replace v #"^@" "")] (fnil inc 0))
                acc)))))))
        init
        (line-seq r)))))
 
 (defn fold []
-  (-> {:pinned #{} :prio {} :title {} :prog {} :last {} :term {} :kids {} :run {}}
+  (-> {:pinned #{} :ever #{} :prio {} :title {} :prog {} :last {} :term {} :termtext {} :kids {} :run {}}
       (fold-file log)
       (fold-file telemetry-log)))
 
@@ -101,7 +108,7 @@
         (pos? n)       (str n)
         :else          "—"))
 
-(let [{:keys [pinned prio title prog last term kids run]} (fold)
+(let [{:keys [pinned ever prio title prog last term termtext kids run]} (fold)
       ;; Effort per fish, from the run ledger. A fish with no attributed runs
       ;; shows a dash rather than a zero — "never measured" and "measured as
       ;; nothing" are different claims and must not look identical.
@@ -116,6 +123,16 @@
                                           (+ (num* (get r "input_tokens"))
                                              (num* (get r "output_tokens"))))))))
                      {} (vals run))
+      ;; --all also shows fish that were pinned and have since CLOSED. Closing is
+      ;; how this board is meant to shrink, so the default view showing fewer fish
+      ;; is the system working — but "what did we close, and why" had no view at
+      ;; all, which made a shrinking board look like lost work rather than
+      ;; finished work. Closed fish are rendered with their recorded outcome, never
+      ;; re-pinned: a terminal thread on the open board would misreport what is
+      ;; open, and this board's whole job is to answer that question honestly.
+      show-all? (= "--all" (first *command-line-args*))
+      closed (sort-by (fn [t] [(get prio-order (get prio t) 9) t])
+                      (filter #(and (get term %) (not (contains? pinned %))) ever))
       rows (sort-by (fn [t] [(get prio-order (get prio t) 9) (- (get kids t 0))]) pinned)]
   (if (empty? rows)
     (println "No pinned threads. Pin one:  north tell <id> pinned true")
@@ -131,5 +148,18 @@
             (printf "         effort: %s agent time · %s tokens · %s runs%n%n"
                     (human-ms (:ms e 0)) (human-n (:tok e 0))
                     (if (:runs e) (str (:runs e)) "no attributed")))))
+      (when (and show-all? (seq closed))
+        (printf "CLOSED — %d fish resolved and unpinned%n%n" (count closed))
+        (doseq [t closed]
+          (let [txt (str (get termtext t ""))]
+            (printf "  [%-4s] %-52s%n" (or (get prio t) "-")
+                    (subs (str (get title t "?")) 0 (min 52 (count (str (get title t "?"))))))
+            (printf "         %s  ·  %d children  ·  %s%n" t (get kids t 0)
+                    (str/upper-case (str (get term t))))
+            (printf "         %s%n%n" (subs txt 0 (min 72 (count txt))))))
+        (printf "%d open · %d closed · %d ever pinned%n%n"
+                (count rows) (count closed) (count ever)))
       (printf "Pin:    north tell <id> pinned true   ·   north tell <id> priority high|mid|low%n")
-      (printf "Unpin:  north retract <id> pinned true%n"))))
+      (printf "Unpin:  north retract <id> pinned true%n")
+      (when-not show-all?
+        (printf "Closed: north-pinned --all   (adds every fish that was pinned and has since resolved)%n")))))
