@@ -94,6 +94,10 @@ test("one configurable wall-clock budget is split across both publications and t
   expect(budget.notificationTimeout()).toBe(1);
 
   expect(terminalPublicationBudgetMs("50")).toBe(100);
-  expect(terminalPublicationBudgetMs("90000")).toBe(60_000);
-  expect(terminalPublicationBudgetMs("not-a-timeout")).toBe(10_000);
+  // A run record is ~200 facts and one coordinator round-trip each, so the
+  // ceiling and default were raised to match what the write actually costs;
+  // 90s is now an accepted override rather than clamped to the old 60s cap.
+  expect(terminalPublicationBudgetMs("90000")).toBe(90_000);
+  expect(terminalPublicationBudgetMs("400000")).toBe(300_000);
+  expect(terminalPublicationBudgetMs("not-a-timeout")).toBe(90_000);
 });

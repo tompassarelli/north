@@ -7,6 +7,7 @@
 ;;
 ;;   north-effort                 all threads, ranked by agent wall time
 ;;   north-effort <thread-id>     one thread, with its runs itemised
+;;   north-effort --live          lanes running RIGHT NOW, and what they are on
 ;;
 ;; TWO THINGS THIS DELIBERATELY DOES NOT DO.
 ;;
@@ -74,11 +75,45 @@
    :delivered (count (filter #(#{"reported" "verified"} (get % "delivery_outcome")) runs))
    :blocked   (count (filter #(= "blocked" (get % "delivery_outcome")) runs))})
 
+;; LIVE. A run's facts land at terminal, so a lane in flight has nothing in the
+;; graph yet — which is exactly when you most want to know what is running. The
+;; binding is already on the process: --thread is passed through as AGENT_THREAD,
+;; so read it from /proc and join to the thread title. Host-only by nature.
+(defn- live-lanes []
+  (->> (or (.listFiles (io/file "/proc")) [])
+       (filter #(re-matches #"\d+" (.getName %)))
+       (keep (fn [d]
+               (let [env (try (slurp (io/file d "environ")) (catch Exception _ ""))
+                     kv (into {} (keep (fn [e] (let [[k v] (str/split e #"=" 2)]
+                                                 (when v [k v])))
+                                       (str/split env (re-pattern "\u0000"))))]
+                 (when-let [id (get kv "AGENT_ID")]
+                   (when (str/starts-with? id "lane-")
+                     {:agent id
+                      :thread (get kv "AGENT_THREAD")
+                      :prov (get kv "AGENT_THREAD_PROVENANCE")
+                      :model (get kv "AGENT_MODEL")})))))
+       (reduce (fn [m l] (assoc m (:agent l) l)) {})
+       vals))
+
 (let [{:keys [run title pinned]} (fold)
       [want] *command-line-args*
       by-thread (group-by #(or (get % "thread") AD-HOC) (vals run))
       total-runs (count run)]
-  (if want
+  (if (= want "--live")
+    (let [lanes (live-lanes)]
+      (if (empty? lanes)
+        (println "No managed lanes running.")
+        (do
+          (printf "LIVE — %d lane(s) in flight%n%n" (count lanes))
+          (doseq [{:keys [agent thread prov model]} (sort-by :thread lanes)]
+            (printf "  %s%n" (if (and thread (not= thread "(ad-hoc)"))
+                               (get title thread thread)
+                               "UNATTRIBUTED lane"))
+            (printf "    %s  ·  %s  ·  thread %s (%s)%n%n"
+                    (subs agent 0 (min 34 (count agent)))
+                    (or model "—") (or thread "—") (or prov "—"))))))
+    (if want
     ;; ---- one thread, itemised ------------------------------------------------
     (let [key (first (filter #(str/starts-with? (str %) (str want)) (keys by-thread)))
           runs (get by-thread key)]
@@ -113,5 +148,5 @@
           (printf "  %-9s %-6d %-9s %-9s %s%s%n"
                   (human-ms ms) runs (human-n in) (human-n out) pin label)))
       (println)
-      (println "  * pinned · one thread: north-effort <thread-id>")
-      (println "  units are observed work — tokens and wall time, never dollars"))))
+      (println "  * pinned · one thread: north-effort <thread-id> · in flight: north-effort --live")
+      (println "  units are observed work — tokens and wall time, never dollars")))))

@@ -8,9 +8,21 @@ const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
 const port = () => process.env.NORTH_PORT ?? "7977";
 const peerBb = () => process.env.NORTH_PEER_BB ?? "bb";
-const DEFAULT_PUBLICATION_BUDGET_MS = 10_000;
+// A run record carries ~200 facts and the writer issues ONE coordinator
+// round-trip per fact, so this budget is really "200 sequential writes, minus a
+// peer-wake reserve, split across stages". At the old 10s default that left
+// ~3.9s for ~202 writes — about 19ms each — which the coordinator cannot meet
+// under any write churn. Measured: lane-ms0f3ak0 died with "writer exceeded
+// 3876ms budget and was killed; 202 facts = 202 coordinator writes", and
+// telemetry was lost on 170 of 765 runs for exactly this reason.
+//
+// This is terminal FINALIZATION with no interactive consumer waiting, so give it
+// room. The right long-term fix is a batch assert so one record is one op rather
+// than 200; until the coordinator protocol has one, the budget must match what
+// the work actually costs.
+const DEFAULT_PUBLICATION_BUDGET_MS = 90_000;
 const MIN_PUBLICATION_BUDGET_MS = 100;
-const MAX_PUBLICATION_BUDGET_MS = 60_000;
+const MAX_PUBLICATION_BUDGET_MS = 300_000;
 
 type Command = { cmd: string; args: string[] };
 
