@@ -1171,6 +1171,24 @@
               (println (dim "  pass --thread <id> to bind this run to a workstream,"))
               (println (dim "  or --ad-hoc to deliberately run it unattributed.")))
             (System/exit 2))
+        ;; A PREFIX BINDS TO NOTHING. --thread is passed straight through as
+        ;; AGENT_THREAD and recorded verbatim on the run subject, so `--thread
+        ;; 019f9537` records the literal prefix — which then never joins to
+        ;; @019f9537-a5d3-… in any report. The run looks attributed and is
+        ;; silently orphaned, which is the exact failure the attribution gate
+        ;; exists to prevent. Refuse rather than resolve: resolution would have
+        ;; to guess at ambiguity, and a wrong guess mis-binds effort to another
+        ;; workstream. Canonical is a full UUID-shaped id or a legacy dated id.
+        _ (when (and thread
+                     (not (re-matches
+                           #"(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4}-\d{2}-\d{2}-\d{6}"
+                           (str/replace-first (str thread) #"^@" ""))))
+            (binding [*out* *err*]
+              (println (red (str "--thread " thread " is not a canonical thread id")))
+              (println (dim "  a prefix is recorded verbatim on the run and never joins back to its thread,"))
+              (println (dim (str "  so the run would look bound and be orphaned. Resolve it first:")))
+              (println (dim (str "    north show " thread "   # prints the full id, or names the ambiguity"))))
+            (System/exit 2))
         catalog (orchestration-catalog)
         dt (or (orchestration-routing) {})
         raw-supplied-composition (parse-json-input "--composition" composition)
