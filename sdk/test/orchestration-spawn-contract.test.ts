@@ -72,8 +72,12 @@ test("SDK presets inherit catalog axes while declared compatible overrides win i
 });
 
 test("North CLI reads staffing/catalog.json and carries independent overrides", () => {
+  // --ad-hoc, deliberately: this probe resolves staffing and never becomes a
+  // run, so there is no effort to attribute. The gate still fires on --dry-run
+  // by design — a preview that accepted what the real spawn refuses would lie
+  // about admissibility precisely where the preview is meant to be trusted.
   const result = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "scout", "contract probe",
-    "--dry-run", "--taskGrade", "principal", "--domain", "computer-science",
+    "--dry-run", "--ad-hoc", "--taskGrade", "principal", "--domain", "computer-science",
     "--tier", "frontier", "--reasoning", "xhigh", "--posture", "preserve",
     "--override-reason", "principal research direction"], {
     encoding: "utf8",

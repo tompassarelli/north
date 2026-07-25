@@ -549,3 +549,67 @@ test("public spawn and dispatch reject hermetic runtime fields before invoking t
   } as any)).rejects.toThrow("managed North dispatch request has unknown field loadThreadFacts");
   expect(callbacks).toBe(0);
 });
+
+// A CLI-spawned lane binds its thread through AGENT_THREAD, not through
+// opts.thread — `north spawn --thread <id>` sets the environment variable
+// (agents-cli.clj). The delivery reservation used to key off opts.thread alone,
+// so those lanes ran with correct telemetry attribution and NO reservation,
+// which left NORTH_RUN_ID unset in the child and made `north evidence record`
+// fail inside it with "invalid delivery run id". Two real lanes lost their bar
+// evidence that way. The reservation must see the same thread the ledger does.
+test("a thread bound via AGENT_THREAD still reserves a delivery run", async () => {
+  const original = process.env.AGENT_THREAD;
+  process.env.AGENT_THREAD = "019f93bb-37b2-7bb6-8ee0-7f0b5e976260";
+  let reserved: { runId: string; threadId: string } | undefined;
+  try {
+    await (await import("./support/spawn")).spawn({
+      prompt: "bound by environment",
+      agentId: "env-bound-thread-reserves",
+      routingMetadata: presetRequest("integrator"),
+      deliveryRuntime: {
+        reserve(context) {
+          reserved = { runId: context.runId, threadId: context.threadId };
+          return { contractOrigin: "accepted", baselineDoneWhen: ["bar"] };
+        },
+        load: () => ({ reservationValid: true, evidence: [] }),
+      },
+      queryFn: () => (async function* () {
+        yield { type: "result", subtype: "success", result: "done" } as any;
+      })(),
+    } as any);
+  } finally {
+    if (original === undefined) delete process.env.AGENT_THREAD;
+    else process.env.AGENT_THREAD = original;
+  }
+  expect(reserved?.threadId).toBe("019f93bb-37b2-7bb6-8ee0-7f0b5e976260");
+  expect(reserved?.runId.startsWith("run:env-bound-thread-reserves-")).toBe(true);
+});
+
+// The counterpart: an unbound run must NOT mint a reservation. "(ad-hoc)" is a
+// legible marker for "no thread", not a thread id — reserving against it would
+// bind proof authority to nothing while looking bound.
+test("an unbound run reserves nothing rather than reserving against (ad-hoc)", async () => {
+  const original = process.env.AGENT_THREAD;
+  delete process.env.AGENT_THREAD;
+  let reserveCalls = 0;
+  try {
+    await (await import("./support/spawn")).spawn({
+      prompt: "unbound",
+      agentId: "unbound-reserves-nothing",
+      routingMetadata: presetRequest("integrator"),
+      deliveryRuntime: {
+        reserve(context) {
+          reserveCalls++;
+          return { contractOrigin: "accepted", baselineDoneWhen: [] };
+        },
+        load: () => ({ reservationValid: true, evidence: [] }),
+      },
+      queryFn: () => (async function* () {
+        yield { type: "result", subtype: "success", result: "done" } as any;
+      })(),
+    } as any);
+  } finally {
+    if (original !== undefined) process.env.AGENT_THREAD = original;
+  }
+  expect(reserveCalls).toBe(0);
+});
