@@ -202,10 +202,14 @@
 (def route-preflight (str sdk-dir "/mcp-route-preflight.ts"))
 (def routing-economics-preflight (str sdk-dir "/routing-economics-preflight-cli.ts"))
 (def struggle-policy-cli (str sdk-dir "/struggle.ts"))
+;; NORTH_ORCHESTRATION_HOME is the canonical name every other surface reads, and
+;; the fallback is the IN-REPO orchestration/ (derived from this script, via
+;; `here`) — never ~/code/orchestration, which stopped existing when the catalog
+;; moved inside north and left this MCP resolving a path that is never there.
 (def orchestration-staffing-path
   (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-      (str (or (System/getenv "ORCHESTRATION_HOME")
-               (str (System/getProperty "user.home") "/code/orchestration"))
+      (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
+               (str (.getParentFile here) "/orchestration"))
            "/staffing/catalog.json")))
 (def orchestration-staffing
   (try (north.orchestration-staffing/load-catalog orchestration-staffing-path)

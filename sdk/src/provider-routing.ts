@@ -798,22 +798,6 @@ function currentModelObservation(
   return modelObservationForTarget(evidence.store, target);
 }
 
-// Transport freeze (postmortem 2026-07-25). Of 112 recorded deaths in the 72h
-// window, 94 were `openai_provider_execution_failed`, against 1 Anthropic
-// equivalent — and codex-app-server throws that error with no cause attached, so
-// the failures are not even diagnosable. Frozen for AUTOMATIC routing only: an
-// explicit provider pin with typed pin evidence still reaches it, so the adapter
-// stays exercisable and the freeze stays reversible without a code change.
-// Set NORTH_AUTO_FROZEN_PROVIDERS="" to lift it.
-const AUTO_FROZEN_PROVIDERS: ReadonlySet<string> = new Set(
-  (process.env.NORTH_AUTO_FROZEN_PROVIDERS ?? "openai")
-    .split(",").map((entry) => entry.trim()).filter(Boolean),
-);
-
-function autoFrozen(requestedProvider: string, targetProvider: string): boolean {
-  return requestedProvider === "auto" && AUTO_FROZEN_PROVIDERS.has(targetProvider);
-}
-
 export function selectProviderFromAvailability(
   requested: RoutingPreference,
   availability: ProviderAvailability[],
@@ -860,8 +844,7 @@ export function selectProviderFromAvailability(
   const targetAvailable = (target: RoutingTarget) => stateOfTarget(availability, target).available;
   const eligible = (target: RoutingTarget) => routeCompatible(target)
     && targetAvailable(target) && targetPressures[target.id] !== "exhausted"
-    && spendGuardEligible(target.provider, target.id)
-    && !autoFrozen(requestedProvider, target.provider);
+    && spendGuardEligible(target.provider, target.id);
   const routeFailure = (providers: ProviderId[]) => {
     const support = [...new Set(providers)].map((provider) =>
       `${provider}=[${tier ? supportedReasoning(provider, tier).join(",") : "provider default"}]`).join("; ");

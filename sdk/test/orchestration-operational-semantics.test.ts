@@ -249,7 +249,7 @@ test("model calibration uses exact catalog keys and never applies stale alias de
   });
   expect(opus.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(opus)?.modelDelta).toMatchObject({
-    provider: "anthropic", model: "claude-opus-4-8", kind: "none",
+    provider: "anthropic", model: "claude-opus-5", kind: "none",
   });
 
   const fallback = applyHarnessRoute(opus, "openai", "gpt-5.6-sol");
@@ -286,7 +286,7 @@ test("cross-model escalation omits calibration explicitly instead of retaining s
   });
   expect(options.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(options)?.modelDelta).toEqual({
-    provider: "anthropic", model: "claude-opus-4-8", kind: "omitted", reason: "cross_model_escalation_enabled",
+    provider: "anthropic", model: "claude-opus-5", kind: "omitted", reason: "cross_model_escalation_enabled",
   });
 });
 

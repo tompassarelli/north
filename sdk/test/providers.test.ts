@@ -600,13 +600,13 @@ test("reserved allocation degrades gracefully when reserve or alternatives are u
 });
 
 test("semantic tiers resolve independently per provider", () => {
-  expect(resolveTier("anthropic", "senior")).toEqual({ tier: "senior", model: "claude-opus-4-8", effort: "high" });
+  expect(resolveTier("anthropic", "senior")).toEqual({ tier: "senior", model: "claude-opus-5", effort: "high" });
   expect(resolveTier("openai", "frontier")).toEqual({ tier: "frontier", model: "gpt-5.6-sol", effort: "xhigh" });
 });
 
 test("provider selection honors each catalog's explicit tier reasoning routes", () => {
   expect(resolveTier("anthropic", "senior", undefined, "medium"))
-    .toEqual({ tier: "senior", model: "claude-opus-4-8", effort: "medium" });
+    .toEqual({ tier: "senior", model: "claude-opus-5", effort: "medium" });
   const decision = selectProviderFromAvailability(
     "auto",
     available,
@@ -695,21 +695,22 @@ test("provider selection filters unenforceable capability shapes before side eff
 });
 
 test("Anthropic frontier follows Orchestration's static route without a hidden time swap", () => {
-  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
+  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-opus-5", effort: "xhigh" });
   expect(() => resolveTier("anthropic", "frontier", undefined, "high"))
     .toThrow("provider anthropic cannot resolve semantic tier frontier with reasoning high");
-  expect(resolveTier("anthropic", "frontier", undefined, "xhigh")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
+  expect(resolveTier("anthropic", "frontier", undefined, "xhigh")).toEqual({ tier: "frontier", model: "claude-opus-5", effort: "xhigh" });
   expect(() => resolveTier("anthropic", "frontier", "sonnet", "xhigh"))
     .toThrow("model claude-sonnet-5 does not support reasoning xhigh");
   expect(() => resolveTier("openai", "frontier", "luna", "xhigh"))
     .toThrow("model gpt-5.6-luna does not support reasoning xhigh");
   expect(resolveTier("anthropic", "frontier", "opus", "xhigh")).toEqual({
-    tier: "frontier", model: "claude-opus-4-8", effort: "xhigh",
+    tier: "frontier", model: "claude-opus-5", effort: "xhigh",
   });
-  expect(resolveTier("anthropic", "frontier", undefined, "max")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "max" });
+  expect(() => resolveTier("anthropic", "frontier", undefined, "max"))
+    .toThrow("provider anthropic cannot resolve semantic tier frontier with reasoning max");
   expect(resolveTier("openai", "frontier")).toEqual({ tier: "frontier", model: "gpt-5.6-sol", effort: "xhigh" });
   delete process.env.NORTH_FABLE_NOW;
-  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
+  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-opus-5", effort: "xhigh" });
   expect(resolveTier("anthropic", "frontier", "fable", "xhigh"))
     .toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
   expect(() => resolveTier("anthropic", "frontier", "fable", "high"))
@@ -1322,7 +1323,7 @@ test("automatic fallback re-resolves the provider while preserving requested rea
   await eventsOf(routedQueryWithRegistry(decision, {
     prompt: "x", options: { model: "gpt-5.6-sol", effort: "high", systemPrompt: "system" } as any,
   }, "senior", registry));
-  expect(fallbackArgs.options.model).toBe("claude-opus-4-8");
+  expect(fallbackArgs.options.model).toBe("claude-opus-5");
   expect(fallbackArgs.options.effort).toBe("high");
   expect(fallbackArgs.options.systemPrompt).toBe("system");
   expect(decision.fallbackPath).toEqual(["openai", "anthropic"]);
