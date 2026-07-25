@@ -224,6 +224,7 @@
             ./bin/north-stream-sync
             ./bin/north-pinned
             ./bin/north-effort
+            ./bin/north-graph
             ./bin/concern
             ./bin/ensure-private-docs
           ];
@@ -386,6 +387,7 @@ PY
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-up \
               bin/north-stream-sync bin/north-pinned bin/north-effort \
+              bin/north-graph \
               bin/concern bin/ensure-private-docs \
               $out/bin/
             patchShebangs $out/bin
