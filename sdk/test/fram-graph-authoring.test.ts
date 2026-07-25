@@ -18,6 +18,7 @@ import {
 import {
   FRAM_MCP_TOOL_NAMES, FRAM_MCP_TOOLS, framMcpCommand, framMcpEnvironment,
 } from "../src/fram-graph-authoring";
+import { expectedLog } from "../src/coord-wire";
 import {
   compileProviderAuthoritySurface,
 } from "../src/providers/authority";
@@ -26,27 +27,40 @@ import { presetRequest } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
 const originalAgentLaws = process.env.AGENT_LAWS;
+const originalFramThreads = process.env.FRAM_THREADS;
 
 // Roots are deployment facts supplied by the dispatcher; tests provide
 // hermetic stand-ins (with an executable fram-mcp stub so the admission
-// X_OK preflight passes) instead of depending on host checkouts.
+// X_OK preflight passes) instead of depending on host checkouts. FRAM_CODE_PORT
+// is resolved at spawn time from framHome/.mcp.json — the exact field
+// fram-code-status reads — so the fixture writes one too, standing in for a
+// real `fram-code-on` flip.
 const framHome = mkdtempSync(join(tmpdir(), "fram-home-"));
 const beagleHome = mkdtempSync(join(tmpdir(), "beagle-home-"));
+const framCodePort = "38213";
 mkdirSync(join(framHome, "bin"), { recursive: true });
 writeFileSync(join(framHome, "bin", "fram-mcp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+writeFileSync(join(framHome, ".mcp.json"), JSON.stringify({
+  mcpServers: { fram: { command: "x", args: [], env: { FRAM_CODE_PORT: framCodePort } } },
+}));
 process.env.NORTH_FRAM_HOME = framHome;
 process.env.NORTH_BEAGLE_HOME = beagleHome;
+process.env.FRAM_THREADS = join(framHome, "threads");
 
 afterEach(() => {
   if (originalAgentLaws === undefined) delete process.env.AGENT_LAWS;
   else process.env.AGENT_LAWS = originalAgentLaws;
   process.env.NORTH_FRAM_HOME = framHome;
   process.env.NORTH_BEAGLE_HOME = beagleHome;
+  if (originalFramThreads === undefined) process.env.FRAM_THREADS = join(framHome, "threads");
+  else process.env.FRAM_THREADS = originalFramThreads;
 });
 
 afterAll(() => {
   rmSync(framHome, { recursive: true, force: true });
   rmSync(beagleHome, { recursive: true, force: true });
+  if (originalFramThreads === undefined) delete process.env.FRAM_THREADS;
+  else process.env.FRAM_THREADS = originalFramThreads;
 });
 
 test("composing the capability without deployment roots fails closed by name", () => {
@@ -56,6 +70,36 @@ test("composing the capability without deployment roots fails closed by name", (
   expect(() => framMcpCommand()).toThrow(/NORTH_FRAM_HOME, NORTH_BEAGLE_HOME/);
   process.env.NORTH_FRAM_HOME = framHome;
   expect(() => framMcpCommand()).toThrow(/NORTH_BEAGLE_HOME/);
+});
+
+test("composing the environment without a flipped code coordinator fails closed by name", () => {
+  // A framHome that was never `fram-code-on`'d has no .mcp.json at all: the
+  // capability must refuse to compose rather than fall back to a literal port
+  // nothing listens on.
+  const unflippedFramHome = mkdtempSync(join(tmpdir(), "fram-home-unflipped-"));
+  mkdirSync(join(unflippedFramHome, "bin"), { recursive: true });
+  writeFileSync(join(unflippedFramHome, "bin", "fram-mcp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  process.env.NORTH_FRAM_HOME = unflippedFramHome;
+  try {
+    expect(() => framMcpEnvironment(north)).toThrow(/graph_authoring_fram_code_port_unresolved/);
+    expect(() => framMcpEnvironment(north)).toThrow(/\.mcp\.json/);
+  } finally {
+    rmSync(unflippedFramHome, { recursive: true, force: true });
+  }
+});
+
+test("composing the environment against a stale .mcp.json missing the port field fails closed", () => {
+  const staleFramHome = mkdtempSync(join(tmpdir(), "fram-home-stale-"));
+  mkdirSync(join(staleFramHome, "bin"), { recursive: true });
+  writeFileSync(join(staleFramHome, "bin", "fram-mcp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(join(staleFramHome, ".mcp.json"), JSON.stringify({ mcpServers: {} }));
+  process.env.NORTH_FRAM_HOME = staleFramHome;
+  try {
+    expect(() => framMcpEnvironment(north))
+      .toThrow(/graph_authoring_fram_code_port_unresolved.*FRAM_CODE_PORT/);
+  } finally {
+    rmSync(staleFramHome, { recursive: true, force: true });
+  }
 });
 
 const graphAuthoringRequest: RoutingRequest = {
@@ -126,7 +170,19 @@ test("managed providers compile the exact sealed Fram MCP only when explicitly r
     expect(Object.isFrozen(options.mcpServers.fram)).toBe(true);
     expect(Object.isFrozen(options.mcpServers.fram.env)).toBe(true);
     expect(options.mcpServers.fram.env.FRAM_SRC).toBe(north);
-    expect(options.mcpServers.fram.env.FRAM_CODE_LOG).toBe(resolve(north, ".fram/code.log"));
+    // FRAM_CODE_LOG lives inside the fram checkout (framHome), never the cwd:
+    // the lane worktree is a /tmp clone where .fram/ is git-excluded and never
+    // exists, so a cwd-relative path could never resolve.
+    expect(options.mcpServers.fram.env.FRAM_CODE_LOG).toBe(join(framHome, ".fram", "code.log"));
+    expect(options.mcpServers.fram.env.FRAM_CODE_LOG).not.toBe(resolve(north, ".fram/code.log"));
+    // FRAM_CODE_PORT is read from framHome/.mcp.json at spawn time — the same
+    // field fram-code-status reads — never a hardcoded literal.
+    expect(options.mcpServers.fram.env.FRAM_CODE_PORT).toBe(framCodePort);
+    // FRAM_LOG/FRAM_THREADS select the real north corpus, derived the same way
+    // bin/north exports them for the dispatching process — never a hardcoded
+    // home path baked into this module.
+    expect(options.mcpServers.fram.env.FRAM_LOG).toBe(expectedLog());
+    expect(options.mcpServers.fram.env.FRAM_THREADS).toBe(resolve(process.env.FRAM_THREADS!));
     expect(options.allowedTools).toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
     expect(options.disallowedTools).not.toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
     expect(() => validateManagedExecutionEnvelope(
