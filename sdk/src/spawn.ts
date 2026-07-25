@@ -40,7 +40,7 @@ import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgta
 import {
   assessChildFinalization, childContinuationMessage, childDispatchMessage, childReductionMessage,
   continuationRaceOutcome, decideChildTurnEnd, initialChildContinuationState, notifyEarlyExitChildren,
-  requiredDirectChildCount, runOrchestratorPark, settleChildren,
+  requiredDirectChildCount, settleChildren,
   type ChildSettlement, type OrchestratorContinuationKind,
 } from "./children";
 import { admitBillableClock } from "./clock";
@@ -663,46 +663,12 @@ async function runSpawn(
           console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${bgTracker.size()} task(s) still live — finalizing anyway`);
         }
         if (orchestrator) {
-          let decision = decideChildTurnEnd(
+          const decision = decideChildTurnEnd(
             childContinuation,
             readChildSettlement(agentId),
             maxBgContinuations(),
           );
           childContinuation = decision.state;
-          // PARK-AND-RESUME (thread 019f9599): a pure wait on live children must
-          // not spin provider turns. Declare a bounded park naming those children,
-          // hold the provider subprocess dormant (the stall watchdog is not armed
-          // while the harness is not pulling the next message — zero tokens), then
-          // re-decide against the settled snapshot. Genuine abandonment (park
-          // expiry with live children, or an awaited child vanishing) falls through
-          // to the UNCHANGED final early-exit gate so it stays loud.
-          if (decision.action === "continue" && decision.reason === "children_live") {
-            const parked = await runOrchestratorPark(decision.live, {
-              agentId,
-              settle: () => readChildSettlement(agentId),
-              signal: termination.abortController.signal,
-              renewPresence: () => renewHarnessPresence(agentOptions),
-              aborted: () => termination.hostSignal() !== undefined,
-            });
-            if (parked.kind === "settled") {
-              decision = decideChildTurnEnd(
-                childContinuation, parked.settlement, maxBgContinuations(),
-              );
-              childContinuation = decision.state;
-            } else if (parked.kind === "aborted") {
-              break; // host termination during park -> hostSignal handling below
-            } else {
-              const parkOutcome = parked.kind === "abandoned"
-                ? "orchestrator_child_set_inconsistent"
-                : "orchestrator_children_incomplete";
-              console.error(
-                `[park] @agent:${agentId} park ${parked.kind} — recording ${parkOutcome}; `
-                + "final early-exit gate reports the abandoned children",
-              );
-              end(parkOutcome);
-              break;
-            }
-          }
           if (decision.action === "continue") {
             let continuation: string;
             if (decision.reason === "children_live") {

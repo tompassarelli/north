@@ -4,27 +4,17 @@
 import { test, expect, describe } from "bun:test";
 import {
   assessChildFinalization,
-  awaitParkedChildren,
   CHILD_SETTLEMENT_MAX_CHILDREN,
   CHILD_SETTLEMENT_MAX_RUNS,
   childDispatchMessage,
   childReductionMessage,
   decideChildTurnEnd,
-  decideParkResume,
   earlyExitCommands,
   gatherChildSettlement,
   initialChildContinuationState,
-  ORCHESTRATOR_PARK_VERSION,
-  orchestratorPark,
-  parkClearCommands,
-  parkDeclareCommands,
-  parseOrchestratorPark,
   requiredDirectChildCount,
   resolveChildLifecycle,
-  serializeOrchestratorPark,
   settleChildrenBounded,
-  type ChildSettlement,
-  type OrchestratorPark,
 } from "../src/children";
 import { presetRequest } from "./routing-fixtures";
 import {
@@ -793,169 +783,6 @@ describe("orchestrator child continuation state", () => {
     );
     expect(childDispatchMessage([], 2)).toContain("direct-child obligation is unmet (0/2 observed)");
     expect(childDispatchMessage([], 2)).toContain("dispatch at least 2 more direct child lane(s)");
-  });
-});
-
-describe("orchestrator park-and-resume", () => {
-  const PARKED_AT = Date.parse("2026-07-25T00:00:00.000Z");
-  const TTL = 60_000;
-  const park = (live: string[] = ["@agent:b", "@agent:a"]): OrchestratorPark =>
-    orchestratorPark(live, PARKED_AT, TTL);
-
-  test("a park canonicalizes its children and derives an expiry from the ttl", () => {
-    const p = park(["@agent:b", "@agent:a", "@agent:b"]);
-    expect(p.children).toEqual(["@agent:a", "@agent:b"]);
-    expect(p.parkedAt).toBe("2026-07-25T00:00:00.000Z");
-    expect(p.expiresAt).toBe("2026-07-25T00:01:00.000Z");
-  });
-
-  test("a park must name at least one live child and stay within bounds", () => {
-    expect(() => orchestratorPark([], PARKED_AT, TTL)).toThrow("at least one live child");
-    expect(() => orchestratorPark(["@agent:a"], PARKED_AT, 0)).toThrow("positive safe integer");
-    expect(() => orchestratorPark(
-      Array.from({ length: CHILD_SETTLEMENT_MAX_CHILDREN + 1 }, (_, i) => `@agent:${i}`),
-      PARKED_AT,
-      TTL,
-    )).toThrow("exceeds its bound");
-  });
-
-  test("serialize/parse round-trips and the fact carries the version", () => {
-    const value = serializeOrchestratorPark(park());
-    expect(JSON.parse(value).v).toBe(ORCHESTRATOR_PARK_VERSION);
-    expect(parseOrchestratorPark(value)).toEqual(park());
-  });
-
-  test("parse fails closed on every malformed, oversized, or wrong-version value", () => {
-    for (const value of [
-      "not json",
-      JSON.stringify({ v: 2, children: ["@agent:a"], parkedAt: "x", expiresAt: "y" }),
-      JSON.stringify({ v: 1, children: [], parkedAt: "x", expiresAt: "y" }),
-      JSON.stringify({ v: 1, children: [7], parkedAt: "x", expiresAt: "y" }),
-      JSON.stringify({ v: 1, children: ["@agent:a"], expiresAt: "2026-07-25T00:01:00Z" }),
-      JSON.stringify({ v: 1, children: ["@agent:a"], parkedAt: "nope", expiresAt: "nope" }),
-      JSON.stringify(["@agent:a"]),
-      "x".repeat(64 * 1024 + 1),
-    ]) {
-      expect(parseOrchestratorPark(value)).toBeNull();
-    }
-  });
-
-  test("declare writes a tell and clear writes the exact-value retract", () => {
-    const p = park();
-    const value = serializeOrchestratorPark(p);
-    expect(parkDeclareCommands("W1", p)[0].args).toEqual([
-      "tell", "agent:W1", "orchestrator_park", value,
-    ]);
-    expect(parkClearCommands("W1", p)[0].args).toEqual([
-      "retract", "agent:W1", "orchestrator_park", value,
-    ]);
-  });
-
-  test("decideParkResume resumes only when every awaited child is terminal", () => {
-    const p = park(["@agent:a", "@agent:b"]);
-    const settled: ChildSettlement = { kind: "settled", children: ["@agent:a", "@agent:b"] };
-    expect(decideParkResume(p, settled, PARKED_AT)).toEqual({ action: "resume", settlement: settled });
-    expect(decideParkResume(p, {
-      kind: "live", children: ["@agent:a", "@agent:b"], live: ["@agent:b"],
-    }, PARKED_AT)).toEqual({ action: "wait" });
-  });
-
-  test("decideParkResume expires a still-live park at its ttl but resumes a settled one regardless", () => {
-    const p = park(["@agent:a"]);
-    const atExpiry = Date.parse(p.expiresAt);
-    expect(decideParkResume(p, {
-      kind: "live", children: ["@agent:a"], live: ["@agent:a"],
-    }, atExpiry)).toEqual({ action: "expired", live: ["@agent:a"] });
-    // children finishing exactly at expiry still reduce — settlement wins over the clock.
-    expect(decideParkResume(p, {
-      kind: "settled", children: ["@agent:a"],
-    }, atExpiry)).toMatchObject({ action: "resume" });
-  });
-
-  test("decideParkResume treats a vanished awaited child as abandonment", () => {
-    const p = park(["@agent:a", "@agent:b"]);
-    expect(decideParkResume(p, {
-      kind: "settled", children: ["@agent:a"],
-    }, PARKED_AT)).toEqual({ action: "abandoned", missing: ["@agent:b"] });
-    expect(decideParkResume(p, {
-      kind: "live", children: ["@agent:a"], live: ["@agent:a"],
-    }, PARKED_AT)).toEqual({ action: "abandoned", missing: ["@agent:b"] });
-  });
-
-  test("decideParkResume keeps waiting through a transient unavailable read until ttl", () => {
-    const p = park(["@agent:a"]);
-    expect(decideParkResume(p, { kind: "unavailable", reason: "graph offline" }, PARKED_AT))
-      .toEqual({ action: "wait" });
-    expect(decideParkResume(p, { kind: "unavailable", reason: "graph offline" }, Date.parse(p.expiresAt)))
-      .toEqual({ action: "expired", live: ["@agent:a"] });
-  });
-
-  function scriptedPark(
-    settlements: ChildSettlement[],
-    options: { ttlMs?: number; abortAt?: number } = {},
-  ) {
-    const declared: OrchestratorPark[] = [];
-    const cleared: OrchestratorPark[] = [];
-    let polls = 0;
-    let heartbeats = 0;
-    const settle = () => settlements[Math.min(polls, settlements.length - 1)]!;
-    return {
-      declared, cleared,
-      counts: () => ({ polls, heartbeats }),
-      run: () => awaitParkedChildren(["@agent:a"], {
-        settle,
-        sleep: async () => { polls++; },
-        now: () => PARKED_AT + polls * 10_000,
-        declare: (p) => { declared.push(p); },
-        clear: (p) => { cleared.push(p); },
-        heartbeat: () => { heartbeats++; },
-        aborted: () => options.abortAt !== undefined && polls >= options.abortAt,
-        ttlMs: options.ttlMs ?? TTL,
-        pollMs: 10_000,
-      }),
-    };
-  }
-
-  test("awaitParkedChildren declares once, waits dormantly, then resumes on settlement", async () => {
-    const settled: ChildSettlement = { kind: "settled", children: ["@agent:a"] };
-    const harness = scriptedPark([
-      { kind: "live", children: ["@agent:a"], live: ["@agent:a"] },
-      { kind: "live", children: ["@agent:a"], live: ["@agent:a"] },
-      settled,
-    ], { ttlMs: 10 * 60_000 });
-    const result = await harness.run();
-    expect(result).toEqual({ kind: "settled", settlement: settled });
-    expect(harness.declared).toHaveLength(1); // one declaration up front
-    expect(harness.cleared).toHaveLength(1); // always cleared on exit
-    expect(harness.counts()).toEqual({ polls: 2, heartbeats: 2 }); // two dormant waits, no provider turn
-  });
-
-  test("awaitParkedChildren goes loud (expired) when children never settle in ttl", async () => {
-    const harness = scriptedPark([
-      { kind: "live", children: ["@agent:a"], live: ["@agent:a"] },
-    ], { ttlMs: 25_000, /* expires after ~2 polls of 10s */ });
-    const result = await harness.run();
-    expect(result).toEqual({ kind: "expired", live: ["@agent:a"] });
-    expect(harness.cleared).toHaveLength(1);
-  });
-
-  test("awaitParkedChildren reports abandonment when an awaited child vanishes", async () => {
-    const harness = scriptedPark([
-      { kind: "settled", children: [] },
-    ], { ttlMs: 10 * 60_000 });
-    const result = await harness.run();
-    expect(result).toEqual({ kind: "abandoned", missing: ["@agent:a"] });
-    expect(harness.cleared).toHaveLength(1);
-  });
-
-  test("awaitParkedChildren surfaces host abort and still clears the park", async () => {
-    const harness = scriptedPark([
-      { kind: "live", children: ["@agent:a"], live: ["@agent:a"] },
-    ], { ttlMs: 10 * 60_000, abortAt: 0 });
-    const result = await harness.run();
-    expect(result).toEqual({ kind: "aborted" });
-    expect(harness.declared).toHaveLength(1);
-    expect(harness.cleared).toHaveLength(1);
   });
 });
 

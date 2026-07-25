@@ -5,17 +5,9 @@
 ;; and the genuinely silent lane that should be reaped.
 ;;   bb reap_test.clj      (run from the repo root; no daemon, no classpath needed)
 (load-file "cli/reap.clj")
-(require '[cheshire.core :as json])
 
 ;; Fixed "now" (epoch ms) so lease/spawned deltas are exact and clock-free.
 (def now   1000000000000)
-
-;; A well-formed orchestrator_park fact value expiring at expires-ms (thread 019f9599).
-(defn park-json [expires-ms]
-  (json/generate-string
-   {:v 1 :children ["@agent:x"]
-    :parkedAt  (str (java.time.Instant/ofEpochMilli now))
-    :expiresAt (str (java.time.Instant/ofEpochMilli expires-ms))}))
 (def STALE north.reap/LANE-STALE-MS)           ; 30min
 (def lapsed-exp (- now (* 40 60 1000)))       ; lease expired 40min ago -> stale
 (def fresh-exp  (+ now (* 20 60 1000)))       ; lease valid 20min out    -> live
@@ -76,27 +68,6 @@
    ;; --- the true-positive: truly-silent lane IS reaped ---------------------------
    ["silent lane (lease lapsed >30min, no committed terminal) => reaped"
     (reap? now (resolved? "sdk-b" {} []) lapsed-exp nil)                          true]
-
-   ;; --- park-and-resume reap exemption (thread 019f9599) -------------------------
-   ["unexpired park exempts an otherwise-reapable lapsed lane"
-    (reap? now (resolved? "sdk-p" {} []) lapsed-exp nil (park-json (+ now (* 10 60 1000)))) false]
-   ["expired park no longer exempts — the lapsed lane is reaped"
-    (reap? now (resolved? "sdk-p" {} []) lapsed-exp nil (park-json (- now (* 1 60 1000))))  true]
-   ["malformed park value fails closed — the lapsed lane is reaped"
-    (reap? now (resolved? "sdk-p" {} []) lapsed-exp nil "{not json")             true]
-   ["nil park keeps the 4-arg parity — the lapsed lane is reaped"
-    (reap? now (resolved? "sdk-p" {} []) lapsed-exp nil nil)                      true]
-   ["park never resurrects a lane already resolved by a committed terminal"
-    (reap? now (resolved? "sdk-p" marked-terminal []) lapsed-exp nil (park-json (+ now 600000))) false]
-   ["park-active?: unexpired true"
-    (north.reap/park-active? now (park-json (+ now 60000)))                       true]
-   ["park-active?: expired false"
-    (north.reap/park-active? now (park-json (- now 60000)))                       false]
-   ["park-active?: wrong version fails closed"
-    (north.reap/park-active? now (json/generate-string
-                                  {:v 2 :expiresAt (str (java.time.Instant/ofEpochMilli (+ now 60000)))})) false]
-   ["park-active?: nil is not an active park"
-    (north.reap/park-active? now nil)                                            false]
 
    ;; --- liveness axis ------------------------------------------------------------
    ["live lease => NOT reaped"
