@@ -3,7 +3,8 @@
 ;;
 ;; Answers "how much has this workstream cost me" from the run ledger: agent wall
 ;; time, tokens in/out/cache, run count, and the delivery mix. Folds the
-;; coordination log directly, so it stays truthful when the .md projection lags.
+;; coordination and telemetry logs directly, so it stays truthful when the .md
+;; projection lags.
 ;;
 ;;   north-effort                 all threads, ranked by agent wall time
 ;;   north-effort <thread-id>     one thread, with its runs itemised
@@ -81,6 +82,12 @@
                    p (str (:p f)) v (str (:r f))]
                (cond
                  (run-subject? l)  (assoc-in acc [:run l p] (if (= p "thread") (bare v) v))
+                 ;; The resolved model is NOT in the lane's environment — only
+                 ;; AGENT_PROVIDER=auto is, because resolution happens after the
+                 ;; process starts. It lands on @agent:<id> instead, so --live
+                 ;; joins to it rather than showing a permanent dash.
+                 (and (str/starts-with? l "agent:") (= p "model"))
+                 (assoc-in acc [:agent-model (subs l 6)] v)
                  (= p "title")     (assoc-in acc [:title l] v)
                  (= p "pinned")    (if (= v "true")
                                      (update acc :pinned conj l)
@@ -90,7 +97,7 @@
        (line-seq r)))))
 
 (defn fold []
-  (-> {:run {} :title {} :pinned #{}}
+  (-> {:run {} :title {} :pinned #{} :agent-model {}}
       (fold-file log)
       (fold-file telemetry-log)))
 
@@ -131,10 +138,21 @@
                       :thread (get kv "AGENT_THREAD")
                       :prov (get kv "AGENT_THREAD_PROVENANCE")
                       :model (get kv "AGENT_MODEL")})))))
-       (reduce (fn [m l] (assoc m (:agent l) l)) {})
+       ;; One lane is SEVERAL processes, and they do not all carry the binding: a
+       ;; child can inherit AGENT_ID while its routing keys were scrubbed, so a
+       ;; last-write-wins merge let a thread-less child erase its own lane's
+       ;; thread and every live lane rendered as UNATTRIBUTED. Prefer the richest
+       ;; record per agent — a process that knows the thread outranks one that
+       ;; does not, and absence never overwrites knowledge.
+       (reduce (fn [m l]
+                 (let [prior (get m (:agent l))]
+                   (if (and prior (:thread prior) (not (:thread l)))
+                     m
+                     (assoc m (:agent l) (merge prior (into {} (remove (comp nil? val) l)))))))
+               {})
        vals))
 
-(let [{:keys [run title pinned]} (fold)
+(let [{:keys [run title pinned agent-model]} (fold)
       [want] *command-line-args*
       by-thread (group-by #(or (get % "thread") AD-HOC) (vals run))
       total-runs (count run)]
@@ -150,7 +168,8 @@
                                "UNATTRIBUTED lane"))
             (printf "    %s  ·  %s  ·  thread %s (%s)%n%n"
                     (subs agent 0 (min 34 (count agent)))
-                    (or model "—") (or thread "—") (or prov "—"))))))
+                    (or model (get agent-model agent) "resolving")
+                    (or thread "—") (or prov "—"))))))
     (if want
     ;; ---- one thread, itemised ------------------------------------------------
     (let [key (first (filter #(str/starts-with? (str %) (str want)) (keys by-thread)))
