@@ -15,7 +15,8 @@
         "FRAM_ROUNDTRIP": "/home/tom/code/beagle/beagle-lib/private/facts-roundtrip.rkt",
         "FRAM_CHECK_EMIT": "/home/tom/code/beagle/beagle-lib/private/facts-check-emit.rkt",
         "FRAM_BUILD_ALL": "/home/tom/code/beagle/bin/beagle-build-all",
-        "BEAGLE_HOME": "/home/tom/code/beagle"
+        "BEAGLE_HOME": "/home/tom/code/beagle",
+        "FRAM_LOG": "/home/tom/code/north/.fram/code.log"
       }
     }
   }

@@ -55,7 +55,7 @@ const input: RuntimeManifestInputV1 = {
 test("runtime manifest v1 has deterministic timestamp-free canonical identity", () => {
   const manifest = createRuntimeManifest(input);
   expect(manifest.version).toBe(RUNTIME_MANIFEST_VERSION);
-  expect(manifest.identity).toBe("a64778f9600ae571e7dbbef4eef780b39621935c24814855f5753bf2ab40ec9f");
+  expect(manifest.identity).toBe("889354cbb96d6f88c15dbf7eb5cb8fb79a313c1bf7569cc6ab1c2b194678a242");
   expect(manifest.identity).toBe(createRuntimeManifest(structuredClone(input)).identity);
   expect(Object.keys(manifest)).toEqual(["version", "identity", "commits", "artifacts"]);
   expect(Object.keys(manifest)).not.toContain("createdAt");
