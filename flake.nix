@@ -222,6 +222,8 @@
             ./bin/north-clock-audit
             ./bin/north-coord-up
             ./bin/north-stream-sync
+            ./bin/north-pinned
+            ./bin/north-effort
             ./bin/concern
             ./bin/ensure-private-docs
           ];
@@ -383,7 +385,8 @@ PY
             cp bin/north bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-up \
-              bin/north-stream-sync bin/concern bin/ensure-private-docs \
+              bin/north-stream-sync bin/north-pinned bin/north-effort \
+              bin/concern bin/ensure-private-docs \
               $out/bin/
             patchShebangs $out/bin
 
