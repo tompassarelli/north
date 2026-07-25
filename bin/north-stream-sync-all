@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# north-stream-sync-all — mirror EVERY account's transcripts, not just one root.
+#
+# north-stream-sync scans a single --src-dir and validates every path against
+# it. That single-root design is deliberate and security-relevant, so this does
+# not touch it: it enumerates the roots and invokes the audited script once per
+# root.
+#
+# WHY THIS EXISTS. The script's default root is $HOME/.claude/projects, which is
+# where Claude Code wrote transcripts before per-account state. It now writes to
+# $CLAUDE_CONFIG_DIR/projects, one directory per provider/account under
+# ~/.local/state/north/accounts. Nothing scanned those, so streams/raw silently
+# stopped gaining anything at the migration while live sessions and every
+# managed lane kept accumulating transcripts unmirrored. The failure was
+# invisible in the worst possible way: the mirror still existed, still had 1244
+# files in it, and was simply frozen.
+#
+# EXIT CODES. 0 = every root mirrored cleanly. 2 = mirroring completed but at
+# least one source was quarantined (a diverged transcript — a report, not a
+# breakage). 1 = at least one root actually failed. Keeping those distinct is
+# the point: a permanently-red unit teaches you to ignore it.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+SYNC="${NORTH_STREAM_SYNC_BIN:-$SELF_DIR/north-stream-sync}"
+[ -x "$SYNC" ] || { echo "north-stream-sync-all: no executable sync at $SYNC" >&2; exit 1; }
+
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+accounts_root="${NORTH_ACCOUNTS_DIR:-$state_home/north/accounts}"
+
+roots=()
+# The pre-account root stays in the sweep: it still holds real history, and
+# dropping it would strand transcripts that were never migrated.
+[ -d "$HOME/.claude/projects" ] && roots+=("$HOME/.claude/projects")
+if [ -d "$accounts_root" ]; then
+  while IFS= read -r d; do
+    [ -d "$d" ] && roots+=("$d")
+  done < <(find "$accounts_root" -mindepth 3 -maxdepth 3 -type d -name projects 2>/dev/null | sort)
+fi
+
+if [ "${#roots[@]}" -eq 0 ]; then
+  echo "north-stream-sync-all: no transcript roots found under $accounts_root or ~/.claude" >&2
+  exit 0
+fi
+
+failed=0
+quarantined=0
+for root in "${roots[@]}"; do
+  "$SYNC" --src-dir "$root" "$@"
+  case "$?" in
+    0) ;;
+    2) quarantined=$((quarantined + 1)) ;;
+    *) failed=$((failed + 1))
+       echo "north-stream-sync-all: root failed: $root" >&2 ;;
+  esac
+done
+
+printf 'north-stream-sync-all: %d root(s); %d quarantining, %d failed\n' \
+  "${#roots[@]}" "$quarantined" "$failed"
+
+[ "$failed" -eq 0 ] || exit 1
+[ "$quarantined" -eq 0 ] || exit 2
+exit 0
