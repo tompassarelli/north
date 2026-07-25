@@ -25,10 +25,26 @@
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
+;; TWO LOGS, and reading one is how this tool lied. The coordinator SPLITS its
+;; write stream by subject token: run-scoped subjects (`@run:…`, like `@session:`
+;; and `@mine:`) route to telemetry.log, while threads and their titles stay in
+;; coordination.log. Folding only coordination.log made `north-effort <thread>`
+;; answer "no runs attributed" about a thread whose run was recorded correctly —
+;; the same class of failure as a read that returns empty instead of refusing.
+;; Both are folded; a missing telemetry.log is tolerated, a missing coordination
+;; log is not.
 (def log (or (System/getenv "FRAM_LOG")
              (str (System/getenv "HOME") "/.local/state/north/coordination.log")))
 
+(def telemetry-log (or (System/getenv "NORTH_TELEMETRY_LOG")
+                       (str (System/getenv "HOME") "/.local/state/north/telemetry.log")))
+
 (def AD-HOC "(ad-hoc)")
+
+;; Subjects and thread references are written both bare and `@`-prefixed
+;; depending on the writer, so a run can carry `thread @019f…` while the thread
+;; itself is keyed `019f…`. Normalise once, at the edge.
+(defn- bare [s] (str/replace (str s) #"^@" ""))
 
 (defn- num* [v] (or (try (Long/parseLong (str v)) (catch Exception _ nil)) 0))
 
@@ -45,27 +61,49 @@
 
 ;; Fold once. Retract records carry the RETRACTED value in :r — folding them as
 ;; asserts re-adopts the value being removed, so they are skipped outright.
+;; `run:` (colon) is the current id shape — telemetry.ts/newRunId explains why the
+;; colon is load-bearing for routing. `run-` (dash) is the pre-2026-07-17 shape
+;; whose facts misrouted into coordination.log; those runs are real work and are
+;; still folded, so history does not silently vanish at the rename.
+(defn- run-subject? [l]
+  (or (str/starts-with? l "run:") (str/starts-with? l "run-")))
+
+(defn- fold-file [acc path]
+  (if-not (.exists (io/file path))
+    acc
+    (with-open [r (io/reader path)]
+      (reduce
+       (fn [acc line]
+         (let [f (try (edn/read-string line) (catch Exception _ nil))]
+           (if-not (and (map? f) (not= "retract" (str (:op f))))
+             acc
+             (let [l (bare (:l f))
+                   p (str (:p f)) v (str (:r f))]
+               (cond
+                 (run-subject? l)  (assoc-in acc [:run l p] (if (= p "thread") (bare v) v))
+                 (= p "title")     (assoc-in acc [:title l] v)
+                 (= p "pinned")    (if (= v "true")
+                                     (update acc :pinned conj l)
+                                     (update acc :pinned disj l))
+                 :else acc)))))
+       acc
+       (line-seq r)))))
+
 (defn fold []
-  (with-open [r (io/reader log)]
-    (reduce
-     (fn [acc line]
-       (let [f (try (edn/read-string line) (catch Exception _ nil))]
-         (if-not (and (map? f) (not= "retract" (str (:op f))))
-           acc
-           (let [l (str/replace (str (:l f)) #"^@" "")
-                 p (str (:p f)) v (str (:r f))]
-             (cond
-               (str/starts-with? l "run-") (assoc-in acc [:run l p] v)
-               (= p "title")               (assoc-in acc [:title l] v)
-               (= p "pinned")              (if (= v "true")
-                                             (update acc :pinned conj l)
-                                             (update acc :pinned disj l))
-               :else acc)))))
-     {:run {} :title {} :pinned #{}}
-     (line-seq r))))
+  (-> {:run {} :title {} :pinned #{}}
+      (fold-file log)
+      (fold-file telemetry-log)))
+
+;; A run whose writer was killed mid-publication leaves a REAL subject carrying
+;; its thread but no duration or tokens — the terminal write is ~200 sequential
+;; coordinator round-trips and the budget could expire partway. Counting those as
+;; ordinary runs understates effort per run and hides the outage; counting them
+;; as nothing hides the work. They are counted separately and named.
+(defn- complete? [r] (pos? (num* (get r "duration_ms"))))
 
 (defn- roll [runs]
-  {:runs      (count runs)
+  {:runs      (count (filter complete? runs))
+   :partial   (count (remove complete? runs))
    :ms        (reduce + (map #(num* (get % "duration_ms")) runs))
    :in        (reduce + (map #(num* (get % "input_tokens")) runs))
    :out       (reduce + (map #(num* (get % "output_tokens")) runs))
@@ -121,32 +159,42 @@
         (println (format "no runs attributed to %s%n(if work was done here, it predates --thread binding — see the unattributed row in `north-effort`)" want))
         (let [r (roll runs)]
           (printf "%s%n%s%n%n" (get title key (str key)) key)
-          (printf "  %d runs · %s agent wall time%n" (:runs r) (human-ms (:ms r)))
+          (printf "  %d runs · %s agent wall time%s%n" (:runs r) (human-ms (:ms r))
+                  (if (pos? (:partial r))
+                    (format "  (+%d partial — terminal write killed, effort unrecorded)" (:partial r))
+                    ""))
           (printf "  tokens  in %s · out %s · cache %s%n"
                   (human-n (:in r)) (human-n (:out r)) (human-n (:cache r)))
           (printf "  models  %s%n" (str/join ", " (:models r)))
           (printf "  delivery %d delivered · %d blocked%n%n" (:delivered r) (:blocked r))
           (doseq [x (sort-by #(- (num* (get % "duration_ms"))) runs)]
             (printf "    %-9s %-22s %s%n"
-                    (human-ms (num* (get x "duration_ms")))
+                    (if (complete? x) (human-ms (num* (get x "duration_ms"))) "partial")
                     (or (get x "model") "—")
-                    (or (get x "delivery_outcome") (get x "process_outcome") "—"))))))
+                    (or (get x "delivery_outcome") (get x "process_outcome")
+                        (if (complete? x) "—" "terminal write killed")))))))
     ;; ---- all threads ---------------------------------------------------------
     (let [rows (->> by-thread
                     (map (fn [[k runs]] (assoc (roll runs) :thread k)))
                     (sort-by #(- (:ms %))))]
       (printf "EFFORT — %d runs across %d threads%n%n" total-runs (count rows))
-      (printf "  %-9s %-6s %-9s %-9s  %s%n" "walltime" "runs" "tok-in" "tok-out" "thread")
-      (println "  " (apply str (repeat 74 \-)))
-      (doseq [{:keys [thread runs ms in out]} rows]
+      (printf "  %-9s %-6s %-5s %-9s %-9s  %s%n" "walltime" "runs" "part" "tok-in" "tok-out" "thread")
+      (println "  " (apply str (repeat 78 \-)))
+      (doseq [{:keys [thread runs partial ms in out]} rows]
         (let [adhoc? (= thread AD-HOC)
               label (if adhoc?
                       "UNATTRIBUTED — ran before/without --thread binding"
                       (subs (str (get title thread thread)) 0
                             (min 46 (count (str (get title thread thread))))))
               pin (if (contains? pinned thread) "*" " ")]
-          (printf "  %-9s %-6d %-9s %-9s %s%s%n"
-                  (human-ms ms) runs (human-n in) (human-n out) pin label)))
-      (println)
+          (printf "  %-9s %-6d %-5s %-9s %-9s %s%s%n"
+                  (human-ms ms) runs (if (pos? partial) (str partial) "·")
+                  (human-n in) (human-n out) pin label)))
+      (let [lost (reduce + (map :partial rows))]
+        (println)
+        (when (pos? lost)
+          (printf "  part = runs whose terminal write was killed mid-publication: %d of %d (%.0f%%)%n"
+                  lost total-runs (* 100.0 (/ lost (max 1 total-runs))))
+          (println "        their effort was spent and is unrecoverable — the record, not the work, was lost")))
       (println "  * pinned · one thread: north-effort <thread-id> · in flight: north-effort --live")
       (println "  units are observed work — tokens and wall time, never dollars")))))

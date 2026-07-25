@@ -18,6 +18,13 @@
 (def log (or (System/getenv "FRAM_LOG")
              (str (System/getenv "HOME") "/.local/state/north/coordination.log")))
 
+;; Run facts live in a SEPARATE log: the coordinator routes run-scoped subjects
+;; (`@run:…`) to telemetry.log by subject token. Folding only coordination.log
+;; showed every pinned fish as "no attributed" runs even when its lanes had
+;; recorded effort correctly.
+(def telemetry-log (or (System/getenv "NORTH_TELEMETRY_LOG")
+                       (str (System/getenv "HOME") "/.local/state/north/telemetry.log")))
+
 (when-not (.exists (io/file log))
   (binding [*out* *err*] (println "north pinned: no coordination log at" log))
   (System/exit 2))
@@ -27,9 +34,14 @@
 ;; Fold the log once. Single-valued predicates take the LAST write (supersession);
 ;; progress accumulates. Reading the log directly keeps this honest even when the
 ;; projection is stale — the log is the source of truth.
-(defn fold []
-  (with-open [r (io/reader log)]
-    (reduce
+(defn- run-subject? [l]
+  (or (str/starts-with? l "run:") (str/starts-with? l "run-")))
+
+(defn- fold-file [init path]
+  (if-not (.exists (io/file path))
+    init
+    (with-open [r (io/reader path)]
+      (reduce
      (fn [acc line]
        (let [f (try (edn/read-string line) (catch Exception _ nil))
              retract? (= "retract" (str (:op f)))]
@@ -54,8 +66,10 @@
            (let [l (str/replace (str (:l f)) #"^@" "")
                  p (str (:p f))
                  v (str (:r f))]
-             (if (str/starts-with? l "run-")
-               (assoc-in acc [:run l p] v)
+             ;; A run's `thread` is written both bare and `@`-prefixed depending
+             ;; on the writer; normalise so it joins to the pinned thread key.
+             (if (run-subject? l)
+               (assoc-in acc [:run l p] (if (= p "thread") (str/replace v #"^@" "") v))
                (case p
                "pinned"   (if (= v "true") (update acc :pinned conj l) (update acc :pinned disj l))
                "priority" (assoc-in acc [:prio l] v)
@@ -64,8 +78,13 @@
                ("outcome" "abandoned" "superseded_by") (assoc-in acc [:term l] p)
                "part_of"  (update-in acc [:kids (str/replace v #"^@" "")] (fnil inc 0))
                acc)))))))
-     {:pinned #{} :prio {} :title {} :prog {} :last {} :term {} :kids {} :run {}}
-     (line-seq r))))
+       init
+       (line-seq r)))))
+
+(defn fold []
+  (-> {:pinned #{} :prio {} :title {} :prog {} :last {} :term {} :kids {} :run {}}
+      (fold-file log)
+      (fold-file telemetry-log)))
 
 (defn- num* [v] (or (try (Long/parseLong (str v)) (catch Exception _ nil)) 0))
 
