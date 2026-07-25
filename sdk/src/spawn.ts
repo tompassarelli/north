@@ -40,7 +40,7 @@ import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgta
 import {
   assessChildFinalization, childContinuationMessage, childDispatchMessage, childReductionMessage,
   continuationRaceOutcome, decideChildTurnEnd, initialChildContinuationState, notifyEarlyExitChildren,
-  requiredDirectChildCount, settleChildren,
+  requiredDirectChildCount, runOrchestratorPark, settleChildren,
   type ChildSettlement, type OrchestratorContinuationKind,
 } from "./children";
 import { admitBillableClock } from "./clock";
@@ -663,12 +663,46 @@ async function runSpawn(
           console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${bgTracker.size()} task(s) still live — finalizing anyway`);
         }
         if (orchestrator) {
-          const decision = decideChildTurnEnd(
+          let decision = decideChildTurnEnd(
             childContinuation,
             readChildSettlement(agentId),
             maxBgContinuations(),
           );
           childContinuation = decision.state;
+          // PARK-AND-RESUME (thread 019f9599): a pure wait on live children must
+          // not spin provider turns. Declare a bounded park naming those children,
+          // hold the provider subprocess dormant (the stall watchdog is not armed
+          // while the harness is not pulling the next message — zero tokens), then
+          // re-decide against the settled snapshot. Genuine abandonment (park
+          // expiry with live children, or an awaited child vanishing) falls through
+          // to the UNCHANGED final early-exit gate so it stays loud.
+          if (decision.action === "continue" && decision.reason === "children_live") {
+            const parked = await runOrchestratorPark(decision.live, {
+              agentId,
+              settle: () => readChildSettlement(agentId),
+              signal: termination.abortController.signal,
+              renewPresence: () => renewHarnessPresence(agentOptions),
+              aborted: () => termination.hostSignal() !== undefined,
+            });
+            if (parked.kind === "settled") {
+              decision = decideChildTurnEnd(
+                childContinuation, parked.settlement, maxBgContinuations(),
+              );
+              childContinuation = decision.state;
+            } else if (parked.kind === "aborted") {
+              break; // host termination during park -> hostSignal handling below
+            } else {
+              const parkOutcome = parked.kind === "abandoned"
+                ? "orchestrator_child_set_inconsistent"
+                : "orchestrator_children_incomplete";
+              console.error(
+                `[park] @agent:${agentId} park ${parked.kind} — recording ${parkOutcome}; `
+                + "final early-exit gate reports the abandoned children",
+              );
+              end(parkOutcome);
+              break;
+            }
+          }
           if (decision.action === "continue") {
             let continuation: string;
             if (decision.reason === "children_live") {
@@ -1025,9 +1059,17 @@ async function runSpawn(
   const mcpActivity = activeExecutionQuery?.mcpActivity?.()
     ?? unknownMcpActivity("provider-activity-unavailable");
   const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.();
+  // Thread attribution. The CLI refuses a managed spawn that names neither a
+  // thread nor --ad-hoc, so by the time we get here the choice was deliberate —
+  // but a direct SDK caller can still omit both, and the honest record of that
+  // is "(ad-hoc)" WITH its provenance, never a silent default that looks bound.
+  const boundThread = opts.thread ?? process.env.AGENT_THREAD ?? "(ad-hoc)";
+  const threadProvenance: "exact" | "ad-hoc" =
+    boundThread === "(ad-hoc)" ? "ad-hoc" : "exact";
+
   const runLedger = await publishRunLifecycleLedger({
     run: runId,
-    thread: opts.thread ?? "(ad-hoc)",
+    thread: boundThread,
     agent: agentId,
     ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
     ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
@@ -1049,7 +1091,7 @@ async function runSpawn(
     : terminal.processOutcome === "blocked_preflight"
       || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
   const runPublication = await recordRun({
-    thread: opts.thread ?? "(ad-hoc)", agent: agentId, posture: "spawn",
+    thread: boundThread, agent: agentId, posture: "spawn",
     // Effective FINAL dial; env-fallback mirrors the identity write so a bare
     // AGENT_MODEL spawn is still attributed.
     model: finalRoute.model,
@@ -1078,7 +1120,7 @@ async function runSpawn(
     providerSessionPersistence: providerJoin?.sessionPersistence ?? "unknown",
     providerJoin,
     northSessionId: opts.sessionId,
-    threadProvenance: opts.thread ? "exact" : "ad-hoc",
+    threadProvenance,
     turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
     promptComposition,
     promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,

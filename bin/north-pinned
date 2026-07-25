@@ -31,27 +31,72 @@
   (with-open [r (io/reader log)]
     (reduce
      (fn [acc line]
-       (let [f (try (edn/read-string line) (catch Exception _ nil))]
-         (if-not (and (map? f) (not= "retract" (str (:op f))))
-           ;; A retract record carries the RETRACTED value in :r. Folding it as an
-           ;; assert adopts the very value being removed — which is how a retracted
-           ;; priority reappeared as the live one.
+       (let [f (try (edn/read-string line) (catch Exception _ nil))
+             retract? (= "retract" (str (:op f)))]
+         (if-not (map? f)
            acc
+           ;; A retract record carries the RETRACTED value in :r, so folding it as
+           ;; an assert re-adopts the value being removed (a retracted priority
+           ;; came back as live). But it must still REMOVE — skipping retracts
+           ;; outright made `north retract <id> pinned true` a no-op, leaving
+           ;; unpinned fish on the board. Retract = removal, never adoption.
+           (if retract?
+             ;; A retract removes ONE (subject, predicate, value). It must not
+             ;; clear a value it does not name — an old retract of a superseded
+             ;; priority was wiping the current one.
+             (let [l (str/replace (str (:l f)) #"^@" "")
+                   v (str (:r f))]
+               (case (str (:p f))
+                 "pinned"   (if (= v "true") (update acc :pinned disj l) acc)
+                 "priority" (if (= v (get (:prio acc) l))
+                              (update acc :prio dissoc l) acc)
+                 acc))
            (let [l (str/replace (str (:l f)) #"^@" "")
                  p (str (:p f))
                  v (str (:r f))]
-             (case p
+             (if (str/starts-with? l "run-")
+               (assoc-in acc [:run l p] v)
+               (case p
                "pinned"   (if (= v "true") (update acc :pinned conj l) (update acc :pinned disj l))
                "priority" (assoc-in acc [:prio l] v)
                "title"    (assoc-in acc [:title l] v)
                "progress" (-> acc (update-in [:prog l] (fnil inc 0)) (assoc-in [:last l] (subs (str (:ts f)) 0 10)))
                ("outcome" "abandoned" "superseded_by") (assoc-in acc [:term l] p)
                "part_of"  (update-in acc [:kids (str/replace v #"^@" "")] (fnil inc 0))
-               acc)))))
-     {:pinned #{} :prio {} :title {} :prog {} :last {} :term {} :kids {}}
+               acc)))))))
+     {:pinned #{} :prio {} :title {} :prog {} :last {} :term {} :kids {} :run {}}
      (line-seq r))))
 
-(let [{:keys [pinned prio title prog last term kids]} (fold)
+(defn- num* [v] (or (try (Long/parseLong (str v)) (catch Exception _ nil)) 0))
+
+(defn- human-ms [ms]
+  (let [sec (quot ms 1000) h (quot sec 3600) m (quot (rem sec 3600) 60)]
+    (cond (>= h 1) (format "%dh%02dm" h m)
+          (>= m 1) (format "%dm" m)
+          (pos? sec) (format "%ds" sec)
+          :else "—")))
+
+(defn- human-n [n]
+  (cond (>= n 1000000) (format "%.1fM" (/ n 1e6))
+        (>= n 1000)    (format "%.1fk" (/ n 1e3))
+        (pos? n)       (str n)
+        :else          "—"))
+
+(let [{:keys [pinned prio title prog last term kids run]} (fold)
+      ;; Effort per fish, from the run ledger. A fish with no attributed runs
+      ;; shows a dash rather than a zero — "never measured" and "measured as
+      ;; nothing" are different claims and must not look identical.
+      effort (reduce (fn [m r]
+                       (let [t (get r "thread")]
+                         (if (or (nil? t) (= t "(ad-hoc)"))
+                           m
+                           (-> m
+                               (update-in [t :runs] (fnil inc 0))
+                               (update-in [t :ms] (fnil + 0) (num* (get r "duration_ms")))
+                               (update-in [t :tok] (fnil + 0)
+                                          (+ (num* (get r "input_tokens"))
+                                             (num* (get r "output_tokens"))))))))
+                     {} (vals run))
       rows (sort-by (fn [t] [(get prio-order (get prio t) 9) (- (get kids t 0))]) pinned)]
   (if (empty? rows)
     (println "No pinned threads. Pin one:  north tell <id> pinned true")
@@ -61,7 +106,11 @@
         (let [state (if-let [x (get term t)] (str/upper-case x) "open")
               flag  (if (get term t) " ← stale pin?" "")]
           (printf "  [%-4s] %-52s%n" (or (get prio t) "-") (subs (str (get title t "?")) 0 (min 52 (count (str (get title t "?"))))))
-          (printf "         %s  ·  %d children  ·  %d progress  ·  last %s  ·  %s%s%n%n"
-                  t (get kids t 0) (get prog t 0) (or (get last t) "—") state flag)))
+          (printf "         %s  ·  %d children  ·  %d progress  ·  last %s  ·  %s%s%n"
+                  t (get kids t 0) (get prog t 0) (or (get last t) "—") state flag)
+          (let [e (get effort t)]
+            (printf "         effort: %s agent time · %s tokens · %s runs%n%n"
+                    (human-ms (:ms e 0)) (human-n (:tok e 0))
+                    (if (:runs e) (str (:runs e)) "no attributed")))))
       (printf "Pin:    north tell <id> pinned true   ·   north tell <id> priority high|mid|low%n")
       (printf "Unpin:  north retract <id> pinned true%n"))))

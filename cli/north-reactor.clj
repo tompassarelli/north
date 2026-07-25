@@ -319,8 +319,12 @@
                    :let  [h        (strip-sigil e "@agent:")
                           l        (north.coord/lease-of port (str "session:" h))
                           lease-exp (:exp l)
-                          sp       (or (spawned-ms e) (north.reap/sdk-agent-mint-ms h))]
-                   :when (north.reap/reap-lane? now (lane-reap-blocked?* h) lease-exp sp)]
+                          sp       (or (spawned-ms e) (north.reap/sdk-agent-mint-ms h))
+                          ;; thread 019f9599: an orchestrator parked on live children
+                          ;; is deliberately dormant — exempt it from reaping until
+                          ;; its declared park expiry (park-active? fails closed).
+                          park     (north.coord/resolved port e "orchestrator_park")]
+                   :when (north.reap/reap-lane? now (lane-reap-blocked?* h) lease-exp sp park)]
                {:e e :h h :lapse (north.reap/lane-lapse-ms now lease-exp sp)})]
     (doseq [{:keys [e h lapse]} hits]
       (when-not dry?

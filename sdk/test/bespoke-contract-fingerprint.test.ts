@@ -143,7 +143,7 @@ test("Clojure dry-run fingerprint is byte-identical and its UI is contract-redac
     cli, "spawn", "migration-forensics", "probe", "--provider", "openai", "--nearest", "analyst",
     "--pin-evidence", openaiPinEvidence,
     "--rationale", rationale, "--contract", JSON.stringify(semanticallyEquivalent),
-    "--no-promotion-candidate", "--dry-run",
+    "--no-promotion-candidate", "--ad-hoc", "--dry-run",
   ], {
     encoding: "utf8",
     env: {
@@ -177,7 +177,7 @@ test("CLI forwards the canonical contract to the child behind the redacted displ
                   "--pin-evidence" ${JSON.stringify(openaiPinEvidence)}
                   "--nearest" "analyst" "--rationale" "private rationale"
                   "--contract" ${JSON.stringify(JSON.stringify(semanticallyEquivalent))}
-                  "--no-promotion-candidate"])
+                  "--no-promotion-candidate" "--ad-hoc"])
       (let [composition (json/parse-string (get @captured-env "AGENT_COMPOSITION") true)
             expected (json/parse-string ${JSON.stringify(expected)} true)]
         (println (str "CANONICAL_CHILD_CONTRACT=" (= expected (:contract composition))))))`;
