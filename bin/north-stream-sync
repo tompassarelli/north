@@ -856,5 +856,11 @@ for legacy in "${legacy_cleanup[@]}"; do
   rm -f -- "${legacy:?}"
 done
 if [ "$new_errors" -ne 0 ]; then
-  exit 1
+  # 2, not 1: a quarantine is a REPORT about one source, not a failure of the
+  # sync. Everything else still mirrored, and collapsing the two into exit 1
+  # made systemd mark the unit FAILED whenever any single transcript had
+  # diverged — so the unit sat red for reasons unrelated to whether mirroring
+  # worked, which is precisely how a real outage stays invisible. Callers that
+  # only test for nonzero are unaffected.
+  exit 2
 fi
