@@ -1189,6 +1189,27 @@
               (println (dim (str "  so the run would look bound and be orphaned. Resolve it first:")))
               (println (dim (str "    north show " thread "   # prints the full id, or names the ambiguity"))))
             (System/exit 2))
+        ;; SHAPE IS NOT EXISTENCE. The check above only proves the id is
+        ;; well-formed, and a well-formed id that names no thread binds a run to
+        ;; nothing just as surely as a prefix does — worse, actually, because it
+        ;; looks canonical. I proved this the hard way: I dispatched a canary
+        ;; against a UUID I had invented while testing the shape gate, and the
+        ;; gate passed it. A thread exists iff it carries a title.
+        _ (when thread
+            (let [bare (str/replace-first (str thread) #"^@" "")
+                  titled? (try
+                            (boolean (seq (str (north.coord/resolved
+                                                (Integer/parseInt PORT)
+                                                (str "@" bare) "title"))))
+                            (catch Exception _ nil))]
+              (when-not titled?
+                (binding [*out* *err*]
+                  (println (red (str "--thread " bare " names no thread")))
+                  (println (dim "  it is well-formed but carries no title, so nothing would join to it."))
+                  (println (dim "  capture it first, or correct the id:"))
+                  (println (dim (str "    north show " (subs bare 0 (min 8 (count bare)))
+                                     "   # find the real id by prefix"))))
+                (System/exit 2))))
         catalog (orchestration-catalog)
         dt (or (orchestration-routing) {})
         raw-supplied-composition (parse-json-input "--composition" composition)
