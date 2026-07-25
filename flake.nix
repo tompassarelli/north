@@ -1080,7 +1080,7 @@ PY
             HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file \
               $out/bin/north spawn implementer probe \
               --provider openai --pin-evidence "@$smoke/openai-pin-evidence.json" \
-              --dry-run > "$smoke/spawn.out"
+              --ad-hoc --dry-run > "$smoke/spawn.out"
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
             # Assessed dispatch must resolve Orchestration's canonical selection
@@ -1097,7 +1097,7 @@ PY
             NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
               NORTH_STAFFING_SOURCE=file \
               $out/bin/north spawn verifier probe \
-              --assessment "@$smoke/verifier-assessment.json" --dry-run \
+              --assessment "@$smoke/verifier-assessment.json" --ad-hoc --dry-run \
               > "$smoke/assessed-spawn.out"
             grep -q 'grade=senior tier=senior reasoning=high role=verifier' "$smoke/assessed-spawn.out"
             grep -q 'AGENT_ROUTING_ASSESSMENT=RECORDED' "$smoke/assessed-spawn.out"
@@ -1109,7 +1109,7 @@ PY
             if NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
                  NORTH_STAFFING_SOURCE=file \
                  $out/bin/north spawn verifier probe \
-                 --assessment "@$smoke/verifier-assessment-forged.json" --dry-run \
+                 --assessment "@$smoke/verifier-assessment-forged.json" --ad-hoc --dry-run \
                  > "$smoke/assessed-forged.out" 2>&1; then
               echo "north package smoke: forged assessment was admitted" >&2
               cat "$smoke/assessed-forged.out" >&2
