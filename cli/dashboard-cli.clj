@@ -260,8 +260,14 @@
            " ≠ " (pr-str (vec (sort (map name concern-row-keys)))))
       (not (and (string? id) (seq id)))          (str "row :id not a non-empty string: " (pr-str id))
       (not (or (nil? agent) (string? agent)))    (str "row :agent not string-or-null: " (pr-str agent))
-      (not (string? repo))                       (str "row :repo not a string: " (pr-str repo))
-      (not (string? intent))                     (str "row :intent not a string: " (pr-str intent))
+      ;; repo/intent are string-or-null exactly like :agent above: a concern
+      ;; declared without a repo or intent emits null, and demanding a string
+      ;; here rejected the WHOLE projection over a single row — which is how
+      ;; `north doctor` reported "concerns (unavailable)" against 167 perfectly
+      ;; readable concerns. Fail closed on a malformed TYPE, never on an absent
+      ;; optional value.
+      (not (or (nil? repo) (string? repo)))      (str "row :repo not string-or-null: " (pr-str repo))
+      (not (or (nil? intent) (string? intent)))  (str "row :intent not string-or-null: " (pr-str intent))
       (not (contains? concern-maturities maturity))
       (str "row :maturity not one of " (pr-str (vec (sort concern-maturities))) ": " (pr-str maturity))
       (not (contains? concern-classifications classification))
