@@ -922,7 +922,12 @@
    "--rationale" :rationale "--nearest" :nearest "--contract" :contract
    "--override-reason" :overrideReason "--model" :model
    "--assessment" :assessment "--routing-assessment" :assessment
-   "--pin-evidence" :pinEvidence})
+   "--pin-evidence" :pinEvidence
+   ;; Thread binding is what makes a run's effort attributable. Without it the
+   ;; run records thread "(ad-hoc)" and its wall time and tokens can never roll
+   ;; up to any workstream — 244 of 303 historical runs are unattributed for
+   ;; exactly this reason, because `spawn` had no way to express the binding.
+   "--thread" :thread})
 
 (defn cmd-spawn-help []
   (let [roles (sort (keys (or (orchestration-routing) {})))]
@@ -970,6 +975,9 @@
     (if-let [x (first xs)]
       (cond
         (= x "--dry-run") (recur (rest xs) positionals (assoc opts :dry? true))
+        ;; Running unattributed stays possible but must be DELIBERATE. An
+        ;; accidental bare spawn is refused; --ad-hoc is how you say you meant it.
+        (= x "--ad-hoc") (recur (rest xs) positionals (assoc opts :ad-hoc? true))
         (#{"--promotion-candidate" "--nominate" "--no-promotion-candidate"} x)
         (if (:promotion-specified? opts)
           (do (println (red "choose exactly one promotion decision")) (System/exit 1))
@@ -1142,9 +1150,27 @@
   (north.topology-authority/require-coordination! "spawn")
   (let [{:keys [dry? notify provider target model taskGrade domains topology tier reasoning posture composition
                 assessment pinEvidence rationale nearest contract overrideReason
-                promotion-specified? promotionCandidate positionals]}
+                promotion-specified? promotionCandidate positionals thread ad-hoc?]}
         (parse-spawn-args args)
+        ;; ATTRIBUTION GATE. A managed run whose effort cannot be attributed to a
+        ;; workstream is invisible to `north effort` forever after — the wall time
+        ;; and tokens are spent but unaccountable. Refuse the ambiguous case and
+        ;; make the unattributed one explicit, matching North's fail-closed idiom.
         [invoked-role prompt & extra] positionals
+        _ (when (and thread ad-hoc?)
+            (println (red "choose one: --thread <id> binds this run, --ad-hoc runs it unattributed"))
+            (System/exit 2))
+        ;; Gate only an ACTUAL spawn request: with no role/prompt this call is the
+        ;; usage/help path and must still print help. `delegate` also routes through
+        ;; cmd-spawn but resolves its OWN thread later (resolve-delegate-thread!),
+        ;; so it is attributable by construction and must not be caught here.
+        _ (when-not (or thread ad-hoc? *delegate-request*
+                        (str/blank? (str invoked-role)) (str/blank? (str prompt)))
+            (binding [*out* *err*]
+              (println (red "managed spawn requires --thread <id> so its effort is attributable"))
+              (println (dim "  pass --thread <id> to bind this run to a workstream,"))
+              (println (dim "  or --ad-hoc to deliberately run it unattributed.")))
+            (System/exit 2))
         catalog (orchestration-catalog)
         dt (or (orchestration-routing) {})
         raw-supplied-composition (parse-json-input "--composition" composition)
@@ -1382,6 +1408,13 @@
                   routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment))
                   pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" (json/generate-string pin-evidence))
                   notify (assoc "AGENT_COORDINATOR" notify)
+                  ;; Carry the binding to the SDK so the run subject records it.
+                  ;; AGENT_THREAD_PROVENANCE distinguishes a deliberate explicit
+                  ;; binding from a deliberate ad-hoc one; nothing else may be
+                  ;; unattributed, so absence of both is already refused above.
+                  thread (assoc "AGENT_THREAD" thread
+                                "AGENT_THREAD_PROVENANCE" "exact")
+                  ad-hoc? (assoc "AGENT_THREAD_PROVENANCE" "ad-hoc")
                   delegate-binding (assoc "NORTH_DELEGATE_THREAD_ID" (:id delegate-binding)))
             immediate-coordinator (or notify (System/getenv "AGENT_ID")
                                       (System/getenv "NORTH_AGENT_ID"))

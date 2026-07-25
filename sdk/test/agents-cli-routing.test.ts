@@ -46,7 +46,11 @@ function providerPin(provider: string): string[] {
 
 function dry(role: string, provider: string, ...extra: string[]): string {
   const result = spawnSync("bb", [
-    cli, "spawn", role, "probe", "--provider", provider, ...providerPin(provider), "--dry-run", ...extra,
+    // --ad-hoc: these assert ROUTING, not attribution. Spawn now refuses a run
+    // that names neither a thread nor --ad-hoc, so routing fixtures declare the
+    // unattributed intent explicitly rather than relying on a silent default.
+    cli, "spawn", role, "probe", "--provider", provider, ...providerPin(provider),
+    "--ad-hoc", "--dry-run", ...extra,
   ], {
     encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
       ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
@@ -62,7 +66,7 @@ test("director is the canonical orchestrator role and topology names fail pedago
   expect(director).toContain("AGENT_ROLE=director");
   expect(director).not.toContain("AGENT_MODEL=");
   for (const topology of ["orchestrator", "worker"]) {
-    const result = spawnSync("bb", [cli, "spawn", topology, "probe", "--dry-run"], {
+    const result = spawnSync("bb", [cli, "spawn", topology, "probe", "--ad-hoc", "--dry-run"], {
       encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
         ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
     });
@@ -81,7 +85,7 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
 
   const overridden = spawnSync("bb", [
     cli, "spawn", "director", "probe", "--provider", "anthropic",
-    ...providerPin("anthropic"), "--dry-run",
+    ...providerPin("anthropic"), "--ad-hoc", "--dry-run",
   ], {
     encoding: "utf8",
     env: {
@@ -105,7 +109,7 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
 
   const invalid = spawnSync("bb", [
     cli, "spawn", "integrator", "probe", "--provider", "openai",
-    ...providerPin("openai"), "--dry-run",
+    ...providerPin("openai"), "--ad-hoc", "--dry-run",
   ], {
     encoding: "utf8",
     env: {
@@ -122,7 +126,7 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
 });
 
 test("a managed CLI orchestrator without an exact parent reservation fails safe before recursive spawn", () => {
-  const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args, "--dry-run"], {
+  const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args, "--ad-hoc", "--dry-run"], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -157,7 +161,7 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
 });
 
 test("ambiguous researcher role fails with the three explicit research functions", () => {
-  const result = spawnSync("bb", [cli, "spawn", "researcher", "probe", "--dry-run"], {
+  const result = spawnSync("bb", [cli, "spawn", "researcher", "probe", "--ad-hoc", "--dry-run"], {
     encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
       ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
@@ -219,7 +223,7 @@ test("composite preview and execution share pinned-provider admission before sid
   try {
     const requests = [
       ["delegate", "coordinate this", "--composite"],
-      ["spawn", "director", "coordinate this"],
+      ["spawn", "director", "coordinate this", "--ad-hoc"],
     ];
     for (const request of requests) {
       const result = spawnSync("bb", [
@@ -229,7 +233,7 @@ test("composite preview and execution share pinned-provider admission before sid
           { kind: "provider", value: "openai" },
           { kind: "account", value: "codex-work" },
         ),
-        "--dry-run",
+        "--ad-hoc", "--dry-run",
       ], { encoding: "utf8", env });
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain("[dry-run]");
@@ -668,6 +672,30 @@ test("bespoke roles require a structured contract and explicit promotion decisio
   expect(nearest).not.toContain("timeline and gaps");
 });
 
+test("a managed spawn must declare its thread attribution or explicit ad-hoc intent", () => {
+  const spawn = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+  });
+
+  // Naming neither is REFUSED. An unattributed run's wall time and tokens can
+  // never roll up to a workstream, and 244 of 303 historical runs were lost to
+  // exactly this silent default.
+  const bare = spawn("implementer", "probe", "--dry-run");
+  expect(bare.status).toBe(2);
+  expect(`${bare.stdout}${bare.stderr}`).toContain("requires --thread");
+
+  // Naming BOTH is refused too — the intent is ambiguous, not additive.
+  const both = spawn("implementer", "probe", "--thread", "019f0000-0000-7000-8000-000000000000",
+    "--ad-hoc", "--dry-run");
+  expect(both.status).toBe(2);
+
+  // Bare `spawn` with no role/prompt is the usage path and must still help.
+  const help = spawn();
+  expect(help.status).toBe(0);
+  expect(help.stdout).toContain("--nearest PRESET");
+});
+
 test("bespoke help is discoverable and invalid bespoke inputs exit nonzero", () => {
   const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
     encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
@@ -679,11 +707,11 @@ test("bespoke help is discoverable and invalid bespoke inputs exit nonzero", () 
   expect(help.stdout).toContain("--contract JSON|@file");
   expect(help.stdout).toContain("first-class bespoke compositions");
   for (const result of [
-    run("one-off", "probe", "--dry-run"),
+    run("one-off", "probe", "--ad-hoc", "--dry-run"),
     run("one-off", "probe", "--nearest", "missing", "--rationale", "special", "--contract", bespokeContract,
-      "--no-promotion-candidate", "--dry-run"),
-    run("scout", "probe", "--topology", "verifier", "--dry-run"),
-    run("director", "probe", "--topology", "worker", "--override-reason", "contradiction", "--dry-run"),
+      "--no-promotion-candidate", "--ad-hoc", "--dry-run"),
+    run("scout", "probe", "--topology", "verifier", "--ad-hoc", "--dry-run"),
+    run("director", "probe", "--topology", "worker", "--override-reason", "contradiction", "--ad-hoc", "--dry-run"),
   ]) expect(result.status).toBe(1);
 });
 

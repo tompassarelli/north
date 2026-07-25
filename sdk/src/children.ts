@@ -714,3 +714,281 @@ export function notifyEarlyExitChildren(
   }
   console.error(`[early-exit] @agent:${agentId} EXITING WITH ${liveIds.length} LIVE CHILD(REN): ${liveIds.join(", ")}`);
 }
+
+// ── Orchestrator park-and-resume (thread 019f9599) ──────────────────────────────
+// The defect this closes: a parent with live children had only two turn-end paths —
+// spin genuine provider turns (burning tokens to "wait"), or end the turn and be
+// recorded orchestrator_children_incomplete (three standing seats died this way in
+// one evening). Neither is WAITING. Park is the third path. A parent DECLARES it is
+// dormant-waiting on named children via a bounded `orchestrator_park` fact on
+// @agent:<id>, keeps its provider subprocess idle (zero tokens — the harness simply
+// stops pulling the next message, so the stall watchdog is never armed), and is
+// resumed for reduction when those children settle. The declaration is load-bearing:
+//   • it makes the parent OBSERVABLE (`north agents` shows the awaited children) and
+//     durably REAP-EXEMPT until expiry (cli/reap.clj park-active?), so a parked parent
+//     is neither false-live nor silently reaped;
+//   • it is the ONLY thing separating a legitimate park from genuine abandonment. An
+//     UNDECLARED exit with live children still fires the loud early_exit_children fact
+//     + peer ping exactly as before, and a park that EXPIRES with children still live
+//     (or whose awaited child vanishes) is treated as abandonment and goes loud too —
+//     park can never silently drop children.
+
+export const ORCHESTRATOR_PARK_VERSION = 1;
+// A park is bounded: a parent may wait a long time on slow children, but never
+// forever — an unbounded park is indistinguishable from a wedged process. Expiry
+// restores normal reaping and the loud abandonment path.
+export const ORCHESTRATOR_PARK_TTL_CEILING_MS = 24 * 60 * 60 * 1000; // 24h hard ceiling
+export const ORCHESTRATOR_PARK_TTL_DEFAULT_MS = 4 * 60 * 60 * 1000; //  4h
+export const ORCHESTRATOR_PARK_POLL_CEILING_MS = 5 * 60 * 1000; //      5min
+export const ORCHESTRATOR_PARK_POLL_DEFAULT_MS = 15 * 1000; //         15s
+const ORCHESTRATOR_PARK_MAX_VALUE_BYTES = 64 * 1024;
+const ORCHESTRATOR_PARK_MAX_CHILD_ID = 512;
+
+function boundedEnvMs(name: string, fallback: number, ceiling: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > ceiling) return fallback;
+  return value;
+}
+
+export function orchestratorParkTtlMs(): number {
+  return boundedEnvMs(
+    "NORTH_ORCHESTRATOR_PARK_TTL_MS",
+    ORCHESTRATOR_PARK_TTL_DEFAULT_MS,
+    ORCHESTRATOR_PARK_TTL_CEILING_MS,
+  );
+}
+
+export function orchestratorParkPollMs(): number {
+  return boundedEnvMs(
+    "NORTH_ORCHESTRATOR_PARK_POLL_MS",
+    ORCHESTRATOR_PARK_POLL_DEFAULT_MS,
+    ORCHESTRATOR_PARK_POLL_CEILING_MS,
+  );
+}
+
+export interface OrchestratorPark {
+  children: string[]; // canonical live children the parent is waiting on
+  parkedAt: string; //  ISO-8601
+  expiresAt: string; // ISO-8601 (parkedAt + TTL)
+}
+
+export function orchestratorPark(
+  live: string[],
+  parkedAtMs: number,
+  ttlMs: number,
+): OrchestratorPark {
+  if (!Number.isSafeInteger(parkedAtMs) || parkedAtMs < 0) {
+    throw new Error("park timestamp must be a non-negative safe integer");
+  }
+  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+    throw new Error("park ttl must be a positive safe integer");
+  }
+  const children = canonicalChildren(live);
+  if (children.length === 0) throw new Error("a park must name at least one live child");
+  if (children.length > CHILD_SETTLEMENT_MAX_CHILDREN) {
+    throw new Error("park child set exceeds its bound");
+  }
+  return {
+    children,
+    parkedAt: new Date(parkedAtMs).toISOString(),
+    expiresAt: new Date(parkedAtMs + ttlMs).toISOString(),
+  };
+}
+
+export function serializeOrchestratorPark(park: OrchestratorPark): string {
+  return JSON.stringify({
+    v: ORCHESTRATOR_PARK_VERSION,
+    children: park.children,
+    parkedAt: park.parkedAt,
+    expiresAt: park.expiresAt,
+  });
+}
+
+// Fail closed: any malformed / oversized / wrong-version value is "no valid park"
+// (null), never a partially-trusted park. The reaper treats null as "not exempt".
+export function parseOrchestratorPark(value: string): OrchestratorPark | null {
+  if (typeof value !== "string" || value.length > ORCHESTRATOR_PARK_MAX_VALUE_BYTES) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  if (obj.v !== ORCHESTRATOR_PARK_VERSION) return null;
+  if (!Array.isArray(obj.children) || obj.children.length === 0
+      || obj.children.length > CHILD_SETTLEMENT_MAX_CHILDREN) {
+    return null;
+  }
+  const children: string[] = [];
+  for (const child of obj.children) {
+    if (typeof child !== "string" || child.length === 0
+        || child.length > ORCHESTRATOR_PARK_MAX_CHILD_ID) {
+      return null;
+    }
+    children.push(child);
+  }
+  if (typeof obj.parkedAt !== "string" || typeof obj.expiresAt !== "string") return null;
+  if (!Number.isFinite(Date.parse(obj.parkedAt))
+      || !Number.isFinite(Date.parse(obj.expiresAt))) {
+    return null;
+  }
+  return {
+    children: canonicalChildren(children),
+    parkedAt: obj.parkedAt,
+    expiresAt: obj.expiresAt,
+  };
+}
+
+export function parkDeclareCommands(agentId: string, park: OrchestratorPark): Cmd[] {
+  return [{
+    cmd: northBin(),
+    args: ["tell", `agent:${agentId}`, "orchestrator_park", serializeOrchestratorPark(park)],
+  }];
+}
+
+export function parkClearCommands(agentId: string, park: OrchestratorPark): Cmd[] {
+  return [{
+    cmd: northBin(),
+    args: ["retract", `agent:${agentId}`, "orchestrator_park", serializeOrchestratorPark(park)],
+  }];
+}
+
+// PURE resume verdict, evaluated each poll against a fresh settlement snapshot.
+//   resume    — every awaited child is terminal; hand the settled snapshot back to
+//               the normal reduction/finish machine.
+//   wait      — children still live (or a transient unavailable read) and unexpired.
+//   expired   — the park's TTL elapsed with children still live; abandonment, go loud.
+//   abandoned — an awaited coordinator edge disappeared (child-set regression); loud.
+export type ParkResumeDecision =
+  | { action: "resume"; settlement: ChildSettlement & { kind: "settled" } }
+  | { action: "wait" }
+  | { action: "expired"; live: string[] }
+  | { action: "abandoned"; missing: string[] };
+
+export function decideParkResume(
+  park: OrchestratorPark,
+  settlement: ChildSettlement,
+  nowMs: number,
+): ParkResumeDecision {
+  const expired = nowMs >= Date.parse(park.expiresAt);
+  if (settlement.kind === "unavailable") {
+    // A transient graph read failure must not collapse a park; keep waiting until
+    // TTL. Only expiry ends an unresolvable park (then handled loudly upstream).
+    return expired ? { action: "expired", live: park.children } : { action: "wait" };
+  }
+  const current = new Set(canonicalChildren(settlement.children));
+  const missing = park.children.filter((child) => !current.has(child));
+  if (missing.length > 0) return { action: "abandoned", missing };
+  if (settlement.kind === "settled") return { action: "resume", settlement };
+  return expired ? { action: "expired", live: settlement.live } : { action: "wait" };
+}
+
+export interface ParkAwaitDependencies {
+  settle: () => ChildSettlement;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number; // epoch ms
+  declare: (park: OrchestratorPark) => void;
+  clear: (park: OrchestratorPark) => void;
+  heartbeat?: () => void;
+  aborted?: () => boolean;
+  ttlMs?: number;
+  pollMs?: number;
+}
+
+export type ParkAwaitResult =
+  | { kind: "settled"; settlement: ChildSettlement & { kind: "settled" } }
+  | { kind: "expired"; live: string[] }
+  | { kind: "abandoned"; missing: string[] }
+  | { kind: "aborted" };
+
+// The dormant wait loop. Impure but fully INJECTABLE (fake sleep/now/settle) so the
+// park lifecycle is unit-testable with no live coordinator and no real clock. The park
+// fact is declared once up front and always cleared in `finally` — a resumed, expired,
+// abandoned, or aborted park never leaves a stale declaration behind.
+export async function awaitParkedChildren(
+  live: string[],
+  deps: ParkAwaitDependencies,
+): Promise<ParkAwaitResult> {
+  const ttlMs = deps.ttlMs ?? orchestratorParkTtlMs();
+  const pollMs = deps.pollMs ?? orchestratorParkPollMs();
+  const park = orchestratorPark(live, deps.now(), ttlMs);
+  deps.declare(park);
+  try {
+    for (;;) {
+      if (deps.aborted?.()) return { kind: "aborted" };
+      const decision = decideParkResume(park, deps.settle(), deps.now());
+      if (decision.action === "resume") {
+        return { kind: "settled", settlement: decision.settlement };
+      }
+      if (decision.action === "expired") return { kind: "expired", live: decision.live };
+      if (decision.action === "abandoned") return { kind: "abandoned", missing: decision.missing };
+      deps.heartbeat?.(); // renew presence so the lane stays observably alive
+      await deps.sleep(pollMs); // dormant until the next poll — no provider turn
+    }
+  } finally {
+    deps.clear(park);
+  }
+}
+
+function runParkCommands(cmds: Cmd[], timeoutMs = 10_000): void {
+  const startedAt = performance.now();
+  for (const { cmd, args } of cmds) {
+    try {
+      const remaining = Math.max(1, Math.floor(timeoutMs - (performance.now() - startedAt)));
+      execFileSync(cmd, args, {
+        encoding: "utf8",
+        timeout: remaining,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+    } catch {
+      /* best-effort: the park fact is advisory for observability + reap-exemption;
+         the wait loop still awaits settlement even if the write did not land. */
+    }
+  }
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const onAbort = () => { clearTimeout(timer); resolve(); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export interface OrchestratorParkHooks {
+  agentId: string;
+  settle: () => ChildSettlement;
+  signal: AbortSignal;
+  renewPresence?: () => void;
+  aborted?: () => boolean;
+}
+
+// Thin production wiring: bind the injectable wait loop to the real coordinator
+// (fact writes), the real clock, and the harness abort signal.
+export async function runOrchestratorPark(
+  live: string[],
+  hooks: OrchestratorParkHooks,
+): Promise<ParkAwaitResult> {
+  return awaitParkedChildren(live, {
+    settle: hooks.settle,
+    sleep: (ms) => abortableSleep(ms, hooks.signal),
+    now: () => Date.now(),
+    declare: (park) => {
+      runParkCommands(parkDeclareCommands(hooks.agentId, park));
+      console.error(
+        `[park] @agent:${hooks.agentId} PARKED on ${park.children.length} live child(ren): `
+        + `${park.children.join(", ")} (until ${park.expiresAt})`,
+      );
+    },
+    clear: (park) => runParkCommands(parkClearCommands(hooks.agentId, park)),
+    heartbeat: hooks.renewPresence,
+    aborted: hooks.aborted ?? (() => hooks.signal.aborted),
+  });
+}

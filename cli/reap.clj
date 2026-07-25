@@ -4,7 +4,8 @@
 ;; the same shapes directly. No coordinator, no clock, no atoms here — inputs in, verdict
 ;; out. Loaded (not required) the same way north-reactor.clj loads coord.clj.
 (ns north.reap
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]))
 
 (load-file (str (.getParent (io/file *file*)) "/terminal-projection.clj"))
@@ -46,13 +47,40 @@
     spawned-ms                        (- now spawned-ms)
     :else                             nil))
 
+(defn park-active?
+  "True iff the lane declares an UNEXPIRED orchestrator_park (thread 019f9599).
+   park-value is the raw @agent:<h> `orchestrator_park` fact value (JSON) or nil;
+   now is epoch-ms. A parked parent is deliberately dormant-waiting on named
+   children, so it is EXEMPT from liveness reaping until its declared expiry — even
+   with a lapsed lease (the whole point is a parent that costs no tokens while it
+   waits). Fails closed: a missing/malformed/version-mismatched/expired value is
+   NOT an active park, so a genuinely dead lane is never shielded. Mirror of the
+   SDK parseOrchestratorPark contract in sdk/src/children.ts."
+  [now park-value]
+  (boolean
+   (when (string? park-value)
+     (try
+       (let [p (json/parse-string park-value true)]
+         (and (map? p)
+              (= 1 (:v p))
+              (let [expires (:expiresAt p)]
+                (and (string? expires)
+                     (let [exp (.toEpochMilli (java.time.Instant/parse expires))]
+                       (> exp now))))))
+       (catch Throwable _ false)))))
+
 (defn reap-lane?
-  "Terminal verdict. Reap iff no committed lane/run terminal resolves the lane
-  and its silence lapse has reached LANE-STALE-MS."
-  [now resolved? lease-exp spawned-ms]
-  (and (not resolved?)
-       (let [lp (lane-lapse-ms now lease-exp spawned-ms)]
-         (boolean (and lp (>= lp LANE-STALE-MS))))))
+  "Terminal verdict. Reap iff no committed lane/run terminal resolves the lane,
+  no unexpired orchestrator_park exempts it, and its silence lapse has reached
+  LANE-STALE-MS. The 4-arg arity keeps the pre-park callers/tests byte-identical
+  (park-value nil = not parked)."
+  ([now resolved? lease-exp spawned-ms]
+   (reap-lane? now resolved? lease-exp spawned-ms nil))
+  ([now resolved? lease-exp spawned-ms park-value]
+   (and (not resolved?)
+        (not (park-active? now park-value))
+        (let [lp (lane-lapse-ms now lease-exp spawned-ms)]
+          (boolean (and lp (>= lp LANE-STALE-MS)))))))
 
 (defn orphaned-driver-subjects
   "Thread subjects whose driver ref names the reaped lane handle. Input rows are

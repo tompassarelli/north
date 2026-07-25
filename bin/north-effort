@@ -1,0 +1,117 @@
+#!/usr/bin/env bb
+;; north effort — where agent time and tokens actually went, per thread.
+;;
+;; Answers "how much has this workstream cost me" from the run ledger: agent wall
+;; time, tokens in/out/cache, run count, and the delivery mix. Folds the
+;; coordination log directly, so it stays truthful when the .md projection lags.
+;;
+;;   north-effort                 all threads, ranked by agent wall time
+;;   north-effort <thread-id>     one thread, with its runs itemised
+;;
+;; TWO THINGS THIS DELIBERATELY DOES NOT DO.
+;;
+;; It never prints money. North runs on subscription entitlements, and
+;; cli/routing-report.clj states the standing unit as "observed work, never
+;; dollars or API credits". Tokens and wall time are the honest units.
+;;
+;; It never hides the gap. Runs whose thread is "(ad-hoc)" are reported as an
+;; explicit `unattributed` row rather than dropped. Historically that is most of
+;; them — `north spawn` had no --thread flag at all, so the effort was spent but
+;; unaccountable. A report that quietly omitted them would be the same class of
+;; lie as a read that returns empty instead of refusing.
+
+(require '[clojure.edn :as edn]
+         '[clojure.java.io :as io]
+         '[clojure.string :as str])
+
+(def log (or (System/getenv "FRAM_LOG")
+             (str (System/getenv "HOME") "/.local/state/north/coordination.log")))
+
+(def AD-HOC "(ad-hoc)")
+
+(defn- num* [v] (or (try (Long/parseLong (str v)) (catch Exception _ nil)) 0))
+
+(defn- human-ms [ms]
+  (let [s (quot ms 1000) h (quot s 3600) m (quot (rem s 3600) 60)]
+    (cond (>= h 1) (format "%dh%02dm" h m)
+          (>= m 1) (format "%dm%02ds" m (rem s 60))
+          :else    (format "%ds" s))))
+
+(defn- human-n [n]
+  (cond (>= n 1000000) (format "%.1fM" (/ n 1e6))
+        (>= n 1000)    (format "%.1fk" (/ n 1e3))
+        :else          (str n)))
+
+;; Fold once. Retract records carry the RETRACTED value in :r — folding them as
+;; asserts re-adopts the value being removed, so they are skipped outright.
+(defn fold []
+  (with-open [r (io/reader log)]
+    (reduce
+     (fn [acc line]
+       (let [f (try (edn/read-string line) (catch Exception _ nil))]
+         (if-not (and (map? f) (not= "retract" (str (:op f))))
+           acc
+           (let [l (str/replace (str (:l f)) #"^@" "")
+                 p (str (:p f)) v (str (:r f))]
+             (cond
+               (str/starts-with? l "run-") (assoc-in acc [:run l p] v)
+               (= p "title")               (assoc-in acc [:title l] v)
+               (= p "pinned")              (if (= v "true")
+                                             (update acc :pinned conj l)
+                                             (update acc :pinned disj l))
+               :else acc)))))
+     {:run {} :title {} :pinned #{}}
+     (line-seq r))))
+
+(defn- roll [runs]
+  {:runs      (count runs)
+   :ms        (reduce + (map #(num* (get % "duration_ms")) runs))
+   :in        (reduce + (map #(num* (get % "input_tokens")) runs))
+   :out       (reduce + (map #(num* (get % "output_tokens")) runs))
+   :cache     (reduce + (map #(+ (num* (get % "cache_read_tokens"))
+                                 (num* (get % "cache_create_tokens"))) runs))
+   :models    (into (sorted-set) (keep #(get % "model") runs))
+   :delivered (count (filter #(#{"reported" "verified"} (get % "delivery_outcome")) runs))
+   :blocked   (count (filter #(= "blocked" (get % "delivery_outcome")) runs))})
+
+(let [{:keys [run title pinned]} (fold)
+      [want] *command-line-args*
+      by-thread (group-by #(or (get % "thread") AD-HOC) (vals run))
+      total-runs (count run)]
+  (if want
+    ;; ---- one thread, itemised ------------------------------------------------
+    (let [key (first (filter #(str/starts-with? (str %) (str want)) (keys by-thread)))
+          runs (get by-thread key)]
+      (if-not (seq runs)
+        (println (format "no runs attributed to %s%n(if work was done here, it predates --thread binding — see the unattributed row in `north-effort`)" want))
+        (let [r (roll runs)]
+          (printf "%s%n%s%n%n" (get title key (str key)) key)
+          (printf "  %d runs · %s agent wall time%n" (:runs r) (human-ms (:ms r)))
+          (printf "  tokens  in %s · out %s · cache %s%n"
+                  (human-n (:in r)) (human-n (:out r)) (human-n (:cache r)))
+          (printf "  models  %s%n" (str/join ", " (:models r)))
+          (printf "  delivery %d delivered · %d blocked%n%n" (:delivered r) (:blocked r))
+          (doseq [x (sort-by #(- (num* (get % "duration_ms"))) runs)]
+            (printf "    %-9s %-22s %s%n"
+                    (human-ms (num* (get x "duration_ms")))
+                    (or (get x "model") "—")
+                    (or (get x "delivery_outcome") (get x "process_outcome") "—"))))))
+    ;; ---- all threads ---------------------------------------------------------
+    (let [rows (->> by-thread
+                    (map (fn [[k runs]] (assoc (roll runs) :thread k)))
+                    (sort-by #(- (:ms %))))]
+      (printf "EFFORT — %d runs across %d threads%n%n" total-runs (count rows))
+      (printf "  %-9s %-6s %-9s %-9s  %s%n" "walltime" "runs" "tok-in" "tok-out" "thread")
+      (println "  " (apply str (repeat 74 \-)))
+      (doseq [{:keys [thread runs ms in out]} rows]
+        (let [adhoc? (= thread AD-HOC)
+              label (if adhoc?
+                      "UNATTRIBUTED — ran before/without --thread binding"
+                      (subs (str (get title thread thread)) 0
+                            (min 46 (count (str (get title thread thread))))))
+              pin (if (contains? pinned thread) "*" " ")]
+          (printf "  %-9s %-6d %-9s %-9s %s%s%n"
+                  (human-ms ms) runs (human-n in) (human-n out) pin label)))
+      (println)
+      (println "  * pinned · one thread: north-effort <thread-id>")
+      (println "  units are observed work — tokens and wall time, never dollars"))))
