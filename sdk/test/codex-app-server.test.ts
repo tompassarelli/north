@@ -778,6 +778,15 @@ test("launch seals the exact package shell environment policy", () => {
 test("launch seals the opt-in Fram MCP server and its exact graph-edit tool set", () => {
   process.env.NORTH_FRAM_HOME ??= "/tmp/fram-home-codex-test";
   process.env.NORTH_BEAGLE_HOME ??= "/tmp/beagle-home-codex-test";
+  // FRAM_CODE_PORT is read from framHome/.mcp.json at spawn time, standing in
+  // for a real `fram-code-on` flip of this framHome.
+  mkdirSync(process.env.NORTH_FRAM_HOME, { recursive: true });
+  const mcpJsonPath = join(process.env.NORTH_FRAM_HOME, ".mcp.json");
+  if (!existsSync(mcpJsonPath)) {
+    writeFileSync(mcpJsonPath, JSON.stringify({
+      mcpServers: { fram: { command: "x", args: [], env: { FRAM_CODE_PORT: "38214" } } },
+    }));
+  }
   const { options } = setup();
   options.surface = {
     ...options.surface,

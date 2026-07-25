@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { expectedLog } from "./coord-wire";
 
 export const FRAM_GRAPH_AUTHORING_CAPABILITY = "graph-authoring.fram" as const;
 export const FRAM_MCP_SERVER = "fram" as const;
@@ -44,12 +47,73 @@ export function framMcpCommand(): string {
   return join(framGraphAuthoringRoots().framHome, "bin", "fram-mcp");
 }
 
+// FRAM_CODE_PORT names the WARM code coordinator for the fram checkout itself
+// (framGraphAuthoringRoots().framHome, flipped by `fram-code-on ~/code/fram`),
+// not the target repo a lane happens to be authoring in. `fram-code-on` writes
+// that port into framHome/.mcp.json (mcpServers.fram.env.FRAM_CODE_PORT) on
+// every flip/re-warm; `fram-code-status` reads the exact same field to report
+// port=/coord=. Reading it here at spawn time — rather than baking in a
+// literal — is the only way the value can track a coordinator that fram-code-on
+// has moved three times in one evening. No .mcp.json (or no matching field)
+// means the code coordinator was never flipped for this framHome: fail closed
+// by name rather than pointing the MCP server at a port nothing listens on.
+function resolveFramCodePort(framHome: string): string {
+  const mcpJsonPath = join(framHome, ".mcp.json");
+  let raw: string;
+  try {
+    raw = readFileSync(mcpJsonPath, "utf8");
+  } catch (cause) {
+    throw new Error(
+      "graph_authoring_fram_code_port_unresolved: no "
+      + `${mcpJsonPath} — run \`fram-code-on ${framHome}\` to boot the warm code `
+      + "coordinator before composing the graph-authoring.fram capability",
+      { cause },
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(
+      `graph_authoring_fram_code_port_unresolved: ${mcpJsonPath} is not valid JSON`,
+      { cause },
+    );
+  }
+  const port = (parsed as { mcpServers?: { fram?: { env?: { FRAM_CODE_PORT?: unknown } } } })
+    ?.mcpServers?.fram?.env?.FRAM_CODE_PORT;
+  if (typeof port !== "string" || !/^[1-9][0-9]*$/.test(port)) {
+    throw new Error(
+      `graph_authoring_fram_code_port_unresolved: ${mcpJsonPath} has no `
+      + "mcpServers.fram.env.FRAM_CODE_PORT — the same field fram-code-status reads "
+      + "to report the live coordinator port",
+    );
+  }
+  return port;
+}
+
+// FRAM_LOG/FRAM_THREADS select the CORPUS a read (show/ask/validate) folds —
+// bin/fram-mcp is explicit that both are required. The dispatching process
+// (any invocation routed through bin/north) already exports both with the
+// exact defaults and log-split logic reproduced here via expectedLog(); a
+// managed lane's fram MCP must read the SAME corpus its own north MCP reads,
+// never a hardcoded home path baked into this module.
+function corpusFramEnv(): Readonly<Record<string, string>> {
+  return Object.freeze({
+    FRAM_LOG: expectedLog(),
+    FRAM_THREADS: resolve(
+      process.env.FRAM_THREADS ?? join(homedir(), ".local", "state", "north", "threads"),
+    ),
+  });
+}
+
 function staticFramMcpEnv(): Readonly<Record<string, string>> {
   const { framHome, beagleHome } = framGraphAuthoringRoots();
   return Object.freeze({
     FRAM_FLIP: "1",
     FRAM_GRAPH_EDIT: "1",
-    FRAM_CODE_PORT: "47891",
+    FRAM_CODE_PORT: resolveFramCodePort(framHome),
+    FRAM_CODE_LOG: join(framHome, ".fram", "code.log"),
+    ...corpusFramEnv(),
     FRAM_OUT: join(framHome, "out"),
     FRAM_BIN: join(framHome, "bin"),
     FRAM_RESOLVE: join(framHome, "chartroom", "src", "resolve.clj"),
@@ -64,7 +128,6 @@ export function framMcpEnvironment(cwd: string): Readonly<Record<string, string>
   const source = resolve(cwd);
   return Object.freeze({
     ...staticFramMcpEnv(),
-    FRAM_CODE_LOG: join(source, ".fram", "code.log"),
     FRAM_SRC: source,
   });
 }
