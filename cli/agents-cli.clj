@@ -913,7 +913,46 @@
                   (render-section
                    "recently finished"
                    "(process is terminal; delivery evidence is shown separately; presence lease has not lapsed)"
-                   finished))))))))))
+                   finished)
+                  ;; ORPHANS: live processes the roster does not know about.
+                  ;; Roster membership is derived from the presence LEASE, so a
+                  ;; process that outlives its lease becomes invisible here while
+                  ;; still holding memory and, worse, still able to act. Observed
+                  ;; 2026-07-25 (thread 019f99ba): `north agents` reported "2
+                  ;; roster entries · 2 active" while /proc held FIVE live lane
+                  ;; processes, one wedged 25h on a provider-input.fifo whose
+                  ;; thread had already reached a terminal outcome by another
+                  ;; route. The roster answered "who holds a live lease" while
+                  ;; the operator was asking "what is running", and those diverge
+                  ;; exactly when something has gone wrong. /proc is ground truth
+                  ;; and is reconciled against, never trusted less than the lease.
+                  (let [known (set (map :id rows))
+                        orphans
+                        (->> (or (.listFiles (java.io.File. "/proc")) [])
+                             (filter #(re-matches #"\d+" (.getName %)))
+                             (keep (fn [d]
+                                     (let [env (try (slurp (java.io.File. d "environ"))
+                                                    (catch Exception _ ""))
+                                           kv (into {} (keep (fn [e]
+                                                               (let [[k v] (str/split e #"=" 2)]
+                                                                 (when v [k v])))
+                                                             (str/split env (re-pattern "\u0000"))))
+                                           id (get kv "AGENT_ID")]
+                                       (when (and id (str/starts-with? id "lane-")
+                                                  (not (contains? known id)))
+                                         {:id id :pid (.getName d)
+                                          :thread (get kv "AGENT_THREAD")}))))
+                             (reduce (fn [m o] (assoc m (:id o) o)) {})
+                             vals
+                             (sort-by :id))]
+                    (when (seq orphans)
+                      (println)
+                      (println (bold (str "orphaned processes (" (count orphans) ")"))
+                               (dim "(live AGENT_ID with no roster lease — reap or investigate)"))
+                      (doseq [o orphans]
+                        (println (str "  " (red "●") " pid " (:pid o) " · " (:id o)))
+                        (println (dim (str "    thread " (or (:thread o) "(unbound)")
+                                           " · not in the roster: its lease lapsed while the process lived")))))))))))))))
 
 (def spawn-flags
   {"--notify" :notify "--provider" :provider "--target" :target "--taskGrade" :taskGrade "--task-grade" :taskGrade
