@@ -283,8 +283,21 @@ async function runSpawn(
   const repoRoot = worktreeLease?.repoRoot ?? process.cwd();
   const wt = worktreeLease;
   let runId = worktreeLease?.allocation.runId ?? newRunId(agentId);
-  const runContext = opts.thread
-    ? newDeliveryRunContext(runId, opts.thread, agentId)
+  // ONE thread resolution, used by both the delivery reservation here and the
+  // run ledger at terminal. They disagreed: the reservation read opts.thread
+  // while the ledger also accepted AGENT_THREAD, and `north spawn --thread`
+  // delivers the binding through the environment. So a CLI-spawned lane
+  // attributed its telemetry correctly and simultaneously got NO reservation --
+  // which meant no NORTH_RUN_ID in its environment, and `north evidence record`
+  // failing inside it with "invalid delivery run id". Two lanes lost their bar
+  // evidence to this before it was traced.
+  //
+  // Absent is undefined, never the string "(ad-hoc)": that is a legible marker
+  // for an unbound run, not a thread id, and reserving against it would mint a
+  // reservation bound to nothing.
+  const boundThreadId = opts.thread ?? process.env.AGENT_THREAD ?? undefined;
+  const runContext = boundThreadId
+    ? newDeliveryRunContext(runId, boundThreadId, agentId)
     : undefined;
   const deliveryRuntime = injected.deliveryRuntime ?? (injected.queryFn ? undefined : {
     reserve: reserveDeliveryRun,
@@ -1029,9 +1042,9 @@ async function runSpawn(
   // thread nor --ad-hoc, so by the time we get here the choice was deliberate —
   // but a direct SDK caller can still omit both, and the honest record of that
   // is "(ad-hoc)" WITH its provenance, never a silent default that looks bound.
-  const boundThread = opts.thread ?? process.env.AGENT_THREAD ?? "(ad-hoc)";
+  const boundThread = boundThreadId ?? "(ad-hoc)";
   const threadProvenance: "exact" | "ad-hoc" =
-    boundThread === "(ad-hoc)" ? "ad-hoc" : "exact";
+    boundThreadId ? "exact" : "ad-hoc";
 
   const runLedger = await publishRunLifecycleLedger({
     run: runId,
