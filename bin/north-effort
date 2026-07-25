@@ -55,10 +55,15 @@
           (>= m 1) (format "%dm%02ds" m (rem s 60))
           :else    (format "%ds" s))))
 
+;; Zero prints as an em dash, matching north-pinned: a run whose token fields
+;; never landed and a run that genuinely used no tokens are different claims and
+;; must not render identically. "0" asserts a measurement; "—" admits there
+;; isn't one.
 (defn- human-n [n]
   (cond (>= n 1000000) (format "%.1fM" (/ n 1e6))
         (>= n 1000)    (format "%.1fk" (/ n 1e3))
-        :else          (str n)))
+        (pos? n)       (str n)
+        :else          "—"))
 
 ;; Fold once. Retract records carry the RETRACTED value in :r — folding them as
 ;; asserts re-adopts the value being removed, so they are skipped outright.
