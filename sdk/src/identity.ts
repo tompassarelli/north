@@ -34,7 +34,36 @@ const REPO = resolve(import.meta.dir, "..", "..");
 const northBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
 const internalWriter = resolve(REPO, "cli/agent-fact-internal.clj");
 const INTERNAL_WRITER_TIMEOUT_MS = 10_000;
-const INTERNAL_WRITE_LEASE_TTL_MS = 60_000;
+
+// The writer's per-subject lease must OUTLIVE the process timeout we declare to
+// it, or a writer we killed could wake past lease expiry and race a successor.
+// cli/agent-fact-internal.clj (require-write-lease-policy!) fails closed unless
+// lease > timeout, on every write path.
+//
+// The timeout is NOT a constant: the terminal path derives it from the
+// publication budget (spawn.ts, TerminalPublicationBudget.publicationTimeout),
+// which is ~72s by default and up to ~240s when NORTH_TERMINAL_PUBLICATION_BUDGET_MS
+// is raised to its 300s cap. A fixed lease constant therefore cannot hold the
+// invariant — a 60s literal against the 72s authoritative-terminal timeout is
+// exactly what made every lane's terminal marker indeterminate (thread 019f9c3b).
+// So DERIVE the lease from the timeout actually passed; the invariant then holds
+// by construction for every timeout any budget can produce.
+//
+// ADDITIVE, not multiplicative. The margin exists to cover the window between
+// "SDK stops waiting / kills the writer" and "writer is provably not on the wire
+// any more": signal delivery, one in-flight coordinator round trip, bb teardown.
+// None of that grows with the budget, so scaling the margin (lease = k * timeout)
+// would only lengthen the window in which a HARD-DEAD writer's lease keeps
+// blocking a successor on that subject — acquire-write-lease! waits at most
+// min(5s, timeout/2) before failing with "subject already has a writer", so lease
+// TTL is the real recovery latency for a stuck writer. Additive keeps that cost
+// fixed at MARGIN beyond the timeout the caller already chose to wait.
+export const WRITE_LEASE_SAFETY_MARGIN_MS = 15_000;
+
+export function internalWriteLeaseTtlMs(writerTimeoutMs: number): number {
+  const bound = Math.max(1, Math.floor(writerTimeoutMs));
+  return bound + WRITE_LEASE_SAFETY_MARGIN_MS;
+}
 
 function currentPathExecutable(name: string): string {
   if (name.includes("/")) return name;
@@ -349,7 +378,7 @@ function writeHarnessAgentOperation(
       {
         ...process.env,
         NORTH_IDENTITY_WRITER_TIMEOUT_MS: String(timeoutMs),
-        NORTH_IDENTITY_WRITE_LEASE_TTL_MS: String(INTERNAL_WRITE_LEASE_TTL_MS),
+        NORTH_IDENTITY_WRITE_LEASE_TTL_MS: String(internalWriteLeaseTtlMs(timeoutMs)),
       },
     );
     const envelope = JSON.parse(output.trim().split("\n").at(-1) ?? "") as {

@@ -483,6 +483,30 @@
              (and (not (zero? (:exit rejected)))
                   (empty? (entity-facts port policy-subject)))))
 
+    ;; The accept side of the same policy, at TERMINAL-PATH scale. The SDK
+    ;; derives the lease from the timeout it declares (identity.ts
+    ;; internalWriteLeaseTtlMs = timeout + WRITE_LEASE_SAFETY_MARGIN_MS), and the
+    ;; authoritative terminal marker declares TerminalPublicationBudget
+    ;; .publicationTimeout(1) — ~72s on the default budget, up to ~240s at the
+    ;; NORTH_TERMINAL_PUBLICATION_BUDGET_MS ceiling. A fixed 60s lease rejected
+    ;; every one of those, which is what made lane terminals indeterminate
+    ;; (thread 019f9c3b). Pin both ends of the derived range as ACCEPTED.
+    (doseq [[label writer-timeout lease-ttl]
+            [["default budget" "72000" "87000"]
+             ["raised budget ceiling" "240000" "255000"]]]
+      (let [policy-subject (str "@agent:identity-derived-lease-"
+                                (str/replace label #"\s+" "-"))
+            accepted
+            (run-writer
+             port "publish" policy-subject (json/generate-string preset)
+             {"NORTH_IDENTITY_WRITER_TIMEOUT_MS" writer-timeout
+              "NORTH_IDENTITY_WRITE_LEASE_TTL_MS" lease-ttl})]
+        (check (str "SDK-derived lease is accepted at " label
+                    " writer timeout " writer-timeout "ms")
+               (and (zero? (:exit accepted))
+                    (north.agent-provenance/managed-valid?
+                     (scalar-facts (entity-facts port policy-subject)))))))
+
     (let [held-subject "@agent:identity-held-publish"
           winner (assoc preset
                         "goal" "winner remains authoritative"
