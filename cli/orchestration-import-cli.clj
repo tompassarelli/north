@@ -39,12 +39,18 @@
 (def rules-digest              north.orchestration-selection/rules-digest)
 
 ;; ---------------------------------------------------------------------------
-;; Source resolution — runtime only, never an embedded path.
+;; Source resolution — runtime only, never an embedded path. this-root derives
+;; from THIS file's own location (never user.dir): a subprocess launched by
+;; execFileSync/babashka.process inherits the CALLER's cwd, not the north
+;; checkout, so a bare user.dir fallback silently walks to
+;; <caller-cwd>/orchestration and misses the real one.
 ;; ---------------------------------------------------------------------------
+(def ^:private this-root (.getParent (io/file CLI-DIR)))
+
 (defn orchestration-home [arg]
   (or arg
       (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
+      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
 
 (defn read-json [root & segs]
   (json/parse-string (slurp (apply io/file root segs))))

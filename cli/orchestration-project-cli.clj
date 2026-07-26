@@ -197,9 +197,17 @@
 ;;                      bump changes stored+projection but not THIS).
 ;; A floor therefore moves only by a policy version bump, never a bare write.
 ;; ---------------------------------------------------------------------------
+;; Derive the repo root from THIS file's own location (CLI-DIR is <root>/cli,
+;; resolved above from *file* — direct-run and load-file modes alike), never
+;; user.dir: a `bb` subprocess launched by execFileSync (e.g. from
+;; sdk/src/orchestration-policy-pin.ts) inherits the CALLER's cwd, not the
+;; north checkout, so a bare user.dir fallback silently walks to
+;; <caller-cwd>/orchestration and misses the real one.
+(def ^:private this-root (.getParent (io/file CLI-DIR)))
+
 (defn orchestration-root []
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
+      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
 
 (defn project-policy-pin [port]
   (let [ver (current-version port)

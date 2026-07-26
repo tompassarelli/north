@@ -44,10 +44,10 @@
 (def distinct-of north.coord/distinct-of)   ; count-distinct quorum, set form
 
 (defn canonical-worker-preset [role]
-  (let [path (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-                 (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-                          (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration"))
-                      "/staffing/catalog.json"))]
+  ;; Delegate to orchestration-staffing/catalog-path (loaded above) rather than
+  ;; re-deriving the root here: that fn already anchors its user.dir fallback
+  ;; to THIS FILE's own checkout location, not the caller's inherited cwd.
+  (let [path (north.orchestration-staffing/catalog-path)]
     (try
       (let [catalog (north.orchestration-staffing/load-catalog path)
             preset (get (north.orchestration-staffing/presets-by-name catalog) role)
