@@ -34,6 +34,7 @@ import {
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
 } from "../src/providers/codex-app-server";
+import { managedCodexNetworkArguments } from "../src/providers/codex-network-policy";
 
 const north = join(import.meta.dir, "../..");
 const temporary: string[] = [];
@@ -105,7 +106,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(workerSurface.northEnabledTools).not.toEqual(expect.arrayContaining(["dispatch", "spawn"]));
   expect(codexHarnessArguments(openaiWorker)).toEqual([
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-    "--disable", "network_proxy",
+    ...managedCodexNetworkArguments(workerSurface),
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
   expect(formatProviderAuthoritySurface(workerSurface)).toContain("network=disabled");
@@ -122,10 +123,32 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(directorSurface.web).toBe("cached");
   expect(codexHarnessArguments(director)).toEqual([
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-    "--disable", "network_proxy",
+    ...managedCodexNetworkArguments(directorSurface),
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
   expect(formatProviderAuthoritySurface(directorSurface)).toContain("network=disabled");
+});
+
+test("Codex network argv preserves the structured Gitiles policy without a boolean overwrite", () => {
+  const enabled = managedCodexNetworkArguments({
+    sandbox: "workspace-write",
+    capabilities: ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "web"],
+  });
+  expect(enabled).toEqual([
+    "-c", "features.network_proxy.enabled=true",
+    "-c", 'features.network_proxy.domains={"chromium.googlesource.com"="allow"}',
+  ]);
+  expect(enabled).not.toEqual(expect.arrayContaining(["--enable", "network_proxy"]));
+  expect(enabled.filter((argument) => argument.includes("network_proxy"))).toHaveLength(2);
+
+  expect(managedCodexNetworkArguments({
+    sandbox: "read-only",
+    capabilities: ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+  })).toEqual(["--disable", "network_proxy"]);
+  expect(managedCodexNetworkArguments({
+    sandbox: "workspace-write",
+    capabilities: ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+  })).toEqual(["--disable", "network_proxy"]);
 });
 
 test("route application rejects request laundering and authoring hooks are an exact frozen surface", () => {
