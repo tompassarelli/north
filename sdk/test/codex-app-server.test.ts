@@ -1418,6 +1418,25 @@ test("a workspace-roots mismatch names the observed and expected sets on its cau
   expect(chain).toContain("expected=");
 });
 
+test("a provider-side failure names its payload on the cause, not just the classification", async () => {
+  // thread 019f9cec: the two seams where the provider itself says what went
+  // wrong — a JSON-RPC error response and a turn that reports its own error —
+  // both parsed the payload and then threw it away. Every managed lane that
+  // died this way (three on 2026-07-26) left no account of the failure at all.
+  for (const [mode, expected] of [
+    ["thread-failure", "provider error response:"],
+    ["notification-terminal-error", "provider turn error:"],
+  ] as const) {
+    const { options } = setup(mode);
+    let caught: unknown;
+    try { await new ManagedCodexAppServerRun(options).execute(); } catch (error) { caught = error; }
+    const chain = causeChain(caught);
+    expect(chain).toContain("openai_provider_execution_failed");
+    expect(chain).toContain(expected);
+    expect(chain).toContain(mode === "thread-failure" ? "fixture failure" : "hidden failure");
+  }
+});
+
 test("post-thread drift, rejection, malformed traffic, and hook failures are never retry-safe", async () => {
   const modes = [
     "fingerprint-mutation", "thread-failure", "notification-wrong-thread", "notification-malformed",

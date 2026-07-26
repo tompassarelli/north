@@ -391,6 +391,59 @@ test("repeated Anthropic terminals record ambiguity without a selected or summed
   expect(lines.some((line) => / (tokens|input_tokens|output_tokens) /.test(line))).toBe(false);
 });
 
+test("a managed Codex provider error lands its cause chain on the run and the lane log", async () => {
+  // thread 019f9cec, end to end: an app-server turn-failure payload -> the
+  // adapter's harvest frame -> the harness message loop -> the DURABLE surfaces.
+  // Three real lanes took this exact path on 2026-07-26 and left nothing behind:
+  // the loop `break`s on the frame, which discards both the frame and the throw
+  // still pending behind it, and the managed home is disposed at teardown.
+  const { spawn } = await import("./support/spawn");
+  const { managedCodexHarvestMessages } = await import("../src/providers/openai");
+  const { ManagedCodexHarvestError } = await import("../src/providers/codex-app-server");
+  writeFileSync(log, "");
+
+  const providerPayload = "provider turn error: {\"message\":\"stream disconnected\"}";
+  const error = new ManagedCodexHarvestError({
+    threadId: "th_fixture", turnIds: ["turn_1"], completedTurns: 0,
+    text: "partial first-turn text", landedWork: true,
+    mcp: { source: "codex-app-server:item-completed", totalCalls: 2 } as any,
+    nativeCommands: { source: "codex-app-server:item-completed", totalCommands: 1 } as any,
+    unsupportedNotifications: {},
+  }, {
+    cause: new Error("Codex completed turn reported a provider-side turn error", {
+      cause: new Error(providerPayload),
+    }),
+  });
+  const frames = managedCodexHarvestMessages(error);
+  expect(frames.length).toBeGreaterThan(0);
+
+  const stderr: string[] = [];
+  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderr.push(args.map(String).join(" "));
+  });
+  try {
+    await spawn({
+      prompt: "managed codex provider error", agentId: "test-codex-provider-error",
+      role: "integrator", routingMetadata: presetRequest("integrator"), provider: "openai",
+      pinEvidence: pinEvidence("openai"),
+      queryFn: (() => (async function* () { for (const frame of frames) yield frame; })()) as any,
+    });
+  } finally { errorSpy.mockRestore(); }
+
+  const lines = await settledRunLines("test-codex-provider-error");
+  expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
+  const detail = lines.find((line) => line.includes(" provider_error_detail "));
+  expect(detail).toBeDefined();
+  // The whole point: the provider payload, not merely the classification.
+  expect(detail).toContain("stream disconnected");
+  expect(detail).toContain("Codex completed turn reported a provider-side turn error");
+  expect(detail).toContain("landed=[0 completed turn(s), 2 MCP call(s), 1 native command(s)]");
+  // ...and the same line is in the lane log, where an operator actually looks.
+  expect(stderr.some((line) =>
+    line.includes("[provider_error]") && line.includes("stream disconnected"))).toBe(true);
+});
+
 test("an empty spawn provider stream is a blocked provider error, never ran", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
@@ -408,6 +461,9 @@ test("an empty spawn provider stream is a blocked provider error, never ran", as
   const lines = await settledRunLines("test-empty-spawn");
   expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
+  expect(lines.some((line) =>
+    line.includes(" provider_error_detail provider stream closed without a terminal result message")
+  )).toBe(true);
   const publicationOrder = readFileSync(log, "utf8");
   expect(publicationOrder.indexOf("QUERY_CLOSED spawn")).toBeLessThan(
     publicationOrder.indexOf("tell agent:test-empty-spawn outcome provider_error"),

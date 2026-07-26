@@ -29,6 +29,7 @@ import {
   type OpenAIAuthoritySurface,
 } from "./authority";
 import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
+import { causeChain } from "../death";
 import { assertInstalledManagedCodexHooks } from "./codex-managed-hooks";
 import {
   trustedGitProjectRoot, trustedManagedCodexExecutable,
@@ -451,12 +452,16 @@ function observeSupervisor(
     rejectStarted = reject;
   });
   const settleStarted = (value: "started" | "unavailable") => {
-    if (startedSettled) throw new Error("openai_provider_execution_failed");
+    if (startedSettled) throw new Error("openai_provider_execution_failed", {
+      cause: new Error("Codex supervisor status emitted more than one start receipt"),
+    });
     startedSettled = true;
     resolveStarted(value);
   };
   const completed = (async (): Promise<number> => {
-    if (!status) throw new Error("openai_provider_execution_failed");
+    if (!status) throw new Error("openai_provider_execution_failed", {
+      cause: new Error("Codex supervisor stderr status channel is unavailable"),
+    });
     const frames = new StrictJsonlFrames({
       label: "Codex supervisor status",
       maxLineBytes: CODEX_SUPERVISOR_STATUS_MAX_BYTES,
@@ -472,13 +477,17 @@ function observeSupervisor(
           ? line.slice(CODEX_SUPERVISOR_STATUS_PREFIX.length)
           : undefined;
         if (statusLine === "STARTED") {
-          if (unavailable) throw new Error("openai_provider_execution_failed");
+          if (unavailable) throw new Error("openai_provider_execution_failed", {
+            cause: new Error("Codex supervisor emitted STARTED after UNAVAILABLE"),
+          });
           settleStarted("started");
           continue;
         }
         if (statusLine === "UNAVAILABLE") {
           if (startedSettled || unavailable)
-            throw new Error("openai_provider_execution_failed");
+            throw new Error("openai_provider_execution_failed", {
+              cause: new Error("Codex supervisor emitted duplicate or late UNAVAILABLE receipt"),
+            });
           unavailable = true;
           settleStarted("unavailable");
           continue;
@@ -488,12 +497,18 @@ function observeSupervisor(
           : /^EXIT (0|[1-9][0-9]{0,2})$/.exec(statusLine);
         const code = exit ? Number(exit[1]) : NaN;
         if (!Number.isInteger(code) || code > 255 || !startedSettled)
-          throw new Error("openai_provider_execution_failed");
+          throw new Error("openai_provider_execution_failed", {
+            cause: new Error(
+              `Codex supervisor emitted invalid exit receipt (started=${String(startedSettled)})`,
+            ),
+          });
         return code;
       }
     }
     frames.finish();
-    throw new Error("openai_provider_execution_failed");
+    throw new Error("openai_provider_execution_failed", {
+      cause: new Error("Codex supervisor status channel closed without an EXIT receipt"),
+    });
   })();
   void completed.catch((error) => {
     if (!startedSettled) {
@@ -507,7 +522,9 @@ function observeSupervisor(
 function supervisorPromptFrame(prompt: string): Buffer {
   const bytes = Buffer.from(prompt, "utf8");
   if (bytes.byteLength > CODEX_PROMPT_MAX_BYTES)
-    throw new Error("openai_provider_execution_failed");
+    throw new Error("openai_provider_execution_failed", {
+      cause: new Error(`Codex supervisor prompt frame exceeds ${CODEX_PROMPT_MAX_BYTES} bytes`),
+    });
   return Buffer.concat([
     Buffer.from(`${CODEX_PROMPT_HEADER}${bytes.byteLength}\n`, "utf8"),
     bytes,
@@ -524,14 +541,18 @@ interface SupervisorPromptTransport {
 function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
   const promptBytes = Buffer.from(prompt, "utf8");
   if (promptBytes.byteLength > CODEX_PROMPT_MAX_BYTES)
-    throw new Error("openai_provider_execution_failed");
+    throw new Error("openai_provider_execution_failed", {
+      cause: new Error(`Codex supervisor prompt transport exceeds ${CODEX_PROMPT_MAX_BYTES} bytes`),
+    });
   if (process.platform === "win32") return {
     supervisorArguments: [],
     fd4: "pipe",
     async send(child) {
       const frame = supervisorPromptFrame(prompt);
       const target = (child.stdio as any[])[4] as NodeJS.WritableStream | undefined;
-      if (!target) throw new Error("openai_provider_execution_failed");
+      if (!target) throw new Error("openai_provider_execution_failed", {
+        cause: new Error("Codex supervisor prompt pipe fd 4 is unavailable"),
+      });
       await new Promise<void>((resolveWrite, reject) => {
         const onError = (error: Error) => reject(error);
         target.once("error", onError);
@@ -559,7 +580,9 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
     supervisorArguments: ["--oneshot-spool", directory],
     fd4: undefined,
     async send() {
-      if (!active) throw new Error("openai_provider_execution_failed");
+      if (!active) throw new Error("openai_provider_execution_failed", {
+        cause: new Error("Codex supervisor one-shot prompt spool is no longer active"),
+      });
       const digest = createHash("sha256").update(promptBytes).digest("hex");
       const frame = Buffer.concat([
         Buffer.from(`NORTH_CODEX_RPC 1 ${promptBytes.byteLength} ${digest}\n`, "ascii"),
@@ -732,8 +755,17 @@ class CodexExecProtocol {
     const type = event.type;
     if (type === "error") {
       exactKeys(event, ["message", "type"], "Codex error event");
-      boundedProtocolString(event.message, "Codex error message", CODEX_JSONL_MAX_LINE_BYTES);
-      throw new Error("Codex emitted an unrecoverable error");
+      // Validated bounded + control-char-free, then thrown away: the provider's
+      // own account of the failure died here (thread 019f9cec). The OUTER
+      // message stays the stable classification — provider prose must never
+      // become a machine reason — but the payload now rides the cause so the
+      // lane log and the run fact can name what actually happened.
+      const message = boundedProtocolString(
+        event.message, "Codex error message", CODEX_JSONL_MAX_LINE_BYTES,
+      );
+      throw new Error("Codex emitted an unrecoverable error", {
+        cause: new Error(`provider error event: ${message.slice(0, 600)}`),
+      });
     }
     if (type === "thread.started") {
       if (this.phase !== "thread") throw new Error("Codex thread start is out of order");
@@ -753,8 +785,12 @@ class CodexExecProtocol {
       exactKeys(event, ["error", "type"], "Codex turn-failed event");
       const error = objectValue(event.error, "Codex turn failure");
       exactKeys(error, ["message"], "Codex turn failure");
-      boundedProtocolString(error.message, "Codex turn failure message", CODEX_JSONL_MAX_LINE_BYTES);
-      throw new Error("Codex turn failed");
+      const message = boundedProtocolString(
+        error.message, "Codex turn failure message", CODEX_JSONL_MAX_LINE_BYTES,
+      );
+      throw new Error("Codex turn failed", {
+        cause: new Error(`provider turn failure: ${message.slice(0, 600)}`),
+      });
     }
     if (type === "turn.completed") {
       if (this.phase !== "running") throw new Error("Codex turn terminal is out of order");
@@ -865,7 +901,12 @@ export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): an
       mcp: harvest.mcp,
       nativeCommands: harvest.nativeCommands,
       unsupportedNotifications: harvest.unsupportedNotifications,
-      failure: (error.cause as Error | undefined)?.message ?? error.message,
+      // The FULL nested chain, not the first link. The harness `break`s on this
+      // frame and never observes the throw behind it, so this string is the only
+      // durable witness a dead managed lane leaves (thread 019f9cec); truncating
+      // it at depth 1 reported "Codex completed turn is invalid" and hid the
+      // provider payload underneath.
+      failure: causeChain(error.cause ?? error, 8, 900),
     },
   });
   return messages;
@@ -1152,7 +1193,9 @@ class CodexQuery implements AgentQuery {
       frames.finish();
       const supervisorExit = await supervision.completed;
       if (supervisorExit !== 0)
-        throw new Error("openai_provider_execution_failed");
+        throw new Error("openai_provider_execution_failed", {
+          cause: new Error(`Codex supervisor exited with status ${supervisorExit}`),
+        });
       usage = protocol.finish();
       providerJoin = protocol.providerJoin();
       turnActivity = protocol.toolActivity();
@@ -1161,13 +1204,26 @@ class CodexQuery implements AgentQuery {
       try { await supervision.completed; } catch { /* preserve the provider error */ }
       if (error instanceof ProviderRetrySafeError && !providerStarted)
         throw error;
-      throw new Error("openai_provider_execution_failed");
+      // The classification-shaped local observation is NOT a substitute for the
+      // error actually caught here (the protocol/parse/transport failure) — chain
+      // both, generic first, so causeChain renders "what stage" then "what went
+      // wrong", down to the provider payload the event carried.
+      throw new Error("openai_provider_execution_failed", {
+        cause: new Error(
+          "Codex legacy supervisor execution failed while sending or parsing a provider turn",
+          { cause: error },
+        ),
+      });
     } finally {
       promptTransport.abort();
       destroyCodexPipes(child);
       this.child = undefined;
     }
-    if (!usage || !providerJoin || !turnActivity) throw new Error("openai_provider_execution_failed");
+    if (!usage || !providerJoin || !turnActivity) throw new Error("openai_provider_execution_failed", {
+      cause: new Error(
+        `Codex legacy turn completed without required evidence (usage=${String(Boolean(usage))}, providerJoin=${String(Boolean(providerJoin))}, turnActivity=${String(Boolean(turnActivity))})`,
+      ),
+    });
     const normalizedUsage = codexUsage(usage);
     yield {
       type: "result", subtype: "success", result,

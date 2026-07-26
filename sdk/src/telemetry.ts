@@ -15,6 +15,7 @@ import type { AllocationEvidence, RoutingFallbackReason } from "./providers/type
 import type { HarnessCompositionEvidence } from "./harness";
 import { ORCHESTRATION_CAPABILITIES } from "./orchestration-capabilities";
 import type { DeliveryProof } from "./delivery-verification";
+import { PROVIDER_ERROR_DETAIL_MAX_LEN } from "./execution-outcome";
 import type { ProviderAuthoritySurface } from "./providers";
 import { providerBilling, settleSpend } from "./spend-guard";
 import {
@@ -121,6 +122,9 @@ export interface RunRecord {
   /** Full nested-cause chain for a blocked_preflight (or other retry-safe) death — the
    * real underlying failure a bare processOutcome code otherwise swallows (thread 019f8300). */
   preflightCause?: string;
+  /** Bounded, credential-free provider error payload behind a `provider_error`
+   * terminal — the classification alone names nothing (thread 019f9cec). */
+  providerErrorDetail?: string;
   deliveryOutcome?: string;
   deliveryReason?: string;
   deliveryProof?: DeliveryProof;
@@ -372,6 +376,9 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["provider_duration_ms", String(Math.round(rec.providerDurationMs))]);
   if (rec.processOutcome) facts.push(["process_outcome", rec.processOutcome]);
   if (rec.preflightCause) facts.push(["preflight_cause", rec.preflightCause]);
+  if (rec.providerErrorDetail)
+    facts.push(["provider_error_detail",
+      rec.providerErrorDetail.replace(/\s+/g, " ").trim().slice(0, PROVIDER_ERROR_DETAIL_MAX_LEN)]);
   if (rec.deliveryOutcome) facts.push(["delivery_outcome", rec.deliveryOutcome]);
   if (rec.deliveryReason) facts.push(["delivery_reason", rec.deliveryReason]);
   if (rec.deliveryProof?.deliveryEvidence)

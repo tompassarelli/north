@@ -58,7 +58,10 @@ import {
 } from "./resource-envelopes";
 import { assertCoordinationAuthority } from "./topology-authority";
 import { admitPinnedProvider } from "./execution-admission";
-import { classifyExecutionTerminal, EMPTY_RESULT_OUTCOME, isEmptyResultTerminal } from "./execution-outcome";
+import {
+  classifyExecutionTerminal, describeProviderErrorTerminal, EMPTY_RESULT_OUTCOME,
+  isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL,
+} from "./execution-outcome";
 import {
   notifyTerminalSettlement, TerminalPublicationBudget, type TerminalNotification,
 } from "./terminal-notification";
@@ -355,6 +358,9 @@ async function runDispatch(
   // set alongside `outcome` in the catch below and carried onto @run so the
   // real underlying failure survives past the banner-only stdout log.
   let preflightCause: string | undefined;
+  // Same discipline for a provider_error terminal: the error payload the frame
+  // carried, rendered once and carried onto @run (thread 019f9cec).
+  let providerErrorDetail: string | undefined;
 
   // Real-time coordination: run the prompt in streaming-input mode so peers can inject
   // pings only when the admitted provider can consume turns after its initial prompt.
@@ -544,6 +550,12 @@ async function runDispatch(
           || (Array.isArray(msg.errors) && msg.errors.length > 0);
         if (providerError) {
           outcome = "provider_error";
+          // `break` discards this frame AND the adapter throw still pending
+          // behind it, so the payload must be rendered HERE or it is gone
+          // (thread 019f9cec).
+          providerErrorDetail = describeProviderErrorTerminal(msg);
+          console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
+          terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
           break;
         }
         if (turnChannel.pending() === 0) {
@@ -670,6 +682,11 @@ async function runDispatch(
       // Iterator completion without an explicit provider terminal is not a
       // successful execution, even when the transport itself closed cleanly.
       outcome = "provider_error";
+      // A close-time failure is a DEATH below (it overrides this outcome) and is
+      // rendered there; this detail names only the silence itself.
+      providerErrorDetail = NO_PROVIDER_TERMINAL_DETAIL;
+      console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
+      terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
     }
     if (isEmptyResultTerminal(outcome, result)) {
       // A provider success terminal with empty result (0b) is a DEGENERATE
@@ -968,6 +985,7 @@ async function runDispatch(
               judgmentGrade,
               struggleObservation: struggle.snapshot(),
               preflightCause,
+              providerErrorDetail,
               }, runId, publicationBudget.publicationTimeout(1));
   notifyTerminalSettlement(
     agentId,
