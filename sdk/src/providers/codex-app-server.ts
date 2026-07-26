@@ -209,6 +209,8 @@ export interface ManagedCodexHarvest {
   completedTurns: number;
   /** Assistant text accumulated by the failing turn, if any. */
   text: string;
+  /** Tool work completed before the failure, when the failing turn was observed. */
+  toolItems?: number;
   usage?: ManagedCodexResult["usage"];
   mcp: McpActivityObservation;
   nativeCommands: NativeCommandActivityObservation;
@@ -2172,6 +2174,7 @@ export class ManagedCodexAppServerRun {
           : [...settledTurnIds],
         completedTurns,
         text: runtimeState?.text ?? "",
+        ...(runtimeState ? { toolItems: runtimeState.toolItems } : {}),
         usage: runtimeState?.usage,
         unsupportedNotifications: rpc.unsupportedNotifications(),
       }), { cause: error });
