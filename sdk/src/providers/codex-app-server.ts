@@ -38,6 +38,8 @@ const MAX_FRAMES = 20_000;
 const MAX_INVENTORY_PAGES = 32;
 const MAX_MCP_SERVERS = 64;
 const MAX_ID_BYTES = 512;
+/** A native command's reported working directory: one bounded filesystem path. */
+const MAX_CWD_BYTES = 4_096;
 const MAX_QUEUED_NOTIFICATIONS = 256;
 const MAX_UNSUPPORTED_NOTIFICATION_METHODS = 16;
 const MAX_UNSUPPORTED_NOTIFICATIONS_PER_METHOD = 512;
@@ -1187,6 +1189,40 @@ function commandText(value: unknown, label: string, maxBytes = MAX_LINE_BYTES): 
   return value;
 }
 
+/**
+ * A commandExecution item reports the SUBPROCESS working directory, not the
+ * thread's. Codex's own shell tool takes a per-command `workdir` and its tool
+ * guidance instructs the model to "Always set the `workdir` param when using
+ * the shell_command function. Do not use `cd` unless absolutely necessary."
+ * (observed 2026-07-26 in the pinned codex 0.144.4 binary, alongside
+ * `ShellCommandToolCallParams { command, workdir, ... }` and
+ * `codex_core::tools::handlers::resolve_workdir_base_path`); real rollouts show
+ * workdirs that are subdirectories of the session cwd and sibling checkouts.
+ * Requiring `item.cwd === state.cwd` therefore killed every managed lane whose
+ * brief reached into a subdirectory — mid-turn, after dozens of good commands
+ * (lane ms1fhh0v: 79 native commands, then dead on the 80th).
+ *
+ * The bound that remains is SHAPE, which is what fail-closed can actually
+ * assert here: a bounded, absolute, traversal-free path. Thread and turn
+ * identity are checked exactly upstream (`exactRuntimeIds`) and write authority
+ * is the sandbox's, sealed and diffed at thread/start — a reported cwd grants
+ * nothing, so LOCATION is not a bound North can make load-bearing without
+ * reinstating the outage (a lane legitimately reads sibling checkouts, /tmp
+ * scratch, and the main tree it writes its report into). The returned path is
+ * normalized so evidence comparison is canonical while acceptance stays wide.
+ */
+function nativeCommandCwd(value: unknown, label: string): string {
+  const observed = commandText(value, `${label} cwd`, MAX_CWD_BYTES);
+  const segments = observed.split("/");
+  if (observed.startsWith("/") && !observed.includes("\0")
+      && !segments.includes(".") && !segments.includes(".."))
+    return resolve(observed);
+  throw new Error(`${label} cwd is not an absolute traversal-free path`, {
+    cause: new Error(`observed=${JSON.stringify(observed).slice(0, 600)} `
+      + "expected an absolute filesystem path with no \".\"/\"..\" segments"),
+  });
+}
+
 function nullableCommandText(value: unknown, label: string): string {
   if (value === null) return "";
   if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > MAX_LINE_BYTES)
@@ -1234,8 +1270,9 @@ function completedNativeCommand(
     "commandActions", "aggregatedOutput", "exitCode", "durationMs",
   ], "Codex completed command execution");
   const id = protocolId(item.id, "Codex completed command execution id");
-  if (item.type !== "commandExecution" || item.cwd !== state.cwd)
+  if (item.type !== "commandExecution")
     throw new Error("Codex completed command execution changed authority");
+  const cwd = nativeCommandCwd(item.cwd, "Codex completed command execution");
   const command = commandText(item.command, "Codex completed command execution command");
   if (item.processId !== null) protocolId(item.processId, "Codex command process id");
   const source = String(item.source);
@@ -1259,7 +1296,10 @@ function completedNativeCommand(
   if (!state.nativeCommands.observe({
     id: `${state.turnId}:${id}`,
     command,
-    cwd: state.cwd,
+    // The OBSERVED directory, not the thread's: the North binary probe is only
+    // evidence when it ran at the lane root, and that comparison is dead if we
+    // hand the accumulator the expected value back.
+    cwd,
     source: source as "agent" | "userShell" | "unifiedExecStartup" | "unifiedExecInteraction",
     status,
     aggregatedOutput,
@@ -1273,10 +1313,17 @@ function startedNativeCommand(item: JsonObject, state: RuntimeNotificationState)
     "commandActions", "aggregatedOutput", "exitCode", "durationMs",
   ], "Codex started command execution");
   const id = protocolId(item.id, "Codex started command execution id");
-  if (item.type !== "commandExecution" || item.cwd !== state.cwd
+  nativeCommandCwd(item.cwd, "Codex started command execution");
+  if (item.type !== "commandExecution"
       || item.status !== "inProgress" || item.aggregatedOutput !== null
       || item.exitCode !== null || item.durationMs !== null)
-    throw new Error("Codex started command execution lifecycle is invalid");
+    throw new Error("Codex started command execution lifecycle is invalid", {
+      cause: new Error("expected type \"commandExecution\", status \"inProgress\", null "
+        + "aggregatedOutput/exitCode/durationMs; observed "
+        + `type=${JSON.stringify(item.type)} status=${JSON.stringify(item.status)} `
+        + `aggregatedOutput=${JSON.stringify(item.aggregatedOutput)?.slice(0, 200)} `
+        + `exitCode=${JSON.stringify(item.exitCode)} durationMs=${JSON.stringify(item.durationMs)}`),
+    });
   commandText(item.command, "Codex started command execution command");
   if (item.processId !== null) protocolId(item.processId, "Codex command process id");
   if (!["agent", "userShell", "unifiedExecStartup", "unifiedExecInteraction"]

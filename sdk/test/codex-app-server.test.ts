@@ -425,6 +425,32 @@ function setup(mode = "ok") {
         if (mode === "command-schema-extra") completedCommand.futureAuthority = true;
         if (mode !== "command-missing-completion") lifecycle("completed", completedCommand, 11);
       }
+      // The killer shape, live-observed as `Codex started command execution
+      // lifecycle is invalid` after 79 good commands (lane ms1fhh0v): codex's
+      // shell tool carries a per-command `workdir`, so the item echoes the
+      // SUBPROCESS directory. Every one of these is a legitimate agent move.
+      if (mode.startsWith("command-cwd-")) {
+        const workdir = mode === "command-cwd-subdir" ? join(cwd, "sdk")
+          : mode === "command-cwd-sibling" ? root
+          : mode === "command-cwd-scratch" ? "/tmp"
+          : mode === "command-cwd-relative" ? "sdk"
+          : mode === "command-cwd-traversal" ? `${cwd}/../escape`
+          : mode === "command-cwd-dot" ? `${cwd}/./sdk`
+          // Benign: codex canonicalizes workdirs, but a trailing separator is
+          // not a defect — it must not cost a lane its turn.
+          : mode === "command-cwd-trailing-slash" ? `${join(cwd, "sdk")}/`
+          : "";
+        const started = item("command-2", "commandExecution", {
+          command: "bun --version", cwd: workdir, processId: null, source: "agent",
+          status: "inProgress", commandActions: [{ type: "unknown", command: "bun --version" }],
+          aggregatedOutput: null, exitCode: null, durationMs: null,
+        });
+        lifecycle("started", started, 20);
+        lifecycle("completed", {
+          ...started, status: "completed", aggregatedOutput: "1.3.10\n",
+          exitCode: 0, durationMs: 4,
+        }, 21);
+      }
       const file = item("file-1", "fileChange");
       lifecycle("started", file, 12);
       notify("item/fileChange/outputDelta", { threadId, turnId, itemId: file.id, delta: "patched" });
@@ -776,6 +802,43 @@ test("model-free shell readiness fails retry-safe before thread or provider turn
     expect(requests.filter(({ method }) => method === "command/exec")).toHaveLength(1);
     expect(requests.some(({ method }) => method === "thread/start")).toBe(false);
     expect(requests.some(({ method }) => method === "turn/start")).toBe(false);
+  }
+});
+
+test("a command that runs outside the turn cwd is work, not a lifecycle defect", async () => {
+  // Pre-fix, EVERY one of these killed the lane mid-turn with
+  // `openai_provider_execution_failed` (started lifecycle invalid) — the named
+  // cause of today's command-heavy managed codex deaths.
+  for (const mode of [
+    "command-cwd-subdir", "command-cwd-sibling", "command-cwd-scratch",
+    "command-cwd-trailing-slash",
+  ]) {
+    const { options } = setup(mode);
+    const run = new ManagedCodexAppServerRun(options);
+    await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
+    const activity = run.nativeCommandActivity();
+    expect(activity.coverage).toBe("exact");
+    expect(activity.totalCommands).toBe(2);
+    expect(activity.successfulCommands).toBe(2);
+    // The probe still ran at the lane root, so its evidence survives the
+    // widened cwd rule: the accumulator now compares the OBSERVED directory.
+    expect(activity.northBinaryProbe).toBe("passed");
+  }
+});
+
+test("a malformed command cwd still fails closed with the observed path named", async () => {
+  for (const mode of [
+    "command-cwd-relative", "command-cwd-traversal", "command-cwd-dot",
+  ]) {
+    const { options } = setup(mode);
+    const error = await new ManagedCodexAppServerRun(options).execute()
+      .then(() => null, (thrown: Error) => thrown);
+    expect(error?.message).toBe("openai_provider_execution_failed");
+    const chain: string[] = [];
+    for (let cause = error?.cause as Error | undefined; cause; cause = cause.cause as Error | undefined)
+      chain.push(`${cause.message}`);
+    expect(chain.join(" | ")).toContain("cwd is not an absolute traversal-free path");
+    expect(chain.join(" | ")).toContain("observed=");
   }
 });
 
