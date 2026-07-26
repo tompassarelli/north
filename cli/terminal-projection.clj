@@ -31,6 +31,22 @@
 (def max-delivery-run-id-utf8-bytes 512)
 (def max-delivery-agent-id-utf8-bytes 256)
 (def max-delivery-attestation-utf8-bytes (* 16 1024))
+;; The unreserved fallback stores ONE human-review fact per observation and
+;; never enters a reservation baseline, so the 512-byte per-bar bound (which
+;; exists to keep 32 bars inside one reservation manifest) does not apply. It
+;; still needs a hygiene cap: a fallback record quotes an EXISTING done_when
+;; verbatim, so the cap only has to be wider than a realistic bar.
+(def max-unreserved-bar-utf8-bytes (* 4 1024))
+;; Bounded budget for naming the offending bars verbatim inside one single-line
+;; writer error. Whatever does not fit is counted, never silently dropped.
+(def max-done-bar-diagnostic-utf8-bytes 8192)
+(def unreserved-bar-evidence-predicate "bar_evidence_unreserved")
+(def unreserved-bar-evidence-version "north:unreserved-bar-evidence:v1")
+;; The literal announces its own tier. `bar_evidence` readers match evidence by
+;; SUBSTRING containment (stale/bar-mark), so unreserved observations must never
+;; share that predicate: a separate predicate plus a leading marker keeps them
+;; unable to satisfy a bar by accident on either surface.
+(def unreserved-bar-evidence-marker "unreserved ·")
 (def run-reservation-version "north:run-reservation:v1")
 (def run-reservation-body-predicates
   ["run_capability_sha256" "run_reservation_agent"
@@ -175,6 +191,66 @@
     (when (and (<= (count raw) max-delivery-bars)
                (every? some? canonical))
       (->> canonical distinct sort vec))))
+
+(defn done-bar-values
+  "Every raw stored done_when value. DIAGNOSTICS ONLY — it keeps malformed and
+  over-cap values so an error can quote what is actually on the thread; it is
+  never an authority set (canonical-done-when is)."
+  [facts]
+  (values-of facts "done_when"))
+
+(defn active-done-bar-texts
+  "Canonical bar texts a caller may cite right now, tolerating a contract that
+  canonical-done-when rejects as a whole. Malformed values are dropped HERE
+  because this answers 'may this exact text be cited', never 'is this contract
+  admissible' — every authority boundary keeps using canonical-done-when."
+  [facts]
+  (->> (done-bar-values facts)
+       (map canonical-evidence-text)
+       (filter some?)
+       distinct
+       sort
+       vec))
+
+(defn- single-line-diagnostic-text
+  [value]
+  (str/replace (str value) #"[\p{Cntrl}\u0080-\u009f]" " "))
+
+(defn done-bar-diagnostic
+  "One-line verbatim rendering of BARS for a writer error. Writer failures reach
+  a coordinator as a single `Message:` line, so a done-bar error that only
+  reports a COUNT leaves no way to see which bars to retire. Bounded by
+  max-done-bar-diagnostic-utf8-bytes; the remainder is counted, never dropped
+  in silence."
+  [bars]
+  (let [items (mapv #(str "\"" (single-line-diagnostic-text %) "\"") bars)]
+    (if (empty? items)
+      "(none)"
+      (loop [remaining items
+             shown []
+             budget max-done-bar-diagnostic-utf8-bytes]
+        (if-let [item (first remaining)]
+          (let [cost (+ (utf8-byte-count item) (if (seq shown) 3 0))]
+            (if (<= cost budget)
+              (recur (rest remaining) (conj shown item) (- budget cost))
+              (str (when (seq shown) (str (str/join " | " shown) " | "))
+                   "(+" (count remaining) " more omitted)")))
+          (str/join " | " shown))))))
+
+(defn unreserved-bar-evidence-literal
+  "Thread-scoped observation recorded with NO run reservation. Self-labelling by
+  construction so no reader — human or projection — can mistake it for
+  run-bound verification, and no path upgrades it into one."
+  [bar observed]
+  (when (and (bounded-nonblank-text? bar max-unreserved-bar-utf8-bytes)
+             (bounded-nonblank-text? observed max-delivery-observed-utf8-bytes))
+    (str unreserved-bar-evidence-marker " " bar " → " observed)))
+
+(defn unreserved-bar-evidence-prefix
+  "Literal prefix of every unreserved observation for one exact bar; used to
+  find the stale lines one re-record supersedes."
+  [bar]
+  (str unreserved-bar-evidence-marker " " bar " → "))
 
 (defn run-reservation-done-when
   "Parse the manifest-bound canonical reservation baseline, including an empty

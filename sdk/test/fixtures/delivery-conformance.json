@@ -49,6 +49,11 @@
       "canonical": "🧪"
     },
     {
+      "name": "json braces are ordinary content",
+      "raw": "{\"exit\":0,\"failures\":[]} \u00b7 {nested {braces}}",
+      "canonical": "{\"exit\":0,\"failures\":[]} \u00b7 {nested {braces}}"
+    },
+    {
       "name": "unpaired high surrogate",
       "raw": "\ud800",
       "canonical": null

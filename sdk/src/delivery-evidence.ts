@@ -7,7 +7,8 @@ import {
   MAX_RUN_RESERVATION_BASELINE_UTF8_BYTES,
   parseRunBarEvidence, sha256, utf8ByteCount, validInstant,
   validAgentEntity, validRunEntity, validThreadEntity, validUnicodeScalars,
-  type RunBarEvidence,
+  validateUnreservedBarEvidence,
+  type RunBarEvidence, type UnreservedBarEvidence,
 } from "./delivery-verification";
 
 const REPO = resolve(import.meta.dir, "..", "..");
@@ -22,6 +23,8 @@ const RUN_RESERVATION_BODY = [
   "run_reservation_version",
   "run_reserved_at",
 ] as const;
+
+type WriterOperation = "reserve" | "record" | "record-unreserved";
 
 export interface DeliveryRunContext {
   runId: string;
@@ -154,7 +157,7 @@ export function newDeliveryRunContext(
 }
 
 function invokeWriter(
-  operation: "reserve" | "record",
+  operation: WriterOperation,
   request: Record<string, string>,
   port = process.env.NORTH_PORT ?? "7977",
 ): string {
@@ -211,7 +214,7 @@ export function deliveryReservationFailureCause(error: unknown): string {
 
 /** @internal Pure subprocess boundary used by the writer and its secrecy test. */
 export function deliveryWriterInvocation(
-  operation: "reserve" | "record",
+  operation: WriterOperation,
   request: Record<string, string>,
   port: string,
 ): { argv: string[]; stdin: string } {
@@ -422,14 +425,105 @@ export function recordRunBarEvidence(
   return parsed;
 }
 
+/**
+ * Record one THREAD-scoped observation with no run reservation.
+ *
+ * A lane whose reservation never happened (no NORTH_RUN_ID in its environment)
+ * still ran real probes, and erroring the record away loses the observation
+ * entirely. This lands it at a visibly lower tier — its own predicate, its own
+ * marker, its own acknowledgement shape — so nothing downstream can read it as
+ * run-bound verification, and no path upgrades it into one.
+ */
+export function recordUnreservedBarEvidence(
+  threadId: string,
+  bar: string,
+  observed: string,
+  env: NodeJS.ProcessEnv = process.env,
+): UnreservedBarEvidence {
+  const normalizedThread = threadId.replace(/^@/, "");
+  if (!validThreadEntity(`@${normalizedThread}`)) {
+    throw new Error("invalid delivery thread id");
+  }
+  const raw = invokeWriter("record-unreserved", {
+    thread: normalizedThread,
+    bar,
+    observed,
+  }, env.NORTH_PORT ?? "7977");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("delivery evidence writer returned a malformed record");
+  }
+  const record = validateUnreservedBarEvidence(parsed);
+  if (!record) throw new Error("delivery evidence writer returned a malformed record");
+  return record;
+}
+
+/** @internal Parsed `north evidence record` argv. */
+export function parseEvidenceRecordArgv(
+  argv: readonly string[],
+): { bar: string; observed: string; thread?: string } | undefined {
+  const positional: string[] = [];
+  let thread: string | undefined;
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index]!;
+    if (argument === "--thread") {
+      const value = argv[++index];
+      if (!value || thread) return undefined;
+      thread = value;
+      continue;
+    }
+    if (argument.startsWith("--thread=")) {
+      const value = argument.slice("--thread=".length);
+      if (!value || thread) return undefined;
+      thread = value;
+      continue;
+    }
+    positional.push(argument);
+  }
+  const [verb, bar, observed, ...extra] = positional;
+  if (verb !== "record" || !bar || !observed || extra.length) return undefined;
+  return { bar, observed, thread };
+}
+
 if (import.meta.main) {
-  const [verb, bar, observed, ...extra] = process.argv.slice(2);
-  if (verb !== "record" || !bar || !observed || extra.length) {
-    console.error("usage: north evidence record \"<exact done_when>\" \"<observed result>\"");
+  const parsed = parseEvidenceRecordArgv(process.argv.slice(2));
+  if (!parsed) {
+    console.error(
+      "usage: north evidence record [--thread <id>] \"<exact done_when>\" \"<observed result>\"",
+    );
     process.exit(2);
   }
+  const { bar, observed, thread } = parsed;
+  const runId = process.env.NORTH_RUN_ID?.trim();
   try {
-    console.log(JSON.stringify(recordRunBarEvidence(bar, observed)));
+    if (runId) {
+      // A reserved lane keeps the fail-closed path exactly as it was: --thread
+      // may only restate the reserved thread, never redirect the record.
+      if (thread
+        && thread.replace(/^@/, "") !== (process.env.NORTH_THREAD_ID ?? "").replace(/^@/, "")) {
+        throw new Error(
+          "--thread cannot redirect evidence away from the reserved thread of this run",
+        );
+      }
+      console.log(JSON.stringify(recordRunBarEvidence(bar, observed)));
+    } else {
+      const fallbackThread = thread ?? process.env.NORTH_THREAD_ID;
+      if (!fallbackThread) {
+        throw new Error(
+          "no managed run reservation (NORTH_RUN_ID unset) and no thread to record against"
+          + " — rerun with: north evidence record --thread <id> \"<bar>\" \"<observed>\"",
+        );
+      }
+      const record = recordUnreservedBarEvidence(fallbackThread, bar, observed);
+      console.error(
+        `north evidence: UNRESERVED — no run reservation in this environment, so this`
+        + ` observation was recorded as thread-scoped evidence on ${record.thread}.`
+        + ` It is NOT run-bound delivery verification and is never upgraded to one.`,
+      );
+      console.log(JSON.stringify(record));
+    }
   } catch (error) {
     console.error(`north evidence: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);

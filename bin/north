@@ -170,6 +170,8 @@ north — your one card. Type a command to do the thing next to it.
     north escalate needs-replan ...    checkpoint scope overrun + route it up the live parent chain
     north evidence record <bar> <result>
                                        bind done-bar evidence to this exact managed run
+      --thread <id>                     no reservation in env: record UNRESERVED thread evidence
+    north bars list|prune <thread>     groom a thread's done_when set back under the reserve limit
     north delivery attest <agent-id>   unavailable until verifier lanes have OS isolation
     north spawn <role> "<prompt>"      compose from Orchestration's staffing catalog
       --provider auto|anthropic|openai  select or auto-route the worker provider
@@ -260,7 +262,13 @@ CARD
   evidence)
     # Capability-bound self-reporting surface. Run/thread/reporter are inherited
     # from the managed child environment; callers supply only exact bar + result.
+    # With NO reservation in the environment it falls back to explicitly
+    # unreserved thread-scoped evidence (never run-bound verification).
     exec "$BUN" run "$NORTH/sdk/src/delivery-evidence.ts" "${@:2}" ;;
+  bars)
+    # Coordinator-facing done_when grooming: the one-step recovery the delivery
+    # reserve error points at when a thread accumulates past the bar limit.
+    exec "$BB" "$NORTH/cli/bars-cli.clj" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a
     # read-only plan; only an explicit `sync <thread> --apply` writes remotely.
@@ -372,6 +380,13 @@ CARD
     # silent for bar-less threads; failures never block the write.
     if [ "$framverb" = tell ] && [ "${3:-}" = outcome ]; then
       "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main done-bars "$2" 2>/dev/null || true
+    fi
+    # Reserve-limit echo: bars accumulate across runs, so the Nth done_when is
+    # what silently makes future managed runs unable to reserve delivery
+    # evidence. Warn at write time (advisory, never a reject) and name the
+    # one-step recovery. Runs only for done_when tells.
+    if [ "$framverb" = tell ] && [ "${3:-}" = done_when ] && [ -n "${4:-}" ]; then
+      "$BB" "$NORTH/cli/bars-cli.clj" check "$2" "$4" || true
     fi
     exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
   *)  # engine verbs: import/export/show/set/merge/watch

@@ -7,14 +7,17 @@ import { join } from "node:path";
 import {
   deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
-  recordRunBarEvidence, resolveDeliveryRunState, RUN_RESERVATION_VERSION,
+  parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
+  resolveDeliveryRunState, RUN_RESERVATION_VERSION,
   runReservationValid,
 } from "../src/delivery-evidence";
 import { MANAGED_NORTH_MCP_ENV_KEYS } from "../src/execution-admission";
 import { harnessOptions } from "../src/harness";
 import {
-  MAX_DELIVERY_BARS, MAX_RUN_BAR_EVIDENCE_RECORD_UTF8_BYTES,
-  RUN_BAR_EVIDENCE_VERSION, sha256,
+  canonicalEvidenceText, MAX_DELIVERY_BARS,
+  MAX_RUN_BAR_EVIDENCE_RECORD_UTF8_BYTES, MAX_UNRESERVED_BAR_UTF8_BYTES,
+  parseRunBarEvidence, RUN_BAR_EVIDENCE_VERSION, sha256,
+  UNRESERVED_BAR_EVIDENCE_VERSION, validateUnreservedBarEvidence,
 } from "../src/delivery-verification";
 
 const conformance = JSON.parse(readFileSync(
@@ -301,4 +304,90 @@ test("run-state resolution retries only the load and never a content verdict", (
   }, { attempts: 9, backoffMs: 100, budgetMs: 700, now: () => clock, sleep: () => {} });
   expect(calls).toBe(2);
   expect(budgeted.transientFailure).toBe("reader timed out");
+});
+
+test("evidence record argv carries an explicit unreserved thread", () => {
+  expect(parseEvidenceRecordArgv(["record", "bar", "observed"]))
+    .toEqual({ bar: "bar", observed: "observed", thread: undefined });
+  expect(parseEvidenceRecordArgv(["record", "--thread", "t-1", "bar", "observed"]))
+    .toEqual({ bar: "bar", observed: "observed", thread: "t-1" });
+  expect(parseEvidenceRecordArgv(["record", "--thread=t-1", "bar", "observed"]))
+    .toEqual({ bar: "bar", observed: "observed", thread: "t-1" });
+  // A bar that looks like a flag is still a bar; a repeated or empty --thread,
+  // a missing operand, and an extra positional are all refusals, never guesses.
+  expect(parseEvidenceRecordArgv(["record", "--thread", "a", "--thread", "b", "x", "y"]))
+    .toBeUndefined();
+  expect(parseEvidenceRecordArgv(["record", "--thread"])).toBeUndefined();
+  expect(parseEvidenceRecordArgv(["record", "bar"])).toBeUndefined();
+  expect(parseEvidenceRecordArgv(["record", "bar", "observed", "extra"])).toBeUndefined();
+  expect(parseEvidenceRecordArgv(["reserve", "bar", "observed"])).toBeUndefined();
+});
+
+test("unreserved acknowledgements can never be read as run-bound evidence", () => {
+  const unreserved = {
+    version: UNRESERVED_BAR_EVIDENCE_VERSION,
+    scope: "unreserved",
+    thread: "@thread-123",
+    bar: "tests pass",
+    observed: "exit 0",
+    recordedAt: "2026-07-18T10:00:00Z",
+    superseded: 0,
+  };
+  expect(validateUnreservedBarEvidence(unreserved)).toEqual(unreserved);
+  // Neither validator accepts the other's shape: an unreserved record carries no
+  // run, and a run record carries no unreserved scope.
+  expect(parseRunBarEvidence(JSON.stringify(unreserved))).toBeUndefined();
+  expect(validateUnreservedBarEvidence({
+    version: RUN_BAR_EVIDENCE_VERSION,
+    run: "@run-1", thread: "@thread-123", reporter: "@agent:lane-1",
+    bar: "tests pass", observed: "exit 0", recordedAt: "2026-07-18T10:00:00Z",
+  })).toBeUndefined();
+  // Fabricating a run binding onto an unreserved payload is still refused.
+  expect(validateUnreservedBarEvidence({ ...unreserved, run: "@run-1" })).toBeUndefined();
+  expect(validateUnreservedBarEvidence({ ...unreserved, scope: "run" })).toBeUndefined();
+  expect(validateUnreservedBarEvidence({ ...unreserved, superseded: -1 })).toBeUndefined();
+  expect(validateUnreservedBarEvidence({ ...unreserved, thread: "not-an-entity" }))
+    .toBeUndefined();
+});
+
+test("unreserved evidence accepts the long bars a reservation would reject", () => {
+  const longBar = "b".repeat(MAX_UNRESERVED_BAR_UTF8_BYTES);
+  expect(validateUnreservedBarEvidence({
+    version: UNRESERVED_BAR_EVIDENCE_VERSION,
+    scope: "unreserved",
+    thread: "@thread-123",
+    bar: longBar,
+    observed: "exit 0",
+    recordedAt: "2026-07-18T10:00:00Z",
+    superseded: 1,
+  })?.bar).toBe(longBar);
+  expect(validateUnreservedBarEvidence({
+    version: UNRESERVED_BAR_EVIDENCE_VERSION,
+    scope: "unreserved",
+    thread: "@thread-123",
+    bar: `${longBar}b`,
+    observed: "exit 0",
+    recordedAt: "2026-07-18T10:00:00Z",
+    superseded: 0,
+  })).toBeUndefined();
+});
+
+test("unreserved recording refuses an invalid thread before any subprocess", () => {
+  expect(() => recordUnreservedBarEvidence("thread with spaces", "bar", "exit 0", {}))
+    .toThrow("invalid delivery thread id");
+});
+
+test("braces are ordinary content in bars and observations", () => {
+  const observed = "{\"exit\":0,\"failures\":[]} · {nested {braces}}";
+  expect(canonicalEvidenceText(observed)).toBe(observed);
+  const record = {
+    version: RUN_BAR_EVIDENCE_VERSION,
+    run: "@run-1",
+    thread: "@thread-123",
+    reporter: "@agent:lane-1",
+    bar: "Probe: bun test. Expected: {\"pass\": true}",
+    observed,
+    recordedAt: "2026-07-18T10:00:00Z",
+  };
+  expect(parseRunBarEvidence(JSON.stringify(record))).toEqual(record);
 });

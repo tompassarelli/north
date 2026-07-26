@@ -186,6 +186,7 @@
    ["progress"       "multi"  "literal" "append-only progress update on a thread"]
    ["done_when"      "multi"  "literal" "probe and expected result that define completion"]
    ["bar_evidence"   "multi"  "literal" "observed result satisfying a done_when bar"]
+   ["bar_evidence_unreserved" "multi" "literal" "self-labelled observation recorded with no run reservation; never run-bound verification"]
    ["judgment_grade" "single" "literal" "dispatcher's S/M/L estimate of a thread's judgment saturation (s|m|l)"]
    ["judgment_grade_status" "single" "literal" "run-local validation status of the admission-time judgment grade (valid|unavailable|invalid)"]
    ["judgment_grade_source" "single" "literal" "run-local origin of the judgment-grade snapshot (thread|ad-hoc)"]
