@@ -1054,7 +1054,7 @@ test("effective native shell keeps the sealed package environment without manual
   expect(launch.expectedSessionConfig.allow_login_shell).toBe(false);
   const command = 'command -v north; printf "%s\\n" "$NORTH_BIN"';
   const shellArgs = launch.expectedSessionConfig.allow_login_shell === false
-    ? ["-c", command]
+    ? ["--noprofile", "--norc", "-c", command]
     : ["-lc", command];
   const result = spawnSync(Bun.which("bash")!, shellArgs, {
     cwd: options.cwd,
