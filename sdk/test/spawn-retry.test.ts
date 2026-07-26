@@ -128,6 +128,7 @@ let originalConsoleError: typeof console.error;
 
 beforeEach(() => {
   writeFileSync(log, "");
+  try { rmSync(process.env.NORTH_ROUTING_POLICY!, { force: true }); } catch {}
   stderrLines = [];
   originalConsoleError = console.error;
   console.error = (...args: unknown[]) => {
@@ -160,6 +161,39 @@ function alwaysDies(errorMessage: string, calls: { n: number }) {
       throw new Error(errorMessage);
     })();
   };
+}
+
+function laneStartFailureThenSucceeds(calls: { n: number }) {
+  return () => {
+    calls.n++;
+    return (async function* () {
+      if (calls.n === 1) return; // closed stream: no terminal result
+      yield { type: "result", subtype: "success", result: "recovered on sibling", num_turns: 1 };
+    })();
+  };
+}
+
+function overloadedAtStart(calls: { n: number }) {
+  return () => {
+    calls.n++;
+    return (async function* () {
+      yield {
+        type: "result", subtype: "error", is_error: true, num_turns: 0,
+        errors: [{ message: "529 Overloaded" }], result: "",
+      };
+    })();
+  };
+}
+
+function twoAnthropicAccounts() {
+  writeFileSync(process.env.NORTH_ROUTING_POLICY!, JSON.stringify({
+    version: 1, mode: "preferential", providerOrder: ["anthropic"], pressures: {}, weights: {},
+    targets: [
+      { id: "anthropic-primary", provider: "anthropic", authMode: "isolated", profile: "test-primary" },
+      { id: "anthropic-sibling", provider: "anthropic", authMode: "isolated", profile: "test-sibling" },
+    ],
+    targetOrder: ["anthropic-primary", "anthropic-sibling"],
+  }));
 }
 
 test("worker + read-only capabilities + provider-process death -> exactly one retry, fresh run, provenance recorded", async () => {
@@ -197,6 +231,45 @@ test("worker + read-only capabilities + provider-process death -> exactly one re
   // to the original (bare id, no @) and its own terminal reflects recovery.
   expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ retry_of_agent test-retry-eligible/);
   expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ outcome ran/);
+});
+
+test("terminal-less lane start retries once on an Anthropic sibling account", async () => {
+  const { spawn } = await import("./support/spawn");
+  const calls = { n: 0 };
+  twoAnthropicAccounts();
+
+  const result = await spawn({
+    prompt: "recover a transient start failure", agentId: "test-sibling-retry",
+    provider: "anthropic", pinEvidence: pinEvidence("anthropic"),
+    routingMetadata: presetRequest("implementer"), feedSubscriber: () => readySubscription(),
+    queryFn: laneStartFailureThenSucceeds(calls),
+  });
+
+  expect(result).toBe("recovered on sibling");
+  expect(calls.n).toBe(2);
+  expect(stderrLines.some((line) => line.includes("sibling target=anthropic-sibling"))).toBe(true);
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toMatch(/tell run:\S+ retry_of_run @run:\S+/);
+  expect(logged).toContain("provider_target anthropic-sibling");
+});
+
+test("persistent 529 retries its sibling once then remains a clean blocked provider_error", async () => {
+  const { spawn } = await import("./support/spawn");
+  const calls = { n: 0 };
+  twoAnthropicAccounts();
+
+  const result = await spawn({
+    prompt: "report a persistent overload", agentId: "test-sibling-retry-529",
+    provider: "anthropic", pinEvidence: pinEvidence("anthropic"),
+    routingMetadata: presetRequest("implementer"), feedSubscriber: () => readySubscription(),
+    queryFn: overloadedAtStart(calls),
+  });
+
+  expect(typeof result).toBe("string");
+  expect(calls.n).toBe(2);
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain("provider_target anthropic-sibling");
+  expect((logged.match(/tell agent:\S+ outcome provider_error/g) ?? []).length).toBe(2);
 });
 
 test("orchestrator topology never retries a provider-process death, even with read-only capabilities", async () => {

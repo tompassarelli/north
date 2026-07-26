@@ -186,6 +186,20 @@ interface ManagedWorktreeLease extends ProvisionedWorktree {
 // retryOfRun/retryAttempt provenance below).
 const PROVIDER_PROCESS_DEATH_MAX_RETRIES = 1;
 
+/** A start-of-stream overload is safe to re-route before any provider turn ran. */
+export function eligibleForLaneStartProviderRetry(
+  outcome: string,
+  providerErrorDetail: string | undefined,
+  numTurns: number | undefined,
+  siblingTarget: string | undefined,
+): boolean {
+  if (outcome !== "provider_error" || !siblingTarget) return false;
+  // A terminal-less stream is necessarily pre-turn. Anthropic's 529 terminal
+  // reports zero turns; do not infer retry safety from arbitrary error prose.
+  if (providerErrorDetail === NO_PROVIDER_TERMINAL_DETAIL) return true;
+  return numTurns === 0 && /\b529\b|overloaded/i.test(providerErrorDetail ?? "");
+}
+
 /**
  * All three must hold before a provider-process death is retried:
  *  - the death class is provider-process-level (PROVIDER_PROCESS_DEATH_OUTCOME,
@@ -280,7 +294,11 @@ async function runSpawn(
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
   worktreeLease?: ManagedWorktreeLease,
   retryContext?: RetryContext,
-): Promise<{ result: string; outcome: string; runId: string }> {
+  retryTarget?: string,
+): Promise<{
+  result: string; outcome: string; runId: string; providerErrorDetail?: string;
+  numTurns?: number; provider: ProviderPreference; siblingTarget?: string;
+}> {
   const runStartedAt = process.hrtime.bigint();
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
@@ -320,7 +338,7 @@ async function runSpawn(
   const requestedReasoning = opts.effort;
   const providerPreference = opts.provider ?? "auto";
   const targetPreference = opts.target;
-  const routingRequest = { provider: providerPreference, target: targetPreference };
+  const routingRequest = { provider: providerPreference, target: retryTarget ?? targetPreference };
   if (!injected.queryFn) admitPinnedProvider(opts.provider, capabilities);
   // Injected query functions own their entire provider boundary; keeping the
   // refresh out of that path makes tests and alternative adapters hermetic.
@@ -1196,7 +1214,10 @@ async function runSpawn(
   console.log(`[spawn] @agent:${agentId} complete (process=${outcome}, delivery=${terminal.deliveryOutcome}` +
     `, turns=${turnsLabel}, result=${result.length}b` +
     `${struggleSnapshot.triggers.length ? `, struggle: ${struggleSnapshot.triggers.join(",")}` : ""})`);
-  return { result, outcome, runId };
+  const siblingTarget = routing.fallbackTargets.find((target) =>
+    routing.routingTargets[target]?.provider === routing.provider,
+  );
+  return { result, outcome, runId, providerErrorDetail, numTurns, provider: routing.provider, siblingTarget };
 }
 
 // TRUE only in the import.meta.main adapter bootstrap below: that process runs
@@ -1374,25 +1395,28 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     // (status=not_committed reason=terminal_committed), so reuse is not an
     // option here, only a fresh mint linked back by provenance.
     let deadAgentId = agentId;
-    while (
-      retries < PROVIDER_PROCESS_DEATH_MAX_RETRIES
-      && eligibleForProviderProcessDeathRetry(
+    while (retries < PROVIDER_PROCESS_DEATH_MAX_RETRIES) {
+      const processDeathRetry = eligibleForProviderProcessDeathRetry(
         attempt.outcome, composed.routingMetadata.topology, requestedCapabilities,
-      )
-    ) {
+      );
+      const laneStartRetry = eligibleForLaneStartProviderRetry(
+        attempt.outcome, attempt.providerErrorDetail, attempt.numTurns, attempt.siblingTarget,
+      );
+      if (!processDeathRetry && !laneStartRetry) break;
       retries++;
       const deadRunId = attempt.runId;
       const retryAgentId = createSpawnAgentId();
+      const retryTarget = laneStartRetry ? attempt.siblingTarget : undefined;
       console.error(
-        `[spawn] @agent:${deadAgentId} provider-process death (run @${deadRunId}) is retry-safe `
-        + `(worker + read-only capabilities) — retrying once as a fresh run on a fresh `
+        `[spawn] @agent:${deadAgentId} ${laneStartRetry ? "start-of-stream provider failure" : "provider-process death"} `
+        + `(run @${deadRunId}) is retry-safe — retrying once as a fresh run${retryTarget ? ` on sibling target=${retryTarget}` : ""} on a fresh `
         + `@agent:${retryAgentId} (attempt ${retries})`,
       );
       termination.throwIfTerminated();
       attempt = await runSpawn(
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
         caveman, admission, injected, termination, worktreeLease,
-        { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId },
+        { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
       );
       deadAgentId = retryAgentId;
     }
