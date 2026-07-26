@@ -78,9 +78,15 @@
             "(print (north.coord/expected-log))"))
       _ (io/delete-file split-log true)
       daemon
+      ;; Pin the throwaway coordinator's OWN corpus: an inherited FRAM_LOG makes
+      ;; it boot-fold the developer's live log (30s+ on a swarm corpus, so the
+      ;; start check times out) and lets its telemetry land in live state.
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+        :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+                    "FRAM_LOG" (.getPath log)
+                    "FRAM_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.log"))
+                    "FRAM_THREADS" (.getPath (io/file dir "threads"))}}
        "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
        (str port) (.getPath log))
       checks (atom [])

@@ -160,14 +160,93 @@
          (= "delivery evidence request exceeds its UTF-8 byte limit"
             (some-> error .getMessage))))
 
+;; A coordinator that ABORTS a query (Fram stops a query whose cold projection
+;; rebuild outruns FRAM_QUERY_TIMEOUT_MS — the read right after a capture is the
+;; one that pays that rebuild) answers with {:error … :code …}, never {:ok …}.
+;; Reading that as "the subject has no facts" is what rejected freshly captured
+;; threads as non-thread subjects, so a stop must retry and then fail by name.
+(defn reset-read-budget! []
+  (reset! @#'north.delivery-evidence-internal/read-retry-deadline-ns nil))
+(def query-time-limit-stop
+  {:error ["query evaluation stopped: query-time-limit"]
+   :code :query-time-limit :version 7 :engine "index"})
+
+(let [attempts (atom 0)
+      facts (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
+              (reset-read-budget!)
+              (with-redefs
+               [north.coord/send-op
+                (fn [_ _]
+                  (if (= 1 (swap! attempts inc))
+                    query-time-limit-stop
+                    {:ok [["title" "Freshly captured thread"] ["kind" "thread"]]
+                     :version 8 :engine "index"}))]
+                (north.delivery-evidence-internal/facts-of
+                 7977 "@019f9d69-9643-75e8-b6d0-918d28cdc0da")))]
+  (check "a transient query stop is retried, not read as an empty subject"
+         (and (= 2 @attempts)
+              (north.delivery-evidence-internal/title-bearing-thread? facts))))
+
+(let [attempts (atom 0)
+      error (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
+              (reset-read-budget!)
+              (with-redefs
+               [north.coord/send-op
+                (fn [_ _] (swap! attempts inc) query-time-limit-stop)]
+                (try
+                  (north.delivery-evidence-internal/facts-of
+                   7977 "@019f9d69-9643-75e8-b6d0-918d28cdc0da")
+                  nil
+                  (catch clojure.lang.ExceptionInfo caught caught))))]
+  (check "an unanswered read fails by name instead of impersonating no facts"
+         (and (= "coordinator did not answer a delivery evidence read"
+                 (some-> error .getMessage))
+              (= :query-time-limit (:code (ex-data error)))
+              (> @attempts 1))))
+
+(let [attempts (atom 0)
+      error (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
+              (reset-read-budget!)
+              (with-redefs
+               [north.coord/send-op
+                (fn [_ _]
+                  (swap! attempts inc)
+                  {:error ["query response exceeded its final wire bound"]
+                   :code :query-response-too-large})]
+                (try
+                  (north.delivery-evidence-internal/facts-of 7977 "@thread-too-large")
+                  nil
+                  (catch clojure.lang.ExceptionInfo caught caught))))]
+  (check "a deterministic read failure fails immediately without burning the budget"
+         (and (= "coordinator did not answer a delivery evidence read"
+                 (some-> error .getMessage))
+              (= 1 @attempts))))
+
+(let [answered (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
+                 (reset-read-budget!)
+                 (with-redefs
+                  [north.coord/send-op (fn [_ _] {:ok [] :version 9 :engine "index"})]
+                   (north.delivery-evidence-internal/facts-of 7977 "@genuinely-empty")))]
+  (check "an ANSWERED empty subject still reads as no facts (fail-closed intact)"
+         (= {} answered)))
+
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-run-publication" (make-array java.nio.file.attribute.FileAttribute 0)))
       log (io/file tmp "facts.log")
       daemon (do
                (spit log "")
+               ;; Pin the throwaway coordinator's OWN corpus: an inherited
+               ;; FRAM_LOG/FRAM_TELEMETRY_LOG makes it boot-fold the developer's
+               ;; live log (30s+ on a real swarm corpus, so the start check
+               ;; times out) and lets its telemetry land in live state.
                (proc/process {:dir fram :out :string :err :string
-                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+                                          "FRAM_LOG" (.getPath log)
+                                          "FRAM_TELEMETRY_LOG"
+                                          (.getPath (io/file tmp "telemetry.log"))
+                                          "FRAM_THREADS"
+                                          (.getPath (io/file tmp "threads"))}}
                              "bb" "-cp" "out" "coord_daemon.clj"
                              "serve-flat" (str port) (.getPath log)))
       run "@run-publication-v2"
@@ -210,6 +289,49 @@
         (check "reservation requires a title-bearing North thread"
                (and (not (zero? (:exit rejected)))
                     (empty? (facts-of port rejected-run))))))
+    ;; The delegate path reserves against a thread captured MOMENTS earlier; pin
+    ;; that exact ordering (capture-shaped facts, then an immediate reserve).
+    (let [fresh-thread "@019f9d70-8727-74e3-8168-7d5082b47e54"
+          fresh-thread-run "@run-freshly-captured-thread"]
+      (doseq [[predicate value] [["kind" "thread"]
+                                 ["title" "Freshly captured thread"]
+                                 ["done_when" "Probe: reserve. Expected: ok true."]
+                                 ["committed" "2026-07-26"]]]
+        (north.coord/append! port fresh-thread predicate value))
+      (let [reserved
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request fresh-thread-run fresh-thread reporter
+                                     (apply str (repeat 64 "e")))))]
+        (check "a freshly captured thread reserves delivery evidence"
+               (and (zero? (:exit reserved))
+                    (north.terminal-projection/run-reservation-valid?
+                     (facts-of port fresh-thread-run))))))
+    ;; Same well-formed thread, but the reads are stopped: the writer must name
+    ;; the unanswered read and leave NO partial reservation behind.
+    (let [unread-run "@run-unanswered-read"
+          original north.coord/send-op
+          error (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
+                  (reset-read-budget!)
+                  (with-redefs
+                   [north.coord/send-op
+                    (fn [target request]
+                      (if (= :query (:op request))
+                        query-time-limit-stop
+                        (original target request)))]
+                    (try
+                      (north.delivery-evidence-internal/reserve!
+                       port {"run" unread-run
+                             "thread" "@019f9d70-8727-74e3-8168-7d5082b47e54"
+                             "reporter" reporter
+                             "capabilitySha256" (apply str (repeat 64 "f"))})
+                      nil
+                      (catch clojure.lang.ExceptionInfo caught caught))))]
+      (reset-read-budget!)
+      (check "an unanswered read never rejects a real thread as a non-thread subject"
+             (and (= "coordinator did not answer a delivery evidence read"
+                     (some-> error .getMessage))
+                  (empty? (facts-of port unread-run)))))
     (let [oversized-run "@run-oversized-contract"
           oversized-thread "@thread-oversized-contract"]
       (north.coord/append! port oversized-thread "title" "Oversized contract")

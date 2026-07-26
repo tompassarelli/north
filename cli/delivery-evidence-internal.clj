@@ -60,14 +60,70 @@
       (fail! "invalid delivery evidence thread" {:thread raw}))
     canonical))
 
+;; "The coordinator answered: this subject has no facts" and "the coordinator
+;; did not answer" are DIFFERENT worlds, and every guard below reads them as
+;; graph truth. Folding a non-answer into {} is what let one transient
+;; :query-time-limit — Fram aborts a query whose cold projection rebuild outruns
+;; FRAM_QUERY_TIMEOUT_MS, and every write invalidates that projection, so the
+;; read right after a capture is exactly the one that pays it — reject a
+;; well-formed thread as "a non-thread subject", and would equally have let a
+;; non-fresh run subject pass the freshness gate. Only an :ok answer is evidence.
+(def transient-query-stops
+  #{:query-time-limit :query-work-limit :query-cancelled})
+
+(defn query-answered? [response]
+  (vector? (:ok response)))
+
+;; ONE waiting budget for every read in a writer invocation, not one per read:
+;; the subprocess boundary (sdk/src/delivery-evidence.ts) kills the writer at 10s
+;; and the publication retry window already owns 5s of that, so per-read windows
+;; would let a chain of unanswered reads outrun the boundary and lose the very
+;; cause this fix exists to report. The budget is created on the FIRST retry, so
+;; an answering coordinator never opens a second deadline (the reservation's one
+;; shared body/digest deadline stays the only one), and every read still ATTEMPTS
+;; once even after the budget is spent — exhaustion stops waiting, not asking.
+(def read-retry-budget-ms 2000)
+(def ^:private read-retry-deadline-ns (atom nil))
+
+(defn- read-deadline-ns []
+  (or @read-retry-deadline-ns
+      (reset! read-retry-deadline-ns
+              (north.coord/retry-deadline-ns read-retry-budget-ms))))
+
+(defn query-rows!
+  "Rows of one coordinator query, or a loud failure. A transient evaluation stop
+   is retried inside the shared read budget; anything else fails immediately
+   under its own name rather than impersonating an empty subject."
+  [port subject query]
+  (let [unanswered (atom nil)
+        attempt!
+        (fn []
+          (let [response (north.coord/send-op port {:op :query :query query})]
+            (if (query-answered? response)
+              {:answered response}
+              (do (reset! unanswered response)
+                  (if (contains? transient-query-stops (:code response))
+                    {:reject :conflict}
+                    {:unanswered true})))))
+        first-outcome (attempt!)
+        outcome (if (= :conflict (:reject first-outcome))
+                  (north.coord/retry-conflicts-until! (read-deadline-ns) attempt!)
+                  first-outcome)]
+    (if-let [answered (:answered outcome)]
+      (:ok answered)
+      (fail! "coordinator did not answer a delivery evidence read"
+             {:subject subject
+              :code (:code @unanswered)
+              :response @unanswered}))))
+
 (defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "delivery_evidence_fact"
-                                 :rules [{:head {:rel "delivery_evidence_fact"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows (query-rows!
+              port subject
+              {:find "delivery_evidence_fact"
+               :rules [{:head {:rel "delivery_evidence_fact"
+                               :args [{:var "p"} {:var "r"}]}
+                        :body [{:rel "triple"
+                                :args [subject {:var "p"} {:var "r"}]}]}]})]
     (reduce (fn [acc [predicate value]]
               (update acc predicate (fnil conj #{}) value))
             {}
