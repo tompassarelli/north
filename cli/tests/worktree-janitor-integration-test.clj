@@ -14,6 +14,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
 (def reactor (str root "/cli/north-reactor.clj"))
+(def lander (str root "/cli/worktree-lander.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
 
 (def checks (atom []))
@@ -102,6 +103,25 @@
     (git! "-C" repo "worktree" "add" "-q" "-b" branch path "HEAD")
     {:handle handle :branch branch :path path :subject (str "@agent:" handle)}))
 
+(defn create-clone! [repo parent handle]
+  (let [branch (str "lane-" handle)
+        ;; Match sdk/src/worktree.ts: worktreePath: /tmp/<repo-basename>-lane-<id>.
+        path (.getCanonicalPath (io/file "/tmp" (str (.getName (io/file repo)) "-" branch)))]
+    (git! "clone" "-q" "--no-hardlinks" repo path)
+    (git! "-C" path "checkout" "-qb" branch "HEAD")
+    (git! "-C" path "remote" "set-url" "--push" "origin"
+          "north-disabled://managed-clone-no-push")
+    {:handle handle :branch branch :path path :subject (str "@agent:" handle)}))
+
+(defn commit-file! [repo filename text message]
+  (spit (io/file repo filename) text)
+  (git! "-C" repo "add" filename)
+  (git! "-C" repo "commit" "-qm" message))
+
+(defn harvest-clone! [repo clone]
+  (git! "-C" repo "fetch" "--no-tags" "--no-write-fetch-head" "--"
+        (:path clone) (str "refs/heads/" (:branch clone) ":refs/heads/" (:branch clone))))
+
 (defn register-lane! [port repo {:keys [subject branch path]} graph-branch]
   (doseq [[predicate value]
           [["kind" "lane"] ["repo" repo] ["worktree" path]
@@ -183,8 +203,10 @@
           provenance-fail (create-worktree! repo worktrees "provenance-failure")
           post-remove-fail (create-worktree! repo worktrees "post-remove-failure")
           branch-delete-fail (create-worktree! repo worktrees "branch-delete-failure")
+          clone-clean (create-clone! repo worktrees "clone-clean")
+          clone-dirty (create-clone! repo worktrees "clone-dirty")
           lanes [clean dirty live torn hostile status-fail provenance-fail
-                 post-remove-fail branch-delete-fail]]
+                 post-remove-fail branch-delete-fail clone-clean clone-dirty]]
       (doseq [lane lanes] (register-lane! port repo lane nil))
       ;; Graph data may never choose the branch passed to Git. Make one exact
       ;; registration hostile while its real worktree remains perfectly valid.
@@ -192,7 +214,7 @@
 
       (commit-modern-terminal! port (:subject clean))
       (doseq [lane [dirty hostile status-fail provenance-fail
-                    post-remove-fail branch-delete-fail]]
+                    post-remove-fail branch-delete-fail clone-clean clone-dirty]]
         (commit-run! port (:handle lane)))
       ;; Torn modern lane terminal + uncommitted run: neither is terminal proof.
       (assert-fact! port (:subject torn) "process_outcome" "ran")
@@ -208,6 +230,10 @@
 
       (let [dirty-file (io/file (:path dirty) "uncommitted sentinel.txt")]
         (spit dirty-file "dirty bytes must survive\n"))
+      (commit-file! (:path clone-clean) "harvested.txt" "durable clone commit\n" "harvest clone")
+      (harvest-clone! repo clone-clean)
+      (commit-file! (:path clone-dirty) "unharvested.txt" "sole clone commit\n" "unharvested clone")
+      (spit (io/file (:path clone-dirty) "uncommitted sentinel.txt") "must survive\n")
 
       ;; Test-only Git transport: every non-fault command execs the system Git.
       ;; Exact paths inject pre-mutation uncertainty, a post-remove observation
@@ -258,9 +284,9 @@
             orphan-values (many port (:subject dirty) "worktree_orphaned")]
         (check "production sweep-once exits zero"
                (zero? (:exit first-run)) (str (:out first-run) (:err first-run)))
-        (check "reactor summary exposes janitor result"
-               (and (str/includes? (:out first-run) "worktrees removed=1")
-                    (str/includes? (:out first-run) "dirty-kept=1")
+        (check "reactor summary exposes janitor clone result"
+               (and (str/includes? (:out first-run) "worktrees removed=2")
+                    (str/includes? (:out first-run) "dirty-kept=2")
                     (str/includes? (:out first-run) "partial-cleanup=2")
                     (str/includes? (:out first-run) "orphan-facts=1"))
                (:out first-run))
@@ -268,6 +294,14 @@
                (not (.exists (io/file (:path clean)))))
         (check "resolved-clean expected branch disappears"
                (not (branch-present? repo (:branch clean))))
+        (check "harvested managed clone disappears without deleting its durable ref"
+               (and (not (.exists (io/file (:path clone-clean))))
+                    (branch-present? repo (:branch clone-clean))))
+        (check "dirty unharvested clone is retained with a named reason"
+               (and (.isDirectory (io/file (:path clone-dirty)))
+                    (str/includes? (:out first-run)
+                                   "dirty clone has unharvested commits; manual salvage required"))
+               (:out first-run))
         (check "post-remove observation failure reports the removed tree as partial"
                (and (not (.exists (io/file (:path post-remove-fail))))
                     (branch-present? repo (:branch post-remove-fail))
@@ -286,10 +320,10 @@
                (:out first-run))
         (check "every non-removable worktree remains present"
                (every? #(.isDirectory (io/file (:path %)))
-                       [dirty live torn hostile status-fail provenance-fail]))
+                       [dirty live torn hostile status-fail provenance-fail clone-dirty]))
         (check "every non-removable branch remains present"
                (every? #(branch-present? repo (:branch %))
-                       [dirty live torn hostile status-fail provenance-fail]))
+                       [dirty live torn hostile status-fail provenance-fail clone-dirty]))
         (check "dirty worktree bytes survive exactly"
                (= dirty-before (tree-snapshot (:path dirty))))
         (doseq [lane watched]
@@ -328,7 +362,7 @@
           (check "repeat removes zero worktrees and writes zero orphan facts"
                  (and (str/includes? (:out second-run) "worktrees removed=0")
                       (str/includes? (:out second-run) "partial-cleanup=2")
-                      (str/includes? (:out second-run) "already-reclaimed=1")
+                      (str/includes? (:out second-run) "already-reclaimed=2")
                       (str/includes? (:out second-run) "orphan-facts=0"))
                  (:out second-run))
           (check "repeat never relabels an absent worktree as kept"
@@ -352,8 +386,25 @@
                       (str/includes? (slurp heartbeat) ":worktrees")
                       (str/includes? (slurp heartbeat) ":removed 0")
                       (str/includes? (slurp heartbeat) ":partial 2")
-                      (str/includes? (slurp heartbeat) ":already-removed 1"))
+                      (str/includes? (slurp heartbeat) ":already-removed 2"))
                  (when (.isFile heartbeat) (slurp heartbeat))))))
+
+      ;; Lander fixture: a ref at main is safe to delete; a descendant is not.
+      (git! "-C" repo "branch" "lane-lane-landed" "main")
+      (let [tree (git! "-C" repo "rev-parse" "HEAD^{tree}")
+            unlanded (git! "-C" repo "commit-tree" tree "-p" "HEAD" "-m" "unlanded lane")]
+        (git! "-C" repo "update-ref" "refs/heads/lane-lane-unlanded" unlanded)
+        (let [land (proc/shell {:out :string :err :string :continue true}
+                               "bb" lander repo)]
+          (check "lander deletes only landed harvested refs and inventories unlanded refs"
+                 (and (zero? (:exit land))
+                      (not (branch-present? repo "lane-lane-landed"))
+                      (branch-present? repo "lane-lane-unlanded")
+                      (str/includes? (:out land) "LANDED DELETE refs/heads/lane-lane-landed")
+                      (str/includes? (:out land) "UNLANDED KEEP refs/heads/lane-lane-unlanded")
+                      (str/includes? (:out land) "age=")
+                      (str/includes? (:out land) "subject="))
+                 (str (:out land) (:err land)))))
 
     (finally
       (try (proc/destroy-tree daemon) (catch Throwable _ nil))
