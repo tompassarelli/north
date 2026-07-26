@@ -200,6 +200,12 @@ export function deliveryReservationFailureCause(error: unknown): string {
   if (message.includes("coordinator rejected delivery evidence write")) {
     return "coordinator rejected write";
   }
+  // A read the coordinator never answered is NOT a verdict about the run or the
+  // thread; naming it as one is what made an aborted query look like a malformed
+  // subject. Keep it separable from "writer rejected reservation".
+  if (message.includes("coordinator did not answer a delivery evidence read")) {
+    return "coordinator read unavailable";
+  }
   return "writer rejected reservation";
 }
 

@@ -101,6 +101,9 @@ test("reservation failure diagnostics expose only bounded semantic causes", () =
     `delivery evidence reserve rejected: run reservation projection changed before commit ${secret}`,
   ))).toBe("reservation conflict");
   expect(deliveryReservationFailureCause(new Error(
+    `delivery evidence reserve rejected: coordinator did not answer a delivery evidence read ${secret}`,
+  ))).toBe("coordinator read unavailable");
+  expect(deliveryReservationFailureCause(new Error(
     `unclassified writer failure ${secret}`,
   ))).toBe("writer rejected reservation");
 });
