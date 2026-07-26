@@ -7,7 +7,8 @@ import { join } from "node:path";
 import {
   deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
-  recordRunBarEvidence, RUN_RESERVATION_VERSION, runReservationValid,
+  recordRunBarEvidence, resolveDeliveryRunState, RUN_RESERVATION_VERSION,
+  runReservationValid,
 } from "../src/delivery-evidence";
 import { MANAGED_NORTH_MCP_ENV_KEYS } from "../src/execution-admission";
 import { harnessOptions } from "../src/harness";
@@ -222,4 +223,79 @@ test("evidence loading invalidates the entire malformed, cross-scoped, duplicate
   ))).toEqual({ reservationValid: false, evidence: [] });
   expect(load([" ".repeat(MAX_RUN_BAR_EVIDENCE_RECORD_UTF8_BYTES + 1)]))
     .toEqual({ reservationValid: false, evidence: [] });
+});
+
+// Thread 019f9cc1: a reader that never spoke used to be indistinguishable from
+// a reader that spoke and found no valid reservation. Lanes ms1awg94 and
+// ms1b7syb finalized delivery=unverified against reservations that are still
+// provably valid on the graph, because `north json show` (2.5-3.5s idle) blew
+// the old 5s ceiling while the coordinator was busy.
+test("run-state loading separates a failed reader from an invalid reservation", () => {
+  const script = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "north-delivery-load-"));
+    const command = join(dir, "facts");
+    writeFileSync(command, `#!/usr/bin/env node\n${body}\n`);
+    chmodSync(command, 0o700);
+    try {
+      return loadDeliveryRunState("run-load-failure", command, 750);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  // Reader hangs past the per-attempt ceiling: transient, NOT a verdict.
+  const timedOut = script('require("node:fs").readFileSync("/dev/stdin");setInterval(()=>{},1000);');
+  expect(timedOut.reservationValid).toBe(false);
+  expect(timedOut.loadFailure).toBe("reader timed out");
+  // Reader fails outright: transient.
+  expect(script("process.exit(3);").loadFailure).toBe("reader exited 3");
+  // Reader emits something that is not a fact list: transient.
+  expect(script('require("node:fs").writeFileSync(1,"coordinator busy");').loadFailure)
+    .toBe("reader payload unparseable");
+  expect(script('require("node:fs").writeFileSync(1,"{}");').loadFailure)
+    .toBe("reader payload not a fact list");
+  // Reader spoke and the facts carry no valid reservation: a CONTENT verdict,
+  // which must stay fail-closed with no loadFailure marker.
+  expect(script('require("node:fs").writeFileSync(1,"[]");'))
+    .toEqual({ reservationValid: false, evidence: [] });
+});
+
+test("run-state resolution retries only the load and never a content verdict", () => {
+  const invalid = { reservationValid: false, evidence: [] };
+  const valid = { reservationValid: true, evidence: [] };
+  const options = { attempts: 3, backoffMs: 10, budgetMs: 10_000 };
+
+  // A content verdict is final on the first attempt: fail-closed posture intact.
+  let calls = 0;
+  const verdict = resolveDeliveryRunState("run-x", () => { calls++; return invalid; }, options);
+  expect([verdict.attempts, verdict.transientFailure, calls]).toEqual([1, undefined, 1]);
+
+  // A transient failure that clears is delivery, not a misclassification.
+  calls = 0;
+  const slept: number[] = [];
+  const recovered = resolveDeliveryRunState("run-x", () => (++calls < 3
+    ? { ...invalid, loadFailure: "reader timed out" }
+    : valid), { ...options, sleep: (ms) => slept.push(ms) });
+  expect(recovered).toEqual({ state: valid, attempts: 3 });
+  expect(slept).toEqual([10, 20]);
+
+  // A thrown load is transient too, and exhaustion names the cause.
+  calls = 0;
+  const exhausted = resolveDeliveryRunState("run-x", () => {
+    calls++;
+    throw new Error("torn rotated-run predicate row");
+  }, { ...options, sleep: () => {} });
+  expect(calls).toBe(3);
+  expect(exhausted.attempts).toBe(3);
+  expect(exhausted.transientFailure).toBe("torn rotated-run predicate row");
+
+  // The retry window is bounded: a budget that cannot fit the next backoff stops.
+  calls = 0;
+  let clock = 0;
+  const budgeted = resolveDeliveryRunState("run-x", () => {
+    calls++;
+    clock += 400;
+    return { ...invalid, loadFailure: "reader timed out" };
+  }, { attempts: 9, backoffMs: 100, budgetMs: 700, now: () => clock, sleep: () => {} });
+  expect(calls).toBe(2);
+  expect(budgeted.transientFailure).toBe("reader timed out");
 });

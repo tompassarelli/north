@@ -84,7 +84,9 @@ import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verifi
 import { getThreadFacts, normalizeNorthEntityId } from "./north-client";
 import {
   loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
+  resolveDeliveryRunState,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
+  type DeliveryRunStateLoadOptions,
 } from "./delivery-evidence";
 import { takeSpawnTestRuntime } from "./internal/test-runtime";
 import {
@@ -129,6 +131,8 @@ interface SpawnRuntime {
   deliveryRuntime?: {
     reserve: (context: DeliveryRunContext) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
+    /** Bounded retry shape for the finalize-time load; tests inject it. */
+    loadOptions?: DeliveryRunStateLoadOptions;
   };
   loadThreadFacts?: typeof getThreadFacts;
   childSettlementReader?: (agentId: string) => ChildSettlement;
@@ -302,10 +306,11 @@ async function runSpawn(
   const runContext = boundThreadId
     ? newDeliveryRunContext(runId, boundThreadId, agentId)
     : undefined;
-  const deliveryRuntime = injected.deliveryRuntime ?? (injected.queryFn ? undefined : {
-    reserve: reserveDeliveryRun,
-    load: loadDeliveryRunState,
-  });
+  const deliveryRuntime: SpawnRuntime["deliveryRuntime"] = injected.deliveryRuntime
+    ?? (injected.queryFn ? undefined : {
+      reserve: reserveDeliveryRun,
+      load: loadDeliveryRunState,
+    });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
   const stream = new StreamWriter(agentId);
@@ -964,14 +969,19 @@ async function runSpawn(
       };
     } else {
       const reservedRunId = runId;
-      let runState: DeliveryRunState | undefined;
-      let loadError: unknown;
-      try {
-        runState = deliveryRuntime.load(runId);
-      } catch (error) {
-        runState = undefined;
-        loadError = error;
-      }
+      // A busy coordinator used to be indistinguishable from a bad reservation:
+      // the reader timed out, the state collapsed to invalid, and a lane whose
+      // evidence was intact on the graph finalized unverified (thread 019f9cc1).
+      // Retry only the LOAD; a successful read that finds no valid reservation
+      // still fails closed on the first attempt.
+      const resolution = resolveDeliveryRunState(
+        runId,
+        (id) => deliveryRuntime.load(id),
+        deliveryRuntime.loadOptions,
+      );
+      const runState: DeliveryRunState | undefined = resolution.transientFailure
+        ? undefined
+        : resolution.state;
       if (!runState?.reservationValid) {
         runId = newRunId(agentId);
         if (wt) {
@@ -986,15 +996,18 @@ async function runSpawn(
         // Loud + diagnosable (thread 019f9063): a load failure and a load that
         // simply found no valid reservation both used to read identically.
         console.error(
-          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} `
-          + `and leaving delivery unverified`
-          + (loadError !== undefined
-            ? `: ${(loadError as Error)?.message ?? String(loadError)}`
-            : ""),
+          `[delivery] @${reservedRunId} `
+          + (resolution.transientFailure
+            ? `reservation unreadable at finalize after ${resolution.attempts} attempt(s) `
+              + `(${resolution.transientFailure})`
+            : "reservation invalid at finalize")
+          + `; rotating telemetry to @${runId} and leaving delivery unverified`,
         );
         delivery = {
           deliveryOutcome: "unverified",
-          deliveryReason: "delivery_reservation_unavailable_at_finalize",
+          deliveryReason: resolution.transientFailure
+            ? "delivery_reservation_load_failed_at_finalize"
+            : "delivery_reservation_unavailable_at_finalize",
         };
       } else {
         try {
