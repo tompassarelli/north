@@ -17,7 +17,8 @@ trap cleanup EXIT
 
 mkdir -p "$CHECKOUT/bin" "$CHECKOUT/out" "$CHECKOUT/cli" \
   "$SHIM" "$HOME_DIR" "$TMP/fram classpath"
-cp "$ROOT/bin/north-clock-audit" "$ROOT/bin/north-stream-sync" "$CHECKOUT/bin/"
+cp "$ROOT/bin/north-clock-audit" "$ROOT/bin/north-stream-sync" \
+  "$ROOT/bin/north-stream-sync-all" "$CHECKOUT/bin/"
 
 cat >"$SHIM/bb" <<'EOF'
 #!/usr/bin/env bash
@@ -55,6 +56,7 @@ checkout_raw="$CHECKOUT/streams/raw"
 checkout_dest="$(find "$checkout_raw" -maxdepth 1 -type f -name '*.jsonl' -print -quit)"
 [[ -n "$checkout_dest" ]]
 cmp "$SRC/12345678-1234-1234-1234-123456789abc.jsonl" "$checkout_dest"
+
 [[ "$("$REAL_STAT" -c '%a' "$checkout_dest")" == 600 ]]
 [[ "$("$REAL_STAT" -c '%a' "$checkout_raw/.cursors")" == 600 ]]
 [[ "$("$REAL_STAT" -c '%a' "$checkout_raw/.stream-sync-errors")" == 600 ]]
@@ -732,5 +734,51 @@ packaged_raw="$XDG_STATE/north/streams/raw"
 packaged_dest="$(find "$packaged_raw" -maxdepth 1 -type f -name '*.jsonl' -print -quit)"
 [[ -n "$packaged_dest" ]]
 cmp "$SRC/12345678-1234-1234-1234-123456789abc.jsonl" "$packaged_dest"
+
+# TERM must interrupt the parent while its child copy is still blocked, then
+# forward TERM to that child. This is the service-stop shape: completion here
+# means systemd need not escalate to SIGKILL after TimeoutStopSec.
+TERM_HOME="$TMP/term home"
+TERM_READY="$TMP/term-ready"
+TERM_SYNC="$TMP/term-sync"
+mkdir -p "$TERM_HOME/.claude/projects/project"
+cat >"$TERM_SYNC" <<'EOF'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+: >"$STREAM_SYNC_TERM_READY"
+while :; do sleep 1; done
+EOF
+chmod +x "$TERM_SYNC"
+env HOME="$TERM_HOME" PATH="$SHIM:$HOST_PATH" \
+  NORTH_STREAM_SYNC_BIN="$TERM_SYNC" STREAM_SYNC_TERM_READY="$TERM_READY" \
+  "$CHECKOUT/bin/north-stream-sync-all" &
+term_pid=$!
+for _ in $(seq 1 100); do
+  [[ -e "$TERM_READY" ]] && break
+  sleep 0.01
+done
+[[ -e "$TERM_READY" ]]
+term_started="$(date +%s%N)"
+kill -TERM "$term_pid"
+while kill -0 "$term_pid" 2>/dev/null; do
+  [[ $(( $(date +%s%N) - term_started )) -lt 5000000000 ]]
+  sleep 0.01
+done
+wait "$term_pid" 2>/dev/null || term_status=$?
+[[ "${term_status:-0}" -eq 143 ]]
+
+# Restart after a TERM-stop still advances the persisted cursor exactly once.
+printf '{"type":"cursor-before-restart"}\n' >"$TERM_HOME/.claude/projects/project/restart.jsonl"
+env HOME="$TERM_HOME" PATH="$SHIM:$HOST_PATH" \
+  "$CHECKOUT/bin/north-stream-sync-all" --days 30 --min-bytes 1
+term_raw="$CHECKOUT/streams/raw"
+term_cursor_before="$(awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $2 }' "$term_raw/.cursors")"
+printf '{"type":"cursor-after-restart"}\n' >>"$TERM_HOME/.claude/projects/project/restart.jsonl"
+env HOME="$TERM_HOME" PATH="$SHIM:$HOST_PATH" \
+  "$CHECKOUT/bin/north-stream-sync-all" --days 30 --min-bytes 1
+term_dest="$term_raw/$(awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $5 }' "$term_raw/.cursors")"
+term_cursor_after="$(awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $2 }' "$term_raw/.cursors")"
+[[ "$term_cursor_after" -gt "$term_cursor_before" ]]
+cmp "$TERM_HOME/.claude/projects/project/restart.jsonl" "$term_dest"
 
 echo "package helper smoke tests: PASS"
