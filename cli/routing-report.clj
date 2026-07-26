@@ -811,6 +811,65 @@
   (let [token (normalized-token value)]
     (and token (not (#{"?" "unknown" "unobserved" "unrecorded" "unattributed"} token)))))
 
+;; A blocked delivery's :deliveryReason is a stable machine literal from
+;; sdk/src/execution-outcome.ts's BLOCKED_REASON map, or (for reaper-written
+;; deaths) cli/north-reactor.clj's publish-reaped-terminal!. classifyExecutionTerminal
+;; folds ~16 distinct reasons into a single deliveryOutcome="blocked" bucket;
+;; a coordinator reading that one number as a provider failure rate mistook
+;; our own admission refusals for provider deaths and quarantined a provider
+;; on it (thread 019f9c42). d-blk stays a stable total; these buckets answer
+;; "whose fault" without joining the log by hand.
+;;
+;; provider-caused: the provider process itself is the terminal cause — it
+;; died, stalled, or the SDK reported a terminal error. provider_terminal_empty_result
+;; (a "ran" process yielding zero deliverable text, thread 019f8300) is filed
+;; here too: the process reached its own terminal and produced a degenerate
+;; completion, which is a provider quality failure, not North refusing to
+;; contact the provider. It gets its own sub-bucket (not merged into
+;; died/stalled/error) because "the process completed but delivered nothing"
+;; is a materially different failure mode than "the process never terminated".
+;;
+;; north-caused: North's own admission/budget/turn/escalation/reconciliation
+;; gates refused or gave up BEFORE (or independent of) any provider death.
+;;
+;; suspect-lapse: presence_lapsed_without_committed_terminal is the reaper's
+;; verdict when a lane's presence lapsed without a committed terminal fact —
+;; NOT a provider process outcome at all. Thread 019f9c3b (concurrent, as of
+;; this writing) suspects a terminal-publication bug can produce this even
+;; when the lane actually finished, i.e. the reaper manufactures a death.
+;; Counting these as provider deaths would launder that bug into a provider
+;; failure rate, so they get their own column and are never added to
+;; provider-caused counts until 019f9c3b lands and this is re-measured.
+;;
+;; unattributed: an observed-but-unrecognized reason (schema drift, or the
+;; single generic legacy strings some historical rows carry) — never silently
+;; folded into either side.
+(def blocked-reason-category
+  {"provider_process_died" :provider-caused
+   "provider_process_stalled" :provider-caused
+   "provider_terminal_error" :provider-caused
+   "provider_terminal_empty_result" :provider-caused
+   "execution_preflight_blocked" :north-caused
+   "spend_guard_budget_incomplete" :north-caused
+   "provider_turn_cap" :north-caused
+   "provider_cap" :north-caused
+   "resource_envelope_exceeded" :north-caused
+   "provider_escalation_unsupported" :north-caused
+   "escalation_ladder_exhausted" :north-caused
+   "orchestrator_children_live_at_terminal" :north-caused
+   "orchestrator_minimum_children_not_dispatched" :north-caused
+   "orchestrator_child_reconciliation_unavailable" :north-caused
+   "orchestrator_child_results_unreconciled" :north-caused
+   "orchestrator_child_relation_regressed" :north-caused
+   "presence_lapsed_without_committed_terminal" :suspect-lapse})
+
+(defn blocked-failure-category
+  "Categorize a blocked row's :deliveryReason as :provider-caused, :north-caused,
+  :suspect-lapse, or :unattributed (unrecognized reason). Only meaningful when
+  the row's :deliveryOutcome is \"blocked\"."
+  [delivery-reason]
+  (get blocked-reason-category (normalized-token delivery-reason) :unattributed))
+
 (defn complete-current-managed-run? [row]
   (and (managed-composition-kinds (:compositionKind row))
        (attributed? (:compositionId row))
@@ -825,13 +884,22 @@
   (let [statuses (frequencies (map #(get-in % [:evidence :status]) rows))
         deliveries (frequencies (map :deliveryOutcome rows))
         delivery-sources (frequencies (keep :deliveryOutcomeSource rows))
-        delivery-authorities (frequencies (keep :deliveryAuthority rows))]
+        delivery-authorities (frequencies (keep :deliveryAuthority rows))
+        blocked-rows (filter #(= "blocked" (:deliveryOutcome %)) rows)
+        blocked-categories (frequencies (map #(blocked-failure-category (:deliveryReason %))
+                                             blocked-rows))
+        blocked-reasons (frequencies (keep :deliveryReason blocked-rows))]
     {:cohort label :runs (count rows)
      :operationalRan (count (filter #(= "ran" (:processOutcome %)) rows))
      :deliveryVerified (get deliveries "verified" 0)
      :deliveryReported (get deliveries "reported" 0)
      :deliveryUnverified (get deliveries "unverified" 0)
      :deliveryBlocked (get deliveries "blocked" 0)
+     :deliveryBlockedProviderCaused (get blocked-categories :provider-caused 0)
+     :deliveryBlockedNorthCaused (get blocked-categories :north-caused 0)
+     :deliveryBlockedSuspectLapse (get blocked-categories :suspect-lapse 0)
+     :deliveryBlockedUnattributed (get blocked-categories :unattributed 0)
+     :deliveryBlockedReasons blocked-reasons
      :deliveryUnrecorded (get deliveries "unrecorded" 0)
      :deliveryOutcomeSources delivery-sources
      :deliveryAuthorities delivery-authorities
@@ -850,8 +918,18 @@
          selected (if all? all-rows (vec (filter complete-current-managed-run? all-rows)))]
      {:report "performance"
       :scope (if all? "all-history" "complete-current-managed")
-      :evidenceVersion "v4"
-      :claim "complete applied Orchestration contract plus proof-valid process/delivery outcomes; reported is run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread review context is separate; not causal model quality"
+      :evidenceVersion "v5"
+      :claim (str "complete applied Orchestration contract plus proof-valid process/delivery outcomes; "
+                  "reported is run-scoped self-report, independent verification is unavailable under "
+                  "shared-UID lanes, and mutable thread review context is separate; not causal model "
+                  "quality. deliveryBlocked is a stable total across process/delivery/orchestration "
+                  "gates and is never a provider failure rate by itself — read "
+                  "deliveryBlockedProviderCaused (died/stalled/error/empty-result) against "
+                  "deliveryBlockedNorthCaused (our own preflight/spend-guard/cap/escalation/"
+                  "reconciliation refusals) for that. deliveryBlockedSuspectLapse "
+                  "(presence_lapsed_without_committed_terminal) is reaper-manufactured death "
+                  "suspicion pending thread 019f9c3b and is excluded from both; "
+                  "deliveryBlockedUnattributed holds reasons this report does not yet recognize.")
       :runs (count selected)
       :availableRuns (count all-rows)
       :excludedRuns (- (count all-rows) (count selected))
@@ -2165,17 +2243,23 @@
                         "all historical rows"
                         "complete current managed runs")))
         (println "Current rows require complete applied Orchestration evidence; reported delivery is exact run-scoped self-report, independent verification is unavailable under shared-UID lanes, and mutable thread evidence is not model quality.")
+        (println "d-blk is a stable total, never a provider failure rate by itself: blk-pv is provider-caused (died/stalled/error/empty-result), blk-us is North's own preflight/spend-guard/cap/escalation/reconciliation refusals, blk-lp is presence-lapse deaths suspected manufactured by a terminal-publication bug (thread 019f9c3b) pending its fix, blk-ot is an unrecognized reason. blk-pv+blk-us+blk-lp+blk-ot always sums to d-blk.")
         (when (pos? (:excludedRuns data))
           (println (format "%d legacy/incomplete/unattributed row(s) excluded; use --all to inspect them."
                            (:excludedRuns data))))
-        (println (format "%-38s %5s %5s %5s %5s %5s %5s %5s %5s %5s %5s"
+        (println (format "%-38s %5s %5s %5s %5s %5s %5s %5s %5s %5s %5s %5s %5s %5s"
                          "COHORT provider/tier/role/grade" "runs" "ran"
-                         "d-ver" "d-rpt" "d-unv" "d-blk" "t-cls" "t-part" "t-none" "esc"))
+                         "d-ver" "d-rpt" "d-unv" "d-blk" "blk-pv" "blk-us" "blk-lp" "blk-ot"
+                         "t-cls" "t-part" "t-none" "esc"))
         (doseq [row (:cohorts data)]
-          (println (format "%-38s %5d %5d %5d %5d %5d %5d %5d %5d %5d %5d"
+          (println (format "%-38s %5d %5d %5d %5d %5d %5d %5d %5d %5d %5d %5d %5d %5d"
                            (:cohort row) (:runs row) (:operationalRan row)
                            (:deliveryVerified row) (:deliveryReported row)
                            (:deliveryUnverified row) (:deliveryBlocked row)
+                           (:deliveryBlockedProviderCaused row)
+                           (:deliveryBlockedNorthCaused row)
+                           (:deliveryBlockedSuspectLapse row)
+                           (:deliveryBlockedUnattributed row)
                            (:threadClosedEvidenced row)
                            (:threadPartialEvidence row)
                            (+ (:threadUnevidenced row) (:threadNoContract row))
