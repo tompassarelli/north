@@ -7,6 +7,7 @@ import { admitRoutingRequest } from "../routing-admission";
 import {
   COORDINATION_TOOLS, ORCHESTRATION_TOOLS, hasCanonicalHarnessAuthority, managedToolPolicy,
 } from "../harness";
+import { FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOLS } from "../fram-graph-authoring";
 
 function bareNorthTool(toolName: string): string | undefined {
   const prefix = "mcp__north__";
@@ -34,6 +35,13 @@ export interface OpenAIAuthoritySurface extends AuthoritySurfaceBase {
   provider: "openai";
   sandbox: "read-only" | "workspace-write";
   web: "cached" | "disabled";
+  /**
+   * Every MCP tool the managed Codex session may call, fully qualified — the
+   * same shape the Anthropic surface logs as `managedTools`. Codex enforces
+   * per-server `enabled_tools`, so this is the union of the North grant and
+   * (only under graph-authoring.fram) the sealed fram graph-edit verbs.
+   */
+  managedTools: readonly string[];
 }
 
 export interface AnthropicAuthoritySurface extends AuthoritySurfaceBase {
@@ -62,6 +70,9 @@ export function compileProviderAuthoritySurface(
   admitPinnedProvider(provider, capabilities);
   const nativeMultiAgent = "disabled" as const;
   if (provider === "openai") {
+    const northEnabledTools = capabilities.includes("coordination")
+      ? CODEX_ORCHESTRATOR_NORTH_ENABLED_TOOLS
+      : CODEX_WORKER_NORTH_ENABLED_TOOLS;
     return Object.freeze({
       provider,
       capabilities,
@@ -70,9 +81,11 @@ export function compileProviderAuthoritySurface(
       authoringHooks: "managed-only",
       sandbox: capabilities.includes("shell.readonly") ? "read-only" : "workspace-write",
       web: capabilities.includes("web") ? "cached" : "disabled",
-      northEnabledTools: capabilities.includes("coordination")
-        ? CODEX_ORCHESTRATOR_NORTH_ENABLED_TOOLS
-        : CODEX_WORKER_NORTH_ENABLED_TOOLS,
+      northEnabledTools,
+      managedTools: Object.freeze([
+        ...northEnabledTools.map((name) => `mcp__north__${name}`),
+        ...(capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY) ? FRAM_MCP_TOOLS : []),
+      ]),
     });
   }
   const policy = managedToolPolicy(capabilities);
@@ -102,7 +115,8 @@ export function formatProviderAuthoritySurface(surface: ProviderAuthoritySurface
     + `authoring-hooks=${surface.authoringHooks}; `
     + `north enabled_tools=${list(surface.northEnabledTools)}`;
   return surface.provider === "openai"
-    ? `${base}; sandbox=${surface.sandbox}; web=${surface.web}`
+    ? `${base}; sandbox=${surface.sandbox}; web=${surface.web}; `
+      + `mcp tools=${list(surface.managedTools)}`
     : `${base}; web=${surface.web}; sdk builtins=${list(surface.builtins)}; `
       + `mcp tools=${list(surface.managedTools)}`;
 }
