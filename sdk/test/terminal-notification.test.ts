@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { classifyExecutionTerminal } from "../src/execution-outcome";
+import {
+  classifyExecutionTerminal, describeProviderErrorTerminal,
+  EMPTY_PROVIDER_ERROR_DETAIL, NO_PROVIDER_TERMINAL_DETAIL,
+  PROVIDER_ERROR_DETAIL_MAX_LEN,
+} from "../src/execution-outcome";
 import {
   terminalNotificationCommand,
   terminalPublicationBudgetMs,
@@ -100,4 +104,49 @@ test("one configurable wall-clock budget is split across both publications and t
   expect(terminalPublicationBudgetMs("90000")).toBe(90_000);
   expect(terminalPublicationBudgetMs("400000")).toBe(300_000);
   expect(terminalPublicationBudgetMs("not-a-timeout")).toBe(90_000);
+});
+
+// thread 019f9cec: `provider_error` names a classification, not a cause. Three
+// managed Codex lanes settled provider_error/blocked/turns=0 on 2026-07-26 with
+// the provider's own account of the failure sitting in the terminal frame the
+// message loop dropped. These pin the render that keeps it.
+test("a provider_error terminal renders its payload, never the model's prose", () => {
+  const detail = describeProviderErrorTerminal({
+    type: "result",
+    subtype: "error_during_execution",
+    is_error: true,
+    result: "PROVIDER_PROSE_CANARY partial answer",
+    _north_harvest: {
+      threadId: "th_abc",
+      completedTurns: 0,
+      mcp: { totalCalls: 3 },
+      nativeCommands: { totalCommands: 1 },
+      failure: "openai_provider_execution_failed <- cause: Codex completed turn"
+        + " reported a provider-side turn error <- cause: provider turn error:"
+        + " {\"message\":\"stream disconnected before completion\"}",
+    },
+  });
+  expect(detail).toContain("subtype=error_during_execution");
+  expect(detail).toContain("is_error=true");
+  expect(detail).toContain("stream disconnected before completion");
+  expect(detail).toContain("landed=[0 completed turn(s), 3 MCP call(s), 1 native command(s)]");
+  expect(detail).toContain("provider_thread=th_abc");
+  // The result text is model prose: recorded elsewhere, never a machine reason.
+  expect(detail).not.toContain("PROVIDER_PROSE_CANARY");
+  expect(detail.length).toBeLessThanOrEqual(PROVIDER_ERROR_DETAIL_MAX_LEN);
+});
+
+test("provider_error detail is bounded, single-line, and honest when there is nothing to say", () => {
+  const huge = describeProviderErrorTerminal({
+    subtype: "error",
+    is_error: true,
+    errors: Array.from({ length: 9 }, (_, index) => ({ message: `e${index} `.repeat(200) })),
+  });
+  expect(huge.length).toBeLessThanOrEqual(PROVIDER_ERROR_DETAIL_MAX_LEN);
+  expect(huge).not.toContain("\n");
+  expect(huge).toContain("+5 more");
+
+  expect(describeProviderErrorTerminal(undefined)).toBe(NO_PROVIDER_TERMINAL_DETAIL);
+  expect(describeProviderErrorTerminal({ type: "result", subtype: "success" }))
+    .toBe(EMPTY_PROVIDER_ERROR_DETAIL);
 });

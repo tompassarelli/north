@@ -25,6 +25,7 @@ import { providerEnvironmentForTarget } from "../src/accounts";
 import { scrubAmbientGraphEnv } from "./support/managed-env";
 import { gatedTest } from "./support/capabilities";
 import { providerSessionKey } from "../src/providers/provider-join";
+import { causeChain } from "../src/death";
 
 // When this suite runs inside a managed north lane, the ambient graph identity
 // (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
@@ -480,6 +481,16 @@ while true; do :; done
   catch (error) { caught = error; }
   expect((caught as Error).message).toBe("openai_provider_execution_failed");
   expect((caught as Error).message).not.toContain("CODEX_EVENT_CANARY_DO_NOT_EXPOSE");
+  // The classification code stays provider-prose-free; the CAUSE CHAIN is where
+  // diagnosability lives (thread 019f9cec). Pin the whole legacy-path chain:
+  // stable code -> which stage failed -> the provider's own error payload.
+  const chain = causeChain(caught);
+  expect(chain).toContain("openai_provider_execution_failed");
+  expect(chain).toContain(
+    "Codex legacy supervisor execution failed while sending or parsing a provider turn",
+  );
+  expect(chain).toContain("Codex emitted an unrecoverable error");
+  expect(chain).toContain("provider error event: CODEX_EVENT_CANARY_DO_NOT_EXPOSE");
   expect(existsSync(terminated)).toBe(true);
   expect(readFileSync(terminated, "utf8")).toBe("terminated");
   expect(leakedPromptDescriptors()).toEqual([]);

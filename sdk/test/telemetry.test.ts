@@ -90,6 +90,22 @@ test("a blocked_preflight @run carries the full nested cause chain as preflight_
   ]);
 });
 
+test("a provider_error @run carries the provider payload as provider_error_detail", () => {
+  // thread 019f9cec: without this fact a dead managed lane leaves NOTHING in the
+  // graph naming why the provider failed — the frame is dropped, the throw is
+  // discarded by the message loop's break, and the managed home is disposed.
+  const detail = "provider error terminal: subtype=error_during_execution is_error=true "
+    + "failure=openai_provider_execution_failed <- cause: provider turn error";
+  const facts = runFacts({
+    thread: "@run-provider-error", agent: "lane-provider-error", durationMs: 1,
+    posture: "spawn", outcome: "provider_error", processOutcome: "provider_error",
+    providerErrorDetail: `${detail}\n  padded`,
+  });
+  expect(facts).toContainEqual(["provider_error_detail", `${detail} padded`]);
+  const [, value] = facts.find(([predicate]) => predicate === "provider_error_detail")!;
+  expect(value.length).toBeLessThanOrEqual(1200);
+});
+
 test("current run telemetry freezes judgment and the full effective detector policy", () => {
   const struggle = makeStruggleObserver(resolveStrugglePolicy("orchestrator", {
     STRUGGLE_ERROR_STREAK: "4",

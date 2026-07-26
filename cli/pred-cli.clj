@@ -88,6 +88,7 @@
    ["pid" "single" "literal" "operating-system process id associated with a live reservation"]
    ["reserved_microusd" "single" "literal" "currently reserved spend in integer micro-USD"]
    ["preflight_cause" "single" "literal" "typed terminal cause when provider execution ended during preflight"]
+   ["provider_error_detail" "single" "literal" "bounded credential-free provider error payload behind a provider_error terminal"]
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]

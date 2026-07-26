@@ -742,7 +742,16 @@ class AppServerRpc {
       "managed Codex response"); }
     catch (error) { pending.reject(error as Error); this.fail(error as Error); return; }
     if ("error" in message) {
-      const error = new Error(`managed Codex ${pending.method} failed`);
+      // The JSON-RPC error object is the provider's own account of the failure
+      // and used to die right here (thread 019f9cec). The outer message stays
+      // the stable classification; the payload rides the cause, bounded and
+      // canonicalized like exactDiagnosable — a JSON-RPC error carries
+      // code/message/data, never a credential.
+      const error = new Error(`managed Codex ${pending.method} failed`, {
+        cause: new Error(
+          `provider error response: ${JSON.stringify(canonical(message.error)).slice(0, 600)}`,
+        ),
+      });
       pending.reject(error); this.fail(error); return;
     }
     pending.resolve(message.result);
@@ -1343,8 +1352,19 @@ function validateNotifiedTurn(
   onlyKeys(turn, [
     "id", "items", "itemsView", "status", "error", "startedAt", "completedAt", "durationMs",
   ], label);
+  // A turn that reports its OWN error is the provider telling us why the lane
+  // failed; folding it into the generic "is invalid" below discarded the only
+  // account of the failure that ever existed (thread 019f9cec). Name it, and
+  // carry the bounded payload on the cause — same discipline as
+  // exactDiagnosable: a turn error is credential-free by shape.
+  if (turn.error !== null)
+    throw new Error(`${label} reported a provider-side turn error`, {
+      cause: new Error(
+        `provider turn error: ${JSON.stringify(canonical(turn.error)).slice(0, 600)}`,
+      ),
+    });
   if (!expectedId || turn.id !== expectedId || turn.status !== expectedStatus
-      || turn.error !== null || !Array.isArray(turn.items) || turn.itemsView !== "notLoaded"
+      || !Array.isArray(turn.items) || turn.itemsView !== "notLoaded"
       || !Number.isSafeInteger(turn.startedAt) || (turn.startedAt as number) < 0)
     throw new Error(`${label} is invalid`);
   if (expectedStatus === "inProgress") {
