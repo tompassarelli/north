@@ -211,6 +211,13 @@ test("Codex never fabricates num_turns, and its honest activity signal reflects 
       type: "item.completed",
       item: { id: "item_cmd_2", type: "file_change" },
     }),
+    // Reasoning completes on nearly every turn whether or not a tool ran, so
+    // it is NOT a work item on either transport (thread 019f9cc2): counting it
+    // would make the number unable to answer "did a tool loop happen".
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_reasoning_1", type: "reasoning" },
+    }),
   ]));
   expect(busy).not.toHaveProperty("num_turns");
   expect(busy._north_codex_turn_activity).toEqual({

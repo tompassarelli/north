@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { classifyTurnProvenance, newRunId, runFacts } from "../src/telemetry";
+import {
+  classifyTurnProvenance, codexTurnActivityFromResult, newRunId, runFacts,
+} from "../src/telemetry";
 import {
   assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
 } from "../src/delivery-verification";
@@ -221,6 +223,31 @@ test("telemetry accepts the managed Codex app-server transport distinctly from C
     executionSource: "north-managed", executionTransport: "codex-app-server",
   });
   expect(facts).toContainEqual(["execution_transport", "codex-app-server"]);
+});
+
+test("a managed Codex app-server terminal records its observed tool-item count, not just turn units", () => {
+  // Thread 019f9cc2: every managed lane wrote codex_turn_units=1 and NO
+  // codex_tool_items, because the app-server terminal carried no toolItems at
+  // all — lanes that provably ran tools (file written, commit harvested) read
+  // as "one turn, activity unknown". The app-server terminal now carries the
+  // count summed from observed item/completed events, and it must survive the
+  // terminal -> RunRecord -> facts translation.
+  const codexTurnActivity = codexTurnActivityFromResult({
+    type: "result", subtype: "success",
+    _north_codex_turn_activity: { turnUnits: 1, toolItems: 7, comparable: false },
+  });
+  expect(codexTurnActivity).toEqual({ turnUnits: 1, toolItems: 7, comparable: false });
+  const facts = runFacts({
+    thread: "thread-app-server-items", agent: "lane-app-server-items", durationMs: 1,
+    posture: "spawn", outcome: "ran", provider: "openai",
+    executionSource: "north-managed", executionTransport: "codex-app-server",
+    codexTurnActivity,
+  });
+  expect(facts).toContainEqual(["codex_turn_units", "1"]);
+  expect(facts).toContainEqual(["codex_tool_items", "7"]);
+  // The disclaimer travels with the count; num_turns never appears.
+  expect(facts).toContainEqual(["codex_turn_metric_comparable", "false"]);
+  expect(facts.map(([predicate]) => predicate)).not.toContain("num_turns");
 });
 
 test("run telemetry carries bounded native command evidence without raw command or output", () => {

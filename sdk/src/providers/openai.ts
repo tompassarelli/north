@@ -693,12 +693,15 @@ interface CodexTurnActivity {
    * the codex-cli path (one input frame, no live-input); on the app-server
    * path this is once per resolved North input frame. Not comparable. */
   turnUnits: number;
-  /** Count of completed non-agent_message items (tool/command/file-change/
-   * MCP calls) nested inside the turn(s) above — the honest "did work
-   * happen" signal a turn count cannot provide. Absent on the app-server
-   * path, where the same signal is already tracked and reported separately
-   * as mcpActivity/nativeCommandActivity (query.mcpActivity() /
-   * query.nativeCommandActivity()) rather than duplicated here. */
+  /** Count of completed work items (tool/command/file-change/MCP/web-search
+   * calls — everything except the assistant's own message and its reasoning
+   * blocks) nested inside the turn(s) above: the honest "did work happen"
+   * signal a turn count cannot provide. Counted from observed item-completion
+   * events on BOTH transports — `item.completed` on codex-exec and
+   * `item/completed` on the app-server. It stayed absent on the app-server
+   * path until thread 019f9cc2, which made every managed lane report
+   * turn units with no item count at all; mcpActivity/nativeCommandActivity
+   * cover only two of the item kinds and are reported elsewhere. */
   toolItems?: number;
   /** Always false. Exists so a consumer that forwards this object cannot
    * accidentally present it as a comparable turn count without also
@@ -764,7 +767,12 @@ class CodexExecProtocol {
       if (this.phase !== "running") throw new Error("Codex item event is out of order");
       exactKeys(event, ["item", "type"], "Codex item event");
       const item = validateCodexItem(event.item);
-      if (type === "item.completed" && item.type !== "agent_message")
+      // Same two exclusions as the app-server transport (countsAsToolItem
+      // there): the assistant's own message, and reasoning blocks — reasoning
+      // completes on essentially every turn, tools or not, so counting it
+      // would destroy the only thing this number is for.
+      if (type === "item.completed" && item.type !== "agent_message"
+          && item.type !== "reasoning")
         this.toolItemCount += 1;
       return type === "item.completed" && item.type === "agent_message"
         ? { text: item.text }
@@ -985,8 +993,10 @@ class CodexQuery implements AgentQuery {
         });
         this.managedRun = run;
         let turns = 0;
+        let toolItems = 0;
         for await (const completed of run.session(() => frames!.next())) {
           turns += 1;
+          toolItems += completed.toolItems;
           if (completed.text) yield {
             type: "assistant",
             message: {
@@ -1001,13 +1011,14 @@ class CodexQuery implements AgentQuery {
             // input frames, not assistant turns; openai liveInput is
             // "unsupported" so it is structurally always 1 regardless of how
             // much tool activity happened inside that turn (thread 019f9c36).
-            // Real tool-activity is already tracked and reported separately
-            // via mcpActivity/nativeCommandActivity.
+            // `toolItems` is the count that DOES vary with the tool loop:
+            // completed work items observed on this session so far, summed
+            // across the turns yielded up to here (thread 019f9cc2).
             usage: normalizedUsage.usage,
             _north_usage: normalizedUsage.metadata,
             _north_provider_join: completed.providerJoin,
             _north_codex_turn_activity: {
-              turnUnits: turns, comparable: false,
+              turnUnits: turns, toolItems, comparable: false,
             } satisfies CodexTurnActivity,
           };
         }

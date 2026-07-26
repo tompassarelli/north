@@ -688,6 +688,10 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(result).toEqual({
     text: "managed answer",
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
+    // Counted from the observed item/completed stream this turn emitted:
+    // commandExecution + fileChange + mcpToolCall. The agentMessage and the
+    // reasoning block are deliberately NOT work items (thread 019f9cc2).
+    toolItems: 3,
     providerJoin: {
       version: "north-provider-join:v1",
       sessionKey: providerSessionKey("019f7abc-0000-7000-8000-000000000001"),
@@ -969,6 +973,9 @@ test("a later North frame drives a same-thread continuation turn under re-proven
   const expected = (turnId: string) => ({
     text: "managed answer",
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
+    // Per-TURN work-item count, reset at each turn start — never cumulative
+    // here; the adapter sums it across turns for the run record.
+    toolItems: 3,
     providerJoin: {
       version: "north-provider-join:v1",
       sessionKey: providerSessionKey("019f7abc-0000-7000-8000-000000000001"),
