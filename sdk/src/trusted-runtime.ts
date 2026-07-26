@@ -116,18 +116,43 @@ export function trustedNorthBabashkaExecutable(
 }
 
 /**
- * Managed provider execution never consults NORTH_CODEX_BIN or PATH, and unlike
- * Git/Babashka it is NOT broadened to ambient system pointers: the managed Codex
- * IS the billed provider, so its exact wrapper-pinned build is an identity, not a
- * fungible infrastructure tool. Substituting whatever `codex` the ambient system
- * profile happens to expose would let the environment swap the provider binary
- * (and its protocol/version) out from under a managed run. The package wrapper
- * overwrites this private selector with its exact Codex input; absent that, it
- * fails closed by design.
+ * Fixed, non-arbitrary entry points to the NixOS-immutable managed Codex, most
+ * trusted first: the wrapper's explicit NORTH_MANAGED_CODEX_BIN injection, then
+ * the same root-managed system-profile, home-manager per-user profile, and
+ * per-user Nix profile layout as Git/Babashka. Managed children spawned outside
+ * the wrapper (e.g. a checkout-driven `bin/north`) do not inherit
+ * NORTH_MANAGED_CODEX_BIN, so preflight needs these immutable pointers too. As
+ * with Git/Babashka these are ENTRY hints only — trust is never granted by the
+ * location. Every candidate still passes the canonical `/nix/store` + executable
+ * proof below, so a repointed profile symlink or writable shim can only ever
+ * resolve into the immutable store or be rejected. Ambient `$PATH` is
+ * deliberately absent.
+ */
+function defaultTrustedCodexPointers(): readonly (string | undefined)[] {
+  const home = process.env.HOME;
+  const user = safeProfileUser(process.env.USER);
+  return [
+    process.env.NORTH_MANAGED_CODEX_BIN,
+    "/run/current-system/sw/bin/codex",
+    user ? `/etc/profiles/per-user/${user}/bin/codex` : undefined,
+    home ? `${home}/.nix-profile/bin/codex` : undefined,
+  ];
+}
+
+/**
+ * Managed provider execution never consults NORTH_CODEX_BIN or ambient PATH:
+ * the managed Codex IS the billed provider, so its exact build must still prove
+ * canonical residence in the immutable Nix store. The wrapper's
+ * NORTH_MANAGED_CODEX_BIN injection remains the highest-priority entry hint,
+ * but managed children that never inherit it (a checkout-driven dispatch) fall
+ * back to the same root-managed system/profile pointers Git and Babashka use.
+ * Every candidate — wrapper-injected or profile-pointed — is proven by the
+ * canonical `/nix/store` + X_OK check below before it is trusted, so a
+ * repointed profile symlink or forged shim can only resolve into the immutable
+ * store or be rejected; substituting a non-store `codex` is never possible.
  */
 export function trustedManagedCodexExecutable(
-  candidates: readonly (string | undefined)[] =
-    [process.env.NORTH_MANAGED_CODEX_BIN],
+  candidates: readonly (string | undefined)[] = defaultTrustedCodexPointers(),
 ): string {
   return trustedStoreExecutable(
     candidates,
