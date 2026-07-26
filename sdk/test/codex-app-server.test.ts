@@ -195,11 +195,20 @@ function setup(mode = "ok") {
   chmodSync(executable, 0o700);
   const cwd = realpathSync(join(import.meta.dir, "../.."));
   const requests: any[] = [];
+  const webNetwork = ["web-network", "web-network-config-drift", "web-network-thread-drift"]
+    .includes(mode);
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true]),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false]),
+    ["network_proxy", webNetwork],
   ]);
-  const effectiveFeatures = { ...features, remote_control: false };
+  const effectiveFeatures = { ...features, network_proxy: webNetwork, remote_control: false };
+  const sessionFeatures = {
+    ...features,
+    network_proxy: webNetwork
+      ? { enabled: true, domains: { "chromium.googlesource.com": "allow" } }
+      : false,
+  };
   const north = {
     command: "/nix/store/north/bin/north-mcp",
     args: [] as string[],
@@ -239,7 +248,9 @@ function setup(mode = "ok") {
     forced_login_method: "chatgpt",
     model_provider: "openai",
     sqlite_home: sqliteHome,
-    ...(writableRoots.length ? { sandbox_workspace_write: { writable_roots: writableRoots } } : {}),
+    ...(writableRoots.length ? { sandbox_workspace_write: {
+      writable_roots: writableRoots, network_access: webNetwork,
+    } } : {}),
     project_root_markers: [".git"],
     projects: { [cwd]: { trust_level: "untrusted" } },
     project_doc_max_bytes: 0,
@@ -252,8 +263,8 @@ function setup(mode = "ok") {
       },
       ...framSessionConfig,
     },
-    web_search: "disabled",
-    features,
+    web_search: webNetwork ? "cached" : "disabled",
+    features: sessionFeatures,
   };
   const baseConfig = {
     config: {
@@ -398,7 +409,7 @@ function setup(mode = "ok") {
         instructionSources: [join(codexHome, "AGENTS.md")], approvalPolicy: "never",
         approvalsReviewer: "user",
         sandbox: {
-          type: "workspaceWrite", writableRoots, networkAccess: false,
+          type: "workspaceWrite", writableRoots, networkAccess: webNetwork,
           excludeTmpdirEnvVar: false, excludeSlashTmp: false,
         },
         activePermissionProfile: null, reasoningEffort: "high",
@@ -421,6 +432,7 @@ function setup(mode = "ok") {
         "thread-approval": () => { response.approvalPolicy = "on-request"; },
         "thread-reviewer": () => { response.approvalsReviewer = "auto_review"; },
         "thread-sandbox": () => { response.sandbox.networkAccess = true; },
+        "web-network-thread-drift": () => { response.sandbox.networkAccess = false; },
         "thread-profile": () => { response.activePermissionProfile = { id: ":workspace", extends: null }; },
         "thread-effort": () => { response.reasoningEffort = "low"; },
         "thread-multi-agent": () => { response.multiAgentMode = "proactive"; },
@@ -635,6 +647,7 @@ function setup(mode = "ok") {
         }
         if (mode === "feature-default-enabled") current.config.features.browser_use = true;
         if (mode === "feature-omitted") delete current.config.features.browser_use;
+        if (mode === "web-network-config-drift") current.config.features.network_proxy = false;
         if (mode === "shell-policy-missing")
           delete current.layers[0].config.shell_environment_policy;
         if (mode === "shell-policy-wrong-inherit")
@@ -789,7 +802,9 @@ function setup(mode = "ok") {
           ...FRAM_MCP_TOOL_NAMES.map((name) => `mcp__fram__${name}`),
         ],
       } as OpenAIAuthoritySurface
-      : surface,
+      : webNetwork
+        ? { ...surface, capabilities: [...surface.capabilities, "web"], web: "cached" }
+        : surface,
     north,
     ...(framServer ? { fram: framServer } : {}),
     timeoutMs: 500,
@@ -1753,7 +1768,7 @@ test("a workspace-write lane is granted exactly its Git metadata roots, and no m
   const rootsArgument = `sandbox_workspace_write.writable_roots=${JSON.stringify(expectedRoots)}`;
   expect(contract.args).toContain(rootsArgument);
   expect((contract.expectedSessionConfig as any).sandbox_workspace_write)
-    .toEqual({ writable_roots: expectedRoots });
+    .toEqual({ writable_roots: expectedRoots, network_access: false });
   // The grant is Git metadata only: never the North state root, never the home,
   // and network stays unshared so a lane can commit but can never push.
   for (const root of contract.writableRoots) expect(root.endsWith(".git")
@@ -1763,6 +1778,43 @@ test("a workspace-write lane is granted exactly its Git metadata roots, and no m
     text: "managed answer",
   });
   expect(requests.some(({ method }) => method === "turn/start")).toBe(true);
+});
+
+test("only a web-capable workspace-write lane receives the exact Gitiles proxy policy", async () => {
+  const { options } = setup();
+  const authorized = {
+    ...options,
+    surface: {
+      ...surface,
+      capabilities: [...surface.capabilities, "web"],
+      web: "cached",
+    } as OpenAIAuthoritySurface,
+  };
+  const contract = managedCodexAppServerLaunch(authorized);
+  expect((contract.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(true);
+  expect((contract.expectedSessionConfig as any).features.network_proxy).toEqual({
+    enabled: true,
+    domains: { "chromium.googlesource.com": "allow" },
+  });
+  expect(contract.args).toContain("sandbox_workspace_write.network_access=true");
+  expect(contract.args).toContain("features.network_proxy.enabled=true");
+  expect(contract.args).toContain('features.network_proxy.domains={"chromium.googlesource.com"="allow"}');
+
+  const denied = managedCodexAppServerLaunch(options);
+  expect((denied.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(false);
+  expect((denied.expectedSessionConfig as any).features.network_proxy).toBe(false);
+  expect(denied.args).toContain("--disable");
+  expect(denied.args).toContain("network_proxy");
+});
+
+test("the Gitiles network config and sandbox attestation both fail closed on drift", async () => {
+  for (const [mode, error] of [
+    ["web-network-config-drift", "openai_codex_authority_preflight_failed"],
+    ["web-network-thread-drift", "openai_provider_execution_failed"],
+  ] as const) {
+    await expect(new ManagedCodexAppServerRun(setup(mode).options).execute())
+      .rejects.toThrow(error);
+  }
 });
 
 test("a read-only lane is granted no writable root at all", () => {

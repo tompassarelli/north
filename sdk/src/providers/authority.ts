@@ -8,6 +8,7 @@ import {
   COORDINATION_TOOLS, ORCHESTRATION_TOOLS, hasCanonicalHarnessAuthority, managedToolPolicy,
 } from "../harness";
 import { FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOLS } from "../fram-graph-authoring";
+import { managedCodexNetworkPolicy } from "./codex-network-policy";
 
 function bareNorthTool(toolName: string): string | undefined {
   const prefix = "mcp__north__";
@@ -116,6 +117,7 @@ export function formatProviderAuthoritySurface(surface: ProviderAuthoritySurface
     + `north enabled_tools=${list(surface.northEnabledTools)}`;
   return surface.provider === "openai"
     ? `${base}; sandbox=${surface.sandbox}; web=${surface.web}; `
+      + `network=${managedCodexNetworkPolicy(surface).networkAccess ? "gitiles-only" : "disabled"}; `
       + `mcp tools=${list(surface.managedTools)}`
     : `${base}; web=${surface.web}; sdk builtins=${list(surface.builtins)}; `
       + `mcp tools=${list(surface.managedTools)}`;

@@ -29,7 +29,7 @@ import {
   assertCodexGlobalAgentsForEnvironment, codexHarnessArguments,
 } from "../src/providers/openai";
 import {
-  compileProviderAuthoritySurface,
+  compileProviderAuthoritySurface, formatProviderAuthoritySurface,
 } from "../src/providers/authority";
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
@@ -105,8 +105,10 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(workerSurface.northEnabledTools).not.toEqual(expect.arrayContaining(["dispatch", "spawn"]));
   expect(codexHarnessArguments(openaiWorker)).toEqual([
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    "--disable", "network_proxy",
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
+  expect(formatProviderAuthoritySurface(workerSurface)).toContain("network=disabled");
 
   const director = harnessOptions({
     self: "openai-exact-orchestrator-surface",
@@ -120,8 +122,10 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(directorSurface.web).toBe("cached");
   expect(codexHarnessArguments(director)).toEqual([
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    "--disable", "network_proxy",
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
+  expect(formatProviderAuthoritySurface(directorSurface)).toContain("network=disabled");
 });
 
 test("route application rejects request laundering and authoring hooks are an exact frozen surface", () => {
