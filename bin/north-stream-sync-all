@@ -44,11 +44,28 @@ if [ "${#roots[@]}" -eq 0 ]; then
   exit 0
 fi
 
+child_pid=""
+stop_sync() {
+  # A foreground child prevents Bash from dispatching a trap until that child
+  # returns.  The loop below instead waits for a background child, so TERM
+  # interrupts wait promptly and this handler can forward it to the copy.
+  if [ -n "${child_pid:-}" ]; then
+    kill -TERM "$child_pid" 2>/dev/null || true
+    wait "$child_pid" 2>/dev/null || true
+  fi
+  exit 143
+}
+trap stop_sync TERM INT
+
 failed=0
 quarantined=0
 for root in "${roots[@]}"; do
-  "$SYNC" --src-dir "$root" "$@"
-  case "$?" in
+  "$SYNC" --src-dir "$root" "$@" &
+  child_pid=$!
+  wait "$child_pid"
+  sync_status=$?
+  child_pid=""
+  case "$sync_status" in
     0) ;;
     2) quarantined=$((quarantined + 1)) ;;
     *) failed=$((failed + 1))
