@@ -130,6 +130,7 @@ jobs:
           bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/dashboard-doctor-exit-test.clj
           bb cli/tests/linear-helper-protocol-test.clj
+          bb cli/tests/routing-preflight-failure-naming-test.clj  # no admission may die with an unnamed reason
           bash cli/tests/north-explicit-log-test.sh
           FRAM_TEST_CHECKOUT="$GITHUB_WORKSPACE/fram" \
             bash cli/tests/north-coord-up-test.sh

@@ -64,7 +64,12 @@
         (do (p/destroy-tree proc) {:timeout true :ok false})
         {:out (or (:out res) "") :err (or (:err res) "") :exit (:exit res)
          :ok (zero? (:exit res))}))
-    (catch Exception e {:error (.getMessage e) :ok false})))
+    ;; A spawn failure must NAME itself: .getMessage is nil for several JDK
+    ;; process exceptions, and a nil :error reads to a caller exactly like "no
+    ;; error was reported at all". Fall back to the exception class.
+    (catch Exception e {:error (or (not-empty (str (.getMessage e)))
+                                   (.getName (class e)))
+                        :ok false})))
 
 (defn echo-cmd [& parts] (println (dim (str "» " (str/join " " parts)))))
 
@@ -1049,6 +1054,52 @@
         (println (red (str label " must be valid JSON or @file: " (.getMessage e))))
         (System/exit 1)))))
 
+;; Outer budget for the preflight subprocess. It MUST exceed every budget the
+;; subprocess itself enforces, or the outer kill wins the race and destroys the
+;; named refusal the inner layer was about to print.
+;;
+;; Observed 2026-07-26 (thread 019f9cc2): three simultaneous `north delegate`
+;; admissions, two died printing a bare "routing economics preflight failed"
+;; and nothing else while the third admitted; an immediate sequential retry of
+;; the two admitted fine. The old ceiling here was 10 000 ms. In graph mode a
+;; single preflight makes THREE `bb orchestration-project-cli.clj` round trips
+;; (staffing bundle, policy-pin, catalog-pin), each with its OWN 30 000 ms
+;; budget, and the coordinator pays a cold per-version scan on the first query
+;; after any graph write. Measured in-worktree: that first query costs 2.5-3.8 s
+;; warm-vs-cold (0.07-0.11 s once warm), and three CONCURRENT preflights right
+;; after a write took 9.7 s wall — straddling the 10 s ceiling, which is exactly
+;; why two of three died and one lived. `run` returns {:timeout true :ok false}
+;; with NEITHER :out NOR :err on a timeout, so the message below collapsed to
+;; the empty-string fallback and the real cause never reached the terminal.
+;;
+;; 3 x 30 000 ms projector + 5 000 ms canonical assessment validator = 95 000 ms
+;; of reachable inner ceiling; 120 000 ms leaves startup slack above it. Every
+;; slow-path failure now surfaces as the inner layer's NAMED error (dead
+;; coordinator, missing @catalog:current, digest breach) instead of an outer
+;; kill, and a genuinely wedged subprocess is still bounded.
+(def routing-economics-preflight-timeout-ms 120000)
+
+(defn- preflight-failure-message
+  "Never let a preflight die anonymously. `run` reports three distinguishable
+   non-ok shapes and only one of them carries subprocess output; name the other
+   two explicitly rather than falling back to a bare adjective."
+  [result timeout-ms]
+  (let [out (str (:out result)) err (str (:err result))
+        joined (str/trim (str err (when (and (seq err) (seq out)) "\n") out))]
+    (cond
+      (seq joined) joined
+      (:timeout result)
+      (str "routing economics preflight exceeded its " timeout-ms
+           "ms budget and was killed before it could report a reason"
+           " (a cold or contended coordinator on port " (or (System/getenv "NORTH_PORT") "7977")
+           " is the usual cause; retry, and if it persists check that the"
+           " coordinator is live and @catalog:current is imported)")
+      (:error result)
+      (str "routing economics preflight could not be started: " (:error result))
+      :else
+      (str "routing economics preflight exited " (:exit result)
+           " without writing a reason to stdout or stderr"))))
+
 (defn- preflight-routing-economics!
   [routing-metadata routing-assessment pin-evidence provider target model]
   (let [payload (cond-> {:routingMetadata routing-metadata}
@@ -1058,13 +1109,12 @@
                   target (assoc :target target)
                   model (assoc :model model))
         result (run [POLICY-BUN "run" ROUTING-ECONOMICS-PREFLIGHT-CLI]
-                    :timeout 10000 :in (json/generate-string payload))]
+                    :timeout routing-economics-preflight-timeout-ms
+                    :in (json/generate-string payload))]
     (when-not (:ok result)
-      (let [message (str/trim (str (:err result)
-                                   (when (and (seq (:err result)) (seq (:out result))) "\n")
-                                   (:out result)))]
-        (println (red (if (seq message) message "routing economics preflight failed")))
-        (System/exit 1)))
+      (println (red (preflight-failure-message
+                     result routing-economics-preflight-timeout-ms)))
+      (System/exit 1))
     (try
       (let [receipt (json/parse-string (str/trim (:out result)) true)]
         (when-not (= 1 (:version receipt))
