@@ -317,6 +317,23 @@
                 (fail! "run evidence record cap reached" {:run run}))
               {:stored stored})))))))
 
+;; Deadline-bound, NOT attempt-bound. A fixed attempt count (the pre-fix "16
+;; tries, no backoff") is what turned ordinary concurrent write traffic into a
+;; false refusal: at swarm scale every one of those 16 tight-loop iterations
+;; can lose the version race before a single one lands, so a run with a LIVE,
+;; valid reservation was refused for a reason that had nothing to do with the
+;; evidence itself. Every other commit path in this file that shares the
+;; coordinator's global version (reserve!'s doseq, assert-after-read!) already
+;; retries against an absolute deadline with equal-jitter backoff so unrelated
+;; traffic buys retries, not rejections; this budget gives ordinary evidence
+;; commits that same room. Unlike read-retry-budget-ms (deliberately ONE
+;; process-lifetime clock shared by every read in a writer invocation), this
+;; deadline is computed FRESH per commit-record-once! call: the writer process
+;; performs exactly one record! per invocation in production, so a per-call
+;; clock is both correct there and safe to call repeatedly in-process (e.g.
+;; from tests that exercise many concurrent records against one daemon).
+(def commit-retry-budget-ms 5000)
+
 (defn commit-record-once!
   "Commit one observation for RUN/BAR and report which observations it replaced.
    Supersession retracts the stale record BEFORE asserting the correction: the
@@ -324,39 +341,56 @@
    (run-evidence-state, terminal publication) treats a duplicate bar as a
    tampered set — a transient gap in one bar is recoverable, an invalid set is
    not. Each retract re-enters the loop so the assert always commits against a
-   base captured AFTER it."
+   base captured AFTER it.
+
+   The base is re-read and revalidated on EVERY attempt (never reused across a
+   retry): a stale base is exactly the shape of bug this guards against
+   elsewhere in the file, and reusing one here would silently reintroduce it."
   [port run thread reporter capability bar observed raw]
-  (loop [remaining 16
-         superseded []]
-    (let [base (north.coord/cur-ver port)
-          context
-          (validate-record-context!
-           port run thread reporter capability bar observed)]
-      (cond
-        (:existing context)
-        {:raw (:existing context) :superseded superseded}
+  (let [superseded (atom [])
+        attempt!
+        (fn []
+          (let [base (north.coord/cur-ver port)
+                context
+                (validate-record-context!
+                 port run thread reporter capability bar observed)]
+            (cond
+              (:existing context)
+              {:done {:raw (:existing context) :superseded @superseded}}
 
-        (:supersede context)
-        (do
-          (checked!
-           (north.coord/retract! port run "run_bar_evidence" (:supersede context))
-           [:retract run "run_bar_evidence" (:supersede context)])
-          (if (> remaining 1)
-            (recur (dec remaining)
-                   (conj superseded (:superseded-observed context)))
-            (fail! "run evidence supersession did not converge"
-                   {:run run :bar bar})))
+              (:supersede context)
+              (do
+                (checked!
+                 (north.coord/retract! port run "run_bar_evidence" (:supersede context))
+                 [:retract run "run_bar_evidence" (:supersede context)])
+                (swap! superseded conj (:superseded-observed context))
+                {:reject :conflict})
 
-        :else
-        (let [result
-              (north.coord/send-op
-               port {:op :assert-at-version
-                     :te run :p "run_bar_evidence" :r raw :base base})]
-          (if (and (= :conflict (:reject result)) (> remaining 1))
-            (recur (dec remaining) superseded)
-            (do
-              (checked! result [:append-after-read run "run_bar_evidence" raw])
-              {:raw raw :superseded superseded})))))))
+              :else
+              (let [result
+                    (north.coord/send-op
+                     port {:op :assert-at-version
+                           :te run :p "run_bar_evidence" :r raw :base base})]
+                (if (:reject result)
+                  {:reject :conflict}
+                  (do
+                    (checked! result [:append-after-read run "run_bar_evidence" raw])
+                    {:done {:raw raw :superseded @superseded}}))))))
+        outcome (north.coord/retry-conflicts-until!
+                 (north.coord/retry-deadline-ns commit-retry-budget-ms)
+                 attempt!)]
+    (if-let [done (:done outcome)]
+      done
+      ;; The rule that refuses here names ITSELF: this is contention exhaustion
+      ;; (a live, valid, in-bounds evidence write that never got a clean version
+      ;; to commit against), not a verdict about the evidence, the reservation,
+      ;; or the contract. Every other guard in this file already reports its
+      ;; own cause by name; a live-reservation write must never fall through to
+      ;; the generic "coordinator rejected" line, which is indistinguishable
+      ;; from a real logical refusal.
+      (fail! "run evidence commit did not converge under contention"
+             {:run run :bar bar :budget-ms commit-retry-budget-ms
+              :deadline-exceeded (boolean (:deadline outcome))}))))
 
 (defn best-effort-thread-projection!
   [port thread bar observed superseded]
