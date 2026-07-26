@@ -911,7 +911,9 @@ function validateConfig(
   const expectedFeatures = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false] as const),
-    ["network_proxy", contract.network.networkProxyEnabled] as const,
+    ["network_proxy", contract.network.networkProxyEnabled
+      ? { enabled: true, domains: contract.network.domains }
+      : false] as const,
     ["remote_control", false] as const,
   ]);
   exactDiagnosable(
