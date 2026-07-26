@@ -10,6 +10,7 @@
 
 (def ^:private max-agent-id-chars 512)
 (def ^:private max-path-chars 4096)
+(def ^:private clone-push-sentinel "north-disabled://managed-clone-no-push")
 
 (defn- query-rows! [port query]
   (let [response (north.coord/send-op port {:op :query :query query})]
@@ -83,6 +84,9 @@
 
 (defn- branch-ref [branch] (str "refs/heads/" branch))
 
+(defn- git-output [result]
+  (when (zero? (:exit result)) (str/trim (str (:out result)))))
+
 (defn- worktree-registered? [root worktree]
   (let [result (git "-C" root "worktree" "list" "--porcelain" "-z")]
     (when (zero? (:exit result))
@@ -119,8 +123,13 @@
                root
                (.isDirectory (io/file root)))
         (let [registered? (worktree-registered? root worktree)
-              branch-present (branch-present? root expected-branch)]
-          (if (and (= false registered?) (= false branch-present))
+              branch-present (branch-present? root expected-branch)
+              expected-clone (str "/tmp/" (.getName (io/file root)) "-" expected-branch)]
+          (if (or (and (= false registered?) (= false branch-present))
+                  ;; A provisioned clone is intentionally unregistered. Its exact
+                  ;; path shape identifies a prior clean removal while its harvested
+                  ;; canonical ref remains for the separate landing reconciler.
+                  (and (= false registered?) (= expected-clone worktree)))
             {:kind :already-removed}
             {:kind :partial
              :reason (str "worktree is absent from disk"
@@ -187,8 +196,27 @@
               branch-present (branch-present? root expected-branch)
               linked-git-prefix (when root-common
                                   (str root-common java.io.File/separator "worktrees"
-                                       java.io.File/separator))]
-          (if (and (zero? (:exit ref-check))
+                                       java.io.File/separator))
+              clone-dot-git (.getCanonicalPath (io/file worktree ".git"))
+              clone-origin (git-output (git "-C" worktree "config" "--get" "remote.origin.url"))
+              clone-push (git-output (git "-C" worktree "config" "--get" "remote.origin.pushurl"))
+              clone-head-merged (git "-C" root "merge-base" "--is-ancestor" wt-head "HEAD")
+              clone-ref (git-output (git "-C" root "rev-parse" "--verify"
+                                         (branch-ref expected-branch)))
+              clone? (and (zero? (:exit ref-check))
+                          (= root root-top)
+                          (= worktree wt-top)
+                          (= root-common root-dot-git)
+                          (= wt-common clone-dot-git)
+                          (= wt-git-dir clone-dot-git)
+                          (.isDirectory (io/file clone-dot-git))
+                          (= false registered?)
+                          (= expected-branch actual-branch)
+                          (= root clone-origin)
+                          (= clone-push-sentinel clone-push)
+                          (safe-string? wt-head 128))]
+          (cond
+            (and (zero? (:exit ref-check))
                    (= root root-top)
                    (= worktree wt-top)
                    (= root-common wt-common root-dot-git)
@@ -200,8 +228,14 @@
                    (= true registered?)
                    (safe-string? root-head 128)
                    (= branch-head wt-head))
-            {:ok? true :root root :worktree worktree :branch expected-branch}
-            {:ok? false :reason "real Git provenance does not exactly match the registered main root/worktree/derived branch"}))))
+            {:ok? true :mode :linked :root root :worktree worktree :branch expected-branch}
+
+            clone?
+            {:ok? true :mode :clone :root root :worktree worktree :branch expected-branch
+             :harvested? (or (= wt-head clone-ref) (zero? (:exit clone-head-merged)))}
+
+            :else
+            {:ok? false :reason "real Git provenance does not exactly match a registered worktree or managed clone"}))))
     (catch Throwable error
       {:ok? false
        :reason (str "Git provenance probe failed: "
@@ -283,6 +317,17 @@
                         :else "unknown")
                   ", git-exit=" (:exit removed) ")")}))))))
 
+(defn- remove-clean-clone! [{:keys [worktree]}]
+  ;; A managed clone owns its entire git-dir. Provenance above establishes its
+  ;; marker tuple before this recursive removal; no canonical ref is touched.
+  (try
+    (io/delete-file (io/file worktree) true)
+    (if (.exists (io/file worktree))
+      {:kind :partial :reason "managed clone removal returned but its path remains"}
+      {:kind :removed})
+    (catch Throwable error
+      {:kind :partial :reason (str "managed clone removal failed: " (.getMessage error))})))
+
 (defn- zero-result []
   {:scanned 0
    :unresolved 0
@@ -359,22 +404,37 @@
                         wrote? (and (not dry?)
                                     (ensure-orphan-fact! port subject value))]
                     (println (str "[worktrees] " (if dry? "WOULD KEEP" "KEPT")
-                                  " dirty " (:worktree provenance)))
+                                  " dirty " (:worktree provenance)
+                                  (when (and (= :clone (:mode provenance))
+                                             (not (:harvested? provenance)))
+                                    " — dirty clone has unharvested commits; manual salvage required")))
                     {:kind :dirty :orphan-written? wrote?})
 
                   :clean
-                  (if dry?
+                  (cond
+                    (and (= :clone (:mode provenance)) (not (:harvested? provenance)))
+                    (do
+                      (println (str "[worktrees] KEEP " subject
+                                    " — clean clone has unharvested commits; canonical lane ref does not match and head is not in main"))
+                      {:kind :uncertain})
+
+                    dry?
                     (do
                       (println (str "[worktrees] WOULD REMOVE clean "
                                     (:worktree provenance)))
                       {:kind :would-remove})
-                    (let [removed (remove-clean-worktree! provenance)]
+
+                    :else
+                    (let [removed (if (= :clone (:mode provenance))
+                                    (remove-clean-clone! provenance)
+                                    (remove-clean-worktree! provenance))]
                       (case (:kind removed)
                         :removed
                         (do
                           (println (str "[worktrees] removed clean "
-                                        (:worktree provenance) " and "
-                                        (:branch provenance)))
+                                        (:worktree provenance)
+                                        (when (= :linked (:mode provenance))
+                                          (str " and " (:branch provenance)))))
                           {:kind :removed})
 
                         :partial
