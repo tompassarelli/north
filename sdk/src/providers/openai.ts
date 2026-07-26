@@ -38,6 +38,7 @@ import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
   ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
 } from "./codex-app-server";
+import { managedCodexNetworkPolicy } from "./codex-network-policy";
 import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
 import {
   prepareManagedCodexHome, type PreparedManagedCodexHome,
@@ -221,6 +222,9 @@ function managedCodexAuthorityArguments(
   // valid app-server authority boundary.
   return [
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    ...(managedCodexNetworkPolicy(surface).networkProxyEnabled
+      ? ["--enable", "network_proxy"]
+      : ["--disable", "network_proxy"]),
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ];
 }

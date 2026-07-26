@@ -25,6 +25,7 @@ import {
   hasCanonicalFramMcpServer,
 } from "../fram-graph-authoring";
 import type { OpenAIAuthoritySurface } from "./authority";
+import { managedCodexNetworkPolicy } from "./codex-network-policy";
 import { expectedManagedCodexHooks } from "./codex-managed-hooks";
 import { CODEX_SUPERVISOR_STATUS_PREFIX } from "./codex-supervisor-protocol";
 import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
@@ -103,7 +104,6 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
   "mentions_v2",
   "multi_agent",
   "multi_agent_v2",
-  "network_proxy",
   "non_prefixed_mcp_tool_names",
   "personality",
   "plugin_sharing",
@@ -336,6 +336,7 @@ interface LaunchContract {
   projectRoot: string;
   /** Git metadata roots the workspace-write sandbox may write; [] when read-only. */
   writableRoots: string[];
+  network: ReturnType<typeof managedCodexNetworkPolicy>;
 }
 
 /**
@@ -436,10 +437,17 @@ export function managedCodexAppServerLaunch(
       },
     }
     : {};
+  const network = managedCodexNetworkPolicy(options.surface);
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false] as const),
   ]);
+  const sessionFeatures = {
+    ...features,
+    network_proxy: network.networkProxyEnabled
+      ? { enabled: true, domains: network.domains }
+      : false,
+  };
   const writableRoots = stage("openai_codex_git_metadata_unresolvable",
     () => sandboxWritableRoots(options.surface, cwd));
   const expectedSessionConfig: JsonObject = {
@@ -448,7 +456,10 @@ export function managedCodexAppServerLaunch(
     model_provider: "openai",
     sqlite_home: sqliteHome,
     ...(writableRoots.length
-      ? { sandbox_workspace_write: { writable_roots: writableRoots } }
+      ? { sandbox_workspace_write: {
+        writable_roots: writableRoots,
+        network_access: network.networkAccess,
+      } }
       : {}),
     project_root_markers: [".git"],
     projects: { [projectRoot]: { trust_level: "untrusted" } },
@@ -467,15 +478,22 @@ export function managedCodexAppServerLaunch(
       ...framConfig,
     },
     web_search: options.surface.web,
-    features,
+    features: sessionFeatures,
   };
 
   const args = [
     ...codexConfigArguments(options.env),
     "-c", 'project_root_markers=[".git"]',
     ...(writableRoots.length
-      ? ["-c", `sandbox_workspace_write.writable_roots=${JSON.stringify(writableRoots)}`]
+      ? [
+        "-c", `sandbox_workspace_write.writable_roots=${JSON.stringify(writableRoots)}`,
+        "-c", `sandbox_workspace_write.network_access=${network.networkAccess}`,
+      ]
       : []),
+    ...(network.networkProxyEnabled ? [
+      "-c", `features.network_proxy.enabled=${network.networkProxyEnabled}`,
+      "-c", `features.network_proxy.domains=${tomlStringMap(network.domains)}`,
+    ] : []),
     "-c", `projects=${tomlProjectMap(projectRoot)}`,
     "-c", "project_doc_max_bytes=0",
     "-c", "allow_login_shell=false",
@@ -497,12 +515,13 @@ export function managedCodexAppServerLaunch(
     ] : []),
     "-c", `web_search=${JSON.stringify(options.surface.web)}`,
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    ...(network.networkProxyEnabled ? ["--enable", "network_proxy"] : ["--disable", "network_proxy"]),
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
     "app-server", "--stdio", "--strict-config",
   ];
   return {
     args, expectedSessionConfig, executable, codexHome, sqliteHome, cwd, projectRoot,
-    writableRoots,
+    writableRoots, network,
   };
 }
 
@@ -891,6 +910,7 @@ function validateConfig(
   const expectedFeatures = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false] as const),
+    ["network_proxy", contract.network.networkProxyEnabled] as const,
     ["remote_control", false] as const,
   ]);
   exact(config.features, expectedFeatures, "Codex effective feature set");
@@ -1114,14 +1134,15 @@ function expectedSandbox(
   surface: OpenAIAuthoritySurface,
   contract: LaunchContract,
 ): JsonObject {
+  const network = managedCodexNetworkPolicy(surface);
   return surface.sandbox === "read-only"
     ? { type: "readOnly", networkAccess: false }
     : {
       type: "workspaceWrite",
       // Exactly the Git metadata roots the contract granted — never a wider set,
-      // and never network. A drift in either direction fails the thread closed.
+      // and its sealed command-network grant. A drift in either direction fails closed.
       writableRoots: contract.writableRoots,
-      networkAccess: false,
+      networkAccess: network.networkAccess,
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false,
     };
