@@ -847,6 +847,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
   const argv = codexHarnessArguments(canonical);
   const expected = [
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    "--disable", "network_proxy",
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ];
   expect(argv).toEqual(expected);
@@ -928,6 +929,7 @@ test("the executable Codex adapter admits exact managed orchestrator authority",
   }) as any;
   expect(codexHarnessArguments(options)).toEqual([
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    "--disable", "network_proxy",
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
 });
