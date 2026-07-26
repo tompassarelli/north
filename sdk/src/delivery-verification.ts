@@ -16,6 +16,30 @@ export const MAX_DELIVERY_THREAD_ID_UTF8_BYTES = 512;
 export const MAX_DELIVERY_RUN_ID_UTF8_BYTES = 512;
 export const MAX_DELIVERY_AGENT_ID_UTF8_BYTES = 256;
 export const MAX_DELIVERY_ATTESTATION_UTF8_BYTES = 16 * 1024;
+/**
+ * Unreserved thread-scoped evidence never enters a reservation manifest, so the
+ * 512-byte per-bar bound (sized so 32 bars fit one manifest) does not apply. It
+ * quotes an existing done_when verbatim, so the cap only has to exceed a
+ * realistic bar. Mirrors max-unreserved-bar-utf8-bytes in terminal-projection.
+ */
+export const MAX_UNRESERVED_BAR_UTF8_BYTES = 4 * 1024;
+export const UNRESERVED_BAR_EVIDENCE_VERSION = "north:unreserved-bar-evidence:v1";
+
+/**
+ * Acknowledgement of one THREAD-scoped observation recorded with no run
+ * reservation. It carries no run, capability, or reporter authority by
+ * construction: there is no field a consumer could mistake for a run binding,
+ * and no path upgrades it into a `RunBarEvidence`.
+ */
+export interface UnreservedBarEvidence {
+  version: typeof UNRESERVED_BAR_EVIDENCE_VERSION;
+  scope: "unreserved";
+  thread: string;
+  bar: string;
+  observed: string;
+  recordedAt: string;
+  superseded: number;
+}
 
 export interface RunBarEvidence {
   version: typeof RUN_BAR_EVIDENCE_VERSION;
@@ -220,6 +244,31 @@ export function parseRunBarEvidence(raw: string): RunBarEvidence | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Validate one unreserved acknowledgement. Deliberately a SEPARATE validator
+ * from validateRunBarEvidence: the two shapes must never be interchangeable, so
+ * an unreserved payload can never satisfy a run-bound check by shape accident.
+ */
+export function validateUnreservedBarEvidence(
+  value: unknown,
+): UnreservedBarEvidence | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed = value as Partial<UnreservedBarEvidence>;
+  if (!exactKeys(parsed, [
+    "bar", "observed", "recordedAt", "scope", "superseded", "thread", "version",
+  ])) return undefined;
+  if (parsed.version !== UNRESERVED_BAR_EVIDENCE_VERSION
+    || parsed.scope !== "unreserved"
+    || !validThreadEntity(parsed.thread)
+    || !boundedNonblankText(parsed.bar, MAX_UNRESERVED_BAR_UTF8_BYTES)
+    || !boundedNonblankText(parsed.observed, MAX_DELIVERY_OBSERVED_UTF8_BYTES)
+    || typeof parsed.superseded !== "number"
+    || !Number.isInteger(parsed.superseded)
+    || parsed.superseded < 0
+    || !validInstant(parsed.recordedAt)) return undefined;
+  return parsed as UnreservedBarEvidence;
 }
 
 export function validateRunBarEvidence(value: unknown): RunBarEvidence | undefined {

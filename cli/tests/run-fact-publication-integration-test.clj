@@ -47,6 +47,25 @@
   (apply proc/shell {:out :string :err :string :continue true
                      :extra-env {"FRAM_LOG" @test-log}}
          args))
+(defn bars-cli [port & args]
+  (apply proc/shell {:out :string :err :string :continue true
+                     :extra-env {"FRAM_LOG" @test-log "NORTH_PORT" (str port)}}
+         "bb" (str root "/cli/bars-cli.clj") args))
+(defn north-cli
+  "The real bash entrypoint, so verb wiring and pre-write hooks are covered."
+  [port & args]
+  (apply proc/shell {:out :string :err :string :continue true
+                     :extra-env {"FRAM_LOG" @test-log "NORTH_PORT" (str port)}}
+         (str root "/bin/north") args))
+(defn evidence-cli
+  "The real agent-facing CLI with NO run reservation in its environment."
+  [port args]
+  (apply proc/shell {:out :string :err :string :continue true
+                     :extra-env {"FRAM_LOG" @test-log
+                                 "NORTH_PORT" (str port)
+                                 "AGENT_ID" "lane-unreserved-probe"
+                                 "AGENT_TOPOLOGY" "worker"}}
+         (str root "/bin/north") "evidence" args))
 (defn mcp-request [environment method params]
   (let [request
         (json/generate-string
@@ -143,9 +162,24 @@
           (swap! attempts inc)
           (throw (ex-info "simulated thread projection outage" {})))]
         (north.delivery-evidence-internal/best-effort-thread-projection!
-         7977 "@thread-probe" "tests pass" "exit 0"))]
+         7977 "@thread-probe" "tests pass" "exit 0" []))]
   (check "human thread evidence outage cannot reverse canonical run success"
          (and (nil? result) (= 1 @attempts))))
+
+;; The same rule covers the supersession half: a failed retract of the stale
+;; human line is a projection nuisance, never a reversal of a committed record.
+(let [retracts (atom 0)
+      result
+      (with-redefs
+       [north.coord/append! (fn [& _] {:ok 1})
+        north.coord/retract!
+        (fn [& _]
+          (swap! retracts inc)
+          (throw (ex-info "simulated projection retract outage" {})))]
+        (north.delivery-evidence-internal/best-effort-thread-projection!
+         7977 "@thread-probe" "tests pass" "corrected" ["typo"]))]
+  (check "a failed supersession projection retract cannot reverse run success"
+         (and (nil? result) (= 1 @retracts))))
 
 (let [error
       (try
@@ -524,15 +558,25 @@
                           (json/generate-string
                            (record-request run thread reporter capability
                                            "tests pass" "24/24, exit 0")))
-          record (json/parse-string (:out recorded))
+          first-record (json/parse-string (:out recorded))
           retried (shell "bb" evidence-writer (str port) "record"
                          (json/generate-string
                           (record-request run thread reporter capability
                                           "tests pass" "24/24, exit 0")))
-          conflicting (shell "bb" evidence-writer (str port) "record"
-                             (json/generate-string
-                              (record-request run thread reporter capability
-                                              "tests pass" "different result")))
+          ;; A typo used to burn the bar's only slot for the life of the run.
+          corrected (shell "bb" evidence-writer (str port) "record"
+                           (json/generate-string
+                            (record-request run thread reporter capability
+                                            "tests pass" "typo: 23/24")))
+          corrected-record (json/parse-string (:out corrected))
+          after-supersede (get (facts-of port run) "run_bar_evidence" #{})
+          thread-after-supersede (get (facts-of port thread) "bar_evidence" #{})
+          log-lines (str/split-lines (slurp @test-log))
+          restored (shell "bb" evidence-writer (str port) "record"
+                          (json/generate-string
+                           (record-request run thread reporter capability
+                                           "tests pass" "24/24, exit 0")))
+          record (json/parse-string (:out restored))
           snapshot (v2-snapshot run thread reporter record)]
       (when-not (zero? (:exit recorded)) (binding [*out* *err*] (println (:err recorded))))
       (check "same run/bar observation retry returns the one committed record"
@@ -540,8 +584,33 @@
                   (= (:out recorded) (:out retried))
                   (= 1 (count (get (facts-of port run)
                                    "run_bar_evidence" #{})))))
-      (check "one-record-per-run-bar rejects a conflicting observation"
-             (not (zero? (:exit conflicting))))
+      (check "a same-run re-record supersedes the prior observation in place"
+             (and (zero? (:exit corrected))
+                  (= 1 (count after-supersede))
+                  (= "typo: 23/24" (get corrected-record "observed"))
+                  (= #{(str/trim (:out corrected))}
+                     (set (map str/trim after-supersede)))))
+      (check "supersession keeps run/thread/reporter provenance intact"
+             (= (select-keys first-record ["bar" "reporter" "run" "thread" "version"])
+                (select-keys corrected-record
+                             ["bar" "reporter" "run" "thread" "version"])))
+      (check "the superseded observation stays in the append-only log"
+             (and (some #(and (str/includes? % ":op \"retract\"")
+                              (str/includes? % "run_bar_evidence")
+                              (str/includes? % "24/24, exit 0"))
+                        log-lines)
+                  (some #(and (str/includes? % ":op \"assert\"")
+                              (str/includes? % "run_bar_evidence")
+                              (str/includes? % "24/24, exit 0"))
+                        log-lines)))
+      (check "the human thread projection follows the correction"
+             (= #{"tests pass → typo: 23/24"} thread-after-supersede))
+      (check "the corrected observation can itself be corrected back"
+             (and (zero? (:exit restored))
+                  (= 1 (count (get (facts-of port run) "run_bar_evidence" #{})))
+                  (= "24/24, exit 0" (get record "observed"))
+                  (= #{"tests pass → 24/24, exit 0"}
+                     (get (facts-of port thread) "bar_evidence"))))
       (doseq [[label injected]
               [["uncited valid"
                 (json/generate-string
@@ -621,7 +690,7 @@
                                     "tests pass" "24/24, exit 0")))]
         (check "exact post-terminal replay heals only the human projection"
                (and (zero? (:exit replayed))
-                    (= (:out recorded) (:out replayed))
+                    (= (:out restored) (:out replayed))
                     (= 1 (count (get (facts-of port run)
                                      "run_bar_evidence" #{})))
                     (= #{"tests pass → 24/24, exit 0"}
@@ -776,12 +845,15 @@
             results [@left @right]
             successes (filterv #(zero? (:exit %)) results)
             stored (get (facts-of port race-run) "run_bar_evidence" #{})]
-        (check "concurrent differing observations admit exactly one winner"
+        ;; Supersession makes both differing observations legal writes, but the
+        ;; bar still holds exactly ONE live record and it must be one an actual
+        ;; writer acknowledged — never a torn or duplicated pair.
+        (check "concurrent differing observations converge on one live record"
                (and (zero? (:exit reserved))
-                    (= 1 (count successes))
+                    (= 2 (count successes))
                     (= 1 (count stored))
-                    (= (json/parse-string (:out (first successes)))
-                       (json/parse-string (first stored)))))))
+                    (contains? (set (map #(json/parse-string (:out %)) successes))
+                               (json/parse-string (first stored)))))))
     (let [worker-run "@run-worker-defined-contract"
           worker-thread "@thread-worker-defined-contract"
           worker-capability (apply str (repeat 64 "f"))
@@ -818,6 +890,211 @@
                     (= "ran"
                        (north.terminal-projection/committed-run-process-outcome
                         (facts-of port worker-run)))))))
+    ;; Supersession is scoped to ONE run: a second run on the same thread and
+    ;; bar writes its own record and can never rewrite or erase the first.
+    (let [thread-two "@thread-two-run-isolation"
+          run-a "@run-isolation-a"
+          run-b "@run-isolation-b"
+          bar "isolated probe"
+          capability-a (apply str (repeat 64 "1"))
+          capability-b (apply str (repeat 64 "2"))]
+      (north.coord/append! port thread-two "title" "Two-run isolation")
+      (north.coord/append! port thread-two "done_when" bar)
+      (let [reserved-a (shell "bb" evidence-writer (str port) "reserve"
+                              (json/generate-string
+                               (reserve-request run-a thread-two reporter
+                                                capability-a)))
+            reserved-b (shell "bb" evidence-writer (str port) "reserve"
+                              (json/generate-string
+                               (reserve-request run-b thread-two reporter
+                                                capability-b)))
+            recorded-a (shell "bb" evidence-writer (str port) "record"
+                              (json/generate-string
+                               (record-request run-a thread-two reporter
+                                               capability-a bar "run A result")))
+            recorded-b (shell "bb" evidence-writer (str port) "record"
+                              (json/generate-string
+                               (record-request run-b thread-two reporter
+                                               capability-b bar "run B result")))
+            cross (shell "bb" evidence-writer (str port) "record"
+                         (json/generate-string
+                          (record-request run-a thread-two reporter
+                                          capability-b bar "forged correction")))
+            stored-a (get (facts-of port run-a) "run_bar_evidence" #{})
+            stored-b (get (facts-of port run-b) "run_bar_evidence" #{})]
+        (check "another run cannot supersede this run's observation"
+               (and (zero? (:exit reserved-a)) (zero? (:exit reserved-b))
+                    (zero? (:exit recorded-a)) (zero? (:exit recorded-b))
+                    (= 1 (count stored-a)) (= 1 (count stored-b))
+                    (= "run A result"
+                       (get (json/parse-string (first stored-a)) "observed"))
+                    (= "run B result"
+                       (get (json/parse-string (first stored-b)) "observed"))))
+        (check "a wrong capability cannot supersede an existing observation"
+               (and (not (zero? (:exit cross)))
+                    (= "run A result"
+                       (get (json/parse-string
+                             (first (get (facts-of port run-a)
+                                         "run_bar_evidence" #{})))
+                            "observed"))))))
+    ;; MULTI-BAR RECOVERY: the bound stays, but the error names the bars and one
+    ;; documented verb gets the same thread to a clean reserve.
+    (let [crowded-thread "@thread-crowded-contract"
+          crowded-run "@run-crowded-contract"
+          crowded-capability (apply str (repeat 64 "3"))]
+      (north.coord/append! port crowded-thread "title" "Crowded contract")
+      (doseq [index (range (inc north.terminal-projection/max-delivery-bars))]
+        (north.coord/append! port crowded-thread "done_when"
+                             (format "crowded probe %02d" index)))
+      ;; Half the bars were answered on earlier runs; those are the stale ones.
+      (doseq [index (range 20)]
+        (north.coord/append! port crowded-thread "bar_evidence"
+                             (format "crowded probe %02d → exit 0" index)))
+      (let [rejected (shell "bb" evidence-writer (str port) "reserve"
+                            (json/generate-string
+                             (reserve-request crowded-run crowded-thread reporter
+                                              crowded-capability)))
+            listed (bars-cli port "list" (subs crowded-thread 1))
+            dry (bars-cli port "prune" (subs crowded-thread 1) "--dry-run")
+            bars-after-dry (count (get (facts-of port crowded-thread)
+                                       "done_when" #{}))
+            bars-before bars-after-dry
+            pruned (bars-cli port "prune" (subs crowded-thread 1))
+            bars-after (count (get (facts-of port crowded-thread) "done_when" #{}))
+            reserved (shell "bb" evidence-writer (str port) "reserve"
+                            (json/generate-string
+                             (reserve-request crowded-run crowded-thread reporter
+                                              crowded-capability)))]
+        (check "the reserve error names the active bars verbatim"
+               (and (not (zero? (:exit rejected)))
+                    (str/includes? (:err rejected) "crowded probe 00")
+                    (str/includes? (:err rejected) "crowded probe 32")
+                    (str/includes? (:err rejected) "north bars prune")))
+        (check "bars list shows the evidenced/open split and the blocked reserve"
+               (and (zero? (:exit listed))
+                    (str/includes? (:out listed) "✓")
+                    (str/includes? (:out listed) "○")
+                    (str/includes? (:out listed) "reserve BLOCKED")))
+        (check "bars prune --dry-run retires nothing"
+               (and (zero? (:exit dry))
+                    (str/includes? (:out dry) "would retire")
+                    (= 33 bars-after-dry)))
+        (check "one prune step returns a crowded thread to a clean reserve"
+               (and (zero? (:exit pruned))
+                    (= 33 bars-before)
+                    (= 13 bars-after)
+                    (zero? (:exit reserved))
+                    (north.terminal-projection/run-reservation-valid?
+                     (facts-of port crowded-run))))
+        (check "an Nth done_when tell warns that the reserve limit is exceeded"
+               (let [warned (bars-cli port "check" (subs crowded-thread 1)
+                                      "one more probe")]
+                 (and (zero? (:exit warned))
+                      (not (str/includes? (:err warned) "WARNING")))))
+        (check "north bars is wired as a first-class CLI verb"
+               (let [via-cli (north-cli port "bars" "list" (subs crowded-thread 1))]
+                 (and (zero? (:exit via-cli))
+                      (str/includes? (:out via-cli) "DONE BARS on"))))
+        (check "the warning fires exactly when the next bar breaks the limit"
+               (do
+                 (doseq [index (range 13 33)]
+                   (north.coord/append! port crowded-thread "done_when"
+                                        (format "refilled probe %02d" index)))
+                 (let [warned (bars-cli port "check" (subs crowded-thread 1)
+                                        "one bar too many")
+                       oversized (bars-cli port "check" (subs crowded-thread 1)
+                                           (apply str (repeat 600 "x")))]
+                   (and (zero? (:exit warned))
+                        (str/includes? (:err warned) "reserve limit is 32")
+                        (str/includes? (:err warned) "north bars prune")
+                        (str/includes? (:err oversized) "per-bar reserve limit"))))))
+        ;; Only the ADVISORY hook is under test here: the sandboxed fram write
+        ;; behind it is fenced to a different log and is expected to be refused.
+        (check "an Nth done_when tell warns before the write lands"
+               (let [told (north-cli port "tell" (subs crowded-thread 1)
+                                     "done_when" "one bar too many")]
+                 (str/includes? (:err told) "reserve limit is 32"))))
+    ;; UNRESERVED FALLBACK: a lane with no reservation records at a visibly
+    ;; lower tier instead of losing the observation.
+    (let [unreserved-thread "@thread-unreserved-fallback"
+          long-bar (str "Probe: run the suite. Expected: exit 0. "
+                        (apply str (repeat 600 "d")))]
+      (north.coord/append! port unreserved-thread "title" "Unreserved fallback")
+      (north.coord/append! port unreserved-thread "done_when" long-bar)
+      (let [recorded (evidence-cli port ["record" "--thread"
+                                         (subs unreserved-thread 1)
+                                         long-bar "24/24, exit 0"])
+            acknowledgement (json/parse-string (:out recorded))
+            facts (facts-of port unreserved-thread)
+            corrected (evidence-cli port ["record" "--thread"
+                                          (subs unreserved-thread 1)
+                                          long-bar "corrected: 24/24, exit 0"])
+            after (facts-of port unreserved-thread)
+            unknown-bar (evidence-cli port ["record" "--thread"
+                                            (subs unreserved-thread 1)
+                                            "never a bar on this thread" "exit 0"])
+            no-thread (evidence-cli port ["record" long-bar "exit 0"])]
+        (check "an unreserved lane records instead of erroring"
+               (and (zero? (:exit recorded))
+                    (= "unreserved" (get acknowledgement "scope"))
+                    (= unreserved-thread (get acknowledgement "thread"))
+                    (= 1 (count (get facts "bar_evidence_unreserved" #{})))))
+        (check "unreserved evidence is bar-length tolerant beyond the reserve limit"
+               (and (> (north.terminal-projection/utf8-byte-count long-bar)
+                       north.terminal-projection/max-delivery-bar-utf8-bytes)
+                    (<= (north.terminal-projection/utf8-byte-count long-bar)
+                        north.terminal-projection/max-unreserved-bar-utf8-bytes)))
+        (check "unreserved evidence never masquerades as run-bound verification"
+               (and (empty? (get facts "bar_evidence" #{}))
+                    (empty? (get facts "run_bar_evidence" #{}))
+                    (every? #(str/starts-with?
+                              %
+                              north.terminal-projection/unreserved-bar-evidence-marker)
+                            (get facts "bar_evidence_unreserved" #{}))
+                    (not (north.terminal-projection/evidence-reports-bar?
+                          long-bar
+                          (first (get facts "bar_evidence_unreserved" #{}))))
+                    (str/includes? (:err recorded) "UNRESERVED")))
+        (check "an unreserved re-record supersedes its own stale line"
+               (and (zero? (:exit corrected))
+                    (= 1 (count (get after "bar_evidence_unreserved" #{})))
+                    (str/includes? (first (get after "bar_evidence_unreserved" #{}))
+                                   "corrected: 24/24, exit 0")))
+        (check "unreserved evidence still requires an active done_when"
+               (and (not (zero? (:exit unknown-bar)))
+                    (str/includes? (:err unknown-bar) "active bars")))
+        (check "no reservation and no thread names the exact recovery command"
+               (and (not (zero? (:exit no-thread)))
+                    (str/includes? (:err no-thread) "--thread")))))
+    ;; BRACES: JSON-shaped observations are ordinary content inside the byte and
+    ;; control-character rules, on every writer surface.
+    (let [brace-thread "@thread-brace-content"
+          brace-run "@run-brace-content"
+          brace-capability (apply str (repeat 64 "4"))
+          brace-bar "Probe: bun test. Expected: {\"pass\": true}"
+          brace-observed "{\"exit\":0,\"failures\":[]} · {nested {braces}}"]
+      (north.coord/append! port brace-thread "title" "Brace content")
+      (north.coord/append! port brace-thread "done_when" brace-bar)
+      (let [reserved (shell "bb" evidence-writer (str port) "reserve"
+                            (json/generate-string
+                             (reserve-request brace-run brace-thread reporter
+                                              brace-capability)))
+            recorded (shell "bb" evidence-writer (str port) "record"
+                            (json/generate-string
+                             (record-request brace-run brace-thread reporter
+                                             brace-capability brace-bar
+                                             brace-observed)))
+            record (json/parse-string (:out recorded))]
+        (check "braces are legal content in bars and observations"
+               (and (zero? (:exit reserved)) (zero? (:exit recorded))
+                    (= brace-bar (get record "bar"))
+                    (= brace-observed (get record "observed"))
+                    (= #{(str brace-bar " → " brace-observed)}
+                       (get (facts-of port brace-thread) "bar_evidence"))))
+        (check "brace text survives canonicalization unchanged"
+               (= brace-observed
+                  (north.terminal-projection/canonical-evidence-text
+                   brace-observed)))))
     ;; Two competing publishers cannot create a valid mixed reservation. Depending
     ;; on scheduling, one wins cleanly or both observe the conflict and fail.
     (let [race-run "@run-reservation-race"

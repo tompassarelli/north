@@ -364,6 +364,40 @@ Managed lanes preserve a stronger run-scoped delivery projection:
    append share one version-bound commit seam; once `kind=run` publishes, the
    supported writer can no longer add new evidence. An exact replay remains
    idempotently available to heal the non-authoritative thread projection.
+
+   Re-recording the SAME bar on the SAME run with a different observation
+   supersedes the earlier one in place: the run keeps exactly one live record
+   per bar, every reservation check is re-run against the correction, and the
+   superseded text stays in the append-only log. A typo therefore costs a
+   re-record, not the bar. Another run can never rewrite this run's evidence,
+   and supersession is closed once `kind=run` publishes.
+
+   With NO reservation in the environment (`NORTH_RUN_ID` unset), the same
+   command falls back to explicitly unreserved thread evidence rather than
+   erroring the observation away:
+
+   ```sh
+   north evidence record --thread <id> "<exact done_when>" "<observed result>"
+   ```
+
+   That lands one `bar_evidence_unreserved` fact marked `unreserved · …`. It has
+   exactly the authority of an ordinary `north tell` — no run binding, no
+   capability, no reporter — it never satisfies a bar in the ✓/○ projection, and
+   nothing promotes it into run-bound verification.
+
+   Threads accumulate bars across runs, and a reservation manifest bounds the
+   set (32 bars, 512 UTF-8 bytes each). A `done_when` tell that would breach
+   either bound warns at write time, the reserve error names the active bars
+   verbatim, and one grooming step retires the answered ones:
+
+   ```sh
+   north bars list <thread>            # ✓ evidenced · ~ unreserved · ○ open
+   north bars prune <thread>           # retire every bar that carries evidence
+   north bars prune <thread> --bar "<exact bar>"   # retire named bars
+   ```
+
+   Pruning is grooming, never judgment: it retires bars that already carry
+   canonical `bar_evidence`, or exactly the bars a coordinator names.
 4. When every immutable bar has exact evidence from that run/reporter, North
    commits a v2 snapshot on the lane and run:
    `delivery=reported`. The snapshot contains only mechanically bound proof:
