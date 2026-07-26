@@ -144,6 +144,9 @@ north — your one card. Type a command to do the thing next to it.
     north routing report economics    bounded routing-cost signals + alert-only policy findings
     north routing report promotions   bespoke patterns for stock-template review
     north routing report calibration  run-local judgment/struggle detector cohorts
+    north canary run --target ID|--matrix
+                                       production-path managed-lane reliability canary
+    north canary report --window N     rolling provider-vs-North canary failure rate
     north ccr prepare|retrieve         default-off structured-output CCR canary
     north schema                       the fact vocabulary in use
     north predicate ls|show|define     inspect or extend executable predicate entities
@@ -313,6 +316,11 @@ CARD
     # lane terminal, with current thread facts retained only as review context.
     # It never claims causal model quality or auto-promotes bespoke recurrence.
     exec "$BB" "$NORTH/cli/routing-report.clj" "${@:2}" ;;
+  canary)
+    # Recurring reliability probe. `run` composes the existing capture + delegate
+    # production path; `report` reads the same terminal telemetry and failure
+    # attribution as routing performance.
+    exec "$BB" "$NORTH/cli/canary-cli.clj" "${@:2}" ;;
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a north.main verb, so it execs directly.

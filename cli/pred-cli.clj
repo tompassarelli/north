@@ -324,6 +324,7 @@
    ["run_event_terminal_sequence" "single" "literal" "terminal_cleanup sequence that finalized the run ledger"]
    ["run_event_ledger_sha256" "single" "literal" "SHA-256 committing the ordered event digest sequence"]
    ["run_observation_coverage" "multi" "literal" "canonical JSON source coverage statement for the finalized run ledger"]
+   ["canary_outcome" "multi" "literal" "recurring production-path canary verdict recorded against one terminal run (full-green|failure)"]
    ["run" "single" "ref" "exact run header referenced by an append-only run event"]
    ["run_event_sequence" "single" "literal" "zero-based append-only event sequence within one run"]
    ["run_event_type" "single" "literal" "typed AgentRun observation class from the versioned ledger contract"]
