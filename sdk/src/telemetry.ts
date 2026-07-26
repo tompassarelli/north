@@ -52,6 +52,31 @@ const STRUGGLE_TRIGGER_VALUES: ReadonlySet<string> = new Set([
 const LEDGER_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,127}$/;
 const LEDGER_ENTITY = /^@?[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
 const LEDGER_COVERAGE: ReadonlySet<string> = new Set(["exact", "partial", "unknown"]);
+const RECURRING_CANARY_PIN_DETAIL_PREFIX = "recurring-cross-provider-canary:@";
+
+// A recurring canary is a reliability sample, not a forensic replay. Keep the
+// identity, terminal result, and pin that makes it queryable, while avoiding
+// the full admission/prompt/authority duplicate on every scheduled sample.
+// The complete run projection is still used for every ordinary managed run.
+const CANARY_FACT_PREDICATES: ReadonlySet<string> = new Set([
+  "kind", "thread", "agent", "agent_run_ledger_version", "run_event_status",
+  "duration_ms", "posture", "outcome", "at", "process_outcome",
+  "provider", "provider_target", "delivery_outcome", "delivery_reason",
+  "delivery_evidence", "delivery_evidence_sha256",
+  "routing_pin_reason_code", "routing_pin_detail",
+]);
+
+function isRecurringCanary(rec: RunRecord): boolean {
+  const pin = rec.routingPinEvidence;
+  return pin?.reasonCode === "calibration-experiment"
+    && pin.detail.startsWith(RECURRING_CANARY_PIN_DETAIL_PREFIX);
+}
+
+function retainedTelemetryFacts(rec: RunRecord, facts: Array<[string, string]>): Array<[string, string]> {
+  return isRecurringCanary(rec)
+    ? facts.filter(([predicate]) => CANARY_FACT_PREDICATES.has(predicate))
+    : facts;
+}
 
 export interface RunRecord {
   thread: string; // the thread driven, or "(ad-hoc)" for a bare spawn
@@ -747,7 +772,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["escalation_path", rec.escalations.map((e) => `${e.from}>${e.to}`).join(" ")]);
     facts.push(["escalation_reasons", rec.escalations.map((e) => e.reason).join(",")]);
   }
-  return facts;
+  return retainedTelemetryFacts(rec, facts);
 }
 
 // Terminal telemetry budget. The writer issues ONE coordinator round-trip per
