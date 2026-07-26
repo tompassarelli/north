@@ -36,6 +36,38 @@ for (const key of Object.keys(process.env)) {
 // fixture's), green under a clean shell. Delete it up front for the same reason
 // as the AGENT_*/NORTH_ROUTING_* scrub above.
 for (const key of ["NORTH_PEER_BB", "NORTH_BB", "NORTH_MCP_BB"]) delete process.env[key];
+
+// Third instance of the same leak, and the expensive one: a managed lane exports its
+// OWN run reservation (NORTH_RUN_ID/NORTH_THREAD_ID/NORTH_RUN_CAPABILITY). Every test
+// that shells out to `bb cli/agents-cli.clj spawn` or `bin/north-mcp` inherits it, and
+// agents-cli.clj's managed-thread-binding only short-circuits when that triple is
+// ABSENT — with it present each invocation runs a real `north json show <run>` against
+// the coordinator (falling back to a whole-log read when NORTH_PORT is the dead
+// sentinel above). Measured 2026-07-26 on this box: ~2.7s per CLI invocation, so the
+// two tests that assert the recursive-orchestrator refusal across four/six shapes cost
+// 11.0s and 11.9s and blew Bun's 5s default; with the triple unset the same files run
+// 21/21 and 14/14 green in 10.4s and 6.4s total. The tests are not slow — they were
+// adopting the lane's identity and paying for a coordinator round trip per shape.
+// Several call sites already neutralize this by hand (agents-cli-routing.test.ts sets
+// NORTH_RUN_ID/THREAD_ID/RUN_CAPABILITY to "" in five spawn envs); scrub it once here
+// instead. Tests that need a reservation set their own values and restore them.
+for (const key of ["NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY"])
+  delete process.env[key];
+
+// Same leak, Fram side, and this one is a WRITE hazard rather than just a slow read.
+// A managed lane exports FRAM_TELEMETRY_LOG=~/.local/state/north/telemetry.log. The
+// log-split router reads it from the environment only — it is not derivable from the
+// coordinator's argv — so run-ledger.test.ts's "isolated" coordinator (spawned as
+// `bb -cp out coord_daemon.clj serve-flat <port> <scratch log>`) inherits it, is forced
+// onto the whole-log MERGE boot of both logs, and folds the operator's real telemetry
+// corpus. Observed 2026-07-26: `[fram] boot(flat): whole-log fold — disabled
+// (FRAM_SNAPSHOT_BOOT unset) in 15023 ms · 180449 live facts` from a log the test had
+// just created empty — 15s of boot behind a 5s test and a 5s waitForPort budget, and
+// the test's own telemetry writes routed at the production log. Unset, the same file
+// runs 10/10 green in 760ms. Delete it; a hermetic suite has no business resolving the
+// operator's telemetry log. FRAM_LOG is deliberately left alone: the coordinator takes
+// its canonical log as argv, and the tests that need one set FRAM_LOG explicitly.
+delete process.env.FRAM_TELEMETRY_LOG;
 //
 // When the suite runs inside a live managed north lane, the ambient
 // NORTH_PORT points at the REAL coordinator on the session's port. Admission
