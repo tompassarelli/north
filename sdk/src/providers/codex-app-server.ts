@@ -32,7 +32,12 @@ import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join
 const SUPERVISOR = resolve(import.meta.dir, "codex-supervisor.ts");
 const ENGINE = resolve(import.meta.dir, "../../../bin/north");
 const RPC_TIMEOUT_MS = 20_000;
-const MAX_LINE_BYTES = 1024 * 1024;
+// codex-rs/app-server-transport/src/transport/stdio.rs feeds stdin through
+// BufReader::lines and writes every serialized JSON-RPC message plus '\n' to
+// stdout; it does not impose a 1 MiB frame ceiling. Keep each app-server frame
+// finite, but allow legitimate large tool/result messages within our existing
+// 32 MiB cumulative transport budget.
+const MAX_LINE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 const MAX_FRAMES = 20_000;
 const MAX_INVENTORY_PAGES = 32;

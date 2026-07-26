@@ -481,7 +481,10 @@ function setup(mode = "ok") {
       });
       notify("turn/diff/updated", { threadId, turnId, diff: "diff --git a/a b/a" });
       const answer = item("answer-1", "agentMessage", { text: "managed answer" });
-      notify("item/agentMessage/delta", { threadId, turnId, itemId: answer.id, delta: "managed answer" });
+      notify("item/agentMessage/delta", {
+        threadId, turnId, itemId: answer.id,
+        delta: mode === "large-agent-message-delta" ? "x".repeat(1024 * 1024 + 1) : "managed answer",
+      });
       lifecycle("completed", answer, 18);
       emitHook("postToolUse", mode === "hook-posttool-stopped" ? "stopped"
         : mode === "hook-posttool-failed" ? "failed" : "completed", "hook-post");
@@ -652,6 +655,10 @@ function setup(mode = "ok") {
         turnId = turnIds[Math.min(turnStarts, turnIds.length - 1)]!;
         turnStarts += 1;
         result(request, { turn: turn(turnId, "inProgress") });
+        if (mode === "malformed-jsonl") {
+          stdout.write("not JSON\n");
+          return;
+        }
         queueMicrotask(emitRuntime);
         return;
       }
@@ -775,6 +782,21 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(NORTH_BINARY_PROBE_SCRIPT);
   expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(options.env.NORTH_BIN);
   expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
+});
+
+test("an app-server JSONL response over 1 MiB survives while malformed JSONL stays fatal", async () => {
+  const large = setup("large-agent-message-delta");
+  await expect(new ManagedCodexAppServerRun(large.options).execute())
+    .resolves.toMatchObject({ text: "managed answer" });
+
+  const malformed = setup("malformed-jsonl");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(malformed.options).execute(); }
+  catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).toBe("openai_provider_execution_failed");
+  expect(causeChain(caught)).toContain("managed Codex emitted malformed JSONL");
+  expect(causeChain(caught)).toContain("managed Codex JSONL is invalid JSON");
 });
 
 test("native command evidence fails closed for absent, failed, and mismatched probes", async () => {
