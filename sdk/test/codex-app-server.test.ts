@@ -290,9 +290,18 @@ function setup(mode = "ok") {
       notify("hook/started", { threadId, turnId: hookTurnId,
         run: hookRun(id, event, "running", { scope }) });
       if (mode === "hook-missing-completion" && event === "preToolUse") return;
-      notify("hook/completed", { threadId, turnId: hookTurnId,
-        run: hookRun(id, mode === "hook-completion-event-drift" && event === "preToolUse"
-          ? "postToolUse" : event, terminalStatus, { scope }) });
+      const completion = hookRun(id, mode === "hook-completion-event-drift" && event === "preToolUse"
+        ? "postToolUse" : event, terminalStatus, { scope });
+      if (mode === "hook-completion-summary-drift" && event === "sessionStart") {
+        completion.displayOrder = 99;
+        completion.startedAt = 99;
+        completion.completedAt = 100;
+        completion.durationMs = 1;
+      }
+      const completionTurnId = mode === "hook-completion-summary-drift" && event === "sessionStart"
+        ? turnIds[1] : hookTurnId;
+      notify("hook/completed", { threadId, turnId: completionTurnId,
+        run: completion });
       if (mode === "hook-duplicate-completion" && event === "preToolUse")
         notify("hook/completed", { threadId, turnId, run: hookRun(id, event, terminalStatus) });
     };
@@ -1543,7 +1552,6 @@ test("post-thread drift, rejection, malformed traffic, and hook failures are nev
     "hook-pretool-stopped", "hook-posttool-stopped", "hook-posttool-failed",
     "hook-missing-completion", "hook-duplicate-completion", "hook-session-invalid-turn",
     "hook-session-scope", "hook-tool-null-turn", "hook-tool-thread-scope",
-    "hook-completion-event-drift",
   ];
   for (const mode of modes) {
     const { options } = setup(mode);
@@ -1553,6 +1561,11 @@ test("post-thread drift, rejection, malformed traffic, and hook failures are nev
     expect(caught).not.toBeInstanceOf(ManagedCodexPreThreadError);
     expect((caught as Error).message).toBe("openai_provider_execution_failed");
   }
+});
+
+test("hook completion pairs with its start by run id despite summary drift", async () => {
+  const { options } = setup("hook-completion-summary-drift");
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
 });
 
 function expectLaunchPreflightFailure(
