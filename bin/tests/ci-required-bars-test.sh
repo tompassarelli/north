@@ -23,6 +23,7 @@ clojure_bars=(
   cli/tests/pending-pagination-integration-test.clj
   cli/tests/pred-cli-test.clj
   cli/tests/routing-report-test.clj
+  cli/tests/canary-cli-test.clj
   cli/tests/spawn-process-integration-test.clj
   cli/tests/peer-command-integration-test.clj
   cli/tests/worktree-allocation-integration-test.clj

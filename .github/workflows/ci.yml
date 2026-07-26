@@ -167,6 +167,7 @@ jobs:
           timeout --foreground 120s bb cli/tests/map-contract-test.clj
           timeout --foreground 120s bb cli/tests/pred-cli-test.clj
           timeout --foreground 120s bb cli/tests/routing-report-test.clj
+          timeout --foreground 120s bb cli/tests/canary-cli-test.clj
 
       - name: Durable coordination delivery boundaries
         working-directory: north

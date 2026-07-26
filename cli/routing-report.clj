@@ -18,7 +18,7 @@
                    "applied_capability" "applied_domain_requirement"
                    "composition_override" "applied_preset_override" "struggle"
                    "routing_rule_code" "routing_pin" "routing_receipt_override"
-                   "mcp_actual_tool" "provider_turn_key"})
+                   "mcp_actual_tool" "provider_turn_key" "canary_outcome"})
 
 (def canonical-orchestration-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
@@ -645,6 +645,17 @@
        (normalized-token (one facts entity "routing_exception_code"))
        :routingPinEvidenceStatus
        (normalized-token (one facts entity "routing_pin_evidence_status"))
+       :routingPinReasonCode
+       (normalized-token (one facts entity "routing_pin_reason_code"))
+       :routingPinDetail
+       (normalized-token (one facts entity "routing_pin_detail"))
+       :canaryOutcomes
+       (vec (keep normalized-token (many facts entity "canary_outcome")))
+       :canaryOutcome
+       (let [values (vec (keep normalized-token
+                               (many facts entity "canary_outcome")))]
+         (when (= 1 (count values)) (first values)))
+       :agent agent
        :routingAdmissionReceiptVersion
        (maybe-long (one facts entity "routing_admission_receipt_version"))
        :routingReceipt
