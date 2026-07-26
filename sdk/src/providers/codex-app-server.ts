@@ -13,9 +13,13 @@ import {
   type NativeCommandActivityObservation, type NativeCommandStatus,
 } from "../native-command-activity";
 import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
-import { trustedGitProjectRoot, trustedManagedCodexExecutable } from "../trusted-runtime";
+import {
+  trustedGitMetadataRoots, trustedGitProjectRoot, trustedManagedCodexExecutable,
+} from "../trusted-runtime";
 import type { TerminalTokenUsage } from "../usage";
-import { McpActivityAccumulator, normalizeCodexMcpIdentity } from "../tool-activity";
+import {
+  McpActivityAccumulator, normalizeCodexMcpIdentity, type McpActivityObservation,
+} from "../tool-activity";
 import {
   FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_SERVER, FRAM_MCP_TOOL_NAMES,
   hasCanonicalFramMcpServer,
@@ -35,6 +39,8 @@ const MAX_INVENTORY_PAGES = 32;
 const MAX_MCP_SERVERS = 64;
 const MAX_ID_BYTES = 512;
 const MAX_QUEUED_NOTIFICATIONS = 256;
+const MAX_UNSUPPORTED_NOTIFICATION_METHODS = 16;
+const MAX_UNSUPPORTED_NOTIFICATIONS_PER_METHOD = 512;
 const MAX_DISABLED_PROJECT_CONFIG_BYTES = 64 * 1024;
 const MAX_DISABLED_PROJECT_CONFIG_DEPTH = 16;
 const MAX_DISABLED_PROJECT_CONFIG_NODES = 2_048;
@@ -177,6 +183,41 @@ export class ManagedCodexPreThreadError extends Error {
   }
 }
 
+/**
+ * What a failed managed session actually produced before it failed. A lane that
+ * had already written +83/-3 of real code was recorded `result=0b,
+ * delivery=blocked` because the adapter threw a bare error and every trace of
+ * the turn — its text, its usage, its tool calls — died with the exception
+ * (lane-ms0qeuwx, 2026-07-26). The failure is still a failure; it is no longer
+ * an amnesia.
+ */
+export interface ManagedCodexHarvest {
+  threadId?: string;
+  turnIds: string[];
+  /** Turns that yielded a complete result before the failure. */
+  completedTurns: number;
+  /** Assistant text accumulated by the failing turn, if any. */
+  text: string;
+  usage?: ManagedCodexResult["usage"];
+  mcp: McpActivityObservation;
+  nativeCommands: NativeCommandActivityObservation;
+  unsupportedNotifications: Record<string, number>;
+  /** True when tool work or model text landed before the failure. */
+  landedWork: boolean;
+}
+
+/**
+ * Post-thread-start failure carrying its harvest. The message is unchanged
+ * (`openai_provider_execution_failed`) so every existing classification,
+ * retry gate, and log matcher keeps its exact behavior.
+ */
+export class ManagedCodexHarvestError extends Error {
+  constructor(readonly harvest: ManagedCodexHarvest, options?: ErrorOptions) {
+    super("openai_provider_execution_failed", options);
+    this.name = "ManagedCodexHarvestError";
+  }
+}
+
 function record(value: unknown, label: string): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${label} must be an object`);
@@ -257,6 +298,28 @@ interface LaunchContract {
   sqliteHome: string;
   cwd: string;
   projectRoot: string;
+  /** Git metadata roots the workspace-write sandbox may write; [] when read-only. */
+  writableRoots: string[];
+}
+
+/**
+ * Managed write lanes must be able to COMMIT the work they produce — the lane
+ * landing protocol is "commit on your lane branch, the coordinator ff-merges".
+ * Codex's workspace-write sandbox makes the workspace writable but keeps the
+ * Git metadata directory read-only, so `writableRoots: []` made every managed
+ * Codex lane structurally unable to land anything (observed: `.git/index.lock:
+ * Read-only file system`).
+ *
+ * The grant is exactly the checkout's own Git metadata: its `--git-dir` and the
+ * `--git-common-dir` it shares with a main checkout, nothing else. Network stays
+ * unshared, so a lane can commit but can never push — pushing remains the
+ * coordinator's move. The North state root is deliberately NOT writable: graph
+ * writes go through the North MCP server, which runs outside the sandbox
+ * (observed working from inside a managed thread, 2026-07-26).
+ */
+function sandboxWritableRoots(surface: OpenAIAuthoritySurface, cwd: string): string[] {
+  if (surface.sandbox !== "workspace-write") return [];
+  return trustedGitMetadataRoots(cwd);
 }
 
 export function managedCodexAppServerLaunch(
@@ -341,11 +404,16 @@ export function managedCodexAppServerLaunch(
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false] as const),
   ]);
+  const writableRoots = stage("openai_codex_git_metadata_unresolvable",
+    () => sandboxWritableRoots(options.surface, cwd));
   const expectedSessionConfig: JsonObject = {
     cli_auth_credentials_store: "file",
     forced_login_method: "chatgpt",
     model_provider: "openai",
     sqlite_home: sqliteHome,
+    ...(writableRoots.length
+      ? { sandbox_workspace_write: { writable_roots: writableRoots } }
+      : {}),
     project_root_markers: [".git"],
     projects: { [projectRoot]: { trust_level: "untrusted" } },
     project_doc_max_bytes: 0,
@@ -369,6 +437,9 @@ export function managedCodexAppServerLaunch(
   const args = [
     ...codexConfigArguments(options.env),
     "-c", 'project_root_markers=[".git"]',
+    ...(writableRoots.length
+      ? ["-c", `sandbox_workspace_write.writable_roots=${JSON.stringify(writableRoots)}`]
+      : []),
     "-c", `projects=${tomlProjectMap(projectRoot)}`,
     "-c", "project_doc_max_bytes=0",
     "-c", "allow_login_shell=false",
@@ -393,7 +464,10 @@ export function managedCodexAppServerLaunch(
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
     "app-server", "--stdio", "--strict-config",
   ];
-  return { args, expectedSessionConfig, executable, codexHome, sqliteHome, cwd, projectRoot };
+  return {
+    args, expectedSessionConfig, executable, codexHome, sqliteHome, cwd, projectRoot,
+    writableRoots,
+  };
 }
 
 interface Pending {
@@ -508,6 +582,7 @@ class AppServerRpc {
   private terminal?: Error;
   private closed = false;
   private terminalListeners = new Set<(error: Error) => void>();
+  private unsupported = new Map<string, number>();
 
   constructor(
     private child: ChildProcessWithoutNullStreams,
@@ -598,7 +673,25 @@ class AppServerRpc {
       try { onlyKeys(message, ["method", "params"], "managed Codex notification"); }
       catch (error) { this.fail(error as Error); return; }
       if (!SAFE_NOTIFICATIONS.has(message.method)) {
-        this.fail(new Error(`managed Codex emitted unsupported notification ${message.method}`));
+        // NARROWED TERMINAL (2026-07-26): an unrecognized NOTIFICATION carries no
+        // authority, cannot be answered, and does not change what the thread may
+        // do — a new Codex build adding one telemetry notification used to kill a
+        // lane mid-turn and orphan the code it had already written. Drop it,
+        // count it, and surface the counts as evidence. Anything that DOES carry
+        // authority (config/hook/MCP drift, account, sandbox, responses, server
+        // requests) stays fatal below. A flood or a wide spray of unknown methods
+        // is protocol desync, not a new notification, and is still fatal.
+        const seen = (this.unsupported.get(message.method) ?? 0) + 1;
+        this.unsupported.set(message.method, seen);
+        if (this.unsupported.size > MAX_UNSUPPORTED_NOTIFICATION_METHODS
+            || seen > MAX_UNSUPPORTED_NOTIFICATIONS_PER_METHOD) {
+          this.fail(new Error(
+            `managed Codex flooded unsupported notification ${message.method}`,
+          ));
+          return;
+        }
+        if (seen === 1)
+          console.error(`[codex] ignoring unsupported managed notification ${message.method}`);
         return;
       }
       try { this.onNotification(message.method, message.params); }
@@ -662,6 +755,13 @@ class AppServerRpc {
 
   assertHealthy(): void {
     if (this.terminal) throw this.terminal;
+  }
+
+  /** Unrecognized notification methods observed, per method. Evidence, not authority. */
+  unsupportedNotifications(): Record<string, number> {
+    return Object.fromEntries([...this.unsupported.entries()].sort(
+      ([left], [right]) => left.localeCompare(right),
+    ));
   }
 
   markClosing(): void { this.closed = true; }
@@ -922,12 +1022,17 @@ function validateInitialize(response: unknown, contract: LaunchContract): void {
     throw new Error("Codex initialize did not attest the pinned provider runtime");
 }
 
-function expectedSandbox(surface: OpenAIAuthoritySurface): JsonObject {
+function expectedSandbox(
+  surface: OpenAIAuthoritySurface,
+  contract: LaunchContract,
+): JsonObject {
   return surface.sandbox === "read-only"
     ? { type: "readOnly", networkAccess: false }
     : {
       type: "workspaceWrite",
-      writableRoots: [],
+      // Exactly the Git metadata roots the contract granted — never a wider set,
+      // and never network. A drift in either direction fails the thread closed.
+      writableRoots: contract.writableRoots,
       networkAccess: false,
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false,
@@ -966,7 +1071,7 @@ function validateStartedThread(
   exact(started.runtimeWorkspaceRoots, [contract.cwd], "Codex thread runtime workspace roots");
   exact(started.instructionSources, [resolve(contract.codexHome, "AGENTS.md")],
     "Codex thread instruction sources");
-  exact(started.sandbox, expectedSandbox(options.surface), "Codex thread sandbox");
+  exact(started.sandbox, expectedSandbox(options.surface, contract), "Codex thread sandbox");
   return threadId;
 }
 
@@ -1553,6 +1658,24 @@ export class ManagedCodexAppServerRun {
       ?? unknownNativeCommandActivity("codex-app-server:not-started");
   }
 
+  /** Complete the harvest with the tool-activity this run actually observed. */
+  private harvest(
+    partial: Omit<ManagedCodexHarvest, "mcp" | "nativeCommands" | "landedWork">,
+  ): ManagedCodexHarvest {
+    const mcp = this.mcp.harvest();
+    const nativeCommands = this.nativeCommands?.harvest()
+      ?? unknownNativeCommandActivity("codex-app-server:not-started");
+    return {
+      ...partial,
+      mcp,
+      nativeCommands,
+      landedWork: partial.completedTurns > 0
+        || partial.text.trim() !== ""
+        || (mcp.totalCalls ?? 0) > 0
+        || (nativeCommands.totalCommands ?? 0) > 0,
+    };
+  }
+
   async interrupt(): Promise<void> {
     if (this.child) await closeProcess(this.child, this.rpc, this.control);
   }
@@ -1623,6 +1746,8 @@ export class ManagedCodexAppServerRun {
     let remoteDisabled = false;
     let threadId: string | undefined;
     let turnId: string | undefined;
+    let completedTurns = 0;
+    const settledTurnIds: string[] = [];
     let runtimeState: RuntimeNotificationState | undefined;
     const approvedServerRequests = new Set<RpcId>();
     const queuedNotifications: Array<{ method: string; value: unknown }> = [];
@@ -1894,12 +2019,28 @@ export class ManagedCodexAppServerRun {
         if (!runtimeState.terminalSeen || !runtimeState.usage || runtimeState.hookRuns.size
             || queuedNotifications.length)
           throw new Error("Codex closed without exact terminal usage and lifecycle");
-        const terminalConfig = await rpc.request("config/read", {
-          includeLayers: true, cwd: contract.cwd,
-        });
-        if (validateConfig(terminalConfig, contract, exactProjectWarningSeen) !== fingerprint)
-          throw new Error("Codex config authority changed at terminal settlement");
-        rpc.assertHealthy();
+        // NARROWED TERMINAL (2026-07-26): the checks above are RESULT integrity
+        // — without them the yielded value would be a fiction, so they stay
+        // fatal before the yield. The settlement re-proof below is different: it
+        // describes whether ANOTHER turn may run, and it happens after this turn
+        // has already completed under authority proven at its start. Discarding a
+        // finished turn's work over it orphaned real code (defect B). Observe it,
+        // deliver the turn, and refuse continuation instead.
+        let settlementDefect: Error | undefined;
+        try {
+          const terminalConfig = await rpc.request("config/read", {
+            includeLayers: true, cwd: contract.cwd,
+          });
+          if (validateConfig(terminalConfig, contract, exactProjectWarningSeen) !== fingerprint)
+            throw new Error("Codex config authority changed at terminal settlement");
+          rpc.assertHealthy();
+        } catch (error) {
+          settlementDefect = error instanceof Error ? error : new Error(String(error));
+          console.error(
+            `[codex] managed thread settlement defect after a completed turn: `
+            + `${settlementDefect.message} — delivering the turn, refusing continuation`,
+          );
+        }
         protocolSucceeded = true;
         this.mcp.complete();
         if (!this.nativeCommands.complete())
@@ -1917,8 +2058,15 @@ export class ManagedCodexAppServerRun {
           }),
         };
 
+        completedTurns += 1;
+        settledTurnIds.push(turnId);
+
         input = await nextInput();
         if (input === undefined) break;
+        if (settlementDefect)
+          throw new Error("Codex refused continuation after a terminal settlement defect", {
+            cause: settlementDefect,
+          });
         this.mcp.reopen();
         this.nativeCommands.reopen();
       }
@@ -1926,7 +2074,16 @@ export class ManagedCodexAppServerRun {
       primaryFailed = true;
       if (!this.threadStarted)
         throw new ManagedCodexPreThreadError("openai_codex_authority_preflight_failed", { cause: error });
-      throw new Error("openai_provider_execution_failed", { cause: error });
+      throw new ManagedCodexHarvestError(this.harvest({
+        threadId,
+        turnIds: turnId && !settledTurnIds.includes(turnId)
+          ? [...settledTurnIds, turnId]
+          : [...settledTurnIds],
+        completedTurns,
+        text: runtimeState?.text ?? "",
+        usage: runtimeState?.usage,
+        unsupportedNotifications: rpc.unsupportedNotifications(),
+      }), { cause: error });
     } finally {
       supervisor.stop();
       removeTerminal();

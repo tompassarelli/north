@@ -35,7 +35,7 @@ import {
 } from "../trusted-runtime";
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
-  ManagedCodexAppServerRun, ManagedCodexPreThreadError,
+  ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
 } from "./codex-app-server";
 import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
 import {
@@ -820,6 +820,49 @@ function codexUsage(usage: ExactCodexUsage): {
   };
 }
 
+/**
+ * Terminal frames for a managed Codex failure that had already produced work
+ * (defect B, 2026-07-26). A lane that wrote real code and then hit a transport
+ * defect used to surface as a bare exception: `result=0b`, `delivery=blocked`,
+ * no usage, no tool evidence, and no trace of the turn it actually ran.
+ *
+ * The frames are an ERROR terminal (`subtype: "error_during_execution"`,
+ * `is_error: true`) — never a success — so the run stays a loud failure while
+ * the text, token usage, and tool-activity survive into the record. A failure
+ * with nothing landed emits nothing: the bare throw is what the
+ * provider-process-death retry gate expects, and inventing a terminal there
+ * would suppress a legitimate retry.
+ */
+export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): any[] {
+  const harvest = error.harvest;
+  if (!harvest.landedWork) return [];
+  const messages: any[] = [];
+  if (harvest.text) messages.push({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: harvest.text }] },
+  });
+  const normalizedUsage = harvest.usage ? codexUsage(harvest.usage) : undefined;
+  messages.push({
+    type: "result", subtype: "error_during_execution", is_error: true,
+    result: harvest.text,
+    num_turns: harvest.completedTurns,
+    ...(normalizedUsage ? {
+      usage: normalizedUsage.usage,
+      _north_usage: normalizedUsage.metadata,
+    } : {}),
+    _north_harvest: {
+      threadId: harvest.threadId,
+      turnIds: harvest.turnIds,
+      completedTurns: harvest.completedTurns,
+      mcp: harvest.mcp,
+      nativeCommands: harvest.nativeCommands,
+      unsupportedNotifications: harvest.unsupportedNotifications,
+      failure: (error.cause as Error | undefined)?.message ?? error.message,
+    },
+  });
+  return messages;
+}
+
 class CodexQuery implements AgentQuery {
   private child?: ChildProcessWithoutNullStreams;
   private managedRun?: ManagedCodexAppServerRun;
@@ -972,6 +1015,26 @@ class CodexQuery implements AgentQuery {
       } catch (error) {
         if (error instanceof ManagedCodexPreThreadError)
           throw new ProviderRetrySafeError(error.message, { cause: error });
+        // HARVEST (defect B, 2026-07-26): a post-thread-start failure that
+        // already produced work is reported as a terminal ERROR result carrying
+        // that work, not as an empty exception. The harness reads this frame as
+        // a provider error (never a success), so the outcome stays loud — but
+        // the lane's text, token usage, and tool-activity survive instead of
+        // being recorded as `result=0b`. A failure with NOTHING landed keeps the
+        // old bare throw, which is what the provider-death retry gate expects.
+        if (error instanceof ManagedCodexHarvestError) {
+          const harvested = managedCodexHarvestMessages(error);
+          if (harvested.length) {
+            const harvest = error.harvest;
+            console.error(
+              `[openai] managed Codex failed after landing work — harvesting `
+              + `${harvest.completedTurns} completed turn(s), `
+              + `${harvest.mcp.totalCalls ?? 0} MCP call(s), `
+              + `${harvest.nativeCommands.totalCommands ?? 0} native command(s)`,
+            );
+          }
+          for (const message of harvested) yield message;
+        }
         throw error;
       } finally {
         await frames?.close().catch(() => { /* teardown owns the terminal error */ });

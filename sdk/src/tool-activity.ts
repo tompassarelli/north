@@ -68,6 +68,24 @@ export class McpActivityAccumulator {
 
   reopen(): void { this.terminal = false; }
 
+  /**
+   * What was observed when a turn DIED mid-flight. Coverage is always "partial":
+   * the counts are real calls, but an interrupted turn can never claim to have
+   * seen all of them. Used only to harvest a failed managed run — a clean turn
+   * still goes through complete() + snapshot() and keeps exact coverage.
+   */
+  harvest(): McpActivityObservation {
+    if (this.terminal) return this.snapshot();
+    const tools = [...this.counts.values()].sort((left, right) =>
+      left.server.localeCompare(right.server) || left.tool.localeCompare(right.tool));
+    return Object.freeze({
+      source: this.source,
+      coverage: "partial" as const,
+      totalCalls: this.calls.size,
+      tools: Object.freeze(tools.map((entry) => Object.freeze({ ...entry }))),
+    });
+  }
+
   snapshot(): McpActivityObservation {
     if (!this.terminal) return { source: this.source, coverage: "unknown", tools: [] };
     const tools = [...this.counts.values()].sort((left, right) =>

@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
-  readlinkSync, rmSync, symlinkSync, writeFileSync,
+  readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { prepareManagedCodexHome } from "../src/providers/managed-codex-home";
 import {
   MANAGED_NONCLIENT_RECEIPT_FILE_ENV,
@@ -115,4 +115,63 @@ test("managed Codex refuses missing, redirected, or non-private authentication",
   chmodSync(join(publicAuth.accountHome, "auth.json"), 0o644);
   expect(() => prepareManagedCodexHome(publicAuth.env))
     .toThrow("managed Codex account authentication is not private");
+});
+
+test("a launch home lives under the North state root, not /tmp, and its rollout survives dispose", () => {
+  const { env, root } = fixture();
+  const homeRoot = join(root, ".local/state/north/managed-codex");
+  const prepared = prepareManagedCodexHome(env);
+  temporary.push(prepared.home);
+
+  // Codex refuses to create its PATH-alias helper binaries under a temporary
+  // CODEX_HOME, and rollouts live at $CODEX_HOME/sessions — both reasons the
+  // launch home must not be mkdtemp(/tmp).
+  // (the fixture HOME is itself a scratch dir, so the assertion is on the
+  // launch home's PARENT being the state-root archive, never the temp root)
+  expect(dirname(prepared.home)).toBe(homeRoot);
+  expect(dirname(prepared.home)).not.toBe(tmpdir());
+
+  // Codex writes its rollout for this launch.
+  const day = join(prepared.home, "sessions/2026/07/26");
+  mkdirSync(day, { recursive: true });
+  const rollout = join(day, "rollout-2026-07-26T00-00-00-019f9c36.jsonl");
+  writeFileSync(rollout, '{"type":"thread.started"}\n');
+
+  prepared.dispose();
+
+  expect(existsSync(rollout)).toBe(true);
+  expect(readFileSync(rollout, "utf8")).toContain("thread.started");
+  // Credential and volatile state do not survive with it.
+  expect(existsSync(join(prepared.home, "auth.json"))).toBe(false);
+  expect(existsSync(join(prepared.home, "sqlite"))).toBe(false);
+  expect(existsSync(join(prepared.home, "AGENTS.md"))).toBe(false);
+  const receipt = JSON.parse(readFileSync(join(prepared.home, "north-launch.json"), "utf8"));
+  expect(receipt.accountHome).toBe(realpathSync(join(root, "account")));
+});
+
+test("a launch that captured no rollout leaves nothing behind", () => {
+  const { env } = fixture();
+  const prepared = prepareManagedCodexHome(env);
+  temporary.push(prepared.home);
+  prepared.dispose();
+  expect(existsSync(prepared.home)).toBe(false);
+});
+
+test("the preserved-rollout archive stays bounded", () => {
+  const { env, root } = fixture();
+  const homeRoot = join(root, ".local/state/north/managed-codex");
+  mkdirSync(homeRoot, { recursive: true, mode: 0o700 });
+  for (let index = 0; index < 60; index += 1) {
+    const stale = join(homeRoot, `north-managed-codex-2020010100000${String(index).padStart(2, "0")}-x`);
+    mkdirSync(join(stale, "sessions"), { recursive: true });
+  }
+  const prepared = prepareManagedCodexHome(env);
+  temporary.push(prepared.home);
+  try {
+    // 60 stale + the new one, pruned oldest-first to the retained bound.
+    expect(readdirSync(homeRoot).length).toBeLessThanOrEqual(51);
+    expect(existsSync(prepared.home)).toBe(true);
+  } finally {
+    prepared.dispose();
+  }
 });
