@@ -1381,27 +1381,40 @@ setInterval(() => {}, 1000);
   }
 }, 8_000);
 
-test("spooled supervisors require the wrapper-sealed Nix mkfifo binary", () => {
+test("spooled supervisors build their control FIFO with a canonical store coreutils", () => {
   const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
   const fixture = join(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
+  const spawnSupervisor = (inputMode: string, mkfifo: string | undefined) => {
+    const controlRoot = mkdtempSync(join(tmpdir(), "north-codex-control-mkfifo-"));
+    roots.push(controlRoot);
+    const env = { ...process.env, NORTH_MKFIFO_BIN: mkfifo };
+    if (mkfifo === undefined) delete env.NORTH_MKFIFO_BIN;
+    const child = spawnSync(process.execPath, [
+      supervisor, inputMode, controlRoot, process.execPath, fixture,
+    ], {
+      env,
+      encoding: "utf8",
+      stdio: ["ignore", "ignore", "pipe"],
+      timeout: 5_000,
+    });
+    expect(child.error).toBeUndefined();
+    expect(child.signal).toBeNull();
+    return { child, controlRoot };
+  };
   for (const inputMode of ["--duplex", "--oneshot-spool"]) {
-    for (const mkfifo of [undefined, fixture]) {
-      const controlRoot = mkdtempSync(join(tmpdir(), "north-codex-control-mkfifo-"));
-      roots.push(controlRoot);
-      const env = { ...process.env, NORTH_MKFIFO_BIN: mkfifo };
-      if (mkfifo === undefined) delete env.NORTH_MKFIFO_BIN;
-      const child = spawnSync(process.execPath, [
-        supervisor, inputMode, controlRoot, process.execPath, fixture,
-      ], {
-        env,
-        encoding: "utf8",
-        stdio: ["ignore", "ignore", "pipe"],
-        timeout: 2_000,
-      });
-      expect(child.error).toBeUndefined();
-      expect(child.signal).toBeNull();
-      expect(child.stderr.trim()).toBe(codexSupervisorStatusLine("UNAVAILABLE"));
-      expect(existsSync(controlRoot)).toBe(false);
+    // A forged, writable "mkfifo" is never executed — it fails the canonical
+    // /nix/store proof and is SKIPPED, so a store coreutils still builds the
+    // FIFO. (If the shim had been trusted it could not create one at all, and
+    // the receipt would be UNAVAILABLE. Fail-closed when NOTHING resolves is
+    // covered at the resolver in trusted-runtime.test.ts, which is the only
+    // place a NixOS host can have an empty ladder.)
+    // Absent injection is likewise NOT absent trust: a checkout-driven managed
+    // lane never inherits NORTH_MKFIFO_BIN, and failing closed on that absence
+    // is what killed those lanes at authority preflight.
+    for (const pointer of [fixture, undefined]) {
+      const { child } = spawnSupervisor(inputMode, pointer);
+      expect(child.stderr.split("\n")[0]!.trim())
+        .toBe(codexSupervisorStatusLine("STARTED"));
     }
   }
 });

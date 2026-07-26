@@ -18,6 +18,7 @@ import {
 import {
   codexSupervisorStatusLine, type CodexSupervisorStatus,
 } from "./codex-supervisor-protocol";
+import { trustedCoreutilsExecutable } from "../trusted-runtime";
 
 const PROMPT = "NORTH_CODEX_PROMPT ";
 const MAX_PROMPT_BYTES = 16 * 1024 * 1024;
@@ -107,11 +108,13 @@ if (spooledInput) {
       }
       try { rmSync(controlDirectory!, { recursive: true, force: true }); } catch {}
     };
-    const mkfifo = process.env.NORTH_MKFIFO_BIN;
-    if (!mkfifo) throw new Error("sealed mkfifo path missing");
-    const coreutils = realpathSync(mkfifo);
-    if (!/^\/nix\/store\/[0-9a-z]{32}-coreutils(?:-full)?-[^/]+\/bin\/coreutils$/.test(coreutils))
-      throw new Error("trusted mkfifo unavailable");
+    // Wrapper injection first, then the immutable system/profile pointers: a
+    // supervisor spawned by a checkout-driven managed lane never inherits
+    // NORTH_MKFIFO_BIN, and env-only resolution turned that absence into an
+    // UNAVAILABLE start receipt the host could only report as "Codex executable
+    // unavailable". Trust still comes from the canonical /nix/store proof, never
+    // from the pointer's location.
+    const coreutils = trustedCoreutilsExecutable();
     const fifo = `${controlDirectory}/provider-input.fifo`;
     const created = spawnSync(coreutils, ["--coreutils-prog=mkfifo", "-m", "600", fifo], {
       env: { LC_ALL: "C", PATH: "" },

@@ -162,6 +162,49 @@ export function trustedManagedCodexExecutable(
 }
 
 /**
+ * Fixed, non-arbitrary entry points to the NixOS-immutable coreutils that
+ * creates the managed Codex supervisor's private FIFO, most trusted first: the
+ * wrapper's explicit NORTH_MKFIFO_BIN injection, then the same root-managed
+ * system-profile, home-manager per-user profile, and per-user Nix profile layout
+ * Git/Babashka/Codex use. Only the Nix-built wrapper exports NORTH_MKFIFO_BIN,
+ * so a supervisor spawned by a checkout-driven `bin/north` never inherits it and
+ * needs these immutable pointers too. ENTRY hints only — every candidate still
+ * proves canonical `/nix/store` residence, the multi-call coreutils shape, and
+ * X_OK below, so a repointed profile symlink or writable shim can only resolve
+ * into the immutable store or be rejected. Ambient `$PATH` is deliberately
+ * absent.
+ */
+function defaultTrustedCoreutilsPointers(): readonly (string | undefined)[] {
+  const home = process.env.HOME;
+  const user = safeProfileUser(process.env.USER);
+  return [
+    process.env.NORTH_MKFIFO_BIN,
+    "/run/current-system/sw/bin/mkfifo",
+    user ? `/etc/profiles/per-user/${user}/bin/mkfifo` : undefined,
+    home ? `${home}/.nix-profile/bin/mkfifo` : undefined,
+  ];
+}
+
+/**
+ * Resolve the immutable multi-call `coreutils` behind a trusted `mkfifo`. The
+ * supervisor's control FIFO must be created by a binary the ambient environment
+ * cannot substitute, but failing closed when the wrapper's injection is simply
+ * absent (a checkout-driven managed lane) killed those lanes at authority
+ * preflight with a supervisor UNAVAILABLE receipt. Callers invoke the result as
+ * `coreutils --coreutils-prog=mkfifo`; every candidate is proven canonical,
+ * store-resident, and executable before it is trusted.
+ */
+export function trustedCoreutilsExecutable(
+  candidates: readonly (string | undefined)[] = defaultTrustedCoreutilsPointers(),
+): string {
+  return trustedStoreExecutable(
+    candidates,
+    /^\/nix\/store\/[0-9a-z]{32}-coreutils(?:-full)?-[^/]+\/bin\/coreutils$/,
+    "coreutils",
+  );
+}
+
+/**
  * Git root/branch discovery is an authority oracle. Give it a closed
  * environment so GIT_DIR, GIT_WORK_TREE, config include paths, ceiling
  * directories, and repository-replacement variables cannot redirect it.
