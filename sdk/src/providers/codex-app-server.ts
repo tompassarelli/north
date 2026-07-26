@@ -167,6 +167,17 @@ export interface ManagedCodexResult {
     reasoning_output_tokens: number;
   };
   providerJoin: ProviderJoinEvidence;
+  /**
+   * Work items this turn completed, counted from observed `item/completed`
+   * notifications: every completed item that is neither the assistant's own
+   * message nor a reasoning block (so commandExecution, fileChange,
+   * mcpToolCall, webSearch, todoList, …). Codex nests all of these inside ONE
+   * turn, so a turn count can never show whether a tool loop ran; this is the
+   * honest per-turn "did work happen" signal on the app-server path
+   * (thread 019f9cc2 — every managed lane reported turn units and no item
+   * count at all, because this path never counted them).
+   */
+  toolItems: number;
 }
 
 // A later North input frame for the same provider thread, or `undefined` to
@@ -1141,8 +1152,21 @@ interface RuntimeNotificationState {
   text: string;
   usage?: ManagedCodexResult["usage"];
   terminalSeen: boolean;
+  /** Completed non-message, non-reasoning items observed in the LIVE turn. */
+  toolItems: number;
   mcpActivity: McpActivityAccumulator;
   nativeCommands: NativeCommandActivityAccumulator;
+}
+
+/**
+ * The one definition of a counted work item, shared by both Codex transports
+ * (the exec transport spells the same two exclusions `agent_message` /
+ * `reasoning`). Reasoning blocks complete on every non-trivial turn whether or
+ * not a single tool ran, so counting them would make the item count useless
+ * for its only purpose: showing that a tool loop actually happened.
+ */
+function countsAsToolItem(itemType: string): boolean {
+  return itemType !== "agentMessage" && itemType !== "reasoning";
 }
 
 function commandText(value: unknown, label: string, maxBytes = MAX_LINE_BYTES): string {
@@ -1461,7 +1485,8 @@ function validateProgressNotification(
       throw new Error(`Codex ${method} timestamp is invalid`);
     const item = record(params.item, `Codex ${method} item`);
     protocolId(item.id, `Codex ${method} item id`);
-    boundedString(item.type, `Codex ${method} item type`, 128);
+    const itemType = boundedString(item.type, `Codex ${method} item type`, 128);
+    if (method === "item/completed" && countsAsToolItem(itemType)) state.toolItems += 1;
     if (method === "item/started" && item.type === "commandExecution")
       startedNativeCommand(item, state);
     if (method === "item/completed" && item.type === "agentMessage") {
@@ -2015,6 +2040,7 @@ export class ManagedCodexAppServerRun {
         hookRuns: new Map(),
         text: "",
         terminalSeen: false,
+        toolItems: 0,
         mcpActivity: this.mcp,
         nativeCommands: this.nativeCommands,
       };
@@ -2043,6 +2069,7 @@ export class ManagedCodexAppServerRun {
         runtimeState.usage = undefined;
         runtimeState.turnId = undefined;
         runtimeState.terminalSeen = false;
+        runtimeState.toolItems = 0;
         terminal = new Promise<void>((resolveTerminal, rejectTerminal) => {
           terminalResolve = resolveTerminal;
           terminalReject = rejectTerminal;
@@ -2091,6 +2118,7 @@ export class ManagedCodexAppServerRun {
         yield {
           text: runtimeState.text,
           usage: runtimeState.usage,
+          toolItems: runtimeState.toolItems,
           providerJoin: providerJoinEvidence("openai", {
             sessionId: threadId,
             turnIds: [turnId],
