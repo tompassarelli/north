@@ -74,7 +74,43 @@
    :routingPinReasonCode "calibration-experiment"
    :routingPinDetail (str north.canary-cli/CANARY-PIN-DETAIL-PREFIX
                           "@thread-" target)
-   :canaryOutcome marker})
+   :canaryOutcome marker
+   ;; A pinned canary is still routed through the same production composition
+   ;; path as any other managed lane, so it must also satisfy the all-managed
+   ;; fold's "complete current managed run" predicate.
+   :compositionKind "preset"
+   :compositionId "canary-role"
+   :tier "standard"
+   :role "canary-role"
+   :taskGrade "mid"
+   :model "test-model"
+   :effort "medium"
+   :legacyDebtReasons []})
+
+(defn managed-row
+  "A production-path managed run that is NOT a calibration-pinned canary —
+  the shape of a real managed lane death (stall, hook-seam error, ...)."
+  [at target process delivery reason]
+  {:at at
+   :entity (str "@run-" target)
+   :thread (str "thread-" target)
+   :agent (str "lane-" target)
+   :providerTarget target
+   :provider (if (str/starts-with? target "claude") "anthropic" "openai")
+   :processOutcome process
+   :processOutcomeObserved true
+   :deliveryOutcome delivery
+   :deliveryOutcomeObserved true
+   :deliveryReason reason
+   :deliveryReasonObserved true
+   :compositionKind "preset"
+   :compositionId "director"
+   :tier "frontier"
+   :role "director"
+   :taskGrade "staff"
+   :model "test-model"
+   :effort "xhigh"
+   :legacyDebtReasons []})
 
 (let [rows [(canary-row "2026-07-26T01:00:00Z" "codex-old"
                         "ran" "reported"
@@ -119,6 +155,79 @@
   (check
    "the fixed reliability bar stays provisional below one hundred runs"
    (false? (get-in report [:reliabilityBar :met]))))
+
+;; Real managed lane deaths (lane-ms1wgkjg stalled, lane-ms1ww8tl hook-seam
+;; death) are production-path managed runs but were never a pinned
+;; calibration-experiment canary, so canary-run? never saw them. The
+;; all-managed fold must still count them.
+(let [canary-rows [(canary-row "2026-07-26T01:00:00Z" "codex-c1"
+                               "ran" "reported"
+                               "complete_run_scoped_done_bar_evidence_self_reported"
+                               "full-green")
+                   (canary-row "2026-07-26T02:00:00Z" "codex-c2"
+                               "ran" "reported"
+                               "complete_run_scoped_done_bar_evidence_self_reported"
+                               "full-green")]
+      real-deaths [(managed-row "2026-07-26T14:49:21Z" "codex-analyst-death"
+                                "provider_error" "blocked" "provider_terminal_error")
+                   (managed-row "2026-07-26T14:55:25Z" "codex-director-stall"
+                                "stalled" "blocked" "provider_process_stalled")]
+      rows (into canary-rows real-deaths)
+      canary-only (north.canary-cli/canary-report rows 10)
+      all-managed (north.canary-cli/all-managed-report rows 10)
+      full (north.canary-cli/full-report rows 10)]
+  (check
+   "canary-only report stays blind to non-canary-pinned managed lane deaths"
+   (and (= 2 (:runs canary-only))
+        (= 2 (:fullGreen canary-only))
+        (zero? (:failures canary-only))))
+  (check
+   "the all-managed fold counts every production-path managed run, canary or not"
+   (and (= 4 (:runs all-managed))
+        (= 2 (:fullGreen all-managed))
+        (= 2 (:failures all-managed))
+        (= 2 (:providerCausedFailures all-managed))
+        (zero? (:northCausedFailures all-managed))
+        (= #{"codex-c1" "codex-c2" "codex-analyst-death" "codex-director-stall"}
+           (set (map :providerTarget (:runsDetail all-managed))))))
+  (check
+   "full-report keeps the existing canary-only shape unchanged and nests the all-managed fold under it"
+   (and (= canary-only (dissoc full :allManaged))
+        (= all-managed (:allManaged full))))
+  (check
+   "the all-managed section carries the signed exit-bar number, distinct from the canary-only one"
+   (and (contains? (:allManaged full) :reliabilityBar)
+        (= (:reliabilityBar all-managed)
+           (get-in full [:allManaged :reliabilityBar])))))
+
+(let [output (with-out-str
+              (north.canary-cli/print-report
+               (north.canary-cli/canary-report
+                [(canary-row "2026-07-26T01:00:00Z" "codex-c1"
+                             "ran" "reported"
+                             "complete_run_scoped_done_bar_evidence_self_reported"
+                             "full-green")]
+                5)))]
+  (check
+   "print-report keeps the canary-only console shape unchanged for a bare canary report"
+   (and (str/includes? output "CANARY PERFORMANCE")
+        (not (str/includes? output "ALL-MANAGED PERFORMANCE")))))
+
+(let [output (with-out-str
+              (north.canary-cli/print-report
+               (north.canary-cli/full-report
+                [(canary-row "2026-07-26T01:00:00Z" "codex-c1"
+                             "ran" "reported"
+                             "complete_run_scoped_done_bar_evidence_self_reported"
+                             "full-green")
+                 (managed-row "2026-07-26T14:55:25Z" "codex-director-stall"
+                              "stalled" "blocked" "provider_process_stalled")]
+                5)))]
+  (check
+   "print-report appends the all-managed section, with its own signed exit bar, alongside the unchanged canary section"
+   (and (str/includes? output "CANARY PERFORMANCE")
+        (str/includes? output "ALL-MANAGED PERFORMANCE")
+        (str/includes? output "codex-director-stall"))))
 
 (let [events (atom [])
       terminal {:entity "@run-canary"
