@@ -478,7 +478,7 @@ PY
             impurity_pattern='/(home|Users)/|/run/current-system/sw|/code/north(?:/|$|[^[:alnum:]_.-])|~/code/north|[$]HOME/code/north|[.]m2|[.]cpcache|[.]cache/babashka'
             # Two audited exceptions to the store-external scan, and only these:
             # sdk/src/trusted-runtime.ts's NixOS entry-hint pointers
-            # /run/current-system/sw/bin/{git,bb}. They are root-managed runtime
+            # /run/current-system/sw/bin/{git,bb,codex,mkfifo}. They are root-managed runtime
             # symlinks, NOT baked store paths — trustedStoreExecutable() still
             # forces each to canonicalize (realpathSync) into the immutable
             # /nix/store and be executable, so they never widen trust. They are
@@ -486,7 +486,7 @@ PY
             # NORTH_GIT_BIN / NORTH_BB. The exemption is line-exact: any other
             # path in that same file, any other system-profile target, and every
             # match in every other file stays fatal.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb)",$'
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
