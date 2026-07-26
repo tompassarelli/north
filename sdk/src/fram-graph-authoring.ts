@@ -57,7 +57,7 @@ export function framMcpCommand(): string {
 // has moved three times in one evening. No .mcp.json (or no matching field)
 // means the code coordinator was never flipped for this framHome: fail closed
 // by name rather than pointing the MCP server at a port nothing listens on.
-function resolveFramCodePort(framHome: string): string {
+function framFlipEnvironment(framHome: string): Record<string, unknown> {
   const mcpJsonPath = join(framHome, ".mcp.json");
   let raw: string;
   try {
@@ -79,16 +79,36 @@ function resolveFramCodePort(framHome: string): string {
       { cause },
     );
   }
-  const port = (parsed as { mcpServers?: { fram?: { env?: { FRAM_CODE_PORT?: unknown } } } })
-    ?.mcpServers?.fram?.env?.FRAM_CODE_PORT;
+  return (parsed as { mcpServers?: { fram?: { env?: Record<string, unknown> } } })
+    ?.mcpServers?.fram?.env ?? {};
+}
+
+function resolveFramCodePort(flipEnv: Record<string, unknown>, framHome: string): string {
+  const port = flipEnv.FRAM_CODE_PORT;
   if (typeof port !== "string" || !/^[1-9][0-9]*$/.test(port)) {
     throw new Error(
-      `graph_authoring_fram_code_port_unresolved: ${mcpJsonPath} has no `
+      `graph_authoring_fram_code_port_unresolved: ${join(framHome, ".mcp.json")} has no `
       + "mcpServers.fram.env.FRAM_CODE_PORT — the same field fram-code-status reads "
       + "to report the live coordinator port",
     );
   }
   return port;
+}
+
+// The interactive flip records how long an edit-prepare may take against ITS
+// code log (a ~350k-fact log costs ~3s, far past fram.rt's 2000ms default read
+// deadline; without the override every managed graph edit fails with a
+// prepare-deadline REJECTED that reads like a semantic rejection — learning on
+// thread 019f9cf1-d746). A managed lane must inherit the same budget the flip
+// wrote, never a value baked in here; a framHome whose flip declares none keeps
+// fram's own default rather than acquiring a synthetic one.
+function resolveFramCoordReadTimeout(
+  flipEnv: Record<string, unknown>,
+): Readonly<Record<string, string>> {
+  const timeout = flipEnv.FRAM_COORD_READ_TIMEOUT_MS;
+  return typeof timeout === "string" && /^[1-9][0-9]*$/.test(timeout)
+    ? { FRAM_COORD_READ_TIMEOUT_MS: timeout }
+    : {};
 }
 
 // FRAM_LOG/FRAM_THREADS select the CORPUS a read (show/ask/validate) folds —
@@ -108,10 +128,12 @@ function corpusFramEnv(): Readonly<Record<string, string>> {
 
 function staticFramMcpEnv(): Readonly<Record<string, string>> {
   const { framHome, beagleHome } = framGraphAuthoringRoots();
+  const flipEnv = framFlipEnvironment(framHome);
   return Object.freeze({
     FRAM_FLIP: "1",
     FRAM_GRAPH_EDIT: "1",
-    FRAM_CODE_PORT: resolveFramCodePort(framHome),
+    FRAM_CODE_PORT: resolveFramCodePort(flipEnv, framHome),
+    ...resolveFramCoordReadTimeout(flipEnv),
     FRAM_CODE_LOG: join(framHome, ".fram", "code.log"),
     ...corpusFramEnv(),
     FRAM_OUT: join(framHome, "out"),

@@ -992,9 +992,38 @@ function validateHooks(response: unknown, cwd: string): void {
   exact(rows, expectedHookRows(), "Codex managed hook inventory");
 }
 
+/**
+ * One MCP server North expects the managed session to be carrying, with the
+ * exact tool grant it may expose. `version` is pinned only where North itself
+ * ships the server binary: the fram graph-authoring server is a separate
+ * deployment (`bin/fram-mcp` out of NORTH_FRAM_HOME) whose version string North
+ * does not own, so pinning it here would turn an upstream version bump into a
+ * dead codex graph lane. Its identity is still fenced — exact name, no title/
+ * description/icons/website, no auth authority, no resources, exact tool set.
+ */
+interface ExpectedMcpServer {
+  name: string;
+  tools: readonly string[];
+  version?: string;
+}
+
+/**
+ * The sealed MCP inventory for one authority surface. North is unconditional;
+ * fram appears exactly when the surface carries the graph-authoring capability,
+ * which is the same condition that injected the server into the launch config.
+ */
+function expectedMcpInventory(surface: OpenAIAuthoritySurface): readonly ExpectedMcpServer[] {
+  return Object.freeze([
+    { name: "north", tools: surface.northEnabledTools, version: "0.1.0" },
+    ...(surface.capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY)
+      ? [{ name: FRAM_MCP_SERVER, tools: FRAM_MCP_TOOL_NAMES as readonly string[] }]
+      : []),
+  ]);
+}
+
 async function validateMcp(
   rpc: AppServerRpc,
-  expectedTools: readonly string[],
+  expected: readonly ExpectedMcpServer[],
   threadId?: string,
 ): Promise<void> {
   const servers: JsonObject[] = [];
@@ -1018,26 +1047,40 @@ async function validateMcp(
     cursors.add(cursor);
     if (page === MAX_INVENTORY_PAGES - 1) throw new Error("Codex MCP inventory did not terminate");
   }
-  if (servers.length !== 1 || servers[0]!.name !== "north")
-    throw new Error("Codex MCP inventory is not exactly North");
-  const north = servers[0]!;
-  onlyKeys(north, [
-    "name", "serverInfo", "tools", "resources", "resourceTemplates", "authStatus",
-  ], "Codex North MCP server");
-  exact(north.serverInfo, {
-    name: "north",
-    title: null,
-    version: "0.1.0",
-    description: null,
-    icons: null,
-    websiteUrl: null,
-  }, "Codex North MCP server identity");
-  if (north.authStatus !== "unsupported")
-    throw new Error("Codex North MCP server unexpectedly carries authentication authority");
-  exact(north.resources, [], "Codex North MCP resource surface");
-  exact(north.resourceTemplates, [], "Codex North MCP resource-template surface");
-  const tools = record(north.tools, "Codex North MCP tools");
-  exact(Object.keys(tools).sort(), [...expectedTools].sort(), "Codex North MCP tool surface");
+  const expectedNames = expected.map((server) => server.name);
+  const observed = new Map<string, JsonObject>();
+  for (const server of servers) {
+    const name = boundedString(server.name, "Codex MCP server name");
+    if (observed.has(name)) throw new Error("Codex MCP inventory repeated a server");
+    observed.set(name, server);
+  }
+  if (observed.size !== expected.length || expectedNames.some((name) => !observed.has(name)))
+    throw new Error(
+      `Codex MCP inventory is not exactly ${expectedNames.join("+")}: `
+      + `observed ${[...observed.keys()].sort().join("+") || "(none)"}`,
+    );
+  for (const spec of expected) {
+    const label = `Codex ${spec.name} MCP server`;
+    const server = observed.get(spec.name)!;
+    onlyKeys(server, [
+      "name", "serverInfo", "tools", "resources", "resourceTemplates", "authStatus",
+    ], label);
+    const identity = record(server.serverInfo, `${label} identity`);
+    exact(identity, {
+      name: spec.name,
+      title: null,
+      version: spec.version ?? boundedString(identity.version, `${label} version`, 64),
+      description: null,
+      icons: null,
+      websiteUrl: null,
+    }, `${label} identity`);
+    if (server.authStatus !== "unsupported")
+      throw new Error(`${label} unexpectedly carries authentication authority`);
+    exact(server.resources, [], `${label} resource surface`);
+    exact(server.resourceTemplates, [], `${label} resource-template surface`);
+    const tools = record(server.tools, `${label} tools`);
+    exact(Object.keys(tools).sort(), [...spec.tools].sort(), `${label} tool surface`);
+  }
 }
 
 function validateAccount(response: unknown): void {
@@ -1174,6 +1217,8 @@ interface RuntimeNotificationState {
   toolItems: number;
   mcpActivity: McpActivityAccumulator;
   nativeCommands: NativeCommandActivityAccumulator;
+  /** Names of the MCP servers this session's sealed authority actually grants. */
+  mcpServerNames: readonly string[];
 }
 
 /**
@@ -1344,6 +1389,7 @@ function startedNativeCommand(item: JsonObject, state: RuntimeNotificationState)
 function validateMcpStartupNotification(
   value: unknown,
   expectedThreadId: string | undefined,
+  expectedNames: readonly string[],
   allowPendingThreadId = false,
 ): JsonObject {
   const params = record(value, "Codex MCP startup notification");
@@ -1358,14 +1404,15 @@ function validateMcpStartupNotification(
         : params.threadId === expectedThreadId;
     } catch { validThreadId = false; }
   }
-  if (!validThreadId || params.name !== "north"
+  if (!validThreadId || !expectedNames.includes(String(params.name))
       || !["starting", "ready"].includes(String(params.status))
       || params.error !== null || params.failureReason !== null) {
     const expected = expectedThreadId === undefined
       ? (allowPendingThreadId ? "null or the pending thread/start protocol id" : "null")
       : `null or ${JSON.stringify(expectedThreadId)}`;
-    throw new Error(`Codex North MCP startup status is invalid: expected threadId ${expected}, `
-      + `name \"north\", status \"starting\"|\"ready\", error null, failureReason null; `
+    throw new Error(`Codex managed MCP startup status is invalid: expected threadId ${expected}, `
+      + `name ${expectedNames.map((name) => JSON.stringify(name)).join("|")}, `
+      + `status \"starting\"|\"ready\", error null, failureReason null; `
       + `observed ${JSON.stringify(canonical(params))}`);
   }
   return params;
@@ -1588,7 +1635,7 @@ function validateProgressNotification(
     return;
   }
   if (method === "mcpServer/startupStatus/updated") {
-    validateMcpStartupNotification(params, state.threadId);
+    validateMcpStartupNotification(params, state.threadId, state.mcpServerNames);
     return;
   }
   if (method === "model/safetyBuffering/updated") {
@@ -1852,6 +1899,11 @@ export class ManagedCodexAppServerRun {
       throw new ManagedCodexPreThreadError("openai_codex_launch_contract_invalid", { cause: error });
     }
     this.nativeCommands = new NativeCommandActivityAccumulator(contract.cwd, ENGINE);
+    // The sealed MCP grant for this session: North always, fram only under the
+    // graph-authoring capability. Every inventory read, startup notification,
+    // and tool-approval request is proven against exactly this.
+    const inventory = expectedMcpInventory(this.options.surface);
+    const mcpServerNames = Object.freeze(inventory.map((server) => server.name));
     const supervised = this.options.useSupervisor !== false;
     const spawnProcess = this.options.spawnProcess ?? spawn;
     const control = supervised
@@ -1935,7 +1987,9 @@ export class ManagedCodexAppServerRun {
       }
       if (method === "mcpServer/startupStatus/updated") {
         const pendingThreadStart = threadId === undefined && this.threadStarted;
-        const params = validateMcpStartupNotification(value, threadId, pendingThreadStart);
+        const params = validateMcpStartupNotification(
+          value, threadId, mcpServerNames, pendingThreadStart,
+        );
         // Codex may emit a thread-scoped startup transition before the
         // thread/start response that establishes the exact local thread id.
         // Preserve it until that signed response arrives, then validate the
@@ -2010,21 +2064,28 @@ export class ManagedCodexAppServerRun {
       const itemId = protocolId(params.itemId, "Codex tool input item id");
       if (!Array.isArray(params.questions) || params.questions.length !== 1)
         throw new Error("Codex tool input request must contain one approval question");
-      const question = record(params.questions[0], "Codex North MCP approval question");
+      const question = record(params.questions[0], "Codex managed MCP approval question");
       onlyKeys(question, ["id", "header", "question", "isOther", "isSecret", "options"],
-        "Codex North MCP approval question");
+        "Codex managed MCP approval question");
       const questionId = `mcp_tool_call_approval_${itemId}`;
-      const prompt = boundedString(question.question, "Codex North MCP approval prompt", 512);
-      const match = /^Allow the north MCP server to run tool "([a-z][a-z0-9_]*)"\?$/.exec(prompt);
+      const prompt = boundedString(question.question, "Codex managed MCP approval prompt", 512);
+      // fram's graph-edit verbs are hyphenated (`set-body`), North's are
+      // underscored (`evidence_record`); the character class covers both and the
+      // grant itself is proven by exact membership in that server's tool list.
+      const match = /^Allow the ([a-z][a-z0-9-]*) MCP server to run tool "([a-z][a-z0-9_-]*)"\?$/
+        .exec(prompt);
+      const granted = match
+        ? inventory.find((server) => server.name === match[1])?.tools
+        : undefined;
       if (question.id !== questionId || question.header !== "Approve app tool call?"
           || question.isOther !== false || question.isSecret !== false || !match
-          || !this.options.surface.northEnabledTools.includes(match[1]!))
+          || !granted?.includes(match[2]!))
         throw new Error("Codex requested approval outside North's sealed MCP grant");
       exact(question.options, [
         { label: "Allow", description: "Run the tool and continue." },
         { label: "Allow for this session", description: "Run the tool and remember this choice for this session." },
         { label: "Cancel", description: "Cancel this tool call." },
-      ], "Codex North MCP approval options");
+      ], "Codex managed MCP approval options");
       approvedServerRequests.add(id);
       return { answers: { [questionId]: { answers: ["Allow"] } } };
     };
@@ -2060,7 +2121,7 @@ export class ManagedCodexAppServerRun {
       const fingerprint = validateConfig(config, contract, exactProjectWarningSeen);
       validateRequirements(await rpc.request("configRequirements/read"));
       validateHooks(await rpc.request("hooks/list", { cwds: [contract.cwd] }), contract.cwd);
-      await validateMcp(rpc, this.options.surface.northEnabledTools);
+      await validateMcp(rpc, inventory);
       if (!remoteDisabled) throw new Error("Codex did not prove remote control disabled");
       assertNoFilesystemAuthority(contract.codexHome);
       const shellPolicy = record(
@@ -2109,6 +2170,7 @@ export class ManagedCodexAppServerRun {
         toolItems: 0,
         mcpActivity: this.mcp,
         nativeCommands: this.nativeCommands,
+        mcpServerNames,
       };
       drainQueued(false);
       if (runtimeState.hookRuns.size || queuedNotifications.length)
@@ -2125,7 +2187,7 @@ export class ManagedCodexAppServerRun {
         if (validateConfig(repeated, contract, exactProjectWarningSeen) !== fingerprint)
           throw new Error("Codex config authority changed after thread/start");
         validateHooks(await rpc.request("hooks/list", { cwds: [contract.cwd] }), contract.cwd);
-        await validateMcp(rpc, this.options.surface.northEnabledTools, threadId);
+        await validateMcp(rpc, inventory, threadId);
         assertNoFilesystemAuthority(contract.codexHome);
 
         // Fresh terminal barrier and per-turn runtime accumulators. The closures
