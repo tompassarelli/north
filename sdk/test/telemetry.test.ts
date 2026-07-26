@@ -59,6 +59,39 @@ test("a completed run carries every mandatory terminal predicate", () => {
   expect(facts).toContainEqual(["outcome", "ran"]);
 });
 
+test("recurring canaries retain only their reliability roll-up projection", () => {
+  const facts = runFacts({
+    thread: "@canary-thread", agent: "lane-canary", durationMs: 250,
+    posture: "spawn", outcome: "ran", processOutcome: "ran",
+    provider: "openai", providerTarget: "codex-personal",
+    deliveryOutcome: "reported", deliveryReason: "complete_run_scoped_done_bar_evidence_self_reported",
+    deliveryProof: {
+      deliveryEvidence: "{\"run\":\"@run:canary\"}",
+      deliveryEvidenceSha256: "a".repeat(64),
+    },
+    routingPinEvidence: {
+      policyVersion: "north-routing-pin-v1",
+      issuedAt: "2026-07-26T00:00:00.000Z",
+      expiresAt: "2026-07-26T00:15:00.000Z",
+      reasonCode: "calibration-experiment",
+      detail: "recurring-cross-provider-canary:@canary-thread",
+      pins: [{ kind: "provider", value: "openai" }],
+    },
+  } as any);
+
+  const predicates = new Set(facts.map(([predicate]) => predicate));
+  expect(facts).toHaveLength(18);
+  expect(predicates).toEqual(new Set([
+    "kind", "thread", "agent", "agent_run_ledger_version", "run_event_status",
+    "duration_ms", "posture", "outcome", "at", "process_outcome",
+    "provider", "provider_target", "delivery_outcome", "delivery_reason",
+    "delivery_evidence", "delivery_evidence_sha256",
+    "routing_pin_reason_code", "routing_pin_detail",
+  ]));
+  expect(predicates.has("routing_assessment_policy")).toBe(false);
+  expect(predicates.has("prompt_composition_applied")).toBe(false);
+});
+
 test("a @run model fact is canonicalized at write, never a bare family alias", () => {
   const facts = runFacts({
     thread: "@run-alias", agent: "lane-alias", durationMs: 1,
