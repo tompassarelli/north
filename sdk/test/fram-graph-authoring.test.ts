@@ -20,7 +20,7 @@ import {
 } from "../src/fram-graph-authoring";
 import { expectedLog } from "../src/coord-wire";
 import {
-  compileProviderAuthoritySurface,
+  compileProviderAuthoritySurface, formatProviderAuthoritySurface,
 } from "../src/providers/authority";
 import { eligibleForProviderProcessDeathRetry } from "../src/spawn";
 import { presetRequest } from "./routing-fixtures";
@@ -61,6 +61,28 @@ afterAll(() => {
   rmSync(beagleHome, { recursive: true, force: true });
   if (originalFramThreads === undefined) delete process.env.FRAM_THREADS;
   else process.env.FRAM_THREADS = originalFramThreads;
+});
+
+test("the flip's coordinator read budget rides into the managed lane, or nothing does", () => {
+  // A ~350k-fact code log needs the flip's own FRAM_COORD_READ_TIMEOUT_MS: with
+  // fram.rt's 2000ms default every managed graph edit dies as a prepare-deadline
+  // REJECTED. Take the value the flip wrote; invent nothing when it wrote none.
+  expect(framMcpEnvironment(north).FRAM_COORD_READ_TIMEOUT_MS).toBeUndefined();
+
+  const budgetedFramHome = mkdtempSync(join(tmpdir(), "fram-home-budgeted-"));
+  mkdirSync(join(budgetedFramHome, "bin"), { recursive: true });
+  writeFileSync(join(budgetedFramHome, "bin", "fram-mcp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(join(budgetedFramHome, ".mcp.json"), JSON.stringify({
+    mcpServers: { fram: { env: {
+      FRAM_CODE_PORT: framCodePort, FRAM_COORD_READ_TIMEOUT_MS: "180000",
+    } } },
+  }));
+  process.env.NORTH_FRAM_HOME = budgetedFramHome;
+  try {
+    expect(framMcpEnvironment(north).FRAM_COORD_READ_TIMEOUT_MS).toBe("180000");
+  } finally {
+    rmSync(budgetedFramHome, { recursive: true, force: true });
+  }
 });
 
 test("composing the capability without deployment roots fails closed by name", () => {
@@ -190,6 +212,13 @@ test("managed providers compile the exact sealed Fram MCP only when explicitly r
     )).not.toThrow();
     expect(compileProviderAuthoritySurface(provider, options).capabilities)
       .toContain("graph-authoring.fram");
+    // The lane's own effective-authority log line must NAME the graph-edit verbs
+    // on BOTH providers — an operator reading a codex lane log had no way to see
+    // whether the fram grant actually mounted.
+    const logged = formatProviderAuthoritySurface(
+      compileProviderAuthoritySurface(provider, options),
+    );
+    for (const tool of FRAM_MCP_TOOLS) expect(logged).toContain(tool);
 
     const missingFram = {
       ...options,
