@@ -25,7 +25,7 @@ import {
   hasCanonicalFramMcpServer,
 } from "../fram-graph-authoring";
 import type { OpenAIAuthoritySurface } from "./authority";
-import { managedCodexNetworkPolicy } from "./codex-network-policy";
+import { managedCodexNetworkArguments, managedCodexNetworkPolicy } from "./codex-network-policy";
 import { expectedManagedCodexHooks } from "./codex-managed-hooks";
 import { CODEX_SUPERVISOR_STATUS_PREFIX } from "./codex-supervisor-protocol";
 import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
@@ -490,10 +490,6 @@ export function managedCodexAppServerLaunch(
         "-c", `sandbox_workspace_write.network_access=${network.networkAccess}`,
       ]
       : []),
-    ...(network.networkProxyEnabled ? [
-      "-c", `features.network_proxy.enabled=${network.networkProxyEnabled}`,
-      "-c", `features.network_proxy.domains=${tomlStringMap(network.domains)}`,
-    ] : []),
     "-c", `projects=${tomlProjectMap(projectRoot)}`,
     "-c", "project_doc_max_bytes=0",
     "-c", "allow_login_shell=false",
@@ -515,7 +511,7 @@ export function managedCodexAppServerLaunch(
     ] : []),
     "-c", `web_search=${JSON.stringify(options.surface.web)}`,
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-    ...(network.networkProxyEnabled ? ["--enable", "network_proxy"] : ["--disable", "network_proxy"]),
+    ...managedCodexNetworkArguments(options.surface),
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
     "app-server", "--stdio", "--strict-config",
   ];
@@ -878,6 +874,11 @@ function validateConfig(
       throw new Error("Codex config layer has invalid version");
     const layerConfig = record(layer.config, "Codex config layer payload");
     if (type === "sessionFlags") {
+      exactDiagnosable(
+        record(layerConfig.features, "Codex session authority feature set").network_proxy,
+        record(contract.expectedSessionConfig.features, "Codex expected session authority feature set").network_proxy,
+        "Codex session network proxy policy",
+      );
       exact(layerConfig, contract.expectedSessionConfig, "Codex session authority layer");
     } else if (type === "project") {
       onlyKeys(layer, layer.disabledReason === undefined
@@ -913,6 +914,11 @@ function validateConfig(
     ["network_proxy", contract.network.networkProxyEnabled] as const,
     ["remote_control", false] as const,
   ]);
+  exactDiagnosable(
+    record(config.features, "Codex effective feature set").network_proxy,
+    expectedFeatures.network_proxy,
+    "Codex effective network proxy policy",
+  );
   exact(config.features, expectedFeatures, "Codex effective feature set");
   const sessionMcp = record(
     contract.expectedSessionConfig.mcp_servers, "Codex expected MCP session set",

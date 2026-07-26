@@ -195,7 +195,9 @@ function setup(mode = "ok") {
   chmodSync(executable, 0o700);
   const cwd = realpathSync(join(import.meta.dir, "../.."));
   const requests: any[] = [];
-  const webNetwork = ["web-network", "web-network-config-drift", "web-network-thread-drift"]
+  const webNetwork = [
+    "web-network", "web-network-config-drift", "web-network-session-drift", "web-network-thread-drift",
+  ]
     .includes(mode);
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true]),
@@ -648,6 +650,7 @@ function setup(mode = "ok") {
         if (mode === "feature-default-enabled") current.config.features.browser_use = true;
         if (mode === "feature-omitted") delete current.config.features.browser_use;
         if (mode === "web-network-config-drift") current.config.features.network_proxy = false;
+        if (mode === "web-network-session-drift") current.layers[0].config.features.network_proxy = false;
         if (mode === "shell-policy-missing")
           delete current.layers[0].config.shell_environment_policy;
         if (mode === "shell-policy-wrong-inherit")
@@ -1797,23 +1800,36 @@ test("only a web-capable workspace-write lane receives the exact Gitiles proxy p
     domains: { "chromium.googlesource.com": "allow" },
   });
   expect(contract.args).toContain("sandbox_workspace_write.network_access=true");
-  expect(contract.args).toContain("features.network_proxy.enabled=true");
-  expect(contract.args).toContain('features.network_proxy.domains={"chromium.googlesource.com"="allow"}');
+  expect(contract.args.filter((argument) => argument.includes("network_proxy"))).toEqual([
+    "features.network_proxy.enabled=true",
+    'features.network_proxy.domains={"chromium.googlesource.com"="allow"}',
+  ]);
+  expect(contract.args).not.toEqual(expect.arrayContaining(["--enable", "network_proxy"]));
 
   const denied = managedCodexAppServerLaunch(options);
   expect((denied.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(false);
   expect((denied.expectedSessionConfig as any).features.network_proxy).toBe(false);
-  expect(denied.args).toContain("--disable");
-  expect(denied.args).toContain("network_proxy");
+  expect(denied.args.filter((argument) => argument.includes("network_proxy"))).toEqual(["network_proxy"]);
+  expect(denied.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
 });
 
 test("the Gitiles network config and sandbox attestation both fail closed on drift", async () => {
   for (const [mode, error] of [
     ["web-network-config-drift", "openai_codex_authority_preflight_failed"],
+    ["web-network-session-drift", "openai_codex_authority_preflight_failed"],
     ["web-network-thread-drift", "openai_provider_execution_failed"],
   ] as const) {
-    await expect(new ManagedCodexAppServerRun(setup(mode).options).execute())
-      .rejects.toThrow(error);
+    const caught = await new ManagedCodexAppServerRun(setup(mode).options).execute()
+      .then(() => null, (thrown: Error) => thrown);
+    expect(caught?.message).toBe(error);
+    if (mode === "web-network-config-drift") {
+      expect(causeChain(caught!)).toContain("Codex effective network proxy policy does not match");
+      expect(causeChain(caught!)).toContain("observed=false expected=true");
+    }
+    if (mode === "web-network-session-drift") {
+      expect(causeChain(caught!)).toContain("Codex session network proxy policy does not match");
+      expect(causeChain(caught!)).toContain("observed=false expected={");
+    }
   }
 });
 
