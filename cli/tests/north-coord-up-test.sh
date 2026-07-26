@@ -112,6 +112,15 @@ if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
 fi
 EOF
 
+cat >"$FAKE_BIN/systemctl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == is-enabled && "${2:-}" == --quiet && "${3:-}" == north-coord.service &&
+      "${NORTH_TEST_SYSTEMD_ENABLED:-}" == 1 ]]; then
+  exit 0
+fi
+exit 1
+EOF
+
 cat >"$FAKE_BIN/bb" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -126,7 +135,7 @@ fi
 exec "$REAL_BB" "$@"
 EOF
 
-chmod +x "$FAKE_BIN/fram" "$FAKE_BIN/fram-daemon" "$FAKE_BIN/ss" "$FAKE_BIN/bb"
+chmod +x "$FAKE_BIN/fram" "$FAKE_BIN/fram-daemon" "$FAKE_BIN/ss" "$FAKE_BIN/systemctl" "$FAKE_BIN/bb"
 
 common_env=(
   HOME="$TMP/home"
@@ -158,6 +167,16 @@ for bad_port in 0 65536 nope '79|coordinator UP'; do
   fi
   grep -q 'FRAM_PORT must be an integer from 1 through 65535' "$TMP/bad-port.out"
 done
+
+# An enabled systemd unit owns the cold-start control plane even while its
+# listener is absent; the direct launcher must not recreate the :7977 race.
+if env "${common_env[@]}" NORTH_TEST_SYSTEMD_ENABLED=1 "$UP" >"$TMP/enabled-unit-cold-start.out" 2>&1; then
+  echo "north-coord-up test: direct cold start raced an enabled systemd unit" >&2
+  exit 1
+fi
+grep -q 'north-coord.service is enabled; refusing a direct cold start.*systemctl start north-coord.service' \
+  "$TMP/enabled-unit-cold-start.out"
+[[ ! -e "$STATE/daemon-pid" ]]
 
 env "${common_env[@]}" "$UP" >"$TMP/start.out"
 DAEMON_PID="$(cat "$STATE/daemon-pid")"
@@ -393,6 +412,18 @@ printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_
 env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" "$UP" --check-runtime \
   >"$TMP/plain-checkout-match.out"
 grep -q '^coordinator runtime identity OK on :39871' "$TMP/plain-checkout-match.out"
+kill -0 "$LISTENER_PID"
+
+# The packaged launcher must judge code identity by revision, not by whether a
+# same-revision coordinator reports a checkout/deployment source path.
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV="$FRAM_REV" "$UP" --check-runtime \
+  >"$TMP/rev-match-mode-advisory.out"
+grep -q '^coordinator runtime identity OK on :39871' "$TMP/rev-match-mode-advisory.out"
+grep -q '^north coord-doctor: advisory .*matching revision' "$TMP/rev-match-mode-advisory.out"
 kill -0 "$LISTENER_PID"
 
 kill "$LISTENER_PID"

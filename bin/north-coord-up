@@ -232,6 +232,7 @@ listener_pids() {
 proc_root="${NORTH_PROC_ROOT:-/proc}"
 listener_supervisor=
 listener_identity_error=
+listener_identity_advisory=
 listener_ownership_error=
 owned_listener_pid=
 owned_listener_birth=
@@ -345,6 +346,11 @@ supervisor_for_pid() {
   return 1
 }
 
+systemd_coordinator_enabled() {
+  command -v systemctl >/dev/null 2>&1 &&
+    systemctl is-enabled --quiet north-coord.service 2>/dev/null
+}
+
 runtime_identity_matches_pid() {
   local pid="$1" running_source running_rev running_tree running_daemon
   local running_head derived_tree source_is_verified_deployment_snapshot=0
@@ -387,11 +393,13 @@ runtime_identity_matches_pid() {
       source_is_verified_deployment_snapshot=1
     fi
   fi
-  if [[ ( "$running_source" != "$runtime_source" && "$source_is_verified_deployment_snapshot" -ne 1 ) ||
-        "$running_rev" != "$runtime_rev" ||
-        ( "$runtime_selector" == checkout && "$running_tree" != "$runtime_tree" ) ]]; then
+  if [[ "$running_rev" != "$runtime_rev" ]]; then
     listener_identity_error="PID $pid runs Fram source=$running_source rev=$running_rev tree=${running_tree:-unknown}; desired source=$runtime_source rev=$runtime_rev tree=$runtime_tree"
     return 1
+  fi
+  if [[ "$running_source" != "$runtime_source" ||
+        ( "$runtime_selector" == checkout && "$running_tree" != "$runtime_tree" ) ]]; then
+    listener_identity_advisory="PID $pid runs source=$running_source tree=${running_tree:-unknown}; desired source=$runtime_source tree=$runtime_tree (matching revision $runtime_rev)"
   fi
   if [[ -n "$running_daemon" ]]; then
     running_daemon="$(canonical_path "$running_daemon")"
@@ -403,8 +411,7 @@ runtime_identity_matches_pid() {
             "$running_daemon" == "$running_source${runtime_daemon#"$runtime_source"}" ]]; then
         :
       else
-        listener_identity_error="PID $pid runs Fram executable=$running_daemon; desired executable=$runtime_daemon"
-        return 1
+        listener_identity_advisory="${listener_identity_advisory:+$listener_identity_advisory; }PID $pid runs executable=$running_daemon; desired executable=$runtime_daemon (matching revision $runtime_rev)"
       fi
     fi
   fi
@@ -494,6 +501,7 @@ fi
 if [[ "$check_runtime" -eq 1 ]]; then
   if [[ "$identity_matches" -eq 1 ]]; then
     echo "coordinator runtime identity OK on :$FRAM_PORT (source: $runtime_source, rev: $runtime_rev)"
+    [[ -z "$listener_identity_advisory" ]] || echo "north coord-doctor: advisory — $listener_identity_advisory"
     exit 0
   fi
   echo "north coord-doctor: coordinator runtime identity UNHEALTHY — ${listener_identity_error:-no listener identity available}" >&2
@@ -618,6 +626,10 @@ if [[ ( "$restart" -eq 1 || "$stop" -eq 1 ) && "$same_log" -eq 1 ]]; then
 fi
 
 diagnostic_log="${FRAM_DAEMON_LOG:-$state_home/north/fram-daemon-$FRAM_PORT.log}"
+if [[ -z "$before_pids" ]] && systemd_coordinator_enabled; then
+  echo "north up: north-coord.service is enabled; refusing a direct cold start that systemd would race. Use systemctl start north-coord.service." >&2
+  exit 1
+fi
 mkdir -p "$(dirname "$FRAM_LOG")" "$(dirname "$diagnostic_log")"
 
 echo "starting coordinator on :$FRAM_PORT  (log: $FRAM_LOG)"
