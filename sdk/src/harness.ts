@@ -405,7 +405,39 @@ function renewPresence(self: string): void {
 // The per-lane UNIQUE tail: agent id + repo are the only truly lane-specific
 // bytes in the prompt, so they land LAST (P1) — after every shared tier — instead
 // of at ~byte 330, where they used to defeat cross-lane prefix-cache sharing.
-function coordinationBlock(self: string, cwd: string): string {
+/**
+ * A managed Codex lane runs inside Codex's workspace-write sandbox with the
+ * network unshared. Every North CLI write (`north tell`, `north evidence
+ * record`, `bin/concern …`) reaches the graph through the coordinator socket,
+ * so from inside that sandbox it CANNOT succeed — observed 2026-07-26:
+ * `north tell` returns "no coordinator on 127.0.0.1:7977" with networkAccess
+ * false and commits the fact when network is allowed. The North MCP server is
+ * spawned by Codex OUTSIDE the sandbox, and its `tell` tool was observed
+ * writing a durable fact from inside a managed thread. So: tell Codex agents
+ * the write path they actually have, instead of one that is guaranteed to fail.
+ *
+ * READS go the same way. The coordinator socket is unreachable in either
+ * direction from an unshared network namespace, so `north show` from the shell
+ * is no more available than `north tell`; the MCP `show`/`board` tools are the
+ * lane's read path as well.
+ */
+function managedCodexShellBoundary(): string {
+  return [
+    ``, ``, `## managed Codex sandbox — your actual write paths`,
+    `Your shell has NO network. Every North CLI that writes the graph (\`north tell\`,`,
+    `\`north evidence record\`, \`bin/concern …\`) talks to the coordinator over a socket,`,
+    `so from your shell it fails — a graph write attempted that way is a lost write.`,
+    `Write the graph with the north MCP tools instead (tell, evidence_record, capture,`,
+    `show, ready, next, board). They run outside the sandbox and are the ONLY graph path`,
+    `you have — use the MCP \`show\`/\`board\` tools to READ too, not the shell CLI.`,
+    `Your workspace IS writable, including its git metadata: stage and COMMIT on your`,
+    `lane branch. You cannot push (no network) and must not try — your commits are`,
+    `harvested to the canonical checkout when the lane settles, and the coordinator lands`,
+    `them. Anything outside the workspace is read-only.`,
+  ].join("\n");
+}
+
+function coordinationBlock(self: string, cwd: string, provider?: ProviderId): string {
   const repo = cwd.split("/").filter(Boolean).pop() ?? "repo";
   const proto = [
     ``, ``, `## north coordination`,
@@ -419,7 +451,7 @@ function coordinationBlock(self: string, cwd: string): string {
     `Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.`,
     `Run \`${REPO}/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.`,
   ].join("\n");
-  return proto;
+  return provider === "openai" ? proto + managedCodexShellBoundary() : proto;
 }
 
 // AGENT_ESO=on|off — appends dense-handoff instruction to every spawned agent.
@@ -1017,7 +1049,7 @@ function composeSystemPrompt(
   const core = state.basePrompt + constitution.core;
   const cap = state.orchestrationAppendix + constitution.cap;
   const repo = projectAgentsAppendix(state.cwd) + constitution.repo;
-  const tail = coordinationBlock(state.self, state.cwd) + delta.appendix;
+  const tail = coordinationBlock(state.self, state.cwd, provider) + delta.appendix;
   const stablePrefix = core + cap + repo;
   const prompt = stablePrefix + tail;
   let contextWindow: ReturnType<typeof observeProviderContextWindow>;

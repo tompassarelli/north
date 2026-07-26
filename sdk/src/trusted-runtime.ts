@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { accessSync, constants, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 export class TrustedGitOracleError extends Error {
   constructor(readonly code: "execution_failed" | "unexpected_result", options?: ErrorOptions) {
@@ -189,6 +190,47 @@ export function trustedGitProjectRoot(
     }
     throw new TrustedGitOracleError("execution_failed", { cause });
   }
+}
+
+/**
+ * The exact Git metadata roots a checkout needs in order to COMMIT: its own
+ * `--git-dir` (index/HEAD/logs) and its `--git-common-dir` (objects/refs, which
+ * a linked worktree shares with the main checkout). Both are returned canonical
+ * and deduplicated; an ordinary repository yields one path.
+ *
+ * Codex's workspace-write sandbox makes the workspace writable but keeps the
+ * Git metadata directory read-only unless it is named as a writable root, so a
+ * managed lane cannot commit without this. Observed 2026-07-26 through the
+ * managed app-server `command/exec` seam: `git commit` under
+ * `writableRoots: []` fails `.git/index.lock: Read-only file system`; the same
+ * command with the git dir as a writable root exits 0.
+ */
+export function trustedGitMetadataRoots(
+  cwd: string,
+  gitExecutable = trustedGitExecutable(),
+): string[] {
+  const canonicalCwd = realpathSync(cwd);
+  const read = (flag: "--git-dir" | "--git-common-dir"): string | undefined => {
+    let value: string;
+    try {
+      value = execFileSync(gitExecutable, ["-C", canonicalCwd, "rev-parse", flag], {
+        encoding: "utf8",
+        env: gitOracleEnvironment(),
+        timeout: 2_000,
+        maxBuffer: 16 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch { return undefined; }
+    if (!value) return undefined;
+    try { return realpathSync(resolve(canonicalCwd, value)); }
+    catch { return undefined; }
+  };
+  const roots: string[] = [];
+  for (const flag of ["--git-dir", "--git-common-dir"] as const) {
+    const root = read(flag);
+    if (root && !roots.includes(root)) roots.push(root);
+  }
+  return roots.sort();
 }
 
 export function trustedGitBranchName(

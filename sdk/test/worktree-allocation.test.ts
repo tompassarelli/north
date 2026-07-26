@@ -6,9 +6,11 @@ import {
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  harvestWorktreeBranch,
   provisionWorktree,
   rollbackProvisionedWorktree,
   worktreeFinalize,
+  type ProvisionedWorktree,
   type WorktreeAllocationEvent,
   type WorktreeAllocationRegistration,
   type WorktreeAllocationWriter,
@@ -283,5 +285,95 @@ describe("commit capability under a workspace-only write sandbox", () => {
       .toBe(realpathSync(repo));
 
     rmSync(lease.path, { recursive: true, force: true });
+  });
+});
+
+describe("terminal harvest of a lane's committed work (defect B)", () => {
+  // A lane clone's commits live ONLY in its own /tmp-resident object store, so a lane that
+  // committed real work and then died left work the documented landing step ("ff-merge
+  // lane-<id> in the main tree") could not even name. Harvest fetches the lane branch back
+  // into the canonical repository — a local fetch, never a push.
+  function laneCommit(loc: ProvisionedWorktree, body: string): string {
+    writeFileSync(join(loc.path, "landed.txt"), body);
+    git(loc.path, "add", "landed.txt");
+    git(loc.path, "-c", "user.email=lane@test.invalid", "-c", "user.name=lane",
+      "commit", "-qm", `lane work: ${body.trim()}`);
+    return git(loc.path, "rev-parse", "HEAD");
+  }
+
+  function withNeutralNorthBin<T>(run: () => T): T {
+    const prior = process.env.NORTH_BIN;
+    process.env.NORTH_BIN = "/bin/true";
+    try { return run(); }
+    finally {
+      if (prior === undefined) delete process.env.NORTH_BIN;
+      else process.env.NORTH_BIN = prior;
+    }
+  }
+
+  test("a died lane's committed branch reaches the canonical repository, and nothing is pushed", () => {
+    const capture: Capture = { registrations: [], events: [] };
+    const id = `harvest-died-${process.pid}`;
+    const lease = provisionWorktree(id, { repoRoot: repo, ...ownership(id, capture) });
+    const laneHead = laneCommit(lease, "harvested work\n");
+    const canonicalHeadBefore = git(repo, "rev-parse", "HEAD");
+
+    // The pre-fix state: the canonical repo cannot name the lane's commits at all.
+    expect(git(repo, "branch", "--list", lease.branch)).toBe("");
+
+    withNeutralNorthBin(() => worktreeFinalize(id, "died", { ...lease }));
+
+    expect(git(repo, "rev-parse", "--verify", `refs/heads/${lease.branch}`)).toBe(laneHead);
+    expect(git(repo, "cat-file", "-t", laneHead)).toBe("commit");
+    // Harvest is additive only: the canonical working tree and HEAD never move, and the
+    // lane's clone is still preserved for salvage.
+    expect(git(repo, "rev-parse", "HEAD")).toBe(canonicalHeadBefore);
+    expect(existsSync(lease.path)).toBe(true);
+    expect(git(lease.path, "remote", "get-url", "--push", "origin"))
+      .toBe("north-disabled://managed-clone-no-push");
+
+    git(repo, "branch", "-D", lease.branch);
+    rmSync(lease.path, { recursive: true, force: true });
+  });
+
+  test("harvest reports its observation: commits, nothing-committed, and a refused divergence", () => {
+    const capture: Capture = { registrations: [], events: [] };
+    const bare = `harvest-observed-${process.pid}`;
+    const empty = provisionWorktree(bare, { repoRoot: repo, ...ownership(bare, capture) });
+    expect(harvestWorktreeBranch(bare, empty)).toMatchObject({
+      status: "nothing-committed", commits: 0, ref: `refs/heads/${empty.branch}`,
+    });
+    // Nothing committed => no litter in the canonical ref space.
+    expect(git(repo, "branch", "--list", empty.branch)).toBe("");
+    rmSync(empty.path, { recursive: true, force: true });
+
+    const id = `harvest-counted-${process.pid}`;
+    const lease = provisionWorktree(id, { repoRoot: repo, ...ownership(id, capture) });
+    laneCommit(lease, "first\n");
+    const laneHead = laneCommit(lease, "second\n");
+    expect(harvestWorktreeBranch(id, lease)).toMatchObject({
+      status: "harvested", commits: 2, headOid: laneHead,
+    });
+    // Idempotent: re-harvesting the same head is a no-op fast-forward, not a failure.
+    expect(harvestWorktreeBranch(id, lease)).toMatchObject({ status: "harvested" });
+
+    // A canonical ref that diverged from the lane is NEVER overwritten — the harvest is
+    // reported unavailable and the existing commits stand.
+    const divergent = `harvest-divergent-${process.pid}`;
+    const other = provisionWorktree(divergent, { repoRoot: repo, ...ownership(divergent, capture) });
+    laneCommit(other, "lane side\n");
+    writeFileSync(join(repo, "canonical.txt"), "canonical side\n");
+    git(repo, "add", "canonical.txt");
+    git(repo, "-c", "user.email=main@test.invalid", "-c", "user.name=main",
+      "commit", "-qm", "canonical divergence");
+    git(repo, "branch", other.branch, "HEAD");
+    const canonicalRef = git(repo, "rev-parse", `refs/heads/${other.branch}`);
+    expect(harvestWorktreeBranch(divergent, other).status).toBe("unavailable");
+    expect(git(repo, "rev-parse", `refs/heads/${other.branch}`)).toBe(canonicalRef);
+
+    git(repo, "branch", "-D", lease.branch);
+    git(repo, "branch", "-D", other.branch);
+    rmSync(lease.path, { recursive: true, force: true });
+    rmSync(other.path, { recursive: true, force: true });
   });
 });

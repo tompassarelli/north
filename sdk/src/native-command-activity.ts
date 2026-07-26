@@ -27,6 +27,8 @@ export interface NativeCommandActivityObservation {
   failedCommands?: number;
   declinedCommands?: number;
   truncatedCommands?: number;
+  /** Commands still in flight when a failed turn was harvested. */
+  openCommands?: number;
   northBinaryProbe: NorthBinaryProbeStatus;
   completions: ReadonlyArray<Readonly<NativeCommandCompletionEvidence>>;
 }
@@ -133,6 +135,28 @@ export class NativeCommandActivityAccumulator {
   }
   reopen(): void { this.terminal = false; }
   invalidate(): void { this.identityLoss = true; }
+
+  /**
+   * Native commands observed when a turn DIED mid-flight. Coverage is always
+   * "partial" (an interrupted turn may have commands still open), and the North
+   * binary probe is never reported as passed from a partial observation.
+   */
+  harvest(): NativeCommandActivityObservation {
+    if (this.terminal) return this.snapshot();
+    const completions = Object.freeze(this.completions.map((entry) => Object.freeze({ ...entry })));
+    return Object.freeze({
+      source: NATIVE_COMMAND_ACTIVITY_SOURCE,
+      coverage: "partial" as const,
+      totalCommands: this.calls.size,
+      successfulCommands: this.successful,
+      failedCommands: this.failed,
+      declinedCommands: this.declined,
+      ...(this.truncated ? { truncatedCommands: this.truncated } : {}),
+      ...(this.open.size ? { openCommands: this.open.size } : {}),
+      northBinaryProbe: "not_observed" as const,
+      completions,
+    });
+  }
 
   snapshot(): NativeCommandActivityObservation {
     if (!this.terminal) {

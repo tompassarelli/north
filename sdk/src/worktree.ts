@@ -131,6 +131,19 @@ export interface WorktreeTerminalFailure {
   phase: string;
 }
 
+// What the terminal harvest observed about the lane's COMMITTED work (defect B).
+//   - 'harvested'        : the lane branch now exists in the canonical repository at headOid
+//   - 'nothing-committed': the lane never moved its branch off the allocation base
+//   - 'unavailable'      : the lane's commits could not be read or could not be fast-forwarded
+//                          into the canonical ref; the clone remains the only copy (`reason`)
+export interface WorktreeHarvest {
+  status: "harvested" | "nothing-committed" | "unavailable";
+  ref: string;
+  headOid?: string;
+  commits?: number;
+  reason?: string;
+}
+
 function allocationBb(): string {
   return process.env.NORTH_PEER_BB ?? "bb";
 }
@@ -309,6 +322,26 @@ export function cloneNeuterPushArgs(agentId: string, repoRoot: string): string[]
   return ["-C", worktreePath(agentId, repoRoot), "remote", "set-url", "--push", "origin", CLONE_PUSH_SENTINEL];
 }
 
+// HARVEST (defect B) — the counterpart of the clone's isolation. A lane's commits live ONLY
+// in its own object store under /tmp: the canonical checkout has no ref to them, so a lane
+// that committed real work and then hit a terminal boundary left work that the documented
+// landing protocol ("the coordinator ff-merges `lane-<id>` in the main tree") could not even
+// name. Harvest fetches the lane branch back into the canonical repository under the durable
+// ref the allocation already reserved, so the commits survive the /tmp clone and the landing
+// step becomes executable.
+//
+// Provider-honest by construction: a FETCH from a local path, never a push — nothing leaves
+// the machine, the push url stays neutered, and the canonical working tree is untouched (a
+// new ref only). Non-forced, so a harvest can only ever CREATE or fast-forward the ref; a
+// divergence is reported, never resolved by overwriting someone's commits.
+export function harvestFetchArgs(agentId: string, repoRoot: string): string[] {
+  const ref = `refs/heads/${worktreeBranch(agentId)}`;
+  return [
+    "-C", repoRoot, "fetch", "--no-tags", "--no-write-fetch-head",
+    "--", worktreePath(agentId, repoRoot), `${ref}:${ref}`,
+  ];
+}
+
 // A clean removal of a self-contained clone is a single filesystem delete of the workspace
 // directory — the whole git-dir (branch, refs, index) lives inside it, so there is NO
 // canonical linked-worktree registration or shared branch to unwind. Plain `rm -rf <path>`
@@ -353,6 +386,8 @@ export function worktreePayload(o: { path: string; branch: string; mainReportsDi
     `1. Commit all work on \`${o.branch}\` (own index — zero cross-lane contamination).`,
     `2. Rebase onto latest main IN THIS WORKTREE: \`git fetch && git rebase origin/main\`.`,
     `   Resolve any conflicts HERE — you hold the context. Step 3 is impossible until clean.`,
+    `   Your commits are HARVESTED to \`${o.branch}\` in the canonical checkout when your lane`,
+    `   settles — committing is what makes the work survive this workspace. Never push.`,
     `3. The coordinator ff-merges in the main tree: \`git merge --ff-only ${o.branch}\`.`,
     `   \`--ff-only\` guarantees no merge commit; if it can't fast-forward, re-rebase (you were stale).`,
     `4. Push from the main tree via \`safe-push\` (never raw git push).`,
@@ -569,6 +604,56 @@ export function rollbackProvisionedWorktree(
   tellOrphaned(agentId, loc.path, "spawn aborted before provider execution; preserved for explicit recovery");
 }
 
+// FAIL OPEN. Fetch the lane branch out of the (isolated, /tmp-resident) clone and into the
+// canonical repository's durable ref, so a terminal — clean OR violent — never leaves the
+// lane's commits reachable from one directory only. Read-only with respect to the canonical
+// working tree and to the lane clone; the clone is still preserved by worktreeFinalize, so a
+// failed harvest costs discoverability, never the work itself.
+export function harvestWorktreeBranch(
+  agentId: string,
+  loc: ProvisionedWorktree,
+): WorktreeHarvest {
+  const ref = `refs/heads/${worktreeBranch(agentId)}`;
+  let headOid: string | undefined;
+  try {
+    headOid = git(["-C", loc.path, "rev-parse", "--verify", ref]).trim();
+    if (headOid === loc.allocation.baseOid)
+      return { status: "nothing-committed", ref, headOid, commits: 0 };
+    const counted = Number.parseInt(
+      git(["-C", loc.path, "rev-list", "--count", `${loc.allocation.baseOid}..${headOid}`]).trim(),
+      10,
+    );
+    const commits = Number.isSafeInteger(counted) && counted >= 0 ? counted : undefined;
+    git(harvestFetchArgs(agentId, loc.repoRoot));
+    const landed = git(["-C", loc.repoRoot, "rev-parse", "--verify", ref]).trim();
+    if (landed !== headOid)
+      return {
+        status: "unavailable", ref, headOid, commits,
+        reason: `canonical ${ref} settled on ${landed}, not the lane head`,
+      };
+    return { status: "harvested", ref, headOid, commits };
+  } catch (error) {
+    return {
+      status: "unavailable", ref, headOid,
+      reason: (error as Error)?.message ?? String(error),
+    };
+  }
+}
+
+// One line of prose for the durable worktree_orphaned fact: the harvest is only useful if the
+// coordinator can read WHERE the commits are without re-deriving them.
+function harvestDetail(harvest: WorktreeHarvest): string {
+  switch (harvest.status) {
+    case "harvested":
+      return `harvested ${harvest.commits ?? "?"} commit(s) to ${harvest.ref} @ ${harvest.headOid}`
+        + ` in the canonical checkout (ff-merge to land; nothing was pushed)`;
+    case "nothing-committed":
+      return "no commits beyond the allocation base to harvest";
+    default:
+      return `branch harvest unavailable (${harvest.reason ?? "unknown"}) — the clone is the only copy`;
+  }
+}
+
 // Surface a kept worktree as a durable, queryable fact so the sweep + a human can salvage it.
 function tellOrphaned(agentId: string, path: string, reason: string): void {
   try {
@@ -585,6 +670,18 @@ export function worktreeFinalize(
   loc: ProvisionedWorktree,
   terminalFailure?: WorktreeTerminalFailure,
 ): void {
+  // Harvest FIRST: a lane's committed work must become reachable from the canonical
+  // repository before any cleanliness judgement, so even an indeterminate tail publishes
+  // where the commits are.
+  const harvest = harvestWorktreeBranch(agentId, loc);
+  if (harvest.status === "harvested")
+    console.error(
+      `[worktree] @agent:${agentId} ${harvestDetail(harvest)}`,
+    );
+  else if (harvest.status === "unavailable")
+    console.error(
+      `[worktree] @agent:${agentId} could not harvest ${harvest.ref}: ${harvest.reason ?? "unknown"}`,
+    );
   try {
     const dirty = worktreeDirty(loc.path);
     if (dirty === null) {
@@ -592,7 +689,8 @@ export function worktreeFinalize(
         error: { code: "git_status_unavailable", phase: "finalize" },
         recovery: allocationRecovery(loc.allocation, loc.path, "inspect-and-salvage"),
       });
-      tellOrphaned(agentId, loc.path, "git status unavailable at finalize — inspect allocation ledger");
+      tellOrphaned(agentId, loc.path,
+        `git status unavailable at finalize — inspect allocation ledger; ${harvestDetail(harvest)}`);
       return;
     }
     // Lifecycle events carry the exact final commit even though the immutable
@@ -615,7 +713,7 @@ export function worktreeFinalize(
         loc.allocation, loc.path, decision === "remove" ? "remove-if-clean" : "inspect-and-salvage",
       ),
     });
-    tellOrphaned(agentId, loc.path, reason);
+    tellOrphaned(agentId, loc.path, `${reason}; ${harvestDetail(harvest)}`);
   } catch {
     // Provider execution already completed; preserve the historical fail-open
     // terminal contract. The static committed allocation remains queryable.

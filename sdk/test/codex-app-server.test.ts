@@ -12,14 +12,16 @@ import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
-  ManagedCodexAppServerRun, ManagedCodexPreThreadError,
+  ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
   managedCodexAppServerLaunch,
 } from "../src/providers/codex-app-server";
+import { managedCodexHarvestMessages } from "../src/providers/openai";
 import { expectedManagedCodexHooks } from "../src/providers/codex-managed-hooks";
 import { codexSupervisorStatusLine } from "../src/providers/codex-supervisor-protocol";
 import type { OpenAIAuthoritySurface } from "../src/providers/authority";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
+import { trustedGitMetadataRoots } from "../src/trusted-runtime";
 import {
   FRAM_MCP_TOOL_NAMES, framMcpCommand, framMcpEnvironment,
 } from "../src/fram-graph-authoring";
@@ -197,11 +199,16 @@ function setup(mode = "ok") {
     include_only: null,
     experimental_use_profile: null,
   };
+  // The workspace-write sandbox grants exactly the checkout's Git metadata roots
+  // so a managed lane can commit what it wrote; the fixture mirrors production
+  // rather than restating a hard-coded path.
+  const writableRoots = trustedGitMetadataRoots(cwd);
   const session = {
     cli_auth_credentials_store: "file",
     forced_login_method: "chatgpt",
     model_provider: "openai",
     sqlite_home: sqliteHome,
+    ...(writableRoots.length ? { sandbox_workspace_write: { writable_roots: writableRoots } } : {}),
     project_root_markers: [".git"],
     projects: { [cwd]: { trust_level: "untrusted" } },
     project_doc_max_bytes: 0,
@@ -321,7 +328,7 @@ function setup(mode = "ok") {
         instructionSources: [join(codexHome, "AGENTS.md")], approvalPolicy: "never",
         approvalsReviewer: "user",
         sandbox: {
-          type: "workspaceWrite", writableRoots: [], networkAccess: false,
+          type: "workspaceWrite", writableRoots, networkAccess: false,
           excludeTmpdirEnvVar: false, excludeSlashTmp: false,
         },
         activePermissionProfile: null, reasoningEffort: "high",
@@ -444,6 +451,9 @@ function setup(mode = "ok") {
         totalTokens: 12, inputTokens: 9, cachedInputTokens: 4,
         outputTokens: 3, reasoningOutputTokens: 1,
       } } });
+      if (mode === "notification-unknown-flood")
+        for (let index = 0; index <= 16; index += 1)
+          notify(`future/authority/${index}`, { enabled: true });
       if (mode === "notification-wrong-thread")
         notify("turn/diff/updated", { threadId: "wrong", turnId, diff: "x" });
       if (mode === "notification-malformed")
@@ -532,6 +542,8 @@ function setup(mode = "ok") {
           current.layers[0].version = `sha256:${"f".repeat(64)}`;
         if (mode === "terminal-notification-unknown" && configReads > 2)
           notify("future/authority", { enabled: true });
+        if (mode === "settlement-config-drift" && configReads > 2)
+          current.layers[0].version = `sha256:${"e".repeat(64)}`;
         result(request, current);
         return;
       }
@@ -1321,7 +1333,7 @@ test("pre-thread authority mutants fail before thread/start", async () => {
     "shell-policy-missing", "shell-policy-wrong-inherit", "shell-policy-drift",
     "shell-policy-extra-key", "login-shell-enabled",
     "mcp-server-info", "remote-enabled", "remote-extra-field", "remote-missing-installation",
-    "deprecation-extra-field", "notification-unknown-prethread", "server-request-prethread",
+    "deprecation-extra-field", "server-request-prethread",
     "config-warning-drift",
   ];
   for (const mode of modes) {
@@ -1375,7 +1387,7 @@ test("post-thread drift, rejection, malformed traffic, and hook failures are nev
     "hook-pretool-stopped", "hook-posttool-stopped", "hook-posttool-failed",
     "hook-missing-completion", "hook-duplicate-completion", "hook-session-invalid-turn",
     "hook-session-scope", "hook-tool-null-turn", "hook-tool-thread-scope",
-    "hook-completion-event-drift", "terminal-notification-unknown",
+    "hook-completion-event-drift",
   ];
   for (const mode of modes) {
     const { options } = setup(mode);
@@ -1473,4 +1485,110 @@ test("every launch preflight cause has stable diagnosis and fails before process
       .toBe(`managed Codex account contains authority-bearing ${authority}`);
     expect(requests).toEqual([]);
   }
+});
+
+test("a workspace-write lane is granted exactly its Git metadata roots, and no more", async () => {
+  const { options, requests } = setup();
+  const expectedRoots = trustedGitMetadataRoots(options.cwd);
+  expect(expectedRoots.length).toBeGreaterThan(0);
+
+  const contract = managedCodexAppServerLaunch(options as any);
+  expect(contract.writableRoots).toEqual(expectedRoots);
+  const rootsArgument = `sandbox_workspace_write.writable_roots=${JSON.stringify(expectedRoots)}`;
+  expect(contract.args).toContain(rootsArgument);
+  expect((contract.expectedSessionConfig as any).sandbox_workspace_write)
+    .toEqual({ writable_roots: expectedRoots });
+  // The grant is Git metadata only: never the North state root, never the home,
+  // and network stays unshared so a lane can commit but can never push.
+  for (const root of contract.writableRoots) expect(root.endsWith(".git")
+    || root.includes("/.git/worktrees/")).toBe(true);
+
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toMatchObject({
+    text: "managed answer",
+  });
+  expect(requests.some(({ method }) => method === "turn/start")).toBe(true);
+});
+
+test("a read-only lane is granted no writable root at all", () => {
+  const { options } = setup();
+  const readOnly = {
+    ...options,
+    surface: { ...surface, sandbox: "read-only" } as OpenAIAuthoritySurface,
+  };
+  const contract = managedCodexAppServerLaunch(readOnly as any);
+  expect(contract.writableRoots).toEqual([]);
+  expect((contract.expectedSessionConfig as any).sandbox_workspace_write).toBeUndefined();
+  expect(contract.args.some((argument) => argument.startsWith("sandbox_workspace_write")))
+    .toBe(false);
+});
+
+test("an unrecognized notification is ignored, counted, and never terminal — a flood still is", async () => {
+  for (const mode of ["notification-unknown-prethread", "terminal-notification-unknown"]) {
+    const { options } = setup(mode);
+    const run = new ManagedCodexAppServerRun(options);
+    // A new provider build adding one telemetry notification used to kill the
+    // lane and orphan its work. The turn now completes.
+    await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
+  }
+
+  const flood = setup("notification-unknown-flood");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(flood.options).execute(); }
+  catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  expect((caught as Error).message).toBe("openai_provider_execution_failed");
+});
+
+test("a failure after landed work carries a harvest instead of erasing the turn", async () => {
+  const { options } = setup("notification-terminal-error");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(options).execute(); }
+  catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  expect((caught as Error).message).toBe("openai_provider_execution_failed");
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.landedWork).toBe(true);
+  expect(harvest.text).toBe("managed answer");
+  expect(harvest.threadId).toBe("019f7abc-0000-7000-8000-000000000001");
+  expect(harvest.turnIds).toEqual(["019f7abc-0000-7000-8000-000000000002"]);
+  expect(harvest.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
+  expect(harvest.mcp).toMatchObject({ totalCalls: 1 });
+  expect(harvest.nativeCommands).toMatchObject({ totalCommands: 1 });
+
+  const messages = managedCodexHarvestMessages(caught as ManagedCodexHarvestError);
+  expect(messages).toHaveLength(2);
+  expect(messages[0]).toMatchObject({ type: "assistant" });
+  // Loud failure, not a fake success — and the work is in the record.
+  expect(messages[1]).toMatchObject({
+    type: "result", subtype: "error_during_execution", is_error: true, result: "managed answer",
+  });
+  expect(messages[1]._north_harvest).toMatchObject({
+    threadId: "019f7abc-0000-7000-8000-000000000001", completedTurns: 0,
+  });
+  expect(messages[1].usage).toMatchObject({ input_tokens: 9 });
+});
+
+test("a pre-thread failure harvests nothing, preserving the provider-death retry gate", async () => {
+  const { options } = setup("mcp-auth");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(options).execute(); }
+  catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  expect(caught).not.toBeInstanceOf(ManagedCodexHarvestError);
+});
+
+test("config drift observed AFTER a completed turn delivers the turn and refuses continuation", async () => {
+  const { options } = setup("settlement-config-drift");
+  const run = new ManagedCodexAppServerRun(options);
+  // The turn already ran under authority proven at its start; discarding its
+  // result over a post-hoc drift is exactly how landed work got orphaned.
+  await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
+
+  const continued = setup("settlement-config-drift");
+  const session = new ManagedCodexAppServerRun(continued.options)
+    .session(async () => "second frame");
+  await expect(session.next()).resolves.toMatchObject({
+    value: { text: "managed answer" },
+  });
+  await expect(session.next()).rejects.toBeInstanceOf(ManagedCodexHarvestError);
 });
