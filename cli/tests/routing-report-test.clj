@@ -362,7 +362,7 @@
       unattributed-usage (first (filter #(= "unattributed" (:provider %)) (:providers usage)))]
   (check "performance defaults to complete current managed-run evidence"
          (and (= "complete-current-managed" (:scope performance))
-              (= "v4" (:evidenceVersion performance))
+              (= "v5" (:evidenceVersion performance))
               (= 3 (:runs performance)) (= 8 (:availableRuns performance))
               (= 5 (:excludedRuns performance))
               (= 3 (reduce + (map :threadClosedEvidenced cohorts)))
@@ -378,8 +378,29 @@
               (= 8 (:runs all-performance))
               (zero? (:excludedRuns all-performance))
               (= 3 (reduce + (map :deliveryBlocked (:cohorts all-performance))))))
+  (check "an unrecognized blocked reason is its own unattributed bucket, never silently split"
+         ;; @run-c/@run-unknown/@run-unattributed all carry the generic legacy
+         ;; "provider process did not complete" reason, which is not one of the
+         ;; real BLOCKED_REASON tokens, so none of the attributed buckets claim it.
+         (and (= 3 (reduce + (map :deliveryBlockedUnattributed (:cohorts all-performance))))
+              (zero? (reduce + (map :deliveryBlockedProviderCaused (:cohorts all-performance))))
+              (zero? (reduce + (map :deliveryBlockedNorthCaused (:cohorts all-performance))))
+              (zero? (reduce + (map :deliveryBlockedSuspectLapse (:cohorts all-performance))))))
+  (check "the blocked-reason buckets always partition the blocked total"
+         (every? (fn [row]
+                   (= (:deliveryBlocked row)
+                      (+ (:deliveryBlockedProviderCaused row)
+                         (:deliveryBlockedNorthCaused row)
+                         (:deliveryBlockedSuspectLapse row)
+                         (:deliveryBlockedUnattributed row))))
+                 (:cohorts all-performance)))
   (check "performance carries an explicit non-causal quality disclaimer"
          (str/includes? (:claim performance) "not causal model quality"))
+  (check "the performance claim tells a reader how to split provider deaths from our own refusals"
+         (and (str/includes? (:claim performance) "deliveryBlockedProviderCaused")
+              (str/includes? (:claim performance) "deliveryBlockedNorthCaused")
+              (str/includes? (:claim performance) "deliveryBlockedSuspectLapse")
+              (str/includes? (:claim performance) "019f9c3b")))
   (check "usage is subscription-safe and contains no dollar measure"
          (and (= "observed work, never dollars or API credits" (:unit usage))
               (= 350 (reduce + (keep :tokens (:providers usage))))
@@ -672,6 +693,98 @@
       (check "--by-model is rejected outside the usage report" (not (zero? (:exit bad-flag))))))
   (finally
     (doseq [file (reverse (file-seq tmp2))] (io/delete-file file true)))))
+
+;; blocked-reason attribution: provider-caused deaths must stay countable
+;; separately from North's own admission/budget/cap/reconciliation refusals
+;; and from reaper-suspected lapse deaths, using the real BLOCKED_REASON
+;; tokens from sdk/src/execution-outcome.ts and the reaper's literal from
+;; cli/north-reactor.clj — never the generic legacy strings used elsewhere
+;; in this fixture file. Isolated fixture set (thread 019f9c42).
+(check "blocked-failure-category recognizes every BLOCKED_REASON token"
+       (and (= :provider-caused (blocked-failure-category "provider_process_died"))
+            (= :provider-caused (blocked-failure-category "provider_process_stalled"))
+            (= :provider-caused (blocked-failure-category "provider_terminal_error"))
+            (= :provider-caused (blocked-failure-category "provider_terminal_empty_result"))
+            (= :north-caused (blocked-failure-category "execution_preflight_blocked"))
+            (= :north-caused (blocked-failure-category "spend_guard_budget_incomplete"))
+            (= :north-caused (blocked-failure-category "provider_turn_cap"))
+            (= :north-caused (blocked-failure-category "provider_cap"))
+            (= :north-caused (blocked-failure-category "resource_envelope_exceeded"))
+            (= :north-caused (blocked-failure-category "provider_escalation_unsupported"))
+            (= :north-caused (blocked-failure-category "escalation_ladder_exhausted"))
+            (= :north-caused (blocked-failure-category "orchestrator_children_live_at_terminal"))
+            (= :north-caused (blocked-failure-category "orchestrator_minimum_children_not_dispatched"))
+            (= :north-caused (blocked-failure-category "orchestrator_child_reconciliation_unavailable"))
+            (= :north-caused (blocked-failure-category "orchestrator_child_results_unreconciled"))
+            (= :north-caused (blocked-failure-category "orchestrator_child_relation_regressed"))
+            (= :suspect-lapse (blocked-failure-category "presence_lapsed_without_committed_terminal"))
+            (= :unattributed (blocked-failure-category "some_future_reason_this_report_does_not_know"))
+            (= :unattributed (blocked-failure-category nil))))
+
+(let [tmp2b (.toFile (java.nio.file.Files/createTempDirectory
+                      "north-routing-report-blocked" (make-array java.nio.file.attribute.FileAttribute 0)))
+      coord2b (io/file tmp2b "coordination.log")
+      telem2b (io/file tmp2b "telemetry.log")
+      env2b {"FRAM_LOG" (.getPath coord2b) "FRAM_TELEMETRY_LOG" (.getPath telem2b)}]
+  (try
+    (doseq [id ["@thread-blk-a" "@thread-blk-b"]]
+      (fact coord2b id "title" (str "Thread " id)))
+    (letfn [(fact2b [l p r] (fact telem2b l p r))
+            (blocked-run! [run thread provider reason]
+              (fact2b run "kind" "run")
+              (fact2b run "agent" (str "agent-" (subs run 5)))
+              (fact2b run "thread" thread)
+              (fact2b run "provider" provider)
+              (fact2b run "model" "test-model")
+              (fact2b run "effort" "high")
+              (fact2b run "role" "migration-forensics")
+              (fact2b run "task_grade" "staff")
+              (fact2b run "outcome" reason)
+              (fact2b run "process_outcome" reason)
+              (fact2b run "delivery_outcome" "blocked")
+              (fact2b run "delivery_reason" reason))]
+      ;; openai: 2 provider-caused (died, empty-result), 1 North-caused (preflight),
+      ;; 1 suspect-lapse. anthropic: 1 provider-caused (stalled), 1 North-caused
+      ;; (spend guard), 1 unattributed (schema drift not yet in the category map).
+      (blocked-run! "@run-blk-died" "@thread-blk-a" "openai" "provider_process_died")
+      (blocked-run! "@run-blk-empty" "@thread-blk-a" "openai" "provider_terminal_empty_result")
+      (blocked-run! "@run-blk-preflight" "@thread-blk-a" "openai" "execution_preflight_blocked")
+      (blocked-run! "@run-blk-lapse" "@thread-blk-a" "openai" "presence_lapsed_without_committed_terminal")
+      (blocked-run! "@run-blk-stalled" "@thread-blk-b" "anthropic" "provider_process_stalled")
+      (blocked-run! "@run-blk-spend" "@thread-blk-b" "anthropic" "spend_guard_budget_incomplete")
+      (blocked-run! "@run-blk-drift" "@thread-blk-b" "anthropic" "some_new_schema_drift_reason")
+      (let [all-perf (let [argv ["bb" (str root "/cli/routing-report.clj")
+                                 "report" "performance" "--json" "--all"]
+                           result (apply proc/shell {:out :string :err :string :extra-env env2b} argv)]
+                       (when-not (zero? (:exit result)) (throw (ex-info (:err result) result)))
+                       (json/parse-string (str/trim (:out result)) true))
+            openai-cohort (first (filter #(str/starts-with? (:cohort %) "openai/") (:cohorts all-perf)))
+            anthropic-cohort (first (filter #(str/starts-with? (:cohort %) "anthropic/") (:cohorts all-perf)))]
+        (check "openai's blocked runs split provider death from our own preflight refusal and suspect lapse"
+               (and (= 4 (:deliveryBlocked openai-cohort))
+                    (= 2 (:deliveryBlockedProviderCaused openai-cohort))
+                    (= 1 (:deliveryBlockedNorthCaused openai-cohort))
+                    (= 1 (:deliveryBlockedSuspectLapse openai-cohort))
+                    (= 0 (:deliveryBlockedUnattributed openai-cohort))))
+        (check "anthropic's blocked runs split provider death from our spend guard, and an unrecognized reason stays unattributed"
+               (and (= 3 (:deliveryBlocked anthropic-cohort))
+                    (= 1 (:deliveryBlockedProviderCaused anthropic-cohort))
+                    (= 1 (:deliveryBlockedNorthCaused anthropic-cohort))
+                    (= 0 (:deliveryBlockedSuspectLapse anthropic-cohort))
+                    (= 1 (:deliveryBlockedUnattributed anthropic-cohort))))
+        (check "per-reason blocked detail is exposed for hand-auditing without a raw log join"
+               (= 1 (get (:deliveryBlockedReasons openai-cohort) :provider_process_died))))
+      (let [human (:out (proc/shell {:out :string :err :string :extra-env env2b}
+                                    "bb" (str root "/cli/routing-report.clj")
+                                    "report" "performance" "--all"))]
+        (check "human performance table carries provider-vs-North blocked columns and the lapse caveat"
+               (and (str/includes? human "blk-pv")
+                    (str/includes? human "blk-us")
+                    (str/includes? human "blk-lp")
+                    (str/includes? human "blk-ot")
+                    (str/includes? human "019f9c3b")))))
+    (finally
+      (doseq [file (reverse (file-seq tmp2b))] (io/delete-file file true)))))
 
 ;; Bounded usage is account-complete, deterministically sliced, and keeps
 ;; unknown token totals distinct from exact zero.
