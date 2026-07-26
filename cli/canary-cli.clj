@@ -13,6 +13,14 @@
 (def NORTH
   (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
 (def NORTH-CLI (str NORTH "/bin/north"))
+(defn delegate-cwd
+  ([] (delegate-cwd (System/getenv)))
+  ([env]
+   ;; The adapter's own tree is authoritative for projection reads, but an
+   ;; installed adapter lives in the Nix store and cannot seed a worktree.
+   ;; Delegate from a real checkout instead; callers may select another one.
+   (or (get env "NORTH_CANARY_TARGET_REPO")
+       (str (System/getProperty "user.home") "/code/north"))))
 (def CANARY-BAR
   "Probe: write one canary file in the managed worktree, commit it, and record this exact bar with north evidence record. Expected: the write, commit, and evidence recording all succeed through the deployed production delegate path.")
 (def CANARY-PIN-DETAIL-PREFIX "recurring-cross-provider-canary:")
@@ -189,7 +197,7 @@
         ;; startup deadline so a slow provider probe is not misread as a
         ;; North-caused admission failure.
         result (run-command (delegate-argv provider target thread evidence)
-                            {:env env :dir NORTH} 180000)
+                            {:env env :dir (delegate-cwd env)} 180000)
         control (when (:ok result) (parse-control-id (:out result)))]
     (when-not (and (:ok result) control)
       (throw (ex-info

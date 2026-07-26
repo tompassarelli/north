@@ -173,6 +173,13 @@
        (and (= root north.canary-cli/NORTH)
             (= (str root "/bin/north") north.canary-cli/NORTH-CLI)))
 
+(check "the composed delegate runs from a target checkout, not the adapter tree"
+       (and (= (str (System/getProperty "user.home") "/code/north")
+               (north.canary-cli/delegate-cwd {}))
+            (= "/tmp/canary-target"
+               (north.canary-cli/delegate-cwd
+                {"NORTH_CANARY_TARGET_REPO" "/tmp/canary-target"}))))
+
 ;; Rows project the thread through `thread-ref`, so the captured bare id must be
 ;; normalized before matching or the wait never terminates.
 (let [rows [(canary-row "2026-07-26T08:00:00Z" "codex-a" "ran" "reported"
