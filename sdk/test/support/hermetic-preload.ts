@@ -24,6 +24,52 @@ for (const key of Object.keys(process.env)) {
     delete process.env[key];
 }
 
+// Same leak, orchestration side: an installed `north` wrapper (or a managed
+// lane launched from one) exports NORTH_ORCHESTRATION_HOME pinned at the
+// packaged runtime contract (flake.nix orchestrationContract) — a Nix store
+// path that deliberately ships only the runtime-needed selection-assessment.mjs
+// + provider-catalog.mjs and omits authoring scripts like compose-routing.mjs
+// (flake.nix: "Generated adapters, authoring scripts, skills, and private
+// docs stay out of North's closure"). Every call site in src/ and test/ falls
+// back to `process.env.NORTH_ORCHESTRATION_HOME ?? <repo>/orchestration` only
+// when the var is ABSENT, so this ambient pin silently substitutes the
+// trimmed package tree for the full source checkout in every hermetic test —
+// observed 2026-07-26: orchestration-spawn-contract.test.ts fails closed with
+// "Module not found .../scripts/compose-routing.mjs" against the packaged
+// path while the same file is green against the repo's orchestration/ tree.
+// Delete it up front, same as the leaks above; tests that need a specific
+// orchestration home set it explicitly in their own fixture.
+delete process.env.NORTH_ORCHESTRATION_HOME;
+
+// NORTH_HOME carries the identical leak one layer up: orchestration-staffing.clj's
+// own orchestration-root fallback is `NORTH_ORCHESTRATION_HOME ?? (NORTH_HOME ??
+// this-root) + "/orchestration"` (cli/orchestration-staffing.clj), so scrubbing only
+// NORTH_ORCHESTRATION_HOME above still leaves an installed `north` wrapper's ambient
+// NORTH_HOME (the same trimmed Nix package root) pointing every `bb bin/north-mcp`
+// child process this suite spawns at `<package>/orchestration`, which does not exist
+// inside that package at all — observed 2026-07-26: mcp-dispatch-contract.test.ts's
+// two recursive-orchestrator-shape assertions fail closed with "resolves through no
+// provider catalog" against the packaged NORTH_HOME while green with it unset (the
+// clj fallback then walks to `this-root`, the compiled-in repo path, which is
+// correct and hermetic). Delete it; tests that need a specific NORTH_HOME (worktree
+// executable resolution, agents-cli-routing) already pass their own literal env
+// objects rather than relying on this ambient value.
+delete process.env.NORTH_HOME;
+
+// Same leak class again, Codex selector side: an installed `north` wrapper exports
+// BOTH NORTH_MANAGED_CODEX_BIN (the wrapper-resolved Codex binary) and
+// NORTH_MCP_MANAGED_CODEX_BIN (the value already forwarded to a live North MCP
+// server) as the SAME real path. execution-admission.ts's managedNorthMcpEnvironment
+// treats those two disagreeing as a hard contradiction (the whole point of the
+// invariant — a stale/forged direct value must never silently diverge from the
+// wrapper's own selection). provider-authority.test.ts's managed-lane-marker test
+// only sets its own fake NORTH_MANAGED_CODEX_BIN (never NORTH_MCP_MANAGED_CODEX_BIN),
+// so under this shell's ambient real value the two now genuinely disagree and the
+// invariant fires — not a bug in the invariant, a hermeticity gap: the test never
+// intended to inherit any ambient Codex selector. Delete it up front; tests that
+// need a specific NORTH_MCP_MANAGED_CODEX_BIN set it explicitly.
+delete process.env.NORTH_MCP_MANAGED_CODEX_BIN;
+
 // Same leak, different shape: a managed dev lane also exports a REAL babashka
 // path (NORTH_PEER_BB/NORTH_BB/NORTH_MCP_BB — src/watchdog.ts:30, src/spend-guard.ts:180,
 // src/harness.ts:68) so its own peer-command/spend-cli plumbing shells out to the
