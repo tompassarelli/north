@@ -68,9 +68,9 @@ import {
 import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
 import {
   loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
-  resolveDeliveryRunState,
+  resolveDeliveryRunState, resolveThreadFacts,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
-  type DeliveryRunStateLoadOptions,
+  type DeliveryRunStateLoadOptions, type ThreadFactsLoadOptions,
 } from "./delivery-evidence";
 import { takeDispatchTestRuntime } from "./internal/test-runtime";
 import { ManagedLiveInputRoute } from "./live-input-route";
@@ -122,6 +122,8 @@ interface DispatchRuntime {
     /** Bounded retry shape for the finalize-time load; tests inject it. */
     loadOptions?: DeliveryRunStateLoadOptions;
   };
+  /** Bounded retry shape for the finalize-time thread-facts load; tests inject it. */
+  threadFactsLoadOptions?: ThreadFactsLoadOptions;
   childSettlementReader?: (agentId: string) => ChildSettlement;
   feedSubscriber?: typeof subscribeFeed;
   registerTermination?: HostTerminationRegistrar;
@@ -198,7 +200,7 @@ async function runDispatch(
   childSettlementReader: (agentId: string) => ChildSettlement = settleChildren,
   feedSubscriber: typeof subscribeFeed = subscribeFeed,
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
-  preflightRuntime: Pick<DispatchRuntime, "refreshAccountUsages"> = {},
+  preflightRuntime: Pick<DispatchRuntime, "refreshAccountUsages" | "threadFactsLoadOptions"> = {},
 ): Promise<DispatchResult> {
   const runStartedAt = process.hrtime.bigint();
   const routingMetadata = hydratedMetadata;
@@ -864,22 +866,37 @@ async function runDispatch(
             : "delivery_reservation_unavailable_at_finalize",
         };
       } else {
-        try {
+        // Same seam as the reservation load above: a contended coordinator
+        // read of the thread's own facts is not a verdict on the thread
+        // (thread 019f9e0d, deferred sibling of 019f9cc1). Retry only a load
+        // that never spoke; a load that returns (even `[]`) is a content
+        // result and stays fail-closed via assessThreadDelivery on attempt 1.
+        const threadResolution = resolveThreadFacts(
+          threadId,
+          (id) => loadTerminalFacts(id),
+          preflightRuntime.threadFactsLoadOptions,
+        );
+        if (threadResolution.transientFailure) {
+          console.error(
+            `[delivery] @${threadId} thread unreadable at finalize after `
+            + `${threadResolution.attempts} attempt(s) (${threadResolution.transientFailure}); `
+            + "leaving delivery unverified",
+          );
+          delivery = {
+            deliveryOutcome: "unverified",
+            deliveryReason: "delivery_thread_load_failed_at_finalize",
+          };
+        } else {
           delivery = assessThreadDelivery(
             threadId,
             agentId,
-            loadTerminalFacts(threadId),
+            threadResolution.facts ?? [],
             deliveryReservation.baselineDoneWhen.map(
               (value) => ({ predicate: "done_when", value }),
             ),
             runId,
             runState.evidence,
           );
-        } catch {
-          delivery = {
-            deliveryOutcome: "unverified",
-            deliveryReason: "delivery_thread_unavailable_at_finalize",
-          };
         }
       }
     }

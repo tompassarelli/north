@@ -2209,6 +2209,175 @@ test("dispatch rotates away from a reservation that is invalid at finalization",
   )).toBe(true);
 });
 
+// Thread 019f9e0d: same defect mirrored on the dispatch path. `loadThreadFacts`
+// is also the preflight hydration read, so the first call must succeed; only
+// the FINALIZE read (via loadTerminalFacts) is fault-injected here.
+test("dispatch's finalize names an exhausted thread load apart from a genuinely absent thread", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  writeFileSync(log, "");
+  const errorSpy = spyOn(console, "error");
+  let calls = 0;
+  try {
+    await dispatch("test-dispatch-thread-load-failed", {
+      agentId: "test-dispatch-thread-load-failed-agent",
+      routingMetadata: presetRequest("integrator"),
+      claimDriver: (() => ({ release() {} })) as any,
+      loadChildren: () => [],
+      loadThreadFacts: () => {
+        calls++;
+        if (calls === 1) {
+          return [
+            { predicate: "title", value: "Contended thread finalize" },
+            { predicate: "planned", value: "true" },
+            { predicate: "atomic", value: "true" },
+            { predicate: "done_when", value: "tests pass" },
+          ];
+        }
+        throw new Error("torn thread fact row");
+      },
+      deliveryRuntime: {
+        reserve(context) {
+          return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+        },
+        load() {
+          return { reservationValid: true, evidence: [] };
+        },
+      },
+      threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
+      queryFn: () => (async function* () {
+        yield {
+          type: "result", subtype: "success", result: "done",
+          duration_ms: 1, num_turns: 1,
+        };
+      })(),
+    });
+    expect(calls).toBe(1 + 3);
+    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) =>
+      message.includes("thread unreadable at finalize after 3 attempt(s)")
+      && message.includes("torn thread fact row"),
+    )).toBe(true);
+  } finally {
+    errorSpy.mockRestore();
+  }
+  const lines = await settledRunLines(
+    "test-dispatch-thread-load-failed-agent",
+    "applied_domain_requirement_count 0",
+  );
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_thread_load_failed_at_finalize"),
+  )).toBe(true);
+});
+
+test("dispatch still reports delivery when the thread read only fails transiently", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  writeFileSync(log, "");
+  let reservedRunId: string | undefined;
+  let calls = 0;
+  const slept: number[] = [];
+  await dispatch("test-dispatch-contended-thread-load", {
+    agentId: "test-dispatch-contended-thread-load-agent",
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: (() => ({ release() {} })) as any,
+    loadChildren: () => [],
+    loadThreadFacts: () => {
+      calls++;
+      const baseline = [
+        { predicate: "title", value: "Contended thread finalize recovers" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+        { predicate: "done_when", value: "focused tests pass" },
+      ];
+      if (calls === 1) return baseline;
+      // Two contended finalize reads, then the coordinator answers.
+      if (calls < 4) throw new Error("reader timed out");
+      return baseline;
+    },
+    deliveryRuntime: {
+      reserve(context) {
+        reservedRunId = context.runId;
+        return { contractOrigin: "accepted", baselineDoneWhen: ["focused tests pass"] };
+      },
+      load(runId) {
+        return { reservationValid: true, evidence: [{
+          version: RUN_BAR_EVIDENCE_VERSION,
+          run: `@${runId}`,
+          thread: "@test-dispatch-contended-thread-load",
+          reporter: "@agent:test-dispatch-contended-thread-load-agent",
+          bar: "focused tests pass",
+          observed: "10/10",
+          recordedAt: "2026-07-18T10:00:00Z",
+        }] };
+      },
+    },
+    threadFactsLoadOptions: { attempts: 3, backoffMs: 5, sleep: (ms) => slept.push(ms) },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  expect([calls, slept]).toEqual([4, [5, 10]]);
+  const lines = await settledRunLines(
+    "test-dispatch-contended-thread-load-agent",
+    "applied_domain_requirement_count 0",
+  );
+  expect(new Set(lines.map((line) => line.split(/\s+/)[1])))
+    .toEqual(new Set([reservedRunId!]));
+  expect(lines.some((line) => line.endsWith(" delivery_outcome reported"))).toBe(true);
+  expect(lines.some((line) => line.includes(" delivery_outcome unverified"))).toBe(false);
+});
+
+// A load that ANSWERS with no facts at finalize is a content verdict, not a
+// load failure: it stays fail-closed on the first finalize attempt.
+test("dispatch's finalize leaves a genuinely absent thread fail-closed without retry", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  writeFileSync(log, "");
+  let calls = 0;
+  await dispatch("test-dispatch-thread-absent", {
+    agentId: "test-dispatch-thread-absent-agent",
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: (() => ({ release() {} })) as any,
+    loadChildren: () => [],
+    loadThreadFacts: () => {
+      calls++;
+      if (calls === 1) {
+        return [
+          { predicate: "title", value: "Absent at finalize" },
+          { predicate: "planned", value: "true" },
+          { predicate: "atomic", value: "true" },
+          { predicate: "done_when", value: "tests pass" },
+        ];
+      }
+      return [];
+    },
+    deliveryRuntime: {
+      reserve(context) {
+        return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+      },
+      load() {
+        return { reservationValid: true, evidence: [] };
+      },
+    },
+    threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  expect(calls).toBe(2);
+  const lines = await settledRunLines(
+    "test-dispatch-thread-absent-agent",
+    "applied_domain_requirement_count 0",
+  );
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_thread_unavailable_at_finalize"),
+  )).toBe(true);
+});
+
 // Thread 019f9cc1: a load that never produced facts is now reported as
 // UNREADABLE (with its attempt count and cause) and carries its own
 // delivery_reason, so the routing report can split a contended coordinator from
@@ -2347,6 +2516,167 @@ test("spawn rotates away from a reservation that is invalid at finalization", as
   expect(subjects.has(reservedRunId!)).toBe(false);
   expect(lines.some((line) =>
     line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
+  )).toBe(true);
+});
+
+// Thread 019f9e0d: delivery_thread_unavailable_at_finalize is the deferred
+// sibling of the reservation-load defect (019f9cc1) — lane ms1o5ipp ran,
+// completed, recorded evidence, and finalized unverified with this reason
+// under matrix load because the thread read at finalize was never retried.
+test("spawn's finalize names an exhausted thread load apart from a genuinely absent thread", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  const errorSpy = spyOn(console, "error");
+  // Spawn also reads thread facts once, early, for judgment-grade admission
+  // (unrelated to finalize and already exercised elsewhere) — a fake that
+  // always throws hits that call too, so the exhausted finalize count is
+  // total calls minus that one leading admission read.
+  let loads = 0;
+  try {
+    await spawn({
+      prompt: "recover a contended thread read at finalization, loudly",
+      agentId: "test-spawn-thread-load-failed-loud",
+      role: "integrator", routingMetadata: presetRequest("integrator"),
+      thread: "thread-spawn-thread-load-failed-loud",
+      loadThreadFacts: () => {
+        loads++;
+        throw new Error("torn thread fact row");
+      },
+      deliveryRuntime: {
+        reserve(context) {
+          return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+        },
+        load(runId) {
+          return { reservationValid: true, evidence: [] };
+        },
+      },
+      threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
+      queryFn: () => (async function* () {
+        yield {
+          type: "result", subtype: "success", result: "done",
+          duration_ms: 1, num_turns: 1,
+        };
+      })(),
+    });
+    expect(loads).toBe(1 + 3);
+    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) =>
+      message.includes("thread unreadable at finalize after 3 attempt(s)")
+      && message.includes("torn thread fact row"),
+    )).toBe(true);
+  } finally {
+    errorSpy.mockRestore();
+  }
+  const lines = await settledRunLines("test-spawn-thread-load-failed-loud");
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_thread_load_failed_at_finalize"),
+  )).toBe(true);
+});
+
+// The evidence exists on the graph; only the read was contended. A delivered
+// lane must survive a thread read that fails transiently, exactly like the
+// reservation read.
+test("spawn still reports delivery when the thread read only fails transiently", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  let reservedRunId: string | undefined;
+  // Call 1 is spawn's early judgment-grade admission read (must succeed);
+  // calls 2+ are the finalize load under test.
+  let loads = 0;
+  const slept: number[] = [];
+  const contendedFacts = [
+    { predicate: "title", value: "Contended thread read" },
+    { predicate: "planned", value: "true" },
+    { predicate: "atomic", value: "true" },
+    { predicate: "done_when", value: "focused tests pass" },
+  ];
+  await spawn({
+    prompt: "deliver against a busy coordinator's thread read",
+    agentId: "test-spawn-contended-thread-load",
+    role: "integrator", routingMetadata: presetRequest("integrator"),
+    thread: "thread-spawn-contended-thread-load",
+    loadThreadFacts: () => {
+      loads++;
+      if (loads === 1) return contendedFacts;
+      // Two contended finalize reads, then the coordinator answers.
+      if (loads < 4) throw new Error("reader timed out");
+      return contendedFacts;
+    },
+    deliveryRuntime: {
+      reserve(context) {
+        reservedRunId = context.runId;
+        return { contractOrigin: "accepted", baselineDoneWhen: ["focused tests pass"] };
+      },
+      load(runId) {
+        return { reservationValid: true, evidence: [{
+          version: RUN_BAR_EVIDENCE_VERSION,
+          run: `@${runId}`,
+          thread: "@thread-spawn-contended-thread-load",
+          reporter: "@agent:test-spawn-contended-thread-load",
+          bar: "focused tests pass",
+          observed: "10/10",
+          recordedAt: "2026-07-18T10:00:00Z",
+        }] };
+      },
+    },
+    threadFactsLoadOptions: { attempts: 3, backoffMs: 5, sleep: (ms) => slept.push(ms) },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  expect([loads, slept]).toEqual([4, [5, 10]]);
+  const lines = await settledRunLines("test-spawn-contended-thread-load");
+  // Telemetry stays on the RESERVED run: no rotation, no unverified stamp.
+  expect(new Set(lines.map((line) => line.split(/\s+/)[1])))
+    .toEqual(new Set([reservedRunId!]));
+  expect(lines.some((line) => line.endsWith(" delivery_outcome reported"))).toBe(true);
+  expect(lines.some((line) => line.includes(" delivery_outcome unverified"))).toBe(false);
+});
+
+// A load that ANSWERS with no facts is a content verdict (genuinely absent
+// thread), not a load failure — it must stay fail-closed on the first
+// attempt with its own named reason, never confused with an unreadable load.
+test("spawn's finalize leaves a genuinely absent thread fail-closed without retry", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  // Call 1 is spawn's early judgment-grade admission read (must succeed so it
+  // does not mask this test's own reason); call 2 is the finalize load,
+  // which finds the thread absent and must not retry.
+  let loads = 0;
+  await spawn({
+    prompt: "finalize against a thread that no longer exists",
+    agentId: "test-spawn-thread-absent",
+    role: "integrator", routingMetadata: presetRequest("integrator"),
+    thread: "thread-spawn-thread-absent",
+    loadThreadFacts: () => {
+      loads++;
+      return loads === 1
+        ? [{ predicate: "title", value: "Absent at finalize" }]
+        : [];
+    },
+    deliveryRuntime: {
+      reserve(context) {
+        return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+      },
+      load(runId) {
+        return { reservationValid: true, evidence: [] };
+      },
+    },
+    threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  expect(loads).toBe(2);
+  const lines = await settledRunLines("test-spawn-thread-absent");
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_thread_unavailable_at_finalize"),
   )).toBe(true);
 });
 

@@ -8,7 +8,7 @@ import {
   deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
   parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
-  resolveDeliveryRunState, RUN_RESERVATION_VERSION,
+  resolveDeliveryRunState, resolveThreadFacts, RUN_RESERVATION_VERSION,
   runReservationValid,
 } from "../src/delivery-evidence";
 import { MANAGED_NORTH_MCP_ENV_KEYS } from "../src/execution-admission";
@@ -390,4 +390,52 @@ test("braces are ordinary content in bars and observations", () => {
     recordedAt: "2026-07-18T10:00:00Z",
   };
   expect(parseRunBarEvidence(JSON.stringify(record))).toEqual(record);
+});
+
+// Thread 019f9e0d: the deferred sibling of 019f9cc1 — the THREAD load at
+// finalize has the same transient-read exposure as the reservation load and
+// was not retried. `resolveThreadFacts` mirrors `resolveDeliveryRunState`
+// exactly: a thrown load retries, a returned (even empty) content result is
+// final on the first attempt.
+test("thread-facts resolution retries only a load that never spoke, never a content result", () => {
+  const options = { attempts: 3, backoffMs: 10, budgetMs: 10_000 };
+
+  // A content read is final on the first attempt, even genuinely empty
+  // (absent thread) — fail-closed posture for that case belongs to
+  // assessThreadDelivery, not the loader.
+  let calls = 0;
+  const empty = resolveThreadFacts("thread-x", () => { calls++; return []; }, options);
+  expect([empty.facts, empty.attempts, empty.transientFailure, calls]).toEqual([[], 1, undefined, 1]);
+
+  // A transient failure that clears is delivery, not a misclassification.
+  calls = 0;
+  const slept: number[] = [];
+  const facts = [{ predicate: "title", value: "recovered" }];
+  const recovered = resolveThreadFacts("thread-x", () => {
+    calls++;
+    if (calls < 3) throw new Error("reader timed out");
+    return facts;
+  }, { ...options, sleep: (ms) => slept.push(ms) });
+  expect(recovered).toEqual({ facts, attempts: 3 });
+  expect(slept).toEqual([10, 20]);
+
+  // Exhaustion names the cause and carries no facts.
+  calls = 0;
+  const exhausted = resolveThreadFacts("thread-x", () => {
+    calls++;
+    throw new Error("torn thread fact row");
+  }, { ...options, sleep: () => {} });
+  expect(calls).toBe(3);
+  expect(exhausted).toEqual({ attempts: 3, transientFailure: "torn thread fact row" });
+
+  // The retry window is bounded, same as the reservation loader.
+  calls = 0;
+  let clock = 0;
+  const budgeted = resolveThreadFacts("thread-x", () => {
+    calls++;
+    clock += 400;
+    throw new Error("reader timed out");
+  }, { attempts: 9, backoffMs: 100, budgetMs: 700, now: () => clock, sleep: () => {} });
+  expect(calls).toBe(2);
+  expect(budgeted.transientFailure).toBe("reader timed out");
 });
