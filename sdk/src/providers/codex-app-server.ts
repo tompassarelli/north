@@ -1166,7 +1166,7 @@ interface RuntimeNotificationState {
   cwd: string;
   model: string;
   turnId?: string;
-  hookRuns: Map<string, string>;
+  hookRuns: Set<string>;
   text: string;
   usage?: ManagedCodexResult["usage"];
   terminalSeen: boolean;
@@ -1483,26 +1483,18 @@ function validateHookNotification(
     if (typeof entry.text !== "string" || Buffer.byteLength(entry.text, "utf8") > 64 * 1024)
       throw new Error("Codex hook output is invalid");
   }
-  const identity = JSON.stringify(canonical({
-    eventName: run.eventName,
-    handlerType: run.handlerType,
-    executionMode: run.executionMode,
-    scope: run.scope,
-    sourcePath: run.sourcePath,
-    source: run.source,
-    displayOrder: run.displayOrder,
-    startedAt: run.startedAt,
-    turnId: params.turnId,
-  }));
   if (method === "hook/started") {
     if (run.status !== "running" || run.statusMessage !== null || run.completedAt !== null
         || run.durationMs !== null || run.entries.length !== 0 || state.hookRuns.has(id))
       throw new Error("Codex hook start lifecycle is invalid");
-    state.hookRuns.set(id, identity);
+    // The app-server protocol carries a fresh HookRunSummary at each lifecycle
+    // notification. `id` is the only pairwise lifecycle identity; other fields
+    // are notification-local summary/provenance and are validated above.
+    state.hookRuns.add(id);
     return;
   }
-  if (!state.hookRuns.has(id) || state.hookRuns.get(id) !== identity)
-    throw new Error("Codex hook completion is missing its exact start");
+  if (!state.hookRuns.has(id))
+    throw new Error("Codex hook completion is missing its start");
   state.hookRuns.delete(id);
   if (run.status !== "completed" || run.completedAt === null || run.durationMs === null
       || !Number.isSafeInteger(run.completedAt) || !Number.isSafeInteger(run.durationMs)
@@ -2111,7 +2103,7 @@ export class ManagedCodexAppServerRun {
         threadId,
         cwd: contract.cwd,
         model: this.options.model,
-        hookRuns: new Map(),
+        hookRuns: new Set(),
         text: "",
         terminalSeen: false,
         toolItems: 0,
