@@ -1609,6 +1609,7 @@ test("a failure after landed work carries a harvest instead of erasing the turn"
   expect(harvest.text).toBe("managed answer");
   expect(harvest.threadId).toBe("019f7abc-0000-7000-8000-000000000001");
   expect(harvest.turnIds).toEqual(["019f7abc-0000-7000-8000-000000000002"]);
+  expect(harvest.toolItems).toBe(3);
   expect(harvest.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
   expect(harvest.mcp).toMatchObject({ totalCalls: 1 });
   expect(harvest.nativeCommands).toMatchObject({ totalCommands: 1 });
@@ -1621,9 +1622,20 @@ test("a failure after landed work carries a harvest instead of erasing the turn"
     type: "result", subtype: "error_during_execution", is_error: true, result: "managed answer",
   });
   expect(messages[1]._north_harvest).toMatchObject({
-    threadId: "019f7abc-0000-7000-8000-000000000001", completedTurns: 0,
+    threadId: "019f7abc-0000-7000-8000-000000000001", completedTurns: 0, toolItems: 3,
   });
   expect(messages[1].usage).toMatchObject({ input_tokens: 9 });
+
+  const unobserved = new ManagedCodexHarvestError({
+    turnIds: [], completedTurns: 0, text: "partial answer", landedWork: true,
+    mcp: { source: "fixture", coverage: "unknown", tools: [] },
+    nativeCommands: {
+      source: "fixture", coverage: "unknown", northBinaryProbe: "not_observed", completions: [],
+    },
+    unsupportedNotifications: {},
+  });
+  expect(managedCodexHarvestMessages(unobserved)[1]._north_harvest)
+    .not.toHaveProperty("toolItems");
 });
 
 test("a pre-thread failure harvests nothing, preserving the provider-death retry gate", async () => {

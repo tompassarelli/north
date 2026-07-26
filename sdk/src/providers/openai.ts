@@ -898,6 +898,7 @@ export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): an
       threadId: harvest.threadId,
       turnIds: harvest.turnIds,
       completedTurns: harvest.completedTurns,
+      ...(harvest.toolItems !== undefined ? { toolItems: harvest.toolItems } : {}),
       mcp: harvest.mcp,
       nativeCommands: harvest.nativeCommands,
       unsupportedNotifications: harvest.unsupportedNotifications,
