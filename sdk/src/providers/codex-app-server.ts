@@ -251,6 +251,22 @@ function exact(value: unknown, expected: unknown, label: string): void {
     throw new Error(`${label} does not match North's exact managed Codex contract`);
 }
 
+// Same equality as `exact`, but carries the observed/expected pair on the
+// {cause} so the lane log can name WHAT drifted, not merely that something did.
+// Deliberately opt-in: the session-authority layer compared by `exact` embeds
+// MCP server env, so only credential-free shapes (workspace roots, sandbox,
+// instruction sources) may use this.
+function exactDiagnosable(value: unknown, expected: unknown, label: string): void {
+  const observed = JSON.stringify(canonical(value));
+  const wanted = JSON.stringify(canonical(expected));
+  if (observed === wanted) return;
+  throw new Error(`${label} does not match North's exact managed Codex contract`, {
+    cause: new Error(
+      `observed=${String(observed).slice(0, 600)} expected=${String(wanted).slice(0, 600)}`,
+    ),
+  });
+}
+
 function validateShellPreflight(response: unknown): void {
   const result = record(response, "Codex command/exec response");
   onlyKeys(result, ["exitCode", "stdout", "stderr"], "Codex command/exec response");
@@ -1039,6 +1055,28 @@ function expectedSandbox(
     };
 }
 
+/**
+ * Codex reports a thread's runtime workspace roots as the cwd PLUS every
+ * configured `sandbox_workspace_write.writable_roots` entry. e3921fa granted the
+ * Git metadata roots so managed lanes could commit, but left this assertion at
+ * `[cwd]` — the grant and its proof are ONE authority statement and drifted
+ * apart, so every workspace-write managed Codex lane died at thread/start before
+ * its first turn (observed 2026-07-26: observed=[cwd, cwd/.git] expected=[cwd]).
+ * Derive the expectation from the same contract field that produced the grant.
+ */
+function expectedRuntimeWorkspaceRoots(contract: LaunchContract): string[] {
+  return [...new Set([contract.cwd, ...contract.writableRoots])].sort();
+}
+
+// Root ORDER is not authority — the root SET is. Sort a well-formed string list
+// so the comparison stays fail-closed on membership while tolerating whatever
+// order Codex echoes; anything else passes through unchanged and fails.
+function comparableRootList(value: unknown): unknown {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? [...(value as string[])].sort()
+    : value;
+}
+
 function validateStartedThread(
   response: unknown,
   contract: LaunchContract,
@@ -1068,10 +1106,15 @@ function validateStartedThread(
       || started.reasoningEffort !== (options.effort ?? null)
       || started.multiAgentMode !== "explicitRequestOnly")
     throw new Error("Codex thread/start resolved different execution authority");
-  exact(started.runtimeWorkspaceRoots, [contract.cwd], "Codex thread runtime workspace roots");
-  exact(started.instructionSources, [resolve(contract.codexHome, "AGENTS.md")],
+  exactDiagnosable(
+    comparableRootList(started.runtimeWorkspaceRoots),
+    expectedRuntimeWorkspaceRoots(contract),
+    "Codex thread runtime workspace roots",
+  );
+  exactDiagnosable(started.instructionSources, [resolve(contract.codexHome, "AGENTS.md")],
     "Codex thread instruction sources");
-  exact(started.sandbox, expectedSandbox(options.surface, contract), "Codex thread sandbox");
+  exactDiagnosable(started.sandbox, expectedSandbox(options.surface, contract),
+    "Codex thread sandbox");
   return threadId;
 }
 

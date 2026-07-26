@@ -16,6 +16,7 @@ import {
   managedCodexAppServerLaunch,
 } from "../src/providers/codex-app-server";
 import { managedCodexHarvestMessages } from "../src/providers/openai";
+import { causeChain } from "../src/death";
 import { expectedManagedCodexHooks } from "../src/providers/codex-managed-hooks";
 import { codexSupervisorStatusLine } from "../src/providers/codex-supervisor-protocol";
 import type { OpenAIAuthoritySurface } from "../src/providers/authority";
@@ -324,7 +325,11 @@ function setup(mode = "ok") {
       };
       const response: any = {
         thread, model: request.params.model, modelProvider: request.params.modelProvider,
-        serviceTier: null, cwd, runtimeWorkspaceRoots: [cwd],
+        // Codex echoes the cwd PLUS every configured sandbox writable root here.
+        // The pre-2026-07-26 fixture hardcoded [cwd] while the launch contract
+        // granted Git metadata roots, so the contract drift that killed every
+        // managed workspace-write lane at thread/start passed this suite green.
+        serviceTier: null, cwd, runtimeWorkspaceRoots: [cwd, ...writableRoots],
         instructionSources: [join(codexHome, "AGENTS.md")], approvalPolicy: "never",
         approvalsReviewer: "user",
         sandbox: {
@@ -340,6 +345,13 @@ function setup(mode = "ok") {
         "thread-service-tier": () => { response.serviceTier = "priority"; },
         "thread-cwd": () => { response.cwd = root; },
         "thread-roots": () => { response.runtimeWorkspaceRoots = [root]; },
+        // The exact shape that shipped broken: the runtime echoes only the cwd
+        // while the launch contract granted Git metadata writable roots.
+        "thread-roots-drop-grant": () => { response.runtimeWorkspaceRoots = [cwd]; },
+        "thread-roots-widened": () => { response.runtimeWorkspaceRoots = [cwd, ...writableRoots, root]; },
+        "thread-roots-reordered": () => {
+          response.runtimeWorkspaceRoots = [...writableRoots, cwd];
+        },
         "thread-sources": () => { response.instructionSources.push(join(cwd, "AGENTS.md")); },
         "thread-approval": () => { response.approvalPolicy = "on-request"; },
         "thread-reviewer": () => { response.approvalsReviewer = "auto_review"; },
@@ -1367,6 +1379,7 @@ test("every security-relevant thread/start response field is attested independen
     "thread-sources", "thread-approval", "thread-reviewer", "thread-sandbox", "thread-profile",
     "thread-effort", "thread-multi-agent", "thread-ephemeral", "thread-object-provider",
     "thread-object-cwd", "thread-extra-authority",
+    "thread-roots-drop-grant", "thread-roots-widened",
   ];
   for (const mode of modes) {
     const { options, requests } = setup(mode);
@@ -1377,6 +1390,25 @@ test("every security-relevant thread/start response field is attested independen
     expect((caught as Error).message).toBe("openai_provider_execution_failed");
     expect(requests.some(({ method }) => method === "turn/start")).toBe(false);
   }
+});
+
+test("runtime workspace roots are a SET: the granted roots in any order are accepted", async () => {
+  // Root order is not authority. Fixing the grant/assertion drift must not
+  // replace it with an order dependency on however Codex happens to echo them.
+  const { options } = setup("thread-roots-reordered");
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
+});
+
+test("a workspace-roots mismatch names the observed and expected sets on its cause", async () => {
+  // The 2026-07-26 forensic hole: the failure said only WHICH check failed, so
+  // the drift cost a live reproduction to see. The cause must carry both sides.
+  const { options } = setup("thread-roots-drop-grant");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(options).execute(); } catch (error) { caught = error; }
+  const chain = causeChain(caught);
+  expect(chain).toContain("Codex thread runtime workspace roots does not match");
+  expect(chain).toContain("observed=");
+  expect(chain).toContain("expected=");
 });
 
 test("post-thread drift, rejection, malformed traffic, and hook failures are never retry-safe", async () => {
