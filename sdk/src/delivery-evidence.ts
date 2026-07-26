@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import type { Fact } from "./north-client";
 import {
   boundedDoneBars, canonicalDoneBars, MAX_DELIVERY_BARS,
   MAX_DELIVERY_WRITER_REQUEST_UTF8_BYTES,
@@ -131,6 +132,61 @@ export function resolveDeliveryRunState(
     sleep(backoff);
   }
   return { state, attempts, transientFailure: state.loadFailure };
+}
+
+// Same shared budget discipline as the reservation load above (thread
+// 019f9e0d, the deferred sibling of 019f9cc1): a contended coordinator read
+// of the THREAD's own facts is not a verdict about the thread. `getThreadFacts`
+// throws (never returns a partial result) when the reader never spoke or spoke
+// garbage; a call that returns is a content read, even an empty one — an
+// absent thread is a legitimate verdict, not a load failure, and must stay
+// fail-closed on the first attempt.
+const THREAD_FACTS_LOAD_ATTEMPTS = 3;
+const THREAD_FACTS_LOAD_BUDGET_MS = 40_000;
+const THREAD_FACTS_LOAD_BACKOFF_MS = 500;
+
+export type ThreadFactsLoadOptions = DeliveryRunStateLoadOptions;
+
+export interface ThreadFactsResolution {
+  /** Facts from the last successful load; absent iff every attempt failed to speak. */
+  facts?: readonly Fact[];
+  attempts: number;
+  /** Bounded cause of the final failed load; absent when a load succeeded. */
+  transientFailure?: string;
+}
+
+/**
+ * Retry a thread-facts load ONLY while the load itself never spoke. Mirrors
+ * `resolveDeliveryRunState`: a thrown load (reader timeout/exit/garbage
+ * payload) retries inside this budget; a load that returns — even `[]` for a
+ * genuinely absent thread — is a content result and is final on attempt 1.
+ */
+export function resolveThreadFacts(
+  threadId: string,
+  load: (threadId: string) => readonly Fact[],
+  options: ThreadFactsLoadOptions = {},
+): ThreadFactsResolution {
+  const attemptCap = Math.max(1, options.attempts ?? THREAD_FACTS_LOAD_ATTEMPTS);
+  const budgetMs = Math.max(0, options.budgetMs ?? THREAD_FACTS_LOAD_BUDGET_MS);
+  const backoffMs = Math.max(0, options.backoffMs ?? THREAD_FACTS_LOAD_BACKOFF_MS);
+  const now = options.now ?? (() => performance.now());
+  const sleep = options.sleep ?? sleepSync;
+  const startedAt = now();
+  let attempts = 0;
+  let cause = "not attempted";
+  while (attempts < attemptCap) {
+    attempts++;
+    try {
+      return { facts: load(threadId), attempts };
+    } catch (error) {
+      cause = deliveryRunLoadFailureCause(error);
+    }
+    if (attempts >= attemptCap) break;
+    const backoff = backoffMs * 2 ** (attempts - 1);
+    if (now() - startedAt + backoff >= budgetMs) break;
+    sleep(backoff);
+  }
+  return { attempts, transientFailure: cause };
 }
 
 export function newDeliveryRunContext(

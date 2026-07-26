@@ -91,6 +91,11 @@ export type DeliveryAssessment =
       deliveryOutcome: "unverified";
       deliveryReason:
         | "delivery_thread_unavailable_at_finalize"
+        // The thread READER failed (timeout/exit/garbage) after bounded
+        // retries, so the thread's content was never observed. Distinct from
+        // _unavailable_, which means a successful read found no facts (or
+        // assessThreadDelivery rejected the content it did read).
+        | "delivery_thread_load_failed_at_finalize"
         | "delivery_reservation_unavailable_at_finalize"
         // The reservation READER failed (timeout/exit/garbage) after bounded
         // retries, so the reservation's validity was never observed. Distinct

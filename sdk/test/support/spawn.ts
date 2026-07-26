@@ -10,7 +10,7 @@ import { existsSync, rmSync } from "node:fs";
 import { worktreePath } from "../../src/worktree";
 
 const RUNTIME_FIELDS = new Set([
-  "queryFn", "deliveryRuntime", "loadThreadFacts",
+  "queryFn", "deliveryRuntime", "loadThreadFacts", "threadFactsLoadOptions",
   "childSettlementReader", "feedSubscriber",
   "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
   "admitResourceEnvelope", "completeResourceEnvelope", "admitBillableClock",

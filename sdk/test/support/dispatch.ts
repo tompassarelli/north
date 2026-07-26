@@ -9,7 +9,7 @@ import { bindDispatchTestRuntime } from "../../src/internal/test-runtime";
 
 const RUNTIME_FIELDS = new Set([
   "claimDriver", "driverOptions", "queryFn", "loadThreadFacts", "loadChildren",
-  "deliveryRuntime", "childSettlementReader", "feedSubscriber",
+  "deliveryRuntime", "threadFactsLoadOptions", "childSettlementReader", "feedSubscriber",
   "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
   "admitResourceEnvelope", "completeResourceEnvelope", "admitBillableClock",
   "releaseDriver",
