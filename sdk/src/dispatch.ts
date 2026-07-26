@@ -12,7 +12,10 @@ import {
   subscribeFeed,
 } from "./coordination";
 import { normalizeUsage } from "./usage";
-import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
+import {
+  classifyTurnProvenance, codexTurnActivityFromResult, describeObservedTurns,
+  newRunId, recordRun,
+} from "./telemetry";
 import { collectProviderJoinEvidence } from "./providers/provider-join";
 import { publishRunLifecycleLedger } from "./run-ledger";
 import { resolveManagedCaveman, type CavemanResolution } from "./caveman";
@@ -672,7 +675,7 @@ async function runDispatch(
       // a distinct LOUD terminal so a zero-deliverable lane never masquerades as
       // AGENT COMPLETE.
       outcome = EMPTY_RESULT_OUTCOME;
-      const turns = typeof resultMsg?.num_turns === "number" ? `${resultMsg.num_turns} turns` : "unknown turns";
+      const turns = describeObservedTurns(resultMsg);
       terminalSignal = {
         subject: "AGENT EMPTY RESULT",
         detail: `provider success terminal with empty result (0b) after ${turns} — no deliverable text committed (likely output-token ceiling hit mid extended-thinking/tool_use)`,
@@ -902,6 +905,7 @@ async function runDispatch(
     // zero is North-observed; every other missing provider value stays absent.
     : terminal.processOutcome === "blocked_preflight"
       || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
+  const codexTurnActivity = codexTurnActivityFromResult(resultMsg);
   const runPublication = await recordRun({ thread: threadId, agent: agentId, tokenUsage,
               model: routing.resolvedModel ?? resolved.model, effort: routing.resolvedEffort ?? resolved.effort,
               role,
@@ -950,6 +954,7 @@ async function runDispatch(
               deliveryReason: terminal.deliveryReason,
               deliveryProof: terminal.deliveryProof,
               numTurns,
+              codexTurnActivity,
               judgmentGrade,
               struggleObservation: struggle.snapshot(),
               preflightCause,

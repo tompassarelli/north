@@ -680,10 +680,43 @@ interface CodexProtocolResult {
   usage?: ExactCodexUsage;
 }
 
+/**
+ * Codex-only turn/tool-activity telemetry. Deliberately NOT named or shaped
+ * like SDKResultMessage.num_turns: Codex nests tool calls inside one turn per
+ * input frame, while Claude's num_turns counts real assistant turns. The two
+ * quantities are not the same measurement and must never be joined across
+ * providers (thread 019f9c36 — a coordinator did exactly that and quarantined
+ * a healthy provider on the strength of a fabricated constant).
+ */
+interface CodexTurnActivity {
+  /** Codex-defined turn count for this invocation. Always structurally 1 on
+   * the codex-cli path (one input frame, no live-input); on the app-server
+   * path this is once per resolved North input frame. Not comparable. */
+  turnUnits: number;
+  /** Count of completed non-agent_message items (tool/command/file-change/
+   * MCP calls) nested inside the turn(s) above — the honest "did work
+   * happen" signal a turn count cannot provide. Absent on the app-server
+   * path, where the same signal is already tracked and reported separately
+   * as mcpActivity/nativeCommandActivity (query.mcpActivity() /
+   * query.nativeCommandActivity()) rather than duplicated here. */
+  toolItems?: number;
+  /** Always false. Exists so a consumer that forwards this object cannot
+   * accidentally present it as a comparable turn count without also
+   * forwarding the disclaimer. */
+  comparable: false;
+}
+
 class CodexExecProtocol {
   private phase: "thread" | "turn" | "running" | "completed" = "thread";
   private usage?: ExactCodexUsage;
   private threadId?: string;
+  // Codex nests every tool/command/file-change item *inside* one turn; a turn
+  // count is therefore never a tool-loop proxy (thread 019f9c36). This counts
+  // completed non-agent_message items — the one honest, provider-internal
+  // "how much did it actually do" signal `codex exec` exposes. It is NOT the
+  // same quantity as Claude SDK's num_turns and must never be stored or
+  // reported under that name.
+  private toolItemCount = 0;
 
   accept(line: string): CodexProtocolResult {
     if (this.phase === "completed")
@@ -731,6 +764,8 @@ class CodexExecProtocol {
       if (this.phase !== "running") throw new Error("Codex item event is out of order");
       exactKeys(event, ["item", "type"], "Codex item event");
       const item = validateCodexItem(event.item);
+      if (type === "item.completed" && item.type !== "agent_message")
+        this.toolItemCount += 1;
       return type === "item.completed" && item.type === "agent_message"
         ? { text: item.text }
         : {};
@@ -742,6 +777,15 @@ class CodexExecProtocol {
     if (this.phase !== "completed" || !this.usage)
       throw new Error("Codex closed without one successful terminal");
     return this.usage;
+  }
+
+  toolActivity(): CodexTurnActivity {
+    // `codex exec` runs exactly one Codex turn per invocation by construction
+    // (one input frame, no live-input support) — that "1" is real, but it is
+    // structurally incapable of ever differing between a 0-tool-call run and
+    // a 200-tool-call run, so it must never be compared to another provider's
+    // per-assistant-turn count. toolItems is the honest activity signal.
+    return { turnUnits: 1, toolItems: this.toolItemCount, comparable: false };
   }
 
   providerJoin(): ProviderJoinEvidence {
@@ -910,10 +954,18 @@ class CodexQuery implements AgentQuery {
           const normalizedUsage = codexUsage(completed.usage);
           yield {
             type: "result", subtype: "success", result: completed.text,
-            num_turns: turns,
+            // Deliberately no num_turns. `turns` here counts resolved North
+            // input frames, not assistant turns; openai liveInput is
+            // "unsupported" so it is structurally always 1 regardless of how
+            // much tool activity happened inside that turn (thread 019f9c36).
+            // Real tool-activity is already tracked and reported separately
+            // via mcpActivity/nativeCommandActivity.
             usage: normalizedUsage.usage,
             _north_usage: normalizedUsage.metadata,
             _north_provider_join: completed.providerJoin,
+            _north_codex_turn_activity: {
+              turnUnits: turns, comparable: false,
+            } satisfies CodexTurnActivity,
           };
         }
         return;
@@ -985,6 +1037,7 @@ class CodexQuery implements AgentQuery {
     const protocol = new CodexExecProtocol();
     let usage: ExactCodexUsage | undefined;
     let providerJoin: ProviderJoinEvidence | undefined;
+    let turnActivity: CodexTurnActivity | undefined;
     try {
       // Publish the bounded prompt frame immediately after the supervisor
       // exists. Waiting for the provider's STARTED receipt lets a valid
@@ -1028,6 +1081,7 @@ class CodexQuery implements AgentQuery {
         throw new Error("openai_provider_execution_failed");
       usage = protocol.finish();
       providerJoin = protocol.providerJoin();
+      turnActivity = protocol.toolActivity();
     } catch (error) {
       try { await this.interrupt(); } catch { /* cleanup must not replace the provider error */ }
       try { await supervision.completed; } catch { /* preserve the provider error */ }
@@ -1039,14 +1093,19 @@ class CodexQuery implements AgentQuery {
       destroyCodexPipes(child);
       this.child = undefined;
     }
-    if (!usage || !providerJoin) throw new Error("openai_provider_execution_failed");
+    if (!usage || !providerJoin || !turnActivity) throw new Error("openai_provider_execution_failed");
     const normalizedUsage = codexUsage(usage);
     yield {
       type: "result", subtype: "success", result,
-      num_turns: 1,
+      // Deliberately no num_turns here. Codex runs exactly one Codex-turn per
+      // invocation by construction (thread 019f9c36) — a hardcoded 1 read
+      // like a measured Claude-style assistant-turn count and grounded a
+      // false "never runs a tool loop" diagnosis. _north_codex_turn_activity
+      // carries the honest, explicitly-not-comparable replacement.
       usage: normalizedUsage.usage,
       _north_usage: normalizedUsage.metadata,
       _north_provider_join: providerJoin,
+      _north_codex_turn_activity: turnActivity,
     };
   }
 }

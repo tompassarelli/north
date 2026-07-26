@@ -189,6 +189,41 @@ test("Codex adapter owns the cumulative total and does not double-count subsets"
   expect(result).not.toHaveProperty("duration_ms");
 });
 
+test("Codex never fabricates num_turns, and its honest activity signal reflects tool calls (thread 019f9c36)", async () => {
+  // A hardcoded num_turns:1 previously made a zero-tool-call run and a
+  // multi-tool-call run indistinguishable, which grounded a real false
+  // "Codex never runs a tool loop" quarantine decision. The result must
+  // never carry num_turns at all, and the replacement quantity must be
+  // named distinctly, marked not comparable, and must actually vary with
+  // observed tool activity.
+  const idle = await resultFromScript(codexSuccess([]));
+  expect(idle).not.toHaveProperty("num_turns");
+  expect(idle._north_codex_turn_activity).toEqual({
+    turnUnits: 1, toolItems: 0, comparable: false,
+  });
+
+  const busy = await resultFromScript(codexSuccess([
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_cmd_1", type: "command_execution" },
+    }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_cmd_2", type: "file_change" },
+    }),
+  ]));
+  expect(busy).not.toHaveProperty("num_turns");
+  expect(busy._north_codex_turn_activity).toEqual({
+    turnUnits: 1, toolItems: 2, comparable: false,
+  });
+
+  // The regression this guards against: a 0-tool-call run and a 2-tool-call
+  // run must never report the same turn count under the name num_turns
+  // (there is none), and their honest activity counts must differ.
+  expect(idle._north_codex_turn_activity.toolItems)
+    .not.toBe(busy._north_codex_turn_activity.toolItems);
+});
+
 test("Codex requires one complete terminal and never synthesizes exit-zero success", async () => {
   await expect(resultFromScript([
     codexThreadStarted,

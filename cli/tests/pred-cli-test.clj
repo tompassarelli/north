@@ -267,7 +267,8 @@
     "native_command_failed" "native_command_declined" "native_command_truncated"
     "completed" "passed"
     "topology" "usage_scope" "usage_terminal_count" "usage_total_status"
-    "retry_attempt"})
+    "retry_attempt" "codex_turn_units" "codex_tool_items"
+    "codex_turn_metric_comparable"})
 (def audited-run-predicates
   (set/union audited-run-single audited-run-multi audited-run-ref))
 (def audited-run-event-ref #{"run" "parent_run" "parent_thread"})

@@ -124,7 +124,14 @@ export interface RunRecord {
   deliveryOutcome?: string;
   deliveryReason?: string;
   deliveryProof?: DeliveryProof;
-  numTurns?: number; // SDKResultMessage.num_turns (was dropped before)
+  numTurns?: number; // SDKResultMessage.num_turns (was dropped before). Real
+  // assistant-turn count on providers that report it honestly (Claude SDK).
+  // The openai/codex provider never populates this — see codexTurnActivity.
+  /** Codex-only turn/tool-activity telemetry (thread 019f9c36). Explicitly
+   * NOT the same quantity as numTurns and never written to the num_turns
+   * fact; joining the two across providers is the exact mistake that
+   * grounded a false "Codex never runs a tool loop" quarantine. */
+  codexTurnActivity?: { turnUnits: number; toolItems?: number; comparable: false };
   compactions?: number; // count of SDK compact_boundary events observed this run (audit fix 4)
   /** Immutable admission-time dispatcher judgment; required by recordRun. */
   judgmentGrade?: JudgmentGradeSnapshot;
@@ -159,6 +166,45 @@ export function classifyTurnProvenance(
   if (processOutcome === "blocked_preflight" || processOutcome === "blocked_spend_guard")
     return "pre-provider";
   return "unknown";
+}
+
+/**
+ * Pull the openai/codex-only turn-activity marker off a provider result
+ * terminal, if present. Returns undefined for every other provider result —
+ * in particular, a Claude SDK result never carries this field, so this can
+ * never be confused with (or joined against) num_turns.
+ */
+export function codexTurnActivityFromResult(
+  resultTerminal: unknown,
+): RunRecord["codexTurnActivity"] {
+  if (!resultTerminal || typeof resultTerminal !== "object") return undefined;
+  const activity = (resultTerminal as { _north_codex_turn_activity?: unknown })
+    ._north_codex_turn_activity;
+  if (!activity || typeof activity !== "object") return undefined;
+  const { turnUnits, toolItems, comparable } = activity as Record<string, unknown>;
+  if (typeof turnUnits !== "number" || comparable !== false) return undefined;
+  return {
+    turnUnits,
+    ...(typeof toolItems === "number" ? { toolItems } : {}),
+    comparable: false,
+  };
+}
+
+/**
+ * Human-readable turn description for terminal-signal logging. Never mixes
+ * the two quantities: a Claude-style num_turns renders as "<n> turns"; a
+ * Codex result renders its activity explicitly labeled not-comparable;
+ * anything else renders as "unknown turns".
+ */
+export function describeObservedTurns(resultTerminal: unknown): string {
+  const numTurns = (resultTerminal as { num_turns?: unknown } | null | undefined)?.num_turns;
+  if (typeof numTurns === "number") return `${numTurns} turns`;
+  const codex = codexTurnActivityFromResult(resultTerminal);
+  if (codex) {
+    const items = typeof codex.toolItems === "number" ? `, ${codex.toolItems} tool items` : "";
+    return `${codex.turnUnits} codex turn-unit(s)${items} (not comparable to num_turns)`;
+  }
+  return "unknown turns";
 }
 
 export type ObservedRunRecord = RunRecord & Required<
@@ -612,6 +658,17 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["spend_evidence", exactSpend ? "exact" : "reserved-worst-case"]);
   }
   if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
+  if (rec.codexTurnActivity) {
+    // Distinct predicate names, never "num_turns" — see codexTurnActivity's
+    // doc comment. `codex_turn_metric_comparable` is written explicitly
+    // "false" so a report joining on num_turns finds nothing here, and a
+    // human reading the facts directly still sees the disclaimer inline.
+    facts.push(["codex_turn_units", String(rec.codexTurnActivity.turnUnits)]);
+    if (rec.codexTurnActivity.toolItems != null) {
+      facts.push(["codex_tool_items", String(rec.codexTurnActivity.toolItems)]);
+    }
+    facts.push(["codex_turn_metric_comparable", "false"]);
+  }
   if (rec.compactions != null) {
     facts.push(["compactions", String(rec.compactions)]);
     facts.push(["compaction_count", String(rec.compactions)]);

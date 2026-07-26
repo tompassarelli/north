@@ -26,7 +26,7 @@
   (let [preds ["agent" "tokens" "input_tokens" "output_tokens" "cache_read_tokens"
                "cache_create_tokens" "cached_input_tokens" "reasoning_output_tokens"
                "usage_terminal_count" "usage_scope" "usage_total_status"
-               "duration_ms" "num_turns" "stop_reason" "model"
+               "duration_ms" "num_turns" "codex_turn_units" "codex_tool_items" "stop_reason" "model"
                "provider" "effort" "caveman" "wall_s" "estimate_output_tokens"
                "confidence" "fallback_count" "fallback_path" "outcome" "ended_at" "at"]]
     (reduce (fn [m p]
@@ -69,7 +69,13 @@
     (when (seq durations)
       (println (format "%-20s %d" "total duration ms" (long (reduce + durations)))))
     (when (seq turns)
-      (println (format "%-20s %d" "total turns" (long (reduce + turns)))))
+      ;; num_turns is only ever written for providers that report a real
+      ;; assistant-turn count (Claude SDK). openai/codex runs never carry it
+      ;; (see codex_turn_units, a different, non-comparable quantity) and are
+      ;; therefore already excluded from this sum by construction — thread
+      ;; 019f9c36 (a fabricated codex num_turns=1 grounded a false provider
+      ;; quarantine).
+      (println (format "%-20s %d (num_turns-reporting providers only)" "total turns" (long (reduce + turns)))))
     (when (seq fallbacks)
       (println (format "%-20s %d" "provider fallbacks" (long (reduce + fallbacks)))))
     (when (seq drifts)
@@ -80,9 +86,13 @@
       (println (format "%-20s %.1f / 5" "avg confidence" (/ (reduce + confs) (count confs)))))))
 
 (defn print-by-model [runs]
+  ;; TURNS here is num_turns only (grouped by model, so an openai/codex model
+  ;; row sums to 0 — codex never writes num_turns; see codex_turn_units,
+  ;; which is a different, non-comparable per-invocation quantity, thread
+  ;; 019f9c36). Never eyeball this column across a codex vs. claude model row.
   (let [groups (group-by #(or (:model %) "unknown") runs)]
     (println (format "%-16s %5s %12s %12s %8s %9s %10s"
-                     "MODEL" "RUNS" "TOKENS" "DURATION_MS" "TURNS" "FALLBACKS" "AVG_DRIFT"))
+                     "MODEL" "RUNS" "TOKENS" "DURATION_MS" "TURNS*" "FALLBACKS" "AVG_DRIFT"))
     (doseq [[model rs] (sort groups)]
       (let [tokens (keep #(parse-num (:tokens %)) rs)
             durations (keep #(parse-num (:duration_ms %)) rs)
@@ -118,16 +128,28 @@
                        (or (:tokens r) "?")
                        (or (:model r) "?"))))))
 
+(defn turns-cell [r]
+  ;; num_turns (real assistant turns, Claude SDK) and codex_turn_units (Codex
+  ;; per-invocation turn count, tool calls nested inside) are DIFFERENT
+  ;; quantities (thread 019f9c36) — the "cx" suffix keeps that visible even
+  ;; in a single narrow column, so nobody eyeballs this as one comparable
+  ;; series across providers.
+  (cond
+    (:num_turns r) (str (:num_turns r))
+    (:codex_turn_units r) (str (:codex_turn_units r) "cx"
+                               (when (:codex_tool_items r) (str "/" (:codex_tool_items r) "it")))
+    :else "?"))
+
 (defn print-recent [runs n]
   (let [recent (take-last n (sort-by #(or (:at %) (:ended_at %) "") runs))]
-    (println (format "%-36s %10s %12s %6s %-28s %s"
-                     "RUN" "TOKENS" "DURATION_MS" "TURNS" "FALLBACKS/PATH" "PROVIDER/MODEL/EFFORT"))
+    (println (format "%-36s %10s %12s %9s %-28s %s"
+                     "RUN" "TOKENS" "DURATION_MS" "TURNS*" "FALLBACKS/PATH" "PROVIDER/MODEL/EFFORT"))
     (doseq [r recent]
-      (println (format "%-36s %10s %12s %6s %-28s %s"
+      (println (format "%-36s %10s %12s %9s %-28s %s"
                        (subs (str (:entity r)) 0 (min 36 (count (str (:entity r)))))
                        (or (:tokens r) "?")
                        (or (:duration_ms r) "?")
-                       (or (:num_turns r) "?")
+                       (turns-cell r)
                        (str (or (:fallback_count r) "0") ":" (or (:fallback_path r) "-"))
                        (str (or (:provider r) "?") "/" (or (:model r) "?") "/"
                             (or (:effort r) "?")))))))
