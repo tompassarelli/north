@@ -303,9 +303,18 @@
        (str/starts-with? (or (:routingPinDetail row) "")
                          CANARY-PIN-DETAIL-PREFIX)))
 
-(defn canary-report [rows window]
+;; Every production-path managed run, canary-pinned or not. Reuses the same
+;; "complete current managed run" predicate the routing performance report
+;; holds itself to (composition-routed, fully attributed, no legacy debt) so a
+;; real lane death (stall, hook-seam death, whatever) that never happened to be
+;; a pinned calibration canary is not silently invisible to the reliability
+;; window.
+(defn- all-managed-run? [row]
+  (complete-current-managed-run? row))
+
+(defn- fold-report [report-name scope selector rows window]
   (let [selected (->> rows
-                      (filter canary-run?)
+                      (filter selector)
                       (filter #(parse-instant (:at %)))
                       (sort-by :at #(compare %2 %1))
                       (take window)
@@ -338,8 +347,8 @@
         unattributed-failures (get frequencies' "unattributed" 0)
         runs (count with-derived)
         rate (fn [n] (if (zero? runs) 0.0 (/ (double n) runs)))]
-    {:report "canary"
-     :scope "production-delegate-calibration-runs"
+    {:report report-name
+     :scope scope
      :windowRequested window
      :runs runs
      :windowComplete (= runs window)
@@ -371,11 +380,26 @@
                           :canaryRecordingStatus])
            with-derived)}))
 
+(defn canary-report [rows window]
+  (fold-report "canary" "production-delegate-calibration-runs"
+               canary-run? rows window))
+
+;; The all-managed fold is the signed exit-bar number: it is not scoped to the
+;; calibration-experiment pin, so a real production lane death that was never
+;; a pinned canary still counts against the reliability window.
+(defn all-managed-report [rows window]
+  (fold-report "canary-all-managed" "all-production-path-managed-runs"
+               all-managed-run? rows window))
+
+(defn full-report [rows window]
+  (assoc (canary-report rows window)
+         :allManaged (all-managed-report rows window)))
+
 (defn- percent-label [rate]
   (format "%.2f%%" (* 100.0 rate)))
 
-(defn print-report [report]
-  (println (str "CANARY PERFORMANCE — last " (:windowRequested report)
+(defn- print-section [report label]
+  (println (str label " — last " (:windowRequested report)
                 " production-path run(s)"))
   (println (format "runs %d/%d · full-green %d · failures %d"
                    (:runs report) (:windowRequested report)
@@ -405,6 +429,17 @@
              (:derivedCanaryOutcome row) (:processOutcome row)
              (:deliveryOutcome row) (:deliveryReason row)
              (or (:failureCategory row) "full-green")))))
+
+;; Unchanged for existing consumers when given a bare `canary-report` result
+;; (no :allManaged key): same header, same lines, same table. `full-report`
+;; adds the all-managed section below it; that second section's exit-bar line
+;; is the signed reliability number, since it is not scoped to the
+;; calibration-experiment pin the canary-only section is.
+(defn print-report [report]
+  (print-section report "CANARY PERFORMANCE")
+  (when-let [all-managed (:allManaged report)]
+    (println)
+    (print-section all-managed "ALL-MANAGED PERFORMANCE")))
 
 (defn parse-run-options [args]
   (loop [remaining (vec args) parsed {}]
@@ -481,7 +516,7 @@
     (when-not window
       (throw (ex-info "canary report requires --window N"
                       {:stage :options})))
-    (let [report (canary-report (current-run-rows) window)]
+    (let [report (full-report (current-run-rows) window)]
       (if json?
         (println (json/generate-string report))
         (print-report report)))
