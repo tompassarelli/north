@@ -68,6 +68,10 @@ export type DeliveryAssessment =
       deliveryReason:
         | "delivery_thread_unavailable_at_finalize"
         | "delivery_reservation_unavailable_at_finalize"
+        // The reservation READER failed (timeout/exit/garbage) after bounded
+        // retries, so the reservation's validity was never observed. Distinct
+        // from _unavailable_, which means a successful read found none valid.
+        | "delivery_reservation_load_failed_at_finalize"
         | "delivery_contract_missing"
         | "delivery_contract_exceeds_evidence_limits"
         | "delivery_contract_changed_during_run"

@@ -2153,10 +2153,15 @@ test("dispatch rotates away from a reservation that is invalid at finalization",
   )).toBe(true);
 });
 
-test("spawn's finalize-rotation surfaces the load failure that invalidated the reservation", async () => {
+// Thread 019f9cc1: a load that never produced facts is now reported as
+// UNREADABLE (with its attempt count and cause) and carries its own
+// delivery_reason, so the routing report can split a contended coordinator from
+// a genuinely invalid reservation. The old assertion here conflated them.
+test("spawn's finalize-rotation names an exhausted load apart from an invalid reservation", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   const errorSpy = spyOn(console, "error");
+  let loads = 0;
   try {
     await spawn({
       prompt: "recover at finalization, loudly",
@@ -2168,8 +2173,10 @@ test("spawn's finalize-rotation surfaces the load failure that invalidated the r
           return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
         },
         load() {
+          loads++;
           throw new Error("torn rotated-run predicate row");
         },
+        loadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
       },
       queryFn: () => (async function* () {
         yield {
@@ -2178,14 +2185,77 @@ test("spawn's finalize-rotation surfaces the load failure that invalidated the r
         };
       })(),
     });
+    expect(loads).toBe(3);
     const messages = errorSpy.mock.calls.map((call) => String(call[0]));
     expect(messages.some((message) =>
-      message.includes("reservation invalid at finalize")
+      message.includes("reservation unreadable at finalize after 3 attempt(s)")
       && message.includes("torn rotated-run predicate row"),
     )).toBe(true);
   } finally {
     errorSpy.mockRestore();
   }
+  const lines = await settledRunLines("test-spawn-finalize-rotation-loud");
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_reservation_load_failed_at_finalize"),
+  )).toBe(true);
+});
+
+// The defect this thread exists for: lanes ms1awg94/ms1b7syb recorded their bar
+// evidence, committed, were harvested — and finalized unverified because ONE
+// reservation read timed out against a busy coordinator. A delivered lane must
+// survive a contended read.
+test("spawn still reports delivery when the reservation read only fails transiently", async () => {
+  const { spawn } = await import("./support/spawn");
+  writeFileSync(log, "");
+  let reservedRunId: string | undefined;
+  let loads = 0;
+  const slept: number[] = [];
+  await spawn({
+    prompt: "deliver against a busy coordinator",
+    agentId: "test-spawn-contended-load",
+    role: "integrator", routingMetadata: presetRequest("integrator"),
+    thread: "thread-spawn-contended-load",
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Contended reservation read" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+      { predicate: "done_when", value: "focused tests pass" },
+    ],
+    deliveryRuntime: {
+      reserve(context) {
+        reservedRunId = context.runId;
+        return { contractOrigin: "accepted", baselineDoneWhen: ["focused tests pass"] };
+      },
+      load(runId) {
+        loads++;
+        // Two contended reads, then the coordinator answers.
+        if (loads < 3) throw new Error("reader timed out");
+        return { reservationValid: true, evidence: [{
+          version: RUN_BAR_EVIDENCE_VERSION,
+          run: `@${runId}`,
+          thread: "@thread-spawn-contended-load",
+          reporter: "@agent:test-spawn-contended-load",
+          bar: "focused tests pass",
+          observed: "10/10",
+          recordedAt: "2026-07-18T10:00:00Z",
+        }] };
+      },
+      loadOptions: { attempts: 3, backoffMs: 5, sleep: (ms) => slept.push(ms) },
+    },
+    queryFn: () => (async function* () {
+      yield {
+        type: "result", subtype: "success", result: "done",
+        duration_ms: 1, num_turns: 1,
+      };
+    })(),
+  });
+  expect([loads, slept]).toEqual([3, [5, 10]]);
+  const lines = await settledRunLines("test-spawn-contended-load");
+  // Telemetry stays on the RESERVED run: no rotation, no unverified stamp.
+  expect(new Set(lines.map((line) => line.split(/\s+/)[1])))
+    .toEqual(new Set([reservedRunId!]));
+  expect(lines.some((line) => line.endsWith(" delivery_outcome reported"))).toBe(true);
+  expect(lines.some((line) => line.includes(" delivery_outcome unverified"))).toBe(false);
 });
 
 test("spawn rotates away from a reservation that is invalid at finalization", async () => {

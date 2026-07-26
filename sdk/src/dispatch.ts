@@ -65,7 +65,9 @@ import {
 import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
 import {
   loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
+  resolveDeliveryRunState,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
+  type DeliveryRunStateLoadOptions,
 } from "./delivery-evidence";
 import { takeDispatchTestRuntime } from "./internal/test-runtime";
 import { ManagedLiveInputRoute } from "./live-input-route";
@@ -114,6 +116,8 @@ interface DispatchRuntime {
   deliveryRuntime?: {
     reserve: (context: DeliveryRunContext) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
+    /** Bounded retry shape for the finalize-time load; tests inject it. */
+    loadOptions?: DeliveryRunStateLoadOptions;
   };
   childSettlementReader?: (agentId: string) => ChildSettlement;
   feedSubscriber?: typeof subscribeFeed;
@@ -248,7 +252,7 @@ async function runDispatch(
   const agentId = hydratedAgentId ?? createDispatchAgentId(threadId);
   let runId = newRunId(agentId);
   const runContext = newDeliveryRunContext(runId, threadId, agentId);
-  const runtime = deliveryRuntime ?? (queryFn ? undefined : {
+  const runtime: DispatchRuntime["deliveryRuntime"] = deliveryRuntime ?? (queryFn ? undefined : {
     reserve: reserveDeliveryRun,
     load: loadDeliveryRunState,
   });
@@ -814,27 +818,33 @@ async function runDispatch(
       };
     } else {
       const reservedRunId = runId;
-      let runState: DeliveryRunState | undefined;
-      let loadError: unknown;
-      try {
-        runState = runtime.load(runId);
-      } catch (error) {
-        runState = undefined;
-        loadError = error;
-      }
+      // Same seam as spawn.ts: retry the LOAD (a contended coordinator is not a
+      // verdict), fail closed immediately on a read that found no valid
+      // reservation. Thread 019f9cc1.
+      const resolution = resolveDeliveryRunState(
+        runId,
+        (id) => runtime.load(id),
+        runtime.loadOptions,
+      );
+      const runState: DeliveryRunState | undefined = resolution.transientFailure
+        ? undefined
+        : resolution.state;
       if (!runState?.reservationValid) {
         runId = newRunId(agentId);
         deliveryReservationReady = false;
         console.error(
-          `[delivery] @${reservedRunId} reservation invalid at finalize; rotating telemetry to @${runId} `
-          + `and leaving delivery unverified`
-          + (loadError !== undefined
-            ? `: ${(loadError as Error)?.message ?? String(loadError)}`
-            : ""),
+          `[delivery] @${reservedRunId} `
+          + (resolution.transientFailure
+            ? `reservation unreadable at finalize after ${resolution.attempts} attempt(s) `
+              + `(${resolution.transientFailure})`
+            : "reservation invalid at finalize")
+          + `; rotating telemetry to @${runId} and leaving delivery unverified`,
         );
         delivery = {
           deliveryOutcome: "unverified",
-          deliveryReason: "delivery_reservation_unavailable_at_finalize",
+          deliveryReason: resolution.transientFailure
+            ? "delivery_reservation_load_failed_at_finalize"
+            : "delivery_reservation_unavailable_at_finalize",
         };
       } else {
         try {

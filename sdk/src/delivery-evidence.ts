@@ -38,6 +38,96 @@ export interface DeliveryReservation {
 export interface DeliveryRunState {
   reservationValid: boolean;
   evidence: RunBarEvidence[];
+  /**
+   * Set ONLY when the load itself never produced a fact list to judge (reader
+   * timeout against a busy coordinator, nonzero exit, unparseable payload).
+   * Absent means the facts were read and the verdict in `reservationValid` is a
+   * judgment about their CONTENT. Collapsing the two is what made lanes
+   * ms1awg94/ms1b7syb finalize unverified while their evidence sat intact on
+   * the graph (thread 019f9cc1).
+   */
+  loadFailure?: string;
+}
+
+// A single `north json show` costs ~2.5-3.5s against an IDLE coordinator (bb
+// startup dominates), so the old 5s per-attempt ceiling left under 2s of
+// headroom and any write churn pushed the read past it. Per attempt gets real
+// room, and the whole resolution stays well inside the terminal publication
+// budget (90s default) that runs AFTER it.
+const RUN_STATE_LOAD_TIMEOUT_MS = 15_000;
+const RUN_STATE_LOAD_ATTEMPTS = 3;
+const RUN_STATE_LOAD_BUDGET_MS = 40_000;
+const RUN_STATE_LOAD_BACKOFF_MS = 500;
+
+export interface DeliveryRunStateLoadOptions {
+  attempts?: number;
+  budgetMs?: number;
+  backoffMs?: number;
+  sleep?: (ms: number) => void;
+  now?: () => number;
+}
+
+export interface DeliveryRunStateResolution {
+  /** Last observed state; carries `loadFailure` iff every attempt failed. */
+  state: DeliveryRunState;
+  attempts: number;
+  /** Bounded cause of the final failed load; absent when a load succeeded. */
+  transientFailure?: string;
+}
+
+/** Sync sleep: the finalize seam is a synchronous chain of execFileSync writes. */
+function sleepSync(ms: number): void {
+  if (ms <= 0) return;
+  const signal = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(signal, 0, 0, ms);
+}
+
+export function deliveryRunLoadFailureCause(error: unknown): string {
+  const detail = error as { code?: unknown; signal?: unknown; status?: unknown };
+  if (detail?.code === "ETIMEDOUT" || detail?.signal === "SIGTERM") return "reader timed out";
+  if (typeof detail?.code === "string") return `reader failed: ${detail.code}`;
+  if (typeof detail?.status === "number") return `reader exited ${detail.status}`;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\s+/g, " ").trim().slice(0, 200) || "reader failed";
+}
+
+/**
+ * Retry a run-state load ONLY while the failure is the load itself. A load that
+ * succeeded and found no valid reservation is a content verdict and is returned
+ * on the first attempt — fail-closed posture for genuinely invalid reservations
+ * is untouched.
+ */
+export function resolveDeliveryRunState(
+  runId: string,
+  load: (runId: string) => DeliveryRunState,
+  options: DeliveryRunStateLoadOptions = {},
+): DeliveryRunStateResolution {
+  const attemptCap = Math.max(1, options.attempts ?? RUN_STATE_LOAD_ATTEMPTS);
+  const budgetMs = Math.max(0, options.budgetMs ?? RUN_STATE_LOAD_BUDGET_MS);
+  const backoffMs = Math.max(0, options.backoffMs ?? RUN_STATE_LOAD_BACKOFF_MS);
+  const now = options.now ?? (() => performance.now());
+  const sleep = options.sleep ?? sleepSync;
+  const startedAt = now();
+  let state: DeliveryRunState = { reservationValid: false, evidence: [], loadFailure: "not attempted" };
+  let attempts = 0;
+  while (attempts < attemptCap) {
+    attempts++;
+    try {
+      state = load(runId);
+    } catch (error) {
+      state = {
+        reservationValid: false,
+        evidence: [],
+        loadFailure: deliveryRunLoadFailureCause(error),
+      };
+    }
+    if (!state.loadFailure) return { state, attempts };
+    if (attempts >= attemptCap) break;
+    const backoff = backoffMs * 2 ** (attempts - 1);
+    if (now() - startedAt + backoff >= budgetMs) break;
+    sleep(backoff);
+  }
+  return { state, attempts, transientFailure: state.loadFailure };
 }
 
 export function newDeliveryRunContext(
@@ -178,48 +268,65 @@ export function deliveryRunEnvironment(context: DeliveryRunContext): Record<stri
 export function loadDeliveryRunState(
   runId: string,
   command = process.env.NORTH_BIN ?? "north",
+  timeoutMs = RUN_STATE_LOAD_TIMEOUT_MS,
 ): DeliveryRunState {
+  let raw: string;
   try {
-    const raw = execFileSync(command, ["json", "show", runId.replace(/^@/, "")], {
+    raw = execFileSync(command, ["json", "show", runId.replace(/^@/, "")], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 5_000,
+      timeout: Math.max(1, Math.floor(timeoutMs)),
     });
-    const facts = JSON.parse(raw) as Array<{ predicate?: unknown; value?: unknown }>;
-    if (!runReservationValid(facts)) {
-      return { reservationValid: false, evidence: [] };
-    }
-    const one = (predicate: string): string | undefined => {
-      const values = facts
-        .filter((fact) => fact.predicate === predicate)
-        .map((fact) => fact.value);
-      return values.length === 1 && typeof values[0] === "string"
-        ? values[0]
-        : undefined;
+  } catch (error) {
+    // The reader never spoke; say so instead of impersonating a verdict.
+    return {
+      reservationValid: false,
+      evidence: [],
+      loadFailure: deliveryRunLoadFailureCause(error),
     };
-    const run = `@${runId.replace(/^@/, "")}`;
-    const thread = one("run_reservation_thread");
-    const reporter = one("run_reservation_agent");
-    const rawEvidence = facts
-      .filter((fact) => fact.predicate === "run_bar_evidence")
-      .map((fact) => fact.value);
-    if (!thread || !reporter || rawEvidence.length > MAX_DELIVERY_BARS
-      || rawEvidence.some((value) => typeof value !== "string")) {
-      return { reservationValid: false, evidence: [] };
-    }
-    const evidence = (rawEvidence as string[]).map(parseRunBarEvidence);
-    if (evidence.some((record) =>
-      !record
-      || record.run !== run
-      || record.thread !== thread
-      || record.reporter !== reporter)
-      || new Set(evidence.map((record) => record?.bar)).size !== evidence.length) {
-      return { reservationValid: false, evidence: [] };
-    }
-    return { reservationValid: true, evidence: evidence as RunBarEvidence[] };
+  }
+  let facts: Array<{ predicate?: unknown; value?: unknown }>;
+  try {
+    facts = JSON.parse(raw) as Array<{ predicate?: unknown; value?: unknown }>;
   } catch {
+    // A payload that is not even a fact list is a reader fault, not a verdict
+    // on the reservation's content.
+    return { reservationValid: false, evidence: [], loadFailure: "reader payload unparseable" };
+  }
+  if (!Array.isArray(facts)) {
+    return { reservationValid: false, evidence: [], loadFailure: "reader payload not a fact list" };
+  }
+  if (!runReservationValid(facts)) {
     return { reservationValid: false, evidence: [] };
   }
+  const one = (predicate: string): string | undefined => {
+    const values = facts
+      .filter((fact) => fact.predicate === predicate)
+      .map((fact) => fact.value);
+    return values.length === 1 && typeof values[0] === "string"
+      ? values[0]
+      : undefined;
+  };
+  const run = `@${runId.replace(/^@/, "")}`;
+  const thread = one("run_reservation_thread");
+  const reporter = one("run_reservation_agent");
+  const rawEvidence = facts
+    .filter((fact) => fact.predicate === "run_bar_evidence")
+    .map((fact) => fact.value);
+  if (!thread || !reporter || rawEvidence.length > MAX_DELIVERY_BARS
+    || rawEvidence.some((value) => typeof value !== "string")) {
+    return { reservationValid: false, evidence: [] };
+  }
+  const evidence = (rawEvidence as string[]).map(parseRunBarEvidence);
+  if (evidence.some((record) =>
+    !record
+    || record.run !== run
+    || record.thread !== thread
+    || record.reporter !== reporter)
+    || new Set(evidence.map((record) => record?.bar)).size !== evidence.length) {
+    return { reservationValid: false, evidence: [] };
+  }
+  return { reservationValid: true, evidence: evidence as RunBarEvidence[] };
 }
 
 export function loadRunBarEvidence(
