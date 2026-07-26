@@ -74,6 +74,62 @@ describe("trustedManagedCodexExecutable — exact wrapper-pinned provider identi
   });
 });
 
+// The checkout-driven preflight defect this ladder fixes: a managed dispatch
+// spawned outside the Nix wrapper never inherits NORTH_MANAGED_CODEX_BIN, so
+// default resolution must still reach the immutable store Codex via the same
+// root-managed system/profile pointers Git and Babashka fall back to.
+describe("trustedManagedCodexExecutable — default discovery via profile pointer ladder", () => {
+  const codex = realStoreCodex();
+  const env = { ...process.env };
+  let scratch: string;
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), "trusted-managed-codex-env-"));
+  });
+  afterEach(() => {
+    process.env = { ...env };
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  test("env unset resolves via the system-profile pointer to the immutable store binary", () => {
+    delete process.env.NORTH_MANAGED_CODEX_BIN;
+    const resolved = trustedManagedCodexExecutable();
+    expect(STORE_CODEX.test(resolved)).toBe(true);
+    expect(resolved).toBe(codex);
+  });
+
+  test("env unset, no system-profile pointer: the per-user Nix profile entry hint still reaches the store", () => {
+    delete process.env.NORTH_MANAGED_CODEX_BIN;
+    const home = join(scratch, "home");
+    const profileBin = join(home, ".nix-profile", "bin");
+    mkdirSync(profileBin, { recursive: true });
+    symlinkSync(codex, join(profileBin, "codex"));
+    process.env.HOME = home;
+    process.env.USER = "no-such-user-xyz"; // /etc per-user pointer absent
+    const resolved = trustedManagedCodexExecutable([
+      undefined, // no /run/current-system/sw/bin/codex hint in this scenario
+      undefined,
+      `${home}/.nix-profile/bin/codex`,
+    ]);
+    expect(resolved).toBe(codex);
+  });
+
+  test("a forged non-store candidate ahead of the real pointer is skipped, never trusted", () => {
+    const shim = join(scratch, "codex");
+    writeFileSync(shim, "#!/bin/sh\necho pwned\n");
+    chmodSync(shim, 0o755);
+    expect(trustedManagedCodexExecutable([shim, codex])).toBe(codex);
+    expect(() => trustedManagedCodexExecutable([shim])).toThrow(
+      "trusted Nix-store Codex executable unavailable",
+    );
+  });
+
+  test("env injection still wins over the profile ladder when set to a genuine store binary", () => {
+    process.env.NORTH_MANAGED_CODEX_BIN = codex;
+    expect(trustedManagedCodexExecutable()).toBe(codex);
+  });
+});
+
 // A genuine canonical /nix/store git present on this host. Tests that need a real
 // store target (symlink chains, positive canonical acceptance) build atop it,
 // because a temp dir can never be a real /nix/store path.
