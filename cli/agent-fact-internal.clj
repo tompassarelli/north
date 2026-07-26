@@ -49,6 +49,14 @@
 (def required-identity-predicates
   (disj (set north.agent-provenance/required-identity-predicates)
         marker-predicate))
+;; Both come from the CALLER, and require-write-lease-policy! below is this
+;; process's independent check that the pair it was handed is safe (lease >
+;; timeout) — deliberately NOT derived here, so a caller that miscomputes the
+;; pair still fails closed instead of being silently corrected. The SDK derives
+;; the lease from the timeout it declares (identity.ts internalWriteLeaseTtlMs),
+;; because the terminal path's timeout scales with the publication budget. The
+;; defaults below serve only env-less callers (north retask, the reactor's
+;; reaped-terminal writer), which use the 10s writer budget.
 (def writer-timeout-bound-ms
   (parse-long (or (System/getenv "NORTH_IDENTITY_WRITER_TIMEOUT_MS") "10000")))
 (def write-lease-ttl-ms
