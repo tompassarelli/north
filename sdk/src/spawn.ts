@@ -14,7 +14,10 @@ import {
   type WorktreeTerminalFailure,
 } from "./worktree";
 import { normalizeUsage } from "./usage";
-import { classifyTurnProvenance, newRunId, recordRun } from "./telemetry";
+import {
+  classifyTurnProvenance, codexTurnActivityFromResult, describeObservedTurns,
+  newRunId, recordRun,
+} from "./telemetry";
 import { collectProviderJoinEvidence } from "./providers/provider-join";
 import { publishRunLifecycleLedger } from "./run-ledger";
 import { resolveManagedCaveman, type CavemanResolution } from "./caveman";
@@ -771,7 +774,7 @@ async function runSpawn(
     // distinct LOUD terminal so a zero-deliverable lane never masquerades as
     // AGENT COMPLETE.
     outcome = EMPTY_RESULT_OUTCOME;
-    const turns = typeof resultMsg?.num_turns === "number" ? `${resultMsg.num_turns} turns` : "unknown turns";
+    const turns = describeObservedTurns(resultMsg);
     terminalSignal = {
       subject: "AGENT EMPTY RESULT",
       detail: `provider success terminal with empty result (0b) after ${turns} — no deliverable text committed (likely output-token ceiling hit mid extended-thinking/tool_use)`,
@@ -1069,6 +1072,7 @@ async function runSpawn(
     // zero is North-observed; every other missing provider value stays absent.
     : terminal.processOutcome === "blocked_preflight"
       || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
+  const codexTurnActivity = codexTurnActivityFromResult(resultMsg);
   const runPublication = await recordRun({
     thread: boundThread, agent: agentId, posture: "spawn",
     // Effective FINAL dial; env-fallback mirrors the identity write so a bare
@@ -1114,6 +1118,7 @@ async function runSpawn(
     deliveryOutcome: terminal.deliveryOutcome, deliveryReason: terminal.deliveryReason,
     deliveryProof: terminal.deliveryProof,
     numTurns,
+    codexTurnActivity,
     compactions,
     judgmentGrade,
     struggleObservation: struggle.snapshot(),
@@ -1139,8 +1144,13 @@ async function runSpawn(
   // ran dozens of turns reads as identical to a zero-turn no-op (the 2026-07-21
   // "instant-DOA" misdiagnosis, where 33-47-turn process=ran lanes were reported
   // as dead because their work lives in the .stream.jsonl transcript, not stdout).
+  const turnsLabel = numTurns != null
+    ? `${numTurns}`
+    : codexTurnActivity
+      ? `${codexTurnActivity.turnUnits}cx${codexTurnActivity.toolItems != null ? `/${codexTurnActivity.toolItems}items` : ""}`
+      : "?";
   console.log(`[spawn] @agent:${agentId} complete (process=${outcome}, delivery=${terminal.deliveryOutcome}` +
-    `, turns=${numTurns ?? "?"}, result=${result.length}b` +
+    `, turns=${turnsLabel}, result=${result.length}b` +
     `${struggleSnapshot.triggers.length ? `, struggle: ${struggleSnapshot.triggers.join(",")}` : ""})`);
   return { result, outcome, runId };
 }
