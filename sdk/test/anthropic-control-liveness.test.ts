@@ -104,6 +104,27 @@ function fastLifecycle() {
   return createAnthropicProcessLifecycle({ graceMs: 10, termMs: 50, killMs: 1_000 });
 }
 
+// A lifecycle for scenarios where the disposal path's own grace window must
+// never race the fixture's real OS process bootstrap. `fastLifecycle`'s 10ms
+// grace assumes the owned process is already fully up by the time disposal
+// starts counting; that holds for the four scenarios above (their fixture is
+// spawned, observed, and closed well before disposal ever runs). The
+// late-resolving scenario is different in kind: disposal's grace window
+// starts counting from the OUTER probe deadline (t=timeoutMs), concurrently
+// with the fixture's *own* first real spawn+bootstrap+file-write — measured
+// on this box at ~106-128ms per real Node child-process bootstrap (see
+// docs/private/kill-flaky-linear-broker-and-anthropic-liveness.md). A 10ms
+// grace after a 100ms deadline (SIGTERM at ~110ms) is below that floor, so it
+// is not "probably flaky" but structurally racing a real OS cost the process
+// cannot outrun — the fixture can be SIGTERM'd before its own JS ever runs.
+// `DEFAULT_GRACE_MS` (250ms) is the library's own production constant for
+// exactly this reason; this lifecycle keeps that realistic floor (with
+// matching term/kill headroom) instead of the artificially-fast override, so
+// the grace window can no longer beat a real process to its own bootstrap.
+function lateResolvingLifecycle() {
+  return createAnthropicProcessLifecycle({ graceMs: 500, termMs: 750, killMs: 1_500 });
+}
+
 afterEach(() => {
   for (const pgid of groups) {
     if (!groupGone(pgid)) {
@@ -231,7 +252,7 @@ posixTest("late-resolving warm startup is reaped, observed, and disposed", async
     models: true,
     timeoutMs: 100,
     start,
-    createLifecycle: fastLifecycle,
+    createLifecycle: lateResolvingLifecycle,
   });
   expect(result.usage).toMatchObject({
     ok: false, reason: "anthropic_control_probe_timed_out",
@@ -239,6 +260,18 @@ posixTest("late-resolving warm startup is reaped, observed, and disposed", async
   expect(result.models).toMatchObject({
     ok: false, reason: "anthropic_control_probe_timed_out",
   });
+  // `pids` is set by the abandoned `start()` promise, which keeps running
+  // (real process spawn + a file-write it must poll for) after
+  // readAnthropicControlObservation has already returned its 100ms timeout
+  // result — that's the whole point of this test (a late resolution must
+  // still be reaped). Asserting `pids` synchronously right here races that
+  // background assignment: on a loaded box the real spawn + pid-file write
+  // can still be in flight at this exact tick even though the overall
+  // observation already gave up, making `pids` intermittently undefined —
+  // not a broker defect, a premature-read race in the test itself. Wait for
+  // the same background assignment the rest of the test already depends on
+  // before reading through it.
+  await eventually(() => pids !== undefined, "late-startup process record");
   expect(pids).toBeDefined();
   await eventually(
     () => pidGone(pids!.leader) && pidGone(pids!.descendant) && groupGone(pids!.pgid),
