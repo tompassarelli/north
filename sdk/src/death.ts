@@ -64,11 +64,16 @@ export function causeChain(err: unknown, maxDepth = 8, maxLen = 2000): string {
 // PURE: build the exact command specs a death emits, so the notification path is testable
 // without shelling out or touching the coordinator. Order: facts first (durable record),
 // peer ping last (transient wake). @swarm always; thread + coordinator only when known.
+// `reason` stays the SHORT single-line form: it is the value of the agent_death FACT,
+// which lands in the graph and must stay legible in a `north show` listing. `detail`
+// is the diagnosable form (the full cause chain) and rides only the transient peer
+// ping, where length costs nothing and the nested cause is the whole point.
 export function deathCommands(
   agentId: string,
   reason: string,
   ctx: DeathContext = {},
   ts: string = new Date().toISOString(),
+  detail: string = reason,
 ): Array<{ cmd: string; args: string[] }> {
   const line = `${agentId} | ${reason} | ${ts}`;
   const north = northBin();
@@ -81,7 +86,7 @@ export function deathCommands(
   if (ctx.coordinator) {
     cmds.push({
       cmd: "bb",
-      args: [MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT DEATH", `${reason} (${ts})`],
+      args: [MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT DEATH", `${detail} (${ts})`],
     });
   }
   return cmds;
@@ -96,8 +101,15 @@ export function notifyDeath(
   timeoutMs = 10_000,
 ): void {
   const reason = deathReason(err);
+  // The whole point of causeChain was diagnosability, yet no death surface rendered
+  // it: the lane log and the peer ping both showed only the outermost message, so a
+  // wrapper code like `openai_provider_execution_failed` reached the operator with
+  // its actual cause (the app-server arm that threw) permanently swallowed. Render
+  // the chain here — bounded — on both transient surfaces; the durable FACT keeps
+  // the short reason.
+  const chain = causeChain(err, 8, 1200);
   const startedAt = performance.now();
-  for (const { cmd, args } of deathCommands(agentId, reason, ctx)) {
+  for (const { cmd, args } of deathCommands(agentId, reason, ctx, undefined, chain)) {
     try {
       const remaining = Math.max(
         1,
@@ -112,5 +124,5 @@ export function notifyDeath(
       /* best-effort: coordinator can still see the death via telemetry outcome="died" */
     }
   }
-  console.error(`[death] @agent:${agentId} died: ${reason}`);
+  console.error(`[death] @agent:${agentId} died: ${chain}`);
 }

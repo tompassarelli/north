@@ -78,6 +78,23 @@ describe("deathCommands", () => {
     expect(ping.args).toContain("AGENT DEATH"); // subject
   });
 
+  test("the peer ping carries the full cause chain while the facts stay short", () => {
+    // The 2026-07-26 diagnosability hole: every death surface rendered only the
+    // outermost message, so `openai_provider_execution_failed` reached the
+    // operator with its real cause swallowed. The FACT stays legible in
+    // `north show`; the transient ping carries the chain.
+    const inner = new Error("Codex thread runtime workspace roots does not match");
+    const outer = new Error("openai_provider_execution_failed", { cause: inner });
+    const cmds = deathCommands(
+      "P6", deathReason(outer), { thread: "T", coordinator: "coord" }, TS, causeChain(outer),
+    );
+    expect(cmds[0].args[3]).toBe("P6 | openai_provider_execution_failed | " + TS);
+    expect(cmds[1].args[3]).toBe("P6 | openai_provider_execution_failed | " + TS);
+    const body = cmds[2].args[cmds[2].args.length - 1];
+    expect(body).toContain("openai_provider_execution_failed <- cause: ");
+    expect(body).toContain("Codex thread runtime workspace roots does not match");
+  });
+
   test("full context: @swarm fact, thread fact, then coordinator ping — in order", () => {
     const cmds = deathCommands("P5", "signal 15", { thread: "T", coordinator: "coord" }, TS);
     expect(cmds).toHaveLength(3);
