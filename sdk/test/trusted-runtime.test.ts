@@ -12,12 +12,35 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  trustedGitExecutable, trustedManagedCodexExecutable, trustedNorthBabashkaExecutable,
+  trustedCoreutilsExecutable, trustedGitExecutable, trustedManagedCodexExecutable,
+  trustedNorthBabashkaExecutable,
 } from "../src/trusted-runtime";
 
 const STORE_GIT = /^\/nix\/store\/[0-9a-z]{32}-git(?:-[^/]+)?\/bin\/git$/;
 const STORE_BB = /^\/nix\/store\/[0-9a-z]{32}-babashka(?:-[^/]+)?\/bin\/bb$/;
 const STORE_CODEX = /^\/nix\/store\/[0-9a-z]{32}-[^/]*codex[^/]*\/bin\/codex$/;
+const STORE_COREUTILS =
+  /^\/nix\/store\/[0-9a-z]{32}-coreutils(?:-full)?-[^/]+\/bin\/coreutils$/;
+
+/** A real mkfifo pointer on this host plus the multi-call coreutils it resolves to. */
+function realStoreCoreutils(): { mkfifo: string; real: string } {
+  const candidates = [
+    process.env.NORTH_MKFIFO_BIN,
+    "/run/current-system/sw/bin/mkfifo",
+    `${process.env.HOME}/.nix-profile/bin/mkfifo`,
+    "/etc/profiles/per-user/" + (process.env.USER ?? "") + "/bin/mkfifo",
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const real = realpathSync(candidate);
+      if (STORE_COREUTILS.test(real)) return { mkfifo: candidate, real };
+    } catch {
+      // keep looking
+    }
+  }
+  throw new Error("test host exposes no canonical /nix/store coreutils");
+}
 
 function realStoreCodex(): string {
   const candidates = [
@@ -127,6 +150,48 @@ describe("trustedManagedCodexExecutable — default discovery via profile pointe
   test("env injection still wins over the profile ladder when set to a genuine store binary", () => {
     process.env.NORTH_MANAGED_CODEX_BIN = codex;
     expect(trustedManagedCodexExecutable()).toBe(codex);
+  });
+});
+
+// The SECOND checkout-driven preflight defect of the same class: the managed
+// Codex supervisor creates its private control FIFO with the wrapper's
+// NORTH_MKFIFO_BIN, which a checkout-driven managed lane never inherits. Absent
+// the ladder the supervisor emitted an UNAVAILABLE start receipt and the host
+// could only relay it as "Codex executable unavailable" (observed: canary cycle
+// 2 codex legs, 2026-07-26).
+describe("trustedCoreutilsExecutable — supervisor FIFO tool discovery", () => {
+  const coreutils = realStoreCoreutils();
+  const env = { ...process.env };
+  let scratch: string;
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), "trusted-coreutils-"));
+  });
+  afterEach(() => {
+    process.env = { ...env };
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  test("env unset still resolves the multi-call store coreutils via the pointer ladder", () => {
+    delete process.env.NORTH_MKFIFO_BIN;
+    const resolved = trustedCoreutilsExecutable();
+    expect(STORE_COREUTILS.test(resolved)).toBe(true);
+  });
+
+  test("wrapper injection wins and resolves through the mkfifo symlink", () => {
+    process.env.NORTH_MKFIFO_BIN = coreutils.mkfifo;
+    expect(trustedCoreutilsExecutable()).toBe(coreutils.real);
+  });
+
+  test("a forged writable mkfifo shim is never trusted, present or alone", () => {
+    const shim = join(scratch, "mkfifo");
+    writeFileSync(shim, "#!/bin/sh\nexit 0\n");
+    chmodSync(shim, 0o755);
+    expect(trustedCoreutilsExecutable([shim, coreutils.mkfifo])).toBe(coreutils.real);
+    expect(() => trustedCoreutilsExecutable([shim]))
+      .toThrow("trusted Nix-store coreutils executable unavailable");
+    expect(() => trustedCoreutilsExecutable([join(scratch, "absent")]))
+      .toThrow("trusted Nix-store coreutils executable unavailable");
   });
 });
 
