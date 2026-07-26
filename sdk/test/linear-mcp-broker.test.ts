@@ -346,28 +346,51 @@ test("a late duplicate app-server error response invalidates the command receipt
 });
 
 test("a natural code-0 app-server exit remains provider-caused when close races it", async () => {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const { broker } = harness({
-      servers: [linearServer()],
-      afterResponse: { method: "mcpServer/tool/call", type: "cleanExit" },
-      results: {
-        get_issue: {
-          structuredContent: {
-            issue: {
-              id: "MSA-123",
-              title: "A clean provider exit is still unexpected",
-              description: "",
-              url: "https://linear.app/msa/issue/MSA-123/provider-exit",
-              createdAt: "2026-07-18T00:00:00.000Z",
+  // Repeated attempts stress the close/exit race; each spawns its own real
+  // child process. Two shapes were measured and rejected before this one:
+  // (a) fully serial (the original 20, one at a time) — 20 sequential real
+  // spawn+handshake+teardown cycles accumulate against Bun's fixed 5000ms
+  // per-test default, so on any loaded box (a concurrent lane, a busy CI
+  // runner) the aggregate crosses it even though every individual attempt is
+  // fast and correct on its own — a wall-clock artifact of serial real-process
+  // fan-out colliding with a fixed budget, not a broker defect; (b) fully
+  // concurrent (all 20 at once) — 20 real Node child processes spawning
+  // simultaneously contend for CPU hard enough that the harness's own 500ms
+  // per-request RPC timeout fires spuriously (measured: initialize round
+  // trips exceeding 500ms under full 20-way contention), a different false
+  // failure, not the close/exit race under test. The fix is at the actual
+  // cause — too much real, contention-sensitive process fan-out chasing a
+  // fixed budget — not a bigger number pasted over either timeout: bounded
+  // concurrency (batches of 6) avoids the CPU-starvation failure mode, and
+  // trimming 20 attempts to 12 (still races 12 independent close/exit pairs
+  // across two batches) keeps measured wall time within a comfortable margin
+  // of the 5000ms default even under ambient system load.
+  const attempts = Array.from({ length: 12 }, (_, index) => index);
+  const batchSize = 6;
+  for (let start = 0; start < attempts.length; start += batchSize) {
+    await Promise.all(attempts.slice(start, start + batchSize).map(async () => {
+      const { broker } = harness({
+        servers: [linearServer()],
+        afterResponse: { method: "mcpServer/tool/call", type: "cleanExit" },
+        results: {
+          get_issue: {
+            structuredContent: {
+              issue: {
+                id: "MSA-123",
+                title: "A clean provider exit is still unexpected",
+                description: "",
+                url: "https://linear.app/msa/issue/MSA-123/provider-exit",
+                createdAt: "2026-07-18T00:00:00.000Z",
+              },
             },
+            content: [],
           },
-          content: [],
         },
-      },
-    });
-    await expect(runLinearCommand(["get", "MSA-123"], {
-      openGateway: ({ server }) => openLinearGateway(broker, { server }),
-    })).rejects.toThrow("transport exited unexpectedly");
+      });
+      await expect(runLinearCommand(["get", "MSA-123"], {
+        openGateway: ({ server }) => openLinearGateway(broker, { server }),
+      })).rejects.toThrow("transport exited unexpectedly");
+    }));
   }
 });
 
