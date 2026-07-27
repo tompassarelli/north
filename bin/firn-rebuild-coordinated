@@ -9,6 +9,7 @@ runtime_parent=${runtime_state%/*}
 runtime_name=${runtime_state##*/}
 restart_lock=${NORTH_COORD_RESTART_LOCK:-$runtime_parent/.${runtime_name}.restart.lock}
 restart_lock_timeout=${NORTH_COORD_RESTART_LOCK_TIMEOUT:-60}
+coord_retry_attempts=${NORTH_REBUILD_COORD_RETRY_ATTEMPTS:-10}
 
 why=
 window="immediately after coordination all-clear"
@@ -61,6 +62,11 @@ done
 }
 [[ "$restart_lock_timeout" =~ ^[0-9]+$ ]] || {
   printf '%s: NORTH_COORD_RESTART_LOCK_TIMEOUT must be a non-negative integer\n' "$program" >&2
+  exit 2
+}
+[[ "$coord_retry_attempts" =~ ^[1-9][0-9]*$ ]] || {
+  printf '%s: NORTH_REBUILD_COORD_RETRY_ATTEMPTS must be a positive integer\n' \
+    "$program" >&2
   exit 2
 }
 [[ -x "$north_bin" ]] || {
@@ -117,11 +123,36 @@ if ((firn_rc != 0)); then
   exit "$firn_rc"
 fi
 
-# north rebuild-intent has its own bounded :7977 reconnect loop. coord-doctor is
-# the deployment identity probe: a green exit proves the restarted coordinator
-# serves the canonical log and selected runtime after firn's generation switch.
-"$north_bin" coord-doctor
+# coord-doctor is the deployment identity probe: a green exit proves the
+# restarted coordinator serves the canonical log and selected runtime after
+# firn's generation switch. Refused :7977 is transient for roughly 25 seconds,
+# so retry with a bounded 1,2,4,4... second backoff.
+coord_attempt=1
+coord_delay=1
+coord_rc=0
+while true; do
+  set +e
+  "$north_bin" coord-doctor
+  coord_rc=$?
+  set -e
+  if ((coord_rc == 0)); then
+    break
+  fi
+  if ((coord_attempt >= coord_retry_attempts)); then
+    report="firn rebuild rc 0; north coord-doctor rc $coord_rc after $coord_attempt attempts"
+    "$north_bin" rebuild-intent failed "$intent_id" "$report"
+    printf '%s: %s\n' "$program" "$report" >&2
+    exit "$coord_rc"
+  fi
+  printf '%s: coordinator verification unavailable; retry %d/%d in %ds\n' \
+    "$program" "$coord_attempt" "$coord_retry_attempts" "$coord_delay" >&2
+  sleep "$coord_delay"
+  coord_attempt=$((coord_attempt + 1))
+  if ((coord_delay < 4)); then
+    coord_delay=$((coord_delay * 2))
+  fi
+done
+
 report="firn rebuild rc 0; north coord-doctor rc 0"
 "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
 printf 'deployment verified: %s\n' "$report"
-
