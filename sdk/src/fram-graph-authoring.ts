@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import {
-  closeSync, copyFileSync, mkdirSync, openSync, readFileSync, writeFileSync,
+  closeSync, copyFileSync, mkdirSync, openSync, readdirSync, readFileSync,
+  readlinkSync, writeFileSync,
 } from "node:fs";
 import { createServer, connect } from "node:net";
 import { homedir } from "node:os";
@@ -74,6 +75,10 @@ export interface PrepareManagedFramCoordinatorOptions {
     }): ChildProcess;
     ready(child: ChildProcess, port: number, log: string, timeoutMs: number): Promise<void>;
     waitForExit(child: ChildProcess, milliseconds: number): Promise<boolean>;
+    pidAlive?(pid: number): boolean;
+    pidOwnsPort?(pid: number, port: number): boolean;
+    portListening?(port: number): boolean;
+    signalPid?(pid: number, signal: NodeJS.Signals): void;
   };
 }
 
@@ -332,9 +337,56 @@ function waitForExit(child: ChildProcess, milliseconds: number): Promise<boolean
   });
 }
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function listeningSocketInodes(port: number): ReadonlySet<string> {
+  const expectedPort = port.toString(16).toUpperCase().padStart(4, "0");
+  const inodes = new Set<string>();
+  for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    let raw: string;
+    try { raw = readFileSync(table, "utf8"); }
+    catch { continue; }
+    for (const line of raw.split(/\r?\n/).slice(1)) {
+      const columns = line.trim().split(/\s+/);
+      const localPort = columns[1]?.split(":").at(-1);
+      const state = columns[3];
+      const inode = columns[9];
+      if (localPort === expectedPort && state === "0A" && inode) inodes.add(inode);
+    }
+  }
+  return inodes;
+}
+
+function portListening(port: number): boolean {
+  return listeningSocketInodes(port).size > 0;
+}
+
+function pidOwnsPort(pid: number, port: number): boolean {
+  const inodes = listeningSocketInodes(port);
+  if (inodes.size === 0) return false;
+  let descriptors: string[];
+  try { descriptors = readdirSync(`/proc/${pid}/fd`); }
+  catch { return false; }
+  return descriptors.some((descriptor) => {
+    let target: string;
+    try { target = readlinkSync(`/proc/${pid}/fd/${descriptor}`); }
+    catch { return false; }
+    const match = /^socket:\[([0-9]+)\]$/.exec(target);
+    return match !== null && inodes.has(match[1]!);
+  });
+}
+
 /**
- * Host-owned lifecycle for a lane's code coordinator. The daemon is a direct
- * child whose shell `exec`s the JVM, so reaping this PID reaps the listener.
+ * Lane-terminal lifecycle for a code coordinator. `fram-daemon` execs the JVM,
+ * so the descriptor PID is also the listener PID; PID+port validation prevents
+ * a stale descriptor from killing an unrelated recycled process.
  */
 export async function prepareManagedFramCoordinator(
   options: PrepareManagedFramCoordinatorOptions,
@@ -369,6 +421,7 @@ export async function prepareManagedFramCoordinator(
           {
             cwd: framHome,
             env: { ...process.env, FRAM_REQUIRE_LOG_FENCE: "1" },
+            detached: true,
             stdio: ["ignore", logFd, logFd],
           },
         );
@@ -382,6 +435,10 @@ export async function prepareManagedFramCoordinator(
   const codePort = String(await runtime.allocatePort());
   const daemonLog = join(localFram, `coord-${codePort}.log`);
   const child = runtime.launch({ framHome, codePort, codeLog, daemonLog });
+  // The lane runner owns terminal reaping by the recorded PID+port. Keeping a
+  // Node child reference must not make an admitted coordinator depend on the
+  // dispatcher's process tree.
+  try { child.unref(); } catch { /* injected runtimes may not expose unref */ }
   const pid = child.pid;
   if (!Number.isSafeInteger(pid) || pid === undefined || pid <= 1) {
     try { child.kill("SIGKILL"); } catch { /* invalid child is already unusable */ }
@@ -418,6 +475,23 @@ export async function prepareManagedFramCoordinator(
     pid,
   };
   writeDescriptor(path, descriptor);
+  const injectedRuntime = options.runtime !== undefined;
+  const isPidAlive = runtime.pidAlive
+    ?? (injectedRuntime
+      ? (() => child.exitCode === null && child.signalCode === null)
+      : pidAlive);
+  const isPortListening = runtime.portListening
+    ?? (injectedRuntime
+      ? (() => child.exitCode === null && child.signalCode === null)
+      : portListening);
+  const ownsPort = runtime.pidOwnsPort
+    ?? (injectedRuntime
+      ? (() => child.exitCode === null && child.signalCode === null)
+      : pidOwnsPort);
+  const signalPid = runtime.signalPid
+    ?? (injectedRuntime
+      ? ((_pid: number, signal: NodeJS.Signals) => { child.kill(signal); })
+      : ((targetPid: number, signal: NodeJS.Signals) => { process.kill(targetPid, signal); }));
   let closePromise: Promise<void> | undefined;
   let closed = false;
   const markClosed = () => {
@@ -426,22 +500,57 @@ export async function prepareManagedFramCoordinator(
     writeDescriptor(path, { ...descriptor, active: false });
   };
   const forceClose = () => {
-    if (child.exitCode === null && child.signalCode === null) {
-      try { child.kill("SIGKILL"); } catch { /* already terminal */ }
+    if (!isPidAlive(pid) && !isPortListening(Number(codePort))) {
+      markClosed();
+      return;
     }
-    markClosed();
+    // Force is reserved for the host's second signal / bounded reap fallback.
+    // A recycled PID or displaced listener is never ours to kill.
+    if (ownsPort(pid, Number(codePort))) {
+      try { signalPid(pid, "SIGKILL"); } catch { /* terminal verification remains active */ }
+    }
   };
-  const close = () => closePromise ??= (async () => {
-    if (!await runtime.waitForExit(child, 0)) {
-      try { child.kill("SIGTERM"); } catch { /* already terminal */ }
-      if (!await runtime.waitForExit(child, options.termMs ?? DEFAULT_TERM_MS)) {
-        try { child.kill("SIGKILL"); } catch { /* already terminal */ }
-        if (!await runtime.waitForExit(child, options.killMs ?? DEFAULT_KILL_MS))
+  const waitForReap = async (milliseconds: number): Promise<boolean> => {
+    const deadline = Date.now() + Math.max(0, milliseconds);
+    do {
+      if (!isPidAlive(pid) && !isPortListening(Number(codePort))) return true;
+      if (Date.now() >= deadline) return false;
+      await delay(Math.min(25, Math.max(1, deadline - Date.now())));
+    } while (true);
+  };
+  const close = (): Promise<void> => {
+    if (closePromise) return closePromise;
+    const attempt = (async () => {
+      if (await waitForReap(0)) {
+        markClosed();
+        return;
+      }
+      if (!ownsPort(pid, Number(codePort))) {
+        throw new Error(
+          `graph_authoring_fram_lane_coordinator_pid_port_mismatch: pid=${pid} `
+          + `does not own listener 127.0.0.1:${codePort}`,
+        );
+      }
+      try { signalPid(pid, "SIGTERM"); } catch { /* reap observation decides */ }
+      if (!await waitForReap(options.termMs ?? DEFAULT_TERM_MS)) {
+        if (!ownsPort(pid, Number(codePort))) {
+          throw new Error(
+            `graph_authoring_fram_lane_coordinator_pid_port_mismatch: pid=${pid} `
+            + `lost ownership of listener 127.0.0.1:${codePort} during reap`,
+          );
+        }
+        try { signalPid(pid, "SIGKILL"); } catch { /* reap observation decides */ }
+        if (!await waitForReap(options.killMs ?? DEFAULT_KILL_MS))
           throw new Error("graph_authoring_fram_lane_coordinator_reap_failed");
       }
-    }
-    markClosed();
-  })();
+      markClosed();
+    })();
+    closePromise = attempt.catch((error) => {
+      closePromise = undefined;
+      throw error;
+    });
+    return closePromise;
+  };
   return { sourceRoot, codeLog, codePort, pid, close, forceClose };
 }
 
