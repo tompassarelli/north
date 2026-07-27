@@ -134,6 +134,7 @@ jobs:
           bash cli/tests/north-explicit-log-test.sh
           FRAM_TEST_CHECKOUT="$GITHUB_WORKSPACE/fram" \
             bash cli/tests/north-coord-up-test.sh
+          python3 cli/tests/north-coord-socket-activation-integration.py
 
       - name: Coordinator strict-corpus integration
         working-directory: north
