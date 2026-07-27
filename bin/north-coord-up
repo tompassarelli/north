@@ -69,6 +69,7 @@ FRAM_REQUIRE_LOG_FENCE=1
 export FRAM_PORT FRAM_LOG FRAM_REQUIRE_LOG_FENCE
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 runtime_identity_file="${NORTH_COORD_RUNTIME_FILE:-$state_home/north/fram-daemon-$FRAM_PORT.runtime}"
+systemd_unit="${NORTH_COORD_SYSTEMD_UNIT:-north-coord.service}"
 
 fram="$FRAM_BIN/fram"
 daemon="$FRAM_BIN/fram-daemon"
@@ -354,7 +355,7 @@ supervisor_for_pid() {
 
 systemd_coordinator_enabled() {
   command -v systemctl >/dev/null 2>&1 &&
-    systemctl is-enabled --quiet north-coord.service 2>/dev/null
+    systemctl is-enabled --quiet "$systemd_unit" 2>/dev/null
 }
 
 runtime_identity_matches_pid() {
@@ -679,7 +680,7 @@ fi
 
 diagnostic_log="${FRAM_DAEMON_LOG:-$state_home/north/fram-daemon-$FRAM_PORT.log}"
 if [[ -z "$before_pids" ]] && systemd_coordinator_enabled; then
-  echo "north up: north-coord.service is enabled; refusing a direct cold start that systemd would race. Use systemctl start north-coord.service." >&2
+  echo "north up: $systemd_unit is enabled; refusing a direct cold start that systemd would race. Use systemctl start $systemd_unit." >&2
   exit 1
 fi
 mkdir -p "$(dirname "$FRAM_LOG")" "$(dirname "$diagnostic_log")"

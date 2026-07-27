@@ -1,0 +1,71 @@
+import { afterEach, expect, test } from "bun:test";
+import {
+  isTelemetrySubject,
+  routeForSubject,
+  telemetryPartitionEnabled,
+} from "../src/coord-wire";
+
+const original = {
+  NORTH_PORT: process.env.NORTH_PORT,
+  NORTH_TELEMETRY_PARTITION: process.env.NORTH_TELEMETRY_PARTITION,
+  NORTH_TELEMETRY_PORT: process.env.NORTH_TELEMETRY_PORT,
+  FRAM_LOG: process.env.FRAM_LOG,
+  FRAM_TELEMETRY_LOG: process.env.FRAM_TELEMETRY_LOG,
+};
+
+afterEach(() => {
+  for (const [key, value] of Object.entries(original)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+test("telemetry subjects route to their independently fenced writer", () => {
+  process.env.NORTH_PORT = "7977";
+  process.env.NORTH_TELEMETRY_PARTITION = "1";
+  process.env.NORTH_TELEMETRY_PORT = "7978";
+  process.env.FRAM_LOG = "/tmp/north-partition-coordination.log";
+  process.env.FRAM_TELEMETRY_LOG = "/tmp/north-partition-telemetry.log";
+
+  expect(telemetryPartitionEnabled()).toBe(true);
+  for (const subject of [
+    "@run:019fa54e",
+    "@run:019fa54e:event:00000000",
+    "@session:019fa54e",
+    "@mine:019fa54e",
+    "@guard_denial:019fa54e",
+  ]) {
+    expect(isTelemetrySubject(subject)).toBe(true);
+    expect(routeForSubject(subject)).toEqual({
+      port: 7978,
+      log: "/tmp/north-partition-telemetry.log",
+    });
+  }
+  expect(routeForSubject("@agent:019fa54e")).toEqual({
+    port: 7977,
+    log: "/tmp/north-partition-coordination.log",
+  });
+});
+
+test("one-flag rollback returns every subject to the coordination writer", () => {
+  process.env.NORTH_PORT = "7977";
+  process.env.NORTH_TELEMETRY_PARTITION = "0";
+  process.env.NORTH_TELEMETRY_PORT = "7978";
+  process.env.FRAM_LOG = "/tmp/north-rollback.log";
+  process.env.FRAM_TELEMETRY_LOG = "/tmp/north-partition-telemetry.log";
+
+  expect(telemetryPartitionEnabled()).toBe(false);
+  expect(routeForSubject("@run:019fa54e")).toEqual({
+    port: 7977,
+    log: "/tmp/north-rollback.log",
+  });
+});
+
+test("enabled partition rejects an incomplete writer identity", () => {
+  process.env.NORTH_TELEMETRY_PARTITION = "1";
+  delete process.env.NORTH_TELEMETRY_PORT;
+  process.env.FRAM_TELEMETRY_LOG = "/tmp/north-partition-telemetry.log";
+  expect(() => routeForSubject("@run:019fa54e")).toThrow(
+    "NORTH_TELEMETRY_PORT must be an integer",
+  );
+});
