@@ -392,6 +392,7 @@ Declare a concern before editing code for a feature, so others can see + shape a
 
 Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.
 Run \`$NORTH_HOME/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.
+Firn rebuilds go through \`$NORTH_HOME/bin/firn-rebuild-coordinated --why "<reason>"\`; never fire \`firn rebuild\` directly.
 
 To be reachable in REAL TIME, arm your interrupt listener as a BACKGROUND task now:
   $NORTH_HOME/bin/north listen $ID
