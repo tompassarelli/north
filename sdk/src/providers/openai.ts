@@ -24,6 +24,7 @@ import {
   canonicalGlobalAgents, GLOBAL_AGENTS_MAX_BYTES, hasCanonicalHarnessAuthority,
   renewHarnessPresence,
 } from "../harness";
+import { createExecutionActivityEmitter } from "../execution-activity";
 import {
   CODEX_WORKER_NORTH_ENABLED_TOOLS, compileProviderAuthoritySurface,
   type OpenAIAuthoritySurface,
@@ -703,6 +704,7 @@ function exactUsage(value: unknown): ExactCodexUsage {
 interface CodexProtocolResult {
   text?: string;
   usage?: ExactCodexUsage;
+  activityKind?: string;
 }
 
 /**
@@ -780,7 +782,7 @@ class CodexExecProtocol {
       if (this.phase !== "turn") throw new Error("Codex turn start is out of order");
       exactKeys(event, ["type"], "Codex turn-start event");
       this.phase = "running";
-      return {};
+      return { activityKind: "provider.codex.turn.started" };
     }
     if (type === "turn.failed") {
       if (this.phase !== "running") throw new Error("Codex turn failure is out of order");
@@ -799,7 +801,10 @@ class CodexExecProtocol {
       exactKeys(event, ["type", "usage"], "Codex turn-completed event");
       this.usage = exactUsage(event.usage);
       this.phase = "completed";
-      return { usage: this.usage };
+      return {
+        usage: this.usage,
+        activityKind: "provider.codex.turn.completed",
+      };
     }
     if (type === "item.started" || type === "item.updated" || type === "item.completed") {
       if (this.phase !== "running") throw new Error("Codex item event is out of order");
@@ -812,9 +817,15 @@ class CodexExecProtocol {
       if (type === "item.completed" && item.type !== "agent_message"
           && item.type !== "reasoning")
         this.toolItemCount += 1;
-      return type === "item.completed" && item.type === "agent_message"
-        ? { text: item.text }
-        : {};
+      return {
+        ...(type === "item.completed" && item.type === "agent_message"
+          ? { text: item.text } : {}),
+        activityKind: type === "item.started"
+          ? "provider.codex.item.started"
+          : type === "item.updated"
+            ? "provider.codex.item.updated"
+            : "provider.codex.item.completed",
+      };
     }
     throw new Error("Codex emitted an unknown event");
   }
@@ -916,6 +927,7 @@ export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): an
 }
 
 class CodexQuery implements AgentQuery {
+  private readonly activity = createExecutionActivityEmitter();
   private child?: ChildProcessWithoutNullStreams;
   private managedRun?: ManagedCodexAppServerRun;
   private interruptPromise?: Promise<void>;
@@ -933,6 +945,10 @@ class CodexQuery implements AgentQuery {
 
   get executionTransport(): "codex-app-server" | "codex-cli" {
     return this.options?.northCapabilities !== undefined ? "codex-app-server" : "codex-cli";
+  }
+
+  get executionActivity() {
+    return this.activity.source;
   }
 
   supportsInFlightEscalation(): boolean { return false; }
@@ -1033,7 +1049,10 @@ class CodexQuery implements AgentQuery {
               env: fram.env,
             },
           } : {}),
-          onActivity: () => renewHarnessPresence(this.options),
+          onActivity: (kind) => {
+            this.activity.record("provider", kind);
+            renewHarnessPresence(this.options);
+          },
         });
         this.managedRun = run;
         let turns = 0;
@@ -1174,10 +1193,10 @@ class CodexQuery implements AgentQuery {
       for await (const chunk of child.stdout) {
         for (const line of frames.push(chunk)) {
           const accepted = protocol.accept(line);
-          // Every accepted native frame is activity, including command/MCP
-          // item frames that yield no assistant text. The production renewer is
-          // throttled, so a noisy provider cannot create unbounded graph writes.
-          renewHarnessPresence(this.options);
+          if (accepted.activityKind) {
+            this.activity.record("provider", accepted.activityKind);
+            renewHarnessPresence(this.options);
+          }
           if (accepted.text !== undefined) {
             result = accepted.text || result;
             if (accepted.text) {

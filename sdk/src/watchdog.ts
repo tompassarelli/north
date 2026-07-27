@@ -22,6 +22,9 @@
 // abort headroom, past which "silent" is indistinguishable from "hung".
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import type {
+  ExecutionActivityEvidence, ExecutionActivitySnapshot, ExecutionActivitySource,
+} from "./execution-activity";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -38,45 +41,120 @@ export function stallMs(): number {
 
 export interface WatchdogHooks {
   stallMs: number;
-  onStall: (mins: number) => void; // fires once when the stream first goes quiet N ms
-  onAbort: () => void; // fires at 2N ms of silence; the generator then returns
+  onStall: (mins: number, evidence: ExecutionActivitySnapshot) => void;
+  onAbort: (evidence: WatchdogAbortEvidence) => void;
+  activitySources?: readonly ExecutionActivitySource[];
 }
 
-// Wrap an async iterator, resetting a stall timer on every message. The timers are
-// anchored to the moment we START awaiting the next message (i.e. just after the last
-// one), so the abort deadline is a true 2N-from-last-message — not re-armed loosely
-// across the stall->abort transition. A rejection from source.next() (the real SDK
-// throwing exitError on a subprocess death) propagates OUT so the caller's existing
-// error boundary still handles death; the watchdog only adds the SILENCE case.
+export interface WatchdogAbortEvidence extends ExecutionActivitySnapshot {
+  reason: "north_watchdog_execution_inactivity";
+  silenceMs: number;
+}
+
+export function describeWatchdogAbortEvidence(evidence: WatchdogAbortEvidence): string {
+  const render = (activity: ExecutionActivityEvidence | undefined) =>
+    activity ? `${activity.kind}@${activity.observedAt}` : "none";
+  return `${evidence.reason} silence_ms=${evidence.silenceMs} `
+    + `last_outer=${render(evidence.lastOuter)} `
+    + `last_provider=${render(evidence.lastProvider)}`;
+}
+
+function latestEvidence(
+  sources: readonly ExecutionActivitySource[],
+): ExecutionActivitySnapshot {
+  let lastOuter: ExecutionActivityEvidence | undefined;
+  let lastProvider: ExecutionActivityEvidence | undefined;
+  for (const source of sources) {
+    const snapshot = source.snapshot();
+    if (snapshot.lastOuter
+        && (!lastOuter || snapshot.lastOuter.observedAt > lastOuter.observedAt))
+      lastOuter = snapshot.lastOuter;
+    if (snapshot.lastProvider
+        && (!lastProvider || snapshot.lastProvider.observedAt > lastProvider.observedAt))
+      lastProvider = snapshot.lastProvider;
+  }
+  return {
+    ...(lastOuter ? { lastOuter } : {}),
+    ...(lastProvider ? { lastProvider } : {}),
+  };
+}
+
+// One absolute inactivity deadline spans every non-activity outer message.
+// Provider-native pulses wake the SAME pending source.next(), so a quiet outer
+// iterator can remain healthy without concurrent next() calls.
 export async function* withStallWatchdog<T>(
   source: AsyncIterator<T>,
   hooks: WatchdogHooks,
 ): AsyncGenerator<T> {
   const { stallMs, onStall, onAbort } = hooks;
+  const activitySources = hooks.activitySources ?? [];
   const mins = Math.max(1, Math.round(stallMs / 60_000));
+  const sequences = new Map(
+    activitySources.map((activity) => [activity, activity.snapshot().sequence]),
+  );
+  let lastActivityAt = performance.now();
+  let warned = false;
   while (true) {
     const pending = source.next();
-    let stallTimer: ReturnType<typeof setTimeout> | undefined;
-    let abortTimer: ReturnType<typeof setTimeout> | undefined;
-    const stalledP = new Promise<"stall">((r) => { stallTimer = setTimeout(() => r("stall"), stallMs); });
-    const abortedP = new Promise<"abort">((r) => { abortTimer = setTimeout(() => r("abort"), stallMs * 2); });
-    try {
-      const msgP = pending.then(() => "msg" as const);
-      let tag = await Promise.race([msgP, stalledP, abortedP]);
-      if (tag === "stall") {
-        onStall(mins); // non-destructive: surface only, keep awaiting the same message
-        tag = await Promise.race([msgP, abortedP]);
+    while (true) {
+      let activityObserved = false;
+      for (const activity of activitySources) {
+        const sequence = activity.snapshot().sequence;
+        if (sequence !== sequences.get(activity)) {
+          sequences.set(activity, sequence);
+          activityObserved = true;
+        }
       }
-      if (tag === "abort") {
-        onAbort();
-        return; // stop iterating; the caller interrupts the query + records outcome
+      if (activityObserved) {
+        lastActivityAt = performance.now();
+        warned = false;
       }
-      const r = await pending; // resolved — cheap
-      if (r.done) return;
-      yield r.value;
-    } finally {
-      clearTimeout(stallTimer);
-      clearTimeout(abortTimer);
+      const elapsed = Math.max(0, performance.now() - lastActivityAt);
+      if (!warned && elapsed >= stallMs) {
+        warned = true;
+        onStall(mins, latestEvidence(activitySources));
+      }
+      if (elapsed >= stallMs * 2) {
+        const evidence: WatchdogAbortEvidence = {
+          reason: "north_watchdog_execution_inactivity",
+          silenceMs: stallMs * 2,
+          ...latestEvidence(activitySources),
+        };
+        onAbort(evidence);
+        void pending.catch(() => undefined);
+        return;
+      }
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const remaining = Math.max(
+        1,
+        (warned ? stallMs * 2 : stallMs) - elapsed,
+      );
+      let unsubscribe = () => {};
+      const pulse = new Promise<"activity">((resolvePulse) => {
+        const removers = activitySources.map((activity) =>
+          activity.subscribe(() => resolvePulse("activity"))
+        );
+        unsubscribe = () => removers.forEach((remove) => remove());
+      });
+      const timeout = new Promise<"timer">((resolveTimer) => {
+        timer = setTimeout(() => resolveTimer("timer"), remaining);
+      });
+      try {
+        const tag = await Promise.race([
+          pending.then(() => "message" as const),
+          pulse,
+          timeout,
+        ]);
+        if (tag !== "message") continue;
+        const result = await pending;
+        if (result.done) return;
+        yield result.value;
+        break;
+      } finally {
+        unsubscribe();
+        clearTimeout(timer);
+      }
     }
   }
 }

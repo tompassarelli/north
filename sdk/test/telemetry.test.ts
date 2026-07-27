@@ -139,6 +139,48 @@ test("a provider_error @run carries the provider payload as provider_error_detai
   expect(value.length).toBeLessThanOrEqual(1200);
 });
 
+test("a North watchdog abort carries its initiating reason and both last-activity observations", () => {
+  const facts = runFacts({
+    thread: "@run-watchdog", agent: "lane-watchdog", durationMs: 1,
+    posture: "spawn", outcome: "watchdog_aborted", processOutcome: "watchdog_aborted",
+    watchdogAbort: {
+      reason: "north_watchdog_execution_inactivity",
+      silenceMs: 1_200_000,
+      lastOuter: {
+        origin: "outer",
+        kind: "outer.assistant.text",
+        observedAt: "2026-07-28T01:40:00.000Z",
+      },
+      lastProvider: {
+        origin: "provider",
+        kind: "provider.codex.mcp.progress",
+        observedAt: "2026-07-28T01:48:48.000Z",
+      },
+    },
+  });
+  expect(facts).toContainEqual([
+    "watchdog_reason", "north_watchdog_execution_inactivity",
+  ]);
+  expect(facts).toContainEqual(["watchdog_silence_ms", "1200000"]);
+  expect(facts).toContainEqual([
+    "watchdog_last_outer_activity",
+    JSON.stringify({
+      origin: "outer",
+      kind: "outer.assistant.text",
+      observedAt: "2026-07-28T01:40:00.000Z",
+    }),
+  ]);
+  expect(facts).toContainEqual([
+    "watchdog_last_provider_activity",
+    JSON.stringify({
+      origin: "provider",
+      kind: "provider.codex.mcp.progress",
+      observedAt: "2026-07-28T01:48:48.000Z",
+    }),
+  ]);
+  expect(facts.some(([predicate]) => predicate === "provider_error_detail")).toBe(false);
+});
+
 test("current run telemetry freezes judgment and the full effective detector policy", () => {
   const struggle = makeStruggleObserver(resolveStrugglePolicy("orchestrator", {
     STRUGGLE_ERROR_STREAK: "4",

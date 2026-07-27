@@ -34,6 +34,7 @@ afterEach(() => {
 const preset = (role: string): RoutingMetadata => applyOrchestrationStaffing({ role });
 const managedCodexPreview = [
   ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+  "--disable", "network_proxy",
   ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
 ];
 

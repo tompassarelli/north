@@ -30,7 +30,7 @@ export const EMPTY_RESULT_OUTCOME = "ran_empty";
  * classified below as processOutcome "provider_process_died". Bounded auto-retry
  * (spawn.ts, thread 019f8f81) gates eligibility against this exact constant rather
  * than a repeated string literal, so the retry gate and this classification can
- * never drift apart. Distinct from blocked_preflight/stalled/resource_envelope_*,
+ * never drift apart. Distinct from blocked_preflight/watchdog_aborted/resource_envelope_*,
  * which are NOT provider-process deaths and are never retried by that policy.
  */
 export const PROVIDER_PROCESS_DEATH_OUTCOME = "died";
@@ -118,6 +118,7 @@ const BLOCKED_REASON: Record<string, string> = {
   provider_error: "provider_terminal_error",
   died: "provider_process_died",
   stalled: "provider_process_stalled",
+  watchdog_aborted: "north_watchdog_execution_inactivity",
   max_turns: "provider_turn_cap",
   capped: "provider_cap",
   resource_envelope_exceeded: "resource_envelope_exceeded",

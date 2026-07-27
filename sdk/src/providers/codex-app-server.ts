@@ -162,7 +162,7 @@ export interface ManagedCodexAppServerOptions {
   north: ManagedCodexNorthServer;
   fram?: ManagedCodexNorthServer;
   timeoutMs?: number;
-  onActivity?: () => void;
+  onActivity?: (kind: string) => void;
 }
 
 export interface ManagedCodexResult {
@@ -1736,6 +1736,51 @@ function validateProgressNotification(
   throw new Error(`managed Codex emitted unsupported notification ${method}`);
 }
 
+/**
+ * Valid protocol traffic is not synonymous with execution. Connection,
+ * thread-status, rate-limit, MCP-startup, safety-buffering, token-accounting,
+ * and hook frames are deliberately excluded from watchdog liveness.
+ */
+function providerExecutionActivityKind(
+  method: string,
+  value: unknown,
+): string | undefined {
+  if (method === "turn/started") return "provider.codex.turn.started";
+  if (method === "turn/completed") return "provider.codex.turn.completed";
+  if (method === "item/started") return "provider.codex.item.started";
+  if (method === "item/completed") return "provider.codex.item.completed";
+  if ([
+    "item/agentMessage/delta", "item/plan/delta",
+    "item/reasoning/summaryTextDelta", "item/reasoning/textDelta",
+    "item/commandExecution/outputDelta", "item/fileChange/outputDelta",
+  ].includes(method)) {
+    const params = record(value, `Codex ${method} activity`);
+    return typeof params.delta === "string" && params.delta.length > 0
+      ? "provider.codex.item.delta" : undefined;
+  }
+  if (method === "item/commandExecution/terminalInteraction")
+    return "provider.codex.command.interaction";
+  if (method === "item/fileChange/patchUpdated") {
+    const params = record(value, "Codex file patch activity");
+    return Array.isArray(params.changes) && params.changes.length > 0
+      ? "provider.codex.file.patch" : undefined;
+  }
+  if (method === "item/mcpToolCall/progress")
+    return "provider.codex.mcp.progress";
+  if (method === "turn/diff/updated") {
+    const params = record(value, "Codex turn diff activity");
+    return typeof params.diff === "string" && params.diff.length > 0
+      ? "provider.codex.turn.diff" : undefined;
+  }
+  if (method === "turn/plan/updated") {
+    const params = record(value, "Codex turn plan activity");
+    return (typeof params.explanation === "string" && params.explanation.length > 0)
+      || (Array.isArray(params.plan) && params.plan.length > 0)
+      ? "provider.codex.turn.plan" : undefined;
+  }
+  return undefined;
+}
+
 function usageFromNotification(value: unknown, threadId: string, turnId: string): ManagedCodexResult["usage"] {
   const params = record(value, "Codex token usage notification");
   if (params.threadId !== threadId || params.turnId !== turnId)
@@ -2061,6 +2106,8 @@ export class ManagedCodexAppServerRun {
       if (!runtimeState) throw new Error("Codex runtime notification preceded thread authority");
       const wasTerminal = runtimeState.terminalSeen;
       validateProgressNotification(entry.method, entry.value, runtimeState);
+      const activity = providerExecutionActivityKind(entry.method, entry.value);
+      if (activity) this.options.onActivity?.(activity);
       if (!wasTerminal && runtimeState.terminalSeen) terminalResolve();
     };
     const drainQueued = (withTurn: boolean): void => {
@@ -2072,7 +2119,6 @@ export class ManagedCodexAppServerRun {
       }
     };
     const onNotification = (method: string, value: unknown) => {
-      this.options.onActivity?.();
       if (validateConnectionNotification(method, value)) return;
       const entry = { method, value };
       if (!runtimeState || (!runtimeState.turnId && !canProcessWithoutTurn(entry))) {
@@ -2115,6 +2161,7 @@ export class ManagedCodexAppServerRun {
         { label: "Allow for this session", description: "Run the tool and remember this choice for this session." },
         { label: "Cancel", description: "Cancel this tool call." },
       ], "Codex managed MCP approval options");
+      this.options.onActivity?.("provider.codex.mcp.request");
       approvedServerRequests.add(id);
       return { answers: { [questionId]: { answers: ["Allow"] } } };
     };

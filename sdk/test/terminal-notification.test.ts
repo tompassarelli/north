@@ -36,9 +36,10 @@ test("success completes while a preflight refusal reports an honest blocked term
   }
 });
 
-test("death, stall, and turn-cap terminals retain one dedicated post-publication subject", () => {
+test("death, watchdog, legacy stall, and turn-cap terminals retain one dedicated post-publication subject", () => {
   for (const [outcome, subject] of [
     ["died", "AGENT DEATH"],
+    ["watchdog_aborted", "AGENT DEATH"],
     ["stalled", "AGENT DEATH"],
     ["max_turns", "TURN CAP"],
     ["capped", "TURN CAP"],

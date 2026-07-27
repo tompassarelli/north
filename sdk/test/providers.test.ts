@@ -23,6 +23,7 @@ import { agentRouteFacts } from "../src/identity";
 import { OfflineProviderSimulator } from "./support/provider-simulator";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createExecutionActivityEmitter } from "../src/execution-activity";
 
 const MANAGED_ENV = [
   "NORTH_DISABLE_ANTHROPIC", "NORTH_DISABLE_OPENAI", "NORTH_PROVIDER_ORDER",
@@ -54,6 +55,7 @@ const policy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy => ({
 });
 const managedCodexPreview = [
   ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+  "--disable", "network_proxy",
   ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
 ];
 const accountPolicy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy => policy({
@@ -1235,6 +1237,39 @@ test("closing a routed query before first next is sticky and constructs no provi
   await routed.close?.();
   expect(await eventsOf(routed)).toEqual([]);
   expect(constructions).toBe(0);
+});
+
+test("routed query exposes a stable provider activity source before selecting its active provider", async () => {
+  const decision = selectProviderFromAvailability("anthropic", available, policy(), "standard");
+  const providerActivity = createExecutionActivityEmitter();
+  const registry = {
+    anthropic: fakeProvider("anthropic", () => ({
+      executionActivity: providerActivity.source,
+      async *[Symbol.asyncIterator]() {
+        providerActivity.record("provider", "provider.anthropic.tool.completed");
+        yield { type: "result", result: "ok" };
+      },
+    })),
+    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {} })),
+  };
+  const query = routedQueryWithRegistry(
+    decision, { prompt: "x", options: {} as any }, "standard", registry,
+  );
+  const activity = query.executionActivity;
+  expect(activity).toBeDefined();
+  expect(activity!.snapshot().sequence).toBe(0);
+  let pulses = 0;
+  const unsubscribe = activity!.subscribe(() => { pulses++; });
+  expect(await eventsOf(query)).toEqual([{ type: "result", result: "ok" }]);
+  unsubscribe();
+  expect(pulses).toBe(1);
+  expect(activity!.snapshot()).toMatchObject({
+    sequence: 1,
+    lastProvider: {
+      origin: "provider",
+      kind: "provider.anthropic.tool.completed",
+    },
+  });
 });
 
 test("provider-pinned retry-safe failure advances to a sibling target only", async () => {

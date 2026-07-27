@@ -463,6 +463,8 @@ export async function publishRunLifecycleLedger(
   // A caught transport crash has no provider terminal boundary. Its attempted
   // observations remain useful events, but the @run header must not claim a
   // complete lifecycle ledger.
-  const terminalBoundaryObserved = !new Set(["died", "stalled"]).has(observations.outcome);
+  const terminalBoundaryObserved = !new Set([
+    "died", "stalled", "watchdog_aborted",
+  ]).has(observations.outcome);
   return complete && terminalBoundaryObserved ? ledger.finalize() : undefined;
 }

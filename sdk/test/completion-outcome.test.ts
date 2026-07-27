@@ -19,6 +19,7 @@ import type { DeliveryRunContext } from "../src/delivery-evidence";
 import { presetRequest } from "./routing-fixtures";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
+import { createExecutionActivityEmitter } from "../src/execution-activity";
 
 let dir: string;
 let log: string;
@@ -753,18 +754,19 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       subject: "TURN CAP",
     },
     {
-      label: "stalled",
+      label: "watchdog-aborted",
       queryFn: () => ({
         interrupt: async () => {},
+        close: async () => { throw new Error("interrupted provider stream closing"); },
         [Symbol.asyncIterator]() {
           return {
             next: () => new Promise(() => {}),
           };
         },
       }),
-      processOutcome: "stalled",
+      processOutcome: "watchdog_aborted",
       deliveryOutcome: "blocked",
-      runTail: "process_outcome stalled",
+      runTail: "watchdog_reason north_watchdog_execution_inactivity",
       subject: "AGENT DEATH",
       stallMs: "10",
     },
@@ -796,8 +798,8 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
         ? "provider subprocess died for ordering probe — "
         : scenario.processOutcome === "max_turns"
           ? "error_max_turns — partial: partial — "
-          : scenario.processOutcome === "stalled"
-            ? "stalled — no SDK output for 2min — "
+          : scenario.processOutcome === "watchdog_aborted"
+            ? "north_watchdog_execution_inactivity silence_ms=20 last_outer=none last_provider=none — "
           : ""}process=${scenario.processOutcome}`,
     );
     const lines = output.split("\n").filter(Boolean);
@@ -839,13 +841,98 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       expect(forgetIndex).toBeLessThan(pingIndex);
       expect(releaseIndex).toBeLessThan(pingIndex);
     }
-    if (scenario.processOutcome === "stalled") {
+    if (scenario.processOutcome === "watchdog_aborted") {
       const diagnosticPings = lines.filter((line) =>
         line.includes(`send ${agentId} ${TEST_COORDINATOR} AGENT STALLED`)
       );
       expect(diagnosticPings).toHaveLength(1);
       expect(lines.indexOf(diagnosticPings[0]!)).toBeLessThan(terminalIndex);
+      expect(lines.some((line) =>
+        line.includes(`tell run:${agentId}-`)
+        && line.endsWith(" watchdog_last_outer_activity none")
+      )).toBe(true);
+      expect(lines.some((line) =>
+        line.includes(`tell run:${agentId}-`)
+        && line.endsWith(" watchdog_last_provider_activity none")
+      )).toBe(true);
+      expect(lines.some((line) => line.includes(" provider_error_detail "))).toBe(false);
+      expect(lines.some((line) =>
+        line.endsWith(" delivery_reason north_watchdog_execution_inactivity")
+      )).toBe(true);
     }
+  }
+}, 15_000);
+
+test("spawn and dispatch keep a silent outer stream alive from provider-native activity", async () => {
+  const { spawn } = await import("./support/spawn");
+  const { dispatch } = await import("./support/dispatch");
+  const activeNativeQuery = () => {
+    const activity = createExecutionActivityEmitter();
+    let delivered = false;
+    return {
+      executionActivity: activity.source,
+      close: async () => {},
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => {
+            if (delivered) {
+              return Promise.resolve({ done: true as const, value: undefined });
+            }
+            delivered = true;
+            return new Promise((resolveResult) => {
+              const pulse = setInterval(() =>
+                activity.record("provider", "provider.codex.command.interaction"), 8);
+              setTimeout(() => {
+                clearInterval(pulse);
+                resolveResult({
+                  done: false,
+                  value: {
+                    type: "result", subtype: "success", result: "native activity completed",
+                    duration_ms: 1, num_turns: 1,
+                  },
+                });
+              }, 65);
+            });
+          },
+        };
+      },
+    };
+  };
+  process.env.NORTH_STALL_MS = "20";
+  try {
+    for (const surface of ["spawn", "dispatch"] as const) {
+      writeFileSync(log, "");
+      const agentId = `test-native-watchdog-${surface}`;
+      if (surface === "spawn") {
+        await spawn({
+          prompt: "prove native liveness reaches spawn",
+          agentId,
+          role: "integrator",
+          routingMetadata: presetRequest("integrator"),
+          queryFn: activeNativeQuery as any,
+          childSettlementReader: () => ({ kind: "settled", children: [] }),
+        });
+      } else {
+        await dispatch(`thread-${agentId}`, {
+          agentId,
+          routingMetadata: presetRequest("integrator"),
+          claimDriver: (() => ({ release() {} })) as any,
+          queryFn: activeNativeQuery as any,
+          loadThreadFacts: () => [
+            { predicate: "title", value: "Prove native dispatch liveness" },
+            { predicate: "planned", value: "true" },
+            { predicate: "atomic", value: "true" },
+          ],
+          loadChildren: () => [],
+        });
+      }
+      const output = await waitForLog(`tell agent:${agentId} process_outcome ran`);
+      expect(output).not.toContain(`tell agent:${agentId} stalled`);
+      expect(output).not.toContain("watchdog_reason");
+      expect(output).not.toContain("provider_process_stalled");
+    }
+  } finally {
+    delete process.env.NORTH_STALL_MS;
   }
 }, 15_000);
 
