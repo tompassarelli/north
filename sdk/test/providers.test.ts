@@ -1187,7 +1187,14 @@ test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier 
   });
 
   expect(await eventsOf(routedQueryWithRegistry(decision, {
-    prompt, options: { model: "fable", effort: "xhigh", systemPrompt: "keep system" } as any,
+    prompt, options: {
+      model: "fable", effort: "xhigh", systemPrompt: "keep system",
+      env: {
+        NORTH_RUN_ID: "run-provider-fallback",
+        NORTH_THREAD_ID: "thread-provider-fallback",
+        NORTH_RUN_CAPABILITY: "e".repeat(64),
+      },
+    } as any,
   }, "frontier", simulator.registry(), undefined,
   (route) => activated.push(`${route.provider}/${route.resolvedModel}/${route.resolvedEffort}`))))
     .toEqual([{ type: "result", result: "ok" }]);
@@ -1196,6 +1203,11 @@ test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier 
   expect((simulator.requests[0]!.options as any).systemPrompt).toBe("keep system");
   expect((simulator.requests[0]!.options as any).model).toBe("gpt-5.6-sol");
   expect((simulator.requests[0]!.options as any).effort).toBe("xhigh");
+  expect((simulator.requests[0]!.options as any).env).toEqual({
+    NORTH_RUN_ID: "run-provider-fallback",
+    NORTH_THREAD_ID: "thread-provider-fallback",
+    NORTH_RUN_CAPABILITY: "e".repeat(64),
+  });
   expect(decision.provider).toBe("openai");
   expect(decision.fallbackCount).toBe(1);
   expect(decision.fallbackPath).toEqual(["anthropic", "openai"]);

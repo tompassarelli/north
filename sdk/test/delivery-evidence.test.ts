@@ -9,7 +9,7 @@ import {
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
   parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
   resolveDeliveryRunState, resolveThreadFacts, RUN_RESERVATION_VERSION,
-  runReservationValid,
+  runReservationValid, DELIVERY_RESERVATION_WRITER_TIMEOUT_MS,
 } from "../src/delivery-evidence";
 import { MANAGED_NORTH_MCP_ENV_KEYS } from "../src/execution-admission";
 import { harnessOptions } from "../src/harness";
@@ -121,6 +121,30 @@ test("reservation failure diagnostics expose only bounded semantic causes", () =
   expect(deliveryReservationFailureCause(new Error(
     `unclassified writer failure ${secret}`,
   ))).toBe("writer rejected reservation");
+  const timedOut = deliveryEvidenceWriterError("reserve", "", {
+    run: "run-lane-123",
+    thread: "thread-123",
+    reporter: "agent:lane-123",
+    capabilitySha256: secret,
+  }, { code: "ETIMEDOUT", signal: "SIGTERM" });
+  expect(timedOut.message).toBe(
+    "delivery evidence reserve rejected: run reservation refused:"
+    + " run=@run-lane-123 holder=@agent:lane-123"
+    + " receipt=unavailable reason=writer-timeout",
+  );
+  expect(timedOut.message).not.toContain(secret);
+  expect(deliveryReservationFailureCause(timedOut)).toBe("writer timed out");
+  expect(deliveryEvidenceWriterError("reserve", "Message: run subject is not fresh", {
+    run: "run-lane-456",
+    reporter: "agent:lane-456",
+  }).message).toBe(
+    "delivery evidence reserve rejected: run reservation refused:"
+    + " run=@run-lane-456 holder=@agent:lane-456 receipt=unavailable"
+    + " reason=writer-refusal detail=run subject is not fresh",
+  );
+  // Production rotated at the former 10s boundary. The finite replacement
+  // covers two 5s query evaluations plus publication and readback.
+  expect(DELIVERY_RESERVATION_WRITER_TIMEOUT_MS).toBe(45_000);
 });
 
 test("live run capabilities travel on stdin and never enter writer argv", () => {

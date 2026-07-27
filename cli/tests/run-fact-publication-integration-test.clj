@@ -340,7 +340,27 @@
         (check "a freshly captured thread reserves delivery evidence"
                (and (zero? (:exit reserved))
                     (north.terminal-projection/run-reservation-valid?
-                     (facts-of port fresh-thread-run))))))
+                     (facts-of port fresh-thread-run))))
+        (let [stored (facts-of port fresh-thread-run)
+              receipt (north.terminal-projection/singleton-value
+                       stored "run_reservation_manifest_sha256")
+              competing "@agent:lane-competing-holder"
+              refused
+              (shell "bb" evidence-writer (str port) "reserve"
+                     (json/generate-string
+                      (reserve-request fresh-thread-run fresh-thread competing
+                                       (apply str (repeat 64 "d")))))
+              diagnostic (:err refused)]
+          (check "a legitimate concurrent holder is refused without mutation"
+                 (and (not (zero? (:exit refused)))
+                      (= stored (facts-of port fresh-thread-run))))
+          (check "reservation refusal names exact run, holder, receipt, and reason"
+                 (and (str/includes? diagnostic
+                                     (str "run=" fresh-thread-run))
+                      (str/includes? diagnostic (str "holder=" reporter))
+                      (str/includes? diagnostic (str "receipt=" receipt))
+                      (str/includes? diagnostic
+                                     "reason=existing-reservation"))))))
     ;; Same well-formed thread, but the reads are stopped: the writer must name
     ;; the unanswered read and leave NO partial reservation behind.
     (let [unread-run "@run-unanswered-read"

@@ -15,6 +15,14 @@ import {
 const REPO = resolve(import.meta.dir, "..", "..");
 const WRITER = resolve(REPO, "cli", "delivery-evidence-internal.clj");
 export const RUN_RESERVATION_VERSION = "north:run-reservation:v1";
+// A cold Fram projection may consume the full 5s query limit twice (the
+// initial answer plus the writer's bounded retry) before the reservation
+// writer can either continue or report its typed refusal. The former 10s
+// subprocess timeout raced that internal contract and killed the writer first.
+// Keep a finite stale-writer boundary, but leave room for those reads, the 5s
+// marker-last publication window, readback, and bb startup.
+export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 45_000;
+const DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS = 10_000;
 const RUN_RESERVATION_BODY = [
   "run_capability_sha256",
   "run_reservation_agent",
@@ -232,16 +240,16 @@ function invokeWriter(
       encoding: "utf8",
       input: invocation.stdin,
       stdio: ["pipe", "pipe", "pipe"],
-      // Reservation publication owns a 5s monotonic retry window in coord.clj.
-      // Keep subprocess boundary longer so writer can report its semantic cause.
-      timeout: 10_000,
+      timeout: operation === "reserve"
+        ? DELIVERY_RESERVATION_WRITER_TIMEOUT_MS
+        : DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS,
     }).trim();
   } catch (error) {
     // Preserve only the writer's bounded semantic Message line. Even though the
     // live capability now travels on stdin rather than argv, subprocess errors
     // remain an inappropriate place to reflect the request body.
     const stderr = String((error as { stderr?: unknown }).stderr ?? "");
-    throw deliveryEvidenceWriterError(operation, stderr);
+    throw deliveryEvidenceWriterError(operation, stderr, request, error);
   }
 }
 
@@ -249,8 +257,25 @@ function invokeWriter(
 export function deliveryEvidenceWriterError(
   operation: DeliveryEvidenceWriterOperation,
   stderr: string,
+  request: Readonly<Record<string, string>> = {},
+  processFailure?: unknown,
 ): Error & { retryable?: boolean } {
-  const reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
+  let reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
+  if (operation === "reserve" && !reason?.startsWith("run reservation refused:")) {
+    const detail = processFailure as { code?: unknown; signal?: unknown };
+    const processReason = detail?.code === "ETIMEDOUT" || detail?.signal === "SIGTERM"
+      ? "writer-timeout"
+      : reason
+        ? "writer-refusal"
+        : "writer-process-failure";
+    // The requested holder/run are validated before invocation. Do not include
+    // the request body or capability: diagnostics are attributable without
+    // turning a subprocess failure into a capability disclosure.
+    const semanticDetail = reason ? ` detail=${reason}` : "";
+    reason = `run reservation refused: run=@${request.run ?? "unavailable"}`
+      + ` holder=@${request.reporter ?? "unavailable"}`
+      + ` receipt=unavailable reason=${processReason}${semanticDetail}`;
+  }
   const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
   return reason?.startsWith("RETRYABLE:")
     ? new DeliveryEvidenceRetryableError(message)
@@ -264,9 +289,11 @@ export function deliveryReservationFailureCause(error: unknown): string {
   }
   if (message.includes("run subject is not fresh")
     || message.includes("run reservation projection changed before commit")
-    || message.includes("run reservation lost singleton/freshness race")) {
+    || message.includes("run reservation lost singleton/freshness race")
+    || message.includes("reason=existing-reservation")) {
     return "reservation conflict";
   }
+  if (message.includes("reason=writer-timeout")) return "writer timed out";
   if (message === "delivery evidence reserve returned a malformed acknowledgement") {
     return "malformed acknowledgement";
   }
