@@ -121,7 +121,7 @@
     (check "live acknowledgement requires structured identity plus online presence"
            (and (= :ready (:status startup))
                 (= "openai-sol-high-verifier-probe" (:handle startup))
-                (p/alive? process)))
+                (north.spawn-process/process-alive? process)))
     (north.spawn-process/stop-process! process))
 
   (let [log (temp-file "completed.log")
@@ -243,6 +243,36 @@
     (check "launcher itself exits cleanly without waiting for the managed child"
            (zero? (:exit launcher)))
     (check "detached lane survives invoking CLI process exit"
+           (and (eventually #(.isFile marker) 3000)
+                (= "survived" (slurp marker)))))
+
+  ;; The production parent does not merely return: its provider supervisor
+  ;; reaps the MCP/CLI process tree. A waitable `setsid --fork --wait` wrapper
+  ;; kept the lane discoverable as a descendant, so that reap propagated TERM
+  ;; into an admitted lane. The daemonized lane must already be reparented.
+  (let [ready (temp-file "tree-reap-ready")
+        marker (temp-file "tree-reap-survived")
+        log (temp-file "tree-reap.log")
+        child-command
+        ["bash" "-c"
+         "printf ready > \"$NORTH_DETACH_READY\"; sleep 0.4; printf survived > \"$NORTH_DETACH_MARKER\""]
+        child-env (assoc base-env
+                         "NORTH_DETACH_READY" (str ready)
+                         "NORTH_DETACH_MARKER" (str marker))
+        launcher-expr
+        (str "(load-file " (pr-str (str root "/cli/spawn-process.clj")) ") "
+             "(north.spawn-process/launch-detached! "
+             (pr-str child-command) " "
+             (pr-str child-env) " "
+             (pr-str (str log)) ") "
+             "(Thread/sleep 10000)")
+        launcher (p/process ["bb" "-e" launcher-expr]
+                            {:out :string :err :string})]
+    (check "tree-reap probe reaches the admitted child before killing its launcher"
+           (eventually #(.isFile ready) 3000))
+    (p/destroy-tree launcher)
+    (deref launcher 2000 nil)
+    (check "daemonized lane survives ancestor process-tree cleanup"
            (and (eventually #(.isFile marker) 3000)
                 (= "survived" (slurp marker)))))
 
