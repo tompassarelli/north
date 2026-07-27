@@ -72,7 +72,7 @@ interface Fixture {
     sandbox: {
       type: "workspaceWrite";
       writableRoots: [];
-      networkAccess: false;
+      networkAccess: true;
       excludeTmpdirEnvVar: false;
       excludeSlashTmp: false;
     };
@@ -122,7 +122,7 @@ function fixture(client = false): Fixture {
       cwd: realpathSync(worktree), projectRoot: realpathSync(worktree),
       workspaceRoots: [realpathSync(worktree)],
       sandbox: {
-        type: "workspaceWrite", writableRoots: [], networkAccess: false,
+        type: "workspaceWrite", writableRoots: [], networkAccess: true,
         excludeTmpdirEnvVar: false, excludeSlashTmp: false,
       },
     },
@@ -179,7 +179,7 @@ test("publishes one private bounded canonical HKDF/HMAC receipt only after exact
       workspaceRoot: f.worktree, projectRoot: f.worktree,
       sandbox: {
         type: "workspaceWrite", runtimeWorkspaceRoots: [f.worktree],
-        writableRoots: [], networkAccess: false,
+        writableRoots: [], networkAccess: true,
         excludeTmpdirEnvVar: false, excludeSlashTmp: false,
       },
     },

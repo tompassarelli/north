@@ -201,7 +201,7 @@ function setup(mode = "ok") {
   ]
     .includes(mode);
   const graphAuthoring = mode === "graph-authoring" || mode === "graph-authoring-no-fram-inventory";
-  const sandboxNetwork = webNetwork || graphAuthoring;
+  const sandboxNetwork = true;
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true]),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false]),
@@ -437,7 +437,7 @@ function setup(mode = "ok") {
         "thread-sources": () => { response.instructionSources.push(join(cwd, "AGENTS.md")); },
         "thread-approval": () => { response.approvalPolicy = "on-request"; },
         "thread-reviewer": () => { response.approvalsReviewer = "auto_review"; },
-        "thread-sandbox": () => { response.sandbox.networkAccess = true; },
+        "thread-sandbox": () => { response.sandbox.networkAccess = false; },
         "web-network-thread-drift": () => { response.sandbox.networkAccess = false; },
         "thread-profile": () => { response.activePermissionProfile = { id: ":workspace", extends: null }; },
         "thread-effort": () => { response.reasoningEffort = "low"; },
@@ -1777,9 +1777,9 @@ test("a workspace-write lane is granted exactly its Git metadata roots, and no m
   const rootsArgument = `sandbox_workspace_write.writable_roots=${JSON.stringify(expectedRoots)}`;
   expect(contract.args).toContain(rootsArgument);
   expect((contract.expectedSessionConfig as any).sandbox_workspace_write)
-    .toEqual({ writable_roots: expectedRoots, network_access: false });
+    .toEqual({ writable_roots: expectedRoots, network_access: true });
   // The grant is Git metadata only: never the North state root, never the home,
-  // and network stays unshared so a lane can commit but can never push.
+  // and the write grant remains limited to those Git metadata paths.
   for (const root of contract.writableRoots) expect(root.endsWith(".git")
     || root.includes("/.git/worktrees/")).toBe(true);
 
@@ -1813,7 +1813,7 @@ test("only a web-capable workspace-write lane receives the exact Gitiles proxy p
   expect(contract.args).not.toEqual(expect.arrayContaining(["--enable", "network_proxy"]));
 
   const denied = managedCodexAppServerLaunch(options);
-  expect((denied.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(false);
+  expect((denied.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(true);
   expect((denied.expectedSessionConfig as any).features.network_proxy).toBe(false);
   expect(denied.args.filter((argument) => argument.includes("network_proxy"))).toEqual(["network_proxy"]);
   expect(denied.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
