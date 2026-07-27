@@ -23,6 +23,21 @@ write_fake_proc_stat() {
   } >"$path"
 }
 
+write_runtime_selection() {
+  local identity="$1" mode="$2" source="$3" revision="$4"
+  local tree="$5" origin="$6" daemon="$7"
+  mkdir -p "$(dirname "$identity")"
+  printf '%s\n' \
+    north-fram-runtime-v1 \
+    "$mode" \
+    "$source" \
+    "$revision" \
+    "$tree" \
+    "$origin" \
+    "$daemon" \
+    >"$identity"
+}
+
 cleanup() {
   if [[ -n "$DAEMON_PID" ]]; then
     kill "$DAEMON_PID" 2>/dev/null || true
@@ -378,6 +393,62 @@ SNAPSHOT_ROOT="$TMP/fram-runtime/deployments/$FRAM_REV"
 git clone -q "$FRAM_ROOT" "$SNAPSHOT_ROOT"
 git -C "$SNAPSHOT_ROOT" checkout -q "$FRAM_REV"
 : >"$FAKE_PROC/$LISTENER_PID/cgroup"
+
+# coord-doctor's desired identity follows the durable runtime selection. An
+# explicit checkout promotion outranks the launcher's Nix-store package pin;
+# without one, the package pin remains authoritative.
+PROMOTION_STATE="$TMP/runtime-selection"
+PROMOTION_IDENTITY="$PROMOTION_STATE/active/current.identity"
+write_runtime_selection "$PROMOTION_IDENTITY" checkout "$SNAPSHOT_ROOT" \
+  "$FRAM_REV" "$FRAM_TREE" "$FRAM_ROOT" "$SNAPSHOT_ROOT/bin/fram-daemon"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "$FRAM_TREE" "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  "$UP" --check-runtime >"$TMP/promotion-match.out"
+grep -q "^coordinator runtime identity OK on :39871 (identity: promoted $FRAM_REV)" \
+  "$TMP/promotion-match.out"
+
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$FRAM_ROOT" stale-package-revision immutable:stale-package-revision "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  "$UP" --check-runtime >"$TMP/promotion-default-running.out" 2>&1; then
+  echo "north-coord-up test: package default was accepted over an explicit promotion" >&2
+  exit 1
+fi
+grep -q 'coordinator runtime identity UNHEALTHY' "$TMP/promotion-default-running.out"
+grep -q "repair.*north-coord-runtime promote.*$FRAM_REV.*restart" \
+  "$TMP/promotion-default-running.out"
+if grep -Eq 'repair.*restart' "$TMP/promotion-default-running.out" &&
+   ! grep -Eq 'repair.*north-coord-runtime promote.*restart' \
+     "$TMP/promotion-default-running.out"; then
+  echo "north-coord-up test: identity repair prescribed a bare restart" >&2
+  exit 1
+fi
+
+rm -f "${PROMOTION_IDENTITY:?}"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  "$UP" --check-runtime >"$TMP/no-promotion-default.out"
+grep -q '^coordinator runtime identity OK on :39871' "$TMP/no-promotion-default.out"
+if grep -q 'promoted' "$TMP/no-promotion-default.out"; then
+  echo "north-coord-up test: package default was reported as promoted" >&2
+  exit 1
+fi
+
+printf 'FRAM_RUNTIME_SOURCE=/nix/store/unknown-fram\0FRAM_RUNTIME_REV=unknown-revision\0FRAM_RUNTIME_TREE=immutable:unknown-revision\0FRAM_RUNTIME_DAEMON=/nix/store/unknown-fram/bin/fram-daemon\0' \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  "$UP" --check-runtime >"$TMP/no-promotion-unknown.out" 2>&1; then
+  echo "north-coord-up test: unknown runtime was accepted without a promotion" >&2
+  exit 1
+fi
+grep -q 'coordinator runtime identity UNHEALTHY' "$TMP/no-promotion-unknown.out"
+
 printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
   "$SNAPSHOT_ROOT" "$FRAM_REV" "$FAKE_BIN/fram-daemon" \
   >"$FAKE_PROC/$LISTENER_PID/environ"
