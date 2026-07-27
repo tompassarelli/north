@@ -34,6 +34,11 @@ export type HostTerminationRegistrar = (
   options: HostTerminationParticipantOptions,
 ) => HostTerminationParticipant;
 
+export interface ManagedOwnedResource {
+  close(): Promise<void>;
+  forceClose(): void;
+}
+
 /**
  * One lifecycle from outer admission through terminal publication and all
  * outer cleanup. It exists before any awaited preflight, so the first signal
@@ -46,6 +51,7 @@ export class ManagedQueryTermination {
   private closePromise: Promise<void> | undefined;
   private signalled: HostTerminationSignal | undefined;
   private readonly participant: HostTerminationParticipant;
+  private readonly resources = new Set<ManagedOwnedResource>();
 
   constructor(
     register: HostTerminationRegistrar = registerHostTerminationParticipant,
@@ -57,7 +63,7 @@ export class ManagedQueryTermination {
         this.closeInputSafely();
       },
       close: () => this.close(),
-      forceClose: () => this.query?.forceClose?.(),
+      forceClose: () => this.forceClose(),
     });
   }
 
@@ -94,17 +100,40 @@ export class ManagedQueryTermination {
     }
   }
 
+  attachResource(resource: ManagedOwnedResource): void {
+    if (this.closePromise) {
+      resource.forceClose();
+      throw new Error("managed_query_resource_attached_after_close");
+    }
+    this.resources.add(resource);
+    if (this.hostSignal()) resource.forceClose();
+  }
+
   close(): Promise<void> {
     return this.closePromise ??= (async () => {
       this.closeInputSafely();
-      if (!this.query) return;
-      await interruptAgentQuery(this.query);
-      await this.query.close?.();
+      const failures: unknown[] = [];
+      if (this.query) {
+        try {
+          await interruptAgentQuery(this.query);
+          await this.query.close?.();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      for (const resource of this.resources) {
+        try { await resource.close(); }
+        catch (error) { failures.push(error); }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1)
+        throw new AggregateError(failures, "managed query resources failed to close");
     })();
   }
 
   forceClose(): void {
     this.query?.forceClose?.();
+    for (const resource of this.resources) resource.forceClose();
   }
 
   publicationSettled(): void {

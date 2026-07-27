@@ -342,6 +342,8 @@ export interface HarnessOpts {
   /** Attested rendered fork skill; empty when managed Caveman resolves off. */
   cavemanInstructions?: string;
   cwd?: string; // provider working directory; dispatch resolves this from thread repo facts, spawn from opt-in worktree provisioning
+  /** Spawn-provisioned worktree: graph authoring must use its prepared local coordinator. */
+  managedWorktree?: boolean;
   /** Capability-bound delivery context reserved before provider execution. */
   deliveryRun?: {
     runId: string;
@@ -1680,7 +1682,7 @@ export function harnessOptions(o: HarnessOpts): Options {
       ? { [READONLY_SHELL_SERVER]: Object.freeze(readonlyShellServer(cwd, childEnv)) }
       : {}),
     ...(graphAuthoring
-      ? { fram: framMcpServer(cwd) }
+      ? { fram: framMcpServer(cwd, o.managedWorktree === true) }
       : {}),
   });
   const sealedTools = policy
