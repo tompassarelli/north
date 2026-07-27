@@ -300,6 +300,12 @@ cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
 (defn mismatch! [message operation]
   (spit status-file (str "mismatch: " message " " (pr-str operation)))
   (System/exit 2))
+(defn resolved-envelope [value]
+  {:value value
+   :members (if value 1 0)
+   :ambiguous? false
+   :values (if value [value] [])
+   :version 1})
 (defn fake-send-op [_port operation]
   (let [step (count (swap! calls conj operation))]
     (case (:op operation)
@@ -319,11 +325,11 @@ cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
       :resolved
       (cond
         (contains? #{"acked_by" "delivery_rejected_by"} (:p operation))
-        {:values []}
-        (= "to" (:p operation)) {:value "flush-agent"}
-        (= "from" (:p operation)) {:value "peer"}
-        (= "subject" (:p operation)) {:value "flush proof"}
-        (= "body" (:p operation)) {:value "complete body"}
+        (resolved-envelope nil)
+        (= "to" (:p operation)) (resolved-envelope "flush-agent")
+        (= "from" (:p operation)) (resolved-envelope "peer")
+        (= "subject" (:p operation)) (resolved-envelope "flush proof")
+        (= "body" (:p operation)) (resolved-envelope "complete body")
         :else (mismatch! "resolved predicate" operation))
 
       :acquire-lease
