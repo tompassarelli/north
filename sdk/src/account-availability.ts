@@ -124,6 +124,9 @@ function observationIsStale(
 ): boolean {
   const ageMs = now.getTime() - Date.parse(observation.observedAt);
   return relevantWindows.some((window) => {
+    // The cached schema retains canonical rung IDs but not Codex's duration field.
+    // Those IDs define the freshness period: five_hour is short; week, model,
+    // and the shared Codex primary rung are seven-day evidence.
     const freshnessMs = window.limitId === "claude:five_hour"
       ? FIVE_HOURS_MS
       : SEVEN_DAYS_MS;

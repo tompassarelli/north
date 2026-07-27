@@ -75,6 +75,19 @@
         ]
       },
       "expected": { "verdict": "available", "stale": true, "usableModels": [] }
+    },
+    {
+      "name": "available-codex",
+      "observation": {
+        "targetId": "codex-available",
+        "provider": "openai",
+        "source": "codex-app-server:account-rate-limits",
+        "observedAt": "2026-07-28T11:00:00.000Z",
+        "windows": [
+          { "limitId": "codex:primary", "usedPercent": 35, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "available", "stale": false, "usableModels": [] }
     }
   ]
 }
