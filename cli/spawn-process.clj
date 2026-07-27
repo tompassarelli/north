@@ -16,6 +16,8 @@
 (def default-startup-timeout-ms 45000)
 (def default-startup-poll-ms 100)
 (def default-exit-grace-ms 300)
+(def detached-pid-suffix ".lane.pid")
+(def detached-exit-suffix ".lane.exit")
 
 (defn create-agent-id
   "Mint an opaque process identity with sortable time plus the complete UUID.
@@ -63,39 +65,130 @@
         (if (and parsed (pos? parsed)) parsed fallback))
       (catch Exception _ fallback))))
 
+(defn- executable-path [command environment]
+  (let [executable (first command)]
+    (if (str/includes? executable "/")
+      executable
+      (or (some (fn [directory]
+                  (let [candidate (io/file directory executable)]
+                    (when (and (.isFile candidate) (.canExecute candidate))
+                      (.getPath candidate))))
+                (str/split (or (get environment "PATH")
+                               (System/getenv "PATH")
+                               "")
+                           #":"))
+          executable))))
+
 (defn launch-detached!
-  "Start command in a new session while retaining a waitable wrapper during the
-  startup handshake. `setsid --fork --wait` protects the actual lane from the
-  invoking terminal and preserves its real exit status for early-failure proof."
+  "Daemonize command into a new session while retaining a bounded startup handle.
+  `setsid --fork` exits its launcher immediately, so ancestor tree cleanup cannot
+  discover and SIGTERM the lane after North has acknowledged admission. The
+  daemon writes its PID before exec; startup and timeout cleanup use that PID
+  while terminal publication remains the authoritative exit-status proof."
   [command extra-env log-file]
-  (let [log (io/file log-file)]
+  (let [log (io/file log-file)
+        pid-file (io/file (str log-file detached-pid-suffix))
+        exit-file (io/file (str log-file detached-exit-suffix))
+        resolved-command (assoc (vec command) 0
+                                (executable-path command extra-env))
+        launcher-script
+        (str "umask 077; pid_file=\"$1\"; exit_file=\"$2\"; shift 2; "
+             "printf '%s\\n' \"$$\" > \"$pid_file\"; "
+             "\"$@\"; status=$?; printf '%s\\n' \"$status\" > \"$exit_file\"; "
+             "exit \"$status\"")]
     (.mkdirs (.getParentFile log))
-    (let [process (p/process (into ["setsid" "--fork" "--wait"] command)
+    (io/delete-file pid-file true)
+    (io/delete-file exit-file true)
+    (let [process (p/process (into ["setsid" "--fork" "sh" "-c"
+                                    launcher-script "north-lane"
+                                    (.getPath pid-file) (.getPath exit-file)]
+                                   resolved-command)
                              ;; Exact environment, not a merge. Managed callers
                              ;; pass a parent copy with every staffing/routing key
                              ;; scrubbed; :extra-env would silently reintroduce the
                              ;; invoking director's omitted axes.
-                             {:env extra-env
+                             {:env (assoc extra-env
+                                          "NORTH_LANE_PID_FILE" (.getPath pid-file))
                               :out :write :out-file log
-                              :err :out})]
+                              :err :out
+                              ;; The daemon is deliberately reparented. A caller
+                              ;; shutdown hook may reap only this short launcher.
+                              :shutdown nil})]
       ;; The SDK entrypoints never consume their own stdin. Closing the pipe
       ;; prevents a detached lane from retaining the invoking CLI's input edge.
       (when-let [input (:in process)]
         (try (.close input) (catch Exception _ nil)))
-      process)))
+      (assoc process ::pid-file pid-file ::exit-file exit-file))))
 
-(defn process-exit
-  "Return nil while alive, otherwise the observed exit code."
-  [process]
+(defn- detached-pid [process]
+  (when-let [pid-file (::pid-file process)]
+    (try
+      (let [raw (str/trim (slurp pid-file))
+            pid (Long/parseLong raw)]
+        (when (> pid 1) pid))
+      (catch Exception _ nil))))
+
+(defn- pid-alive? [pid]
+  (try
+    (let [handle (java.lang.ProcessHandle/of (long pid))]
+      (and (.isPresent handle) (.isAlive (.get handle))))
+    (catch Exception _ false)))
+
+(defn- launcher-exit [process]
   (try
     (when-not (p/alive? process)
       (:exit @process))
     (catch Exception _ :unknown)))
 
+(defn- detached-exit [process]
+  (when-let [exit-file (::exit-file process)]
+    (try
+      (Long/parseLong (str/trim (slurp exit-file)))
+      (catch Exception _ nil))))
+
+(defn process-exit
+  "Return nil while the daemon is alive, otherwise its observed terminal shape.
+  The short `setsid` launcher normally exits 0 before admission and therefore
+  cannot be mistaken for the lane's terminal."
+  [process]
+  (if (::pid-file process)
+    (if-let [pid (detached-pid process)]
+      (when-not (pid-alive? pid) (or (detached-exit process) :unknown))
+      (let [exit (launcher-exit process)]
+        (when (and (some? exit) (not= 0 exit)) exit)))
+    (launcher-exit process)))
+
+(defn process-alive?
+  "True while the managed daemon, not merely its short launcher, is alive."
+  [process]
+  (and process (nil? (process-exit process))))
+
+(defn- signal-process-group! [pid signal]
+  (try
+    @(p/process ["kill" signal "--" (str "-" pid)]
+                {:out :string :err :string :continue true})
+    (catch Exception _ nil)))
+
 (defn stop-process!
   [process]
-  (try (p/destroy-tree process) (catch Exception _ nil))
-  (try (deref process 2000 nil) (catch Exception _ nil))
+  (when process
+    (when-let [pid (detached-pid process)]
+      (signal-process-group! pid "-TERM")
+      (let [deadline (+ (System/currentTimeMillis) 1000)]
+        (while (and (pid-alive? pid)
+                    (< (System/currentTimeMillis) deadline))
+          (Thread/sleep 20)))
+      (when (pid-alive? pid)
+        (signal-process-group! pid "-KILL")))
+    ;; The launcher is normally already gone. This remains the forced cleanup
+    ;; for a startup stall before the daemon PID could be published.
+    (try (p/destroy-tree process) (catch Exception _ nil))
+    (try (deref process 2000 nil) (catch Exception _ nil))
+    (when (and (::pid-file process)
+               (not (some-> (detached-pid process) pid-alive?)))
+      (io/delete-file (::pid-file process) true)
+      (when (::exit-file process)
+        (io/delete-file (::exit-file process) true))))
   nil)
 
 (defn- final-terminal-facts
