@@ -237,6 +237,12 @@ listener_ownership_error=
 owned_listener_pid=
 owned_listener_birth=
 owned_listener_owner=
+coord_promotion_active=0
+coord_promotion_source=
+coord_promotion_revision=
+coord_promotion_tree=
+coord_promotion_origin=
+coord_promotion_daemon=
 
 process_env_value() {
   local pid="$1" name="$2"
@@ -487,6 +493,44 @@ spawned_identity_matches_pid() {
   return 0
 }
 
+load_coord_promotion_selection() {
+  local state_root identity
+  local -a fields
+
+  state_root="${NORTH_COORD_RUNTIME_STATE:-$state_home/north/fram-runtime}"
+  identity="$state_root/active/current.identity"
+  [[ -f "$identity" ]] || return 1
+  mapfile -t fields <"$identity" || return 1
+  [[ "${#fields[@]}" -eq 7 &&
+     "${fields[0]}" == north-fram-runtime-v1 &&
+     "${fields[1]}" == checkout &&
+     "${fields[2]}" = /* &&
+     "${fields[3]}" =~ ^[0-9a-f]{40}$ &&
+     "${fields[4]}" =~ ^[0-9a-f]{40}$ &&
+     "${fields[5]}" = /* &&
+     "${fields[6]}" = /* ]] || return 1
+
+  coord_promotion_source="$(canonical_path "${fields[2]}")"
+  coord_promotion_revision="${fields[3]}"
+  coord_promotion_tree="${fields[4]}"
+  coord_promotion_origin="$(canonical_path "${fields[5]}")"
+  coord_promotion_daemon="$(canonical_path "${fields[6]}")"
+  return 0
+}
+
+# coord-doctor judges a systemd-managed deployment against the durable runtime
+# selector. A checkout promotion is explicit operational desire and therefore
+# outranks this launcher's package pin. Other north-up modes keep their original
+# launcher-local identity contract.
+if [[ "$check_runtime" -eq 1 ]] && load_coord_promotion_selection; then
+  coord_promotion_active=1
+  runtime_selector=checkout
+  runtime_source="$coord_promotion_source"
+  runtime_rev="$coord_promotion_revision"
+  runtime_tree="$coord_promotion_tree"
+  runtime_daemon="$coord_promotion_daemon"
+fi
+
 before_pids=
 have_pid_probe=0
 if before_pids="$(listener_pids)"; then
@@ -500,11 +544,19 @@ fi
 
 if [[ "$check_runtime" -eq 1 ]]; then
   if [[ "$identity_matches" -eq 1 ]]; then
-    echo "coordinator runtime identity OK on :$FRAM_PORT (source: $runtime_source, rev: $runtime_rev)"
+    if [[ "$coord_promotion_active" -eq 1 ]]; then
+      echo "coordinator runtime identity OK on :$FRAM_PORT (identity: promoted $coord_promotion_revision)"
+    else
+      echo "coordinator runtime identity OK on :$FRAM_PORT (source: $runtime_source, rev: $runtime_rev)"
+    fi
     [[ -z "$listener_identity_advisory" ]] || echo "north coord-doctor: advisory — $listener_identity_advisory"
     exit 0
   fi
   echo "north coord-doctor: coordinator runtime identity UNHEALTHY — ${listener_identity_error:-no listener identity available}" >&2
+  if [[ "$coord_promotion_active" -eq 1 ]]; then
+    printf 'north coord-doctor: repair — north-coord-runtime promote %q %q + restart north-coord.service\n' \
+      "$coord_promotion_origin" "$coord_promotion_revision" >&2
+  fi
   exit 1
 fi
 
