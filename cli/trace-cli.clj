@@ -77,8 +77,9 @@
 
 (defn run-event-entries [run-id]
   (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
-        rows (north.coord/query-page
+        rows (north.coord/query-page-in-domain
               PORT
+              :telemetry
               {:find "forensic_run_event"
                :rules [{:head {:rel "forensic_run_event" :args [{:var "e"}]}
                         :body [{:rel "triple" :args [{:var "e"} "run" canonical-run]}
@@ -97,8 +98,9 @@
 
 (defn thread-run-ids [thread-id]
   (let [canonical-thread (north.run-ledger/canonical-entity thread-id "thread")
-        rows (north.coord/query-page
+        rows (north.coord/query-page-in-domain
               PORT
+              :telemetry
               {:find "forensic_thread_run"
                :rules [{:head {:rel "forensic_thread_run" :args [{:var "e"}]}
                         :body [{:rel "triple" :args [{:var "e"} "thread" canonical-thread]}
@@ -168,8 +170,9 @@
 (defn agent-run-entries [id]
   (let [response
         (try
-          (north.coord/query-page
+          (north.coord/query-page-in-domain
            PORT
+           :telemetry
            {:find "trace_run_candidate"
             :rules
             [{:head {:rel "trace_run_candidate" :args [{:var "e"}]}

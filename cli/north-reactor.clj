@@ -165,8 +165,9 @@
   [h]
   (try
     (let [response
-          (north.coord/indexed-query
+          (north.coord/indexed-query-in-domain
            port
+           :telemetry
            {:find "lane_run_candidate"
             :rules
             [{:head {:rel "lane_run_candidate" :args [{:var "e"}]}

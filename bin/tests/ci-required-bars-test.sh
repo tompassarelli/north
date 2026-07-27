@@ -13,6 +13,7 @@ shell_bars=(
   bin/tests/native-identity-test.sh
   cli/tests/north-coord-up-test.sh
   cli/tests/coord-log-fence-integration-test.sh
+  cli/tests/telemetry-partition-integration-test.sh
 )
 clojure_bars=(
   cli/tests/agent-identity-publication-integration-test.clj
