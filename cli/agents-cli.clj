@@ -364,8 +364,9 @@
                       :args [{:var "e"} "agent" control]}]})
            ids)
           response
-          (north.coord/query-page
+          (north.coord/query-page-in-domain
            (Integer/parseInt PORT)
+           :telemetry
            {:find "roster_run_candidate" :rules rules}
            max-roster-run-candidates nil)
           rows (:ok response)]

@@ -39,6 +39,7 @@
 ;; FRAM_TELEMETRY_LOG. Setting the one flag to 0 restores the prior unified
 ;; coordinator path without moving or rewriting either origin log.
 (def telemetry-subject-tokens #{"run" "session" "mine" "guard_denial"})
+(def ^:dynamic *operation-domain* nil)
 
 (defn telemetry-partition-enabled? []
   (= "1" (System/getenv "NORTH_TELEMETRY_PARTITION")))
@@ -93,8 +94,8 @@
 (defn route-for-operation [requested-port operation]
   (let [subject (operation-subject operation)]
     (if (and (telemetry-partition-enabled?)
-             subject
-             (telemetry-subject? subject))
+             (or (= :telemetry *operation-domain*)
+                 (and subject (telemetry-subject? subject))))
       {:port (configured-telemetry-port)
        :log (telemetry-log-path)
        :domain :telemetry}
@@ -541,6 +542,21 @@
        (ex-info "coordinator returned a malformed indexed-query response"
                 {:type :malformed-indexed-query-response})))))
 
+(defn indexed-query-in-domain
+  "Run an indexed query against one named origin. Variable-subject telemetry
+   queries cannot be routed from a subject token, so callers must state the
+   telemetry domain. With Stage A disabled this is the prior coordination
+   query, which keeps rollback flag-only."
+  [port domain query max-rows]
+  (when-not (#{:coordination :telemetry} domain)
+    (throw (ex-info "unknown coordinator query domain"
+                    {:type :invalid-query-domain :domain domain})))
+  (binding [*operation-domain*
+            (when (and (= :telemetry domain)
+                       (telemetry-partition-enabled?))
+              :telemetry)]
+    (indexed-query port query max-rows)))
+
 (defn query-page
   "Run Fram's internal deterministic query-page verb under its tighter 1 MiB
    client cap. There is no compatibility fallback: managed replay depends on
@@ -589,6 +605,20 @@
          (ex-info "coordinator returned a malformed query page"
                   {:type :malformed-query-page-response})))
       response)))
+
+(defn query-page-in-domain
+  "Run a deterministic query page against one named origin. See
+   indexed-query-in-domain for why variable-subject telemetry reads declare
+   their domain explicitly."
+  [port domain query limit after]
+  (when-not (#{:coordination :telemetry} domain)
+    (throw (ex-info "unknown coordinator query domain"
+                    {:type :invalid-query-domain :domain domain})))
+  (binding [*operation-domain*
+            (when (and (= :telemetry domain)
+                       (telemetry-partition-enabled?))
+              :telemetry)]
+    (query-page port query limit after)))
 
 (defn send-raw-op
   "Low-level compatibility/policy probe. Managed North operations must use

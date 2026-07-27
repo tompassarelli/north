@@ -216,6 +216,42 @@ would bury the work graph under machine noise and drag every fold/validate over
 data that isn't about coordination. Keep the coordination log small and
 human-meaningful; give telemetry its own log.
 
+Stage A can also give those logs **independent sole writers**. This is an
+explicit first-cut deployment mode:
+
+```sh
+export FRAM_LOG=~/.local/state/north/coordination.log
+export FRAM_TELEMETRY_LOG=~/.local/state/north/telemetry.log
+export NORTH_PORT=7977
+export NORTH_TELEMETRY_PORT=7978
+export NORTH_TELEMETRY_PARTITION=1
+north up --restart
+```
+
+`north up` starts one strictly log-fenced Fram writer per port. Subjects whose
+token is `run`, `session`, `mine`, or `guard_denial` route to the telemetry
+writer; coordination subjects remain on `NORTH_PORT`. Variable-subject queries
+that read run telemetry declare the telemetry domain explicitly. Whole-corpus
+North reads ask each writer for its **materialized live facts** and compose
+those views set-wise. They do not concatenate independently sequenced event
+histories: each origin log resolves its own order before crossing the seam.
+This preserves the origin-aware ordering gate and leaves both origin logs
+directly recoverable. If one writer is unavailable, the composed adapter names
+the unavailable domain on stderr instead of presenting a silent complete view.
+
+Rollback is one flag plus a restart:
+
+```sh
+export NORTH_TELEMETRY_PARTITION=0
+north up --restart
+```
+
+The pre-Stage-A coordinator resumes serving the same coordination and telemetry
+origin logs. Do not merge, move, truncate, or delete either log; historical
+telemetry remains readable in both modes. Keep `FRAM_TELEMETRY_LOG` configured
+during rollback so the single coordinator folds and routes the existing
+two-origin corpus.
+
 Every new entity **self-identifies its kind at birth**: `north capture` stamps
 `kind thread` in the same coordinator write batch (`kind` is single-valued;
 concern-cli already stamps `kind concern`, telemetry writers `kind run`/`session`).
@@ -689,7 +725,9 @@ canonical `north-data/facts.log`) and sets capture provenance defaults.
 its captured parent environment before launching children: explicit selectors
 win; otherwise it supplies canonical `FRAM_LOG`, `FRAM_THREADS`, and
 `NORTH_PORT` defaults. It selects the split coordination/telemetry logs only
-when no log is pinned and the seeded coordination log already exists.
+when no log is pinned and the seeded coordination log already exists. Stage-A
+independent writers additionally require `NORTH_TELEMETRY_PARTITION=1` and
+`NORTH_TELEMETRY_PORT`; disabling that one flag is the documented rollback.
 
 `los` is **gone entirely** — `los thread`/`los validate` retired (use `north`),
 and time tracking is now **`north clock`** (fact-native; see Clock management).

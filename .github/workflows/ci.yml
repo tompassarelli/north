@@ -146,6 +146,8 @@ jobs:
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
             bash cli/tests/coord-log-fence-integration-test.sh
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
+            bash cli/tests/telemetry-partition-integration-test.sh
+          FRAM_PATH="$GITHUB_WORKSPACE/fram" \
             bb cli/tests/linear-reservation-integration-test.clj
 
       - name: Hook, native, and managed identity boundaries
