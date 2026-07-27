@@ -460,4 +460,7 @@
         (when (or (nil? tgt) (= t tgt))
           (println (format "%-24s %-10s %s" c op t)))))
 
-    (do (println "usage: msg-cli.clj <port> {send|send-cmd|retry|cmd|cmds|inbox|thread|ack}") (System/exit 2))))
+    (do
+      (println
+       "usage: msg-cli.clj <port> {send [--dead-drop]|send-cmd|retry|cmd|cmds|inbox|thread|ack}")
+      (System/exit 2))))
