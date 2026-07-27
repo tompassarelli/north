@@ -563,12 +563,11 @@ export function fireHandoff(spawn: HandoffSpawn, runtime: HandoffRuntime = {}): 
   const run = runtime.run ?? ((executable: string, args: string[]) =>
     spawnSync(executable, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
   runChecked(run, spawn.command.executable, spawn.command.args, "heir spawn");
-  runChecked(
-    run,
-    spawn.notification.executable,
-    spawn.notification.args,
-    "handoff notification",
-  );
+  try {
+    run(spawn.notification.executable, spawn.notification.args);
+  } catch {
+    // The spawn is authoritative once it succeeds. Notification is advisory.
+  }
 }
 
 export function activeSessionRoute(
@@ -594,12 +593,11 @@ export function activeSessionRoute(
   const tier = SEMANTIC_TIER_ORDER.includes(rawTier as SemanticTier)
     ? rawTier as SemanticTier
     : undefined;
+  const model = env.AGENT_MODEL ?? identityValue("model");
   return {
     provider: rawProvider,
     account,
-    ...(env.AGENT_MODEL ?? identityValue("model")
-      ? { model: env.AGENT_MODEL ?? identityValue("model")! }
-      : {}),
+    ...(model ? { model } : {}),
     ...(tier ? { tier } : {}),
   };
 }
@@ -688,7 +686,7 @@ export function observeHandoffUsageSample(
 ): HandoffWarning[] {
   const env = runtime.env ?? process.env;
   const provider = env.AGENT_PROVIDER;
-  if (provider !== "anthropic" && provider !== "openai") return [];
+  if (provider !== "anthropic" && provider !== "openai" && !env.AGENT_ID) return [];
   try {
     const rows = (runtime.loadRows ?? (() => loadAvailabilityRows(runtime.northBin)))();
     const active = activeSessionRoute(
