@@ -63,7 +63,7 @@ def expect_activation_error(env: dict[str, str], expected: str) -> None:
     check(expected in result.stderr, f"missing named error {expected!r}: {result.stderr}")
 
 
-def main() -> None:
+def unit_checks() -> None:
     no_activation = subprocess.run(
         [str(ADAPTER), "/usr/bin/env"],
         env={"PATH": os.environ["PATH"]},
@@ -94,6 +94,36 @@ def main() -> None:
         f"missing descriptor-count error: {bad_count.stderr}",
     )
 
+    inherited, peer = socket.socketpair()
+    peer.close()
+    if inherited.fileno() != 3:
+        os.dup2(inherited.fileno(), 3)
+        inherited.close()
+        inherited = socket.socket(fileno=3)
+    inherited.set_inheritable(True)
+    activated_env = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'export LISTEN_PID=$$ LISTEN_FDS=1 LISTEN_FDNAMES=north-coord; exec "$@"',
+            "north-coord-unit-test",
+            str(ADAPTER),
+            "/usr/bin/env",
+        ],
+        pass_fds=(inherited.fileno(),),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    inherited.close()
+    check("FRAM_LISTEN_FD=3" in activated_env.stdout, "activation fd was not translated")
+    check("LISTEN_FDS=" not in activated_env.stdout, "systemd fd count leaked to Fram")
+    check("LISTEN_PID=" not in activated_env.stdout, "systemd pid leaked to Fram")
+    check("LISTEN_FDNAMES=" not in activated_env.stdout, "systemd fd name leaked to Fram")
+
+
+def main() -> None:
+    unit_checks()
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))
@@ -144,7 +174,12 @@ def main() -> None:
 if __name__ == "__main__":
     if sys.argv[1:] == ["--child"]:
         child()
+    elif sys.argv[1:] == ["--unit"]:
+        unit_checks()
+        print("ok: LISTEN_FDS translated to engine-neutral FRAM_LISTEN_FD=3")
     elif sys.argv[1:]:
-        raise SystemExit("usage: north-coord-socket-activation-integration.py [--child]")
+        raise SystemExit(
+            "usage: north-coord-socket-activation-integration.py [--child|--unit]"
+        )
     else:
         main()
