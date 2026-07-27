@@ -68,7 +68,14 @@ function config(env: NodeJS.ProcessEnv = process.env): CliConfig {
     fireCommand: env.NORTH_SUCCESSION_FIRE_COMMAND ?? northBin,
     fireArgs: env.NORTH_SUCCESSION_FIRE_ARGS
       ? env.NORTH_SUCCESSION_FIRE_ARGS.split("\u001f")
-      : ["handoff", "fire"],
+      : [
+          "handoff",
+          "fire",
+          "--thread",
+          env.NORTH_SUCCESSION_ROOT_THREAD ?? "019fa4d4-93aa-7447-aae5-0a5bcfca6849",
+          "--brief",
+          env.NORTH_SUCCESSION_BRIEF ?? "",
+        ],
     fireTimeoutMs: positiveNumber(
       env.NORTH_SUCCESSION_FIRE_TIMEOUT_MS,
       5 * 60 * 1_000,
@@ -99,6 +106,8 @@ export function runSuccessionCli(
   }
   if (verb !== "check")
     throw new Error("usage: north-succession <pulse|check>");
+  if (cfg.fireArgs.includes(""))
+    throw new Error("NORTH_SUCCESSION_BRIEF is required for check");
 
   flushDecisionSpool({
     path: cfg.pendingFile,

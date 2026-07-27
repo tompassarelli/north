@@ -11,34 +11,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import type { AccountAvailabilityRow } from "./account-availability";
 import { parseStrictJson } from "./strict-json";
 
 export const DEFAULT_COOKED_THRESHOLD = 98;
 export const DEFAULT_HEARTBEAT_STALE_MS = 90 * 60 * 1_000;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 2_000;
-export const DEFAULT_COORDINATOR_MODEL = "claude-fable-5";
+export const DEFAULT_COORDINATOR_MODEL = "fable";
 
-export interface AvailabilityRung {
-  pct: number;
-  resetsAt: string;
-  observedAt: string;
-}
-
-export interface ModelAvailabilityRung extends AvailabilityRung {
-  model?: string;
-}
-
-export interface AvailabilityAccount {
-  accountId: string;
-  provider: string;
-  eligible?: boolean;
-  stale: boolean;
-  rungs: {
-    window?: AvailabilityRung | null;
-    week?: AvailabilityRung | null;
-    models?: Record<string, AvailabilityRung> | ModelAvailabilityRung[];
-  };
-}
+export type AvailabilityAccount = AccountAvailabilityRow;
 
 export interface AvailabilityDocument {
   schemaVersion?: number;
@@ -96,61 +77,81 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function exactFields(row: Record<string, unknown>, expected: readonly string[], label: string): void {
+  const actual = Object.keys(row);
+  const missing = expected.filter((field) => !actual.includes(field));
+  const unknown = actual.filter((field) => !expected.includes(field));
+  if (missing.length || unknown.length)
+    throw new Error(`${label} fields mismatch (missing=${missing.join(",") || "none"}; unknown=${unknown.join(",") || "none"})`);
+}
+
 function string(value: unknown, label: string): string {
   if (typeof value !== "string" || !value) throw new Error(`${label} must be a nonempty string`);
   return value;
 }
 
-function finitePercent(value: unknown, label: string): number {
+function timestamp(value: unknown, label: string): string {
+  const rendered = string(value, label);
+  if (!Number.isFinite(Date.parse(rendered))) throw new Error(`${label} must be an ISO timestamp`);
+  return rendered;
+}
+
+function percent(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100)
     throw new Error(`${label} must be a percentage from 0 through 100`);
   return value;
 }
 
-function rung(value: unknown, label: string): AvailabilityRung | null | undefined {
-  if (value === undefined || value === null) return value;
+function availabilityRung(value: unknown, label: string, named = false): {
+  pct: number;
+  resetsAt: string;
+  name?: string;
+} | null {
+  if (value === null) return null;
   const row = object(value, label);
+  exactFields(row, named ? ["name", "pct", "resetsAt"] : ["pct", "resetsAt"], label);
   return {
-    pct: finitePercent(row.pct, `${label}.pct`),
-    resetsAt: string(row.resetsAt, `${label}.resetsAt`),
-    observedAt: string(row.observedAt, `${label}.observedAt`),
+    ...(named ? { name: string(row.name, `${label}.name`) } : {}),
+    pct: percent(row.pct, `${label}.pct`),
+    resetsAt: timestamp(row.resetsAt, `${label}.resetsAt`),
   };
 }
 
-function account(value: unknown, index: number): AvailabilityAccount {
-  const row = object(value, `availability.accounts[${index}]`);
-  const rungs = object(row.rungs, `availability.accounts[${index}].rungs`);
-  const modelsValue = rungs.models;
-  let models: AvailabilityAccount["rungs"]["models"];
-  if (Array.isArray(modelsValue)) {
-    models = modelsValue.map((entry, modelIndex) => {
-      const modelRow = object(entry, `availability.accounts[${index}].rungs.models[${modelIndex}]`);
-      return {
-        ...rung(modelRow, `availability.accounts[${index}].rungs.models[${modelIndex}]`)!,
-        model: string(modelRow.model, `availability.accounts[${index}].rungs.models[${modelIndex}].model`),
-      };
-    });
-  } else if (modelsValue !== undefined) {
-    const modelRows = object(modelsValue, `availability.accounts[${index}].rungs.models`);
-    models = Object.fromEntries(Object.entries(modelRows).map(([model, value]) => [
-      model,
-      rung(value, `availability.accounts[${index}].rungs.models.${model}`)!,
-    ]));
-  }
-  if (typeof row.stale !== "boolean")
-    throw new Error(`availability.accounts[${index}].stale must be boolean`);
-  if (row.eligible !== undefined && typeof row.eligible !== "boolean")
-    throw new Error(`availability.accounts[${index}].eligible must be boolean`);
+function availabilityAccount(value: unknown, index: number): AvailabilityAccount {
+  const label = `account availability row[${index}]`;
+  const row = object(value, label);
+  exactFields(
+    row,
+    ["account", "provider", "observedAt", "stale", "rungs", "verdict", "usableModels"],
+    label,
+  );
+  const provider = string(row.provider, `${label}.provider`);
+  if (provider !== "anthropic" && provider !== "openai")
+    throw new Error(`${label}.provider must be anthropic or openai`);
+  if (typeof row.stale !== "boolean") throw new Error(`${label}.stale must be boolean`);
+  if (!Array.isArray(row.usableModels) || !row.usableModels.every((model) => typeof model === "string"))
+    throw new Error(`${label}.usableModels must be an array of strings`);
+  const rungs = object(row.rungs, `${label}.rungs`);
+  exactFields(rungs, ["window", "week", "models"], `${label}.rungs`);
+  const models = object(rungs.models, `${label}.rungs.models`);
+  const verdict = string(row.verdict, `${label}.verdict`);
+  if (!/^(available|cooked-week|cooked-window|model-cooked\[[^\]]+\])$/.test(verdict))
+    throw new Error(`${label}.verdict is outside the pinned contract`);
   return {
-    accountId: string(row.accountId ?? row.id, `availability.accounts[${index}].accountId`),
-    provider: string(row.provider, `availability.accounts[${index}].provider`),
-    ...(row.eligible === undefined ? {} : { eligible: row.eligible }),
+    account: string(row.account, `${label}.account`),
+    provider,
+    observedAt: timestamp(row.observedAt, `${label}.observedAt`),
     stale: row.stale,
     rungs: {
-      window: rung(rungs.window, `availability.accounts[${index}].rungs.window`),
-      week: rung(rungs.week, `availability.accounts[${index}].rungs.week`),
-      ...(models === undefined ? {} : { models }),
+      window: availabilityRung(rungs.window, `${label}.rungs.window`, true) as AvailabilityAccount["rungs"]["window"],
+      week: availabilityRung(rungs.week, `${label}.rungs.week`) as AvailabilityAccount["rungs"]["week"],
+      models: Object.fromEntries(Object.entries(models).map(([model, value]) => [
+        string(model, `${label}.rungs.models key`),
+        availabilityRung(value, `${label}.rungs.models.${model}`)!,
+      ])),
     },
+    verdict: verdict as AvailabilityAccount["verdict"],
+    usableModels: [...row.usableModels],
   };
 }
 
@@ -160,22 +161,8 @@ export function parseAvailabilityDocument(text: string): AvailabilityDocument {
     maxDepth: 32,
     maxNodes: 20_000,
   });
-  const root = Array.isArray(parsed) ? { accounts: parsed } : object(parsed, "account availability");
-  if (!Array.isArray(root.accounts)) throw new Error("account availability accounts must be an array");
-  return {
-    ...(typeof root.schemaVersion === "number" ? { schemaVersion: root.schemaVersion } : {}),
-    accounts: root.accounts.map(account),
-  };
-}
-
-function modelRung(
-  models: AvailabilityAccount["rungs"]["models"],
-  coordinatorModel: string,
-): AvailabilityRung | undefined {
-  if (!models) return undefined;
-  if (Array.isArray(models))
-    return models.find((entry) => entry.model === coordinatorModel);
-  return models[coordinatorModel];
+  if (!Array.isArray(parsed)) throw new Error("account availability JSON must be an array");
+  return { accounts: parsed.map(availabilityAccount) };
 }
 
 export function classifyAccountCooked(
@@ -184,13 +171,13 @@ export function classifyAccountCooked(
   coordinatorModel: string,
 ): AccountCookedDecision {
   if (row.rungs.week && row.rungs.week.pct >= threshold)
-    return { accountId: row.accountId, cooked: true, rung: "week", pct: row.rungs.week.pct };
+    return { accountId: row.account, cooked: true, rung: "week", pct: row.rungs.week.pct };
   if (row.rungs.window && row.rungs.window.pct >= threshold)
-    return { accountId: row.accountId, cooked: true, rung: "window", pct: row.rungs.window.pct };
-  const model = modelRung(row.rungs.models, coordinatorModel);
+    return { accountId: row.account, cooked: true, rung: "window", pct: row.rungs.window.pct };
+  const model = row.rungs.models[coordinatorModel];
   if (model && model.pct >= threshold)
-    return { accountId: row.accountId, cooked: true, rung: "model", pct: model.pct, model: coordinatorModel };
-  return { accountId: row.accountId, cooked: false };
+    return { accountId: row.account, cooked: true, rung: "model", pct: model.pct, model: coordinatorModel };
+  return { accountId: row.account, cooked: false };
 }
 
 export function decideSuccession(
@@ -201,9 +188,12 @@ export function decideSuccession(
 ): SuccessionDecision {
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100)
     throw new Error("cooked threshold must be a percentage from 0 through 100");
-  const eligible = availability.accounts.filter((row) =>
-    row.provider === "anthropic" && row.eligible !== false);
-  const evidenceStale = eligible.length === 0 || eligible.some((row) => row.stale);
+  const eligible = availability.accounts.filter((row) => row.provider === "anthropic");
+  const evidenceStale = eligible.length === 0 || eligible.some((row) =>
+    row.stale
+    || row.rungs.week === null
+    || row.rungs.window === null
+    || row.rungs.models[coordinatorModel] === undefined);
   const accounts = eligible.map((row) => classifyAccountCooked(row, threshold, coordinatorModel));
   if (evidenceStale) {
     return {

@@ -32,17 +32,23 @@ function account(
   accountId: string,
   values: { week?: number; window?: number; model?: number; stale?: boolean },
 ): AvailabilityAccount {
+  const modelPct = values.model ?? 20;
+  const weekPct = values.week ?? 20;
+  const windowPct = values.window ?? 20;
   return {
-    accountId,
+    account: accountId,
     provider: "anthropic",
+    observedAt,
     stale: values.stale ?? false,
     rungs: {
-      week: values.week === undefined ? null : { pct: values.week, observedAt, resetsAt },
-      window: values.window === undefined ? null : { pct: values.window, observedAt, resetsAt },
-      models: values.model === undefined ? {} : {
-        "claude-fable-5": { pct: values.model, observedAt, resetsAt },
-      },
+      week: { pct: weekPct, resetsAt },
+      window: { name: "five_hour", pct: windowPct, resetsAt },
+      models: { fable: { pct: modelPct, resetsAt } },
     },
+    verdict: weekPct >= 98 ? "cooked-week"
+      : windowPct >= 98 ? "cooked-window"
+        : modelPct >= 98 ? "model-cooked[fable]" : "available",
+    usableModels: modelPct >= 98 ? [] : ["fable"],
   };
 }
 
@@ -51,29 +57,30 @@ function document(...accounts: AvailabilityAccount[]): AvailabilityDocument {
 }
 
 test("pinned availability JSON parses account window, week, and model rungs", () => {
-  const parsed = parseAvailabilityDocument(JSON.stringify(document(
+  const parsed = parseAvailabilityDocument(JSON.stringify([
     account("a", { week: 98, window: 10, model: 20 }),
-  )));
+  ]));
   expect(parsed.accounts[0]).toMatchObject({
-    accountId: "a",
+    account: "a",
     provider: "anthropic",
+    observedAt,
     stale: false,
     rungs: {
-      week: { pct: 98, observedAt, resetsAt },
-      window: { pct: 10, observedAt, resetsAt },
-      models: { "claude-fable-5": { pct: 20, observedAt, resetsAt } },
+      week: { pct: 98, resetsAt },
+      window: { name: "five_hour", pct: 10, resetsAt },
+      models: { fable: { pct: 20, resetsAt } },
     },
   });
 });
 
 test("each cooked rung class independently trips an account", () => {
-  expect(classifyAccountCooked(account("week", { week: 98 }), 98, "claude-fable-5"))
+  expect(classifyAccountCooked(account("week", { week: 98 }), 98, "fable"))
     .toMatchObject({ cooked: true, rung: "week", pct: 98 });
-  expect(classifyAccountCooked(account("window", { window: 99 }), 98, "claude-fable-5"))
+  expect(classifyAccountCooked(account("window", { window: 99 }), 98, "fable"))
     .toMatchObject({ cooked: true, rung: "window", pct: 99 });
-  expect(classifyAccountCooked(account("model", { model: 100 }), 98, "claude-fable-5"))
-    .toMatchObject({ cooked: true, rung: "model", pct: 100, model: "claude-fable-5" });
-  expect(classifyAccountCooked(account("fresh", { week: 97, window: 97, model: 97 }), 98, "claude-fable-5"))
+  expect(classifyAccountCooked(account("model", { model: 100 }), 98, "fable"))
+    .toMatchObject({ cooked: true, rung: "model", pct: 100, model: "fable" });
+  expect(classifyAccountCooked(account("fresh", { week: 97, window: 97, model: 97 }), 98, "fable"))
     .toEqual({ accountId: "fresh", cooked: false });
 });
 
@@ -82,7 +89,6 @@ test("fresh evidence fires only when every eligible anthropic account is cooked"
     account("week", { week: 98 }),
     account("window", { window: 99 }),
     account("model", { model: 100 }),
-    { ...account("ignored", {}), eligible: false },
     { ...account("openai", {}), provider: "openai" },
   ), staleHeartbeat);
   expect(fired).toMatchObject({
@@ -215,7 +221,7 @@ test("check consumes only cached availability and the injected handoff fire surf
     commands.push({ command, args, timeoutMs });
     if (args.join(" ") === "account availability --json")
       return { status: 0, timedOut: false, stderr: "", stdout: JSON.stringify(
-        document(account("claude", { week: 98 })),
+        [account("claude", { week: 98 })],
       ) };
     if (args[0] === "json")
       return {
@@ -233,7 +239,9 @@ test("check consumes only cached availability and the injected handoff fire surf
     NORTH_SUCCESSION_MARKER_FILE: join(dir, "marker"),
     NORTH_SUCCESSION_PENDING_FILE: join(dir, "pending"),
     NORTH_SUCCESSION_FIRE_COMMAND: "/store/north/bin/north",
-    NORTH_SUCCESSION_FIRE_ARGS: ["handoff", "fire"].join("\u001f"),
+    NORTH_SUCCESSION_FIRE_ARGS: [
+      "handoff", "fire", "--thread", "program-root", "--brief", "/store/succession.md",
+    ].join("\u001f"),
   }, run, new Date("2026-07-28T02:00:00.000Z"));
   expect(status).toBe(0);
   expect(commands[0]).toEqual({
@@ -242,7 +250,8 @@ test("check consumes only cached availability and the injected handoff fire surf
     timeoutMs: 2_000,
   });
   expect(commands.some(({ args }) => args.includes("--refresh"))).toBe(false);
-  expect(commands.some(({ args }) => args.join(" ") === "handoff fire")).toBe(true);
+  expect(commands.some(({ args }) =>
+    args.join(" ") === "handoff fire --thread program-root --brief /store/succession.md")).toBe(true);
   expect(commands.filter(({ args }) => args[0] === "tell").map(({ args }) => args[2]))
     .toEqual(["succession_decision", "succession_fire"]);
 });
