@@ -391,6 +391,7 @@ PY
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-sd-listen \
               bin/north-coord-up bin/firn-rebuild-coordinated \
               bin/north-stream-sync bin/north-stream-sync-all bin/north-pinned bin/north-effort \
+              bin/north-succession \
               bin/north-graph \
               bin/concern bin/ensure-private-docs \
               $out/bin/
