@@ -39,4 +39,3 @@
   (swap! observed-broadcasts conj {:type :all-clear :to :live-roster})
   (assert (= [:intent :all-clear] (mapv :type @observed-broadcasts)))
   (println "PASS two simulated sessions: one batch joined, one hold extended, silence produced all-clear"))
-
