@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Translate systemd socket activation into Fram's engine-neutral pre-bound-fd
+# contract. The exec preserves both PID and descriptor number.
+set -euo pipefail
+
+program=${0##*/}
+
+fail_activation() {
+  printf '%s: socket-activation-invalid: %s\n' "$program" "$*" >&2
+  exit 2
+}
+
+if (($# == 0)); then
+  printf 'usage: %s COMMAND [ARG ...]\n' "$program" >&2
+  exit 2
+fi
+
+if [[ -n "${FRAM_LISTEN_FD:-}" ]]; then
+  fail_activation "FRAM_LISTEN_FD is launcher-owned"
+fi
+
+listen_fds=${LISTEN_FDS:-0}
+if ! [[ "$listen_fds" =~ ^[0-9]+$ ]]; then
+  fail_activation "LISTEN_FDS must be a non-negative integer"
+fi
+
+if ((10#$listen_fds == 0)); then
+  unset LISTEN_PID LISTEN_FDS LISTEN_FDNAMES
+  exec "$@"
+fi
+
+if [[ "${LISTEN_PID:-}" != "$$" ]]; then
+  fail_activation "LISTEN_PID does not name this process"
+fi
+if ((10#$listen_fds != 1)); then
+  fail_activation "expected exactly one inherited descriptor, got $listen_fds"
+fi
+if [[ -n "${LISTEN_FDNAMES:-}" && "${LISTEN_FDNAMES}" != north-coord ]]; then
+  fail_activation "expected descriptor name north-coord, got ${LISTEN_FDNAMES}"
+fi
+if [[ ! -r /proc/self/fd/3 ]] ||
+   [[ "$(readlink /proc/self/fd/3 2>/dev/null || true)" != socket:\[*\] ]]; then
+  fail_activation "descriptor 3 is not an open socket"
+fi
+
+export FRAM_LISTEN_FD=3
+unset LISTEN_PID LISTEN_FDS LISTEN_FDNAMES
+exec "$@"
