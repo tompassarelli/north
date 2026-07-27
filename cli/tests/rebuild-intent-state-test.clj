@@ -93,4 +93,3 @@
                    (- (count @checks) (count failed))
                    (count @checks)))
   (when (seq failed) (System/exit 1)))
-
