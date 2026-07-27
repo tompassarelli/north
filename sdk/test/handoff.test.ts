@@ -3,6 +3,7 @@ import {
   checkHandoff,
   composeHandoffSpawn,
   fireHandoff,
+  observeHandoffUsageSample,
   parseAvailabilityRows,
   recoveryPinEvidence,
   thresholdCrossings,
@@ -25,7 +26,7 @@ function row(
     verdict?: string;
   } = {},
 ): AvailabilityRow {
-  const defaultModel = provider === "anthropic" ? "claude-opus-4-1" : "gpt-5.6-sol";
+  const defaultModel = provider === "anthropic" ? "claude-opus-5" : "gpt-5.6-sol";
   return {
     account,
     provider,
@@ -56,7 +57,7 @@ describe("active route classification and same-strength heir selection", () => {
     ], {
       provider: "anthropic",
       account: "claude-active",
-      model: "claude-opus-4-1",
+      model: "claude-opus-5",
       tier: "senior",
     }, 80);
     expect(check.classification).toBe("account-dead");
@@ -76,7 +77,7 @@ describe("active route classification and same-strength heir selection", () => {
       openaiHeir,
     ], {
       provider: "anthropic", account: "claude-active",
-      model: "claude-opus-4-1", tier: "senior",
+      model: "claude-opus-5", tier: "senior",
     }, 80);
     expect(check.classification).toBe("window-dead");
     expect(check.trigger).toMatchObject({ rung: "window", resetsAt: reset });
@@ -85,17 +86,17 @@ describe("active route classification and same-strength heir selection", () => {
   test("model threshold keeps the account alive and kills only the active model", () => {
     const check = checkHandoff([
       row("claude-active", "anthropic", {
-        models: { "claude-opus-4-1": 95, "claude-sonnet-4-5": 10 },
-        usableModels: ["claude-sonnet-4-5"],
-        verdict: "model-cooked[claude-opus-4-1]",
+        models: { "claude-opus-5": 95, "claude-sonnet-5": 10 },
+        usableModels: ["claude-sonnet-5"],
+        verdict: "model-cooked[claude-opus-5]",
       }),
       openaiHeir,
     ], {
       provider: "anthropic", account: "claude-active",
-      model: "claude-opus-4-1", tier: "senior",
+      model: "claude-opus-5", tier: "senior",
     }, 80);
     expect(check.classification).toBe("model-dead");
-    expect(check.trigger).toMatchObject({ rung: "model", model: "claude-opus-4-1" });
+    expect(check.trigger).toMatchObject({ rung: "model", model: "claude-opus-5" });
     expect(check.receipts.active.rungs.week.pct).toBe(20);
   });
 
@@ -105,7 +106,7 @@ describe("active route classification and same-strength heir selection", () => {
       openaiHeir,
     ], {
       provider: "anthropic", account: "claude-active",
-      model: "claude-opus-4-1", tier: "senior",
+      model: "claude-opus-5", tier: "senior",
     }, 80);
     expect(check.classification).toBe("available");
     expect(check.heir).toBeUndefined();
@@ -122,9 +123,25 @@ describe("active route classification and same-strength heir selection", () => {
       }),
     ], {
       provider: "anthropic", account: "claude-active",
-      model: "claude-opus-4-1", tier: "senior",
+      model: "claude-opus-5", tier: "senior",
     }, 80);
     expect(check.heir).toBeUndefined();
+  });
+
+  test("stale active evidence cannot authorize recovery", () => {
+    expect(() => checkHandoff([
+      row("claude-active", "anthropic", {
+        week: 100,
+        stale: true,
+        verdict: "cooked-week",
+      }),
+      openaiHeir,
+    ], {
+      provider: "anthropic",
+      account: "claude-active",
+      model: "claude-opus-5",
+      tier: "senior",
+    }, 80)).toThrow("active availability evidence");
   });
 });
 
@@ -139,12 +156,12 @@ test("warning detection reports every crossed rung", () => {
   const crossings = thresholdCrossings(row("claude-active", "anthropic", {
     week: 82,
     window: 81,
-    models: { "claude-opus-4-1": 95, "claude-sonnet-4-5": 20 },
+    models: { "claude-opus-5": 95, "claude-sonnet-5": 20 },
   }), 80);
   expect(crossings.map(({ rung, name }) => `${rung}:${name}`)).toEqual([
     "week:week",
     "window:five-hour",
-    "model:claude-opus-4-1",
+    "model:claude-opus-5",
   ]);
 });
 
@@ -154,7 +171,7 @@ test("provider-recovery evidence pins the complete heir route and embeds receipt
     openaiHeir,
   ], {
     provider: "anthropic", account: "claude-active",
-    model: "claude-opus-4-1", tier: "senior",
+    model: "claude-opus-5", tier: "senior",
   }, 80);
   const evidence = recoveryPinEvidence(check, new Date("2026-07-28T05:30:00.000Z"));
   expect(evidence.reasonCode).toBe("provider-recovery");
@@ -173,7 +190,7 @@ test("dry-run composition is complete and execution remains injectable", () => {
     openaiHeir,
   ], {
     provider: "anthropic", account: "claude-active",
-    model: "claude-opus-4-1", tier: "senior",
+    model: "claude-opus-5", tier: "senior",
   }, 80);
   const facts = new Map([
     ["root", [{ predicate: "title", value: "root program" }]],
@@ -222,7 +239,7 @@ test("available routes and missing heirs refuse fire composition", () => {
   const active = {
     provider: "anthropic" as const,
     account: "claude-active",
-    model: "claude-opus-4-1",
+    model: "claude-opus-5",
     tier: "senior" as const,
   };
   const runtime = {
@@ -250,7 +267,7 @@ describe("handoff CLI", () => {
   const env = {
     AGENT_PROVIDER: "anthropic",
     AGENT_TARGET: "claude-active",
-    AGENT_MODEL: "claude-opus-4-1",
+    AGENT_MODEL: "claude-opus-5",
     AGENT_TIER: "senior",
     AGENT_ID: "coordinator",
     AGENT_COORDINATOR: "human",
@@ -319,5 +336,76 @@ describe("handoff CLI", () => {
       "/fixture/north spawn team-lead",
       "/fixture/bb /fixture/msg-cli.clj 9000",
     ]);
+  });
+});
+
+describe("warn-first usage detection", () => {
+  const rows = [
+    row("claude-active", "anthropic", {
+      week: 85,
+      window: 82,
+      models: { "claude-opus-5": 95 },
+      verdict: "cooked-week",
+    }),
+    openaiHeir,
+  ];
+  const baseEnv = {
+    AGENT_PROVIDER: "anthropic",
+    AGENT_TARGET: "claude-active",
+    AGENT_MODEL: "claude-opus-5",
+    AGENT_TIER: "senior",
+    AGENT_THREAD: "root",
+    AGENT_ID: "coordinator",
+    AGENT_COORDINATOR: "human",
+    NORTH_PORT: "9000",
+    NORTH_HANDOFF_WARN_THRESHOLD: "80",
+  };
+
+  test("default-off emits one fact and mail per crossed rung with no fire", () => {
+    const commands: Array<{ executable: string; args: string[] }> = [];
+    const warnings = observeHandoffUsageSample({
+      env: baseEnv,
+      loadRows: () => rows,
+      northBin: "/fixture/north",
+      peerBb: "/fixture/bb",
+      msgCli: "/fixture/msg-cli.clj",
+      run: (executable, args) => {
+        commands.push({ executable, args });
+        return { status: 0 };
+      },
+    });
+    expect(warnings.map(({ crossing }) => crossing.rung)).toEqual([
+      "week", "window", "model",
+    ]);
+    expect(warnings.every(({ automaticFire }) => automaticFire === false)).toBe(true);
+    expect(commands).toHaveLength(6);
+    expect(commands.filter(({ args }) => args[0] === "tell")).toHaveLength(3);
+    expect(commands.filter(({ args }) => args.includes("PROVIDER CAPACITY WARNING"))).toHaveLength(3);
+    expect(commands.some(({ args }) => args[0] === "handoff")).toBe(false);
+  });
+
+  test("enabled automatic fire remains after every warning command", () => {
+    const commands: string[] = [];
+    const warnings = observeHandoffUsageSample({
+      env: {
+        ...baseEnv,
+        NORTH_HANDOFF_AUTO_FIRE: "true",
+        NORTH_HANDOFF_ROOT_THREAD: "program-root",
+        NORTH_HANDOFF_BRIEF: "/fixture/succession.md",
+      },
+      loadRows: () => rows,
+      northBin: "/fixture/north",
+      peerBb: "/fixture/bb",
+      msgCli: "/fixture/msg-cli.clj",
+      run: (executable, args) => {
+        commands.push(`${executable} ${args.join(" ")}`);
+        return { status: 0 };
+      },
+    });
+    expect(warnings.every(({ automaticFire }) => automaticFire === true)).toBe(true);
+    expect(commands).toHaveLength(7);
+    expect(commands.at(-1)).toBe(
+      "/fixture/north handoff fire --thread program-root --brief /fixture/succession.md",
+    );
   });
 });
