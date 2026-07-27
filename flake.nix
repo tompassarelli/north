@@ -222,6 +222,7 @@
             ./bin/north-clock-audit
             ./bin/north-coord-sd-listen
             ./bin/north-coord-up
+            ./bin/firn-rebuild-coordinated
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
             ./bin/north-pinned
@@ -388,7 +389,7 @@ PY
             cp bin/north bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-sd-listen \
-              bin/north-coord-up \
+              bin/north-coord-up bin/firn-rebuild-coordinated \
               bin/north-stream-sync bin/north-stream-sync-all bin/north-pinned bin/north-effort \
               bin/north-graph \
               bin/concern bin/ensure-private-docs \
@@ -470,6 +471,10 @@ PY
 
             wrapProgram $out/bin/north-coord-sd-listen \
               --prefix PATH : ${runtimePath}
+
+            wrapProgram $out/bin/firn-rebuild-coordinated \
+              --prefix PATH : ${runtimePath} \
+              --set NORTH_BIN $out/bin/north
 
             wrapProgram $out/bin/concern \
               --prefix PATH : ${runtimePath} \
@@ -581,6 +586,7 @@ EOF
               HOME="$smoke/home" PATH= \
               $out/bin/north help > "$smoke/help.out"
             grep -q 'north — your one card' "$smoke/help.out"
+            test -x "$out/bin/firn-rebuild-coordinated"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NORTH_DASHBOARD_LIB=1 \
               $out/bin/north dashboard
@@ -764,6 +770,7 @@ assert specific["hookEventName"] == "SessionStart"
 context = specific["additionalContext"]
 assert sys.argv[3] in context
 assert f"{sys.argv[2]}/bin/north listen {sys.argv[3]}" in context
+assert f"{sys.argv[2]}/bin/firn-rebuild-coordinated --why" in context
 PY
             test "$(cat "$hook_runtime/north-agent-ids/$hook_key")" = \
               "$hook_actor"

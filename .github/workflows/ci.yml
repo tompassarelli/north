@@ -106,6 +106,9 @@ jobs:
           bb -cp "$CP" clock_test.clj
           bb -cp "$CP" cli/tests/coordinator-diagnostic-test.clj
           bb -cp "$CP" staleness_test.clj
+          bb cli/tests/rebuild-intent-state-test.clj
+          bb cli/tests/rebuild-intent-two-session-integration-test.clj
+          bash bin/tests/firn-rebuild-coordinated-test.sh
           bb reap_test.clj      # reactor reap verdict (daemon-free; guards the @run-join false positive)
           bb cli/tests/reactor-heartbeat-test.clj   # durable last-sweep heartbeat + doctor stale/missing verdict (daemon-free)
           bb cli/tests/reactor-sweep-lifecycle-test.clj  # bounded one-shot, reconnect, and single-flight lock
