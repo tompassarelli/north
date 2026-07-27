@@ -406,7 +406,16 @@
               (println (str "all-clear " (normalize-intent-id subject)))))
 
           :all-clear
-          (println (str "all-clear " (normalize-intent-id subject)))
+          (do
+            (retry-coordinator
+             #(broadcast!
+               (normalize-intent-id subject) "rebuild-all-clear" (:who state)
+               (str "All-clear for rebuild intent "
+                    (normalize-intent-id subject) "; "
+                    (count (:responses state)) " response(s), including "
+                    (count (filter (comp #{:batch} :type) (:responses state)))
+                    " batched change(s).")))
+            (println (str "all-clear " (normalize-intent-id subject))))
 
           (throw (ex-info "intent is already past all-clear"
                           {:type :invalid-await :phase (:phase state)})))))))
@@ -418,12 +427,20 @@
                 (sorted-map "atMs" at
                             "at" (north.rebuild-intent-state/millis->instant at)))
         result
-        (retry-coordinator
-         #(north.coord/assert-after-read!
-           port subject "rebuild_started" marker
-           (fn []
-             (north.rebuild-intent-state/mark-rebuild-started
-              (load-intent subject) at))))]
+        (try
+          (retry-coordinator
+           #(north.coord/assert-after-read!
+             port subject "rebuild_started" marker
+             (fn []
+               (let [state (load-intent subject)]
+                 (if (= :rebuilding (:phase state))
+                   (throw (ex-info "rebuild already started"
+                                   {:type :rebuild-already-started}))
+                   (north.rebuild-intent-state/mark-rebuild-started state at))))))
+          (catch clojure.lang.ExceptionInfo error
+            (if (= :rebuild-already-started (:type (ex-data error)))
+              {:already true}
+              (throw error))))]
     (when (:reject result)
       (throw (ex-info "rebuild-started conflicted until the retry deadline"
                       {:type :rebuild-start-conflict :response result})))
@@ -439,15 +456,35 @@
                      "atMs" at
                      "at" (north.rebuild-intent-state/millis->instant at)))
         result
-        (retry-coordinator
-         #(north.coord/assert-after-read!
-           port subject "rebuild_outcome" marker
-           (fn []
-             (let [state (load-intent subject)]
-               (if (= status "deployment-verified")
-                 (north.rebuild-intent-state/mark-deployment-verified
-                  state at report)
-                 (north.rebuild-intent-state/mark-failed state at report))))))]
+        (try
+          (retry-coordinator
+           #(north.coord/assert-after-read!
+             port subject "rebuild_outcome" marker
+             (fn []
+               (let [state (load-intent subject)
+                     expected-phase
+                     (if (= status "deployment-verified")
+                       :deployment-verified
+                       :failed)
+                     existing-report
+                     (if (= status "deployment-verified")
+                       (:deployment-report state)
+                       (:failure-report state))]
+                 (if (= expected-phase (:phase state))
+                   (if (= report existing-report)
+                     (throw (ex-info "rebuild outcome already recorded"
+                                     {:type :rebuild-outcome-already-recorded}))
+                     (throw (ex-info "rebuild outcome conflicts with the recorded report"
+                                     {:type :rebuild-outcome-conflict})))
+                   (if (= status "deployment-verified")
+                     (north.rebuild-intent-state/mark-deployment-verified
+                      state at report)
+                     (north.rebuild-intent-state/mark-failed
+                      state at report)))))))
+          (catch clojure.lang.ExceptionInfo error
+            (if (= :rebuild-outcome-already-recorded (:type (ex-data error)))
+              {:already true}
+              (throw error))))]
     (when (:reject result)
       (throw (ex-info "rebuild outcome conflicted until the retry deadline"
                       {:type :rebuild-outcome-conflict :response result})))
