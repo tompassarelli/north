@@ -249,8 +249,13 @@ test("graph lane publishes startup identity while its detached coordinator is st
   const priorBeagleHome = process.env.NORTH_BEAGLE_HOME;
   process.env.NORTH_FRAM_HOME = repo;
   process.env.NORTH_BEAGLE_HOME = join(dir, "unrelated-beagle");
+  const framMcpConfig = join(repo, ".mcp.json");
+  writeFileSync(framMcpConfig, JSON.stringify({
+    mcpServers: { fram: { env: { FRAM_CODE_PORT: "45677" } } },
+  }));
   writeFileSync(log, "");
   const agentId = "wt-graph-boot-overlap";
+  const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
   let releaseCoordinator!: () => void;
   const coordinatorReady = new Promise<void>((resolve) => {
     releaseCoordinator = resolve;
@@ -308,6 +313,8 @@ test("graph lane publishes startup identity while its detached coordinator is st
     else process.env.NORTH_FRAM_HOME = priorFramHome;
     if (priorBeagleHome === undefined) delete process.env.NORTH_BEAGLE_HOME;
     else process.env.NORTH_BEAGLE_HOME = priorBeagleHome;
+    if (existsSync(framMcpConfig)) rmSync(framMcpConfig, { force: true });
+    if (existsSync(expectedPath)) rmSync(expectedPath, { recursive: true, force: true });
   }
   expect(identityPublishedBeforeCoordinator).toBe(true);
   expect(providerStarts).toBe(1);

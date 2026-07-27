@@ -64,6 +64,8 @@ export interface PrepareManagedFramCoordinatorOptions {
   bootTimeoutMs?: number;
   termMs?: number;
   killMs?: number;
+  /** Host lifecycle cancellation while the detached coordinator is still booting. */
+  signal?: AbortSignal;
   /** Hermetic unit seam; production owns the real port, child, and readiness probe. */
   runtime?: {
     allocatePort(): Promise<number>;
@@ -444,6 +446,16 @@ export async function prepareManagedFramCoordinator(
     try { child.kill("SIGKILL"); } catch { /* invalid child is already unusable */ }
     throw new Error("graph_authoring_fram_lane_coordinator_pid_invalid");
   }
+  let rejectBoot: ((error: Error) => void) | undefined;
+  const abortBoot = () => {
+    try { child.kill("SIGKILL"); } catch { /* readiness/reap observation decides */ }
+    rejectBoot?.(new Error("graph_authoring_fram_lane_coordinator_boot_aborted"));
+  };
+  const bootAborted = new Promise<never>((_resolve, reject) => {
+    rejectBoot = reject;
+    if (options.signal?.aborted) abortBoot();
+    else options.signal?.addEventListener("abort", abortBoot, { once: true });
+  });
   try {
     await Promise.race([
       runtime.ready(
@@ -455,11 +467,14 @@ export async function prepareManagedFramCoordinator(
       new Promise<never>((_resolve, reject) => {
         child.once("error", reject);
       }),
+      bootAborted,
     ]);
   } catch (error) {
     try { child.kill("SIGKILL"); } catch { /* startup already failed */ }
     await runtime.waitForExit(child, options.killMs ?? DEFAULT_KILL_MS);
     throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", abortBoot);
   }
 
   const path = descriptorPath(sourceRoot);
