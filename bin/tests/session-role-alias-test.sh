@@ -49,9 +49,13 @@ IFS=$'\t' read -r repo role alias subject <"$role_log"
 [[ "$alias" == "north-integrator" ]]
 [[ "$subject" == @agent:native-* ]]
 [[ "$output" == *"north coordination active"* ]]
+[[ "$output" == *'durable role alias is \"north-integrator\"'* ]]
+[[ "$output" == *"Address peers ALIAS-FIRST"* ]]
+[[ "$output" == *"FAILS LOUDLY"* ]]
+[[ "$output" == *'`--dead-drop` is only'* ]]
 
 source_text="$(<"$root/bin/north-on-spawn")"
 [[ "$source_text" == *'(str "@role:" role-alias)'* ]]
 [[ "$source_text" == *'["target" (subs subject (count "@agent:"))]'* ]]
 
-echo "session role alias: 7 / 7 PASS"
+echo "session role alias and doctrine: 11 / 11 PASS"

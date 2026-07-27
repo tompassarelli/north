@@ -269,6 +269,11 @@ if [ -n "$ORCHESTRATION_ROLE" ]; then
   repo_segment="$(slug "$RN")"
   [ -n "$repo_segment" ] && ROLE_ALIAS="$repo_segment-$ORCHESTRATION_ROLE"
 fi
+if [ -n "$ROLE_ALIAS" ]; then
+  ROLE_ALIAS_CONTEXT="Your durable role alias is \"$ROLE_ALIAS\"; peers should address that alias, not this session id."
+else
+  ROLE_ALIAS_CONTEXT="This session has no declared durable role alias; ask for the peer's repo-role alias before sending."
+fi
 
 acquire_singleflight() {
   local lock="$1" stale_after_s="$2" now_s modified_s
@@ -387,7 +392,13 @@ Run \`$NORTH_HOME/bin/ensure-private-docs\` to set up the ignore in a repo befor
 To be reachable in REAL TIME, arm your interrupt listener as a BACKGROUND task now:
   $NORTH_HOME/bin/north listen $ID
 Dormant (no tokens) until a peer addresses you; when it returns you have mail — read it, act, re-arm.
-Ping a peer:  bb $NORTH_HOME/cli/msg-cli.clj 7977 send $ID <peer-id> "URGENT" "<message>"
+$ROLE_ALIAS_CONTEXT
+Address peers ALIAS-FIRST using their stable <repo>-<role> name. Direct agent ids are
+session-scoped and should be used only when that exact current session is intended.
+\`msg-cli send\` resolves aliases at send time and FAILS LOUDLY when the concrete recipient
+has neither a live lease nor an armed listener; do not guess or retry another session hash.
+\`--dead-drop\` is only for a deliberate send to an absent identity.
+Ping a peer:  bb $NORTH_HOME/cli/msg-cli.clj 7977 send $ID <peer-role-alias> "URGENT" "<message>"
 EOF
 )"
 
