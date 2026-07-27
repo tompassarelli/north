@@ -36,7 +36,7 @@ export interface ValidatedManagedCodexThreadAuthority {
   sandbox: {
     type: "workspaceWrite";
     writableRoots: readonly [];
-    networkAccess: false;
+    networkAccess: true;
     excludeTmpdirEnvVar: false;
     excludeSlashTmp: false;
   };
@@ -68,7 +68,7 @@ interface ManagedAdmissionReceipt {
     sandbox: {
       excludeSlashTmp: false;
       excludeTmpdirEnvVar: false;
-      networkAccess: false;
+      networkAccess: true;
       runtimeWorkspaceRoots: readonly [string];
       type: "workspaceWrite";
       writableRoots: readonly [];
@@ -285,7 +285,7 @@ class ReceiptAuthority implements ManagedNonclientReceiptAuthority {
         || this.canonicalPath(authority.workspaceRoots[0]) !== worktree
         || authority.sandbox.type !== "workspaceWrite"
         || authority.sandbox.writableRoots.length !== 0
-        || authority.sandbox.networkAccess !== false
+        || authority.sandbox.networkAccess !== true
         || authority.sandbox.excludeTmpdirEnvVar !== false
         || authority.sandbox.excludeSlashTmp !== false)
       throw new Error("managed non-client admission provider workspace authority changed");
@@ -345,7 +345,7 @@ class ReceiptAuthority implements ManagedNonclientReceiptAuthority {
           type: "workspaceWrite",
           runtimeWorkspaceRoots: [worktree],
           writableRoots: [],
-          networkAccess: false,
+          networkAccess: true,
           excludeTmpdirEnvVar: false,
           excludeSlashTmp: false,
         },

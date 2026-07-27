@@ -117,7 +117,7 @@ export function formatProviderAuthoritySurface(surface: ProviderAuthoritySurface
     + `north enabled_tools=${list(surface.northEnabledTools)}`;
   return surface.provider === "openai"
     ? `${base}; sandbox=${surface.sandbox}; web=${surface.web}; `
-      + `network=${managedCodexNetworkPolicy(surface).networkAccess ? "gitiles-only" : "disabled"}; `
+      + `network=${managedCodexNetworkPolicy(surface).networkAccess ? "enabled" : "disabled"}; `
       + `mcp tools=${list(surface.managedTools)}`
     : `${base}; web=${surface.web}; sdk builtins=${list(surface.builtins)}; `
       + `mcp tools=${list(surface.managedTools)}`;
