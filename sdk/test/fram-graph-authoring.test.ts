@@ -272,6 +272,56 @@ test("death-path reap kills only the descriptor PID that owns its recorded port"
   }
 });
 
+test("host abort force-reaps a detached coordinator that has not finished booting", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-rebound-boot-abort-"));
+  const canonical = join(root, "canonical");
+  const lane = join(root, "lane");
+  const localFramHome = join(root, "fram-home");
+  mkdirSync(join(localFramHome, ".fram"), { recursive: true });
+  mkdirSync(join(canonical, "src"), { recursive: true });
+  mkdirSync(join(lane, "src"), { recursive: true });
+  writeFileSync(join(localFramHome, ".fram", "code.log"), [
+    `{:tx 1, :op "assert", :l "@src.demo#root", :p "file", :r "${canonical}/src/demo.bclj"}`,
+    "",
+  ].join("\n"));
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, { pid: 5252, exitCode: null, signalCode: null });
+  (child as any).unref = () => {};
+  const signals: NodeJS.Signals[] = [];
+  (child as any).kill = (signal: NodeJS.Signals) => {
+    signals.push(signal);
+    (child as any).signalCode = signal;
+    child.emit("exit", null, signal);
+    return true;
+  };
+  const abort = new AbortController();
+  process.env.NORTH_FRAM_HOME = localFramHome;
+  try {
+    const preparing = prepareManagedFramCoordinator({
+      worktree: lane,
+      canonicalSourceRoot: canonical,
+      signal: abort.signal,
+      runtime: {
+        allocatePort: async () => 45681,
+        launch: () => child,
+        ready: () => new Promise<void>(() => {}),
+        waitForExit: async (proc) =>
+          proc.exitCode !== null || proc.signalCode !== null,
+      },
+    });
+    await Promise.resolve();
+    abort.abort();
+    await expect(preparing).rejects.toThrow(
+      "graph_authoring_fram_lane_coordinator_boot_aborted",
+    );
+    expect(signals.length).toBeGreaterThanOrEqual(1);
+    expect(signals.every((signal) => signal === "SIGKILL")).toBe(true);
+  } finally {
+    process.env.NORTH_FRAM_HOME = framHome;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Beagle worktrees seed their repository log and rebind the self-host source tree", async () => {
   const root = mkdtempSync(join(tmpdir(), "beagle-rebound-lifecycle-"));
   const canonical = join(root, "beagle");

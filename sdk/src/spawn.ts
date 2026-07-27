@@ -298,6 +298,7 @@ async function runSpawn(
   injected: SpawnRuntime = {},
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
   worktreeLease?: ManagedWorktreeLease,
+  providerReady?: Promise<void>,
   retryContext?: RetryContext,
   retryTarget?: string,
 ): Promise<{
@@ -447,8 +448,6 @@ async function runSpawn(
   };
   const struggle = makeStruggleObserver(strugglePolicy);
 
-  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
-
   let result = "", resultMsg: any = null, outcome = "ran";
   // Full nested-cause chain for a blocked_preflight (or other retry-safe) death,
   // set alongside `outcome` in the catch below and carried onto @run so the
@@ -548,6 +547,14 @@ async function runSpawn(
   let pendingResume: string | undefined;
   let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   try {
+  // A graph lane publishes its structured startup identity while the detached
+  // coordinator replays the lane log. Provider construction remains fenced
+  // until that coordinator is ready, so the dispatcher can release ownership
+  // without racing a boot whose bounded timeout is intentionally much longer
+  // than the startup acknowledgement window.
+  await providerReady;
+  termination.throwIfTerminated();
+  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
   // Reserve only at the last pre-provider seam. Earlier routing/admission
   // failures must not strand undiscoverable reservation-only subjects.
   if (runContext) {
@@ -1386,30 +1393,53 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     termination.throwIfTerminated();
     for (const advisory of admission?.advisories ?? [])
       console.warn(`[envelope] advisory: ${advisory}`);
-    if (worktreeLease
-        && requestedCapabilities.includes("graph-authoring.fram")) {
-      const coordinator = await (
-        injected.prepareManagedFramCoordinator ?? prepareManagedFramCoordinator
-      )({
-        worktree: worktreeLease.path,
-        ...managedFramLaneSourceConfiguration(
-          worktreeLease.path,
-          worktreeLease.repoRoot,
-        ),
-      });
-      termination.attachResource(coordinator);
-      console.log(
-        `[spawn] @agent:${agentId} worktree-local Fram coordinator `
-        + `pid=${coordinator.pid} port=${coordinator.codePort} log=${coordinator.codeLog}`,
-      );
-    }
     // Each attempt gets its OWN shallow copy: runSpawn resolves opts.model/
     // opts.effort onto its argument in place, and a retry must re-resolve from
     // the original request, not inherit the prior attempt's pinned resolution.
-    let attempt = await runSpawn(
-      { ...composed }, judgmentGrade, strugglePolicy,
-      caveman, admission, injected, termination, worktreeLease,
-    );
+    let attempt: Awaited<ReturnType<typeof runSpawn>>;
+    if (worktreeLease
+        && requestedCapabilities.includes("graph-authoring.fram")) {
+      let releaseProvider!: () => void;
+      let rejectProvider!: (error: unknown) => void;
+      const providerReady = new Promise<void>((resolve, reject) => {
+        releaseProvider = resolve;
+        rejectProvider = reject;
+      });
+      const attemptPromise = runSpawn(
+        { ...composed }, judgmentGrade, strugglePolicy,
+        caveman, admission, injected, termination, worktreeLease, providerReady,
+      );
+      // Coordinator boot can outlive the caller's startup handshake. Retain the
+      // attempt concurrently so identity publication happens first, while this
+      // branch owns readiness and releases provider construction exactly once.
+      void attemptPromise.catch(() => {});
+      try {
+        const coordinator = await (
+          injected.prepareManagedFramCoordinator ?? prepareManagedFramCoordinator
+        )({
+          worktree: worktreeLease.path,
+          ...managedFramLaneSourceConfiguration(
+            worktreeLease.path,
+            worktreeLease.repoRoot,
+          ),
+          signal: termination.signal,
+        });
+        termination.attachResource(coordinator);
+        console.log(
+          `[spawn] @agent:${agentId} worktree-local Fram coordinator `
+          + `pid=${coordinator.pid} port=${coordinator.codePort} log=${coordinator.codeLog}`,
+        );
+        releaseProvider();
+      } catch (error) {
+        rejectProvider(error);
+      }
+      attempt = await attemptPromise;
+    } else {
+      attempt = await runSpawn(
+        { ...composed }, judgmentGrade, strugglePolicy,
+        caveman, admission, injected, termination, worktreeLease,
+      );
+    }
     let retries = 0;
     // The lane whose identity is terminal-committed by the attempt that just
     // finished; a retry mints a FRESH agent id rather than reusing it. Terminal
@@ -1438,7 +1468,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       termination.throwIfTerminated();
       attempt = await runSpawn(
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
-        caveman, admission, injected, termination, worktreeLease,
+        caveman, admission, injected, termination, worktreeLease, undefined,
         { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
       );
       deadAgentId = retryAgentId;
