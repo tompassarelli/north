@@ -8,6 +8,7 @@ import {
   thresholdCrossings,
   type AvailabilityRow,
 } from "../src/handoff";
+import { runHandoffCli } from "../src/handoff-cli";
 
 const reset = "2026-07-29T00:00:00.000Z";
 const observedAt = "2026-07-28T05:00:00.000Z";
@@ -239,4 +240,84 @@ test("available routes and missing heirs refuse fire composition", () => {
     ], active, 80),
     "root", "/brief", "human", runtime,
   )).toThrow("no same-tier");
+});
+
+describe("handoff CLI", () => {
+  const rows = [
+    row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
+    openaiHeir,
+  ];
+  const env = {
+    AGENT_PROVIDER: "anthropic",
+    AGENT_TARGET: "claude-active",
+    AGENT_MODEL: "claude-opus-4-1",
+    AGENT_TIER: "senior",
+    AGENT_ID: "coordinator",
+    AGENT_COORDINATOR: "human",
+    NORTH_PORT: "9000",
+  };
+
+  test("check renders the active trigger and heir", () => {
+    const output: string[] = [];
+    expect(runHandoffCli(["check", "--threshold", "80"], {
+      env,
+      loadRows: () => rows,
+      stdout: (line) => output.push(line),
+    })).toBe(0);
+    expect(output.join("\n")).toContain("classification account-dead");
+    expect(output.join("\n")).toContain("heir openai/codex-heir/gpt-5.6-sol");
+  });
+
+  test("fire dry-run prints the complete spawn and executes nothing", () => {
+    const output: string[] = [];
+    let executions = 0;
+    expect(runHandoffCli([
+      "fire", "--thread", "root", "--brief", "/fixture/succession.md", "--dry-run",
+    ], {
+      env,
+      loadRows: () => rows,
+      stdout: (line) => output.push(line),
+      readBrief: () => "succession",
+      getChildren: () => [],
+      getFacts: () => [{ predicate: "title", value: "root" }],
+      northBin: "/fixture/north",
+      peerBb: "/fixture/bb",
+      msgCli: "/fixture/msg-cli.clj",
+      run: () => {
+        executions++;
+        return { status: 0 };
+      },
+    })).toBe(0);
+    const document = JSON.parse(output[0]);
+    expect(document.command.args.slice(0, 2)).toEqual(["spawn", "team-lead"]);
+    expect(document.pinEvidence.reasonCode).toBe("provider-recovery");
+    expect(document.context.brief.content).toBe("succession");
+    expect(document.notification.target).toBe("human");
+    expect(executions).toBe(0);
+  });
+
+  test("fire executes spawn then notification through injected commands", () => {
+    const commands: string[] = [];
+    expect(runHandoffCli([
+      "fire", "--thread", "root", "--brief", "/fixture/succession.md",
+    ], {
+      env,
+      loadRows: () => rows,
+      stdout: () => {},
+      readBrief: () => "succession",
+      getChildren: () => [],
+      getFacts: () => [],
+      northBin: "/fixture/north",
+      peerBb: "/fixture/bb",
+      msgCli: "/fixture/msg-cli.clj",
+      run: (executable, args) => {
+        commands.push(`${executable} ${args.slice(0, 2).join(" ")}`);
+        return { status: 0 };
+      },
+    })).toBe(0);
+    expect(commands).toEqual([
+      "/fixture/north spawn team-lead",
+      "/fixture/bb /fixture/msg-cli.clj 9000",
+    ]);
+  });
 });
