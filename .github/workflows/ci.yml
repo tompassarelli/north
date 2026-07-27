@@ -168,11 +168,20 @@ jobs:
           ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration
         run: |
           set -euo pipefail
+          timeout --foreground 120s bb cli/tests/spawn-thread-title-validation-test.clj
           timeout --foreground 120s bb cli/tests/agents-cli-test.clj
           timeout --foreground 120s bb cli/tests/map-contract-test.clj
           timeout --foreground 120s bb cli/tests/pred-cli-test.clj
           timeout --foreground 120s bb cli/tests/routing-report-test.clj
           timeout --foreground 120s bb cli/tests/canary-cli-test.clj
+
+      - name: Warm/cold CLI output parity
+        working-directory: fram
+        run: |
+          set -euo pipefail
+          FRAM_HOME="$GITHUB_WORKSPACE/fram" \
+            bb -cp "$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out" \
+            "$GITHUB_WORKSPACE/north/cli/tests/daemon-cold-output-parity-test.clj"
 
       - name: Durable coordination delivery boundaries
         working-directory: north
