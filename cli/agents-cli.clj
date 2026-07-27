@@ -1235,6 +1235,22 @@
 (def ^:dynamic *delegate-request* nil)
 (declare resolve-delegate-thread! resolve-recursive-child-thread! delegate-brief)
 
+(defn title-bearing-thread?
+  "A spawn attribution target exists only when the coordinator's exact-subject
+  projection contains exactly one nonblank title. Read through the same :show
+  projection as the daemon-first CLI; the independent :resolved index can lag
+  that projection and must not turn a visible thread into a false absence."
+  [id]
+  (try
+    (let [subject (str "@" (str/replace-first (str id) #"^@" ""))
+          titles (mapv second
+                       (filter #(= "title" (first %))
+                               (north.coord/show-rows
+                                (Integer/parseInt PORT) subject)))]
+      (and (= 1 (count titles))
+           (not (str/blank? (first titles)))))
+    (catch Exception _ false)))
+
 (defn cmd-spawn [args]
   (north.topology-authority/require-coordination! "spawn")
   (let [{:keys [dry? notify provider target model taskGrade domains topology tier reasoning posture composition
@@ -1286,11 +1302,7 @@
         ;; gate passed it. A thread exists iff it carries a title.
         _ (when thread
             (let [bare (str/replace-first (str thread) #"^@" "")
-                  titled? (try
-                            (boolean (seq (str (north.coord/resolved
-                                                (Integer/parseInt PORT)
-                                                (str "@" bare) "title"))))
-                            (catch Exception _ nil))]
+                  titled? (title-bearing-thread? bare)]
               (when-not titled?
                 (binding [*out* *err*]
                   (println (red (str "--thread " bare " names no thread")))

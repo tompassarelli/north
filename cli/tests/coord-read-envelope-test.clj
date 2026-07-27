@@ -83,6 +83,30 @@
   (check! "timeout is distinguishable from a malformed envelope"
           (not= :malformed-resolved-response (:type rr))))
 
+;; ---- show-rows: exact-subject fast path keeps the same honest envelope ----
+(let [r (observe (const {:version 7
+                         :rows [["owner" "personal"] ["title" "Thread"]]})
+                 #(north.coord/show-rows 1 "@x"))]
+  (check! "show-rows returns ordered exact-subject rows"
+          (= [["owner" "personal"] ["title" "Thread"]] (:value r))))
+(let [r (observe (const {:version 7 :rows []})
+                 #(north.coord/show-rows 1 "@x"))]
+  (check! "show-rows preserves an honest absent subject as []"
+          (and (not (:threw? r)) (= [] (:value r)))))
+
+(doseq [[label reply]
+        [["an error map" {:error "unknown op"}]
+         ["a missing version" {:rows []}]
+         ["a torn row" {:version 1 :rows [["title"]]}]
+         ["a non-string value" {:version 1 :rows [["title" 7]]}]]]
+  (let [r (observe (const reply) #(north.coord/show-rows 1 "@x"))]
+    (check! (str "show-rows rejects " label " with a typed throw, never []")
+            (and (:threw? r) (= :malformed-show-response (:type r))))))
+
+(let [r (observe (timeout) #(north.coord/show-rows 1 "@x"))]
+  (check! "show-rows surfaces a read timeout as a throw, not []"
+          (and (:threw? r) (= :coordinator-read-timeout (:type r)))))
+
 ;; ---- query-rows / agg-rows: same discipline for :ok row reads -------------
 (let [r (observe (const {:ok [] :version 1 :engine "scan"})
                  #(north.coord/query-rows 1 {:find "e" :rules []}))]

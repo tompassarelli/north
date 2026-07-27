@@ -750,6 +750,33 @@
 ;; all live values of (te,p) — multi-valued  (the many/rmany variants).
 (defn many     [port te p] (:values (resolved-envelope port te p)))
 
+;; The :show op is the exact-subject projection used by the daemon-first CLI.
+;; Validate its complete envelope here so existence gates can reuse the same
+;; authoritative read without turning a wire failure into an absent thread.
+(defn show-envelope
+  [port te]
+  (let [response (send-op port {:op :show :te te})
+        success?
+        (and (map? response)
+             (= #{:version :rows} (set (keys response)))
+             (integer? (:version response))
+             (not (neg? (:version response)))
+             (vector? (:rows response))
+             (every?
+              (fn [row]
+                (and (vector? row)
+                     (= 2 (count row))
+                     (string? (nth row 0))
+                     (string? (nth row 1))))
+              (:rows response)))]
+    (if success?
+      response
+      (throw
+       (ex-info "coordinator returned a malformed show response"
+                {:type :malformed-show-response :te te})))))
+
+(defn show-rows [port te] (:rows (show-envelope port te)))
+
 ;; --- presence liveness: the renewable-LEASE rule (presence-cli #30 is the origin) ---
 ;; A session's liveness is a lease fact @lease:session:<h> = "holder|exp|epoch"; the
 ;; agent is ONLINE iff that lease's exp is still in the FUTURE by the coordinator's clock
