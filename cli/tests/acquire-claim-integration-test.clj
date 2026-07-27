@@ -146,15 +146,19 @@
         (check "verify succeeds only for the exact holder"
                (and (zero? (:exit exact))
                     (str/includes? (:out exact) "VERIFIED")
-                    (= 3 (:exit wrong))
-                    (str/includes? (:out wrong) "handoff mismatch")
+                    (= 7 (:exit wrong))
+                    (str/includes? (:out wrong) "preclaimed driver is @agent:first")
+                    (str/includes? (:out wrong) "expected @agent:second")
                     (= (str "@" first-holder) (resolved port thread "driver")))))
 
       (let [first-release (acquire port "release" thread first-holder)
+            absent (acquire port "verify" thread-id first-holder)
             second-release (acquire port "release" thread-id first-holder)]
         (check "release is idempotent and leaves no driver"
                (and (zero? (:exit first-release))
                     (str/includes? (:out first-release) "released")
+                    (= 6 (:exit absent))
+                    (str/includes? (:out absent) "preclaimed driver is absent")
                     (zero? (:exit second-release))
                     (str/includes? (:out second-release) "noop")
                     (nil? (resolved port thread "driver")))))

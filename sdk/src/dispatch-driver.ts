@@ -15,9 +15,28 @@ export class DispatchAlreadyActiveError extends Error {
 
 export class DispatchDriverUnavailableError extends Error {
   readonly preSideEffect = true;
-  constructor(readonly threadId: string) {
-    super(`could not establish the active driver for thread @${threadId}`);
+  constructor(readonly threadId: string, readonly port = "7977") {
+    super(
+      `North coordinator unavailable or mismatched at port ${port} ` +
+      `while establishing the active driver for thread @${threadId}`,
+    );
     this.name = "DispatchDriverUnavailableError";
+  }
+}
+
+export class DispatchDriverPreclaimAbsentError extends Error {
+  readonly preSideEffect = true;
+  constructor(readonly threadId: string) {
+    super(`MCP-preclaimed driver for thread @${threadId} is absent during SDK startup`);
+    this.name = "DispatchDriverPreclaimAbsentError";
+  }
+}
+
+export class DispatchDriverPreclaimMismatchError extends Error {
+  readonly preSideEffect = true;
+  constructor(readonly threadId: string) {
+    super(`MCP-preclaimed driver for thread @${threadId} is held by a different adapter`);
+    this.name = "DispatchDriverPreclaimMismatchError";
   }
 }
 
@@ -58,11 +77,20 @@ export function claimDispatchDriver(
 ): { release(): boolean } {
   const canonicalThreadId = normalizeNorthEntityId(threadId);
   const threadSubject = northEntitySubject(canonicalThreadId);
-  const command = options.command ?? commandAt(options.port ?? process.env.NORTH_PORT ?? "7977");
-  const verb = options.preclaimed ?? process.env.NORTH_DISPATCH_DRIVER_PRECLAIMED === "1" ? "verify" : "claim";
+  const port = options.port ?? process.env.NORTH_PORT ?? "7977";
+  const command = options.command ?? commandAt(port);
+  const preclaimed =
+    options.preclaimed ?? process.env.NORTH_DISPATCH_DRIVER_PRECLAIMED === "1";
+  const verb = preclaimed ? "verify" : "claim";
   const result = command(verb, threadSubject, agentId);
-  if (result.status === 3) throw new DispatchAlreadyActiveError(canonicalThreadId);
-  if (result.status !== 0) throw new DispatchDriverUnavailableError(canonicalThreadId);
+  if (!preclaimed && result.status === 3)
+    throw new DispatchAlreadyActiveError(canonicalThreadId);
+  if (preclaimed && result.status === 6)
+    throw new DispatchDriverPreclaimAbsentError(canonicalThreadId);
+  if (preclaimed && (result.status === 3 || result.status === 7))
+    throw new DispatchDriverPreclaimMismatchError(canonicalThreadId);
+  if (result.status !== 0)
+    throw new DispatchDriverUnavailableError(canonicalThreadId, port);
   let released = false;
   return {
     release: () => {

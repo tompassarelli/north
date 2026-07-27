@@ -141,6 +141,20 @@
     (check "fast terminal outcome is reported as completed, never falsely running"
            (and (= :completed (:status startup)) (= "ran" (:outcome startup)))))
 
+  (let [marker (temp-file "await-detached-exit.marker")
+        log (temp-file "await-detached-exit.log")
+        process (north.spawn-process/launch-detached!
+                 ["bash" "-c"
+                  "sleep 0.25; printf child-complete > \"$NORTH_AWAIT_EXIT_MARKER\""]
+                 (assoc base-env "NORTH_AWAIT_EXIT_MARKER" (str marker)) log)
+        terminal (future (north.spawn-process/await-process-exit process :poll-ms 10))
+        _ @process]
+    (check "detached exit waiter ignores the completed setsid launcher"
+           (= :waiting (deref terminal 100 :waiting)))
+    (check "detached exit waiter resolves from the actual child receipt"
+           (and (= 0 (deref terminal 2000 :timeout))
+                (= "child-complete" (slurp marker)))))
+
   (let [log (temp-file "exit-race.log")
         process (north.spawn-process/launch-detached! ["bash" "-c" "exit 0"] base-env log)
         _ @process

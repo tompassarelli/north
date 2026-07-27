@@ -171,16 +171,28 @@
   cannot be mistaken for the lane's terminal."
   [process]
   (if (::pid-file process)
-    (if-let [pid (detached-pid process)]
-      (when-not (pid-alive? pid) (or (detached-exit process) :unknown))
-      (let [exit (launcher-exit process)]
-        (when (and (some? exit) (not= 0 exit)) exit)))
+    ;; The receipt is authoritative once published. Read it before consulting
+    ;; the PID so PID reuse cannot make a completed child appear live.
+    (or (detached-exit process)
+        (if-let [pid (detached-pid process)]
+          (when-not (pid-alive? pid) :unknown)
+          (let [exit (launcher-exit process)]
+            (when (and (some? exit) (not= 0 exit)) exit))))
     (launcher-exit process)))
 
 (defn process-alive?
   "True while the managed daemon, not merely its short launcher, is alive."
   [process]
   (and process (nil? (process-exit process))))
+
+(defn await-process-exit
+  "Wait for the detached child terminal receipt or observed child death.
+  Never treats the short `setsid --fork` launcher as the managed lifetime."
+  [process & {:keys [poll-ms] :or {poll-ms 20}}]
+  (loop []
+    (if-some [exit (process-exit process)]
+      exit
+      (do (Thread/sleep poll-ms) (recur)))))
 
 (defn- signal-process-group! [pid signal]
   (try
@@ -202,12 +214,9 @@
     ;; The launcher is normally already gone. This remains the forced cleanup
     ;; for a startup stall before the daemon PID could be published.
     (try (p/destroy-tree process) (catch Exception _ nil))
-    (try (deref process 2000 nil) (catch Exception _ nil))
-    (when (and (::pid-file process)
-               (not (some-> (detached-pid process) pid-alive?)))
-      (io/delete-file (::pid-file process) true)
-      (when (::exit-file process)
-        (io/delete-file (::exit-file process) true))))
+    ;; Retain PID/exit receipts until the next launch replaces them. A detached
+    ;; lifetime watcher may still need the terminal proof after forced cleanup.
+    (try (deref process 2000 nil) (catch Exception _ nil)))
   nil)
 
 (defn- final-terminal-facts
