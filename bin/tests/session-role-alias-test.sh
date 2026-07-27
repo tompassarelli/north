@@ -66,7 +66,10 @@ route_cache="$(
 rm -f -- "${route_cache:?}"
 : >"$role_log"
 
-tool_payload="$(printf '{"cwd":"%s","session_id":"role-alias-session","hook_event_name":"PostToolUse"}' "$root")"
+foreign_repo="$scratch/foreign-repo"
+git init -q "$foreign_repo"
+git -C "$foreign_repo" remote add origin /tmp/other-repository
+tool_payload="$(printf '{"cwd":"%s","session_id":"role-alias-session","hook_event_name":"PostToolUse"}' "$foreign_repo")"
 printf '%s' "$tool_payload" |
   PATH="$scratch/bin:$PATH" \
   ROLE_ALIAS_TEST_LOG="$role_log" \

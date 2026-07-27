@@ -243,6 +243,15 @@ fi
 PROVIDER_OBS="${PROVIDER:-unobserved}"
 MODEL_OBS="${MODEL:-unobserved}"
 EFFORT_OBS="${EFFORT:-unobserved}"
+slug() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
+}
+ORCHESTRATION_ROLE="$(slug "${NORTH_ORCHESTRATION_ROLE:-}")"
+ROLE_ALIAS=""
+if [ -n "$ORCHESTRATION_ROLE" ]; then
+  repo_segment="$(slug "$RN")"
+  [ -n "$repo_segment" ] && ROLE_ALIAS="$repo_segment-$ORCHESTRATION_ROLE"
+fi
 # Preserve the exact SessionStart observations independently from the route
 # cache. The route cache is a convergence marker and must stay absent when any
 # graph projection fails; this seed is evidence for the PostToolUse repair path,
@@ -252,23 +261,16 @@ if [ -n "$identity_key" ]; then
   route_seed="$ROUTEDIR/$identity_key.seed"
   seed_tmp="$ROUTEDIR/.$identity_key.$$.seed.tmp"
   if mkdir -p "$ROUTEDIR" 2>/dev/null &&
-      printf '%s\n%s\n%s\n' "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" > "$seed_tmp" 2>/dev/null; then
+      printf '%s\n%s\n%s\n%s\n%s\n' \
+        "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" \
+        "$ORCHESTRATION_ROLE" "$ROLE_ALIAS" >"$seed_tmp" 2>/dev/null; then
     mv -f "$seed_tmp" "$route_seed" 2>/dev/null || rm -f -- "${seed_tmp:?}" 2>/dev/null || true
   fi
 fi
-slug() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
-}
 provider_segment="$(slug "$PROVIDER_OBS")"; [ -n "$provider_segment" ] || provider_segment="unobserved"
 model_segment="$(slug "$MODEL_OBS")"; [ -n "$model_segment" ] || model_segment="unobserved"
 effort_segment="$(slug "$EFFORT_OBS")"; [ -n "$effort_segment" ] || effort_segment="unobserved"
 DISPLAY_HANDLE="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
-ORCHESTRATION_ROLE="$(slug "${NORTH_ORCHESTRATION_ROLE:-}")"
-ROLE_ALIAS=""
-if [ -n "$ORCHESTRATION_ROLE" ]; then
-  repo_segment="$(slug "$RN")"
-  [ -n "$repo_segment" ] && ROLE_ALIAS="$repo_segment-$ORCHESTRATION_ROLE"
-fi
 if [ -n "$ROLE_ALIAS" ]; then
   ROLE_ALIAS_CONTEXT="Your durable role alias is \"$ROLE_ALIAS\"; peers should address that alias, not this session id."
 else
