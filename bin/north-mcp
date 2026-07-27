@@ -544,7 +544,9 @@
     (case (driver-command "claim" id agent-id)
       0 nil
       3 (str "thread @" id " already has an active driver")
-      (str "could not establish the active driver for thread @" id))))
+      4 (str "thread @" id " disappeared before its driver could be claimed")
+      (str "North coordinator unavailable or mismatched at port " north-port
+           " while claiming the driver for thread @" id))))
 
 (defn release-driver! [thread agent-id]
   ;; The child releases on every normal terminal path. This duplicate release is
@@ -555,7 +557,7 @@
 (defn watch-driver-release! [process thread agent-id]
   (future
     (try
-      @process
+      (north.spawn-process/await-process-exit process)
       (catch Exception _ nil)
       (finally (release-driver! thread agent-id)))))
 

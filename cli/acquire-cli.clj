@@ -79,10 +79,22 @@
 
     "verify"                             ; <thread> <holder> — MCP pre-claim handoff
     (let [[thread holder] args
-          me  (str "@" holder)]
-      (if (= me (driver-of port thread))
+          me  (str "@" holder)
+          cur (driver-of port thread)]
+      (cond
+        (= me cur)
         (println (format "VERIFIED %s by %s" thread holder))
-        (do (println (format "DENIED %s — driver handoff mismatch" thread)) (System/exit 3))))
+
+        (nil? cur)
+        (do
+          (println (format "DENIED %s — preclaimed driver is absent" thread))
+          (System/exit 6))
+
+        :else
+        (do
+          (println (format "DENIED %s — preclaimed driver is %s, expected %s"
+                           thread cur me))
+          (System/exit 7))))
 
     "acquire"                            ; <thread> <holder> — declared-single driver fact
     (let [[thread holder] args

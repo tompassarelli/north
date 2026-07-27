@@ -873,7 +873,7 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
       expect(response.result.content[0].text).toContain(
         name === "spawn"
           ? "exact parent run/thread reservation"
-          : "could not establish the active driver",
+          : "North coordinator unavailable or mismatched at port 59319",
       );
     }
   }

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import {
   claimDispatchDriver,
   DispatchAlreadyActiveError,
+  DispatchDriverPreclaimAbsentError,
+  DispatchDriverPreclaimMismatchError,
   DispatchDriverReleaseError,
   DispatchDriverUnavailableError,
   type DispatchDriverCommand,
@@ -65,9 +67,11 @@ test("driver claim canonicalizes one sigil and rejects hostile ids before the co
   expect(calls).toHaveLength(2);
 });
 
-test("contention and coordinator failure are distinct fixed pre-side-effect errors", () => {
+test("competing, missing, mismatched, and coordinator failures stay distinct", () => {
   const hostile = "CANARY coordinator stderr must never cross boundary";
   const contended: DispatchDriverCommand = () => ({ status: 3, stderr: hostile } as any);
+  const absent: DispatchDriverCommand = () => ({ status: 6, stderr: hostile } as any);
+  const mismatched: DispatchDriverCommand = () => ({ status: 7, stderr: hostile } as any);
   const unavailable: DispatchDriverCommand = () => ({ status: 1, stderr: hostile } as any);
 
   let contention: unknown;
@@ -77,10 +81,44 @@ test("contention and coordinator failure are distinct fixed pre-side-effect erro
   expect(contention).toMatchObject({ preSideEffect: true, threadId: "thread-1" });
   expect((contention as Error).message).not.toContain(hostile);
 
+  let missingHandoff: unknown;
+  try {
+    claimDispatchDriver("thread-1", "agent-1", {
+      command: absent,
+      preclaimed: true,
+    });
+  } catch (error) { missingHandoff = error; }
+  expect(missingHandoff).toBeInstanceOf(DispatchDriverPreclaimAbsentError);
+  expect((missingHandoff as Error).message).toContain("is absent during SDK startup");
+  expect((missingHandoff as Error).message).not.toContain(hostile);
+
+  let wrongHandoff: unknown;
+  try {
+    claimDispatchDriver("thread-1", "agent-1", {
+      command: mismatched,
+      preclaimed: true,
+    });
+  } catch (error) { wrongHandoff = error; }
+  expect(wrongHandoff).toBeInstanceOf(DispatchDriverPreclaimMismatchError);
+  expect((wrongHandoff as Error).message).toContain("held by a different adapter");
+  expect((wrongHandoff as Error).message).not.toContain(hostile);
+
   let failure: unknown;
-  try { claimDispatchDriver("thread-1", "agent-1", { command: unavailable }); }
+  try {
+    claimDispatchDriver("thread-1", "agent-1", {
+      command: unavailable,
+      port: "17977",
+    });
+  }
   catch (error) { failure = error; }
   expect(failure).toBeInstanceOf(DispatchDriverUnavailableError);
-  expect(failure).toMatchObject({ preSideEffect: true, threadId: "thread-1" });
+  expect(failure).toMatchObject({
+    preSideEffect: true,
+    threadId: "thread-1",
+    port: "17977",
+  });
+  expect((failure as Error).message).toContain(
+    "North coordinator unavailable or mismatched at port 17977",
+  );
   expect((failure as Error).message).not.toContain(hostile);
 });
