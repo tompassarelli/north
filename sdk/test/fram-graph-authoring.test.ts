@@ -1,5 +1,9 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
+import {
+  mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -17,6 +21,7 @@ import {
 } from "../src/execution-admission";
 import {
   FRAM_MCP_TOOL_NAMES, FRAM_MCP_TOOLS, framMcpCommand, framMcpEnvironment,
+  prepareManagedFramCoordinator, seedReboundFramCodeLog,
 } from "../src/fram-graph-authoring";
 import { expectedLog } from "../src/coord-wire";
 import {
@@ -82,6 +87,145 @@ test("the flip's coordinator read budget rides into the managed lane, or nothing
     expect(framMcpEnvironment(north).FRAM_COORD_READ_TIMEOUT_MS).toBe("180000");
   } finally {
     rmSync(budgetedFramHome, { recursive: true, force: true });
+  }
+});
+
+test("a copied code log rebinds only tracked views, never ordinary source literals", () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-rebound-seed-"));
+  const canonical = join(root, "canonical");
+  const lane = join(root, "lane");
+  const canonicalLog = join(canonical, ".fram", "code.log");
+  const laneLog = join(lane, ".fram", "code.log");
+  mkdirSync(join(canonical, ".fram"), { recursive: true });
+  mkdirSync(lane, { recursive: true });
+  const original = [
+    `{:tx 1, :op "assert", :l "@src.demo#root", :p "file", :r "${canonical}/src/demo.bclj"}`,
+    `{:tx 2, :op "assert", :l "@src.demo#9", :p "v", :r "${canonical}/literal-must-stay"}`,
+    `{:tx 3, :op "assert", :l "@external#root", :p "file", :r "/other/repo/external.bclj"}`,
+    "",
+  ].join("\n");
+  writeFileSync(canonicalLog, original);
+  try {
+    expect(seedReboundFramCodeLog({
+      canonicalLog,
+      laneLog,
+      canonicalSourceRoot: canonical,
+      laneSourceRoot: lane,
+    })).toEqual({ reboundTrackedPaths: 1 });
+    const seeded = readFileSync(laneLog, "utf8");
+    expect(seeded).toContain(`:r "${lane}/src/demo.bclj"`);
+    expect(seeded).toContain(`:r "${canonical}/literal-must-stay"`);
+    expect(seeded).toContain(`:r "/other/repo/external.bclj"`);
+    expect(readFileSync(canonicalLog, "utf8")).toBe(original);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed worktree preparation wires local env and reaps its coordinator", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-rebound-lifecycle-"));
+  const canonical = join(root, "canonical");
+  const lane = join(root, "lane");
+  const localFramHome = join(root, "fram-home");
+  mkdirSync(join(localFramHome, ".fram"), { recursive: true });
+  mkdirSync(join(localFramHome, "bin"), { recursive: true });
+  mkdirSync(join(canonical, "src"), { recursive: true });
+  mkdirSync(join(lane, "src"), { recursive: true });
+  writeFileSync(join(localFramHome, ".fram", "code.log"), [
+    `{:tx 1, :op "assert", :l "@src.demo#root", :p "file", :r "${canonical}/src/demo.bclj"}`,
+    "",
+  ].join("\n"));
+  writeFileSync(join(localFramHome, ".mcp.json"), JSON.stringify({
+    mcpServers: { fram: { env: { FRAM_CODE_PORT: "39999" } } },
+  }));
+  writeFileSync(join(localFramHome, "bin", "fram-mcp"), "", { mode: 0o755 });
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, { pid: 4242, exitCode: null, signalCode: null });
+  const signals: NodeJS.Signals[] = [];
+  (child as any).kill = (signal: NodeJS.Signals) => {
+    signals.push(signal);
+    (child as any).signalCode = signal;
+    child.emit("exit", null, signal);
+    return true;
+  };
+  let launchInput: Record<string, string> | undefined;
+  process.env.NORTH_FRAM_HOME = localFramHome;
+  try {
+    const coordinator = await prepareManagedFramCoordinator({
+      worktree: lane,
+      canonicalSourceRoot: canonical,
+      runtime: {
+        allocatePort: async () => 45678,
+        launch: (input) => {
+          launchInput = input;
+          return child;
+        },
+        ready: async (_child, port, log) => {
+          expect(port).toBe(45678);
+          expect(log).toBe(join(lane, ".fram", "code.log"));
+        },
+        waitForExit: async (proc) =>
+          proc.exitCode !== null || proc.signalCode !== null,
+      },
+    });
+    expect(launchInput).toMatchObject({
+      framHome: localFramHome,
+      codePort: "45678",
+      codeLog: join(lane, ".fram", "code.log"),
+    });
+    expect(readFileSync(join(lane, ".git", "info", "exclude"), "utf8"))
+      .toContain("/.fram/");
+    expect(framMcpEnvironment(lane, true)).toMatchObject({
+      FRAM_SRC: lane,
+      FRAM_CODE_LOG: join(lane, ".fram", "code.log"),
+      FRAM_CODE_PORT: "45678",
+    });
+    process.env.AGENT_LAWS = "off";
+    for (const provider of ["anthropic", "openai"] as const) {
+      const options = harnessOptions({
+        self: `${provider}-managed-fram-lane`,
+        provider,
+        cwd: lane,
+        managedWorktree: true,
+        presenceRegistrar: false,
+        routingMetadata: graphAuthoringRequest,
+      }) as any;
+      expect(options.mcpServers.fram.env).toMatchObject({
+        FRAM_SRC: lane,
+        FRAM_CODE_LOG: join(lane, ".fram", "code.log"),
+        FRAM_CODE_PORT: "45678",
+      });
+    }
+    expect(readFileSync(coordinator.codeLog, "utf8"))
+      .toContain(`:r "${lane}/src/demo.bclj"`);
+    await coordinator.close();
+    expect(signals).toEqual(["SIGTERM"]);
+    expect(readFileSync(join(lane, ".fram", "managed-code-coordinator.json"), "utf8"))
+      .toContain('"active": false');
+    expect(readFileSync(coordinator.codeLog, "utf8"))
+      .toContain(`:r "${lane}/src/demo.bclj"`);
+    expect(() => framMcpEnvironment(lane, true))
+      .toThrow("graph_authoring_fram_lane_descriptor_invalid");
+  } finally {
+    process.env.NORTH_FRAM_HOME = framHome;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed graph composition fails closed without a prepared lane coordinator", () => {
+  process.env.AGENT_LAWS = "off";
+  const unprepared = mkdtempSync(join(tmpdir(), "fram-unprepared-lane-"));
+  try {
+    expect(() => harnessOptions({
+      self: "unprepared-fram-lane",
+      provider: "openai",
+      cwd: unprepared,
+      managedWorktree: true,
+      presenceRegistrar: false,
+      routingMetadata: graphAuthoringRequest,
+    })).toThrow("graph_authoring_fram_lane_coordinator_unprepared");
+  } finally {
+    rmSync(unprepared, { recursive: true, force: true });
   }
 });
 

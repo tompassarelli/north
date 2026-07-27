@@ -96,6 +96,9 @@ import {
 import {
   ManagedQueryTermination, type HostTerminationRegistrar,
 } from "./query-lifecycle";
+import {
+  prepareManagedFramCoordinator,
+} from "./fram-graph-authoring";
 
 export interface SpawnOptions {
   prompt: string;
@@ -145,6 +148,7 @@ interface SpawnRuntime {
   completeResourceEnvelope?: typeof completeResourceEnvelope;
   admitBillableClock?: typeof admitBillableClock;
   worktreeAllocationWriter?: WorktreeAllocationWriter;
+  prepareManagedFramCoordinator?: typeof prepareManagedFramCoordinator;
 }
 
 const SPAWN_OPTION_FIELDS = new Set([
@@ -590,6 +594,7 @@ async function runSpawn(
     abortController: termination.abortController,
     role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
+    managedWorktree: wt !== undefined,
     deliveryRun: deliveryReservationReady ? runContext : undefined,
     cavemanInstructions: caveman.instructions,
   });
@@ -1380,6 +1385,20 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     termination.throwIfTerminated();
     for (const advisory of admission?.advisories ?? [])
       console.warn(`[envelope] advisory: ${advisory}`);
+    if (worktreeLease
+        && requestedCapabilities.includes("graph-authoring.fram")) {
+      const coordinator = await (
+        injected.prepareManagedFramCoordinator ?? prepareManagedFramCoordinator
+      )({
+        worktree: worktreeLease.path,
+        canonicalSourceRoot: worktreeLease.repoRoot,
+      });
+      termination.attachResource(coordinator);
+      console.log(
+        `[spawn] @agent:${agentId} worktree-local Fram coordinator `
+        + `pid=${coordinator.pid} port=${coordinator.codePort} log=${coordinator.codeLog}`,
+      );
+    }
     // Each attempt gets its OWN shallow copy: runSpawn resolves opts.model/
     // opts.effort onto its argument in place, and a retry must re-resolve from
     // the original request, not inherit the prior attempt's pinned resolution.
@@ -1424,6 +1443,18 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   } catch (error) {
     failed = true;
     primaryError = error;
+  }
+  try { await termination.close(); }
+  catch (error) {
+    if (!failed) {
+      failed = true;
+      primaryError = error;
+    } else {
+      primaryError = new AggregateError(
+        [primaryError, error],
+        "spawn execution and managed resource cleanup failed",
+      );
+    }
   }
   // Awaiting runSpawn proves every terminal/run publication attempt either
   // settled or was never reached. Keep the host barrier closed through every

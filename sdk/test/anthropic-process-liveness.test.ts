@@ -472,6 +472,28 @@ test("a query constructed against a sticky host signal is force-closed before at
   expect(host.exitCodes).toEqual([143]);
 });
 
+test("host termination closes and force-reaps an attached lane resource", async () => {
+  const host = fakeHost();
+  const coordinator = new HostTerminationCoordinator(host.control as any);
+  const termination = new ManagedQueryTermination(
+    (options) => coordinator.register(options),
+  );
+  let closeCalls = 0;
+  let forceCalls = 0;
+  termination.attachResource({
+    close: async () => { closeCalls++; },
+    forceClose: () => { forceCalls++; },
+  });
+  host.emit("SIGTERM");
+  await eventually(() => closeCalls === 1, "owned resource graceful close");
+  expect(forceCalls).toBe(0);
+  host.emit("SIGTERM");
+  expect(forceCalls).toBe(1);
+  termination.publicationSettled();
+  termination.cleanupSettled();
+  termination.release();
+});
+
 posixTest("host signal reaps the real Anthropic process group before publication opens", async () => {
   const { lifecycle, path } = startTree("hold", true);
   const pids = await pidRecord(path);
