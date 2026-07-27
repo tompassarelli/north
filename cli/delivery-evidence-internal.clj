@@ -388,8 +388,11 @@
       ;; own cause by name; a live-reservation write must never fall through to
       ;; the generic "coordinator rejected" line, which is indistinguishable
       ;; from a real logical refusal.
-      (fail! "run evidence commit did not converge under contention"
-             {:run run :bar bar :budget-ms commit-retry-budget-ms
+      (fail! (str "RETRYABLE: evidence commit contention; "
+                  "re-submit the same bar and observed result")
+             {:type :retryable-evidence-contention
+              :retryable true
+              :run run :bar bar :budget-ms commit-retry-budget-ms
               :deadline-exceeded (boolean (:deadline outcome))}))))
 
 (defn best-effort-thread-projection!

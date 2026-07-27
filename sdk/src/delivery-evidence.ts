@@ -25,7 +25,16 @@ const RUN_RESERVATION_BODY = [
   "run_reserved_at",
 ] as const;
 
-type WriterOperation = "reserve" | "record" | "record-unreserved";
+export type DeliveryEvidenceWriterOperation = "reserve" | "record" | "record-unreserved";
+
+export class DeliveryEvidenceRetryableError extends Error {
+  readonly retryable = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DeliveryEvidenceRetryableError";
+  }
+}
 
 export interface DeliveryRunContext {
   runId: string;
@@ -213,7 +222,7 @@ export function newDeliveryRunContext(
 }
 
 function invokeWriter(
-  operation: WriterOperation,
+  operation: DeliveryEvidenceWriterOperation,
   request: Record<string, string>,
   port = process.env.NORTH_PORT ?? "7977",
 ): string {
@@ -232,9 +241,20 @@ function invokeWriter(
     // live capability now travels on stdin rather than argv, subprocess errors
     // remain an inappropriate place to reflect the request body.
     const stderr = String((error as { stderr?: unknown }).stderr ?? "");
-    const reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
-    throw new Error(`delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`);
+    throw deliveryEvidenceWriterError(operation, stderr);
   }
+}
+
+/** @internal Convert the writer's bounded Message line into caller semantics. */
+export function deliveryEvidenceWriterError(
+  operation: DeliveryEvidenceWriterOperation,
+  stderr: string,
+): Error & { retryable?: boolean } {
+  const reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
+  const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
+  return reason?.startsWith("RETRYABLE:")
+    ? new DeliveryEvidenceRetryableError(message)
+    : new Error(message);
 }
 
 export function deliveryReservationFailureCause(error: unknown): string {
@@ -270,7 +290,7 @@ export function deliveryReservationFailureCause(error: unknown): string {
 
 /** @internal Pure subprocess boundary used by the writer and its secrecy test. */
 export function deliveryWriterInvocation(
-  operation: WriterOperation,
+  operation: DeliveryEvidenceWriterOperation,
   request: Record<string, string>,
   port: string,
 ): { argv: string[]; stdin: string } {
