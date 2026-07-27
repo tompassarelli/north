@@ -20,6 +20,21 @@ export {
 } from "../resource-policy";
 export { mergeProviderUsageObservations, writeProviderUsageObservations } from "../provider-observation-store";
 export {
+  accountAvailabilityBand,
+  accountAvailabilityRowIsUsable,
+  normalizeAccountAvailability,
+  readAccountAvailability,
+} from "../account-availability";
+export type {
+  AccountAvailabilityBand,
+  AccountAvailabilityRow,
+  AccountAvailabilityRung,
+  AccountAvailabilityThresholds,
+  AccountAvailabilityWindowRung,
+  NormalizeAccountAvailabilityOptions,
+  ReadAccountAvailabilityOptions,
+} from "../account-availability";
+export {
   normalizeCodexRateLimits, observeCodexEntitlement, readCodexEntitlementObservation,
   refreshCodexEntitlementIfStale, shouldRefreshCodexEntitlement,
 } from "../codex-entitlement";

@@ -9,6 +9,12 @@ import {
   type ProviderAccount,
 } from "./accounts";
 import { refreshAccountUsages, type AccountUsageReport } from "./account-usage";
+import {
+  accountAvailabilityBand,
+  accountAvailabilityRowIsUsable,
+  readAccountAvailability,
+  type AccountAvailabilityRow,
+} from "./account-availability";
 import { automatedPressure } from "./resource-policy";
 
 const USAGE = `usage: north account <command>
@@ -17,9 +23,12 @@ const USAGE = `usage: north account <command>
   north account login <id>
   north account status [id]
   north account usage [id] [--refresh]  subscription windows + reset metadata
+  north account availability [--model M] [--json]  cached account headroom verdicts
   north account list [--verbose]   grouped accounts + live login state
 
 Options:
+  --model M  restrict usability to one cached model-scoped rung
+  --json     emit the stable account availability row array
   --refresh  bypass the five-minute authoritative usage cache
   --verbose  include provider, profile, and storage root diagnostics`;
 
@@ -135,6 +144,51 @@ function printUsageReports(accounts: ProviderAccount[], reports: AccountUsageRep
   }
 }
 
+function availabilityPct(pct: number): string {
+  const band = accountAvailabilityBand(pct);
+  return `${pct}%${band === "available" ? "" : ` (${band})`}`;
+}
+
+function printAvailabilityRows(rows: AccountAvailabilityRow[]): void {
+  if (!rows.length) {
+    console.log("no cached account availability");
+    return;
+  }
+  for (const row of rows) {
+    console.log(`${row.account} (${row.provider})  ${row.verdict}${row.stale ? " · stale" : ""}`);
+    console.log(`  observed: ${row.observedAt}`);
+    if (row.rungs.window)
+      console.log(`  window ${row.rungs.window.name}: ${availabilityPct(row.rungs.window.pct)} · resets ${row.rungs.window.resetsAt}`);
+    if (row.rungs.week)
+      console.log(`  week: ${availabilityPct(row.rungs.week.pct)} · resets ${row.rungs.week.resetsAt}`);
+    for (const [model, rung] of Object.entries(row.rungs.models))
+      console.log(`  model ${model}: ${availabilityPct(rung.pct)} · resets ${rung.resetsAt}`);
+    console.log(`  usable models: ${row.usableModels.length ? row.usableModels.join(", ") : "none observed"}`);
+  }
+}
+
+function availabilityOptions(args: string[]): { json: boolean; model?: string } {
+  let json = false;
+  let model: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const entry = args[index];
+    if (entry === "--json") {
+      if (json) throw new Error(USAGE);
+      json = true;
+      continue;
+    }
+    if (entry === "--model") {
+      if (model !== undefined || index + 1 >= args.length || args[index + 1]!.startsWith("--"))
+        throw new Error(USAGE);
+      model = args[index + 1]!;
+      index += 1;
+      continue;
+    }
+    throw new Error(USAGE);
+  }
+  return { json, ...(model === undefined ? {} : { model }) };
+}
+
 export async function runAccountCli(args: string[]): Promise<number> {
   const [command, ...rest] = args;
   try {
@@ -177,6 +231,17 @@ export async function runAccountCli(args: string[]): Promise<number> {
         const reports = await refreshAccountUsages({ accounts, force: refresh });
         printUsageReports(accounts, reports);
         return reports.every(({ status }) => status === "observed") ? 0 : 1;
+      }
+      case "availability": {
+        const { json, model } = availabilityOptions(rest);
+        const accounts = listProviderAccounts();
+        const rows = readAccountAvailability({
+          accounts,
+          ...(model === undefined ? {} : { model }),
+        });
+        if (json) console.log(JSON.stringify(rows, null, 2));
+        else printAvailabilityRows(rows);
+        return rows.some((row) => accountAvailabilityRowIsUsable(row, model)) ? 0 : 1;
       }
       case "list": {
         const verbose = rest.length === 1 && rest[0] === "--verbose";

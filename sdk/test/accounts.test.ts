@@ -433,6 +433,9 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
   expect(help.status).toBe(0);
   expect(help.stdout).toContain("north account list [--verbose]   grouped accounts + live login state");
   expect(help.stdout).toContain("north account usage [id] [--refresh]  subscription windows + reset metadata");
+  expect(help.stdout).toContain("north account availability [--model M] [--json]  cached account headroom verdicts");
+  expect(help.stdout).toContain("--model M  restrict usability to one cached model-scoped rung");
+  expect(help.stdout).toContain("--json     emit the stable account availability row array");
   expect(help.stdout).toContain("--refresh  bypass the five-minute authoritative usage cache");
   expect(help.stdout).toContain("--verbose  include provider, profile, and storage root diagnostics");
 });
