@@ -357,6 +357,25 @@ describe("handoff CLI", () => {
       "/fixture/bb /fixture/msg-cli.clj 9000",
     ]);
   });
+
+  test("notification failure does not obscure a successful heir spawn", () => {
+    let calls = 0;
+    expect(runHandoffCli([
+      "fire", "--thread", "root", "--brief", "/fixture/succession.md",
+    ], {
+      env,
+      loadRows: () => rows,
+      stdout: () => {},
+      readBrief: () => "succession",
+      getChildren: () => [],
+      getFacts: () => [],
+      northBin: "/fixture/north",
+      peerBb: "/fixture/bb",
+      msgCli: "/fixture/msg-cli.clj",
+      run: () => ({ status: ++calls === 1 ? 0 : 1 }),
+    })).toBe(0);
+    expect(calls).toBe(2);
+  });
 });
 
 describe("warn-first usage detection", () => {
@@ -427,5 +446,29 @@ describe("warn-first usage detection", () => {
     expect(commands.at(-1)).toBe(
       "/fixture/north handoff fire --thread program-root --brief /fixture/succession.md",
     );
+  });
+
+  test("auto provider resolves from active agent identity before warning", () => {
+    const warnings = observeHandoffUsageSample({
+      env: {
+        ...baseEnv,
+        AGENT_PROVIDER: "auto",
+        AGENT_TARGET: undefined,
+        AGENT_MODEL: undefined,
+      },
+      loadRows: () => rows,
+      getFacts: () => [
+        { predicate: "provider", value: "anthropic" },
+        { predicate: "provider_target", value: "claude-active" },
+        { predicate: "model", value: "claude-opus-5" },
+      ],
+      run: () => ({ status: 0 }),
+    });
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0].active).toMatchObject({
+      provider: "anthropic",
+      account: "claude-active",
+      model: "claude-opus-5",
+    });
   });
 });
