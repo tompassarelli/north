@@ -408,7 +408,8 @@ function renewPresence(self: string): void {
 // of at ~byte 330, where they used to defeat cross-lane prefix-cache sharing.
 /**
  * A managed Codex lane ordinarily runs with network unshared. The sole
- * exception is a web-capable workspace-write lane's Gitiles-only proxy. Every
+ * exceptions are a web-capable workspace-write lane's Gitiles-only proxy and
+ * a graph-authoring lane's repo-local Beagle daemon. Every
  * North CLI write (`north tell`, `north evidence
  * record`, `bin/concern …`) reaches the graph through the coordinator socket,
  * so from inside that sandbox it CANNOT succeed — observed 2026-07-26:
@@ -428,9 +429,14 @@ function managedCodexShellBoundary(capabilities: readonly OrchestrationCapabilit
     sandbox: capabilities.includes("shell.readonly") ? "read-only" : "workspace-write",
     capabilities,
   });
-  const networkBoundary = network.networkAccess
-    ? "Your shell command network is limited to chromium.googlesource.com through the managed proxy; all other public, local, loopback, and private destinations remain blocked."
-    : "Your shell has NO network.";
+  const graphAuthoring = capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY);
+  const networkBoundary = !network.networkAccess
+    ? "Your shell has NO network."
+    : graphAuthoring
+    ? `Your shell can connect to the repo-local Beagle daemon discovered through its portfile; ${capabilities.includes("web")
+      ? "public web access remains limited to chromium.googlesource.com through the managed proxy."
+      : "the managed web proxy remains disabled."}`
+    : "Your shell command network is limited to chromium.googlesource.com through the managed proxy; all other public, local, loopback, and private destinations remain blocked.";
   return [
     ``, ``, `## managed Codex sandbox — your actual write paths`,
     `${networkBoundary} Every North CLI that writes the graph (\`north tell\`,`,
