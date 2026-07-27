@@ -1630,7 +1630,10 @@
             (let [process (north.spawn-process/launch-detached!
                            ["bun" "run" spawn-ts effective-prompt] child-env log)
                   startup (north.spawn-process/await-startup
-                           process aid log agent-facts-one agent-online?)]
+                           process aid log agent-facts-one agent-online?
+                           :timeout-ms
+                           (north.spawn-process/startup-timeout-for-capabilities
+                            normalized-selected-capabilities))]
               (case (:status startup)
                 :ready
                 (do

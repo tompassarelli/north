@@ -242,7 +242,7 @@ test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, 
   rmSync(expectedPath, { recursive: true, force: true });
 });
 
-test("graph lane publishes startup identity while its detached coordinator is still booting", async () => {
+test("graph lane reaches provider start after an injected slow coordinator boot", async () => {
   const { spawn } = await import("./support/spawn");
   process.chdir(repo);
   const priorFramHome = process.env.NORTH_FRAM_HOME;
@@ -262,6 +262,9 @@ test("graph lane publishes startup identity while its detached coordinator is st
   });
   let providerStarts = 0;
   let coordinatorCloses = 0;
+  let coordinatorPrepared = false;
+  let providerStartedBeforeCoordinator = false;
+  let identityPublishedBeforeCoordinator = false;
   const running = spawn({
     prompt: "start provider after graph coordinator readiness",
     agentId,
@@ -281,6 +284,7 @@ test("graph lane publishes startup identity while its detached coordinator is st
         reboundTrackedPaths: 1,
         pid: 4242,
       }));
+      coordinatorPrepared = true;
       return {
         sourceRoot: worktree,
         codeLog: join(worktree, ".fram", "code.log"),
@@ -291,12 +295,12 @@ test("graph lane publishes startup identity while its detached coordinator is st
       };
     },
     queryFn: () => {
+      providerStartedBeforeCoordinator ||= !coordinatorPrepared;
       providerStarts++;
       return capturingQuery({})({ options: {} });
     },
     feedSubscriber: () => readySubscription(),
   });
-  let identityPublishedBeforeCoordinator = false;
   try {
     identityPublishedBeforeCoordinator = await eventually(() =>
       existsSync(log)
@@ -317,6 +321,7 @@ test("graph lane publishes startup identity while its detached coordinator is st
     if (existsSync(expectedPath)) rmSync(expectedPath, { recursive: true, force: true });
   }
   expect(identityPublishedBeforeCoordinator).toBe(true);
+  expect(providerStartedBeforeCoordinator).toBe(false);
   expect(providerStarts).toBe(1);
   expect(coordinatorCloses).toBe(1);
 });
