@@ -15,7 +15,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { ProviderRetrySafeError } from "../src/providers";
 import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
-import type { DeliveryRunContext } from "../src/delivery-evidence";
+import { DeliveryEvidenceRetryableError, type DeliveryRunContext } from "../src/delivery-evidence";
 import { presetRequest } from "./routing-fixtures";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
@@ -2126,128 +2126,77 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
   }
 }, 15_000);
 
-test("dispatch abandons a failed reservation subject and publishes unverified telemetry on a fresh run", async () => {
-  const { dispatch } = await import("./support/dispatch");
-  writeFileSync(log, "");
-  let abandonedRunId: string | undefined;
-  let loadCalled = false;
-  await dispatch("test-dispatch-reservation-rotation", {
-    agentId: "test-dispatch-reservation-rotation-agent",
-    routingMetadata: presetRequest("integrator"),
-    claimDriver: (() => ({ release() {} })) as any,
-    loadChildren: () => [],
-    loadThreadFacts: () => [
-      { predicate: "title", value: "Reservation recovery" },
-      { predicate: "planned", value: "true" },
-      { predicate: "atomic", value: "true" },
-      { predicate: "done_when", value: "tests pass" },
-    ],
-    deliveryRuntime: {
-      reserve(context) {
-        abandonedRunId = context.runId;
-        throw new Error("simulated partial reservation");
-      },
-      load() {
-        loadCalled = true;
-        return { reservationValid: false, evidence: [] };
-      },
-    },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
-  });
-  const lines = await settledRunLines(
-    "test-dispatch-reservation-rotation-agent",
-    "applied_domain_requirement_count 0",
-  );
-  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
-  expect(abandonedRunId).toBeDefined();
-  expect(lines.some((line) => line.startsWith(`tell ${abandonedRunId} `))).toBe(false);
-  expect(subjects.size).toBe(1);
-  expect(subjects.has(abandonedRunId!)).toBe(false);
-  expect(lines.some((line) => line.endsWith(" delivery_outcome unverified"))).toBe(true);
-  expect(loadCalled).toBe(false);
-});
-
-test("spawn abandons a failed reservation subject and publishes unverified telemetry on a fresh run", async () => {
+test("spawn retries one transport reservation on a fresh run before constructing the provider", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  let abandonedRunId: string | undefined;
-  let loadCalled = false;
+  const reservations: DeliveryRunContext[] = [];
+  let constructions = 0;
+  let providerEnv: Record<string, string> | undefined;
   await spawn({
-    prompt: "recover from a partial reservation",
-    agentId: "test-spawn-reservation-rotation",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
-    thread: "thread-spawn-reservation-rotation",
+    prompt: "reserve before provider construction",
+    agentId: "test-spawn-reservation-retry",
+    routingMetadata: presetRequest("integrator"),
+    role: "integrator",
+    thread: "thread-reservation-retry",
     deliveryRuntime: {
       reserve(context) {
-        abandonedRunId = context.runId;
-        throw new Error("simulated partial reservation");
+        reservations.push(context);
+        if (reservations.length === 1)
+          throw new DeliveryEvidenceRetryableError("delivery evidence reserve rejected: writer timed out");
+        return { contractOrigin: "accepted", baselineDoneWhen: [] };
       },
-      load() {
-        loadCalled = true;
-        return { reservationValid: false, evidence: [] };
-      },
+      load: () => ({ reservationValid: true, evidence: [] }),
     },
-    queryFn: () => (async function* () {
+    queryFn: (args) => {
+      constructions++;
+      providerEnv = args.options.env;
+      return (async function* () {
       yield {
         type: "result", subtype: "success", result: "done",
         duration_ms: 1, num_turns: 1,
       };
-    })(),
+      })();
+    },
   });
-  const lines = await settledRunLines("test-spawn-reservation-rotation");
-  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
-  expect(abandonedRunId).toBeDefined();
-  expect(lines.some((line) => line.startsWith(`tell ${abandonedRunId} `))).toBe(false);
-  expect(subjects.size).toBe(1);
-  expect(subjects.has(abandonedRunId!)).toBe(false);
-  expect(lines.some((line) => line.endsWith(" delivery_outcome unverified"))).toBe(true);
-  expect(loadCalled).toBe(false);
+  expect(reservations).toHaveLength(2);
+  expect(reservations[1]).toMatchObject({
+    threadId: reservations[0]!.threadId,
+    reporterAgentId: reservations[0]!.reporterAgentId,
+  });
+  expect(reservations[1]!.runId).not.toBe(reservations[0]!.runId);
+  expect(constructions).toBe(1);
+  expect(providerEnv).toMatchObject({
+    NORTH_RUN_ID: reservations[1]!.runId,
+    NORTH_THREAD_ID: "thread-reservation-retry",
+    NORTH_RUN_CAPABILITY: reservations[1]!.capability,
+  });
 });
 
-// Thread 019f9063 seam 2: the observed 2026-07-24 delegate-lane log recorded
-// only "reservation unavailable; rotating telemetry to @<id> and leaving
-// delivery unverified" — every writer rejection (freshness, thread-identity,
-// malformed-ack, or a genuine ordering race) read identically, so the
-// rotation gave no signal for diagnosing which. The rotation and its
-// projection-safety are unchanged (asserted above); this only asserts the
-// writer's exact rejection is no longer swallowed.
-test("spawn's reservation-unavailable rotation surfaces the writer's exact rejection", async () => {
+test("reservation refusal or repeated transport failure constructs no provider", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  const errorSpy = spyOn(console, "error");
-  try {
+  for (const failure of [
+    () => new Error("run reservation refused: reason=existing-reservation"),
+    () => new DeliveryEvidenceRetryableError("delivery evidence reserve rejected: writer timed out"),
+  ]) {
+    let reserveCalls = 0;
+    let constructions = 0;
     await spawn({
-      prompt: "recover from a partial reservation, loudly",
-      agentId: "test-spawn-reservation-rotation-loud",
+      prompt: "must not reach provider without a reservation",
+      agentId: `test-spawn-reservation-refusal-${reserveCalls}`,
       role: "integrator", routingMetadata: presetRequest("integrator"),
-      thread: "thread-spawn-reservation-rotation-loud",
+      thread: "thread-spawn-reservation-refusal",
       deliveryRuntime: {
         reserve() {
-          throw new Error("run subject is not fresh");
+          reserveCalls++;
+          throw failure();
         },
-        load() {
-          return { reservationValid: false, evidence: [] };
-        },
+        load: () => ({ reservationValid: false, evidence: [] }),
       },
-      queryFn: () => (async function* () {
-        yield {
-          type: "result", subtype: "success", result: "done",
-          duration_ms: 1, num_turns: 1,
-        };
-      })(),
+      queryFn: () => { constructions++; return (async function* () {})(); },
     });
-    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
-    expect(messages.some((message) =>
-      message.includes("reservation unavailable")
-      && message.includes("run subject is not fresh"),
-    )).toBe(true);
-  } finally {
-    errorSpy.mockRestore();
+    expect(constructions).toBe(0);
+    expect(reserveCalls).toBe(failure.toString().includes("Retryable") ? 2 : 1);
   }
 });
 

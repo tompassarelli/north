@@ -92,6 +92,7 @@ import { getThreadFacts, normalizeNorthEntityId } from "./north-client";
 import {
   loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
   resolveDeliveryRunState, resolveThreadFacts,
+  DeliveryEvidenceRetryableError,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
   type DeliveryRunStateLoadOptions, type ThreadFactsLoadOptions,
 } from "./delivery-evidence";
@@ -336,7 +337,7 @@ async function runSpawn(
   // for an unbound run, not a thread id, and reserving against it would mint a
   // reservation bound to nothing.
   const boundThreadId = opts.thread ?? process.env.AGENT_THREAD ?? undefined;
-  const runContext = boundThreadId
+  let runContext = boundThreadId
     ? newDeliveryRunContext(runId, boundThreadId, agentId)
     : undefined;
   const deliveryRuntime: SpawnRuntime["deliveryRuntime"] = injected.deliveryRuntime
@@ -574,19 +575,25 @@ async function runSpawn(
         deliveryReservationReady = true;
       }
     } catch (error) {
+      // A fresh run is safe only when the writer did not publish the first
+      // reservation. Refusals (including a real holder) retain their exact
+      // run and must stop before the provider seam.
+      if (!(error instanceof DeliveryEvidenceRetryableError)) throw error;
       const abandonedRunId = runId;
       runId = newRunId(agentId);
       if (wt) recordWorktreeRunRotation(wt.allocation, runId);
-      // Loud + diagnosable (thread 019f9063): the prior message swallowed the
-      // writer's exact rejection (freshness, thread-identity, or malformed-ack
-      // reasons all read identically as "unavailable"), so a real ordering
-      // defect and a healthy-but-raced reservation were indistinguishable from
-      // the log alone. The underlying message is a bounded, already-sanitized
-      // Fram rejection or JS Error text — safe to surface directly.
+      runContext = newDeliveryRunContext(runId, boundThreadId!, agentId);
       console.error(
-        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} `
-        + `and leaving delivery unverified: ${(error as Error)?.message ?? String(error)}`,
+        `[delivery] @${abandonedRunId} reservation transport failed; rotating once to @${runId}: `
+        + `${(error as Error)?.message ?? String(error)}`,
       );
+      // The replacement identity is not usable until THIS exact run has a
+      // reservation. A second failure deliberately escapes to the pre-provider
+      // catch below; provider construction must never cross unreserved.
+      if (!deliveryRuntime) throw error;
+      deliveryReservation = deliveryRuntime.reserve(runContext);
+      if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
+      deliveryReservationReady = true;
     }
   }
   const agentOptions = harnessOptions({
