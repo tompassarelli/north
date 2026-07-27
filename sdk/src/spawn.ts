@@ -7,6 +7,9 @@ import {
   type Effort, type HarnessCompositionEvidence,
 } from "./harness";
 import {
+  createExecutionActivityEmitter, forwardExecutionActivity,
+} from "./execution-activity";
+import {
   provisionWorktree, recordWorktreeAuthorityProfile, recordWorktreeRunRotation,
   resolvedWorktreeAuthorityProfile, rollbackProvisionedWorktree,
   worktreeFinalize, worktreePayload,
@@ -38,7 +41,11 @@ import {
   assertExpectedStrugglePolicy,
   type StrugglePolicy,
 } from "./struggle";
-import { withStallWatchdog, stallMs, notifyStall, notifyTurnCap } from "./watchdog";
+import {
+  describeWatchdogAbortEvidence, withStallWatchdog, stallMs, notifyStall, notifyTurnCap,
+  type WatchdogAbortEvidence,
+} from "./watchdog";
+import { outerExecutionActivityKind } from "./providers/outer-activity";
 import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
   assessChildFinalization, childContinuationMessage, childDispatchMessage, childReductionMessage,
@@ -511,7 +518,9 @@ async function runSpawn(
   // Every terminal peer wake is deferred until the terminal and run publications settle.
   const coordHandle = opts.coordinator;
   const window = stallMs();
-  let stallAborted = false;
+  const executionActivity = createExecutionActivityEmitter();
+  let watchdogAbort: WatchdogAbortEvidence | undefined;
+  let stopProviderActivity = () => {};
   let terminalSignal: Pick<TerminalNotification, "detail" | "subject"> = {};
   const terminalAuxiliaryWrites: Array<(timeoutMs: number) => void> = [];
   let liveInputFreezeError: unknown;
@@ -626,16 +635,26 @@ async function runSpawn(
   });
   activeExecutionQuery = activeQuery;
   termination.attachQuery(activeQuery);
+  stopProviderActivity();
+  stopProviderActivity = forwardExecutionActivity(
+    activeQuery.executionActivity,
+    executionActivity,
+  );
   const watched = withStallWatchdog((activeQuery as AsyncIterable<any>)[Symbol.asyncIterator](), {
     stallMs: window,
     onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
-    onAbort: () => { stallAborted = true; },
+    onAbort: (evidence) => { watchdogAbort = evidence; },
+    activitySources: [executionActivity.source],
   });
   let openResumeTurn = false;
   for await (const message of watched) {
     const msg = message as any;
     if (typeof msg.session_id === "string") sessionId = msg.session_id;
-    renewHarnessPresence(agentOptions);
+    const outerActivity = outerExecutionActivityKind(msg);
+    if (outerActivity) {
+      executionActivity.record("outer", outerActivity);
+      renewHarnessPresence(agentOptions);
+    }
     // routedQuery mutates the decision before the first fallback-provider event.
     // Refresh from that structured decision before the event is exposed.
     refreshIdentityRoute();
@@ -801,11 +820,13 @@ async function runSpawn(
   // continuation was pushed into its closing stream; close the finished query
   // and loop to open the resumed turn. Any other terminal is final for the run.
   if (turnChannel !== ch) { try { turnChannel.end(); } catch { /* fresh resume channel */ } }
+  stopProviderActivity();
+  stopProviderActivity = () => {};
   if (!openResumeTurn) break turnLoop;
   try { await activeQuery.close?.(); }
   catch (error) { queryCloseError = error; }
   }
-  if (!resultMsg && outcome === "ran") {
+  if (!resultMsg && outcome === "ran" && !watchdogAbort) {
     // A clean iterator close is transport completion, not provider success.
     // Only an explicit terminal result may establish process=ran.
     outcome = "provider_error";
@@ -815,7 +836,7 @@ async function runSpawn(
     console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
     terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
   }
-  if (isEmptyResultTerminal(outcome, result)) {
+  if (!watchdogAbort && isEmptyResultTerminal(outcome, result)) {
     // A provider success terminal with empty result (0b) is a DEGENERATE
     // completion, not a delivery (thread 019f8300): opus-high extended-thinking
     // turns that hit the output-token ceiling truncate before committing any
@@ -832,19 +853,20 @@ async function runSpawn(
     };
     console.error(`[empty-result] @agent:${agentId} provider success terminal carried 0b result — recording process=ran_empty (loud, non-clean)`);
   }
-  if (stallAborted) {
-    // 2N of silence: make the stall TERMINAL + VISIBLE. Interrupt the hung query, record
-    // outcome=stalled, and record the death path durably. Its terminal peer wake
-    // is deferred until the authoritative terminal and run publications settle.
-    outcome = "stalled";
-    await termination.close();
-    const err = new Error(
-      `stalled — no SDK output for ${Math.max(2, 2 * Math.round(window / 60_000))}min`,
-    );
+  if (watchdogAbort) {
+    // North initiated this termination. Preserve that cause before interrupting
+    // the provider; close-time fallout is cleanup evidence, not a provider death.
+    outcome = "watchdog_aborted";
+    providerErrorDetail = undefined;
+    const detail = describeWatchdogAbortEvidence(watchdogAbort);
+    console.error(`[watchdog-abort] @agent:${agentId} ${detail}`);
+    const err = new Error(detail);
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
     terminalAuxiliaryWrites.push((timeoutMs) =>
       notifyDeath(agentId, err, { thread: undefined }, timeoutMs)
     );
+    try { await termination.close(); }
+    catch (error) { queryCloseError = error; }
   }
   } catch (err) {
     if (err instanceof ResourceEnvelopeExceededError) {
@@ -881,6 +903,7 @@ async function runSpawn(
       );
     }
   } finally {
+    stopProviderActivity();
     try {
       await liveInputRoute.freezeAndUnbind();
     } catch (error) {
@@ -905,18 +928,18 @@ async function runSpawn(
   const reachedProviderSuccessTerminal = outcome === "ran";
 
   const hostSignal = termination.hostSignal();
-  if (hostSignal) {
+  if (hostSignal && !watchdogAbort) {
     outcome = "died";
     const error = new Error(`host terminated by ${hostSignal}`);
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
-  } else if (queryCloseError) {
+  } else if (queryCloseError && !watchdogAbort) {
     outcome = "died";
     const error = queryCloseError instanceof Error
       ? queryCloseError : new Error("provider query cleanup failed");
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
   }
 
-  if (liveInputFreezeError) {
+  if (liveInputFreezeError && !watchdogAbort) {
     let retrySucceeded = false;
     try {
       await liveInputRoute.freezeAndUnbind();
@@ -1198,6 +1221,7 @@ async function runSpawn(
     struggleObservation: struggle.snapshot(),
     preflightCause,
     providerErrorDetail,
+    watchdogAbort,
     retryOfRun: retryContext?.retryOfRun,
     retryAttempt: retryContext?.retryAttempt,
   }, runId, publicationBudget.publicationTimeout(1));

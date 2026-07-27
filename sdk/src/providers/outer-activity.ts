@@ -82,28 +82,32 @@ function assistantBlockIsProgress(value: unknown): boolean {
  * status, rate-limit, retry, session, task/background, and arbitrary messages
  * still flow to consumers, but cannot manufacture execution liveness.
  */
-export function isOuterExecutionActivity(value: unknown): boolean {
+export function outerExecutionActivityKind(value: unknown): string | undefined {
   const message = objectRecord(value);
-  if (!message) return false;
+  if (!message) return undefined;
   if (message.type === "result")
-    return typeof message.subtype === "string" && RESULT_SUBTYPES.has(message.subtype);
+    return typeof message.subtype === "string" && RESULT_SUBTYPES.has(message.subtype)
+      ? `outer.result.${message.subtype}` : undefined;
   if (message.type === "assistant") {
-    if (message.error !== undefined) return false;
+    if (message.error !== undefined) return undefined;
     const envelope = objectRecord(message.message);
-    if (!envelope || !Array.isArray(envelope.content)) return false;
-    return envelope.content.some(assistantBlockIsProgress);
+    if (!envelope || !Array.isArray(envelope.content)) return undefined;
+    const block = envelope.content.find(assistantBlockIsProgress);
+    const type = objectRecord(block)?.type;
+    return typeof type === "string" ? `outer.assistant.${type}` : undefined;
   }
   if (message.type === "user") {
     const envelope = objectRecord(message.message);
-    return Boolean(envelope && Array.isArray(envelope.content)
+    return envelope && Array.isArray(envelope.content)
       && envelope.content.some((block) => {
         const result = objectRecord(block);
         return result?.type === "tool_result" && nonemptyString(result.tool_use_id);
-      }));
+      }) ? "outer.user.tool_result" : undefined;
   }
   if (message.type === "stream_event") {
     const event = objectRecord(message.event);
-    return typeof event?.type === "string" && STREAM_EVENT_TYPES.has(event.type);
+    return typeof event?.type === "string" && STREAM_EVENT_TYPES.has(event.type)
+      ? `outer.stream_event.${event.type}` : undefined;
   }
   if (message.type === "tool_progress") {
     return message.task_id === undefined
@@ -112,15 +116,21 @@ export function isOuterExecutionActivity(value: unknown): boolean {
       && (message.parent_tool_use_id === null || nonemptyString(message.parent_tool_use_id))
       && typeof message.elapsed_time_seconds === "number"
       && Number.isFinite(message.elapsed_time_seconds)
-      && message.elapsed_time_seconds >= 0;
+      && message.elapsed_time_seconds >= 0
+      ? "outer.tool_progress" : undefined;
   }
   if (message.type === "system" && message.subtype === "thinking_tokens") {
     return Number.isSafeInteger(message.estimated_tokens)
       && (message.estimated_tokens as number) >= 0
       && Number.isSafeInteger(message.estimated_tokens_delta)
-      && (message.estimated_tokens_delta as number) > 0;
+      && (message.estimated_tokens_delta as number) > 0
+      ? "outer.system.thinking_tokens" : undefined;
   }
   if (message.type === "system" && message.subtype === "compact_boundary")
-    return compactBoundaryIsProgress(message);
-  return false;
+    return compactBoundaryIsProgress(message) ? "outer.system.compact_boundary" : undefined;
+  return undefined;
+}
+
+export function isOuterExecutionActivity(value: unknown): boolean {
+  return outerExecutionActivityKind(value) !== undefined;
 }

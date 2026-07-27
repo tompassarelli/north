@@ -43,6 +43,7 @@ import {
   AGENT_RUN_LEDGER_VERSION,
   type AgentRunLedgerSummary,
 } from "./run-ledger";
+import type { WatchdogAbortEvidence } from "./watchdog";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
@@ -150,6 +151,8 @@ export interface RunRecord {
   /** Bounded, credential-free provider error payload behind a `provider_error`
    * terminal — the classification alone names nothing (thread 019f9cec). */
   providerErrorDetail?: string;
+  /** North-owned abort cause and last authenticated execution evidence. */
+  watchdogAbort?: WatchdogAbortEvidence;
   deliveryOutcome?: string;
   deliveryReason?: string;
   deliveryProof?: DeliveryProof;
@@ -404,6 +407,29 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.providerErrorDetail)
     facts.push(["provider_error_detail",
       rec.providerErrorDetail.replace(/\s+/g, " ").trim().slice(0, PROVIDER_ERROR_DETAIL_MAX_LEN)]);
+  if (rec.watchdogAbort) {
+    const watchdog = rec.watchdogAbort;
+    if (watchdog.reason !== "north_watchdog_execution_inactivity"
+        || !Number.isSafeInteger(watchdog.silenceMs) || watchdog.silenceMs <= 0)
+      throw new Error("invalid watchdog abort evidence");
+    const validActivity = (
+      value: WatchdogAbortEvidence["lastOuter"] | WatchdogAbortEvidence["lastProvider"],
+      origin: "outer" | "provider",
+    ) => !value || (value.origin === origin
+      && /^[a-z][a-z0-9._/-]{0,127}$/.test(value.kind)
+      && Number.isFinite(Date.parse(value.observedAt)));
+    if (!validActivity(watchdog.lastOuter, "outer")
+        || !validActivity(watchdog.lastProvider, "provider"))
+      throw new Error("invalid watchdog activity evidence");
+    facts.push(
+      ["watchdog_reason", watchdog.reason],
+      ["watchdog_silence_ms", String(watchdog.silenceMs)],
+      ["watchdog_last_outer_activity",
+        watchdog.lastOuter ? JSON.stringify(watchdog.lastOuter) : "none"],
+      ["watchdog_last_provider_activity",
+        watchdog.lastProvider ? JSON.stringify(watchdog.lastProvider) : "none"],
+    );
+  }
   if (rec.deliveryOutcome) facts.push(["delivery_outcome", rec.deliveryOutcome]);
   if (rec.deliveryReason) facts.push(["delivery_reason", rec.deliveryReason]);
   if (rec.deliveryProof?.deliveryEvidence)

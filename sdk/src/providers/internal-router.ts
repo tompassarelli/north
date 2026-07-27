@@ -15,6 +15,9 @@ import { markExecutionAdmission } from "../execution-admission";
 import {
   compileProviderAuthoritySurface, type ProviderAuthoritySurface,
 } from "./authority";
+import {
+  createExecutionActivityEmitter, forwardExecutionActivity,
+} from "../execution-activity";
 
 function replayablePrompt(
   prompt: string | AsyncIterable<any>,
@@ -69,6 +72,8 @@ export function routedQueryWithRegistry(
   onRouteAttempt?: (decision: RoutingDecision) => void,
 ): AgentQuery {
   let active: AgentQuery | undefined;
+  const activity = createExecutionActivityEmitter();
+  let stopActivity = () => {};
   let closed = false;
   let closePromise: Promise<void> | undefined;
   const prompt = replayablePrompt(args.prompt);
@@ -101,6 +106,7 @@ export function routedQueryWithRegistry(
   };
   return {
     get executionTransport() { return active?.executionTransport; },
+    executionActivity: activity.source,
     mcpActivity: () => active?.mcpActivity?.() ?? {
       source: "provider-route-unavailable", coverage: "unknown", tools: [],
     },
@@ -111,10 +117,12 @@ export function routedQueryWithRegistry(
     interrupt: async () => { await active?.interrupt?.(); },
     close: () => closePromise ??= (async () => {
       closed = true;
+      stopActivity();
       await active?.close?.();
     })(),
     forceClose: () => {
       closed = true;
+      stopActivity();
       active?.forceClose?.();
     },
     supportsInFlightEscalation: () => Boolean(
@@ -184,13 +192,21 @@ export function routedQueryWithRegistry(
             target: decision.routingTargets[decision.target],
             resume: args.resume,
           });
+          stopActivity();
+          stopActivity = forwardExecutionActivity(active.executionActivity, activity);
           if (closed) {
+            stopActivity();
             await active.close?.();
             return;
           }
-          for await (const event of active as AsyncIterable<any>) {
-            emitted++;
-            yield event;
+          try {
+            for await (const event of active as AsyncIterable<any>) {
+              emitted++;
+              yield event;
+            }
+          } finally {
+            stopActivity();
+            stopActivity = () => {};
           }
           return;
         } catch (error) {
@@ -206,6 +222,7 @@ export function routedQueryWithRegistry(
             // Retry safety proves the provider did not accept the turn; it does
             // not imply its preflight process already exited. Reap the failed
             // route before constructing a fallback target.
+            stopActivity();
             await active?.close?.();
             const previousTarget = decision.target;
             const previousProvider = decision.provider;

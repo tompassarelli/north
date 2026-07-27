@@ -177,6 +177,12 @@ export interface AgentQuery {
   [Symbol.asyncIterator](): AsyncIterator<any>;
   /** Exact adapter transport selected for this query; absent until unknowable. */
   readonly executionTransport?: "anthropic-agent-sdk" | "codex-app-server" | "codex-cli";
+  /**
+   * Read-only provider-native activity source. Production emitters remain
+   * adapter-owned and pulse only after a native frame passes authority/schema
+   * validation; status and lease traffic never reaches this boundary.
+   */
+  readonly executionActivity?: import("../execution-activity").ExecutionActivitySource;
   interrupt?(): Promise<void>;
   /** Idempotently dispose the provider query and await its owned process boundary. */
   close?(): Promise<void>;

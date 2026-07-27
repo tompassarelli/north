@@ -90,6 +90,7 @@ export function normalizeAnthropicQueryDiagnostics(source: AgentQuery): AgentQue
   const failed = () => new Error("anthropic_provider_execution_failed");
   return {
     executionTransport: source.executionTransport ?? "anthropic-agent-sdk",
+    executionActivity: source.executionActivity,
     interrupt: source.interrupt && (async () => {
       try { await source.interrupt!(); } catch { throw failed(); }
     }),

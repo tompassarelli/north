@@ -891,6 +891,23 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
 });
 
+test("only validated turn, item, command, and MCP execution frames emit liveness", async () => {
+  const { options } = setup();
+  const activity: string[] = [];
+  const run = new ManagedCodexAppServerRun({
+    ...options,
+    onActivity: (kind) => activity.push(kind),
+  });
+  await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
+  expect(activity).toContain("provider.codex.turn.started");
+  expect(activity).toContain("provider.codex.item.started");
+  expect(activity).toContain("provider.codex.item.completed");
+  expect(activity).toContain("provider.codex.command.interaction");
+  expect(activity).toContain("provider.codex.mcp.progress");
+  expect(activity).toContain("provider.codex.turn.completed");
+  expect(activity.some((kind) => /status|rate|startup|hook|token|lease/.test(kind))).toBe(false);
+});
+
 test("an app-server JSONL response over 1 MiB survives while malformed JSONL stays fatal", async () => {
   const large = setup("large-agent-message-delta");
   await expect(new ManagedCodexAppServerRun(large.options).execute())

@@ -35,6 +35,7 @@ const MANAGED_ENV = [
   "AGENT_TOPOLOGY", "AGENT_TASK_GRADE", "AGENT_REASONING", "AGENT_POSTURE",
   "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_TIER", "AGENT_IDENTITY_ROLE",
   "AGENT_DOMAIN_REQUIREMENTS", "AGENT_COMPOSITION",
+  "NORTH_STALL_MS",
 ] as const;
 const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
@@ -485,5 +486,65 @@ test("typed provider preflight refusal preserves a queryable quarantine with exa
   });
   expect(existsSync(expectedPath)).toBe(true);
 
+  rmSync(expectedPath, { recursive: true, force: true });
+});
+
+test("watchdog termination preserves live-child and quarantined-worktree recovery receipts", async () => {
+  const { spawn } = await import("./support/spawn");
+  const agentId = "wt-watchdog-recovery-1";
+  const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
+  const events: WorktreeAllocationEvent[] = [];
+  writeFileSync(log, "");
+  process.env.NORTH_STALL_MS = "10";
+  process.chdir(repo);
+  try {
+    await expect(spawn({
+      prompt: "preserve watchdog recovery receipts",
+      agentId,
+      worktree: true,
+      routingMetadata: presetRequest("integrator"),
+      queryFn: () => ({
+        executionTransport: "codex-app-server",
+        interrupt: async () => {},
+        close: async () => { throw new Error("interrupted provider stream closing"); },
+        [Symbol.asyncIterator]() {
+          return { next: () => new Promise(() => {}) };
+        },
+      }),
+      childSettlementReader: () => ({
+        kind: "live",
+        children: ["@agent:child-watchdog-1"],
+        live: ["@agent:child-watchdog-1"],
+      }),
+      feedSubscriber: () => readySubscription(),
+      worktreeAllocationWriter: {
+        register: () => {},
+        event: (_subject: string, event: WorktreeAllocationEvent) => events.push(event),
+      },
+    })).rejects.toThrow("interrupted provider stream closing");
+  } finally {
+    delete process.env.NORTH_STALL_MS;
+    process.chdir(origCwd);
+  }
+
+  expect(events.map(({ type }) => type).slice(-3)).toEqual([
+    "provisioned", "authority-profiled", "quarantined",
+  ]);
+  expect(events.at(-1)).toMatchObject({
+    type: "quarantined",
+    resourceState: "quarantined",
+    error: { code: "salvage_required", phase: "finalize" },
+    recovery: {
+      action: "inspect-and-salvage",
+      resource: expectedPath,
+      durableRef: `refs/heads/lane-${agentId}`,
+    },
+  });
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain(`tell agent:${agentId} process_outcome watchdog_aborted`);
+  expect(logged).toContain(`tell agent:${agentId} early_exit_children`);
+  expect(logged).toContain("child-watchdog-1");
+  expect(logged).toContain(`tell agent:${agentId} worktree_orphaned ${expectedPath}`);
+  expect(existsSync(expectedPath)).toBe(true);
   rmSync(expectedPath, { recursive: true, force: true });
 });

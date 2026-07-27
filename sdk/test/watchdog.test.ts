@@ -5,6 +5,7 @@
 //     coordinator (mirrors death.test.ts).
 import { test, expect, describe } from "bun:test";
 import { withStallWatchdog, stallCommands, turnCapCommands } from "../src/watchdog";
+import { createExecutionActivityEmitter } from "../src/execution-activity";
 
 describe("withStallWatchdog — liveness", () => {
   test("messages flow through untouched, no stall on an active stream", async () => {
@@ -32,6 +33,51 @@ describe("withStallWatchdog — liveness", () => {
     })) seen.push(v);
     expect(seen).toEqual([]);            // nothing yielded
     expect(order).toEqual(["stall:1", "abort"]); // surfaced once, then terminal
+  });
+
+  test("provider-native heartbeats reset a silent outer stream, then true silence warns and aborts once", async () => {
+    const hanging: AsyncIterator<number> = { next: () => new Promise<never>(() => {}) };
+    const activity = createExecutionActivityEmitter();
+    const order: string[] = [];
+    const pulse = setInterval(() => {
+      activity.record("provider", "provider.codex.mcp.progress");
+      order.push("pulse");
+    }, 8);
+    setTimeout(() => clearInterval(pulse), 55);
+    for await (const _ of withStallWatchdog(hanging, {
+      stallMs: 20,
+      activitySources: [activity.source],
+      onStall: () => order.push("stall"),
+      onAbort: (evidence) => {
+        order.push("abort");
+        expect(evidence.reason).toBe("north_watchdog_execution_inactivity");
+        expect(evidence.lastProvider?.kind).toBe("provider.codex.mcp.progress");
+        expect(evidence.lastOuter).toBeUndefined();
+      },
+    })) {}
+    expect(order.filter((entry) => entry === "pulse").length).toBeGreaterThanOrEqual(4);
+    expect(order.filter((entry) => entry === "stall")).toHaveLength(1);
+    expect(order.filter((entry) => entry === "abort")).toHaveLength(1);
+    expect(order.indexOf("stall")).toBeGreaterThan(order.lastIndexOf("pulse"));
+  });
+
+  test("outer status noise flows through but cannot manufacture execution liveness", async () => {
+    async function* statuses() {
+      for (let index = 0; index < 20; index++) {
+        await Bun.sleep(5);
+        yield { type: "system", subtype: "status" };
+      }
+    }
+    const order: string[] = [];
+    let seen = 0;
+    for await (const _ of withStallWatchdog(statuses(), {
+      stallMs: 20,
+      onStall: () => order.push("stall"),
+      onAbort: () => order.push("abort"),
+    })) seen++;
+    expect(seen).toBeGreaterThan(0);
+    expect(seen).toBeLessThan(20);
+    expect(order).toEqual(["stall", "abort"]);
   });
 
   test("stall then a late message recovers — no abort", async () => {
