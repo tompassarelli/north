@@ -35,6 +35,7 @@ case "$*" in
     ;;
   "coord-doctor")
     printf 'serving the canonical log\n'
+    exit "${NORTH_DOCTOR_RC:-0}"
     ;;
   *)
     printf 'unexpected north call: %s\n' "$*" >&2
@@ -59,6 +60,7 @@ run_wrapper() {
     FIRN_BIN="$firn_fake" \
     NORTH_COORD_RUNTIME_STATE="$runtime_state" \
     NORTH_COORD_RESTART_LOCK_TIMEOUT="${NORTH_COORD_RESTART_LOCK_TIMEOUT:-1}" \
+    NORTH_REBUILD_COORD_RETRY_ATTEMPTS="${NORTH_REBUILD_COORD_RETRY_ATTEMPTS:-1}" \
     "$wrapper" --why "test generation" --hold 1s --max-delay 2s -- --verbose
 }
 
@@ -88,6 +90,21 @@ if grep -Fq 'north coord-doctor' "$calls"; then
 fi
 
 : >"$calls"
+set +e
+NORTH_DOCTOR_RC=9 run_wrapper \
+  >"$scratch/doctor-failure.out" 2>"$scratch/doctor-failure.err"
+doctor_failure_rc=$?
+set -e
+[[ "$doctor_failure_rc" -eq 9 ]]
+grep -Fxq \
+  "north rebuild-intent failed $intent_id firn rebuild rc 0; north coord-doctor rc 9 after 1 attempts" \
+  "$calls"
+if grep -Fq 'deployment-verified' "$calls"; then
+  printf 'failed deployment probe incorrectly reported verification\n' >&2
+  exit 1
+fi
+
+: >"$calls"
 mkdir -p "${restart_lock%/*}"
 exec 8>"$restart_lock"
 flock 8
@@ -105,4 +122,3 @@ if grep -Eq 'mark-started|^firn ' "$calls"; then
 fi
 
 echo "PASS coordinated wrapper orders intent/hold/all-clear/rebuild/verification, reports failure, and shares the runtime restart mutex"
-
