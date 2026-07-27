@@ -20,6 +20,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-id.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/command-id.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-routing.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
@@ -35,6 +36,10 @@
 (defn reject-message! [message]
   (binding [*out* *err*] (println (str "REJECTED: message " message)))
   (System/exit 2))
+(defn reject-message-unavailable! [message]
+  (binding [*out* *err*]
+    (println (str "REJECTED: message read-unavailable: " message)))
+  (System/exit 3))
 (defn validate-message-input! [from to subject body]
   (when-let [problem
              (north.message-contract/input-problem from to subject body)]
@@ -253,11 +258,30 @@
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
   (case verb
-    "send"        ; <from> <to> "<subject>" "<body>"  — human mail
-    (let [[from to subj body] args
+    "send"        ; [--dead-drop] <from> <to> "<subject>" "<body>"  — human mail
+    (let [dead-drop? (= "--dead-drop" (first args))
+          args (if dead-drop? (vec (rest args)) args)
+          [from requested-to subj body] args
           _ (when-not (= 4 (count args))
-              (reject-message! "send requires exactly from, to, subject, and body"))
-          _ (validate-message-input! from to subj body)
+              (reject-message!
+               "send requires [--dead-drop] plus exactly from, to, subject, and body"))
+          _ (validate-message-input! from requested-to subj body)
+          route (when-not dead-drop?
+                  (north.message-routing/require-live-address port requested-to))
+          _ (when (= :unavailable (:live route))
+              (reject-message-unavailable!
+               (str "recipient " requested-to " liveness could not be read")))
+          _ (when (false? (:live route))
+              (reject-message!
+               (str "recipient " (:recipient route) " has no live presence"
+                    (when (not= requested-to (:recipient route))
+                      (str " (addressed as alias " requested-to ")"))
+                    (when-let [alternative (:alternative route)]
+                      (str "; live same repo/role session: " alternative))
+                    "; pass --dead-drop only for deliberate delivery to an absent identity")))
+          to (if dead-drop?
+               requested-to
+               (:recipient route))
           steer? (= "steer" (some-> subj str str/trim str/lower-case))
           steer-admission (when steer?
                             (north.topology-authority/require-coordination! "steer")

@@ -163,7 +163,7 @@
   (try
     (check "real Fram daemon (assert-batch-capable) starts"
            (await-daemon-boot #(port-open? port)))
-    (let [result (run-msg port log "send" "producer" "recipient" "hello" "world")]
+    (let [result (run-msg port log "send" "--dead-drop" "producer" "recipient" "hello" "world")]
       (check "ordinary send exits clean against an assert-batch-capable daemon"
              (zero? (:exit result)))
       (check "send never emits the compat deprecation warning against a capable daemon"
@@ -232,7 +232,7 @@
   (try
     (check "mock legacy coordinator (pre-gen-1023) starts"
            (await-predicate #(port-open? port)))
-    (let [result (run-msg port log "send" "producer" "recipient" "hello" "world")]
+    (let [result (run-msg port log "send" "--dead-drop" "producer" "recipient" "hello" "world")]
       (check "send against a pre-assert-batch coordinator still exits clean (legacy fallback)"
              (zero? (:exit result)))
       (check "legacy fallback logs a loud deprecation note"
@@ -349,7 +349,7 @@
      (try
        (check "firehose subscription is established against the real daemon"
               (integer? (:subscribed (:handshake sub))))
-       (let [result (run-msg port log "send" "producer" "recipient" "hello" "world")
+       (let [result (run-msg port log "send" "--dead-drop" "producer" "recipient" "hello" "world")
              e (second (re-find #"sent (@msg:\S+) ->" (:out result)))]
          (check "ordinary send exits clean while a subscriber observes the commit stream"
                 (zero? (:exit result)))
