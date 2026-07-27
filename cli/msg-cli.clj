@@ -45,6 +45,23 @@
              (north.message-contract/input-problem from to subject body)]
     (reject-message! problem))
   true)
+(defn admitted-message-recipient! [port requested-to dead-drop?]
+  (if dead-drop?
+    requested-to
+    (let [route
+          (north.message-routing/require-live-address port requested-to)]
+      (when (= :unavailable (:live route))
+        (reject-message-unavailable!
+         (str "recipient " requested-to " liveness could not be read")))
+      (when (false? (:live route))
+        (reject-message!
+         (str "recipient " (:recipient route) " has no live presence"
+              (when (not= requested-to (:recipient route))
+                (str " (addressed as alias " requested-to ")"))
+              (when-let [alternative (:alternative route)]
+                (str "; live same repo/role session: " alternative))
+              "; pass --dead-drop only for deliberate delivery to an absent identity")))
+      (:recipient route))))
 (defn reject-steer! [message]
   (binding [*out* *err*] (println (str "REJECTED: steer " message)))
   (System/exit 2))
@@ -255,7 +272,8 @@
       (= "unknown op" (:error response)) (assert-batch-legacy! port te facts)
       :else (reject-message! (str te " publication rejected: " (:reject response))))))
 
-(let [[port verb & args] *command-line-args*
+(when-not (= "1" (System/getProperty "north.msg-cli.lib"))
+ (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
   (case verb
     "send"        ; [--dead-drop] <from> <to> "<subject>" "<body>"  — human mail
@@ -266,22 +284,7 @@
               (reject-message!
                "send requires [--dead-drop] plus exactly from, to, subject, and body"))
           _ (validate-message-input! from requested-to subj body)
-          route (when-not dead-drop?
-                  (north.message-routing/require-live-address port requested-to))
-          _ (when (= :unavailable (:live route))
-              (reject-message-unavailable!
-               (str "recipient " requested-to " liveness could not be read")))
-          _ (when (false? (:live route))
-              (reject-message!
-               (str "recipient " (:recipient route) " has no live presence"
-                    (when (not= requested-to (:recipient route))
-                      (str " (addressed as alias " requested-to ")"))
-                    (when-let [alternative (:alternative route)]
-                      (str "; live same repo/role session: " alternative))
-                    "; pass --dead-drop only for deliberate delivery to an absent identity")))
-          to (if dead-drop?
-               requested-to
-               (:recipient route))
+          to (admitted-message-recipient! port requested-to dead-drop?)
           steer? (= "steer" (some-> subj str str/trim str/lower-case))
           steer-admission (when steer?
                             (north.topology-authority/require-coordination! "steer")
@@ -463,4 +466,4 @@
     (do
       (println
        "usage: msg-cli.clj <port> {send [--dead-drop]|send-cmd|retry|cmd|cmds|inbox|thread|ack}")
-      (System/exit 2))))
+      (System/exit 2)))))
