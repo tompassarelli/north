@@ -21,7 +21,8 @@ import {
 } from "../src/execution-admission";
 import {
   FRAM_MCP_TOOL_NAMES, FRAM_MCP_TOOLS, framMcpCommand, framMcpEnvironment,
-  prepareManagedFramCoordinator, seedReboundFramCodeLog,
+  managedFramLaneSourceConfiguration, prepareManagedFramCoordinator,
+  seedReboundFramCodeLog,
 } from "../src/fram-graph-authoring";
 import { expectedLog } from "../src/coord-wire";
 import {
@@ -208,6 +209,64 @@ test("managed worktree preparation wires local env and reaps its coordinator", a
       .toThrow("graph_authoring_fram_lane_descriptor_invalid");
   } finally {
     process.env.NORTH_FRAM_HOME = framHome;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Beagle worktrees seed their repository log and rebind the self-host source tree", async () => {
+  const root = mkdtempSync(join(tmpdir(), "beagle-rebound-lifecycle-"));
+  const canonical = join(root, "beagle");
+  const lane = join(root, "lane");
+  const localFramHome = join(root, "fram-home");
+  const canonicalSource = join(canonical, "self-host", "src", "selfhost");
+  const laneSource = join(lane, "self-host", "src", "selfhost");
+  mkdirSync(join(localFramHome, "bin"), { recursive: true });
+  mkdirSync(join(canonical, ".fram"), { recursive: true });
+  mkdirSync(canonicalSource, { recursive: true });
+  mkdirSync(laneSource, { recursive: true });
+  writeFileSync(join(canonical, ".fram", "code.log"), [
+    `{:tx 1, :op "assert", :l "@selfhost.demo#root", :p "file", :r "${canonicalSource}/demo.bclj"}`,
+    "",
+  ].join("\n"));
+  writeFileSync(join(localFramHome, ".mcp.json"), JSON.stringify({
+    mcpServers: { fram: { env: { FRAM_CODE_PORT: "39998" } } },
+  }));
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, { pid: 4343, exitCode: null, signalCode: null });
+  (child as any).kill = (signal: NodeJS.Signals) => {
+    (child as any).signalCode = signal;
+    child.emit("exit", null, signal);
+    return true;
+  };
+  process.env.NORTH_FRAM_HOME = localFramHome;
+  process.env.NORTH_BEAGLE_HOME = canonical;
+  try {
+    const source = managedFramLaneSourceConfiguration(lane, canonical);
+    expect(source).toEqual({
+      canonicalSourceRoot: canonicalSource,
+      canonicalCodeLog: join(canonical, ".fram", "code.log"),
+      laneSourceRoot: laneSource,
+    });
+    const coordinator = await prepareManagedFramCoordinator({
+      worktree: lane,
+      ...source,
+      runtime: {
+        allocatePort: async () => 45679,
+        launch: () => child,
+        ready: async () => {},
+        waitForExit: async (proc) =>
+          proc.exitCode !== null || proc.signalCode !== null,
+      },
+    });
+    expect(framMcpEnvironment(lane, true)).toMatchObject({
+      FRAM_SRC: laneSource,
+      FRAM_CODE_LOG: join(lane, ".fram", "code.log"),
+      FRAM_CODE_PORT: "45679",
+    });
+    expect(readFileSync(coordinator.codeLog, "utf8"))
+      .toContain(`:r "${laneSource}/demo.bclj"`);
+    await coordinator.close();
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

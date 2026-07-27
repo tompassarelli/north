@@ -4,7 +4,7 @@ import {
 } from "node:fs";
 import { createServer, connect } from "node:net";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { expectedLog } from "./coord-wire";
 
 export const FRAM_GRAPH_AUTHORING_CAPABILITY = "graph-authoring.fram" as const;
@@ -30,6 +30,7 @@ const MANAGED_LANE_VERSION = 1;
 const DEFAULT_BOOT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_TERM_MS = 2_000;
 const DEFAULT_KILL_MS = 2_000;
+const BEAGLE_SELF_HOST_SOURCE = join("self-host", "src", "selfhost");
 
 interface ManagedFramLaneDescriptor {
   version: 1;
@@ -55,6 +56,10 @@ export interface ManagedFramCoordinator {
 export interface PrepareManagedFramCoordinatorOptions {
   worktree: string;
   canonicalSourceRoot: string;
+  /** Defaults to the Fram deployment log for compatibility with direct callers. */
+  canonicalCodeLog?: string;
+  /** Defaults to the worktree root; non-root source trees supply their rebound path. */
+  laneSourceRoot?: string;
   bootTimeoutMs?: number;
   termMs?: number;
   killMs?: number;
@@ -96,6 +101,54 @@ export function framGraphAuthoringRoots(): { framHome: string; beagleHome: strin
 
 export function framMcpCommand(): string {
   return join(framGraphAuthoringRoots().framHome, "bin", "fram-mcp");
+}
+
+export interface ManagedFramLaneSourceConfiguration {
+  canonicalSourceRoot: string;
+  canonicalCodeLog: string;
+  laneSourceRoot: string;
+}
+
+/**
+ * Resolve the repository's canonical graph seed and the source subtree that
+ * must be rebound into its lane. Fram tracks its checkout root; Beagle's
+ * self-host graph lanes deliberately expose only the self-host source tree.
+ */
+export function managedFramLaneSourceConfiguration(
+  worktree: string,
+  canonicalRepoRoot: string,
+): ManagedFramLaneSourceConfiguration {
+  const laneRoot = resolve(worktree);
+  const repoRoot = resolve(canonicalRepoRoot);
+  const { beagleHome } = framGraphAuthoringRoots();
+  const sourceRelative = repoRoot === beagleHome
+    ? BEAGLE_SELF_HOST_SOURCE
+    : "";
+  return Object.freeze({
+    canonicalSourceRoot: resolve(repoRoot, sourceRelative),
+    canonicalCodeLog: join(repoRoot, ".fram", "code.log"),
+    laneSourceRoot: resolve(laneRoot, sourceRelative),
+  });
+}
+
+function pathWithin(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function reboundLaneSourceRoot(
+  worktreeRoot: string,
+  canonicalSourceRoot: string,
+): string {
+  const canonical = resolve(canonicalSourceRoot);
+  const { framHome, beagleHome } = framGraphAuthoringRoots();
+  for (const repoRoot of [framHome, beagleHome]) {
+    if (pathWithin(repoRoot, canonical))
+      return resolve(worktreeRoot, relative(repoRoot, canonical));
+  }
+  // Version-1 descriptors created before repository-local source mappings
+  // always rebound the checkout root itself.
+  return worktreeRoot;
 }
 
 function descriptorPath(sourceRoot: string): string {
@@ -288,8 +341,11 @@ export async function prepareManagedFramCoordinator(
 ): Promise<ManagedFramCoordinator> {
   const sourceRoot = resolve(options.worktree);
   const canonicalSourceRoot = resolve(options.canonicalSourceRoot);
+  const laneSourceRoot = resolve(options.laneSourceRoot ?? sourceRoot);
   const { framHome } = framGraphAuthoringRoots();
-  const canonicalLog = join(framHome, ".fram", "code.log");
+  const canonicalLog = resolve(
+    options.canonicalCodeLog ?? join(framHome, ".fram", "code.log"),
+  );
   const localFram = join(sourceRoot, ".fram");
   const codeLog = join(localFram, "code.log");
   ignoreManagedFramState(sourceRoot);
@@ -298,7 +354,7 @@ export async function prepareManagedFramCoordinator(
     canonicalLog,
     laneLog: codeLog,
     canonicalSourceRoot,
-    laneSourceRoot: sourceRoot,
+    laneSourceRoot,
   });
   const runtime = options.runtime ?? {
     allocatePort: ephemeralPort,
@@ -502,7 +558,9 @@ export function framMcpEnvironment(
   }
   return Object.freeze({
     ...staticFramMcpEnv(),
-    FRAM_SRC: source,
+    FRAM_SRC: lane
+      ? reboundLaneSourceRoot(source, lane.canonicalSourceRoot)
+      : source,
     ...(lane ? {
       FRAM_CODE_LOG: lane.codeLog,
       FRAM_CODE_PORT: lane.codePort,
