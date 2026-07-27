@@ -114,11 +114,11 @@ fi
 slug() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
 }
-ORCHESTRATION_ROLE="$(slug "${NORTH_ORCHESTRATION_ROLE:-}")"
-ROLE_ALIAS=""
-if [ -n "$ORCHESTRATION_ROLE" ]; then
+ambient_role="$(slug "${NORTH_ORCHESTRATION_ROLE:-}")"
+ambient_role_alias=""
+if [ -n "$ambient_role" ]; then
   repo_segment="$(slug "$RN")"
-  [ -n "$repo_segment" ] && ROLE_ALIAS="$repo_segment-$ORCHESTRATION_ROLE"
+  [ -n "$repo_segment" ] && ambient_role_alias="$repo_segment-$ambient_role"
 fi
 # identity resolution: per-session cache (written by north-on-spawn — the per-sid
 # truth) -> env pin -> legacy cwd derivation. Cache BEFORE env is deliberate: env is
@@ -154,10 +154,19 @@ if [ -r "$ROUTE_CACHE" ]; then
   cached_role_alias="$(sed -n '5p' "$ROUTE_CACHE" 2>/dev/null || true)"
 fi
 seed_provider=""; seed_model=""; seed_effort=""
+seed_role=""; seed_role_alias=""
 if [ ! -r "$ROUTE_CACHE" ] && [ -r "$ROUTE_SEED" ]; then
   seed_provider="$(sed -n '1p' "$ROUTE_SEED" 2>/dev/null || true)"
   seed_model="$(sed -n '2p' "$ROUTE_SEED" 2>/dev/null || true)"
   seed_effort="$(sed -n '3p' "$ROUTE_SEED" 2>/dev/null || true)"
+  seed_role="$(sed -n '4p' "$ROUTE_SEED" 2>/dev/null || true)"
+  seed_role_alias="$(sed -n '5p' "$ROUTE_SEED" 2>/dev/null || true)"
+fi
+ORCHESTRATION_ROLE="${cached_role:-${seed_role:-$ambient_role}}"
+ROLE_ALIAS="${cached_role_alias:-${seed_role_alias:-$ambient_role_alias}}"
+SESSION_REPO="$RN"
+if [ -n "$ORCHESTRATION_ROLE" ] && [ -n "$ROLE_ALIAS" ]; then
+  SESSION_REPO="${ROLE_ALIAS%-$ORCHESTRATION_ROLE}"
 fi
 
 # Acquire a per-session singleflight directory, reclaiming it only after the
@@ -213,7 +222,7 @@ schedule_projection_repair() {
     if timeout --signal=TERM --kill-after=0.2s 6s env \
         NORTH_NATIVE_PORT="${NORTH_PORT:-7977}" \
         NORTH_NATIVE_SUBJECT="@agent:$ID" \
-        NORTH_NATIVE_REPO="$RN" \
+        NORTH_NATIVE_REPO="$SESSION_REPO" \
         NORTH_NATIVE_PROVIDER="$provider" \
         NORTH_NATIVE_MODEL="$model" \
         NORTH_NATIVE_EFFORT="$effort" \
