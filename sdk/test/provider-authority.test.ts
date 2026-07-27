@@ -149,6 +149,11 @@ test("Codex network argv preserves the structured Gitiles policy without a boole
     sandbox: "workspace-write",
     capabilities: ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
   })).toEqual(["--disable", "network_proxy"]);
+  // Graph authoring needs the local Beagle daemon, but never the web proxy.
+  expect(managedCodexNetworkArguments({
+    sandbox: "workspace-write",
+    capabilities: ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "graph-authoring.fram"],
+  })).toEqual(["--disable", "network_proxy"]);
 });
 
 test("route application rejects request laundering and authoring hooks are an exact frozen surface", () => {

@@ -200,6 +200,8 @@ function setup(mode = "ok") {
     "web-network-session-drift", "web-network-thread-drift",
   ]
     .includes(mode);
+  const graphAuthoring = mode === "graph-authoring" || mode === "graph-authoring-no-fram-inventory";
+  const sandboxNetwork = webNetwork || graphAuthoring;
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true]),
     ...MANAGED_CODEX_DISABLED_FEATURES.map((name) => [name, false]),
@@ -238,7 +240,6 @@ function setup(mode = "ok") {
   const writableRoots = trustedGitMetadataRoots(cwd);
   // A graph-authoring lane carries a SECOND sealed MCP server (fram) through the
   // same launch config, inventory, and startup-notification gates as North.
-  const graphAuthoring = mode === "graph-authoring" || mode === "graph-authoring-no-fram-inventory";
   const framServer = graphAuthoring
     ? { command: framMcpCommand(), args: [] as string[], env: framMcpEnvironment(cwd) }
     : undefined;
@@ -254,7 +255,7 @@ function setup(mode = "ok") {
     model_provider: "openai",
     sqlite_home: sqliteHome,
     ...(writableRoots.length ? { sandbox_workspace_write: {
-      writable_roots: writableRoots, network_access: webNetwork,
+      writable_roots: writableRoots, network_access: sandboxNetwork,
     } } : {}),
     project_root_markers: [".git"],
     projects: { [cwd]: { trust_level: "untrusted" } },
@@ -414,7 +415,7 @@ function setup(mode = "ok") {
         instructionSources: [join(codexHome, "AGENTS.md")], approvalPolicy: "never",
         approvalsReviewer: "user",
         sandbox: {
-          type: "workspaceWrite", writableRoots, networkAccess: webNetwork,
+          type: "workspaceWrite", writableRoots, networkAccess: sandboxNetwork,
           excludeTmpdirEnvVar: false, excludeSlashTmp: false,
         },
         activePermissionProfile: null, reasoningEffort: "high",
@@ -1816,6 +1817,15 @@ test("only a web-capable workspace-write lane receives the exact Gitiles proxy p
   expect((denied.expectedSessionConfig as any).features.network_proxy).toBe(false);
   expect(denied.args.filter((argument) => argument.includes("network_proxy"))).toEqual(["network_proxy"]);
   expect(denied.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
+});
+
+test("a graph-authoring workspace-write lane enables sandbox networking without a web proxy", () => {
+  const { options } = setup("graph-authoring");
+  const contract = managedCodexAppServerLaunch(options as any);
+  expect((contract.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(true);
+  expect(contract.args).toContain("sandbox_workspace_write.network_access=true");
+  expect((contract.expectedSessionConfig as any).features.network_proxy).toBe(false);
+  expect(contract.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
 });
 
 test("the Gitiles network config accepts the production object and fails closed on drift", async () => {

@@ -1,3 +1,4 @@
+import { FRAM_GRAPH_AUTHORING_CAPABILITY } from "../fram-graph-authoring";
 import type { OrchestrationCapability } from "../orchestration-capabilities";
 
 export interface ManagedCodexNetworkSubject {
@@ -6,23 +7,25 @@ export interface ManagedCodexNetworkSubject {
 }
 
 /**
- * The sole managed-Codex command-network grant. A web-capable authoring lane
- * needs Gitiles only; every other surface keeps both sandbox networking and
- * the proxy disabled. No caller may add a second network exception.
+ * A workspace-write graph-authoring lane needs a local daemon connection;
+ * Codex exposes that through the same network_access bit as web access. The
+ * Gitiles proxy remains web-only, so graph-authoring never gains public web.
  */
 export function managedCodexNetworkPolicy(subject: ManagedCodexNetworkSubject): {
   networkAccess: boolean;
   networkProxyEnabled: boolean;
   domains: Record<string, "allow">;
 } {
-  const enabled = subject.sandbox === "workspace-write"
-    && subject.capabilities.includes("web");
-  const domains: Record<string, "allow"> = enabled
+  const workspaceWrite = subject.sandbox === "workspace-write";
+  const web = workspaceWrite && subject.capabilities.includes("web");
+  const daemonAccess = workspaceWrite
+    && subject.capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY);
+  const domains: Record<string, "allow"> = web
     ? { "chromium.googlesource.com": "allow" }
     : {};
   return Object.freeze({
-    networkAccess: enabled,
-    networkProxyEnabled: enabled,
+    networkAccess: web || daemonAccess,
+    networkProxyEnabled: web,
     domains: Object.freeze(domains),
   });
 }
