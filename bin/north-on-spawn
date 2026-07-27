@@ -149,6 +149,21 @@ if [ -n "$pin" ]; then
 fi
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
+GIT_COMMON="$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -n "$GIT_COMMON" ] && [ "$(basename "$GIT_COMMON")" = ".git" ]; then
+  RN="$(basename "$(dirname "$GIT_COMMON")")"
+fi
+# Managed lanes may be full isolated clones whose common-dir is lane-named.
+# The fetch origin still names the canonical repository; use its final path
+# component so a role alias survives worktree and session replacement.
+ORIGIN_URL="$(git -C "$cwd" remote get-url origin 2>/dev/null || true)"
+if [ -n "$ORIGIN_URL" ]; then
+  origin_name="${ORIGIN_URL%/}"
+  origin_name="${origin_name%.git}"
+  origin_name="${origin_name##*/}"
+  origin_name="${origin_name##*:}"
+  [ -n "$origin_name" ] && RN="$origin_name"
+fi
 IDDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-ids"
 ROUTEDIR="${XDG_RUNTIME_DIR:-/tmp}/north-agent-routes"
 # Provider actor IDs are control identity, not decoration. Filesystem keys and
@@ -248,6 +263,12 @@ provider_segment="$(slug "$PROVIDER_OBS")"; [ -n "$provider_segment" ] || provid
 model_segment="$(slug "$MODEL_OBS")"; [ -n "$model_segment" ] || model_segment="unobserved"
 effort_segment="$(slug "$EFFORT_OBS")"; [ -n "$effort_segment" ] || effort_segment="unobserved"
 DISPLAY_HANDLE="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
+ORCHESTRATION_ROLE="$(slug "${NORTH_ORCHESTRATION_ROLE:-}")"
+ROLE_ALIAS=""
+if [ -n "$ORCHESTRATION_ROLE" ]; then
+  repo_segment="$(slug "$RN")"
+  [ -n "$repo_segment" ] && ROLE_ALIAS="$repo_segment-$ORCHESTRATION_ROLE"
+fi
 
 acquire_singleflight() {
   local lock="$1" stale_after_s="$2" now_s modified_s
@@ -285,6 +306,8 @@ schedule_spawn_maintenance() {
       NORTH_NATIVE_MODEL="$MODEL_OBS" \
       NORTH_NATIVE_EFFORT="$EFFORT_OBS" \
       NORTH_NATIVE_DISPLAY="$DISPLAY_HANDLE" \
+      NORTH_NATIVE_ROLE="$ORCHESTRATION_ROLE" \
+      NORTH_NATIVE_ROLE_ALIAS="$ROLE_ALIAS" \
       NORTH_NATIVE_ACTOR_KIND="$native_actor_kind" \
       NORTH_NATIVE_DEPTH="$native_depth" \
       NORTH_NATIVE_DISPATCH_MODE_AT_START="$dispatch_mode_at_start" \
@@ -294,6 +317,8 @@ schedule_spawn_maintenance() {
         (load-file (str (System/getenv "NORTH_HOME") "/cli/coord.clj"))
         (let [port (Integer/parseInt (System/getenv "NORTH_NATIVE_PORT"))
               subject (System/getenv "NORTH_NATIVE_SUBJECT")
+              role (System/getenv "NORTH_NATIVE_ROLE")
+              role-alias (System/getenv "NORTH_NATIVE_ROLE_ALIAS")
               base-facts [["kind" "session"]
                      ["repo" (System/getenv "NORTH_NATIVE_REPO")]
                      ["provider" (System/getenv "NORTH_NATIVE_PROVIDER")]
@@ -311,6 +336,8 @@ schedule_spawn_maintenance() {
                      ["display_handle" (System/getenv "NORTH_NATIVE_DISPLAY")]
                      ["display_name" (System/getenv "NORTH_NATIVE_DISPLAY")]]
               facts (cond-> base-facts
+                      (seq role)
+                      (conj ["role" role])
                       (seq (System/getenv "NORTH_NATIVE_PROVIDER_SESSION_KEY"))
                       (conj ["provider_join_key_version" "north-provider-join:v1"]
                             ["provider_join_coverage" "partial"]
@@ -319,7 +346,17 @@ schedule_spawn_maintenance() {
                       (seq (System/getenv "NORTH_NATIVE_PARENT_ACTOR_KEY"))
                       (conj ["native_parent_actor_key"
                              (System/getenv "NORTH_NATIVE_PARENT_ACTOR_KEY")]))
-              results (mapv (fn [[p r]] (north.coord/put! port subject p r)) facts)]
+              alias-facts (when (seq role-alias)
+                            [["title" role-alias]
+                             ["exclusivity" "exclusive"]
+                             ["target" (subs subject (count "@agent:"))]])
+              results
+              (into
+               (mapv (fn [[p r]] (north.coord/put! port subject p r)) facts)
+               (map (fn [[p r]]
+                      (north.coord/put!
+                       port (str "@role:" role-alias) p r)))
+               alias-facts)]
           (when (some :reject results) (System/exit 1)))' >/dev/null 2>&1 &
     projection_pid=$!
     projection_ok=0

@@ -1613,6 +1613,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     NORTH_THREAD_ID: _inheritedThread,
     NORTH_RUN_CAPABILITY: _inheritedCapability,
     NORTH_MANAGED_LANE: _inheritedManagedLane,
+    NORTH_ORCHESTRATION_ROLE: _inheritedOrchestrationRole,
     NORTH_CODEX_BIN: _inheritedCodexOverride,
     NORTH_BIN: _inheritedNorthBin,
     // Never let a parent's pinned dials leak into a child's bootstrap: every
@@ -1636,6 +1637,7 @@ export function harnessOptions(o: HarnessOpts): Options {
       : managedNorthBinDir,
     AGENT_ID: o.self,
     AGENT_TOPOLOGY: enforcementTopology,
+    ...(metadata?.role ? { NORTH_ORCHESTRATION_ROLE: metadata.role } : {}),
     // Sealed authority marker consumed by the system-managed Codex lifecycle
     // wrappers. Ambient callers cannot inherit or forge managed-lane behavior.
     NORTH_MANAGED_LANE: "1",

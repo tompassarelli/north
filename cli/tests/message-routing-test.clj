@@ -45,6 +45,11 @@
          (= {:address "live-session" :recipient "live-session"
              :kind :direct :live true}
             (north.message-routing/require-live-address 1 "live-session")))
+  (check "durable role alias resolves to its current live session"
+         (= {:address "north-integrator" :recipient "live-session"
+             :kind :alias :live true}
+            (north.message-routing/require-live-address
+             1 "north-integrator")))
   (check "armed listener passes without a lease"
          (= "armed-session"
             (:recipient
