@@ -33,6 +33,75 @@
 ;; default/canonical reference (Part C's pred-cli + future callers read it).
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 
+;; Stage-A telemetry partition. The flag is deliberately explicit for the first
+;; cut: NORTH_TELEMETRY_PARTITION=1 routes telemetry-owned subjects to the
+;; independently fenced writer named by NORTH_TELEMETRY_PORT and
+;; FRAM_TELEMETRY_LOG. Setting the one flag to 0 restores the prior unified
+;; coordinator path without moving or rewriting either origin log.
+(def telemetry-subject-tokens #{"run" "session" "mine" "guard_denial"})
+
+(defn telemetry-partition-enabled? []
+  (= "1" (System/getenv "NORTH_TELEMETRY_PARTITION")))
+
+(defn- configured-telemetry-port []
+  (when (telemetry-partition-enabled?)
+    (let [raw (System/getenv "NORTH_TELEMETRY_PORT")
+          value (some-> raw parse-long)]
+      (when-not (and value (<= 1 value 65535))
+        (throw
+         (ex-info
+          "NORTH_TELEMETRY_PORT must be an integer from 1 through 65535 when NORTH_TELEMETRY_PARTITION=1"
+          {:type :invalid-telemetry-port :value raw})))
+      (int value))))
+
+(defn telemetry-log-path []
+  (when (telemetry-partition-enabled?)
+    (let [path (System/getenv "FRAM_TELEMETRY_LOG")]
+      (when (str/blank? path)
+        (throw
+         (ex-info
+          "FRAM_TELEMETRY_LOG is required when NORTH_TELEMETRY_PARTITION=1"
+          {:type :missing-telemetry-log})))
+      (.getCanonicalPath (io/file path)))))
+
+(defn telemetry-subject? [subject]
+  (boolean
+   (when (and (string? subject) (str/starts-with? subject "@"))
+     (let [colon (str/index-of subject ":")
+           token (when (and colon (> colon 1)) (subs subject 1 colon))]
+       (contains? telemetry-subject-tokens token)))))
+
+(defn- query-literal-subjects [query]
+  (->> (concat (:rules query) (mapcat identity (:strata query)))
+       (mapcat :body)
+       (keep (fn [literal]
+               (let [subject (first (:args literal))]
+                 (when (and (= "triple" (:rel literal))
+                            (string? subject)
+                            (str/starts-with? subject "@"))
+                   subject))))
+       set))
+
+(defn- operation-subject [operation]
+  (or (:te operation)
+      (let [subjects (when (#{:query :query-page} (:op operation))
+                       (query-literal-subjects (:query operation)))]
+        (when (= 1 (count subjects)) (first subjects)))))
+
+(declare expected-log)
+
+(defn route-for-operation [requested-port operation]
+  (let [subject (operation-subject operation)]
+    (if (and (telemetry-partition-enabled?)
+             subject
+             (telemetry-subject? subject))
+      {:port (configured-telemetry-port)
+       :log (telemetry-log-path)
+       :domain :telemetry}
+      {:port requested-port
+       :log (expected-log)
+       :domain :coordination})))
+
 (defn- timeout-ms [name default]
   (let [raw (or (System/getenv name) (str default))]
     (when-not (re-matches #"[1-9][0-9]{0,5}" raw)
@@ -378,10 +447,56 @@
       (read-edn-response! reader))))
 
 (defn send-op [port op]
-  (send-envelope port (log-envelope op)))
+  (let [{:keys [port log]} (route-for-operation port op)]
+    (send-envelope port (log-envelope-for log op))))
 
 (defn send-op-for-log [port log op]
   (send-envelope port (log-envelope-for log op)))
+
+(defn- live-triples-at [port log]
+  (try
+    (let [response (send-op-for-log port log {:op :facts})
+          triples (:facts response)]
+      (if (and (map? response)
+               (integer? (:version response))
+               (vector? triples)
+               (every?
+                #(and (vector? %) (= 3 (count %)) (every? string? %))
+                triples))
+        {:available true :version (:version response) :facts triples}
+        {:available false :error "malformed :facts response"}))
+    (catch Exception error
+      {:available false :error (.getMessage error)})))
+
+(defn live-facts-view
+  "Compose materialized live facts from the independently fenced coordination
+   and telemetry writers. This is a view union, never an event-log union: each
+   origin resolves its own local transaction order before facts cross the seam.
+   Exact duplicate triples collapse set-wise. Unavailable domains are named so
+   callers never have to infer absence from an empty result."
+  [coordination-port]
+  (let [coordination
+        (live-triples-at coordination-port (expected-log))
+        telemetry
+        (when (telemetry-partition-enabled?)
+          (live-triples-at (configured-telemetry-port) (telemetry-log-path)))
+        domains
+        (cond-> {:coordination coordination}
+          telemetry (assoc :telemetry telemetry))
+        available (filter (comp :available val) domains)
+        unavailable (->> domains
+                         (remove (comp :available val))
+                         (map (comp name key))
+                         sort
+                         vec)
+        facts (->> available
+                   (mapcat (comp :facts val))
+                   distinct
+                   vec)]
+    {:facts facts
+     :domains domains
+     :unavailable unavailable
+     :complete (empty? unavailable)}))
 
 (defn indexed-query
   "Run one simple Fram indexed query with a bounded result set and an exclusive
@@ -515,6 +630,11 @@
 ;; the daemon's current global version (only swap!/retract! read it now — the base).
 (defn cur-ver [port] (:version (send-op port {:op :version})))
 
+(defn cur-ver-for-subject [port subject]
+  (let [{target-port :port target-log :log}
+        (route-for-operation port {:op :resolved :te subject :p "kind"})]
+    (:version (send-op-for-log target-port target-log {:op :version}))))
+
 ;; A Fact is a string subject/predicate/object triple. Blank literal objects are
 ;; intentional in a few contracts (empty message bodies and DONE payloads), so
 ;; preserve explicit ""; nil is different — `(str nil)` used to turn an omitted
@@ -565,7 +685,8 @@
 (defn swap! [port te p r]
   (let [rv (write-value! te p r)]
     (loop [tries 4]
-      (let [res (send-op port {:op :assert :te te :p p :r rv :base (cur-ver port)})]
+      (let [res (send-op port {:op :assert :te te :p p :r rv
+                               :base (cur-ver-for-subject port te)})]
         (if (and (:reject res) (pos? tries)) (recur (dec tries)) res)))))
 
 ;; assert-after-read! — commit one marker against the exact GLOBAL graph version
@@ -668,9 +789,9 @@
                      {:attempts attempts})))
    (let [rv (write-value! te p r)]
      (retry-conflicts-until!
-      deadline-ns attempts
-      (fn []
-        (let [base (cur-ver port)
+     deadline-ns attempts
+     (fn []
+        (let [base (cur-ver-for-subject port te)
               _ (validate!)]
           (send-op port {:op :assert-at-version
                          :te te :p p :r rv :base base})))))))
@@ -688,7 +809,7 @@
                {:attempts attempts})))
    (let [rv (write-value! te p r)]
      (loop [remaining attempts]
-       (let [base (cur-ver port)
+       (let [base (cur-ver-for-subject port te)
              _ (validate!)
              result
              (send-op port {:op :assert-at-version-with-fence
@@ -705,7 +826,8 @@
 (defn retract! [port te p r]
   (let [rv (write-value! te p r)]
     (loop [tries 4]
-      (let [res (send-op port {:op :retract :te te :p p :r rv :base (cur-ver port)})]
+      (let [res (send-op port {:op :retract :te te :p p :r rv
+                               :base (cur-ver-for-subject port te)})]
         (if (and (:reject res) (pos? tries)) (recur (dec tries)) res)))))
 
 ;; The :resolved op's exclusive-success envelope. Same discipline indexed-query
