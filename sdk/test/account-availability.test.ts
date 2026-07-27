@@ -73,6 +73,20 @@ test("keeps the pinned row shape and provider rung names stable", () => {
   });
 });
 
+test("maps cached Codex primary evidence into the provider-neutral window rung", () => {
+  const available = fixture.cases.find(({ name }) => name === "available-codex")!;
+  const [row] = normalizeAccountAvailability(
+    { version: 1, observations: [available.observation] },
+    { now: new Date(fixture.now) },
+  );
+  expect(row!.rungs).toEqual({
+    window: { name: "primary", pct: 35, resetsAt: "2026-08-02T00:00:00.000Z" },
+    week: null,
+    models: {},
+  });
+  expect(accountAvailabilityRowIsUsable(row!)).toBe(true);
+});
+
 test("model selection makes a cooked requested model unusable without cooking the account", () => {
   const model = fixture.cases.find(({ name }) => name === "model-cooked")!;
   const store = { version: 1 as const, observations: [model.observation] };
