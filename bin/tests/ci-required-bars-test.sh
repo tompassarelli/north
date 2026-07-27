@@ -55,6 +55,7 @@ grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration' "$WORKFLOW"
 grep -Fq 'test -s ../fram/coordination.log' "$WORKFLOW"
 grep -Fq 'FRAM_LOG=../fram/coordination.log' "$WORKFLOW"
 grep -Fq "grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS'" "$WORKFLOW"
+grep -Fq 'python3 cli/tests/north-coord-socket-activation-integration.py' "$WORKFLOW"
 
 # The patched executable's behavioral smoke must remain connected all the way
 # from its reusable entrypoint to the x86_64 check and the release build job.

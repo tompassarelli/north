@@ -220,6 +220,7 @@
             ./bin/north-on-stop
             ./bin/north-on-tooluse
             ./bin/north-clock-audit
+            ./bin/north-coord-sd-listen
             ./bin/north-coord-up
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
@@ -386,7 +387,8 @@ PY
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
             cp bin/north bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
-              bin/north-on-tooluse bin/north-clock-audit bin/north-coord-up \
+              bin/north-on-tooluse bin/north-clock-audit bin/north-coord-sd-listen \
+              bin/north-coord-up \
               bin/north-stream-sync bin/north-stream-sync-all bin/north-pinned bin/north-effort \
               bin/north-graph \
               bin/concern bin/ensure-private-docs \
@@ -465,6 +467,9 @@ PY
               --set FRAM_HOME ${framRuntimeRoot} \
               --set FRAM_BIN ${framPkg}/bin \
               --set NORTH_HOME $out
+
+            wrapProgram $out/bin/north-coord-sd-listen \
+              --prefix PATH : ${runtimePath}
 
             wrapProgram $out/bin/concern \
               --prefix PATH : ${runtimePath} \
@@ -594,6 +599,8 @@ EOF
               exit 1
             fi
             grep -q 'usage: north up' "$smoke/north-coord-up-usage.out"
+            ${pkgs.coreutils}/bin/env -i PATH= \
+              $out/bin/north-coord-sd-listen ${pkgs.coreutils}/bin/true
 
             # The legacy store-revision fallback is based on the actual
             # canonical closure, never a store-shaped string. Symlinked public
