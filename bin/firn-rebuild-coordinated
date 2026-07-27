@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+program=${0##*/}
+north_bin=${NORTH_BIN:-$(cd "$(dirname "$0")" && pwd)/north}
+firn_bin=${FIRN_BIN:-firn}
+runtime_state=${NORTH_COORD_RUNTIME_STATE:-${HOME:?}/.local/state/north/fram-runtime}
+runtime_parent=${runtime_state%/*}
+runtime_name=${runtime_state##*/}
+restart_lock=${NORTH_COORD_RESTART_LOCK:-$runtime_parent/.${runtime_name}.restart.lock}
+restart_lock_timeout=${NORTH_COORD_RESTART_LOCK_TIMEOUT:-60}
+
+why=
+window="immediately after coordination all-clear"
+hold=3m
+max_delay=15m
+firn_args=()
+
+usage() {
+  cat >&2 <<EOF
+usage: $program --why <text> [--window <text>] [--hold 3m] [--max-delay 15m] [-- <firn rebuild args>]
+EOF
+  exit 2
+}
+
+while (($#)); do
+  case "$1" in
+    --why|--window|--hold|--max-delay)
+      (($# >= 2)) || usage
+      case "$1" in
+        --why) why=$2 ;;
+        --window) window=$2 ;;
+        --hold) hold=$2 ;;
+        --max-delay) max_delay=$2 ;;
+      esac
+      shift 2
+      ;;
+    --)
+      shift
+      firn_args=("$@")
+      break
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      printf '%s: unknown argument: %s\n' "$program" "$1" >&2
+      usage
+      ;;
+  esac
+done
+
+[[ -n "$why" ]] || {
+  printf '%s: --why is required\n' "$program" >&2
+  usage
+}
+[[ "$runtime_state" == /* && "$runtime_parent" != "$runtime_state" &&
+   -n "$runtime_name" ]] || {
+  printf '%s: invalid NORTH_COORD_RUNTIME_STATE: %s\n' "$program" "$runtime_state" >&2
+  exit 2
+}
+[[ "$restart_lock_timeout" =~ ^[0-9]+$ ]] || {
+  printf '%s: NORTH_COORD_RESTART_LOCK_TIMEOUT must be a non-negative integer\n' "$program" >&2
+  exit 2
+}
+[[ -x "$north_bin" ]] || {
+  printf '%s: North CLI is not executable: %s\n' "$program" "$north_bin" >&2
+  exit 2
+}
+command -v "$firn_bin" >/dev/null 2>&1 || {
+  printf '%s: firn executable is unavailable: %s\n' "$program" "$firn_bin" >&2
+  exit 2
+}
+
+intent_output=$(
+  "$north_bin" rebuild-intent start \
+    --why "$why" \
+    --window "$window" \
+    --hold "$hold" \
+    --max-delay "$max_delay"
+)
+intent_id=${intent_output##*$'\n'}
+[[ "$intent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || {
+  printf '%s: rebuild-intent start returned no canonical intent id\n' "$program" >&2
+  exit 2
+}
+
+printf 'rebuild intent %s posted; entering hold\n' "$intent_id"
+"$north_bin" rebuild-intent await "$intent_id"
+
+# This is the exact lock derivation owned by north-coord-runtime:
+#   state_parent/.state_name.restart.lock
+# Holding it across the whole deployment makes a direct runtime restart wait or
+# fail with its named restart-mutex-busy path instead of interleaving.
+mkdir -p "$runtime_parent"
+exec 9>"$restart_lock" || {
+  printf '%s: restart-mutex-open-failed: %s\n' "$program" "$restart_lock" >&2
+  exit 2
+}
+if ! flock -w "$restart_lock_timeout" 9; then
+  printf '%s: restart-mutex-busy: another coordinator restart holds %s\n' \
+    "$program" "$restart_lock" >&2
+  exit 2
+fi
+
+"$north_bin" rebuild-intent mark-started "$intent_id"
+
+set +e
+"$firn_bin" rebuild "${firn_args[@]}"
+firn_rc=$?
+set -e
+
+if ((firn_rc != 0)); then
+  report="firn rebuild rc $firn_rc"
+  "$north_bin" rebuild-intent failed "$intent_id" "$report"
+  printf '%s: %s\n' "$program" "$report" >&2
+  exit "$firn_rc"
+fi
+
+# north rebuild-intent has its own bounded :7977 reconnect loop. coord-doctor is
+# the deployment identity probe: a green exit proves the restarted coordinator
+# serves the canonical log and selected runtime after firn's generation switch.
+"$north_bin" coord-doctor
+report="firn rebuild rc 0; north coord-doctor rc 0"
+"$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+printf 'deployment verified: %s\n' "$report"
+
