@@ -7,6 +7,8 @@
 (def agent-prefix "@agent:")
 (def max-route-candidates 4096)
 (def route-page-size 128)
+(def max-mail-candidates 16384)
+(def mail-page-size 512)
 
 (defn bare-agent [value]
   (when (string? value)
@@ -75,6 +77,9 @@
         (not (str/blank? durable))
         {:address address :recipient (bare-agent durable) :kind :alias}
 
+        (recipient-live? port address)
+        {:address address :recipient (bare-agent address) :kind :direct}
+
         :else
         (if-let [holder (live-role-holder port address)]
           {:address address :recipient holder :kind :held-role}
@@ -131,3 +136,78 @@
                      :alternative (live-same-route port recipient))))
     (catch Exception error
       {:address address :live :unavailable :error error})))
+
+(defn- mail-candidate-query []
+  {:find "mail_candidate"
+   :rules
+   [{:head {:rel "mail_candidate"
+            :args [{:var "message"} {:var "from"} {:var "to"} {:var "sent"}]}
+     :body [{:rel "triple" :args [{:var "message"} "from" {:var "from"}]}
+            {:rel "triple" :args [{:var "message"} "to" {:var "to"}]}
+            {:rel "triple" :args [{:var "message"} "sent_at" {:var "sent"}]}]}]})
+
+(defn mail-candidates [port]
+  (loop [after nil
+         seen 0
+         rows []]
+    (let [page (north.coord/query-page
+                port (mail-candidate-query) mail-page-size after)
+          next-seen (+ seen (count (:ok page)))]
+      (when (> next-seen max-mail-candidates)
+        (throw
+         (ex-info "dead-letter scan exceeds its bounded mail corpus"
+                  {:type :mail-candidate-overflow
+                   :max max-mail-candidates})))
+      (let [all (into rows (:ok page))]
+        (if (:more page)
+          (recur (:next page) next-seen all)
+          all)))))
+
+(defn message-pending? [port message]
+  (and (empty? (north.coord/many port message "acked_by"))
+       (empty? (north.coord/many port message "delivery_rejected_by"))))
+
+(defn age-ms [now sent]
+  (try
+    (max 0 (- (.toEpochMilli ^java.time.Instant now)
+              (.toEpochMilli (java.time.Instant/parse sent))))
+    (catch Exception _ nil)))
+
+(defn human-age [milliseconds]
+  (if (nil? milliseconds)
+    "unknown"
+    (let [seconds (quot milliseconds 1000)]
+      (cond
+        (< seconds 60) (str seconds "s")
+        (< seconds 3600) (str (quot seconds 60) "m")
+        (< seconds 86400) (str (quot seconds 3600) "h")
+        :else (str (quot seconds 86400) "d")))))
+
+(defn dead-letter-scan
+  "Pending human mail whose concrete recipient has neither a live lease nor an
+   armed provider listener. Returns a strict diagnostic envelope."
+  ([port] (dead-letter-scan port (java.time.Instant/now)))
+  ([port now]
+   (try
+     {:rows
+      (->> (mail-candidates port)
+           (keep
+            (fn [[message from to sent]]
+              (when (and (str/starts-with? message "@msg:")
+                         (not= broadcast-address to)
+                         (message-pending? port message))
+                (let [route (resolve-address port to)
+                      recipient (:recipient route)]
+                  (when-not (recipient-live? port recipient)
+                    (let [milliseconds (age-ms now sent)]
+                      {:message message
+                       :sender from
+                       :recipient to
+                       :resolved-recipient recipient
+                       :age-ms milliseconds
+                       :age (human-age milliseconds)}))))))
+           (sort-by (juxt #(or (:age-ms %) -1) :message)
+                    #(compare %2 %1))
+           vec)}
+     (catch Exception error
+       {:error (.getMessage error)}))))

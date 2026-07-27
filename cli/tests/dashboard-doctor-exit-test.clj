@@ -26,7 +26,9 @@
     (finally
       (System/setProperty "babashka.file" test-script))))
 
-(defn exercise-doctor [failed?]
+(defn exercise-doctor
+  ([failed?] (exercise-doctor failed? []))
+  ([failed? dead-letters]
   (with-redefs [coord-doctor-probe
                 (fn [] (if failed?
                          {:ok false
@@ -42,10 +44,12 @@
                                       :concerns-active 1
                                       :concerns-stale 0})
                 source-revision (fn [_ _] {:revision "test-rev" :origin "checkout HEAD"})
+                north.message-routing/dead-letter-scan
+                (fn [_] {:rows dead-letters})
                 run (fn [& _] {:ok true :out "/nix/store/test-runtime/bin/tool\n" :err ""})]
     (let [healthy (atom nil)
           output (with-out-str (reset! healthy (cmd-doctor [])))]
-      {:healthy @healthy :output output})))
+      {:healthy @healthy :output output}))))
 
 (when (= "1" (System/getenv "NORTH_DOCTOR_EXIT_CHILD"))
   (let [{:keys [healthy output]} (exercise-doctor true)]
@@ -69,6 +73,20 @@
 (let [{:keys [healthy output]} (exercise-doctor false)]
   (check "doctor returns healthy when every critical section is healthy"
          (and healthy (str/includes? output "coordinator runtime identity OK"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false
+       [{:sender "release-coordinator"
+         :recipient "dead-session"
+         :resolved-recipient "dead-session"
+         :age "1h"}])]
+  (check "doctor is unhealthy while dead letters exist" (false? healthy))
+  (check "doctor dead-letter section names sender, recipient, and age"
+         (and (str/includes? output "dead letters")
+              (str/includes? output "release-coordinator")
+              (str/includes? output "dead-session")
+              (str/includes? output "1h"))))
 
 (let [child @(p/process ["env"
                          "NORTH_DASHBOARD_LIB=1"
