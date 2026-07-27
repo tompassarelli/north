@@ -74,14 +74,13 @@
 (defn query-answered? [response]
   (vector? (:ok response)))
 
-;; ONE waiting budget for every read in a writer invocation, not one per read:
-;; the subprocess boundary (sdk/src/delivery-evidence.ts) kills the writer at 10s
-;; and the publication retry window already owns 5s of that, so per-read windows
-;; would let a chain of unanswered reads outrun the boundary and lose the very
-;; cause this fix exists to report. The budget is created on the FIRST retry, so
-;; an answering coordinator never opens a second deadline (the reservation's one
-;; shared body/digest deadline stays the only one), and every read still ATTEMPTS
-;; once even after the budget is spent — exhaustion stops waiting, not asking.
+;; ONE waiting budget for every read in a writer invocation, not one per read.
+;; The budget is created on the FIRST retry, so an answering coordinator never
+;; opens a second deadline (the reservation's one shared body/digest deadline
+;; stays the only one), and every read still ATTEMPTS once even after the budget
+;; is spent — exhaustion stops waiting, not asking. A single Fram query may use
+;; its full 5s evaluation limit, so the SDK's finite subprocess boundary must
+;; cover the first attempt, one retry, publication, and readback.
 (def read-retry-budget-ms 2000)
 (def ^:private read-retry-deadline-ns (atom nil))
 
@@ -177,6 +176,27 @@
       (done-bar-limit-failure!
        (str label " exceeds delivery evidence limits") thread facts extra))))
 
+(defn run-reservation-refusal!
+  "Name the immutable subject and the reservation already holding it. A valid
+   reservation has an exact holder and content-addressed receipt; a partial or
+   unrelated run subject remains fail-closed but says that attribution is
+   unavailable instead of inventing a concurrent holder."
+  [run facts]
+  (let [holder (or (north.terminal-projection/singleton-value
+                    facts "run_reservation_agent")
+                   "unattributed")
+        receipt (or (north.terminal-projection/singleton-value
+                     facts "run_reservation_manifest_sha256")
+                    "unavailable")
+        reason (if (north.terminal-projection/run-reservation-valid? facts)
+                 "existing-reservation"
+                 "run-subject-not-fresh")]
+    (fail! (str "run reservation refused: run=" run
+                " holder=" holder
+                " receipt=" receipt
+                " reason=" reason)
+           {:run run :holder holder :receipt receipt :reason reason})))
+
 (defn reserve! [port request]
   (exact-request! request #{"run" "thread" "reporter" "capabilitySha256"})
   (let [run (run-entity (get request "run"))
@@ -194,8 +214,9 @@
              {:thread thread :titles (get thread-facts "title" #{})}))
     (ensure-reservable-contract!
      thread thread-facts baseline "thread done_when contract" {:run run})
-    (when (seq (facts-of port run))
-      (fail! "run subject is not fresh" {:run run}))
+    (let [run-facts (facts-of port run)]
+      (when (seq run-facts)
+        (run-reservation-refusal! run run-facts)))
     (let [projection
           (sorted-map
            "run_capability_sha256" capability-digest
