@@ -143,6 +143,8 @@ test("managed worktree preparation wires local env and reaps its coordinator", a
   const child = new EventEmitter() as ChildProcess;
   Object.assign(child, { pid: 4242, exitCode: null, signalCode: null });
   const signals: NodeJS.Signals[] = [];
+  let unrefCalls = 0;
+  (child as any).unref = () => { unrefCalls++; };
   (child as any).kill = (signal: NodeJS.Signals) => {
     signals.push(signal);
     (child as any).signalCode = signal;
@@ -174,6 +176,7 @@ test("managed worktree preparation wires local env and reaps its coordinator", a
       codePort: "45678",
       codeLog: join(lane, ".fram", "code.log"),
     });
+    expect(unrefCalls).toBe(1);
     expect(readFileSync(join(lane, ".git", "info", "exclude"), "utf8"))
       .toContain("/.fram/");
     expect(framMcpEnvironment(lane, true)).toMatchObject({
@@ -209,6 +212,62 @@ test("managed worktree preparation wires local env and reaps its coordinator", a
       .toThrow("graph_authoring_fram_lane_descriptor_invalid");
   } finally {
     process.env.NORTH_FRAM_HOME = framHome;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("death-path reap kills only the descriptor PID that owns its recorded port", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-rebound-death-reap-"));
+  const canonical = join(root, "canonical");
+  const lane = join(root, "lane");
+  const localFramHome = join(root, "fram-home");
+  mkdirSync(join(localFramHome, ".fram"), { recursive: true });
+  mkdirSync(join(canonical, "src"), { recursive: true });
+  mkdirSync(join(lane, "src"), { recursive: true });
+  writeFileSync(join(localFramHome, ".fram", "code.log"), [
+    `{:tx 1, :op "assert", :l "@src.demo#root", :p "file", :r "${canonical}/src/demo.bclj"}`,
+    "",
+  ].join("\n"));
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, { pid: 5151, exitCode: null, signalCode: null });
+  (child as any).unref = () => {};
+  let ownerPid = 6161;
+  let alive = true;
+  let listening = true;
+  const signals: Array<[number, NodeJS.Signals]> = [];
+  process.env.NORTH_FRAM_HOME = localFramHome;
+  try {
+    const coordinator = await prepareManagedFramCoordinator({
+      worktree: lane,
+      canonicalSourceRoot: canonical,
+      runtime: {
+        allocatePort: async () => 45680,
+        launch: () => child,
+        ready: async () => {},
+        waitForExit: async () => !alive,
+        pidAlive: () => alive,
+        portListening: () => listening,
+        pidOwnsPort: (pid, port) => pid === ownerPid && port === 45680,
+        signalPid: (pid, signal) => {
+          signals.push([pid, signal]);
+          alive = false;
+          listening = false;
+        },
+      },
+    });
+    await expect(coordinator.close()).rejects.toThrow(
+      "graph_authoring_fram_lane_coordinator_pid_port_mismatch",
+    );
+    expect(signals).toEqual([]);
+    expect(readFileSync(join(lane, ".fram", "managed-code-coordinator.json"), "utf8"))
+      .toContain('"active": true');
+
+    ownerPid = 5151;
+    await coordinator.close();
+    expect(signals).toEqual([[5151, "SIGTERM"]]);
+    expect(readFileSync(join(lane, ".fram", "managed-code-coordinator.json"), "utf8"))
+      .toContain('"active": false');
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
