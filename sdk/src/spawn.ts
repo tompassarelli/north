@@ -1412,7 +1412,16 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       // Coordinator boot can outlive the caller's startup handshake. Retain the
       // attempt concurrently so identity publication happens first, while this
       // branch owns readiness and releases provider construction exactly once.
-      void attemptPromise.catch(() => {});
+      // The original promise is still awaited below, so this handler does not
+      // replace its rejection. It makes a genuine pre-readiness runSpawn
+      // failure visible immediately instead of leaving coordinator teardown as
+      // the first and only line in the durable lane log.
+      void attemptPromise.catch((error) => {
+        console.error(
+          `[spawn] @agent:${agentId} pre-provider attempt failed while the `
+          + `worktree-local Fram coordinator was booting: ${causeChain(error)}`,
+        );
+      });
       try {
         const coordinator = await (
           injected.prepareManagedFramCoordinator ?? prepareManagedFramCoordinator

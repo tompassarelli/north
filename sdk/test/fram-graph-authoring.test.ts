@@ -28,6 +28,8 @@ import { expectedLog } from "../src/coord-wire";
 import {
   compileProviderAuthoritySurface, formatProviderAuthoritySurface,
 } from "../src/providers/authority";
+import { causeChain } from "../src/death";
+import { HostTerminationError } from "../src/query-lifecycle";
 import { eligibleForProviderProcessDeathRetry } from "../src/spawn";
 import { presetRequest } from "./routing-fixtures";
 
@@ -310,9 +312,16 @@ test("host abort force-reaps a detached coordinator that has not finished bootin
       },
     });
     await Promise.resolve();
-    abort.abort();
-    await expect(preparing).rejects.toThrow(
-      "graph_authoring_fram_lane_coordinator_boot_aborted",
+    abort.abort(new HostTerminationError("SIGTERM"));
+    let bootError: unknown;
+    try {
+      await preparing;
+    } catch (error) {
+      bootError = error;
+    }
+    expect(causeChain(bootError)).toBe(
+      "graph_authoring_fram_lane_coordinator_boot_aborted"
+      + " <- cause: host termination requested (SIGTERM)",
     );
     expect(signals.length).toBeGreaterThanOrEqual(1);
     expect(signals.every((signal) => signal === "SIGKILL")).toBe(true);

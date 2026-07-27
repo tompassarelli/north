@@ -449,7 +449,11 @@ export async function prepareManagedFramCoordinator(
   let rejectBoot: ((error: Error) => void) | undefined;
   const abortBoot = () => {
     try { child.kill("SIGKILL"); } catch { /* readiness/reap observation decides */ }
-    rejectBoot?.(new Error("graph_authoring_fram_lane_coordinator_boot_aborted"));
+    const cause = options.signal?.reason;
+    rejectBoot?.(new Error(
+      "graph_authoring_fram_lane_coordinator_boot_aborted",
+      cause === undefined ? undefined : { cause },
+    ));
   };
   const bootAborted = new Promise<never>((_resolve, reject) => {
     rejectBoot = reject;
