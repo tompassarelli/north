@@ -150,6 +150,7 @@ jobs:
           set -euo pipefail
           timeout --foreground 120s bash bin/tests/north-on-spawn-stress-test.sh
           timeout --foreground 120s bash bin/tests/north-on-tooluse-stress-test.sh
+          timeout --foreground 120s bash bin/tests/session-role-alias-test.sh
           timeout --foreground 120s bash bin/tests/north-mark-delegated-test.sh
           timeout --foreground 120s bash bin/tests/identity-alias-test.sh
           timeout --foreground 120s bash bin/tests/native-identity-test.sh
@@ -176,7 +177,9 @@ jobs:
         run: |
           set -euo pipefail
           timeout --foreground 180s bb cli/tests/live-feed-integration-test.clj
+          timeout --foreground 120s bb cli/tests/message-routing-test.clj
           timeout --foreground 180s bb cli/tests/message-audience-integration-test.clj
+          timeout --foreground 120s bb cli/tests/north-listen-reconnect-test.clj
           timeout --foreground 180s bb cli/tests/pending-pagination-integration-test.clj
           timeout --foreground 180s bb cli/tests/peer-command-integration-test.clj
 
