@@ -26,6 +26,8 @@
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (load-file (str NORTH "/cli/harness-state.clj"))
+(load-file (str NORTH "/cli/coord.clj"))
+(load-file (str NORTH "/cli/message-routing.clj"))
 ;; Shared reader for the reactor's durable last-sweep heartbeat (reactor writes it).
 (load-file (str NORTH "/cli/reactor-heartbeat.clj"))
 (def CACHE-DIR (str HOME "/.cache/north"))
@@ -616,6 +618,36 @@
 (def doctor-failed? (atom false))
 (defn mark-doctor-failed! [] (reset! doctor-failed? true))
 
+(defn render-dead-letters! [port]
+  (println (bold "  dead letters"))
+  (let [{:keys [rows error]} (north.message-routing/dead-letter-scan
+                              (Integer/parseInt (str port)))]
+    (cond
+      error
+      (do
+        (mark-doctor-failed!)
+        (println (str "    " (red "[ERR] ")
+                      "dead-letter scan unavailable: " error)))
+
+      (empty? rows)
+      (println (str "    " (grn "[ok]  ")
+                    "no pending mail targets an absent identity"))
+
+      :else
+      (do
+        (mark-doctor-failed!)
+        (println (str "    " (red "[ERR] ") (count rows)
+                      " pending message(s) target absent identities"))
+        (println (format "    %-24s %-34s %s" "SENDER" "RECIPIENT" "AGE"))
+        (doseq [{:keys [sender recipient resolved-recipient age]} rows]
+          (println
+           (format "    %-24s %-34s %s"
+                   sender
+                   (if (= recipient resolved-recipient)
+                     recipient
+                     (str recipient " -> " resolved-recipient))
+                   age)))))))
+
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
@@ -657,6 +689,7 @@
   (let [reactor-line (reactor-doctor-line PORT)]
     (when (str/includes? reactor-line "[ERR]") (mark-doctor-failed!))
     (println (str "    " reactor-line)))
+  (render-dead-letters! PORT)
   ;; health — lane activity + stale concerns from north health. LIVE (uncached, unlike
   ;; the dashboard's cached hot path) but with a budget that matches reality: `north
   ;; health` folds the whole log and takes ~21-24s, so the old 4s default always warned

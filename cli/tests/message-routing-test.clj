@@ -20,6 +20,8 @@
    ["@agent:live-session" "role"] "integrator"
    ["@agent:armed-session" "live_input_state"] "armed"})
 
+(def acknowledged #{"@msg:acked"})
+
 (defn resolved [_ subject predicate]
   (get facts [subject predicate]))
 
@@ -29,9 +31,13 @@
         role (some #(when (= "holds" (second (:args %)))
                       (nth (:args %) 2))
                    body)
-        same-route? (some #(= "repo" (second (:args %))) body)]
+        same-route? (some #(= "repo" (second (:args %))) body)
+        mail? (= "mail_candidate" (:find query))]
     {:ok
      (cond
+       mail? [["@msg:dead" "sender-a" "dead-session" "2026-07-27T10:00:00Z"]
+              ["@msg:live" "sender-b" "live-session" "2026-07-27T11:00:00Z"]
+              ["@msg:acked" "sender-c" "dead-session" "2026-07-27T09:00:00Z"]]
        (= role "@role:legacy-reviewer") [["@agent:armed-session"]]
        same-route? [["@agent:dead-session"] ["@agent:live-session"]]
        :else [])
@@ -40,6 +46,12 @@
 
 (with-redefs [north.coord/resolved resolved
               north.coord/query-page page
+              north.coord/many
+              (fn [_ subject predicate]
+                (if (and (= predicate "acked_by")
+                         (contains? acknowledged subject))
+                  ["recipient"]
+                  []))
               north.coord/online? (fn [_ control] (= control "live-session"))]
   (check "direct live recipient passes"
          (= {:address "live-session" :recipient "live-session"
@@ -63,7 +75,17 @@
              [:live :recipient :alternative])))
   (check "broadcast remains a finite-audience special address"
          (= :broadcast
-            (:kind (north.message-routing/require-live-address 1 "*")))))
+            (:kind (north.message-routing/require-live-address 1 "*"))))
+  (check "dead-letter scan returns only pending mail to absent identities"
+         (= [{:message "@msg:dead"
+              :sender "sender-a"
+              :recipient "dead-session"
+              :resolved-recipient "dead-session"
+              :age-ms 7200000
+              :age "2h"}]
+            (:rows
+             (north.message-routing/dead-letter-scan
+              1 (java.time.Instant/parse "2026-07-27T12:00:00Z"))))))
 
 (let [failed (remove second @checks)]
   (println (str "message routing: " (- (count @checks) (count failed))
