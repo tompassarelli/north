@@ -5,7 +5,6 @@ import {
   fireHandoff,
   handoffThreshold,
   loadAvailabilityRows,
-  type AvailabilityRow,
   type HandoffRuntime,
 } from "./handoff";
 
@@ -27,7 +26,6 @@ interface Parsed {
 }
 
 export interface HandoffCliRuntime extends HandoffRuntime {
-  loadRows?: () => AvailabilityRow[];
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
 }

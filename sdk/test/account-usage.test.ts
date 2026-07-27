@@ -83,6 +83,33 @@ test("refreshes every isolated account concurrently with disjoint authoritative 
     .unavailableComponents).toEqual([{ limitId: "claude:five_hour", reason: "reset_unavailable" }]);
 });
 
+test("successful sampling invokes the handoff warning seam without changing reports", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-account-usage-handoff-"));
+  temporary.push(directory);
+  const storePath = join(directory, "observations.json");
+  const now = new Date();
+  const reset = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const observedEnvs: NodeJS.ProcessEnv[] = [];
+  const env = { AGENT_PROVIDER: "openai", AGENT_THREAD: "root" };
+  const reports = await refreshAccountUsages({
+    accounts: [accounts(directory)[2]],
+    storePath,
+    now,
+    env,
+    readCodex: async ({ target }) => ({
+      targetId: target!.id,
+      provider: "openai",
+      source: "codex-app-server:account-rate-limits",
+      observedAt: now.toISOString(),
+      windows: [{ limitId: "codex:primary", usedPercent: 20, resetsAt: reset }],
+    }),
+    handoffObserver: ({ env: observed }) => observedEnvs.push(observed),
+  });
+  expect(reports.map(({ accountId, status }) => [accountId, status]))
+    .toEqual([["codex-proton", "observed"]]);
+  expect(observedEnvs).toEqual([env]);
+});
+
 test("host abort is control flow and never persists a synthetic usage failure", async () => {
   const directory = mkdtempSync(join(tmpdir(), "north-account-usage-abort-"));
   temporary.push(directory);

@@ -129,7 +129,18 @@ export interface HandoffRuntime {
   readBrief?: (path: string) => string;
   getFacts?: typeof getThreadFacts;
   getChildren?: typeof getChildren;
+  loadRows?: () => AvailabilityRow[];
   run?: (executable: string, args: string[]) => SpawnResult;
+}
+
+export interface HandoffWarning {
+  version: 1;
+  thread?: string;
+  threshold: number;
+  active: ActiveSessionRoute;
+  observedAt: string;
+  crossing: RungTrigger;
+  automaticFire: boolean;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -210,6 +221,10 @@ export function parseAvailabilityRows(value: unknown): AvailabilityRow[] {
       usableModels: [...raw.usableModels],
     } satisfies AvailabilityRow;
   });
+  for (const [index, row] of rows.entries()) {
+    if (!/^(available|cooked-week|cooked-window|model-cooked\[[^\]]+\])$/.test(row.verdict))
+      throw new Error(`account availability row[${index}].verdict is outside the pinned contract`);
+  }
   const identities = rows.map(({ provider, account }) => `${provider}\u0000${account}`);
   if (new Set(identities).size !== identities.length)
     throw new Error("account availability JSON contains duplicate provider/account rows");
@@ -267,6 +282,13 @@ function activeRow(rows: readonly AvailabilityRow[], route: ActiveSessionRoute):
   if (matches.length === 1) return matches[0];
   if (!route.account && providerRows.length === 1) return providerRows[0];
   throw new Error(`active account ${route.account || "(unspecified)"} is not a unique ${route.provider} availability row`);
+}
+
+export function availabilityForRoute(
+  rows: readonly AvailabilityRow[],
+  route: ActiveSessionRoute,
+): AvailabilityRow {
+  return activeRow(rows, route);
 }
 
 function triggerFor(row: AvailabilityRow, model: string | undefined, threshold: number): RungTrigger | undefined {
@@ -349,6 +371,8 @@ export function checkHandoff(
 ): HandoffCheck {
   const threshold = handoffThreshold(thresholdValue);
   const receipt = activeRow(rows, route);
+  if (receipt.stale)
+    throw new Error(`active availability evidence for ${receipt.provider}/${receipt.account} is stale`);
   const canonicalActive = {
     ...route,
     account: receipt.account,
@@ -428,18 +452,8 @@ function recoveryDetail(check: HandoffCheck): string {
   return `provider-recovery ${JSON.stringify({
     threshold: check.threshold,
     trigger: check.trigger,
-    activeReceipt: {
-      account: check.receipts.active.account,
-      provider: check.receipts.active.provider,
-      observedAt: check.receipts.active.observedAt,
-      verdict: check.receipts.active.verdict,
-    },
-    heirReceipt: check.receipts.heir ? {
-      account: check.receipts.heir.account,
-      provider: check.receipts.heir.provider,
-      observedAt: check.receipts.heir.observedAt,
-      verdict: check.receipts.heir.verdict,
-    } : undefined,
+    activeReceipt: check.receipts.active,
+    heirReceipt: check.receipts.heir,
   })}`;
 }
 
@@ -578,4 +592,119 @@ export function activeSessionRoute(
     ...(env.AGENT_MODEL ? { model: env.AGENT_MODEL } : {}),
     ...(tier ? { tier } : {}),
   };
+}
+
+export function automaticHandoffFireEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return ["1", "true", "on"].includes((env.NORTH_HANDOFF_AUTO_FIRE ?? "").toLowerCase());
+}
+
+export function handoffWarningCommands(
+  warning: HandoffWarning,
+  runtime: HandoffRuntime = {},
+): Array<{ executable: string; args: string[] }> {
+  const env = runtime.env ?? process.env;
+  const northBin = runtime.northBin ?? env.NORTH_BIN ?? `${REPO}/bin/north`;
+  const commands: Array<{ executable: string; args: string[] }> = [];
+  if (warning.thread) {
+    commands.push({
+      executable: northBin,
+      args: ["tell", warning.thread, "handoff_warning", JSON.stringify(warning)],
+    });
+  }
+  const notify = env.NORTH_HANDOFF_NOTIFY ?? env.AGENT_COORDINATOR;
+  if (notify) {
+    const route = [
+      warning.active.provider,
+      warning.active.account,
+      warning.active.model,
+    ].filter(Boolean).join("/");
+    commands.push({
+      executable: runtime.peerBb ?? env.NORTH_PEER_BB ?? "bb",
+      args: [
+        runtime.msgCli ?? `${REPO}/cli/msg-cli.clj`,
+        env.NORTH_PORT ?? "7977",
+        "send",
+        env.AGENT_ID ?? "north-handoff",
+        notify,
+        "PROVIDER CAPACITY WARNING",
+        `${route} ${warning.crossing.rung}:${warning.crossing.name}=${warning.crossing.pct}% `
+          + `threshold=${warning.threshold} resets=${warning.crossing.resetsAt}; `
+          + `automatic-fire=${warning.automaticFire ? "enabled" : "off"}`,
+      ],
+    });
+  }
+  return commands;
+}
+
+function runBestEffort(
+  executable: string,
+  args: string[],
+  runtime: HandoffRuntime,
+): void {
+  try {
+    const run = runtime.run ?? ((command: string, commandArgs: string[]) =>
+      spawnSync(command, commandArgs, {
+        encoding: "utf8",
+        timeout: 10_000,
+        stdio: ["ignore", "ignore", "ignore"],
+      }));
+    run(executable, args);
+  } catch {
+    // Usage observations remain advisory. Warning transport cannot break routing.
+  }
+}
+
+/**
+ * Detection hook for the account-usage sampling boundary. It reads only lane A's
+ * cached availability JSON, emits warnings first, and invokes automatic fire
+ * only under the explicit default-off gate.
+ */
+export function observeHandoffUsageSample(
+  runtime: HandoffRuntime = {},
+): HandoffWarning[] {
+  const env = runtime.env ?? process.env;
+  const provider = env.AGENT_PROVIDER;
+  if (provider !== "anthropic" && provider !== "openai") return [];
+  try {
+    const rows = (runtime.loadRows ?? (() => loadAvailabilityRows(runtime.northBin)))();
+    const active = activeSessionRoute(rows, undefined, env);
+    const receipt = availabilityForRoute(rows, active);
+    if (receipt.stale) return [];
+    const threshold = handoffThreshold(env.NORTH_HANDOFF_WARN_THRESHOLD ?? DEFAULT_THRESHOLD);
+    const automaticFire = automaticHandoffFireEnabled(env);
+    const warnings = thresholdCrossings(receipt, threshold).map((crossing) => ({
+      version: 1 as const,
+      ...(env.AGENT_THREAD ? { thread: env.AGENT_THREAD } : {}),
+      threshold,
+      active,
+      observedAt: receipt.observedAt,
+      crossing,
+      automaticFire,
+    }));
+    for (const warning of warnings) {
+      for (const command of handoffWarningCommands(warning, runtime))
+        runBestEffort(command.executable, command.args, runtime);
+    }
+
+    // Warn-first is literal ordering: every warning fact/mail command above is
+    // attempted before the gated fire command is even composed.
+    if (automaticFire && warnings.length) {
+      const root = env.NORTH_HANDOFF_ROOT_THREAD ?? env.AGENT_THREAD;
+      const brief = env.NORTH_HANDOFF_BRIEF;
+      const check = checkHandoff(rows, active, threshold);
+      if (root && brief && check.classification !== "available" && check.heir) {
+        runBestEffort(
+          runtime.northBin ?? env.NORTH_BIN ?? `${REPO}/bin/north`,
+          ["handoff", "fire", "--thread", root, "--brief", brief],
+          runtime,
+        );
+      }
+    }
+    return warnings;
+  } catch {
+    // Missing/stale lane-A data is unknown capacity, never a routing failure.
+    return [];
+  }
 }

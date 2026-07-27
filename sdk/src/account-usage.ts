@@ -59,6 +59,7 @@ import {
   loadProviderUsageObservations,
   OBSERVATION_CLOCK_SKEW_MS,
 } from "./resource-policy";
+import { observeHandoffUsageSample } from "./handoff";
 
 export const ACCOUNT_USAGE_TTL_MS = COLLECTION_FAILURE_TTL_MS;
 const DEFAULT_ACCOUNT_USAGE_PROBE_TIMEOUT_MS = 30_000;
@@ -113,6 +114,8 @@ export interface RefreshAccountUsageOptions {
   createAnthropicControlLifecycle?: () => AnthropicProcessLifecycle;
   readAnthropic?: ReadAnthropic;
   readCodex?: ReadCodex;
+  /** Fixture seam for the post-sample, cached-evidence handoff warning hook. */
+  handoffObserver?: (runtime: { env: NodeJS.ProcessEnv }) => unknown;
 }
 
 export type AccountUsageTarget = Pick<RoutingTarget, "id" | "provider" | "authMode" | "profile">;
@@ -527,5 +530,14 @@ export async function refreshAccountUsages(
     ?? process.env.NORTH_PROVIDER_OBSERVATIONS
     ?? DEFAULT_PROVIDER_OBSERVATIONS_PATH;
   const accounts = accountsForRequest(options.accounts ?? configuredUsageTargets(options), options.requested);
-  return Promise.all(accounts.map((account) => refreshOne(account, options, storePath, now)));
+  const reports = await Promise.all(accounts.map((account) => refreshOne(account, options, storePath, now)));
+  throwIfProviderRefreshCancelled(options.signal);
+  try {
+    (options.handoffObserver ?? observeHandoffUsageSample)({
+      env: options.env ?? options.context?.env ?? process.env,
+    });
+  } catch {
+    // Warning delivery is advisory and must never change usage or routing truth.
+  }
+  return reports;
 }
