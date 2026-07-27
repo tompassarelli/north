@@ -221,6 +221,7 @@
             ./bin/north-on-tooluse
             ./bin/north-clock-audit
             ./bin/north-coord-sd-listen
+            ./bin/north-succession
             ./bin/north-coord-up
             ./bin/firn-rebuild-coordinated
             ./bin/north-stream-sync
