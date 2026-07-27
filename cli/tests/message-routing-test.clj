@@ -1,11 +1,31 @@
 #!/usr/bin/env bb
-(require '[clojure.java.io :as io])
+(require '[babashka.process :as proc]
+         '[clojure.java.io :as io]
+         '[clojure.string :as str])
 
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-routing.clj"))
+(let [test-file (System/getProperty "babashka.file")
+      msg-file (str root "/cli/msg-cli.clj")]
+  (System/setProperty "north.msg-cli.lib" "1")
+  (System/setProperty "babashka.file" msg-file)
+  (try
+    (load-file msg-file)
+    (finally
+      (System/setProperty "babashka.file" test-file))))
+
+(when (= "1" (System/getenv "NORTH_DEAD_RECIPIENT_CHILD"))
+  (with-redefs
+   [north.message-routing/require-live-address
+    (fn [_ _]
+      {:live false
+       :recipient "dead-session"
+       :alternative "live-session"})]
+    (admitted-message-recipient! 1 "dead-session" false))
+  (System/exit 99))
 
 (def checks (atom []))
 (defn check [label value]
@@ -62,6 +82,12 @@
              :kind :alias :live true}
             (north.message-routing/require-live-address
              1 "north-integrator")))
+  (check "msg-cli send admission uses the alias's concrete live session"
+         (= "live-session"
+            (admitted-message-recipient! 1 "north-integrator" false)))
+  (check "msg-cli dead-drop deliberately bypasses absent-recipient admission"
+         (= "dead-session"
+            (admitted-message-recipient! 1 "dead-session" true)))
   (check "armed listener passes without a lease"
          (= "armed-session"
             (:recipient
@@ -86,6 +112,19 @@
             (:rows
              (north.message-routing/dead-letter-scan
               1 (java.time.Instant/parse "2026-07-27T12:00:00Z"))))))
+
+(let [result
+      (proc/shell
+       {:continue true :out :string :err :string}
+       "env" "NORTH_DEAD_RECIPIENT_CHILD=1"
+       "bb" (System/getProperty "babashka.file"))
+      diagnostic (str (:out result) "\n" (:err result))]
+  (check "msg-cli send admission hard-fails for a dead recipient"
+         (= 2 (:exit result)))
+  (check "dead-recipient failure names the dead id, live successor, and override"
+         (and (str/includes? diagnostic "dead-session")
+              (str/includes? diagnostic "live same repo/role session: live-session")
+              (str/includes? diagnostic "--dead-drop"))))
 
 (let [failed (remove second @checks)]
   (println (str "message routing: " (- (count @checks) (count failed))
