@@ -206,6 +206,7 @@ test("Orchestration capabilities compile to exact provider authority before work
     "Read", "Grep", "Glob", "Edit", "Write", "Bash",
   ]));
   expect(integrator.disallowedTools).toEqual(expect.arrayContaining(["WebSearch", "WebFetch"]));
+  expect(integrator.env.NORTH_ORCHESTRATION_ROLE).toBe("integrator");
   expect(codexGlobalArguments(integrator)).toEqual([]);
   expect(codexHarnessArguments(integrator)).toEqual(managedCodexPreview);
 });
