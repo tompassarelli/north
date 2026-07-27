@@ -370,7 +370,9 @@ schedule_spawn_maintenance() {
     # The route cache is a convergence marker. Commit it only after every
     # identity fact lands, so PostToolUse repairs any failed projection.
     if [ "$projection_ok" -eq 1 ] &&
-        printf '%s\n%s\n%s\n' "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" >"$route_tmp" 2>/dev/null; then
+        printf '%s\n%s\n%s\n%s\n%s\n' \
+          "$PROVIDER_OBS" "$MODEL_OBS" "$EFFORT_OBS" \
+          "$ORCHESTRATION_ROLE" "$ROLE_ALIAS" >"$route_tmp" 2>/dev/null; then
       mv -f "$route_tmp" "$route_cache" 2>/dev/null || rm -f -- "${route_tmp:?}" 2>/dev/null || true
     fi
   ) </dev/null >/dev/null 2>&1 &

@@ -99,6 +99,27 @@ identity_key="$("$ACTOR_KEY" "$identity_kind" "$identity_key_source" 2>/dev/null
 [ "${#identity_key}" -eq 64 ] || exit 0
 REPO="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
 RN="$(basename "$REPO")"
+GIT_COMMON="$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -n "$GIT_COMMON" ] && [ "$(basename "$GIT_COMMON")" = ".git" ]; then
+  RN="$(basename "$(dirname "$GIT_COMMON")")"
+fi
+ORIGIN_URL="$(git -C "$cwd" remote get-url origin 2>/dev/null || true)"
+if [ -n "$ORIGIN_URL" ]; then
+  origin_name="${ORIGIN_URL%/}"
+  origin_name="${origin_name%.git}"
+  origin_name="${origin_name##*/}"
+  origin_name="${origin_name##*:}"
+  [ -n "$origin_name" ] && RN="$origin_name"
+fi
+slug() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
+}
+ORCHESTRATION_ROLE="$(slug "${NORTH_ORCHESTRATION_ROLE:-}")"
+ROLE_ALIAS=""
+if [ -n "$ORCHESTRATION_ROLE" ]; then
+  repo_segment="$(slug "$RN")"
+  [ -n "$repo_segment" ] && ROLE_ALIAS="$repo_segment-$ORCHESTRATION_ROLE"
+fi
 # identity resolution: per-session cache (written by north-on-spawn — the per-sid
 # truth) -> env pin -> legacy cwd derivation. Cache BEFORE env is deliberate: env is
 # ambient and INHERITABLE, so a parent's NORTH_AGENT_ID leaks into every subagent;
@@ -124,10 +145,13 @@ fi
 # never infer one from tool input or ambient ANTHROPIC_MODEL.
 [ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-}"
 cached_provider=""; cached_model=""; cached_effort=""
+cached_role=""; cached_role_alias=""
 if [ -r "$ROUTE_CACHE" ]; then
   cached_provider="$(sed -n '1p' "$ROUTE_CACHE" 2>/dev/null || true)"
   cached_model="$(sed -n '2p' "$ROUTE_CACHE" 2>/dev/null || true)"
   cached_effort="$(sed -n '3p' "$ROUTE_CACHE" 2>/dev/null || true)"
+  cached_role="$(sed -n '4p' "$ROUTE_CACHE" 2>/dev/null || true)"
+  cached_role_alias="$(sed -n '5p' "$ROUTE_CACHE" 2>/dev/null || true)"
 fi
 seed_provider=""; seed_model=""; seed_effort=""
 if [ ! -r "$ROUTE_CACHE" ] && [ -r "$ROUTE_SEED" ]; then
@@ -159,10 +183,11 @@ acquire_singleflight() {
 # and only then advances the route cache. The mkdir is a per-session singleflight
 # gate, while the worker's shared deadline bounds even a delayed/down daemon.
 schedule_projection_repair() {
-  local provider="$1" model="$2" effort="$3" display="$4"
+  local provider="$1" model="$2" effort="$3" display="$4" role="$5" role_alias="$6"
   local lock="${ROUTE_CACHE}.repair.lock"
   local route_tmp="${ROUTE_CACHE}.$$.${RANDOM}.tmp"
   local current_provider="" current_model="" current_effort=""
+  local current_role="" current_role_alias=""
   mkdir -p "$(dirname "$ROUTE_CACHE")" 2>/dev/null || return 0
   acquire_singleflight "$lock" 10 || return 0
   # A concurrent cold hook may have decided repair was needed before the first
@@ -172,10 +197,14 @@ schedule_projection_repair() {
     current_provider="$(sed -n '1p' "$ROUTE_CACHE" 2>/dev/null || true)"
     current_model="$(sed -n '2p' "$ROUTE_CACHE" 2>/dev/null || true)"
     current_effort="$(sed -n '3p' "$ROUTE_CACHE" 2>/dev/null || true)"
+    current_role="$(sed -n '4p' "$ROUTE_CACHE" 2>/dev/null || true)"
+    current_role_alias="$(sed -n '5p' "$ROUTE_CACHE" 2>/dev/null || true)"
   fi
   if [ "$current_provider" = "$provider" ] &&
       [ "$current_model" = "$model" ] &&
-      [ "$current_effort" = "$effort" ]; then
+      [ "$current_effort" = "$effort" ] &&
+      [ "$current_role" = "$role" ] &&
+      [ "$current_role_alias" = "$role_alias" ]; then
     rmdir -- "${lock:?}" 2>/dev/null || true
     return 0
   fi
@@ -189,21 +218,39 @@ schedule_projection_repair() {
         NORTH_NATIVE_MODEL="$model" \
         NORTH_NATIVE_EFFORT="$effort" \
         NORTH_NATIVE_DISPLAY="$display" \
+        NORTH_NATIVE_ROLE="$role" \
+        NORTH_NATIVE_ROLE_ALIAS="$role_alias" \
         bb -e '
           (load-file (str (System/getenv "NORTH_HOME") "/cli/coord.clj"))
           (let [port (Integer/parseInt (System/getenv "NORTH_NATIVE_PORT"))
                 subject (System/getenv "NORTH_NATIVE_SUBJECT")
-                facts [["kind" "session"]
+                role (System/getenv "NORTH_NATIVE_ROLE")
+                role-alias (System/getenv "NORTH_NATIVE_ROLE_ALIAS")
+                base-facts [["kind" "session"]
                        ["repo" (System/getenv "NORTH_NATIVE_REPO")]
                        ["provider" (System/getenv "NORTH_NATIVE_PROVIDER")]
                        ["model" (System/getenv "NORTH_NATIVE_MODEL")]
                        ["effort" (System/getenv "NORTH_NATIVE_EFFORT")]
                        ["display_handle" (System/getenv "NORTH_NATIVE_DISPLAY")]
                        ["display_name" (System/getenv "NORTH_NATIVE_DISPLAY")]]
-                results (mapv (fn [[p r]] (north.coord/put! port subject p r)) facts)]
+                facts (cond-> base-facts
+                        (seq role) (conj ["role" role]))
+                alias-facts (when (seq role-alias)
+                              [["title" role-alias]
+                               ["exclusivity" "exclusive"]
+                               ["target" (subs subject (count "@agent:"))]])
+                results
+                (into
+                 (mapv (fn [[p r]] (north.coord/put! port subject p r)) facts)
+                 (map (fn [[p r]]
+                        (north.coord/put!
+                         port (str "@role:" role-alias) p r)))
+                 alias-facts)]
             (when (some :reject results) (System/exit 1)))' >/dev/null 2>&1
     then
-      if printf '%s\n%s\n%s\n' "$provider" "$model" "$effort" >"$route_tmp" 2>/dev/null; then
+      if printf '%s\n%s\n%s\n%s\n%s\n' \
+          "$provider" "$model" "$effort" "$role" "$role_alias" \
+          >"$route_tmp" 2>/dev/null; then
         mv -f "$route_tmp" "$ROUTE_CACHE" 2>/dev/null || rm -f -- "${route_tmp:?}" 2>/dev/null || true
       fi
     fi
@@ -231,26 +278,27 @@ if [ ! -r "$ROUTE_CACHE" ]; then
   cached_provider="${PROVIDER:-unobserved}"
   cached_model="${seed_model:-unobserved}"
   cached_effort="${EFFORT:-${seed_effort:-unobserved}}"
-  slug() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
-  }
   provider_segment="$(slug "$cached_provider")"; [ -n "$provider_segment" ] || provider_segment="unobserved"
   model_segment="$(slug "$cached_model")"; [ -n "$model_segment" ] || model_segment="unobserved"
   effort_segment="$(slug "$cached_effort")"; [ -n "$effort_segment" ] || effort_segment="unobserved"
   display_handle="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
-  schedule_projection_repair "$cached_provider" "$cached_model" "$cached_effort" "$display_handle"
+  schedule_projection_repair \
+    "$cached_provider" "$cached_model" "$cached_effort" "$display_handle" \
+    "$ORCHESTRATION_ROLE" "$ROLE_ALIAS"
 fi
 
-if [ -n "$EFFORT" ] && [ "$EFFORT" != "$cached_effort" ]; then
+if { [ -n "$EFFORT" ] && [ "$EFFORT" != "$cached_effort" ]; } ||
+   [ "$ORCHESTRATION_ROLE" != "$cached_role" ] ||
+   [ "$ROLE_ALIAS" != "$cached_role_alias" ]; then
   if [ -r "$ROUTE_CACHE" ]; then
-    slug() {
-      printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
-    }
     provider_segment="$(slug "${cached_provider:-unknown}")"; [ -n "$provider_segment" ] || provider_segment="unknown"
     model_segment="$(slug "${cached_model:-unknown}")"; [ -n "$model_segment" ] || model_segment="unknown"
-    effort_segment="$(slug "$EFFORT")"; [ -n "$effort_segment" ] || effort_segment="unknown"
+    effective_effort="${EFFORT:-$cached_effort}"
+    effort_segment="$(slug "$effective_effort")"; [ -n "$effort_segment" ] || effort_segment="unknown"
     display_handle="$provider_segment-$model_segment-$effort_segment-native-${ID##*-}"
-    schedule_projection_repair "$cached_provider" "$cached_model" "$EFFORT" "$display_handle"
+    schedule_projection_repair \
+      "$cached_provider" "$cached_model" "$effective_effort" "$display_handle" \
+      "$ORCHESTRATION_ROLE" "$ROLE_ALIAS"
   fi
 fi
 
