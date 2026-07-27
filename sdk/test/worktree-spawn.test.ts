@@ -174,6 +174,8 @@ test("managed authoring without a registered worktree fails closed before canoni
   }); } catch (error) { thrown = error; }
 
   expect(String(thrown)).toContain("managed mutation requires a registered worktree allocation");
+  expect(String(thrown)).toContain("set AGENT_WORKTREE=1 in the dispatching environment");
+  expect(String(thrown)).toContain("drop mutation capabilities for a read-only lane");
   expect(String(thrown)).toContain("canonical checkout mutation denied");
   expect(providerQueries).toBe(0);
   expect(sink.options).toBeUndefined();

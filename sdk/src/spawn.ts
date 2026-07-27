@@ -1317,7 +1317,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     ?? process.env.AGENT_WORKTREE === "1";
   if (requestsMutation && !requestsRegisteredWorkspace) {
     throw new Error(
-      "managed mutation requires a registered worktree allocation; canonical checkout mutation denied",
+      "managed mutation requires a registered worktree allocation: set AGENT_WORKTREE=1 in the dispatching environment for a managed worktree lane, or drop mutation capabilities for a read-only lane; canonical checkout mutation denied",
     );
   }
   // Resolve the exact observer policy and immutable dispatcher grade before
