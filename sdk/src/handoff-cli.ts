@@ -1,5 +1,6 @@
 import {
   activeSessionRoute,
+  activeSessionIdentityFacts,
   checkHandoff,
   composeHandoffSpawn,
   fireHandoff,
@@ -88,7 +89,12 @@ export function runHandoffCli(
     if (command === "check") {
       const parsed = parse(rest, new Set(["--provider", "--threshold"]));
       const rows = loadRows();
-      const route = activeSessionRoute(rows, parsed.values["--provider"], env);
+      const route = activeSessionRoute(
+        rows,
+        parsed.values["--provider"],
+        env,
+        activeSessionIdentityFacts(parsed.values["--provider"], runtime),
+      );
       out(renderCheck(checkHandoff(rows, route, threshold(env, parsed.values["--threshold"]))));
       return 0;
     }
@@ -98,7 +104,12 @@ export function runHandoffCli(
       const brief = parsed.values["--brief"];
       if (!rootThread || !brief) throw new Error("handoff fire requires --thread <root> and --brief <path>");
       const rows = loadRows();
-      const route = activeSessionRoute(rows, undefined, env);
+      const route = activeSessionRoute(
+        rows,
+        undefined,
+        env,
+        activeSessionIdentityFacts(undefined, runtime),
+      );
       const check = checkHandoff(rows, route, threshold(env));
       const notify = env.NORTH_HANDOFF_NOTIFY ?? env.AGENT_COORDINATOR ?? "";
       const spawn = composeHandoffSpawn(check, rootThread, brief, notify, runtime);

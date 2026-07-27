@@ -575,12 +575,20 @@ export function activeSessionRoute(
   rows: readonly AvailabilityRow[],
   providerOverride: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
+  identityFacts: readonly Fact[] = [],
 ): ActiveSessionRoute {
-  const rawProvider = providerOverride ?? env.AGENT_PROVIDER;
+  const identityValue = (predicate: string) =>
+    identityFacts.find((fact) => fact.predicate === predicate)?.value;
+  const rawProvider = providerOverride ?? (
+    env.AGENT_PROVIDER === "anthropic" || env.AGENT_PROVIDER === "openai"
+      ? env.AGENT_PROVIDER
+      : identityValue("provider")
+  );
   if (rawProvider !== "anthropic" && rawProvider !== "openai")
     throw new Error("active provider is unavailable; pass --provider anthropic|openai");
   const providerRows = rows.filter(({ provider }) => provider === rawProvider);
   const account = env.AGENT_TARGET
+    ?? identityValue("provider_target")
     ?? (providerRows.length === 1 ? providerRows[0].account : "");
   const rawTier = env.AGENT_TIER;
   const tier = SEMANTIC_TIER_ORDER.includes(rawTier as SemanticTier)
@@ -589,9 +597,23 @@ export function activeSessionRoute(
   return {
     provider: rawProvider,
     account,
-    ...(env.AGENT_MODEL ? { model: env.AGENT_MODEL } : {}),
+    ...(env.AGENT_MODEL ?? identityValue("model")
+      ? { model: env.AGENT_MODEL ?? identityValue("model")! }
+      : {}),
     ...(tier ? { tier } : {}),
   };
+}
+
+export function activeSessionIdentityFacts(
+  providerOverride: string | undefined,
+  runtime: HandoffRuntime = {},
+): Fact[] {
+  const env = runtime.env ?? process.env;
+  if (!env.AGENT_ID) return [];
+  const providerKnown = providerOverride === "anthropic" || providerOverride === "openai"
+    || env.AGENT_PROVIDER === "anthropic" || env.AGENT_PROVIDER === "openai";
+  if (providerKnown && env.AGENT_TARGET && env.AGENT_MODEL) return [];
+  return (runtime.getFacts ?? getThreadFacts)(`agent:${env.AGENT_ID}`);
 }
 
 export function automaticHandoffFireEnabled(
@@ -669,7 +691,12 @@ export function observeHandoffUsageSample(
   if (provider !== "anthropic" && provider !== "openai") return [];
   try {
     const rows = (runtime.loadRows ?? (() => loadAvailabilityRows(runtime.northBin)))();
-    const active = activeSessionRoute(rows, undefined, env);
+    const active = activeSessionRoute(
+      rows,
+      undefined,
+      env,
+      activeSessionIdentityFacts(undefined, runtime),
+    );
     const receipt = availabilityForRoute(rows, active);
     if (receipt.stale) return [];
     const threshold = handoffThreshold(env.NORTH_HANDOFF_WARN_THRESHOLD ?? DEFAULT_THRESHOLD);

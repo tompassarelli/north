@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  activeSessionRoute,
   checkHandoff,
   composeHandoffSpawn,
   fireHandoff,
@@ -150,6 +151,25 @@ test("pinned availability parser rejects shape drift", () => {
   expect(parseAvailabilityRows([valid])).toEqual([valid]);
   expect(() => parseAvailabilityRows([{ ...valid, surprise: true }]))
     .toThrow("fields mismatch");
+});
+
+test("active route falls back to the current managed agent identity", () => {
+  expect(activeSessionRoute([
+    row("codex-active", "openai"),
+    row("codex-heir", "openai"),
+  ], undefined, {
+    AGENT_PROVIDER: "auto",
+    AGENT_TIER: "senior",
+  }, [
+    { predicate: "provider", value: "openai" },
+    { predicate: "provider_target", value: "codex-active" },
+    { predicate: "model", value: "gpt-5.6-sol" },
+  ])).toEqual({
+    provider: "openai",
+    account: "codex-active",
+    model: "gpt-5.6-sol",
+    tier: "senior",
+  });
 });
 
 test("warning detection reports every crossed rung", () => {
