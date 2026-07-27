@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   accountAvailabilityBand,
   accountAvailabilityRowIsUsable,
@@ -114,4 +123,76 @@ test("ignores non-authoritative rate-event evidence and filters exact accounts",
     now: new Date(fixture.now),
   });
   expect(rows.map(({ account }) => account)).toEqual(["claude-available"]);
+});
+
+test("account availability JSON reads only the cached fixture and uses usability for exit status", () => {
+  const home = mkdtempSync(join(tmpdir(), "north-availability-cli-"));
+  const state = join(home, ".local/state/north");
+  const config = join(home, ".config/north");
+  const observations = join(state, "provider-usage-observations.json");
+  const providerCanary = join(home, "provider-called");
+  const providerBinary = join(home, "provider-canary");
+  mkdirSync(state, { recursive: true });
+  mkdirSync(config, { recursive: true });
+  writeFileSync(join(config, "routing-policy.json"), `${JSON.stringify({
+    version: 1,
+    mode: "preferential",
+    providerOrder: ["anthropic", "openai"],
+    targetOrder: ["claude-model"],
+    targets: [{
+      id: "claude-model",
+      provider: "anthropic",
+      authMode: "isolated",
+      profile: "claude-model",
+    }],
+  })}\n`);
+  const model = fixture.cases.find(({ name }) => name === "model-cooked")!;
+  const observedAt = new Date().toISOString();
+  const observation = { ...model.observation, observedAt };
+  writeFileSync(observations, `${JSON.stringify({
+    version: 1,
+    observations: [observation],
+  })}\n`);
+  writeFileSync(providerBinary, `#!/bin/sh\ntouch "${providerCanary}"\nexit 1\n`);
+  chmodSync(providerBinary, 0o755);
+  const env = {
+    ...process.env,
+    HOME: home,
+    NORTH_PROVIDER_OBSERVATIONS: observations,
+    NORTH_ROUTING_POLICY: join(config, "routing-policy.json"),
+    NORTH_CLAUDE_BIN: providerBinary,
+    NORTH_CODEX_BIN: providerBinary,
+  };
+  const cli = join(import.meta.dir, "../src/account-cli.ts");
+  const all = spawnSync("bun", ["run", cli, "availability", "--json"], {
+    env,
+    encoding: "utf8",
+  });
+  const fable = spawnSync("bun", [
+    "run", cli, "availability", "--model", "fable", "--json",
+  ], {
+    env,
+    encoding: "utf8",
+  });
+
+  expect(all.status).toBe(0);
+  expect(JSON.parse(all.stdout)).toEqual([{
+    account: "claude-model",
+    provider: "anthropic",
+    observedAt,
+    stale: false,
+    rungs: {
+      window: { name: "five_hour", pct: 20, resetsAt: "2026-07-28T15:00:00.000Z" },
+      week: { pct: 20, resetsAt: "2026-08-02T00:00:00.000Z" },
+      models: {
+        fable: { pct: 99, resetsAt: "2026-08-02T00:00:00.000Z" },
+        opus: { pct: 30, resetsAt: "2026-08-02T00:00:00.000Z" },
+      },
+    },
+    verdict: "model-cooked[fable]",
+    usableModels: ["opus"],
+  }]);
+  expect(fable.status).toBe(1);
+  expect(JSON.parse(fable.stdout)[0].usableModels).toEqual([]);
+  expect(existsSync(providerCanary)).toBe(false);
 });

@@ -197,6 +197,7 @@ north — your one card. Type a command to do the thing next to it.
     north config routing               provider order, pressure, reserves, envelopes
     north account add|login|status     manage provider subscription accounts
     north account usage [id]           subscription windows, resets, and unknown reasons
+    north account availability         cached per-account availability verdicts
     north account list [--verbose]    grouped accounts + live login state
     north spend status [target]        API-billing budget: cap, reserved, settled, headroom
     north spend init|override <target> create a guarded budget · add a time-boxed override
