@@ -276,6 +276,70 @@
            (and (eventually #(.isFile marker) 3000)
                 (= "survived" (slurp marker)))))
 
+  ;; Full daemonized lane ownership boundary. The lane first unrefs its owned
+  ;; coordinator, then crosses an asynchronous pre-provider gap. It must retain
+  ;; itself, keep writing the inherited durable log after the dispatcher dies,
+  ;; launch the provider, and reap the coordinator on provider death.
+  (let [log (temp-file "daemonized-lane-lifecycle.log")
+        coordinator-pid-file (temp-file "daemonized-coordinator.pid")
+        provider-pid-file (temp-file "daemonized-provider.pid")
+        terminal-file (temp-file "daemonized-terminal")
+        child-env (assoc base-env
+                         "NORTH_TEST_COORDINATOR_PID_FILE" (str coordinator-pid-file)
+                         "NORTH_TEST_PROVIDER_PID_FILE" (str provider-pid-file)
+                         "NORTH_TEST_TERMINAL_FILE" (str terminal-file))
+        child-command ["bun" (str root "/sdk/test/fixtures/daemonized-lane-lifecycle.ts")]
+        launcher-expr
+        (str "(load-file " (pr-str (str root "/cli/spawn-process.clj")) ") "
+             "(north.spawn-process/launch-detached! "
+             (pr-str child-command) " "
+             (pr-str child-env) " "
+             (pr-str (str log)) ") "
+             "(Thread/sleep 10000)")
+        launcher (p/process ["bb" "-e" launcher-expr]
+                            {:out :string :err :string})]
+    (try
+      (check "daemonized lifecycle reaches coordinator boot before dispatcher exit"
+             (eventually #(and (.isFile coordinator-pid-file)
+                               (str/includes? (slurp log) "coordinator-boot"))
+                         3000))
+      (p/destroy-tree launcher)
+      (deref launcher 2000 nil)
+      (check "daemonized lifecycle launches its provider after dispatcher exit"
+             (eventually #(.isFile provider-pid-file) 3000))
+      (let [provider-pid (Long/parseLong (str/trim (slurp provider-pid-file)))
+            coordinator-pid (Long/parseLong (str/trim (slurp coordinator-pid-file)))]
+        (check "detached lane keeps its durable log writable through provider launch"
+               (eventually #(let [contents (slurp log)]
+                              (and (str/includes? contents "starting provider=fixture")
+                                   (str/includes? contents "provider-process-started")))
+                           3000))
+        (check "dispatcher exit does not kill the launched provider"
+               (north.spawn-process/process-alive?
+                {:north.spawn-process/pid-file provider-pid-file}))
+        @(p/process ["kill" "-KILL" (str provider-pid)]
+                    {:out :string :err :string :continue true})
+        (check "provider death reaps the lane coordinator and writes a terminal line"
+               (and (eventually #(.isFile terminal-file) 3000)
+                    (= "provider_died coordinator_reaped"
+                       (str/trim (slurp terminal-file)))
+                    (eventually #(not
+                                  (north.spawn-process/process-alive?
+                                   {:north.spawn-process/pid-file coordinator-pid-file}))
+                                3000)
+                    (str/includes? (slurp log)
+                                   "terminal provider_died coordinator_reaped"))))
+      (finally
+        (doseq [pid-file [provider-pid-file coordinator-pid-file]]
+          (when (.isFile pid-file)
+            (let [pid (Long/parseLong (str/trim (slurp pid-file)))
+                  handle (java.lang.ProcessHandle/of pid)]
+              (when (and (.isPresent handle) (.isAlive (.get handle)))
+                @(p/process ["kill" "-KILL" (str pid)]
+                            {:out :string :err :string :continue true})))))
+        (try (p/destroy-tree launcher) (catch Exception _ nil))
+        (deref launcher 2000 nil))))
+
   (finally
     (north.spawn-process/stop-process!
      ;; stop-process! is intentionally tolerant; exercise the no-op boundary.

@@ -9,7 +9,9 @@
 //      worktree/branch facts route through NORTH_BIN; a clean `ran` removes the tree inline.
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { presetRequest } from "./routing-fixtures";
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync } from "node:fs";
+import {
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,6 +20,7 @@ import type {
   WorktreeAllocationRegistration,
 } from "../src/worktree";
 import { ProviderRetrySafeError } from "../src/providers";
+import type { RoutingRequest } from "../src/routing-metadata";
 
 let dir: string;      // fake-north sandbox
 let log: string;      // fake-north invocation log
@@ -57,6 +60,42 @@ function readySubscription(stop: () => void = () => {}) {
     isArmed: () => true,
   });
 }
+
+async function eventually(predicate: () => boolean, timeoutMs = 1_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+}
+
+const graphAuthoringRequest: RoutingRequest = {
+  role: "beagle-graph-author",
+  taskGrade: "senior",
+  domainRequirements: ["Beagle graph authoring"],
+  topology: "worker",
+  tier: "senior",
+  reasoning: "high",
+  posture: "deliver",
+  composition: {
+    kind: "bespoke",
+    id: "beagle-graph-author",
+    bespokeReason: "Fram graph editing is a distinct sealed authority",
+    promotionCandidate: false,
+    contract: {
+      responsibility: "author a graph-upstream Beagle module",
+      deliverable: "a compiler-accepted graph edit",
+      capabilities: [
+        "filesystem.read", "filesystem.search", "shell.readonly", "graph-authoring.fram",
+      ],
+      mayDecide: ["which graph edit verb fits the requested change"],
+      mustEscalate: ["any text edit to graph-upstream source"],
+      doneWhen: ["the graph edit recompiles"],
+      report: "edited definitions and compiler result",
+    },
+  },
+};
 
 beforeAll(() => {
   origCwd = process.cwd();
@@ -201,6 +240,78 @@ test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, 
   const branches = execFileSync("git", ["-C", expectedPath, "branch", "--list", `lane-${agentId}`], { encoding: "utf8" });
   expect(branches).toContain(`lane-${agentId}`);
   rmSync(expectedPath, { recursive: true, force: true });
+});
+
+test("graph lane publishes startup identity while its detached coordinator is still booting", async () => {
+  const { spawn } = await import("./support/spawn");
+  process.chdir(repo);
+  const priorFramHome = process.env.NORTH_FRAM_HOME;
+  const priorBeagleHome = process.env.NORTH_BEAGLE_HOME;
+  process.env.NORTH_FRAM_HOME = repo;
+  process.env.NORTH_BEAGLE_HOME = join(dir, "unrelated-beagle");
+  writeFileSync(log, "");
+  const agentId = "wt-graph-boot-overlap";
+  let releaseCoordinator!: () => void;
+  const coordinatorReady = new Promise<void>((resolve) => {
+    releaseCoordinator = resolve;
+  });
+  let providerStarts = 0;
+  let coordinatorCloses = 0;
+  const running = spawn({
+    prompt: "start provider after graph coordinator readiness",
+    agentId,
+    worktree: true,
+    routingMetadata: graphAuthoringRequest,
+    prepareManagedFramCoordinator: async ({ worktree }: { worktree: string }) => {
+      await coordinatorReady;
+      mkdirSync(join(worktree, ".fram"), { recursive: true });
+      writeFileSync(join(worktree, ".fram", "managed-code-coordinator.json"), JSON.stringify({
+        version: 1,
+        active: true,
+        sourceRoot: worktree,
+        codeLog: join(worktree, ".fram", "code.log"),
+        codePort: "45678",
+        canonicalSourceRoot: repo,
+        seededFrom: join(repo, ".fram", "code.log"),
+        reboundTrackedPaths: 1,
+        pid: 4242,
+      }));
+      return {
+        sourceRoot: worktree,
+        codeLog: join(worktree, ".fram", "code.log"),
+        codePort: "45678",
+        pid: 4242,
+        close: async () => { coordinatorCloses++; },
+        forceClose: () => {},
+      };
+    },
+    queryFn: () => {
+      providerStarts++;
+      return capturingQuery({})({ options: {} });
+    },
+    feedSubscriber: () => readySubscription(),
+  });
+  let identityPublishedBeforeCoordinator = false;
+  try {
+    identityPublishedBeforeCoordinator = await eventually(() =>
+      existsSync(log)
+      && readFileSync(log, "utf8").includes(`tell agent:${agentId} kind lane`),
+    500);
+  } finally {
+    releaseCoordinator();
+  }
+  try {
+    await running;
+  } finally {
+    process.chdir(origCwd);
+    if (priorFramHome === undefined) delete process.env.NORTH_FRAM_HOME;
+    else process.env.NORTH_FRAM_HOME = priorFramHome;
+    if (priorBeagleHome === undefined) delete process.env.NORTH_BEAGLE_HOME;
+    else process.env.NORTH_BEAGLE_HOME = priorBeagleHome;
+  }
+  expect(identityPublishedBeforeCoordinator).toBe(true);
+  expect(providerStarts).toBe(1);
+  expect(coordinatorCloses).toBe(1);
 });
 
 test("explicit worktree provisioning failure aborts before provider, admission, identity, or run side effects", async () => {
