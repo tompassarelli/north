@@ -97,6 +97,7 @@ import {
   ManagedQueryTermination, type HostTerminationRegistrar,
 } from "./query-lifecycle";
 import {
+  managedFramLaneSourceConfiguration,
   prepareManagedFramCoordinator,
 } from "./fram-graph-authoring";
 
@@ -1391,7 +1392,10 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
         injected.prepareManagedFramCoordinator ?? prepareManagedFramCoordinator
       )({
         worktree: worktreeLease.path,
-        canonicalSourceRoot: worktreeLease.repoRoot,
+        ...managedFramLaneSourceConfiguration(
+          worktreeLease.path,
+          worktreeLease.repoRoot,
+        ),
       });
       termination.attachResource(coordinator);
       console.log(
