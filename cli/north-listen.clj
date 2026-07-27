@@ -28,6 +28,46 @@
 
 (defn ack! [port me id] (append! port id "acked_by" me))   ; acked_by is multi — append (coexist)
 
+(defn positive-env-ms [name default-value]
+  (let [raw (or (System/getenv name) (str default-value))
+        value (when (re-matches #"[1-9][0-9]{0,5}" raw)
+                (parse-long raw))]
+    (when-not value
+      (throw
+       (ex-info (str name " must be an integer from 1 through 999999 milliseconds")
+                {:type :invalid-listener-backoff :name name :value raw})))
+    value))
+
+(def listener-initial-backoff-ms
+  (positive-env-ms "NORTH_LISTEN_INITIAL_BACKOFF_MS" 250))
+(def listener-max-backoff-ms
+  (positive-env-ms "NORTH_LISTEN_MAX_BACKOFF_MS" 5000))
+
+(when (< listener-max-backoff-ms listener-initial-backoff-ms)
+  (throw
+   (ex-info "NORTH_LISTEN_MAX_BACKOFF_MS must be at least the initial backoff"
+            {:type :invalid-listener-backoff-order})))
+
+(defn reconnect-backoff-ms [attempt]
+  (let [shift (min 20 (max 0 attempt))
+        multiplier (bit-shift-left 1 shift)]
+    (min listener-max-backoff-ms
+         (* listener-initial-backoff-ms multiplier))))
+
+(defn run-with-reconnect!
+  "Drive subscription passes until a test/embedding pass returns :stop.
+   Production passes return :rescope, :closed, or :unavailable forever."
+  [pass! sleep! notice!]
+  (loop [failure-attempt 0]
+    (let [result (pass!)]
+      (case (:reason result)
+        :stop result
+        :rescope (recur 0)
+        (let [delay-ms (reconnect-backoff-ms failure-attempt)]
+          (notice! result delay-ms)
+          (sleep! delay-ms)
+          (recur (inc failure-attempt)))))))
+
 ;; --- Phase 1: the reactor — a forward-chaining rule over fact-patterns ------
 ;; The reactor NO LONGER string-parses a command envelope (the parse-envelope copy that
 ;; "MUST stay in sync" with msg-cli is DELETED). A command is FACTS on @cmd:<id>; the
@@ -110,7 +150,8 @@
                           " · retryable=" (boolean (:retryable result))))))
         (flush)))))
 
-(let [[ps uuid & flags] *command-line-args*
+(when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
+ (let [[ps uuid & flags] *command-line-args*
       port    (Integer/parseInt ps)
       node    (str "@agent:" uuid)
       once?   (boolean (some #{"--once"} flags))
@@ -120,15 +161,20 @@
                 (binding [*out* *err*] (println problem))
                 (System/exit 1))
       scoped? (boolean (some #{"--scoped"} flags))  ; P5: server-side scoped subscribe (daemon pushes only my commits)
-      addrs   (atom (into #{uuid} (keep role-slug (rmany port node "holds"))))  ; uuid ∪ held roles
-      watched (atom (set (rmany port node "watches")))]
-  ;; outer loop: with --scoped, RECONNECT when my addr/watch set changes so the daemon re-scopes
-  ;; the push filter (the daemon's subscribe loop ignores mid-stream re-subscribe, so a fresh
-  ;; connection is how we re-scope). Without --scoped, reconnect? never fires -> one pass, identical
-  ;; to the firehose listener (full backward-compat).
-  (loop []
+      addrs   (atom #{uuid})
+      watched (atom #{})]
+  ;; Every pass refreshes graph-backed scope, then arms one subscription. A
+  ;; scoped address change reconnects immediately; coordinator EOF/refusal or a
+  ;; restart-time protocol failure retries forever with bounded backoff.
+  (run-with-reconnect!
+   (fn []
     (let [reconnect? (atom false)]
-      (with-open [s (north.coord/connect-socket port)]
+          (try
+            (reset! addrs
+                    (into #{uuid}
+                          (keep role-slug (rmany port node "holds"))))
+            (reset! watched (set (rmany port node "watches")))
+            (with-open [s (north.coord/connect-socket port)]
         (let [w (.getOutputStream s)
               reader (north.coord/coordinator-reader s)
               ;; The daemon still needs "*" in its transport filter to forward
@@ -220,4 +266,18 @@
               (if @reconnect?
                 (do (println "  ↳ re-scoping subscription (addr/watch changed)…") (flush))
                 (recur))))))
-      (when @reconnect? (recur)))))
+            (if @reconnect?
+              {:reason :rescope}
+              {:reason :closed
+               :message "coordinator subscription stream closed"})
+            (catch Exception error
+              {:reason :unavailable
+               :message (or (.getMessage error)
+                            (.getName (class error)))}))))
+   (fn [delay-ms] (Thread/sleep delay-ms))
+   (fn [result delay-ms]
+     (binding [*out* *err*]
+       (println
+        (str "north listen: " (:message result)
+             "; reconnecting in " delay-ms "ms"))
+       (flush))))))
