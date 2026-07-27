@@ -5,7 +5,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  deliveryReservationFailureCause, deliveryRunEnvironment,
+  deliveryEvidenceWriterError, deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
   parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
   resolveDeliveryRunState, resolveThreadFacts, RUN_RESERVATION_VERSION,
@@ -93,6 +93,18 @@ test("writer failures never echo the live capability in diagnostics", () => {
   } catch (error) {
     expect(String(error)).not.toContain(capability);
   }
+});
+
+test("contention exhaustion is a typed retryable evidence error", () => {
+  const error = deliveryEvidenceWriterError(
+    "record",
+    "ExceptionInfo: retry\nMessage: RETRYABLE: evidence commit contention; "
+      + "re-submit the same bar and observed result\n",
+  );
+  expect(error.name).toBe("DeliveryEvidenceRetryableError");
+  expect(error.retryable).toBe(true);
+  expect(error.message).toContain("delivery evidence record rejected: RETRYABLE:");
+  expect(error.message).toContain("re-submit the same bar and observed result");
 });
 
 test("reservation failure diagnostics expose only bounded semantic causes", () => {

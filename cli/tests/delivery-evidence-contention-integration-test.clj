@@ -72,11 +72,19 @@
     (check! "real Fram daemon starts"
             (eventually #(port-open? port)))
 
-    ;; --- Set up one thread with 24 active done_when bars and reserve one run
+    ;; --- Set up one thread with N*M active done_when bars and reserve one run
     ;; against it, exactly as a managed lane's provider process would. ---
     (let [thread "@thread:evidence-contention"
-          bar-count 6
-          bars (mapv #(str "bar-" %) (range bar-count))
+          writer-count 4
+          records-per-writer 4
+          bars-by-writer
+          (mapv
+           (fn [writer-index]
+             (mapv
+              #(str "bar-" writer-index "-" %)
+              (range records-per-writer)))
+           (range writer-count))
+          bars (vec (mapcat identity bars-by-writer))
           run "@run:evidence-contention"
           reporter "@agent:evidence-contention"
           capability (str/join (repeat 64 "a"))
@@ -105,41 +113,58 @@
                  (str (swap! churn-writes inc)))
                 (Thread/sleep 15)))
             writer-path (str root "/cli/delivery-evidence-internal.clj")
-            results
-            (try
-              (->> bars
+            submit
+            (fn []
+              (->> bars-by-writer
                    (pmap
-                    (fn [bar]
-                      (let [request
-                            (json/generate-string
-                             {"run" run "thread" thread "reporter" reporter
-                              "capability" capability
-                              "bar" bar "observed" (str "exit 0 " bar)})
-                            outcome
-                            (proc/process
-                             {:in request :out :string :err :string
-                              :extra-env {"FRAM_LOG" (.getPath log)}}
-                             "bb" writer-path (str port) "record")
-                            done @outcome]
-                        {:bar bar :exit (:exit done) :err (:err done)})))
-                   (doall))
+                    (fn [writer-bars]
+                      (mapv
+                       (fn [bar]
+                         (let [request
+                               (json/generate-string
+                                {"run" run "thread" thread "reporter" reporter
+                                 "capability" capability
+                                 "bar" bar "observed" (str "exit 0 " bar)})
+                               outcome
+                               (proc/process
+                                {:in request :out :string :err :string
+                                 :extra-env {"FRAM_LOG" (.getPath log)}}
+                                "bb" writer-path (str port) "record")
+                               done @outcome]
+                           {:bar bar :exit (:exit done) :err (:err done)}))
+                       writer-bars)))
+                   (doall)
+                   (mapcat identity)
+                   vec))
+            submissions
+            (try
+              [(submit) (submit)]
               (finally
                 (reset! running? false)
-                @writer))]
+                @writer))
+            results (vec (mapcat identity submissions))]
         (check! "unrelated churn actually raced the commits"
                 (>= @churn-writes 5))
-        (check! "every concurrent evidence record for a live reservation lands"
+        (check! "N writers x M records plus exact replays all acknowledge"
                 (every? #(zero? (:exit %)) results))
         (when-let [failed (seq (filter #(not (zero? (:exit %))) results))]
           (println "  [FAILURES]" (mapv :err failed)))
 
         (let [stored
-              (into #{}
-                    (map
-                     (fn [raw] (get (json/parse-string raw) "bar"))
-                     (north.coord/many port run "run_bar_evidence")))]
-          (check! "every bar's evidence is actually stored on the run"
-                  (= (set bars) stored)))))
+              (mapv
+               #(json/parse-string %)
+               (north.coord/many port run "run_bar_evidence"))
+              stored-bars (mapv #(get % "bar") stored)
+              projected
+              (north.coord/many port thread "bar_evidence")]
+          (check! "all N*M evidence records are stored with zero loss"
+                  (= (set bars) (set stored-bars)))
+          (check! "exact replay is idempotent: zero run-record duplicates"
+                  (and (= (count bars) (count stored))
+                       (every? #(= 1 %)
+                               (vals (frequencies stored-bars)))))
+          (check! "exact replay is idempotent: zero thread-projection duplicates"
+                  (= (count bars) (count projected))))))
 
     ;; --- The refusal, when contention genuinely cannot converge inside its
     ;; budget, must NAME ITSELF rather than reporting the generic rejection
@@ -182,7 +207,7 @@
                   (and (some? caught)
                        (str/includes?
                         (.getMessage caught)
-                        "run evidence commit did not converge under contention"))))))
+                        "RETRYABLE: evidence commit contention"))))))
 
     (finally
       (proc/process ["kill" (str (:pid daemon))])
