@@ -126,10 +126,13 @@ if grep -Fq '@run:current' "$coord_log"; then
 fi
 grep -Fq '@run:current' "$telemetry_log"
 
-telemetry_before="$(sha256sum "$telemetry_log" | cut -d' ' -f1)"
 kill "$telemetry_pid"
 wait "$telemetry_pid" 2>/dev/null || true
 telemetry_pid=
+# Hash after the writer has fully exited: a dirty writer appends its own
+# shutdown checkpoint on SIGTERM, which is not a cross-origin write. The
+# invariant is that nothing mutates the log once its sole writer is dead.
+telemetry_before="$(sha256sum "$telemetry_log" | cut -d' ' -f1)"
 
 env "${partition_env[@]}" bb -e '
   (load-file (str (System/getenv "NORTH_TEST_ROOT") "/cli/coord.clj"))
