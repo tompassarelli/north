@@ -1,0 +1,80 @@
+{
+  "now": "2026-07-28T12:00:00.000Z",
+  "cases": [
+    {
+      "name": "available",
+      "observation": {
+        "targetId": "claude-available",
+        "provider": "anthropic",
+        "source": "claude-agent-sdk:usage-control-experimental",
+        "observedAt": "2026-07-28T11:00:00.000Z",
+        "windows": [
+          { "limitId": "claude:five_hour", "usedPercent": 20, "resetsAt": "2026-07-28T15:00:00.000Z" },
+          { "limitId": "claude:seven_day", "usedPercent": 30, "resetsAt": "2026-08-02T00:00:00.000Z" },
+          { "limitId": "claude:model:fable", "usedPercent": 40, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "available", "stale": false, "usableModels": ["fable"] }
+    },
+    {
+      "name": "cooked-week",
+      "observation": {
+        "targetId": "claude-week",
+        "provider": "anthropic",
+        "source": "claude-agent-sdk:usage-control-experimental",
+        "observedAt": "2026-07-28T11:00:00.000Z",
+        "windows": [
+          { "limitId": "claude:five_hour", "usedPercent": 20, "resetsAt": "2026-07-28T15:00:00.000Z" },
+          { "limitId": "claude:seven_day", "usedPercent": 99, "resetsAt": "2026-08-02T00:00:00.000Z" },
+          { "limitId": "claude:model:fable", "usedPercent": 10, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "cooked-week", "stale": false, "usableModels": [] }
+    },
+    {
+      "name": "cooked-window",
+      "observation": {
+        "targetId": "claude-window",
+        "provider": "anthropic",
+        "source": "claude-agent-sdk:usage-control-experimental",
+        "observedAt": "2026-07-28T11:00:00.000Z",
+        "windows": [
+          { "limitId": "claude:five_hour", "usedPercent": 99, "resetsAt": "2026-07-28T15:00:00.000Z" },
+          { "limitId": "claude:seven_day", "usedPercent": 20, "resetsAt": "2026-08-02T00:00:00.000Z" },
+          { "limitId": "claude:model:fable", "usedPercent": 10, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "cooked-window", "stale": false, "usableModels": [] }
+    },
+    {
+      "name": "model-cooked",
+      "observation": {
+        "targetId": "claude-model",
+        "provider": "anthropic",
+        "source": "claude-agent-sdk:usage-control-experimental",
+        "observedAt": "2026-07-28T11:00:00.000Z",
+        "windows": [
+          { "limitId": "claude:five_hour", "usedPercent": 20, "resetsAt": "2026-07-28T15:00:00.000Z" },
+          { "limitId": "claude:seven_day", "usedPercent": 20, "resetsAt": "2026-08-02T00:00:00.000Z" },
+          { "limitId": "claude:model:fable", "usedPercent": 99, "resetsAt": "2026-08-02T00:00:00.000Z" },
+          { "limitId": "claude:model:opus", "usedPercent": 30, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "model-cooked[fable]", "stale": false, "usableModels": ["opus"] }
+    },
+    {
+      "name": "stale-evidence",
+      "observation": {
+        "targetId": "claude-stale",
+        "provider": "anthropic",
+        "source": "claude-agent-sdk:usage-control-experimental",
+        "observedAt": "2026-07-28T06:00:00.000Z",
+        "windows": [
+          { "limitId": "claude:five_hour", "usedPercent": 20, "resetsAt": "2026-07-28T15:00:00.000Z" },
+          { "limitId": "claude:seven_day", "usedPercent": 20, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "available", "stale": true, "usableModels": [] }
+    }
+  ]
+}
