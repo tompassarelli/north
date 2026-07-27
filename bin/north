@@ -10,15 +10,13 @@ export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
 _north_fram_log_explicit=0
 if [ -n "${FRAM_LOG:-}" ]; then _north_fram_log_explicit=1; fi
 export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/facts.log}"
-# --- the log split: kind-routed telemetry segregation (OPT-IN; off => byte-identical) -
-# When enabled the coordinator splits persistence per log: coordination facts
-# stay in coordination.log, telemetry (run/session/mine/guard_denial) peels off to
-# telemetry.log — same daemon, one unified in-memory store (A1). Opt-in is EITHER
-# an explicit FRAM_TELEMETRY_LOG in the caller's env, OR the mere PRESENCE of a
-# seeded coordination.log beside FRAM_LOG (the artifact `north-log-split
-# --execute` writes) — so the split IS the switch, and rollback is "restore
-# facts.log / remove coordination.log". Neither present => FRAM_TELEMETRY_LOG stays
-# unset and the engine reads the single FRAM_LOG, byte-identical to pre-split.
+# --- the log split: kind-routed telemetry segregation -------------------------
+# The existing A1 split keeps both origin logs behind one coordinator. An
+# explicit NORTH_TELEMETRY_PARTITION=1 advances to Stage A: coordination and
+# telemetry each have an independently fenced writer. FRAM_TELEMETRY_LOG is
+# still selected by either an explicit caller value or the presence of a seeded
+# coordination.log beside FRAM_LOG. Without the Stage-A flag, the prior
+# single-coordinator behavior remains unchanged.
 if [ "$_north_fram_log_explicit" -eq 0 ] && [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
   _north_log_dir="$(dirname "$FRAM_LOG")"
   if [ -f "$_north_log_dir/coordination.log" ]; then
@@ -52,6 +50,21 @@ FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
 BB="${NORTH_BB:-bb}"
 BUN="${NORTH_BUN:-bun}"
+
+if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+  if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
+    echo "north: NORTH_TELEMETRY_PARTITION=1 requires FRAM_TELEMETRY_LOG" >&2
+    exit 2
+  fi
+  if [[ ! "${NORTH_TELEMETRY_PORT:-}" =~ ^[0-9]+$ ]] ||
+     (( 10#$NORTH_TELEMETRY_PORT < 1 || 10#$NORTH_TELEMETRY_PORT > 65535 )); then
+    echo "north: NORTH_TELEMETRY_PARTITION=1 requires NORTH_TELEMETRY_PORT=1..65535" >&2
+    exit 2
+  fi
+  NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/partitioned-main.clj")
+else
+  NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main)
+fi
 
 # judgment_grade is dispatcher/orchestrator-owned calibration input. Ordinary
 # worker thread writes remain available, but managed workers cannot tell,
@@ -111,7 +124,7 @@ deny_generic_run_mutation() {
   case "${1:-}" in tell|retract|untell) ;; *) return 0 ;; esac
   local subject="${2:-}" predicate="${3:-}"
   subject="${subject#@}"
-  case "$subject" in run-*) ;; *) return 0 ;; esac
+  case "$subject" in run-*|run:*) ;; *) return 0 ;; esac
   echo "north: $1 REFUSED — generic fact verbs cannot mutate harness-owned run facts ($subject $predicate); use 'north evidence record' for done-bar observations" >&2
   return 1
 }
@@ -213,26 +226,34 @@ CARD
     # `clock audit` is a standalone read-only report (commits-vs-sessions coverage,
     # bin/north-clock-audit); every other clock verb is engine-side in north.main.
     if [ "${2:-}" = "audit" ]; then exec "$NORTH/bin/north-clock-audit" "${@:3}"; fi
-    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main "$@" ;;
+    exec "${NORTH_MAIN[@]}" "$@" ;;
   threads)
     # Kind-scoped noun command: the THREAD-kind overview (threads are one kind
     # among several in the store — see `north schema`; people/concerns/runs are
     # not threads). Same projection the kanban-metaphor aliases render: active
     # drivers + top-ready by leverage + counts. `board`/`plate` = legacy aliases.
     # Future kinds follow the pattern (`north people` when a person registry lands).
-    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main board "${@:2}" ;;
+    exec "${NORTH_MAIN[@]}" board "${@:2}" ;;
   ready|blocked|leverage|next|agenda|board|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
-    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main "$@" ;;
+    exec "${NORTH_MAIN[@]}" "$@" ;;
   coord-doctor)
     # Engine-level coordinator SAFETY handshake + log-hygiene diff (north.main
     # cmd-doctor): tell/untell safe? daemon state matches on-disk log? This is the
     # raw primitive the cockpit `north doctor` leads with. Renamed from the old bare
     # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
     "$NORTH/bin/north-coord-up" --check-runtime || exit $?
-    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main doctor "${@:2}" ;;
+    if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+      env -u FRAM_TELEMETRY_LOG \
+        NORTH_TELEMETRY_PARTITION=0 \
+        FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+        FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+        NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
+        "$NORTH/bin/north-coord-up" --check-runtime || exit $?
+    fi
+    exec "${NORTH_MAIN[@]}" doctor "${@:2}" ;;
   dashboard|doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =
     # what is happening (agents/concerns/board/daemons/health/profile); `doctor` =
@@ -315,7 +336,31 @@ CARD
     # checkout; the system unit invokes the same route before/after daemon boot.
     exec "$BB" -cp "$FRAM_OUT" "$NORTH/cli/corpus-transaction-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
   up)
-    exec "$NORTH/bin/north-coord-up" "${@:2}" ;;
+    if [ "${NORTH_TELEMETRY_PARTITION:-0}" != 1 ]; then
+      exec "$NORTH/bin/north-coord-up" "${@:2}"
+    fi
+    if [ "${2:-}" = "--stop" ]; then
+      env -u FRAM_TELEMETRY_LOG \
+        NORTH_TELEMETRY_PARTITION=0 \
+        FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+        FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+        NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
+        "$NORTH/bin/north-coord-up" --stop
+      exec env -u FRAM_TELEMETRY_LOG \
+        NORTH_TELEMETRY_PARTITION=0 \
+        NORTH_COORD_SYSTEMD_UNIT=north-coord.service \
+        "$NORTH/bin/north-coord-up" --stop
+    fi
+    env -u FRAM_TELEMETRY_LOG \
+      NORTH_TELEMETRY_PARTITION=0 \
+      NORTH_COORD_SYSTEMD_UNIT=north-coord.service \
+      "$NORTH/bin/north-coord-up" "${@:2}"
+    exec env -u FRAM_TELEMETRY_LOG \
+      NORTH_TELEMETRY_PARTITION=0 \
+      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+      NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
+      "$NORTH/bin/north-coord-up" "${@:2}" ;;
   agents|templates|spawn|delegate|request|fork|req|watch|steer|retask|escalate)
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
@@ -392,7 +437,7 @@ CARD
           *) canon="@$bare_subject" ;;
         esac
       else
-        canon="$("$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main resolve "$2" 2>/dev/null)"
+        canon="$("${NORTH_MAIN[@]}" resolve "$2" 2>/dev/null)"
       fi
       case "$canon" in
         ERROR*) echo "north: $1 REFUSED — ${canon#ERROR }" >&2; exit 1 ;;
@@ -405,7 +450,7 @@ CARD
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
     # silent for bar-less threads; failures never block the write.
     if [ "$framverb" = tell ] && [ "${3:-}" = outcome ]; then
-      "$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main done-bars "$2" 2>/dev/null || true
+      "${NORTH_MAIN[@]}" done-bars "$2" 2>/dev/null || true
     fi
     # Reserve-limit echo: bars accumulate across runs, so the Nth done_when is
     # what silently makes future managed runs unable to reserve delivery
@@ -414,6 +459,15 @@ CARD
     if [ "$framverb" = tell ] && [ "${3:-}" = done_when ] && [ -n "${4:-}" ]; then
       "$BB" "$NORTH/cli/bars-cli.clj" check "$2" "$4" || true
     fi
+    case "${2#@}" in
+      run:*|session:*|mine:*|guard_denial:*)
+        if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+          exec env -u FRAM_TELEMETRY_LOG \
+            FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+            FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+            "$FRAM_BIN/fram" "$framverb" "${@:2}"
+        fi ;;
+    esac
     exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
   *)  # engine verbs: import/export/show/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;

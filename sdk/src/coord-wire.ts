@@ -145,6 +145,42 @@ export function coordPort(): number {
   return parseInt(process.env.NORTH_PORT ?? "7977", 10);
 }
 
+export function telemetryPartitionEnabled(): boolean {
+  return process.env.NORTH_TELEMETRY_PARTITION === "1";
+}
+
+export function telemetryPort(): number {
+  const value = parseInt(process.env.NORTH_TELEMETRY_PORT ?? "", 10);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error(
+      "NORTH_TELEMETRY_PORT must be an integer from 1 through 65535 "
+      + "when NORTH_TELEMETRY_PARTITION=1",
+    );
+  }
+  return value;
+}
+
+export function telemetryLog(): string {
+  const value = process.env.FRAM_TELEMETRY_LOG;
+  if (!value) {
+    throw new Error(
+      "FRAM_TELEMETRY_LOG is required when NORTH_TELEMETRY_PARTITION=1",
+    );
+  }
+  return canonical(value);
+}
+
+export function isTelemetrySubject(subject: string): boolean {
+  return /^@(run|session|mine|guard_denial):/.test(subject);
+}
+
+export function routeForSubject(subject: string): { port: number; log: string } {
+  if (telemetryPartitionEnabled() && isTelemetrySubject(subject)) {
+    return { port: telemetryPort(), log: telemetryLog() };
+  }
+  return { port: coordPort(), log: expectedLog() };
+}
+
 /** One fenced request/response over a fresh TCP connection (coord.clj send-envelope). */
 export function sendOp(port: number, log: string, op: OpPairs, deadline: number): Promise<EdnMap> {
   const envelope: OpPairs = [
@@ -226,7 +262,8 @@ export function sendManagedAgentPublish(
 /** Live values of (te,p), or null on any transport/parse failure. */
 export async function coordResolved(te: string, p: string, timeoutMs: number): Promise<string[] | null> {
   try {
-    const r = await sendOp(coordPort(), expectedLog(),
+    const route = routeForSubject(te);
+    const r = await sendOp(route.port, route.log,
       [[kw("op"), kw("resolved")], [kw("te"), te], [kw("p"), p]],
       Date.now() + Math.max(1, timeoutMs));
     const values = r[":values"];
