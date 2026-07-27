@@ -133,6 +133,8 @@ test("reservation failure diagnostics expose only bounded semantic causes", () =
     + " receipt=unavailable reason=writer-timeout",
   );
   expect(timedOut.message).not.toContain(secret);
+  expect(timedOut.name).toBe("DeliveryEvidenceRetryableError");
+  expect(timedOut.retryable).toBe(true);
   expect(deliveryReservationFailureCause(timedOut)).toBe("writer timed out");
   expect(deliveryEvidenceWriterError("reserve", "Message: run subject is not fresh", {
     run: "run-lane-456",
