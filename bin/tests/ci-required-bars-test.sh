@@ -7,6 +7,7 @@ WORKFLOW="$ROOT/.github/workflows/ci.yml"
 shell_bars=(
   bin/tests/north-on-spawn-stress-test.sh
   bin/tests/north-on-tooluse-stress-test.sh
+  bin/tests/session-role-alias-test.sh
   bin/tests/north-mark-delegated-test.sh
   bin/tests/identity-alias-test.sh
   bin/tests/native-identity-test.sh
@@ -18,8 +19,10 @@ clojure_bars=(
   cli/tests/agents-cli-test.clj
   cli/tests/dashboard-doctor-exit-test.clj
   cli/tests/live-feed-integration-test.clj
+  cli/tests/message-routing-test.clj
   cli/tests/map-contract-test.clj
   cli/tests/message-audience-integration-test.clj
+  cli/tests/north-listen-reconnect-test.clj
   cli/tests/pending-pagination-integration-test.clj
   cli/tests/pred-cli-test.clj
   cli/tests/routing-report-test.clj
