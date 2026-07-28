@@ -28,10 +28,6 @@
         "compactionPolicy", "compactionPolicyVersion"
       ]
     },
-    "caveman_observed": {
-      "required": ["requestedMode", "resolvedMode", "implementation", "decisionReason", "measurementCoverage"],
-      "allowed": ["requestedMode", "resolvedMode", "implementation", "decisionReason", "measurementCoverage", "repository", "revision", "skillSha256", "skillBytes", "renderedSha256", "renderedBytes", "sourceKind", "resolutionProvenance"]
-    },
     "tool_activity": {
       "required": [],
       "allowed": ["totalCalls", "distinctTools", "serverName", "toolName", "callCount"]

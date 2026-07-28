@@ -54,7 +54,7 @@
           events (mapv :event entries)
           sequences (mapv #(get % "sequence") events)
           lineage-keys ["run" "thread" "agent" "parentRun" "parentThread"
-                        "coordinator" "cavemanMode" "cavemanSource"]]
+                        "coordinator"]]
       ;; Validate the complete ordered lifecycle before the first coordinator
       ;; mutation. The writer is intentionally not a generic subset appender.
       (when-not (= sequences (vec (range (count entries))))

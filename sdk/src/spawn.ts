@@ -23,7 +23,6 @@ import {
 } from "./telemetry";
 import { collectProviderJoinEvidence } from "./providers/provider-join";
 import { publishRunLifecycleLedger } from "./run-ledger";
-import { resolveManagedCaveman, type CavemanResolution } from "./caveman";
 import { unknownMcpActivity } from "./tool-activity";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import {
@@ -122,7 +121,6 @@ export interface SpawnOptions {
   posture?: string;
   thread?: string; // exact work/evidence thread; managed runs verify the human client session separately.
   concern?: string; // exact physical-allocation concern owner; absent is explicitly unattributed.
-  caveman?: "off" | "lite" | "full"; // request override for the fork-backed response strategy
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   provider?: ProviderPreference;
   target?: string;
@@ -164,7 +162,7 @@ interface SpawnRuntime {
 
 const SPAWN_OPTION_FIELDS = new Set([
   "prompt", "agentId", "model", "effort", "tools", "systemPrompt", "maxTurns",
-  "role", "posture", "thread", "concern", "caveman", "coordinator", "provider",
+  "role", "posture", "thread", "concern", "coordinator", "provider",
   "target", "tier", "routingMetadata", "project", "sessionId", "worktree", "setupCmd",
   "routingAssessment", "pinEvidence",
 ]);
@@ -303,7 +301,6 @@ async function runSpawn(
   },
   judgmentGrade: JudgmentGradeSnapshot,
   strugglePolicy: StrugglePolicy,
-  caveman: CavemanResolution,
   envelopeAdmission?: EnvelopeAdmission,
   injected: SpawnRuntime = {},
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
@@ -627,7 +624,6 @@ async function runSpawn(
     cwd: wt?.path ?? process.cwd(),
     managedWorktree: wt !== undefined,
     deliveryRun: deliveryReservationReady ? runContext : undefined,
-    cavemanInstructions: caveman.instructions,
   });
   injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
   if (injected.queryFn && injected.feedSubscriber)
@@ -1167,14 +1163,11 @@ async function runSpawn(
     ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
     ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
     ...(coordHandle ? { coordinator: coordHandle } : {}),
-    cavemanMode: caveman.resolvedMode,
-    cavemanSource: caveman.source,
   }, {
     promptEconomics: promptComposition?.promptEconomics,
     tokenUsage,
     compactions,
     outcome,
-    caveman,
     mcpActivity,
   }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
   const numTurns = typeof resultMsg?.num_turns === "number"
@@ -1210,7 +1203,7 @@ async function runSpawn(
     executionSource: "north-managed",
     executionTransport: activeExecutionQuery?.executionTransport
       ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
-    caveman, mcpActivity, nativeCommandActivity,
+    mcpActivity, nativeCommandActivity,
     providerSessionPersistence: providerJoin?.sessionPersistence ?? "unknown",
     providerJoin,
     northSessionId: opts.sessionId,
@@ -1340,10 +1333,6 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
   const composed = composeSpawnOptions(admitted);
-  const caveman = resolveManagedCaveman(
-    composed.caveman ?? (process.env.NORTH_CAVEMAN_SOURCE === "request"
-      ? process.env.AGENT_CAVEMAN : undefined),
-  );
   if (!bootstrapAuthorityGranted) {
     assertRecursiveChildBinding(
       composed, callerTopology, injected.loadThreadFacts ?? getThreadFacts,
@@ -1445,7 +1434,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       });
       const attemptPromise = runSpawn(
         { ...composed }, judgmentGrade, strugglePolicy,
-        caveman, admission, injected, termination, worktreeLease, providerReady,
+        admission, injected, termination, worktreeLease, providerReady,
       );
       // Coordinator boot can outlive the caller's startup handshake. Retain the
       // attempt concurrently so identity publication happens first, while this
@@ -1484,7 +1473,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     } else {
       attempt = await runSpawn(
         { ...composed }, judgmentGrade, strugglePolicy,
-        caveman, admission, injected, termination, worktreeLease,
+        admission, injected, termination, worktreeLease,
       );
     }
     let retries = 0;
@@ -1515,7 +1504,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       termination.throwIfTerminated();
       attempt = await runSpawn(
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
-        caveman, admission, injected, termination, worktreeLease, undefined,
+        admission, injected, termination, worktreeLease, undefined,
         { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
       );
       deadAgentId = retryAgentId;

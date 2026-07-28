@@ -25,8 +25,6 @@ const identity = {
   parentRun: "@run:parent-001",
   parentThread: "@019f89ac-parent",
   coordinator: "north-root",
-  cavemanMode: "lite",
-  cavemanSource: "request",
 };
 
 const examples: Record<string, Record<string, string | number>> = {
@@ -49,14 +47,6 @@ const examples: Record<string, Record<string, string | number>> = {
     compactionPolicy: "native-auto-compact-enabled",
     compactionPolicyVersion: "north-native-auto-compact:v1",
   },
-  caveman_observed: {
-    requestedMode: "lite", resolvedMode: "lite", implementation: "fork-skill",
-    decisionReason: "explicit-request",
-    measurementCoverage: "exact", repository: "github.com/tompassarelli/caveman",
-    revision: digest("revision"), skillSha256: digest("skill"), skillBytes: 4000,
-    renderedSha256: digest("rendered"), renderedBytes: 2500,
-    sourceKind: "git-object", resolutionProvenance: "local-dev",
-  },
   tool_activity: { serverName: "north", toolName: "tell", callCount: 2 },
   tool_observed: { toolName: "mcp__north__tell", activity: "completed", successCount: 2, errorCount: 0 },
   usage_observed: { inputTokens: 120, outputTokens: 40, totalTokens: 160, terminalCount: 1 },
@@ -74,6 +64,10 @@ const examples: Record<string, Record<string, string | number>> = {
   terminal_cleanup: { outcome: "ran", cleanupStatus: "complete", childCount: 1 },
 };
 
+const mcpActivity = {
+  source: "anthropic-agent-sdk:assistant-tool-use", coverage: "exact" as const,
+  totalCalls: 2, tools: [{ server: "north", tool: "tell", count: 2 }],
+};
 test("the shared v1 contract covers every required AgentRun forensic observation", () => {
   expect(AGENT_RUN_LEDGER_VERSION).toBe("north-agent-run-ledger:v1");
   expect(new Set(AGENT_RUN_EVENT_TYPES)).toEqual(new Set(Object.keys(examples)));
@@ -140,7 +134,7 @@ test("events serialize only fixed content-free predicates and payload keys", () 
     "kind", "agent_run_ledger_version", "run", "thread", "agent", "parent_run",
     "parent_thread", "run_coordinator", "run_event_sequence", "run_event_type",
     "run_event_observed_at", "run_event_source", "run_event_coverage",
-    "run_event_data", "run_event_sha256", "caveman_mode", "caveman_source",
+    "run_event_data", "run_event_sha256",
   ]));
   const encoded = JSON.stringify(facts);
   expect(encoded).not.toContain("tool arguments are private");
@@ -215,19 +209,6 @@ const promptEconomics = {
   compactionPolicyVersion: "north-native-auto-compact:v1",
 } as const;
 
-const caveman = {
-  requestedMode: "lite", resolvedMode: "lite", source: "request",
-  decisionReason: "explicit-request",
-  implementation: "fork-skill", instructions: "private-rendered-instructions",
-  repository: "github.com/tompassarelli/caveman", revision: digest("revision"),
-  skillSha256: digest("skill"), skillBytes: 4000, renderedSha256: digest("rendered"),
-  renderedBytes: 2500, sourceKind: "git-object", resolutionProvenance: "local-dev",
-  measurementCoverage: "exact",
-} as const;
-const mcpActivity = {
-  source: "anthropic-agent-sdk:assistant-tool-use", coverage: "exact" as const,
-  totalCalls: 2, tools: [{ server: "north", tool: "tell", count: 2 }],
-};
 
 async function unusedPort(): Promise<number> {
   const server = createServer();
@@ -354,7 +335,7 @@ test("terminal success publishes exact ordered lifecycle evidence and a complete
     },
     compactions: 0,
     outcome: "ran",
-    caveman, mcpActivity,
+    mcpActivity,
   }, 1000, async (events, timeoutMs) => {
     writerCalls += 1;
     published.push(...events);
@@ -362,9 +343,9 @@ test("terminal success publishes exact ordered lifecycle evidence and a complete
     return "recorded";
   });
   expect(writerCalls).toBe(1);
-  expect(summary?.eventCount).toBe(8);
+  expect(summary?.eventCount).toBe(7);
   expect(published.map(({ type }) => type)).toEqual([
-    "caveman_observed", "tool_activity", "tool_activity", "prompt_constructed", "usage_observed", "cache_observed",
+    "tool_activity", "tool_activity", "prompt_constructed", "usage_observed", "cache_observed",
     "compaction_observed", "terminal_cleanup",
   ]);
   expect(published.at(-1)?.payload).toEqual({ outcome: "ran", cleanupStatus: "observed" });
@@ -377,7 +358,7 @@ test("a provider failure is a terminal lifecycle but missing usage stays explici
     tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
     compactions: 1,
     outcome: "provider_error",
-    caveman, mcpActivity,
+    mcpActivity,
   }, 1000, async (events) => { published.push(...events); return "recorded"; });
   expect(summary).toBeDefined();
   expect(published.find(({ type }) => type === "usage_observed")?.coverage).toBe("unknown");
@@ -392,7 +373,7 @@ test("a mid-batch writer failure never manufactures a complete summary", async (
     tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
     compactions: 0,
     outcome: "ran",
-    caveman, mcpActivity,
+    mcpActivity,
   }, 1000, async (events) => {
     published.push(...events.slice(0, 5));
     return "unavailable";
@@ -406,7 +387,7 @@ test("a mid-batch writer failure never manufactures a complete summary", async (
     tokenUsage: { terminalCount: 0, totalStatus: "unknown_no_terminal" },
     compactions: 0,
     outcome: "died",
-    caveman, mcpActivity,
+    mcpActivity,
   }, 1000, async () => "recorded");
   expect(crashed).toBeUndefined();
 });

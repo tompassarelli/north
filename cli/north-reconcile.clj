@@ -27,7 +27,7 @@
                "cache_create_tokens" "cached_input_tokens" "reasoning_output_tokens"
                "usage_terminal_count" "usage_scope" "usage_total_status"
                "duration_ms" "num_turns" "codex_turn_units" "codex_tool_items" "stop_reason" "model"
-               "provider" "effort" "caveman" "wall_s" "estimate_output_tokens"
+               "provider" "effort" "wall_s" "estimate_output_tokens"
                "confidence" "fallback_count" "fallback_path" "outcome" "ended_at" "at"]]
     (reduce (fn [m p]
               (let [v (:value (send-op port {:op :resolved :te re :p p}))]

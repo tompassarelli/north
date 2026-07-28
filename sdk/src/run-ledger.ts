@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PromptEconomicsEvidence } from "./harness";
 import type { NormalizedTokenUsage } from "./usage";
-import type { CavemanResolution } from "./caveman";
 import type { McpActivityObservation } from "./tool-activity";
 
 const REPO = resolve(import.meta.dir, "../..");
@@ -39,8 +38,6 @@ export interface RunLedgerIdentity {
   parentRun?: string;
   parentThread?: string;
   coordinator?: string;
-  cavemanMode?: string;
-  cavemanSource?: string;
 }
 
 export interface AgentRunEvent extends RunLedgerIdentity {
@@ -106,16 +103,6 @@ function validateIdentity(identity: RunLedgerIdentity): RunLedgerIdentity {
     const coordinator = identity.coordinator.replace(/^@agent:/, "");
     if (!IDENTIFIER.test(coordinator)) throw new Error("invalid run ledger coordinator");
     validated.coordinator = coordinator;
-  }
-  if (identity.cavemanMode) {
-    if (!new Set(["off", "lite", "full"]).has(identity.cavemanMode))
-      throw new Error("invalid run ledger Caveman mode");
-    validated.cavemanMode = identity.cavemanMode;
-  }
-  if (identity.cavemanSource) {
-    if (!new Set(["request", "env", "default"]).has(identity.cavemanSource))
-      throw new Error("invalid run ledger Caveman source");
-    validated.cavemanSource = identity.cavemanSource;
   }
   return validated;
 }
@@ -269,8 +256,6 @@ export function eventFacts(event: AgentRunEvent): Array<[string, string]> {
     ["run_event_data", canonical(payload)],
     ["run_event_sha256", expectedDigest],
   ];
-  if (identity.cavemanMode) facts.push(["caveman_mode", identity.cavemanMode]);
-  if (identity.cavemanSource) facts.push(["caveman_source", identity.cavemanSource]);
   if (identity.parentRun) facts.push(["parent_run", identity.parentRun]);
   if (identity.parentThread) facts.push(["parent_thread", identity.parentThread]);
   if (identity.coordinator) facts.push(["run_coordinator", identity.coordinator]);
@@ -336,7 +321,6 @@ export interface RunLifecycleObservations {
   tokenUsage: NormalizedTokenUsage;
   compactions: number;
   outcome: string;
-  caveman: CavemanResolution;
   mcpActivity: McpActivityObservation;
 }
 
@@ -357,24 +341,6 @@ export async function publishRunLifecycleLedger(
   const ledger = new AgentRunLedger(identity);
   const events: AgentRunEvent[] = [];
   const economics = observations.promptEconomics;
-  const caveman = observations.caveman;
-  const cavemanPayload: Record<string, string | number> = {
-    requestedMode: caveman.requestedMode,
-    resolvedMode: caveman.resolvedMode,
-    implementation: caveman.implementation,
-    decisionReason: caveman.decisionReason,
-    measurementCoverage: caveman.measurementCoverage,
-  };
-  for (const key of [
-    "repository", "revision", "skillSha256", "skillBytes", "renderedSha256", "renderedBytes",
-    "sourceKind", "resolutionProvenance",
-  ] as const) {
-    const value = caveman[key];
-    if (value !== undefined) cavemanPayload[key] = value;
-  }
-  events.push(ledger.append(
-    "caveman_observed", cavemanPayload, "north-caveman-adapter", caveman.measurementCoverage,
-  ));
 
   const activity = observations.mcpActivity;
   const activitySummary: Record<string, string | number> = {};
