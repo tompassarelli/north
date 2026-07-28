@@ -288,7 +288,20 @@
           replay (:done outcome)]
       (when (:reject outcome)
         (checked! outcome [:assert-batch-at-version run]))
-      (let [stored (facts-of port run)]
+      ;; The readback races the telemetry partition's read path: @run subjects
+      ;; route there, and an immediate read after the atomic publication can
+      ;; observe a pre-write projection under load. Staleness heals within a
+      ;; bounded window; a true rival writer's facts never converge to ours —
+      ;; so retry the READ, never the write, before declaring the race lost.
+      (let [stored
+            (loop [attempt 1]
+              (let [observed (facts-of port run)]
+                (if (or (exact-reservation-replay?
+                         observed thread reporter capability-digest)
+                        (>= attempt 5))
+                  observed
+                  (do (Thread/sleep (* attempt 200))
+                      (recur (inc attempt))))))]
         (when-not (exact-reservation-replay?
                    stored thread reporter capability-digest)
           (fail! "run reservation lost singleton/freshness race"
