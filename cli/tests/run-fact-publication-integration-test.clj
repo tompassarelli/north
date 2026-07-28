@@ -128,7 +128,16 @@
       error
       (try
         (with-redefs
-         [north.coord/cur-ver (fn [_] (if (empty? @bases) 41 42))
+         ;; Production's read side is cur-ver-for-subject -> send-op-for-log
+         ;; (NOT cur-ver/send-op), so intercepting cur-ver here was inert and
+         ;; the real version read escaped to live :7977. Redefine the actual
+         ;; seam send-op-for-log uses for its :version reads.
+         [north.coord/send-op-for-log
+          (fn [_ _ operation]
+            (if (= :version (:op operation))
+              {:version (if (empty? @bases) 41 42)}
+              (throw (ex-info "unexpected send-op-for-log call in fixture"
+                              {:operation operation}))))
           north.coord/send-op
           (fn [_ operation]
             (swap! bases conj (:base operation))
