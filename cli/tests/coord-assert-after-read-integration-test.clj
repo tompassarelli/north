@@ -210,9 +210,8 @@
                 target-port te predicate value validate! attempts deadline-ns)))
             north.coord/send-op
             (fn [target-port operation]
-              (if (and (= :assert-at-version (:op operation))
-                       (= "run_reservation_manifest_sha256" (:p operation))
-                       (str/starts-with? (:te operation)
+              (if (and (= :assert-batch-at-version (:op operation))
+                       (str/starts-with? (str (:te operation))
                                          "@run:reservation-liveness-"))
                 (let [run (:te operation)
                       attempts
@@ -272,19 +271,168 @@
                      (every? #(nil? (:error %)) results)))
         (check! "every production reservation has seven singleton body facts and one valid digest"
                 (every? #(and (:exact? %) (:valid? %)) results))
-        (check! "production reserve! shares one deadline across body and digest"
+        ;; Body and digest no longer have separate commit paths to share a
+        ;; deadline BETWEEN: one publication deadline feeds exactly one retry
+        ;; loop, and the single-fact marker CAS is gone from reserve! entirely.
+        (check! "production reserve! spends one deadline on one publication loop"
                 (and
                  (= 4 (count @deadline-observations))
                  (every?
                   (fn [observations]
                     (and (= 1 (count (filter #(= :created (first %)) observations)))
-                         (= 8 (count (filter #(= :retry (first %)) observations)))
-                         (= 1 (count (filter #(= :marker (first %)) observations)))
+                         (= 1 (count (filter #(= :retry (first %)) observations)))
+                         (zero? (count (filter #(= :marker (first %)) observations)))
                          (= 1 (count (set (map second observations))))))
                   (vals @deadline-observations))))
         (check! "concurrent reservation completion stays deadline-bounded"
                 (< elapsed-ms
                    (+ north.coord/assert-after-read-deadline-ms 2000)))))
+
+    ;; ALL-OR-ZERO. Every publication write for this run is preceded by a real
+    ;; unrelated coordinator write, so no captured base can still be current
+    ;; when the batch lands; injected monotonic time then exhausts the
+    ;; publication deadline deterministically instead of racing a scheduler.
+    ;; The old body-then-marker shape left seven unmarked body facts here.
+    (let [run "@run:atomic-deadline"
+          thread "@thread:atomic-deadline"
+          original-send-op north.coord/send-op
+          original-retry-deadline-ns north.coord/retry-deadline-ns
+          now-ns (atom 0)
+          publication-writes (atom 0)
+          _ (do (north.coord/append! port thread "title" "atomic deadline")
+                (north.coord/append! port thread "done_when" "coordinator passes"))
+          error
+          (binding
+           [north.coord/*retry-monotonic-now-ns* #(deref now-ns)
+            north.coord/*retry-sleep-ms!* #(swap! now-ns + (* % 1000000))
+            north.coord/*retry-jitter-ms* (fn [_ cap-ms] cap-ms)]
+           (with-redefs
+            [north.coord/retry-deadline-ns
+             (fn
+               ([] (original-retry-deadline-ns 5))
+               ([timeout-ms] (original-retry-deadline-ns timeout-ms)))
+             north.coord/send-op
+             (fn [target-port operation]
+               (if (and (#{:assert :assert-at-version :assert-batch-at-version}
+                         (:op operation))
+                        (= run (:te operation)))
+                 (do
+                   (swap! publication-writes inc)
+                   (original-send-op
+                    target-port
+                    {:op :assert :te "@unrelated-atomic-churn" :p "noise"
+                     :r (str @publication-writes)})
+                   (original-send-op target-port operation))
+                 (original-send-op target-port operation)))]
+             (try
+               (north.delivery-evidence-internal/reserve!
+                port {"run" run "thread" thread
+                      "reporter" "@agent:atomic-deadline"
+                      "capabilitySha256" (format "%064x" 11)})
+               nil
+               (catch clojure.lang.ExceptionInfo caught caught))))]
+      (check! "an exhausted publication deadline is reported by name"
+              (= "delivery evidence publication deadline exceeded"
+                 (some-> error .getMessage)))
+      (check! "an exhausted publication deadline leaves ZERO run facts"
+              (and (pos? @publication-writes)
+                   (empty? (facts-of port run)))))
+
+    ;; READ-SET RACE. The thread contract moves exactly once, inside the window
+    ;; between the reads and the publication. The reservation that lands must
+    ;; digest the contract read at its WINNING base — never a stale baseline,
+    ;; and never a partial body left behind by a rejected attempt.
+    (let [run "@run:contract-drift"
+          thread "@thread:contract-drift"
+          original-send-op north.coord/send-op
+          mutated (atom false)
+          _ (do (north.coord/append! port thread "title" "contract drift")
+                (north.coord/append! port thread "done_when" "original bar"))
+          error
+          (with-redefs
+           [north.coord/send-op
+            (fn [target-port operation]
+              (if (and (#{:assert :assert-at-version :assert-batch-at-version}
+                        (:op operation))
+                       (= run (:te operation))
+                       (compare-and-set! mutated false true))
+                (do
+                  (north.coord/append! port thread "done_when" "drifted bar")
+                  (north.coord/retract! port thread "done_when" "original bar")
+                  (original-send-op target-port operation))
+                (original-send-op target-port operation)))]
+            (try
+              (north.delivery-evidence-internal/reserve!
+               port {"run" run "thread" thread
+                     "reporter" "@agent:contract-drift"
+                     "capabilitySha256" (format "%064x" 12)})
+              nil
+              (catch Throwable caught caught)))
+          stored (facts-of port run)]
+      (check! "a contract mutation inside the publication window publishes all eight facts or none"
+              (and (true? @mutated)
+                   (nil? error)
+                   (= (set north.terminal-projection/run-reservation-predicates)
+                      (set (keys stored)))
+                   (every? #(= 1 (count %)) (vals stored))
+                   (north.terminal-projection/run-reservation-valid? stored)))
+      (check! "the published baseline is the contract read at the winning base"
+              (= ["drifted bar"]
+                 (north.terminal-projection/run-reservation-done-when stored))))
+
+    ;; COMPETING PUBLISHERS at one base, interleaved deterministically rather
+    ;; than by luck: the loser is held at its first publication write until the
+    ;; winner has published in full, so its base is provably stale.
+    (let [run "@run:competing-publisher"
+          thread "@thread:competing-publisher"
+          winner "@agent:competing-winner"
+          loser "@agent:competing-loser"
+          winner-capability (format "%064x" 13)
+          loser-capability (format "%064x" 14)
+          original-send-op north.coord/send-op
+          gate (promise)
+          held (promise)
+          first-writer (atom nil)
+          _ (do (north.coord/append! port thread "title" "competing publisher")
+                (north.coord/append! port thread "done_when" "coordinator passes"))
+          loser-result
+          (with-redefs
+           [north.coord/send-op
+            (fn [target-port operation]
+              (if (and (#{:assert :assert-at-version :assert-batch-at-version}
+                        (:op operation))
+                       (= run (:te operation))
+                       (compare-and-set! first-writer nil
+                                         (.getId (Thread/currentThread))))
+                (do (deliver held true)
+                    @gate
+                    (original-send-op target-port operation))
+                (original-send-op target-port operation)))]
+            (let [pending
+                  (future
+                    (try
+                      (north.delivery-evidence-internal/reserve!
+                       port {"run" run "thread" thread "reporter" loser
+                             "capabilitySha256" loser-capability})
+                      {:published true}
+                      (catch Throwable caught
+                        {:error (.getMessage caught)})))]
+              (deref held 30000 :timeout)
+              (north.delivery-evidence-internal/reserve!
+               port {"run" run "thread" thread "reporter" winner
+                     "capabilitySha256" winner-capability})
+              (deliver gate true)
+              (deref pending 60000 {:error "loser never settled"})))
+          stored (facts-of port run)]
+      (check! "a losing competing publisher lands no fact and refuses"
+              (and (string? (:error loser-result))
+                   (= (set north.terminal-projection/run-reservation-predicates)
+                      (set (keys stored)))
+                   (every? #(= 1 (count %)) (vals stored))))
+      (check! "the surviving manifest is exactly the winning publisher's"
+              (and (north.terminal-projection/run-reservation-valid? stored)
+                   (= #{winner} (get stored "run_reservation_agent"))
+                   (= #{winner-capability} (get stored "run_capability_sha256")))))
 
     ;; Injected monotonic time makes both sides of the bound exact rather than
     ;; relying on scheduler timing. Equal-jitter's upper selection must consume

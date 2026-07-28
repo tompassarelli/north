@@ -76,8 +76,8 @@
 
 ;; ONE waiting budget for every read in a writer invocation, not one per read.
 ;; The budget is created on the FIRST retry, so an answering coordinator never
-;; opens a second deadline (the reservation's one shared body/digest deadline
-;; stays the only one), and every read still ATTEMPTS once even after the budget
+;; opens a second deadline (the reservation's one publication deadline stays
+;; the only one), and every read still ATTEMPTS once even after the budget
 ;; is spent — exhaustion stops waiting, not asking. A single Fram query may use
 ;; its full 5s evaluation limit, so the SDK's finite subprocess boundary must
 ;; cover the first attempt, one retry, publication, and readback.
@@ -199,85 +199,106 @@
                 " reason=" reason)
            {:run run :holder holder :receipt receipt :reason reason})))
 
+(defn exact-reservation-replay?
+  "Is FACTS this exact caller's OWN already-published reservation?
+
+   The acknowledgement is the only thing that can be lost once publication is
+   atomic: the writer either committed all eight facts or none, so a same-run
+   retry that finds a COMPLETE, digest-valid reservation naming this exact
+   thread, reporter, and capability is replaying its own success and must be
+   handed the canonical receipt rather than a refusal. Exactness is the whole
+   guard — the subject must carry exactly the eight reservation predicates and
+   nothing else. A subset, an extra predicate (a run that already carries
+   telemetry or evidence is past reservation), or any different binding is a
+   refusal, never a replay."
+  [facts thread reporter capability-digest]
+  (and (north.terminal-projection/run-reservation-valid? facts)
+       (= (set north.terminal-projection/run-reservation-predicates)
+          (set (keys facts)))
+       (= thread (north.terminal-projection/singleton-value
+                  facts "run_reservation_thread"))
+       (= reporter (north.terminal-projection/singleton-value
+                    facts "run_reservation_agent"))
+       (= capability-digest (north.terminal-projection/singleton-value
+                             facts "run_capability_sha256"))))
+
 (defn reserve! [port request]
   (exact-request! request #{"run" "thread" "reporter" "capabilitySha256"})
   (let [run (run-entity (get request "run"))
         thread (thread-entity (get request "thread"))
         reporter (agent-entity (get request "reporter"))
-        capability-digest (get request "capabilitySha256")
-        thread-facts (facts-of port thread)
-        baseline (north.terminal-projection/canonical-done-when thread-facts)
-        contract-origin (if (seq baseline) "accepted" "worker-defined")]
+        capability-digest (get request "capabilitySha256")]
     (when-not (and (string? capability-digest)
                    (re-matches #"^[0-9a-f]{64}$" capability-digest))
       (fail! "invalid run capability digest" {}))
-    (when-not (title-bearing-thread? thread-facts)
-      (fail! "cannot reserve delivery evidence for a non-thread subject"
-             {:thread thread :titles (get thread-facts "title" #{})}))
-    (ensure-reservable-contract!
-     thread thread-facts baseline "thread done_when contract" {:run run})
-    (let [run-facts (facts-of port run)]
-      (when (seq run-facts)
-        (run-reservation-refusal! run run-facts)))
-    (let [projection
-          (sorted-map
-           "run_capability_sha256" capability-digest
-           "run_reservation_agent" reporter
-           "run_reservation_contract_origin" contract-origin
-           "run_reservation_done_when" (json/generate-string baseline)
-           "run_reservation_thread" thread
-           "run_reservation_version"
-           north.terminal-projection/run-reservation-version
-           "run_reserved_at" (str (java.time.Instant/now)))
-          marker
-          (north.terminal-projection/run-reservation-manifest-sha256 projection)
-          deadline-ns (north.coord/retry-deadline-ns)]
-      (doseq [[predicate value] projection]
-        (checked!
-         (north.coord/retry-conflicts-until!
-          deadline-ns
-          #(north.coord/append! port run predicate value))
-         [:append run predicate value]))
-      (checked!
-       (north.coord/assert-after-read!
-        port run "run_reservation_manifest_sha256" marker
-        (fn []
-          (let [current-thread (facts-of port thread)]
-            (when-not (title-bearing-thread? current-thread)
-              (fail! "thread identity changed while reserving delivery evidence"
-                     {:run run :thread thread}))
-            (when-not (= baseline
-                         (north.terminal-projection/canonical-done-when
-                          current-thread))
-              (fail! "thread contract changed while reserving delivery evidence"
-                     {:run run :thread thread}))
-            (when-not
-             (north.terminal-projection/bounded-done-bars?
-              (north.terminal-projection/canonical-done-when current-thread)
-              true)
-              (fail! "thread done_when contract exceeds delivery evidence limits"
-                     {:run run :thread thread})))
-          (let [stored (facts-of port run)]
-            (when-not (= (into {} (map (fn [[predicate value]]
-                                        [predicate #{value}])
-                                      projection))
-                         stored)
-              (fail! "run reservation projection changed before commit"
-                     {:run run :stored stored}))))
-        Integer/MAX_VALUE deadline-ns)
-       [:append-after-read run "run_reservation_manifest_sha256" marker])
+    (let [published (atom nil)
+          ;; Runs AFTER every attempt captures a fresh global base, and its
+          ;; whole read set — thread identity, canonical bounded contract, and
+          ;; the run subject's freshness — is bound to that base by the batch
+          ;; commit below. A conflict re-enters here rather than reusing any
+          ;; part of a snapshot the coordinator has already moved past.
+          plan!
+          (fn []
+            (let [thread-facts (facts-of port thread)
+                  baseline (north.terminal-projection/canonical-done-when
+                            thread-facts)
+                  contract-origin (if (seq baseline) "accepted" "worker-defined")]
+              (when-not (title-bearing-thread? thread-facts)
+                (fail! "cannot reserve delivery evidence for a non-thread subject"
+                       {:thread thread :titles (get thread-facts "title" #{})}))
+              (ensure-reservable-contract!
+               thread thread-facts baseline "thread done_when contract" {:run run})
+              (let [run-facts (facts-of port run)]
+                (if (seq run-facts)
+                  (if (exact-reservation-replay?
+                       run-facts thread reporter capability-digest)
+                    {:done
+                     {:baseline (north.terminal-projection/run-reservation-done-when
+                                 run-facts)
+                      :contract-origin
+                      (north.terminal-projection/singleton-value
+                       run-facts "run_reservation_contract_origin")}}
+                    (run-reservation-refusal! run run-facts))
+                  (let [projection
+                        (sorted-map
+                         "run_capability_sha256" capability-digest
+                         "run_reservation_agent" reporter
+                         "run_reservation_contract_origin" contract-origin
+                         "run_reservation_done_when" (json/generate-string baseline)
+                         "run_reservation_thread" thread
+                         "run_reservation_version"
+                         north.terminal-projection/run-reservation-version
+                         "run_reserved_at" (str (java.time.Instant/now)))
+                        marker
+                        (north.terminal-projection/run-reservation-manifest-sha256
+                         projection)]
+                    (reset! published {:baseline baseline
+                                       :contract-origin contract-origin})
+                    ;; The seven v1 body facts and the marker that digests them
+                    ;; go in ONE transaction: an unmarked body was never a legal
+                    ;; intermediate state, so it must never be an observable one.
+                    {:facts (conj (mapv (fn [[predicate value]]
+                                          {:p predicate :r value})
+                                        projection)
+                                  {:p "run_reservation_manifest_sha256"
+                                   :r marker})})))))
+          outcome
+          (north.coord/assert-batch-after-read!
+           port run plan! Integer/MAX_VALUE (north.coord/retry-deadline-ns))
+          replay (:done outcome)]
+      (when (:reject outcome)
+        (checked! outcome [:assert-batch-at-version run]))
       (let [stored (facts-of port run)]
-        (when-not (and (north.terminal-projection/run-reservation-valid? stored)
-                       (= (set (keys stored))
-                          (conj (set (keys projection))
-                                "run_reservation_manifest_sha256")))
+        (when-not (exact-reservation-replay?
+                   stored thread reporter capability-digest)
           (fail! "run reservation lost singleton/freshness race"
                  {:run run :stored stored})))
-      (println (json/generate-string
-                (sorted-map "baselineDoneWhen" baseline
-                            "contractOrigin" contract-origin
-                            "ok" true "reporter" reporter
-                            "run" run "thread" thread))))))
+      (let [{:keys [baseline contract-origin]} (or replay @published)]
+        (println (json/generate-string
+                  (sorted-map "baselineDoneWhen" baseline
+                              "contractOrigin" contract-origin
+                              "ok" true "reporter" reporter
+                              "run" run "thread" thread)))))))
 
 (defn validate-record-context!
   [port run thread reporter capability bar observed]
@@ -346,7 +367,7 @@
 ;; can lose the version race before a single one lands, so a run with a LIVE,
 ;; valid reservation was refused for a reason that had nothing to do with the
 ;; evidence itself. Every other commit path in this file that shares the
-;; coordinator's global version (reserve!'s doseq, assert-after-read!) already
+;; coordinator's global version (reserve!'s batch-after-read publication) already
 ;; retries against an absolute deadline with equal-jitter backoff so unrelated
 ;; traffic buys retries, not rejections; this budget gives ordinary evidence
 ;; commits that same room. Unlike read-retry-budget-ms (deliberately ONE

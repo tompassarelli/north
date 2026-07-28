@@ -830,6 +830,48 @@
           (send-op port {:op :assert-at-version
                          :te te :p p :r rv :base base})))))))
 
+;; assert-batch-after-read! — the ALL-OR-NOTHING form of assert-after-read!.
+;; One :assert-batch-at-version turn commits every planned fact or none of them
+;; against the exact global version PLAN! validated, so a multi-fact publication
+;; has no observable partial state. The shape it replaces — append the body
+;; facts, then CAS a marker over them — cannot offer that: the body lands under
+;; no global base at all, so a losing marker race, a changed read set, or an
+;; exhausted deadline leaves a bodied-but-unmarked subject that every reader
+;; must then treat as tampered.
+;;
+;; PLAN! runs AFTER the base is captured, performs every load-bearing read
+;; itself, and returns either {:facts [{:p _ :r _} ...]} to publish or
+;; {:done value} to finish this turn without writing (the idempotent-replay
+;; case); throwing refuses outright. Note that ordinary :assert-batch is NOT a
+;; substitute: its :base is per-(subject,predicate) OCC, while this op compares
+;; the coordinator's global head inside the same serialized writer turn as the
+;; commit. A fact-local :base is rejected by the daemon on purpose — the one
+;; top-level base is the whole read set's guard.
+(defn assert-batch-after-read!
+  ([port te plan!]
+   (assert-batch-after-read! port te plan! Integer/MAX_VALUE (retry-deadline-ns)))
+  ([port te plan! attempts deadline-ns]
+   (when-not (pos? attempts)
+     (throw (ex-info "assert-batch-after-read! requires at least one attempt"
+                     {:attempts attempts})))
+   (retry-conflicts-until!
+    deadline-ns attempts
+    (fn []
+      (let [base (cur-ver-for-subject port te)
+            planned (plan!)]
+        (if (contains? planned :done)
+          planned
+          (let [facts (:facts planned)]
+            (when-not (and (sequential? facts) (seq facts))
+              (throw (ex-info "assert-batch-after-read! requires a non-empty planned batch"
+                              {:te te})))
+            (send-op port {:op :assert-batch-at-version
+                           :te te
+                           :facts (mapv (fn [{:keys [p r]}]
+                                          {:p p :r (write-value! te p r)})
+                                        facts)
+                           :base base}))))))))
+
 (defn assert-after-read-with-fence!
   "Global read-set CAS plus an atomic lease fence. Every load-bearing read in
   VALIDATE! follows BASE capture; the daemon checks both BASE and the current
