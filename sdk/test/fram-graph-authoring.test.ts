@@ -326,6 +326,59 @@ test("reap accepts a coordinator exit between its final poll and ownership check
   }
 });
 
+test("reap grants checkpoint grace to a coordinator that released its port but lingers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-rebound-reap-linger-"));
+  const canonical = join(root, "canonical");
+  const lane = join(root, "lane");
+  const localFramHome = join(root, "fram-home");
+  mkdirSync(join(localFramHome, ".fram"), { recursive: true });
+  mkdirSync(join(canonical, "src"), { recursive: true });
+  mkdirSync(join(lane, "src"), { recursive: true });
+  writeFileSync(join(localFramHome, ".fram", "code.log"), [
+    `{:tx 1, :op "assert", :l "@src.demo#root", :p "file", :r "${canonical}/src/demo.bclj"}`,
+    "",
+  ].join("\n"));
+  const child = new EventEmitter() as ChildProcess;
+  Object.assign(child, { pid: 5252, exitCode: null, signalCode: null });
+  (child as any).unref = () => {};
+  let alive = true;
+  let listening = true;
+  const signals: NodeJS.Signals[] = [];
+  process.env.NORTH_FRAM_HOME = localFramHome;
+  try {
+    const coordinator = await prepareManagedFramCoordinator({
+      worktree: lane,
+      canonicalSourceRoot: canonical,
+      termMs: 0,
+      killMs: 0,
+      runtime: {
+        allocatePort: async () => 45682,
+        launch: () => child,
+        ready: async () => {},
+        waitForExit: async () => !alive,
+        pidAlive: () => alive,
+        portListening: () => listening,
+        pidOwnsPort: () => alive && listening,
+        // The JVM closes its listener at SIGTERM but flushes its shutdown
+        // checkpoint before exiting; it dies only when the kill escalation
+        // arrives. The old code threw pid_port_mismatch here instead.
+        signalPid: (_pid, signal) => {
+          signals.push(signal);
+          listening = false;
+          if (signal === "SIGKILL") alive = false;
+        },
+      },
+    });
+
+    await coordinator.close();
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(readFileSync(join(lane, ".fram", "managed-code-coordinator.json"), "utf8"))
+      .toContain('"active": false');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("host abort force-reaps a detached coordinator that has not finished booting", async () => {
   const root = mkdtempSync(join(tmpdir(), "fram-rebound-boot-abort-"));
   const canonical = join(root, "canonical");
