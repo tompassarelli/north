@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { AppServerMcpBroker, StrictJsonlFrames } from "../src/integrations/linear/app-server-broker";
 import { runLinearCommand } from "../src/integrations/linear/cli";
 import { LinearGatewayError, openLinearGateway } from "../src/integrations/linear/gateway";
+import type { McpBroker } from "../src/integrations/linear/mcp-broker";
 
 const fixture = resolve(import.meta.dir, "fixtures/fake-linear-app-server.mjs");
 const temporary: string[] = [];
@@ -77,6 +78,42 @@ function toolSchemas() {
 
 function linearServer(name = "linear-mcp-test") {
   return { name, authStatus: "oAuth", tools: toolSchemas() };
+}
+
+function countingBroker(server: ReturnType<typeof linearServer>) {
+  const calls = { prepareTool: 0, dispatch: 0 };
+  const broker: McpBroker = {
+    async open() {
+      return {
+        async listServers() { return [server]; },
+        prepareTool() {
+          calls.prepareTool += 1;
+          return {
+            async dispatch() {
+              calls.dispatch += 1;
+              return { content: [], structuredContent: { ok: true }, isError: false };
+            },
+          };
+        },
+        async callTool() { throw new Error("counting broker requires prepared calls"); },
+        transportReceipt() {
+          return {
+            transport: "counting-test",
+            policy: "linear-schema-test",
+            ephemeralThread: true,
+            outgoingMethods: {},
+            incomingNotifications: {},
+            mcpCalls: [],
+            modelTurnsStarted: 0,
+            usageEvents: 0,
+            tokenTotalStatus: "exact-zero-protocol",
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+  return { broker, calls };
 }
 
 function harness(
@@ -614,6 +651,144 @@ test("audits the live schema dialect and rejects violated constraints before dis
     .filter(({ method }) => method === "mcpServer/tool/call")).toHaveLength(0);
   expect(gateway.transportReceipt().mcpCalls).toEqual([]);
   await gateway.close();
+});
+
+test("admits an optional pattern schema but refuses supplied strings before preparation", async () => {
+  const server = linearServer();
+  (server.tools.save_issue.inputSchema.properties as Record<string, unknown>).slaBreachesAt = {
+    anyOf: [
+      { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}T" },
+      { type: "null" },
+    ],
+  };
+  const counted = countingBroker(server);
+  const gateway = await openLinearGateway(counted.broker);
+
+  expect(await gateway.writeIssue({ id: "MSA-327" })).toEqual({ ok: true });
+  expect(counted.calls).toEqual({ prepareTool: 1, dispatch: 1 });
+  expect(await gateway.writeIssue({ id: "MSA-327", slaBreachesAt: null })).toEqual({ ok: true });
+  expect(counted.calls).toEqual({ prepareTool: 2, dispatch: 2 });
+
+  await expect(gateway.writeIssue({
+    id: "MSA-327",
+    slaBreachesAt: "2026-07-28T08:39:50Z",
+  })).rejects.toThrow("unsupported executable assertion keyword pattern");
+  expect(counted.calls).toEqual({ prepareTool: 2, dispatch: 2 });
+
+  await expect(gateway.writeIssue({
+    id: "MSA-327",
+    slaBreachesAt: 42,
+  })).rejects.toThrow("does not match any allowed schema");
+  expect(counted.calls).toEqual({ prepareTool: 2, dispatch: 2 });
+  await gateway.close();
+});
+
+test("combinators cannot convert an unsupported executable assertion into a branch mismatch", async () => {
+  const cases: {
+    name: string;
+    schema?: Record<string, unknown>;
+    additionalProperties?: Record<string, unknown>;
+    value: unknown;
+  }[] = [
+    { name: "direct", schema: { type: "string", pattern: "^x$" }, value: "x" },
+    {
+      name: "overlapping anyOf",
+      schema: { anyOf: [{ type: "string", pattern: "^x$" }, { type: "string" }] },
+      value: "z",
+    },
+    {
+      name: "reverse overlapping anyOf",
+      schema: { anyOf: [{ type: "string" }, { type: "string", pattern: "^x$" }] },
+      value: "z",
+    },
+    {
+      name: "overlapping oneOf",
+      schema: { oneOf: [{ type: "string", pattern: "^x$" }, { type: "string" }] },
+      value: "z",
+    },
+    {
+      name: "negating not",
+      schema: { type: "string", not: { pattern: "^x$" } },
+      value: "x",
+    },
+    {
+      name: "allOf",
+      schema: { allOf: [{ type: "string" }, { pattern: "^x$" }] },
+      value: "x",
+    },
+    {
+      name: "typed additionalProperties",
+      additionalProperties: { type: "string", pattern: "^x$" },
+      value: "x",
+    },
+  ];
+
+  for (const adversarial of cases) {
+    const server = linearServer();
+    const saveSchema = server.tools.save_issue.inputSchema as Record<string, unknown>;
+    const arguments_: Record<string, unknown> = { id: "MSA-327" };
+    if (adversarial.schema) {
+      (server.tools.save_issue.inputSchema.properties as Record<string, unknown>).adversarial
+        = adversarial.schema;
+      arguments_.adversarial = adversarial.value;
+    } else {
+      saveSchema.additionalProperties = adversarial.additionalProperties;
+      arguments_.adversarial = adversarial.value;
+    }
+    const counted = countingBroker(server);
+    const gateway = await openLinearGateway(counted.broker);
+    await expect(gateway.writeIssue(arguments_), adversarial.name)
+      .rejects.toThrow("unsupported executable assertion keyword pattern");
+    expect(counted.calls, adversarial.name).toEqual({ prepareTool: 0, dispatch: 0 });
+    await gateway.close();
+  }
+});
+
+test("ordinary mismatches and incompatible schema inventory remain separately fail-closed", async () => {
+  const typeMismatch = linearServer();
+  (typeMismatch.tools.save_issue.inputSchema.properties as Record<string, unknown>).adversarial
+    = { type: "string", pattern: "^x$" };
+  const countedMismatch = countingBroker(typeMismatch);
+  const mismatchGateway = await openLinearGateway(countedMismatch.broker);
+  await expect(mismatchGateway.writeIssue({ id: "MSA-327", adversarial: 42 }))
+    .rejects.toThrow("wrong type");
+  expect(countedMismatch.calls).toEqual({ prepareTool: 0, dispatch: 0 });
+  await mismatchGateway.close();
+
+  const incompatible = [
+    {
+      name: "root ref",
+      mutate(server: ReturnType<typeof linearServer>) {
+        (server.tools.save_issue.inputSchema as Record<string, unknown>).$ref
+          = "#/$defs/saveIssue";
+      },
+      message: "unsupported assertion keyword $ref",
+    },
+    {
+      name: "nested contains",
+      mutate(server: ReturnType<typeof linearServer>) {
+        (server.tools.save_issue.inputSchema.properties as Record<string, unknown>).labels
+          = { type: "array", contains: { type: "string" } };
+      },
+      message: "unsupported assertion keyword contains",
+    },
+    {
+      name: "malformed pattern",
+      mutate(server: ReturnType<typeof linearServer>) {
+        (server.tools.save_issue.inputSchema.properties as Record<string, unknown>).adversarial
+          = { type: "string", pattern: 7 };
+      },
+      message: ".pattern is invalid",
+    },
+  ];
+  for (const inventory of incompatible) {
+    const server = linearServer();
+    inventory.mutate(server);
+    const counted = countingBroker(server);
+    await expect(openLinearGateway(counted.broker), inventory.name)
+      .rejects.toThrow(inventory.message);
+    expect(counted.calls, inventory.name).toEqual({ prepareTool: 0, dispatch: 0 });
+  }
 });
 
 test("implements the live nested URI format and rejects unknown formats before dispatch", async () => {

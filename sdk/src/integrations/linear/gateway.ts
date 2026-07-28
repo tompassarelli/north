@@ -73,6 +73,7 @@ const SCHEMA_ANNOTATIONS = new Set([
   "$schema", "$id", "$comment", "title", "description", "default", "examples",
   "deprecated", "readOnly", "writeOnly",
 ]);
+const RUNTIME_UNSUPPORTED_SCHEMA_ASSERTIONS = new Set(["pattern"]);
 const SUPPORTED_SCHEMA_ASSERTIONS = new Set([
   "type", "enum", "const", "anyOf", "oneOf", "allOf", "not",
   "properties", "required", "additionalProperties",
@@ -98,6 +99,8 @@ function nonnegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+class UnsupportedSchemaAssertionError extends Error {}
+
 /**
  * The live MCP schema is an authority boundary for prepare-before-intent.
  * Silently ignoring an assertion keyword could defer a deterministic provider
@@ -108,9 +111,13 @@ function assertSupportedSchema(schema: unknown, path: string): void {
   if (typeof schema === "boolean") return;
   if (!record(schema)) throw new Error(`Linear MCP schema at ${path} is not a JSON Schema`);
   for (const key of Object.keys(schema)) {
-    if (!SCHEMA_ANNOTATIONS.has(key) && !SUPPORTED_SCHEMA_ASSERTIONS.has(key))
+    if (!SCHEMA_ANNOTATIONS.has(key)
+        && !RUNTIME_UNSUPPORTED_SCHEMA_ASSERTIONS.has(key)
+        && !SUPPORTED_SCHEMA_ASSERTIONS.has(key))
       throw new Error(`Linear MCP schema at ${path} uses unsupported assertion keyword ${key}`);
   }
+  if (schema.pattern !== undefined && typeof schema.pattern !== "string")
+    throw new Error(`Linear MCP schema at ${path}.pattern is invalid`);
   if (schema.type !== undefined) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
     if (!types.length || types.some((type) => typeof type !== "string" || !JSON_SCHEMA_TYPES.has(type))
@@ -291,7 +298,8 @@ function schemaMatches(schema: unknown, value: unknown, path: string): boolean {
   try {
     validateValue(schema, value, path);
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof UnsupportedSchemaAssertionError) throw error;
     return false;
   }
 }
@@ -401,8 +409,13 @@ function validateValue(schema: unknown, value: unknown, path: string): void {
   if (schema === false)
     throw new Error(`Linear MCP argument ${path} is rejected by its schema`);
   if (!record(schema)) throw new Error(`Unsupported Linear MCP schema at ${path}`);
+  if (schema.pattern !== undefined && typeof value === "string")
+    throw new UnsupportedSchemaAssertionError(
+      `Linear MCP schema at ${path} uses unsupported executable assertion keyword pattern`,
+    );
   if (Array.isArray(schema.anyOf)) {
-    if (!schema.anyOf.some((candidate) => schemaMatches(candidate, value, path)))
+    const matches = schema.anyOf.map((candidate) => schemaMatches(candidate, value, path));
+    if (!matches.some(Boolean))
       throw new Error(`Linear MCP argument ${path} does not match any allowed schema`);
   }
   if (Array.isArray(schema.oneOf)) {
