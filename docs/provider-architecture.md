@@ -299,7 +299,7 @@ only surface evidence for review; they never mutate Orchestration's library or p
 a composition without an explicit source-control change.
 
 This division keeps Orchestration reusable across account layouts. Orchestration's canonical
-staffing catalog at `~/code/orchestration/staffing/catalog.json` names roles and semantic
+staffing catalog at `~/code/north/orchestration/staffing/catalog.json` names roles and semantic
 tiers; it contains no personal account IDs or subscription state.
 
 ## Token truth

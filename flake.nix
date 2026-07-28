@@ -1113,8 +1113,9 @@ PY
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
             # Assessed dispatch must resolve Orchestration's canonical selection
             # validator from the packaged contract alone. The sandbox has no
-            # ~/code/orchestration, and the wrapper forces NORTH_ORCHESTRATION_HOME at the runtime
-            # contract, so this exercises the exact shape (stock verifier
+            # external sibling Orchestration checkout, and the wrapper forces
+            # NORTH_ORCHESTRATION_HOME at the runtime contract, so this exercises
+            # the exact shape (stock verifier
             # composition + assessment sidecar, dry-run) that failed before
             # scripts/selection-assessment.mjs + provider-catalog.mjs were
             # packaged. The dry-run resolves the composition, admits the

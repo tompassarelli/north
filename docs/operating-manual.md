@@ -827,9 +827,9 @@ north routing report usage             # observed-token lower bounds + exact cov
 (role, composition, semantic tier, reasoning, and posture); **North answers WHERE
 it runs and HOW you see and drive it** (account target, subscription pressure,
 dashboard, spawn, watch, steer, profile). Orchestration is account-blind. `north spawn`
-reads `~/code/orchestration/staffing/catalog.json`, then North selects an eligible target
+reads `~/code/north/orchestration/staffing/catalog.json`, then North selects an eligible target
 and resolves the semantic tier through that provider's catalog. Generated agent
-markdown and `~/code/orchestration/docs/adapters/north.md` remain provider-adapter
+markdown and `~/code/north/orchestration/docs/adapters/north.md` remain provider-adapter
 artifacts, never North's metadata source.
 
 `north templates` is the human view of Orchestration's stock library. It deliberately
