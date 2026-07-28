@@ -52,7 +52,7 @@ IFS=$'\t' read -r repo role alias subject <"$role_log"
 [[ "$output" == *'durable role alias is \"north-integrator\"'* ]]
 [[ "$output" == *"Address peers ALIAS-FIRST"* ]]
 [[ "$output" == *"FAILS LOUDLY"* ]]
-[[ "$output" == *'`--dead-drop` is only'* ]]
+[[ "$output" == *"\`--dead-drop\` is only"* ]]
 
 source_text="$(<"$root/bin/north-on-spawn")"
 [[ "$source_text" == *'(str "@role:" role-alias)'* ]]
