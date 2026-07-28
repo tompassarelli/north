@@ -81,7 +81,9 @@
 ;; is spent — exhaustion stops waiting, not asking. A single Fram query may use
 ;; its full 5s evaluation limit, so the SDK's finite subprocess boundary must
 ;; cover the first attempt, one retry, publication, and readback.
-(def read-retry-budget-ms 2000)
+;; Rides above coordinator read latency under load (4-6.5s observed at
+;; ~300k-version scale); 2s starved the pre-publication read.
+(def read-retry-budget-ms 15000)
 (def ^:private read-retry-deadline-ns (atom nil))
 
 (defn- read-deadline-ns []

@@ -734,7 +734,11 @@
 ;; caller-selected cap when needed. Callers publishing prerequisite facts may
 ;; create one deadline and pass it through the seven-argument arity so body +
 ;; marker share the same finite window.
-(def assert-after-read-deadline-ms 5000)
+;; 30s: the 5s default starved reservation publication behind telemetry
+;; write bursts at ~300k-version store scale (2026-07-28 preflight failures:
+;; "delivery evidence publication deadline exceeded"), same growth arithmetic
+;; as the coordinator query budget (30s) and SDK read timeout (45s).
+(def assert-after-read-deadline-ms 30000)
 (def ^:private assert-after-read-initial-backoff-ms 1)
 (def ^:private assert-after-read-max-backoff-ms 64)
 
