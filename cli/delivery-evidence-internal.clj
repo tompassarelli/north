@@ -21,6 +21,13 @@
              "delivery evidence publication deadline exceeded"
              "coordinator rejected delivery evidence write")
            {:operation operation}))
+  ;; An engine-level error ("unknown op" from a coordinator predating the verb)
+  ;; is neither :reject nor :done; silently proceeding to the readback turned
+  ;; an unsupported operation into a phantom "lost race" for every dispatch.
+  (when (:error result)
+    (fail! (str "coordinator cannot execute delivery evidence write: "
+                (:error result))
+           {:operation operation :error (:error result)}))
   result)
 
 (defn parse-request [raw]
@@ -295,8 +302,7 @@
           (north.coord/assert-batch-after-read!
            port run plan! Integer/MAX_VALUE (north.coord/retry-deadline-ns))
           replay (:done outcome)]
-      (when (:reject outcome)
-        (checked! outcome [:assert-batch-at-version run]))
+      (checked! outcome [:assert-batch-at-version run])
       ;; Post-success readback: the runner legitimately writes allocation and
       ;; ledger TELEMETRY onto the run subject before the reservation lands, so
       ;; "exactly the eight predicates and nothing else" can never hold here —
