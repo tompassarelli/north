@@ -75,9 +75,10 @@ import {
 import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
 import {
   loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
-  resolveDeliveryRunState, resolveThreadFacts,
+  reserveDeliveryRunWithRecovery, resolveDeliveryRunState, resolveThreadFacts,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
-  type DeliveryRunStateLoadOptions, type ThreadFactsLoadOptions,
+  type DeliveryReservationRecoveryOptions, type DeliveryRunStateLoadOptions,
+  type ThreadFactsLoadOptions,
 } from "./delivery-evidence";
 import { takeDispatchTestRuntime } from "./internal/test-runtime";
 import { ManagedLiveInputRoute } from "./live-input-route";
@@ -126,6 +127,8 @@ interface DispatchRuntime {
   deliveryRuntime?: {
     reserve: (context: DeliveryRunContext) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
+    /** Bounded pre-provider writer relaunch shape; tests inject timing only. */
+    reserveOptions?: DeliveryReservationRecoveryOptions;
     /** Bounded retry shape for the finalize-time load; tests inject it. */
     loadOptions?: DeliveryRunStateLoadOptions;
   };
@@ -431,7 +434,20 @@ async function runDispatch(
     // failures must not strand undiscoverable reservation-only subjects.
     try {
       if (runtime) {
-        deliveryReservation = runtime.reserve(runContext);
+        deliveryReservation = reserveDeliveryRunWithRecovery(
+          runContext,
+          runtime.reserve,
+          {
+            ...runtime.reserveOptions,
+            onRetry: (error, nextAttempt, maxAttempts, backoffMs) => {
+              console.error(
+                `[delivery] @${runId} reservation writer failed before provider; `
+                + `relaunching the same reservation identity after ${backoffMs}ms `
+                + `(attempt ${nextAttempt}/${maxAttempts}): ${error.message}`,
+              );
+            },
+          },
+        );
         if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
         deliveryReservationReady = true;
       }

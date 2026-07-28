@@ -56,6 +56,26 @@ export interface DeliveryReservation {
   baselineDoneWhen: string[];
 }
 
+// Reservation publication is the final pre-provider gate. A killed writer is
+// safe to relaunch with the SAME context because the coordinator publishes the
+// complete reservation atomically and the writer recognizes an exact replay.
+// Keep the policy here so spawn and dispatch cannot drift: one recovery
+// attempt, one short backoff, and no retry after any acknowledgement.
+export const DELIVERY_RESERVATION_RECOVERY_MAX_ATTEMPTS = 2;
+export const DELIVERY_RESERVATION_RECOVERY_BACKOFF_MS = 100;
+
+export interface DeliveryReservationRecoveryOptions {
+  attempts?: number;
+  backoffMs?: number;
+  sleep?: (ms: number) => void;
+  onRetry?: (
+    error: DeliveryEvidenceRetryableError,
+    nextAttempt: number,
+    maxAttempts: number,
+    backoffMs: number,
+  ) => void;
+}
+
 export interface DeliveryRunState {
   reservationValid: boolean;
   evidence: RunBarEvidence[];
@@ -101,6 +121,47 @@ function sleepSync(ms: number): void {
   if (ms <= 0) return;
   const signal = new Int32Array(new SharedArrayBuffer(4));
   Atomics.wait(signal, 0, 0, ms);
+}
+
+/**
+ * Relaunch a failed reservation writer only at the pre-provider reservation
+ * seam. A successful acknowledgement returns immediately; a logical refusal
+ * never retries; retry exhaustion rethrows the final typed failure unchanged.
+ */
+export function reserveDeliveryRunWithRecovery(
+  context: DeliveryRunContext,
+  reserve: (context: DeliveryRunContext) => DeliveryReservation,
+  options: DeliveryReservationRecoveryOptions = {},
+): DeliveryReservation {
+  const maxAttempts = Math.max(
+    1,
+    Math.min(
+      DELIVERY_RESERVATION_RECOVERY_MAX_ATTEMPTS,
+      Math.floor(options.attempts ?? DELIVERY_RESERVATION_RECOVERY_MAX_ATTEMPTS),
+    ),
+  );
+  const backoffMs = Math.max(
+    0,
+    Math.min(1_000, Math.floor(
+      options.backoffMs ?? DELIVERY_RESERVATION_RECOVERY_BACKOFF_MS,
+    )),
+  );
+  const sleep = options.sleep ?? sleepSync;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return reserve(context);
+    } catch (error) {
+      if (!(error instanceof DeliveryEvidenceRetryableError)
+          || attempt === maxAttempts) {
+        throw error;
+      }
+      const delay = backoffMs * 2 ** (attempt - 1);
+      options.onRetry?.(error, attempt + 1, maxAttempts, delay);
+      sleep(delay);
+    }
+  }
+  throw new Error("delivery reservation recovery exhausted without an attempt");
 }
 
 export function deliveryRunLoadFailureCause(error: unknown): string {
@@ -280,6 +341,7 @@ export function deliveryEvidenceWriterError(
   return reason?.startsWith("RETRYABLE:")
     || (operation === "reserve" && (
       reason?.includes("reason=writer-timeout")
+      || reason?.includes("reason=writer-process-failure")
       || reason?.includes("delivery evidence publication deadline exceeded")
     ))
     ? new DeliveryEvidenceRetryableError(message)
@@ -298,6 +360,7 @@ export function deliveryReservationFailureCause(error: unknown): string {
     return "reservation conflict";
   }
   if (message.includes("reason=writer-timeout")) return "writer timed out";
+  if (message.includes("reason=writer-process-failure")) return "writer process failed";
   if (message === "delivery evidence reserve returned a malformed acknowledgement") {
     return "malformed acknowledgement";
   }
