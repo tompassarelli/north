@@ -35,65 +35,11 @@
 (def CACHE-SCOPE (str (hash (str (or (System/getenv "FRAM_LOG") "default") "|"
                                 (or (System/getenv "FRAM_TELEMETRY_LOG") "") "|" PORT))))
 
-;; A full coordinator doctor reads every active log byte and parses every projected
-;; thread file. Its deadline therefore scales with that work instead of being a
-;; fixed number that eventually loses to corpus growth. The contract grants 5s of
-;; process/daemon overhead, then assumes at least 2 MiB/s of aggregate scan/fold
-;; throughput and 2ms per projected file, bounded at two minutes. On the 2026-07-18
-;; corpus (about 17 MiB + 1,528 files, measured 5.2s) this yields about 17s: enough
-;; headroom for contention without turning a hung diagnostic into an unbounded wait.
-(def MIB (* 1024 1024))
-(def COORD-DOCTOR-BASE-MS 5000)
-(def COORD-DOCTOR-PER-MIB-MS 500)
-(def COORD-DOCTOR-PER-FILE-MS 2)
-(def COORD-DOCTOR-MAX-MS 120000)
-
-(defn- ceil-div [n d]
-  (quot (+ n (dec d)) d))
-
-(defn- log-workload [path]
-  (let [f (when (seq path) (io/file path))]
-    (if (and f (.isFile f))
-      (.length f)
-      0)))
-
-(defn- thread-workload [path]
-  (let [dir (when (seq path) (io/file path))]
-    (if (and dir (.isDirectory dir))
-      ;; Match fram.rt/list-md exactly: only direct *.md children participate
-      ;; in the corpus fold, and CLAUDE.md is an instruction file rather than a
-      ;; projected thread.
-      (->> (or (seq (.listFiles dir)) [])
-           (filter #(and (.isFile %)
-                         (str/ends-with? (.getName %) ".md")
-                         (not= (.getName %) "CLAUDE.md")))
-           (reduce (fn [{:keys [bytes files]} f]
-                     {:bytes (+ bytes (.length f))
-                      :files (inc files)})
-                   {:bytes 0 :files 0}))
-      {:bytes 0 :files 0})))
-
-(defn coord-doctor-workload
-  "Bytes + projected-file count read by `north coord-doctor` in this environment."
-  []
-  (let [logs (->> [(or (System/getenv "FRAM_LOG")
-                        (str HOME "/.local/state/north/facts.log"))
-                   (System/getenv "FRAM_TELEMETRY_LOG")]
-                  (remove str/blank?)
-                  distinct)
-        threads (or (System/getenv "FRAM_THREADS")
-                    (str HOME "/.local/state/north/threads"))
-        projected (thread-workload threads)]
-    {:bytes (+ (:bytes projected) (reduce + 0 (map log-workload logs)))
-     :files (:files projected)}))
-
-(defn coord-doctor-timeout-ms
-  "Bounded deadline for a full coordinator doctor workload."
-  [{:keys [bytes files]}]
-  (min COORD-DOCTOR-MAX-MS
-       (+ COORD-DOCTOR-BASE-MS
-          (* COORD-DOCTOR-PER-MIB-MS (ceil-div (max 0 (or bytes 0)) MIB))
-          (* COORD-DOCTOR-PER-FILE-MS (max 0 (or files 0))))))
+;; Doctor is an operational liveness command, so its coordinator handshake must
+;; be bounded independently of corpus size. Full log + projection reconciliation
+;; remains available as the explicit `north coord-doctor` audit; it no longer
+;; sits on the default health path.
+(def COORD-SAFETY-TIMEOUT-MS 5000)
 
 ;; ---- ANSI (respect NO_COLOR / non-tty) --------------------------------------
 (def color? (and (nil? (System/getenv "NO_COLOR"))
@@ -121,12 +67,10 @@
          :ok (zero? (:exit res))}))
     (catch Exception e {:error (.getMessage e) :ok false})))
 
-(defn coord-doctor-probe []
-  (let [workload (coord-doctor-workload)
-        timeout-ms (coord-doctor-timeout-ms workload)]
-    (assoc (run [(str NORTH "/bin/north") "coord-doctor"] :timeout timeout-ms)
-           :timeout-ms timeout-ms
-           :workload workload)))
+(defn coord-safety-probe []
+  (assoc (run [(str NORTH "/bin/north") "coord-safety"]
+              :timeout COORD-SAFETY-TIMEOUT-MS)
+         :timeout-ms COORD-SAFETY-TIMEOUT-MS))
 
 (defn echo-cmd
   "Print the underlying primitive being wrapped (teaching surface)."
@@ -739,8 +683,10 @@
 
 (defn render-dead-letters! [port]
   (println (bold "  dead letters"))
-  (let [{:keys [rows error]} (north.message-routing/dead-letter-scan
-                              (Integer/parseInt (str port)))]
+  (let [{:keys [rows error]}
+        (north.message-routing/readiness-dead-letter-scan
+         (Integer/parseInt (str port))
+         DEAD-LETTER-ACTION-WINDOW-MS)]
     (cond
       error
       (do
@@ -781,25 +727,23 @@
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
-  ;; coordinator handshake — the engine-level safety verdict (tell/untell safe,
-  ;; daemon state matches on-disk log). Ported north kept this as the session-start
-  ;; handshake; doctor now leads with it. `north coord-doctor` is the raw primitive.
+  ;; Coordinator safety is a bounded identity + exact-log-fence round trip.
+  ;; Full log/file projection reconciliation remains an explicit
+  ;; `north coord-doctor` audit and cannot hold the default health path hostage.
   (println (bold "  coordinator"))
-  (echo-cmd (str NORTH "/bin/north") "coord-doctor")
-  (let [{:keys [timeout timeout-ms workload ok out err error]} (coord-doctor-probe)]
+  (echo-cmd (str NORTH "/bin/north") "coord-safety")
+  (let [{:keys [timeout timeout-ms ok out err error]} (coord-safety-probe)]
     (cond
       timeout
       (do
         (mark-doctor-failed!)
-        (println (str "    " (red "[ERR] ") " coord-doctor exceeded its "
-                      timeout-ms "ms full-corpus budget ("
-                      (ceil-div (:bytes workload) MIB) " MiB, " (:files workload)
-                      " files) — probe incomplete; coordinator state was not inferred")))
+        (println (str "    " (red "[ERR] ") " coord-safety exceeded its "
+                      timeout-ms "ms budget — readiness was not inferred")))
 
       (not ok)
       (do
         (mark-doctor-failed!)
-        (println (str "    " (red "[ERR] ") " coord-doctor failed"
+        (println (str "    " (red "[ERR] ") " coord-safety failed"
                       (when (seq (str/trim (or error err "")))
                         (str ": " (str/trim (or error err "")))))))
 
@@ -826,26 +770,20 @@
     (when (str/includes? reactor-line "[ERR]") (mark-doctor-failed!))
     (println (str "    " reactor-line)))
   (render-dead-letters! PORT)
-  ;; health — lane activity + stale concerns from north health. LIVE (uncached, unlike
-  ;; the dashboard's cached hot path) but with a budget that matches reality: `north
-  ;; health` folds the whole log and takes ~21-24s, so the old 4s default always warned
-  ;; "timed out". Doctor is a deliberate, occasional live check — eating one honest 30s
-  ;; fold beats reporting a false timeout on a healthy coordinator.
-  (println (bold "  health"))
-  (echo-cmd (str NORTH "/bin/north") "health")
-  (let [h  (parse-health (north-health 30000))
-        cs (concern-summary (fetch-concern-projection))    ; LIVE (uncached) structured projection, never scraped
-        concerns-part (if (:err cs)
-                        "   concerns  (unavailable)"
-                        (str "   concerns  " (:active cs) " active"
-                             (when (pos? (:stale cs)) (str " · " (:stale cs) " STALE concerns"))))]
-    (if (:err h)
-      (println (str "    " (ylw "[warn] ") " north health " (:err h) concerns-part))
-      (let [{:keys [lanes-ran-24h lanes-died-24h]} h
-            died-part (when lanes-died-24h (str " · " lanes-died-24h " died"))]
-        (println (str "    " (grn "[ok]  ") " "
-                      (or lanes-ran-24h "?") " ran" died-part " (24h)"
-                      concerns-part)))))
+  ;; 24h/7d activity is observability, not readiness. `north health` currently
+  ;; runs a deliberately broad aggregate and can take tens of seconds on the
+  ;; large graph. Doctor consumes only a recent successful dashboard cache and
+  ;; never starts that workload itself.
+  (println (bold "  activity summary"))
+  (if-let [{:keys [lanes-ran-24h lanes-died-24h]}
+           (cache-get "health.edn" 300000)]
+    (println (str "    " (grn "[ok]  ") " cached "
+                  (or lanes-ran-24h "?") " ran"
+                  (when lanes-died-24h (str " · " lanes-died-24h " died"))
+                  " (24h)"))
+    (println (str "    " (ylw "[warn] ")
+                  "no recent aggregate cache; readiness checks continue"
+                  (dim " (run `north health` explicitly for the broad rollup)"))))
   ;; Runtime source identity (north + fram). A package revision identifies the
   ;; installed closure; a checkout HEAD is only source context, not proof that a
   ;; separately installed store path contains that tree.
