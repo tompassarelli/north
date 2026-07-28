@@ -34,6 +34,9 @@
    ["@ready-b" "committed" "2026-07-28"]
    ["@ready-b" "created_at" "2026-07-28"]
    ["@dependent" "depends_on" "@ready-a"]
+   ["@concern-ready" "title" "not work"]
+   ["@concern-ready" "kind" "concern"]
+   ["@concern-ready" "committed" "2026-07-28"]
    ["@floor-thread" "title" "coordinator"]
    ["@floor-thread" "wip_floor" "3"]
    ["lane-a" north.wip-cli/lane-kind-tag "lane"]
@@ -107,6 +110,63 @@
                (north.wip-cli/parse-options ["--check" "--floor" "5"]))
             (= {:check true :floor 5}
                (north.wip-cli/parse-options ["--floor" "5" "--check"]))))
+
+(defn log-op [tx operation subject predicate value]
+  (pr-str
+   (array-map
+    :tx tx :op operation :l subject :p predicate :r value
+    :ts "2026-07-28T00:00:00Z" :by "test")))
+
+(let [directory (.toFile
+                 (java.nio.file.Files/createTempDirectory
+                  "north-wip-fixture"
+                  (make-array java.nio.file.attribute.FileAttribute 0)))
+      coordination (io/file directory "coordination.log")
+      telemetry (io/file directory "telemetry.log")]
+  (.deleteOnExit directory)
+  (.deleteOnExit coordination)
+  (.deleteOnExit telemetry)
+  (spit
+   coordination
+   (str/join
+    "\n"
+    [(log-op 1 "assert" "@work" "title" "old")
+     (log-op 2 "assert" "@work" "title" "new \"quoted\" title")
+     (log-op 3 "assert" "@work" "committed" "2026-07-28")
+     (log-op 4 "assert" "@work" "depends_on" "@dependency")
+     (log-op 5 "retract" "@work" "depends_on" "@dependency")
+     (log-op 6 "assert" "@lease:session:lane-a" "lease"
+             "lane-a|1999999999999|6")
+     (log-op 7 "assert" "@lease:session:lane-a" "lease"
+             "lane-a|2000000000000|7")
+     (log-op 8 "assert" "@agent:lane-a" "kind" "lane")
+     (log-op 9 "assert" "@session:coordinator" "current_thread"
+             "@floor-thread")]))
+  (spit
+   telemetry
+   (str/join
+    "\n"
+    [(log-op 10 "assert" "@run:one" "run_reservation_agent"
+             "@agent:lane-a")
+     (log-op 11 "assert" "@run:one" "run_reservation_thread"
+             "@work")]))
+  (let [state
+        (north.wip-cli/fold-log-paths (str coordination) (str telemetry))]
+    (check "canonical append-log fold preserves supersession and retraction"
+           (and (some #{["@work" "title" "new \"quoted\" title"]}
+                      (:work state))
+                (not-any? #(and (= "@work" (first %))
+                                (= "depends_on" (second %)))
+                          (:work state))
+                (= "lane-a|2000000000000|7"
+                   (get (:leases state) "@lease:session:lane-a"))))
+    (check "canonical append-log fold carries presence and reservation bindings"
+           (and (= #{"lane-a"} (:managed state))
+                (= "@floor-thread"
+                   (get (:session-threads state) "coordinator"))
+                (= {"lane-a" #{"@work"}}
+                   (north.wip-cli/reservation-bindings
+                    (:reservations state)))))))
 
 (if (seq @failures)
   (do

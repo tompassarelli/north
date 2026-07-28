@@ -1,13 +1,14 @@
 #!/usr/bin/env bb
 ;; wip-cli.clj — `north wip`: live managed-lane capacity against ready work.
 ;;
-;; READ-ONLY. The work projection is one bounded Datalog fold. It emits only
-;; facts needed by north.projections/ready + leverage-score, rather than moving
-;; the whole live graph across the coordinator wire. Presence remains the
-;; canonical renewable session-lease projection.
+;; READ-ONLY. Work and presence are one bounded fold of North's canonical
+;; append log, limited to facts consumed by ready/leverage and live-lane
+;; projection. A configured telemetry origin contributes reservation bindings.
 (ns north.wip-cli
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
+            [babashka.process :as process]
             [fram.kernel :as k]
             [north.projections :as projections]))
 
@@ -15,152 +16,83 @@
  (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (def default-floor 4)
-(def port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
 (def lease-prefix "@lease:session:")
 (def max-live-controls 256)
-(def max-query-rows 100000)
 (def lane-kind-tag "north:wip/lane-kind")
 (def lane-thread-tag "north:wip/lane-thread")
 (def coordinator-thread-tag "north:wip/coordinator-thread")
+(def coordination-log (north.coord/expected-log))
+(def telemetry-log (some-> (System/getenv "FRAM_TELEMETRY_LOG") str/trim not-empty))
+(def thread-predicates
+  #{"title" "committed" "outcome" "abandoned" "superseded_by" "driver"
+    "depends_on" "part_of" "do_on" "valid_until" "estimate_hours" "lead"
+    "proposed_by" "created_at" "updated_at" "repo" "wip_floor" "kind"
+    "entity_kind"})
+(def selected-facts-awk
+  (str
+   "BEGIN {"
+   " work[\"title\"]=work[\"committed\"]=work[\"outcome\"]=1;"
+   " work[\"abandoned\"]=work[\"superseded_by\"]=work[\"driver\"]=1;"
+   " work[\"depends_on\"]=work[\"part_of\"]=work[\"do_on\"]=1;"
+   " work[\"valid_until\"]=work[\"estimate_hours\"]=work[\"lead\"]=1;"
+   " work[\"proposed_by\"]=work[\"created_at\"]=work[\"updated_at\"]=1;"
+   " work[\"repo\"]=work[\"wip_floor\"]=work[\"kind\"]=work[\"entity_kind\"]=1;"
+   " reservation[\"run_reservation_agent\"]=1;"
+   " reservation[\"run_reservation_thread\"]=1;"
+   " multi[\"depends_on\"]=multi[\"proposed_by\"]=multi[\"repo\"]=1;"
+   " multi[\"run_reservation_agent\"]=1;"
+   " multi[\"run_reservation_thread\"]=1"
+   " }"
+   " {"
+   " marker=index($0, \", :p \\\"\");"
+   " rest=substr($0, marker + 6);"
+   " predicate=substr(rest, 1, index(rest, \"\\\"\") - 1);"
+   " selected=((ARGIND == 1 &&"
+   "           (work[predicate] || predicate == \"lease\" ||"
+   "            predicate == \"current_thread\")) || reservation[predicate]);"
+   " if (!selected) next;"
+   " lmarker=index($0, \", :l \\\"\");"
+   " subject=substr($0, lmarker + 6, marker - (lmarker + 6) - 1);"
+   " rmarker=index($0, \", :r \\\"\");"
+   " rstart=rmarker + 6;"
+   " rest=substr($0, rstart);"
+   " rend=index(rest, \"\\\", :ts \");"
+   " frameend=index(rest, \"\\\", :frame \");"
+   " if (frameend && frameend < rend) rend=frameend;"
+   " value=substr(rest, 1, rend - 1);"
+   " operation=(index(substr($0, 1, 64), \":op \\\"assert\\\"\") ?"
+   "            \"assert\" : \"retract\");"
+   " key=subject SUBSEP predicate;"
+   " if (multi[predicate]) key=key SUBSEP value;"
+   " if (operation == \"assert\") {"
+   "   live[key]=value; subjects[key]=subject; predicates[key]=predicate"
+   " } else if ((key in live) && live[key] == value) {"
+   "   delete live[key]; delete subjects[key]; delete predicates[key]"
+   " }"
+   " }"
+   " END {"
+   " for (key in live)"
+   "   print subjects[key] \"\\t\" predicates[key] \"\\t\" live[key]"
+   " }"))
 
-(def terminal-predicates ["outcome" "abandoned" "superseded_by"])
-(def anchor-axis-predicates
-  ["driver" "depends_on" "part_of" "do_on" "valid_until" "estimate_hours"
-   "lead" "proposed_by" "created_at" "updated_at" "repo"])
-(def candidate-predicates
-  ["title" "committed" "driver" "do_on" "updated_at"])
-
-(defn variable [name] {:var name})
-(defn literal
-  ([rel args] {:rel rel :args args})
-  ([rel args neg?] {:rel rel :args args :neg neg?}))
-(defn rule [rel args body] {:head {:rel rel :args args} :body body})
-
-(defn work-query
-  "Return the one ready/leverage fold. Candidate eligibility is resolved
-  server-side; the returned facts are the bounded index input consumed by the
-  canonical north.projections functions."
-  []
-  (let [e (variable "e")
-        r (variable "r")
-        title (variable "title")
-        blocked (variable "blocked")
-        dependency (variable "dependency")
-        terminal-rules
-        (mapv #(rule "terminal" [e]
-                     [(literal "triple" [e % r])])
-              terminal-predicates)
-        work-axis-rules
-        (mapv #(rule "work_axis" [e]
-                     [(literal "triple" [e % r])])
-              anchor-axis-predicates)
-        blocked-rules
-        [(rule "blocked" [blocked]
-               [(literal "triple" [blocked "depends_on" dependency])
-                (literal "triple" [dependency "title" title])
-                (literal "terminal" [dependency] true)])]
-        candidate-rules
-        [(rule "candidate" [e title]
-               [(literal "triple" [e "title" title])
-                (literal "triple" [e "committed" r])
-                (literal "work_axis" [e])
-                (literal "terminal" [e] true)
-                (literal "blocked" [e] true)])]
-        candidate-fact-rules
-        (mapv
-         (fn [predicate]
-           (rule "wip_row" [e predicate r]
-                 [(literal "candidate" [e title])
-                  (literal "triple" [e predicate r])]))
-         candidate-predicates)
-        graph-fact-rules
-        (vec
-         (concat
-          [(rule "wip_row" [e "depends_on" r]
-                 [(literal "triple" [e "depends_on" r])])
-           (rule "wip_row" [dependency "title" title]
-                 [(literal "triple" [e "depends_on" dependency])
-                  (literal "triple" [dependency "title" title])])
-           (rule "wip_row" [e "wip_floor" r]
-                 [(literal "triple" [e "wip_floor" r])])]
-          (map
-           #(rule "wip_row" [e % r]
-                  [(literal "triple" [e % r])])
-           terminal-predicates)))
-        ]
-    {:find "wip_row"
-     :strata
-     [terminal-rules
-      work-axis-rules
-      blocked-rules
-      candidate-rules
-      (vec (concat candidate-fact-rules graph-fact-rules))]}))
-
-(defn identity-query [live-controls]
-  (let [thread (variable "thread")]
-    {:find "wip_row"
-     :rules
-     (vec
-      (mapcat
-       (fn [control]
-         (let [agent-subject (str "@agent:" control)
-               session-subject (str "@session:" control)]
-           [(rule "wip_row" [control lane-kind-tag "lane"]
-                  [(literal "triple" [agent-subject "kind" "lane"])])
-            (rule "wip_row" [control coordinator-thread-tag thread]
-                  [(literal "triple" [session-subject "current_thread" thread])])]))
-       live-controls))}))
-
-(defn reservation-query [live-controls]
-  (let [run (variable "run")
-        thread (variable "thread")]
-    {:find "wip_row"
-     :rules
-     (vec
-      (mapcat
-       (fn [control]
-         (let [reporter (str "@agent:" control)]
-           [(rule "wip_row" [control lane-thread-tag thread]
-                  [(literal "triple" [run "run_reservation_agent" reporter])
-                   (literal "triple" [run "run_reservation_thread" thread])])
-            (rule "wip_row" [control coordinator-thread-tag thread]
-                  [(literal "triple" [run "run_reservation_agent" reporter])
-                   (literal "triple" [run "run_reservation_thread" thread])])]))
-       live-controls))}))
-
-(defn strict-query-rows [response]
-  (let [rows (:ok response)]
-    (when-not
-     (and (map? response)
-          (integer? (:version response))
-          (vector? rows)
-          (<= (count rows) max-query-rows)
-          (every? #(and (vector? %) (= 3 (count %))
-                        (every? string? %))
-                  rows))
-      (throw (ex-info "coordinator returned a malformed WIP projection" {})))
-    rows))
-
-(defn query-rows [live-controls]
-  (let [work
-        (strict-query-rows
-         (north.coord/send-op
-          port {:op :query
-                :query (work-query)}))
-        identity
-        (strict-query-rows
-         (north.coord/send-op
-          port {:op :query
-                :query (identity-query live-controls)}))
-        reservations
-        (binding
-            [north.coord/*operation-domain*
-             (when (north.coord/telemetry-partition-enabled?) :telemetry)]
-          (strict-query-rows
-           (north.coord/send-op
-            port {:op :query
-                  :query (reservation-query live-controls)})))]
-    (vec (concat work identity reservations))))
+(defn query-rows
+  [work managed-controls session-threads reservation-bindings]
+  (vec
+   (concat
+    work
+    (map (fn [control] [control lane-kind-tag "lane"])
+         (sort managed-controls))
+    (map (fn [[control thread]]
+           [control coordinator-thread-tag thread])
+         (sort-by key session-threads))
+    (mapcat
+     (fn [control]
+       (mapcat
+        (fn [thread]
+          [[control lane-thread-tag thread]
+           [control coordinator-thread-tag thread]])
+        (sort (get reservation-bindings control #{}))))
+     (sort managed-controls)))))
 
 (defn parse-lease [entity value]
   (let [parts (str/split value #"\|" -1)
@@ -174,24 +106,121 @@
       (throw (ex-info "coordinator returned a malformed session lease" {})))
     {:control (first parts) :expiry expiry}))
 
+(defn decode-log-string [value]
+  (if (str/includes? value "\\")
+    (edn/read-string (str "\"" value "\""))
+    value))
+
+(defn folded-row [line]
+  (let [first-tab (.indexOf line "\t")
+        second-tab (.indexOf line "\t" (inc first-tab))]
+    (when (or (neg? first-tab) (neg? second-tab))
+      (throw (ex-info "malformed live triple from canonical log fold" {})))
+    [(decode-log-string (subs line 0 first-tab))
+     (subs line (inc first-tab) second-tab)
+     (decode-log-string (subs line (inc second-tab)))]))
+
+(defn fold-selected-reader [reader]
+    (loop [leases {}
+           managed #{}
+           session-threads {}
+           reservations {}
+           work (transient [])]
+      (if-let [line (.readLine reader)]
+        (let [[subject predicate value] (folded-row line)]
+          (cond
+            (and (= predicate "lease")
+                 (str/starts-with? subject lease-prefix))
+            (recur (assoc leases subject value)
+                   managed session-threads reservations work)
+
+            (and (= predicate "kind")
+                 (= value "lane")
+                 (str/starts-with? subject "@agent:"))
+            (recur leases
+                   (conj managed (subs subject (count "@agent:")))
+                   session-threads reservations work)
+
+            (and (= predicate "current_thread")
+                 (str/starts-with? subject "@session:"))
+            (recur leases managed
+                   (assoc session-threads
+                          (subs subject (count "@session:"))
+                          value)
+                   reservations work)
+
+            (#{"run_reservation_agent" "run_reservation_thread"} predicate)
+            (recur leases managed session-threads
+                   (update-in reservations [subject predicate]
+                              (fnil conj #{}) value)
+                   work)
+
+            (contains? thread-predicates predicate)
+            (recur leases managed session-threads reservations
+                   (conj! work [subject predicate value]))
+
+            :else
+            (recur leases managed session-threads reservations work)))
+        {:leases leases
+         :managed managed
+         :session-threads session-threads
+         :reservations reservations
+         :work (persistent! work)})))
+
+(defn fold-log-paths [coordination-path telemetry-path]
+  (let [command
+        (cond-> ["gawk" selected-facts-awk coordination-path]
+          telemetry-path (conj telemetry-path))
+        child (process/process command {:out :stream :err :string})
+        state
+        (with-open [reader (io/reader (:out child))]
+          (fold-selected-reader reader))
+        result @child]
+    (when-not (zero? (:exit result))
+      (throw
+       (ex-info
+        (str "canonical log selection failed: " (str/trim (:err result)))
+        {:exit (:exit result)})))
+    state))
+
+(defn coordination-state []
+  (fold-log-paths coordination-log telemetry-log))
+
+(defn reservation-bindings [reservations]
+  (reduce-kv
+   (fn [bindings _run facts]
+     (let [agents (get facts "run_reservation_agent" #{})
+           threads (get facts "run_reservation_thread" #{})]
+       (if (and (= 1 (count agents)) (= 1 (count threads)))
+         (let [control (str/replace-first (first agents) #"^@agent:" "")]
+           (update bindings control (fnil conj #{}) (first threads)))
+         bindings)))
+   {}
+   reservations))
+
+(defn presence-state [now-ms]
+  (let [{:keys [leases managed session-threads reservations work]}
+        (coordination-state)
+        parsed (mapv (fn [[entity value]] (parse-lease entity value)) leases)
+        controls (->> parsed
+                      (filter #(< now-ms (:expiry %)))
+                      (map :control)
+                      distinct
+                      sort
+                      vec)]
+    (when (> (count controls) max-live-controls)
+      (throw (ex-info "live session roster exceeds the WIP bound" {})))
+    {:controls controls
+     :managed (set (filter managed controls))
+     :session-threads (select-keys session-threads controls)
+     :reservation-bindings
+     (select-keys (reservation-bindings reservations) controls)
+     :work work}))
+
 (defn live-controls
   ([] (live-controls (System/currentTimeMillis)))
   ([now-ms]
-   (let [rows
-         (north.coord/agg-rows
-          port ["e" "r"]
-          [(literal "triple" [(variable "e") "lease" (variable "r")])])
-         session-rows (filter #(str/starts-with? (first %) lease-prefix) rows)
-         parsed (mapv #(parse-lease (first %) (second %)) session-rows)
-         live (->> parsed
-                   (filter #(< now-ms (:expiry %)))
-                   (map :control)
-                   distinct
-                   sort
-                   vec)]
-     (when (> (count live) max-live-controls)
-       (throw (ex-info "live session roster exceeds the WIP bound" {})))
-     live)))
+   (:controls (presence-state now-ms))))
 
 (defn fact-row? [[_ predicate _]]
   (not (or (= predicate lane-kind-tag)
@@ -253,6 +282,29 @@
            (or (contains? live-set control)
                (and updated (< (- now-ms updated) window-ms)))))))))
 
+(defn work-thread? [idx subject]
+  (let [bare (str/replace-first subject #"^@" "")
+        explicit (k/one-i idx subject "entity_kind")
+        legacy (k/one-i idx subject "kind")]
+    (cond
+      explicit (= explicit "thread")
+      legacy (= legacy "thread")
+      (str/starts-with? bare "concern-") false
+      (str/starts-with? bare "agent:") false
+      (or (str/starts-with? bare "msg:")
+          (str/starts-with? bare "cmd:")) false
+      (str/starts-with? bare "topic-") false
+      (str/starts-with? bare "mine:") false
+      (or (str/starts-with? bare "run-")
+          (str/starts-with? bare "run:")) false
+      (or (str/starts-with? bare "session:")
+          (str/starts-with? bare "sess-")
+          (str/starts-with? bare "cc-")) false
+      (str/starts-with? bare "denial:") false
+      (str/starts-with? bare "snapshot:") false
+      (str/starts-with? bare "arena-") false
+      :else (some? (k/one-i idx subject "title")))))
+
 (defn valid-floor [value]
   (let [parsed (some-> value str parse-long)]
     (when (and parsed (not (neg? parsed))) parsed)))
@@ -283,14 +335,22 @@
         live-set (set live-controls)
         live? (driver-live-predicate live-set now-ms)
         today (str (java.time.LocalDate/now java.time.ZoneOffset/UTC))
-        ready (projections/ready idx today #(< (compare %1 %2) 0) live?)
+        ready (->> (projections/ready idx today #(< (compare %1 %2) 0) live?)
+                   (filterv #(work-thread? idx %)))
         scored
         (->> ready
              (map (fn [thread]
                     {:thread thread
-                     :title (or (k/one-i idx thread "title") "")
-                     :leverage (projections/leverage-score idx thread)}))
+                     :leverage
+                     (if (seq (k/dependents-i idx thread))
+                       (projections/leverage-score idx thread)
+                       0)}))
              (sort-by (juxt (comp - :leverage) :thread))
+             (take 5)
+             (mapv
+              (fn [row]
+                (assoc row :title
+                       (or (k/one-i idx (:thread row) "title") ""))))
              vec)
         lane-controls
         (->> live-controls
@@ -312,7 +372,7 @@
      :floor floor
      :ready-depth (count ready)
      :lanes lanes
-     :top (vec (take 5 scored))
+     :top scored
      :shortfall (and (< (count lanes) floor) (pos? (count ready)))}))
 
 (defn render-report [{:keys [live floor ready-depth lanes top shortfall]}]
@@ -400,8 +460,10 @@
       :output (render-report report)
       :report report}))
   ([options]
-   (let [controls (live-controls)
-         rows (query-rows controls)]
+   (let [{:keys [controls managed session-threads reservation-bindings work]}
+         (presence-state (System/currentTimeMillis))
+         rows (query-rows
+               work managed session-threads reservation-bindings)]
      (execute rows controls options (System/currentTimeMillis)))))
 
 (defn usage []
