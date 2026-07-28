@@ -615,6 +615,104 @@
       :missing (str (red "[ERR] ") " reactor heartbeat MISSING — reactor has not swept "
                     "(never started or stopped); start it: `north reactor &`"))))
 
+;; ---- coordinator JVM health -------------------------------------------------
+;; A coordinator can be UP, serving the right log, and still unusable. On
+;; 2026-07-29 it sat at old-gen 99.98% with 2,715 full GCs — 1,704s of GC in a
+;; 69-minute lifetime, 41% of its wall clock — and `north show @swarm` took 57.8s
+;; on an IDLE box after measuring 93ms earlier the same day. Nothing about the
+;; query changed; the JVM had stopped being able to allocate.
+;;
+;; Every existing doctor probe said healthy throughout, because none of them ask
+;; whether the process can still do work. Finding it took hours; this makes it
+;; one line.
+(def OLD-GEN-WARN-PCT 90.0)
+(def GC-TIME-WARN-PCT 20.0)   ; share of process lifetime spent in GC
+
+(defn coordinator-pid
+  "PID of the coordinator, or nil. Never throws.
+
+  systemd owns the listening socket (the daemon logs 'inherited socket'), so
+  `ss -tlnp` reports no `pid=` for it — the unit is the reliable source. `ss`
+  remains a fallback for a coordinator started outside systemd."
+  [port]
+  (or (let [{:keys [out ok]} (run ["systemctl" "show" "north-coord.service"
+                                   "-p" "MainPID" "--value"] :timeout 3000)
+            pid (some-> out str/trim)]
+        (when (and ok (seq pid) (not= pid "0")) pid))
+      (let [{:keys [out ok]} (run ["ss" "-tlnp"] :timeout 3000)]
+        (when ok
+          (some->> (str/split-lines (or out ""))
+                   (filter #(str/includes? % (str "127.0.0.1:" port)))
+                   first
+                   (re-find #"pid=(\d+)")
+                   second)))))
+
+(defn parse-gcutil
+  "{:old-pct :fgc :gc-seconds} from `jstat -gcutil` output, or nil.
+
+  Column order — getting this wrong is silent, which it was:
+    0:S0 1:S1 2:E 3:O 4:M 5:CCS 6:YGC 7:YGCT 8:FGC 9:FGCT 10:CGC 11:CGCT 12:GCT
+  GCT is the TOTAL at index 12. Index 11 is CGCT — CONCURRENT GC only — which
+  read 0.478s against 1,704s total and rendered as '0% of uptime in GC' on a
+  coordinator spending 41% of its life collecting. Parsed here so a wrong index
+  fails a test instead of quietly reporting health."
+  [out]
+  (let [rows (str/split-lines (str out))
+        vals (some-> rows second str/trim (str/split #"\s+"))
+        num #(try (Double/parseDouble %) (catch Exception _ nil))]
+    (when (>= (count (or vals [])) 13)
+      (let [old (num (nth vals 3))
+            fgc (num (nth vals 8))
+            gct (num (nth vals 12))]
+        (when (and old gct)
+          {:old-pct old :fgc (long (or fgc 0)) :gc-seconds gct})))))
+
+(defn jvm-gc-health
+  "{:old-pct :fgc :gc-seconds :uptime-seconds} for a JVM pid, or nil.
+
+  Best-effort: jstat ships with the JDK but the coordinator may be started by
+  a runtime that does not expose it, and a diagnostic must degrade rather than
+  fail. nil means 'could not measure', which the caller renders distinctly from
+  'measured and healthy' — absence is never health."
+  [pid]
+  (when pid
+    (let [jstat (first (for [d (or (seq (.listFiles (io/file "/nix/store"))) [])
+                             :when (str/includes? (.getName d) "openjdk")
+                             :let [f (io/file d "bin" "jstat")]
+                             :when (.canExecute f)]
+                         (.getPath f)))]
+      (when jstat
+        (let [{:keys [out ok]} (run [jstat "-gcutil" (str pid)] :timeout 5000)
+              rows (when ok (str/split-lines (or out "")))
+              vals (some-> rows second str/trim (str/split #"\s+"))]
+          (parse-gcutil out))))))
+
+(defn process-uptime-seconds [pid]
+  (when pid
+    (let [{:keys [out ok]} (run ["ps" "-o" "etimes=" "-p" (str pid)] :timeout 3000)]
+      (when ok (try (Long/parseLong (str/trim (or out ""))) (catch Exception _ nil))))))
+
+(defn coordinator-jvm-line
+  "One line: healthy, degraded, or unmeasurable. Never throws."
+  [port]
+  (let [pid (coordinator-pid port)]
+    (cond
+      (nil? pid) (str (dim "[--]  ") " coordinator pid not resolvable — GC health unknown")
+      :else
+      (if-let [{:keys [old-pct fgc gc-seconds]} (jvm-gc-health pid)]
+        (let [up (process-uptime-seconds pid)
+              gc-pct (when (and up (pos? up)) (* 100.0 (/ gc-seconds up)))
+              bad? (or (>= old-pct OLD-GEN-WARN-PCT)
+                       (and gc-pct (>= gc-pct GC-TIME-WARN-PCT)))
+              detail (format "old-gen %.1f%% · %d full GC%s%s"
+                             old-pct fgc (if (= 1 fgc) "" "s")
+                             (if gc-pct (format " · %.0f%% of uptime in GC" gc-pct) ""))]
+          (if bad?
+            (str (red "[ERR] ") " coordinator JVM is thrashing: " detail
+                 " — restart it (`sudo systemctl restart north-coord.service`)")
+            (str (grn "[ok]  ") " coordinator JVM " detail)))
+        (str (dim "[--]  ") " coordinator GC health unmeasurable (no jstat)")))))
+
 (def doctor-failed? (atom false))
 (defn mark-doctor-failed! [] (reset! doctor-failed? true))
 
@@ -684,6 +782,12 @@
         (when (and crit (not up)) (mark-doctor-failed!))
         (println (str "    " (if up (grn "[ok]  ") (if crit (red "[ERR] ") (ylw "[warn]")))
                       " " label " " (ok-x up))))))
+  ;; A coordinator can be UP, serving the right log, and still unable to work.
+  ;; Nothing else here asks that question — see coordinator-jvm-line.
+  (println (bold "  coordinator JVM"))
+  (let [jvm-line (coordinator-jvm-line PORT)]
+    (when (str/includes? jvm-line "[ERR]") (mark-doctor-failed!))
+    (println (str "    " jvm-line)))
   ;; reactor sweep liveness — see reactor-doctor-line.
   (println (bold "  reactor sweep"))
   (let [reactor-line (reactor-doctor-line PORT)]
