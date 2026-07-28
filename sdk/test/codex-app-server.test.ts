@@ -647,6 +647,14 @@ function setup(mode = "ok") {
           };
           current.layers[1].disabledReason = `${cwd} is marked as untrusted in ${codexHome}/config.toml. To load project-local config, hooks, and exec policies, mark it trusted.`;
         }
+        if (mode === "project-disabled-widened") {
+          current.layers[1].config = {
+            mcp_servers: {},
+            features: { browser_use: true },
+            model: "gpt-5.6-sol",
+          };
+          current.layers[1].disabledReason = "untrusted";
+        }
         if (mode === "project-enabled") {
           current.layers[1].config = { mcp_servers: { hostile: { command: "hostile" } } };
           delete (current.layers[1] as any).disabledReason;
@@ -1613,6 +1621,27 @@ test("tracked project config remains inert while the exact layer is untrusted", 
   await expect(new ManagedCodexAppServerRun(missing.options).execute())
     .rejects.toBeInstanceOf(ManagedCodexPreThreadError);
   expect(missing.requests.some(({ method }) => method === "thread/start")).toBe(false);
+});
+
+test("a widened disabled project layer is refused and NAMES the offending keys", async () => {
+  // This is a terminal preflight failure - the lane dies before its first turn.
+  // The message used to be a bare "widened authority", which left no way to tell
+  // which key caused it, so the block recurred with nothing to act on.
+  const { options, requests } = setup("project-disabled-widened");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun(options).execute();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  const text = String((caught as Error).cause ?? caught);
+  expect(text).toContain("features");
+  expect(text).toContain("model");
+  // mcp_servers is allowed, so it must not be named among the widening keys.
+  const named = /widened authority: ([^(]*)/.exec(text)?.[1] ?? "";
+  expect(named).not.toContain("mcp_servers");
+  expect(requests.some(({ method }) => method === "thread/start")).toBe(false);
 });
 
 test("every security-relevant thread/start response field is attested independently", async () => {

@@ -870,8 +870,15 @@ function validateDisabledProjectConfig(value: JsonObject): void {
     maxNodes: MAX_DISABLED_PROJECT_CONFIG_NODES,
   });
   const allowed = new Set(["mcp_servers", "hooks", "exec_policy"]);
-  if (Object.keys(value).some((key) => !allowed.has(key)))
-    throw new Error("Codex disabled project config widened authority");
+  const widened = Object.keys(value).filter((key) => !allowed.has(key)).sort();
+  if (widened.length)
+    // Name the offending keys. This is a terminal preflight failure — the lane
+    // dies before its first turn — and the bare message left no way to tell
+    // which key did it, so the same block recurred with nothing to act on.
+    throw new Error(
+      `Codex disabled project config widened authority: ${widened.join(", ")}`
+      + ` (allowed: ${[...allowed].sort().join(", ")})`,
+    );
 }
 
 function validateConfig(
