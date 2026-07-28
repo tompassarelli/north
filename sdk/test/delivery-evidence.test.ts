@@ -5,6 +5,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DeliveryReservationWriterProcessFailure,
   deliveryEvidenceWriterError, deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
   parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
@@ -151,6 +152,23 @@ test("reservation failure diagnostics expose only bounded semantic causes", () =
   expect(deliveryReservationFailureCause(publicationDeadline))
     .toBe("publication deadline exceeded");
   expect(publicationDeadline.message).not.toContain(secret);
+  const writerProcessFailure = deliveryEvidenceWriterError(
+    "reserve",
+    "",
+    {
+      run: "run-lane-123",
+      thread: "thread-123",
+      reporter: "agent:lane-123",
+      capabilitySha256: secret,
+    },
+    { code: "EPIPE" },
+  );
+  expect(writerProcessFailure).toBeInstanceOf(
+    DeliveryReservationWriterProcessFailure,
+  );
+  expect(writerProcessFailure.message).not.toContain(secret);
+  expect(deliveryReservationFailureCause(writerProcessFailure))
+    .toBe("writer process failed");
   expect(deliveryEvidenceWriterError("reserve", "Message: run subject is not fresh", {
     run: "run-lane-456",
     reporter: "agent:lane-456",

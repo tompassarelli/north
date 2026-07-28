@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import {
+  DeliveryReservationWriterProcessFailure,
   DeliveryEvidenceRetryableError,
   deliveryEvidenceWriterError,
   deliveryReservationFailureCause,
@@ -8,7 +8,7 @@ import {
   reserveDeliveryRunWithRecovery,
 } from "../src/delivery-evidence";
 
-test("a writer killed before reservation is relaunched once and publishes exactly once", () => {
+test("a typed pre-reservation writer process failure is relaunched once", () => {
   const context = newDeliveryRunContext(
     "run-writer-recovery",
     "writer-recovery-thread",
@@ -23,14 +23,10 @@ test("a writer killed before reservation is relaunched once and publishes exactl
     () => {
       attempts++;
       if (attempts === 1) {
-        try {
-          execFileSync("bash", ["-c", "kill -KILL $$"], { stdio: "ignore" });
-        } catch (error) {
-          throw deliveryEvidenceWriterError("reserve", "", {
-            run: context.runId,
-            reporter: `agent:${context.reporterAgentId}`,
-          }, error);
-        }
+        throw deliveryEvidenceWriterError("reserve", "", {
+          run: context.runId,
+          reporter: `agent:${context.reporterAgentId}`,
+        }, { code: "EPIPE" });
       }
       publishedReservations++;
       return { contractOrigin: "worker-defined", baselineDoneWhen: [] };
@@ -45,6 +41,35 @@ test("a writer killed before reservation is relaunched once and publishes exactl
   expect(attempts).toBe(2);
   expect(publishedReservations).toBe(1);
   expect(slept).toEqual([100]);
+});
+
+test("writer timeout and publication deadline are terminal, not replayed", () => {
+  const context = newDeliveryRunContext(
+    "run-writer-terminal",
+    "writer-terminal-thread",
+    "writer-terminal-agent",
+    "c".repeat(64),
+  );
+  for (const error of [
+    deliveryEvidenceWriterError("reserve", "", {
+      run: context.runId,
+      reporter: `agent:${context.reporterAgentId}`,
+    }, { code: "ETIMEDOUT", signal: "SIGTERM" }),
+    new DeliveryEvidenceRetryableError(
+      "delivery evidence reserve rejected: delivery evidence publication deadline exceeded",
+    ),
+  ]) {
+    let attempts = 0;
+    expect(() => reserveDeliveryRunWithRecovery(
+      context,
+      () => {
+        attempts++;
+        throw error;
+      },
+      { sleep: () => { throw new Error("terminal failure slept"); } },
+    )).toThrow(error.message);
+    expect(attempts).toBe(1);
+  }
 });
 
 test("recovery exhaustion rethrows the final writer-process failure and never loops", () => {
@@ -62,7 +87,7 @@ test("recovery exhaustion rethrows the final writer-process failure and never lo
       context,
       () => {
         attempts++;
-        throw new DeliveryEvidenceRetryableError(
+        throw new DeliveryReservationWriterProcessFailure(
           "delivery evidence reserve rejected: run reservation refused: "
           + "receipt=unavailable reason=writer-process-failure",
         );
