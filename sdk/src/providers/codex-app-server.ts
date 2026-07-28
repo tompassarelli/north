@@ -2058,7 +2058,14 @@ export class ManagedCodexAppServerRun {
         const expectedSummary = "Project-local config, hooks, and exec policies are disabled in the following folders until the project is trusted, but skills still load.\n"
           + `    1. ${contract.cwd}/.codex\n`
           + `       ${contract.cwd} is marked as untrusted in ${contract.codexHome}/config.toml. To load project-local config, hooks, and exec policies, mark it trusted.\n`;
-        exact(params, { summary: expectedSummary, details: null }, "Codex config warning");
+        // Diagnosable: this warning is Codex's own untrusted-project prompt —
+        // a fixed English summary plus cwd and CODEX_HOME, no credentials — so
+        // it qualifies for the observed/expected cause. It also NEEDS it more
+        // than any other check here: the expected value is a byte-exact English
+        // string, so any Codex release that rewords the prompt blocks every
+        // managed lane at preflight, and the blind comparator reported only
+        // "does not match" with no way to see which byte drifted.
+        exactDiagnosable(params, { summary: expectedSummary, details: null }, "Codex config warning");
         exactProjectWarningSeen = true;
         return true;
       }
