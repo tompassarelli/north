@@ -113,6 +113,43 @@ describe("Orchestration routing metadata boundary", () => {
       } },
     } as any)).toThrow("shell and shell.readonly are mutually exclusive");
   });
+
+  test("effective-authority closure rejects open shell capability sets", () => {
+    const request = {
+      role: "authority-probe", taskGrade: "senior", domainRequirements: [],
+      topology: "worker", tier: "senior", reasoning: "high", posture: "preserve",
+      composition: {
+        kind: "bespoke", id: "authority-probe", bespokeReason: "closure probe",
+        promotionCandidate: false, contract: { ...bespokeContract },
+      },
+    } as const;
+    for (const [capabilities, diagnostic] of [
+      [
+        ["filesystem.search", "filesystem.write", "shell"],
+        "composition.contract.capabilities: shell requires filesystem.read capability",
+      ],
+      [
+        ["filesystem.read", "filesystem.search", "shell"],
+        "composition.contract.capabilities: shell requires filesystem.write capability",
+      ],
+      [
+        ["filesystem.search", "shell.readonly"],
+        "composition.contract.capabilities: shell.readonly requires filesystem.read capability",
+      ],
+      [
+        ["filesystem.read", "shell.readonly"],
+        "composition.contract.capabilities: shell.readonly requires filesystem.search capability",
+      ],
+    ] as const) {
+      expect(() => validateRoutingMetadata({
+        ...request,
+        composition: {
+          ...request.composition,
+          contract: { ...request.composition.contract, capabilities },
+        },
+      } as any)).toThrow(diagnostic);
+    }
+  });
 });
 
 test("run telemetry records requested routing, composition, and outcome together", () => {

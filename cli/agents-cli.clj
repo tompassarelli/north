@@ -1219,7 +1219,13 @@
   (and (string? value) (not (str/blank? value))))
 
 (defn- topology-capability-problem [topology capabilities]
-  (let [caps (set capabilities)]
+  (let [caps (set capabilities)
+        missing-closure
+        (fn [surface required]
+          (let [missing (remove caps required)]
+            (when (and (caps surface) (seq missing))
+              (str surface " requires " (str/join ", " missing) " "
+                   (if (= 1 (count missing)) "capability" "capabilities")))))]
     (cond
       (and (caps "shell") (caps "shell.readonly"))
       "shell and shell.readonly are mutually exclusive"
@@ -1231,7 +1237,11 @@
       "orchestrator topology forbids unrestricted shell capability"
       (and (= topology "worker") (caps "coordination"))
       "worker topology forbids coordination capability"
-      :else nil)))
+      :else
+      (or (missing-closure "shell"
+                           ["filesystem.read" "filesystem.search" "filesystem.write"])
+          (missing-closure "shell.readonly"
+                           ["filesystem.read" "filesystem.search"])))))
 
 (def ^:dynamic *delegate-request* nil)
 (declare resolve-delegate-thread! resolve-recursive-child-thread! delegate-brief)

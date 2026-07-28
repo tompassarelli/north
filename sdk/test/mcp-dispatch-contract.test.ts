@@ -713,6 +713,74 @@ exit 3
   expect(() => readFileSync(marker)).toThrow();
 });
 
+test("MCP effective-authority closure rejects open shell capability sets", () => {
+  const contract = (capabilities: readonly string[]) => ({
+    responsibility: "probe composition ingress",
+    deliverable: "a closure verdict",
+    capabilities,
+    mayDecide: ["which fixture to run"],
+    mustEscalate: ["any runtime side effect"],
+    doneWhen: ["ingress returns a precise diagnostic"],
+    report: "the validation result",
+  });
+  for (const [capabilities, diagnostic] of [
+    [
+      ["filesystem.search", "filesystem.write", "shell"],
+      "shell requires filesystem.read capability",
+    ],
+    [
+      ["filesystem.read", "filesystem.search", "shell"],
+      "shell requires filesystem.write capability",
+    ],
+    [
+      ["filesystem.search", "shell.readonly"],
+      "shell.readonly requires filesystem.read capability",
+    ],
+    [
+      ["filesystem.read", "shell.readonly"],
+      "shell.readonly requires filesystem.search capability",
+    ],
+  ] as const) {
+    const route = {
+      role: "authority-probe",
+      taskGrade: "senior",
+      domainRequirements: [],
+      topology: "worker",
+      tier: "senior",
+      reasoning: "high",
+      posture: "preserve",
+      composition: {
+        kind: "bespoke",
+        id: "authority-probe",
+        bespokeReason: "no preset fits this regression",
+        promotionCandidate: false,
+        contract: contract(capabilities),
+      },
+    };
+    for (const name of ["spawn", "dispatch"] as const) {
+      const arguments_ = name === "spawn"
+        ? { prompt: "probe closure", ...route }
+        : { id: "authority-closure-thread", ...route };
+      const result = spawnSync("bb", [resolve(import.meta.dir, "../..", "bin/north-mcp")], {
+        input: `${JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "tools/call",
+          params: { name, arguments: arguments_ },
+        })}\n`,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+          NORTH_MCP_BUN: "/bin/false",
+        },
+      });
+      expect(result.status).toBe(0);
+      const response = JSON.parse(result.stdout.trim());
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toBe(diagnostic);
+    }
+  }
+});
+
 test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology before spawning", () => {
   const north = resolve(import.meta.dir, "../..");
   for (const [name, arguments_, expected] of [
