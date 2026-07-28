@@ -140,6 +140,7 @@ export class Tracer {
   readonly retentionDays: number;
   readonly now: () => number;
   private pending = new Set<Promise<void>>();
+  private lastPrunedDay?: string;
 
   constructor(options: TracerOptions = {}) {
     this.traceDir = options.traceDir ?? join(homedir(), ".local", "state", "north", "traces");
@@ -193,7 +194,23 @@ export class Tracer {
     };
     await mkdir(this.traceDir, { recursive: true, mode: 0o700 });
     await appendFile(file, `${JSON.stringify(otlp)}\n`, { encoding: "utf8", mode: 0o600 });
-    await this.prune(endMillis);
+    await this.pruneOncePerDay(endMillis);
+  }
+
+  /**
+   * Retention runs at most once per process per UTC day, not once per span.
+   *
+   * Pruning inside `append` meant a full `readdir` of the trace directory for
+   * EVERY span that ended — a filesystem scan on the hot path of the subsystem
+   * whose entire purpose is measuring hot paths. Files are named by day, so
+   * nothing becomes prunable more than once a day and the extra scans could
+   * never find anything the first one missed.
+   */
+  private async pruneOncePerDay(now: number): Promise<void> {
+    const today = dateKey(now);
+    if (this.lastPrunedDay === today) return;
+    this.lastPrunedDay = today;
+    await this.prune(now);
   }
 
   private async prune(now: number): Promise<void> {
