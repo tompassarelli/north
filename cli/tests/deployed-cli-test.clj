@@ -67,5 +67,29 @@
         (= :unknown (status {:component "fram" :source A :built nil :running A
                              :expect-running? true})))
 
+;; --- nixos-config: time-based, because it has no rev in the closure ---------
+;; /run/current-system records its NIXPKGS rev, not which config commit built
+;; it, so this component cannot be revision-matched like the others. On
+;; 2026-07-29 the coordinator's -Xmx16g fix was committed at 06:40, the running
+;; generation was built at 06:33, and the daemon kept exhausting a 6 GB heap
+;; every 8 minutes with the fix undeployed. Nothing surfaced that gap.
+
+(check! "no generation timestamp yields nil, not zero"
+        (nil? (commits-since-epoch "nixos-config" nil)))
+
+(let [called (atom nil)]
+  (with-redefs [sh (fn [& args] (reset! called args) "3\n")]
+    (check! "counts commits newer than the generation"
+            (= 3 (commits-since-epoch "nixos-config" 1785000000)))
+    (check! "asks git for commits since that exact epoch"
+            (some #(= "--since=@1785000000" %) @called))
+    (check! "scopes the count to main, not the checked-out branch"
+            (some #(= "refs/heads/main" %) @called))))
+
+;; A non-numeric or absent git answer must not become a false "0 pending".
+(with-redefs [sh (fn [& _] "")]
+  (check! "an unparseable count is nil, never a confident zero"
+          (nil? (commits-since-epoch "nixos-config" 1785000000))))
+
 (println (format "deployed-cli: %d / %d PASS" (- @checks @failures) @checks))
 (System/exit (if (zero? @failures) 0 1))

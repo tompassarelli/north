@@ -124,6 +124,29 @@
   {:component component :source source :built built
    :running running-rev :note note})
 
+(defn generation-built-epoch
+  "When the running system generation was built, unix seconds, or nil."
+  []
+  (some-> (sh "stat" "-c" "%Y" "/run/current-system") str/trim parse-long))
+
+(defn commits-since-epoch
+  "Commits on `repo`'s main newer than `epoch`, or nil.
+
+  nixos-config carries no revision into the closure — /run/current-system knows
+  its NIXPKGS rev, not which config commit produced it — so unlike the other
+  components this is a TIME comparison rather than a revision match. A heuristic,
+  labelled as one, but it catches the case that matters.
+
+  Observed 2026-07-29: the coordinator's -Xmx16g fix was committed at 06:40, the
+  running generation was built at 06:33, and the daemon kept exhausting a 6 GB
+  heap every 8 minutes with the fix sitting undeployed. Nothing surfaced that."
+  [repo epoch]
+  (when epoch
+    (some-> (sh "git" "-C" (str CODE "/" repo) "rev-list" "--count"
+                (str "--since=@" epoch) "refs/heads/main")
+            str/trim
+            parse-long)))
+
 (defn- verdict
   "SOURCE≠BUILT means rebuild; BUILT≠RUNNING means restart; they need opposite
   actions, so they are never merged.
@@ -201,6 +224,16 @@
         (when (some #(= :stale-process (first (:verdict %))) judged)
           (println (str "  " (ylw "→") " the closure is newer than the live process. Restart:"))
           (println (dim "      sudo systemctl restart north-coord.service")))
+        ;; nixos-config gets its own line rather than a table row: it has no
+        ;; revision in the closure, so this is a time comparison and must not be
+        ;; presented as if it were the same kind of evidence as the rows above.
+        (let [epoch (generation-built-epoch)
+              pending (commits-since-epoch "nixos-config" epoch)]
+          (when (and pending (pos? pending))
+            (println (str "  " (ylw "→") " nixos-config has " pending
+                          " commit(s) newer than the running generation"))
+            (println (dim (str "      (time-based: the closure records its nixpkgs rev, not the config commit)")))
+            (println (dim "      firn-rebuild-coordinated --why \"<reason>\""))))
         (when (zero? worst)
           (println (str "  " (grn "everything committed is built and running."))))
         (let [[on-path sys] (or (running-north) [nil nil])]
