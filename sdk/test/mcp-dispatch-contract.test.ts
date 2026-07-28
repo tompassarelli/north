@@ -8,6 +8,10 @@ import type { RoutingRequest } from "../src/routing-metadata";
 
 const temporary: string[] = [];
 const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../..", "orchestration");
+// These cases cross the bb/MCP process boundary, whose coordinator reads may
+// legitimately consume the 30s server budget. Keep Bun's ceiling above that
+// boundary, matching the client-side rationale in src/north-client.ts.
+const MCP_PROCESS_TEST_TIMEOUT_MS = 45_000;
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
@@ -310,7 +314,7 @@ test("MCP rejects an invalid detector override before SDK launch", () => {
     "STRUGGLE_STALL_TURNS must be a positive integer between 1 and 1000",
   );
   expect(() => readFileSync(marker)).toThrow();
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("env-less MCP SDK launches materialize the canonical North instance exactly once", () => {
   const defaulted = mcpSpawnEnvironment(() => {});
@@ -347,7 +351,7 @@ test("env-less MCP SDK launches materialize the canonical North instance exactly
     NORTH_PORT: "64129",
   });
   expect(explicit.childEnv).not.toHaveProperty("FRAM_TELEMETRY_LOG");
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 // Bar: a bespoke WORKER contract carrying the sealed graph-authoring.fram
 // capability is admitted through the whole dispatch wire (schema enum built from
@@ -388,7 +392,7 @@ test("the dispatch wire admits a bespoke worker carrying graph-authoring.fram to
   expect(childEnv.AGENT_ROLE).toBe("beagle-graph-author");
   expect(childEnv.AGENT_COMPOSITION).toBe(JSON.stringify(graphAuthoringWorkerRoute.composition));
   expect(childEnv.AGENT_COMPOSITION).toContain("graph-authoring.fram");
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("the dispatch wire rejects graph-authoring.fram on an orchestrator composition before launch", () => {
   const directory = mkdtempSync(join(tmpdir(), "north-mcp-graph-orchestrator-"));
@@ -549,7 +553,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   expect(claim).toBeGreaterThanOrEqual(0);
   expect(spawn).toBeGreaterThan(claim);
   expect(release).toBeGreaterThan(spawn);
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("canonical assessment preflight rejects tampering before driver claim or SDK launch", () => {
   const directory = mkdtempSync(join(tmpdir(), "north-mcp-assessment-preclaim-"));
@@ -675,7 +679,7 @@ test("MCP spawn reports pre-identity construction failure instead of fabricating
   expect(response.result.content[0].text).toContain("durable log:");
   expect(response.result.content[0].text).not.toContain("spawned unknown");
   expect(response.result.content[0].text).not.toContain("Agent is running");
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("MCP dispatch rejects a contended thread before spawning and redacts coordinator output", () => {
   const directory = mkdtempSync(join(tmpdir(), "north-mcp-contended-"));
@@ -874,7 +878,7 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
     expect(response.result.isError).toBe(true);
     expect(response.result.content[0].text).toContain(expected);
   }
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("managed MCP admits recursive orchestrator shapes but requires an exact parent reservation", () => {
   const north = resolve(import.meta.dir, "../..");
@@ -945,4 +949,4 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
       );
     }
   }
-});
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
