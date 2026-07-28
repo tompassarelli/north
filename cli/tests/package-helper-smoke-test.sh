@@ -735,6 +735,101 @@ packaged_dest="$(find "$packaged_raw" -maxdepth 1 -type f -name '*.jsonl' -print
 [[ -n "$packaged_dest" ]]
 cmp "$SRC/12345678-1234-1234-1234-123456789abc.jsonl" "$packaged_dest"
 
+# Provider-neutral discovery covers every Codex store plus provider profiles.
+# Reusing one rollout basename in two authorities must still yield independent
+# raw destinations and cursor ownership.
+ALL_HOME="$TMP/all home"
+ALL_STATE="$TMP/all state/north"
+ALL_RAW="$TMP/all raw"
+ALL_AMBIENT="$TMP/ambient codex"
+ALL_ACCOUNT="$ALL_STATE/accounts/openai/codex-a/sessions/2026/07/29"
+ALL_CLAUDE_A="$ALL_STATE/accounts/anthropic/claude-a/projects/shared-project"
+ALL_CLAUDE_B="$ALL_STATE/accounts/anthropic/claude-b/projects/shared-project"
+ALL_MANAGED_HOME="$ALL_STATE/managed-codex/north-managed-codex-20260729-x"
+ALL_MANAGED="$ALL_MANAGED_HOME/sessions/2026/07/29"
+ALL_PROFILE_CODEX="$ALL_STATE/profiles/codex-stock/sessions/2026/07/29"
+ALL_PROFILE_CLAUDE="$ALL_STATE/profiles/stock/projects/project-a"
+ALL_PROFILE_NESTED="$ALL_STATE/profiles/stock-nested/projects/project-b/session-b/subagents/workflows/wf-a"
+ALL_AMBIENT_DAY="$ALL_AMBIENT/sessions/2026/07/29"
+ALL_NAME="rollout-2026-07-29T00-00-00-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl"
+mkdir -p "$ALL_HOME" "$ALL_ACCOUNT" "$ALL_MANAGED" \
+  "$ALL_CLAUDE_A" "$ALL_CLAUDE_B" \
+  "$ALL_PROFILE_CODEX" "$ALL_PROFILE_CLAUDE" "$ALL_PROFILE_NESTED" \
+  "$ALL_AMBIENT_DAY"
+printf '{"authority":"account"}\n' >"$ALL_ACCOUNT/$ALL_NAME"
+printf '{"authority":"claude-account-a"}\n' >"$ALL_CLAUDE_A/same-session.jsonl"
+printf '{"authority":"claude-account-b"}\n' >"$ALL_CLAUDE_B/same-session.jsonl"
+printf '{"authority":"managed"}\n' >"$ALL_MANAGED/$ALL_NAME"
+printf '{"authority":"profile-codex"}\n' \
+  >"$ALL_PROFILE_CODEX/profile-codex.jsonl"
+printf '{"authority":"profile-claude"}\n' \
+  >"$ALL_PROFILE_CLAUDE/profile-claude.jsonl"
+printf '{"authority":"profile-claude-nested"}\n' \
+  >"$ALL_PROFILE_NESTED/agent-nested.jsonl"
+printf '{"authority":"ambient"}\n' >"$ALL_AMBIENT_DAY/ambient.jsonl"
+printf '{"threadId":"managed-thread"}\n' \
+  >"$ALL_MANAGED_HOME/north-launch.json"
+# A sessions-root decoy is not a rollout partition and must not be ingested.
+printf '{"decoy":true}\n' \
+  >"$ALL_STATE/accounts/openai/codex-a/sessions/history.jsonl"
+
+if env -i HOME="$ALL_HOME" PATH="$SHIM:$HOST_PATH" \
+  NORTH_STATE_ROOT="$TMP/no roots" NORTH_AMBIENT_CODEX_HOME="$TMP/no ambient" \
+  "$CHECKOUT/bin/north-stream-sync-all" --days nope; then
+  echo "sync-all accepted an invalid --days without discovered roots" >&2
+  exit 1
+fi
+
+env -i HOME="$ALL_HOME" PATH="$SHIM:$HOST_PATH" \
+  NORTH_STATE_ROOT="$ALL_STATE" NORTH_AMBIENT_CODEX_HOME="$ALL_AMBIENT" \
+  "$CHECKOUT/bin/north-stream-sync-all" --days 30 --raw-dir "$ALL_RAW"
+
+mapfile -t all_cursors < <(find "$ALL_RAW" -maxdepth 1 -type f \
+  -name '.cursors.v4.*' | sort)
+[[ "${#all_cursors[@]}" -eq 8 ]]
+[[ "$(find "$ALL_RAW" -maxdepth 1 -type f -name '*.jsonl' | wc -l)" -eq 8 ]]
+for cursor in "${all_cursors[@]}"; do
+  [[ "$(awk -F'\t' '{print NF}' "$cursor")" -eq 10 ]]
+  all_source="$(cut -f3 "$cursor")"
+  all_dest="$ALL_RAW/$(cut -f8 "$cursor")"
+  cmp "$all_source" "$all_dest"
+done
+[[ -f "$ALL_MANAGED_HOME/north-stream-mirrored" ]]
+[[ "$("$REAL_STAT" -c '%a' "$ALL_MANAGED_HOME/north-stream-mirrored")" == 600 ]]
+grep -Fq '"managed-thread"' "$ALL_RAW"/source-receipt.*.json
+
+# An unchanged second pass must use the metadata fast path: hashing a dormant
+# transcript prefix would invoke head and make this probe fail.
+ALL_FAST_SHIM="$TMP/all fast shim"
+mkdir -p "$ALL_FAST_SHIM"
+cat >"$ALL_FAST_SHIM/head" <<'EOF'
+#!/usr/bin/env bash
+echo "provider no-op unexpectedly rehashed transcript bytes" >&2
+exit 99
+EOF
+chmod +x "$ALL_FAST_SHIM/head"
+all_cursor_hash="$(
+  for cursor in "${all_cursors[@]}"; do sha256sum "$cursor"; done |
+    sha256sum
+)"
+env -i HOME="$ALL_HOME" PATH="$ALL_FAST_SHIM:$SHIM:$HOST_PATH" \
+  NORTH_STATE_ROOT="$ALL_STATE" NORTH_AMBIENT_CODEX_HOME="$ALL_AMBIENT" \
+  "$CHECKOUT/bin/north-stream-sync-all" --days 30 --raw-dir "$ALL_RAW"
+[[ "$all_cursor_hash" == "$(
+  for cursor in "${all_cursors[@]}"; do sha256sum "$cursor"; done |
+    sha256sum
+)" ]]
+
+for cursor in "${all_cursors[@]}"; do
+  printf '{"appended":true}\n' >>"$(cut -f3 "$cursor")"
+done
+env -i HOME="$ALL_HOME" PATH="$SHIM:$HOST_PATH" \
+  NORTH_STATE_ROOT="$ALL_STATE" NORTH_AMBIENT_CODEX_HOME="$ALL_AMBIENT" \
+  "$CHECKOUT/bin/north-stream-sync-all" --days 30 --raw-dir "$ALL_RAW"
+for cursor in "${all_cursors[@]}"; do
+  cmp "$(cut -f3 "$cursor")" "$ALL_RAW/$(cut -f8 "$cursor")"
+done
+
 # TERM must interrupt the parent while its child copy is still blocked, then
 # forward TERM to that child. This is the service-stop shape: completion here
 # means systemd need not escalate to SIGKILL after TimeoutStopSec.
@@ -772,12 +867,21 @@ printf '{"type":"cursor-before-restart"}\n' >"$TERM_HOME/.claude/projects/projec
 env HOME="$TERM_HOME" PATH="$SHIM:$HOST_PATH" \
   "$CHECKOUT/bin/north-stream-sync-all" --days 30 --min-bytes 1
 term_raw="$CHECKOUT/streams/raw"
-term_cursor_before="$(awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $2 }' "$term_raw/.cursors")"
+term_cursor_before="$(
+  awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $2 }' \
+    "$term_raw"/.cursors.v4.*
+)"
 printf '{"type":"cursor-after-restart"}\n' >>"$TERM_HOME/.claude/projects/project/restart.jsonl"
 env HOME="$TERM_HOME" PATH="$SHIM:$HOST_PATH" \
   "$CHECKOUT/bin/north-stream-sync-all" --days 30 --min-bytes 1
-term_dest="$term_raw/$(awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $5 }' "$term_raw/.cursors")"
-term_cursor_after="$(awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $2 }' "$term_raw/.cursors")"
+term_dest="$term_raw/$(
+  awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $8 }' \
+    "$term_raw"/.cursors.v4.*
+)"
+term_cursor_after="$(
+  awk -F'\t' '$3 ~ /restart[.]jsonl$/ { print $2 }' \
+    "$term_raw"/.cursors.v4.*
+)"
 [[ "$term_cursor_after" -gt "$term_cursor_before" ]]
 cmp "$TERM_HOME/.claude/projects/project/restart.jsonl" "$term_dest"
 

@@ -465,6 +465,9 @@ PY
               --prefix PATH : ${runtimePath} \
               --set NORTH_PACKAGE_MODE nix-store
 
+            wrapProgram $out/bin/north-stream-sync-all \
+              --prefix PATH : ${runtimePath}
+
             wrapProgram $out/bin/north-coord-up \
               --prefix PATH : ${runtimePath} \
               --set FRAM_HOME ${framRuntimeRoot} \
@@ -713,6 +716,22 @@ EOF
             ${pkgs.diffutils}/bin/cmp \
               "$stream_src/12345678-1234-1234-1234-123456789abc.jsonl" \
               "$stream_dest"
+            stream_all_state="$smoke/all-state"
+            stream_all_src="$stream_all_state/accounts/openai/package-account/sessions/2026/07/29"
+            stream_all_raw="$smoke/all-raw"
+            mkdir -p "$stream_all_src"
+            printf '{"type":"package-codex-stream-probe"}\n' \
+              > "$stream_all_src/rollout-2026-07-29T00-00-00-package.jsonl"
+            ${pkgs.coreutils}/bin/env -i \
+              HOME="$smoke/home" PATH= NORTH_STATE_ROOT="$stream_all_state" \
+              NORTH_AMBIENT_CODEX_HOME="$smoke/no-ambient-codex" \
+              $out/bin/north-stream-sync-all --raw-dir "$stream_all_raw"
+            stream_all_dest="$(${pkgs.findutils}/bin/find "$stream_all_raw" \
+              -maxdepth 1 -type f -name '*.jsonl' -print -quit)"
+            test -n "$stream_all_dest"
+            ${pkgs.diffutils}/bin/cmp \
+              "$stream_all_src/rollout-2026-07-29T00-00-00-package.jsonl" \
+              "$stream_all_dest"
             test ! -e "$out/streams/raw"
             # Load North's compiled namespace graph against Fram's published bb
             # classpath. This is the seam the old partial packager left untested.

@@ -3,13 +3,13 @@
 The stream layer the operating manual describes. Two directories:
 
 - `streams/raw/` — **lossless transmission events**: full session transcripts
-  (Claude Code JSONL), dictated thoughts, captured conversations. **Local-only,
-  gitignored** — raw transcripts carry everything (private context, tool
-  output); the repo publishes projections, not the source signal. Files:
+  (Claude Code and Codex JSONL), dictated thoughts, captured conversations.
+  **Local-only, gitignored** — raw transcripts carry everything (private
+  context, tool output); the repo publishes projections, not the source signal. Files:
   `YYYY-MM-DD-<bounded-slug>.<lineage-digest>.jsonl`. The lineage digest binds
-  provider + project-relative lineage + session id; a provider session UUID is
-  not assumed globally unique. A copy is a snapshot — live sessions keep
-  appending; re-snapshot at session end.
+  provider + source authority + root-relative lineage; a provider session UUID
+  is not assumed globally unique. A copy is a snapshot — live sessions keep
+  appending; the durable byte cursor advances on the next sweep.
 - `streams/distillations/` — **committed tiered compressions** of raw streams.
   Tier 1 = one session → decisions, principles, spawned threads, artifacts,
   with `@thread-id` links so the fact graph and the narrative cross-reference.
@@ -25,12 +25,21 @@ layer's — raw here is its input corpus.
 
 ## Cost contract — this layer is nearly free; keep it that way
 
-- **Raw capture = byte copy, zero tokens.** The Claude Code harness already appends
-  the full transcript to `~/.claude/projects/<proj>/<session>.jsonl` in real
-  time, mechanically. `north stream-sync` advances a durable byte cursor and
-  proves the copied prefix; it coalesces a moved project lineage only on exact
-  prefix proof. Never have a model regenerate conversation text into a file;
-  snapshot the file the harness already wrote.
+- **Raw capture = byte copy, zero tokens.** Claude Code writes
+  `projects/<proj>/<session>.jsonl`; Codex writes
+  `sessions/YYYY/MM/DD/rollout-<session>.jsonl`. `north-stream-sync-all`
+  discovers legacy homes, provider accounts, profiles, ambient Codex history,
+  and preserved managed Codex launches. All land in this same raw directory.
+  The engine advances a durable byte cursor and coalesces a moved lineage only
+  on exact prefix proof. Legacy Claude state remains in `.cursors`; explicit
+  provider authorities use scoped `.cursors.v4.*` files so rollback cannot
+  reinterpret one provider as another. Never have a model regenerate
+  conversation text into a file; snapshot the file the harness already wrote.
+- **Managed Codex retention is mirror-gated.** A settled launch home is prunable
+  only after its rollout and `north-launch.json` receipt have been copied here
+  and `north-stream-mirrored` has been written back to the launch home.
+  Unacknowledged homes may exceed the normal retention bound rather than lose
+  the only transcript during a burst between timer sweeps.
 - **Distillation = cheap-tier agent** (sonnet-worker / haiku), never the
   coordinator model. Exception: if the coordinator already holds the whole
   session in context at session end, its ~1k-token summary is cheaper than a
