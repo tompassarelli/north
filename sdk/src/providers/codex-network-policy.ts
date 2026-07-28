@@ -6,8 +6,17 @@ export interface ManagedCodexNetworkSubject {
 }
 
 /**
- * Workspace-write lanes receive Codex's network_access default. The Gitiles
- * proxy remains web-only and no capability widens its domain allowlist.
+ * Workspace-write lanes receive Codex's network_access default — that governs
+ * what a *sandboxed shell command* may reach, so it correctly tracks the shell
+ * surface.
+ *
+ * `web` does NOT track the shell surface, and previously did: gating it on
+ * workspace-write silently dropped declared web access from every read-only
+ * lane. That hit every orchestrator template — director, team-lead, program,
+ * portfolio all carry `shell.readonly` by design — so an OpenAI orchestrator
+ * declared web-capable launched with `--disable network_proxy` while the
+ * unsandboxed Anthropic orchestrator kept its web. Read-only + web is a
+ * coherent, common shape: coordinate and research, execute nothing.
  */
 export function managedCodexNetworkPolicy(subject: ManagedCodexNetworkSubject): {
   networkAccess: boolean;
@@ -15,7 +24,7 @@ export function managedCodexNetworkPolicy(subject: ManagedCodexNetworkSubject): 
   domains: Record<string, "allow">;
 } {
   const workspaceWrite = subject.sandbox === "workspace-write";
-  const web = workspaceWrite && subject.capabilities.includes("web");
+  const web = subject.capabilities.includes("web");
   const domains: Record<string, "allow"> = web
     ? { "chromium.googlesource.com": "allow" }
     : {};
