@@ -44,6 +44,18 @@ export class DeliveryEvidenceRetryableError extends Error {
   }
 }
 
+/** The sole reservation failure safe to replay before provider construction. */
+export class DeliveryReservationWriterProcessFailure
+  extends DeliveryEvidenceRetryableError {
+  readonly operation = "reserve";
+  readonly reason = "writer-process-failure";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DeliveryReservationWriterProcessFailure";
+  }
+}
+
 export interface DeliveryRunContext {
   runId: string;
   threadId: string;
@@ -152,7 +164,7 @@ export function reserveDeliveryRunWithRecovery(
     try {
       return reserve(context);
     } catch (error) {
-      if (!(error instanceof DeliveryEvidenceRetryableError)
+      if (!(error instanceof DeliveryReservationWriterProcessFailure)
           || attempt === maxAttempts) {
         throw error;
       }
@@ -322,6 +334,7 @@ export function deliveryEvidenceWriterError(
   processFailure?: unknown,
 ): Error & { retryable?: boolean } {
   let reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
+  let reservationWriterProcessFailure = false;
   if (operation === "reserve" && !reason?.startsWith("run reservation refused:")) {
     const detail = processFailure as { code?: unknown; signal?: unknown };
     const processReason = detail?.code === "ETIMEDOUT" || detail?.signal === "SIGTERM"
@@ -329,6 +342,7 @@ export function deliveryEvidenceWriterError(
       : reason
         ? "writer-refusal"
         : "writer-process-failure";
+    reservationWriterProcessFailure = processReason === "writer-process-failure";
     // The requested holder/run are validated before invocation. Do not include
     // the request body or capability: diagnostics are attributable without
     // turning a subprocess failure into a capability disclosure.
@@ -338,10 +352,12 @@ export function deliveryEvidenceWriterError(
       + ` receipt=unavailable reason=${processReason}${semanticDetail}`;
   }
   const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
+  if (reservationWriterProcessFailure) {
+    return new DeliveryReservationWriterProcessFailure(message);
+  }
   return reason?.startsWith("RETRYABLE:")
     || (operation === "reserve" && (
       reason?.includes("reason=writer-timeout")
-      || reason?.includes("reason=writer-process-failure")
       || reason?.includes("delivery evidence publication deadline exceeded")
     ))
     ? new DeliveryEvidenceRetryableError(message)

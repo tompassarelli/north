@@ -15,7 +15,11 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { ProviderRetrySafeError } from "../src/providers";
 import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
-import { DeliveryEvidenceRetryableError, type DeliveryRunContext } from "../src/delivery-evidence";
+import {
+  DeliveryEvidenceRetryableError,
+  DeliveryReservationWriterProcessFailure,
+  type DeliveryRunContext,
+} from "../src/delivery-evidence";
 import { presetRequest } from "./routing-fixtures";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
@@ -2142,7 +2146,10 @@ test("spawn replays one transport-ambiguous reservation with the exact context b
       reserve(context) {
         reservations.push(context);
         if (reservations.length === 1)
-          throw new DeliveryEvidenceRetryableError("delivery evidence reserve rejected: writer timed out");
+          throw new DeliveryReservationWriterProcessFailure(
+            "delivery evidence reserve rejected: run reservation refused:"
+            + " receipt=unavailable reason=writer-process-failure",
+          );
         return { contractOrigin: "accepted", baselineDoneWhen: [] };
       },
       load: () => ({ reservationValid: true, evidence: [] }),
@@ -2179,11 +2186,11 @@ test("reservation refusal or repeated transport failure constructs no provider",
       expectedReserveCalls: 1,
     },
     {
-      label: "repeated-ambiguity",
+      label: "publication-deadline",
       failure: () => new DeliveryEvidenceRetryableError(
         "delivery evidence reserve rejected: publication deadline exceeded",
       ),
-      expectedReserveCalls: 2,
+      expectedReserveCalls: 1,
     },
   ]) {
     let reserveCalls = 0;
@@ -2261,7 +2268,7 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
       })();
     },
   });
-  expect(reserveCalls).toBe(2);
+  expect(reserveCalls).toBe(1);
   expect(constructions).toBe(1);
   const lines = await settledRunLines(
     "test-dispatch-reservation-rotation-agent",
