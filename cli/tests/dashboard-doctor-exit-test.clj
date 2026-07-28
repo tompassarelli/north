@@ -88,6 +88,38 @@
               (str/includes? output "dead-session")
               (str/includes? output "1h"))))
 
+;; AGE DECIDES FAULT vs DEBRIS. Mail that just became undeliverable means a live
+;; sender is addressing a recipient that went away — a real coordination break.
+;; Mail whose recipient has been gone for days is settled garbage: the send
+;; already failed, nothing retries it, and no action today changes it.
+;;
+;; Failing on both is what destroyed the signal: 83 messages aged 1-2d held
+;; doctor at rc=1 permanently, so it was red on a healthy coordinator and red
+;; stopped carrying information. This pair pins the distinction, because the
+;; behaviour was reverted once (53a87d2) with no rationale and it passes the
+;; older assertions above either way.
+(let [day-ms (* 24 60 60 1000)
+      {:keys [healthy output]}
+      (exercise-doctor
+       false
+       [{:sender "old-sender" :recipient "long-dead" :resolved-recipient "long-dead"
+         :age "2d" :age-ms (* 2 day-ms)}])]
+  (check "aged-out dead letters do NOT fail doctor" (true? healthy))
+  (check "aged-out dead letters are still reported, as debris"
+         (and (str/includes? output "dead letters")
+              (str/includes? output "2d")))
+  (check "aged-out dead letters are not rendered as an error"
+         (not (str/includes? output "[ERR]"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false
+       [{:sender "live-sender" :recipient "just-died" :resolved-recipient "just-died"
+         :age "30s" :age-ms 30000}])]
+  (check "recently-undeliverable mail DOES fail doctor" (false? healthy))
+  (check "recently-undeliverable mail names the sender"
+         (str/includes? output "live-sender")))
+
 (let [child @(p/process ["env"
                          "NORTH_DASHBOARD_LIB=1"
                          "NORTH_DOCTOR_EXIT_CHILD=1"
