@@ -15,13 +15,17 @@ export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/facts.log}"
 # explicit NORTH_TELEMETRY_PARTITION=1 advances to Stage A: coordination and
 # telemetry each have an independently fenced writer. FRAM_TELEMETRY_LOG is
 # still selected by either an explicit caller value or the presence of a seeded
-# coordination.log beside FRAM_LOG. Without the Stage-A flag, the prior
+# coordination.log beside FRAM_LOG. An explicit telemetry path does not make the
+# default facts.log authoritative; when coordination.log exists it remains the
+# coordination writer's exact fence. Without the Stage-A flag, the prior
 # single-coordinator behavior remains unchanged.
-if [ "$_north_fram_log_explicit" -eq 0 ] && [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
+if [ "$_north_fram_log_explicit" -eq 0 ]; then
   _north_log_dir="$(dirname "$FRAM_LOG")"
   if [ -f "$_north_log_dir/coordination.log" ]; then
     export FRAM_LOG="$_north_log_dir/coordination.log"
-    export FRAM_TELEMETRY_LOG="$_north_log_dir/telemetry.log"
+    if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
+      export FRAM_TELEMETRY_LOG="$_north_log_dir/telemetry.log"
+    fi
   fi
   unset _north_log_dir
 fi
