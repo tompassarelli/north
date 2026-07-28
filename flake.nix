@@ -504,7 +504,11 @@ PY
             # canary delegates from a real checkout, derived at RUNTIME from
             # user.home (never baked as an absolute path) and overridable via
             # NORTH_CANARY_TARGET_REPO. Line-exact on that one expression.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)cli/canary-cli\.clj:[0-9]+:[[:space:]]*\(str \(System/getProperty "user\.home"\) "/code/north"\)\)\)\)$'
+            # (3) cli/deployed-cli.clj's two generation-observation pointers.
+            # This diagnostic compares committed/built/running code, so it must
+            # inspect the switched system rather than its own immutable package.
+            # Both exemptions are expression-exact and remain read-only.
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)cli/canary-cli\.clj:[0-9]+:[[:space:]]*\(str \(System/getProperty "user\.home"\) "/code/north"\)\)\)\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/north-coord-runtime"\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*sys \(sh "readlink" "-f" "/run/current-system/sw/bin/north"\)\]$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then

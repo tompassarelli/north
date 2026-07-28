@@ -2,14 +2,15 @@
 # Regression for the package purity guard (flake.nix installPhase scan).
 #
 # The guard rejects any embedded checkout/home/cache path in the packaged
-# output, with exactly two audited exceptions: the NixOS runtime entry-hint
-# pointers /run/current-system/sw/bin/{git,bb} in sdk/src/trusted-runtime.ts.
+# output, with narrow audited exceptions: the NixOS runtime entry-hint
+# pointers in sdk/src/trusted-runtime.ts and the two generation-observation
+# pointers in cli/deployed-cli.clj.
 # Those are root-managed symlinks that trustedStoreExecutable() still forces to
 # canonicalize into the immutable /nix/store, so they never widen trust; they
 # exist because managed spawns do not always inherit NORTH_GIT_BIN / NORTH_BB.
 #
-# This test proves the exemption is NARROW: only those two literals, only in
-# that one file, are spared. It extracts the impurity_pattern and sanctioned
+# This test proves the exemption is NARROW: only the exact expressions in
+# their owning files are spared. It extracts the impurity_pattern and sanctioned
 # allowlist regexes straight from flake.nix so it tracks the real guard rather
 # than a hand-copied duplicate that could silently drift.
 set -euo pipefail
@@ -93,4 +94,25 @@ mkdir -p "$work/g/cli"
 printf '    (str home "/code/north/cli/schema-migrate.clj")\n' > "$work/g/cli/schema-migrate.clj"
 expect_flagged "$work/g" "north checkout descendants remain fatal"
 
-echo "PASS: purity-guard allowlist is narrow (git/bb entry hints only)"
+# H: deployed-cli may observe exactly the switched North binary and coordinator
+# runtime helper. These are read-only generation identity probes.
+mkdir -p "$work/h/cli"
+cat > "$work/h/cli/deployed-cli.clj" <<'EOF'
+               "/run/current-system/sw/bin/north-coord-runtime")
+        sys (sh "readlink" "-f" "/run/current-system/sw/bin/north")]
+EOF
+expect_clean "$work/h" "deployed-cli generation-observation pointers are exempted"
+
+# I: the same system path in another file remains fatal.
+mkdir -p "$work/i/cli"
+printf '        sys (sh "readlink" "-f" "/run/current-system/sw/bin/north")]\n' \
+  > "$work/i/cli/other.clj"
+expect_flagged "$work/i" "deployed-cli exemption does not apply to another file"
+
+# J: deployed-cli does not get a blanket system-profile exemption.
+mkdir -p "$work/j/cli"
+printf '        sys (sh "readlink" "-f" "/run/current-system/sw/bin/evil")]\n' \
+  > "$work/j/cli/deployed-cli.clj"
+expect_flagged "$work/j" "deployed-cli may not observe arbitrary system binaries"
+
+echo "PASS: purity-guard allowlist is expression- and file-scoped"
