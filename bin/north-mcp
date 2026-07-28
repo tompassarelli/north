@@ -204,8 +204,8 @@
 (def struggle-policy-cli (str sdk-dir "/struggle.ts"))
 ;; NORTH_ORCHESTRATION_HOME is the canonical name every other surface reads, and
 ;; the fallback is the IN-REPO orchestration/ (derived from this script, via
-;; `here`) — never ~/code/orchestration, which stopped existing when the catalog
-;; moved inside north and left this MCP resolving a path that is never there.
+;; `here`) — never the former sibling checkout location, which stopped existing
+;; when the catalog moved inside North and left this MCP resolving a missing path.
 (def orchestration-staffing-path
   (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
       (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")

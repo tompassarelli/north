@@ -57,7 +57,7 @@ The same graph is the coordination plane for managed multi-agent work:
   provider execution, a run ledger, and a truthful terminal
   (`delivery=reported|unverified|blocked`).
 - **Orchestration routing** — `north spawn`/`delegate` read Orchestration's staffing catalog
-  (`~/code/orchestration/staffing/catalog.json`) to answer *who* does the work
+  (`~/code/north/orchestration/staffing/catalog.json`) to answer *who* does the work
   (role/tier/reasoning/posture); North answers *where* it runs and *how* you see
   it (provider account, subscription pressure, dashboard). Orchestration is
   account-blind; North resolves the tier through the chosen provider's catalog.

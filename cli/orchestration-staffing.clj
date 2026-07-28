@@ -28,7 +28,7 @@
 
 ;; Derive the repo root from THIS file's own location (<root>/cli/…), never
 ;; user.dir: an MCP subprocess inherits whatever cwd its parent had, which
-;; resolved to ~/code and produced ~/code/orchestration.
+;; resolved one directory too high and produced the obsolete sibling location.
 (def ^:private this-root
   (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile .getPath))
 
