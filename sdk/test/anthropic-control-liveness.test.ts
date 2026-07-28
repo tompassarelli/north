@@ -154,8 +154,17 @@ const scenarios: Array<{
     },
   },
   {
+    // A 150ms deadline is tight enough that under full-suite CPU contention
+    // (many concurrent real child-process lifecycles across other test
+    // files) even usage's own in-memory resolution can miss its share of
+    // the same event-loop tick before the shared deadline elapses -- not a
+    // production race between the two surfaces, but this scenario's window
+    // racing real system load, the same class the sibling late-resolving
+    // scenario was fixed for (fcabf01). Widen to the same 500ms budget the
+    // other scenarios use; supportedModels still never resolves, so the
+    // timeout still fires -- just with headroom for usage to land first.
     name: "supportedModels timeout",
-    timeoutMs: 150,
+    timeoutMs: 500,
     usage: async () => usageResponse(),
     models: () => new Promise<never>(() => {}),
     assertResult: (result) => {
