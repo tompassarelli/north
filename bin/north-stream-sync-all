@@ -45,6 +45,8 @@ if [ "${#roots[@]}" -eq 0 ]; then
 fi
 
 child_pid=""
+# stop_sync is invoked indirectly by the TERM/INT trap below.
+# shellcheck disable=SC2329,SC2317
 stop_sync() {
   # A foreground child prevents Bash from dispatching a trap until that child
   # returns.  The loop below instead waits for a background child, so TERM

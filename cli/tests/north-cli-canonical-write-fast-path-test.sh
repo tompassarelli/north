@@ -9,6 +9,8 @@ calls=$scratch/calls
 bb_calls=$scratch/bb-calls
 mkdir -p "$fake_fram"
 
+# The single-quoted arguments are the source of the fake Fram executable.
+# shellcheck disable=SC2016
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
@@ -25,6 +27,8 @@ printf '%s\n' \
   >"$fake_fram/fram"
 chmod +x "$fake_fram/fram"
 
+# The single-quoted arguments are the source of the fake Babashka executable.
+# shellcheck disable=SC2016
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
