@@ -497,6 +497,20 @@
     {:facts facts
      :domains domains
      :unavailable unavailable
+     ;; WHY each domain is unavailable, not merely THAT it is. live-triples-at
+     ;; already captures the exception into :error and this dropped it, so
+     ;; callers could only report a domain NAME. On 2026-07-29 that discarded
+     ;; string was "coordinator response line exceeds 8388608 bytes" — the whole
+     ;; corpus outgrowing the response cap — and its absence turned a one-line
+     ;; diagnosis into an hour of bisecting a write path that was never broken.
+     ;; Additive: :unavailable keeps its shape for existing callers.
+     :unavailable-detail (->> domains
+                              (remove (comp :available val))
+                              (map (fn [[domain result]]
+                                     [(name domain)
+                                      (or (:error result) "no reason recorded")]))
+                              (sort-by first)
+                              vec)
      :complete (empty? unavailable)}))
 
 (defn indexed-query
