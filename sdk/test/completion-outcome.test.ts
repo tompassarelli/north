@@ -2126,7 +2126,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
   }
 }, 15_000);
 
-test("spawn retries one transport reservation on a fresh run before constructing the provider", async () => {
+test("spawn replays one transport-ambiguous reservation with the exact context before provider construction", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   const reservations: DeliveryRunContext[] = [];
@@ -2159,45 +2159,120 @@ test("spawn retries one transport reservation on a fresh run before constructing
     },
   });
   expect(reservations).toHaveLength(2);
-  expect(reservations[1]).toMatchObject({
-    threadId: reservations[0]!.threadId,
-    reporterAgentId: reservations[0]!.reporterAgentId,
-  });
-  expect(reservations[1]!.runId).not.toBe(reservations[0]!.runId);
+  expect(reservations[1]).toBe(reservations[0]);
+  expect(reservations[1]).toEqual(reservations[0]);
   expect(constructions).toBe(1);
   expect(providerEnv).toMatchObject({
-    NORTH_RUN_ID: reservations[1]!.runId,
+    NORTH_RUN_ID: reservations[0]!.runId,
     NORTH_THREAD_ID: "thread-reservation-retry",
-    NORTH_RUN_CAPABILITY: reservations[1]!.capability,
+    NORTH_RUN_CAPABILITY: reservations[0]!.capability,
   });
 });
 
 test("reservation refusal or repeated transport failure constructs no provider", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  for (const failure of [
-    () => new Error("run reservation refused: reason=existing-reservation"),
-    () => new DeliveryEvidenceRetryableError("delivery evidence reserve rejected: writer timed out"),
+  for (const scenario of [
+    {
+      label: "refusal",
+      failure: () => new Error("run reservation refused: reason=existing-reservation"),
+      expectedReserveCalls: 1,
+    },
+    {
+      label: "repeated-ambiguity",
+      failure: () => new DeliveryEvidenceRetryableError(
+        "delivery evidence reserve rejected: publication deadline exceeded",
+      ),
+      expectedReserveCalls: 2,
+    },
   ]) {
     let reserveCalls = 0;
     let constructions = 0;
+    const reservations: DeliveryRunContext[] = [];
     await spawn({
       prompt: "must not reach provider without a reservation",
-      agentId: `test-spawn-reservation-refusal-${reserveCalls}`,
+      agentId: `test-spawn-reservation-${scenario.label}`,
       role: "integrator", routingMetadata: presetRequest("integrator"),
       thread: "thread-spawn-reservation-refusal",
       deliveryRuntime: {
-        reserve() {
+        reserve(context) {
           reserveCalls++;
-          throw failure();
+          reservations.push(context);
+          throw scenario.failure();
         },
         load: () => ({ reservationValid: false, evidence: [] }),
       },
       queryFn: () => { constructions++; return (async function* () {})(); },
     });
     expect(constructions).toBe(0);
-    expect(reserveCalls).toBe(failure.toString().includes("Retryable") ? 2 : 1);
+    expect(reserveCalls).toBe(scenario.expectedReserveCalls);
+    if (scenario.expectedReserveCalls === 2) {
+      expect(reservations[1]).toBe(reservations[0]);
+    }
+    const lines = await settledRunLines(
+      `test-spawn-reservation-${scenario.label}`,
+      "error_count 0",
+    );
+    const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+    expect(subjects.size).toBe(1);
+    for (const attempted of reservations) {
+      expect(subjects.has(attempted.runId)).toBe(false);
+    }
+    expect(lines.some((line) =>
+      line.endsWith(" process_outcome blocked_preflight"),
+    )).toBe(true);
   }
+});
+
+test("dispatch fails open to provider but rotates telemetry off its failed reservation", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  writeFileSync(log, "");
+  let failedRunId: string | undefined;
+  let reserveCalls = 0;
+  let constructions = 0;
+  await dispatch("test-dispatch-reservation-rotation", {
+    agentId: "test-dispatch-reservation-rotation-agent",
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: (() => ({ release() {} })) as any,
+    loadChildren: () => [],
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Rotate failed reservation telemetry" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+    ],
+    deliveryRuntime: {
+      reserve(context) {
+        reserveCalls++;
+        failedRunId = context.runId;
+        throw new DeliveryEvidenceRetryableError(
+          "delivery evidence reserve rejected: publication deadline exceeded",
+        );
+      },
+      load: () => ({ reservationValid: false, evidence: [] }),
+    },
+    queryFn: () => {
+      constructions++;
+      return (async function* () {
+        yield {
+          type: "result", subtype: "success", result: "done",
+          duration_ms: 1, num_turns: 1,
+        };
+      })();
+    },
+  });
+  expect(reserveCalls).toBe(1);
+  expect(constructions).toBe(1);
+  const lines = await settledRunLines(
+    "test-dispatch-reservation-rotation-agent",
+    "applied_domain_requirement_count 0",
+  );
+  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+  expect(failedRunId).toBeDefined();
+  expect(subjects.size).toBe(1);
+  expect(subjects.has(failedRunId!)).toBe(false);
+  expect(lines.some((line) =>
+    line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
+  )).toBe(true);
 });
 
 test("dispatch rotates away from a reservation that is invalid at finalization", async () => {

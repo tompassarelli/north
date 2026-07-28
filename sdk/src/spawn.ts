@@ -337,7 +337,7 @@ async function runSpawn(
   // for an unbound run, not a thread id, and reserving against it would mint a
   // reservation bound to nothing.
   const boundThreadId = opts.thread ?? process.env.AGENT_THREAD ?? undefined;
-  let runContext = boundThreadId
+  const runContext = boundThreadId
     ? newDeliveryRunContext(runId, boundThreadId, agentId)
     : undefined;
   const deliveryRuntime: SpawnRuntime["deliveryRuntime"] = injected.deliveryRuntime
@@ -575,25 +575,32 @@ async function runSpawn(
         deliveryReservationReady = true;
       }
     } catch (error) {
-      // A fresh run is safe only when the writer did not publish the first
-      // reservation. Refusals (including a real holder) retain their exact
-      // run and must stop before the provider seam.
-      if (!(error instanceof DeliveryEvidenceRetryableError)) throw error;
-      const abandonedRunId = runId;
-      runId = newRunId(agentId);
-      if (wt) recordWorktreeRunRotation(wt.allocation, runId);
-      runContext = newDeliveryRunContext(runId, boundThreadId!, agentId);
-      console.error(
-        `[delivery] @${abandonedRunId} reservation transport failed; rotating once to @${runId}: `
-        + `${(error as Error)?.message ?? String(error)}`,
-      );
-      // The replacement identity is not usable until THIS exact run has a
-      // reservation. A second failure deliberately escapes to the pre-provider
-      // catch below; provider construction must never cross unreserved.
-      if (!deliveryRuntime) throw error;
-      deliveryReservation = deliveryRuntime.reserve(runContext);
-      if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
-      deliveryReservationReady = true;
+      let terminalError = error;
+      if (error instanceof DeliveryEvidenceRetryableError) {
+        console.error(
+          `[delivery] @${runId} reservation transport was ambiguous; retrying once with the same identity: `
+          + `${(error as Error)?.message ?? String(error)}`,
+        );
+        try {
+          if (!deliveryRuntime) throw error;
+          deliveryReservation = deliveryRuntime.reserve(runContext);
+          if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
+          deliveryReservationReady = true;
+        } catch (retryError) {
+          terminalError = retryError;
+        }
+      }
+      if (!deliveryReservationReady) {
+        const attemptedRunId = runId;
+        runId = newRunId(agentId);
+        if (wt) recordWorktreeRunRotation(wt.allocation, runId);
+        console.error(
+          `[delivery] @${attemptedRunId} reservation unavailable; rotating blocked telemetry `
+          + `to fresh non-reservation @${runId}: `
+          + `${(terminalError as Error)?.message ?? String(terminalError)}`,
+        );
+        throw terminalError;
+      }
     }
   }
   const agentOptions = harnessOptions({
