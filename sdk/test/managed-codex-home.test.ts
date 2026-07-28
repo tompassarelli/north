@@ -157,7 +157,7 @@ test("a launch that captured no rollout leaves nothing behind", () => {
   expect(existsSync(prepared.home)).toBe(false);
 });
 
-test("the preserved-rollout archive stays bounded", () => {
+test("the preserved-rollout archive prunes only mirror-acknowledged homes", () => {
   const { env, root } = fixture();
   const homeRoot = join(root, ".local/state/north/managed-codex");
   mkdirSync(homeRoot, { recursive: true, mode: 0o700 });
@@ -167,11 +167,25 @@ test("the preserved-rollout archive stays bounded", () => {
   }
   const prepared = prepareManagedCodexHome(env);
   temporary.push(prepared.home);
-  try {
-    // 60 stale + the new one, pruned oldest-first to the retained bound.
-    expect(readdirSync(homeRoot).length).toBeLessThanOrEqual(51);
-    expect(existsSync(prepared.home)).toBe(true);
-  } finally {
-    prepared.dispose();
+  // No stale home has proof of mirroring, so exceeding the normal archive
+  // bound cannot destroy the only copy of a transcript.
+  expect(readdirSync(homeRoot).length).toBe(61);
+  prepared.dispose();
+
+  for (const name of readdirSync(homeRoot)) {
+    writeFileSync(
+      join(homeRoot, name, "north-stream-mirrored"),
+      "v1\topenai:managed-test\t2026-07-29T00:00:00Z\t1\n",
+      { mode: 0o600 },
+    );
   }
+
+  const afterMirror = prepareManagedCodexHome(env);
+  temporary.push(afterMirror.home);
+  try {
+    // Acknowledged homes are cacheable: prune oldest-first to the retained
+    // bound, then create the new active launch.
+    expect(readdirSync(homeRoot).length).toBeLessThanOrEqual(51);
+    expect(existsSync(afterMirror.home)).toBe(true);
+  } finally { afterMirror.dispose(); }
 });

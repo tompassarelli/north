@@ -1,6 +1,6 @@
 import {
   chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync,
-  rmSync, symlinkSync, writeFileSync,
+  readFileSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,8 +8,9 @@ import { canonicalGlobalAgents } from "../harness";
 import { scrubManagedNonclientReceiptEnvironment } from "./managed-nonclient-receipt";
 
 const MANAGED_HOME_PREFIX = "north-managed-codex-";
+const STREAM_MIRROR_ACK = "north-stream-mirrored";
 const MAX_AUTH_BYTES = 1024 * 1024;
-/** Preserved launch homes retained for review; older ones are pruned at prepare. */
+/** Mirrored launch homes retained for review; unmirrored evidence is unbounded. */
 const MAX_PRESERVED_HOMES = 50;
 const activeHomes = new Set<string>();
 let exitCleanupInstalled = false;
@@ -88,17 +89,31 @@ function trackHome(home: string): void {
   });
 }
 
-/** Bound the preserved-rollout archive without touching a live launch home. */
+/**
+ * Bound only the acknowledged portion of the preserved-rollout archive.
+ * The stream mirror writes STREAM_MIRROR_ACK after copying every rollout and
+ * the launch receipt. An unacknowledged home is evidence, not cache, and must
+ * survive even when a burst of launches exceeds the normal retained bound.
+ */
 function prunePreservedHomes(root: string): void {
   let entries: string[];
   try { entries = readdirSync(root).filter((name) => name.startsWith(MANAGED_HOME_PREFIX)); }
   catch { return; }
   if (entries.length <= MAX_PRESERVED_HOMES) return;
-  const stale = entries.sort().slice(0, entries.length - MAX_PRESERVED_HOMES);
-  for (const name of stale) {
+  let remaining = entries.length;
+  for (const name of entries.sort()) {
+    if (remaining <= MAX_PRESERVED_HOMES) break;
     const path = join(root, name);
     if (activeHomes.has(path)) continue;
-    try { rmSync(path, { recursive: true, force: true }); } catch {}
+    try {
+      const ack = lstatSync(join(path, STREAM_MIRROR_ACK));
+      if (!ack.isFile() || ack.isSymbolicLink()) continue;
+      const evidence = readFileSync(join(path, STREAM_MIRROR_ACK), "utf8");
+      if (!/^v1\topenai:managed-[A-Za-z0-9-]+\t[^\t\n]+\t[1-9][0-9]*\n$/.test(evidence))
+        continue;
+      rmSync(path, { recursive: true, force: true });
+      remaining -= 1;
+    } catch {}
   }
 }
 

@@ -1,54 +1,238 @@
 #!/usr/bin/env bash
-# north-stream-sync-all — mirror EVERY account's transcripts, not just one root.
+# north-stream-sync-all — mirror every persisted Claude and Codex transcript.
 #
-# north-stream-sync scans a single --src-dir and validates every path against
-# it. That single-root design is deliberate and security-relevant, so this does
-# not touch it: it enumerates the roots and invokes the audited script once per
-# root.
-#
-# WHY THIS EXISTS. The script's default root is $HOME/.claude/projects, which is
-# where Claude Code wrote transcripts before per-account state. It now writes to
-# $CLAUDE_CONFIG_DIR/projects, one directory per provider/account under
-# ~/.local/state/north/accounts. Nothing scanned those, so streams/raw silently
-# stopped gaining anything at the migration while live sessions and every
-# managed lane kept accumulating transcripts unmirrored. The failure was
-# invisible in the worst possible way: the mirror still existed, still had 1244
-# files in it, and was simply frozen.
+# Each invocation of north-stream-sync still owns exactly one canonical source
+# root. This wrapper discovers all known provider homes and supplies an explicit
+# provider authority for the v4 roots while preserving the installed Claude v3
+# cursor contract for roots that already use it.
 #
 # EXIT CODES. 0 = every root mirrored cleanly. 2 = mirroring completed but at
-# least one source was quarantined (a diverged transcript — a report, not a
-# breakage). 1 = at least one root actually failed. Keeping those distinct is
-# the point: a permanently-red unit teaches you to ignore it.
+# least one source was quarantined. 1 = discovery or at least one root failed.
 
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYNC="${NORTH_STREAM_SYNC_BIN:-$SELF_DIR/north-stream-sync}"
-[ -x "$SYNC" ] || { echo "north-stream-sync-all: no executable sync at $SYNC" >&2; exit 1; }
+[ -x "$SYNC" ] || {
+  echo "north-stream-sync-all: no executable sync at $SYNC" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+usage: north-stream-sync-all [--days N] [--min-bytes N] [--raw-dir DIR]
+
+Discovers legacy, account, profile, ambient, and managed provider transcript
+roots. Source/provider/layout arguments are owned by discovery and cannot be
+forwarded by callers. --days and --min-bytes remain accepted for compatibility;
+the aggregate lossless sweep enumerates complete provider trees and forces a
+zero-byte threshold.
+EOF
+}
+
+forward_args=()
+decimal_within() {
+  local value="$1" maximum="$2"
+  [ "${#value}" -lt "${#maximum}" ] ||
+    { [ "${#value}" -eq "${#maximum}" ] &&
+      [[ "$value" < "$maximum" || "$value" = "$maximum" ]]; }
+}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --days|--min-bytes|--raw-dir)
+      if [ $# -lt 2 ]; then
+        echo "north-stream-sync-all: $1 requires a value" >&2
+        exit 1
+      fi
+      if [ "$1" = --days ]; then
+        if ! [[ "$2" =~ ^[1-9][0-9]*$ ]] ||
+           ! decimal_within "$2" 2147483647; then
+          echo "north-stream-sync-all: --days must be a supported positive integer" >&2
+          exit 1
+        fi
+      elif [ "$1" = --min-bytes ] &&
+           { ! [[ "$2" =~ ^[0-9]+$ ]] ||
+             ! decimal_within "$2" 9223372036854775807; }; then
+        echo "north-stream-sync-all: --min-bytes must be a supported nonnegative integer" >&2
+        exit 1
+      fi
+      forward_args+=("$1" "$2")
+      shift 2
+      ;;
+    --src-dir|--provider|--source-namespace|--layout|--metadata-file|--ack-file|--cursor-owned-only)
+      echo "north-stream-sync-all: $1 is controlled by root discovery" >&2
+      exit 1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "north-stream-sync-all: unknown arg: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
-accounts_root="${NORTH_ACCOUNTS_DIR:-$state_home/north/accounts}"
+north_state_root="${NORTH_STATE_ROOT:-$state_home/north}"
+accounts_root="${NORTH_ACCOUNTS_DIR:-$north_state_root/accounts}"
+profiles_root="${NORTH_PROFILES_DIR:-$north_state_root/profiles}"
+managed_root="${NORTH_MANAGED_CODEX_HOME_ROOT:-$north_state_root/managed-codex}"
+ambient_codex_root="${NORTH_AMBIENT_CODEX_HOME:-$HOME/.codex}/sessions"
+
+namespace_id() {
+  local kind="$1" value="$2" human suffix
+  human="$(
+    printf '%s' "$value" |
+      LC_ALL=C sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' |
+      tr '[:upper:]' '[:lower:]' |
+      cut -c1-48 |
+      sed -E 's/-+$//'
+  )"
+  [ -n "$human" ] || human=default
+  suffix="$(
+    printf 'north-stream-namespace-v1\0%s\0%s' "$kind" "$value" |
+      sha256sum | cut -c1-16
+  )"
+  printf '%s-%s-%s\n' "$kind" "$human" "$suffix"
+}
 
 roots=()
-# The pre-account root stays in the sweep: it still holds real history, and
-# dropping it would strand transcripts that were never migrated.
-[ -d "$HOME/.claude/projects" ] && roots+=("$HOME/.claude/projects")
+modes=()
+providers=()
+namespaces=()
+layouts=()
+receipt_candidates=()
+ack_candidates=()
+declare -A seen_provider_root=()
+
+add_root() {
+  local root="$1" mode="$2" provider="$3" namespace="$4" layout="$5"
+  local receipt="${6:-}" ack="${7:-}" canonical key existing_index
+  [ -d "$root" ] || return 0
+  if [ ! -r "$root" ] || [ ! -x "$root" ]; then
+    echo "north-stream-sync-all: transcript root is not readable: $root" >&2
+    enumeration_failed=1
+    return 0
+  fi
+  if ! canonical="$(realpath -- "$root")"; then
+    echo "north-stream-sync-all: cannot resolve transcript root: $root" >&2
+    enumeration_failed=1
+    return 0
+  fi
+  # The same canonical root/layout may be exposed through an account symlink
+  # and an ambient/profile route; authority naming must not duplicate bytes.
+  # Mode/layout remain in the key because legacy-direct + provider-nested are
+  # intentionally disjoint passes over one Claude root.
+  key="$mode:$provider:$layout:$canonical"
+  if [ -n "${seen_provider_root[$key]+present}" ]; then
+    existing_index=$((seen_provider_root[$key] - 1))
+    # Managed provenance outranks an account/profile alias to the same exact
+    # sessions tree; upgrade the existing route so receipt + ack are not lost.
+    if [ -n "$receipt" ] &&
+       [ -z "${receipt_candidates[$existing_index]}" ]; then
+      modes[existing_index]="$mode"
+      providers[existing_index]="$provider"
+      namespaces[existing_index]="$namespace"
+      layouts[existing_index]="$layout"
+      receipt_candidates[existing_index]="$receipt"
+      ack_candidates[existing_index]="$ack"
+    fi
+    return 0
+  fi
+  seen_provider_root["$key"]=$((${#roots[@]} + 1))
+  roots+=("$canonical")
+  modes+=("$mode")
+  providers+=("$provider")
+  namespaces+=("$namespace")
+  layouts+=("$layout")
+  receipt_candidates+=("$receipt")
+  ack_candidates+=("$ack")
+}
+
+enumeration_failed=0
+
+# Existing Claude cursor owners retain their v1-v3 destination identity. The
+# provider pass runs first so every previously-unowned direct or nested source
+# lands in authority-scoped v4 state; legacy then advances existing owners only.
+add_root "$HOME/.claude/projects" provider anthropic \
+  "$(namespace_id ambient-claude "$HOME/.claude")" claude-recursive
+add_root "$HOME/.claude/projects" legacy-owned anthropic "" claude
+
 if [ -d "$accounts_root" ]; then
-  while IFS= read -r d; do
-    [ -d "$d" ] && roots+=("$d")
-  done < <(find "$accounts_root" -mindepth 3 -maxdepth 3 -type d -name projects 2>/dev/null | sort)
+  if [ ! -r "$accounts_root" ] || [ ! -x "$accounts_root" ]; then
+    echo "north-stream-sync-all: accounts root is not readable: $accounts_root" >&2
+    enumeration_failed=1
+  else
+    shopt -s nullglob
+    for root in "$accounts_root"/anthropic/*/projects; do
+      account_home="${root%/projects}"
+      account_name="${account_home##*/}"
+      add_root "$root" provider anthropic \
+        "$(namespace_id account-claude "$account_name")" claude-recursive
+      add_root "$root" legacy-owned anthropic "" claude
+    done
+    for root in "$accounts_root"/openai/*/sessions; do
+      account_home="${root%/sessions}"
+      account_name="${account_home##*/}"
+      add_root "$root" provider openai \
+        "$(namespace_id account "$account_name")" codex
+    done
+    shopt -u nullglob
+  fi
+fi
+
+add_root "$ambient_codex_root" provider openai \
+  "$(namespace_id ambient "${ambient_codex_root%/sessions}")" codex
+
+if [ -d "$profiles_root" ]; then
+  if [ ! -r "$profiles_root" ] || [ ! -x "$profiles_root" ]; then
+    echo "north-stream-sync-all: profiles root is not readable: $profiles_root" >&2
+    enumeration_failed=1
+  else
+    shopt -s nullglob
+    for profile_home in "$profiles_root"/*; do
+      [ -d "$profile_home" ] || continue
+      profile_name="${profile_home##*/}"
+      add_root "$profile_home/projects" provider anthropic \
+        "$(namespace_id profile "$profile_name")" claude-recursive
+      add_root "$profile_home/projects" legacy-owned anthropic "" claude
+      add_root "$profile_home/sessions" provider openai \
+        "$(namespace_id profile "$profile_name")" codex
+    done
+    shopt -u nullglob
+  fi
+fi
+
+if [ -d "$managed_root" ]; then
+  if [ ! -r "$managed_root" ] || [ ! -x "$managed_root" ]; then
+    echo "north-stream-sync-all: managed Codex root is not readable: $managed_root" >&2
+    enumeration_failed=1
+  else
+    shopt -s nullglob
+    for root in "$managed_root"/north-managed-codex-*/sessions; do
+      launch_home="${root%/sessions}"
+      launch_name="${launch_home##*/}"
+      add_root "$root" provider openai \
+        "$(namespace_id managed "$launch_name")" codex \
+        "$launch_home/north-launch.json" \
+        "$launch_home/north-stream-mirrored"
+    done
+    shopt -u nullglob
+  fi
 fi
 
 if [ "${#roots[@]}" -eq 0 ]; then
-  echo "north-stream-sync-all: no transcript roots found under $accounts_root or ~/.claude" >&2
+  echo "north-stream-sync-all: no transcript roots found" >&2
+  [ "$enumeration_failed" -eq 0 ] || exit 1
   exit 0
 fi
 
 child_pid=""
+# shellcheck disable=SC2317,SC2329 # invoked asynchronously by the traps below
 stop_sync() {
-  # A foreground child prevents Bash from dispatching a trap until that child
-  # returns.  The loop below instead waits for a background child, so TERM
-  # interrupts wait promptly and this handler can forward it to the copy.
   if [ -n "${child_pid:-}" ]; then
     kill -TERM "$child_pid" 2>/dev/null || true
     wait "$child_pid" 2>/dev/null || true
@@ -57,19 +241,74 @@ stop_sync() {
 }
 trap stop_sync TERM INT
 
-failed=0
+failed="$enumeration_failed"
 quarantined=0
-for root in "${roots[@]}"; do
-  "$SYNC" --src-dir "$root" "$@" &
+for index in "${!roots[@]}"; do
+  root="${roots[$index]}"
+  mode="${modes[$index]}"
+  command=("$SYNC" --src-dir "$root" "${forward_args[@]}")
+  expect_ack=""
+  invalid_receipt=0
+  if [ "$mode" = provider ]; then
+    command+=(
+      --provider "${providers[$index]}"
+      --source-namespace "${namespaces[$index]}"
+      --layout "${layouts[$index]}"
+      --min-bytes 0
+    )
+    receipt="${receipt_candidates[$index]}"
+    ack="${ack_candidates[$index]}"
+    if [ -n "$ack" ]; then
+      if [ -L "$ack" ] || { [ -e "$ack" ] && [ ! -f "$ack" ]; }; then
+        echo "north-stream-sync-all: managed acknowledgement is unsafe: $ack" >&2
+        invalid_receipt=1
+      else
+        rm -f -- "$ack"
+        if ! sync -f "$(dirname "$ack")"; then
+          echo "north-stream-sync-all: could not invalidate managed acknowledgement: $ack" >&2
+          invalid_receipt=1
+        fi
+      fi
+    fi
+    if [ -n "$receipt" ] && [ -e "$receipt" ]; then
+      if [ -L "$receipt" ] || [ ! -f "$receipt" ]; then
+        echo "north-stream-sync-all: managed launch receipt is unsafe: $receipt" >&2
+        invalid_receipt=1
+      else
+        command+=(--metadata-file "$receipt" --ack-file "$ack")
+        expect_ack="$ack"
+      fi
+    fi
+  else
+    # Never strand small aborted transcripts behind the legacy preference.
+    # Historical direct files are picked up by the recursive v4 companion pass.
+    command+=(--min-bytes 0)
+    [ "$mode" != legacy-owned ] || command+=(--cursor-owned-only)
+  fi
+
+  "${command[@]}" &
   child_pid=$!
   wait "$child_pid"
   sync_status=$?
   child_pid=""
+  if [ "$invalid_receipt" -ne 0 ]; then
+    failed=$((failed + 1))
+  fi
   case "$sync_status" in
-    0) ;;
-    2) quarantined=$((quarantined + 1)) ;;
-    *) failed=$((failed + 1))
-       echo "north-stream-sync-all: root failed: $root" >&2 ;;
+    0)
+      if [ -n "$expect_ack" ] &&
+           { [ -L "$expect_ack" ] || [ ! -f "$expect_ack" ]; }; then
+        failed=$((failed + 1))
+        echo "north-stream-sync-all: managed root was not acknowledged: $root" >&2
+      fi
+      ;;
+    2)
+      quarantined=$((quarantined + 1))
+      ;;
+    *)
+      failed=$((failed + 1))
+      echo "north-stream-sync-all: root failed: $root" >&2
+      ;;
   esac
 done
 
