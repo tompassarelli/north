@@ -1,5 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  closeSync,
+  constants,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, resolve } from "node:path";
 
 /**
  * Dual-read seam for the Orchestration -> North Orchestration migration
@@ -25,6 +39,7 @@ export function staffingSource(): StaffingSource {
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const projectorCli = resolve(REPO, "cli/orchestration-project-cli.clj");
+const MAX_CATALOG_CACHE_BYTES = 4 * 1024 * 1024;
 
 function bb(): string {
   return process.env.NORTH_PEER_BB ?? "bb";
@@ -73,16 +88,135 @@ export interface CatalogBundle {
   providers: Record<string, unknown>;
 }
 
+interface CatalogProjectionCache {
+  version: 1;
+  catalogDigestSha256: string;
+  coordinatorVersion: number;
+  catalogVersion: number;
+  bundle: CatalogBundle;
+}
+
 let cachedBundle: { port: string; bundle: CatalogBundle } | undefined;
+let cachedCatalogGraphPin: { port: string; pin: CatalogGraphPin } | undefined;
+
+function validateBundle(raw: unknown): CatalogBundle {
+  if (!raw || typeof raw !== "object")
+    throw new Error("NORTH_STAFFING_SOURCE=graph bundle projection returned an unexpected shape");
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.catalogVersion !== "number"
+      || !candidate.staffing || typeof candidate.staffing !== "object"
+      || !candidate.providers || typeof candidate.providers !== "object")
+    throw new Error("NORTH_STAFFING_SOURCE=graph bundle projection returned an unexpected shape");
+  return raw as CatalogBundle;
+}
+
+function projectBundleUncached(): CatalogBundle {
+  const raw = project(["bundle"]) as Record<string, unknown>;
+  return validateBundle(raw);
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+        .map(([key, nested]) => [key, canonical(nested)]),
+    );
+  return value;
+}
+
+function bundleDigest(bundle: CatalogBundle): string {
+  return createHash("sha256").update(JSON.stringify(canonical({
+    staffing: bundle.staffing,
+    providers: bundle.providers,
+  }))).digest("hex");
+}
+
+/** Durable state shared by the fresh Bun/bb processes used for admissions. */
+export function catalogProjectionCachePath(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.NORTH_ORCHESTRATION_CATALOG_CACHE?.trim();
+  if (explicit) return resolve(explicit);
+  const home = env.HOME?.trim() || homedir();
+  const state = env.XDG_STATE_HOME?.trim() || resolve(home, ".local/state");
+  return resolve(state, "north/orchestration-catalog-projection-cache.json");
+}
+
+function readCachedBundle(path: string, pin: CatalogGraphPin): CatalogBundle | undefined {
+  try {
+    const state = lstatSync(path);
+    if (!state.isFile() || state.isSymbolicLink()
+        || state.size <= 0 || state.size > MAX_CATALOG_CACHE_BYTES)
+      return undefined;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<CatalogProjectionCache>;
+    if (parsed.version !== 1
+        || parsed.catalogDigestSha256 !== pin.catalogDigestSha256
+        || !Number.isInteger(parsed.coordinatorVersion)
+        || !Number.isInteger(parsed.catalogVersion))
+      return undefined;
+    const bundle = validateBundle(parsed.bundle);
+    if (bundleDigest(bundle) !== pin.catalogDigestSha256) return undefined;
+    // The digest may legitimately recur at a later catalog version. Preserve
+    // the current projector shape: callers still observe the live pointer.
+    return { ...bundle, catalogVersion: pin.catalogVersion };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Best-effort atomic replace. A missing/unwritable cache is never an admission
+ * refusal: the freshly projected bundle remains authoritative for this call.
+ */
+function writeCachedBundle(path: string, pin: CatalogGraphPin, bundle: CatalogBundle): void {
+  const record: CatalogProjectionCache = {
+    version: 1,
+    catalogDigestSha256: pin.catalogDigestSha256,
+    coordinatorVersion: pin.coordinatorVersion,
+    catalogVersion: pin.catalogVersion,
+    bundle,
+  };
+  const bytes = Buffer.from(`${JSON.stringify(record)}\n`);
+  if (bytes.byteLength <= 0 || bytes.byteLength > MAX_CATALOG_CACHE_BYTES) return;
+  const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  let fd: number | undefined;
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    fd = openSync(
+      temporary,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    let offset = 0;
+    while (offset < bytes.byteLength) offset += writeSync(fd, bytes, offset);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(temporary, path);
+    const directory = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY);
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+  } catch {
+    if (fd !== undefined) try { closeSync(fd); } catch {}
+    try { unlinkSync(temporary); } catch {}
+  }
+}
 
 function projectBundle(): CatalogBundle {
-  const raw = project(["bundle"]) as Record<string, unknown>;
-  if (!raw || typeof raw !== "object"
-      || typeof raw.catalogVersion !== "number"
-      || !raw.staffing || typeof raw.staffing !== "object"
-      || !raw.providers || typeof raw.providers !== "object")
-    throw new Error("NORTH_STAFFING_SOURCE=graph bundle projection returned an unexpected shape");
-  return raw as unknown as CatalogBundle;
+  // Admission always probes the cheap graph pin first. Its canonical digest is
+  // both the cache key and the integrity check over the cached projection.
+  const pin = catalogGraphPinForAdmission();
+  const path = catalogProjectionCachePath();
+  const hit = readCachedBundle(path, pin);
+  if (hit) return hit;
+
+  const bundle = projectBundleUncached();
+  const projectedDigest = bundleDigest(bundle);
+  if (projectedDigest !== pin.catalogDigestSha256)
+    throw new Error(
+      "NORTH_STAFFING_SOURCE=graph catalog changed between pin and bundle projection; retry admission",
+    );
+  writeCachedBundle(path, pin, bundle);
+  return bundle;
 }
 
 /**
@@ -102,6 +236,7 @@ export function catalogBundle(): CatalogBundle {
 /** @internal Test seam — drop the process bundle cache between fixtures. */
 export function resetCatalogBundleCache(): void {
   cachedBundle = undefined;
+  cachedCatalogGraphPin = undefined;
 }
 
 /**
@@ -155,4 +290,13 @@ export function projectCatalogGraphPin(): CatalogGraphPin {
   if (typeof catalogDigestSha256 !== "string" || !HEX64.test(catalogDigestSha256))
     throw new Error("catalog graph pin: catalogDigestSha256 must be a sha256 digest");
   return { catalogVersion, coordinatorVersion, catalogDigestSha256 };
+}
+
+/** One pin probe per fresh admission process, shared by bundle + receipt. */
+export function catalogGraphPinForAdmission(): CatalogGraphPin {
+  const p = port();
+  if (cachedCatalogGraphPin?.port === p) return cachedCatalogGraphPin.pin;
+  const pin = projectCatalogGraphPin();
+  cachedCatalogGraphPin = { port: p, pin };
+  return pin;
 }
