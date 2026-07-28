@@ -579,26 +579,6 @@
        (normalized-token (one facts entity "response_strategy_implementation"))
        :responseStrategyVersion
        (normalized-token (one facts entity "response_strategy_version"))
-       :cavemanRequestedMode
-       (normalized-token (one facts entity "caveman_requested_mode"))
-       :cavemanMode (normalized-token (one facts entity "caveman_mode"))
-       :cavemanSource (normalized-token (one facts entity "caveman_source"))
-       :cavemanDecisionReason
-       (normalized-token (one facts entity "caveman_decision_reason"))
-       :cavemanImplementation
-       (normalized-token (one facts entity "caveman_implementation"))
-       :cavemanMeasurementCoverage
-       (normalized-token (one facts entity "caveman_measurement_coverage"))
-       :cavemanRepository (normalized-token (one facts entity "caveman_repository"))
-       :cavemanRevision (normalized-token (one facts entity "caveman_revision"))
-       :cavemanSkillSha256 (normalized-token (one facts entity "caveman_skill_sha256"))
-       :cavemanSkillBytes (maybe-long (one facts entity "caveman_skill_bytes"))
-       :cavemanRenderedSha256
-       (normalized-token (one facts entity "caveman_rendered_sha256"))
-       :cavemanRenderedBytes (maybe-long (one facts entity "caveman_rendered_bytes"))
-       :cavemanSourceKind (normalized-token (one facts entity "caveman_source_kind"))
-       :cavemanResolutionProvenance
-       (normalized-token (one facts entity "caveman_resolution_provenance"))
        :mcpActivitySource (normalized-token (one facts entity "mcp_activity_source"))
        :mcpActivityCoverage (normalized-token (one facts entity "mcp_activity_coverage"))
        :mcpActualCalls (maybe-long (one facts entity "mcp_actual_calls"))
@@ -1526,21 +1506,7 @@
         (fn [row]
           {:strategyId (or (:responseStrategyId row) unknown)
            :implementation (or (:responseStrategyImplementation row) unknown)
-           :version (or (:responseStrategyVersion row) unknown)
-           :requestedMode (or (:cavemanRequestedMode row) unknown)
-           :mode (or (:cavemanMode row) unknown)
-           :source (or (:cavemanSource row) unknown)
-           :decisionReason (or (:cavemanDecisionReason row) unknown)
-           :cavemanImplementation (or (:cavemanImplementation row) unknown)
-           :measurementCoverage (or (:cavemanMeasurementCoverage row) unknown)
-           :repository (or (:cavemanRepository row) unknown)
-           :revision (or (:cavemanRevision row) unknown)
-           :skillSha256 (or (:cavemanSkillSha256 row) unknown)
-           :skillBytes (or (:cavemanSkillBytes row) unknown)
-           :renderedSha256 (or (:cavemanRenderedSha256 row) unknown)
-           :renderedBytes (or (:cavemanRenderedBytes row) unknown)
-           :sourceKind (or (:cavemanSourceKind row) unknown)
-           :resolutionProvenance (or (:cavemanResolutionProvenance row) unknown)})
+           :version (or (:responseStrategyVersion row) unknown)})
         provenance-status
         (fn [row]
           (let [value (provenance row)]
@@ -1552,14 +1518,11 @@
                        (not= unknown (:mode value))
                        (not= unknown (:source value))
                        (not= unknown (:decisionReason value))
-                       (= "disabled" (:cavemanImplementation value))
                        (not= unknown (:measurementCoverage value)))
                 "complete" "partial")
               (every? #(not= unknown (get value %))
                       [:implementation :version :requestedMode :mode :source :decisionReason
-                       :cavemanImplementation :measurementCoverage :repository :revision
-                       :skillSha256 :skillBytes :renderedSha256 :renderedBytes :sourceKind
-                       :resolutionProvenance])
+                       :measurementCoverage])
               "complete"
               :else "partial")))
         group-key (fn [row] [(or (:provider row) "unattributed")
@@ -1570,13 +1533,6 @@
           (let [known-calls (filter #(some? (:mcpActualCalls %)) cohort)
                 tools (mapcat :mcpActualTools cohort)]
             {:runs (count cohort)
-             :cavemanModeCounts (->> cohort (map #(or (:cavemanMode %) "legacy-unknown"))
-                                      frequencies (into (sorted-map)))
-             :cavemanSourceCounts (->> cohort (map #(or (:cavemanSource %) "legacy-unknown"))
-                                        frequencies (into (sorted-map)))
-             :cavemanDecisionReasonCounts
-             (->> cohort (map #(or (:cavemanDecisionReason %) "legacy-unknown"))
-                  frequencies (into (sorted-map)))
              :responseStrategyCounts
              (->> cohort (map #(or (:responseStrategyId %) "legacy-unknown"))
                   frequencies (into (sorted-map)))
@@ -1586,21 +1542,12 @@
              :responseStrategyVersionCounts
              (->> cohort (map #(or (:responseStrategyVersion %) unknown))
                   frequencies (into (sorted-map)))
-             :cavemanRequestedModeCounts
-             (->> cohort (map #(or (:cavemanRequestedMode %) unknown))
-                  frequencies (into (sorted-map)))
-             :cavemanImplementationCounts
-             (->> cohort (map #(or (:cavemanImplementation %) unknown))
-                  frequencies (into (sorted-map)))
              :responseStrategyProvenanceCoverageCounts
              (->> cohort (map provenance-status) frequencies (into (sorted-map)))
              :responseStrategyProvenance
              (->> cohort (map provenance) frequencies
                   (map (fn [[value runs]] (assoc value :runs runs)))
                   (sort-by (juxt :strategyId :implementation :version :mode :source)) vec)
-             :cavemanMeasurementCoverageCounts
-             (->> cohort (map #(or (:cavemanMeasurementCoverage %) unknown))
-                  frequencies (into (sorted-map)))
              :mcpCoverageCounts
              (->> cohort (map #(or (:mcpActivityCoverage %) "legacy-unknown"))
                   frequencies (into (sorted-map)))

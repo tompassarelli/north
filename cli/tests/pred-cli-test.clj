@@ -255,12 +255,7 @@
     "run_coordinator" "run_event_count" "run_event_first_sequence"
     "run_event_last_sequence" "run_event_ledger_sha256" "run_event_status"
     "run_event_terminal_sequence" "spend_target" "task_grade" "thread" "tokens"
-    "response_strategy_id" "response_strategy_implementation" "response_strategy_version"
-    "caveman_requested_mode" "caveman_mode" "caveman_source" "caveman_decision_reason"
-    "caveman_implementation" "caveman_measurement_coverage" "caveman_repository"
-    "caveman_revision" "caveman_skill_sha256" "caveman_skill_bytes"
-    "caveman_rendered_sha256" "caveman_rendered_bytes" "caveman_source_kind"
-    "caveman_resolution_provenance" "mcp_activity_source" "mcp_activity_coverage"
+    "mcp_activity_source" "mcp_activity_coverage"
     "mcp_actual_calls"
     "native_command_activity_source" "native_command_activity_coverage"
     "native_north_binary_probe" "native_command_total" "native_command_successful"
@@ -276,7 +271,7 @@
   #{"kind" "agent_run_ledger_version" "thread" "agent" "run_coordinator"
     "run_event_sequence" "run_event_type" "run_event_observed_at"
     "run_event_source" "run_event_coverage" "run_event_data" "run_event_sha256"
-    "caveman_mode" "caveman_source"})
+    })
 (def audited-run-event-predicates
   (set/union audited-run-event-ref audited-run-event-single))
 

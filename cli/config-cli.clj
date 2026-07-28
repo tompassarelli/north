@@ -1,7 +1,6 @@
 #!/usr/bin/env bb
 ;; north config — every personal-stack posture setting, one entry point.
 ;;
-;;   caveman  : output compression     session level + worker default
 ;;   dispatch : who runs agents        north SDK  vs  native Agent/Workflow
 ;;   coord    : coordination protocol  north / linear / both
 ;;   beagle   : code representation    text      vs  fact-native (per-file)
@@ -26,8 +25,6 @@
                 "/cli/harness-state.clj"))
 (def STATE           (north.harness-state/canonical-path home))
 (def LEGACY-STATE    (north.harness-state/legacy-path home))
-(def CAVEMAN-STATE   (str home "/.claude/.caveman-active"))
-(def CAVEMAN-DEFAULT (str home "/code/nixos-config/dotfiles/caveman/config.json"))
 (def REGISTRY        (or (System/getenv "GRAPH_UPSTREAM_REGISTRY")
                          (str home "/.config/fram/graph-upstream-files")))
 (def SETTINGS        (str home "/code/nixos-config/dotfiles/claude/settings.json"))
@@ -72,16 +69,6 @@
        (remove #(re-matches #"\s*(#.*)?" %)))) ; drop blank + comment lines
 
 (defn adopted-n [] (count (registry-lines)))
-
-(defn caveman-lvl []
-  (let [c (slurp' CAVEMAN-STATE)]
-    (if (and c (not (str/blank? c))) (str/trim c) "off")))
-
-(defn caveman-default []
-  (or (some-> (slurp' CAVEMAN-DEFAULT)
-              (->> (re-find #"\"defaultMode\"\s*:\s*\"([^\"]*)\""))
-              second)
-      "full"))
 
 ;; Kill-switch effective state — precedence identical to authoring-killswitch.sh:
 ;;   env 0|false  → force-live (state ignored this session)
@@ -398,52 +385,37 @@
 (defn status []
   (let [d  (get' "dispatch" "north")
         c  (get' "coord" "north")
-        cv (caveman-lvl)
-        cd (caveman-default)
-        inherited-caveman (System/getenv "AGENT_CAVEMAN")
-        ac (if (and inherited-caveman (not (str/blank? inherited-caveman)))
-             (str inherited-caveman " (inherited AGENT_CAVEMAN)")
-             "off (managed default; savings unproven)")]
+        ]
     (println (banner))
     (println (str "
- 1  CAVEMAN    output compression
-    session: " cv " (lite|full|ultra + wenyan-*)      workers: " ac "
-    default: " cd " (persists — new sessions start here)
-    [live]   session → north config caveman lite|full|ultra   (or /caveman)
-    [live]   default → north config caveman default off|lite|full|ultra|wenyan-*
-    [spawn]  one worker → spawn {caveman: off|lite|full}   (mcp__north__spawn param)
-    [launch] all workers from a session → AGENT_CAVEMAN=off|lite|full claude
-
- 2  DISPATCH   who runs agents                 [guard: " (wired "agent-spawn-guard") "]
+ 1  DISPATCH   who runs agents                 [guard: " (wired "agent-spawn-guard") "]
     " (mark d "north") " north    SDK workers — persistent, steerable, fact trail;
-               model, effort, caveman all have per-spawn opts on mcp__north__spawn;
+               model and effort have per-spawn opts on mcp__north__spawn;
                model/effort resolve from the requested Orchestration composition and
-               provider catalog; managed response compression resolves explicit
-               request > AGENT_CAVEMAN > off, then freezes for worker lifetime
     " (mark d "warn") " warn     native Agent/Workflow allowed, nudged toward north
     " (mark d "native") " native   raw Claude Code spawns, no interference
     flip → north config dispatch north|warn|native
 
- 3  COORD      coordination protocol           [north: " (north-daemon) " · linear MCP: " (linear-mcp) "]
+ 2  COORD      coordination protocol           [north: " (north-daemon) " · linear MCP: " (linear-mcp) "]
     " (mark c "north") " north    facts on :7977 + concerns + msg-cli chat
     " (mark c "linear") " linear   Linear as the work queue (MCP)
     " (mark c "both") " both     Linear as consolidation layer over north
     note: declarative — agents read this posture; no hard enforcement yet
     flip → north config coord north|linear|both
 
- 4  BEAGLE     code as text vs facts          [guard: " (wired "code-upstream-guard") "]
+ 3  BEAGLE     code as text vs facts          [guard: " (wired "code-upstream-guard") "]
     fact-native adopted (text edits denied → fram graph tools): " (adopted-n) " file(s)
 " (files-block) "
     default-flip: PARKED — pending M1.5-vs-M2 bake-off verdict
     flip → north config beagle adopt|unadopt <absolute-path> · north config beagle list
 
- 5  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
+ 4  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
     " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "code-upstream-guard") " upstream:graph   " (wired "firn-guard") " firn
     " (wired "tripwire-guard") " tripwire            " (wired "racket-build-guard") " racket-build      " (wired "beagle-session-start") " beagle-session
     [live]   flip authoring guards → north config guards on|off   (persists, all sessions; dispatch remains independent)
     [launch] one session → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
 
- 6  ROUTING    provider targets + entitlement envelopes
+ 5  ROUTING    provider targets + entitlement envelopes
     " (routing-summary (routing-read)) "
     pressure: automatic usage sensing; manual command is a temporary override/fallback
     configure → north config routing
@@ -456,54 +428,27 @@
 (defn help []
   (println "north config — every personal-stack posture setting, one entry point.
 
- 1 CAVEMAN — output compression (token economy).
-   Three binding classes:
-   [live]   session — north config caveman lite|full|ultra (or /caveman);
-            reads ~/.claude/.caveman-active; effective immediately.
-   [live]   default — north config caveman default off|lite|full|ultra|wenyan-*;
-            new sessions start here; persists across sessions.
-   [spawn]  one worker — pass {caveman: off|lite|full} on mcp__north__spawn;
-            frozen for that worker's lifetime. Managed resolution is explicit
-            request > AGENT_CAVEMAN > off; off is the unproven-savings default.
-   [launch] all workers from a session — AGENT_CAVEMAN=off|lite|full claude;
-            inherited at spawn by workers without a per-spawn override;
-            frozen for the session; mid-session flip impossible.
-   lite/full/ultra + wenyan variants. Code/commits/quoted errors/security
-   are never compressed at any level.
-   Global default (new sessions start here) resolution order:
-     CAVEMAN_DEFAULT_MODE env > repo-local .caveman.json
-       > ~/.config/caveman/config.json (\"defaultMode\" field) > \"full\"
-   ~/.config/caveman/config.json is a home-manager out-of-store symlink
-   into ~/code/nixos-config/dotfiles/caveman/config.json — edit via
-   `north config caveman default <mode>`, then commit in nixos-config.
-   One-time: `firn rebuild` wires the symlink if not already present.
-   flip default → north config caveman default off|lite|full|ultra|wenyan-*
-   Advice: full for coordination, lite for high-stakes design review,
-   never ultra/wenyan for substantive work (lossy — PLAYBOOK 2026-06-22).
-
- 2 DISPATCH — who executes agent work.
+ 1 DISPATCH — who executes agent work.
    north   (default) native Agent/Task/Workflow calls are DENIED by a
            PreToolUse hook and redirected to the north SDK: mcp__north__spawn
            (ad-hoc) / mcp__north__dispatch (thread-driven). SDK workers are
            persistent, dormant-until-pinged, observable through North CLI/MCP,
-           steerable (msg-cli :7977). Model, effort, and caveman all have
-           per-spawn opts on mcp__north__spawn. Managed children scrub ambient
-           routing/staffing variables: model and effort come from the request's
-           Orchestration composition and provider catalog unless explicitly pinned.
-           Response compression may inherit an explicit AGENT_CAVEMAN when the
-           request omits it; with neither input it defaults off. The result is
-           frozen for each worker's lifetime.
+           steerable (msg-cli :7977). Model and effort have per-spawn opts on
+           mcp__north__spawn. Managed children scrub ambient routing/staffing
+           variables: model and effort come from the request's Orchestration
+           composition and provider catalog unless explicitly pinned, and the
+           result is frozen for each worker's lifetime.
    warn    native spawns allowed; the hook injects a reminder instead.
    native  no interference. For A/B baselines against stock Claude Code.
    Advice: stay on north. Drop to warn only when the daemon is down.
 
- 3 COORD — source of truth for work coordination.
+ 2 COORD — source of truth for work coordination.
    north / linear / both (Linear as consolidation layer over north).
    Declarative for now: agents read this posture; nothing mechanically
    blocks the other system yet. Flipping the option does not build the sync.
    Advice: north.
 
- 4 BEAGLE — how Beagle source is authored, per file.
+ 3 BEAGLE — how Beagle source is authored, per file.
    text          ordinary Edit/Write; the beagle-authoring repair loop.
    fact-native  file is a regenerable view of the fram fact graph; text
                  edits DENIED (code-upstream-guard); author via
@@ -514,7 +459,7 @@
                  adoption automatically.
    Advice: don't flip the default until the M1.5-vs-M2 bake-off verdict.
 
- 5 GUARDS — the PreToolUse/SessionStart authoring guards.
+ 4 GUARDS — the PreToolUse/SessionStart authoring guards.
    Individually wired in ~/code/nixos-config/dotfiles/claude/settings.json.
    Kill-switch is VALUE-AWARE and has two surfaces:
 
@@ -534,7 +479,7 @@
    every guard hook AND by this verb:
      ~/.claude/hooks/lib/authoring-killswitch.sh
 
- 6 ROUTING — durable provider selection and subscription-entitlement policy.
+ 5 ROUTING — durable provider selection and subscription-entitlement policy.
    Show everything with `north config routing`. Balanced allocation is the
    default; preferential and reserved remain explicit choices. Configure
    provider/profile targets and
@@ -553,40 +498,6 @@
    session effort/ultracode → /effort (harness-level, not script-readable)"))
 
 ;; --- verb dispatch --------------------------------------------------------
-(def caveman-modes #{"lite" "full" "ultra" "wenyan-lite" "wenyan-full" "wenyan-ultra"})
-(def caveman-default-modes (conj caveman-modes "off"))
-
-(defn cmd-caveman [[sub arg]]
-  (cond
-    (= sub "default")
-    (cond
-      (caveman-default-modes arg)
-      (do (io/make-parents CAVEMAN-DEFAULT)
-          (spit CAVEMAN-DEFAULT (str "{\"defaultMode\":\"" arg "\"}\n"))
-          (println (str "caveman default → " arg " (written to ~/code/nixos-config/dotfiles/caveman/config.json)"))
-          (let [link (str home "/.config/caveman/config.json")
-                canon (try (.getCanonicalPath (io/file link)) (catch Exception _ nil))]
-            (when (not= canon CAVEMAN-DEFAULT)
-              (eprintln "  ⚠  ~/.config/caveman/config.json not yet linked — run: firn rebuild")))
-          (println "  note: change lives in nixos-config — commit it there"))
-      (nil? arg)
-      (println (str "caveman default = " (caveman-default) "   (north config caveman default <mode>)"))
-      :else
-      (die "usage: north config caveman default [off|lite|full|ultra|wenyan-lite|wenyan-full|wenyan-ultra]"))
-
-    (caveman-modes sub)
-    (do (spit CAVEMAN-STATE sub)
-        (println (str "caveman session level → " sub " (plugin reads ~/.claude/.caveman-active)")))
-
-    (nil? sub)
-    (println (str "caveman = " (caveman-lvl) "   default = " (caveman-default)
-                  "   (north config caveman lite|full|ultra|default <mode>; off → say 'stop caveman' / use /caveman)"))
-
-    (= sub "off")
-    (die "turn off via the plugin: say 'stop caveman' or /caveman — plugin owns the off-path")
-
-    :else
-    (die "usage: north config caveman [default <mode>|lite|full|ultra|wenyan-lite|wenyan-full|wenyan-ultra]")))
 
 (defn cmd-dispatch [[sub]]
   (cond
@@ -655,13 +566,12 @@
   (let [[verb & rest] args]
     (case (or verb "status")
       ("status") (status)
-      "caveman"  (cmd-caveman rest)
       "dispatch" (cmd-dispatch rest)
       "coord"    (cmd-coord rest)
       "beagle"   (cmd-beagle rest)
       "guards"   (cmd-guards rest)
       "routing"  (cmd-routing rest)
       ("help" "-h" "--help") (help)
-      (die "usage: north config [status|caveman|dispatch|coord|beagle|guards|routing|help]"))))
+      (die "usage: north config [status|dispatch|coord|beagle|guards|routing|help]"))))
 
 (apply -main *command-line-args*)

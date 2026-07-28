@@ -90,7 +90,6 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     jsonrpc: "2.0", id: 1, method: "tools/call",
     params: { name: "spawn", arguments: {
       prompt: "contract probe",
-      caveman: "full",
       ...route,
     } },
   })}\n`;
@@ -121,8 +120,6 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     AGENT_EFFORT: route.reasoning,
     AGENT_POSTURE: route.posture,
     AGENT_COMPOSITION: JSON.stringify(route.composition),
-    AGENT_CAVEMAN: "full",
-    NORTH_CAVEMAN_SOURCE: "request",
   });
   expect(JSON.parse(childEnv.NORTH_STRUGGLE_POLICY_EXPECTED)).toEqual({
     version: "north:struggle-observer:v1",
@@ -458,7 +455,7 @@ case "$*" in
   *mcp-route-preflight.ts*) exit 0 ;;
 esac
 printf 'spawn:%s\n' "$AGENT_ID" >> "$NORTH_MCP_EVENTS"
-printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_LOG" "$AGENT_CAVEMAN" "$NORTH_CAVEMAN_SOURCE" "$*" > "$NORTH_MCP_CAPTURE"
+printf '%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_LOG" "$*" > "$NORTH_MCP_CAPTURE"
 thread="\${@: -1}"
 NORTH_SDK_PREFLIGHT=1 "$NORTH_BIN" json show "$thread" >/dev/null || { printf '%s\n' NORTH_READ_UNAVAILABLE >&2; exit 17; }
 children="$(NORTH_SDK_PREFLIGHT=1 "$NORTH_BIN" json children "$thread")" || { printf '%s\n' NORTH_READ_UNAVAILABLE >&2; exit 17; }
@@ -498,7 +495,6 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       ...presetRequest("integrator"),
       provider: "anthropic",
       target: "claude-personal-tompas0x-gmail",
-      caveman: "lite",
       pinEvidence: pinEvidence([
         { kind: "provider", value: "anthropic" },
         { kind: "account", value: "claude-personal-tompas0x-gmail" },
@@ -530,14 +526,12 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   expect(response.result.content[0].text).toContain("target=claude-personal-tompas0x-gmail");
   expect(response.result.content[0].text).toContain("thread @019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(response.result.content[0].text).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
-  const [target, provider, agentId, preclaimed, observedFramLog, caveman, cavemanSource, command] =
+  const [target, provider, agentId, preclaimed, observedFramLog, command] =
     readFileSync(capture, "utf8").trim().split("|");
   expect(target).toBe("claude-personal-tompas0x-gmail");
   expect(provider).toBe("anthropic");
   expect(preclaimed).toBe("1");
   expect(observedFramLog).toBe(exactFramLog);
-  expect(caveman).toBe("lite");
-  expect(cavemanSource).toBe("request");
   expect(command).toContain("/dispatch.ts");
   expect(command).toContain("/dispatch.ts 019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(command).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
@@ -807,7 +801,6 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
     ["dispatch", { id: "019f6c5e-61d0-7880-98a0-f8999eac7b03" }, "managed dispatch requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), model: 42 }, "model must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), coordinator: { raw: "value" } }, "coordinator must be a non-empty string"],
-    ["spawn", { prompt: "probe", ...presetRequest("verifier"), caveman: "extreme" }, "invalid caveman mode"],
   ] as const) {
     const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
       input: `${JSON.stringify({ jsonrpc: "2.0", id: 0, method: "tools/call",

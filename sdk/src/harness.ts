@@ -339,8 +339,6 @@ export interface HarnessOpts {
     targetId: string;
     receipt?: ProviderModelAdmissionReceipt;
   };
-  /** Attested rendered fork skill; empty when managed Caveman resolves off. */
-  cavemanInstructions?: string;
   cwd?: string; // provider working directory; dispatch resolves this from thread repo facts, spawn from opt-in worktree provisioning
   /** Spawn-provisioned worktree: graph authoring must use its prepared local coordinator. */
   managedWorktree?: boolean;
@@ -1032,7 +1030,7 @@ interface HarnessCompositionState {
   // Tier ingredients, recomposed per route so the 4-tier order (CORE -> ROLE/CAP
   // -> REPO -> UNIQUE-TAIL) is rebuilt identically on every provider fallback.
   self: string;
-  basePrompt: string; // DEFAULT (or caller override) + caveman + eso — the shared head
+  basePrompt: string; // DEFAULT (or caller override) + eso — the shared head
   orchestrationAppendix: string;
   capabilities?: OrchestrationCapability[];
   cwd: string;
@@ -1593,7 +1591,7 @@ export function harnessOptions(o: HarnessOpts): Options {
   // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
   const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
-    + (o.cavemanInstructions ? `\n\n${o.cavemanInstructions}` : "") + esoAppendix();
+    + esoAppendix();
   // Orchestration is positive authority, never an ambient default. A lane with
   // no topology remains prompt-neutral but receives coordination-only tools.
   const orchestrationAllowed = topology === "orchestrator"

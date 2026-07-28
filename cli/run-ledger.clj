@@ -20,7 +20,7 @@
     "parent_run" "parent_thread" "run_coordinator" "run_event_sequence"
     "run_event_type" "run_event_observed_at" "run_event_source"
     "run_event_coverage" "run_event_data" "run_event_sha256"
-    "caveman_mode" "caveman_source"})
+})
 
 (defn fail! [message data] (throw (ex-info message data)))
 
@@ -121,10 +121,6 @@
                             "sequence" sequence "type" event-type
                             "observedAt" observed-at "source" source
                             "coverage" coverage "payload" payload}
-                     (get scalar "caveman_mode")
-                     (assoc "cavemanMode" (get scalar "caveman_mode"))
-                     (get scalar "caveman_source")
-                     (assoc "cavemanSource" (get scalar "caveman_source"))
                      (get scalar "parent_run")
                      (assoc "parentRun" (canonical-entity (get scalar "parent_run") "parent_run"))
                      (get scalar "parent_thread")
