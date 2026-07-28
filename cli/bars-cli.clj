@@ -17,6 +17,7 @@
 ;;   bb bars-cli.clj list  <thread>
 ;;   bb bars-cli.clj prune <thread> [--dry-run] [--bar "<exact bar>"]...
 ;;   bb bars-cli.clj check <thread> <candidate bar>      (advisory; always exit 0)
+;;   bb bars-cli.clj echo  <thread>                      (outcome friction echo)
 (ns north.bars-cli
   (:require [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -28,7 +29,8 @@
   (str "usage:\n"
        "  north bars list  <thread>\n"
        "  north bars prune <thread> [--dry-run] [--bar \"<exact bar>\"]...\n"
-       "  north bars check <thread> <candidate bar>\n"))
+       "  north bars check <thread> <candidate bar>\n"
+       "  north bars echo  <thread>\n"))
 
 (defn- die! [message]
   (binding [*out* *err*] (println (str "north bars: " message)))
@@ -45,23 +47,19 @@
     canonical))
 
 (defn- facts-of [port subject]
-  (let [response
-        (north.coord/send-op
-         port {:op :query
-               :query {:find "bars_cli_fact"
-                       :rules [{:head {:rel "bars_cli_fact"
-                                       :args [{:var "p"} {:var "r"}]}
-                                :body [{:rel "triple"
-                                        :args [subject {:var "p"} {:var "r"}]}]}]}})]
-    ;; Only an :ok answer is graph truth; an aborted query must never read as
-    ;; "this thread has no bars" and license a no-op prune.
-    (when-not (vector? (:ok response))
-      (die! (str "coordinator did not answer a read for " subject
-                 " (" (pr-str (:code response)) ")")))
+  ;; Exact-subject bar grooming must stay on the coordinator's indexed :show
+  ;; path. A Datalog query for this already-ground shape paid whole-query
+  ;; planning/materialization on every outcome write as the corpus grew.
+  (let [rows
+        (try
+          (:rows (north.coord/show-envelope port subject))
+          (catch Exception error
+            (die! (str "coordinator did not answer a read for " subject
+                       " (" (.getMessage error) ")"))))]
     (reduce (fn [acc [predicate value]]
               (update acc predicate (fnil conj #{}) value))
             {}
-            (:ok response))))
+            rows)))
 
 (defn- thread-facts! [port thread]
   (let [facts (facts-of port thread)
@@ -98,6 +96,25 @@
   (cond (:evidenced row) "✓"
         (:unreserved row) "~"
         :else "○"))
+
+(defn cmd-echo
+  "The outcome-write friction gradient. It is deliberately silent for a
+   bar-less subject and advisory only; bin/north ignores read failures so this
+   display can never block a human's outcome write."
+  [thread]
+  (let [entity (thread-entity thread)
+        rows (bar-rows (facts-of (port) entity))]
+    (when (seq rows)
+      (println
+       (str "DONE BARS on " entity
+            " — this outcome claims they are met; cite probe + observed result:"))
+      (doseq [row rows]
+        ;; Match the historical cmd-done-bars contract: unreserved observations
+        ;; are not canonical bar evidence at outcome judgment time.
+        (println (str "  " (if (:evidenced row) "✓" "○") " " (:bar row))))
+      (println
+       (str "  evidence: north tell " (subs entity 1)
+            " bar_evidence \"<bar> → <observed result>\"")))))
 
 (defn- print-summary [thread rows]
   (let [limit north.terminal-projection/max-delivery-bars
@@ -226,6 +243,7 @@
                   (cmd-prune thread (parse-prune-options rest-args)))
       "check" (do (when-not (and thread (first rest-args)) (die! usage))
                   (cmd-check thread (first rest-args)))
+      "echo" (do (when-not thread (die! usage)) (cmd-echo thread))
       ("--help" "-h" "help" nil) (println usage)
       (die! (str "unknown verb " (pr-str verb) "\n" usage)))))
 
