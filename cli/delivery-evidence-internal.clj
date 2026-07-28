@@ -288,22 +288,32 @@
           replay (:done outcome)]
       (when (:reject outcome)
         (checked! outcome [:assert-batch-at-version run]))
-      ;; The readback races the telemetry partition's read path: @run subjects
-      ;; route there, and an immediate read after the atomic publication can
-      ;; observe a pre-write projection under load. Staleness heals within a
-      ;; bounded window; a true rival writer's facts never converge to ours —
-      ;; so retry the READ, never the write, before declaring the race lost.
-      (let [stored
+      ;; Post-success readback: the runner legitimately writes allocation and
+      ;; ledger TELEMETRY onto the run subject before the reservation lands, so
+      ;; "exactly the eight predicates and nothing else" can never hold here —
+      ;; exactness belongs to the REPLAY path (where an extra evidence fact
+      ;; means past-reservation and must refuse). After a fresh atomic commit,
+      ;; the guarantee needed is that OUR eight facts are present, digest-valid,
+      ;; and bound to this exact thread/reporter/capability. A short read-retry
+      ;; covers partition read lag; a true rival's bindings never converge.
+      (let [own-reservation?
+            (fn [facts]
+              (and (north.terminal-projection/run-reservation-valid? facts)
+                   (= thread (north.terminal-projection/singleton-value
+                              facts "run_reservation_thread"))
+                   (= reporter (north.terminal-projection/singleton-value
+                                facts "run_reservation_agent"))
+                   (= capability-digest
+                      (north.terminal-projection/singleton-value
+                       facts "run_capability_sha256"))))
+            stored
             (loop [attempt 1]
               (let [observed (facts-of port run)]
-                (if (or (exact-reservation-replay?
-                         observed thread reporter capability-digest)
-                        (>= attempt 5))
+                (if (or (own-reservation? observed) (>= attempt 5))
                   observed
                   (do (Thread/sleep (* attempt 200))
                       (recur (inc attempt))))))]
-        (when-not (exact-reservation-replay?
-                   stored thread reporter capability-digest)
+        (when-not (own-reservation? stored)
           (fail! "run reservation lost singleton/freshness race"
                  {:run run :stored stored})))
       (let [{:keys [baseline contract-origin]} (or replay @published)]
