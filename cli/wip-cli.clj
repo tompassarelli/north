@@ -28,9 +28,7 @@
   ["driver" "depends_on" "part_of" "do_on" "valid_until" "estimate_hours"
    "lead" "proposed_by" "created_at" "updated_at" "repo"])
 (def candidate-predicates
-  ["title" "committed" "driver" "depends_on" "part_of" "do_on"
-   "valid_until" "estimate_hours" "lead" "proposed_by" "created_at"
-   "updated_at" "repo"])
+  ["title" "committed" "driver" "do_on" "updated_at"])
 
 (defn variable [name] {:var name})
 (defn literal
@@ -39,17 +37,15 @@
 (defn rule [rel args body] {:head {:rel rel :args args} :body body})
 
 (defn work-query
-  "Return the one work projection. LIVE-CONTROLS are already lease-derived and
-  only bound constants are added, keeping lane hydration bounded."
-  [live-controls include-reservations?]
+  "Return the one ready/leverage fold. Candidate eligibility is resolved
+  server-side; the returned facts are the bounded index input consumed by the
+  canonical north.projections functions."
+  []
   (let [e (variable "e")
         r (variable "r")
         title (variable "title")
-        dependent (variable "dependent")
+        blocked (variable "blocked")
         dependency (variable "dependency")
-        middle (variable "middle")
-        run (variable "run")
-        thread (variable "thread")
         terminal-rules
         (mapv #(rule "terminal" [e]
                      [(literal "triple" [e % r])])
@@ -58,19 +54,18 @@
         (mapv #(rule "work_axis" [e]
                      [(literal "triple" [e % r])])
               anchor-axis-predicates)
+        blocked-rules
+        [(rule "blocked" [blocked]
+               [(literal "triple" [blocked "depends_on" dependency])
+                (literal "triple" [dependency "title" title])
+                (literal "terminal" [dependency] true)])]
         candidate-rules
         [(rule "candidate" [e title]
                [(literal "triple" [e "title" title])
                 (literal "triple" [e "committed" r])
                 (literal "work_axis" [e])
-                (literal "terminal" [e] true)])]
-        reach-rules
-        [(rule "reaches" [e dependent]
-               [(literal "candidate" [e title])
-                (literal "triple" [dependent "depends_on" e])])
-         (rule "reaches" [e dependent]
-               [(literal "reaches" [e middle])
-                (literal "triple" [dependent "depends_on" middle])])]
+                (literal "terminal" [e] true)
+                (literal "blocked" [e] true)])]
         candidate-fact-rules
         (mapv
          (fn [predicate]
@@ -87,49 +82,34 @@
                  [(literal "triple" [e "depends_on" dependency])
                   (literal "triple" [dependency "title" title])])
            (rule "wip_row" [e "wip_floor" r]
-                 [(literal "triple" [e "wip_floor" r])])
-           (rule "wip_row" [e "north:wip/leverage-dependent" dependent]
-                 [(literal "candidate" [e title])
-                  (literal "reaches" [e dependent])
-                  (literal "terminal" [dependent] true)])]
+                 [(literal "triple" [e "wip_floor" r])])]
           (map
            #(rule "wip_row" [e % r]
                   [(literal "triple" [e % r])])
            terminal-predicates)))
-        lane-rules
-        (vec
-         (mapcat
-          (fn [control]
-            (let [agent-subject (str "@agent:" control)
-                  reporter agent-subject
-                  session-subject (str "@session:" control)]
-              (cond->
-               [(rule "wip_row" [control lane-kind-tag "lane"]
-                      [(literal "triple" [agent-subject "kind" "lane"])])
-                (rule "wip_row" [control coordinator-thread-tag thread]
-                      [(literal "triple" [session-subject "current_thread" thread])])]
-                include-reservations?
-                (into
-                 [(rule "wip_row" [control lane-thread-tag thread]
-                        [(literal "triple" [agent-subject "kind" "lane"])
-                         (literal "triple" [run "run_reservation_agent" reporter])
-                         (literal "triple" [run "run_reservation_thread" thread])])
-                  (rule "wip_row" [control coordinator-thread-tag thread]
-                        [(literal "triple" [run "run_reservation_agent" reporter])
-                         (literal "triple" [run "run_reservation_thread" thread])])
-                  (rule "wip_row" [thread "title" title]
-                        [(literal "triple" [agent-subject "kind" "lane"])
-                         (literal "triple" [run "run_reservation_agent" reporter])
-                         (literal "triple" [run "run_reservation_thread" thread])
-                         (literal "triple" [thread "title" title])])]))))
-          live-controls))]
+        ]
     {:find "wip_row"
      :strata
      [terminal-rules
       work-axis-rules
+      blocked-rules
       candidate-rules
-      reach-rules
-      (vec (concat candidate-fact-rules graph-fact-rules lane-rules))]}))
+      (vec (concat candidate-fact-rules graph-fact-rules))]}))
+
+(defn identity-query [live-controls]
+  (let [thread (variable "thread")]
+    {:find "wip_row"
+     :rules
+     (vec
+      (mapcat
+       (fn [control]
+         (let [agent-subject (str "@agent:" control)
+               session-subject (str "@session:" control)]
+           [(rule "wip_row" [control lane-kind-tag "lane"]
+                  [(literal "triple" [agent-subject "kind" "lane"])])
+            (rule "wip_row" [control coordinator-thread-tag thread]
+                  [(literal "triple" [session-subject "current_thread" thread])])]))
+       live-controls))}))
 
 (defn reservation-query [live-controls]
   (let [run (variable "run")
@@ -162,21 +142,25 @@
     rows))
 
 (defn query-rows [live-controls]
-  (let [partitioned? (north.coord/telemetry-partition-enabled?)
-        coordination
+  (let [work
         (strict-query-rows
          (north.coord/send-op
           port {:op :query
-                :query (work-query live-controls (not partitioned?))}))]
-    (if-not partitioned?
-      coordination
-      (let [telemetry
-            (binding [north.coord/*operation-domain* :telemetry]
-              (strict-query-rows
-               (north.coord/send-op
-                port {:op :query
-                      :query (reservation-query live-controls)})))]
-        (vec (concat coordination telemetry))))))
+                :query (work-query)}))
+        identity
+        (strict-query-rows
+         (north.coord/send-op
+          port {:op :query
+                :query (identity-query live-controls)}))
+        reservations
+        (binding
+            [north.coord/*operation-domain*
+             (when (north.coord/telemetry-partition-enabled?) :telemetry)]
+          (strict-query-rows
+           (north.coord/send-op
+            port {:op :query
+                  :query (reservation-query live-controls)})))]
+    (vec (concat work identity reservations))))
 
 (defn parse-lease [entity value]
   (let [parts (str/split value #"\|" -1)
@@ -212,8 +196,7 @@
 (defn fact-row? [[_ predicate _]]
   (not (or (= predicate lane-kind-tag)
            (= predicate lane-thread-tag)
-           (= predicate coordinator-thread-tag)
-           (= predicate "north:wip/leverage-dependent"))))
+           (= predicate coordinator-thread-tag))))
 
 (defn rows->index [rows]
   (k/build-index
@@ -306,10 +289,7 @@
              (map (fn [thread]
                     {:thread thread
                      :title (or (k/one-i idx thread "title") "")
-                     :leverage
-                     (count
-                      (row-values
-                       rows thread "north:wip/leverage-dependent"))}))
+                     :leverage (projections/leverage-score idx thread)}))
              (sort-by (juxt (comp - :leverage) :thread))
              vec)
         lane-controls
@@ -372,12 +352,15 @@
          options {:check false}]
     (if (empty? remaining)
       options
-      (let [[arg value & more] remaining]
+      (let [arg (first remaining)
+            more (vec (rest remaining))
+            value (first more)
+            after-value (vec (rest more))]
         (cond
           (= arg "--check")
           (if (:check options)
             (throw (ex-info "duplicate --check" {:usage true}))
-            (recur (vec (cons value more)) (assoc options :check true)))
+            (recur more (assoc options :check true)))
 
           (= arg "--floor")
           (let [floor (valid-floor value)]
@@ -386,7 +369,7 @@
                (ex-info "--floor requires a non-negative integer" {:usage true})))
             (when (contains? options :floor)
               (throw (ex-info "duplicate --floor" {:usage true})))
-            (recur (vec more) (assoc options :floor floor)))
+            (recur after-value (assoc options :floor floor)))
 
           (#{"--help" "-h" "help"} arg)
           (if (or value (not= options {:check false}))
