@@ -85,13 +85,16 @@
    (k/->Fact "@w8" "depends_on" "@missing-thread")])
 
 (def checks
-  [["lead -> named person => no person violation"
+  [["lead -> resolvable actor => no violation"
     (not (has? (wv ok-facts "@w1") "references unknown person"))]
-   ["driver -> ghost => 'driver references unknown person @ghost'"
-    (has? (wv ghost-facts "@w2") "driver references unknown person @ghost")]
-   ["proposed_by -> named clean, ghost flags"
-    (and (has? (wv proposed-facts "@w3") "proposed_by references unknown person @ghost")
-         (not (has? (wv proposed-facts "@w3") "references unknown person @p")))]
+   ;; Actor refs are deliberately NOT integrity-checked: an absent actor is
+   ;; ambiguous (reaped / pruned / never-registered / wrong namespace) and
+   ;; disambiguating it is a retention-policy question, not a structural one.
+   ;; See the note in north.validate.
+   ["driver -> unresolvable actor => NO violation (not a structural defect)"
+    (empty? (wv ghost-facts "@w2"))]
+   ["proposed_by -> unregistered actor => NO violation"
+    (empty? (wv proposed-facts "@w3"))]
    ["depends_on -> abandoned flagged for an OPEN thread"
     (has? (wv abandoned-facts "@w4") "depends_on points at abandoned @dead")]
    ["depends_on -> abandoned NOT flagged for a RESOLVED thread"
@@ -99,7 +102,8 @@
    ["full validate composes generic ++ work"
     (let [vs (val/violations-i (idx-of mixed-facts) "@w5")]
       (and (has? vs "depends_on references missing entity @missing")
-           (has? vs "driver references unknown person @ghost")))]
+           ;; the generic engine rule still fires; the actor ref does not
+           (not (has? vs "driver"))))]
    ["North thread refs reject a fact-bearing non-thread target"
     (let [vs (wv non-thread-target "@w6")]
       (and (has? vs "part_of references non-thread entity @entity")
