@@ -725,6 +725,18 @@
 (def doctor-failed? (atom false))
 (defn mark-doctor-failed! [] (reset! doctor-failed? true))
 
+;; Keep an absent-recipient failure loud for one bounded recovery window. North
+;; session leases last 30 minutes and dead lanes are reaped after a further
+;; 30-minute lapse bar; an hour therefore leaves time to inspect or reroute a
+;; newly broken delivery. Older mail remains visible below as unacknowledged
+;; history, but cannot pin doctor's process status red forever. A missing or
+;; malformed age fails closed as recent.
+(def DEAD-LETTER-ACTION-WINDOW-MS (* 60 60 1000))
+
+(defn actionable-dead-letter? [{:keys [age-ms]}]
+  (or (nil? age-ms)
+      (< age-ms DEAD-LETTER-ACTION-WINDOW-MS)))
+
 (defn render-dead-letters! [port]
   (println (bold "  dead letters"))
   (let [{:keys [rows error]} (north.message-routing/dead-letter-scan
@@ -741,19 +753,30 @@
                     "no pending mail targets an absent identity"))
 
       :else
-      (do
-        (mark-doctor-failed!)
-        (println (str "    " (red "[ERR] ") (count rows)
-                      " pending message(s) target absent identities"))
-        (println (format "    %-24s %-34s %s" "SENDER" "RECIPIENT" "AGE"))
-        (doseq [{:keys [sender recipient resolved-recipient age]} rows]
-          (println
-           (format "    %-24s %-34s %s"
-                   sender
-                   (if (= recipient resolved-recipient)
-                     recipient
-                     (str recipient " -> " resolved-recipient))
-                   age)))))))
+      (let [{actionable true historical false}
+            (group-by actionable-dead-letter? rows)]
+        (when (seq actionable)
+          (mark-doctor-failed!)
+          (println (str "    " (red "[ERR] ") (count actionable)
+                        " recent pending message(s) target absent identities"))
+          (println (format "    %-24s %-34s %s" "SENDER" "RECIPIENT" "AGE"))
+          (doseq [{:keys [sender recipient resolved-recipient age]} actionable]
+            (println
+             (format "    %-24s %-34s %s"
+                     sender
+                     (if (= recipient resolved-recipient)
+                       recipient
+                       (str recipient " -> " resolved-recipient))
+                     age))))
+        (when (seq historical)
+          (let [oldest (apply max-key #(or (:age-ms %) -1) historical)]
+            (println (str "    " (ylw "[warn]") " " (count historical)
+                          " unacknowledged message(s) outside the "
+                          (quot DEAD-LETTER-ACTION-WINDOW-MS 3600000)
+                          "h action window; oldest " (:age oldest)))))
+        (when (empty? actionable)
+          (println (str "    " (grn "[ok]  ")
+                        "no recent pending mail targets absent identities")))))))
 
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)

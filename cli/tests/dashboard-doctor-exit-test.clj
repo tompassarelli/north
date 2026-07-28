@@ -81,12 +81,44 @@
          :recipient "dead-session"
          :resolved-recipient "dead-session"
          :age "1h"}])]
-  (check "doctor is unhealthy while dead letters exist" (false? healthy))
+  ;; Missing/malformed timestamps fail closed instead of hiding a delivery
+  ;; failure whose age cannot be established.
+  (check "doctor is unhealthy while an unaged dead letter exists" (false? healthy))
   (check "doctor dead-letter section names sender, recipient, and age"
          (and (str/includes? output "dead letters")
               (str/includes? output "release-coordinator")
               (str/includes? output "dead-session")
               (str/includes? output "1h"))))
+
+(let [day-ms (* 24 60 60 1000)
+      {:keys [healthy output]}
+      (exercise-doctor
+       false
+       [{:sender "old-sender"
+         :recipient "long-dead"
+         :resolved-recipient "long-dead"
+         :age "2d"
+         :age-ms (* 2 day-ms)}])]
+  (check "historical dead letters do not fail doctor" (true? healthy))
+  (check "historical dead letters remain visible as warnings"
+         (and (str/includes? output "[warn]")
+              (str/includes? output "outside the 1h action window")
+              (str/includes? output "2d")))
+  (check "historical dead letters are not rendered as errors"
+         (not (str/includes? output "[ERR]"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false
+       [{:sender "live-sender"
+         :recipient "just-died"
+         :resolved-recipient "just-died"
+         :age "30s"
+         :age-ms 30000}])]
+  (check "recently undeliverable mail fails doctor" (false? healthy))
+  (check "recently undeliverable mail names the sender"
+         (and (str/includes? output "[ERR]")
+              (str/includes? output "live-sender"))))
 
 (let [child @(p/process ["env"
                          "NORTH_DASHBOARD_LIB=1"
