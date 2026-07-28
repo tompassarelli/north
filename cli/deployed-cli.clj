@@ -19,8 +19,8 @@
 ;;   SOURCE   what is committed on the repo's main
 ;;   BUILT    what the last rebuild actually locked into the system closure
 ;;   RUNNING  what the live process is serving right now
-;; SOURCE≠BUILT means "rebuild". BUILT≠RUNNING means "restart". Merging them
-;; hides which one you need, and they need opposite actions.
+;; SOURCE≠BUILT means "rebuild". BUILT≠RUNNING means "paired cutover". Merging
+;; them hides which one you need, and they need opposite actions.
 (require '[clojure.string :as str]
          '[clojure.java.io :as io]
          '[babashka.process :refer [shell]]
@@ -29,6 +29,7 @@
 (def HOME (System/getenv "HOME"))
 (def CODE (str HOME "/code"))
 (def NIXOS (str CODE "/nixos-config"))
+(def COORDINATOR-CUTOVER-COMMAND "sudo north-coord-runtime restart")
 
 (def use-color? (and (nil? (System/getenv "NO_COLOR"))
                      (nil? (System/getenv "NORTH_NO_COLOR"))))
@@ -148,8 +149,8 @@
             parse-long)))
 
 (defn- verdict
-  "SOURCE≠BUILT means rebuild; BUILT≠RUNNING means restart; they need opposite
-  actions, so they are never merged.
+  "SOURCE≠BUILT means rebuild; BUILT≠RUNNING means paired cutover; they need
+  opposite actions, so they are never merged.
 
   `expect-running?` marks a component whose live revision is discoverable. For
   those, an ABSENT running value is `unknown`, never `live` — the first version
@@ -171,7 +172,7 @@
     (and running (not= built running))
     (let [n (commits-between component running built)]
       [:stale-process (red "✗")
-       (str "restart — process " (or n "?") " commit(s) behind the closure")])
+       (str "paired cutover — process " (or n "?") " commit(s) behind the closure")])
 
     :else
     [:live (grn "✓") "live"]))
@@ -222,8 +223,9 @@
           (println (str "  " (ylw "→") " commits are not in the system closure. Rebuild:"))
           (println (dim "      firn-rebuild-coordinated --why \"<reason>\"")))
         (when (some #(= :stale-process (first (:verdict %))) judged)
-          (println (str "  " (ylw "→") " the closure is newer than the live process. Restart:"))
-          (println (dim "      sudo systemctl restart north-coord.service")))
+          (println (str "  " (ylw "→")
+                        " the closure is newer than the live process. Paired cutover:"))
+          (println (dim (str "      " COORDINATOR-CUTOVER-COMMAND))))
         ;; nixos-config gets its own line rather than a table row: it has no
         ;; revision in the closure, so this is a time comparison and must not be
         ;; presented as if it were the same kind of evidence as the rows above.
