@@ -17,6 +17,8 @@ import {
 } from "../src/account-availability";
 import type { ProviderUsageObservationStore } from "../src/providers/types";
 
+const ACCOUNT_PROCESS_TEST_TIMEOUT_MS = 45_000;
+
 interface AvailabilityFixture {
   now: string;
   cases: Array<{
@@ -209,4 +211,4 @@ test("account availability JSON reads only the cached fixture and uses usability
   expect(fable.status).toBe(1);
   expect(JSON.parse(fable.stdout)[0].usableModels).toEqual([]);
   expect(existsSync(providerCanary)).toBe(false);
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);

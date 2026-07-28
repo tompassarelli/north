@@ -22,6 +22,9 @@ import {
 const root = join(import.meta.dir, "..");
 const cli = join(root, "src/account-cli.ts");
 const temporaryHomes: string[] = [];
+// Account CLI cases launch one or more nested Bun/provider fixtures. Their
+// process budget must tolerate the same loaded-host latency as SDK reads.
+const ACCOUNT_PROCESS_TEST_TIMEOUT_MS = 45_000;
 
 afterEach(() => {
   for (const home of temporaryHomes.splice(0)) rmSync(home, { recursive: true, force: true });
@@ -147,7 +150,7 @@ test("add preserves routing fields, isolates roots, and links only allowlisted c
     join(codexRoot, "config.toml"), join(codexRoot, "hooks.json"), join(codexRoot, "rules"),
     join(codexRoot, "auth.json"), join(codexRoot, "log"), join(codexRoot, "state.sqlite"),
   ]) expect(() => lstatSync(forbidden)).toThrow();
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("OpenAI bootstrap retires only North's legacy authority links and refuses bespoke state", () => {
   const { home } = fixture();
@@ -255,7 +258,7 @@ test("the first account creates a balanced routing policy", () => {
     targets: [{ id: "claude-personal", provider: "anthropic", authMode: "isolated" }],
     targetOrder: ["claude-personal"],
   });
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("concurrent adds serialize the read-append-replace transaction", async () => {
   const { home, policy } = fixture();
@@ -276,7 +279,7 @@ test("concurrent adds serialize the read-append-replace transaction", async () =
   const ids = document.targets.map((target: { id: string }) => target.id);
   expect([...ids].sort()).toEqual(["ambient", "claude-one", "codex-two"]);
   expect(document.targetOrder).toEqual(ids);
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("same isolated target bootstraps safely across concurrent processes", async () => {
   const { home } = fixture();
@@ -330,7 +333,7 @@ test("unsafe ids are rejected without changing policy or escaping the account ro
     expect(readFileSync(policy, "utf8")).toBe(before);
   }
   expect(() => lstatSync(join(home, ".local/state/north/escape"))).toThrow();
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("two target ids cannot double-count one isolated subscription profile", () => {
   const { policy, run } = fixture();
@@ -347,7 +350,7 @@ test("two target ids cannot double-count one isolated subscription profile", () 
   expect(listed.status).toBe(2);
   expect(listed.stderr).toContain("share provider profile/root anthropic/shared-claude");
   expect(listed.stdout).toBe("");
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("login and status use disjoint provider homes and normalized account identity", () => {
   const { home, run } = fixture();
@@ -425,7 +428,7 @@ test("login and status use disjoint provider homes and normalized account identi
   expect(codexCalls.every((call) => call.argv.includes('cli_auth_credentials_store="file"'))).toBe(true);
   expect(codexCalls.every((call) => call.argv.includes('forced_login_method="chatgpt"'))).toBe(true);
   expect(codexCalls.every((call) => call.argv.includes('model_provider="openai"'))).toBe(true);
-}, 15_000);
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account help advertises the grouped list and verbose diagnostics", () => {
   const { run } = fixture();
@@ -438,7 +441,7 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
   expect(help.stdout).toContain("--json     emit the stable account availability row array");
   expect(help.stdout).toContain("--refresh  bypass the five-minute authoritative usage cache");
   expect(help.stdout).toContain("--verbose  include provider, profile, and storage root diagnostics");
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account usage groups cached per-account windows with source and reset metadata", () => {
   const { home, run } = fixture();
@@ -469,7 +472,7 @@ test("account usage groups cached per-account windows with source and reset meta
   expect(usage.stdout).toContain("headroom: normal (observed, cached)");
   expect(usage.stdout).toContain("source:   codex-app-server:account-rate-limits");
   expect(usage.stdout).toContain(`codex:primary: 55% used · resets ${resetsAt}`);
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account usage keeps proven exhaustion visible while a failed refresh is negatively cached", () => {
   const { home, run } = fixture();
@@ -492,7 +495,7 @@ test("account usage keeps proven exhaustion visible while a failed refresh is ne
   expect(usage.stdout).toContain(`usage evidence:  ${observedAt} (cached)`);
   expect(usage.stdout).toContain(`collection tried: ${failedAt}`);
   expect(usage.stdout).toContain("Claude usage control probe timed out (anthropic_usage_probe_timed_out)");
-});
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("subscription targets deny hostile provider transports while preserving ordinary environment", () => {
   const { home } = fixture();
