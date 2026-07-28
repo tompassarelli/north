@@ -97,6 +97,9 @@ cleanup() {
 trap cleanup EXIT
 
 write_controller() {
+  # The single-quoted arguments are the source of a generated script. Expansion
+  # is intentionally deferred until that script runs.
+  # shellcheck disable=SC2016
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
@@ -298,7 +301,7 @@ set -e
 [[ "$crash_rc" -eq 1 ]]
 [[ -e "$state_dir/active.edn" ]]
 assert_provenance "$state_dir/active.edn" top
-if env "${common_env[@]}" TEST_ROOT=$root TEST_PORT=$port TEST_LOG=$coord_log \
+if env "${common_env[@]}" TEST_ROOT="$root" TEST_PORT="$port" TEST_LOG="$coord_log" \
      bb -cp "$fram_out" -e '
        (load-file (str (System/getenv "TEST_ROOT") "/cli/coord.clj"))
        (when (:ready (north.coord/strict-coordinator-status

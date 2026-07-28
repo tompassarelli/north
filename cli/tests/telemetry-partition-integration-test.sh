@@ -86,7 +86,9 @@ fi
 
 partition_env=(
   NORTH_TELEMETRY_PARTITION=1
+  NORTH_PORT="$coord_port"
   NORTH_TELEMETRY_PORT="$telemetry_port"
+  FRAM_PORT="$coord_port"
   FRAM_LOG="$coord_log"
   FRAM_TELEMETRY_LOG="$telemetry_log"
   NORTH_TEST_ROOT="$root"
@@ -126,6 +128,19 @@ if grep -Fq '@run:current' "$coord_log"; then
 fi
 grep -Fq '@run:current' "$telemetry_log"
 
+stage_a_show="$(
+  env "${partition_env[@]}" FRAM_HOME="$fram" \
+    "$root/bin/north" show run:current
+)"
+grep -Fq '  kind  run' <<<"$stage_a_show"
+
+stage_a_history="$(
+  env "${partition_env[@]}" FRAM_HOME="$fram" \
+    "$root/bin/north" history run:current
+)"
+grep -Fq 'history of @run:current' <<<"$stage_a_history"
+grep -Fq 'kind = run' <<<"$stage_a_history"
+
 kill "$telemetry_pid"
 wait "$telemetry_pid" 2>/dev/null || true
 telemetry_pid=
@@ -155,6 +170,24 @@ dead_telemetry_rc=$?
 set -e
 [[ "$dead_telemetry_rc" -ne 0 ]]
 [[ "$telemetry_before" == "$(sha256sum "$telemetry_log" | cut -d' ' -f1)" ]]
+
+for read_verb in show history; do
+  set +e
+  env "${partition_env[@]}" \
+    FRAM_HOME="$fram" \
+    NORTH_COORD_CONNECT_TIMEOUT_MS=250 \
+    "$root/bin/north" "$read_verb" run:current \
+    >"$tmp/dead-$read_verb.out" 2>"$tmp/dead-$read_verb.err"
+  dead_read_rc=$?
+  set -e
+  [[ "$dead_read_rc" -eq 4 ]]
+  grep -Fq "north: $read_verb REFUSED — telemetry writer unavailable for @run:current" \
+    "$tmp/dead-$read_verb.err"
+  if grep -Fq '  kind  run' "$tmp/dead-$read_verb.out"; then
+    echo "telemetry partition integration: $read_verb fell back after telemetry writer death" >&2
+    exit 1
+  fi
+done
 
 # Rollback changes one flag and restarts the coordination writer in the
 # pre-partition, two-origin configuration. No log is moved, merged, or deleted.
@@ -186,5 +219,16 @@ NORTH_TEST_COORD_PORT="$coord_port" \
 grep -Fq '@run:legacy' "$tmp/rollback-view"
 grep -Fq '@run:rollback' "$tmp/rollback-view"
 grep -Fq '@run:rollback' "$telemetry_log"
+
+rollback_show="$(
+  NORTH_TELEMETRY_PARTITION=0 \
+  NORTH_PORT="$coord_port" \
+  FRAM_PORT="$coord_port" \
+  FRAM_LOG="$coord_log" \
+  FRAM_TELEMETRY_LOG="$telemetry_log" \
+  FRAM_HOME="$fram" \
+    "$root/bin/north" show run:rollback
+)"
+grep -Fq '  kind  run' <<<"$rollback_show"
 
 echo "telemetry partition integration: PASS"

@@ -166,7 +166,7 @@ ORCHESTRATION_ROLE="${cached_role:-${seed_role:-$ambient_role}}"
 ROLE_ALIAS="${cached_role_alias:-${seed_role_alias:-$ambient_role_alias}}"
 SESSION_REPO="$RN"
 if [ -n "$ORCHESTRATION_ROLE" ] && [ -n "$ROLE_ALIAS" ]; then
-  SESSION_REPO="${ROLE_ALIAS%-$ORCHESTRATION_ROLE}"
+  SESSION_REPO="${ROLE_ALIAS%-"$ORCHESTRATION_ROLE"}"
 fi
 
 # Acquire a per-session singleflight directory, reclaiming it only after the
