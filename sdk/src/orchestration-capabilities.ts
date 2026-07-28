@@ -51,6 +51,17 @@ export function validateTopologyCapabilities(
   } else if (has("coordination")) {
     throw new Error(label + ": worker topology forbids coordination capability");
   }
+  const missingClosure = (required: readonly OrchestrationCapability[]) =>
+    required.filter((capability) => !has(capability));
+  const requireClosure = (surface: "shell" | "shell.readonly", required: readonly OrchestrationCapability[]) => {
+    const missing = missingClosure(required);
+    if (has(surface) && missing.length)
+      throw new Error(
+        `${label}: ${surface} requires ${missing.join(", ")} ${missing.length === 1 ? "capability" : "capabilities"}`,
+      );
+  };
+  requireClosure("shell", ["filesystem.read", "filesystem.search", "filesystem.write"]);
+  requireClosure("shell.readonly", ["filesystem.read", "filesystem.search"]);
 }
 
 /** Exact pre-acceptance reason when an adapter cannot realize the authority. */

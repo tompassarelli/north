@@ -672,6 +672,55 @@ test("bespoke roles require a structured contract and explicit promotion decisio
   expect(nearest).not.toContain("timeline and gaps");
 });
 
+test("CLI effective-authority closure rejects open shell capability sets", () => {
+  const contract = (capabilities: string[]) => JSON.stringify({
+    responsibility: "probe composition ingress",
+    deliverable: "a closure verdict",
+    capabilities,
+    mayDecide: ["which fixture to run"],
+    mustEscalate: ["any runtime side effect"],
+    doneWhen: ["ingress returns a precise diagnostic"],
+    report: "the validation result",
+  });
+  for (const [capabilities, diagnostic] of [
+    [
+      ["filesystem.search", "filesystem.write", "shell"],
+      "shell requires filesystem.read capability",
+    ],
+    [
+      ["filesystem.read", "filesystem.search", "shell"],
+      "shell requires filesystem.write capability",
+    ],
+    [
+      ["filesystem.search", "shell.readonly"],
+      "shell.readonly requires filesystem.read capability",
+    ],
+    [
+      ["filesystem.read", "shell.readonly"],
+      "shell.readonly requires filesystem.search capability",
+    ],
+  ] as const) {
+    const result = spawnSync("bb", [
+      cli, "spawn", "authority-probe", "probe closure",
+      "--rationale", "no preset fits this regression",
+      "--contract", contract([...capabilities]),
+      "--task-grade", "senior", "--topology", "worker", "--tier", "senior",
+      "--reasoning", "high", "--posture", "preserve",
+      "--no-promotion-candidate", "--ad-hoc", "--dry-run",
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NO_COLOR: "1",
+        NORTH_ORCHESTRATION_HOME: orchestration,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+      },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(diagnostic);
+  }
+});
+
 test("a managed spawn must declare its thread attribution or explicit ad-hoc intent", () => {
   const spawn = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
     encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,

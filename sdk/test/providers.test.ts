@@ -24,6 +24,7 @@ import { OfflineProviderSimulator } from "./support/provider-simulator";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createExecutionActivityEmitter } from "../src/execution-activity";
+import { providerCapabilityRejectionCode } from "../src/orchestration-capabilities";
 
 const MANAGED_ENV = [
   "NORTH_DISABLE_ANTHROPIC", "NORTH_DISABLE_OPENAI", "NORTH_PROVIDER_ORDER",
@@ -694,6 +695,29 @@ test("provider selection filters unenforceable capability shapes before side eff
   );
   expect(pinnedTarget.provider).toBe("openai");
   expect(pinnedTarget.target).toBe("codex-personal");
+});
+
+test("provider effective-authority closure defense remains exact", () => {
+  for (const provider of ["anthropic", "openai"] as const) {
+    expect(providerCapabilityRejectionCode(
+      provider, ["filesystem.search", "filesystem.write", "shell"],
+    )).toBe(`${provider}_adapter_cannot_enforce_orchestration_capabilities`);
+    expect(providerCapabilityRejectionCode(
+      provider, ["filesystem.read", "filesystem.search", "shell"],
+    )).toBe(`${provider}_adapter_cannot_enforce_orchestration_capabilities`);
+    expect(providerCapabilityRejectionCode(
+      provider, ["filesystem.search", "shell.readonly"],
+    )).toBe(`${provider}_adapter_cannot_enforce_orchestration_capabilities`);
+    expect(providerCapabilityRejectionCode(
+      provider, ["filesystem.read", "shell.readonly"],
+    )).toBe(`${provider}_adapter_cannot_enforce_orchestration_capabilities`);
+    expect(providerCapabilityRejectionCode(
+      provider, ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+    )).toBeUndefined();
+    expect(providerCapabilityRejectionCode(
+      provider, ["filesystem.read", "filesystem.search", "shell.readonly"],
+    )).toBeUndefined();
+  }
 });
 
 test("Anthropic frontier follows Orchestration's static route without a hidden time swap", () => {
