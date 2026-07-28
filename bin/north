@@ -169,6 +169,28 @@ coord_runtime_ready() {
   fi
 }
 
+coord_safety_ready() {
+  local coordination_port="${NORTH_PORT:-${FRAM_PORT:-7977}}"
+
+  # Runtime identity proves that the intended immutable generation owns each
+  # listener. The strict probes then prove an exact-log fenced round trip
+  # without folding either log or loading the projected thread corpus.
+  coord_runtime_ready || return $?
+  "$BB" "$NORTH/cli/coord.clj" strict-probe \
+    "$coordination_port" "$FRAM_LOG" >/dev/null || return $?
+  echo "coordinator strict log fence OK on :$coordination_port"
+
+  if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+    env -u FRAM_TELEMETRY_LOG \
+      NORTH_TELEMETRY_PARTITION=0 \
+      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+      "$BB" "$NORTH/cli/coord.clj" strict-probe \
+      "$NORTH_TELEMETRY_PORT" "$FRAM_TELEMETRY_LOG" >/dev/null || return $?
+    echo "telemetry coordinator strict log fence OK on :$NORTH_TELEMETRY_PORT"
+  fi
+}
+
 case "${1:-}" in
   ""|help|-h|--help)
     # THE CARD — one screen, grouped, "type this → do this". Bare `north` and
@@ -258,7 +280,8 @@ north — your one card. Type a command to do the thing next to it.
     north spend status [target]        API-billing budget: cap, reserved, settled, headroom
     north spend init|override <target> create a guarded budget · add a time-boxed override
     north providers                    provider readiness and auto-route decision
-    north coord-ready                  cheap exact runtime readiness for every active writer
+    north coord-ready                  cheap exact runtime identity for every active writer
+    north coord-safety                 bounded identity + strict log-fence round trip
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
     exit 0 ;;
@@ -281,6 +304,8 @@ CARD
     exec "${NORTH_MAIN[@]}" "$@" ;;
   coord-ready)
     coord_runtime_ready ;;
+  coord-safety)
+    coord_safety_ready ;;
   coord-doctor)
     # Engine-level coordinator SAFETY handshake + log-hygiene diff (north.main
     # cmd-doctor): tell/untell safe? daemon state matches on-disk log? This is the

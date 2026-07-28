@@ -29,23 +29,19 @@
 (defn exercise-doctor
   ([failed?] (exercise-doctor failed? []))
   ([failed? dead-letters]
-  (with-redefs [coord-doctor-probe
+  (with-redefs [coord-safety-probe
                 (fn [] (if failed?
                          {:ok false
                           :err "coordinator runtime identity UNHEALTHY — stale source"
-                          :timeout-ms 100
-                          :workload {:bytes 0 :files 0}}
+                          :timeout-ms 100}
                          {:ok true :out "coordinator runtime identity OK\n" :err ""}))
                 daemon-health (fn [] {:north true})
                 reactor-doctor-line (fn [_] "[ok]  last sweep now")
-                north-health (fn [_] {:ok true})
-                parse-health (fn [_] {:lanes-ran-24h 1
-                                      :lanes-died-24h 0
-                                      :concerns-active 1
-                                      :concerns-stale 0})
+                cache-get (fn [& _] {:lanes-ran-24h 1
+                                     :lanes-died-24h 0})
                 source-revision (fn [_ _] {:revision "test-rev" :origin "checkout HEAD"})
-                north.message-routing/dead-letter-scan
-                (fn [_] {:rows dead-letters})
+                north.message-routing/readiness-dead-letter-scan
+                (fn [& _] {:rows dead-letters})
                 run (fn [& _] {:ok true :out "/nix/store/test-runtime/bin/tool\n" :err ""})]
     (let [healthy (atom nil)
           output (with-out-str (reset! healthy (cmd-doctor [])))]
@@ -125,14 +121,23 @@
                          "NORTH_DOCTOR_EXIT_CHILD=1"
                          "bb" test-script]
                         {:out :string :err :string})
-      public-source (slurp (str root "/cli/dashboard-cli.clj"))]
+      public-source (slurp (str root "/cli/dashboard-cli.clj"))
+      doctor-start (str/index-of public-source "(defn cmd-doctor")
+      doctor-end (str/index-of public-source ";; ---- dispatch" doctor-start)
+      doctor-source (subs public-source doctor-start doctor-end)]
   (check "failed aggregate process exits nonzero after rendering the full report"
          (and (= 1 (:exit child))
               (str/includes? (:out child) "runtime identity UNHEALTHY")
               (str/includes? (:out child) "guard hooks")))
   (check "public doctor dispatch maps the aggregate verdict to process status"
          (str/includes? public-source
-                        "\"doctor\"          (when-not (cmd-doctor args) (System/exit 1))")))
+                        "\"doctor\"          (when-not (cmd-doctor args) (System/exit 1))"))
+  (check "public doctor uses bounded coordinator safety, not the full corpus audit"
+         (and (str/includes? doctor-source "(coord-safety-probe)")
+              (str/includes? doctor-source "\"coord-safety\"")
+              (str/includes? doctor-source "(cache-get \"health.edn\" 300000)")
+              (not (str/includes? doctor-source "coord-doctor-probe"))
+              (not (str/includes? doctor-source "north-health")))))
 
 (let [failed (remove second @checks)]
   (println (str "dashboard doctor exit: " (- (count @checks) (count failed))
