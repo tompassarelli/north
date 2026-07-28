@@ -132,6 +132,7 @@ jobs:
           bb cli/tests/mine-verbosity-test.clj
           bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/dashboard-doctor-exit-test.clj
+          BABASHKA_CLASSPATH="out:../fram/out" bb cli/tests/wip-cli-test.clj
           bb cli/tests/linear-helper-protocol-test.clj
           bb cli/tests/routing-preflight-failure-naming-test.clj  # no admission may die with an unnamed reason
           bash cli/tests/north-explicit-log-test.sh
