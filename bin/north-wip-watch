@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# north-wip-watch — alert a coordinator once when idle capacity stays short.
+set -euo pipefail
+
+usage() {
+  echo "usage: north-wip-watch [--once] [coordinator-id]" >&2
+  exit 2
+}
+
+once=0
+case "${1:-}" in
+  --once) once=1; shift ;;
+esac
+
+coordinator="${1:-${NORTH_WIP_WATCH_COORDINATOR:-${AGENT_COORDINATOR:-}}}"
+[ -n "$coordinator" ] || usage
+[ "$#" -le 1 ] || usage
+
+interval="${NORTH_WIP_WATCH_INTERVAL:-300}"
+case "$interval" in
+  ''|*[!0-9]*) echo "north-wip-watch: interval must be whole seconds" >&2; exit 2 ;;
+esac
+
+watcher="${NORTH_WIP_WATCH_FROM:-${AGENT_ID:-north-wip-watch}}"
+port="${NORTH_PORT:-7977}"
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+msg_cli="${NORTH_WIP_WATCH_MSG_CLI:-$repo/cli/msg-cli.clj}"
+bb="${NORTH_BB:-bb}"
+state_key="$(printf '%s-%s' "$coordinator" "$port" | tr -c 'A-Za-z0-9_.-' '_')"
+state_file="${NORTH_WIP_WATCH_STATE:-${XDG_RUNTIME_DIR:-/tmp}/north-wip-watch-${state_key}.state}"
+
+read_state() {
+  consecutive=0
+  alerted=0
+  if [ -r "$state_file" ]; then
+    # The state file is private watcher data, written only by write_state below.
+    IFS=' ' read -r consecutive alerted <"$state_file" || true
+  fi
+  case "$consecutive:$alerted" in
+    0:0|0:1|1:0|1:1) ;;
+    *) consecutive=0; alerted=0 ;;
+  esac
+}
+
+write_state() {
+  local state_dir temp
+  state_dir="$(dirname "$state_file")"
+  mkdir -p "$state_dir"
+  temp="$(mktemp "$state_dir/.north-wip-watch.XXXXXX")"
+  printf '%s %s\n' "$consecutive" "$alerted" >"$temp"
+  mv -f -- "$temp" "$state_file"
+}
+
+wip_once() {
+  local output status
+  set +e
+  output="$(north wip --check 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 127 ] || printf '%s\n' "$output" | grep -Eqi '(unknown|unavailable).*(wip)|wip.*(unknown|unavailable)'; then
+    echo "wip verb unavailable" >&2
+    return 4
+  fi
+
+  read_state
+  case "$status" in
+    0)
+      consecutive=0
+      alerted=0
+      write_state
+      ;;
+    3)
+      if [ "$consecutive" -eq 0 ]; then
+        consecutive=1
+      elif [ "$alerted" -eq 0 ]; then
+        "$bb" "$msg_cli" "$port" send "$watcher" "$coordinator" "WIP SHORTFALL" "$output"
+        alerted=1
+      fi
+      write_state
+      ;;
+    *)
+      printf '%s\n' "$output" >&2
+      return "$status"
+      ;;
+  esac
+}
+
+if [ "$once" -eq 1 ]; then
+  wip_once
+  exit $?
+fi
+
+while :; do
+  wip_once || status=$?
+  case "${status:-0}" in
+    0|3|4) ;;
+    *) exit "$status" ;;
+  esac
+  unset status
+  sleep "$interval"
+done
