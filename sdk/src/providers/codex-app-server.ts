@@ -4,7 +4,7 @@ import {
   closeSync, constants, fsyncSync, lstatSync, mkdtempSync, openSync, realpathSync,
   renameSync, rmSync, unlinkSync, writeSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { codexConfigArguments } from "../accounts";
 import { managedNorthMcpEnvironment } from "../execution-admission";
@@ -350,16 +350,32 @@ interface LaunchContract {
  * Codex lane structurally unable to land anything (observed: `.git/index.lock:
  * Read-only file system`).
  *
- * The grant is exactly the checkout's own Git metadata: its `--git-dir` and the
- * `--git-common-dir` it shares with a main checkout, nothing else. Network stays
- * unshared, so a lane can commit but can never push — pushing remains the
- * coordinator's move. The North state root is deliberately NOT writable: graph
- * writes go through the North MCP server, which runs outside the sandbox
- * (observed working from inside a managed thread, 2026-07-26).
+ * The grant is the checkout's own Git metadata — its `--git-dir` and the
+ * `--git-common-dir` it shares with a main checkout — plus the North state root.
+ *
+ * On the state root: it was previously excluded on the reasoning that graph
+ * writes go through the North MCP server, which runs outside the sandbox. That
+ * held for the MCP path, but it left a live contradiction — every lane brief and
+ * the canonical AGENTS.md instruct agents to run `north tell`, and from inside
+ * the sandbox that shell call is guaranteed EROFS. Lanes did real work, could
+ * not record it, and were scored as delivering nothing (observed 2026-07-26:
+ * `lane-ms0qeuwx` wrote +83/-3 of SDK code and was recorded `result=0b`).
+ * Closing the contradiction on the sandbox side is the smaller change than
+ * rewriting every brief, and it removes the last structural delivery-rate gap
+ * between Codex and the unsandboxed Anthropic lanes.
+ *
+ * What stays closed: everything else on the machine. A lane still cannot write
+ * outside its workspace, its git metadata, and North's own state — so this is
+ * parity on *delivery*, not the full-access grant Anthropic lanes run with.
  */
+export function managedCodexWritableRoots(cwd: string): string[] {
+  const northStateRoot = resolve(homedir(), ".local/state/north");
+  return [...new Set([...trustedGitMetadataRoots(cwd), northStateRoot])].sort();
+}
+
 function sandboxWritableRoots(surface: OpenAIAuthoritySurface, cwd: string): string[] {
   if (surface.sandbox !== "workspace-write") return [];
-  return trustedGitMetadataRoots(cwd);
+  return managedCodexWritableRoots(cwd);
 }
 
 export function managedCodexAppServerLaunch(

@@ -6,8 +6,8 @@ import {
   chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, mkdtempSync, openSync,
   readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import {
@@ -22,7 +22,7 @@ import { codexSupervisorStatusLine } from "../src/providers/codex-supervisor-pro
 import type { OpenAIAuthoritySurface } from "../src/providers/authority";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
-import { trustedGitMetadataRoots } from "../src/trusted-runtime";
+import { managedCodexWritableRoots } from "../src/providers/codex-app-server";
 import {
   FRAM_MCP_TOOL_NAMES, framMcpCommand, framMcpEnvironment,
 } from "../src/fram-graph-authoring";
@@ -234,10 +234,10 @@ function setup(mode = "ok") {
     include_only: null,
     experimental_use_profile: null,
   };
-  // The workspace-write sandbox grants exactly the checkout's Git metadata roots
+  // The workspace-write sandbox grants the checkout's Git metadata roots + North state root
   // so a managed lane can commit what it wrote; the fixture mirrors production
   // rather than restating a hard-coded path.
-  const writableRoots = trustedGitMetadataRoots(cwd);
+  const writableRoots = managedCodexWritableRoots(cwd);
   // A graph-authoring lane carries a SECOND sealed MCP server (fram) through the
   // same launch config, inventory, and startup-notification gates as North.
   const framServer = graphAuthoring
@@ -1784,9 +1784,9 @@ test("every launch preflight cause has stable diagnosis and fails before process
   }
 });
 
-test("a workspace-write lane is granted exactly its Git metadata roots, and no more", async () => {
+test("a workspace-write lane is granted its Git metadata roots + the North state root, and no more", async () => {
   const { options, requests } = setup();
-  const expectedRoots = trustedGitMetadataRoots(options.cwd);
+  const expectedRoots = managedCodexWritableRoots(options.cwd);
   expect(expectedRoots.length).toBeGreaterThan(0);
 
   const contract = managedCodexAppServerLaunch(options as any);
@@ -1795,10 +1795,16 @@ test("a workspace-write lane is granted exactly its Git metadata roots, and no m
   expect(contract.args).toContain(rootsArgument);
   expect((contract.expectedSessionConfig as any).sandbox_workspace_write)
     .toEqual({ writable_roots: expectedRoots, network_access: true });
-  // The grant is Git metadata only: never the North state root, never the home,
-  // and the write grant remains limited to those Git metadata paths.
+  // The grant is Git metadata + the North state root, and nothing else — never
+  // the bare home, never an arbitrary repo, never `/`. The state root is in the
+  // grant because every lane brief tells agents to run `north tell`, which was
+  // otherwise guaranteed EROFS inside the sandbox; see sandboxWritableRoots.
+  const northStateRoot = resolve(homedir(), ".local/state/north");
   for (const root of contract.writableRoots) expect(root.endsWith(".git")
-    || root.includes("/.git/worktrees/")).toBe(true);
+    || root.includes("/.git/worktrees/")
+    || root === northStateRoot).toBe(true);
+  expect(contract.writableRoots).toContain(northStateRoot);
+  expect(contract.writableRoots).not.toContain(homedir());
 
   await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toMatchObject({
     text: "managed answer",
