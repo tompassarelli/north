@@ -421,12 +421,27 @@
       (when @running (stop-daemon! (:daemon @running)))
       (delete-tree! temp))))
 
-(let [deployed
-      (io/file
-       (or (System/getenv "NORTH_DEPLOYED_FRAM_FIXTURE")
-           (str (System/getProperty "user.home")
-                "/code/north-data/fram-runtime/deployments/"
-                "3383de745fc1166fa0525b390e4f04a06d9cf00e")))]
+;; This case proves a REAL sealed deployment earns active authority, so it needs
+;; a real one on disk — but pinning one revision rots. It was pinned to
+;; 3383de74, a pre-codegraph generation with no out/resolve.clj, so it failed the
+;; moment the artifact manifest tracked the current layout. Pick the newest
+;; deployment that satisfies the manifest instead; NORTH_DEPLOYED_FRAM_FIXTURE
+;; still overrides for a specific target.
+(let [deployments-root
+      (io/file (str (System/getProperty "user.home")
+                    "/code/north-data/fram-runtime/deployments"))
+      newest-attestable
+      (fn []
+        (->> (or (.listFiles deployments-root) (make-array java.io.File 0))
+             (filter #(.isDirectory ^java.io.File %))
+             (filter #(every? (fn [rel] (.isFile (io/file % rel)))
+                              attestation/required-runtime-artifacts))
+             (sort-by #(.lastModified ^java.io.File %))
+             last))
+      deployed
+      (if-let [override (System/getenv "NORTH_DEPLOYED_FRAM_FIXTURE")]
+        (io/file override)
+        (or (newest-attestable) (io/file "/nonexistent")))]
   (when (.isDirectory deployed)
     (let [temp (.toFile
                 (java.nio.file.Files/createTempDirectory
@@ -434,7 +449,7 @@
                  (make-array java.nio.file.attribute.FileAttribute 0)))
           log (.getCanonicalPath (io/file temp "coordination.log"))
           telemetry (.getCanonicalPath (io/file temp "telemetry.log"))
-          selection (prepare-active-selection! temp deployed "deployed-3383")
+          selection (prepare-active-selection! temp deployed "deployed-real")
           port (free-port)
           running (atom nil)]
       (try
@@ -444,8 +459,8 @@
         (let [verified
               (attestation/attest-active-runtime!
                (active-request selection port log telemetry))]
-          (check! "sealed deployed Fram 3383 generation earns active authority"
-                  (and (= "3383de745fc1166fa0525b390e4f04a06d9cf00e"
+          (check! "sealed deployed Fram generation earns active authority"
+                  (and (= (.getName deployed)
                           (get-in verified [:identity :revision]))
                        (true? (attestation/assert-current! verified)))))
         (finally

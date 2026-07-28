@@ -678,7 +678,7 @@ function staticFramMcpEnv(): Readonly<Record<string, string>> {
     ...corpusFramEnv(),
     FRAM_OUT: join(framHome, "out"),
     FRAM_BIN: join(framHome, "bin"),
-    FRAM_RESOLVE: join(framHome, "chartroom", "src", "resolve.clj"),
+    FRAM_RESOLVE: join(framHome, "out", "resolve.clj"),
     FRAM_ROUNDTRIP: join(beagleHome, "beagle-lib", "private", "facts-roundtrip.rkt"),
     FRAM_CHECK_EMIT: join(beagleHome, "beagle-lib", "private", "facts-check-emit.rkt"),
     FRAM_BUILD_ALL: join(beagleHome, "bin", "beagle-build-all"),
