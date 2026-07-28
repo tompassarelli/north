@@ -3,13 +3,14 @@ set -euo pipefail
 
 program=${0##*/}
 north_bin=${NORTH_BIN:-$(cd "$(dirname "$0")" && pwd)/north}
+post_rebuild_north=${NORTH_POST_REBUILD_BIN:-north}
 firn_bin=${FIRN_BIN:-firn}
 runtime_state=${NORTH_COORD_RUNTIME_STATE:-${HOME:?}/.local/state/north/fram-runtime}
 runtime_parent=${runtime_state%/*}
 runtime_name=${runtime_state##*/}
 restart_lock=${NORTH_COORD_RESTART_LOCK:-$runtime_parent/.${runtime_name}.restart.lock}
 restart_lock_timeout=${NORTH_COORD_RESTART_LOCK_TIMEOUT:-60}
-coord_retry_attempts=${NORTH_REBUILD_COORD_RETRY_ATTEMPTS:-10}
+coord_retry_attempts=${NORTH_REBUILD_COORD_RETRY_ATTEMPTS:-20}
 
 why=
 window="immediately after coordination all-clear"
@@ -123,23 +124,40 @@ if ((firn_rc != 0)); then
   exit "$firn_rc"
 fi
 
-# coord-doctor is the deployment identity probe: a green exit proves the
-# restarted coordinator serves the canonical log and selected runtime after
-# firn's generation switch. Refused :7977 is transient for roughly 25 seconds,
-# so retry with a bounded 1,2,4,4... second backoff.
+# Resolve readiness through PATH after the generation switch, not this
+# already-running wrapper's immutable North package. The selected `north`
+# wrapper also carries the new generation's Stage-A client environment, so
+# `coord-ready` attests both :7977 and :7978 when the split is active.
+post_rebuild_north_bin=
+if [[ "$post_rebuild_north" == */* ]]; then
+  [[ -x "$post_rebuild_north" ]] && post_rebuild_north_bin="$post_rebuild_north"
+else
+  post_rebuild_north_bin="$(command -v -- "$post_rebuild_north" 2>/dev/null || true)"
+fi
+if [[ -z "$post_rebuild_north_bin" || ! -x "$post_rebuild_north_bin" ]]; then
+  report="firn rebuild rc 0; post-rebuild North CLI is unavailable: $post_rebuild_north"
+  "$north_bin" rebuild-intent failed "$intent_id" "$report"
+  printf '%s: %s\n' "$program" "$report" >&2
+  exit 1
+fi
+
+# `coord-ready` is deliberately identity-only: it checks the selected runtime
+# against each live sole writer without folding logs or reading thread files.
+# NixOS owns service replacement through restartIfChanged/stopIfChanged; this
+# gate only waits and attests. It never guesses which unit to restart.
 coord_attempt=1
 coord_delay=1
 coord_rc=0
 while true; do
   set +e
-  "$north_bin" coord-doctor
+  "$post_rebuild_north_bin" coord-ready
   coord_rc=$?
   set -e
   if ((coord_rc == 0)); then
     break
   fi
   if ((coord_attempt >= coord_retry_attempts)); then
-    report="firn rebuild rc 0; north coord-doctor rc $coord_rc after $coord_attempt attempts"
+    report="firn rebuild rc 0; north coord-ready rc $coord_rc after $coord_attempt attempts"
     "$north_bin" rebuild-intent failed "$intent_id" "$report"
     printf '%s: %s\n' "$program" "$report" >&2
     exit "$coord_rc"
@@ -153,6 +171,6 @@ while true; do
   fi
 done
 
-report="firn rebuild rc 0; north coord-doctor rc 0"
+report="firn rebuild rc 0; north coord-ready rc 0"
 "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
 printf 'deployment verified: %s\n' "$report"
