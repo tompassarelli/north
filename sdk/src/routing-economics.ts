@@ -8,7 +8,9 @@ import type {
 } from "./routing-metadata";
 import { DEFAULT_ORCHESTRATION_STAFFING_PATH } from "./orchestration-staffing";
 import { DEFAULT_ROUTING_POLICY_PATH } from "./resource-policy";
-import { projectCatalogGraphPin, staffingSource, type CatalogGraphPin } from "./orchestration-graph-source";
+import {
+  catalogGraphPinForAdmission, staffingSource, type CatalogGraphPin,
+} from "./orchestration-graph-source";
 import { verifyPolicyDigestPin } from "./orchestration-policy-pin";
 
 export const ROUTING_ASSESSMENT_POLICY_VERSION = "minimum-sufficient-v1" as const;
@@ -351,7 +353,7 @@ function graphPolicyPin(surface: string): string {
 // once and cache; a transient failure is NOT cached (re-probe next admission).
 let catalogGraphPin: CatalogGraphPin | undefined;
 function graphCatalogPin(): CatalogGraphPin {
-  if (catalogGraphPin === undefined) catalogGraphPin = projectCatalogGraphPin();
+  if (catalogGraphPin === undefined) catalogGraphPin = catalogGraphPinForAdmission();
   return catalogGraphPin;
 }
 

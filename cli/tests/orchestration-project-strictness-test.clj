@@ -42,7 +42,7 @@
          (and msg (re-find #"anthropic:claude-opus-4-8" msg)
                   (re-find #"context_window_tokens" msg))))
 
-;; --- B. strict envelope: a timed-out query throws, never empties -------------
+;; --- B. strict envelope: a failed indexed show throws, never empties --------
 (with-redefs [send-op (fn [_ _] {:error "query evaluation stopped: query-time-limit"
                                  :code :query-time-limit})]
   (check "facts throws on a query-time-limit envelope (never a silent empty map)"
@@ -56,8 +56,8 @@
          (= :catalog-projection-query-failed (ex-type #(current-version 7977)))))
 
 ;; --- C. happy path is unchanged ---------------------------------------------
-(with-redefs [send-op (fn [_ _] {:ok [["axis" "tier"] ["rank" "0"]] :version 1 :engine "index"})]
-  (check "facts returns the parsed rows on a healthy :ok envelope"
+(with-redefs [send-op (fn [_ _] {:rows [["axis" "tier"] ["rank" "0"]] :version 1})]
+  (check "facts returns the parsed rows on a healthy :show envelope"
          (= {"axis" ["tier"] "rank" ["0"]} (facts 7977 "@catalog:v1:axis_value:x"))))
 
 ;; --- D. end-to-end: a model missing context_window_tokens names the model ----
@@ -70,19 +70,21 @@
    (fn [_ op]
      (cond
        (= :resolved (:op op)) {:value "1"}
+       (= :show (:op op))
+       (case (:te op)
+         "@catalog:v1:provider:anthropic" {:rows [["kind" "provider_catalog"]] :version 1}
+         ;; Deliberately MISSING context_window_tokens.
+         "@catalog:v1:model:anthropic:claude-opus-4-8"
+         {:rows [["deliberation_support" "high"]] :version 1}
+         {:rows [] :version 1})
        (= :query (:op op))
        (let [q (:query op)
              body (get-in q [:rules 0 :body])
              ;; the kind-scan body is [{:rel triple :args [{:var s} "kind" K]}]
-             kind (let [args (:args (first body))] (when (= 3 (count args)) (nth args 2)))
-             subj (let [args (:args (first body))] (when (string? (first args)) (first args)))]
+             kind (let [args (:args (first body))] (when (= 3 (count args)) (nth args 2)))]
          (cond
            (= kind "model")    {:ok [["@catalog:v1:model:anthropic:claude-opus-4-8"]] :version 1 :engine "index"}
            (= kind "tier_row") {:ok [] :version 1 :engine "index"}
-           (= subj "@catalog:v1:provider:anthropic") {:ok [["kind" "provider_catalog"]] :version 1 :engine "index"}
-           ;; the model's own facts — deliberately MISSING context_window_tokens
-           (= subj "@catalog:v1:model:anthropic:claude-opus-4-8")
-           {:ok [["deliberation_support" "high"]] :version 1 :engine "index"}
            :else {:ok [] :version 1 :engine "index"}))
        :else {:ok [] :version 1 :engine "index"}))]
   (let [t (ex-type #(project-provider 7977 "anthropic"))
@@ -91,6 +93,33 @@
            (= :catalog-projection-missing-field t))
     (check "the end-to-end error names the model claude-opus-4-8 and the field"
            (and m (re-find #"claude-opus-4-8" m) (re-find #"context_window_tokens" m)))))
+
+;; --- E. durable catalog pin validates both version and canonical payload -----
+(let [path (str (java.nio.file.Files/createTempFile
+                 "north-catalog-pin-test-" ".json"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+      bundle {"catalogVersion" 7
+              "staffing" {"version" 2 "presets" [{"name" "integrator"}]}
+              "providers" {"openai" {"provider" "openai"}}}
+      digest (sha256-hex
+              (json/generate-string
+               (canon {"staffing" (get bundle "staffing")
+                       "providers" (get bundle "providers")})))
+      record {"version" 1 "catalogVersion" 7 "coordinatorVersion" 10
+              "catalogDigestSha256" digest "bundle" bundle}]
+  (try
+    (spit path (json/generate-string record))
+    (with-redefs [catalog-projection-cache-path (constantly path)]
+      (check "catalog pin cache returns its digest with the current coordinator watermark"
+             (= {"catalogVersion" 7 "coordinatorVersion" 99 "catalogDigestSha256" digest}
+                (cached-catalog-pin 7 99)))
+      (check "catalog version change invalidates the durable pin"
+             (nil? (cached-catalog-pin 8 100)))
+      (spit path (json/generate-string
+                  (assoc-in record ["bundle" "staffing" "version"] 3)))
+      (check "cached payload mutation without a matching digest is rejected"
+             (nil? (cached-catalog-pin 7 101))))
+    (finally (.delete (io/file path)))))
 
 (let [rs @results
       passed (count (filter true? rs))]

@@ -62,13 +62,19 @@
                         {:type :catalog-pointer-missing})))))
 
 (defn facts
-  "All (p o) facts for one subject."
+  "All (p o) facts for one subject through the coordinator's indexed show op.
+   A Datalog query for this exact shape still pays the per-version query-engine
+   warmup; under concurrent admission that warmup exhausted :query-time-limit
+   before the already-ground subject lookup ran."
   [port subj]
-  (->> (query-rows! port
-                    {:find "p,o" :rules [{:head {:rel "p,o" :args [{:var "p"} {:var "o"}]}
-                                         :body [{:rel "triple" :args [subj {:var "p"} {:var "o"}]}]}]}
-                    (str "facts of " subj))
-       (reduce (fn [m [p o]] (update m p (fnil conj []) o)) {})))
+  (let [resp (send-op port {:op :show :te subj})]
+    (if (vector? (:rows resp))
+      (reduce (fn [m [p o]] (update m p (fnil conj []) o)) {} (:rows resp))
+      (throw (ex-info (str "catalog projection query failed for facts of " subj)
+                      {:type :catalog-projection-query-failed
+                       :context (str "facts of " subj)
+                       :error (:error resp)
+                       :code (:code resp)})))))
 
 (defn one [f p] (first (get f p)))
 (defn many [f p] (vec (get f p)))
@@ -238,9 +244,11 @@
 ;;   coordinatorVersion  — the daemon's global tx watermark at projection time
 ;;                         (design §3.1's "tell-ack version", e.g. v322995).
 ;;   catalogDigestSha256 — sha256 over canonical JSON of {staffing, providers}.
-;; The digest is computed here (one subprocess) over the SAME projections the
-;; loaders read, with sorted-key canonicalization so it is deterministic and
-;; recomputable for audit.
+;; The digest is computed here on a cold/version-changed projection, then read
+;; from the same validated durable projection record as the loaders. Imported
+;; version namespaces are immutable after the atomic pointer flip; therefore a
+;; catalog change advances catalogVersion and forces recomputation, while
+;; unrelated coordination writes only refresh the returned tx watermark.
 ;; ---------------------------------------------------------------------------
 (defn- canon
   "Recursively sort map keys so the JSON serialization is order-independent."
@@ -255,15 +263,56 @@
         bs (.digest md (.getBytes s java.nio.charset.StandardCharsets/UTF_8))]
     (str/join (map #(format "%02x" (bit-and % 0xff)) bs))))
 
+(def MAX-CATALOG-CACHE-BYTES (* 4 1024 1024))
+
+(defn catalog-projection-cache-path []
+  (or (some-> (System/getenv "NORTH_ORCHESTRATION_CATALOG_CACHE") str/trim not-empty)
+      (str (or (some-> (System/getenv "XDG_STATE_HOME") str/trim not-empty)
+               (str (or (System/getenv "HOME") (System/getProperty "user.home"))
+                    "/.local/state"))
+           "/north/orchestration-catalog-projection-cache.json")))
+
+(defn cached-catalog-pin
+  "Validate the durable projection record without touching the graph's costly
+   kind scans. Imported @catalog:vN namespaces are write-once drafts followed
+   by one atomic @catalog:current flip, so catalogVersion is the invalidation
+   boundary; ordinary coordination writes only advance coordinatorVersion."
+  [ver coord-ver]
+  (try
+    (let [f (io/file (catalog-projection-cache-path))]
+      (when (and (.isFile f) (pos? (.length f)) (<= (.length f) MAX-CATALOG-CACHE-BYTES)
+                 (not (java.nio.file.Files/isSymbolicLink (.toPath f))))
+        (let [record (json/parse-string (slurp f))
+              bundle (get record "bundle")
+              subgraph {"staffing" (get bundle "staffing")
+                        "providers" (get bundle "providers")}
+              digest (sha256-hex (json/generate-string (canon subgraph)))
+              recorded (get record "catalogDigestSha256")]
+          (when (and (= 1 (get record "version"))
+                     (map? bundle)
+                     (map? (get bundle "staffing"))
+                     (map? (get bundle "providers"))
+                     (= ver (get record "catalogVersion"))
+                     (= ver (get bundle "catalogVersion"))
+                     (integer? (get record "coordinatorVersion"))
+                     (string? recorded)
+                     (re-matches #"[0-9a-f]{64}" recorded)
+                     (= digest recorded))
+            {"catalogVersion" ver
+             "coordinatorVersion" coord-ver
+             "catalogDigestSha256" recorded}))))
+    (catch Exception _ nil)))
+
 (defn project-catalog-pin [port]
   (let [ver (current-version port)
-        coord-ver (:version (send-op port {:op :version}))
-        subgraph {"staffing"  (project-staffing port)
-                  "providers" {"anthropic" (project-provider port "anthropic")
-                               "openai"    (project-provider port "openai")}}]
-    {"catalogVersion"      ver
-     "coordinatorVersion"  coord-ver
-     "catalogDigestSha256" (sha256-hex (json/generate-string (canon subgraph)))}))
+        coord-ver (:version (send-op port {:op :version}))]
+    (or (cached-catalog-pin ver coord-ver)
+        (let [subgraph {"staffing"  (project-staffing port)
+                        "providers" {"anthropic" (project-provider port "anthropic")
+                                     "openai"    (project-provider port "openai")}}]
+          {"catalogVersion"      ver
+           "coordinatorVersion"  coord-ver
+           "catalogDigestSha256" (sha256-hex (json/generate-string (canon subgraph)))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Whole-catalog BUNDLE — one process, one @catalog:current version, both
