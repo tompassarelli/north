@@ -131,6 +131,25 @@ deny_generic_run_mutation() {
 
 deny_generic_run_mutation "$@" || exit 1
 
+# Cheap deployment-readiness boundary. Runtime identity comes from the selected
+# coordinator generation and the live listener process; unlike coord-doctor,
+# this never folds either log or reads the projected thread corpus. In Stage A,
+# each sole writer has its own runtime selector and must attest independently.
+coord_runtime_ready() {
+  "$NORTH/bin/north-coord-up" --check-runtime || return $?
+  if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+    local telemetry_runtime_state
+    telemetry_runtime_state="${NORTH_TELEMETRY_RUNTIME_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/north/fram-telemetry-runtime}"
+    env -u FRAM_TELEMETRY_LOG \
+      NORTH_TELEMETRY_PARTITION=0 \
+      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+      NORTH_COORD_RUNTIME_STATE="$telemetry_runtime_state" \
+      NORTH_COORD_SYSTEMD_UNIT=north-telemetry-coord.service \
+      "$NORTH/bin/north-coord-up" --check-runtime
+  fi
+}
+
 case "${1:-}" in
   ""|help|-h|--help)
     # THE CARD — one screen, grouped, "type this → do this". Bare `north` and
@@ -220,6 +239,7 @@ north — your one card. Type a command to do the thing next to it.
     north spend status [target]        API-billing budget: cap, reserved, settled, headroom
     north spend init|override <target> create a guarded budget · add a time-boxed override
     north providers                    provider readiness and auto-route decision
+    north coord-ready                  cheap exact runtime readiness for every active writer
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
     exit 0 ;;
@@ -240,20 +260,14 @@ CARD
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
     exec "${NORTH_MAIN[@]}" "$@" ;;
+  coord-ready)
+    coord_runtime_ready ;;
   coord-doctor)
     # Engine-level coordinator SAFETY handshake + log-hygiene diff (north.main
     # cmd-doctor): tell/untell safe? daemon state matches on-disk log? This is the
     # raw primitive the cockpit `north doctor` leads with. Renamed from the old bare
     # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
-    "$NORTH/bin/north-coord-up" --check-runtime || exit $?
-    if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-      env -u FRAM_TELEMETRY_LOG \
-        NORTH_TELEMETRY_PARTITION=0 \
-        FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-        FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-        NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
-        "$NORTH/bin/north-coord-up" --check-runtime || exit $?
-    fi
+    coord_runtime_ready || exit $?
     exec "${NORTH_MAIN[@]}" doctor "${@:2}" ;;
   dashboard|doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =
