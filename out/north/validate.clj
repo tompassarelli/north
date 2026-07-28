@@ -2,16 +2,16 @@
   (:require [fram.kernel :as k]
             [north.projections :as proj]))
 
-^{:line 20 :file "/home/tom/code/north/src/north/validate.bclj"} (def thread-ref-preds ^{:line 20 :file "/home/tom/code/north/src/north/validate.bclj"} ["part_of" "depends_on" "relates_to"])
+(def thread-ref-preds ["part_of" "depends_on" "relates_to"])
 
-^{:line 22 :file "/home/tom/code/north/src/north/validate.bclj"} (defn work-violations-i [idx ^String te]
-  ^{:line 23 :file "/home/tom/code/north/src/north/validate.bclj"} (let [term? ^{:line 23 :file "/home/tom/code/north/src/north/validate.bclj"} (proj/terminal-i? idx te)
-   v-thread ^{:line 30 :file "/home/tom/code/north/src/north/validate.bclj"} (reduce ^{:line 31 :file "/home/tom/code/north/src/north/validate.bclj"} (fn [acc p] ^{:line 32 :file "/home/tom/code/north/src/north/validate.bclj"} (reduce ^{:line 33 :file "/home/tom/code/north/src/north/validate.bclj"} (fn [a rt] ^{:line 34 :file "/home/tom/code/north/src/north/validate.bclj"} (cond
-  ^{:line 35 :file "/home/tom/code/north/src/north/validate.bclj"} (and ^{:line 35 :file "/home/tom/code/north/src/north/validate.bclj"} (k/entity-i? idx rt) ^{:line 36 :file "/home/tom/code/north/src/north/validate.bclj"} (nil? ^{:line 36 :file "/home/tom/code/north/src/north/validate.bclj"} (k/one-i idx rt "title"))) ^{:line 37 :file "/home/tom/code/north/src/north/validate.bclj"} (conj a ^{:line 37 :file "/home/tom/code/north/src/north/validate.bclj"} (str p " references non-thread entity " rt))
-  ^{:line 38 :file "/home/tom/code/north/src/north/validate.bclj"} (and ^{:line 38 :file "/home/tom/code/north/src/north/validate.bclj"} (not ^{:line 38 :file "/home/tom/code/north/src/north/validate.bclj"} (k/entity-i? idx rt)) ^{:line 39 :file "/home/tom/code/north/src/north/validate.bclj"} (not ^{:line 39 :file "/home/tom/code/north/src/north/validate.bclj"} (k/vec-contains? ^{:line 39 :file "/home/tom/code/north/src/north/validate.bclj"} (:ref-preds idx) p))) ^{:line 40 :file "/home/tom/code/north/src/north/validate.bclj"} (conj a ^{:line 40 :file "/home/tom/code/north/src/north/validate.bclj"} (str p " references missing thread " rt))
-  :else a)) acc ^{:line 43 :file "/home/tom/code/north/src/north/validate.bclj"} (k/many-i idx te p))) ^{:line 44 :file "/home/tom/code/north/src/north/validate.bclj"} [] thread-ref-preds)
-   v-ab ^{:line 48 :file "/home/tom/code/north/src/north/validate.bclj"} (reduce ^{:line 49 :file "/home/tom/code/north/src/north/validate.bclj"} (fn [acc d] ^{:line 50 :file "/home/tom/code/north/src/north/validate.bclj"} (if ^{:line 50 :file "/home/tom/code/north/src/north/validate.bclj"} (and ^{:line 50 :file "/home/tom/code/north/src/north/validate.bclj"} (not term?) ^{:line 50 :file "/home/tom/code/north/src/north/validate.bclj"} (proj/withdrawn-i? idx d)) ^{:line 51 :file "/home/tom/code/north/src/north/validate.bclj"} (conj acc ^{:line 51 :file "/home/tom/code/north/src/north/validate.bclj"} (str "depends_on points at abandoned " d)) acc)) v-thread ^{:line 54 :file "/home/tom/code/north/src/north/validate.bclj"} (k/many-i idx te "depends_on"))]
+(defn work-violations-i [idx ^String te]
+  (let [term? (proj/terminal-i? idx te)
+   v-thread (reduce (fn [acc p] (reduce (fn [a rt] (cond
+  (and (k/entity-i? idx rt) (nil? (k/one-i idx rt "title"))) (conj a (str p " references non-thread entity " rt))
+  (and (not (k/entity-i? idx rt)) (not (k/vec-contains? (:ref-preds idx) p))) (conj a (str p " references missing thread " rt))
+  :else a)) acc (k/many-i idx te p))) [] thread-ref-preds)
+   v-ab (reduce (fn [acc d] (if (and (not term?) (proj/withdrawn-i? idx d)) (conj acc (str "depends_on points at abandoned " d)) acc)) v-thread (k/many-i idx te "depends_on"))]
   v-ab))
 
-^{:line 93 :file "/home/tom/code/north/src/north/validate.bclj"} (defn violations-i [idx ^String te]
-  ^{:line 94 :file "/home/tom/code/north/src/north/validate.bclj"} (vec ^{:line 94 :file "/home/tom/code/north/src/north/validate.bclj"} (concat ^{:line 94 :file "/home/tom/code/north/src/north/validate.bclj"} (k/violations-i idx te) ^{:line 94 :file "/home/tom/code/north/src/north/validate.bclj"} (work-violations-i idx te))))
+(defn violations-i [idx ^String te]
+  (vec (concat (k/violations-i idx te) (work-violations-i idx te))))

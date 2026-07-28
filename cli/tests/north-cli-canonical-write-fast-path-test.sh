@@ -14,11 +14,11 @@ printf '%s\n' \
   'set -euo pipefail' \
   'printf "%s\n" "fram $*" >>"$TEST_CALLS"' \
   'case "${1:-}" in' \
-  '  show)' \
+  '  tell-existing|untell-existing)' \
   '    if [[ "${2:-}" = 019fa4d4-93aa-7447-aae5-0a5bcfca6849 ]]; then' \
-  '      printf "%s\n" "  title  existing thread"' \
+  '      printf "%s\n" "committed via coordinator (v2): ${2:-} ${3:-} = ${4:-}"' \
   '    else' \
-  '      printf "%s\n" "no facts for @${2:-}"' \
+  '      exit 3' \
   '    fi ;;' \
   '  tell|untell) printf "%s\n" "committed via coordinator (v2): ${2:-} ${3:-} = ${4:-}" ;;' \
   'esac' \
@@ -44,8 +44,16 @@ common_env=(
 env "${common_env[@]}" "$root/bin/north" tell \
   019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress "cli-fix probe" \
   >"$scratch/exact.out"
-grep -q '^fram show 019fa4d4-93aa-7447-aae5-0a5bcfca6849$' "$calls"
-grep -q '^fram tell 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
+grep -q '^fram tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
+[[ "$(wc -l <"$calls")" -eq 1 ]]
+[[ ! -e "$bb_calls" ]]
+
+: >"$calls"
+env "${common_env[@]}" "$root/bin/north" retract \
+  019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress "cli-fix probe" \
+  >"$scratch/exact-retract.out"
+grep -q '^fram untell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
+[[ "$(wc -l <"$calls")" -eq 1 ]]
 [[ ! -e "$bb_calls" ]]
 
 : >"$calls"
@@ -57,7 +65,7 @@ if env "${common_env[@]}" "$root/bin/north" tell \
 fi
 grep -q 'REFUSED — unresolved id-like ref' "$scratch/missing.out"
 [[ "$(wc -l <"$calls")" -eq 1 ]]
-grep -q '^fram show 019fa4d4-93aa-7447-aae5-0a5bcfca6800$' "$calls"
+grep -q '^fram tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6800 progress miss$' "$calls"
 
 : >"$calls"
 env "${common_env[@]}" "$root/bin/north" tell @foundation progress handle \
