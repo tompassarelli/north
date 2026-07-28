@@ -26,7 +26,7 @@ EOF
 cat >"$FAKE/bb" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" >>"${WIP_FIXTURE_MAIL:?}"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" >>"${WIP_FIXTURE_MAIL:?}"
 EOF
 chmod 0755 "$FAKE/north" "$FAKE/bb"
 
