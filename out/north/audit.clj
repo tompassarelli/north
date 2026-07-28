@@ -16,10 +16,10 @@
   (if (str/starts-with? low "~/code/") (subs low 7) low)))
 
 (defn- collisions [forms grouped]
-  (filterv (fn [g] (> (count (:forms g)) 1)) (mapv (fn [kk] (->DriftGroup kk (get grouped kk []))) (vec (keys grouped)))))
+  (filterv (fn [g] (> (count (:forms g)) 1)) (mapv (fn [kk] (->DriftGroup kk (get grouped kk []))) (vec (sort (set (keys grouped)))))))
 
 (defn repo-drift [idx]
-  (let [forms (vec (keys (tally idx "repo")))
+  (let [forms (vec (sort (set (keys (tally idx "repo")))))
    grouped (reduce (fn [m t] (let [kk (norm-repo t)]
   (assoc m kk (conj (get m kk []) t)))) {} forms)]
   (collisions forms grouped)))

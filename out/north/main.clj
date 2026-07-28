@@ -617,7 +617,7 @@
    committed-runs (matching-subjects facts "kind" "run")
    runs (child-run-subjects facts child-ids committed-runs)]
   (println (fram.rt/to-json (->JChildSettlementProjection "north.child-settlement" 1 arg (subject-fact-projection facts children) (subject-fact-projection facts runs)))))
-  (= what "children") (println (fram.rt/to-json (vec (sort (mapv short-id (keys (matching-subjects facts "part_of" (str "@" arg))))))))
+  (= what "children") (println (fram.rt/to-json (vec (sort (mapv short-id (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))
   (= what "agents") (println (fram.rt/to-json (mapv (fn [c] (->JAgentFact (subs (:l c) (count "@agent:")) (:p c) (:r c))) (filterv (fn [c] (let [l (:l c)]
   (and (some? l) (str/starts-with? l "@agent:")))) facts))))
   (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
@@ -1173,12 +1173,12 @@
    kpreds (reduce (fn [m c] (let [kd (get skind (:l c) "other")
    kk (str kd KP-SEP (:p c))]
   (assoc m kk (+ 1 (get m kk 0))))) {} facts)
-   kp-keys (vec (keys kpreds))
+   kp-keys (vec (sort (set (keys kpreds))))
    stats (mapv (fn [kd] (let [pfx (str kd KP-SEP)
    off (+ (count kd) 1)
    plist (mapv (fn [kk] (->PredCount (subs kk off) (get kpreds kk 0))) (filterv (fn [kk] (str/starts-with? kk pfx)) kp-keys))
    ptop (vec (take 8 (sort-by (fn [pc] (- 0 (:n pc))) plist)))]
-  (->KindStat kd (get ksub kd 0) (get kfacts kd 0) ptop))) (vec (keys ksub)))]
+  (->KindStat kd (get ksub kd 0) (get kfacts kd 0) ptop))) (vec (sort (set (keys ksub)))))]
   (vec (sort-by (fn [ks] (- 0 (:facts ks))) stats))))
 
 (def ^String SP24 "                        ")
@@ -1221,7 +1221,7 @@
    stats (mapv (fn [p] (let [n (get pc p 0)
    pct (if (> total 0) (quot (* 100 n) total) 0)
    req (if (> total 0) (>= (* n 100) (* total 98)) false)]
-  (->FieldStat p n pct req))) (vec (keys pc)))]
+  (->FieldStat p n pct req))) (vec (sort (set (keys pc)))))]
   (vec (sort-by (fn [fs] (str (if (:required fs) "0" "1") "|" (pad7 (- 9999999 (:subs fs))) "|" (:pred fs))) stats))))
 
 (defn- ^String pred-ann [idx ^String p]
