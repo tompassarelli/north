@@ -427,20 +427,17 @@ CARD
     # when the full `tell <id> <pred> <value>` shape is present; otherwise pass
     # through untouched so fram's own usage/arg checks are unchanged.
     if [ "$#" -ge 4 ]; then
+      north_exact_subject=0
       # FAIL-CLOSED: an unresolvable id-like ref (or a dead resolver) aborts the
       # write — passing the raw ref through would mint a phantom subject under a
       # truncated id and strand the facts (2026-07-03 incident: 19 orphans).
       bare_subject="${2#@}"
       if [[ "$bare_subject" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-        # Exact UUIDs need only an existence check. `fram show` is daemon-first,
-        # so the common write path does not cold-fold the corpus merely to
-        # rediscover the already-canonical id. A miss still fails closed.
-        exact_facts="$("$FRAM_BIN/fram" show "$bare_subject" 2>/dev/null)" || exact_facts=
-        case "$exact_facts" in
-          ""|"no facts for @"*)
-            canon="ERROR unresolved id-like ref $2 — not a live exact thread id" ;;
-          *) canon="@$bare_subject" ;;
-        esac
+        # Exact UUID writes use Fram's one-request atomic operation below. It
+        # checks existence and commits in one coordinator turn, and never
+        # renders/scans provenance merely to prove that the subject exists.
+        canon="@$bare_subject"
+        north_exact_subject=1
       else
         canon="$("${NORTH_MAIN[@]}" resolve "$2" 2>/dev/null)"
       fi
@@ -473,6 +470,30 @@ CARD
             "$FRAM_BIN/fram" "$framverb" "${@:2}"
         fi ;;
     esac
+    if [ "${north_exact_subject:-0}" = 1 ]; then
+      existing_output="$(
+        "$FRAM_BIN/fram" "${framverb}-existing" "${@:2}" 2>&1
+      )"
+      existing_status=$?
+      case "$existing_status" in
+        0)
+          printf '%s\n' "$existing_output"
+          exit 0
+          ;;
+        3)
+          echo "north: $1 REFUSED — unresolved id-like ref ${2#@} — not a live exact thread id" >&2
+          exit 1
+          ;;
+        4)
+          echo "north: $1 REFUSED — subject resolver unavailable for '${2#@}' (coordinator unavailable or incompatible)" >&2
+          exit 1
+          ;;
+        *)
+          printf '%s\n' "$existing_output" >&2
+          exit "$existing_status"
+          ;;
+      esac
+    fi
     exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
   *)  # engine verbs: import/export/show/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;
