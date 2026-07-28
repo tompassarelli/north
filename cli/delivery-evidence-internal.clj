@@ -248,8 +248,17 @@
                        {:thread thread :titles (get thread-facts "title" #{})}))
               (ensure-reservable-contract!
                thread thread-facts baseline "thread done_when contract" {:run run})
-              (let [run-facts (facts-of port run)]
-                (if (seq run-facts)
+              (let [run-facts (facts-of port run)
+                    ;; The runner writes allocation/ledger TELEMETRY onto the
+                    ;; run subject before reserving, so "has any facts" is not
+                    ;; "someone reserved it." Only reservation-predicate
+                    ;; presence engages the replay-or-refuse logic; a subject
+                    ;; carrying nothing from the reservation vocabulary is a
+                    ;; fresh run whatever telemetry it accumulated.
+                    reserved?
+                    (some #(contains? run-facts %)
+                          north.terminal-projection/run-reservation-predicates)]
+                (if (and (seq run-facts) reserved?)
                   (if (exact-reservation-replay?
                        run-facts thread reporter capability-digest)
                     {:done
