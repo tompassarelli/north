@@ -2,7 +2,7 @@
 ;; Computes leverage TWO ways over the live log and proves they agree, so the LOC
 ;; comparison rests on identical output, not hand-waving:
 ;;   (A) shipped imperative: proj/transitive-dependents (manual loop+cycle-guard over k/Index)
-;;   (B) Datalog: a recursive `reaches` rule over the reified store (the chartroom-proven closure)
+;;   (B) Datalog: a recursive `reaches` rule over the reified store (the codegraph-proven closure)
 ;; Honest accounting (printed below): (B)'s RULE is tiny, but it cannot run without the
 ;; reified-store loader + the hand-listed predicate schema — a cost north does NOT pay today.
 ;;   FRAM_LOG=~/.local/state/north/facts.log bb -cp out leverage_probe.clj

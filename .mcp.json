@@ -11,7 +11,7 @@
         "FRAM_SRC": "/home/tom/code/north",
         "FRAM_OUT": "/home/tom/code/fram/out",
         "FRAM_BIN": "/home/tom/code/fram/bin",
-        "FRAM_RESOLVE": "/home/tom/code/fram/chartroom/src/resolve.clj",
+        "FRAM_RESOLVE": "/home/tom/code/fram/out/resolve.clj",
         "FRAM_ROUNDTRIP": "/home/tom/code/beagle/beagle-lib/private/facts-roundtrip.rkt",
         "FRAM_CHECK_EMIT": "/home/tom/code/beagle/beagle-lib/private/facts-check-emit.rkt",
         "FRAM_BUILD_ALL": "/home/tom/code/beagle/bin/beagle-build-all",

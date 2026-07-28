@@ -35,7 +35,7 @@
    "out/fram/schema.clj"
    "out/fram/store.clj"
    "out/fram/rt.clj"
-   "chartroom/src/resolve.clj"])
+   "out/resolve.clj"])
 
 (defn- fail!
   ([message type] (fail! message type {}))
@@ -495,7 +495,7 @@
                               (str/ends-with? (.getName ^java.io.File %) ".clj"))
                          (or (.listFiles root-file)
                              (make-array java.io.File 0)))
-        trees [(io/file root "out") (io/file root "chartroom/src")]
+        trees [(io/file root "out") (io/file root "codegraph/src")]
         runtime-clj (mapcat
                      (fn [directory]
                        (if-not (.isDirectory directory)
