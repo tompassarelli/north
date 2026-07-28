@@ -148,6 +148,7 @@ north — your one card. Type a command to do the thing next to it.
     north dashboard                    the cockpit: agents, concerns, board, health, profile
     north threads                      thread-kind overview: active/ready/blocked  (--all = everything; aliases: board, plate)
     north ready                        committed + unblocked work, start anytime, ranked by leverage
+    north wip                          live managed lanes vs coordinator floor  (--check = exit 3 on pullable shortfall)
     north agenda                       what's dated / overdue today
     north health                       coordination rollup: lanes ran/died, stale concerns
     north trace <id>                   diagnose one agent's lifecycle
@@ -373,6 +374,10 @@ CARD
     # Aggregate coordination rollup — one durable log fold (lane outcomes, stale
     # concerns, ping-loss, zombie forks, died-unreported). Read-only. cli/health-cli.clj.
     exec "$BB" "$NORTH/cli/health-cli.clj" "${@:2}" ;;
+  wip)
+    # Presence-derived managed lanes + reservation thread bindings, coordinator
+    # floor, and the ready/leverage pull queue. Read-only. cli/wip-cli.clj.
+    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/wip-cli.clj" "${@:2}" ;;
   dials)
     # Compatibility bridge to the evidence-aware report. Dollar-centric dial
     # scoring is intentionally retired for subscription entitlement routing.
