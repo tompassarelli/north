@@ -531,6 +531,7 @@
    ["end_time"      "single" "literal" "clock session end instant (absent ⇒ session still open)"]
    ["clock_orphaned" "single" "literal" "flag: a clock session was orphaned before a clean stop"]
    ["estimate_hours" "single" "literal" "estimated hours of work for a thread"]
+   ["wip_floor"      "single" "literal" "minimum live managed-lane count expected by a coordinator"]
    ["actual_hours"  "single" "literal" "reconciled actual billable hours for a thread"]
    ["rate"          "single" "literal" "hourly billing rate on a thread or snapshotted client session"]
    ["invoice_id"    "single" "literal" "invoice a billable thread/session is stamped onto"]
