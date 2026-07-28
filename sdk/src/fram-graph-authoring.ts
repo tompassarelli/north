@@ -545,6 +545,10 @@ export async function prepareManagedFramCoordinator(
         return;
       }
       if (!ownsPort(pid, Number(codePort))) {
+        if (await waitForReap(0)) {
+          markClosed();
+          return;
+        }
         throw new Error(
           `graph_authoring_fram_lane_coordinator_pid_port_mismatch: pid=${pid} `
           + `does not own listener 127.0.0.1:${codePort}`,
@@ -553,6 +557,12 @@ export async function prepareManagedFramCoordinator(
       try { signalPid(pid, "SIGTERM"); } catch { /* reap observation decides */ }
       if (!await waitForReap(options.termMs ?? DEFAULT_TERM_MS)) {
         if (!ownsPort(pid, Number(codePort))) {
+          // The coordinator may satisfy the reap postcondition after the final
+          // timed poll but before this ownership probe.
+          if (await waitForReap(0)) {
+            markClosed();
+            return;
+          }
           throw new Error(
             `graph_authoring_fram_lane_coordinator_pid_port_mismatch: pid=${pid} `
             + `lost ownership of listener 127.0.0.1:${codePort} during reap`,
