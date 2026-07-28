@@ -294,6 +294,12 @@ CARD
     # is everything healthy (coordinator handshake + daemons/health/rev-skew/env/
     # guard-hooks). Both teach the primitive they wrap. cli/dashboard-cli.clj.
     exec "$BB" "$NORTH/cli/dashboard-cli.clj" "$@" ;;
+  hotspots)
+    # Where is the time going and what is failing, ranked (north hotspots is
+    # already the work-queue unblocker ranking, so this is hotspots) — read out of the
+    # telemetry that ALREADY exists (coordinator slow-read attribution, agent
+    # logs). Adds no instrumentation and no daemon. cli/hotspots-cli.clj.
+    exec "$BB" "$NORTH/cli/hotspots-cli.clj" "${@:2}" ;;
   deployed)
     # Is the code I committed the code that is RUNNING? Three columns, because a
     # change gets stuck in three different places: committed but not built
