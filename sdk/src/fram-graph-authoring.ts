@@ -557,16 +557,19 @@ export async function prepareManagedFramCoordinator(
       try { signalPid(pid, "SIGTERM"); } catch { /* reap observation decides */ }
       if (!await waitForReap(options.termMs ?? DEFAULT_TERM_MS)) {
         if (!ownsPort(pid, Number(codePort))) {
-          // The coordinator may satisfy the reap postcondition after the final
-          // timed poll but before this ownership probe.
-          if (await waitForReap(0)) {
+          // Listener released means the coordinator is exiting; a JVM can take
+          // seconds more to flush its shutdown checkpoint before the process
+          // reaps. Grant the same grace again, then escalate to SIGKILL —
+          // a released port is never a failure, only a slow exit.
+          if (await waitForReap(options.termMs ?? DEFAULT_TERM_MS)) {
             markClosed();
             return;
           }
-          throw new Error(
-            `graph_authoring_fram_lane_coordinator_pid_port_mismatch: pid=${pid} `
-            + `lost ownership of listener 127.0.0.1:${codePort} during reap`,
-          );
+          try { signalPid(pid, "SIGKILL"); } catch { /* reap observation decides */ }
+          if (!await waitForReap(options.killMs ?? DEFAULT_KILL_MS))
+            throw new Error("graph_authoring_fram_lane_coordinator_reap_failed");
+          markClosed();
+          return;
         }
         try { signalPid(pid, "SIGKILL"); } catch { /* reap observation decides */ }
         if (!await waitForReap(options.killMs ?? DEFAULT_KILL_MS))
