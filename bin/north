@@ -416,6 +416,21 @@ CARD
     fi
     echo "usage: north worktree lander [repository]" >&2
     exit 2 ;;
+  show|history)
+    # Stage A gives telemetry subjects an independent sole writer. Generic Fram
+    # reads otherwise ask only the coordination writer and turn a real telemetry
+    # subject into a false "no facts" result. Exact namespace-qualified reads
+    # follow the same subject router as writes and fail closed when that writer
+    # is unavailable; partition-off (A1/rollback) keeps the prior Fram surface.
+    if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+      case "${2#@}" in
+        run:*|session:*|mine:*|guard_denial:*)
+          exec "$BB" -cp "$NORTH/out:$FRAM_OUT" \
+            "$NORTH/cli/subject-read-cli.clj" "$@"
+          ;;
+      esac
+    fi
+    exec "$FRAM_BIN/fram" "$@" ;;
   tell|untell|retract)
     # `retract` is the primary agent-facing retraction verb (R&N TELL/RETRACT);
     # `untell` is an accepted legacy alias. Both map onto fram's `untell` CLI verb
@@ -495,6 +510,6 @@ CARD
       esac
     fi
     exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
-  *)  # engine verbs: import/export/show/set/merge/watch
+  *)  # engine verbs: import/export/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;
 esac
