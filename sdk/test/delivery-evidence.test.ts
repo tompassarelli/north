@@ -136,6 +136,21 @@ test("reservation failure diagnostics expose only bounded semantic causes", () =
   expect(timedOut.name).toBe("DeliveryEvidenceRetryableError");
   expect(timedOut.retryable).toBe(true);
   expect(deliveryReservationFailureCause(timedOut)).toBe("writer timed out");
+  const publicationDeadline = deliveryEvidenceWriterError(
+    "reserve",
+    "Message: delivery evidence publication deadline exceeded after 5000ms\n",
+    {
+      run: "run-lane-789",
+      thread: "thread-123",
+      reporter: "agent:lane-789",
+      capabilitySha256: secret,
+    },
+  );
+  expect(publicationDeadline.name).toBe("DeliveryEvidenceRetryableError");
+  expect(publicationDeadline.retryable).toBe(true);
+  expect(deliveryReservationFailureCause(publicationDeadline))
+    .toBe("publication deadline exceeded");
+  expect(publicationDeadline.message).not.toContain(secret);
   expect(deliveryEvidenceWriterError("reserve", "Message: run subject is not fresh", {
     run: "run-lane-456",
     reporter: "agent:lane-456",

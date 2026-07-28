@@ -278,7 +278,10 @@ export function deliveryEvidenceWriterError(
   }
   const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
   return reason?.startsWith("RETRYABLE:")
-    || (operation === "reserve" && reason?.includes("reason=writer-timeout"))
+    || (operation === "reserve" && (
+      reason?.includes("reason=writer-timeout")
+      || reason?.includes("delivery evidence publication deadline exceeded")
+    ))
     ? new DeliveryEvidenceRetryableError(message)
     : new Error(message);
 }
