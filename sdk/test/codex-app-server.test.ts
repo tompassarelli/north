@@ -1897,6 +1897,49 @@ test("a read-only lane is granted no writable root at all", () => {
     .toBe(false);
 });
 
+test("a read-only lane keeps declared web access — orchestrators are read-only by design", () => {
+  // Every orchestrator template (director, team-lead, program, portfolio) carries
+  // `shell.readonly`, so gating `web` on workspace-write silently stripped web
+  // from every managed OpenAI orchestrator while the unsandboxed Anthropic
+  // orchestrator kept it. Read-only + web is the orchestrator shape: coordinate
+  // and research, execute nothing.
+  const { options } = setup();
+  const readOnlyWeb = {
+    ...options,
+    surface: {
+      ...surface,
+      sandbox: "read-only",
+      capabilities: [...surface.capabilities, "web"],
+      web: "cached",
+    } as OpenAIAuthoritySurface,
+  };
+  const contract = managedCodexAppServerLaunch(readOnlyWeb as any);
+
+  // Web survives the read-only shell surface.
+  expect((contract.expectedSessionConfig as any).features.network_proxy).toEqual({
+    enabled: true,
+    domains: { "chromium.googlesource.com": "allow" },
+  });
+  expect(contract.args).toContain("features.network_proxy.enabled=true");
+  expect(contract.args).not.toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
+
+  // The shell surface itself stays closed: still no writable root, still no
+  // workspace-write network grant. Web is not a widening of the shell sandbox.
+  expect(contract.writableRoots).toEqual([]);
+  expect((contract.expectedSessionConfig as any).sandbox_workspace_write).toBeUndefined();
+});
+
+test("a read-only lane WITHOUT web capability still gets no proxy", () => {
+  const { options } = setup();
+  const readOnly = {
+    ...options,
+    surface: { ...surface, sandbox: "read-only" } as OpenAIAuthoritySurface,
+  };
+  const contract = managedCodexAppServerLaunch(readOnly as any);
+  expect((contract.expectedSessionConfig as any).features.network_proxy).toBe(false);
+  expect(contract.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
+});
+
 test("an unrecognized notification is ignored, counted, and never terminal — a flood still is", async () => {
   for (const mode of ["notification-unknown-prethread", "terminal-notification-unknown"]) {
     const { options } = setup(mode);
