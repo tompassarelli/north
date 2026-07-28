@@ -66,7 +66,10 @@ function invokeNorth(
   try {
     return execFileSync(options.command ?? process.env.NORTH_BIN ?? "north", args, {
       encoding: "utf-8",
-      timeout: options.timeoutMs ?? 5000,
+      // Default rides above the coordinator's own query budget (30s) so the
+      // coordinator stays the authoritative limiter; a 5s client ceiling was
+      // failing billable admission on legitimate 4-6.5s reads (2026-07-28).
+      timeout: options.timeoutMs ?? 45_000,
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch {
