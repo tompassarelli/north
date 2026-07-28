@@ -615,6 +615,11 @@
       :missing (str (red "[ERR] ") " reactor heartbeat MISSING — reactor has not swept "
                     "(never started or stopped); start it: `north reactor &`"))))
 
+;; Past this age an undeliverable message is history, not a fault. One hour is
+;; comfortably longer than any lane's 20-minute lifetime, so a recipient absent
+;; this long is absent for good rather than mid-restart.
+(def STALE-MAIL-MS (* 60 60 1000))
+
 (def doctor-failed? (atom false))
 (defn mark-doctor-failed! [] (reset! doctor-failed? true))
 
@@ -634,19 +639,40 @@
                     "no pending mail targets an absent identity"))
 
       :else
-      (do
-        (mark-doctor-failed!)
-        (println (str "    " (red "[ERR] ") (count rows)
-                      " pending message(s) target absent identities"))
-        (println (format "    %-24s %-34s %s" "SENDER" "RECIPIENT" "AGE"))
-        (doseq [{:keys [sender recipient resolved-recipient age]} rows]
-          (println
-           (format "    %-24s %-34s %s"
-                   sender
-                   (if (= recipient resolved-recipient)
-                     recipient
-                     (str recipient " -> " resolved-recipient))
-                   age)))))))
+      ;; Age decides whether this is a fault or debris. Mail that just became
+      ;; undeliverable means a LIVE sender is addressing a recipient that went
+      ;; away — a coordination break worth failing on. Mail whose recipient has
+      ;; been gone for days is settled garbage: the send already failed, nothing
+      ;; will retry it, and no action taken today changes it.
+      ;;
+      ;; Failing doctor on both is what destroyed the signal. 83 messages aged
+      ;; 1-2d held rc=1 permanently, so doctor was red on a healthy coordinator
+      ;; and red stopped meaning anything. Report the debris, fail only on the
+      ;; live break.
+      (let [{fresh true stale false} (group-by #(< (or (:age-ms %) 0) STALE-MAIL-MS) rows)]
+        (when (seq fresh)
+          (mark-doctor-failed!)
+          (println (str "    " (red "[ERR] ") (count fresh)
+                        " pending message(s) target absent identities"))
+          (println (format "    %-24s %-34s %s" "SENDER" "RECIPIENT" "AGE"))
+          (doseq [{:keys [sender recipient resolved-recipient age]} fresh]
+            (println
+             (format "    %-24s %-34s %s"
+                     sender
+                     (if (= recipient resolved-recipient)
+                       recipient
+                       (str recipient " -> " resolved-recipient))
+                     age))))
+        (when (seq stale)
+          (println (str "    " (ylw "[warn]") " " (count stale)
+                        " undeliverable message(s) older than "
+                        (quot STALE-MAIL-MS 3600000) "h — settled debris, not a"
+                        ;; dead-letter-scan sorts age-DESCENDING, so the oldest
+                        ;; row is first. Taking `last` here named the youngest.
+                        " live fault; oldest " (:age (first stale)))))
+        (when (empty? fresh)
+          (println (str "    " (grn "[ok]  ")
+                        "no recently-undeliverable mail")))))))
 
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
