@@ -261,6 +261,13 @@ CARD
     # is everything healthy (coordinator handshake + daemons/health/rev-skew/env/
     # guard-hooks). Both teach the primitive they wrap. cli/dashboard-cli.clj.
     exec "$BB" "$NORTH/cli/dashboard-cli.clj" "$@" ;;
+  deployed)
+    # Is the code I committed the code that is RUNNING? Three columns, because a
+    # change gets stuck in three different places: committed but not built
+    # (rebuild), built but not adopted by the live process (restart), or live.
+    # Those need opposite actions, so the table never merges them.
+    # cli/deployed-cli.clj.
+    exec "$BB" "$NORTH/cli/deployed-cli.clj" "${@:2}" ;;
   config)
     # Personal-stack posture + durable provider routing policy.
     # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)
