@@ -60,7 +60,10 @@
   (check! "names old-gen occupancy" (str/includes? l "old-gen 100.0%"))
   (check! "names the full-GC count" (str/includes? l "2715 full GCs"))
   (check! "names the share of uptime spent in GC" (str/includes? l "41% of uptime in GC"))
-  (check! "names the remedy" (str/includes? l "systemctl restart north-coord.service")))
+  (check! "names the paired-cutover remedy"
+          (str/includes? l "sudo north-coord-runtime restart"))
+  (check! "never recommends a direct service restart"
+          (not (str/includes? l "systemctl restart north-coord.service"))))
 
 ;; --- a healthy JVM is quiet and non-failing ---------------------------------
 (let [l (line-with {:old-pct 12.5 :fgc 3 :gc-seconds 1.2} 3600)]
@@ -68,13 +71,19 @@
           (and (str/includes? l "[ok]") (not (str/includes? l "[ERR]"))))
   (check! "a healthy JVM still reports its numbers" (str/includes? l "old-gen 12.5%")))
 
-;; --- each threshold trips independently -------------------------------------
-;; A full old gen with little GC time yet is still headed for the wall; heavy GC
-;; with a half-full heap is already stealing wall clock. Either alone is a fault.
-(check! "old-gen alone above the threshold trips it"
-        (str/includes? (line-with {:old-pct 95.0 :fgc 1 :gc-seconds 0.5} 3600) "[ERR]"))
+;; --- fault and observation thresholds are intentionally different ------------
+;; Old-gen occupancy alone is noisy: a healthy JVM may retain most of its old
+;; generation. It warrants observation, not a disruptive cutover. Sustained GC
+;; time is the evidence that the process cannot allocate useful work.
+(let [l (line-with {:old-pct 95.0 :fgc 1 :gc-seconds 0.5} 3600)]
+  (check! "high old-gen alone is a warning" (str/includes? l "[warn]"))
+  (check! "high old-gen alone is not an error" (not (str/includes? l "[ERR]")))
+  (check! "high old-gen alone does not recommend a cutover"
+          (not (str/includes? l "north-coord-runtime restart"))))
 (check! "GC time alone above the threshold trips it"
         (str/includes? (line-with {:old-pct 40.0 :fgc 50 :gc-seconds 900.0} 3600) "[ERR]"))
+(check! "a fresh JVM at observed old-gen occupancy stays ok"
+        (str/includes? (line-with {:old-pct 83.7 :fgc 0 :gc-seconds 0.2} 120) "[ok]"))
 (check! "just under both thresholds stays ok"
         (str/includes? (line-with {:old-pct 89.0 :fgc 10 :gc-seconds 600.0} 3600) "[ok]"))
 

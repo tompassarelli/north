@@ -624,9 +624,11 @@
 ;;
 ;; Every existing doctor probe said healthy throughout, because none of them ask
 ;; whether the process can still do work. Finding it took hours; this makes it
-;; one line.
+;; one line. Old-gen occupancy alone is not a restart signal: a healthy JVM can
+;; legitimately retain a large old generation. Sustained GC time is the evidence
+;; that the process is thrashing.
 (def OLD-GEN-WARN-PCT 90.0)
-(def GC-TIME-WARN-PCT 20.0)   ; share of process lifetime spent in GC
+(def GC-TIME-ERR-PCT 20.0)   ; share of process lifetime spent in GC
 
 (defn coordinator-pid
   "PID of the coordinator, or nil. Never throws.
@@ -702,14 +704,21 @@
       (if-let [{:keys [old-pct fgc gc-seconds]} (jvm-gc-health pid)]
         (let [up (process-uptime-seconds pid)
               gc-pct (when (and up (pos? up)) (* 100.0 (/ gc-seconds up)))
-              bad? (or (>= old-pct OLD-GEN-WARN-PCT)
-                       (and gc-pct (>= gc-pct GC-TIME-WARN-PCT)))
+              thrashing? (and gc-pct (>= gc-pct GC-TIME-ERR-PCT))
+              high-old-gen? (>= old-pct OLD-GEN-WARN-PCT)
               detail (format "old-gen %.1f%% · %d full GC%s%s"
                              old-pct fgc (if (= 1 fgc) "" "s")
                              (if gc-pct (format " · %.0f%% of uptime in GC" gc-pct) ""))]
-          (if bad?
+          (cond
+            thrashing?
             (str (red "[ERR] ") " coordinator JVM is thrashing: " detail
-                 " — restart it (`sudo systemctl restart north-coord.service`)")
+                 " — perform the paired cutover (`sudo north-coord-runtime restart`)")
+
+            high-old-gen?
+            (str (ylw "[warn]") " coordinator JVM old-gen occupancy is high: " detail
+                 " — observe GC-time share; no cutover warranted yet")
+
+            :else
             (str (grn "[ok]  ") " coordinator JVM " detail)))
         (str (dim "[--]  ") " coordinator GC health unmeasurable (no jstat)")))))
 

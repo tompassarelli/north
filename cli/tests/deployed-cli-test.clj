@@ -7,6 +7,8 @@
 ;; daemon was three commits behind, because the health probe failed and absent
 ;; disagreement read as agreement. Every case below exists to keep that shut.
 (load-file (str (.getParent (io/file *file*)) "/../deployed-cli.clj"))
+(def deployed-source
+  (slurp (str (.getParent (io/file *file*)) "/../deployed-cli.clj")))
 
 (def failures (atom 0))
 (def checks (atom 0))
@@ -40,14 +42,21 @@
                 :expect-running? true})
          "rebuild"))
 
-(check! "built ahead of running means restart"
+(check! "built ahead of running means paired cutover"
         (= :stale-process (status {:component "fram" :source A :built A :running B
                                    :expect-running? true})))
-(check! "the restart row says restart, not rebuild"
-        (clojure.string/includes?
-         (text {:component "fram" :source A :built A :running B
-                :expect-running? true})
-         "restart"))
+(let [t (text {:component "fram" :source A :built A :running B
+               :expect-running? true})]
+  (check! "the stale-process row says paired cutover, not rebuild"
+          (and (clojure.string/includes? t "paired cutover")
+               (not (clojure.string/includes? t "rebuild")))))
+
+(check! "paired cutover uses the runtime protocol"
+        (= "sudo north-coord-runtime restart" COORDINATOR-CUTOVER-COMMAND))
+(check! "production source never recommends restarting one writer directly"
+        (not (clojure.string/includes?
+              deployed-source
+              "systemctl restart north-coord.service")))
 
 ;; --- an unbuilt commit outranks a stale process -----------------------------
 ;; Restarting first would be wasted work: the closure does not yet contain the
