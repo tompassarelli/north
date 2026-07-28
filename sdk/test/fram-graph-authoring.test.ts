@@ -659,7 +659,7 @@ test("managed providers compile the exact sealed Fram MCP only when explicitly r
 
   const absentPolicy = managedToolPolicy(["filesystem.read"]);
   expect(absentPolicy.disallowedTools).toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
-  expect(FRAM_MCP_TOOL_NAMES).toHaveLength(10);
+  expect(FRAM_MCP_TOOL_NAMES).toHaveLength(11);
 });
 
 // Negative control: an unselected composition (no graph-authoring.fram) must be
