@@ -204,6 +204,35 @@
                           (when (seq values) [predicate values]))))
                      north.terminal-projection/run-resolution-predicates)}))))))
 
+(defn provider-error-detail
+  "The provider's OWN failure text for this lane's most recent run.
+
+  sdk/src/telemetry.ts writes `provider_error_detail` on the run subject, and
+  nothing ever rendered it. A failed lane reported `process=provider_error ·
+  delivery=blocked (provider_terminal_error)` — three facts all naming the same
+  CATEGORY and none naming a cause — while the actual sentence sat unread in
+  telemetry.log:
+
+    failure=Codex managed hook did not complete successfully
+    landed=[0 completed turn(s), 6 MCP call(s), 30 native command(s)]
+
+  Across 128,290 coordination facts the predicate `detail` appears exactly ONCE.
+  This string is the single most useful thing in a dispatch failure, and it was
+  invisible to the command whose entire job is diagnosing one lane.
+
+  Ordered by the run's `at`, so a lane with several runs reports the LATEST
+  failure rather than whichever subject sorted last."
+  [run-entries]
+  (->> run-entries
+       (keep (fn [{:keys [subject facts]}]
+               (when-let [detail (first (many PORT subject "provider_error_detail"))]
+                 {:at (some-> (north.terminal-projection/singleton-value facts "at")
+                              iso->ms)
+                  :detail detail})))
+       (sort-by #(or (:at %) 0))
+       last
+       :detail))
+
 (defn agent-runs [run-entries]         ; [{:outcome :ms} ...] display history
   (->> run-entries
        (keep (fn [{:keys [facts]}]
@@ -485,7 +514,14 @@
                               ": \"" (:reason death-notification) "\"")
                          online (dim "still running — no terminal signal yet")
                          :else (red "NO committed completion terminal (offline, unrecorded)")))]
-          (println (stage 6 mark "6 COMPLETION" detail "north show @swarm")))
+          (println (stage 6 mark "6 COMPLETION" detail "north show @swarm"))
+          ;; The category is on the line above; this is the CAUSE. Printed only
+          ;; on a failing terminal, indented under the step it explains, so a
+          ;; healthy trace is unchanged and a failing one no longer requires
+          ;; grepping a 60 MB telemetry log to learn what actually went wrong.
+          (when (= mark :fail)
+            (when-let [cause (provider-error-detail run-entries)]
+              (println (str "    " (dim "cause  ") (red cause))))))
         ;; 7 REAPING
         (let [stale-concern (first (filter #(and (= (:status %) "building")) concerns))
               detail (str (cond online "live — not reaped"
