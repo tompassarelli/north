@@ -31,13 +31,19 @@
 (defn composed-live-facts [port log]
   (if-not (north.coord/telemetry-partition-enabled?)
     (original-live-facts port log)
-    (let [{:keys [facts unavailable]}
+    (let [{:keys [facts unavailable unavailable-detail]}
           (north.coord/live-facts-view (coordination-port))]
       (when (seq unavailable)
         (binding [*out* *err*]
+          ;; Name WHY, not just WHICH. "unavailable domain(s): coordination"
+          ;; reads as a dead daemon and was, on 2026-07-29, a response that had
+          ;; simply outgrown its size cap — with the reason already in hand and
+          ;; discarded one frame up.
           (println
            (str "north: partial cross-log view; unavailable domain(s): "
-                (str/join ", " unavailable)))))
+                (str/join ", " unavailable)))
+          (doseq [[domain reason] unavailable-detail]
+            (println (str "  " domain ": " reason)))))
       (mapv (fn [[subject predicate value]]
               (kernel/->Fact subject predicate value))
             facts))))
