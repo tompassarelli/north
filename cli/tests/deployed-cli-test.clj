@@ -57,6 +57,9 @@
         (not (clojure.string/includes?
               deployed-source
               "systemctl restart north-coord.service")))
+(check! "deployment identity uses coord-ready, not the heavyweight doctor"
+        (and (clojure.string/includes? deployed-source "\"coord-ready\"")
+             (not (clojure.string/includes? deployed-source "\"coord-doctor\""))))
 
 ;; --- an unbuilt commit outranks a stale process -----------------------------
 ;; Restarting first would be wasted work: the closure does not yet contain the
@@ -77,11 +80,25 @@
                              :expect-running? true})))
 
 ;; --- nixos-config: time-based, because it has no rev in the closure ---------
-;; /run/current-system records its NIXPKGS rev, not which config commit built
-;; it, so this component cannot be revision-matched like the others. On
+;; The persistent system-N-link records generation provenance; the tmpfs
+;; /run/current-system link does not survive reboot as evidence. On
 ;; 2026-07-29 the coordinator's -Xmx16g fix was committed at 06:40, the running
 ;; generation was built at 06:33, and the daemon kept exhausting a 6 GB heap
 ;; every 8 minutes with the fix undeployed. Nothing surfaced that gap.
+
+(let [calls (atom [])]
+  (with-redefs [sh (fn [& args]
+                     (swap! calls conj args)
+                     (cond
+                       (= "readlink" (first args)) "system-1072-link"
+                       (= "stat" (first args)) "1785279200"
+                       :else nil))]
+    (check! "persistent generation-link timestamp is read"
+            (= 1785279200 (generation-built-epoch)))
+    (check! "never uses the tmpfs current-system link as provenance"
+            (not-any? #(some #{"/run/current-system"} %) @calls))
+    (check! "stats the selected durable generation link"
+            (some #(some #{"/nix/var/nix/profiles/system-1072-link"} %) @calls))))
 
 (check! "no generation timestamp yields nil, not zero"
         (nil? (commits-since-epoch "nixos-config" nil)))
@@ -90,8 +107,8 @@
   (with-redefs [sh (fn [& args] (reset! called args) "3\n")]
     (check! "counts commits newer than the generation"
             (= 3 (commits-since-epoch "nixos-config" 1785000000)))
-    (check! "asks git for commits since that exact epoch"
-            (some #(= "--since=@1785000000" %) @called))
+    (check! "asks git for commits strictly newer than the generation epoch"
+            (some #(= "--since=@1785000001" %) @called))
     (check! "scopes the count to main, not the checked-out branch"
             (some #(= "refs/heads/main" %) @called))))
 
@@ -99,6 +116,46 @@
 (with-redefs [sh (fn [& _] "")]
   (check! "an unparseable count is nil, never a confident zero"
           (nil? (commits-since-epoch "nixos-config" 1785000000))))
+
+(with-redefs [generation-built-epoch (constantly nil)
+              commits-since-epoch (fn [& _] nil)]
+  (check! "missing generation evidence is a failing unknown row"
+          (= :unknown (first (:verdict (nixos-config-assessment))))))
+
+(with-redefs [generation-built-epoch (constantly 1785000000)
+              commits-since-epoch (fn [& _] 3)]
+  (let [r (nixos-config-assessment)]
+    (check! "pending config commits are a stale-build row"
+            (= :stale-build (first (:verdict r))))
+    (check! "pending count is preserved for JSON"
+            (= 3 (:pending r)))))
+
+(with-redefs [generation-built-epoch (constantly 1785000000)
+              commits-since-epoch (fn [& _] 0)]
+  (check! "zero pending config commits is live"
+          (= :live (first (:verdict (nixos-config-assessment))))))
+
+(let [good-row {:component "fram" :verdict [:live "✓" "live"]}
+      unknown-row {:component "nixos-config"
+                   :verdict [:unknown "?" "cannot determine"]}]
+  (check! "JSON always includes the nixos-config result"
+          (= ["fram" "nixos-config"]
+             (mapv :component (json-rows [good-row unknown-row]))))
+  (check! "JSON carries the failing status"
+          (= "unknown" (:status (second (json-rows [good-row unknown-row]))))))
+
+(with-redefs [locked-revs (constantly {"north" A "fram" A "beagle" A})
+              source-rev (constantly A)
+              running-fram (constantly A)
+              system-fram-rev (constantly A)
+              nixos-config-assessment
+              (constantly {:component "nixos-config"
+                           :verdict [:unknown "?" "cannot determine"]})]
+  (let [{:keys [judged worst]} (deployment-report)]
+    (check! "unknown nixos-config evidence makes the command fail"
+            (= 1 worst))
+    (check! "nixos-config participates in the same judged output"
+            (= "nixos-config" (:component (last judged))))))
 
 (println (format "deployed-cli: %d / %d PASS" (- @checks @failures) @checks))
 (System/exit (if (zero? @failures) 0 1))
