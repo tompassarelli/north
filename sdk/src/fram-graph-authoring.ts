@@ -21,6 +21,7 @@ export const FRAM_MCP_TOOL_NAMES = Object.freeze([
   "rename-def",
   "insert-after",
   "replace-in-body",
+  "edit-transaction",
 ] as const);
 export const FRAM_MCP_TOOLS = Object.freeze(
   FRAM_MCP_TOOL_NAMES.map((name) => `mcp__${FRAM_MCP_SERVER}__${name}`),
