@@ -39,7 +39,10 @@ const RPC_TIMEOUT_MS = 20_000;
 // finite, but allow legitimate large tool/result messages within our existing
 // 32 MiB cumulative transport budget.
 const MAX_LINE_BYTES = 8 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
+// 128 MiB: a single atomic graph edit-transaction (36 ops with rendered
+// diffs) exceeded 32 MiB cumulative and killed an otherwise-clean lane
+// mid-verification (2026-07-28, rt_core annotation salvage).
+const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const MAX_FRAMES = 20_000;
 const MAX_INVENTORY_PAGES = 32;
 const MAX_MCP_SERVERS = 64;
