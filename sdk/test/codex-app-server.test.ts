@@ -659,6 +659,10 @@ function setup(mode = "ok") {
           current.layers[1].config = { mcp_servers: { hostile: { command: "hostile" } } };
           delete (current.layers[1] as any).disabledReason;
         }
+        if (mode === "user-layer-nonempty")
+          current.layers[2].config = { model: "gpt-5.6-sol", approval_policy: "never" };
+        if (mode === "system-layer-nonempty")
+          current.layers[3].config = { sandbox_mode: "danger-full-access" };
         if (mode === "feature-default-enabled") current.config.features.browser_use = true;
         if (mode === "feature-omitted") delete current.config.features.browser_use;
         if (mode === "web-network-boolean-drift") current.config.features.network_proxy = true;
@@ -1642,6 +1646,44 @@ test("a widened disabled project layer is refused and NAMES the offending keys",
   const named = /widened authority: ([^(]*)/.exec(text)?.[1] ?? "";
   expect(named).not.toContain("mcp_servers");
   expect(requests.some(({ method }) => method === "thread/start")).toBe(false);
+});
+
+test("a non-empty user layer is refused and NAMES what it carries", async () => {
+  // Same defect class as the widened project layer: the contract is "this layer
+  // holds nothing", and `exact(layer, {})` reported only that it differed — the
+  // one fact a reader needs is WHICH key appeared. Keys only; a value may be a
+  // token, an option name never is.
+  const { options, requests } = setup("user-layer-nonempty");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun(options).execute();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  const text = String((caught as Error).cause ?? caught);
+  expect(text).toContain("Codex user layer must be empty but carries");
+  expect(text).toContain("approval_policy");
+  expect(text).toContain("model");
+  // The VALUES must never reach the message.
+  expect(text).not.toContain("gpt-5.6-sol");
+  expect(text).not.toContain("never");
+  expect(requests.some(({ method }) => method === "thread/start")).toBe(false);
+});
+
+test("a non-empty system layer is refused and NAMES what it carries", async () => {
+  const { options } = setup("system-layer-nonempty");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun(options).execute();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  const text = String((caught as Error).cause ?? caught);
+  expect(text).toContain("Codex system layer must be empty but carries");
+  expect(text).toContain("sandbox_mode");
+  expect(text).not.toContain("danger-full-access");
 });
 
 test("every security-relevant thread/start response field is attested independently", async () => {

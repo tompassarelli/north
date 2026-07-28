@@ -290,6 +290,17 @@ function exactDiagnosable(value: unknown, expected: unknown, label: string): voi
   });
 }
 
+// A config layer North requires to be EMPTY. `exact(layer, {})` reported only
+// that it differed, which is the least useful thing to say about a layer whose
+// whole contract is "has nothing in it" — the one fact a reader needs is what
+// appeared. Keys only, never values: an option name is diagnostic, an option
+// value may be a token.
+function mustBeEmptyLayer(value: unknown, label: string): void {
+  const present = Object.keys(canonical(value) as JsonObject).sort();
+  if (present.length)
+    throw new Error(`${label} must be empty but carries: ${present.join(", ")}`);
+}
+
 function validateShellPreflight(response: unknown): void {
   const result = record(response, "Codex command/exec response");
   onlyKeys(result, ["exitCode", "stdout", "stderr"], "Codex command/exec response");
@@ -919,12 +930,12 @@ function validateConfig(
           !== join(contract.projectRoot, ".codex"))
         throw new Error("Codex project layer names an invalid config folder");
     } else if (type === "user") {
-      exact(layerConfig, {}, "Codex user layer");
+      mustBeEmptyLayer(layerConfig, "Codex user layer");
       if (name.profile !== null || name.file !== resolve(contract.codexHome, "config.toml"))
         throw new Error("Codex user layer names the wrong account");
     } else if (type === "system" || type === "mdm" || type === "enterpriseManaged"
         || type === "legacyManagedConfigTomlFromFile" || type === "legacyManagedConfigTomlFromMdm") {
-      exact(layerConfig, {}, `Codex ${type} layer`);
+      mustBeEmptyLayer(layerConfig, `Codex ${type} layer`);
     } else {
       throw new Error(`Codex exposed unknown config layer ${type}`);
     }
