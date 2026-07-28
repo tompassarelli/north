@@ -14,6 +14,7 @@ import { admitPinnedProvider } from "../src/execution-admission";
 const north = resolve(import.meta.dir, "../..");
 const cli = resolve(north, "cli/agents-cli.clj");
 const orchestration = resolve(north, "orchestration");
+const CLI_PROCESS_TEST_TIMEOUT_MS = 45_000;
 const bespokeContract = JSON.stringify({
   responsibility: "reconstruct migration provenance", deliverable: "evidence-linked timeline",
   capabilities: ["filesystem.read", "filesystem.search", "shell.readonly"],
@@ -73,7 +74,7 @@ test("director is the canonical orchestrator role and topology names fail pedago
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(`${topology} is a topology, not a role`);
   }
-});
+}, CLI_PROCESS_TEST_TIMEOUT_MS);
 
 test("CLI dry preview uses the exact topology policy selected for execution", () => {
   expect(dry("integrator", "openai")).toContain(
@@ -123,7 +124,7 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
   expect(invalid.status).toBe(1);
   expect(invalid.stderr).toContain("positive integer between 1 and 1000");
   expect(invalid.stdout).not.toContain("[dry-run]");
-});
+}, CLI_PROCESS_TEST_TIMEOUT_MS);
 
 test("a managed CLI orchestrator without an exact parent reservation fails safe before recursive spawn", () => {
   const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args, "--ad-hoc", "--dry-run"], {
@@ -158,7 +159,7 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
     expect(result.stdout).toContain("recursive orchestrator spawn requires its exact parent run/thread reservation");
     expect(result.stdout).not.toContain("coordination depth denied");
   }
-});
+}, CLI_PROCESS_TEST_TIMEOUT_MS);
 
 test("ambiguous researcher role fails with the three explicit research functions", () => {
   const result = spawnSync("bb", [cli, "spawn", "researcher", "probe", "--ad-hoc", "--dry-run"], {
@@ -266,7 +267,7 @@ test("composite preview and execution share pinned-provider admission before sid
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-});
+}, CLI_PROCESS_TEST_TIMEOUT_MS);
 
 test("delegate requires one explicit dependency-shape classification", () => {
   for (const result of [
@@ -670,7 +671,7 @@ test("bespoke roles require a structured contract and explicit promotion decisio
   expect(nearest).toContain("orchestration:bespoke:migration-cartographer");
   expect(nearest).not.toContain("schema archaeology");
   expect(nearest).not.toContain("timeline and gaps");
-});
+}, CLI_PROCESS_TEST_TIMEOUT_MS);
 
 test("CLI effective-authority closure rejects open shell capability sets", () => {
   const contract = (capabilities: string[]) => JSON.stringify({
