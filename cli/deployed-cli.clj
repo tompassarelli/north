@@ -29,6 +29,7 @@
 (def HOME (System/getenv "HOME"))
 (def CODE (str HOME "/code"))
 (def NIXOS (str CODE "/nixos-config"))
+(def SYSTEM-PROFILE "/nix/var/nix/profiles/system")
 (def COORDINATOR-CUTOVER-COMMAND "sudo north-coord-runtime restart")
 
 (def use-color? (and (nil? (System/getenv "NO_COLOR"))
@@ -109,7 +110,10 @@
            (re-find #"[0-9a-f]{40}")))
 
 (defn- running-fram []
-  (some->> (sh-any "north" "coord-doctor")
+  ;; Deployment identity is the cheap question answered by coord-ready. The
+  ;; former coord-doctor call ran the entire health/hygiene sweep just to read
+  ;; one hash and could exceed 40 seconds on an otherwise healthy system.
+  (some->> (sh-any "north" "coord-ready")
            (re-find #"rev[:=]\s*([0-9a-f]{40})")
            second))
 
@@ -125,13 +129,32 @@
   {:component component :source source :built built
    :running running-rev :note note})
 
-(defn generation-built-epoch
-  "When the running system generation was built, unix seconds, or nil."
+(defn generation-link
+  "Persistent `system-N-link` selected by the system profile, or nil.
+
+  `/run/current-system` lives on tmpfs and is recreated at boot, so its mtime
+  can make an old generation look freshly deployed. The generation link under
+  `/nix/var/nix/profiles` is durable and keeps the original switch provenance."
   []
-  (some-> (sh "stat" "-c" "%Y" "/run/current-system") str/trim parse-long))
+  (when-let [target (sh "readlink" SYSTEM-PROFILE)]
+    (let [target-path (.toPath (io/file target))]
+      (str
+       (if (.isAbsolute target-path)
+         (.normalize target-path)
+         (.normalize
+          (.resolve (.toPath (.getParentFile (io/file SYSTEM-PROFILE)))
+                    target)))))))
+
+(defn generation-built-epoch
+  "When the selected persistent system generation was created, unix seconds,
+  or nil. This remains a labelled time heuristic because the closure does not
+  yet embed the nixos-config Git revision."
+  []
+  (when-let [link (generation-link)]
+    (some-> (sh "stat" "-c" "%Y" link) str/trim parse-long)))
 
 (defn commits-since-epoch
-  "Commits on `repo`'s main newer than `epoch`, or nil.
+  "Commits on `repo`'s main strictly newer than `epoch`, or nil.
 
   nixos-config carries no revision into the closure — /run/current-system knows
   its NIXPKGS rev, not which config commit produced it — so unlike the other
@@ -144,9 +167,41 @@
   [repo epoch]
   (when epoch
     (some-> (sh "git" "-C" (str CODE "/" repo) "rev-list" "--count"
-                (str "--since=@" epoch) "refs/heads/main")
+                ;; Git's time boundary is inclusive at one-second resolution.
+                ;; Advancing it prevents the commit that produced the selected
+                ;; generation from counting itself as pending.
+                (str "--since=@" (inc epoch)) "refs/heads/main")
             str/trim
             parse-long)))
+
+(defn nixos-config-assessment
+  "First-class deployment row for nixos-config's labelled time heuristic.
+  Missing evidence is unknown/failing; it can never silently become green."
+  []
+  (let [epoch (generation-built-epoch)
+        pending (commits-since-epoch "nixos-config" epoch)
+        verdict
+        (cond
+          (or (nil? epoch) (nil? pending))
+          [:unknown (ylw "?")
+           "cannot determine — persistent generation provenance unavailable"]
+
+          (pos? pending)
+          [:stale-build (red "✗")
+           (str "rebuild — " pending
+                " commit(s) newer than generation (time-based)")]
+
+          :else
+          [:live (grn "✓") "live (time-based generation-link evidence)"])]
+    {:component "nixos-config"
+     :source nil
+     :built nil
+     :running nil
+     :pending pending
+     :generation_epoch epoch
+     :evidence "persistent-generation-link-time"
+     :note "time-based heuristic; the closure does not embed nixos-config rev"
+     :verdict verdict}))
 
 (defn- verdict
   "SOURCE≠BUILT means rebuild; BUILT≠RUNNING means paired cutover; they need
@@ -177,9 +232,8 @@
     :else
     [:live (grn "✓") "live"]))
 
-(defn -main [& args]
-  (let [json? (some #{"--json"} args)
-        locked (locked-revs)
+(defn deployment-report []
+  (let [locked (locked-revs)
         fram-running (running-fram)
         sys-fram (system-fram-rev)
         rows (for [repo ["north" "fram" "beagle"]]
@@ -192,25 +246,33 @@
                      run (when (= repo "fram") fram-running)]
                  (assoc (row repo src blt run nil)
                         :expect-running? (= repo "fram"))))
-        judged (map (fn [r] (assoc r :verdict (verdict r))) rows)
+        judged (conj (mapv (fn [r] (assoc r :verdict (verdict r))) rows)
+                      (nixos-config-assessment))
         worst (if (some #(#{:stale-build :stale-process :unknown}
                           (first (:verdict %)))
                         judged)
                 1 0)]
+    {:judged judged :worst worst}))
+
+(defn json-rows [judged]
+  (mapv (fn [r] (-> r
+                    (assoc :status (name (first (:verdict r))))
+                    (dissoc :verdict)))
+        judged))
+
+(defn -main [& args]
+  (let [json? (some #{"--json"} args)
+        {:keys [judged worst]} (deployment-report)]
     (if json?
-      (println (json/generate-string
-                (mapv (fn [r] (-> r
-                                  (assoc :status (name (first (:verdict r))))
-                                  (dissoc :verdict)))
-                      judged)))
+      (println (json/generate-string (json-rows judged)))
       (do
         (println (bold "north deployed") (dim "— committed vs built vs running"))
         (println)
-        (println (format "  %-9s %-10s %-10s %-10s %s"
+        (println (format "  %-13s %-10s %-10s %-10s %s"
                          "COMPONENT" "SOURCE" "BUILT" "RUNNING" "VERDICT"))
         (doseq [{:keys [component source built running] :as r} judged]
           (let [[_ mark text] (:verdict r)]
-            (println (format "  %-9s %-10s %-10s %-10s %s %s"
+            (println (format "  %-13s %-10s %-10s %-10s %s %s"
                              component
                              (or (short-rev source) "-")
                              (or (short-rev built) "-")
@@ -226,16 +288,6 @@
           (println (str "  " (ylw "→")
                         " the closure is newer than the live process. Paired cutover:"))
           (println (dim (str "      " COORDINATOR-CUTOVER-COMMAND))))
-        ;; nixos-config gets its own line rather than a table row: it has no
-        ;; revision in the closure, so this is a time comparison and must not be
-        ;; presented as if it were the same kind of evidence as the rows above.
-        (let [epoch (generation-built-epoch)
-              pending (commits-since-epoch "nixos-config" epoch)]
-          (when (and pending (pos? pending))
-            (println (str "  " (ylw "→") " nixos-config has " pending
-                          " commit(s) newer than the running generation"))
-            (println (dim (str "      (time-based: the closure records its nixpkgs rev, not the config commit)")))
-            (println (dim "      firn-rebuild-coordinated --why \"<reason>\""))))
         (when (zero? worst)
           (println (str "  " (grn "everything committed is built and running."))))
         (let [[on-path sys] (or (running-north) [nil nil])]
