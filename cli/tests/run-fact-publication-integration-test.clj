@@ -361,6 +361,81 @@
                       (str/includes? diagnostic (str "receipt=" receipt))
                       (str/includes? diagnostic
                                      "reason=existing-reservation"))))))
+    ;; ACKNOWLEDGEMENT LOSS. Publication is atomic, so the only thing a caller
+    ;; can lose after success is the receipt. A same-run retry carrying the
+    ;; EXACT run/thread/reporter/capability is replaying its own reservation and
+    ;; must get the canonical acknowledgement back, byte for byte, without
+    ;; touching the graph. Anything else on that subject is a refusal.
+    (let [replay-run "@run-acknowledgement-loss"
+          replay-thread "@thread-acknowledgement-loss"
+          replay-capability (apply str (repeat 64 "9"))
+          other-thread "@thread-acknowledgement-loss-other"]
+      (doseq [[subject title] [[replay-thread "Acknowledgement loss replay"]
+                               [other-thread "Other reservation subject"]]]
+        (north.coord/append! port subject "title" title)
+        (north.coord/append! port subject "done_when" "publication is atomic"))
+      (let [first-reserve
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request replay-run replay-thread reporter
+                                     replay-capability)))
+            stored (facts-of port replay-run)
+            replay
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request replay-run replay-thread reporter
+                                     replay-capability)))
+            wrong-reporter
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request replay-run replay-thread
+                                     "@agent:lane-other-holder"
+                                     replay-capability)))
+            wrong-capability
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request replay-run replay-thread reporter
+                                     (apply str (repeat 64 "7")))))
+            wrong-thread
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request replay-run other-thread reporter
+                                     replay-capability)))]
+        (check "an exact same-run replay returns the canonical acknowledgement"
+               (and (zero? (:exit first-reserve))
+                    (zero? (:exit replay))
+                    (= (str/trim (:out first-reserve)) (str/trim (:out replay)))
+                    (not (str/blank? (:out replay)))))
+        (check "an exact same-run replay mutates nothing"
+               (and (north.terminal-projection/run-reservation-valid? stored)
+                    (= (set north.terminal-projection/run-reservation-predicates)
+                       (set (keys stored)))
+                    (= stored (facts-of port replay-run))))
+        (check "a different reporter, capability, or thread is refused, never replayed"
+               (and (every? #(not (zero? (:exit %)))
+                            [wrong-reporter wrong-capability wrong-thread])
+                    (every? #(str/includes? (:err %) "reason=existing-reservation")
+                            [wrong-reporter wrong-capability wrong-thread])
+                    (= stored (facts-of port replay-run))))))
+    ;; A SUBSET of a reservation — the exact residue a non-atomic publisher
+    ;; could leave — is never completed in place and never replayed.
+    (let [partial-run "@run-partial-reservation-subject"
+          partial-thread "@thread-partial-reservation-subject"]
+      (north.coord/append! port partial-thread "title" "Partial reservation subject")
+      (north.coord/append! port partial-thread "done_when" "publication is atomic")
+      (north.coord/append! port partial-run "run_reservation_agent" reporter)
+      (north.coord/append! port partial-run "run_reservation_version"
+                           north.terminal-projection/run-reservation-version)
+      (let [before (facts-of port partial-run)
+            refused
+            (shell "bb" evidence-writer (str port) "reserve"
+                   (json/generate-string
+                    (reserve-request partial-run partial-thread reporter
+                                     capability)))]
+        (check "a partial reservation subject refuses without completing itself in place"
+               (and (not (zero? (:exit refused)))
+                    (str/includes? (:err refused) "reason=run-subject-not-fresh")
+                    (= before (facts-of port partial-run))))))
     ;; Same well-formed thread, but the reads are stopped: the writer must name
     ;; the unanswered read and leave NO partial reservation behind.
     (let [unread-run "@run-unanswered-read"
@@ -470,10 +545,23 @@
       (check "fresh run reservation commits before execution" (zero? (:exit result)))
       (check "reservation is singleton and digest-valid"
              (north.terminal-projection/run-reservation-valid? (facts-of port run))))
-    (let [duplicate (shell "bb" evidence-writer (str port) "reserve"
+    ;; Reserving twice is no longer one case. Publication is atomic, so an exact
+    ;; repeat of THIS run's own request can only mean a lost acknowledgement and
+    ;; replays; any rebinding of the immutable run subject is still refused.
+    (let [before (facts-of port run)
+          duplicate (shell "bb" evidence-writer (str port) "reserve"
                            (json/generate-string
-                            (reserve-request run thread reporter capability)))]
-      (check "run subject cannot be reserved twice" (not (zero? (:exit duplicate)))))
+                            (reserve-request run thread reporter capability)))
+          rebound (shell "bb" evidence-writer (str port) "reserve"
+                         (json/generate-string
+                          (reserve-request run thread "@agent:lane-rebinding"
+                                           capability)))]
+      (check "an exact same-run reserve replays instead of publishing twice"
+             (and (zero? (:exit duplicate))
+                  (= before (facts-of port run))))
+      (check "a rebound run subject cannot be reserved twice"
+             (and (not (zero? (:exit rebound)))
+                  (= before (facts-of port run)))))
     (let [wrong-cap (shell "bb" evidence-writer (str port) "record"
                            (json/generate-string
                             (record-request run thread reporter
