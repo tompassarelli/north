@@ -2249,6 +2249,7 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
         );
       },
       load: () => ({ reservationValid: false, evidence: [] }),
+      reserveOptions: { sleep: () => {} },
     },
     queryFn: () => {
       constructions++;
@@ -2260,7 +2261,7 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
       })();
     },
   });
-  expect(reserveCalls).toBe(1);
+  expect(reserveCalls).toBe(2);
   expect(constructions).toBe(1);
   const lines = await settledRunLines(
     "test-dispatch-reservation-rotation-agent",

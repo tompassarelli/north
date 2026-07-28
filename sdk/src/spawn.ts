@@ -91,10 +91,10 @@ import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verifi
 import { getThreadFacts, normalizeNorthEntityId } from "./north-client";
 import {
   loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
-  resolveDeliveryRunState, resolveThreadFacts,
-  DeliveryEvidenceRetryableError,
+  reserveDeliveryRunWithRecovery, resolveDeliveryRunState, resolveThreadFacts,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
-  type DeliveryRunStateLoadOptions, type ThreadFactsLoadOptions,
+  type DeliveryReservationRecoveryOptions, type DeliveryRunStateLoadOptions,
+  type ThreadFactsLoadOptions,
 } from "./delivery-evidence";
 import { takeSpawnTestRuntime } from "./internal/test-runtime";
 import {
@@ -143,6 +143,8 @@ interface SpawnRuntime {
   deliveryRuntime?: {
     reserve: (context: DeliveryRunContext) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
+    /** Bounded pre-provider writer relaunch shape; tests inject timing only. */
+    reserveOptions?: DeliveryReservationRecoveryOptions;
     /** Bounded retry shape for the finalize-time load; tests inject it. */
     loadOptions?: DeliveryRunStateLoadOptions;
   };
@@ -570,26 +572,24 @@ async function runSpawn(
   if (runContext) {
     try {
       if (deliveryRuntime) {
-        deliveryReservation = deliveryRuntime.reserve(runContext);
+        deliveryReservation = reserveDeliveryRunWithRecovery(
+          runContext,
+          deliveryRuntime.reserve,
+          {
+            ...deliveryRuntime.reserveOptions,
+            onRetry: (error, nextAttempt, maxAttempts, backoffMs) => {
+              console.error(
+                `[delivery] @${runId} reservation writer failed before provider; `
+                + `relaunching the same reservation identity after ${backoffMs}ms `
+                + `(attempt ${nextAttempt}/${maxAttempts}): ${error.message}`,
+              );
+            },
+          },
+        );
         if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
         deliveryReservationReady = true;
       }
     } catch (error) {
-      let terminalError = error;
-      if (error instanceof DeliveryEvidenceRetryableError) {
-        console.error(
-          `[delivery] @${runId} reservation transport was ambiguous; retrying once with the same identity: `
-          + `${(error as Error)?.message ?? String(error)}`,
-        );
-        try {
-          if (!deliveryRuntime) throw error;
-          deliveryReservation = deliveryRuntime.reserve(runContext);
-          if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
-          deliveryReservationReady = true;
-        } catch (retryError) {
-          terminalError = retryError;
-        }
-      }
       if (!deliveryReservationReady) {
         const attemptedRunId = runId;
         runId = newRunId(agentId);
@@ -597,9 +597,9 @@ async function runSpawn(
         console.error(
           `[delivery] @${attemptedRunId} reservation unavailable; rotating blocked telemetry `
           + `to fresh non-reservation @${runId}: `
-          + `${(terminalError as Error)?.message ?? String(terminalError)}`,
+          + `${(error as Error)?.message ?? String(error)}`,
         );
-        throw terminalError;
+        throw error;
       }
     }
   }
