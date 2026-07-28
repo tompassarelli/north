@@ -26,11 +26,11 @@
 (defn- collisions [forms :- (Vec String) grouped :- (Map String (Vec String))] :- (Vec DriftGroup)
   (filterv (fn [g :- DriftGroup] :- Bool (> (count (:forms g)) 1))
            (mapv (fn [kk :- String] :- DriftGroup (->DriftGroup kk (get grouped kk [])))
-                 (vec (keys grouped)))))
+                 (vec (sort (set (keys grouped)))))))
 
 ;; repo values are bare literals now (no `repo:` prefix to strip).
 (defn repo-drift [idx :- k/Index] :- (Vec DriftGroup)
-  (let [forms (vec (keys (tally idx "repo")))
+  (let [forms (vec (sort (set (keys (tally idx "repo")))))
         grouped (reduce (fn [m :- (Map String (Vec String)) t :- String] :- (Map String (Vec String))
                           (let [kk (norm-repo t)]
                             (assoc m kk (conj (get m kk []) t))))
