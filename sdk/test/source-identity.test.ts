@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkoutSourceIdentity } from "../src/providers/source-identity";
+import { checkoutSourceIdentity, northSourceIdentity } from "../src/providers/source-identity";
 
 const temporary: string[] = [];
 afterEach(() => {
@@ -22,4 +22,19 @@ test("checkout source identity distinguishes clean and dirty revisions", () => {
   expect(checkoutSourceIdentity(root)).toMatch(/^checkout [0-9a-f]+ clean$/);
   writeFileSync(join(root, "tracked"), "dirty\n");
   expect(checkoutSourceIdentity(root)).toMatch(/^checkout [0-9a-f]+ dirty$/);
+});
+
+test("North source identity follows delivery mode and preserves the exact revision", () => {
+  expect(northSourceIdentity("/unused", {
+    NORTH_PACKAGE_MODE: "checkout",
+    NORTH_PACKAGE_REV: "checkout-clean",
+  })).toBe("checkout checkout-clean");
+  expect(northSourceIdentity("/unused", {
+    NORTH_PACKAGE_MODE: "nix-store",
+    NORTH_PACKAGE_REV: "package-clean",
+  })).toBe("nix-store package-clean");
+  expect(northSourceIdentity("/unused", {
+    NORTH_PACKAGE_MODE: "checkout",
+    NORTH_PACKAGE_REV: "checkout-dirty",
+  })).toBe("checkout checkout-dirty");
 });
