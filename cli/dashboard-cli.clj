@@ -433,20 +433,33 @@
 
 (defn source-revision
   "Packaged runtimes identify their immutable inputs; source runs use checkout HEAD."
-  [name repo]
-  (let [git-result (or (let [result (run ["git" "-C" repo "rev-parse" "--short" "HEAD"] :timeout 2000)]
-                         (when (:ok result) result))
-                       (run ["git" "-C" (primary-repo name) "rev-parse" "--short" "HEAD"] :timeout 2000))
-        git-rev (when (:ok git-result) (not-empty (str/trim (:out git-result))))
-        package-rev (case name
-                      "north" (System/getenv "NORTH_PACKAGE_REV")
-                      "fram" (System/getenv "FRAM_PACKAGE_REV")
-                      "beagle" (System/getenv "BEAGLE_PACKAGE_REV")
-                      nil)]
-    (cond
-      (not-empty package-rev) {:revision package-rev :origin "package rev"}
-      git-rev {:revision git-rev :origin "tree HEAD"}
-      :else {:revision "?" :origin "source rev"})))
+  ([name repo] (source-revision name repo #(System/getenv %)))
+  ([name repo getenv]
+   (let [git-result (or (let [result (run ["git" "-C" repo "rev-parse" "--short" "HEAD"] :timeout 2000)]
+                          (when (:ok result) result))
+                        (run ["git" "-C" (primary-repo name) "rev-parse" "--short" "HEAD"] :timeout 2000))
+         git-rev (when (:ok git-result) (not-empty (str/trim (:out git-result))))
+         package-mode (when (= name "north") (getenv "NORTH_PACKAGE_MODE"))
+         package-rev (case name
+                       "north" (getenv "NORTH_PACKAGE_REV")
+                       "fram" (getenv "FRAM_PACKAGE_REV")
+                       "beagle" (getenv "BEAGLE_PACKAGE_REV")
+                       nil)
+         identity (cond
+                    (not-empty package-rev)
+                    {:revision package-rev
+                     :origin (if (= package-mode "checkout") "checkout rev" "package rev")}
+                    git-rev {:revision git-rev :origin "tree HEAD"}
+                    :else {:revision "?" :origin "source rev"})]
+     (if (= name "north")
+       (assoc identity :package-mode package-mode)
+       identity))))
+
+(defn runtime-source-note [package-mode origin]
+  (when-not (= package-mode "checkout")
+    (if (= origin "package rev")
+      "         (installed via nix store; embedded package revision shown above)"
+      "         (installed via nix store; tree HEAD is checkout context, not the store closure identity)")))
 
 (defn deployment-drift
   "Compare a runtime revision with the named component's primary checkout.
@@ -817,7 +830,7 @@
   ;; separately installed store path contains that tree.
   (println (bold "  runtime source identity"))
   (doseq [[name repo] [["north" NORTH] ["fram" FRAM] ["beagle" BEAGLE]]]
-    (let [{:keys [revision origin]} (source-revision name repo)
+    (let [{:keys [revision origin package-mode]} (source-revision name repo)
           command-result (run ["bash" "-c" "command -v \"$1\"" "north-doctor" name] :timeout 1500)
           which (when (:ok command-result)
                   (some-> (:out command-result) str/trim not-empty
@@ -826,11 +839,8 @@
       (println (str "    " (cyn name) "  " origin " " revision
                     "  installed " (or store which "?")))
       (when (and store (not (str/includes? (or which "") repo)))
-        (println
-         (dim
-          (if (= origin "package rev")
-            "         (installed via nix store; embedded package revision shown above)"
-            "         (installed via nix store; tree HEAD is checkout context, not the store closure identity)")))
+        (when-let [note (runtime-source-note package-mode origin)]
+          (println (dim note)))
       (let [{:keys [available behind dirty-files]} (deployment-drift name revision)]
         (if-not available
           (println (str "    " (ylw "[warn] ") name ": repo main unavailable"))
