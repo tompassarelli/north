@@ -30,6 +30,7 @@ while IFS=$'\t' read -r id all cat item env now expect || [[ -n $id ]]; do
     export "${env%%=*}=${env#*=}"
   fi
 
+  env_decision=''
   north_dial_authoring_env env_decision
   north_dial_resolve got "$all" "$cat" "$item" "$env_decision" "$now"
 
