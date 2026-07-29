@@ -85,6 +85,56 @@ else
   NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main)
 fi
 
+# CONCURRENCY GATE — bound how many corpus-loading verb JVMs can exist at once.
+#
+# Every engine verb below spawns a bb JVM that loads the ENTIRE live corpus
+# (~350k facts, ~500 MB RSS) before answering. Nothing bounded how many could
+# run simultaneously. On 2026-07-29, five concurrent agent sessions issuing
+# verbs against a slowed coordinator accumulated ~150 standing JVMs: 75 GB of
+# RSS, memory at 94/94 GB with 0 bytes available, load 176, the box seconds
+# from OOM. Twice in one afternoon.
+#
+# The gate is N slot files under the user runtime dir, acquired with flock.
+# The lock fd is inherited through exec, so a slot is held exactly as long as
+# the verb process lives and is released by the kernel no matter how it dies —
+# no daemon, no cleanup, no stale state possible.
+#
+# A caller that cannot get a slot WAITS (cheap bash, ~2 MB — waiting is the
+# point; it is what 500 MB JVMs were doing before) and after the deadline
+# FAILS LOUDLY. Proceeding anyway would recreate the pile-up the gate exists
+# to prevent.
+#
+# Interactive/streaming paths (watch, listen, fram passthrough) do not route
+# through these exec sites and are unaffected.
+NORTH_VERB_SLOTS="${NORTH_VERB_SLOTS:-8}"
+NORTH_VERB_SLOT_WAIT="${NORTH_VERB_SLOT_WAIT:-120}"
+north_slot_exec() {
+  if command -v flock >/dev/null 2>&1 && [ "$NORTH_VERB_SLOTS" -gt 0 ] 2>/dev/null; then
+    local dir="${XDG_RUNTIME_DIR:-/tmp}/north-verb-slots" i fd
+    mkdir -p "$dir" 2>/dev/null || { exec "${NORTH_MAIN[@]}" "$@"; }
+    # First pass: any free slot, without blocking.
+    for ((i = 1; i <= NORTH_VERB_SLOTS; i++)); do
+      exec {fd}>>"$dir/slot-$i" 2>/dev/null || continue
+      if flock -n "$fd" 2>/dev/null; then
+        exec "${NORTH_MAIN[@]}" "$@"
+      fi
+      exec {fd}>&-
+    done
+    # All busy: block on one slot with a deadline.
+    i=$(( (RANDOM % NORTH_VERB_SLOTS) + 1 ))
+    exec {fd}>>"$dir/slot-$i" 2>/dev/null && {
+      if flock -w "$NORTH_VERB_SLOT_WAIT" "$fd" 2>/dev/null; then
+        exec "${NORTH_MAIN[@]}" "$@"
+      fi
+      echo "north: all $NORTH_VERB_SLOTS verb slots busy for ${NORTH_VERB_SLOT_WAIT}s — refusing to pile on." >&2
+      echo "north: the coordinator is likely overloaded; check \`north doctor\`. Raise NORTH_VERB_SLOTS to override." >&2
+      exit 75  # EX_TEMPFAIL: transient, retryable
+    }
+  fi
+  # flock missing or gate disabled: run ungated rather than break the CLI.
+  exec "${NORTH_MAIN[@]}" "$@"
+}
+
 # judgment_grade is dispatcher/orchestrator-owned calibration input. Ordinary
 # worker thread writes remain available, but managed workers cannot tell,
 # retract, or cold-set this predicate. New values pass the one canonical parser;
@@ -289,19 +339,19 @@ CARD
     # `clock audit` is a standalone read-only report (commits-vs-sessions coverage,
     # bin/north-clock-audit); every other clock verb is engine-side in north.main.
     if [ "${2:-}" = "audit" ]; then exec "$NORTH/bin/north-clock-audit" "${@:3}"; fi
-    exec "${NORTH_MAIN[@]}" "$@" ;;
+    north_slot_exec "$@" ;;
   threads)
     # Kind-scoped noun command: the THREAD-kind overview (threads are one kind
     # among several in the store — see `north schema`; people/concerns/runs are
     # not threads). Same projection the kanban-metaphor aliases render: active
     # drivers + top-ready by leverage + counts. `board`/`plate` = legacy aliases.
     # Future kinds follow the pattern (`north people` when a person registry lands).
-    exec "${NORTH_MAIN[@]}" board "${@:2}" ;;
+    north_slot_exec board "${@:2}" ;;
   ready|blocked|leverage|next|agenda|board|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
-    exec "${NORTH_MAIN[@]}" "$@" ;;
+    north_slot_exec "$@" ;;
   coord-ready)
     coord_runtime_ready ;;
   coord-safety)
@@ -312,7 +362,7 @@ CARD
     # raw primitive the cockpit `north doctor` leads with. Renamed from the old bare
     # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
     coord_runtime_ready || exit $?
-    exec "${NORTH_MAIN[@]}" doctor "${@:2}" ;;
+    north_slot_exec doctor "${@:2}" ;;
   dashboard|doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =
     # what is happening (agents/concerns/board/daemons/health/profile); `doctor` =
