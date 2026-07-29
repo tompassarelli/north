@@ -308,7 +308,15 @@ function setup(mode = "ok") {
   };
   let configReads = 0;
   let nextPid = 4100;
+  // Which provider PROCESS this is for the lane. A respawn calls spawnProcess
+  // again, so a mode can behave differently per attempt — that is the whole
+  // observable difference between "the lane died" and "the lane survived".
+  let attempts = 0;
+  // Every turn/start input text the lane sent, across all attempts: how a test
+  // proves the recovered context actually reached the new provider session.
+  const turnInputs: string[] = [];
   const spawnProcess = (() => {
+    const attempt = ++attempts;
     const child = new EventEmitter() as ChildProcessWithoutNullStreams & {
       exitCode: number | null; signalCode: NodeJS.Signals | null;
     };
@@ -319,7 +327,14 @@ function setup(mode = "ok") {
       stdin, stdout, stderr, stdio: [stdin, stdout, stderr],
       pid: nextPid++, exitCode: null, signalCode: null, killed: false,
     });
-    const send = (value: unknown) => stdout.write(`${JSON.stringify(value)}\n`);
+    // `dying` is set SYNCHRONOUSLY at the kill point while the real exit lands a
+    // microtask later, so a fixture that dies mid-turn stops mid-turn instead of
+    // finishing its script into an ended stream.
+    let dying = false;
+    const send = (value: unknown) => {
+      if (dying) return;
+      stdout.write(`${JSON.stringify(value)}\n`);
+    };
     const result = (request: any, value: unknown) => send({ id: request.id, result: value });
     const fail = (request: any) => send({
       id: request.id, error: { code: -32000, message: "fixture failure" },
@@ -336,10 +351,33 @@ function setup(mode = "ok") {
     // reuse the same thread but MUST carry a distinct turn id.
     let turnId = turnIds[0]!;
     const item = (id: string, type: string, extra: Record<string, unknown> = {}) => ({ id, type, ...extra });
-    const lifecycle = (kind: "started" | "completed", value: any, at: number) => notify(
-      `item/${kind}`,
-      { item: value, threadId, turnId, [kind === "started" ? "startedAtMs" : "completedAtMs"]: at },
-    );
+    // The provider process dies where a real one does: after some of the turn's
+    // work has already landed, with its own account of why on stderr.
+    const die = (code: number, ...lines: string[]) => {
+      if (dying) return;
+      dying = true;
+      for (const line of lines) stderr.write(`${line}\n`);
+      queueMicrotask(() => exit(code, null));
+    };
+    let completedItems = 0;
+    const lifecycle = (kind: "started" | "completed", value: any, at: number) => {
+      notify(
+        `item/${kind}`,
+        { item: value, threadId, turnId, [kind === "started" ? "startedAtMs" : "completedAtMs"]: at },
+      );
+      if (kind !== "completed") return;
+      completedItems += 1;
+      // Exactly the shape a managed write-lane dies in: real work landed, then
+      // the app-server is gone. Only the FIRST provider process dies here.
+      if ((mode === "respawn-after-third-item" || mode === "respawn-preflight-broken")
+          && attempt === 1 && completedItems === 3) {
+        // The managed account disappearing between provider sessions is the
+        // cheapest way to make the RE-preflight fail the way a real one would.
+        if (mode === "respawn-preflight-broken")
+          rmSync(codexHome, { recursive: true, force: true });
+        die(9, "codex: ERROR responses stream closed unexpectedly");
+      }
+    };
     const emitHook = (event: string, terminalStatus = "completed", id = `hook-${event}`) => {
       let hookTurnId: string | null = turnId;
       let scope = event === "sessionStart" ? "thread" : "turn";
@@ -457,6 +495,12 @@ function setup(mode = "ok") {
       const startedTurn: any = turn(turnId, "inProgress");
       if (mode === "notification-turn-extra") startedTurn.futureAuthority = true;
       notify("turn/started", { threadId, turn: startedTurn });
+      // Every provider process this lane gets dies the moment it has a turn:
+      // the respawn budget is spent and the lane still fails.
+      if (mode === "respawn-exhausted") {
+        die(7, `codex: fatal: provider session ${attempt} refused to start work`);
+        return;
+      }
       // Accepted, then never another word: only the overall turn deadline can
       // end this one.
       if (mode === "turn-silent-before-tool" || mode === "turn-interrupt-refused") return;
@@ -603,7 +647,14 @@ function setup(mode = "ok") {
     // The closing sequence of a turn, split out so a mode can interpose its own
     // traffic (slow-but-active) before the terminal.
     const finishRuntime = () => {
-      const answer = item("answer-1", "agentMessage", { text: "managed answer" });
+      // A respawned session echoes the frame it was handed, so a test can prove
+      // the recovered context reached the NEW provider process — not merely
+      // that a second process existed.
+      const answer = item("answer-1", "agentMessage", {
+        text: mode === "respawn-after-third-item" && attempt > 1
+          ? `managed answer after recovery\n${turnInputs.at(-1) ?? ""}`
+          : "managed answer",
+      });
       notify("item/agentMessage/delta", {
         threadId, turnId, itemId: answer.id,
         delta: mode === "large-agent-message-delta" ? "x".repeat(1024 * 1024 + 1) : "managed answer",
@@ -799,6 +850,7 @@ function setup(mode = "ok") {
           fail(request);
           return;
         }
+        turnInputs.push(String(request.params.input[0].text));
         turnId = turnIds[Math.min(turnStarts, turnIds.length - 1)]!;
         turnStarts += 1;
         result(request, { turn: turn(turnId, "inProgress") });
@@ -876,7 +928,10 @@ function setup(mode = "ok") {
     ...(framServer ? { fram: framServer } : {}),
     timeoutMs: 500,
   };
-  return { root, codexHome, executable, requests, options };
+  return {
+    root, codexHome, executable, requests, options,
+    turnInputs, attempts: () => attempts,
+  };
 }
 
 test("one app-server proves authority and executes realistic shell/file/MCP traffic", async () => {
@@ -2307,6 +2362,118 @@ test("a turn that never speaks again is bounded by the overall turn deadline", a
   const chain = causeChain(caught as Error, 8, 4_000);
   expect(chain).toContain("codex turn exceeded its 150ms deadline");
   expect(chain).toContain("turn/interrupt accepted");
+});
+
+// ---------------------------------------------------------------------------
+// Retire-and-respawn on provider death. Adapted from hermes-agent (MIT,
+// Copyright (c) 2025 Nous Research): TurnResult.should_retire
+// (codex_app_server_session.py:79-85) and its consumption in
+// codex_runtime.py:694-731, which drops the dead session so the next turn
+// respawns codex from scratch. North re-sends the accumulated context itself
+// because its provider thread is the only transcript there ever was.
+// ---------------------------------------------------------------------------
+
+test("a provider death after landed work respawns the lane with recovered context", async () => {
+  const { options, turnInputs, attempts } = setup("respawn-after-third-item");
+  const run = new ManagedCodexAppServerRun(options);
+  const result = await run.execute();
+
+  // Two provider processes, one lane, one delivered result.
+  expect(attempts()).toBe(2);
+  const record = run.respawnRecord();
+  expect(record.respawnCount).toBe(1);
+  expect(record.completedTurns).toBe(1);
+  expect(record.respawns[0]).toMatchObject({
+    attempt: 1,
+    threadId: "019f7abc-0000-7000-8000-000000000001",
+    completedTurns: 0,
+    exitCode: 9,
+  });
+  expect(record.respawns[0]!.reason).toContain("exited unexpectedly");
+  expect(record.respawns[0]!.stderrTail)
+    .toContain("codex: ERROR responses stream closed unexpectedly");
+
+  // The second turn/start carries the brief AND the pre-crash work, marked as
+  // recovered — not a silent replay of the original prompt.
+  expect(turnInputs).toHaveLength(2);
+  expect(turnInputs[0]).toBe("perform managed work");
+  const recovered = turnInputs[1]!;
+  expect(recovered).toContain("perform managed work");
+  expect(recovered).toContain("=== recovered context from a crashed provider session ===");
+  expect(recovered).toContain("retired provider thread: 019f7abc-0000-7000-8000-000000000001");
+  expect(recovered).toContain("1 native command(s)");
+  expect(recovered).toContain("north/tell");
+  // The pre-crash work reaches the model, and the delivered result is the NEW
+  // session's — the lane completed instead of dying.
+  expect(result.text).toContain("managed answer after recovery");
+  expect(result.text).toContain("recovered context from a crashed provider session");
+
+});
+
+test("an exhausted respawn budget fails exactly as before, with every attempt's diagnostics", async () => {
+  const { options, attempts } = setup("respawn-exhausted");
+  const run = new ManagedCodexAppServerRun(options);
+  let caught: unknown;
+  try { await run.execute(); } catch (error) { caught = error; }
+
+  // The default budget is 2, so the lane spends three provider processes.
+  expect(attempts()).toBe(3);
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  expect((caught as Error).message).toBe("openai_provider_execution_failed");
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.respawnCount).toBe(2);
+  expect(harvest.respawns?.map((entry) => entry.attempt)).toEqual([1, 2]);
+  expect(harvest.respawns?.every((entry) => entry.exitCode === 7)).toBe(true);
+  expect(harvest.respawns?.[0]!.stderrTail)
+    .toContain("codex: fatal: provider session 1 refused to start work");
+  expect(harvest.respawns?.[1]!.stderrTail)
+    .toContain("codex: fatal: provider session 2 refused to start work");
+  // The final failure keeps its own diagnostics, unchanged by the respawns.
+  expect(harvest.exitCode).toBe(7);
+  expect(harvest.stderrTail)
+    .toContain("codex: fatal: provider session 3 refused to start work");
+  const messages = managedCodexHarvestMessages(caught as ManagedCodexHarvestError);
+  expect(messages.at(-1)?._north_harvest).toMatchObject({ respawnCount: 2 });
+
+  // Budget 0 restores the pre-respawn behavior exactly: one process, one death.
+  const disabled = setup("respawn-exhausted");
+  let bare: unknown;
+  try {
+    await new ManagedCodexAppServerRun({ ...disabled.options, maxRespawns: 0 }).execute();
+  } catch (error) { bare = error; }
+  expect(disabled.attempts()).toBe(1);
+  expect(bare).toBeInstanceOf(ManagedCodexHarvestError);
+  expect((bare as ManagedCodexHarvestError).harvest.respawnCount).toBeUndefined();
+});
+
+test("a respawn whose preflight fails is a harvest, never a retry-safe pre-thread failure", async () => {
+  const { options } = setup("respawn-preflight-broken");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(options).execute(); }
+  catch (error) { caught = error; }
+  // The lane already started a provider thread and may already have written to
+  // the working tree; classifying the re-preflight failure as pre-thread would
+  // hand spawn.ts permission to run the whole brief a second time.
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  expect(caught).not.toBeInstanceOf(ManagedCodexPreThreadError);
+  expect((caught as ManagedCodexHarvestError).harvest.landedWork).toBe(true);
+  expect(causeChain(caught as Error, 8, 4_000)).toContain("openai_codex_state_root_unresolvable");
+});
+
+test("a watchdog-interrupted turn settles WITHOUT respawning a live provider", async () => {
+  const { options, requests, attempts } = setup("turn-silent-after-tool");
+  const run = new ManagedCodexAppServerRun({
+    ...options, postToolQuietMs: 150, turnDeadlineMs: 30_000,
+  });
+  let caught: unknown;
+  try { await run.execute(); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  // The interrupt landed and the provider was alive: a wedged TURN is not a
+  // dead process, and buying it two more provider sessions would just wedge
+  // three times as slowly.
+  expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(1);
+  expect(attempts()).toBe(1);
+  expect(run.respawnRecord().respawnCount).toBe(0);
 });
 
 test("a refused interrupt is named in the reason instead of replacing it", async () => {
