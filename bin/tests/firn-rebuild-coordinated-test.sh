@@ -10,6 +10,9 @@ calls="$scratch/calls"
 north_fake="$scratch/north"
 post_north_fake="$scratch/north-current"
 firn_fake="$scratch/firn"
+old_generation="$scratch/system-old"
+new_generation="$scratch/system-new"
+system_profile="$scratch/current-system"
 runtime_state="$scratch/state/fram-runtime"
 restart_lock="$scratch/state/.fram-runtime.restart.lock"
 intent_id=01234567-89ab-cdef-8123-456789abcdef
@@ -45,26 +48,46 @@ cat >"$post_north_fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'north-current %s\n' "$*" >>"${CALLS:?}"
-[[ "$*" == "coord-ready" ]]
-printf 'coordinator runtime identity ready\n'
-exit "${NORTH_READY_RC:-0}"
+case "$*" in
+  --help)
+    printf 'north coord-safety\n'
+    ;;
+  coord-safety)
+    printf 'coordinator runtime selector and strict log fence ready\n'
+    exit "${NORTH_SAFETY_RC:-0}"
+    ;;
+  *)
+    printf 'unexpected current-generation north call: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac
 SH
 
 cat >"$firn_fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'firn %s\n' "$*" >>"${CALLS:?}"
-exit "${FIRN_FAKE_RC:-0}"
+rc="${FIRN_FAKE_RC:-0}"
+if [[ "$rc" -eq 0 ]]; then
+  ln -sfn "${NEW_SYSTEM_PROFILE:?}" "${CURRENT_SYSTEM_PROFILE:?}"
+fi
+exit "$rc"
 SH
 chmod +x "$north_fake" "$post_north_fake" "$firn_fake"
+mkdir -p "$old_generation/bin" "$new_generation/bin"
+ln -s "$north_fake" "$old_generation/bin/north"
+ln -s "$post_north_fake" "$new_generation/bin/north"
 
 run_wrapper() {
+  ln -sfn "$old_generation" "$system_profile"
   env \
     CALLS="$calls" \
     INTENT_ID="$intent_id" \
     NORTH_BIN="$north_fake" \
-    NORTH_POST_REBUILD_BIN="$post_north_fake" \
+    NORTH_SYSTEM_PROFILE="$system_profile" \
     FIRN_BIN="$firn_fake" \
+    CURRENT_SYSTEM_PROFILE="$system_profile" \
+    NEW_SYSTEM_PROFILE="$new_generation" \
     NORTH_COORD_RUNTIME_STATE="$runtime_state" \
     NORTH_COORD_RESTART_LOCK_TIMEOUT="${NORTH_COORD_RESTART_LOCK_TIMEOUT:-1}" \
     NORTH_REBUILD_COORD_RETRY_ATTEMPTS="${NORTH_REBUILD_COORD_RETRY_ATTEMPTS:-1}" \
@@ -72,19 +95,30 @@ run_wrapper() {
 }
 
 : >"$calls"
+# The wrapper that began the deployment is deliberately unable to attest the
+# newly activated generation. A correct implementation must not call it for
+# post-switch readiness.
+set +e
+CALLS="$calls" INTENT_ID="$intent_id" "$north_fake" coord-safety \
+  >"$scratch/old-self-check.out" 2>"$scratch/old-self-check.err"
+old_self_check_rc=$?
+set -e
+[[ "$old_self_check_rc" -eq 2 ]]
+: >"$calls"
 run_wrapper >"$scratch/success.out"
 mapfile -t success_calls <"$calls"
 [[ "${success_calls[0]}" == north\ rebuild-intent\ start* ]]
 [[ "${success_calls[1]}" == "north rebuild-intent await $intent_id" ]]
 [[ "${success_calls[2]}" == "north rebuild-intent mark-started $intent_id" ]]
 [[ "${success_calls[3]}" == "firn rebuild --verbose" ]]
-[[ "${success_calls[4]}" == "north-current coord-ready" ]]
-[[ "${success_calls[5]}" == \
-  "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; north coord-ready rc 0" ]]
-grep -Fq 'deployment verified: firn rebuild rc 0; north coord-ready rc 0' \
+[[ "${success_calls[4]}" == "north-current --help" ]]
+[[ "${success_calls[5]}" == "north-current coord-safety" ]]
+[[ "${success_calls[6]}" == \
+  "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; north coord-safety rc 0 (live selector healthy; built-ahead allowed)" ]]
+grep -Fq 'deployment verified: firn rebuild rc 0; north coord-safety rc 0 (live selector healthy; built-ahead allowed)' \
   "$scratch/success.out"
-if grep -Fq 'coord-doctor' "$calls"; then
-  printf 'post-rebuild gate invoked the full coordinator doctor\n' >&2
+if grep -Eq '^north (coord-safety|coord-ready|coord-doctor)$' "$calls"; then
+  printf 'post-rebuild gate self-verified through the old wrapper\n' >&2
   exit 1
 fi
 
@@ -95,20 +129,20 @@ failure_rc=$?
 set -e
 [[ "$failure_rc" -eq 7 ]]
 grep -Fxq "north rebuild-intent failed $intent_id firn rebuild rc 7" "$calls"
-if grep -Eq 'coord-ready|coord-doctor' "$calls"; then
+if grep -Eq 'north-current (coord-safety|coord-ready)|^north (coord-safety|coord-ready|coord-doctor)$' "$calls"; then
   printf 'failed rebuild incorrectly ran deployment verification\n' >&2
   exit 1
 fi
 
 : >"$calls"
 set +e
-NORTH_READY_RC=9 run_wrapper \
+NORTH_SAFETY_RC=9 run_wrapper \
   >"$scratch/readiness-failure.out" 2>"$scratch/readiness-failure.err"
 readiness_failure_rc=$?
 set -e
 [[ "$readiness_failure_rc" -eq 9 ]]
 grep -Fxq \
-  "north rebuild-intent failed $intent_id firn rebuild rc 0; north coord-ready rc 9 after 1 attempts" \
+  "north rebuild-intent failed $intent_id firn rebuild rc 0; north coord-safety rc 9 after 1 attempts" \
   "$calls"
 if grep -Fq 'deployment-verified' "$calls"; then
   printf 'failed deployment probe incorrectly reported verification\n' >&2

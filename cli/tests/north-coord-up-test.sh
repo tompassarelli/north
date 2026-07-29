@@ -429,7 +429,62 @@ if grep -Eq 'repair.*restart' "$TMP/promotion-default-running.out" &&
   exit 1
 fi
 
+# A no-cutover system activation can stage a newer package while the durable
+# selector and listener intentionally remain on the previously adopted package.
+# Readiness must attest selector==listener, not new-wrapper-package==listener.
+write_runtime_selection "$PROMOTION_IDENTITY" package "$SNAPSHOT_ROOT" \
+  "$FRAM_REV" "immutable:$FRAM_REV" "$SNAPSHOT_ROOT" \
+  "$SNAPSHOT_ROOT/bin/fram-daemon"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "immutable:$FRAM_REV" \
+  "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV=newly-built-but-not-adopted \
+  "$UP" --check-runtime >"$TMP/package-selection-match.out"
+grep -q "^coordinator runtime identity OK on :39871 (identity: selected package $FRAM_REV)" \
+  "$TMP/package-selection-match.out"
+
+# Same revision is not enough for an adopted package selector: a different
+# immutable source/executable is a real selector/listener mismatch.
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "/nix/store/different-fram/libexec/fram" "$FRAM_REV" \
+  "immutable:$FRAM_REV" "/nix/store/different-fram/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV=newly-built-but-not-adopted \
+  "$UP" --check-runtime >"$TMP/package-selection-source-drift.out" 2>&1; then
+  echo "north-coord-up test: package selector/source drift was accepted" >&2
+  exit 1
+fi
+grep -q 'does not match durable package selector' \
+  "$TMP/package-selection-source-drift.out"
+
+# The same rule remains fail-closed: selector/listener drift is unhealthy even
+# when the newly built package is intentionally irrelevant to this check.
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" stale-running-revision immutable:stale-running-revision \
+  "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV=newly-built-but-not-adopted \
+  "$UP" --check-runtime >"$TMP/package-selection-drift.out" 2>&1; then
+  echo "north-coord-up test: package selector/listener drift was accepted" >&2
+  exit 1
+fi
+grep -q 'coordinator runtime identity UNHEALTHY' \
+  "$TMP/package-selection-drift.out"
+grep -q 'repair.*coordinated cutover protocol' \
+  "$TMP/package-selection-drift.out"
+
 rm -f "${PROMOTION_IDENTITY:?}"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$FRAM_ROOT" stale-package-revision immutable:stale-package-revision \
+  "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
 env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
   NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
   "$UP" --check-runtime >"$TMP/no-promotion-default.out"
