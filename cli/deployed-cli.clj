@@ -154,7 +154,12 @@
    rather than shelled out, so it works under any PATH."
   []
   (try
-    (let [f (io/file "/home/tom/.local/state/north/fram-runtime/current")]
+    ;; Composed at runtime, never a literal: the package must not contain a
+    ;; home path (north's build guard rejects one, correctly — this exact line
+    ;; failed the closure build once already).
+    (let [f (io/file (str (or (System/getenv "XDG_STATE_HOME")
+                              (str (System/getenv "HOME") "/.local/state"))
+                          "/north/fram-runtime/current"))]
       (when (.exists f) (store-path-of (.getCanonicalPath f))))
     (catch Exception _ nil)))
 
