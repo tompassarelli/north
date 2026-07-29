@@ -31,6 +31,7 @@
         lib = pkgs.lib;
         codexPkgs = nixpkgs-master.legacyPackages.${system};
         codexPatch = ./patches/codex-0.144.4/managed-hook-failure-mode.patch;
+        codexMovedCwdPatch = ./patches/codex-0.144.4/moved-cwd-hook-launch.patch;
         codexExpectedIdentity = {
           version = "0.144.4";
           owner = "openai";
@@ -40,6 +41,7 @@
           srcHash = "sha256-NmYZxjNFPkRWN4rw+eeka10pJt6/oU3ZoLXBxj3dPRU=";
           cargoHash = "sha256-S4dsZXfmKvJItL2XYKyxfhqdCMATEG6oPjrtVRwkuYc=";
           patchSha256 = "36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3";
+          movedCwdPatchSha256 = "09c1ea4ec9e6f91cc7a21b88da49546c678355f45594c79388494ec5e893290a";
         };
         codexUpstreamPkg =
           codexPkgs.codex or
@@ -53,6 +55,7 @@
           srcHash = codexUpstreamPkg.src.outputHash or null;
           cargoHash = codexUpstreamPkg.cargoHash or null;
           patchSha256 = builtins.hashFile "sha256" codexPatch;
+          movedCwdPatchSha256 = builtins.hashFile "sha256" codexMovedCwdPatch;
         };
         codexPkg =
           assert lib.assertMsg
@@ -61,22 +64,27 @@
               + builtins.toJSON codexExpectedIdentity + "; observed "
               + builtins.toJSON codexObservedIdentity);
           codexUpstreamPkg.overrideAttrs (old: {
-            patches = (old.patches or [ ]) ++ [ codexPatch ];
+            patches = (old.patches or [ ]) ++ [
+              codexPatch
+              codexMovedCwdPatch
+            ];
             postPatch = (old.postPatch or "") + ''
               grep -Fq 'pub enum ManagedHookFailureMode' protocol/src/config_types.rs
               grep -Fq 'PreToolUseBlockSource::ManagedTechnicalFailure' core/src/hook_runtime.rs
               grep -Fq 'does not change `PostToolUse`' \
                 app-server-protocol/schema/typescript/ManagedHookFailureMode.ts
+              grep -Fq 'resolve_command_cwd' hooks/src/engine/command_runner.rs
               test "$(sha256sum Cargo.lock | cut -d' ' -f1)" = \
                 175793a40a3147db1fee08fd9db0acc59312c344b3513dd7ee316f5446d8119e
             '';
             passthru = (old.passthru or { }) // {
               northManagedHookFailurePolicy = {
-                version = 1;
+                version = 2;
                 scope = "administrator-managed-pre-tool-use";
                 defaultMode = "continue";
                 enforcedMode = "block";
                 patchSha256 = codexObservedIdentity.patchSha256;
+                movedCwdPatchSha256 = codexObservedIdentity.movedCwdPatchSha256;
                 upstreamIdentity = codexObservedIdentity;
               };
             };

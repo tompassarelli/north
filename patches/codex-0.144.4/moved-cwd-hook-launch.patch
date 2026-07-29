@@ -1,0 +1,87 @@
+diff --git a/hooks/src/engine/command_runner.rs b/hooks/src/engine/command_runner.rs
+index 043573c7d..cfc9784f2 100644
+--- a/hooks/src/engine/command_runner.rs
++++ b/hooks/src/engine/command_runner.rs
+@@ -1,4 +1,6 @@
++use std::borrow::Cow;
+ use std::path::Path;
++use std::path::PathBuf;
+ use std::process::Stdio;
+ use std::time::Duration;
+ use std::time::Instant;
+@@ -56,8 +58,12 @@ pub(crate) async fn run_command(
+     let started = Instant::now();
+ 
+     let mut command = build_command(shell, handler);
++    // Keep the semantic hook payload cwd unchanged, but do not let a repo rename
++    // prevent the hook process from starting. On Unix, the Codex process keeps
++    // the directory inode and current_dir() resolves its new pathname.
++    let command_cwd = resolve_command_cwd(cwd, std::env::current_dir().ok());
+     command
+-        .current_dir(cwd)
++        .current_dir(command_cwd.as_ref())
+         .stdin(Stdio::piped())
+         .stdout(Stdio::piped())
+         .stderr(Stdio::piped())
+@@ -120,6 +126,19 @@ pub(crate) async fn run_command(
+     }
+ }
+ 
++fn resolve_command_cwd(cwd: &Path, process_cwd: Option<PathBuf>) -> Cow<'_, Path> {
++    if cwd.is_dir() {
++        return Cow::Borrowed(cwd);
++    }
++
++    match process_cwd {
++        Some(process_cwd) if process_cwd.is_dir() => Cow::Owned(process_cwd),
++        // Preserve the existing fail-closed spawn error when neither pathname
++        // is usable. Genuine hook failures remain governed by managed policy.
++        Some(_) | None => Cow::Borrowed(cwd),
++    }
++}
++
+ struct CommandRunCompletion {
+     exit_code: Option<i32>,
+     stdout: String,
+@@ -172,3 +191,40 @@ fn default_shell_command() -> Command {
+         command
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use std::fs;
++
++    use tempfile::tempdir;
++
++    use super::resolve_command_cwd;
++
++    #[test]
++    fn missing_semantic_cwd_uses_live_process_cwd() {
++        let temp = tempdir().expect("create temp directory");
++        let moved = temp.path().join("moved");
++        fs::create_dir(&moved).expect("create live moved directory");
++        let missing = temp.path().join("old-name");
++
++        assert_eq!(
++            resolve_command_cwd(&missing, Some(moved.clone())).as_ref(),
++            moved.as_path()
++        );
++    }
++
++    #[test]
++    fn missing_semantic_and_process_cwds_preserve_fail_closed_spawn() {
++        let temp = tempdir().expect("create temp directory");
++        let missing = temp.path().join("old-name");
++        let also_missing = temp.path().join("gone");
++
++        assert_eq!(
++            resolve_command_cwd(&missing, Some(also_missing)).as_ref(),
++            missing.as_path()
++        );
++        assert_eq!(
++            resolve_command_cwd(&missing, None).as_ref(),
++            missing.as_path()
++        );
++    }
++}
