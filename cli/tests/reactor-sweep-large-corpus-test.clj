@@ -12,7 +12,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                 (System/getenv "FRAM_PATH")
-                (str root "/../fram")))))
+                (str root "/../fram/main")))))
 (def reactor (str root "/cli/north-reactor.clj"))
 (def checks (atom []))
 

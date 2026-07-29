@@ -717,11 +717,11 @@ fine. The system handles both.
 
 ## The CLI: `north`
 
-One binary. Run it via the north wrapper: **`~/code/north/bin/north`**.
-The wrapper aims the Fram engine (`~/code/fram`) at north's private data
+One binary. Run it via the north wrapper: **`~/code/north/main/bin/north`**.
+The wrapper aims the Fram engine (`~/code/fram/main`) at north's private data
 (`FRAM_THREADS`/`FRAM_LOG` under `~/.local/state/north/`, projected from the
 canonical `north-data/facts.log`) and sets capture provenance defaults.
-`~/code/north/bin/north-mcp` materializes the same instance selectors once from
+`~/code/north/main/bin/north-mcp` materializes the same instance selectors once from
 its captured parent environment before launching children: explicit selectors
 win; otherwise it supplies canonical `FRAM_LOG`, `FRAM_THREADS`, and
 `NORTH_PORT` defaults. It selects the split coordination/telemetry logs only
@@ -733,7 +733,7 @@ independent writers additionally require `NORTH_TELEMETRY_PARTITION=1` and
 and time tracking is now **`north clock`** (fact-native; see Clock management).
 One CLI.
 
-Run `~/code/north/bin/north` with no args for the authoritative usage line;
+Run `~/code/north/main/bin/north` with no args for the authoritative usage line;
 don't trust an enumeration here over the binary. The surface:
 
 **Reads (instant off the warm daemon, ~1ms):**
@@ -827,9 +827,9 @@ north routing report usage             # observed-token lower bounds + exact cov
 (role, composition, semantic tier, reasoning, and posture); **North answers WHERE
 it runs and HOW you see and drive it** (account target, subscription pressure,
 dashboard, spawn, watch, steer, profile). Orchestration is account-blind. `north spawn`
-reads `~/code/north/orchestration/staffing/catalog.json`, then North selects an eligible target
+reads `~/code/north/main/orchestration/staffing/catalog.json`, then North selects an eligible target
 and resolves the semantic tier through that provider's catalog. Generated agent
-markdown and `~/code/north/orchestration/docs/adapters/north.md` remain provider-adapter
+markdown and `~/code/north/main/orchestration/docs/adapters/north.md` remain provider-adapter
 artifacts, never North's metadata source.
 
 `north templates` is the human view of Orchestration's stock library. It deliberately
@@ -869,7 +869,7 @@ the requested target, resolved target, selection reason, pressure, and fallback
 path. Token reports likewise preserve evidence: exact totals remain exact,
 unknown coverage never becomes zero, and mixed coverage is labeled as a known
 lower bound plus incomplete coverage. Full contract:
-`~/code/north/docs/provider-architecture.md`.
+`~/code/north/main/docs/provider-architecture.md`.
 
 Provider severity is not numeric usage. A categorical rate-limit warning may
 temporarily impose a labeled routing-only conservative floor, but
@@ -1045,7 +1045,7 @@ an owner dies without running `concern done`:
    reclaimed, while an absent tree with a surviving/unknown branch remains
    partial. The janitor never describes an already-removed worktree as kept. The
    one-shot probe is the normal reactor surface:
-   `bb ~/code/north/cli/north-reactor.clj sweep-once [--dry-run]`.
+   `bb ~/code/north/main/cli/north-reactor.clj sweep-once [--dry-run]`.
 
 The **activity heartbeat** that powers all of the above: the `north-on-tooluse`
 PostToolUse hook renews the owner's presence lease on tool calls, **throttled to
@@ -1255,7 +1255,7 @@ A session is **billable** iff it is a human owner-scoped client session, or a
 compatible legacy human thread session, and that owner is mapped to a Clockify
 project (so `owner personal` is never billed). `sync` pushes closed, unsynced,
 billable sessions and writes the returned id back as a `clockify_id` fact, so
-it's idempotent. Mapping lives in `~/code/north/time/projects.json`; the API key
+it's idempotent. Mapping lives in `~/code/north/main/time/projects.json`; the API key
 comes from `$CLOCKIFY_SECRET_FILE` (wired by the wrapper). **Sync is on-demand
 only — never automatic** (it touches real client billing).
 
@@ -1297,13 +1297,13 @@ admission refuses to run; resolve it explicitly before continuing.
 
 ## What lives elsewhere
 
-- `~/code/north/streams/raw/` — lossless transmission events (conversations,
+- `~/code/north/main/streams/raw/` — lossless transmission events (conversations,
   dictated thoughts, captured sessions).
-- `~/code/north/streams/distillations/` — tiered AI compressions of raw
+- `~/code/north/main/streams/distillations/` — tiered AI compressions of raw
   streams. See `streams/CLAUDE.md`.
-- `~/code/north/north-data/facts.log` — the canonical fact graph (source
+- `~/code/north/main/north-data/facts.log` — the canonical fact graph (source
   of truth; `threads/` is its projection).
-- `~/code/north` — the generic engine (public source of truth); `bin/north`
+- `~/code/north/main` — the generic engine (public source of truth); `bin/north`
   is north's consumer wrapper.
 - `git log` — history of edits to threads.
 

@@ -35,10 +35,10 @@ Everything below is about what sits *in front of* that loopback socket.
 The default. One operator, one box, the coordinator on `127.0.0.1`.
 
 ```sh
-git clone https://github.com/tompassarelli/fram     ~/code/fram
-git clone https://github.com/tompassarelli/north ~/code/north
-~/code/north/bin/north up        # start the coordinator (idempotent)
-~/code/north/bin/north ready     # use it
+git clone https://github.com/tompassarelli/fram     ~/code/fram/main
+git clone https://github.com/tompassarelli/north ~/code/north/main
+~/code/north/main/bin/north up        # start the coordinator (idempotent)
+~/code/north/main/bin/north ready     # use it
 ```
 
 No build step (runs on the committed `out/`), no network exposure, no auth needed.

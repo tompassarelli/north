@@ -9,7 +9,7 @@
 (def fram-out
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_OUT")
-                (str root "/../fram/out")))))
+                (str root "/../fram/main/out")))))
 (cp/add-classpath fram-out)
 (load-file (str root "/cli/corpus-transaction.clj"))
 (require '[north.corpus-transaction :as ct])

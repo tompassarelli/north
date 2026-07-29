@@ -9,7 +9,7 @@
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def reactor (str root "/cli/north-reactor.clj"))
-(def fram "/home/tom/code/fram")
+(def fram "/home/tom/code/fram/main")
 (def checks (atom []))
 
 (defn check [label ok detail]

@@ -35,7 +35,7 @@
 
 (def fram-origin
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
+   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
 (def fram-fixture-root
   (.toFile
    (java.nio.file.Files/createTempDirectory

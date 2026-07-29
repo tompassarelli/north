@@ -2,7 +2,7 @@
 ;; clean graph exits 0; any reported violation exits nonzero. Both probes use an
 ;; isolated fact log and an unreachable coordinator port, so no live North state
 ;; can influence the result.
-;;   bb ~/code/north/validate_process_test.clj
+;;   bb ~/code/north/main/validate_process_test.clj
 (require '[babashka.fs :as fs]
          '[babashka.process :as proc]
          '[clojure.string :as str])

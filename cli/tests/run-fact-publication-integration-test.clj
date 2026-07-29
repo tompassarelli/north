@@ -6,7 +6,7 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram"))
+(def fram (str (System/getProperty "user.home") "/code/fram/main"))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (def evidence-writer (str root "/cli/delivery-evidence-internal.clj"))
 (def north-mcp (str root "/bin/north-mcp"))

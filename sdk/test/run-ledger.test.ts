@@ -239,7 +239,7 @@ async function waitForPort(port: number): Promise<void> {
 }
 
 test("one real writer process commits seven ordered events inside the production timeout", async () => {
-  const framCandidates = [resolve(repo, "../fram"), resolve(homedir(), "code/fram")];
+  const framCandidates = [resolve(repo, "../fram/main"), resolve(homedir(), "code/fram/main")];
   const fram = framCandidates.find((candidate) =>
     existsSync(resolve(candidate, "coord_daemon.clj"))
   );

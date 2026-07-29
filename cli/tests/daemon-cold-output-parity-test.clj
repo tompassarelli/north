@@ -9,7 +9,7 @@
 
 (def fram-root
   (or (System/getenv "FRAM_HOME")
-      (str (System/getProperty "user.home") "/code/fram")))
+      (str (System/getProperty "user.home") "/code/fram/main")))
 (load-file (str fram-root "/coord_daemon.clj"))
 (load-file (str fram-root "/bin/fram-fast.clj"))
 (reset! snapshot-boot-enabled? false)

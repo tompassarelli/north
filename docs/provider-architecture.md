@@ -299,7 +299,7 @@ only surface evidence for review; they never mutate Orchestration's library or p
 a composition without an explicit source-control change.
 
 This division keeps Orchestration reusable across account layouts. Orchestration's canonical
-staffing catalog at `~/code/north/orchestration/staffing/catalog.json` names roles and semantic
+staffing catalog at `~/code/north/main/orchestration/staffing/catalog.json` names roles and semantic
 tiers; it contains no personal account IDs or subscription state.
 
 ## Token truth
@@ -326,7 +326,7 @@ already contain an exact aggregate remain readable.
 
 ## Adapter boundary
 
-Provider imports remain confined to `~/code/north/sdk/src/providers`. Anthropic
+Provider imports remain confined to `~/code/north/main/sdk/src/providers`. Anthropic
 uses the Claude Agent SDK; managed OpenAI lanes use one authenticated Codex
 app-server process and unmanaged compatibility calls use the Codex CLI. Both
 receive the target-specific environment and shared North supervision. Live

@@ -12,7 +12,7 @@
             "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram")))
+      (str (System/getProperty "user.home") "/code/fram/main")))
 (def inbox-peek (str root "/cli/inbox-peek.clj"))
 (System/setProperty "north.live-feed.lib" "1")
 (let [test-file (System/getProperty "babashka.file")

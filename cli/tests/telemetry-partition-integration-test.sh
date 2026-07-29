@@ -4,7 +4,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-fram="${FRAM_PATH:-${FRAM_HOME:-$root/../fram}}"
+fram="${FRAM_PATH:-${FRAM_HOME:-$root/../fram/main}}"
 for required in "$fram/bin/fram-daemon" "$fram/out/fram/rt.clj"; do
   [[ -e "$required" ]] || {
     echo "telemetry partition integration: missing Fram runtime: $required" >&2
