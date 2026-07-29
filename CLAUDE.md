@@ -48,3 +48,13 @@ Agent coordination uses the **TypeScript SDK** (`~/code/north/main/sdk/`), not b
 ## Pointers
 - north thread `2026-06-23-132319` — store-layer purity + north-as-client architecture.
 - `~/code/fram/main` — the engine (fact model, coordinator, lease primitive).
+
+## The agent-profile contract (2026-07-30)
+
+`north:agent-profile` is a **stable symlink** to whatever directory currently
+holds the personal agent profile (today `profiles/tom`). It exists so that
+consumers outside this repo — firn's `north-profile` module, which materialises
+`~/.agents/*` and the root-owned `/etc/codex` projection — never encode north's
+internal layout. Reorganise `profiles/` freely; repoint this one symlink and
+nothing downstream changes. Do not delete it, and do not have outside repos
+reference `profiles/…` directly.
