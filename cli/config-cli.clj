@@ -526,6 +526,19 @@
     :else
     (die "usage: north config coord [north|linear|both]")))
 
+(defn cmd-rebuild-coordination [[sub]]
+  (cond
+    (#{"on" "off"} sub)
+    (do
+      (put' "rebuild-coordination" sub)
+      (println (str "rebuild-coordination → " sub)))
+    (nil? sub)
+    (let [r (get' "rebuild-coordination" "off")]
+      (println (str "rebuild-coordination = " r
+                    "   (default off; north config rebuild-coordination on|off)")))
+    :else
+    (die "usage: north config rebuild-coordination [on|off]")))
+
 (defn cmd-beagle [[sub path]]
   (case (or sub "list")
     "list"
@@ -568,10 +581,11 @@
       ("status") (status)
       "dispatch" (cmd-dispatch rest)
       "coord"    (cmd-coord rest)
+      "rebuild-coordination" (cmd-rebuild-coordination rest)
       "beagle"   (cmd-beagle rest)
       "guards"   (cmd-guards rest)
       "routing"  (cmd-routing rest)
       ("help" "-h" "--help") (help)
-      (die "usage: north config [status|dispatch|coord|beagle|guards|routing|help]"))))
+      (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|routing|help]"))))
 
 (apply -main *command-line-args*)
