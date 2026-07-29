@@ -2,14 +2,11 @@
 ;; Real Fram socket gate for north.delivery-evidence-internal/record! under
 ;; concurrent write traffic (thread 019f9f12-b5fa).
 ;;
-;; The bug: commit-record-once! retried its assert-at-version race with a
-;; FIXED 16-attempt tight loop and no backoff/deadline. Every other commit path
-;; sharing the coordinator's global version (reserve!'s doseq, assert-after-
-;; read!) already retries against an absolute deadline with equal-jitter
-;; backoff, so unrelated traffic buys retries instead of a false refusal. A
-;; live, valid, in-bounds evidence write must never be refused just because the
-;; coordinator was busy; if a refusal IS correct, it must name its own cause
-;; rather than falling through to the generic rejection line.
+;; The bug: run-bound evidence publication raced every unrelated coordinator
+;; write through the global version. The repair serializes only writers for the
+;; SAME run/bar with a coordinator lease and commits through its atomic fence.
+;; Unrelated churn cannot reject a valid proof, simultaneous same-bar writes
+;; remain exactly-once, and a transport failure is distinct from task failure.
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
          '[clojure.java.io :as io]
@@ -101,8 +98,8 @@
       ;; its OWN `bb` subprocess — exactly the shape production traffic takes
       ;; (one CLI invocation per `north evidence record`, launched by many
       ;; lanes at once), so no in-process budget atom is shared across bars.
-      ;; Before the fix this reliably exhausted the fixed 16-try loop and
-      ;; refused a perfectly valid, live-reservation write. ---
+      ;; Before the fix this could exhaust the global CAS budget and refuse a
+      ;; perfectly valid, live-reservation write. ---
       (let [running? (atom true)
             churn-writes (atom 0)
             writer
@@ -166,9 +163,121 @@
           (check! "exact replay is idempotent: zero thread-projection duplicates"
                   (= (count bars) (count projected))))))
 
-    ;; --- The refusal, when contention genuinely cannot converge inside its
-    ;; budget, must NAME ITSELF rather than reporting the generic rejection
-    ;; line every other cause already shares. ---
+    ;; Same-run/bar first writers are the race the lease must serialize. Every
+    ;; subprocess validates before publishing; without the run-scoped lease,
+    ;; rival raw records (different recordedAt values) can both land.
+    (let [thread "@thread:evidence-same-bar"
+          run "@run:evidence-same-bar"
+          reporter "@agent:evidence-same-bar"
+          capability (str/join (repeat 64 "c"))
+          capability-sha256 (north.terminal-projection/sha256 capability)
+          bar "one concurrent bar"
+          writer-path (str root "/cli/delivery-evidence-internal.clj")]
+      (north.coord/append! port thread "title" "same bar fixture")
+      (north.coord/append! port thread "done_when" bar)
+      (north.delivery-evidence-internal/reserve!
+       port {"run" run "thread" thread "reporter" reporter
+             "capabilitySha256" capability-sha256})
+      (let [request
+            (json/generate-string
+             {"run" run "thread" thread "reporter" reporter
+              "capability" capability
+              "bar" bar "observed" "exit 0"})
+            results
+            (->> (range 8)
+                 (pmap
+                  (fn [_]
+                    @(proc/process
+                      {:in request :out :string :err :string
+                       :extra-env {"FRAM_LOG" (.getPath log)}}
+                      "bb" writer-path (str port) "record")))
+                 doall)
+            stored (north.coord/many port run "run_bar_evidence")]
+        (check! "simultaneous first writers all acknowledge"
+                (every? #(zero? (:exit %)) results))
+        (check! "simultaneous same-bar first writers commit exactly once"
+                (= 1 (count stored)))
+        (let [wrong-capability
+              (try
+                (north.delivery-evidence-internal/record!
+                 port {"run" run "thread" thread "reporter" reporter
+                       "capability" (str/join (repeat 64 "e"))
+                       "bar" bar "observed" "exit 0"})
+                nil
+                (catch Exception error error))
+              wrong-reporter
+              (try
+                (north.delivery-evidence-internal/record!
+                 port {"run" run "thread" thread
+                       "reporter" "@agent:evidence-impostor"
+                       "capability" capability
+                       "bar" bar "observed" "exit 0"})
+                nil
+                (catch Exception error error))]
+          (check! "invalid capability and reporter provenance stay rejected"
+                  (and (some? wrong-capability)
+                       (str/includes?
+                        (.getMessage wrong-capability)
+                        "run evidence capability mismatch")
+                       (some? wrong-reporter)
+                       (str/includes?
+                        (.getMessage wrong-reporter)
+                        "run reservation reporter mismatch")
+                       (= 1 (count
+                             (north.coord/many
+                              port run "run_bar_evidence"))))))))
+
+    ;; A thread contract mutation in the validation/write window is not
+    ;; acknowledged as proof. The coordinator-fenced write may already be
+    ;; durable, but post-write context confirmation keeps that orphan record
+    ;; from becoming this invocation's delivery claim; terminal publication
+    ;; independently requires the unchanged accepted contract.
+    (let [thread "@thread:evidence-contract-race"
+          run "@run:evidence-contract-race"
+          reporter "@agent:evidence-contract-race"
+          capability (str/join (repeat 64 "d"))
+          capability-sha256 (north.terminal-projection/sha256 capability)
+          mutated (atom false)]
+      (north.coord/append! port thread "title" "contract race fixture")
+      (north.coord/append! port thread "done_when" "original bar")
+      (north.delivery-evidence-internal/reserve!
+       port {"run" run "thread" thread "reporter" reporter
+             "capabilitySha256" capability-sha256})
+      (let [caught
+            (with-redefs
+             [north.coord/send-op
+              (let [original north.coord/send-op]
+                (fn [target-port operation]
+                  (when (and (= :assert-with-fence (:op operation))
+                             (= run (:te operation))
+                             (compare-and-set! mutated false true))
+                    (north.coord/append!
+                     target-port thread "done_when" "replacement bar")
+                    (north.coord/retract!
+                     target-port thread "done_when" "original bar"))
+                  (original target-port operation)))]
+              (try
+                (north.delivery-evidence-internal/record!
+                 port {"run" run "thread" thread "reporter" reporter
+                       "capability" capability
+                       "bar" "original bar" "observed" "exit 0"})
+                nil
+                (catch Exception error error)))
+            active-after
+            (north.terminal-projection/canonical-done-when
+             (north.delivery-evidence-internal/facts-of port thread))]
+        (check! "contract mutation actually lands in the validation/write window"
+                (true? @mutated))
+        (check! "a raced done-bar contract is rejected, never acknowledged as proof"
+                (and (some? caught)
+                     (str/includes?
+                      (.getMessage caught)
+                      "accepted done_when contract changed during the run")))
+        (when-not caught
+          (println "  [CONTRACT-RACE]" active-after))))
+
+    ;; A proof transport outage is not a verdict about the task and must not
+    ;; retain the old retry-the-task language.
     (let [thread "@thread:evidence-contention-exhaustion"
           run "@run:evidence-contention-exhaustion"
           reporter "@agent:evidence-contention-exhaustion"
@@ -187,12 +296,13 @@
        [north.coord/send-op
         (let [original north.coord/send-op]
           (fn [target-port operation]
-            (if (and (= :assert-at-version (:op operation))
-                     (= "run_bar_evidence" (:p operation))
-                     (= run (:te operation)))
-              {:reject :conflict}
+            (if (and (= :acquire-lease (:op operation))
+                     (= (north.delivery-evidence-internal/evidence-lease-resource
+                         run "only-bar")
+                        (:res operation)))
+              {:reject :held}
               (original target-port operation))))
-        north.delivery-evidence-internal/commit-retry-budget-ms 50]
+        north.delivery-evidence-internal/evidence-lease-wait-budget-ms 50]
         (let [caught
               (try
                 (north.delivery-evidence-internal/record!
@@ -201,13 +311,19 @@
                        "bar" "only-bar" "observed" "exit 0"})
                 nil
                 (catch Exception error error))]
-          (check! "a non-converging commit throws"
+          (check! "an unavailable proof transport throws"
                   (some? caught))
-          (check! "the refusal names its own cause (contention, not a generic reject)"
+          (check! "the refusal names proof transport without task retry language"
                   (and (some? caught)
                        (str/includes?
                         (.getMessage caught)
-                        "RETRYABLE: evidence commit contention"))))))
+                        "PROOF_TRANSPORT_FAILURE:")
+                       (str/includes?
+                        (.getMessage caught)
+                        "do not repeat the task")
+                       (not (str/includes?
+                             (.getMessage caught)
+                             "RETRYABLE:")))))))
 
     (finally
       (proc/process ["kill" (str (:pid daemon))])
