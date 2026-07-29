@@ -157,5 +157,28 @@
     (check! "nixos-config participates in the same judged output"
             (= "nixos-config" (:component (last judged))))))
 
+;; --- the running-revision parse must survive rewording ----------------------
+;; `coord-ready` has already changed wording once, from
+;;   "... rev: <sha>"
+;; to
+;;   "... (identity: selected package <sha>)"
+;; The label-anchored pattern silently stopped matching, and the table reported
+;; "cannot determine" for fram — the correct degradation, but a blind spot.
+;; Matching the bare 40-hex token is unambiguous in this output and survives the
+;; next rewording.
+(let [rev "c18b02ca3f7dc4b02b9b0b0c756ca4fd31425be8"]
+  (doseq [[label line]
+          [["current wording"
+            (str "coordinator runtime identity OK on :7977 (identity: selected package " rev ")")]
+           ["previous wording"
+            (str "coordinator runtime identity OK on :7977 (source: /nix/store/x/libexec/fram, rev: " rev ")")]
+           ["a future rewording"
+            (str "coordinator serving " rev " — whatever we call it next")]]]
+    (check! (str "extracts the running revision from " label)
+            (= rev (second (re-find #"\b([0-9a-f]{40})\b" line))))))
+
+(check! "a line with no revision yields nil rather than a partial match"
+        (nil? (re-find #"\b([0-9a-f]{40})\b" "coordinator unavailable")))
+
 (println (format "deployed-cli: %d / %d PASS" (- @checks @failures) @checks))
 (System/exit (if (zero? @failures) 0 1))

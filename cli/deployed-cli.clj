@@ -113,8 +113,14 @@
   ;; Deployment identity is the cheap question answered by coord-ready. The
   ;; former coord-doctor call ran the entire health/hygiene sweep just to read
   ;; one hash and could exceed 40 seconds on an otherwise healthy system.
+  ;; Match the HASH, not the label around it. `coord-ready` has already changed
+  ;; wording once — from "rev: <sha>" to "(identity: selected package <sha>)" —
+  ;; and the old pattern silently stopped matching. The table then reported
+  ;; "cannot determine" for fram, which is the correct degradation (absence is
+  ;; never health) but still a blind spot to repair rather than admire. A bare
+  ;; 40-hex token is unambiguous in this output and survives the next rewording.
   (some->> (sh-any "north" "coord-ready")
-           (re-find #"rev[:=]\s*([0-9a-f]{40})")
+           (re-find #"\b([0-9a-f]{40})\b")
            second))
 
 (defn- running-north []
