@@ -22,6 +22,7 @@
 (def SCRIPT (or (System/getProperty "babashka.file") *file*))
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
 (def FRAM (or (System/getenv "FRAM_HOME") (str HOME "/code/fram")))
+(def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle")))
 (def FRAM-BIN (or (System/getenv "FRAM_BIN") (str FRAM "/bin")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
@@ -427,19 +428,46 @@
     {:mode mode :daemons dh :level level :canonical canon :owned owned
      :p1 p1? :p2 p2? :rung rung :code-status cs}))
 
+(defn primary-repo [name]
+  (str HOME "/code/" name "/main"))
+
 (defn source-revision
   "Packaged runtimes identify their immutable inputs; source runs use checkout HEAD."
   [name repo]
-  (let [git-result (run ["git" "-C" repo "rev-parse" "--short" "HEAD"] :timeout 2000)
+  (let [git-result (or (let [result (run ["git" "-C" repo "rev-parse" "--short" "HEAD"] :timeout 2000)]
+                         (when (:ok result) result))
+                       (run ["git" "-C" (primary-repo name) "rev-parse" "--short" "HEAD"] :timeout 2000))
         git-rev (when (:ok git-result) (not-empty (str/trim (:out git-result))))
         package-rev (case name
                       "north" (System/getenv "NORTH_PACKAGE_REV")
                       "fram" (System/getenv "FRAM_PACKAGE_REV")
+                      "beagle" (System/getenv "BEAGLE_PACKAGE_REV")
                       nil)]
     (cond
       (not-empty package-rev) {:revision package-rev :origin "package rev"}
       git-rev {:revision git-rev :origin "tree HEAD"}
       :else {:revision "?" :origin "source rev"})))
+
+(defn deployment-drift
+  "Compare a runtime revision with the named component's primary checkout.
+   Missing primary checkouts are a diagnostic condition, never a doctor failure."
+  [name revision]
+  (let [primary (primary-repo name)]
+    (if-not (.isDirectory (io/file primary))
+      {:available false}
+      (let [head-result (run ["git" "-C" primary "rev-parse" "HEAD"] :timeout 2000)
+            head (when (:ok head-result) (not-empty (str/trim (:out head-result))))
+            dirty-result (run ["git" "-C" primary "status" "--porcelain"] :timeout 2000)
+            dirty-files (when (:ok dirty-result)
+                          (count (remove #(str/starts-with? % "??")
+                                         (remove str/blank?
+                                                 (str/split-lines (:out dirty-result))))))
+            behind-result (when (and head (not= revision "?"))
+                            (run ["git" "-C" primary "rev-list" "--count"
+                                  (str revision ".." head)] :timeout 2000))
+            behind (when (:ok behind-result)
+                     (parse-long (str/trim (:out behind-result))))]
+        {:available true :behind behind :dirty-files dirty-files}))))
 
 ;; ============================================================================
 ;; COMMANDS
@@ -784,11 +812,11 @@
     (println (str "    " (ylw "[warn] ")
                   "no recent aggregate cache; readiness checks continue"
                   (dim " (run `north health` explicitly for the broad rollup)"))))
-  ;; Runtime source identity (north + fram). A package revision identifies the
+  ;; Runtime source identity. A package revision identifies the
   ;; installed closure; a checkout HEAD is only source context, not proof that a
   ;; separately installed store path contains that tree.
   (println (bold "  runtime source identity"))
-  (doseq [[name repo] [["north" NORTH] ["fram" FRAM]]]
+  (doseq [[name repo] [["north" NORTH] ["fram" FRAM] ["beagle" BEAGLE]]]
     (let [{:keys [revision origin]} (source-revision name repo)
           command-result (run ["bash" "-c" "command -v \"$1\"" "north-doctor" name] :timeout 1500)
           which (when (:ok command-result)
@@ -802,7 +830,17 @@
          (dim
           (if (= origin "package rev")
             "         (installed via nix store; embedded package revision shown above)"
-            "         (installed via nix store; tree HEAD is checkout context, not the store closure identity)"))))))
+            "         (installed via nix store; tree HEAD is checkout context, not the store closure identity)")))
+      (let [{:keys [available behind dirty-files]} (deployment-drift name revision)]
+        (if-not available
+          (println (str "    " (ylw "[warn] ") name ": repo main unavailable"))
+          (do
+            (println (str "    " (if (and behind (pos? behind)) (ylw "[warn] ") (grn "[ok]  "))
+                          name ": running " (or behind "?") " commits behind repo main"))
+            (when (pos? (or dirty-files 0))
+              (mark-doctor-failed!)
+              (println (str "    " (red "[ERR] ") "PRIMARY DIRTY: " dirty-files
+                            " files — snapshot builds EXCLUDE these (silent-exclusion risk)")))))))))
   ;; stale FRAM_LOG env pointing at a claims-named path
   (println (bold "  env hygiene"))
   (let [fl (System/getenv "FRAM_LOG")]

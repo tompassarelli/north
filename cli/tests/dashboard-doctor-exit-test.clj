@@ -29,6 +29,8 @@
 (defn exercise-doctor
   ([failed?] (exercise-doctor failed? []))
   ([failed? dead-letters]
+   (exercise-doctor failed? dead-letters (fn [_ _] {:available true :behind 0 :dirty-files 0})))
+  ([failed? dead-letters drift]
   (with-redefs [coord-safety-probe
                 (fn [] (if failed?
                          {:ok false
@@ -40,6 +42,7 @@
                 cache-get (fn [& _] {:lanes-ran-24h 1
                                      :lanes-died-24h 0})
                 source-revision (fn [_ _] {:revision "test-rev" :origin "checkout HEAD"})
+                deployment-drift drift
                 north.message-routing/readiness-dead-letter-scan
                 (fn [& _] {:rows dead-letters})
                 run (fn [& _] {:ok true :out "/nix/store/test-runtime/bin/tool\n" :err ""})]
@@ -115,6 +118,19 @@
   (check "recently undeliverable mail names the sender"
          (and (str/includes? output "[ERR]")
               (str/includes? output "live-sender"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false []
+       (fn [name _]
+         (if (= name "beagle")
+           {:available true :behind 3 :dirty-files 2}
+           {:available true :behind 0 :dirty-files 0})))]
+  (check "doctor warns when a runtime is behind primary main"
+         (str/includes? output "[warn] beagle: running 3 commits behind repo main"))
+  (check "dirty primary checkout fails doctor with snapshot exclusion alarm"
+         (and (false? healthy)
+              (str/includes? output "[ERR] PRIMARY DIRTY: 2 files — snapshot builds EXCLUDE these (silent-exclusion risk)"))))
 
 (let [child @(p/process ["env"
                          "NORTH_DASHBOARD_LIB=1"
