@@ -1,0 +1,1 @@
+../../../../../../fram/main/integrations/north/skills/codegraph/SKILL.md

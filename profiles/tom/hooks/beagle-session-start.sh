@@ -1,0 +1,1 @@
+../../../../../beagle/main/integrations/north/hooks/beagle-session-start.sh

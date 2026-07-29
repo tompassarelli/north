@@ -1,0 +1,1 @@
+../../../../../../beagle/main/integrations/north/skills/beagle-authoring/SKILL.md
