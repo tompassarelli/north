@@ -582,7 +582,46 @@ function globalLawsAppendix(): string {
 // a pure step-function of the capability SET + repo, section order is the file's
 // own order, and an unrecognized heading fails SAFE into CORE (rides with every
 // lane) rather than being silently dropped.
-interface ConstitutionSection { heading: string; text: string }
+type ConstitutionBucket = keyof {
+  core: 0; write: 0; shell: 0; orch: 0; client: 0; nixos: 0; beagle: 0;
+};
+interface ConstitutionSection {
+  heading: string;
+  text: string;
+  id: string;
+  bucket: ConstitutionBucket;
+  tagged: boolean;
+}
+
+function fallbackSectionMetadata(
+  heading: string,
+): { id: string; bucket: ConstitutionBucket } {
+  const h = heading.toLowerCase();
+  if (h.includes("done-claims")) return { id: "done-claims", bucket: "core" };
+  if (h.includes("standing guards")) return { id: "standing-guards", bucket: "core" };
+  if (h.includes("billable") || h.includes("client time and agent time"))
+    return { id: "client-time", bucket: "client" };
+  if (h.includes("pre-edit gate")) return { id: "pre-edit-gate", bucket: "orch" };
+  if (h.includes("model +")) return { id: "model-routing", bucket: "orch" };
+  if (h.includes("push freely")) return { id: "push", bucket: "write" };
+  if (h.includes("external code")) return { id: "external-code", bucket: "write" };
+  if (h.includes("internal notes")) return { id: "internal-notes", bucket: "write" };
+  if (h.includes("nixos-config") || h.includes("global agent config"))
+    return { id: "global-agent-config", bucket: "nixos" };
+  if (h.includes("racket") || h.includes("beagle")) return { id: "beagle", bucket: "beagle" };
+  if (h.includes("new code")) return { id: "new-code", bucket: "write" };
+  if (h.includes("blocked")) return { id: "blocked", bucket: "core" };
+  if (h.includes("paths")) return { id: "paths", bucket: "core" };
+  if (h.includes("north")) return { id: "north", bucket: "core" };
+  const id = h
+    .replace(/^##\s+/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return { id: id || "legacy-section", bucket: "core" };
+}
+
+const CONSTITUTION_TAG =
+  /^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$/;
 
 // Split into the leading preamble (everything before the first `## `) and the
 // ordered `## ` sections, each carrying its own heading line.
@@ -591,7 +630,18 @@ function parseConstitution(raw: string): { preamble: string; sections: Constitut
   const preamble: string[] = [];
   const sections: ConstitutionSection[] = [];
   let cur: { heading: string; body: string[] } | null = null;
-  const flush = () => { if (cur) sections.push({ heading: cur.heading, text: [cur.heading, ...cur.body].join("\n") }); };
+  const flush = () => {
+    if (!cur) return;
+    const fallback = fallbackSectionMetadata(cur.heading);
+    const tag = cur.body[0]?.match(CONSTITUTION_TAG);
+    sections.push({
+      heading: cur.heading,
+      text: [cur.heading, ...cur.body].join("\n"),
+      id: tag?.[1] ?? fallback.id,
+      bucket: (tag?.[2] as ConstitutionBucket | undefined) ?? fallback.bucket,
+      tagged: Boolean(tag),
+    });
+  };
   for (const line of lines) {
     if (/^## /.test(line)) { flush(); cur = { heading: line, body: [] }; }
     else if (cur) cur.body.push(line);
@@ -601,9 +651,6 @@ function parseConstitution(raw: string): { preamble: string; sections: Constitut
   return { preamble: preamble.join("\n").trim(), sections };
 }
 
-type ConstitutionBucket = keyof {
-  core: 0; write: 0; shell: 0; orch: 0; client: 0; nixos: 0; beagle: 0;
-};
 type ConstitutionBuckets = Record<ConstitutionBucket, string[]>;
 
 // The synthesized one-line CORE safety stub for the API-credit ban (the full
@@ -611,28 +658,18 @@ type ConstitutionBuckets = Record<ConstitutionBucket, string[]>;
 const API_KEYS_CORE_STUB =
   "- **Billing: subscription entitlements only, never API credits** — full guard rides with write capability.";
 
-// Whole-section gate by heading. Unknown headings fail safe into CORE.
-function constitutionGateForHeading(heading: string): ConstitutionBucket {
-  const h = heading.toLowerCase();
-  if (h.includes("billable") || h.includes("client time and agent time")) return "client";
-  if (h.includes("pre-edit gate")) return "orch";
-  if (h.includes("model +")) return "orch";
-  if (h.includes("push freely")) return "write";
-  if (h.includes("external code")) return "write";
-  if (h.includes("internal notes")) return "write";
-  if (h.includes("nixos-config") || h.includes("global agent config")) return "nixos";
-  if (h.includes("racket") || h.includes("beagle")) return "beagle";
-  if (h.includes("new code")) return "write";
-  // north-substrate, blocked, paths, and any unrecognized heading -> CORE.
-  return "core";
-}
-
 // done-claims: para1 (report own evidence) is universal -> CORE; the
 // reconcile/attest-the-aggregate paragraph(s) are coordinator-side -> ORCH.
 function splitDoneClaims(section: ConstitutionSection, b: ConstitutionBuckets): void {
-  const body = section.text.slice(section.heading.length).replace(/^\n+/, "");
+  let body = section.text.slice(section.heading.length).replace(/^\n+/, "");
+  let tag = "";
+  if (section.tagged) {
+    const newline = body.indexOf("\n");
+    tag = newline < 0 ? body : body.slice(0, newline);
+    body = newline < 0 ? "" : body.slice(newline + 1).replace(/^\n+/, "");
+  }
   const paras = body.split("\n\n").map((p) => p.trim()).filter(Boolean);
-  b.core.push(`${section.heading}\n\n${paras[0] ?? ""}`);
+  b.core.push(`${section.heading}\n${tag ? `${tag}\n` : ""}\n${paras[0] ?? ""}`);
   const rest = paras.slice(1).join("\n\n");
   if (rest) b.orch.push(rest);
 }
@@ -689,10 +726,9 @@ export function constitutionTiers(
   const b: ConstitutionBuckets = { core: [], write: [], shell: [], orch: [], client: [], nixos: [], beagle: [] };
   if (preamble) b.core.push(preamble);
   for (const section of sections) {
-    const h = section.heading.toLowerCase();
-    if (h.includes("done-claims")) splitDoneClaims(section, b);
-    else if (h.includes("standing guards")) splitStandingGuards(section, b);
-    else b[constitutionGateForHeading(section.heading)].push(section.text);
+    if (section.id === "done-claims") splitDoneClaims(section, b);
+    else if (section.id === "standing-guards") splitStandingGuards(section, b);
+    else b[section.bucket].push(section.text);
   }
   b.core.push(API_KEYS_CORE_STUB);
 

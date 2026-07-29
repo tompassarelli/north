@@ -4,7 +4,9 @@
 // UNIQUE coordination tail lands after every shared tier.
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { constitutionTiers, harnessCompositionEvidence, harnessOptions } from "../src/harness";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import type { OrchestrationCapability } from "../src/orchestration-capabilities";
@@ -27,9 +29,12 @@ const whole = (caps: OrchestrationCapability[]) => {
 };
 
 const savedLaws = process.env.AGENT_LAWS;
+const savedLawsPath = process.env.AGENT_LAWS_PATH;
 afterEach(() => {
   if (savedLaws === undefined) delete process.env.AGENT_LAWS;
   else process.env.AGENT_LAWS = savedLaws;
+  if (savedLawsPath === undefined) delete process.env.AGENT_LAWS_PATH;
+  else process.env.AGENT_LAWS_PATH = savedLawsPath;
 });
 
 // Distinctive section markers.
@@ -53,6 +58,105 @@ const M = {
   nixos: "Global agent config goes through nixos-config",
   beagle: "Racket / Beagle",
 };
+
+test("tagged section metadata overrides legacy heading classification", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "north-context-tags-"));
+  try {
+    const source = join(fixture, "AGENTS.md");
+    writeFileSync(source, [
+      "# Tagged fixture",
+      "",
+      "TAGGED_PREAMBLE",
+      "",
+      "## Push freely — misleading legacy heading",
+      "<!-- north-section: tagged-core · bucket: core -->",
+      "TAGGED_CORE_SECTION",
+      "",
+      "## Blocked ≠ misleading legacy heading",
+      "<!-- north-section: tagged-write · bucket: write -->",
+      "TAGGED_WRITE_SECTION",
+      "",
+    ].join("\n"));
+    process.env.AGENT_LAWS_PATH = source;
+
+    const text = whole(CLASS.roEval);
+    expect(text).toContain("TAGGED_CORE_SECTION");
+    expect(text).not.toContain("TAGGED_WRITE_SECTION");
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("untagged sections retain legacy substring classification", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "north-context-legacy-"));
+  try {
+    const source = join(fixture, "AGENTS.md");
+    writeFileSync(source, [
+      "# Untagged fixture",
+      "",
+      "LEGACY_PREAMBLE",
+      "",
+      "## Blocked ≠ stopped",
+      "",
+      "LEGACY_CORE_SECTION",
+      "",
+      "## Push freely",
+      "",
+      "LEGACY_WRITE_SECTION",
+      "",
+    ].join("\n"));
+    process.env.AGENT_LAWS_PATH = source;
+
+    const readonly = whole(CLASS.roEval);
+    expect(readonly).toContain("LEGACY_CORE_SECTION");
+    expect(readonly).not.toContain("LEGACY_WRITE_SECTION");
+    expect(whole(CLASS.writer)).toContain("LEGACY_WRITE_SECTION");
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("malformed section tags fall back to legacy headings and unknown headings fail safe", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "north-context-malformed-"));
+  try {
+    const source = join(fixture, "AGENTS.md");
+    writeFileSync(source, [
+      "# Malformed fixture",
+      "",
+      "## Push freely",
+      "<!-- north-section: malformed-write · bucket: sideways -->",
+      "MALFORMED_LEGACY_WRITE",
+      "",
+      "## Entirely unfamiliar law",
+      "<!-- north-section: malformed-core · bucket: sideways -->",
+      "MALFORMED_UNKNOWN_CORE",
+      "",
+    ].join("\n"));
+    process.env.AGENT_LAWS_PATH = source;
+
+    const readonly = whole(CLASS.roEval);
+    expect(readonly).not.toContain("MALFORMED_LEGACY_WRITE");
+    expect(readonly).toContain("MALFORMED_UNKNOWN_CORE");
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("the owned profile has one unique valid tag directly below every section heading", () => {
+  const raw = readFileSync(resolve(north, "profiles/tom/AGENTS.md"), "utf8");
+  const headings = [...raw.matchAll(/^## .+$/gm)];
+  const tags = [...raw.matchAll(
+    /^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$/gm,
+  )];
+  expect(tags.length).toBe(headings.length);
+  expect(new Set(tags.map((tag) => tag[1])).size).toBe(tags.length);
+  for (const heading of headings) {
+    const nextLine = raw.slice((heading.index ?? 0) + heading[0].length + 1).split("\n", 1)[0];
+    expect(nextLine).toMatch(
+      /^<!-- north-section: [a-z0-9][a-z0-9-]* · bucket: (core|write|shell|orch|client|nixos|beagle) -->$/,
+    );
+  }
+});
 
 test("CORE laws ride with every capability class, byte-identical", () => {
   const cores = Object.values(CLASS).map((caps) => constitutionTiers(caps, north).core);
