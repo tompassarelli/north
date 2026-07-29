@@ -44,8 +44,10 @@ import {
   hasCanonicalFramMcpServer,
 } from "../fram-graph-authoring";
 import type { OpenAIAuthoritySurface } from "./authority";
+import {
+  assertInstalledManagedCodexHooks, expectedManagedCodexHooks,
+} from "./codex-managed-hooks";
 import { managedCodexNetworkArguments, managedCodexNetworkPolicy } from "./codex-network-policy";
-import { expectedManagedCodexHooks } from "./codex-managed-hooks";
 import {
   CODEX_SUPERVISOR_STATUS_PREFIX, CODEX_SUPERVISOR_STDERR_FLAG, codexSupervisorStderrLine,
 } from "./codex-supervisor-protocol";
@@ -186,6 +188,30 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
   "web_search_cached",
   "web_search_request",
   "workspace_dependencies",
+] as const;
+
+// Codex reports an untrusted project's config as a disabled layer. These are
+// the reviewed top-level keys in the global Codex profile which can therefore
+// appear when HOME itself is the project root. Their VALUES remain inert only
+// under the structured disabled-reason + exact warning contract below, while
+// the effective config, thread authority, hooks, MCP inventory, sandbox, and
+// remote-control state are independently attested. Unknown keys stay denied so
+// a newly introduced surface must be reviewed before managed lanes accept it.
+const REVIEWED_DISABLED_PROJECT_CONFIG_KEYS = [
+  "approval_policy",
+  "approvals_reviewer",
+  "default_permissions",
+  "exec_policy",
+  "features",
+  "hooks",
+  "mcp_servers",
+  "model",
+  "model_reasoning_effort",
+  "notice",
+  "project_doc_fallback_filenames",
+  "projects",
+  "sandbox_mode",
+  "tui",
 ] as const;
 
 type JsonObject = Record<string, unknown>;
@@ -515,6 +541,8 @@ interface LaunchContract {
   /** Git metadata roots the workspace-write sandbox may write; [] when read-only. */
   writableRoots: string[];
   network: ReturnType<typeof managedCodexNetworkPolicy>;
+  /** Immutable requirements.toml independently attested hook failures as blocking. */
+  installedManagedHookFailureMode?: "block";
 }
 
 /**
@@ -590,6 +618,17 @@ export function managedCodexAppServerLaunch(
       );
     return resolved;
   });
+  // Codex 0.144.4 enforces managed_hook_failure_mode from requirements.toml
+  // but its configRequirements/read response omits that field. Production can
+  // accept the omission only after re-reading the exact root-managed,
+  // Nix-immutable requirements and hook closure at this final launch seam.
+  // Synthetic transports deliberately receive no such proof.
+  const installedManagedHookFailureMode = options.spawnProcess
+    ? undefined
+    : stage("openai_managed_hooks_contract_unavailable", () => {
+      assertInstalledManagedCodexHooks();
+      return "block" as const;
+    });
   stage("openai_codex_authority_filesystem_invalid",
     () => assertNoFilesystemAuthority(codexHome));
   options.env.CODEX_HOME = codexHome;
@@ -711,7 +750,7 @@ export function managedCodexAppServerLaunch(
   ];
   return {
     args, expectedSessionConfig, executable, codexHome, sqliteHome, cwd, projectRoot,
-    writableRoots, network,
+    writableRoots, network, installedManagedHookFailureMode,
   };
 }
 
@@ -1075,7 +1114,7 @@ function validateDisabledProjectConfig(value: JsonObject): void {
     maxDepth: MAX_DISABLED_PROJECT_CONFIG_DEPTH,
     maxNodes: MAX_DISABLED_PROJECT_CONFIG_NODES,
   });
-  const allowed = new Set(["mcp_servers", "hooks", "exec_policy"]);
+  const allowed = new Set<string>(REVIEWED_DISABLED_PROJECT_CONFIG_KEYS);
   const widened = Object.keys(value).filter((key) => !allowed.has(key)).sort();
   if (widened.length)
     // Name the offending keys. This is a terminal preflight failure — the lane
@@ -1085,6 +1124,20 @@ function validateDisabledProjectConfig(value: JsonObject): void {
       `Codex disabled project config widened authority: ${widened.join(", ")}`
       + ` (allowed: ${[...allowed].sort().join(", ")})`,
     );
+}
+
+function expectedProjectDisabledReason(contract: LaunchContract): string {
+  return `${contract.projectRoot} is marked as untrusted in ${contract.codexHome}/config.toml. `
+    + "To load project-local config, hooks, and exec policies, mark it trusted.";
+}
+
+function expectedProjectConfigWarning(contract: LaunchContract): JsonObject {
+  return {
+    summary: "Project-local config, hooks, and exec policies are disabled in the following folders until the project is trusted, but skills still load.\n"
+      + `    1. ${contract.projectRoot}/.codex\n`
+      + `       ${expectedProjectDisabledReason(contract)}\n`,
+    details: null,
+  };
 }
 
 function validateConfig(
@@ -1120,7 +1173,13 @@ function validateConfig(
       if (layer.disabledReason !== undefined)
         boundedString(layer.disabledReason, "Codex project layer disabled reason", 4_096);
       validateDisabledProjectConfig(layerConfig);
-      if (Object.keys(layerConfig).length > 0) projectWarningRequired = true;
+      if (Object.keys(layerConfig).length > 0) {
+        if (layer.disabledReason !== expectedProjectDisabledReason(contract))
+          throw new Error(
+            "Codex populated project layer lacks its exact structured disabled reason",
+          );
+        projectWarningRequired = true;
+      }
       if (boundedString(name.dotCodexFolder, "Codex project layer folder", 4_096)
           !== join(contract.projectRoot, ".codex"))
         throw new Error("Codex project layer names an invalid config folder");
@@ -1213,11 +1272,13 @@ function expectedHookRows(): Array<JsonObject> {
   return rows.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 }
 
-function validateRequirements(response: unknown): void {
+function validateRequirements(response: unknown, contract: LaunchContract): void {
   const body = record(response, "Codex requirements response");
   const requirements = record(body.requirements, "Codex requirements");
   if (requirements.allowManagedHooksOnly !== true || requirements.allowRemoteControl !== false
-      || requirements.managedHookFailureMode !== "block")
+      || (requirements.managedHookFailureMode === undefined
+        ? contract.installedManagedHookFailureMode !== "block"
+        : requirements.managedHookFailureMode !== "block"))
     throw new Error("Codex requirements do not close managed hooks, failures, and remote control");
   exact(requirements.featureRequirements, { hooks: true }, "Codex feature requirements");
   const hooks = record(requirements.hooks, "Codex managed hook requirements");
@@ -2635,17 +2696,14 @@ export class ManagedCodexAppServerRun {
       if (method === "configWarning") {
         const params = record(value, "Codex config warning");
         onlyKeys(params, ["summary", "details"], "Codex config warning");
-        const expectedSummary = "Project-local config, hooks, and exec policies are disabled in the following folders until the project is trusted, but skills still load.\n"
-          + `    1. ${contract.cwd}/.codex\n`
-          + `       ${contract.cwd} is marked as untrusted in ${contract.codexHome}/config.toml. To load project-local config, hooks, and exec policies, mark it trusted.\n`;
         // Diagnosable: this warning is Codex's own untrusted-project prompt —
-        // a fixed English summary plus cwd and CODEX_HOME, no credentials — so
+        // a fixed English summary plus project root and CODEX_HOME, no credentials — so
         // it qualifies for the observed/expected cause. It also NEEDS it more
         // than any other check here: the expected value is a byte-exact English
         // string, so any Codex release that rewords the prompt blocks every
         // managed lane at preflight, and the blind comparator reported only
         // "does not match" with no way to see which byte drifted.
-        exactDiagnosable(params, { summary: expectedSummary, details: null }, "Codex config warning");
+        exactDiagnosable(params, expectedProjectConfigWarning(contract), "Codex config warning");
         exactProjectWarningSeen = true;
         return true;
       }
@@ -2830,7 +2888,7 @@ export class ManagedCodexAppServerRun {
       validateAccount(await rpc.request("account/read", {}));
       const config = await rpc.request("config/read", { includeLayers: true, cwd: contract.cwd });
       const fingerprint = validateConfig(config, contract, exactProjectWarningSeen);
-      validateRequirements(await rpc.request("configRequirements/read"));
+      validateRequirements(await rpc.request("configRequirements/read"), contract);
       validateHooks(await rpc.request("hooks/list", { cwds: [contract.cwd] }), contract.cwd);
       await validateMcp(rpc, inventory);
       if (!remoteDisabled) throw new Error("Codex did not prove remote control disabled");
