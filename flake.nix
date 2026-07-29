@@ -41,7 +41,7 @@
           srcHash = "sha256-NmYZxjNFPkRWN4rw+eeka10pJt6/oU3ZoLXBxj3dPRU=";
           cargoHash = "sha256-S4dsZXfmKvJItL2XYKyxfhqdCMATEG6oPjrtVRwkuYc=";
           patchSha256 = "36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3";
-          movedCwdPatchSha256 = "09c1ea4ec9e6f91cc7a21b88da49546c678355f45594c79388494ec5e893290a";
+          movedCwdPatchSha256 = "8df9c1918ba50d256e1150b3d4b164327d468796d2788d5682f89085c8e07a55";
         };
         codexUpstreamPkg =
           codexPkgs.codex or

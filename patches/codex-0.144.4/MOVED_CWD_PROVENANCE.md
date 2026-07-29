@@ -27,4 +27,4 @@ The modified upstream file is
 directory fallback and preservation of the genuine fail-closed failure path.
 
 Patch SHA-256:
-`09c1ea4ec9e6f91cc7a21b88da49546c678355f45594c79388494ec5e893290a`.
+`8df9c1918ba50d256e1150b3d4b164327d468796d2788d5682f89085c8e07a55`.
