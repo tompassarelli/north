@@ -15,13 +15,32 @@ export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/facts.log}"
 # explicit NORTH_TELEMETRY_PARTITION=1 advances to Stage A: coordination and
 # telemetry each have an independently fenced writer. FRAM_TELEMETRY_LOG is
 # still selected by either an explicit caller value or the presence of a seeded
-# coordination.log beside FRAM_LOG. Without the Stage-A flag, the prior
+# coordination.log beside FRAM_LOG. An explicit telemetry path does not make the
+# default facts.log authoritative; when coordination.log exists it remains the
+# coordination writer's exact fence. Without the Stage-A flag, the prior
 # single-coordinator behavior remains unchanged.
-if [ "$_north_fram_log_explicit" -eq 0 ] && [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
+# Gated ONLY on whether the caller pinned FRAM_LOG. It was ALSO gated on
+# FRAM_TELEMETRY_LOG being unset, and that broke every write: the packaged
+# wrapper exports FRAM_TELEMETRY_LOG, so this branch never ran, FRAM_LOG stayed
+# at facts.log, and the coordinator serves coordination.log. Observed
+# 2026-07-29 — every `north tell` died with
+#   REFUSED — subject resolver unavailable (coordinator unavailable or
+#   incompatible)
+# which is a log-identity MISMATCH wearing the costume of a dead daemon: the
+# same write through `fram` with FRAM_LOG=coordination.log committed fine.
+#
+# The two variables answer different questions. FRAM_LOG is WHICH CORPUS;
+# FRAM_TELEMETRY_LOG is WHERE TELEMETRY GOES. Letting the second veto the first
+# conflated them. cli/tests/north-log-selection-test.sh pins all four cases.
+if [ "$_north_fram_log_explicit" -eq 0 ]; then
   _north_log_dir="$(dirname "$FRAM_LOG")"
   if [ -f "$_north_log_dir/coordination.log" ]; then
     export FRAM_LOG="$_north_log_dir/coordination.log"
-    export FRAM_TELEMETRY_LOG="$_north_log_dir/telemetry.log"
+    # Only DERIVED when the caller named none, so an explicit telemetry route
+    # is never clobbered.
+    if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
+      export FRAM_TELEMETRY_LOG="$_north_log_dir/telemetry.log"
+    fi
   fi
   unset _north_log_dir
 fi
@@ -131,6 +150,47 @@ deny_generic_run_mutation() {
 
 deny_generic_run_mutation "$@" || exit 1
 
+# Cheap deployment-readiness boundary. Runtime identity comes from the selected
+# coordinator generation and the live listener process; unlike coord-doctor,
+# this never folds either log or reads the projected thread corpus. In Stage A,
+# each sole writer has its own runtime selector and must attest independently.
+coord_runtime_ready() {
+  "$NORTH/bin/north-coord-up" --check-runtime || return $?
+  if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+    local telemetry_runtime_state
+    telemetry_runtime_state="${NORTH_TELEMETRY_RUNTIME_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/north/fram-telemetry-runtime}"
+    env -u FRAM_TELEMETRY_LOG \
+      NORTH_TELEMETRY_PARTITION=0 \
+      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+      NORTH_COORD_RUNTIME_STATE="$telemetry_runtime_state" \
+      NORTH_COORD_SYSTEMD_UNIT=north-telemetry-coord.service \
+      "$NORTH/bin/north-coord-up" --check-runtime
+  fi
+}
+
+coord_safety_ready() {
+  local coordination_port="${NORTH_PORT:-${FRAM_PORT:-7977}}"
+
+  # Runtime identity proves that the intended immutable generation owns each
+  # listener. The strict probes then prove an exact-log fenced round trip
+  # without folding either log or loading the projected thread corpus.
+  coord_runtime_ready || return $?
+  "$BB" "$NORTH/cli/coord.clj" strict-probe \
+    "$coordination_port" "$FRAM_LOG" >/dev/null || return $?
+  echo "coordinator strict log fence OK on :$coordination_port"
+
+  if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+    env -u FRAM_TELEMETRY_LOG \
+      NORTH_TELEMETRY_PARTITION=0 \
+      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
+      "$BB" "$NORTH/cli/coord.clj" strict-probe \
+      "$NORTH_TELEMETRY_PORT" "$FRAM_TELEMETRY_LOG" >/dev/null || return $?
+    echo "telemetry coordinator strict log fence OK on :$NORTH_TELEMETRY_PORT"
+  fi
+}
+
 case "${1:-}" in
   ""|help|-h|--help)
     # THE CARD — one screen, grouped, "type this → do this". Bare `north` and
@@ -220,6 +280,8 @@ north — your one card. Type a command to do the thing next to it.
     north spend status [target]        API-billing budget: cap, reserved, settled, headroom
     north spend init|override <target> create a guarded budget · add a time-boxed override
     north providers                    provider readiness and auto-route decision
+    north coord-ready                  cheap exact runtime identity for every active writer
+    north coord-safety                 bounded identity + strict log-fence round trip
     north doctor                       is everything healthy — daemons, rev skew, env, hooks
 CARD
     exit 0 ;;
@@ -240,20 +302,16 @@ CARD
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
     exec "${NORTH_MAIN[@]}" "$@" ;;
+  coord-ready)
+    coord_runtime_ready ;;
+  coord-safety)
+    coord_safety_ready ;;
   coord-doctor)
     # Engine-level coordinator SAFETY handshake + log-hygiene diff (north.main
     # cmd-doctor): tell/untell safe? daemon state matches on-disk log? This is the
     # raw primitive the cockpit `north doctor` leads with. Renamed from the old bare
     # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
-    "$NORTH/bin/north-coord-up" --check-runtime || exit $?
-    if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-      env -u FRAM_TELEMETRY_LOG \
-        NORTH_TELEMETRY_PARTITION=0 \
-        FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-        FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-        NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
-        "$NORTH/bin/north-coord-up" --check-runtime || exit $?
-    fi
+    coord_runtime_ready || exit $?
     exec "${NORTH_MAIN[@]}" doctor "${@:2}" ;;
   dashboard|doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =
@@ -261,6 +319,19 @@ CARD
     # is everything healthy (coordinator handshake + daemons/health/rev-skew/env/
     # guard-hooks). Both teach the primitive they wrap. cli/dashboard-cli.clj.
     exec "$BB" "$NORTH/cli/dashboard-cli.clj" "$@" ;;
+  hotspots)
+    # Where is the time going and what is failing, ranked (north hotspots is
+    # already the work-queue unblocker ranking, so this is hotspots) — read out of the
+    # telemetry that ALREADY exists (coordinator slow-read attribution, agent
+    # logs). Adds no instrumentation and no daemon. cli/hotspots-cli.clj.
+    exec "$BB" "$NORTH/cli/hotspots-cli.clj" "${@:2}" ;;
+  deployed)
+    # Is the code I committed the code that is RUNNING? Three columns, because a
+    # change gets stuck in three different places: committed but not built
+    # (rebuild), built but not adopted by the live process (restart), or live.
+    # Those need opposite actions, so the table never merges them.
+    # cli/deployed-cli.clj.
+    exec "$BB" "$NORTH/cli/deployed-cli.clj" "${@:2}" ;;
   config)
     # Personal-stack posture + durable provider routing policy.
     # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)
@@ -416,6 +487,21 @@ CARD
     fi
     echo "usage: north worktree lander [repository]" >&2
     exit 2 ;;
+  show|history)
+    # Stage A gives telemetry subjects an independent sole writer. Generic Fram
+    # reads otherwise ask only the coordination writer and turn a real telemetry
+    # subject into a false "no facts" result. Exact namespace-qualified reads
+    # follow the same subject router as writes and fail closed when that writer
+    # is unavailable; partition-off (A1/rollback) keeps the prior Fram surface.
+    if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+      case "${2#@}" in
+        run:*|session:*|mine:*|guard_denial:*)
+          exec "$BB" -cp "$NORTH/out:$FRAM_OUT" \
+            "$NORTH/cli/subject-read-cli.clj" "$@"
+          ;;
+      esac
+    fi
+    exec "$FRAM_BIN/fram" "$@" ;;
   tell|untell|retract)
     # `retract` is the primary agent-facing retraction verb (R&N TELL/RETRACT);
     # `untell` is an accepted legacy alias. Both map onto fram's `untell` CLI verb
@@ -495,6 +581,6 @@ CARD
       esac
     fi
     exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
-  *)  # engine verbs: import/export/show/set/merge/watch
+  *)  # engine verbs: import/export/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;
 esac

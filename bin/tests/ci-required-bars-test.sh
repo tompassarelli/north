@@ -19,6 +19,8 @@ clojure_bars=(
   cli/tests/agent-identity-publication-integration-test.clj
   cli/tests/agents-cli-test.clj
   cli/tests/dashboard-doctor-exit-test.clj
+  cli/tests/coordinator-jvm-health-test.clj
+  cli/tests/deployed-cli-test.clj
   cli/tests/wip-cli-test.clj
   cli/tests/live-feed-integration-test.clj
   cli/tests/message-routing-test.clj

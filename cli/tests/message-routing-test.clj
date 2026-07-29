@@ -40,7 +40,19 @@
    ["@agent:live-session" "role"] "integrator"
    ["@agent:armed-session" "live_input_state"] "armed"})
 
-(def acknowledged #{"@msg:acked"})
+(def mail-query-seen (atom nil))
+(def many-calls (atom []))
+
+(defn mail-query-settles-server-side? [query]
+  (let [rules (mapcat identity (:strata query))
+        clauses (mapcat :body rules)]
+    (and (= "mail_candidate" (:find query))
+         (some #(= "mail_settled" (get-in % [:head :rel])) rules)
+         (some #(= "acked_by" (second (:args %))) clauses)
+         (some #(= "delivery_rejected_by" (second (:args %))) clauses)
+         (some #(and (= "mail_settled" (:rel %))
+                     (true? (:neg %)))
+               clauses))))
 
 (defn resolved [_ subject predicate]
   (get facts [subject predicate]))
@@ -53,11 +65,17 @@
                    body)
         same-route? (some #(= "repo" (second (:args %))) body)
         mail? (= "mail_candidate" (:find query))]
+    (when mail?
+      (reset! mail-query-seen query))
     {:ok
      (cond
-       mail? [["@msg:dead" "sender-a" "dead-session" "2026-07-27T10:00:00Z"]
-              ["@msg:live" "sender-b" "live-session" "2026-07-27T11:00:00Z"]
-              ["@msg:acked" "sender-c" "dead-session" "2026-07-27T09:00:00Z"]]
+       mail? (cond->
+              [["@msg:dead" "sender-a" "dead-session" "2026-07-27T11:30:00Z"]
+               ["@msg:live" "sender-b" "live-session" "2026-07-27T11:45:00Z"]
+               ["@msg:historical" "sender-c" "old-session" "2026-07-27T09:00:00Z"]]
+               (not (mail-query-settles-server-side? query))
+               (conj ["@msg:acked" "sender-d" "dead-session"
+                      "2026-07-27T08:00:00Z"]))
        (= role "@role:legacy-reviewer") [["@agent:armed-session"]]
        same-route? [["@agent:dead-session"] ["@agent:live-session"]]
        :else [])
@@ -68,10 +86,8 @@
               north.coord/query-page page
               north.coord/many
               (fn [_ subject predicate]
-                (if (and (= predicate "acked_by")
-                         (contains? acknowledged subject))
-                  ["recipient"]
-                  []))
+                (swap! many-calls conj [subject predicate])
+                [])
               north.coord/online? (fn [_ control] (= control "live-session"))]
   (check "direct live recipient passes"
          (= {:address "live-session" :recipient "live-session"
@@ -103,15 +119,45 @@
          (= :broadcast
             (:kind (north.message-routing/require-live-address 1 "*"))))
   (check "dead-letter scan returns only pending mail to absent identities"
-         (= [{:message "@msg:dead"
+         (= [{:message "@msg:historical"
+              :sender "sender-c"
+              :recipient "old-session"
+              :resolved-recipient "old-session"
+              :age-ms 10800000
+              :age "3h"}
+             {:message "@msg:dead"
               :sender "sender-a"
               :recipient "dead-session"
               :resolved-recipient "dead-session"
-              :age-ms 7200000
-              :age "2h"}]
+              :age-ms 1800000
+              :age "30m"}]
             (:rows
              (north.message-routing/dead-letter-scan
-              1 (java.time.Instant/parse "2026-07-27T12:00:00Z"))))))
+              1 (java.time.Instant/parse "2026-07-27T12:00:00Z")))))
+  (check "mail query excludes acknowledged and rejected messages on the server"
+         (mail-query-settles-server-side? @mail-query-seen))
+  (check "full dead-letter scan performs no per-message many reads"
+         (empty? @many-calls))
+  (check "readiness keeps historical mail without probing it and checks recent mail"
+         (= [{:message "@msg:historical"
+              :sender "sender-c"
+              :recipient "old-session"
+              :resolved-recipient "old-session"
+              :age-ms 10800000
+              :age "3h"
+              :historical? true}
+             {:message "@msg:dead"
+              :sender "sender-a"
+              :recipient "dead-session"
+              :resolved-recipient "dead-session"
+              :age-ms 1800000
+              :age "30m"}]
+            (:rows
+             (north.message-routing/readiness-dead-letter-scan
+              1 3600000
+              (java.time.Instant/parse "2026-07-27T12:00:00Z")))))
+  (check "readiness dead-letter scan performs no per-message many reads"
+         (empty? @many-calls)))
 
 (let [result
       (proc/shell

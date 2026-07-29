@@ -6,6 +6,7 @@
               .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def source-path (str root "/cli/concern-cli.clj"))
 (def source-text (slurp source-path))
+(def wrapper-text (slurp (str root "/bin/concern")))
 (def main-offset (str/last-index-of source-text "\n(let [[ps verb"))
 (when-not main-offset
   (throw (ex-info "concern CLI main form marker not found" {})))
@@ -20,6 +21,12 @@
 (defn check! [label passed?]
   (println (str (if passed? "PASS" "FAIL") " — " label))
   (when-not passed? (swap! failures inc)))
+
+(check! "concern wrapper carries the canonical coordination-log fence"
+        (and (str/includes?
+              wrapper-text
+              "FRAM_LOG=\"${FRAM_LOG:-$HOME/.local/state/north/coordination.log}\"")
+             (str/includes? wrapper-text "export FRAM_LOG")))
 
 (check! "version and assert accept only their exact success envelopes"
         (and (valid-code-response? {:op :version} {:version 7})
