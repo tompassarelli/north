@@ -180,5 +180,72 @@
 (check! "a line with no revision yields nil rather than a partial match"
         (nil? (re-find #"\b([0-9a-f]{40})\b" "coordinator unavailable")))
 
+;; --- the running closure, not the self-report --------------------------------
+;; On 2026-07-29 `coord-ready` reported "identity: selected package 43fcd109"
+;; and this table printed "fram ✓ live" while the coordinator was executing a
+;; closure built 2026-06-28, wedged at 20.5 GB RSS with old gen at 99.98%,
+;; accepting connections and answering nothing. A revision that matches proves
+;; nothing when it describes CONFIGURATION rather than the running process.
+(def STORE-A "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fram-0-unstable-2026-07-29")
+(def STORE-B "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-fram-0-unstable-2026-06-28")
+
+(check! "matching closures report no drift"
+        (nil? (runtime-drift STORE-A STORE-A)))
+(check! "a running closure differing from the selector is stale-process"
+        (= :stale-process (:status (runtime-drift STORE-B STORE-A))))
+(check! "the drift detail identifies both closures by HASH"
+        ;; Not by name: every fram package here is named
+        ;; "fram-0-unstable-2026-06-28" regardless of content, so a name-based
+        ;; message read "process has fram-0-unstable-2026-06-28, selector has
+        ;; fram-0-unstable-2026-06-28" — true, and useless.
+        (let [d (:detail (runtime-drift STORE-B STORE-A))]
+          (and (clojure.string/includes? d "bbbbbbbb")
+               (clojure.string/includes? d "aaaaaaaa"))))
+(check! "an unreadable running closure is unknown, NOT agreement"
+        (= :unknown (:status (runtime-drift nil STORE-A))))
+(check! "an unreadable selector is unknown, NOT agreement"
+        (= :unknown (:status (runtime-drift STORE-A nil))))
+(check! "a blank running closure is unknown, NOT agreement"
+        (= :unknown (:status (runtime-drift "" STORE-A))))
+
+;; The store-path extractor must compare a bare package against a package with a
+;; path beneath it — the selector symlink resolves to <store>/libexec/fram.
+(check! "a package path and a package/subdir path compare equal"
+        (= (store-path-of STORE-A)
+           (store-path-of (str STORE-A "/libexec/fram"))))
+(check! "the extractor finds a store path inside a full java command line"
+        (= STORE-A (store-path-of (str "/nix/store/x-openjdk/bin/java -cp " STORE-A "/out:/other.jar"))))
+(check! "text with no store path yields nil"
+        (nil? (store-path-of "coordinator unavailable")))
+
+;; Drift must OVERRIDE an otherwise-green fram row, or the check is decorative.
+(with-redefs [locked-revs (constantly {"north" A "fram" A "beagle" A})
+              source-rev (constantly A)
+              running-fram (constantly A)
+              system-fram-rev (constantly A)
+              running-fram-store (constantly STORE-B)
+              selected-fram-store (constantly STORE-A)
+              nixos-config-assessment
+              (constantly {:component "nixos-config" :verdict [:live "✓" "live"]})]
+  (let [{:keys [judged worst]} (deployment-report)
+        fram-row (first (filter #(= "fram" (:component %)) judged))]
+    (check! "a drifting closure fails the fram row even when revisions match"
+            (= :stale-process (first (:verdict fram-row))))
+    (check! "closure drift makes the command exit non-zero" (= 1 worst))))
+
+(with-redefs [locked-revs (constantly {"north" A "fram" A "beagle" A})
+              source-rev (constantly A)
+              running-fram (constantly A)
+              system-fram-rev (constantly A)
+              running-fram-store (constantly STORE-A)
+              selected-fram-store (constantly STORE-A)
+              nixos-config-assessment
+              (constantly {:component "nixos-config" :verdict [:live "✓" "live"]})]
+  (let [{:keys [judged worst]} (deployment-report)
+        fram-row (first (filter #(= "fram" (:component %)) judged))]
+    (check! "a matching closure leaves the healthy row green"
+            (= :live (first (:verdict fram-row))))
+    (check! "no drift exits zero" (= 0 worst))))
+
 (println (format "deployed-cli: %d / %d PASS" (- @checks @failures) @checks))
 (System/exit (if (zero? @failures) 0 1))
