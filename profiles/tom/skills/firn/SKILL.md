@@ -1,1 +1,1 @@
-../../../../../../nixos-config/main/modules/agent-core/firn/skills/firn/SKILL.md
+../../../../../../nixos-config/main/modules/north-profile/firn/skills/firn/SKILL.md

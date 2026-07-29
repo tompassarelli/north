@@ -1,1 +1,1 @@
-../../../../../nixos-config/main/modules/agent-core/firn/docs/nixos-config-rules.md
+../../../../../nixos-config/main/modules/north-profile/firn/docs/nixos-config-rules.md
