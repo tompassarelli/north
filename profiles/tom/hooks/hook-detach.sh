@@ -30,8 +30,18 @@ shift
 payload="$(mktemp -t hook-detach.XXXXXX)" || exit 0
 cat >"$payload" 2>/dev/null || true
 
+# Identity/telemetry remains live if the resolver cannot be loaded. The hook is
+# excluded from the global sweep and can be disabled only by coordination
+# category or item.
+# shellcheck disable=SC1091
+if builtin source "${BASH_SOURCE[0]%/*}/lib/harness-dial.sh" 2>/dev/null &&
+    ! north_hook_enabled hook-detach; then
+  rm -f "${payload:?}"
+  exit 0
+fi
+
 if ! command -v "$target" >/dev/null 2>&1 && [ ! -x "$target" ]; then
-  rm -f "$payload"
+  rm -f "${payload:?}"
   exit 0   # fail open: a missing telemetry sink is not the agent's problem
 fi
 
@@ -39,7 +49,7 @@ fi
 setsid bash -c '
   t="$1"; p="$2"; shift 2
   "$t" "$@" <"$p" >/dev/null 2>&1
-  rm -f "$p"
+  rm -f "${p:?}"
 ' _ "$target" "$payload" "$@" >/dev/null 2>&1 &
 disown 2>/dev/null || true
 

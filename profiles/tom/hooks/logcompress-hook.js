@@ -36,6 +36,24 @@ if (process.env.LOGCOMPRESS_INNER !== "1") {
     );
     if (inputRead.status !== 0) process.exit(0);
     const input = inputRead.stdout;
+    const dial = spawnSync(
+      "bash",
+      [
+        "-c",
+        'source "$1" && north_hook_enabled "$2"',
+        "logcompress-dial",
+        path.join(__dirname, "lib", "harness-dial.sh"),
+        "logcompress-hook",
+      ],
+      {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 1000,
+        killSignal: "SIGKILL",
+      },
+    );
+    // Status 1 is the resolver's deliberate off verdict. Any other failure is
+    // fail-open so telemetry plumbing cannot erase the original tool result.
+    if (dial.status === 1) process.exit(0);
     const maxBuffer = Math.min(
       Math.max(input.length * 2 + 1024 * 1024, 1024 * 1024),
       64 * 1024 * 1024,

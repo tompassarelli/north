@@ -7,10 +7,10 @@
 # routing them through one shim is cheaper and safer than editing six live
 # enforcement scripts to gain behavior they already have.
 #
-# `authoring_guards_off` keeps its exact prior meaning: env beats state,
-# AGENT_NO_AUTHORING_HOOKS=0|false forces guards live, CLAUDE_NO_AUTHORING_HOOKS
-# remains an alias, and `guards=off` disables the authoring category.
-# Per-hook and per-category control arrives through north_hook_enabled, which
-# hooks adopt one at a time.
+# Registered hook callers now receive the complete shared dial: item beats
+# category, category beats all, and the authoring env override still beats
+# state. Unknown external callers retain the original authoring-only behavior.
+# AGENT_NO_AUTHORING_HOOKS=0|false forces authoring guards live and
+# CLAUDE_NO_AUTHORING_HOOKS remains a compatibility alias.
 # shellcheck source=harness-dial.sh
 . "${BASH_SOURCE[0]%/*}/harness-dial.sh"
