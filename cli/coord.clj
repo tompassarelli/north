@@ -518,8 +518,16 @@
   (let [{:keys [port log]} (route-for-operation port op)]
     (send-envelope port (log-envelope-for log op))))
 
-(defn send-op-for-log [port log op]
-  (send-envelope port (log-envelope-for log op)))
+(defn send-op-for-log
+  "Send OP fenced to LOG. The optional reader exists so the JSON fast path stays
+   BEHIND this seam: callers and tests stub send-op-for-log to inject
+   coordinator failures, and a format that reached send-envelope directly would
+   slip past every one of them — which is exactly what it did, silently turning
+   live-facts-view-detail-test from 11/11 into 5/11 by letting its injected
+   failures through to a real socket."
+  ([port log op] (send-envelope port (log-envelope-for log op)))
+  ([port log op read-response!]
+   (send-envelope port (log-envelope-for log op) read-response!)))
 
 (defn- normalize-facts-response
   "Both wire formats carry the same value; only key TYPE differs — EDN answers
@@ -546,9 +554,7 @@
   "One :facts round trip in the requested wire format."
   [port log json?]
   (if json?
-    (send-envelope port
-                   (log-envelope-for log {:op :facts :fmt :json})
-                   read-json-response!)
+    (send-op-for-log port log {:op :facts :fmt :json} read-json-response!)
     (send-op-for-log port log {:op :facts})))
 
 (defn- live-triples-at [port log]
@@ -622,10 +628,27 @@
                          (map (comp name key))
                          sort
                          vec)
-        facts (->> available
-                   (mapcat (comp :facts val))
-                   distinct
-                   vec)]
+        ;; The dedupe is LOAD-BEARING and cannot be dropped: fram's
+        ;; kernel/build-index accumulates multi-valued predicates with
+        ;; `(conj (get m kk []) r)` (kernel.bclj:321), so a duplicate triple
+        ;; would surface as a repeated value in every by-predicate read — a
+        ;; thread listing the same `touches` twice. It is, however, the single
+        ;; most expensive step in composing the view: measured 2026-07-29 at
+        ;; 1,662 ms over 590,496 rows.
+        ;;
+        ;; What it does NOT need to do is re-establish distinctness WITHIN a
+        ;; domain. A coordinator's materialized live view is already a set: a
+        ;; fact is identified by (subject predicate value), so asserting one
+        ;; twice is idempotent and the fold emits it once. Verified on the live
+        ;; corpus — `distinct` removed 0 of 350,150 coordination rows.
+        ;;
+        ;; So a single domain skips the pass entirely (1,741 ms -> 12 ms), and
+        ;; the multi-domain union uses a transducer rather than the lazy seq
+        ;; `distinct` returns, which alone was 1,662 ms -> 1,449 ms.
+        domain-facts (mapv (comp :facts val) available)
+        facts (if (< (count domain-facts) 2)
+                (vec (first domain-facts))
+                (into [] (distinct) (apply concat domain-facts)))]
     {:facts facts
      :domains domains
      :unavailable unavailable
