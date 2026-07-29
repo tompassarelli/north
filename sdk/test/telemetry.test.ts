@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  classifyTurnProvenance, codexTurnActivityFromResult, newRunId, runFacts,
+  classifyTurnProvenance, codexTurnActivityFromResult, newRunId,
+  runEstimateFromThreadFacts, runFacts,
 } from "../src/telemetry";
 import {
   assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
@@ -57,6 +58,52 @@ test("a completed run carries every mandatory terminal predicate", () => {
   }
   expect(facts).toContainEqual(["tokens", "10308025"]);
   expect(facts).toContainEqual(["outcome", "ran"]);
+});
+
+test("run wall-time comparison varies for under/on/over and preserves no-estimate runs", () => {
+  const timing = (durationMs: number) => Object.fromEntries(runFacts({
+    thread: "@timed-thread", agent: `lane-${durationMs}`,
+    durationMs, estimateHours: "0.001", posture: "atomic", outcome: "ran",
+  }, "2026-07-29T00:00:00.000Z"));
+
+  expect(timing(1_800)).toMatchObject({
+    duration_ms: "1800", estimate_hours: "0.001", estimate_delta_ms: "-1800",
+    estimate_ratio: "0.5", estimate_classification: "under",
+  });
+  expect(timing(0)).toMatchObject({
+    duration_ms: "0", estimate_delta_ms: "-3600",
+    estimate_ratio: "0", estimate_classification: "under",
+  });
+  expect(timing(3_600)).toMatchObject({
+    duration_ms: "3600", estimate_hours: "0.001", estimate_delta_ms: "0",
+    estimate_ratio: "1", estimate_classification: "on",
+  });
+  expect(timing(7_200)).toMatchObject({
+    duration_ms: "7200", estimate_hours: "0.001", estimate_delta_ms: "3600",
+    estimate_ratio: "2", estimate_classification: "over",
+  });
+
+  const legacy = Object.fromEntries(runFacts({
+    thread: "@legacy-thread", agent: "lane-legacy",
+    durationMs: 3_600, posture: "atomic", outcome: "ran",
+  }));
+  expect(Object.keys(legacy).some((predicate) => predicate.startsWith("estimate_"))).toBe(false);
+});
+
+test("dispatch estimate capture accepts one positive estimate and rejects malformed snapshots", () => {
+  expect(runEstimateFromThreadFacts([
+    { predicate: "title", value: "Timed work" },
+    { predicate: "estimate_hours", value: "1.25" },
+  ])).toEqual({ hours: "1.25", durationMs: 4_500_000 });
+  expect(runEstimateFromThreadFacts([{ predicate: "title", value: "Legacy work" }]))
+    .toBeUndefined();
+  expect(() => runEstimateFromThreadFacts([
+    { predicate: "estimate_hours", value: "1" },
+    { predicate: "estimate_hours", value: "2" },
+  ])).toThrow("duplicate");
+  expect(() => runEstimateFromThreadFacts([
+    { predicate: "estimate_hours", value: "0" },
+  ])).toThrow("not-positive-finite-hours");
 });
 
 test("recurring canaries retain only their reliability roll-up projection", () => {

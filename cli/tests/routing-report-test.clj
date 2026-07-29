@@ -1308,3 +1308,38 @@
                   (not (str/includes? human "native-ultra=null")))))
   (finally
     (doseq [file (reverse (file-seq tmp4))] (io/delete-file file true)))))
+
+(doseq [[run duration delta ratio classification at]
+        [["@run-timing-under" "1800" "-1800" "0.5" "under" "2026-07-29T00:00:01Z"]
+         ["@run-timing-on" "3600" "0" "1" "on" "2026-07-29T00:00:02Z"]
+         ["@run-timing-over" "7200" "3600" "2" "over" "2026-07-29T00:00:03Z"]]]
+  (doseq [[predicate value]
+          [["kind" "run"] ["thread" "@thread-a"] ["agent" (subs run 5)]
+           ["duration_ms" duration] ["estimate_hours" "0.001"]
+           ["estimate_delta_ms" delta] ["estimate_ratio" ratio]
+           ["estimate_classification" classification] ["at" at]]]
+    (fact telem run predicate value)))
+
+(let [timing (run! "timing")
+      human (:out (proc/shell {:out :string :err :string
+                               :extra-env {"FRAM_LOG" (.getPath coord)
+                                           "FRAM_TELEMETRY_LOG" (.getPath telem)}}
+                              "bb" (str root "/cli/routing-report.clj")
+                              "report" "timing"))
+      details (:runsDetail timing)]
+  (check "timing report exposes structured under/on/over run-local observations"
+         (and (= "timing" (:report timing))
+              (= 3 (:eligibleRuns timing))
+              (= {:under 1 :on 1 :over 1} (:classifications timing))
+              (= [-1800 0 3600] (mapv :estimateDeltaMs details))
+              (= [0.5 1.0 2.0] (mapv :estimateRatio details))))
+  (check "timing report keeps existing no-estimate runs valid and visible as coverage"
+         (and (= 20 (:noEstimateRuns timing))
+              (zero? (:invalidTimingRuns timing))
+              (= 20 (:excludedRuns timing))))
+  (check "human timing report is compact and labels signed delta plus classification"
+         (and (str/includes? human "RUN TIMING")
+              (str/includes? human "DELTA-MS")
+              (str/includes? human "-1800")
+              (str/includes? human "+3600")
+              (every? #(str/includes? human %) ["under" "on" "over"]))))

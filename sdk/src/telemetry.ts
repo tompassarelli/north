@@ -60,7 +60,8 @@ const RECURRING_CANARY_PIN_DETAIL_PREFIX = "recurring-cross-provider-canary:@";
 // The complete run projection is still used for every ordinary managed run.
 const CANARY_FACT_PREDICATES: ReadonlySet<string> = new Set([
   "kind", "thread", "agent", "agent_run_ledger_version", "run_event_status",
-  "duration_ms", "posture", "outcome", "at", "process_outcome",
+  "duration_ms", "estimate_hours", "estimate_delta_ms", "estimate_ratio",
+  "estimate_classification", "posture", "outcome", "at", "process_outcome",
   "provider", "provider_target", "delivery_outcome", "delivery_reason",
   "delivery_evidence", "delivery_evidence_sha256",
   "routing_pin_reason_code", "routing_pin_detail",
@@ -88,6 +89,8 @@ export interface RunRecord {
   tokens?: number; // legacy exact total for producers without structured terminal usage
   tokenUsage?: NormalizedTokenUsage; // observed components plus terminal scope/status
   durationMs: number; // North-observed wall-clock duration
+  /** Exact thread estimate_hours captured and validated before dispatch side effects. */
+  estimateHours?: string;
   providerDurationMs?: number; // provider-reported duration when available
   posture: string; // unplanned | atomic | composite | spawn
   // Effective admitted route, denormalized onto @run so dial analytics need no
@@ -186,6 +189,52 @@ export interface RunRecord {
   retryOfRun?: string;
   /** 1-based attempt number; 1 on the (sole, bounded) retry. */
   retryAttempt?: number;
+}
+
+export type RunEstimateClassification = "under" | "on" | "over";
+
+export interface RunEstimateSnapshot {
+  hours: string;
+  durationMs: number;
+}
+
+export class InvalidRunEstimateError extends Error {
+  readonly code = "NORTH_INVALID_RUN_ESTIMATE";
+  readonly preSideEffect = true;
+
+  constructor(readonly reason: "duplicate" | "not-positive-finite-hours") {
+    super(`invalid thread estimate_hours: ${reason}`);
+    this.name = "InvalidRunEstimateError";
+  }
+}
+
+const ESTIMATE_HOURS_NUMBER = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
+const MS_PER_HOUR = 60 * 60 * 1_000;
+
+function estimateDurationMs(hours: string): number {
+  if (!ESTIMATE_HOURS_NUMBER.test(hours))
+    throw new InvalidRunEstimateError("not-positive-finite-hours");
+  const parsed = Number(hours);
+  const durationMs = Math.round(parsed * MS_PER_HOUR);
+  if (!Number.isFinite(parsed) || parsed <= 0
+      || !Number.isSafeInteger(durationMs) || durationMs < 1)
+    throw new InvalidRunEstimateError("not-positive-finite-hours");
+  return durationMs;
+}
+
+/** Capture the sole thread estimate before dispatch; absence is valid legacy input. */
+export function runEstimateFromThreadFacts(
+  facts: readonly { predicate: string; value: string }[],
+): RunEstimateSnapshot | undefined {
+  const estimates = facts.filter(({ predicate }) => predicate === "estimate_hours");
+  if (estimates.length === 0) return undefined;
+  if (estimates.length !== 1) throw new InvalidRunEstimateError("duplicate");
+  const hours = estimates[0]!.value;
+  return { hours, durationMs: estimateDurationMs(hours) };
+}
+
+function estimateRatio(actualMs: number, estimatedMs: number): string {
+  return (actualMs / estimatedMs).toFixed(6).replace(/\.?0+$/, "") || "0";
 }
 
 export function classifyTurnProvenance(
@@ -370,12 +419,27 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     ? rec.tokenUsage.totalStatus === "exact" ? rec.tokenUsage.total : undefined
     : rec.tokens;
   if (exactTokens != null) facts.push(["tokens", String(Math.round(exactTokens))]);
+  const durationMs = Math.round(rec.durationMs);
   facts.push(
-    ["duration_ms", String(Math.round(rec.durationMs))],
+    ["duration_ms", String(durationMs)],
     ["posture", rec.posture],
     ["outcome", rec.outcome],
     ["at", at],
   );
+  if (rec.estimateHours !== undefined) {
+    if (!Number.isSafeInteger(durationMs) || durationMs < 0)
+      throw new Error("invalid North-observed run duration for estimate comparison");
+    const estimatedMs = estimateDurationMs(rec.estimateHours);
+    const deltaMs = durationMs - estimatedMs;
+    const classification: RunEstimateClassification =
+      deltaMs < 0 ? "under" : deltaMs > 0 ? "over" : "on";
+    facts.push(
+      ["estimate_hours", rec.estimateHours],
+      ["estimate_delta_ms", String(deltaMs)],
+      ["estimate_ratio", estimateRatio(durationMs, estimatedMs)],
+      ["estimate_classification", classification],
+    );
+  }
   if (rec.providerDurationMs != null)
     facts.push(["provider_duration_ms", String(Math.round(rec.providerDurationMs))]);
   if (rec.processOutcome) facts.push(["process_outcome", rec.processOutcome]);

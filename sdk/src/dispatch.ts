@@ -17,7 +17,7 @@ import {
 import { normalizeUsage } from "./usage";
 import {
   classifyTurnProvenance, codexTurnActivityFromResult, describeObservedTurns,
-  newRunId, recordRun,
+  newRunId, recordRun, runEstimateFromThreadFacts,
 } from "./telemetry";
 import { collectProviderJoinEvidence } from "./providers/provider-join";
 import { publishRunLifecycleLedger } from "./run-ledger";
@@ -203,6 +203,7 @@ async function runDispatch(
   queryFn?: (args: any) => AgentQuery,
   hydratedFacts?: ReturnType<typeof getThreadFacts>,
   hydratedChildren?: ReturnType<typeof getChildren>,
+  estimateHours?: string,
   loadTerminalFacts: typeof getThreadFacts = getThreadFacts,
   deliveryRuntime?: DispatchRuntime["deliveryRuntime"],
   childSettlementReader: (agentId: string) => ChildSettlement = settleChildren,
@@ -1023,6 +1024,7 @@ async function runDispatch(
               effectiveAuthority: admittedRoute?.authority,
               compactions,
               durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
+              estimateHours,
               providerDurationMs: typeof resultMsg?.duration_ms === "number" ? resultMsg.duration_ms : undefined,
               posture: postureLabel, outcome,
               processOutcome: terminal.processOutcome,
@@ -1089,6 +1091,7 @@ export async function dispatch(
   // Avoid charging an admission for an unknown or already-completed thread.
   const facts = (injected.loadThreadFacts ?? getThreadFacts)(threadId);
   if (!facts.length) throw new Error(`Thread @${threadId} not found or has no facts`);
+  const estimate = runEstimateFromThreadFacts(facts);
   const judgmentGrade = judgmentGradeFromThreadFacts(facts);
   const children = (injected.loadChildren ?? getChildren)(threadId);
   const preflight = deriveManagedDispatchPosture(
@@ -1143,7 +1146,7 @@ export async function dispatch(
       threadId, judgmentGrade, strugglePolicy,
       admission, routingMetadata, routingEconomics, context.sessionId,
       workingDirectory, agentId, injected.queryFn,
-      facts, children, injected.loadThreadFacts ?? getThreadFacts,
+      facts, children, estimate?.hours, injected.loadThreadFacts ?? getThreadFacts,
       injected.deliveryRuntime,
       injected.childSettlementReader,
       injected.feedSubscriber ?? subscribeFeed,

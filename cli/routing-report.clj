@@ -160,6 +160,12 @@
 (defn many [facts entity pred] (get-in facts [entity pred] []))
 (defn long' [value] (try (parse-long (str value)) (catch Exception _ 0)))
 (defn maybe-long [value] (when (some? value) (try (parse-long (str value)) (catch Exception _ nil))))
+(defn maybe-double [value]
+  (when (some? value)
+    (try
+      (let [parsed (parse-double (str value))]
+        (when (Double/isFinite parsed) parsed))
+      (catch Exception _ nil))))
 (defn maybe-positive-long [value]
   (let [parsed (maybe-long value)]
     (when (and parsed (pos? parsed)) parsed)))
@@ -711,6 +717,12 @@
        ;; A completed process cannot provide a real zero-millisecond duration, so
        ;; only positive observations count as evidence.
        :durationMs (maybe-positive-long (get' "duration_ms" nil))
+       :estimateHours (maybe-double (get' "estimate_hours" nil))
+       :estimateDeltaMs (maybe-long (get' "estimate_delta_ms" nil))
+       :estimateRatio (maybe-double (get' "estimate_ratio" nil))
+       :estimateClassification
+       (let [value (normalized-token (one facts entity "estimate_classification"))]
+         (when (#{"under" "on" "over"} value) value))
        :turns (observed-turns (get' "num_turns" nil) effective-process-outcome)
        :fallbacks (long' (get' "fallback_count" 0))
        :escalations (long' (get' "escalation_count" 0))
@@ -2105,6 +2117,54 @@
                    (sort-by (juxt :judgmentGrade :topology :policyVersion))
                    vec)}))
 
+(defn timing-observation-valid? [row]
+  (let [estimate-hours (:estimateHours row)
+        duration-ms (:durationMs row)
+        estimate-ms (when (and (some? estimate-hours) (pos? estimate-hours))
+                      (long (Math/round (* estimate-hours 60.0 60.0 1000.0))))
+        expected-delta (when (and duration-ms estimate-ms)
+                         (- duration-ms estimate-ms))
+        expected-ratio (when (and duration-ms estimate-ms (pos? estimate-ms))
+                         (/ (double duration-ms) (double estimate-ms)))
+        expected-classification
+        (when expected-delta
+          (cond (neg? expected-delta) "under"
+                (pos? expected-delta) "over"
+                :else "on"))]
+    (and estimate-ms (pos? estimate-ms)
+         duration-ms
+         (= expected-delta (:estimateDeltaMs row))
+         (some? (:estimateRatio row)) (not (neg? (:estimateRatio row)))
+         (<= (Math/abs (- expected-ratio (:estimateRatio row))) 0.0000005)
+         (= expected-classification (:estimateClassification row)))))
+
+(defn timing-report [rows]
+  (let [all-rows (vec rows)
+        eligible (->> all-rows
+                      (filter timing-observation-valid?)
+                      (sort-by (juxt :at :entity))
+                      vec)
+        counts (frequencies (map :estimateClassification eligible))]
+    {:report "timing"
+     :claim (str "estimate_hours is the immutable dispatch-time snapshot; durationMs is the "
+                 "existing North-observed terminal wall time; deltaMs is actual minus estimate "
+                 "and ratio is actual divided by estimate")
+     :runs (count all-rows)
+     :eligibleRuns (count eligible)
+     :excludedRuns (- (count all-rows) (count eligible))
+     :noEstimateRuns (count (filter #(nil? (:estimateHours %)) all-rows))
+     :invalidTimingRuns
+     (count (filter #(and (some? (:estimateHours %))
+                          (not (timing-observation-valid? %)))
+                    all-rows))
+     :classifications {:under (get counts "under" 0)
+                       :on (get counts "on" 0)
+                       :over (get counts "over" 0)}
+     :runsDetail (mapv #(select-keys % [:entity :thread :at :estimateHours
+                                        :durationMs :estimateDeltaMs :estimateRatio
+                                        :estimateClassification])
+                       eligible)}))
+
 (defn report [kind rows & [{:keys [all? by-model? by-effort?]
                             :or {all? false by-model? false by-effort? false}}]]
   (case kind
@@ -2113,7 +2173,8 @@
     "economics" (throw (ex-info "economics requires bounded window options" {}))
     "promotions" (promotions-report rows)
     "calibration" (calibration-report rows)
-    (throw (ex-info "usage: north routing report [performance|usage|economics|promotions|calibration] [--json] [--all]" {}))))
+    "timing" (timing-report rows)
+    (throw (ex-info "usage: north routing report [performance|usage|economics|promotions|calibration|timing] [--json] [--all]" {}))))
 
 (defn usage-table-line
   ([label row] (usage-table-line label row {}))
@@ -2287,6 +2348,20 @@
                            (:struggleRuns row) (:errorCount row)
                            (pr-str (:thresholds row))
                            (pr-str (:triggerCounts row)))))))
+    "timing"
+    (do
+      (println "RUN TIMING — dispatch estimate versus North-observed terminal wall time")
+      (println (format "runs=%d eligible=%d excluded=%d no-estimate=%d invalid=%d classes=%s"
+                       (:runs data) (:eligibleRuns data) (:excludedRuns data)
+                       (:noEstimateRuns data) (:invalidTimingRuns data)
+                       (pr-str (:classifications data))))
+      (println (format "%-36s %-24s %10s %12s %12s %10s %6s"
+                       "RUN" "THREAD" "EST-H" "ACTUAL-MS" "DELTA-MS" "RATIO" "CLASS"))
+      (doseq [row (:runsDetail data)]
+        (println (format "%-36s %-24s %10s %12d %+12d %10.6f %6s"
+                         (:entity row) (:thread row) (str (:estimateHours row))
+                         (:durationMs row) (:estimateDeltaMs row)
+                         (:estimateRatio row) (:estimateClassification row)))))
     "economics"
     (do
       (println "ROUTING ECONOMICS — bounded exact observations, alert-only policy")
@@ -2335,7 +2410,7 @@
             (println (format "  ALERT %-42s observed=%s threshold=%s"
                              code observed threshold))))))))
 
-(def usage-help "usage: north routing report [performance|usage|economics|promotions|calibration] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
+(def usage-help "usage: north routing report [performance|usage|economics|promotions|calibration|timing] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
 
 (defn parse-options [args]
   (loop [remaining args options {:flags #{}}]
