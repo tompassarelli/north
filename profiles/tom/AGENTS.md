@@ -5,6 +5,7 @@ to every session, every directory. Detail lives in the linked docs; read a
 doc when its trigger fires, not preemptively.
 
 ## north — the coordination substrate
+<!-- north-section: north · bucket: core -->
 
 Read `north:docs/operating-manual.md` before nontrivial work; where
 anything contradicts it, the manual wins (trivial lookups exempt).
@@ -16,6 +17,7 @@ Thread format + concurrent write safety: → `~/.agents/docs/north.md`
 Spawn/steer/observe/concurrency: → `~/.agents/docs/agent-protocol.md`
 
 ## Client time and agent time — two orthogonal clocks
+<!-- north-section: client-time · bucket: client -->
 
 **Human/client presence is the billing clock.** Before any edit under
 `~/code/client/<owner>/**`, exactly one open North row must identify
@@ -53,6 +55,7 @@ deliberately (`north config guards off`, or launch with
 `AGENT_NO_AUTHORING_HOOKS=1`; the legacy Claude-named alias remains supported).
 
 ## Pre-edit gate — MANDATORY at task intake
+<!-- north-section: pre-edit-gate · bucket: orch -->
 
 Run it the moment the work's shape is clear (not when the first Edit looms):
 **decompose** into independent subtasks → **graph** true dependencies only →
@@ -100,6 +103,7 @@ declared parent chain chooses continue, narrow, or split. With no live parent,
 stop after checkpointing rather than silently broadening.
 
 ## Blocked ≠ stopped
+<!-- north-section: blocked · bucket: core -->
 
 A denial is information about the path, not the goal: never retry verbatim,
 never subvert intent — find the nearest COMPLIANT move that still advances.
@@ -108,6 +112,7 @@ a hard wall (permission system, another agent's live dependency): stop, hand
 the user the finish as ONE command, and say exactly why.
 
 ## Done-claims carry a bar — probe + observed result
+<!-- north-section: done-claims · bucket: core -->
 
 "Done"/"verified"/"fixed" is a JUDGMENT and must cite its evidence: state the
 probe run and the result observed ("north validate → exit 0", "firn build +
@@ -151,6 +156,8 @@ Style: terse by default — no filler, no hedging, full sentences; brevity
 comes from content selection, never compression tricks.
 
 ## Model + payload routing — per agent, both dials
+<!-- north-section: model-routing · bucket: orch -->
+
 → `~/.agents/docs/model-selection.md`
 → `~/.agents/docs/praxis/` (spawn payload blocks; README = assembly)
 
@@ -220,6 +227,7 @@ Provider-specific model deltas are resolved from
 lives in `~/.agents/docs/praxis/README.md`.
 
 ## Push freely — the scan is the guard, not a human
+<!-- north-section: push · bucket: write -->
 
 Commit at coherent checkpoints, then **`safe-push`** — never raw `git push`,
 never `git commit && git push` chained (let the pre-commit hook run first).
@@ -231,18 +239,23 @@ are local and ephemeral — land by fetch + `safe-push --to main`, then delete
 the local branch. Never publish a feature branch name.
 
 ## External code — license first
+<!-- north-section: external-code · bucket: write -->
+
 → `~/.agents/docs/external-code.md`
 Before leveraging ANY code you didn't write (`~/code/reference`, forks,
 vendored snippets): run the license protocol in the doc; flag copyleft or
 unlicensed sources to the user BEFORE building on them.
 
 ## Internal notes → docs/private/, never public docs/
+<!-- north-section: internal-notes · bucket: write -->
 
 Every repo: agent notes, status, scratch, and handoffs go in gitignored
 `docs/private/` (`north:bin/ensure-private-docs` sets it up). Public
 `docs/` is end-user-facing only.
 
 ## Global agent config is composed by North — ALWAYS
+<!-- north-section: global-agent-config · bucket: nixos -->
+
 → `~/code/nixos-config/main/modules/north-profile/firn/docs/nixos-config-rules.md`
 Personal policy lives in North's `profiles/tom`; Beagle, Fram, and Firn keep
 their integration-specific files in their owner roots and enter the profile by
@@ -260,6 +273,7 @@ Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 `nix develop` / `nix shell`.
 
 ## Paths — full and `~`-anchored, always
+<!-- north-section: paths · bucket: core -->
 
 Every path you write (chat, docs, comments, output): full from `~`, never
 bare-relative — the reader must never intuit a cwd. Touching a repo you're
@@ -267,11 +281,14 @@ not cwd'd into: read its root `AGENTS.md` first (the harness only auto-loads
 the cwd's).
 
 ## Racket / Beagle — the stale-bytecode trap
+<!-- north-section: beagle · bucket: beagle -->
+
 → `~/code/beagle/main/integrations/north/docs/racket-beagle-bytecode.md`
 Read on ANY Beagle/Racket work (`~/code/beagle`, `.rkt`, `raco`/`racket`),
 when a fix "doesn't take", or on `body of .../raco.rkt` deaths.
 
 ## New code — minimize glue, build the core deliberately
+<!-- north-section: new-code · bucket: write -->
 
 Incidental code (glue, scripts, plumbing, run-of-the-mill features): walk
 down — needs to exist? → repo already does it → stdlib → platform → existing
@@ -309,6 +326,7 @@ separate migration inventory, never a side-project expansion. Graph-native
 detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
 
 ## Standing guards
+<!-- north-section: standing-guards · bucket: core -->
 
 - **Never serialize "to protect the box"** — that thought is a reasoning
   bug: measure (`nproc`, `/proc/loadavg`) instead; agent work is

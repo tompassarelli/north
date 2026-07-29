@@ -5,6 +5,7 @@
 ;;   coord    : coordination protocol  north / linear / both
 ;;   beagle   : code representation    text      vs  fact-native (per-file)
 ;;   guards   : authoring-guard hooks  + the kill-switch
+;;   context  : native prompt sections full      vs  gated
 ;;
 ;; Ported from dotfiles/bin/my-agent-config (bash) 2026-07-10: north is the
 ;; top-level settings surface. Output contract is byte-faithful to the bash tool
@@ -33,6 +34,13 @@
 (def HOOK-REGISTRY   (north.harness-dial/registry-path home))
 (def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
                          (str home "/.config/north/routing-policy.json")))
+(def CONTEXT-SOURCE  (or (System/getenv "NORTH_CONTEXT_SOURCE")
+                         (str home "/.agents/AGENTS.md")))
+(def CONTEXT-OUTPUT  (or (System/getenv "NORTH_CONTEXT_OUTPUT")
+                         (str home "/.claude/CLAUDE.md")))
+(def CONTEXT-BUCKETS #{"core" "write" "shell" "orch" "client" "nixos" "beagle"})
+(def CONTEXT-TAG
+  #"^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$")
 
 (defn- slurp' [f] (try (slurp f) (catch Exception _ nil)))
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
@@ -415,6 +423,181 @@
                      (die routing-usage)))
       (die routing-usage))))
 
+;; --- native context assembly ---------------------------------------------
+;; The tagged source remains the authority. Older or malformed sources retain
+;; the SDK's historical heading-table behavior, with unknown headings kept in
+;; core so a vocabulary mistake cannot silently drop policy.
+(defn- context-fallback-metadata [heading]
+  (let [h (str/lower-case heading)
+        slug (-> h
+                 (str/replace #"^##\s+" "")
+                 (str/replace #"[^a-z0-9]+" "-")
+                 (str/replace #"(^-+|-+$)" ""))]
+    (cond
+      (str/includes? h "done-claims") ["done-claims" "core"]
+      (str/includes? h "standing guards") ["standing-guards" "core"]
+      (or (str/includes? h "billable")
+          (str/includes? h "client time and agent time")) ["client-time" "client"]
+      (str/includes? h "pre-edit gate") ["pre-edit-gate" "orch"]
+      (str/includes? h "model +") ["model-routing" "orch"]
+      (str/includes? h "push freely") ["push" "write"]
+      (str/includes? h "external code") ["external-code" "write"]
+      (str/includes? h "internal notes") ["internal-notes" "write"]
+      (or (str/includes? h "nixos-config")
+          (str/includes? h "global agent config")) ["global-agent-config" "nixos"]
+      (or (str/includes? h "racket")
+          (str/includes? h "beagle")) ["beagle" "beagle"]
+      (str/includes? h "new code") ["new-code" "write"]
+      (str/includes? h "blocked") ["blocked" "core"]
+      (str/includes? h "paths") ["paths" "core"]
+      (str/includes? h "north") ["north" "core"]
+      :else [(if (str/blank? slug) "legacy-section" slug) "core"])))
+
+(defn- context-section [text]
+  (let [[_ heading second-line] (re-find #"(?s)\A(## [^\r\n]+)\r?\n([^\r\n]*)" text)
+        heading (or heading (first (str/split-lines text)) "")
+        tag (re-matches CONTEXT-TAG (or second-line ""))
+        [fallback-id fallback-bucket] (context-fallback-metadata heading)]
+    {:heading heading
+     :text text
+     :id (or (second tag) fallback-id)
+     :bucket (or (nth tag 2 nil) fallback-bucket)
+     :tagged? (boolean tag)}))
+
+(defn- context-document []
+  (let [raw (slurp' CONTEXT-SOURCE)]
+    (when (nil? raw)
+      (die (str "cannot read context source: " CONTEXT-SOURCE)))
+    (let [matcher (re-matcher #"(?m)^## [^\r\n]*" raw)
+          starts (loop [found []]
+                   (if (.find matcher)
+                     (recur (conj found (.start matcher)))
+                     found))
+          boundaries (map vector starts (concat (rest starts) [(count raw)]))]
+      {:raw raw
+       :preamble (if-let [start (first starts)] (subs raw 0 start) raw)
+       :sections (mapv (fn [[start end]]
+                         (context-section (subs raw start end)))
+                       boundaries)})))
+
+(defn- context-mode []
+  (if (= "gated" (get' "context" "full")) "gated" "full"))
+
+(defn- context-verdict [mode {:keys [id bucket]} now]
+  (if (= mode "full")
+    ["on" "full"]
+    (let [[verdict decided-by]
+          (north.harness-dial/resolve-dial
+           nil
+           (get' (str "context.bucket." bucket) nil)
+           (get' (str "context.section." id) nil)
+           nil
+           now)]
+      [verdict (if (= decided-by "category") "bucket" decided-by)])))
+
+(defn- context-resolutions [mode sections]
+  (let [now (north.harness-dial/now-iso)]
+    (mapv (fn [section]
+            [section (context-verdict mode section now)])
+          sections)))
+
+(defn- context-render [document mode resolutions]
+  (if (= mode "full")
+    (:raw document)
+    (str (:preamble document)
+         (apply str
+                (keep (fn [[section [verdict _]]]
+                        (when (= "on" verdict)
+                          (:text section)))
+                      resolutions)))))
+
+(defn- context-write! [text]
+  (io/make-parents CONTEXT-OUTPUT)
+  (let [dest (.toAbsolutePath (.normalize (.toPath (io/file CONTEXT-OUTPUT))))
+        dir (.getParent dest)
+        tmp (java.nio.file.Files/createTempFile
+             dir ".north-context." ".tmp"
+             (make-array java.nio.file.attribute.FileAttribute 0))]
+    (try
+      (java.nio.file.Files/write
+       tmp
+       (.getBytes text java.nio.charset.StandardCharsets/UTF_8)
+       (into-array java.nio.file.OpenOption
+                   [java.nio.file.StandardOpenOption/WRITE
+                    java.nio.file.StandardOpenOption/TRUNCATE_EXISTING]))
+      (java.nio.file.Files/move
+       tmp dest
+       (into-array java.nio.file.CopyOption
+                   [java.nio.file.StandardCopyOption/ATOMIC_MOVE
+                    java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
+      (finally (java.nio.file.Files/deleteIfExists tmp)))))
+
+(def context-usage
+  "usage: north config context [show|on|off <section-id>|bucket on|off <bucket>|apply]")
+
+(defn- require-context-section! [sections id]
+  (when-not (some #(= id (:id %)) sections)
+    (die (str "unknown context section: " id)))
+  id)
+
+(defn- print-context []
+  (let [mode (context-mode)
+        {:keys [sections]} (context-document)
+        resolutions (context-resolutions mode sections)]
+    (println (str "context = " mode))
+    (println (str "  source " CONTEXT-SOURCE))
+    (println (str "  output " CONTEXT-OUTPUT))
+    (doseq [[{:keys [id bucket tagged?]} [verdict decided-by]] resolutions]
+      (println
+       (format "  %-24s %-7s %-3s %-8s %s"
+               id bucket verdict decided-by
+               (if tagged? "tagged" "fallback"))))))
+
+(defn cmd-context [args]
+  (let [[verb & xs] args]
+    (case (or verb "show")
+      "show"
+      (do
+        (when (seq xs) (die context-usage))
+        (print-context))
+
+      ("on" "off")
+      (let [[id & extra] xs
+            sections (:sections (context-document))]
+        (when (or (nil? id) (seq extra)) (die context-usage))
+        (require-context-section! sections id)
+        ;; Keep the byte-identical full mode in force until the specific dial is
+        ;; durable; the second atomic state write activates the gated view.
+        (put' (str "context.section." id) verb)
+        (put' "context" "gated")
+        (println (str "context section " id " → " verb " (context → gated)")))
+
+      "bucket"
+      (let [[state bucket & extra] xs]
+        (when (or (not (#{"on" "off"} state))
+                  (not (CONTEXT-BUCKETS bucket))
+                  (seq extra))
+          (die context-usage))
+        (put' (str "context.bucket." bucket) state)
+        (put' "context" "gated")
+        (println (str "context bucket " bucket " → " state " (context → gated)")))
+
+      "apply"
+      (do
+        (when (seq xs) (die context-usage))
+        (let [mode (context-mode)
+              document (context-document)
+              resolutions (context-resolutions mode (:sections document))
+              text (context-render document mode resolutions)
+              included (count (filter #(= "on" (first (second %)))
+                                      resolutions))]
+          (context-write! text)
+          (println (str "context applied → " CONTEXT-OUTPUT
+                        " (" mode ", " included "/" (count (:sections document))
+                        " sections)"))))
+
+      (die context-usage))))
+
 ;; --- the report -----------------------------------------------------------
 (defn banner []
   (let [rule  (apply str (repeat 66 "─"))
@@ -482,6 +665,11 @@
  6  HOOKS      per-hook and per-category runtime dials   [" (hooks-summary) "]
     precedence: item > category > all > default(on); coordination is excluded from all
     configure → north config hooks · north config hooks explain <hook-id>
+
+ 7  CONTEXT    native provider constitution assembly
+    mode: " (context-mode) " · source: " CONTEXT-SOURCE "
+    precedence in gated mode: section > bucket > default(on)
+    configure → north config context · north config context apply
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
@@ -562,6 +750,18 @@
    deny-capable scope expires after 24 hours by default; --until sets an
    explicit deadline. `north config guards` remains the compatibility surface
    for the authoring category.
+
+ 7 CONTEXT — assemble the native provider constitution from North's source.
+   The default `full` mode copies the source byte-for-byte. A section or bucket
+   change activates `gated` mode; resolution is section > bucket > default(on):
+     north config context
+     north config context on|off <section-id>
+     north config context bucket on|off <core|write|shell|orch|client|nixos|beagle>
+     north config context apply
+   `show` reports each section's effective value, provenance, and whether its
+   metadata came from a tag or the compatibility heading table. `apply`
+   atomically replaces ~/.claude/CLAUDE.md, including when it is currently a
+   symlink; the provider-neutral ~/.agents/AGENTS.md source is never mutated.
 
  Elsewhere (owned by other CLIs, not duplicated here):
    system/nix composition → firn tag status · firn enable <tag>
@@ -794,9 +994,10 @@
         "beagle"   (cmd-beagle rest)
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
+        "context"  (cmd-context rest)
         "routing"  (cmd-routing rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|hooks|routing|help]")))
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|hooks|context|routing|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 
