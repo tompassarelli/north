@@ -521,13 +521,33 @@ function setup(mode = "ok") {
         "thread-object-provider": () => { thread.modelProvider = "hostile"; },
         "thread-object-cwd": () => { thread.cwd = root; },
         "thread-extra-authority": () => { response.futureAuthority = true; },
+        "thread-id-missing": () => {
+          delete thread.id;
+          delete thread.sessionId;
+        },
+        "thread-id-malformed": () => { thread.id = "not a protocol id"; },
       };
       mutations[mode]?.();
+      if (mode === "driver-shape-tolerance") {
+        delete thread.id;
+        delete thread.sessionId;
+        thread.futureMetadata = { providerRevision: 2 };
+        response.sessionId = threadId;
+        response.futureMetadata = { providerRevision: 2 };
+      }
+      if (mode === "thread-id-root-thread-variant") {
+        delete thread.id;
+        delete thread.sessionId;
+        response.threadId = threadId;
+      }
       return response;
     };
     const emitRuntime = () => {
       const startedTurn: any = turn(turnId, "inProgress");
-      if (mode === "notification-turn-extra") startedTurn.futureAuthority = true;
+      if (mode === "notification-turn-extra" || mode === "driver-shape-tolerance")
+        startedTurn.futureMetadata = { providerRevision: 2 };
+      if (mode === "turn-id-mismatch-notification")
+        startedTurn.id = "019f7abc-0000-7000-8000-000000000099";
       notify("turn/started", { threadId, turn: startedTurn });
       // Every provider process this lane gets dies the moment it has a turn:
       // the respawn budget is spent and the lane still fails.
@@ -708,6 +728,8 @@ function setup(mode = "ok") {
       if (mode === "notification-malformed")
         notify("item/mcpToolCall/progress", { threadId, turnId, itemId: "mcp-1", message: 7 });
       const completedTurn: any = turn(turnId, "completed");
+      if (mode === "driver-shape-tolerance")
+        completedTurn.futureMetadata = { providerRevision: 2 };
       if (mode === "notification-terminal-error") completedTurn.error = { message: "hidden failure" };
       notify("turn/completed", { threadId, turn: completedTurn });
     };
@@ -724,6 +746,8 @@ function setup(mode = "ok") {
           codexHome, platformFamily: "unix", platformOs: "linux",
         });
         if (mode === "config-warning" || mode === "config-warning-drift"
+            || mode === "config-warning-wrong-identifiers"
+            || mode === "driver-shape-tolerance"
             || mode === "project-disabled-tracked"
             || mode === "nested-project-warning"
             || mode === "project-disabled-global-profile"
@@ -733,9 +757,19 @@ function setup(mode = "ok") {
           const expectedSummary = "Project-local config, hooks, and exec policies are disabled in the following folders until the project is trusted, but skills still load.\n"
             + `    1. ${projectRoot}/.codex\n`
             + `       ${projectRoot} is marked as untrusted in ${codexHome}/config.toml. To load project-local config, hooks, and exec policies, mark it trusted.\n`;
+          const tolerantSummary = `Project settings at ${projectRoot}/.codex are inactive; `
+            + `trust is configured through ${codexHome}/config.toml.`;
+          const wrongSummary = `Project settings at ${root}/other/.codex are inactive; `
+            + `trust is configured through ${root}/other/config.toml.`;
           notify("configWarning", {
-            summary: mode === "config-warning-drift" ? `${expectedSummary}drift` : expectedSummary,
+            summary: mode === "config-warning-drift" ? `${expectedSummary}drift`
+              : mode === "driver-shape-tolerance" ? tolerantSummary
+              : mode === "config-warning-wrong-identifiers" ? wrongSummary
+              : expectedSummary,
             details: null,
+            ...(mode === "driver-shape-tolerance"
+              ? { futureMetadata: { providerRevision: 2 } }
+              : {}),
           });
         }
         const remote: any = {
@@ -884,6 +918,10 @@ function setup(mode = "ok") {
         }
         result(request, startedThread(request));
         const notificationThread = startedThread(request).thread;
+        if (mode === "driver-shape-tolerance") notificationThread.sessionId = threadId;
+        if (mode === "thread-id-root-thread-variant") notificationThread.id = threadId;
+        if (mode === "thread-id-mismatch-notification")
+          notificationThread.id = "019f7abc-0000-7000-8000-000000000099";
         if (mode === "notification-thread-cwd") notificationThread.cwd = root;
         notify("thread/started", { thread: notificationThread });
         emitHook("sessionStart", mode === "hook-session-failed" ? "failed"
@@ -898,7 +936,17 @@ function setup(mode = "ok") {
         turnInputs.push(String(request.params.input[0].text));
         turnId = turnIds[Math.min(turnStarts, turnIds.length - 1)]!;
         turnStarts += 1;
-        result(request, { turn: turn(turnId, "inProgress") });
+        const startedTurn: any = turn(turnId, "inProgress");
+        if (mode === "turn-id-missing") delete startedTurn.id;
+        if (mode === "turn-id-malformed") startedTurn.id = "not a protocol id";
+        if (mode === "driver-shape-tolerance")
+          startedTurn.futureMetadata = { providerRevision: 2 };
+        result(request, {
+          turn: startedTurn,
+          ...(mode === "driver-shape-tolerance"
+            ? { futureMetadata: { providerRevision: 2 } }
+            : {}),
+        });
         if (mode === "malformed-jsonl") {
           stdout.write("not JSON\n");
           return;
@@ -1746,7 +1794,7 @@ test("pre-thread authority mutants fail before thread/start", async () => {
     "shell-policy-extra-key", "login-shell-enabled",
     "mcp-server-info", "remote-enabled", "remote-extra-field", "remote-missing-installation",
     "deprecation-extra-field", "server-request-prethread",
-    "config-warning-drift",
+    "config-warning-wrong-identifiers",
   ];
   for (const mode of modes) {
     const { options, requests } = setup(mode);
@@ -1756,13 +1804,48 @@ test("pre-thread authority mutants fail before thread/start", async () => {
   }
 });
 
-test("the exact untrusted-project config warning is accepted before thread/start", async () => {
+test("the canonical untrusted-project config warning is accepted before thread/start", async () => {
   const { options, requests } = setup("config-warning");
   await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
   expect(requests.some(({ method }) => method === "thread/start")).toBe(true);
 });
 
-test("the exact untrusted-project warning is rooted at the Git project, not a nested cwd", async () => {
+test("provider-revision IDs and cosmetic fields are tolerated at all four driver seams", async () => {
+  const { options, requests } = setup("driver-shape-tolerance");
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
+  expect(requests.some(({ method }) => method === "thread/start")).toBe(true);
+  expect(requests.some(({ method }) => method === "turn/start")).toBe(true);
+
+  const rootThreadVariant = setup("thread-id-root-thread-variant");
+  await expect(new ManagedCodexAppServerRun(rootThreadVariant.options).execute())
+    .resolves.toBeDefined();
+
+  for (const mode of [
+    "thread-extra-authority",
+    "notification-turn-extra",
+    "config-warning-drift",
+  ]) {
+    const variant = setup(mode);
+    await expect(new ManagedCodexAppServerRun(variant.options).execute()).resolves.toBeDefined();
+  }
+});
+
+test("missing, malformed, and mismatched driver identities fail closed", async () => {
+  for (const mode of [
+    "thread-id-missing",
+    "thread-id-malformed",
+    "thread-id-mismatch-notification",
+    "turn-id-missing",
+    "turn-id-malformed",
+    "turn-id-mismatch-notification",
+    "config-warning-wrong-identifiers",
+  ]) {
+    const { options } = setup(mode);
+    await expect(new ManagedCodexAppServerRun(options).execute()).rejects.toBeInstanceOf(Error);
+  }
+});
+
+test("the untrusted-project warning is rooted at the Git project, not a nested cwd", async () => {
   const { options, requests } = setup("nested-project-warning");
   await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
   expect(options.cwd.endsWith("/sdk")).toBe(true);
@@ -1786,7 +1869,7 @@ test("a populated global profile is inert only behind every disabled-project pro
   expect(accepted.requests.some(({ method }) => method === "thread/start")).toBe(true);
   expect(accepted.requests.some(({ method }) => method === "turn/start")).toBe(true);
 
-  // A byte-exact warning does not make an enabled layer harmless. The
+  // A path-correlated warning does not make an enabled layer harmless. The
   // structured layer state itself must independently say the payload is
   // disabled.
   const enabled = setup("project-global-profile-enabled-with-warning");
@@ -1861,7 +1944,7 @@ test("every security-relevant thread/start response field is attested independen
     "thread-model", "thread-provider", "thread-service-tier", "thread-cwd", "thread-roots",
     "thread-sources", "thread-approval", "thread-reviewer", "thread-sandbox", "thread-profile",
     "thread-effort", "thread-multi-agent", "thread-ephemeral", "thread-object-provider",
-    "thread-object-cwd", "thread-extra-authority",
+    "thread-object-cwd",
     "thread-roots-drop-grant", "thread-roots-widened",
   ];
   for (const mode of modes) {
@@ -1916,7 +1999,7 @@ test("a provider-side failure names its payload on the cause, not just the class
 test("post-thread drift, rejection, malformed traffic, and hook failures are never retry-safe", async () => {
   const modes = [
     "fingerprint-mutation", "thread-failure", "notification-wrong-thread", "notification-malformed",
-    "notification-thread-cwd", "notification-turn-extra", "notification-terminal-error",
+    "notification-thread-cwd", "notification-terminal-error",
     "hook-session-failed", "hook-session-stopped", "hook-pretool-failed", "hook-pretool-blocked",
     "hook-pretool-stopped", "hook-posttool-stopped", "hook-posttool-failed",
     "hook-missing-completion", "hook-duplicate-completion", "hook-session-invalid-turn",
