@@ -6,6 +6,7 @@
 ;;   beagle   : code representation    text      vs  fact-native (per-file)
 ;;   guards   : authoring-guard hooks  + the kill-switch
 ;;   context  : native prompt sections full      vs  gated
+;;   skills   : shared skill discovery complete set vs resolved projection
 ;;
 ;; Ported from dotfiles/bin/my-agent-config (bash) 2026-07-10: north is the
 ;; top-level settings surface. Output contract is byte-faithful to the bash tool
@@ -38,6 +39,12 @@
                          (str home "/.agents/AGENTS.md")))
 (def CONTEXT-OUTPUT  (or (System/getenv "NORTH_CONTEXT_OUTPUT")
                          (str home "/.claude/CLAUDE.md")))
+(def SKILLS-PROFILE  (or (System/getenv "NORTH_SKILLS_PROFILE")
+                         (str home "/code/north/main/profiles/tom/skills")))
+(def SKILLS-FARM     (or (System/getenv "NORTH_SKILLS_FARM")
+                         (str home "/.local/state/north/skills")))
+(def SKILLS-GENERATIONS (str SKILLS-FARM ".d"))
+(def SKILLS-LOCK     (str SKILLS-FARM ".lock"))
 (def CONTEXT-BUCKETS #{"core" "write" "shell" "orch" "client" "nixos" "beagle"})
 (def CONTEXT-TAG
   #"^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$")
@@ -598,6 +605,376 @@
 
       (die context-usage))))
 
+;; --- shared skill projection ----------------------------------------------
+;; The source inventory stays declarative and complete. Runtime dials select a
+;; fresh immutable generation, then one atomic symlink replacement moves every
+;; provider that follows ~/.agents/skills onto the same resolved set.
+(def ^:private skill-slug #"[a-z0-9][a-z0-9-]*")
+(defonce ^:private skills-in-process-lock (Object.))
+
+(defn- absolute-path [path]
+  (.toAbsolutePath (.normalize (.toPath (io/file path)))))
+
+(defn- nofollow-exists? [path]
+  (java.nio.file.Files/exists
+   path
+   (into-array java.nio.file.LinkOption
+               [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
+
+(defn- nofollow-directory? [path]
+  (java.nio.file.Files/isDirectory
+   path
+   (into-array java.nio.file.LinkOption
+               [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
+
+(defn- skill-metadata [skill-file]
+  (let [lines (vec (str/split-lines (slurp skill-file)))
+        end (first
+             (keep-indexed
+              (fn [index line]
+                (when (and (pos? index) (= "---" line)) index))
+              lines))]
+    (when-not (= "---" (first lines))
+      (throw (ex-info (str "skill lacks YAML frontmatter: " skill-file)
+                      {:path (str skill-file)})))
+    (when-not end
+      (throw (ex-info (str "skill has unterminated YAML frontmatter: " skill-file)
+                      {:path (str skill-file)})))
+    ;; Only unindented scalar keys belong to the metadata contract. Folded
+    ;; description text and document body prose can never manufacture a
+    ;; category.
+    (reduce
+     (fn [metadata line]
+       (if-let [[_ key value]
+                (and (not (re-find #"^\s" line))
+                     (re-matches #"([A-Za-z][A-Za-z0-9_-]*):\s*(.*)" line))]
+         (assoc metadata key (str/trim value))
+         metadata))
+     {}
+     (subvec lines 1 end))))
+
+(defn- skill-inventory []
+  (let [root (io/file SKILLS-PROFILE)]
+    (when-not (.isDirectory root)
+      (throw (ex-info (str "skills source is not a directory: " SKILLS-PROFILE)
+                      {:path SKILLS-PROFILE})))
+    (let [entries (.listFiles root)]
+      (when (nil? entries)
+        (throw (ex-info (str "cannot read skills source: " SKILLS-PROFILE)
+                        {:path SKILLS-PROFILE})))
+      (when (empty? entries)
+        (throw (ex-info (str "skills source is empty: " SKILLS-PROFILE)
+                        {:path SKILLS-PROFILE})))
+      (mapv
+       (fn [entry]
+         (let [id (.getName entry)
+               skill-file (io/file entry "SKILL.md")]
+           (when-not (re-matches skill-slug id)
+             (throw (ex-info (str "invalid skill id: " id) {:id id})))
+           (when-not (.isDirectory entry)
+             (throw (ex-info (str "skill source entry is not a directory: " entry)
+                             {:id id})))
+           (when-not (.isFile skill-file)
+             (throw (ex-info (str "skill is missing SKILL.md: " entry)
+                             {:id id})))
+           (let [metadata (skill-metadata skill-file)
+                 declared-name (get metadata "name")
+                 category (if (contains? metadata "category")
+                            (get metadata "category")
+                            "uncategorized")]
+             (when-not (= id declared-name)
+               (throw
+                (ex-info
+                 (str "skill frontmatter name " (pr-str declared-name)
+                      " does not match directory " id)
+                 {:id id :declared-name declared-name})))
+             (when-not (re-matches skill-slug category)
+               (throw (ex-info (str "invalid skill category for " id ": "
+                                    (pr-str category))
+                               {:id id :category category})))
+             {:id id
+              :category category
+              ;; Keep the composed North profile as the visible authority.
+              ;; Its owner link may move without rewriting a farm generation.
+              :source (absolute-path entry)})))
+       (sort-by #(.getName %) entries)))))
+
+(defn- state-with-overlay [overlay key]
+  (if (contains? overlay key)
+    (get overlay key)
+    (get' key nil)))
+
+(defn- skill-resolutions
+  ([inventory] (skill-resolutions inventory {}))
+  ([inventory overlay]
+   (let [now (north.harness-dial/now-iso)
+         all (state-with-overlay overlay "skills")]
+     (mapv
+      (fn [{:keys [id category] :as skill}]
+        (let [[verdict decided-by]
+              (north.harness-dial/resolve-dial
+               all
+               (state-with-overlay overlay (str "skills.cat." category))
+               (state-with-overlay overlay (str "skills.skill." id))
+               nil
+               now)]
+          (assoc skill :verdict verdict :decided-by decided-by)))
+      inventory))))
+
+(defn- ensure-skills-lock-file! []
+  (let [path (absolute-path SKILLS-LOCK)
+        parent (.getParent path)]
+    (java.nio.file.Files/createDirectories
+     parent
+     (make-array java.nio.file.attribute.FileAttribute 0))
+    (try
+      (java.nio.file.Files/createFile
+       path
+       (make-array java.nio.file.attribute.FileAttribute 0))
+      (catch java.nio.file.FileAlreadyExistsException _))
+    (when (or (java.nio.file.Files/isSymbolicLink path)
+              (not (java.nio.file.Files/isRegularFile
+                    path
+                    (into-array java.nio.file.LinkOption
+                                [java.nio.file.LinkOption/NOFOLLOW_LINKS]))))
+      (throw (ex-info (str "skills lock must be a regular file: " path)
+                      {:path (str path)})))
+    path))
+
+(defn- with-skills-lock [f]
+  (locking skills-in-process-lock
+    (let [path (ensure-skills-lock-file!)]
+      (with-open
+        [channel
+         (java.nio.channels.FileChannel/open
+          path
+          (into-array
+           java.nio.file.OpenOption
+           [java.nio.file.StandardOpenOption/WRITE
+            java.nio.file.LinkOption/NOFOLLOW_LINKS]))]
+        (let [_held (.lock channel)]
+          (f))))))
+
+(defn- ensure-skills-topology! []
+  (let [farm (absolute-path SKILLS-FARM)
+        generations (absolute-path SKILLS-GENERATIONS)
+        parent (.getParent farm)]
+    (java.nio.file.Files/createDirectories
+     parent
+     (make-array java.nio.file.attribute.FileAttribute 0))
+    (when (and (nofollow-exists? farm)
+               (not (java.nio.file.Files/isSymbolicLink farm)))
+      (throw
+       (ex-info
+        (str "refusing to replace unmanaged skills farm path: " farm)
+        {:path (str farm)})))
+    (if (nofollow-exists? generations)
+      (when-not (nofollow-directory? generations)
+        (throw
+         (ex-info
+          (str "skills generation root must be a real directory: " generations)
+          {:path (str generations)})))
+      (java.nio.file.Files/createDirectories
+       generations
+       (make-array java.nio.file.attribute.FileAttribute 0)))
+    {:farm farm :generations generations}))
+
+(defn- cleanup-prepared-skills! [{:keys [generation pointer]}]
+  ;; A private generation contains only immediate symlinks created below.
+  ;; Delete entries without walking them: following one would traverse back
+  ;; into the authoritative profile.
+  (when pointer
+    (try (java.nio.file.Files/deleteIfExists pointer) (catch Throwable _)))
+  (when generation
+    (try
+      (when (nofollow-directory? generation)
+        (doseq [entry (or (.listFiles (.toFile generation))
+                          (make-array java.io.File 0))]
+          (java.nio.file.Files/deleteIfExists (.toPath entry))))
+      (java.nio.file.Files/deleteIfExists generation)
+      (catch Throwable _))))
+
+(defn- prepare-skills-publication! [resolutions]
+  (let [{:keys [farm generations]} (ensure-skills-topology!)
+        generation (.resolve
+                    generations
+                    (str "gen-" (System/currentTimeMillis) "-"
+                         (java.util.UUID/randomUUID)))
+        pointer (.resolve
+                 (.getParent farm)
+                 (str ".skills-" (java.util.UUID/randomUUID) ".tmp"))
+        prepared {:generation generation :pointer pointer}]
+    (try
+      (java.nio.file.Files/createDirectory
+       generation
+       (make-array java.nio.file.attribute.FileAttribute 0))
+      (doseq [{:keys [id source verdict]} resolutions
+              :when (= "on" verdict)]
+        (java.nio.file.Files/createSymbolicLink
+         (.resolve generation id)
+         source
+         (make-array java.nio.file.attribute.FileAttribute 0)))
+      (java.nio.file.Files/createSymbolicLink
+       pointer
+       generation
+       (make-array java.nio.file.attribute.FileAttribute 0))
+      (assoc prepared :farm farm)
+      (catch Throwable error
+        (cleanup-prepared-skills! prepared)
+        (throw
+         (ex-info (str "cannot stage skills farm: " (.getMessage error))
+                  {:farm SKILLS-FARM}
+                  error))))))
+
+(defn- publish-prepared-skills! [{:keys [farm pointer]}]
+  ;; There is deliberately no non-atomic fallback. If the filesystem cannot
+  ;; honor this replacement, the previous pointer remains authoritative.
+  (when (and (nofollow-exists? farm)
+             (not (java.nio.file.Files/isSymbolicLink farm)))
+    (throw
+     (ex-info
+      (str "refusing to replace unmanaged skills farm path: " farm)
+      {:path (str farm)})))
+  (java.nio.file.Files/move
+   pointer
+   farm
+   (into-array
+    java.nio.file.CopyOption
+    [java.nio.file.StandardCopyOption/ATOMIC_MOVE
+     java.nio.file.StandardCopyOption/REPLACE_EXISTING])))
+
+(defn- sync-skills! [inventory]
+  (let [resolutions (skill-resolutions inventory)
+        prepared (prepare-skills-publication! resolutions)]
+    (try
+      (publish-prepared-skills! prepared)
+      (catch Throwable error
+        (cleanup-prepared-skills! prepared)
+        (throw
+         (ex-info (str "cannot publish skills farm: " (.getMessage error))
+                  {:farm SKILLS-FARM}
+                  error))))
+    (println
+     (str "skills synchronized → " SKILLS-FARM " ("
+          (count (filter #(= "on" (:verdict %)) resolutions))
+          "/" (count resolutions) " enabled)"))))
+
+(defn- change-skill-dial! [inventory key state label]
+  (let [old-value (get' key nil)
+        resolutions (skill-resolutions inventory {key state})
+        prepared (prepare-skills-publication! resolutions)]
+    ;; The expensive and fallible source/generation work is complete before
+    ;; state changes. The only remaining farm operation is one atomic rename.
+    (try
+      (put' key state)
+      (publish-prepared-skills! prepared)
+      (catch Throwable error
+        (let [rollback-error
+              (try
+                ;; Empty is resolver-equivalent to an absent prior key.
+                (put' key (or old-value ""))
+                nil
+                (catch Throwable rollback rollback))]
+          (cleanup-prepared-skills! prepared)
+          (if rollback-error
+            (throw
+             (ex-info
+              (str "skills update failed and state rollback also failed: "
+                   (.getMessage error) "; rollback: "
+                   (.getMessage rollback-error))
+              {:key key :farm SKILLS-FARM}
+              error))
+            (throw
+             (ex-info (str "skills update failed; prior state restored: "
+                           (.getMessage error))
+                      {:key key :farm SKILLS-FARM}
+                      error))))))
+    (println (str label " → " state " (skills synchronized)"))))
+
+(defn- print-skills [inventory]
+  (println (str "skills source: " SKILLS-PROFILE))
+  (println (str "skills farm:   " SKILLS-FARM))
+  (doseq [{:keys [id category verdict decided-by]}
+          (skill-resolutions inventory)]
+    (println
+     (format "%-24s %-16s %-3s %s"
+             id category verdict decided-by)))
+  (println "provider/plugin-contributed skills live outside this farm and are not controlled here"))
+
+(defn- skills-summary []
+  (let [resolutions (skill-resolutions (skill-inventory))]
+    (str (count (filter #(= "on" (:verdict %)) resolutions))
+         "/" (count resolutions) " enabled")))
+
+(def skills-usage
+  "usage: north config skills [list|on|off <skill-id>|category on|off <category>|all on|off|sync]")
+
+(defn- require-skill! [inventory id]
+  (when-not (some #(= id (:id %)) inventory)
+    (die (str "unknown skill: " id)))
+  id)
+
+(defn- require-skill-category! [inventory category]
+  (when-not (some #(= category (:category %)) inventory)
+    (die (str "unknown skill category: " category)))
+  category)
+
+(defn cmd-skills [args]
+  (let [[verb & xs] args]
+    (case (or verb "list")
+      "list"
+      (do
+        (when (seq xs) (die skills-usage))
+        (with-skills-lock
+          #(print-skills (skill-inventory))))
+
+      ("on" "off")
+      (let [[id & extra] xs]
+        (when (or (nil? id) (seq extra)) (die skills-usage))
+        (with-skills-lock
+          (fn []
+            (let [inventory (skill-inventory)]
+              (require-skill! inventory id)
+              (change-skill-dial!
+               inventory
+               (str "skills.skill." id)
+               verb
+               (str "skill " id))))))
+
+      "category"
+      (let [[state category & extra] xs]
+        (when (or (not (#{"on" "off"} state))
+                  (nil? category)
+                  (seq extra))
+          (die skills-usage))
+        (with-skills-lock
+          (fn []
+            (let [inventory (skill-inventory)]
+              (require-skill-category! inventory category)
+              (change-skill-dial!
+               inventory
+               (str "skills.cat." category)
+               state
+               (str "skill category " category))))))
+
+      "all"
+      (let [[state & extra] xs]
+        (when (or (not (#{"on" "off"} state)) (seq extra))
+          (die skills-usage))
+        (with-skills-lock
+          (fn []
+            (let [inventory (skill-inventory)]
+              (change-skill-dial! inventory "skills" state "skills all")))))
+
+      "sync"
+      (do
+        (when (seq xs) (die skills-usage))
+        (with-skills-lock
+          (fn []
+            (sync-skills! (skill-inventory)))))
+
+      (die skills-usage))))
+
 ;; --- the report -----------------------------------------------------------
 (defn banner []
   (let [rule  (apply str (repeat 66 "─"))
@@ -670,6 +1047,12 @@
     mode: " (context-mode) " · source: " CONTEXT-SOURCE "
     precedence in gated mode: section > bucket > default(on)
     configure → north config context · north config context apply
+
+ 8  SKILLS     shared provider-neutral discovery projection
+    " (skills-summary) " · source: " SKILLS-PROFILE "
+    farm: " SKILLS-FARM "
+    precedence: item > category > all > default(on)
+    configure → north config skills
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
@@ -762,6 +1145,20 @@
    metadata came from a tag or the compatibility heading table. `apply`
    atomically replaces ~/.claude/CLAUDE.md, including when it is currently a
    symlink; the provider-neutral ~/.agents/AGENTS.md source is never mutated.
+
+ 8 SKILLS — resolved shared skill discovery.
+   North inventories the complete source at
+   ~/code/north/main/profiles/tom/skills. Optional `category:` frontmatter
+   groups skills; a missing category resolves as `uncategorized`.
+     north config skills
+     north config skills on|off <skill-id>
+     north config skills category on|off <category>
+     north config skills all on|off
+     north config skills sync
+   Resolution is item > category > all > default(on). Every mutation stages a
+   complete immutable generation and atomically replaces
+   ~/.local/state/north/skills; ~/.agents/skills and provider adapters follow
+   that stable farm. Provider/plugin-contributed skills remain outside it.
 
  Elsewhere (owned by other CLIs, not duplicated here):
    system/nix composition → firn tag status · firn enable <tag>
@@ -995,9 +1392,10 @@
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
         "context"  (cmd-context rest)
+        "skills"   (cmd-skills rest)
         "routing"  (cmd-routing rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|hooks|context|routing|help]")))
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|hooks|context|skills|routing|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 
