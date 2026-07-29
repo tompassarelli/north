@@ -243,7 +243,7 @@ Every repo: agent notes, status, scratch, and handoffs go in gitignored
 `docs/` is end-user-facing only.
 
 ## Global agent config is composed by North — ALWAYS
-→ `~/code/nixos-config/main/modules/agent-core/firn/docs/nixos-config-rules.md`
+→ `~/code/nixos-config/main/modules/north-profile/firn/docs/nixos-config-rules.md`
 Personal policy lives in North's `profiles/tom`; Beagle, Fram, and Firn keep
 their integration-specific files in their owner roots and enter the profile by
 relative links. `~/.agents` is the composed live projection. Claude Code and
