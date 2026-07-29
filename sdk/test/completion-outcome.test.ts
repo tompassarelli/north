@@ -529,6 +529,62 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
   );
 });
 
+test("dispatch snapshots estimate_hours onto its exact terminal run before comparison", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  writeFileSync(log, "");
+  const agentId = "test-dispatch-run-estimate";
+
+  await dispatch("test-dispatch-run-estimate-thread", {
+    agentId,
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: (() => ({ release() {} })) as any,
+    queryFn: () => (async function* () {
+      yield { type: "result", subtype: "success", result: "done", duration_ms: 1, num_turns: 1 };
+    })(),
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Snapshot a dispatch estimate" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+      { predicate: "estimate_hours", value: "1" },
+    ],
+    loadChildren: () => [],
+  });
+
+  const lines = await settledRunLines(agentId, "estimate_classification under");
+  expect(lines.some((line) => line.endsWith(" estimate_hours 1"))).toBe(true);
+  expect(lines.some((line) => / estimate_delta_ms -[0-9]+$/.test(line))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" estimate_classification under"))).toBe(true);
+  expect(lines.some((line) => line.includes(" estimate_ratio "))).toBe(true);
+});
+
+test("dispatch rejects an invalid estimate before driver or provider side effects", async () => {
+  const { dispatch } = await import("./support/dispatch");
+  let claimed = false;
+  let queried = false;
+
+  await expect(dispatch("test-invalid-run-estimate", {
+    agentId: "test-invalid-run-estimate-agent",
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: (() => {
+      claimed = true;
+      return { release() {} };
+    }) as any,
+    queryFn: (() => {
+      queried = true;
+      return (async function* () {})();
+    }) as any,
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Reject invalid timing input" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+      { predicate: "estimate_hours", value: "-2" },
+    ],
+    loadChildren: () => [],
+  })).rejects.toThrow("invalid thread estimate_hours");
+  expect(claimed).toBe(false);
+  expect(queried).toBe(false);
+});
+
 test("a spawn success terminal with an empty result is a LOUD ran_empty, never a clean ran (thread 019f8300)", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
