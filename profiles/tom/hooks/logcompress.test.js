@@ -98,6 +98,12 @@ test("hook emits a shape-preserving updatedToolOutput object on storm", () => {
   assert.equal(updated.noOutputExpected, false);
 });
 
+test("hook item dial disables compression without changing the original result", () => {
+  const state = path.join(cacheDir, "harness.conf");
+  fs.writeFileSync(state, "hooks.hook.logcompress-hook=off\n");
+  assert.equal(run(bashStorm, { ...env, NORTH_HARNESS_STATE: state }), "");
+});
+
 test("hook stashes original to cache file", () => {
   const out = run(bashStorm, env);
   const stdout = JSON.parse(out).hookSpecificOutput.updatedToolOutput.stdout;

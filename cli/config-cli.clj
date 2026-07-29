@@ -30,7 +30,7 @@
 (def LEGACY-STATE    (north.harness-state/legacy-path home))
 (def REGISTRY        (or (System/getenv "GRAPH_UPSTREAM_REGISTRY")
                          (str home "/.config/fram/graph-upstream-files")))
-(def SETTINGS        (str home "/code/nixos-config/dotfiles/claude/settings.json"))
+(def HOOK-REGISTRY   (north.harness-dial/registry-path home))
 (def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
                          (str home "/.config/north/routing-policy.json")))
 
@@ -72,9 +72,31 @@
   (let [c (slurp' (str home "/.claude.json"))]
     (if (and c (str/includes? c "linear")) "configured" "absent")))
 
-(defn wired [x]
-  (let [c (slurp' SETTINGS)]
-    (if (and c (str/includes? c x)) "✓" "✗"))) ; ✓ / ✗
+(defn hook-registry []
+  (north.harness-dial/read-registry HOOK-REGISTRY))
+
+(defn- hook-entry [id]
+  (some #(when (= id (:id %)) %) (hook-registry)))
+
+(defn- hook-file [{:keys [path]}]
+  (let [registry-file (.getCanonicalFile (io/file HOOK-REGISTRY))
+        candidate (io/file path)]
+    (.getCanonicalFile
+     (if (.isAbsolute candidate)
+       candidate
+       (io/file (.getParentFile registry-file) path)))))
+
+(defn- hook-path-status [hook]
+  (let [file (hook-file hook)]
+    (cond
+      (not (.exists file)) "MISSING"
+      (.canExecute file) "EXEC"
+      :else "NONEXEC")))
+
+(defn wired [id]
+  (if-let [hook (hook-entry id)]
+    (if (= "EXEC" (hook-path-status hook)) "✓" "✗")
+    "✗")) ; ✓ / ✗
 
 (defn registry-raw []
   (if-let [c (slurp' REGISTRY)]
@@ -244,6 +266,18 @@
   (try (java.time.OffsetDateTime/parse s)
        (catch Exception _ (die "--until must be an ISO-8601 timestamp, for example 2026-08-01T00:00:00Z"))))
 
+(defn- canonical-iso! [s]
+  (-> (require-iso! s)
+      .toInstant
+      (.truncatedTo java.time.temporal.ChronoUnit/SECONDS)
+      .toString))
+
+(defn- default-hook-until []
+  (-> (java.time.Instant/now)
+      (.plusSeconds (* 24 60 60))
+      (.truncatedTo java.time.temporal.ChronoUnit/SECONDS)
+      .toString))
+
 (defn- routing-summary [p]
   (let [reserve (or (:reserve p) "off")]
     (str "mode " (:mode p)
@@ -402,6 +436,14 @@
                      ls))
       "       (none)")))
 
+(defn- hook-verdict [id]
+  (north.harness-dial/hook-verdict #(get' % nil) (hook-registry) id))
+
+(defn- hooks-summary []
+  (let [hooks (hook-registry)
+        executable (count (filter #(= "EXEC" (hook-path-status %)) hooks))]
+    (str executable "/" (count hooks) " executable")))
+
 (defn status []
   (let [d  (north.harness-state/get-dispatch-mode home)
         c  (get' "coord" "north")
@@ -436,6 +478,10 @@
     pressure: automatic usage sensing; manual command is a temporary override/fallback
     configure → north config routing
     policy: " ROUTING-POLICY "
+
+ 6  HOOKS      per-hook and per-category runtime dials   [" (hooks-summary) "]
+    precedence: item > category > all > default(on); coordination is excluded from all
+    configure → north config hooks · north config hooks explain <hook-id>
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
@@ -502,6 +548,20 @@
    Named profiles are executable account targets with isolated subscription
    sessions. No API keys, credit balances, prices, or dollars live
    in this policy.
+
+ 6 HOOKS — runtime control for every registered hook.
+   List resolved state, provenance, and executable path status:
+     north config hooks
+     north config hooks explain <hook-id>
+   Set the most specific level needed:
+     north config hooks on|off <hook-id> [--until ISO]
+     north config hooks category on|off <category> [--until ISO]
+     north config hooks all on|off [--until ISO]
+   Resolution is item > category > all > default(on). Coordination/identity
+   hooks are excluded from the global sweep and must be named. Disabling any
+   deny-capable scope expires after 24 hours by default; --until sets an
+   explicit deadline. `north config guards` remains the compatibility surface
+   for the authoring category.
 
  Elsewhere (owned by other CLIs, not duplicated here):
    system/nix composition → firn tag status · firn enable <tag>
@@ -597,6 +657,119 @@
         (println (str "un-adopted (text mode again): " path))))
     (die "usage: north config beagle [list|adopt <path>|unadopt <path>]")))
 
+(def hooks-usage
+  "usage: north config hooks [list|explain <hook-id>|on|off <hook-id> [--until ISO]|category on|off <category> [--until ISO]|all on|off [--until ISO]]")
+
+(defn- require-hook! [id]
+  (or (hook-entry id)
+      (die (str "unknown hook: " id))))
+
+(defn- require-hook-category! [category]
+  (when-not (some #(= category (:category %)) (hook-registry))
+    (die (str "unknown hook category: " category)))
+  category)
+
+(defn- hook-category-key [category]
+  (if (= category "authoring")
+    "guards"
+    (str "hooks.cat." category)))
+
+(defn- parse-hook-until! [args]
+  (cond
+    (empty? args) nil
+    (and (= 2 (count args)) (= "--until" (first args)))
+    (canonical-iso! (second args))
+    :else (die hooks-usage)))
+
+(defn- put-hook-dial!
+  [key state until ttl-required? label]
+  (when-not (#{"on" "off"} state)
+    (die hooks-usage))
+  (when (and (= state "on") until)
+    (die "--until is valid only when disabling a hook scope"))
+  (let [deadline (when (= state "off")
+                   (or until (when ttl-required? (default-hook-until))))
+        value (if deadline (str "off:until=" deadline) state)]
+    (put' key value)
+    (println (str label " → " value
+                  (when (and deadline (nil? until))
+                    " (default 24h TTL)")))))
+
+(defn- print-hooks []
+  (let [hooks (hook-registry)]
+    (if (empty? hooks)
+      (println "(no hooks registered)")
+      (doseq [{:keys [id category kind events] :as hook} hooks
+              :let [[verdict decided-by] (hook-verdict id)]]
+        (println
+         (format "%-34s %-13s %-9s %-3s %-9s %-7s %s · %s"
+                 id category kind verdict decided-by
+                 (hook-path-status hook) events (str (hook-file hook))))))))
+
+(defn- explain-hook [id]
+  (let [{:keys [category in-all?] :as hook} (require-hook! id)
+        item-key (str "hooks.hook." id)
+        category-key (hook-category-key category)
+        item (get' item-key nil)
+        category-value (get' category-key nil)
+        all (when in-all? (get' "hooks" nil))
+        env (when (= category "authoring")
+              (north.harness-dial/authoring-env))
+        [verdict decided-by] (hook-verdict id)
+        shown #(or % "(unset)")]
+    (println (str id " · " category " · " (:kind hook)))
+    (println (str "  item      " item-key "=" (shown item)))
+    (println (str "  category  " category-key "=" (shown category-value)))
+    (println (str "  all       "
+                  (if in-all? (str "hooks=" (shown all)) "(excluded)")))
+    (println (str "  env       " (shown env)))
+    (println "  default   on")
+    (println (str "  effective " verdict " (decided by " decided-by ")"))
+    (println (str "  path      " (hook-path-status hook) " " (hook-file hook)))))
+
+(defn cmd-hooks [args]
+  (let [[verb & xs] args]
+    (case (or verb "list")
+      "list"
+      (do
+        (when (seq xs) (die hooks-usage))
+        (print-hooks))
+
+      "explain"
+      (let [[id & extra] xs]
+        (when (or (nil? id) (seq extra)) (die hooks-usage))
+        (explain-hook id))
+
+      ("on" "off")
+      (let [[id & extra] xs
+            hook (require-hook! id)
+            until (parse-hook-until! extra)]
+        (put-hook-dial! (str "hooks.hook." id) verb until
+                        (:ttl-required? hook) (str "hook " id)))
+
+      "category"
+      (let [[state category & extra] xs
+            _ (when (or (nil? state) (nil? category)) (die hooks-usage))
+            _ (require-hook-category! category)
+            until (parse-hook-until! extra)
+            ttl-required? (boolean
+                           (some #(and (= category (:category %))
+                                       (:ttl-required? %))
+                                 (hook-registry)))]
+        (put-hook-dial! (hook-category-key category) state until
+                        ttl-required? (str "hook category " category)))
+
+      "all"
+      (let [[state & extra] xs
+            _ (when (nil? state) (die hooks-usage))
+            until (parse-hook-until! extra)
+            ttl-required? (boolean
+                           (some #(and (:in-all? %) (:ttl-required? %))
+                                 (hook-registry)))]
+        (put-hook-dial! "hooks" state until ttl-required? "hooks all"))
+
+      (die hooks-usage))))
+
 (defn cmd-guards [[sub]]
   (cond
     (= sub "off") (do (put' "guards" "off")
@@ -620,9 +793,10 @@
         "rebuild-coordination" (cmd-rebuild-coordination rest)
         "beagle"   (cmd-beagle rest)
         "guards"   (cmd-guards rest)
+        "hooks"    (cmd-hooks rest)
         "routing"  (cmd-routing rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|routing|help]")))
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|hooks|routing|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

@@ -172,9 +172,22 @@ north_hook_enabled() {
   [[ $__verdict == on ]]
 }
 
-# Backward-compatible authoring kill-switch. Every existing caller keeps
-# working unchanged; `guards=off` still means exactly what it means today.
+# Backward-compatible entrypoint used by the existing hooks. A registered
+# caller gets the complete item > category > all resolution; an unknown caller
+# retains the original authoring-only behavior so external consumers of this
+# compatibility function do not acquire a new global switch by surprise.
 authoring_guards_off() {
+  local id="${NORTH_HOOK_ID:-${0##*/}}" category
+  id="${id%.sh}"
+  id="${id%.js}"
+  north_dial_hook_category category "$id"
+  if [[ -n $category ]]; then
+    if north_hook_enabled "$id"; then
+      return 1
+    fi
+    return 0
+  fi
+
   local env verdict all cat
   north_dial_authoring_env env
   north_dial_raw all hooks

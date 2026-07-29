@@ -54,6 +54,13 @@ capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
 
+# A missing resolver leaves this deny-capable guard live. Only an affirmative
+# off verdict may silence it.
+# shellcheck disable=SC1091
+if builtin source "${BASH_SOURCE[0]%/*}/lib/harness-dial.sh" 2>/dev/null; then
+  north_hook_enabled agent-spawn-guard || exit 0
+fi
+
 NORTH_HOME="${NORTH_HOME:-$HOME/code/north/main}"
 if ! DISPATCH_ACTION="$("$NORTH_HOME/bin/north" config dispatch --guard-action)"; then
   printf 'agent-spawn-guard: north dispatch action lookup failed via %s\n' \

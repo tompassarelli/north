@@ -1508,32 +1508,34 @@ rm -f "$DEFAULT_STATE/coordination.log" "$DEFAULT_STATE/telemetry.log"
 legacy_out="$(run_default)"
 check_output silent 'facts.log fallback supports new human sessions only when split is absent' "$legacy_out"
 
-echo "== explicit kill-switch is the only bypass and never forges attestation =="
+echo "== billing dial is isolated from the authoring compatibility surface =="
 ks_json="$(emit_json Edit "$CLIENT_DIR/api.py")"
 ks_out="$(printf '%s' "$ks_json" | env -u CLAUDE_NO_AUTHORING_HOOKS \
   AGENT_NO_AUTHORING_HOOKS=1 NORTH_CLOCK_GUARD_ATTEST=1 \
   FRAM_LOG="$SCRATCH/closed.log" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
   "$HOOK" 2>/dev/null)"
-check_output silent 'provider-neutral env kill-switch bypasses silently' "$ks_out"
+check_output deny 'provider-neutral authoring env does not disable billing' "$ks_out"
 
 legacy_ks_out="$(printf '%s' "$ks_json" | env -u AGENT_NO_AUTHORING_HOOKS \
   CLAUDE_NO_AUTHORING_HOOKS=1 NORTH_CLOCK_GUARD_ATTEST=1 \
   FRAM_LOG="$SCRATCH/closed.log" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
   "$HOOK" 2>/dev/null)"
-check_output silent 'legacy env kill-switch remains a silent compatibility bypass' "$legacy_ks_out"
+check_output deny 'legacy authoring env does not disable billing' "$legacy_ks_out"
 
 printf '%s\n' 'guards=off' >"$SCRATCH/killswitch.state"
 persistent_ks_out="$(printf '%s' "$ks_json" | env -u AGENT_NO_AUTHORING_HOOKS \
   -u CLAUDE_NO_AUTHORING_HOOKS NORTH_CLOCK_GUARD_ATTEST=1 \
   FRAM_LOG="$SCRATCH/closed.log" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
   "$HOOK" 2>/dev/null)"
-check_output silent 'persistent north config state bypasses silently' "$persistent_ks_out"
+check_output deny 'authoring category state does not disable billing' "$persistent_ks_out"
 
+printf '%s\n' 'hooks.hook.north-clock-guard=off:until=2099-01-01T00:00:00Z' \
+  >"$SCRATCH/killswitch.state"
 force_live_out="$(printf '%s' "$ks_json" | env AGENT_NO_AUTHORING_HOOKS=0 \
   NORTH_CLOCK_GUARD_ATTEST=1 FRAM_LOG="$SCRATCH/closed.log" \
   AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" "$HOOK" 2>/dev/null)"
-check_output deny 'explicit force-live overrides persistent bypass' "$force_live_out"
-printf '%s\n' 'guards=on' >"$SCRATCH/killswitch.state"
+check_output silent 'billing item-off bypasses despite authoring force-live' "$force_live_out"
+printf '%s\n' 'hooks.hook.north-clock-guard=on' >"$SCRATCH/killswitch.state"
 
 echo "== off-state clock-guard knob: SDK attestation vs native silence =="
 CLOCK_KNOB_STATE_DIR="$SCRATCH/xdg-state/north"

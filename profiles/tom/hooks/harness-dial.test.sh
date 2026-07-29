@@ -92,7 +92,25 @@ expect_hook agent-spawn-guard       on  "env-does-not-kill-dispatch"
 expect_hook north-clock-guard       on  "env-does-not-kill-billing"
 unset AGENT_NO_AUTHORING_HOOKS
 
-# --- authoring_guards_off keeps its exact present meaning ------------------
+# --- compatibility entrypoint identifies registered callers ----------------
+export NORTH_HOOK_ID=tripwire-guard
+printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
+reload
+if authoring_guards_off; then pass=$((pass + 1)); else fail_case "registered-authoring-category" "expected off"; fi
+printf 'guards=off\nhooks.hook.tripwire-guard=on\n' >"$NORTH_HARNESS_STATE"
+reload
+if authoring_guards_off; then fail_case "registered-item-on" "expected live"; else pass=$((pass + 1)); fi
+
+export NORTH_HOOK_ID=north-clock-guard
+printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
+reload
+if authoring_guards_off; then fail_case "registered-category-isolation" "billing hook followed guards"; else pass=$((pass + 1)); fi
+printf 'hooks.cat.billing=off\n' >"$NORTH_HARNESS_STATE"
+reload
+if authoring_guards_off; then pass=$((pass + 1)); else fail_case "registered-billing-category" "expected off"; fi
+unset NORTH_HOOK_ID
+
+# Unknown external callers keep the pre-dial authoring-only behavior.
 printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
 reload
 if authoring_guards_off; then pass=$((pass + 1)); else fail_case "compat-guards-off" "expected off"; fi

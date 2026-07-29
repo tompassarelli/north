@@ -16,12 +16,21 @@
 # CLEAN-exit case. Best-effort throughout: never block exit, never emit stdout.
 set -uo pipefail
 
-CONCERN="/run/current-system/sw/bin/concern"
-[ -x "$CONCERN" ] || exit 0
-
 # Claude Code delivers a JSON event on stdin; pull flat string fields without jq
 # (jq is not on PATH in this hook environment) — same jget as north-on-spawn.
 IN="$(cat 2>/dev/null || true)"
+
+# Identity hooks remain live if their resolver cannot be loaded. Coordination
+# is excluded from the global sweep, so only its category or this item can
+# deliberately stop the cleanup.
+# shellcheck disable=SC1091
+if builtin source "${BASH_SOURCE[0]%/*}/lib/harness-dial.sh" 2>/dev/null; then
+  north_hook_enabled north-session-end || exit 0
+fi
+
+CONCERN="/run/current-system/sw/bin/concern"
+[ -x "$CONCERN" ] || exit 0
+
 jget() { printf '%s' "$IN" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1; }
 cwd="$(jget cwd)"; [ -z "$cwd" ] && cwd="$PWD"
 sid="$(jget session_id)"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Provider adapter for the billable-work clock admission core.
 #
-# The shared explicit authoring kill-switch remains shell-owned so every guard
-# observes the same live state. Admission itself lives in
+# The shared hook dial remains shell-owned so report and enforcement observe
+# the same live state. Billing is deliberately separate from the authoring
+# `guards` compatibility category. Admission itself lives in
 # north-clock-guard.py and is launched through either the exact Codex runtime
 # or the root-managed system Python. Native Claude invokes this wrapper through
 # an exact system Bash command in settings.json; the shebang is compatibility
@@ -19,6 +20,11 @@ SCRIPT_DIR="$(
   CDPATH='' builtin cd -- "${BASH_SOURCE[0]%/*}" 2>/dev/null &&
     builtin pwd -P
 )" || deny_unavailable
+
+# Drain the provider envelope before any dial decision. A hook that exits while
+# the writer still owns a delayed payload turns an intentional allow into a
+# BrokenPipe transport failure.
+PAYLOAD="$(/run/current-system/sw/bin/cat 2>/dev/null || true)"
 
 # shellcheck disable=SC1090
 builtin source "$SCRIPT_DIR/lib/authoring-killswitch.sh" 2>/dev/null ||
@@ -52,4 +58,5 @@ if [[ "$PYTHON" != /run/current-system/sw/bin/python3 &&
 fi
 [ -x "$PYTHON" ] || deny_unavailable
 
-exec "$PYTHON" -I -S "$CORE"
+printf '%s' "$PAYLOAD" | "$PYTHON" -I -S "$CORE"
+exit $?

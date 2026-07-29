@@ -4,6 +4,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/hook-stdin-drain-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
 
@@ -18,9 +19,14 @@ hooks=(
   agent-spawn-guard.sh
   code-upstream-guard.sh
   firn-guard.sh
+  launch-critical-worktree-guard.sh
+  git-blind-stage-guard.sh
   tripwire-guard.sh
+  north-clock-guard.sh
   beagle-session-start.sh
   racket-build-guard.sh
+  logcompress-hook.js
+  north-session-end.sh
 )
 sizes=(524288 1048576)
 modes=(disabled fast-allow)
@@ -30,6 +36,11 @@ fail=0
 for mode in "${modes[@]}"; do
   for size in "${sizes[@]}"; do
     for hook in "${hooks[@]}"; do
+      # The live SessionEnd path deliberately launches real coordination
+      # cleanup. Its item-off transport path is the scoped assertion here.
+      if [ "$hook" = north-session-end.sh ] && [ "$mode" != disabled ]; then
+        continue
+      fi
       result="$(python3 - "$HERE/$hook" "$mode" "$size" "$HOME_DIR" "$PLAIN_DIR" "$STATE" <<'PY'
 import json
 import os
@@ -64,10 +75,28 @@ envelopes = {
         "tool_input": {"file_path": target},
         "cwd": plain,
     },
+    "launch-critical-worktree-guard.sh": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {"file_path": target},
+        "cwd": plain,
+    },
+    "git-blind-stage-guard.sh": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "git status"},
+        "cwd": plain,
+    },
     "tripwire-guard.sh": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "true"},
+        "cwd": plain,
+    },
+    "north-clock-guard.sh": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {"file_path": target},
         "cwd": plain,
     },
     "beagle-session-start.sh": {
@@ -80,6 +109,24 @@ envelopes = {
         "hook_event_name": "PostToolUse",
         "tool_name": "Edit",
         "tool_input": {"file_path": target},
+        "cwd": plain,
+    },
+    "logcompress-hook.js": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "true"},
+        "tool_response": {
+            "stdout": "ok",
+            "stderr": "",
+            "interrupted": False,
+            "isImage": False,
+            "noOutputExpected": False,
+        },
+        "cwd": plain,
+    },
+    "north-session-end.sh": {
+        "hook_event_name": "SessionEnd",
+        "session_id": f"drain-{mode}-{size}",
         "cwd": plain,
     },
 }
@@ -96,14 +143,28 @@ assert len(payload) == size
 env = os.environ.copy()
 for key in ("BASH_ENV", "ENV", "CLAUDE_PROJECT_DIR"):
     env.pop(key, None)
+if mode == "disabled":
+    env.pop("AGENT_NO_AUTHORING_HOOKS", None)
+    env.pop("CLAUDE_NO_AUTHORING_HOOKS", None)
+    hook_id = os.path.splitext(name)[0]
+    with open(state, "w", encoding="utf-8") as handle:
+        handle.write(
+            "dispatch=native\nguards=on\n"
+            f"hooks.hook.{hook_id}=off:until=2099-01-01T00:00:00Z\n"
+        )
+else:
+    with open(state, "w", encoding="utf-8") as handle:
+        handle.write("dispatch=native\nguards=on\n")
 env.update({
     "HOME": home,
+    "NORTH_HOME": os.path.abspath(os.path.join(os.path.dirname(hook), "../../..")),
     "NORTH_HARNESS_STATE": state,
     "GRAPH_UPSTREAM_REGISTRY": os.path.join(home, "missing-registry"),
     "BEAGLE_SESSION_STATE_DIR": os.path.join(home, "session-state"),
     "AGENT_TOPOLOGY": "orchestrator",
-    "AGENT_NO_AUTHORING_HOOKS": "1" if mode == "disabled" else "0",
 })
+if mode != "disabled":
+    env["AGENT_NO_AUTHORING_HOOKS"] = "0"
 
 process = subprocess.Popen(
     [hook],
@@ -159,11 +220,28 @@ PY
   done
 done
 
+# The detached coordination wrapper must consume the payload but not launch its
+# target while its item dial is off.
+printf '%s\n' 'hooks.hook.hook-detach=off' >"$STATE"
+detach_marker="$SCRATCH/hook-detach-ran"
+printf '{}' |
+  env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" \
+    "$HERE/hook-detach.sh" "$(command -v touch)" "$detach_marker"
+sleep 0.1
+if [ ! -e "$detach_marker" ]; then
+  pass=$((pass + 1))
+  printf '%s\n' 'PASS  hook-detach.sh item-off does not launch its target'
+else
+  fail=$((fail + 1))
+  printf '%s\n' 'FAIL  hook-detach.sh item-off launched its target'
+fi
+
 # Keep representative decision paths pinned while transport mechanics change.
 printf '%s\n' 'dispatch=north' 'guards=on' >"$STATE"
 agent_out="$(
   python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","prompt":"work"}}))' |
     env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" AGENT_NO_AUTHORING_HOOKS=0 \
+      NORTH_HOME="$REPO" \
       "$HERE/agent-spawn-guard.sh"
 )"
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$agent_out" >/dev/null; then
