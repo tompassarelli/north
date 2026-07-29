@@ -915,6 +915,9 @@ export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): an
       mcp: harvest.mcp,
       nativeCommands: harvest.nativeCommands,
       unsupportedNotifications: harvest.unsupportedNotifications,
+      ...(harvest.respawnCount
+        ? { respawnCount: harvest.respawnCount, respawns: harvest.respawns }
+        : {}),
       // The FULL nested chain, not the first link. The harness `break`s on this
       // frame and never observes the throw behind it, so this string is the only
       // durable witness a dead managed lane leaves (thread 019f9cec); truncating

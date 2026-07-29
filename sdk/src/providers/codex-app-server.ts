@@ -1,15 +1,21 @@
 /**
  * The managed Codex app-server driver: one exactly-attested provider session.
  *
- * Two diagnostics behaviors are adapted from hermes-agent (MIT, Copyright (c)
- * 2025 Nous Research): the redacted provider-stderr tail carried by every
- * failure (`agent/transports/codex_app_server_session.py:327-362`) and the
- * per-turn watchdog loop — overall deadline, post-tool quiet timer, and
- * child-liveness check — in `run_turn`
- * (`agent/transports/codex_app_server_session.py:447-495`). North's shape
- * differs where its invariants differ: the tail arrives over the supervisor
- * status channel, and an expired watchdog interrupts the TURN and settles it
- * with the landed-work harvest rather than retiring a reusable session.
+ * Three behaviors are adapted from hermes-agent (MIT, Copyright (c) 2025 Nous
+ * Research): the redacted provider-stderr tail carried by every failure
+ * (`agent/transports/codex_app_server_session.py:327-362`), the per-turn
+ * watchdog loop — overall deadline, post-tool quiet timer, and child-liveness
+ * check — in `run_turn`
+ * (`agent/transports/codex_app_server_session.py:447-495`), and
+ * retire-and-respawn on provider death (`TurnResult.should_retire`,
+ * `agent/transports/codex_app_server_session.py:79-85`, consumed in
+ * `agent/codex_runtime.py:694-731`). North's shape differs where its invariants
+ * differ: the tail arrives over the supervisor status channel; an expired
+ * watchdog interrupts the TURN and settles it with the landed-work harvest
+ * rather than retiring a reusable session; and because North keeps no
+ * transcript outside the provider thread, a respawn re-runs the full launch
+ * preflight and re-sends the accumulated context itself instead of waiting for
+ * the next user turn to rebuild it.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -92,6 +98,18 @@ const POST_TOOL_QUIET_MS = 90_000;
 // turn/interrupt is a courtesy, not a contract: bound it so a wedged provider
 // cannot also wedge the settlement of the turn it wedged.
 const TURN_INTERRUPT_MS = 5_000;
+// Retire-and-respawn budget for ONE lane. A provider process death used to end
+// the lane permanently, because spawn.ts refuses a process-death retry for any
+// authoring-capable lane (it cannot know what the dead turn already wrote; the
+// adapter can, from the harvest). Two is a bound, not a policy: a lane that
+// cannot survive three provider processes is failing for a reason a fourth will
+// not fix.
+const MAX_RESPAWNS = 2;
+// The recovered-context frame is the lane's whole memory of the dead session,
+// and it is also model input: keep it compact enough to leave the continuation
+// room to work.
+const MAX_RECOVERED_TEXT_BYTES = 8 * 1024;
+const MAX_RECOVERED_CONTEXT_BYTES = 96 * 1024;
 const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
 const CODEX_SHELL_PREFLIGHT_TIMEOUT_MS = 5_000;
 const CODEX_SHELL_PREFLIGHT_OUTPUT_BYTES = 4_096;
@@ -203,6 +221,8 @@ export interface ManagedCodexAppServerOptions {
   turnDeadlineMs?: number;
   /** Silence bound armed by a completed tool item; NORTH_CODEX_POST_TOOL_QUIET_MS. */
   postToolQuietMs?: number;
+  /** Provider-death respawns this lane may spend; NORTH_CODEX_MAX_RESPAWNS. 0 disables. */
+  maxRespawns?: number;
   onActivity?: (kind: string) => void;
 }
 
@@ -252,6 +272,35 @@ export interface ManagedCodexDiagnostics {
   providerAlive?: boolean;
 }
 
+/**
+ * One provider session this lane outlived. A respawn is a real event with a
+ * real cost, so it is recorded per attempt rather than collapsed to a counter:
+ * a lane that respawned twice with the same exit code and the same last stderr
+ * line is diagnosing a reproducible provider defect, not bad luck.
+ */
+export interface ManagedCodexRespawnAttempt {
+  /** 1-based index of the DEAD attempt this record describes. */
+  attempt: number;
+  /** The failure that retired it, as one bounded line. */
+  reason: string;
+  /** The retired session's provider thread, when it reached thread/start. */
+  threadId?: string;
+  /** Turns that had already settled on the retired session. */
+  completedTurns: number;
+  /** Redacted provider stderr tail observed as it died. */
+  stderrTail?: string[];
+  exitCode?: number;
+  exitSignal?: string;
+}
+
+/** What a lane's respawns cost it, readable whether the lane succeeded or failed. */
+export interface ManagedCodexRespawnRecord {
+  respawnCount: number;
+  /** Turns that settled across ALL provider sessions this lane used. */
+  completedTurns: number;
+  respawns: ManagedCodexRespawnAttempt[];
+}
+
 export class ManagedCodexPreThreadError extends Error {
   /** Populated as the failure unwinds; see {@link ManagedCodexDiagnostics}. */
   diagnostics?: ManagedCodexDiagnostics;
@@ -290,6 +339,10 @@ export interface ManagedCodexHarvest {
   exitCode?: number;
   /** Signal the provider died on, when the host observed one. */
   exitSignal?: string;
+  /** Provider sessions this lane retired before the one that failed. */
+  respawnCount?: number;
+  /** Per-attempt post-mortem for each retired session; see the record type. */
+  respawns?: ManagedCodexRespawnAttempt[];
 }
 
 /**
@@ -772,6 +825,7 @@ class AppServerRpc {
     maxFrames: MAX_FRAMES,
   });
   private terminal?: Error;
+  private terminalFromProcessDeath = false;
   private closed = false;
   private terminalListeners = new Set<(error: Error) => void>();
   private unsupported = new Map<string, number>();
@@ -792,9 +846,11 @@ class AppServerRpc {
     child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
     child.stdout.on("end", () => {
       try { this.frames.finish(); }
-      catch (cause) { this.fail(new Error("managed Codex closed with a partial frame", { cause })); }
+      catch (cause) {
+        this.failFromDeath(new Error("managed Codex closed with a partial frame", { cause }));
+      }
     });
-    child.stdout.on("error", () => this.fail(new Error("managed Codex stdout failed")));
+    child.stdout.on("error", () => this.failFromDeath(new Error("managed Codex stdout failed")));
     if (this.ownsStderr) {
       // Was `resume()` — the provider's account of its own death, discarded.
       child.stderr.on("data", (chunk: Buffer | string) => {
@@ -804,11 +860,23 @@ class AppServerRpc {
       child.stderr.on("end", () => { try { this.stderr.finish(); } catch {} });
       child.stderr.on("error", () => {});
     }
-    child.stdin.on("error", () => this.fail(new Error("managed Codex stdin failed")));
-    child.on("error", () => this.fail(new Error("managed Codex supervisor failed")));
+    child.stdin.on("error", () => this.failFromDeath(new Error("managed Codex stdin failed")));
+    child.on("error", () => this.failFromDeath(new Error("managed Codex supervisor failed")));
     child.on("exit", () => {
-      if (!this.closed) this.fail(new Error("managed Codex app-server exited unexpectedly"));
+      if (!this.closed)
+        this.failFromDeath(new Error("managed Codex app-server exited unexpectedly"));
     });
+  }
+
+  /**
+   * The provider PROCESS ended this session — a broken pipe, a spawn error, or
+   * an exit. Distinct from a protocol/authority terminal because only this kind
+   * is a respawn trigger: a live-but-misbehaving provider gets no second
+   * process, and a watchdog that interrupts a live turn is not a death at all.
+   */
+  private failFromDeath(error: Error): void {
+    if (!this.terminal) this.terminalFromProcessDeath = true;
+    this.fail(error);
   }
 
   private fail(error: Error): void {
@@ -972,6 +1040,9 @@ class AppServerRpc {
       ([left], [right]) => left.localeCompare(right),
     ));
   }
+
+  /** True when this session ended because the provider process itself ended. */
+  diedFromProcessDeath(): boolean { return this.terminalFromProcessDeath; }
 
   /** Redacted provider stderr tail; empty when the supervisor owns that pipe. */
   stderrTail(count = STDERR_TAIL_LINES): string[] {
@@ -2087,6 +2158,16 @@ async function closeProcess(
   const closed = new Promise<boolean>((resolveClose) =>
     child.once("close", () => resolveClose(true)));
   try { child.stdin.end(); } catch {}
+  // A provider that is ALREADY gone fired `close` before this listener existed,
+  // so racing for it burns the whole 3s teardown bound and then reports the
+  // corpse as un-reaped. Harmless once per lane; with a respawn budget it is
+  // three wasted seconds per dead provider on the recovery path.
+  if (child.exitCode !== null || child.signalCode !== null) {
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      try { stream?.destroy(); } catch {}
+    }
+    return;
+  }
   const settled = await Promise.race([
     closed,
     // Supervisor owns 750ms TERM + 750ms KILL + one 750ms pipe-close
@@ -2128,6 +2209,78 @@ function boundedMs(name: string, fallback: number, override?: number): number {
 }
 
 /**
+ * A non-negative respawn budget from the environment, or the default. Zero is a
+ * legitimate value — it restores the pre-respawn behavior exactly — so this
+ * cannot reuse {@link boundedMs}, whose floor is 1.
+ */
+function boundedRespawns(override?: number): number {
+  const candidate = override ?? Number(process.env.NORTH_CODEX_MAX_RESPAWNS);
+  return Number.isSafeInteger(candidate) && (candidate as number) >= 0
+    ? candidate as number
+    : MAX_RESPAWNS;
+}
+
+function clip(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  const kept = Buffer.from(value, "utf8").subarray(0, maxBytes).toString("utf8");
+  return `${kept}\n… (truncated)`;
+}
+
+/**
+ * The first input frame of a respawned session: the original brief, plus a
+ * compact recap of what the crashed session already produced.
+ *
+ * This is where North's respawn departs from hermes'. hermes retires the
+ * session and lets the next user turn rebuild context from its own durable
+ * message list (`agent/codex_runtime.py:694-731`); North's managed lane has no
+ * transcript outside the provider thread that just died, so the adapter has to
+ * carry the context across itself. It is marked as RECOVERED rather than
+ * presented as conversation, because the continuation must re-verify the work
+ * on disk instead of trusting a claim about a session it never ran.
+ */
+export function managedCodexRecoveredContext(
+  brief: string,
+  completedTurnTexts: readonly string[],
+  harvest: ManagedCodexHarvest,
+  reason: string,
+): string {
+  const parts: string[] = [
+    brief,
+    "",
+    "=== recovered context from a crashed provider session ===",
+    "The provider process running this lane died and North started a new one."
+    + " Nothing below was re-executed: it is a record of work YOUR OWN earlier"
+    + " turns already performed in this same working tree. Verify it on disk"
+    + " before redoing it, then continue the brief above from there.",
+    `retired provider thread: ${harvest.threadId ?? "(never started)"}`,
+    `retired after: ${clip(reason, 512)}`,
+    `completed turns before the crash: ${completedTurnTexts.length}`,
+  ];
+  completedTurnTexts.forEach((text, index) => {
+    if (!text.trim()) return;
+    parts.push(`--- your result from recovered turn ${index + 1} ---`,
+      clip(text, MAX_RECOVERED_TEXT_BYTES));
+  });
+  if (harvest.text.trim())
+    parts.push("--- partial output of the turn that was interrupted by the crash ---",
+      clip(harvest.text, MAX_RECOVERED_TEXT_BYTES));
+  const tools: string[] = [];
+  const commands = harvest.nativeCommands.totalCommands ?? 0;
+  if (commands)
+    tools.push(`${commands} native command(s)`
+      + ` (${harvest.nativeCommands.successfulCommands ?? 0} succeeded,`
+      + ` ${harvest.nativeCommands.failedCommands ?? 0} failed)`);
+  if (harvest.mcp.totalCalls)
+    tools.push(`${harvest.mcp.totalCalls} MCP tool call(s): `
+      + harvest.mcp.tools.map((tool) => `${tool.server}/${tool.tool}×${tool.count}`).join(", "));
+  if (harvest.toolItems) tools.push(`${harvest.toolItems} completed work item(s)`);
+  parts.push("--- tool work observed before the crash ---",
+    tools.length ? tools.join("; ") : "none observed");
+  parts.push("=== end recovered context ===");
+  return clip(parts.join("\n"), MAX_RECOVERED_CONTEXT_BYTES);
+}
+
+/**
  * Silent-but-alive and silent-and-dead are different failures and want
  * different next moves; hermes checks `is_alive()` each loop iteration for the
  * same reason. The host sees the SUPERVISOR when supervised, so an exit receipt
@@ -2153,13 +2306,52 @@ export class ManagedCodexAppServerRun {
   private threadStarted = false;
   private readonly mcp = new McpActivityAccumulator("codex-app-server:item-completed");
   private nativeCommands?: NativeCommandActivityAccumulator;
+  private readonly respawns: ManagedCodexRespawnAttempt[] = [];
+  /** Turns settled across every provider session this lane has used. */
+  private laneCompletedTurns = 0;
+  /** Set by an attempt that died of PROVIDER DEATH; the respawn gate reads it. */
+  private attemptDeath?: { reason: string; diagnostics: ManagedCodexDiagnostics };
+  /** The exact failure object that attempt threw — identity, not shape, gates a respawn. */
+  private attemptFailure?: Error;
+  private interrupted = false;
 
   constructor(private options: ManagedCodexAppServerOptions) {}
 
   mcpActivity() { return this.mcp.snapshot(); }
   nativeCommandActivity(): NativeCommandActivityObservation {
+    // Per-SESSION, not per-lane: a respawn starts a fresh accumulator because a
+    // retired session's commands may still be open, and `complete()` on an open
+    // command is a lifecycle defect. The retired session's command evidence goes
+    // into the respawn record and the recovered-context recap instead.
     return this.nativeCommands?.snapshot()
       ?? unknownNativeCommandActivity("codex-app-server:not-started");
+  }
+
+  /** What this lane's respawns cost it. Readable on success and on failure alike. */
+  respawnRecord(): ManagedCodexRespawnRecord {
+    return {
+      respawnCount: this.respawns.length,
+      completedTurns: this.laneCompletedTurns,
+      respawns: this.respawns.map((attempt) => ({ ...attempt })),
+    };
+  }
+
+  /**
+   * The provider-death verdict for `failure`, consumed exactly once.
+   *
+   * Identity, not shape: an attempt records BOTH the death and the exact error
+   * object it threw, so a teardown failure raised while this generator is being
+   * CLOSED — a different object, on the same dead attempt — can never buy a new
+   * provider process.
+   */
+  private takeAttemptDeath(
+    failure: unknown,
+  ): { reason: string; diagnostics: ManagedCodexDiagnostics } | undefined {
+    const death = this.attemptDeath;
+    const matched = death !== undefined && failure === this.attemptFailure;
+    this.attemptDeath = undefined;
+    this.attemptFailure = undefined;
+    return matched ? death : undefined;
   }
 
   /** Complete the harvest with the tool-activity this run actually observed. */
@@ -2173,14 +2365,25 @@ export class ManagedCodexAppServerRun {
       ...partial,
       mcp,
       nativeCommands,
+      // Work landed on a RETIRED session counts too: the lane wrote it, and a
+      // harvest that forgot it would report `result=0b` for a lane that
+      // committed code — the exact amnesia the harvest exists to prevent.
       landedWork: partial.completedTurns > 0
+        || this.laneCompletedTurns > 0
+        || this.respawns.length > 0
         || partial.text.trim() !== ""
         || (mcp.totalCalls ?? 0) > 0
         || (nativeCommands.totalCommands ?? 0) > 0,
+      ...(this.respawns.length
+        ? { respawnCount: this.respawns.length, respawns: this.respawnRecord().respawns }
+        : {}),
     };
   }
 
   async interrupt(): Promise<void> {
+    // Also closes the respawn window: a caller that interrupted between two
+    // provider sessions must not get a third one started behind its back.
+    this.interrupted = true;
     if (this.child) await closeProcess(this.child, this.rpc, this.control);
   }
 
@@ -2210,16 +2413,88 @@ export class ManagedCodexAppServerRun {
     return first.value;
   }
 
-  // Same-thread continuation. Yields one terminal result per turn; after each
-  // turn the caller supplies the next North input frame (or `undefined` to
-  // settle). The provider thread, MCP wiring, and authority fingerprint are
-  // established once and re-proven per turn.
+  /**
+   * Same-thread continuation across provider RESTARTS. Yields one terminal
+   * result per turn; after each turn the caller supplies the next North input
+   * frame (or `undefined` to settle).
+   *
+   * A provider process death after thread/start used to end the lane, because
+   * spawn.ts refuses a process-death retry for any authoring-capable lane —
+   * correctly, since at that layer nothing knows what the dead turn already
+   * wrote to the working tree. The adapter does know, from the harvest, so the
+   * respawn lives here: tear the dead supervisor down, re-run the FULL launch
+   * preflight (same admission and attestation battery, no shortcut), start a
+   * new thread, and continue by re-sending the accumulated context as the next
+   * input frame. spawn.ts's retry policy is untouched.
+   *
+   * Only actual process death respawns. A watchdog that interrupts a wedged
+   * turn while the provider is still alive settles that turn and is NOT a
+   * respawn trigger.
+   */
   async *session(nextInput: ManagedCodexNextInput): AsyncGenerator<ManagedCodexResult> {
+    const maxRespawns = boundedRespawns(this.options.maxRespawns);
+    // Every completed turn's text, oldest first: the raw material of the recap
+    // a respawned session is handed. The provider thread is the only other copy
+    // and it dies with the process.
+    const completedTurnTexts: string[] = [];
+    let launchPrompt = this.options.prompt;
+    while (true) {
+      try {
+        for await (const result of this.attempt(nextInput, launchPrompt)) {
+          this.laneCompletedTurns += 1;
+          completedTurnTexts.push(result.text);
+          yield result;
+        }
+        return;
+      } catch (error) {
+        const death = this.takeAttemptDeath(error);
+        if (!death || this.interrupted || this.respawns.length >= maxRespawns) throw error;
+        const harvest = (error as ManagedCodexHarvestError).harvest;
+        this.respawns.push({
+          attempt: this.respawns.length + 1,
+          reason: death.reason,
+          ...(harvest.threadId ? { threadId: harvest.threadId } : {}),
+          completedTurns: harvest.completedTurns,
+          ...(death.diagnostics.stderrTail.length
+            ? { stderrTail: [...death.diagnostics.stderrTail] } : {}),
+          ...(death.diagnostics.exitCode === undefined
+            ? {} : { exitCode: death.diagnostics.exitCode }),
+          ...(death.diagnostics.exitSignal === undefined
+            ? {} : { exitSignal: death.diagnostics.exitSignal }),
+        });
+        launchPrompt = managedCodexRecoveredContext(
+          this.options.prompt, completedTurnTexts, harvest, death.reason,
+        );
+        console.error(
+          `[codex] managed provider session died (${death.reason}) — respawning `
+          + `${this.respawns.length}/${maxRespawns} with ${completedTurnTexts.length} `
+          + `completed turn(s) of recovered context`,
+        );
+      }
+    }
+  }
+
+  // One provider session end to end: launch preflight, thread/start, and the
+  // per-frame turn loop. Throws on any failure; `session` above owns whether
+  // that failure earns another process.
+  private async *attempt(
+    nextInput: ManagedCodexNextInput,
+    launchPrompt: string,
+  ): AsyncGenerator<ManagedCodexResult> {
     let contract: LaunchContract;
     try { contract = managedCodexAppServerLaunch(this.options); }
     catch (error) {
-      if (error instanceof ManagedCodexPreThreadError) throw error;
-      throw new ManagedCodexPreThreadError("openai_codex_launch_contract_invalid", { cause: error });
+      const failure = error instanceof ManagedCodexPreThreadError
+        ? error
+        : new ManagedCodexPreThreadError("openai_codex_launch_contract_invalid", { cause: error });
+      // A RESPAWN's preflight is not a pre-thread preflight. This lane has
+      // already started a provider thread and may have written to the working
+      // tree, so its failure must stay a harvest — never the retry-safe
+      // pre-thread class spawn.ts is allowed to re-run.
+      if (!this.threadStarted) throw failure;
+      throw new ManagedCodexHarvestError(this.harvest({
+        turnIds: [], completedTurns: 0, text: "", unsupportedNotifications: {},
+      }), { cause: failure });
     }
     this.nativeCommands = new NativeCommandActivityAccumulator(contract.cwd, ENGINE);
     // The sealed MCP grant for this session: North always, fram only under the
@@ -2613,8 +2888,10 @@ export class ManagedCodexAppServerRun {
         throw new Error("Codex thread/start left unresolved lifecycle notifications");
 
       // One turn per North input frame, on the same provider thread. The first
-      // frame is the launch prompt; later frames arrive from `nextInput`.
-      let input: string | undefined = this.options.prompt;
+      // frame is the launch prompt — the brief on the first attempt, the brief
+      // plus recovered context on a respawn; later frames arrive from
+      // `nextInput`.
+      let input: string | undefined = launchPrompt;
       while (true) {
         // Re-prove the exact authority surface before every turn: a stale or
         // widened config, hook set, or MCP tool grant fails the turn closed
@@ -2728,7 +3005,20 @@ export class ManagedCodexAppServerRun {
         }), { cause: error })
         : new ManagedCodexPreThreadError("openai_codex_authority_preflight_failed", { cause: error });
       // Liveness has to be sampled HERE — teardown below is about to change it.
-      attachDiagnostics(failure, providerDiagnostics());
+      const diagnostics = providerDiagnostics();
+      attachDiagnostics(failure, diagnostics);
+      // Respawn eligibility, decided at the one moment the evidence is still
+      // true. A watchdog reason means the TURN was interrupted, not that the
+      // process died — settling it is the whole point of that path — so it is
+      // excluded even though the provider is torn down moments later.
+      if (failure instanceof ManagedCodexHarvestError && !watchdogReason
+          && (rpc.diedFromProcessDeath() || diagnostics.providerAlive === false)) {
+        this.attemptDeath = {
+          reason: error instanceof Error ? error.message : String(error),
+          diagnostics,
+        };
+        this.attemptFailure = failure;
+      }
       throw failure;
     } finally {
       clearWatchdogs();
@@ -2752,6 +3042,10 @@ export class ManagedCodexAppServerRun {
           ...providerDiagnostics(),
           ...(alive === undefined ? {} : { providerAlive: alive }),
         });
+        // The exit receipt is the single most useful field in a respawn record
+        // and it only exists after this close, so re-point at the topped-up one.
+        if (this.attemptDeath && failure.diagnostics)
+          this.attemptDeath.diagnostics = failure.diagnostics;
       }
       supervisor.close();
       this.child = undefined;
