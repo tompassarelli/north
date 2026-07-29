@@ -122,3 +122,67 @@ test("competing, missing, mismatched, and coordinator failures stay distinct", (
   );
   expect((failure as Error).message).not.toContain(hostile);
 });
+
+// A driver failure must be OPAQUE TO THE MODEL and EXPLICIT TO THE OPERATOR.
+// Suppressing both is what made this the longest-lived silent failure in the
+// harness: a lane died showing only
+//     [death] @agent:lane-… died: spawnSync /nix/store/…/bb ETIMEDOUT
+// while the real cause was a shell.readonly template whose read-only sandbox
+// blocks :7977, so the claim HUNG until the 8s budget expired. Confirmed by
+// controlled experiment 2026-07-29: the same probe as `scout` (read-only) died,
+// as `implementer` (workspace-write) ran.
+function captureStderr(run: () => void): string {
+  const chunks: string[] = [];
+  const original = process.stderr.write;
+  (process.stderr as any).write = (chunk: any) => { chunks.push(String(chunk)); return true; };
+  try { run(); } finally { (process.stderr as any).write = original; }
+  return chunks.join("");
+}
+
+test("a driver failure is explained on stderr without leaking coordinator output", () => {
+  const hostile = "CANARY coordinator stderr must never cross boundary";
+  const timedOut: DispatchDriverCommand = () => ({
+    status: null,
+    error: Object.assign(new Error("spawnSync bb ETIMEDOUT"), { code: "ETIMEDOUT" }),
+    stderr: hostile,
+  } as any);
+
+  let thrown: unknown;
+  const emitted = captureStderr(() => {
+    try { claimDispatchDriver("thread-1", "agent-1", { command: timedOut, port: "7977" }); }
+    catch (error) { thrown = error; }
+  });
+
+  // Opaque to the model: the thrown error stays fixed.
+  expect(thrown).toBeInstanceOf(DispatchDriverUnavailableError);
+  expect((thrown as Error).message).not.toContain(hostile);
+  expect((thrown as Error).message).not.toContain("ETIMEDOUT");
+
+  // Explicit to the operator: errno, and what a hang actually implies.
+  expect(emitted).toContain("dispatch driver claim failed on :7977");
+  expect(emitted).toContain("errno=ETIMEDOUT");
+  expect(emitted).toContain("shell.readonly");
+  expect(emitted).toContain("8000ms");
+
+  // The boundary still holds — coordinator stderr reaches NEITHER surface.
+  expect(emitted).not.toContain(hostile);
+});
+
+test("a refused claim reports its status without the ETIMEDOUT hypothesis", () => {
+  // status=1 is a REFUSAL, not a hang. Offering the sandbox explanation here
+  // would send the reader at the wrong cause.
+  const refused: DispatchDriverCommand = () => ({ status: 1, stderr: "noise" } as any);
+  const emitted = captureStderr(() => {
+    try { claimDispatchDriver("thread-1", "agent-1", { command: refused }); } catch {}
+  });
+  expect(emitted).toContain("status=1");
+  expect(emitted).not.toContain("shell.readonly");
+  expect(emitted).not.toContain("noise");
+});
+
+test("the failure reporter never throws on a malformed result", () => {
+  const malformed: DispatchDriverCommand = () => (null as any);
+  expect(() => {
+    try { claimDispatchDriver("thread-1", "agent-1", { command: malformed }); } catch {}
+  }).not.toThrow();
+});

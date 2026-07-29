@@ -5,6 +5,9 @@ import { normalizeNorthEntityId, northEntitySubject } from "./north-client";
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const ACQUIRE_CLI = resolve(REPO_ROOT, "cli/acquire-cli.clj");
 
+/** Named so the failure report can cite the budget it actually blew. */
+const DRIVER_TIMEOUT_MS = 8_000;
+
 export class DispatchAlreadyActiveError extends Error {
   readonly preSideEffect = true;
   constructor(readonly threadId: string) {
@@ -58,10 +61,62 @@ export interface DispatchDriverOptions {
   port?: string;
 }
 
+/**
+ * Why a driver claim failed, on stderr — the lane's durable log.
+ *
+ * A lane died on 2026-07-29 showing the operator exactly this and nothing more:
+ *
+ *     [death] @agent:lane-… died: spawnSync /nix/store/…/bb ETIMEDOUT
+ *
+ * The real cause was that a `shell.readonly` template gets a read-only sandbox,
+ * which blocks `:7977`, so the claim HUNG until the 8s budget expired. Confirmed
+ * by controlled experiment: the same probe as `scout` (read-only) died, as
+ * `implementer` (workspace-write) ran. The budget was never the issue — that
+ * call measures 63-64ms against a healthy coordinator, 125x headroom.
+ *
+ * ETIMEDOUT therefore gets an explicit hypothesis rather than a bare errno.
+ * Every orchestrator template carries `shell.readonly`, so this is the default
+ * experience of anything that coordinates.
+ *
+ * Never throws: this runs on an already-failing path, and a reporter that can
+ * fail is worse than the silence it replaces.
+ */
+function reportDriverFailure(
+  verb: string,
+  port: string,
+  result: { status?: number | null; error?: Error; stderr?: string },
+): void {
+  try {
+    // Deliberately NOT result.stderr. The existing canary — "coordinator stderr
+    // must never cross boundary" — asserts only that it stays out of the thrown
+    // message, but its intent is broader, and the diagnostic value here never
+    // came from the coordinator's own text. It came from the errno and from
+    // knowing what an ETIMEDOUT implies. Report harness facts, not corpus
+    // content: status and errno are produced by the spawn, not the coordinator.
+    const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
+    const parts = [
+      `[north] dispatch driver ${verb} failed on :${port}`,
+      result.status != null ? `status=${result.status}` : undefined,
+      code ? `errno=${code}` : undefined,
+    ].filter(Boolean);
+    process.stderr.write(`${parts.join(" ")}\n`);
+    if (code === "ETIMEDOUT")
+      process.stderr.write(
+        `[north] the claim HUNG rather than being refused. On a healthy ` +
+        `coordinator it takes ~64ms, so a ${DRIVER_TIMEOUT_MS}ms timeout means ` +
+        `the socket never answered. Most likely this lane's template carries ` +
+        `shell.readonly, whose read-only sandbox blocks :${port} — every ` +
+        `orchestrator template does. Check the "sandbox=" line in this log.\n`,
+      );
+  } catch {
+    // A diagnostic must never become the failure.
+  }
+}
+
 function commandAt(port: string): DispatchDriverCommand {
   return (verb, threadId, agentId) => spawnSync(
     "bb", [ACQUIRE_CLI, port, verb, threadId, agentId],
-    { encoding: "utf8", stdio: "pipe", timeout: 8_000 },
+    { encoding: "utf8", stdio: "pipe", timeout: DRIVER_TIMEOUT_MS },
   );
 }
 
@@ -89,8 +144,14 @@ export function claimDispatchDriver(
     throw new DispatchDriverPreclaimAbsentError(canonicalThreadId);
   if (preclaimed && (result.status === 3 || result.status === 7))
     throw new DispatchDriverPreclaimMismatchError(canonicalThreadId);
-  if (result.status !== 0)
+  if (result.status !== 0) {
+    // The THROWN error stays fixed — coordinator diagnostics must not reach the
+    // model. But the OPERATOR needs them, and suppressing both is what made this
+    // failure mode opaque for so long. Split the boundary: fixed for the model,
+    // explicit on stderr, which is the lane's durable log.
+    reportDriverFailure(verb, port, result);
     throw new DispatchDriverUnavailableError(canonicalThreadId, port);
+  }
   let released = false;
   return {
     release: () => {
