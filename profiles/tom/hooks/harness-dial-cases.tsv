@@ -1,0 +1,43 @@
+# harness-dial-cases.tsv — the ONE precedence contract for every control-plane
+# dial, asserted independently by the bash lib, the Clojure report, and the TS
+# SDK. Three readers of one state file diverge unless something holds them to
+# the same table; this is that something.
+#
+# The algebra only. Which registry a key belongs to, and which categories are
+# excluded from `all`, are per-axis facts tested separately.
+#
+# resolve(all, cat, item, env, now) -> on|off
+#   precedence: item > category > all > default(on); env beats state entirely.
+#   an `off:until=<iso>` whose deadline has passed reads as `on` AT ITS OWN
+#   LEVEL and stops the search — a lapsed TTL restores the guard, it does not
+#   fall through to a broader `off`.
+#
+# columns: id, all, cat, item, env, now, expect
+#   all/cat/item  a raw state value, or `-` when that level is unset
+#   env           VAR=value, or `-`
+#   now           ISO instant for until= evaluation, or `-` when irrelevant
+#
+id	all	cat	item	env	now	expect
+default-on	-	-	-	-	-	on
+all-off	off	-	-	-	-	off
+all-on-explicit	on	-	-	-	-	on
+cat-off	-	off	-	-	-	off
+item-off	-	-	off	-	-	off
+item-on-beats-cat-off	-	off	on	-	-	on
+item-off-beats-cat-on	-	on	off	-	-	off
+cat-on-beats-all-off	off	on	-	-	-	on
+item-on-beats-all-off	off	-	on	-	-	on
+item-off-beats-all-on	on	-	off	-	-	off
+env-off-beats-state-on	-	-	on	AGENT_NO_AUTHORING_HOOKS=1	-	off
+env-forcelive-beats-state-off	off	off	off	AGENT_NO_AUTHORING_HOOKS=0	-	on
+env-forcelive-false-word	off	-	-	AGENT_NO_AUTHORING_HOOKS=false	-	on
+env-empty-is-unset	off	-	-	AGENT_NO_AUTHORING_HOOKS=	-	off
+env-legacy-claude-alias	-	-	on	CLAUDE_NO_AUTHORING_HOOKS=1	-	off
+until-future-honored	-	-	off:until=2099-01-01T00:00:00Z	-	2026-07-30T00:00:00Z	off
+until-expired-reads-on	-	-	off:until=2020-01-01T00:00:00Z	-	2026-07-30T00:00:00Z	on
+until-expired-does-not-fall-through	off	-	off:until=2020-01-01T00:00:00Z	-	2026-07-30T00:00:00Z	on
+until-future-at-cat	-	off:until=2099-01-01T00:00:00Z	-	-	2026-07-30T00:00:00Z	off
+until-expired-at-all	off:until=2020-01-01T00:00:00Z	-	-	-	2026-07-30T00:00:00Z	on
+env-forcelive-beats-future-until	-	-	off:until=2099-01-01T00:00:00Z	AGENT_NO_AUTHORING_HOOKS=0	2026-07-30T00:00:00Z	on
+unparseable-value-fails-safe-on	-	-	sideways	-	-	on
+unparseable-until-fails-safe-on	-	-	off:until=not-a-date	-	2026-07-30T00:00:00Z	on
