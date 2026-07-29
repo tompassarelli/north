@@ -54,6 +54,20 @@ while (($#)); do
   esac
 done
 
+# Coordination ceremony is opt-in (north config rebuild-coordination on).
+# Default OFF: exec firn rebuild directly — no intent, no hold, no mutex.
+rebuild_coordination=off
+harness_conf=${NORTH_HARNESS_CONF:-${HOME:?}/.local/state/north/harness.conf}
+if [[ -r "$harness_conf" ]]; then
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" == rebuild-coordination ]] && rebuild_coordination=$_v
+  done <"$harness_conf"
+fi
+if [[ "$rebuild_coordination" != on ]]; then
+  printf '%s: coordination ceremony off (enable: north config rebuild-coordination on) — running firn rebuild directly\n' "$program"
+  exec "$firn_bin" rebuild "${firn_args[@]}"
+fi
+
 [[ -n "$why" ]] || {
   printf '%s: --why is required\n' "$program" >&2
   usage
