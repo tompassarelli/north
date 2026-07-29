@@ -67,6 +67,13 @@ FRAM="${FRAM_HOME:-$HOME/code/fram}"
 FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
 FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Panic is deliberately the first route after locating this checkout. It must
+# remain usable when bb, Fram, and the coordinator are unavailable.
+if [ "${1:-}" = "panic" ]; then
+  exec "$NORTH/bin/north-panic" "${@:2}"
+fi
+
 BB="${NORTH_BB:-bb}"
 BUN="${NORTH_BUN:-bun}"
 
