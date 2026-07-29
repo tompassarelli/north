@@ -20,7 +20,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram")))
+      (str (System/getProperty "user.home") "/code/fram/main")))
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))

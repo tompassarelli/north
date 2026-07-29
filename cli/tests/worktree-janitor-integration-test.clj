@@ -12,7 +12,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
+   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
 (def reactor (str root "/cli/north-reactor.clj"))
 (def lander (str root "/cli/worktree-lander.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))

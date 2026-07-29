@@ -12,7 +12,7 @@
 (def invoice (str north "/bin/north-invoice"))
 (def invoice-src (str north "/cli/north-invoice.clj"))
 (def fram-out (str (or (System/getenv "FRAM_HOME")
-                       (str (System/getProperty "user.home") "/code/fram"))
+                       (str (System/getProperty "user.home") "/code/fram/main"))
                    "/out"))
 (def stub-home (str root "/stub-north"))
 (def paid-log (str root "/paid-writes.log"))

@@ -17,7 +17,7 @@
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[babashka.process :as p])
 
-(def fram (str (System/getProperty "user.home") "/code/fram"))
+(def fram (str (System/getProperty "user.home") "/code/fram/main"))
 (def code-log (str fram "/.fram/code.log"))
 (def lode (str (System/getProperty "user.home") "/code/north"))
 (when-not (and (.exists (io/file (str fram "/out"))) (.exists (io/file code-log)))

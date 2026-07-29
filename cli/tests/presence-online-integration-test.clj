@@ -11,7 +11,7 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram"))
+(def fram (str (System/getProperty "user.home") "/code/fram/main"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
 (def checks (atom []))
 (def test-log (atom nil))

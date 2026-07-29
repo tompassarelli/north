@@ -2,7 +2,7 @@
 ;; Deterministic reliability oracle for North read projections under write churn.
 ;;
 ;; Run from the North root:
-;;   bb -cp out:$HOME/code/fram/out cli/tests/read-projection-churn-oracle.clj
+;;   bb -cp out:$HOME/code/fram/main/out cli/tests/read-projection-churn-oracle.clj
 ;;
 ;; The harness always creates a temporary flat log and an isolated serve-flat
 ;; coordinator. It refuses port 7977 at every socket boundary. Defaults exercise
@@ -36,7 +36,7 @@
    :writes-per-writer 200
    :read-timeout-ms 10000
    :fram (or (System/getenv "FRAM_TEST_CHECKOUT")
-             (str (System/getProperty "user.home") "/code/fram"))})
+             (str (System/getProperty "user.home") "/code/fram/main"))})
 
 (defn usage! [message]
   (when message

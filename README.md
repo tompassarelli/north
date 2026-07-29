@@ -57,7 +57,7 @@ The same graph is the coordination plane for managed multi-agent work:
   provider eyecution, a run ledger, and a truthful terminal
   (`delivery=reported|unverified|blocked`).
 - **Orchestration routing** — `north spawn`/`delegate` read Orchestration's staffing catalog
-  (`~/code/north/orchestration/staffing/catalog.json`) to answer *who* does the work
+  (`~/code/north/main/orchestration/staffing/catalog.json`) to answer *who* does the work
   (role/tier/reasoning/posture); North answers *where* it runs and *how* you see
   it (provider account, subscription pressure, dashboard). Orchestration is
   account-blind; North resolves the tier through the chosen provider's catalog.
@@ -83,7 +83,7 @@ than the shell verbs.
 
 ## Shape
 
-- **Engine** → [Fram](https://github.com/tompassarelli/fram) (`~/code/fram`):
+- **Engine** → [Fram](https://github.com/tompassarelli/fram) (`~/code/fram/main`):
   facts, Datalog, the coordinator daemon. The hard substrate.
 - **Coordination domain** → `src/north/*.bclj`: the lifecycle derivations,
   billing projection, and staleness layer that make the engine a work ledger.
@@ -129,7 +129,7 @@ only the transport in front of the coordinator changes.
 **Running the ledger needs only [babashka](https://babashka.org)** — the
 compiled Clojure is committed in `out/` (no Beagle required at runtime), same as
 Fram. You need the Fram engine checked out too (`FRAM_HOME`, default
-`~/code/fram`); `bin/north` puts both on the classpath. The agent SDK and MCP
+`~/code/fram/main`); `bin/north` puts both on the classpath. The agent SDK and MCP
 edge additionally need [Bun](https://bun.sh).
 
 North links Fram's library API, so its eyact source is pinned by the `fram`

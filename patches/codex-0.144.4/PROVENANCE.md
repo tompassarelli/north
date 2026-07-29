@@ -15,7 +15,7 @@ This bundle carries a North-specific downstream modification to OpenAI Codex. It
 - Upstream `LICENSE` SHA-256: `d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc`
 - Upstream `NOTICE` SHA-256: `9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915`
 
-`~/code/north/patches/codex-0.144.4/LICENSE.upstream` and `~/code/north/patches/codex-0.144.4/NOTICE.upstream` are byte-for-byte copies of those exact upstream files.
+`~/code/north/main/patches/codex-0.144.4/LICENSE.upstream` and `~/code/north/main/patches/codex-0.144.4/NOTICE.upstream` are byte-for-byte copies of those exact upstream files.
 
 ## North modification
 
@@ -64,7 +64,7 @@ The generated artifacts cannot all carry source comments, so this manifest is th
 
 ## Application
 
-Apply `~/code/north/patches/codex-0.144.4/managed-hook-failure-mode.patch` with `patch -p1` from the upstream `codex-rs` source root. North's Nix derivation asserts version `0.144.4`; a version mismatch must fail evaluation rather than attempt a fuzzy patch.
+Apply `~/code/north/main/patches/codex-0.144.4/managed-hook-failure-mode.patch` with `patch -p1` from the upstream `codex-rs` source root. North's Nix derivation asserts version `0.144.4`; a version mismatch must fail evaluation rather than attempt a fuzzy patch.
 
 Patch SHA-256: `36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3`
 

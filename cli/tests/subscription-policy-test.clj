@@ -7,7 +7,7 @@
          '[clojure.string :as str])
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram"))
+(def fram (str (System/getProperty "user.home") "/code/fram/main"))
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 (defn read-source [path] (slurp (io/file root path)))

@@ -3,7 +3,7 @@
 # (strip the leading @ that the log/livefile carries). Values pass as-is. Persons
 # use `display_name` (`name` is a reserved engine/schema predicate).
 set -uo pipefail
-cd /home/tom/code/north
+cd /home/tom/code/north/main
 LS="bin/north"
 DATA=/home/tom/code/north-data/facts.log
 T=$(mktemp -d); FAIL=0; N=0

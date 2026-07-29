@@ -149,7 +149,7 @@
    (let [ready (str directory "/writer.ready")
          release (str directory "/writer.release")
          output (str directory "/writer.out")
-         fram-out (or (System/getenv "FRAM_OUT") (str root "/../fram/out"))
+         fram-out (or (System/getenv "FRAM_OUT") (str root "/../fram/main/out"))
          process (-> (ProcessBuilder.
                       ^java.util.List
                       ["bb" "-cp" fram-out *file* "--writer"

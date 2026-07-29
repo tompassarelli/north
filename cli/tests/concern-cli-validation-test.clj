@@ -7,7 +7,7 @@
 
 (def root (-> (io/file (System/getProperty "babashka.file"))
               .getParentFile .getParentFile .getParentFile .getPath))
-(def fram "/home/tom/code/fram")
+(def fram "/home/tom/code/fram/main")
 (defn port-free? [port]
   (try
     (with-open [s (java.net.Socket.)]

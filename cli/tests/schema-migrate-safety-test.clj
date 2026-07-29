@@ -8,7 +8,7 @@
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
-           (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
+           (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
 (load-file (str root "/cli/schema-migrate.clj"))
 (require '[north.runtime-attestation :as runtime-attestation])
 

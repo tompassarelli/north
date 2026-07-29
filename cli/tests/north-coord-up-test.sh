@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 UP="$ROOT/bin/north-coord-up"
-FRAM_CHECKOUT="${FRAM_TEST_CHECKOUT:-$(cd "$ROOT/../fram" && pwd)}"
+FRAM_CHECKOUT="${FRAM_TEST_CHECKOUT:-$(cd "$ROOT/../fram/main" && pwd)}"
 
 # The integration cases below inject a deterministic route reader so they can
 # exercise slot/backend races. Keep the real UNIX-socket reader connected to

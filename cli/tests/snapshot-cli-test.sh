@@ -3,7 +3,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
-fram_origin=${FRAM_PATH:-$root/../fram}
+fram_origin=${FRAM_PATH:-$root/../fram/main}
 scratch=$(mktemp -d -t north-snapshot-cli.XXXXXX)
 fram=$scratch/fram
 daemon_pid=

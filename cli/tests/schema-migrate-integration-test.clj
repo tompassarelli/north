@@ -11,7 +11,7 @@
 (load-file (str root "/cli/schema-migrate.clj"))
 (require '[north.runtime-attestation :as runtime-attestation])
 (def fram (.getCanonicalPath
-           (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
+           (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
 (when-not (.isFile (io/file fram "coord_daemon.clj"))
   (throw (ex-info "Fram checkout not found; set FRAM_PATH or keep it beside North" {:fram fram})))
 

@@ -8,7 +8,7 @@
 (def test-root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram-root (str (System/getProperty "user.home") "/code/fram"))
+(def fram-root (str (System/getProperty "user.home") "/code/fram/main"))
 (def writer-path (str test-root "/cli/worktree-allocation-internal.clj"))
 
 ;; Load the writer's validators/publication functions without treating its CLI

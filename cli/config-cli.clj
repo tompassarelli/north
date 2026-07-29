@@ -460,7 +460,7 @@
    Advice: don't flip the default until the M1.5-vs-M2 bake-off verdict.
 
  4 GUARDS — the PreToolUse/SessionStart authoring guards.
-   Individually wired in ~/code/nixos-config/dotfiles/claude/settings.json.
+   Individually wired in ~/code/nixos-config/main/dotfiles/claude/settings.json.
    Kill-switch is VALUE-AWARE and has two surfaces:
 
    [live] state flip (primary — effective immediately across ALL sessions,
