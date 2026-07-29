@@ -1,5 +1,5 @@
 import { accessSync, constants } from "node:fs";
-import { spawn as procSpawn } from "node:child_process";
+import { spawn as procSpawn, spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import type { OrchestrationCapability } from "./orchestration-capabilities";
 import {
@@ -190,6 +190,62 @@ export class SpendGuardError extends ExecutionAdmissionError {
     super(message, options);
     this.name = "SpendGuardError";
   }
+}
+
+export class ManagedDispatchAuthorityError extends ExecutionAdmissionError {
+  readonly code = "blocked_dispatch_mode";
+  readonly processOutcome = "blocked_dispatch_mode";
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ManagedDispatchAuthorityError";
+  }
+}
+
+/**
+ * Honor the live operator dispatch mode before any managed provider work.
+ *
+ * The existing `north config` surface owns parsing, canonical/legacy
+ * normalization, and the mode vocabulary. The SDK consumes only its bounded
+ * admission decision, so CLI, MCP, and direct SDK entrypoints cannot drift.
+ */
+export function admitManagedDispatchAuthority(
+  environment: NodeJS.ProcessEnv = process.env,
+): void {
+  const result = spawnSync(
+    ENGINE,
+    ["config", "dispatch", "--managed-admission"],
+    {
+      cwd: REPO,
+      env: environment,
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 16_384,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  const stderr = result.stderr?.trim();
+  if (result.error || result.status !== 0) {
+    throw new ManagedDispatchAuthorityError(
+      `managed_dispatch_authority_unavailable${stderr ? `: ${stderr}` : ""}`,
+      result.error ? { cause: result.error } : undefined,
+    );
+  }
+  const action = result.stdout.trim();
+  if (action === "allow") return;
+  if (action === "warn-native") {
+    console.warn(
+      "[dispatch] native-biased permits managed execution, but provider-native execution is preferred",
+    );
+    return;
+  }
+  if (action === "deny") {
+    throw new ManagedDispatchAuthorityError(
+      "managed_dispatch_denied_by_native_forced",
+    );
+  }
+  throw new ManagedDispatchAuthorityError(
+    `managed_dispatch_authority_invalid_action: ${JSON.stringify(action)}`,
+  );
 }
 
 /**

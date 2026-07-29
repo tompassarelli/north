@@ -44,6 +44,20 @@
 
 (defn mark [a b] (if (= a b) "●" "○")) ; ● / ○
 
+(defn dispatch-status-lines [selected]
+  (str/join
+   "\n"
+   (map (fn [{:keys [name summary]}]
+          (format "    %s %-16s %s" (mark selected name) name summary))
+        (reverse north.dispatch-mode/mode-specs))))
+
+(defn dispatch-help-lines []
+  (str/join
+   "\n"
+   (map (fn [{:keys [name help]}]
+          (format "   %-16s %s" name help))
+        (reverse north.dispatch-mode/mode-specs))))
+
 ;; --- environment probes ---------------------------------------------------
 (defn north-daemon []
   (try (with-open [s (java.net.Socket.)]
@@ -383,19 +397,14 @@
       "       (none)")))
 
 (defn status []
-  (let [d  (get' "dispatch" "managed-forced")
+  (let [d  (north.harness-state/get-dispatch-mode home)
         c  (get' "coord" "north")
         ]
     (println (banner))
     (println (str "
  1  DISPATCH   type × enforcement — who runs agents, how strictly  [guard: " (wired "agent-spawn-guard") "]
-    " (mark d "managed-forced") " managed-forced   native Agent/Workflow DENIED → north SDK;
-               SDK workers are persistent, steerable, fact trail;
-               model/effort resolve from the requested Orchestration composition
-    " (mark d "managed-biased") " managed-biased   native allowed, nudged toward north SDK
-    " (mark d "native-biased") " native-biased    native allowed, nudged toward managed
-    " (mark d "native-forced") " native-forced    raw Claude Code spawns, no interference
-    flip → north config dispatch native-forced|native-biased|managed-biased|managed-forced
+" (dispatch-status-lines d) "
+    flip → north config dispatch " (north.dispatch-mode/usage) "
 
  2  COORD      coordination protocol           [north: " (north-daemon) " · linear MCP: " (linear-mcp) "]
     " (mark c "north") " north    facts on :7977 + concerns + msg-cli chat
@@ -427,26 +436,11 @@
  state: ~/.local/state/north/harness.conf · legacy read fallback: ~/.claude/my-config.state · descriptions + advice: north config help"))))
 
 (defn help []
-  (println "north config — every personal-stack posture setting, one entry point.
+  (println (str "north config — every personal-stack posture setting, one entry point.
 
  1 DISPATCH — TYPE (native vs managed, who executes) × ENFORCEMENT
    (forced vs biased, how strictly) = four modes.
-   managed-forced   (default; legacy alias: north) native Agent/Task/Workflow
-           calls are DENIED by a PreToolUse hook and redirected to the north
-           SDK: mcp__north__spawn (ad-hoc) / mcp__north__dispatch
-           (thread-driven). SDK workers are persistent, dormant-until-pinged,
-           observable through North CLI/MCP, steerable (msg-cli :7977). Model
-           and effort have per-spawn opts on mcp__north__spawn. Managed
-           children scrub ambient routing/staffing variables: model and
-           effort come from the request's Orchestration composition and
-           provider catalog unless explicitly pinned, and the result is
-           frozen for each worker's lifetime.
-   managed-biased   (legacy alias: warn) native spawns allowed; the hook
-           injects a reminder toward the north SDK instead.
-   native-biased    native spawns allowed; a soft reminder that managed
-           dispatch exists, via the existing reminder pathway only.
-   native-forced    (legacy alias: native) no interference. For A/B
-           baselines against stock Claude Code.
+" (dispatch-help-lines) "
    Legacy values native/warn/north are still accepted and map to the
    canonical name above (printed as a one-line note on use).
    Advice: stay on managed-forced. Drop to managed-biased only when the
@@ -505,38 +499,49 @@
 
  Elsewhere (owned by other CLIs, not duplicated here):
    system/nix composition → firn tag status · firn enable <tag>
-   session effort/ultracode → /effort (harness-level, not script-readable)"))
+   session effort/ultracode → /effort (harness-level, not script-readable)")))
 
 ;; --- verb dispatch --------------------------------------------------------
 
-(def dispatch-canonical #{"native-forced" "native-biased" "managed-biased" "managed-forced"})
-(def dispatch-legacy {"native" "native-forced" "warn" "managed-biased" "north" "managed-forced"})
-(def dispatch-grid
-  "  native-forced    native-biased    managed-biased    managed-forced
-  type=native      type=native      type=managed      type=managed
-  enforce=forced   enforce=biased   enforce=biased     enforce=forced")
-
-(defn cmd-dispatch [[sub]]
+(defn cmd-dispatch [[sub & extra]]
   (cond
-    (contains? dispatch-canonical sub)
-    (do
-      (put' "dispatch" sub)
-      (println (str "dispatch → " sub " "
-                    (case sub
-                      "native-forced"   "(native Agent/Workflow allowed, no interference)"
-                      "native-biased"   "(native Agent/Workflow allowed, nudged toward managed)"
-                      "managed-biased"  "(native allowed, nudged toward north SDK)"
-                      "managed-forced"  "(native Agent/Workflow DENIED → north SDK)"))))
-    (contains? dispatch-legacy sub)
-    (let [canon (get dispatch-legacy sub)]
+    (= sub "--canonical")
+    (if (seq extra)
+      (die "usage: north config dispatch --canonical")
+      (println (north.harness-state/get-dispatch-mode home)))
+
+    (= sub "--guard-action")
+    (if (seq extra)
+      (die "usage: north config dispatch --guard-action")
+      (println
+       (north.dispatch-mode/guard-action
+        (north.harness-state/get-dispatch-mode home))))
+
+    (= sub "--managed-admission")
+    (if (seq extra)
+      (die "usage: north config dispatch --managed-admission")
+      (println
+       (north.dispatch-mode/managed-admission
+        (north.harness-state/get-dispatch-mode home))))
+
+    (north.dispatch-mode/recognized? sub)
+    (let [canon (north.dispatch-mode/normalize sub)
+          legacy? (north.dispatch-mode/legacy-alias? sub)
+          summary (:summary (north.dispatch-mode/spec canon))]
       (put' "dispatch" canon)
-      (println (str "dispatch → " canon " (legacy alias '" sub "' accepted; canonical name is '" canon "')")))
+      (println
+       (if legacy?
+         (str "dispatch → " canon " (legacy alias '" sub
+              "' accepted; canonical name is '" canon "')")
+         (str "dispatch → " canon " (" summary ")"))))
+
     (nil? sub)
-    (let [d (get' "dispatch" "managed-forced")]
-      (println (str "dispatch = " d "\n" dispatch-grid
-                    "\n   (north config dispatch native-forced|native-biased|managed-biased|managed-forced)")))
+    (let [d (north.harness-state/get-dispatch-mode home)]
+      (println (str "dispatch = " d "\n" (north.dispatch-mode/grid)
+                    "\n   (north config dispatch " (north.dispatch-mode/usage) ")")))
+
     :else
-    (die "usage: north config dispatch [native-forced|native-biased|managed-biased|managed-forced]")))
+    (die (str "usage: north config dispatch [" (north.dispatch-mode/usage) "]"))))
 
 (defn cmd-coord [[sub]]
   (cond
@@ -600,16 +605,19 @@
     :else (die "usage: north config guards [on|off]")))
 
 (defn -main [& args]
-  (let [[verb & rest] args]
-    (case (or verb "status")
-      ("status") (status)
-      "dispatch" (cmd-dispatch rest)
-      "coord"    (cmd-coord rest)
-      "rebuild-coordination" (cmd-rebuild-coordination rest)
-      "beagle"   (cmd-beagle rest)
-      "guards"   (cmd-guards rest)
-      "routing"  (cmd-routing rest)
-      ("help" "-h" "--help") (help)
-      (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|routing|help]"))))
+  (try
+    (let [[verb & rest] args]
+      (case (or verb "status")
+        ("status") (status)
+        "dispatch" (cmd-dispatch rest)
+        "coord"    (cmd-coord rest)
+        "rebuild-coordination" (cmd-rebuild-coordination rest)
+        "beagle"   (cmd-beagle rest)
+        "guards"   (cmd-guards rest)
+        "routing"  (cmd-routing rest)
+        ("help" "-h" "--help") (help)
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|beagle|guards|routing|help]")))
+    (catch clojure.lang.ExceptionInfo error
+      (die (.getMessage error)))))
 
 (apply -main *command-line-args*)

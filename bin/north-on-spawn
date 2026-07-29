@@ -86,23 +86,13 @@ case "$evt" in
 esac
 # Freeze the dispatch topology that was in force when this provider-native
 # actor began. Report-time config is mutable context, never historical proof.
-dispatch_mode_at_start="north"
-harness_state="${NORTH_HARNESS_STATE:-$HOME/.local/state/north/harness.conf}"
-legacy_harness_state="${NORTH_LEGACY_HARNESS_STATE:-$HOME/.claude/my-config.state}"
-if [ -f "$harness_state" ]; then
-  dispatch_source="$harness_state"
-elif [ -f "$legacy_harness_state" ]; then
-  dispatch_source="$legacy_harness_state"
-else
-  dispatch_source=""
-fi
-if [ -n "$dispatch_source" ]; then
-  observed_dispatch="$(awk -F= '$1 == "dispatch" { value=$2 } END { print value }' "$dispatch_source" 2>/dev/null || true)"
-  case "$observed_dispatch" in
-    north|warn|native) dispatch_mode_at_start="$observed_dispatch" ;;
-    "") ;;
-    *) dispatch_mode_at_start="unknown" ;;
-  esac
+dispatch_mode_at_start=""
+if ! dispatch_mode_at_start="$(
+  timeout --signal=TERM --kill-after=0.1s 1s \
+    "$NORTH_HOME/bin/north" config dispatch --canonical
+)"; then
+  echo "north-on-spawn: dispatch mode lookup failed" >&2
+  dispatch_mode_at_start="invalid"
 fi
 # SubagentStart carries a provider-owned `agent_id`; on Codex its session_id is
 # explicitly the PARENT session. Keying presence/cache by that parent would

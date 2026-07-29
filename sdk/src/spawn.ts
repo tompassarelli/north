@@ -73,7 +73,9 @@ import {
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
 } from "./resource-envelopes";
 import { assertCoordinationAuthority } from "./topology-authority";
-import { admitPinnedProvider } from "./execution-admission";
+import {
+  admitManagedDispatchAuthority, admitPinnedProvider,
+} from "./execution-admission";
 import {
   classifyExecutionTerminal, describeProviderErrorTerminal, EMPTY_RESULT_OUTCOME,
   isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, PROVIDER_PROCESS_DEATH_OUTCOME,
@@ -1329,6 +1331,7 @@ function assertRecursiveChildBinding(
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
   const injected = takeSpawnTestRuntime<SpawnRuntime>(opts) ?? {};
+  admitManagedDispatchAuthority();
   const admitted = allowlistedSpawnOptions(opts);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);

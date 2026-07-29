@@ -51,15 +51,22 @@
   (check "legacy state is a read-only fallback while canonical is absent"
          (and (= legacy (north.harness-state/source-path home-path))
               (= "warn" (north.harness-state/get-value home-path "dispatch" "north"))
+              (= "managed-biased" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" "on"))))
 
-  (north.harness-state/put-value! home-path "dispatch" "north")
-  (check "first write seeds canonical state with legacy values"
+  (north.harness-state/put-value! home-path "guards" "off")
+  (check "first unrelated write seeds canonical state and normalizes legacy dispatch"
          (and (= canonical (north.harness-state/source-path home-path))
-              (= "north" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "managed-biased" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "managed-biased" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
   (check "migration never mutates the Claude-era file"
          (= "dispatch=warn\nguards=off\n" (slurp legacy)))
+
+  (north.harness-state/put-value! home-path "dispatch" "north")
+  (check "dispatch writes persist the canonical value"
+         (and (= "managed-forced" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "managed-forced" (north.harness-state/get-dispatch-mode home-path))))
 
   (check "canonical state, persistent lock, and state directory are owner-only"
          (and (= "rw-------" (permission-string canonical))
@@ -75,7 +82,7 @@
 
   (spit legacy "dispatch=native\nguards=on\n")
   (check "legacy changes are ignored once canonical state exists"
-         (and (= "north" (north.harness-state/get-value home-path "dispatch" nil))
+         (and (= "managed-forced" (north.harness-state/get-value home-path "dispatch" nil))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
   (check "atomic writer leaves no temporary files"
          (empty? (filter #(str/starts-with? (.getName %) ".harness.")
@@ -85,7 +92,8 @@
                          :extra-env {"HOME" home-path "NORTH_HOME" root}}
                         "bb" (str root "/cli/config-cli.clj") "dispatch")]
     (check "config CLI reads the canonical state through the shared adapter"
-           (and (zero? (:exit config)) (str/includes? (:out config) "dispatch = north"))))
+           (and (zero? (:exit config))
+                (str/includes? (:out config) "dispatch = managed-forced"))))
 
   (let [dashboard (p/shell
                    {:out :string :err :string :continue true
@@ -94,7 +102,23 @@
                    (str "(load-file " (pr-str (str root "/cli/dashboard-cli.clj")) ") "
                         "(println (dispatch-mode))"))]
     (check "dashboard reads the same canonical state adapter"
-           (and (zero? (:exit dashboard)) (= "north" (str/trim (:out dashboard))))))
+           (and (zero? (:exit dashboard))
+                (= "managed-forced" (str/trim (:out dashboard))))))
+
+  (spit canonical "dispatch=surprise\nguards=off\n")
+  (let [bad-read (try (north.harness-state/get-dispatch-mode home-path) false
+                      (catch Exception error
+                        (str/includes? (.getMessage error) "invalid dispatch mode")))
+        unrelated-write (try
+                          (north.harness-state/put-value! home-path "guards" "on")
+                          false
+                          (catch Exception error
+                            (str/includes? (.getMessage error) "invalid dispatch mode")))]
+    (check "unknown persisted dispatch fails reads and unrelated writes loudly"
+           (and bad-read unrelated-write)))
+  (north.harness-state/put-value! home-path "dispatch" "native-forced")
+  (check "a valid dispatch write recovers invalid persisted state"
+         (= "native-forced" (north.harness-state/get-dispatch-mode home-path)))
 
   (let [bad-key (try (north.harness-state/put-value! home-path "bad\nkey" "x") false
                      (catch Exception _ true))
