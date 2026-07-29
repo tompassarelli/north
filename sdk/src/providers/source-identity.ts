@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
 
+interface SourceIdentityEnvironment {
+  [name: string]: string | undefined;
+  NORTH_PACKAGE_MODE?: string;
+  NORTH_PACKAGE_REV?: string;
+}
+
 /** Human-visible identity for a live checkout, including uncommitted state. */
 export function checkoutSourceIdentity(root: string): string {
   const revision = spawnSync("git", ["-C", root, "rev-parse", "--short", "HEAD"],
@@ -11,7 +17,12 @@ export function checkoutSourceIdentity(root: string): string {
   return `checkout ${revision.stdout.trim()}${dirty ? " dirty" : " clean"}`;
 }
 
-export function northSourceIdentity(root: string): string {
-  const packaged = process.env.NORTH_PACKAGE_REV;
-  return packaged ? `nix-store ${packaged}` : checkoutSourceIdentity(root);
+export function northSourceIdentity(
+  root: string,
+  environment: SourceIdentityEnvironment = process.env,
+): string {
+  const revision = environment.NORTH_PACKAGE_REV;
+  if (environment.NORTH_PACKAGE_MODE === "nix-store")
+    return `nix-store ${revision || "unknown"}`;
+  return revision ? `checkout ${revision}` : checkoutSourceIdentity(root);
 }
