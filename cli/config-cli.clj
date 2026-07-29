@@ -23,6 +23,9 @@
 (load-file (str (or (System/getenv "NORTH_HOME")
                     (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
                 "/cli/harness-state.clj"))
+(load-file (str (or (System/getenv "NORTH_HOME")
+                    (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
+                "/cli/harness-dial.clj"))
 (def STATE           (north.harness-state/canonical-path home))
 (def LEGACY-STATE    (north.harness-state/legacy-path home))
 (def REGISTRY        (or (System/getenv "GRAPH_UPSTREAM_REGISTRY")
@@ -88,14 +91,17 @@
 ;;   env 0|false  → force-live (state ignored this session)
 ;;   env non-empty (other) → engaged this session
 ;;   unset/empty  → state file `guards=off` decides
+;; Delegates to the shared resolver rather than keeping a second copy. The
+;; copy this replaced read only CLAUDE_NO_AUTHORING_HOOKS, so a session
+;; launched with the canonical AGENT_NO_AUTHORING_HOOKS ran with guards
+;; disabled while this report cheerfully printed "guards LIVE".
 (defn effective-ks []
-  (let [env (System/getenv "CLAUDE_NO_AUTHORING_HOOKS")]
-    (cond
-      (#{"0" "false"} env) "env force-live — guards LIVE (state ignored this session)"
-      (and env (not (str/blank? env))) "ENGAGED via env (this session) — authoring guards OFF; dispatch topology unchanged"
-      :else (if (= "off" (get' "guards" ""))
-              "ENGAGED via state — authoring guards OFF; dispatch topology unchanged (north config guards on restores)"
-              "off — guards LIVE"))))
+  (case (north.harness-dial/authoring-env)
+    "on"  "env force-live — guards LIVE (state ignored this session)"
+    "off" "ENGAGED via env (this session) — authoring guards OFF; dispatch topology unchanged"
+    (if (= "off" (get' "guards" ""))
+      "ENGAGED via state — authoring guards OFF; dispatch topology unchanged (north config guards on restores)"
+      "off — guards LIVE")))
 
 (defn today []
   (.format (java.time.LocalDate/now)
