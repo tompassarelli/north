@@ -337,6 +337,58 @@ PY
           '';
         };
 
+        # The checkout launcher and immutable package have one runtime contract.
+        # Keep the contract data-only here so neither can drift from the other.
+        northRuntimeVariables = {
+          FRAM_HOME = framRuntimeRoot;
+          FRAM_BIN = "${framPkg}/bin";
+          FRAM_OUT = framBabashkaClasspath;
+          NORTH_ORCHESTRATION_HOME = orchestrationContract;
+          NORTH_BB = "${pkgs.babashka}/bin/bb";
+          NORTH_BUN = "${pkgs.bun}/bin/bun";
+          NORTH_GIT_BIN = "${pkgs.git}/bin/git";
+          NORTH_MKFIFO_BIN = "${pkgs.coreutils}/bin/mkfifo";
+          NORTH_PEER_BB = "${pkgs.babashka}/bin/bb";
+          NORTH_MCP_BB = "${pkgs.babashka}/bin/bb";
+          NORTH_MCP_BUN = "${pkgs.bun}/bin/bun";
+          NORTH_SCHEMA_STAGE_PYTHON = "${pkgs.python3}/bin/python3";
+          NORTH_MANAGED_CODEX_BIN = "${codexPkg}/bin/codex";
+          NORTH_PACKAGE_MODE = "nix-store";
+          NORTH_PACKAGE_REV = builtins.substring 0 12 (self.rev or self.dirtyRev or "dirty");
+          FRAM_PACKAGE_REV = framPackageRev;
+        };
+        northWrapperArgs = variables:
+          [ "--prefix" "PATH" ":" runtimePath ]
+          ++ lib.concatMap
+            (name: [ "--set" name variables.${name} ])
+            (builtins.attrNames variables);
+        northRuntimeExports = lib.concatStringsSep "\n"
+          (map (name: "export ${name}=${lib.escapeShellArg northRuntimeVariables.${name}}")
+            (builtins.attrNames northRuntimeVariables));
+        northEnv = pkgs.symlinkJoin {
+          name = "north-env";
+          paths = runtimePackages;
+          postBuild = ''
+            mkdir -p $out/sdk
+            ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
+            cat > $out/bin/north-env <<'EOF'
+#!${pkgs.bash}/bin/bash
+set -euo pipefail
+
+${northRuntimeExports}
+
+export NORTH_HOME="''${NORTH_HOME:-$PWD}"
+export NORTH_BIN="''${NORTH_BIN:-$NORTH_HOME/bin/north}"
+exec "$NORTH_BIN" "$@"
+EOF
+            chmod +x $out/bin/north-env
+          '';
+          meta = {
+            description = "North checkout runtime environment without application code";
+            mainProgram = "north-env";
+          };
+        };
+
         # north CLI + MCP. Same relocatable layout. FRAM_HOME is baked to the
         # packaged engine so the CLI is self-contained. Package-owned code and
         # provenance selectors are exact wrapper values; only public data/store
@@ -397,25 +449,9 @@ PY
             test -f "$out/sdk/src/strict-json.ts"
 
             wrapProgram $out/bin/north \
-              --prefix PATH : ${runtimePath} \
-              --set FRAM_HOME ${framRuntimeRoot} \
-              --set FRAM_BIN ${framPkg}/bin \
-              --set FRAM_OUT ${framBabashkaClasspath} \
-              --set NORTH_ORCHESTRATION_HOME ${orchestrationContract} \
-              --set NORTH_HOME $out \
-              --set NORTH_BIN $out/bin/north \
-              --set NORTH_BB ${pkgs.babashka}/bin/bb \
-              --set NORTH_BUN ${pkgs.bun}/bin/bun \
-              --set NORTH_GIT_BIN ${pkgs.git}/bin/git \
-              --set NORTH_MKFIFO_BIN ${pkgs.coreutils}/bin/mkfifo \
-              --set NORTH_PEER_BB ${pkgs.babashka}/bin/bb \
-              --set NORTH_MCP_BB ${pkgs.babashka}/bin/bb \
-              --set NORTH_MCP_BUN ${pkgs.bun}/bin/bun \
-              --set NORTH_SCHEMA_STAGE_PYTHON ${pkgs.python3}/bin/python3 \
-              --set NORTH_MANAGED_CODEX_BIN ${codexPkg}/bin/codex \
-              --set NORTH_PACKAGE_MODE nix-store \
-              --set NORTH_PACKAGE_REV ${builtins.substring 0 12 (self.rev or self.dirtyRev or "dirty")} \
-              --set FRAM_PACKAGE_REV ${framPackageRev}
+              ${lib.escapeShellArgs (northWrapperArgs northRuntimeVariables)} \
+              --set NORTH_HOME "$out" \
+              --set NORTH_BIN "$out/bin/north"
 
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
@@ -1218,6 +1254,7 @@ PY
         packages = {
           default = northPkg;
           north = northPkg;
+          north-env = northEnv;
           # This is the exact derivation injected into managed OpenAI lanes;
           # Firn can install and attest the same executable without repackaging.
           codex = codexPkg;
