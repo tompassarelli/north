@@ -91,6 +91,11 @@ than the shell verbs.
   capture provenance. Life/coordination verbs (`ready`/`board`/`capture`/`clock`/
   `agents`/`spawn`/`delegate`/`watch`/`trace`/`config`/…) route to `north.main`
   or the `cli/` handlers; engine verbs (`import`/`show`/`validate`/`tell`/…) to Fram.
+- **Emergency recovery** → `north panic`: when the coordinator or its runtime
+  dependencies are unavailable, this Bash-only kill switch writes
+  `dispatch=native` and `guards=off` to `~/.local/state/north/harness.conf`.
+  It preserves other keys and prints the exact restore commands; use it only to
+  return to stock native operation while repairing North.
 - **Agent surface** → [`cli/agents-cli.clj`](cli/agents-cli.clj) and the
   TypeScript SDK under [`sdk/src/`](sdk/src): spawn, dispatch, run ledger,
   routing, provider adapters.

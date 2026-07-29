@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Dependency-free recovery path: restore the stock native dispatcher and turn
+# authoring guards off without loading North, Fram, bb, or the coordinator.
+set -euo pipefail
+
+if [ "$#" -ne 0 ]; then
+  echo "usage: north panic" >&2
+  exit 2
+fi
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/north"
+state_file="${NORTH_HARNESS_CONF:-$state_dir/harness.conf}"
+state_dir="$(dirname "$state_file")"
+mkdir -p "$state_dir"
+
+old_dispatch="(unset)"
+old_guards="(unset)"
+if [ -f "$state_file" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      dispatch=*) old_dispatch="${line#dispatch=}" ;;
+      guards=*) old_guards="${line#guards=}" ;;
+    esac
+  done < "$state_file"
+fi
+
+tmp_file="$(mktemp "$state_dir/.harness.conf.XXXXXX")"
+cleanup() {
+  rm -f "${tmp_file:?}"
+}
+trap cleanup EXIT
+
+if [ -f "$state_file" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      dispatch=*|guards=*) ;;
+      *) printf '%s\n' "$line" >> "$tmp_file" ;;
+    esac
+  done < "$state_file"
+fi
+printf 'dispatch=native\nguards=off\n' >> "$tmp_file"
+mv -f "$tmp_file" "$state_file"
+trap - EXIT
+
+printf 'north panic: updated %s\n' "$state_file"
+printf '  dispatch: %s -> native\n' "$old_dispatch"
+printf '  guards: %s -> off\n' "$old_guards"
+printf '\nRestore stock North coordination and guards:\n'
+printf '  north config dispatch north\n'
+printf '  north config guards on\n'
