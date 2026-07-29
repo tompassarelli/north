@@ -1,0 +1,26 @@
+# registry.tsv — the hook inventory. Data, not code: the bash lib, the
+# Clojure report, and the TS SDK all read this one table, so "what hooks
+# exist" has exactly one answer. Nothing enumerated hooks before this file,
+# which is why "some vs all" was not expressible.
+#
+# kind      deny = can refuse a tool call · advisory = shapes output only ·
+#           identity = agent presence, mail, and coordination
+# in_all    whether the `hooks` sweep reaches it. coordination is `no` on
+#           purpose: sweeping it off destroys identity and mail while looking
+#           like "I turned off guards".
+# ttl_req   deny-capable hooks require --until on an off, so a permanent
+#           silent disable can never be the accidental outcome.
+#
+id	category	kind	in_all	ttl_req	path	events
+code-upstream-guard	authoring	deny	yes	yes	code-upstream-guard.sh	PreToolUse:Edit|Write|MultiEdit
+firn-guard	authoring	deny	yes	yes	firn-guard.sh	PreToolUse:Edit|Write|MultiEdit,PreToolUse:Bash
+launch-critical-worktree-guard	authoring	deny	yes	yes	launch-critical-worktree-guard.sh	PreToolUse:Edit|Write|MultiEdit,PreToolUse:Bash
+git-blind-stage-guard	authoring	deny	yes	yes	git-blind-stage-guard.sh	PreToolUse:Bash
+tripwire-guard	authoring	deny	yes	yes	tripwire-guard.sh	PreToolUse:Bash
+agent-spawn-guard	dispatch	deny	yes	yes	agent-spawn-guard.sh	PreToolUse:Agent|Task|Workflow,PreToolUse:Bash
+north-clock-guard	billing	deny	yes	yes	north-clock-guard.sh	PreToolUse:Edit|Write|MultiEdit
+racket-build-guard	build	advisory	yes	no	racket-build-guard.sh	PostToolUse:Edit|Write|MultiEdit
+logcompress-hook	context	advisory	yes	no	logcompress-hook.js	PostToolUse:Bash
+beagle-session-start	context	advisory	yes	no	beagle-session-start.sh	SessionStart
+north-session-end	coordination	identity	no	no	north-session-end.sh	SessionEnd
+hook-detach	coordination	identity	no	no	hook-detach.sh	PostToolUse:Bash|Edit|Write|MultiEdit
