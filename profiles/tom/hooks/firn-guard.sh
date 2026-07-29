@@ -1,1 +1,1 @@
-../../../../../nixos-config/main/modules/agent-core/firn/hooks/firn-guard.sh
+../../../../../nixos-config/main/modules/north-profile/firn/hooks/firn-guard.sh
