@@ -11,6 +11,10 @@
             StandardCopyOption StandardOpenOption]
            [java.nio.file.attribute FileAttribute PosixFilePermissions]))
 
+(load-file
+ (str (.getParent (io/file *file*))
+      "/dispatch-mode.clj"))
+
 (defonce ^:private in-process-lock (Object.))
 
 (def ^:private file-permissions
@@ -61,6 +65,34 @@
                  last
                  (#(subs % (count prefix))))
         default)))
+
+(defn dispatch-selection
+  "Read and validate the effective dispatch mode. Missing state uses North's
+   canonical default; known legacy aliases normalize without mutating a
+   read-only legacy source."
+  [home]
+  (let [raw (get-value home "dispatch" nil)
+        canonical (if (nil? raw)
+                    north.dispatch-mode/default-mode
+                    (north.dispatch-mode/normalize raw))]
+    {:raw raw
+     :canonical canonical
+     :legacy? (north.dispatch-mode/legacy-alias? raw)}))
+
+(defn get-dispatch-mode [home]
+  (:canonical (dispatch-selection home)))
+
+(defn- canonicalize-stored-dispatch [lines]
+  (let [prefix "dispatch="
+        stored (some->> lines
+                        (filter #(str/starts-with? % prefix))
+                        last
+                        (#(subs % (count prefix))))]
+    (if (nil? stored)
+      lines
+      (concat
+       (remove #(str/starts-with? % prefix) lines)
+       [(str prefix (north.dispatch-mode/normalize stored))]))))
 
 (defn- permission-attribute [permissions]
   (into-array FileAttribute
@@ -159,7 +191,10 @@
     (throw (ex-info "invalid harness state key" {:key key})))
   (when (or (nil? value) (str/includes? (str value) "\n") (str/includes? (str value) "\r"))
     (throw (ex-info "invalid harness state value" {:key key})))
-  (let [canonical (canonical-path home)]
+  (let [canonical (canonical-path home)
+        value (if (= key "dispatch")
+                (north.dispatch-mode/normalize value)
+                value)]
     (with-state-lock
       home
       (fn []
@@ -167,7 +202,12 @@
         ;; read-modify-replace sequence one cross-process transaction.
         (let [source (content-for-write home)
               prefix (str key "=")
-              lines (if (str/blank? source) [] (str/split-lines source))
+              source-lines (if (str/blank? source) [] (str/split-lines source))
+              ;; Replacing an invalid dispatch value is the recovery path, so
+              ;; only unrelated writes validate/normalize the stored value.
+              lines (if (= key "dispatch")
+                      source-lines
+                      (canonicalize-stored-dispatch source-lines))
               kept (remove #(str/starts-with? % prefix) lines)
               next-content (str (str/join "\n" (concat kept [(str key "=" value)])) "\n")]
           (atomic-spit! canonical next-content))))

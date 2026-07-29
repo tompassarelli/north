@@ -8,6 +8,7 @@ BIN="$(cd "$HERE/.." && pwd)"
 SPAWN="$BIN/north-on-spawn"
 TOOLUSE="$BIN/north-on-tooluse"
 ACTOR_KEY="$BIN/north-actor-key"
+REAL_BB="$(command -v bb)"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -18,6 +19,8 @@ LOG="$TMP/north.log"
 BB_LOG="$TMP/bb.log"
 REPO_DIR="$TMP/project"
 mkdir -p "$FAKE_HOME/code/north/bin" "$SHIM" "$XDG" "$REPO_DIR"
+mkdir -p "$FAKE_HOME/.local/state/north"
+printf 'dispatch=native-forced\n' >"$FAKE_HOME/.local/state/north/harness.conf"
 : > "$LOG"
 : > "$BB_LOG"
 
@@ -70,7 +73,7 @@ run_hook() {
   shift 2
   printf '%s' "$payload" | env -i HOME="$FAKE_HOME" PATH="$SHIM:$PATH" \
     XDG_RUNTIME_DIR="$XDG" NORTH_PORT=1 NORTH_IDENTITY_LOG="$LOG" \
-    NORTH_BB_LOG="$BB_LOG" "$@" \
+    NORTH_BB="$REAL_BB" NORTH_BB_LOG="$BB_LOG" "$@" \
     bash "$hook" >/dev/null 2>&1
   # PostToolUse identity convergence is deliberately asynchronous. The
   # singleflight lock is removed only after the publisher and route-cache
@@ -96,7 +99,10 @@ run_hook "$SPAWN" \
   CLAUDECODE=1 AGENT_MODEL=wrong-model CLAUDE_EFFORT=high AGENT_EFFORT=low
 has "records exact SessionStart model" "tell agent:$ID model claude-opus-4-8"
 has "records exact structured effort" "tell agent:$ID effort xhigh"
-has "records immutable dispatch mode at session start" "tell agent:$ID dispatch_mode_at_start north"
+has "records canonical native-forced dispatch mode at session start" \
+  "tell agent:$ID dispatch_mode_at_start native-forced"
+lacks "does not degrade a canonical dispatch mode to unknown" \
+  "tell agent:$ID dispatch_mode_at_start unknown"
 has "records the privacy-bounded provider session join key" \
   "tell agent:$ID provider_session_key $ID_KEY"
 lacks "does not record ambient model over exact input" "tell agent:$ID model wrong-model"

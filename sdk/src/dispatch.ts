@@ -63,7 +63,9 @@ import {
   reserveResourceEnvelopeRetry, ResourceEnvelopeExceededError, type EnvelopeAdmission,
 } from "./resource-envelopes";
 import { assertCoordinationAuthority } from "./topology-authority";
-import { admitPinnedProvider } from "./execution-admission";
+import {
+  admitManagedDispatchAuthority, admitPinnedProvider,
+} from "./execution-admission";
 import {
   classifyExecutionTerminal, describeProviderErrorTerminal, EMPTY_RESULT_OUTCOME,
   isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL,
@@ -1062,6 +1064,7 @@ export async function dispatch(
   dependencies: DispatchDependencies,
 ): Promise<DispatchResult> {
   const injected = takeDispatchTestRuntime<DispatchRuntime>(dependencies) ?? {};
+  admitManagedDispatchAuthority();
   const admitted = allowlistedDispatchDependencies(dependencies);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
