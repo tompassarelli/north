@@ -27,6 +27,20 @@
 (load-file (str root "/cli/terminal-projection.clj"))
 (load-file (str root "/cli/delivery-evidence-internal.clj"))
 
+;; This disposable harness owns one scratch coordinator. A managed parent may
+;; export the live telemetry partition, but no @run:* operation in this process
+;; may escape to it.
+(alter-var-root #'north.coord/telemetry-partition-enabled?
+                (constantly (fn [] false)))
+
+(defn scratch-coordinator-env [port dir log]
+  {"FRAM_LOG" (.getPath log)
+   "FRAM_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.log"))
+   "FRAM_THREADS" (.getPath (io/file dir "threads"))
+   "NORTH_PORT" (str port)
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str port)})
+
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)]
     (.getLocalPort socket)))
@@ -51,13 +65,11 @@
             (make-array java.nio.file.attribute.FileAttribute 0)))
       log (io/file dir "facts.log")
       _ (spit log "")
+      subprocess-env (scratch-coordinator-env port dir log)
       daemon
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                    "FRAM_LOG" (.getPath log)
-                    "FRAM_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.log"))
-                    "FRAM_THREADS" (.getPath (io/file dir "threads"))}}
+        :extra-env (assoc subprocess-env "FRAM_REQUIRE_LOG_FENCE" "1")}
        "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
        (str port) (.getPath log))
       checks (atom [])
@@ -68,6 +80,11 @@
   (try
     (check! "real Fram daemon starts"
             (eventually #(port-open? port)))
+    (when (= "1" (System/getenv
+                   "NORTH_TEST_FORCE_DELIVERY_EVIDENCE_SETUP_FAILURE"))
+      (throw
+       (ex-info "forced delivery-evidence contention harness setup failure"
+                {:type :forced-harness-setup-failure})))
 
     ;; --- Set up one thread with N*M active done_when bars and reserve one run
     ;; against it, exactly as a managed lane's provider process would. ---
@@ -125,7 +142,7 @@
                                outcome
                                (proc/process
                                 {:in request :out :string :err :string
-                                 :extra-env {"FRAM_LOG" (.getPath log)}}
+                                 :extra-env subprocess-env}
                                 "bb" writer-path (str port) "record")
                                done @outcome]
                            {:bar bar :exit (:exit done) :err (:err done)}))
@@ -189,7 +206,7 @@
                   (fn [_]
                     @(proc/process
                       {:in request :out :string :err :string
-                       :extra-env {"FRAM_LOG" (.getPath log)}}
+                       :extra-env subprocess-env}
                       "bb" writer-path (str port) "record")))
                  doall)
             stored (north.coord/many port run "run_bar_evidence")]
@@ -326,8 +343,8 @@
                              "RETRYABLE:")))))))
 
     (finally
-      (proc/process ["kill" (str (:pid daemon))])
+      @(proc/process ["kill" (str (:pid daemon))])
       (doseq [[label ok?] @checks]
-        (println (if ok? "  [OK]" "  [FAIL]") label))
-      (System/exit
-       (if (every? second @checks) 0 1)))))
+        (println (if ok? "  [OK]" "  [FAIL]") label))))
+  (System/exit
+   (if (every? second @checks) 0 1)))
