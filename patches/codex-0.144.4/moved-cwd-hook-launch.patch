@@ -43,7 +43,7 @@ index 043573c7d..cfc9784f2 100644
  struct CommandRunCompletion {
      exit_code: Option<i32>,
      stdout: String,
-@@ -172,3 +191,40 @@ fn default_shell_command() -> Command {
+@@ -172,3 +191,41 @@ fn default_shell_command() -> Command {
          command
      }
  }

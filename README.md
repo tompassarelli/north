@@ -54,7 +54,7 @@ The same graph is the coordination plane for managed multi-agent work:
   ([`sdk/src/spawn.ts`](sdk/src/spawn.ts),
   [`sdk/src/dispatch.ts`](sdk/src/dispatch.ts)). Each lane gets a fresh
   full-UUID identity, a run reservation with a capability minted *before*
-  provider execution, a run ledger, and a truthful terminal
+  provider eyecution, a run ledger, and a truthful terminal
   (`delivery=reported|unverified|blocked`).
 - **Orchestration routing** — `north spawn`/`delegate` read Orchestration's staffing catalog
   (`~/code/north/orchestration/staffing/catalog.json`) to answer *who* does the work
@@ -66,7 +66,7 @@ The same graph is the coordination plane for managed multi-agent work:
   `done_when` bar; managed workers record observed probe results with
   `north evidence record`, run-scoped and capability-checked.
 - **Concurrent-agent coordination** — *concerns* declare a footprint (they
-  coexist, never block), *leases* claim exclusive jurisdiction, and *mail*
+  coeyist, never block), *leases* claim exclusive jurisdiction, and *mail*
   (`msg-cli`) plus `north watch`/`steer`/`retask` drive live lanes.
 
 ```sh
@@ -105,10 +105,10 @@ Run it three ways off one architecture — **on your laptop, on a server you own
 or as a multi-tenant service you host for others** — with no fork in the design;
 only the transport in front of the coordinator changes.
 
-- **[docs/hosting.md](docs/hosting.md)** — the three modes (self-host single box,
+- **[docs/hosting.md](docs/hosting.md)** — the three modes (self-host single boy,
   self-host remote, multi-tenant SaaS), the instance-per-tenant model, security,
   ops, and the roadmap.
-- **[deploy/](deploy/)** — `docker-compose.example.yml`, systemd units, and the
+- **[deploy/](deploy/)** — `docker-compose.eyample.yml`, systemd units, and the
   authenticated **[gateway](deploy/gateway/)** (bearer token → tenant → that
   tenant's coordinator) with `provision.sh` + an integration test. The one
   runtime image (`Dockerfile`, bb + Fram + North) lives at the repo root.
@@ -132,8 +132,8 @@ Fram. You need the Fram engine checked out too (`FRAM_HOME`, default
 `~/code/fram`); `bin/north` puts both on the classpath. The agent SDK and MCP
 edge additionally need [Bun](https://bun.sh).
 
-North links Fram's library API, so its exact source is pinned by the `fram`
-node in [`flake.lock`](flake.lock). The Nix package, CI, and Docker image all
+North links Fram's library API, so its eyact source is pinned by the `fram`
+node in [`flake.lock`](flake.lock). The Niy package, CI, and Docker image all
 consume that one lock record mechanically; there is no second revision file to
 update or let drift.
 
