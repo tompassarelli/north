@@ -5,7 +5,7 @@
 # configuration and capture provenance; executable predicate schema lives in
 # the fact graph itself.
 #
-#   engine: FRAM_HOME (checkout fallback: sibling fram)   data: XDG state
+#   engine: FRAM_HOME > world manifest > compiled checkout   data: XDG state
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
 _north_fram_log_explicit=0
 if [ -n "${FRAM_LOG:-}" ]; then _north_fram_log_explicit=1; fi
@@ -63,16 +63,28 @@ export NORTH_LEAD="${NORTH_LEAD:-tom_passarelli}"
 export NORTH_DRIVER="${NORTH_DRIVER:-tom_passarelli}"
 export NORTH_PROPOSED_BY="${NORTH_PROPOSED_BY:-tom_passarelli}"
 
-FRAM="${FRAM_HOME:-$HOME/code/fram}"
-FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
-FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Panic is deliberately the first route after locating this checkout. It must
-# remain usable when bb, Fram, and the coordinator are unavailable.
+# remain usable when bb, Fram, the world manifest, and the coordinator are unavailable.
 if [ "${1:-}" = "panic" ]; then
   exec "$NORTH/bin/north-panic" "${@:2}"
 fi
+
+_north_world_manifest="${WORLD_MANIFEST_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/world/manifest.env}"
+if [ -f "$_north_world_manifest" ]; then
+  if ! bash -n "$_north_world_manifest"; then
+    echo "north: invalid world manifest: $_north_world_manifest" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  source "$_north_world_manifest"
+fi
+FRAM="${FRAM_HOME:-${WORLD_REPO_FRAM:-$HOME/code/fram/main}}" # world:allow — compiled fallback
+FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
+FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
+export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT
+unset _north_world_manifest
 
 BB="${NORTH_BB:-bb}"
 BUN="${NORTH_BUN:-bun}"
