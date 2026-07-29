@@ -18,7 +18,10 @@ import {
 import { managedCodexHarvestMessages } from "../src/providers/openai";
 import { causeChain } from "../src/death";
 import { expectedManagedCodexHooks } from "../src/providers/codex-managed-hooks";
-import { codexSupervisorStatusLine } from "../src/providers/codex-supervisor-protocol";
+import {
+  CODEX_SUPERVISOR_STATUS_PREFIX, codexSupervisorStatusLine, codexSupervisorStderrLine,
+  codexSupervisorStderrStatus,
+} from "../src/providers/codex-supervisor-protocol";
 import type { OpenAIAuthoritySurface } from "../src/providers/authority";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
@@ -454,6 +457,9 @@ function setup(mode = "ok") {
       const startedTurn: any = turn(turnId, "inProgress");
       if (mode === "notification-turn-extra") startedTurn.futureAuthority = true;
       notify("turn/started", { threadId, turn: startedTurn });
+      // Accepted, then never another word: only the overall turn deadline can
+      // end this one.
+      if (mode === "turn-silent-before-tool" || mode === "turn-interrupt-refused") return;
       if (mode.startsWith("safety-buffering")) {
         const safetyBuffering: any = {
           threadId, turnId, model: "gpt-fixture-exact",
@@ -507,6 +513,35 @@ function setup(mode = "ok") {
         };
         if (mode === "command-schema-extra") completedCommand.futureAuthority = true;
         if (mode !== "command-missing-completion") lifecycle("completed", completedCommand, 11);
+      }
+      // Codex dies mid-turn after landing real work, with its own account of
+      // why on stderr (and one credential in it, to prove redaction).
+      if (mode === "provider-death-mid-turn") {
+        stderr.write("codex: ERROR responses stream closed unexpectedly\n");
+        stderr.write("codex: retry with Authorization: Bearer sk-fixturesecretvalue0123\n");
+        queueMicrotask(() => exit(9, null));
+        return;
+      }
+      // One completed tool item, then silence: the post-tool quiet watchdog's
+      // exact shape (a wedged tool loop that never speaks again).
+      if (mode === "turn-silent-after-tool") return;
+      // Slow but unmistakably alive: a tool item lands every 50ms with plain
+      // activity in between, so a correct watchdog re-arms and never fires.
+      if (mode === "turn-slow-active") {
+        let tick = 0;
+        const beat = () => {
+          if (tick >= 5) { finishRuntime(); return; }
+          tick += 1;
+          const slow = item(`slow-${tick}`, "fileChange");
+          lifecycle("started", slow, 30 + tick);
+          notify("item/fileChange/outputDelta", {
+            threadId, turnId, itemId: slow.id, delta: "chunk",
+          });
+          lifecycle("completed", slow, 31 + tick);
+          setTimeout(beat, 50);
+        };
+        setTimeout(beat, 50);
+        return;
       }
       // The killer shape, live-observed as `Codex started command execution
       // lifecycle is invalid` after 79 good commands (lane ms1fhh0v): codex's
@@ -563,6 +598,11 @@ function setup(mode = "ok") {
         threadId, turnId, explanation: null, plan: [{ step: "work", status: "completed" }],
       });
       notify("turn/diff/updated", { threadId, turnId, diff: "diff --git a/a b/a" });
+      finishRuntime();
+    };
+    // The closing sequence of a turn, split out so a mode can interpose its own
+    // traffic (slow-but-active) before the terminal.
+    const finishRuntime = () => {
       const answer = item("answer-1", "agentMessage", { text: "managed answer" });
       notify("item/agentMessage/delta", {
         threadId, turnId, itemId: answer.id,
@@ -767,6 +807,12 @@ function setup(mode = "ok") {
           return;
         }
         queueMicrotask(emitRuntime);
+        return;
+      }
+      if (request.method === "turn/interrupt") {
+        // A wedged-but-reachable provider still answers its control plane.
+        if (mode === "turn-interrupt-refused") { fail(request); return; }
+        result(request, {});
         return;
       }
       fail(request);
@@ -2092,4 +2138,188 @@ test("config drift observed AFTER a completed turn delivers the turn and refuses
     value: { text: "managed answer" },
   });
   await expect(session.next()).rejects.toBeInstanceOf(ManagedCodexHarvestError);
+});
+
+// ---------------------------------------------------------------------------
+// Provider diagnostics + turn watchdogs. Both behaviors are adapted from
+// hermes-agent (MIT, Copyright (c) 2025 Nous Research): the redacted stderr
+// tail on every failure (codex_app_server.py:353-368,
+// codex_app_server_session.py:327-362) and the per-turn watchdog loop
+// (codex_app_server_session.py:447-495).
+// ---------------------------------------------------------------------------
+
+test("a provider that dies mid-turn carries its own stderr and exit code into the harvest", async () => {
+  const { options } = setup("provider-death-mid-turn");
+  let caught: unknown;
+  try { await new ManagedCodexAppServerRun(options).execute(); }
+  catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  // The whole point: "exited unexpectedly" now says what codex said.
+  expect(harvest.stderrTail?.length).toBeGreaterThan(0);
+  expect(harvest.stderrTail).toContain("codex: ERROR responses stream closed unexpectedly");
+  expect(harvest.exitCode).toBe(9);
+  // Work that landed before the death is still harvested.
+  expect(harvest.landedWork).toBe(true);
+  // The credential in that stderr never leaves the redactor.
+  const rendered = harvest.stderrTail!.join("\n");
+  expect(rendered).not.toContain("sk-fixturesecretvalue0123");
+  expect(rendered).toContain("REDACTED");
+  // And it reaches the failure MESSAGE, which is all a dead lane leaves behind.
+  const chain = causeChain(caught as Error, 8, 4_000);
+  expect(chain).toContain("managed Codex app-server exited unexpectedly");
+  expect(chain).toContain("provider exit code 9");
+  expect(chain).toContain("responses stream closed unexpectedly");
+  expect((caught as ManagedCodexHarvestError).diagnostics?.stderrTail?.length)
+    .toBeGreaterThan(0);
+});
+
+test("the supervisor status channel carries forwarded stderr and its EXIT receipt", async () => {
+  const { options } = setup();
+  const run = new ManagedCodexAppServerRun({
+    ...options,
+    useSupervisor: true,
+    spawnProcess: supervisedStatusChild((stderr) => {
+      stderr.write(`${codexSupervisorStatusLine("STARTED")}\n`);
+      for (const line of [
+        "codex: thread/start failed: Internal error",
+        "codex: token=sk-supervisorsecret012345",
+      ]) stderr.write(`${codexSupervisorStatusLine(codexSupervisorStderrStatus(line))}\n`);
+      stderr.write(`${codexSupervisorStatusLine("EXIT 9")}\n`);
+    }),
+  });
+  let caught: unknown;
+  try { await run.execute(); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+  const diagnostics = (caught as ManagedCodexPreThreadError).diagnostics!;
+  expect(diagnostics.exitCode).toBe(9);
+  expect(diagnostics.stderrTail).toContain("codex: thread/start failed: Internal error");
+  expect(diagnostics.stderrTail.join("\n")).not.toContain("sk-supervisorsecret012345");
+  const chain = causeChain(caught as Error, 8, 4_000);
+  expect(chain).toContain("provider exit code 9");
+  expect(chain).toContain("thread/start failed: Internal error");
+});
+
+test("the production supervisor forwards a redacted stderr tail and its exit receipt", async () => {
+  const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
+  const fixture = join(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
+  const controlRoot = mkdtempSync(join(tmpdir(), "north-codex-stderr-tail-"));
+  roots.push(controlRoot);
+  const child = spawn(process.execPath, [
+    supervisor, "--duplex", controlRoot, "--stderr-tail", process.execPath, fixture,
+  ], {
+    env: {
+      ...process.env,
+      NORTH_MKFIFO_BIN: realpathSync(Bun.which("mkfifo")!),
+      FAKE_CODEX_RESPONSES: JSON.stringify({
+        probe: { $diagnosticExit: {
+          code: 9,
+          lines: [
+            "codex: fatal: responses stream closed",
+            "codex: Authorization: Bearer sk-productionsecret0123",
+          ],
+        } },
+      }),
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  }) as ChildProcessWithoutNullStreams;
+  child.stdout.resume();
+  const receipts: string[] = [];
+  let buffered = "";
+  child.stderr.on("data", (chunk) => {
+    buffered += chunk.toString();
+    while (buffered.includes("\n")) {
+      const index = buffered.indexOf("\n");
+      receipts.push(buffered.slice(0, index));
+      buffered = buffered.slice(index + 1);
+    }
+  });
+  try {
+    const temporary = join(controlRoot, ".000000000001.test.tmp");
+    writeAtomicSupervisorFrame(
+      temporary, `${JSON.stringify({ id: 1, method: "probe", params: {} })}\n`,
+    );
+    renameSync(temporary, join(controlRoot, "000000000001.req"));
+    const closed = await Promise.race([
+      new Promise<boolean>((resolveClose) => child.once("close", () => resolveClose(true))),
+      new Promise<boolean>((resolveClose) => setTimeout(() => resolveClose(false), 4_000)),
+    ]);
+    expect(closed).toBe(true);
+  } finally {
+    try { child.stdin.end(); } catch {}
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  }
+  const statuses = receipts
+    .filter((line) => line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX))
+    .map((line) => line.slice(CODEX_SUPERVISOR_STATUS_PREFIX.length));
+  expect(statuses[0]).toBe("STARTED");
+  expect(statuses.at(-1)).toBe("EXIT 9");
+  const forwarded = statuses
+    .map((status) => codexSupervisorStderrLine(status))
+    .filter((line): line is string => line !== undefined);
+  expect(forwarded).toContain("codex: fatal: responses stream closed");
+  expect(forwarded.join("\n")).not.toContain("sk-productionsecret0123");
+}, 8_000);
+
+test("a tool completion followed by silence settles the turn as interrupted", async () => {
+  const { options, requests } = setup("turn-silent-after-tool");
+  const startedAt = Date.now();
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({
+      ...options, postToolQuietMs: 150, turnDeadlineMs: 30_000,
+    }).execute();
+  } catch (error) { caught = error; }
+  const elapsed = Date.now() - startedAt;
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const chain = causeChain(caught as Error, 8, 4_000);
+  expect(chain).toContain("codex went silent for 150ms after a completed tool item");
+  expect(chain).toContain("provider still running");
+  expect(chain).toContain("turn/interrupt accepted");
+  // The turn is interrupted, not the process: the interrupt actually went out.
+  expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(1);
+  // Settled inside the quiet window, not the (30s) overall deadline.
+  expect(elapsed).toBeLessThan(5_000);
+  // The tool work that landed before the wedge is still harvested.
+  expect((caught as ManagedCodexHarvestError).harvest.toolItems).toBe(1);
+});
+
+test("a slow but active turn never trips the post-tool quiet watchdog", async () => {
+  const { options, requests } = setup("turn-slow-active");
+  const result = await new ManagedCodexAppServerRun({
+    ...options, postToolQuietMs: 150, turnDeadlineMs: 30_000, timeoutMs: 5_000,
+  }).execute();
+  expect(result.text).toBe("managed answer");
+  // 5 interposed fileChange items + the launch command item.
+  expect(result.toolItems).toBe(6);
+  expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(0);
+});
+
+test("a turn that never speaks again is bounded by the overall turn deadline", async () => {
+  const { options } = setup("turn-silent-before-tool");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({
+      ...options, turnDeadlineMs: 150, postToolQuietMs: 30_000,
+    }).execute();
+  } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const chain = causeChain(caught as Error, 8, 4_000);
+  expect(chain).toContain("codex turn exceeded its 150ms deadline");
+  expect(chain).toContain("turn/interrupt accepted");
+});
+
+test("a refused interrupt is named in the reason instead of replacing it", async () => {
+  const { options } = setup("turn-interrupt-refused");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({
+      ...options, postToolQuietMs: 30_000, turnDeadlineMs: 150,
+    }).execute();
+  } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const chain = causeChain(caught as Error, 8, 4_000);
+  // The watchdog's reason wins over the RPC-level failure its own interrupt
+  // provoked — that failure is downstream of the wedge, not the cause of it.
+  expect(chain).toContain("codex turn exceeded its 150ms deadline");
 });

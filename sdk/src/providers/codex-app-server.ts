@@ -1,3 +1,16 @@
+/**
+ * The managed Codex app-server driver: one exactly-attested provider session.
+ *
+ * Two diagnostics behaviors are adapted from hermes-agent (MIT, Copyright (c)
+ * 2025 Nous Research): the redacted provider-stderr tail carried by every
+ * failure (`agent/transports/codex_app_server_session.py:327-362`) and the
+ * per-turn watchdog loop — overall deadline, post-tool quiet timer, and
+ * child-liveness check — in `run_turn`
+ * (`agent/transports/codex_app_server_session.py:447-495`). North's shape
+ * differs where its invariants differ: the tail arrives over the supervisor
+ * status channel, and an expired watchdog interrupts the TURN and settles it
+ * with the landed-work harvest rather than retiring a reusable session.
+ */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -27,7 +40,12 @@ import {
 import type { OpenAIAuthoritySurface } from "./authority";
 import { managedCodexNetworkArguments, managedCodexNetworkPolicy } from "./codex-network-policy";
 import { expectedManagedCodexHooks } from "./codex-managed-hooks";
-import { CODEX_SUPERVISOR_STATUS_PREFIX } from "./codex-supervisor-protocol";
+import {
+  CODEX_SUPERVISOR_STATUS_PREFIX, CODEX_SUPERVISOR_STDERR_FLAG, codexSupervisorStderrLine,
+} from "./codex-supervisor-protocol";
+import {
+  formatProviderStderrTail, ProviderStderrRing, STDERR_TAIL_LINES,
+} from "./codex-stderr-tail";
 import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
 
 const SUPERVISOR = resolve(import.meta.dir, "codex-supervisor.ts");
@@ -58,6 +76,22 @@ const MAX_DISABLED_PROJECT_CONFIG_NODES = 2_048;
 const MAX_SAFETY_BUFFERING_VALUES = 64;
 const MAX_SAFETY_BUFFERING_VALUE_BYTES = 4_096;
 const MANAGED_CODEX_VERSION = "0.144.4";
+// The supervisor status channel now carries forwarded provider stderr, so its
+// reader is widened DELIBERATELY: one base64 diagnostic line (512 raw bytes)
+// plus the receipt prefix fits in 2 KiB, and the supervisor's own lifetime
+// forwarding budget (3_950 live + 1 notice + 40 flushed) sits under this frame
+// ceiling with STARTED and EXIT to spare.
+const SUPERVISOR_STATUS_MAX_LINE_BYTES = 2_048;
+const SUPERVISOR_STATUS_MAX_FRAMES = 4_096;
+const SUPERVISOR_STATUS_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
+// A turn terminal was previously awaited with no bound at all: RPC_TIMEOUT_MS
+// only covers an OUTSTANDING request, so a provider that accepts turn/start and
+// then stops speaking hung the lane forever.
+const TURN_DEADLINE_MS = 600_000;
+const POST_TOOL_QUIET_MS = 90_000;
+// turn/interrupt is a courtesy, not a contract: bound it so a wedged provider
+// cannot also wedge the settlement of the turn it wedged.
+const TURN_INTERRUPT_MS = 5_000;
 const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
 const CODEX_SHELL_PREFLIGHT_TIMEOUT_MS = 5_000;
 const CODEX_SHELL_PREFLIGHT_OUTPUT_BYTES = 4_096;
@@ -165,6 +199,10 @@ export interface ManagedCodexAppServerOptions {
   north: ManagedCodexNorthServer;
   fram?: ManagedCodexNorthServer;
   timeoutMs?: number;
+  /** Overall bound on one turn; defaults to NORTH_CODEX_TURN_DEADLINE_MS. */
+  turnDeadlineMs?: number;
+  /** Silence bound armed by a completed tool item; NORTH_CODEX_POST_TOOL_QUIET_MS. */
+  postToolQuietMs?: number;
   onActivity?: (kind: string) => void;
 }
 
@@ -197,7 +235,26 @@ export interface ManagedCodexResult {
 // never widen capability (web stays disabled) mid-session.
 export type ManagedCodexNextInput = () => Promise<string | undefined>;
 
+/**
+ * What the provider process itself said and did around a failure. Before this,
+ * `managed Codex app-server exited unexpectedly` was the whole story: codex's
+ * stderr was drained into a void by the supervisor and its EXIT receipt was
+ * dropped the moment authority preflight finished.
+ */
+export interface ManagedCodexDiagnostics {
+  /** Redacted provider stderr, oldest line first, bounded to the tail. */
+  stderrTail: string[];
+  /** The supervisor's own EXIT receipt, or the direct child's exit code. */
+  exitCode?: number;
+  /** Signal the provider died on, when the host observed one. */
+  exitSignal?: string;
+  /** Whether the provider was still running when the failure was raised. */
+  providerAlive?: boolean;
+}
+
 export class ManagedCodexPreThreadError extends Error {
+  /** Populated as the failure unwinds; see {@link ManagedCodexDiagnostics}. */
+  diagnostics?: ManagedCodexDiagnostics;
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "ManagedCodexPreThreadError";
@@ -227,6 +284,12 @@ export interface ManagedCodexHarvest {
   unsupportedNotifications: Record<string, number>;
   /** True when tool work or model text landed before the failure. */
   landedWork: boolean;
+  /** Redacted provider stderr tail observed around the failure. */
+  stderrTail?: string[];
+  /** The supervisor's EXIT receipt, or the direct child's exit code. */
+  exitCode?: number;
+  /** Signal the provider died on, when the host observed one. */
+  exitSignal?: string;
 }
 
 /**
@@ -235,10 +298,58 @@ export interface ManagedCodexHarvest {
  * retry gate, and log matcher keeps its exact behavior.
  */
 export class ManagedCodexHarvestError extends Error {
+  /** Populated as the failure unwinds; mirrored onto {@link harvest}. */
+  diagnostics?: ManagedCodexDiagnostics;
   constructor(readonly harvest: ManagedCodexHarvest, options?: ErrorOptions) {
     super("openai_provider_execution_failed", options);
     this.name = "ManagedCodexHarvestError";
   }
+}
+
+const DIAGNOSTIC_CAUSE = Symbol.for("north.codex.diagnostics");
+
+/**
+ * Hang the diagnostics off the failure so every renderer sees them: the
+ * structured fields for machine consumers, and one extra link at the END of the
+ * cause chain so `causeChain(...)` — the only durable witness a dead managed
+ * lane leaves — carries the tail and the exit code verbatim.
+ */
+function attachDiagnostics(
+  error: ManagedCodexHarvestError | ManagedCodexPreThreadError,
+  diagnostics: ManagedCodexDiagnostics,
+): void {
+  error.diagnostics = diagnostics;
+  if (error instanceof ManagedCodexHarvestError) {
+    if (diagnostics.stderrTail.length) error.harvest.stderrTail = [...diagnostics.stderrTail];
+    if (diagnostics.exitCode !== undefined) error.harvest.exitCode = diagnostics.exitCode;
+    if (diagnostics.exitSignal !== undefined) error.harvest.exitSignal = diagnostics.exitSignal;
+  }
+  const exit = diagnostics.exitCode !== undefined
+    ? `provider exit code ${diagnostics.exitCode}`
+    : diagnostics.exitSignal !== undefined
+      ? `provider died on ${diagnostics.exitSignal}`
+      : diagnostics.providerAlive === true
+        ? "provider still running"
+        : undefined;
+  const tail = formatProviderStderrTail(diagnostics.stderrTail);
+  const rendered = [exit, tail].filter((part) => part !== undefined).join("\n");
+  if (!rendered) return;
+  let current: Error = error;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const cause = (current as { cause?: unknown }).cause;
+    if (!(cause instanceof Error)) break;
+    current = cause;
+  }
+  // Re-attachable: the exit receipt lands only as the process closes, after the
+  // first (live) snapshot was already appended.
+  if (DIAGNOSTIC_CAUSE in current) {
+    current.message = rendered;
+    return;
+  }
+  if ((current as { cause?: unknown }).cause !== undefined) return;
+  const link = new Error(rendered);
+  Object.defineProperty(link, DIAGNOSTIC_CAUSE, { value: true });
+  (current as { cause?: unknown }).cause = link;
 }
 
 function record(value: unknown, label: string): JsonObject {
@@ -664,6 +775,9 @@ class AppServerRpc {
   private closed = false;
   private terminalListeners = new Set<(error: Error) => void>();
   private unsupported = new Map<string, number>();
+  // Direct (unsupervised) launches own the provider's stderr, so the ring lives
+  // here; under the supervisor the ring lives there and its tail is forwarded.
+  private stderr = new ProviderStderrRing();
 
   constructor(
     private child: ChildProcessWithoutNullStreams,
@@ -682,7 +796,12 @@ class AppServerRpc {
     });
     child.stdout.on("error", () => this.fail(new Error("managed Codex stdout failed")));
     if (this.ownsStderr) {
-      child.stderr.resume();
+      // Was `resume()` — the provider's account of its own death, discarded.
+      child.stderr.on("data", (chunk: Buffer | string) => {
+        try { this.stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); }
+        catch { /* diagnostics never fail a turn */ }
+      });
+      child.stderr.on("end", () => { try { this.stderr.finish(); } catch {} });
       child.stderr.on("error", () => {});
     }
     child.stdin.on("error", () => this.fail(new Error("managed Codex stdin failed")));
@@ -852,6 +971,11 @@ class AppServerRpc {
     return Object.fromEntries([...this.unsupported.entries()].sort(
       ([left], [right]) => left.localeCompare(right),
     ));
+  }
+
+  /** Redacted provider stderr tail; empty when the supervisor owns that pipe. */
+  stderrTail(count = STDERR_TAIL_LINES): string[] {
+    return this.ownsStderr ? this.stderr.tail(count) : [];
   }
 
   markClosing(): void { this.closed = true; }
@@ -1843,54 +1967,112 @@ function usageFromNotification(value: unknown, threadId: string, turnId: string)
   return result;
 }
 
-function supervisorPreflightFailure(
+interface SupervisorStatusChannel {
+  /** Rejects while the start receipt is still being arbitrated. */
+  failure: Promise<never>;
+  /** Authority preflight is over; the channel keeps carrying diagnostics. */
+  settled(): void;
+  /** Redacted provider stderr forwarded by the supervisor, oldest first. */
+  stderrTail(count?: number): string[];
+  /** The supervisor's own EXIT receipt, once it has been observed. */
+  exitCode(): number | undefined;
+  /** Detach for good. */
+  close(): void;
+}
+
+/**
+ * Read the supervisor's status channel for the WHOLE session, not just until
+ * authority preflight. Before this, `stop()` detached the reader the moment
+ * initialize returned, so the supervisor's `EXIT n` receipt — the one fact that
+ * says how codex died — was thrown away, and forwarded stderr had nowhere to
+ * land.
+ */
+function supervisorStatusChannel(
   child: ChildProcessWithoutNullStreams,
-): { failure: Promise<never>; stop(): void } {
+): SupervisorStatusChannel {
   const status = child.stderr as NodeJS.ReadableStream | undefined;
-  if (!status) return {
-    failure: Promise.reject(new Error("Codex supervisor status pipe is absent")),
-    stop() {},
-  };
-  const frames = new StrictJsonlFrames({ label: "Codex supervisor", maxLineBytes: 128, maxFrames: 2 });
-  let stopped = false;
+  if (!status) {
+    const absent = Promise.reject<never>(new Error("Codex supervisor status pipe is absent"));
+    void absent.catch(() => {});
+    return {
+      failure: absent,
+      settled() {}, stderrTail() { return []; }, exitCode() { return undefined; }, close() {},
+    };
+  }
+  const frames = new StrictJsonlFrames({
+    label: "Codex supervisor",
+    maxLineBytes: SUPERVISOR_STATUS_MAX_LINE_BYTES,
+    maxFrames: SUPERVISOR_STATUS_MAX_FRAMES,
+    maxTotalBytes: SUPERVISOR_STATUS_MAX_TOTAL_BYTES,
+  });
+  const ring = new ProviderStderrRing();
+  let preflight = true;
+  let closed = false;
+  let observedExit: number | undefined;
+  let malformedNoted = false;
   let rejectFailure!: (error: Error) => void;
   const failure = new Promise<never>((_resolve, reject) => { rejectFailure = reject; });
+  void failure.catch(() => {});
+  const failPreflight = (error: Error) => {
+    if (!preflight) return;
+    preflight = false;
+    rejectFailure(error);
+  };
+  const onLine = (line: string) => {
+    const statusLine = line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX)
+      ? line.slice(CODEX_SUPERVISOR_STATUS_PREFIX.length)
+      : undefined;
+    const forwarded = statusLine === undefined ? undefined : codexSupervisorStderrLine(statusLine);
+    if (forwarded !== undefined) { ring.add(forwarded); return; }
+    if (statusLine === "STARTED") return;
+    if (statusLine === "UNAVAILABLE") {
+      failPreflight(new Error("Codex executable unavailable"));
+      return;
+    }
+    const exit = statusLine === undefined ? null : /^EXIT (0|[1-9][0-9]{0,2})$/.exec(statusLine);
+    const code = exit ? Number(exit[1]) : NaN;
+    if (Number.isInteger(code) && code <= 255) {
+      observedExit ??= code;
+      failPreflight(new Error(`Codex supervisor exited before authority preflight (exit ${code})`));
+      return;
+    }
+    failPreflight(new Error("Codex supervisor emitted invalid start receipt"));
+    // Post-preflight there is no one left to reject: record the defect where a
+    // post-mortem will read it instead of dropping it silently.
+    if (!malformedNoted) {
+      malformedNoted = true;
+      ring.add("<supervisor emitted an invalid status frame>");
+    }
+  };
   const onData = (chunk: Buffer) => {
-    if (stopped) return;
+    if (closed) return;
     try {
-      for (const line of frames.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))) {
-        const statusLine = line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX)
-          ? line.slice(CODEX_SUPERVISOR_STATUS_PREFIX.length)
-          : undefined;
-        if (statusLine === "STARTED") continue;
-        stopped = true;
-        rejectFailure(new Error(statusLine === "UNAVAILABLE"
-          ? "Codex executable unavailable"
-          : "Codex supervisor emitted invalid start receipt"));
-      }
+      for (const line of frames.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        onLine(line);
     } catch (error) {
-      stopped = true;
-      rejectFailure(error as Error);
+      closed = true;
+      failPreflight(error as Error);
+      ring.add(`<supervisor status channel bound exceeded: ${(error as Error).message}>`);
     }
   };
   const onEnd = () => {
-    if (stopped) return;
-    stopped = true;
-    rejectFailure(new Error("Codex supervisor closed before authority preflight"));
+    failPreflight(new Error("Codex supervisor closed before authority preflight"));
   };
   status.on("data", onData);
   status.on("end", onEnd);
   status.on("error", onEnd);
   return {
     failure,
-    stop() {
-      stopped = true;
+    settled() { preflight = false; },
+    stderrTail(count = STDERR_TAIL_LINES) { return ring.tail(count); },
+    exitCode() { return observedExit; },
+    close() {
+      closed = true;
+      preflight = false;
       status.removeListener("data", onData);
       status.removeListener("end", onEnd);
       status.removeListener("error", onEnd);
-      try {
-        status.resume();
-      } catch {}
+      try { status.resume(); } catch {}
     },
   };
 }
@@ -1932,6 +2114,36 @@ function awaitChildSpawn(child: ChildProcessWithoutNullStreams, timeoutMs: numbe
     child.once("spawn", () => { clearTimeout(timer); resolveSpawn(); });
     child.once("error", () => { clearTimeout(timer); reject(new Error("managed Codex process unavailable")); });
   });
+}
+
+/**
+ * A positive-integer millisecond bound from the environment, or the default.
+ * A malformed override is not authority to run unbounded — it is ignored.
+ */
+function boundedMs(name: string, fallback: number, override?: number): number {
+  const candidate = override ?? Number(process.env[name]);
+  return Number.isSafeInteger(candidate) && (candidate as number) > 0
+    ? candidate as number
+    : fallback;
+}
+
+/**
+ * Silent-but-alive and silent-and-dead are different failures and want
+ * different next moves; hermes checks `is_alive()` each loop iteration for the
+ * same reason. The host sees the SUPERVISOR when supervised, so an exit receipt
+ * observed on the status channel counts as provider death too.
+ */
+function providerLiveness(
+  child: ChildProcessWithoutNullStreams,
+  supervisorExit: number | undefined,
+): { alive: boolean; exitCode?: number; exitSignal?: string } {
+  const exitSignal = child.signalCode ?? undefined;
+  const exitCode = supervisorExit ?? (child.exitCode ?? undefined);
+  return {
+    alive: child.exitCode === null && child.signalCode === null && supervisorExit === undefined,
+    ...(exitCode === undefined ? {} : { exitCode }),
+    ...(exitSignal === undefined ? {} : { exitSignal: String(exitSignal) }),
+  };
 }
 
 export class ManagedCodexAppServerRun {
@@ -2026,7 +2238,8 @@ export class ManagedCodexAppServerRun {
       child = spawnProcess(
         supervised ? process.execPath : contract.executable,
         supervised
-          ? [SUPERVISOR, "--duplex", control!.path, contract.executable,
+          ? [SUPERVISOR, "--duplex", control!.path, CODEX_SUPERVISOR_STDERR_FLAG,
+            contract.executable,
             ...(this.options.commandPrefix ?? []), ...contract.args]
           : [...(this.options.commandPrefix ?? []), ...contract.args], {
         cwd: contract.cwd,
@@ -2061,6 +2274,87 @@ export class ManagedCodexAppServerRun {
     // handler immediately so that the same error is observed by the main flow,
     // never as a detached unhandled rejection.
     void terminal.catch(() => {});
+    // Turn-level watchdogs (hermes' run_turn loop, adapted). Two bounds, both
+    // env-overridable, both armed per turn: an overall deadline, and a quiet
+    // timer armed by a completed tool item and cleared by any other projected
+    // activity. Neither existed before: `await terminal` was unbounded, and
+    // RPC_TIMEOUT_MS only ever covered an outstanding request.
+    const turnDeadlineMs = boundedMs(
+      "NORTH_CODEX_TURN_DEADLINE_MS", TURN_DEADLINE_MS, this.options.turnDeadlineMs,
+    );
+    const postToolQuietMs = boundedMs(
+      "NORTH_CODEX_POST_TOOL_QUIET_MS", POST_TOOL_QUIET_MS, this.options.postToolQuietMs,
+    );
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let quietTimer: ReturnType<typeof setTimeout> | undefined;
+    let watchdogReason: Error | undefined;
+    const clearQuietWatchdog = () => {
+      if (quietTimer) clearTimeout(quietTimer);
+      quietTimer = undefined;
+    };
+    const clearWatchdogs = () => {
+      clearQuietWatchdog();
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      deadlineTimer = undefined;
+    };
+    const armQuietWatchdog = () => {
+      clearQuietWatchdog();
+      if (watchdogReason || !runtimeState?.turnId || runtimeState.terminalSeen) return;
+      quietTimer = setTimeout(
+        () => expireTurn(`codex went silent for ${postToolQuietMs}ms after a completed tool item`),
+        postToolQuietMs,
+      );
+      quietTimer.unref?.();
+    };
+    const armTurnDeadline = () => {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      deadlineTimer = setTimeout(
+        () => expireTurn(`codex turn exceeded its ${turnDeadlineMs}ms deadline`),
+        turnDeadlineMs,
+      );
+      deadlineTimer.unref?.();
+    };
+    // Best-effort and bounded: a provider wedged enough to trip a watchdog may
+    // also ignore the interrupt, and settling this turn must not wait on that.
+    const interruptTurn = async (): Promise<string> => {
+      if (!threadId || !turnId) return "no live turn to interrupt";
+      try {
+        record(await Promise.race([
+          rpc.request("turn/interrupt", { threadId, turnId }),
+          new Promise((_resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error("turn/interrupt timed out")), TURN_INTERRUPT_MS,
+            );
+            timer.unref?.();
+          }),
+        ]), "Codex turn/interrupt response");
+        return "turn/interrupt accepted";
+      } catch (error) {
+        return `turn/interrupt refused: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    };
+    const expireTurn = (bound: string) => {
+      if (watchdogReason) return;
+      clearWatchdogs();
+      // Silent-but-alive and silent-and-dead are different failures; say which.
+      const liveness = providerLiveness(child, supervised ? supervisor.exitCode() : undefined);
+      const cause = new Error(
+        `${bound}; provider ${liveness.alive ? "still running" : "not running"}`
+        + `${liveness.exitCode === undefined ? "" : ` (exit ${liveness.exitCode})`}`
+        + `${liveness.exitSignal === undefined ? "" : ` (signal ${liveness.exitSignal})`}`,
+      );
+      // Set synchronously: from here on THIS is the reason the turn ended, even
+      // if interrupting it trips an RPC-level failure of its own.
+      watchdogReason = new Error("openai_codex_turn_interrupted", { cause });
+      const settle = terminalReject;
+      void (async () => {
+        const outcome = liveness.alive ? await interruptTurn() : "provider already gone";
+        cause.message = `${cause.message}; ${outcome}`;
+        // A watchdog settles the TURN. The process is never killed from here —
+        // ordinary graceful teardown owns that.
+        settle(watchdogReason!);
+      })();
+    };
     let exactProjectWarningSeen = false;
     const validateConnectionNotification = (method: string, value: unknown): boolean => {
       if (method === "configWarning") {
@@ -2149,9 +2443,15 @@ export class ManagedCodexAppServerRun {
     const processRuntime = (entry: { method: string; value: unknown }): void => {
       if (!runtimeState) throw new Error("Codex runtime notification preceded thread authority");
       const wasTerminal = runtimeState.terminalSeen;
+      const toolItemsBefore = runtimeState.toolItems;
       validateProgressNotification(entry.method, entry.value, runtimeState);
       const activity = providerExecutionActivityKind(entry.method, entry.value);
       if (activity) this.options.onActivity?.(activity);
+      // Post-tool quiet watchdog, hermes' arm/clear rule: a completed tool item
+      // arms it, ANY other projected activity means codex is still producing
+      // and clears it.
+      if (runtimeState.toolItems > toolItemsBefore) armQuietWatchdog();
+      else clearQuietWatchdog();
       if (!wasTerminal && runtimeState.terminalSeen) terminalResolve();
     };
     const drainQueued = (withTurn: boolean): void => {
@@ -2218,9 +2518,23 @@ export class ManagedCodexAppServerRun {
     // waiting; the indirection is required so a defect during turn N rejects
     // turn N, not the already-settled turn 1 barrier.
     const removeTerminal = rpc.onTerminal((error) => terminalReject(error));
-    const supervisor = supervised ? supervisorPreflightFailure(child) : {
-      failure: new Promise<never>(() => {}), stop() {},
+    const supervisor: SupervisorStatusChannel = supervised
+      ? supervisorStatusChannel(child)
+      : {
+        failure: new Promise<never>(() => {}),
+        settled() {}, stderrTail() { return []; }, exitCode() { return undefined; }, close() {},
+      };
+    // Whichever pipe this launch owns, the diagnostics read the same way.
+    const providerDiagnostics = (): ManagedCodexDiagnostics => {
+      const liveness = providerLiveness(child, supervised ? supervisor.exitCode() : undefined);
+      return {
+        stderrTail: supervised ? supervisor.stderrTail() : rpc.stderrTail(),
+        ...(liveness.exitCode === undefined ? {} : { exitCode: liveness.exitCode }),
+        ...(liveness.exitSignal === undefined ? {} : { exitSignal: liveness.exitSignal }),
+        providerAlive: liveness.alive,
+      };
     };
+    let failure: ManagedCodexHarvestError | ManagedCodexPreThreadError | undefined;
     let primaryFailed = false;
     let protocolSucceeded = false;
     try {
@@ -2233,7 +2547,9 @@ export class ManagedCodexAppServerRun {
         }),
         supervisor.failure,
       ]);
-      supervisor.stop();
+      // Preflight arbitration is over; the channel keeps carrying diagnostics
+      // and the EXIT receipt for the rest of the session.
+      supervisor.settled();
       validateInitialize(initialized, contract);
       rpc.notify("initialized", {});
       validateAccount(await rpc.request("account/read", {}));
@@ -2332,8 +2648,15 @@ export class ManagedCodexAppServerRun {
         }), "Codex turn/start response");
         turnId = validateStartedTurn(turnStart);
         runtimeState.turnId = turnId;
+        armTurnDeadline();
         drainQueued(true);
-        await terminal;
+        try { await terminal; }
+        catch (error) {
+          // Once a watchdog has fired, ITS reason is the reason: an RPC-level
+          // failure observed while interrupting is downstream of it.
+          throw watchdogReason ?? error;
+        }
+        clearWatchdogs();
         if (!runtimeState.terminalSeen || !runtimeState.usage || runtimeState.hookRuns.size
             || queuedNotifications.length)
           throw new Error("Codex closed without exact terminal usage and lifecycle");
@@ -2391,21 +2714,25 @@ export class ManagedCodexAppServerRun {
       }
     } catch (error) {
       primaryFailed = true;
-      if (!this.threadStarted)
-        throw new ManagedCodexPreThreadError("openai_codex_authority_preflight_failed", { cause: error });
-      throw new ManagedCodexHarvestError(this.harvest({
-        threadId,
-        turnIds: turnId && !settledTurnIds.includes(turnId)
-          ? [...settledTurnIds, turnId]
-          : [...settledTurnIds],
-        completedTurns,
-        text: runtimeState?.text ?? "",
-        ...(runtimeState ? { toolItems: runtimeState.toolItems } : {}),
-        usage: runtimeState?.usage,
-        unsupportedNotifications: rpc.unsupportedNotifications(),
-      }), { cause: error });
+      failure = this.threadStarted
+        ? new ManagedCodexHarvestError(this.harvest({
+          threadId,
+          turnIds: turnId && !settledTurnIds.includes(turnId)
+            ? [...settledTurnIds, turnId]
+            : [...settledTurnIds],
+          completedTurns,
+          text: runtimeState?.text ?? "",
+          ...(runtimeState ? { toolItems: runtimeState.toolItems } : {}),
+          usage: runtimeState?.usage,
+          unsupportedNotifications: rpc.unsupportedNotifications(),
+        }), { cause: error })
+        : new ManagedCodexPreThreadError("openai_codex_authority_preflight_failed", { cause: error });
+      // Liveness has to be sampled HERE — teardown below is about to change it.
+      attachDiagnostics(failure, providerDiagnostics());
+      throw failure;
     } finally {
-      supervisor.stop();
+      clearWatchdogs();
+      supervisor.settled();
       removeTerminal();
       try {
         await closeProcess(child, rpc, control);
@@ -2414,6 +2741,19 @@ export class ManagedCodexAppServerRun {
         if (!primaryFailed)
           throw new Error("openai_provider_execution_failed", { cause: error });
       }
+      // The supervisor's EXIT receipt and codex's last words only arrive as the
+      // process closes, which is AFTER the throw above built the error. The
+      // error object is the same reference, so top it up here rather than
+      // reporting the exit-less snapshot the catch could see.
+      if (failure) {
+        // Liveness stays the FAILURE-time observation; everything else is topped up.
+        const alive = failure.diagnostics?.providerAlive;
+        attachDiagnostics(failure, {
+          ...providerDiagnostics(),
+          ...(alive === undefined ? {} : { providerAlive: alive }),
+        });
+      }
+      supervisor.close();
       this.child = undefined;
       this.rpc = undefined;
       this.control = undefined;

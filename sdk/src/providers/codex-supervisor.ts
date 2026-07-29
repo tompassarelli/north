@@ -8,6 +8,13 @@
  * therefore proves host death even under SIGKILL. Codex runs in its own
  * process group; every supervisor exit path terminates and waits for that
  * whole group before emitting its terminal receipt.
+ *
+ * Provider stderr is no longer discarded. The bounded ring + redacted tail is
+ * adapted from hermes-agent (MIT, Copyright (c) 2025 Nous Research),
+ * `agent/transports/codex_app_server.py:353-368`; because North's ring lives in
+ * this separate process, the tail is PUSHED to the host over the existing
+ * status channel (opt-in `--stderr-tail`) instead of being pulled at failure
+ * time.
  */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -16,8 +23,10 @@ import {
   realpathSync, rmSync, statSync, unlinkSync, watch, writeSync,
 } from "node:fs";
 import {
-  codexSupervisorStatusLine, type CodexSupervisorStatus,
+  CODEX_SUPERVISOR_STDERR_FLAG, codexSupervisorStatusLine, codexSupervisorStderrStatus,
+  type CodexSupervisorStatus,
 } from "./codex-supervisor-protocol";
+import { ProviderStderrRing, STDERR_TAIL_LINES } from "./codex-stderr-tail";
 import { trustedCoreutilsExecutable } from "../trusted-runtime";
 
 const PROMPT = "NORTH_CODEX_PROMPT ";
@@ -37,13 +46,19 @@ const TERM_MS = 750;
 const ORPHAN_TERM_MS = 100;
 const KILL_MS = 750;
 const PIPE_CLOSE_MS = 750;
+// Live stderr forwarding is bounded for life, and deliberately smaller than the
+// host reader's frame ceiling: STARTED + this budget + one truncation notice +
+// one terminal tail flush + EXIT must all fit inside it.
+const MAX_FORWARDED_STDERR_FRAMES = 3_950;
 const POSIX_GROUP = process.platform !== "win32";
 const rawArgs = process.argv.slice(2);
 const duplex = rawArgs[0] === "--duplex";
 const oneShotSpool = rawArgs[0] === "--oneshot-spool";
 const spooledInput = duplex || oneShotSpool;
 const controlPath = spooledInput ? rawArgs[1] : undefined;
-const [executable, ...args] = spooledInput ? rawArgs.slice(2) : rawArgs;
+const providerArgv = spooledInput ? rawArgs.slice(2) : rawArgs;
+const forwardStderr = providerArgv[0] === CODEX_SUPERVISOR_STDERR_FLAG;
+const [executable, ...args] = forwardStderr ? providerArgv.slice(1) : providerArgv;
 function receipt(value: CodexSupervisorStatus): void {
   const bytes = Buffer.from(`${codexSupervisorStatusLine(value)}\n`, "utf8");
   let offset = 0;
@@ -249,8 +264,35 @@ function closeOutput(target: NodeJS.WritableStream): Promise<void> {
 }
 
 const stdoutPump = pump(child.stdout, process.stdout);
+// Bounded ring of the provider's own stderr. It is kept even when forwarding is
+// off (the cost is one 500-line array) so the terminal flush below always has
+// something to say, and every line is redacted on insert.
+const stderrRing = new ProviderStderrRing();
+let stderrForwardBudget = MAX_FORWARDED_STDERR_FRAMES;
+let stderrTruncated = false;
+function forwardStderrLine(line: string): void {
+  if (!forwardStderr) return;
+  if (stderrForwardBudget <= 0) {
+    if (stderrTruncated) return;
+    stderrTruncated = true;
+    receipt(codexSupervisorStderrStatus("<provider stderr forwarding bound reached>"));
+    return;
+  }
+  stderrForwardBudget -= 1;
+  receipt(codexSupervisorStderrStatus(line));
+}
+// Once live forwarding stopped, the host holds an OLD window. Spend the
+// reserved frames on the most recent lines — the ones a post-mortem needs.
+function flushStderrTail(): void {
+  if (!forwardStderr || !stderrTruncated) return;
+  for (const line of stderrRing.tail(STDERR_TAIL_LINES))
+    receipt(codexSupervisorStderrStatus(line));
+}
 const stderrDrain = (async () => {
-  for await (const _ of child.stderr) { /* provider diagnostics stay private */ }
+  for await (const chunk of child.stderr) {
+    for (const line of stderrRing.push(chunk as Buffer)) forwardStderrLine(line);
+  }
+  for (const line of stderrRing.finish()) forwardStderrLine(line);
 })();
 let closeResolved = false;
 let resolveClose!: () => void;
@@ -525,6 +567,7 @@ await Promise.race([
   closeOutput(process.stdout),
   new Promise<void>((resolve) => setTimeout(resolve, pipeTimeRemaining())),
 ]);
+flushStderrTail();
 receipt(`EXIT ${exitCode}`);
 await Promise.race([
   closeOutput(process.stderr),

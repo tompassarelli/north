@@ -22,6 +22,12 @@ rl.on("line", (line) => {
   const result = fixture[request.method];
   if (result === "exit") return process.exit(9);
   if (result === "never") return;
+  // Provider death with last words: the shape the supervisor used to swallow.
+  if (result?.$diagnosticExit) {
+    for (const diagnostic of result.$diagnosticExit.lines ?? [])
+      process.stderr.write(`${diagnostic}\n`);
+    return setTimeout(() => process.exit(result.$diagnosticExit.code ?? 9), delay);
+  }
   if (result?.$error) {
     if (typeof result.$stderr === "string") process.stderr.write(result.$stderr);
     return setTimeout(() => process.stdout.write(`${JSON.stringify({ id: request.id, error: result.$error })}\n`), delay);
