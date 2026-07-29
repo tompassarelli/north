@@ -494,11 +494,27 @@
    Exact duplicate triples collapse set-wise. Unavailable domains are named so
    callers never have to infer absence from an empty result."
   [coordination-port]
-  (let [coordination
+  ;; The two fetches are INDEPENDENT — different ports, different logs, different
+  ;; writers — so running them in sequence just adds their latencies. Measured
+  ;; 2026-07-29: coordination 4,132ms (345,679 facts) + telemetry 2,730ms
+  ;; (237,328 facts) = 6,862ms sequential, against max() = 4,132ms in parallel.
+  ;; ~2.7s off every verb in partitioned mode, with no semantic change: the
+  ;; result is still a view union, each origin still resolves its own order
+  ;; before crossing the seam, and both errors are still surfaced per-domain.
+  ;;
+  ;; The telemetry fetch is started FIRST so it overlaps the larger coordination
+  ;; read rather than trailing it.
+  (let [telemetry-future
+        (when (telemetry-partition-enabled?)
+          (future (live-triples-at (configured-telemetry-port) (telemetry-log-path))))
+        coordination
         (live-triples-at coordination-port (expected-log))
         telemetry
-        (when (telemetry-partition-enabled?)
-          (live-triples-at (configured-telemetry-port) (telemetry-log-path)))
+        (when telemetry-future
+          ;; Bounded: a hung domain must not hang the caller forever. On timeout
+          ;; it reports unavailable with a reason, exactly like any other failure.
+          (deref telemetry-future 120000
+                 {:available false :error "telemetry domain fetch timed out"}))
         domains
         (cond-> {:coordination coordination}
           telemetry (assoc :telemetry telemetry))
