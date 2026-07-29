@@ -383,18 +383,19 @@
       "       (none)")))
 
 (defn status []
-  (let [d  (get' "dispatch" "north")
+  (let [d  (get' "dispatch" "managed-forced")
         c  (get' "coord" "north")
         ]
     (println (banner))
     (println (str "
- 1  DISPATCH   who runs agents                 [guard: " (wired "agent-spawn-guard") "]
-    " (mark d "north") " north    SDK workers — persistent, steerable, fact trail;
-               model and effort have per-spawn opts on mcp__north__spawn;
-               model/effort resolve from the requested Orchestration composition and
-    " (mark d "warn") " warn     native Agent/Workflow allowed, nudged toward north
-    " (mark d "native") " native   raw Claude Code spawns, no interference
-    flip → north config dispatch north|warn|native
+ 1  DISPATCH   type × enforcement — who runs agents, how strictly  [guard: " (wired "agent-spawn-guard") "]
+    " (mark d "managed-forced") " managed-forced   native Agent/Workflow DENIED → north SDK;
+               SDK workers are persistent, steerable, fact trail;
+               model/effort resolve from the requested Orchestration composition
+    " (mark d "managed-biased") " managed-biased   native allowed, nudged toward north SDK
+    " (mark d "native-biased") " native-biased    native allowed, nudged toward managed
+    " (mark d "native-forced") " native-forced    raw Claude Code spawns, no interference
+    flip → north config dispatch native-forced|native-biased|managed-biased|managed-forced
 
  2  COORD      coordination protocol           [north: " (north-daemon) " · linear MCP: " (linear-mcp) "]
     " (mark c "north") " north    facts on :7977 + concerns + msg-cli chat
@@ -428,19 +429,28 @@
 (defn help []
   (println "north config — every personal-stack posture setting, one entry point.
 
- 1 DISPATCH — who executes agent work.
-   north   (default) native Agent/Task/Workflow calls are DENIED by a
-           PreToolUse hook and redirected to the north SDK: mcp__north__spawn
-           (ad-hoc) / mcp__north__dispatch (thread-driven). SDK workers are
-           persistent, dormant-until-pinged, observable through North CLI/MCP,
-           steerable (msg-cli :7977). Model and effort have per-spawn opts on
-           mcp__north__spawn. Managed children scrub ambient routing/staffing
-           variables: model and effort come from the request's Orchestration
-           composition and provider catalog unless explicitly pinned, and the
-           result is frozen for each worker's lifetime.
-   warn    native spawns allowed; the hook injects a reminder instead.
-   native  no interference. For A/B baselines against stock Claude Code.
-   Advice: stay on north. Drop to warn only when the daemon is down.
+ 1 DISPATCH — TYPE (native vs managed, who executes) × ENFORCEMENT
+   (forced vs biased, how strictly) = four modes.
+   managed-forced   (default; legacy alias: north) native Agent/Task/Workflow
+           calls are DENIED by a PreToolUse hook and redirected to the north
+           SDK: mcp__north__spawn (ad-hoc) / mcp__north__dispatch
+           (thread-driven). SDK workers are persistent, dormant-until-pinged,
+           observable through North CLI/MCP, steerable (msg-cli :7977). Model
+           and effort have per-spawn opts on mcp__north__spawn. Managed
+           children scrub ambient routing/staffing variables: model and
+           effort come from the request's Orchestration composition and
+           provider catalog unless explicitly pinned, and the result is
+           frozen for each worker's lifetime.
+   managed-biased   (legacy alias: warn) native spawns allowed; the hook
+           injects a reminder toward the north SDK instead.
+   native-biased    native spawns allowed; a soft reminder that managed
+           dispatch exists, via the existing reminder pathway only.
+   native-forced    (legacy alias: native) no interference. For A/B
+           baselines against stock Claude Code.
+   Legacy values native/warn/north are still accepted and map to the
+   canonical name above (printed as a one-line note on use).
+   Advice: stay on managed-forced. Drop to managed-biased only when the
+   daemon is down.
 
  2 COORD — source of truth for work coordination.
    north / linear / both (Linear as consolidation layer over north).
@@ -499,20 +509,34 @@
 
 ;; --- verb dispatch --------------------------------------------------------
 
+(def dispatch-canonical #{"native-forced" "native-biased" "managed-biased" "managed-forced"})
+(def dispatch-legacy {"native" "native-forced" "warn" "managed-biased" "north" "managed-forced"})
+(def dispatch-grid
+  "  native-forced    native-biased    managed-biased    managed-forced
+  type=native      type=native      type=managed      type=managed
+  enforce=forced   enforce=biased   enforce=biased     enforce=forced")
+
 (defn cmd-dispatch [[sub]]
   (cond
-    (#{"north" "warn" "native"} sub)
+    (contains? dispatch-canonical sub)
     (do
       (put' "dispatch" sub)
       (println (str "dispatch → " sub " "
-                    (cond (= sub "north") "(native Agent/Workflow now DENIED → north SDK)"
-                          (= sub "warn")  "(native allowed, nudged)"
-                          :else           "(native allowed, silent)"))))
+                    (case sub
+                      "native-forced"   "(native Agent/Workflow allowed, no interference)"
+                      "native-biased"   "(native Agent/Workflow allowed, nudged toward managed)"
+                      "managed-biased"  "(native allowed, nudged toward north SDK)"
+                      "managed-forced"  "(native Agent/Workflow DENIED → north SDK)"))))
+    (contains? dispatch-legacy sub)
+    (let [canon (get dispatch-legacy sub)]
+      (put' "dispatch" canon)
+      (println (str "dispatch → " canon " (legacy alias '" sub "' accepted; canonical name is '" canon "')")))
     (nil? sub)
-    (let [d (get' "dispatch" "north")]
-      (println (str "dispatch = " d "   (north config dispatch north|warn|native)")))
+    (let [d (get' "dispatch" "managed-forced")]
+      (println (str "dispatch = " d "\n" dispatch-grid
+                    "\n   (north config dispatch native-forced|native-biased|managed-biased|managed-forced)")))
     :else
-    (die "usage: north config dispatch [north|warn|native]")))
+    (die "usage: north config dispatch [native-forced|native-biased|managed-biased|managed-forced]")))
 
 (defn cmd-coord [[sub]]
   (cond
