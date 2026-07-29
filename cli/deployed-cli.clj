@@ -123,6 +123,93 @@
            (re-find #"\b([0-9a-f]{40})\b")
            second))
 
+;; --- what the process is ACTUALLY executing -----------------------------------
+;; running-fram above reads coord-ready, which reports "identity: selected
+;; package <sha>" — the package the runtime is CONFIGURED to use. That is not
+;; what the process is executing, and on 2026-07-29 the difference took the whole
+;; system down: coord-ready reported 43fcd109 and this table printed "fram ✓
+;; live" while the coordinator was running a closure built 2026-06-28, wedged at
+;; 20.5 GB RSS with old gen at 99.98%, accepting connections and answering
+;; nothing. Every north command hung for as long as that green row was displayed.
+;;
+;; A process cannot lie about the code it loaded. Compare the store path on the
+;; running process's own classpath against the store path the selector points
+;; at; a mismatch means the running code is not the selected code, whatever any
+;; self-report claims.
+(defn- store-path-of
+  "The FRAM /nix/store/<hash>-<name> root inside TEXT, with no path beneath it,
+   so a bare package and a package/libexec/... path compare equal.
+
+   Scans for the fram package specifically rather than the first store path it
+   sees: a coordinator command line begins with the JDK's store path, and
+   matching that would compare two JDKs and call it agreement."
+  [text]
+  (some->> text
+           (re-seq #"/nix/store/[a-z0-9]{32}-[^/ \n]+")
+           (filter #(re-find #"-fram" %))
+           first))
+
+(defn- selected-fram-store
+  "The store path the runtime selector currently points at. Read as a symlink
+   rather than shelled out, so it works under any PATH."
+  []
+  (try
+    (let [f (io/file "/home/tom/.local/state/north/fram-runtime/current")]
+      (when (.exists f) (store-path-of (.getCanonicalPath f))))
+    (catch Exception _ nil)))
+
+(defn- coordinator-pids []
+  (keep (fn [unit]
+          (let [pid (some-> (sh-any "systemctl" "show" (str unit ".service")
+                                    "-p" "MainPID" "--value")
+                            str/trim)]
+            (when (and (seq pid) (re-matches #"[1-9][0-9]*" pid)) pid)))
+        ["north-coord-blue" "north-coord-green"]))
+
+(defn- running-fram-store
+  "The fram store path on the live coordinator's own command line, read straight
+   from /proc. A process cannot misreport the code it loaded — which is the whole
+   point, since the self-report is what was wrong."
+  []
+  (some (fn [pid]
+          (try
+            (let [f (io/file (str "/proc/" pid "/cmdline"))]
+              (when (.exists f)
+                ;; /proc cmdline is NUL-separated; make it scannable.
+                (store-path-of (str/replace (slurp f) "\u0000" " "))))
+            (catch Exception _ nil)))
+        (coordinator-pids)))
+
+(defn- store-hash
+  "The distinguishing part of a store path: its hash prefix. Package NAMES here
+   are frozen at a stale version string, so they cannot tell two closures apart."
+  [path]
+  (or (some-> path (->> (re-find #"/nix/store/([a-z0-9]{8})")) second)
+      "?"))
+
+(defn runtime-drift
+  "nil when the running process matches the selected package, else a description.
+   Unknown inputs are NOT treated as agreement — absence is never health."
+  [running selected]
+  (cond
+    (or (str/blank? (str running)) (str/blank? (str selected)))
+    {:status :unknown
+     :detail "cannot read the running process's closure or the runtime selector"}
+
+    (not= running selected)
+    ;; Show the store HASH, not the package name. Every fram package here is
+    ;; named "fram-0-unstable-2026-06-28" regardless of content — the version
+    ;; string is frozen — so printing names produced the useless message
+    ;; "process has fram-0-unstable-2026-06-28, selector has
+    ;; fram-0-unstable-2026-06-28". The hash is the only part that distinguishes
+    ;; two closures.
+    {:status :stale-process
+     :detail (str "running closure is not the selected one — process "
+                  (store-hash running) ", selector " (store-hash selected)
+                  " (restart the coordinator to adopt the selected package)")}
+
+    :else nil))
+
 (defn- running-north []
   ;; The CLI on PATH resolves into the store; the generation's own north is what
   ;; the closure provides. Equal store paths => the shell is running the system's
@@ -252,7 +339,18 @@
                      run (when (= repo "fram") fram-running)]
                  (assoc (row repo src blt run nil)
                         :expect-running? (= repo "fram"))))
-        judged (conj (mapv (fn [r] (assoc r :verdict (verdict r))) rows)
+        ;; The running process's own closure OVERRIDES any self-report. A
+        ;; matching revision string means nothing if the process is executing a
+        ;; different closure than the one selected — which is exactly the state
+        ;; that displayed "fram ✓ live" while the coordinator was wedged.
+        drift (runtime-drift (running-fram-store) (selected-fram-store))
+        judged (conj (mapv (fn [r]
+                             (let [v (verdict r)]
+                               (assoc r :verdict
+                                      (if (and drift (= "fram" (:component r)))
+                                        [(:status drift) (red "✗") (:detail drift)]
+                                        v))))
+                           rows)
                       (nixos-config-assessment))
         worst (if (some #(#{:stale-build :stale-process :unknown}
                           (first (:verdict %)))
