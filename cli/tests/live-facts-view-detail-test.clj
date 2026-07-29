@@ -56,5 +56,28 @@
                  (string? (second (first unavailable-detail)))
                  (seq (second (first unavailable-detail)))))))
 
+;; --- the response cap must exceed what the warm path actually needs ----------
+;; The cap bounds one response, but 8 MiB sat BELOW North's own whole-corpus
+;; view (~345k triples). Both domains blew it on every call, live-triples-at
+;; marked them unavailable, and north silently fell back to a COLD FOLD of the
+;; 36 MB log — a correct answer, 7-9x slower, with nothing saying why.
+;;
+;; Measured 2026-07-29, same corpus and load:
+;;   verb        8 MiB cap    64 MiB cap
+;;   validate    44,326 ms     6,425 ms
+;;   threads     45,978 ms     5,163 ms
+;;   ready       48,906 ms     6,428 ms
+;;   blocked     45,517 ms     6,783 ms
+;;
+;; Asserts the PROPERTY — comfortably above the corpus view — not a literal, so
+;; tuning stays free while a regression to a cap the warm path cannot fit fails.
+(check! "the default response cap clears the whole-corpus view"
+        (>= (Long/parseLong (deref #'north.coord/default-response-byte-limit))
+            33554432))
+
+(check! "the default is not above the hard maximum the validator permits"
+        (<= (Long/parseLong (deref #'north.coord/default-response-byte-limit))
+            67108864))
+
 (println (format "live-facts-view-detail: %d / %d PASS" (- @checks @failures) @checks))
 (System/exit (if (zero? @failures) 0 1))

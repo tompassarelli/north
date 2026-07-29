@@ -112,11 +112,29 @@
 
 (def ^:dynamic *response-byte-limit-override* nil)
 
+;; 64 MiB, not 8. The cap bounds how much one response may consume, but 8 MiB sat
+;; BELOW what North's own warm path needs: the whole-corpus `:facts` view is
+;; ~345k triples, and both the coordination and telemetry domains blew the limit
+;; on every call. The failure was invisible and expensive — `live-triples-at`
+;; marked the domain unavailable, north fell back to a COLD FOLD of the 36 MB log
+;; on disk, and the answer was still correct, just far slower.
+;;
+;; Measured 2026-07-29, `north validate`, same corpus and load:
+;;   8 MiB cap   44,326 ms   (cap exceeded -> cold fold)
+;;   64 MiB cap  21,047 ms   (warm path)
+;; 64 MiB is already the maximum this function permits, so this raises the
+;; default to the ceiling the policy had always allowed rather than inventing a
+;; new bound.
+;;
+;; This does NOT make the whole-corpus fetch cheap — that is a separate refactor
+;; (predicate-scoped reads). It stops a silent 2x penalty on top of it.
+(def ^:private default-response-byte-limit "67108864")
+
 (defn- response-byte-limit []
   (if *response-byte-limit-override*
     *response-byte-limit-override*
     (let [raw (or (System/getenv "NORTH_COORD_MAX_RESPONSE_BYTES")
-                  "8388608")
+                  default-response-byte-limit)
           value (when (re-matches #"[1-9][0-9]{0,7}" raw)
                   (parse-long raw))]
       (when-not (and value (<= value 67108864))
