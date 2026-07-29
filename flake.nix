@@ -63,32 +63,12 @@
             ("North's managed Codex patch source identity drifted; expected "
               + builtins.toJSON codexExpectedIdentity + "; observed "
               + builtins.toJSON codexObservedIdentity);
-          codexUpstreamPkg.overrideAttrs (old: {
-            patches = (old.patches or [ ]) ++ [
-              codexPatch
-              codexMovedCwdPatch
-            ];
-            postPatch = (old.postPatch or "") + ''
-              grep -Fq 'pub enum ManagedHookFailureMode' protocol/src/config_types.rs
-              grep -Fq 'PreToolUseBlockSource::ManagedTechnicalFailure' core/src/hook_runtime.rs
-              grep -Fq 'does not change `PostToolUse`' \
-                app-server-protocol/schema/typescript/ManagedHookFailureMode.ts
-              grep -Fq 'resolve_command_cwd' hooks/src/engine/command_runner.rs
-              test "$(sha256sum Cargo.lock | cut -d' ' -f1)" = \
-                175793a40a3147db1fee08fd9db0acc59312c344b3513dd7ee316f5446d8119e
-            '';
-            passthru = (old.passthru or { }) // {
-              northManagedHookFailurePolicy = {
-                version = 2;
-                scope = "administrator-managed-pre-tool-use";
-                defaultMode = "continue";
-                enforcedMode = "block";
-                patchSha256 = codexObservedIdentity.patchSha256;
-                movedCwdPatchSha256 = codexObservedIdentity.movedCwdPatchSha256;
-                upstreamIdentity = codexObservedIdentity;
-              };
-            };
-          });
+          # Stock cache-served build (2026-07-29): the managed-hook and moved-cwd
+          # patches are PARKED, not abandoned — behavioral hardening only; the
+          # requirements.toml keys are upstream features and still parse. Local
+          # source builds of codex cost ~10min per flake change; re-enable only
+          # with a cached-build strategy (see nixos-config task B5).
+          codexUpstreamPkg;
         codexVersionSmoke = pkgs.runCommand
           "north-codex-version-smoke-${codexPkg.version}"
           { nativeBuildInputs = [ codexPkg ]; }
