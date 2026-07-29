@@ -1,7 +1,7 @@
 /**
  * The managed Codex app-server driver: one exactly-attested provider session.
  *
- * Three behaviors are adapted from hermes-agent (MIT, Copyright (c) 2025 Nous
+ * Four behaviors are adapted from hermes-agent (MIT, Copyright (c) 2025 Nous
  * Research): the redacted provider-stderr tail carried by every failure
  * (`agent/transports/codex_app_server_session.py:327-362`), the per-turn
  * watchdog loop — overall deadline, post-tool quiet timer, and child-liveness
@@ -9,13 +9,16 @@
  * (`agent/transports/codex_app_server_session.py:447-495`), and
  * retire-and-respawn on provider death (`TurnResult.should_retire`,
  * `agent/transports/codex_app_server_session.py:79-85`, consumed in
- * `agent/codex_runtime.py:694-731`). North's shape differs where its invariants
- * differ: the tail arrives over the supervisor status channel; an expired
- * watchdog interrupts the TURN and settles it with the landed-work harvest
- * rather than retiring a reusable session; and because North keeps no
- * transcript outside the provider thread, a respawn re-runs the full launch
- * preflight and re-sends the accumulated context itself instead of waiting for
- * the next user turn to rebuild it.
+ * `agent/codex_runtime.py:694-731`), plus provider-version-tolerant thread ID
+ * extraction across `thread.id`, `thread.sessionId`, `sessionId`, and
+ * `threadId` (`agent/transports/codex_app_server_session.py:272-284`). North's
+ * shape differs where its invariants differ: every selected ID is syntax-
+ * checked and later notifications must correlate exactly; the tail arrives
+ * over the supervisor status channel; an expired watchdog interrupts the TURN
+ * and settles it with the landed-work harvest rather than retiring a reusable
+ * session; and because North keeps no transcript outside the provider thread,
+ * a respawn re-runs the full launch preflight and re-sends the accumulated
+ * context itself instead of waiting for the next user turn to rebuild it.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -193,7 +196,7 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
 // Codex reports an untrusted project's config as a disabled layer. These are
 // the reviewed top-level keys in the global Codex profile which can therefore
 // appear when HOME itself is the project root. Their VALUES remain inert only
-// under the structured disabled-reason + exact warning contract below, while
+// under the structured disabled-reason + correlated warning contract below, while
 // the effective config, thread authority, hooks, MCP inventory, sandbox, and
 // remote-control state are independently attested. Unknown keys stay denied so
 // a newly introduced surface must be reviewed before managed lanes accept it.
@@ -445,10 +448,37 @@ function boundedString(value: unknown, label: string, maxBytes = MAX_ID_BYTES): 
   return value;
 }
 
+function boundedProviderProse(value: unknown, label: string, maxBytes: number): string {
+  if (typeof value !== "string" || !value || Buffer.byteLength(value, "utf8") > maxBytes
+      || /[\u0000\u000b\u000c\u000e-\u001f\u007f]/.test(value))
+    throw new Error(`${label} must be bounded provider prose`);
+  return value;
+}
+
 function protocolId(value: unknown, label: string): string {
   const id = boundedString(value, label);
   if (!/^[A-Za-z0-9._:-]+$/.test(id)) throw new Error(`${label} is invalid`);
   return id;
+}
+
+function providerThreadId(
+  envelope: JsonObject,
+  thread: JsonObject,
+  label: string,
+): string {
+  let selected: string | undefined;
+  for (const [value, source] of [
+    [thread.id, "thread id"],
+    [thread.sessionId, "thread session id"],
+    [envelope.sessionId, "session id"],
+    [envelope.threadId, "thread id"],
+  ] as const) {
+    if (value === undefined || value === null) continue;
+    const id = protocolId(value, `${label} ${source}`);
+    selected ??= id;
+  }
+  if (!selected) throw new Error(`${label} omitted its protocol id`);
+  return selected;
 }
 
 function canonical(value: unknown): unknown {
@@ -1131,19 +1161,26 @@ function expectedProjectDisabledReason(contract: LaunchContract): string {
     + "To load project-local config, hooks, and exec policies, mark it trusted.";
 }
 
-function expectedProjectConfigWarning(contract: LaunchContract): JsonObject {
-  return {
-    summary: "Project-local config, hooks, and exec policies are disabled in the following folders until the project is trusted, but skills still load.\n"
-      + `    1. ${contract.projectRoot}/.codex\n`
-      + `       ${expectedProjectDisabledReason(contract)}\n`,
-    details: null,
-  };
+function validateProjectConfigWarning(value: unknown, contract: LaunchContract): void {
+  const warning = record(value, "Codex config warning");
+  const summary = boundedProviderProse(warning.summary, "Codex config warning summary", 8_192);
+  const details = warning.details === undefined || warning.details === null
+    ? ""
+    : boundedProviderProse(warning.details, "Codex config warning details", 8_192);
+  const text = `${summary}\n${details}`;
+  for (const identifier of [
+    resolve(contract.projectRoot, ".codex"),
+    resolve(contract.codexHome, "config.toml"),
+  ]) {
+    if (!text.includes(identifier))
+      throw new Error(`Codex config warning omitted expected identifier: ${identifier}`);
+  }
 }
 
 function validateConfig(
   response: unknown,
   contract: LaunchContract,
-  exactProjectWarningSeen = false,
+  projectWarningSeen = false,
 ): string {
   const body = record(response, "Codex config/read response");
   const config = record(body.config, "Codex effective config");
@@ -1196,8 +1233,8 @@ function validateConfig(
   }
   if (seen.get("sessionFlags") !== 1 || seen.get("user") !== 1)
     throw new Error("Codex config layer authority is incomplete");
-  if (projectWarningRequired && !exactProjectWarningSeen)
-    throw new Error("Codex tracked project layer lacks its exact disabled warning");
+  if (projectWarningRequired && !projectWarningSeen)
+    throw new Error("Codex tracked project layer lacks its correlated disabled warning");
 
   const expectedFeatures = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
@@ -1477,20 +1514,8 @@ function validateStartedThread(
   options: ManagedCodexAppServerOptions,
 ): string {
   const started = record(response, "Codex thread/start response");
-  onlyKeys(started, [
-    "thread", "model", "modelProvider", "serviceTier", "cwd", "runtimeWorkspaceRoots",
-    "instructionSources", "approvalPolicy", "approvalsReviewer", "sandbox",
-    "activePermissionProfile", "reasoningEffort", "multiAgentMode",
-  ], "Codex thread/start response");
   const thread = record(started.thread, "Codex started thread");
-  onlyKeys(thread, [
-    "id", "extra", "sessionId", "forkedFromId", "parentThreadId", "preview", "ephemeral",
-    "historyMode", "modelProvider", "createdAt", "updatedAt", "recencyAt", "status", "path",
-    "cwd", "cliVersion", "source", "threadSource", "agentNickname", "agentRole", "gitInfo",
-    "name", "turns",
-  ], "Codex started thread");
-  const threadId = protocolId(thread.id, "Codex thread id");
-  protocolId(thread.sessionId, "Codex session id");
+  const threadId = providerThreadId(started, thread, "Codex thread/start response");
   if (started.model !== options.model || started.modelProvider !== "openai"
       || started.serviceTier !== null || started.cwd !== contract.cwd
       || thread.ephemeral !== true || thread.modelProvider !== "openai"
@@ -1514,11 +1539,7 @@ function validateStartedThread(
 
 function validateStartedTurn(response: unknown): string {
   const started = record(response, "Codex turn/start response");
-  onlyKeys(started, ["turn"], "Codex turn/start response");
   const turn = record(started.turn, "Codex started turn");
-  onlyKeys(turn, [
-    "id", "items", "itemsView", "status", "error", "startedAt", "completedAt", "durationMs",
-  ], "Codex started turn");
   const turnId = protocolId(turn.id, "Codex turn id");
   if (turn.status !== "inProgress" || turn.error !== null || !Array.isArray(turn.items)
       || turn.items.length !== 0)
@@ -1772,9 +1793,7 @@ function validateNotifiedTurn(
   label: string,
 ): void {
   const turn = record(value, label);
-  onlyKeys(turn, [
-    "id", "items", "itemsView", "status", "error", "startedAt", "completedAt", "durationMs",
-  ], label);
+  const turnId = protocolId(turn.id, `${label} id`);
   // A turn that reports its OWN error is the provider telling us why the lane
   // failed; folding it into the generic "is invalid" below discarded the only
   // account of the failure that ever existed (thread 019f9cec). Name it, and
@@ -1786,7 +1805,7 @@ function validateNotifiedTurn(
         `provider turn error: ${JSON.stringify(canonical(turn.error)).slice(0, 600)}`,
       ),
     });
-  if (!expectedId || turn.id !== expectedId || turn.status !== expectedStatus
+  if (!expectedId || turnId !== expectedId || turn.status !== expectedStatus
       || !Array.isArray(turn.items) || turn.itemsView !== "notLoaded"
       || !Number.isSafeInteger(turn.startedAt) || (turn.startedAt as number) < 0)
     throw new Error(`${label} is invalid`);
@@ -1881,13 +1900,8 @@ function validateProgressNotification(
   if (method === "thread/started") {
     onlyKeys(params, ["thread"], "Codex thread/started notification");
     const thread = record(params.thread, "Codex thread/started thread");
-    onlyKeys(thread, [
-      "id", "extra", "sessionId", "forkedFromId", "parentThreadId", "preview", "ephemeral",
-      "historyMode", "modelProvider", "createdAt", "updatedAt", "recencyAt", "status", "path",
-      "cwd", "cliVersion", "source", "threadSource", "agentNickname", "agentRole", "gitInfo",
-      "name", "turns",
-    ], "Codex thread/started thread");
-    if (thread.id !== state.threadId || thread.ephemeral !== true
+    if (providerThreadId(params, thread, "Codex thread/started notification") !== state.threadId
+        || thread.ephemeral !== true
         || thread.modelProvider !== "openai" || thread.cwd !== state.cwd
         || thread.parentThreadId !== null)
       throw new Error("Codex thread/started notification changed authority");
@@ -2691,20 +2705,14 @@ export class ManagedCodexAppServerRun {
         settle(watchdogReason!);
       })();
     };
-    let exactProjectWarningSeen = false;
+    let projectWarningSeen = false;
     const validateConnectionNotification = (method: string, value: unknown): boolean => {
       if (method === "configWarning") {
-        const params = record(value, "Codex config warning");
-        onlyKeys(params, ["summary", "details"], "Codex config warning");
-        // Diagnosable: this warning is Codex's own untrusted-project prompt —
-        // a fixed English summary plus project root and CODEX_HOME, no credentials — so
-        // it qualifies for the observed/expected cause. It also NEEDS it more
-        // than any other check here: the expected value is a byte-exact English
-        // string, so any Codex release that rewords the prompt blocks every
-        // managed lane at preflight, and the blind comparator reported only
-        // "does not match" with no way to see which byte drifted.
-        exactDiagnosable(params, expectedProjectConfigWarning(contract), "Codex config warning");
-        exactProjectWarningSeen = true;
+        // The prose changes across Codex versions. Its two path identities are
+        // stable and credential-free; structured config-layer validation below
+        // remains the authority proof.
+        validateProjectConfigWarning(value, contract);
+        projectWarningSeen = true;
         return true;
       }
       if (method === "deprecationNotice") {
@@ -2887,7 +2895,7 @@ export class ManagedCodexAppServerRun {
       rpc.notify("initialized", {});
       validateAccount(await rpc.request("account/read", {}));
       const config = await rpc.request("config/read", { includeLayers: true, cwd: contract.cwd });
-      const fingerprint = validateConfig(config, contract, exactProjectWarningSeen);
+      const fingerprint = validateConfig(config, contract, projectWarningSeen);
       validateRequirements(await rpc.request("configRequirements/read"), contract);
       validateHooks(await rpc.request("hooks/list", { cwds: [contract.cwd] }), contract.cwd);
       await validateMcp(rpc, inventory);
@@ -2955,7 +2963,7 @@ export class ManagedCodexAppServerRun {
         // widened config, hook set, or MCP tool grant fails the turn closed
         // rather than executing a continuation under changed capability.
         const repeated = await rpc.request("config/read", { includeLayers: true, cwd: contract.cwd });
-        if (validateConfig(repeated, contract, exactProjectWarningSeen) !== fingerprint)
+        if (validateConfig(repeated, contract, projectWarningSeen) !== fingerprint)
           throw new Error("Codex config authority changed after thread/start");
         validateHooks(await rpc.request("hooks/list", { cwds: [contract.cwd] }), contract.cwd);
         await validateMcp(rpc, inventory, threadId);
@@ -3007,7 +3015,7 @@ export class ManagedCodexAppServerRun {
           const terminalConfig = await rpc.request("config/read", {
             includeLayers: true, cwd: contract.cwd,
           });
-          if (validateConfig(terminalConfig, contract, exactProjectWarningSeen) !== fingerprint)
+          if (validateConfig(terminalConfig, contract, projectWarningSeen) !== fingerprint)
             throw new Error("Codex config authority changed at terminal settlement");
           rpc.assertHealthy();
         } catch (error) {
