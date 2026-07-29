@@ -8,6 +8,26 @@ always-loaded surface: load-bearing rules + thin pointers. Detail lives in what 
 - **north** = the app: the durable thread/intent ledger served by the canonical coordinator on **:7977** (data `~/code/north-data` → `~/.local/state/north`).
 - **One branch, always `main`** (all repos consolidated 2026-06-23 — no feature branches; a pin is a SHA, never a branch).
 
+## Execution model — two-speed (2026-07-30)
+
+- **`north` / `north-mcp` run LIVE from this checkout** (`~/code/north/main`): an
+  edit takes effect on the next invocation — no rebuild, no restart.
+  `north-packaged` / `north-mcp-packaged` are the generation-pinned escape
+  hatches when the checkout is broken.
+- **The fram coordinator daemon never runs working-tree code.** It runs an
+  exact git COMMIT you deliberately select: `north-coord-runtime promote
+  ~/code/fram/main <rev>` checks that SHA into a deployment dir named by the
+  hash, composes its classpath (deployment code first, store jars after —
+  tools.deps at boot is a hard error, never a fallback), and a service restart
+  adopts it. Rollback = promote the previous SHA. `north doctor` prints the
+  running SHA.
+- **Rebuilds are for system config only**: of the local inputs, only fram
+  auto-promotes its committed main at `firn rebuild`; north and beagle are
+  dev-channel and never trigger one.
+- Provider lifecycle hooks (north-on-spawn/-tooluse/-stop, guards) stay
+  generation-pinned on purpose — enforcement never runs from a mutable tree.
+- Full detail: `nixos-config:docs/north-delivery-mode.md`.
+
 ## Agent dispatch — SDK + thread-driven posture
 
 Agent coordination uses the **TypeScript SDK** (`~/code/north/main/sdk/`), not bash scripts.
