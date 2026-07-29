@@ -41,7 +41,7 @@ export interface AccountAvailabilityRow {
     week: AccountAvailabilityRung | null;
     models: Record<string, AccountAvailabilityRung>;
   };
-  verdict: "available" | "cooked-week" | "cooked-window" | `model-cooked[${string}]`;
+  verdict: "available" | "unknown" | "cooked-week" | "cooked-window" | `model-cooked[${string}]`;
   usableModels: string[];
 }
 
@@ -176,14 +176,19 @@ export function normalizeAccountAvailability(
     const cookedModels = consideredModels
       .filter((name) => models[name]!.pct >= limits.cooked)
       .sort();
-    const generalCooked = (week?.usedPercent ?? 0) >= limits.cooked
-      || (window?.usedPercent ?? 0) >= limits.cooked;
-    const usableModels = generalCooked ? [] : consideredModels
+    const generalEvidenceUnknown = window === undefined
+      || (observation.provider === "anthropic" && week === undefined);
+    const generalCooked = !generalEvidenceUnknown && (
+      (week !== undefined && week.usedPercent >= limits.cooked)
+      || window.usedPercent >= limits.cooked
+    );
+    const usableModels = generalEvidenceUnknown || generalCooked ? [] : consideredModels
       .filter((name) => models[name]!.pct < limits.cooked)
       .sort();
     const verdict: AccountAvailabilityRow["verdict"] =
-      (week?.usedPercent ?? 0) >= limits.cooked ? "cooked-week"
-        : (window?.usedPercent ?? 0) >= limits.cooked ? "cooked-window"
+      generalEvidenceUnknown ? "unknown"
+        : (week !== undefined && week.usedPercent >= limits.cooked) ? "cooked-week"
+          : window.usedPercent >= limits.cooked ? "cooked-window"
           : cookedModels.length ? `model-cooked[${cookedModels.join(",")}]`
             : "available";
     const relevantWindows = [
@@ -230,7 +235,9 @@ export function accountAvailabilityRowIsUsable(
   row: AccountAvailabilityRow,
   model?: string,
 ): boolean {
-  if (row.verdict === "cooked-week" || row.verdict === "cooked-window") return false;
+  if (row.verdict === "unknown"
+      || row.verdict === "cooked-week"
+      || row.verdict === "cooked-window") return false;
   if (model === undefined) return true;
   return row.verdict === "available"
     && row.usableModels.includes(modelName(model));

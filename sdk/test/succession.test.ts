@@ -126,6 +126,19 @@ test("stale provider evidence delegates the decision to coordinator heartbeat", 
   });
 });
 
+test("an explicit unknown availability verdict remains stale evidence", () => {
+  const unknown = {
+    ...account("unknown", {}),
+    verdict: "unknown" as const,
+  };
+  const parsed = parseAvailabilityDocument(JSON.stringify([unknown]));
+  expect(decideSuccession(parsed, freshHeartbeat)).toMatchObject({
+    action: "hold",
+    reason: "stale-evidence-heartbeat-fresh",
+    evidenceStale: true,
+  });
+});
+
 test("graph heartbeat is primary and fallback file is read only when the daemon command fails", () => {
   const now = new Date("2026-07-28T02:00:00.000Z");
   let calls = 0;
