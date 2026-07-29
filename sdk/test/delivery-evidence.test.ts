@@ -5,12 +5,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DeliveryReservationWriterProcessFailure,
+  DeliveryEvidenceProofTransportFailure, DeliveryReservationWriterProcessFailure,
   deliveryEvidenceWriterError, deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
   parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
   resolveDeliveryRunState, resolveThreadFacts, RUN_RESERVATION_VERSION,
-  runReservationValid, DELIVERY_RESERVATION_WRITER_TIMEOUT_MS,
+  runReservationValid, DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS,
+  DELIVERY_RESERVATION_WRITER_TIMEOUT_MS,
 } from "../src/delivery-evidence";
 import { MANAGED_NORTH_MCP_ENV_KEYS } from "../src/execution-admission";
 import { harnessOptions } from "../src/harness";
@@ -96,16 +97,25 @@ test("writer failures never echo the live capability in diagnostics", () => {
   }
 });
 
-test("contention exhaustion is a typed retryable evidence error", () => {
+test("proof transport failure is distinct and never asks for task repetition", () => {
   const error = deliveryEvidenceWriterError(
     "record",
-    "ExceptionInfo: retry\nMessage: RETRYABLE: evidence commit contention; "
-      + "re-submit the same bar and observed result\n",
+    "ExceptionInfo: transport\nMessage: PROOF_TRANSPORT_FAILURE:"
+      + " run-bound proof publication was not acknowledged;"
+      + " do not repeat the task\n",
   );
-  expect(error.name).toBe("DeliveryEvidenceRetryableError");
-  expect(error.retryable).toBe(true);
-  expect(error.message).toContain("delivery evidence record rejected: RETRYABLE:");
-  expect(error.message).toContain("re-submit the same bar and observed result");
+  expect(error).toBeInstanceOf(DeliveryEvidenceProofTransportFailure);
+  expect(error.name).toBe("DeliveryEvidenceProofTransportFailure");
+  expect(error.retryable).toBe(false);
+  expect(error.message).toContain("proof publication was not acknowledged");
+  expect(error.message).toContain("task result remains valid");
+  expect(error.message).toContain("must not be repeated");
+  const processFailure = deliveryEvidenceWriterError(
+    "record", "", {}, { code: "ETIMEDOUT" },
+  );
+  expect(processFailure).toBeInstanceOf(DeliveryEvidenceProofTransportFailure);
+  expect(processFailure.retryable).toBe(false);
+  expect(DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS).toBe(45_000);
 });
 
 test("reservation failure diagnostics expose only bounded semantic causes", () => {

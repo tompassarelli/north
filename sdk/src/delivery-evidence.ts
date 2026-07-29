@@ -22,7 +22,10 @@ export const RUN_RESERVATION_VERSION = "north:run-reservation:v1";
 // Keep a finite stale-writer boundary, but leave room for those reads, the 5s
 // marker-last publication window, readback, and bb startup.
 export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 45_000;
-const DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS = 10_000;
+// Covers the writer's bounded run/bar lease wait plus provenance reads and the
+// fenced commit. Killing it below those internal bounds can strand a live lease
+// and manufacture an ambiguous proof-transport failure.
+export const DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS = 45_000;
 const RUN_RESERVATION_BODY = [
   "run_capability_sha256",
   "run_reservation_agent",
@@ -41,6 +44,17 @@ export class DeliveryEvidenceRetryableError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DeliveryEvidenceRetryableError";
+  }
+}
+
+export class DeliveryEvidenceProofTransportFailure extends Error {
+  readonly operation = "record";
+  readonly reason = "proof-transport-failure";
+  readonly retryable = false;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DeliveryEvidenceProofTransportFailure";
   }
 }
 
@@ -350,6 +364,14 @@ export function deliveryEvidenceWriterError(
     reason = `run reservation refused: run=@${request.run ?? "unavailable"}`
       + ` holder=@${request.reporter ?? "unavailable"}`
       + ` receipt=unavailable reason=${processReason}${semanticDetail}`;
+  }
+  if (operation === "record"
+    && (!reason || reason.startsWith("PROOF_TRANSPORT_FAILURE:"))) {
+    return new DeliveryEvidenceProofTransportFailure(
+      "delivery evidence record rejected: PROOF_TRANSPORT_FAILURE:"
+      + " run-bound proof publication was not acknowledged;"
+      + " the task result remains valid and must not be repeated",
+    );
   }
   const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
   if (reservationWriterProcessFailure) {

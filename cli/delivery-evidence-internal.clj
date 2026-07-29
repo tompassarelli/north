@@ -339,7 +339,7 @@
                               "run" run "thread" thread)))))))
 
 (defn validate-record-context!
-  [port run thread reporter capability bar observed]
+  [port run thread reporter capability bar observed & [require-open-context?]]
   (let [reservation (facts-of port run)
         evidence-state
         (north.terminal-projection/run-evidence-state
@@ -361,7 +361,9 @@
       ;; Exact replay remains authorized after terminal publication so the
       ;; non-authoritative human projection can be healed without mutating the
       ;; writer-scoped run evidence set.
-      (if (and existing (= observed (get (second existing) "observed")))
+      (if (and existing
+               (= observed (get (second existing) "observed"))
+               (not require-open-context?))
         {:existing (first existing) :stored stored}
         (let [thread-facts (facts-of port thread)
               active-bars
@@ -385,7 +387,8 @@
           (when-not (contains? (set active-bars) bar)
             (fail! "evidence bar is not an active done_when on the reserved thread"
                    {:run run :thread thread :bar bar}))
-          (if existing
+          (if (and existing
+                   (not= observed (get (second existing) "observed")))
             ;; A typo in an observation used to burn the bar's only slot for the
             ;; life of the run. The correction supersedes in place: the cap is
             ;; not re-checked because the record COUNT does not grow, and the
@@ -397,24 +400,112 @@
               (when (>= (count stored)
                         north.terminal-projection/max-delivery-bars)
                 (fail! "run evidence record cap reached" {:run run}))
-              {:stored stored})))))))
+              (if existing
+                {:existing (first existing) :stored stored}
+                {:stored stored}))))))))
 
-;; Deadline-bound, NOT attempt-bound. A fixed attempt count (the pre-fix "16
-;; tries, no backoff") is what turned ordinary concurrent write traffic into a
-;; false refusal: at swarm scale every one of those 16 tight-loop iterations
-;; can lose the version race before a single one lands, so a run with a LIVE,
-;; valid reservation was refused for a reason that had nothing to do with the
-;; evidence itself. Every other commit path in this file that shares the
-;; coordinator's global version (reserve!'s batch-after-read publication) already
-;; retries against an absolute deadline with equal-jitter backoff so unrelated
-;; traffic buys retries, not rejections; this budget gives ordinary evidence
-;; commits that same room. Unlike read-retry-budget-ms (deliberately ONE
-;; process-lifetime clock shared by every read in a writer invocation), this
-;; deadline is computed FRESH per commit-record-once! call: the writer process
-;; performs exactly one record! per invocation in production, so a per-call
-;; clock is both correct there and safe to call repeatedly in-process (e.g.
-;; from tests that exercise many concurrent records against one daemon).
-(def commit-retry-budget-ms 5000)
+;; Evidence writers for one (run, bar) serialize through a coordinator-owned
+;; lease. Unrelated graph traffic and distinct bars never participate, while
+;; simultaneous first writes, exact replays, and corrections for the SAME bar
+;; cannot both validate an old evidence set and append rival records. The
+;; mutation is fence-checked in the same coordinator turn as the append/retract;
+;; the lease preflight alone would not be an authority boundary.
+(def evidence-lease-wait-budget-ms 15000)
+(def evidence-lease-ttl-ms 30000)
+
+(defn proof-transport-failure!
+  [run bar phase detail]
+  (fail!
+   (str "PROOF_TRANSPORT_FAILURE: run-bound proof publication was not "
+        "acknowledged; do not repeat the task")
+   {:type :proof-transport-failure
+    :retryable false
+    :run run :bar bar :phase phase :detail detail}))
+
+(defn evidence-lease-resource [run bar]
+  (str "delivery-evidence:"
+       (north.terminal-projection/sha256
+        (str run "\u0000" bar))))
+
+(defn acquire-evidence-lease!
+  [port run bar]
+  (let [resource (evidence-lease-resource run bar)
+        holder (str "delivery-evidence-writer:" (java.util.UUID/randomUUID))
+        attempt!
+        (fn []
+          (let [result
+                (try
+                  (north.coord/send-op
+                   port {:op :acquire-lease
+                         :res resource :holder holder
+                         :ttl-ms evidence-lease-ttl-ms})
+                  (catch Exception error
+                    (proof-transport-failure!
+                     run bar :acquire (.getMessage error))))]
+            (cond
+              (:epoch result)
+              {:done {:resource resource :holder holder :epoch (:epoch result)}}
+
+              (= :held (:reject result))
+              {:reject :conflict}
+
+              :else
+              (proof-transport-failure!
+               run bar :acquire (pr-str result)))))
+        outcome
+        (north.coord/retry-conflicts-until!
+         (north.coord/retry-deadline-ns evidence-lease-wait-budget-ms)
+         attempt!)]
+    (if-let [lease (:done outcome)]
+      lease
+      (proof-transport-failure!
+       run bar :acquire
+       (str "run/bar evidence lease unavailable after "
+            evidence-lease-wait-budget-ms "ms")))))
+
+(defn release-evidence-lease!
+  [port {:keys [resource holder epoch]}]
+  ;; A committed proof remains committed if release acknowledgement is lost.
+  ;; The bounded lease expires on its own, so cleanup cannot turn an irreversible
+  ;; success into a false publication failure.
+  (try
+    (north.coord/send-op
+     port {:op :release-lease
+           :res resource :holder holder :epoch epoch})
+    (catch Exception _ nil)))
+
+(defn fenced-proof-write!
+  [port lease run bar phase operation]
+  (let [result
+        (try
+          (north.coord/send-op port (merge operation
+                                            {:res (:resource lease)
+                                             :holder (:holder lease)
+                                             :epoch (:epoch lease)}))
+          (catch Exception error
+            (proof-transport-failure!
+             run bar phase (.getMessage error))))]
+    (when-not (:ok result)
+      (proof-transport-failure! run bar phase (pr-str result)))
+    result))
+
+(defn confirm-proof-context!
+  [port run thread reporter capability bar observed raw]
+  (let [confirmed
+        (try
+          (validate-record-context!
+           port run thread reporter capability bar observed true)
+          (catch Exception error
+            (if (str/starts-with?
+                 (.getMessage error)
+                 "coordinator did not answer a delivery evidence read")
+              (proof-transport-failure!
+               run bar :confirm (.getMessage error))
+              (throw error))))]
+    (when-not (= raw (:existing confirmed))
+      (fail! "run evidence context changed during fenced publication"
+             {:run run :bar bar}))
+    confirmed))
 
 (defn commit-record-once!
   "Commit one observation for RUN/BAR and report which observations it replaced.
@@ -422,60 +513,42 @@
    opposite order would leave a two-records-for-one-bar window, and every reader
    (run-evidence-state, terminal publication) treats a duplicate bar as a
    tampered set — a transient gap in one bar is recoverable, an invalid set is
-   not. Each retract re-enters the loop so the assert always commits against a
-   base captured AFTER it.
+   not. The run/bar lease keeps supported writers outside that gap.
 
-   The base is re-read and revalidated on EVERY attempt (never reused across a
-   retry): a stale base is exactly the shape of bug this guards against
-   elsewhere in the file, and reusing one here would silently reintroduce it."
+   A coordinator-owned run/bar lease serializes validation plus the fence-checked
+   mutation. This is deliberately narrower than a global graph version: writes
+   unrelated to RUN cannot make valid proof publication lose a race."
   [port run thread reporter capability bar observed raw]
-  (let [superseded (atom [])
-        attempt!
-        (fn []
-          (let [base (north.coord/cur-ver port)
-                context
-                (validate-record-context!
-                 port run thread reporter capability bar observed)]
-            (cond
-              (:existing context)
-              {:done {:raw (:existing context) :superseded @superseded}}
-
-              (:supersede context)
+  (let [lease (acquire-evidence-lease! port run bar)]
+    (try
+      (let [context
+            (validate-record-context!
+             port run thread reporter capability bar observed)
+            superseded
+            (if-let [stale (:supersede context)]
               (do
-                (checked!
-                 (north.coord/retract! port run "run_bar_evidence" (:supersede context))
-                 [:retract run "run_bar_evidence" (:supersede context)])
-                (swap! superseded conj (:superseded-observed context))
-                {:reject :conflict})
-
-              :else
-              (let [result
-                    (north.coord/send-op
-                     port {:op :assert-at-version
-                           :te run :p "run_bar_evidence" :r raw :base base})]
-                (if (:reject result)
-                  {:reject :conflict}
-                  (do
-                    (checked! result [:append-after-read run "run_bar_evidence" raw])
-                    {:done {:raw raw :superseded @superseded}}))))))
-        outcome (north.coord/retry-conflicts-until!
-                 (north.coord/retry-deadline-ns commit-retry-budget-ms)
-                 attempt!)]
-    (if-let [done (:done outcome)]
-      done
-      ;; The rule that refuses here names ITSELF: this is contention exhaustion
-      ;; (a live, valid, in-bounds evidence write that never got a clean version
-      ;; to commit against), not a verdict about the evidence, the reservation,
-      ;; or the contract. Every other guard in this file already reports its
-      ;; own cause by name; a live-reservation write must never fall through to
-      ;; the generic "coordinator rejected" line, which is indistinguishable
-      ;; from a real logical refusal.
-      (fail! (str "RETRYABLE: evidence commit contention; "
-                  "re-submit the same bar and observed result")
-             {:type :retryable-evidence-contention
-              :retryable true
-              :run run :bar bar :budget-ms commit-retry-budget-ms
-              :deadline-exceeded (boolean (:deadline outcome))}))))
+                (fenced-proof-write!
+                 port lease run bar :retract
+                 {:op :retract-with-fence
+                  :te run :p "run_bar_evidence" :r stale})
+                [(:superseded-observed context)])
+              [])]
+        (if-let [existing (:existing context)]
+          {:raw existing :superseded []}
+          (do
+            (fenced-proof-write!
+             port lease run bar :assert
+             {:op :assert-with-fence
+              :te run :p "run_bar_evidence" :r raw})
+            ;; The run/bar lease excludes rival supported evidence writers.
+            ;; Re-reading the full provenance + active-contract context catches
+            ;; an external reservation/thread mutation in the validation/write
+            ;; window before this invocation acknowledges delivery proof.
+            (confirm-proof-context!
+             port run thread reporter capability bar observed raw)
+            {:raw raw :superseded superseded})))
+      (finally
+        (release-evidence-lease! port lease)))))
 
 (defn best-effort-thread-projection!
   [port thread bar observed superseded]
@@ -540,9 +613,9 @@
             (commit-record-once!
              port run thread reporter capability bar observed raw)
             committed raw]
-      (when-not (contains? (get (facts-of port run) "run_bar_evidence" #{})
-                           committed)
-        (fail! "run evidence was not acknowledged" {:run run}))
+      ;; The fenced coordinator :ok is the durable acknowledgement. A second
+      ;; read would add a transport failure after success and cannot strengthen
+      ;; the commit receipt.
       (best-effort-thread-projection! port thread bar observed superseded)
       (println committed)))))
 
