@@ -35,65 +35,11 @@
 (def CACHE-SCOPE (str (hash (str (or (System/getenv "FRAM_LOG") "default") "|"
                                 (or (System/getenv "FRAM_TELEMETRY_LOG") "") "|" PORT))))
 
-;; A full coordinator doctor reads every active log byte and parses every projected
-;; thread file. Its deadline therefore scales with that work instead of being a
-;; fixed number that eventually loses to corpus growth. The contract grants 5s of
-;; process/daemon overhead, then assumes at least 2 MiB/s of aggregate scan/fold
-;; throughput and 2ms per projected file, bounded at two minutes. On the 2026-07-18
-;; corpus (about 17 MiB + 1,528 files, measured 5.2s) this yields about 17s: enough
-;; headroom for contention without turning a hung diagnostic into an unbounded wait.
-(def MIB (* 1024 1024))
-(def COORD-DOCTOR-BASE-MS 5000)
-(def COORD-DOCTOR-PER-MIB-MS 500)
-(def COORD-DOCTOR-PER-FILE-MS 2)
-(def COORD-DOCTOR-MAX-MS 120000)
-
-(defn- ceil-div [n d]
-  (quot (+ n (dec d)) d))
-
-(defn- log-workload [path]
-  (let [f (when (seq path) (io/file path))]
-    (if (and f (.isFile f))
-      (.length f)
-      0)))
-
-(defn- thread-workload [path]
-  (let [dir (when (seq path) (io/file path))]
-    (if (and dir (.isDirectory dir))
-      ;; Match fram.rt/list-md exactly: only direct *.md children participate
-      ;; in the corpus fold, and CLAUDE.md is an instruction file rather than a
-      ;; projected thread.
-      (->> (or (seq (.listFiles dir)) [])
-           (filter #(and (.isFile %)
-                         (str/ends-with? (.getName %) ".md")
-                         (not= (.getName %) "CLAUDE.md")))
-           (reduce (fn [{:keys [bytes files]} f]
-                     {:bytes (+ bytes (.length f))
-                      :files (inc files)})
-                   {:bytes 0 :files 0}))
-      {:bytes 0 :files 0})))
-
-(defn coord-doctor-workload
-  "Bytes + projected-file count read by `north coord-doctor` in this environment."
-  []
-  (let [logs (->> [(or (System/getenv "FRAM_LOG")
-                        (str HOME "/.local/state/north/facts.log"))
-                   (System/getenv "FRAM_TELEMETRY_LOG")]
-                  (remove str/blank?)
-                  distinct)
-        threads (or (System/getenv "FRAM_THREADS")
-                    (str HOME "/.local/state/north/threads"))
-        projected (thread-workload threads)]
-    {:bytes (+ (:bytes projected) (reduce + 0 (map log-workload logs)))
-     :files (:files projected)}))
-
-(defn coord-doctor-timeout-ms
-  "Bounded deadline for a full coordinator doctor workload."
-  [{:keys [bytes files]}]
-  (min COORD-DOCTOR-MAX-MS
-       (+ COORD-DOCTOR-BASE-MS
-          (* COORD-DOCTOR-PER-MIB-MS (ceil-div (max 0 (or bytes 0)) MIB))
-          (* COORD-DOCTOR-PER-FILE-MS (max 0 (or files 0))))))
+;; Doctor is an operational liveness command, so its coordinator handshake must
+;; be bounded independently of corpus size. Full log + projection reconciliation
+;; remains available as the explicit `north coord-doctor` audit; it no longer
+;; sits on the default health path.
+(def COORD-SAFETY-TIMEOUT-MS 5000)
 
 ;; ---- ANSI (respect NO_COLOR / non-tty) --------------------------------------
 (def color? (and (nil? (System/getenv "NO_COLOR"))
@@ -121,12 +67,10 @@
          :ok (zero? (:exit res))}))
     (catch Exception e {:error (.getMessage e) :ok false})))
 
-(defn coord-doctor-probe []
-  (let [workload (coord-doctor-workload)
-        timeout-ms (coord-doctor-timeout-ms workload)]
-    (assoc (run [(str NORTH "/bin/north") "coord-doctor"] :timeout timeout-ms)
-           :timeout-ms timeout-ms
-           :workload workload)))
+(defn coord-safety-probe []
+  (assoc (run [(str NORTH "/bin/north") "coord-safety"]
+              :timeout COORD-SAFETY-TIMEOUT-MS)
+         :timeout-ms COORD-SAFETY-TIMEOUT-MS))
 
 (defn echo-cmd
   "Print the underlying primitive being wrapped (teaching surface)."
@@ -615,18 +559,134 @@
       :missing (str (red "[ERR] ") " reactor heartbeat MISSING — reactor has not swept "
                     "(never started or stopped); start it: `north reactor &`"))))
 
-;; Past this age an undeliverable message is history, not a fault. One hour is
-;; comfortably longer than any lane's 20-minute lifetime, so a recipient absent
-;; this long is absent for good rather than mid-restart.
-(def STALE-MAIL-MS (* 60 60 1000))
+;; ---- coordinator JVM health -------------------------------------------------
+;; A coordinator can be UP, serving the right log, and still unusable. On
+;; 2026-07-29 it sat at old-gen 99.98% with 2,715 full GCs — 1,704s of GC in a
+;; 69-minute lifetime, 41% of its wall clock — and `north show @swarm` took 57.8s
+;; on an IDLE box after measuring 93ms earlier the same day. Nothing about the
+;; query changed; the JVM had stopped being able to allocate.
+;;
+;; Every existing doctor probe said healthy throughout, because none of them ask
+;; whether the process can still do work. Finding it took hours; this makes it
+;; one line. Old-gen occupancy alone is not a restart signal: a healthy JVM can
+;; legitimately retain a large old generation. Sustained GC time is the evidence
+;; that the process is thrashing.
+(def OLD-GEN-WARN-PCT 90.0)
+(def GC-TIME-ERR-PCT 20.0)   ; share of process lifetime spent in GC
+
+(defn coordinator-pid
+  "PID of the coordinator, or nil. Never throws.
+
+  systemd owns the listening socket (the daemon logs 'inherited socket'), so
+  `ss -tlnp` reports no `pid=` for it — the unit is the reliable source. `ss`
+  remains a fallback for a coordinator started outside systemd."
+  [port]
+  (or (let [{:keys [out ok]} (run ["systemctl" "show" "north-coord.service"
+                                   "-p" "MainPID" "--value"] :timeout 3000)
+            pid (some-> out str/trim)]
+        (when (and ok (seq pid) (not= pid "0")) pid))
+      (let [{:keys [out ok]} (run ["ss" "-tlnp"] :timeout 3000)]
+        (when ok
+          (some->> (str/split-lines (or out ""))
+                   (filter #(str/includes? % (str "127.0.0.1:" port)))
+                   first
+                   (re-find #"pid=(\d+)")
+                   second)))))
+
+(defn parse-gcutil
+  "{:old-pct :fgc :gc-seconds} from `jstat -gcutil` output, or nil.
+
+  Column order — getting this wrong is silent, which it was:
+    0:S0 1:S1 2:E 3:O 4:M 5:CCS 6:YGC 7:YGCT 8:FGC 9:FGCT 10:CGC 11:CGCT 12:GCT
+  GCT is the TOTAL at index 12. Index 11 is CGCT — CONCURRENT GC only — which
+  read 0.478s against 1,704s total and rendered as '0% of uptime in GC' on a
+  coordinator spending 41% of its life collecting. Parsed here so a wrong index
+  fails a test instead of quietly reporting health."
+  [out]
+  (let [rows (str/split-lines (str out))
+        vals (some-> rows second str/trim (str/split #"\s+"))
+        num #(try (Double/parseDouble %) (catch Exception _ nil))]
+    (when (>= (count (or vals [])) 13)
+      (let [old (num (nth vals 3))
+            fgc (num (nth vals 8))
+            gct (num (nth vals 12))]
+        (when (and old gct)
+          {:old-pct old :fgc (long (or fgc 0)) :gc-seconds gct})))))
+
+(defn jvm-gc-health
+  "{:old-pct :fgc :gc-seconds :uptime-seconds} for a JVM pid, or nil.
+
+  Best-effort: jstat ships with the JDK but the coordinator may be started by
+  a runtime that does not expose it, and a diagnostic must degrade rather than
+  fail. nil means 'could not measure', which the caller renders distinctly from
+  'measured and healthy' — absence is never health."
+  [pid]
+  (when pid
+    (let [jstat (first (for [d (or (seq (.listFiles (io/file "/nix/store"))) [])
+                             :when (str/includes? (.getName d) "openjdk")
+                             :let [f (io/file d "bin" "jstat")]
+                             :when (.canExecute f)]
+                         (.getPath f)))]
+      (when jstat
+        (let [{:keys [out ok]} (run [jstat "-gcutil" (str pid)] :timeout 5000)
+              rows (when ok (str/split-lines (or out "")))
+              vals (some-> rows second str/trim (str/split #"\s+"))]
+          (parse-gcutil out))))))
+
+(defn process-uptime-seconds [pid]
+  (when pid
+    (let [{:keys [out ok]} (run ["ps" "-o" "etimes=" "-p" (str pid)] :timeout 3000)]
+      (when ok (try (Long/parseLong (str/trim (or out ""))) (catch Exception _ nil))))))
+
+(defn coordinator-jvm-line
+  "One line: healthy, degraded, or unmeasurable. Never throws."
+  [port]
+  (let [pid (coordinator-pid port)]
+    (cond
+      (nil? pid) (str (dim "[--]  ") " coordinator pid not resolvable — GC health unknown")
+      :else
+      (if-let [{:keys [old-pct fgc gc-seconds]} (jvm-gc-health pid)]
+        (let [up (process-uptime-seconds pid)
+              gc-pct (when (and up (pos? up)) (* 100.0 (/ gc-seconds up)))
+              thrashing? (and gc-pct (>= gc-pct GC-TIME-ERR-PCT))
+              high-old-gen? (>= old-pct OLD-GEN-WARN-PCT)
+              detail (format "old-gen %.1f%% · %d full GC%s%s"
+                             old-pct fgc (if (= 1 fgc) "" "s")
+                             (if gc-pct (format " · %.0f%% of uptime in GC" gc-pct) ""))]
+          (cond
+            thrashing?
+            (str (red "[ERR] ") " coordinator JVM is thrashing: " detail
+                 " — perform the paired cutover (`sudo north-coord-runtime restart`)")
+
+            high-old-gen?
+            (str (ylw "[warn]") " coordinator JVM old-gen occupancy is high: " detail
+                 " — observe GC-time share; no cutover warranted yet")
+
+            :else
+            (str (grn "[ok]  ") " coordinator JVM " detail)))
+        (str (dim "[--]  ") " coordinator GC health unmeasurable (no jstat)")))))
 
 (def doctor-failed? (atom false))
 (defn mark-doctor-failed! [] (reset! doctor-failed? true))
 
+;; Keep an absent-recipient failure loud for one bounded recovery window. North
+;; session leases last 30 minutes and dead lanes are reaped after a further
+;; 30-minute lapse bar; an hour therefore leaves time to inspect or reroute a
+;; newly broken delivery. Older mail remains visible below as unacknowledged
+;; history, but cannot pin doctor's process status red forever. A missing or
+;; malformed age fails closed as recent.
+(def DEAD-LETTER-ACTION-WINDOW-MS (* 60 60 1000))
+
+(defn actionable-dead-letter? [{:keys [age-ms]}]
+  (or (nil? age-ms)
+      (< age-ms DEAD-LETTER-ACTION-WINDOW-MS)))
+
 (defn render-dead-letters! [port]
   (println (bold "  dead letters"))
-  (let [{:keys [rows error]} (north.message-routing/dead-letter-scan
-                              (Integer/parseInt (str port)))]
+  (let [{:keys [rows error]}
+        (north.message-routing/readiness-dead-letter-scan
+         (Integer/parseInt (str port))
+         DEAD-LETTER-ACTION-WINDOW-MS)]
     (cond
       error
       (do
@@ -639,23 +699,14 @@
                     "no pending mail targets an absent identity"))
 
       :else
-      ;; Age decides whether this is a fault or debris. Mail that just became
-      ;; undeliverable means a LIVE sender is addressing a recipient that went
-      ;; away — a coordination break worth failing on. Mail whose recipient has
-      ;; been gone for days is settled garbage: the send already failed, nothing
-      ;; will retry it, and no action taken today changes it.
-      ;;
-      ;; Failing doctor on both is what destroyed the signal. 83 messages aged
-      ;; 1-2d held rc=1 permanently, so doctor was red on a healthy coordinator
-      ;; and red stopped meaning anything. Report the debris, fail only on the
-      ;; live break.
-      (let [{fresh true stale false} (group-by #(< (or (:age-ms %) 0) STALE-MAIL-MS) rows)]
-        (when (seq fresh)
+      (let [{actionable true historical false}
+            (group-by actionable-dead-letter? rows)]
+        (when (seq actionable)
           (mark-doctor-failed!)
-          (println (str "    " (red "[ERR] ") (count fresh)
-                        " pending message(s) target absent identities"))
+          (println (str "    " (red "[ERR] ") (count actionable)
+                        " recent pending message(s) target absent identities"))
           (println (format "    %-24s %-34s %s" "SENDER" "RECIPIENT" "AGE"))
-          (doseq [{:keys [sender recipient resolved-recipient age]} fresh]
+          (doseq [{:keys [sender recipient resolved-recipient age]} actionable]
             (println
              (format "    %-24s %-34s %s"
                      sender
@@ -663,39 +714,36 @@
                        recipient
                        (str recipient " -> " resolved-recipient))
                      age))))
-        (when (seq stale)
-          (println (str "    " (ylw "[warn]") " " (count stale)
-                        " undeliverable message(s) older than "
-                        (quot STALE-MAIL-MS 3600000) "h — settled debris, not a"
-                        ;; dead-letter-scan sorts age-DESCENDING, so the oldest
-                        ;; row is first. Taking `last` here named the youngest.
-                        " live fault; oldest " (:age (first stale)))))
-        (when (empty? fresh)
+        (when (seq historical)
+          (let [oldest (apply max-key #(or (:age-ms %) -1) historical)]
+            (println (str "    " (ylw "[warn]") " " (count historical)
+                          " unacknowledged message(s) outside the "
+                          (quot DEAD-LETTER-ACTION-WINDOW-MS 3600000)
+                          "h action window; oldest " (:age oldest)))))
+        (when (empty? actionable)
           (println (str "    " (grn "[ok]  ")
-                        "no recently-undeliverable mail")))))))
+                        "no recent pending mail targets absent identities")))))))
 
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
-  ;; coordinator handshake — the engine-level safety verdict (tell/untell safe,
-  ;; daemon state matches on-disk log). Ported north kept this as the session-start
-  ;; handshake; doctor now leads with it. `north coord-doctor` is the raw primitive.
+  ;; Coordinator safety is a bounded identity + exact-log-fence round trip.
+  ;; Full log/file projection reconciliation remains an explicit
+  ;; `north coord-doctor` audit and cannot hold the default health path hostage.
   (println (bold "  coordinator"))
-  (echo-cmd (str NORTH "/bin/north") "coord-doctor")
-  (let [{:keys [timeout timeout-ms workload ok out err error]} (coord-doctor-probe)]
+  (echo-cmd (str NORTH "/bin/north") "coord-safety")
+  (let [{:keys [timeout timeout-ms ok out err error]} (coord-safety-probe)]
     (cond
       timeout
       (do
         (mark-doctor-failed!)
-        (println (str "    " (red "[ERR] ") " coord-doctor exceeded its "
-                      timeout-ms "ms full-corpus budget ("
-                      (ceil-div (:bytes workload) MIB) " MiB, " (:files workload)
-                      " files) — probe incomplete; coordinator state was not inferred")))
+        (println (str "    " (red "[ERR] ") " coord-safety exceeded its "
+                      timeout-ms "ms budget — readiness was not inferred")))
 
       (not ok)
       (do
         (mark-doctor-failed!)
-        (println (str "    " (red "[ERR] ") " coord-doctor failed"
+        (println (str "    " (red "[ERR] ") " coord-safety failed"
                       (when (seq (str/trim (or error err "")))
                         (str ": " (str/trim (or error err "")))))))
 
@@ -710,32 +758,32 @@
         (when (and crit (not up)) (mark-doctor-failed!))
         (println (str "    " (if up (grn "[ok]  ") (if crit (red "[ERR] ") (ylw "[warn]")))
                       " " label " " (ok-x up))))))
+  ;; A coordinator can be UP, serving the right log, and still unable to work.
+  ;; Nothing else here asks that question — see coordinator-jvm-line.
+  (println (bold "  coordinator JVM"))
+  (let [jvm-line (coordinator-jvm-line PORT)]
+    (when (str/includes? jvm-line "[ERR]") (mark-doctor-failed!))
+    (println (str "    " jvm-line)))
   ;; reactor sweep liveness — see reactor-doctor-line.
   (println (bold "  reactor sweep"))
   (let [reactor-line (reactor-doctor-line PORT)]
     (when (str/includes? reactor-line "[ERR]") (mark-doctor-failed!))
     (println (str "    " reactor-line)))
   (render-dead-letters! PORT)
-  ;; health — lane activity + stale concerns from north health. LIVE (uncached, unlike
-  ;; the dashboard's cached hot path) but with a budget that matches reality: `north
-  ;; health` folds the whole log and takes ~21-24s, so the old 4s default always warned
-  ;; "timed out". Doctor is a deliberate, occasional live check — eating one honest 30s
-  ;; fold beats reporting a false timeout on a healthy coordinator.
-  (println (bold "  health"))
-  (echo-cmd (str NORTH "/bin/north") "health")
-  (let [h  (parse-health (north-health 30000))
-        cs (concern-summary (fetch-concern-projection))    ; LIVE (uncached) structured projection, never scraped
-        concerns-part (if (:err cs)
-                        "   concerns  (unavailable)"
-                        (str "   concerns  " (:active cs) " active"
-                             (when (pos? (:stale cs)) (str " · " (:stale cs) " STALE concerns"))))]
-    (if (:err h)
-      (println (str "    " (ylw "[warn] ") " north health " (:err h) concerns-part))
-      (let [{:keys [lanes-ran-24h lanes-died-24h]} h
-            died-part (when lanes-died-24h (str " · " lanes-died-24h " died"))]
-        (println (str "    " (grn "[ok]  ") " "
-                      (or lanes-ran-24h "?") " ran" died-part " (24h)"
-                      concerns-part)))))
+  ;; 24h/7d activity is observability, not readiness. `north health` currently
+  ;; runs a deliberately broad aggregate and can take tens of seconds on the
+  ;; large graph. Doctor consumes only a recent successful dashboard cache and
+  ;; never starts that workload itself.
+  (println (bold "  activity summary"))
+  (if-let [{:keys [lanes-ran-24h lanes-died-24h]}
+           (cache-get "health.edn" 300000)]
+    (println (str "    " (grn "[ok]  ") " cached "
+                  (or lanes-ran-24h "?") " ran"
+                  (when lanes-died-24h (str " · " lanes-died-24h " died"))
+                  " (24h)"))
+    (println (str "    " (ylw "[warn] ")
+                  "no recent aggregate cache; readiness checks continue"
+                  (dim " (run `north health` explicitly for the broad rollup)"))))
   ;; Runtime source identity (north + fram). A package revision identifies the
   ;; installed closure; a checkout HEAD is only source context, not proof that a
   ;; separately installed store path contains that tree.

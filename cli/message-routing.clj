@@ -139,12 +139,22 @@
 
 (defn- mail-candidate-query []
   {:find "mail_candidate"
-   :rules
-   [{:head {:rel "mail_candidate"
-            :args [{:var "message"} {:var "from"} {:var "to"} {:var "sent"}]}
-     :body [{:rel "triple" :args [{:var "message"} "from" {:var "from"}]}
-            {:rel "triple" :args [{:var "message"} "to" {:var "to"}]}
-            {:rel "triple" :args [{:var "message"} "sent_at" {:var "sent"}]}]}]})
+   :strata
+   [[{:head {:rel "mail_settled" :args [{:var "message"}]}
+      :body [{:rel "triple"
+              :args [{:var "message"} "acked_by" {:var "recipient"}]}]}
+     {:head {:rel "mail_settled" :args [{:var "message"}]}
+      :body [{:rel "triple"
+              :args [{:var "message"} "delivery_rejected_by"
+                     {:var "recipient"}]}]}]
+    [{:head {:rel "mail_candidate"
+             :args [{:var "message"} {:var "from"} {:var "to"} {:var "sent"}]}
+      :body [{:rel "triple" :args [{:var "message"} "from" {:var "from"}]}
+             {:rel "triple" :args [{:var "message"} "to" {:var "to"}]}
+             {:rel "triple" :args [{:var "message"} "sent_at" {:var "sent"}]}
+             {:rel "mail_settled"
+              :args [{:var "message"}]
+              :neg true}]}]]})
 
 (defn mail-candidates [port]
   (loop [after nil
@@ -162,10 +172,6 @@
         (if (:more page)
           (recur (:next page) next-seen all)
           all)))))
-
-(defn message-pending? [port message]
-  (and (empty? (north.coord/many port message "acked_by"))
-       (empty? (north.coord/many port message "delivery_rejected_by"))))
 
 (defn age-ms [now sent]
   (try
@@ -194,8 +200,7 @@
            (keep
             (fn [[message from to sent]]
               (when (and (str/starts-with? message "@msg:")
-                         (not= broadcast-address to)
-                         (message-pending? port message))
+                         (not= broadcast-address to))
                 (let [route (resolve-address port to)
                       recipient (:recipient route)]
                   (when-not (recipient-live? port recipient)
@@ -206,6 +211,43 @@
                        :resolved-recipient recipient
                        :age-ms milliseconds
                        :age (human-age milliseconds)}))))))
+           (sort-by (juxt #(or (:age-ms %) -1) :message)
+                    #(compare %2 %1))
+           vec)}
+     (catch Exception error
+       {:error (.getMessage error)}))))
+
+(defn readiness-dead-letter-scan
+  "Bounded doctor projection. The query itself excludes acknowledged/rejected
+   mail. Only messages inside ACTION-WINDOW-MS pay recipient routing/liveness
+   reads; older pending mail remains visible as unacknowledged history without
+   an N×recipient scan that can hold the health command for tens of seconds."
+  ([port action-window-ms]
+   (readiness-dead-letter-scan
+    port action-window-ms (java.time.Instant/now)))
+  ([port action-window-ms now]
+   (try
+     {:rows
+      (->> (mail-candidates port)
+           (keep
+            (fn [[message from to sent]]
+              (when (and (str/starts-with? message "@msg:")
+                         (not= broadcast-address to))
+                (let [milliseconds (age-ms now sent)
+                      base {:message message
+                            :sender from
+                            :recipient to
+                            :age-ms milliseconds
+                            :age (human-age milliseconds)}]
+                  (if (and milliseconds
+                           (>= milliseconds action-window-ms))
+                    (assoc base
+                           :resolved-recipient to
+                           :historical? true)
+                    (let [route (resolve-address port to)
+                          recipient (:recipient route)]
+                      (when-not (recipient-live? port recipient)
+                        (assoc base :resolved-recipient recipient))))))))
            (sort-by (juxt #(or (:age-ms %) -1) :message)
                     #(compare %2 %1))
            vec)}

@@ -306,6 +306,33 @@
              (str/trim (String. bytes java.nio.charset.StandardCharsets/UTF_8))))))
      (catch Exception _ ""))))
 
+(defn settled-log-tail
+  "The child's last output, waiting briefly for it to land.
+
+  The child writes its stderr to the durable log and the bytes flush as it
+  exits, so reading the instant the parent notices the exit usually returns
+  NOTHING. That is how a dispatch failure loses its cause: observed
+  2026-07-29, a lane died and the operator was shown
+
+    child exited before startup acknowledgement (exit 0); missing identity:
+    kind,role,goal,provider,... (16 fields)
+
+  — a list of symptoms — while the log itself held the one useful line,
+  `Connection refused` against the coordinator on :7977. The message already
+  appended a tail; the tail was simply empty at the moment it was read.
+
+  Bounded and best-effort: a failing spawn is already terminal, so a few
+  hundred milliseconds to make it explicable is cheap, and giving up quietly
+  is no worse than the behaviour it replaces."
+  [log]
+  (let [deadline (+ (System/currentTimeMillis) 750)]
+    (loop []
+      (let [tail (log-tail log)]
+        (cond
+          (seq tail) tail
+          (>= (System/currentTimeMillis) deadline) ""
+          :else (do (Thread/sleep 50) (recur)))))))
+
 (defn failure-message
   [{:keys [status agent-id exit missing log timeout-ms]}]
   (let [why (case status
@@ -315,7 +342,7 @@
               "startup failed")
         missing-note (when (seq missing)
                        (str "; missing identity: " (str/join "," missing)))
-        tail (log-tail log)]
+        tail (settled-log-tail log)]
     (str "agent " agent-id " " why missing-note
          "; durable log: " log
          (when (seq tail) (str "\nlast log output:\n" tail)))))

@@ -12,6 +12,12 @@ set -euo pipefail
 ROOT="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
 BOARD="${NORTH_PORT:-7977}"
 BB="${NORTH_BB:-bb}"
+# The concern CLI talks to the coordination spine directly instead of routing
+# through bin/north, so it must carry the same canonical log fence itself.
+# Leaving this unset falls back to the retired facts.log name in coord.clj and
+# makes every concern declaration fail against the live coordination.log daemon.
+FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/coordination.log}"
+export FRAM_LOG
 
 # Best-effort repo for code-daemon discovery: `declare` carries it positionally
 # (`declare <agent> <repo> ...` => $3), other verbs read the concern's stored

@@ -231,7 +231,8 @@ if [ "${#roots[@]}" -eq 0 ]; then
 fi
 
 child_pid=""
-# shellcheck disable=SC2317,SC2329 # invoked asynchronously by the traps below
+# stop_sync is invoked indirectly by the TERM/INT trap below.
+# shellcheck disable=SC2329,SC2317
 stop_sync() {
   if [ -n "${child_pid:-}" ]; then
     kill -TERM "$child_pid" 2>/dev/null || true

@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 UP="$ROOT/bin/north-coord-up"
 FRAM_CHECKOUT="${FRAM_TEST_CHECKOUT:-$(cd "$ROOT/../fram" && pwd)}"
+
+# The integration cases below inject a deterministic route reader so they can
+# exercise slot/backend races. Keep the real UNIX-socket reader connected to
+# this required CI bar as well.
+python3 "$ROOT/cli/tests/proxy-route-test.py"
+
 TMP_ROOT="$(mktemp -d)"
 TMP="$TMP_ROOT/state with spaces"
 STATE="$TMP/state"
@@ -11,6 +17,7 @@ FAKE_BIN="$TMP/fram-bin"
 FRAM_ROOT="$TMP/fram checkout"
 DAEMON_PID=
 LISTENER_PID=
+EXTRA_PIDS=()
 REAL_BB="$(command -v bb)"
 HOST_PATH="$PATH"
 
@@ -44,6 +51,9 @@ cleanup() {
   fi
   if [[ -n "$LISTENER_PID" ]]; then
     kill "$LISTENER_PID" 2>/dev/null || true
+  fi
+  if [[ "${#EXTRA_PIDS[@]}" -gt 0 ]]; then
+    kill "${EXTRA_PIDS[@]}" 2>/dev/null || true
   fi
   rm -rf "$TMP_ROOT"
 }
@@ -111,6 +121,28 @@ EOF
 cat >"$FAKE_BIN/ss" <<'EOF'
 #!/usr/bin/env bash
 mode="$(cat "$FRAM_TEST_STATE/mode" 2>/dev/null || true)"
+emit_pid() {
+  local pid="$1" port="$2"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "LISTEN 0 128 127.0.0.1:$port 0.0.0.0:* users:((\"runtime\",pid=$pid,fd=1))"
+  fi
+}
+if [[ "$mode" == proxy-* ]]; then
+  proxy_pid="$(cat "$FRAM_TEST_STATE/proxy-pid" 2>/dev/null || true)"
+  blue_pid="$(cat "$FRAM_TEST_STATE/blue-backend-pid" 2>/dev/null || true)"
+  green_pid="$(cat "$FRAM_TEST_STATE/green-backend-pid" 2>/dev/null || true)"
+  case "$*" in
+    *"sport = :39871"*) emit_pid "$proxy_pid" 39871 ;;
+    *"sport = :41001"*) emit_pid "$blue_pid" 41001 ;;
+    *"sport = :42001"*) emit_pid "$green_pid" 42001 ;;
+    *)
+      emit_pid "$proxy_pid" 39871
+      emit_pid "$blue_pid" 41001
+      emit_pid "$green_pid" 42001
+      ;;
+  esac
+  exit 0
+fi
 case "$mode" in
   strict)
     pid="$(cat "$FRAM_TEST_STATE/daemon-pid" 2>/dev/null || true)"
@@ -140,7 +172,8 @@ cat >"$FAKE_BIN/bb" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == */cli/coord.clj && "${2:-}" == strict-probe ]]; then
-  if [[ "$(cat "$FRAM_TEST_STATE/mode" 2>/dev/null || true)" =~ ^strict(-peer)?$ ]]; then
+  printf '%s\n' "$*" >>"$FRAM_TEST_STATE/strict-probes"
+  if [[ "$(cat "$FRAM_TEST_STATE/mode" 2>/dev/null || true)" =~ ^(strict(-peer)?|proxy-(blue|green))$ ]]; then
     printf '{:ready true :version 1 :log "%s"}\n' "$FRAM_LOG"
     exit 0
   fi
@@ -150,7 +183,34 @@ fi
 exec "$REAL_BB" "$@"
 EOF
 
-chmod +x "$FAKE_BIN/fram" "$FAKE_BIN/fram-daemon" "$FAKE_BIN/ss" "$FAKE_BIN/systemctl" "$FAKE_BIN/bb"
+cat >"$FAKE_BIN/proxy-route-reader" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mode="$(cat "$FRAM_TEST_STATE/mode" 2>/dev/null || true)"
+case "$mode" in
+  proxy-blue) echo blue ;;
+  proxy-green) echo green ;;
+  proxy-malformed) echo purple ;;
+  proxy-missing) echo "selector missing" >&2; exit 1 ;;
+  proxy-durable-disagreement)
+    echo "north proxy route: durable/runtime route disagreement: durable=blue runtime=green" >&2
+    exit 1
+    ;;
+  proxy-transaction)
+    echo "north proxy route: unfinished selector transaction exists" >&2
+    exit 1
+    ;;
+  proxy-flip)
+    count="$(cat "$FRAM_TEST_STATE/route-reads" 2>/dev/null || echo 0)"
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$FRAM_TEST_STATE/route-reads"
+    if [[ "$count" -eq 1 ]]; then echo blue; else echo green; fi
+    ;;
+  *) echo "selector unavailable" >&2; exit 1 ;;
+esac
+EOF
+
+chmod +x "$FAKE_BIN/fram" "$FAKE_BIN/fram-daemon" "$FAKE_BIN/ss" "$FAKE_BIN/systemctl" "$FAKE_BIN/bb" "$FAKE_BIN/proxy-route-reader"
 
 common_env=(
   HOME="$TMP/home"
@@ -429,7 +489,62 @@ if grep -Eq 'repair.*restart' "$TMP/promotion-default-running.out" &&
   exit 1
 fi
 
+# A no-cutover system activation can stage a newer package while the durable
+# selector and listener intentionally remain on the previously adopted package.
+# Readiness must attest selector==listener, not new-wrapper-package==listener.
+write_runtime_selection "$PROMOTION_IDENTITY" package "$SNAPSHOT_ROOT" \
+  "$FRAM_REV" "immutable:$FRAM_REV" "$SNAPSHOT_ROOT" \
+  "$SNAPSHOT_ROOT/bin/fram-daemon"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "immutable:$FRAM_REV" \
+  "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV=newly-built-but-not-adopted \
+  "$UP" --check-runtime >"$TMP/package-selection-match.out"
+grep -q "^coordinator runtime identity OK on :39871 (identity: selected package $FRAM_REV)" \
+  "$TMP/package-selection-match.out"
+
+# Same revision is not enough for an adopted package selector: a different
+# immutable source/executable is a real selector/listener mismatch.
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "/nix/store/different-fram/libexec/fram" "$FRAM_REV" \
+  "immutable:$FRAM_REV" "/nix/store/different-fram/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV=newly-built-but-not-adopted \
+  "$UP" --check-runtime >"$TMP/package-selection-source-drift.out" 2>&1; then
+  echo "north-coord-up test: package selector/source drift was accepted" >&2
+  exit 1
+fi
+grep -q 'does not match durable package selector' \
+  "$TMP/package-selection-source-drift.out"
+
+# The same rule remains fail-closed: selector/listener drift is unhealthy even
+# when the newly built package is intentionally irrelevant to this check.
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$SNAPSHOT_ROOT" stale-running-revision immutable:stale-running-revision \
+  "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
+if env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
+  NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
+  FRAM_PACKAGE_REV=newly-built-but-not-adopted \
+  "$UP" --check-runtime >"$TMP/package-selection-drift.out" 2>&1; then
+  echo "north-coord-up test: package selector/listener drift was accepted" >&2
+  exit 1
+fi
+grep -q 'coordinator runtime identity UNHEALTHY' \
+  "$TMP/package-selection-drift.out"
+grep -q 'repair.*coordinated cutover protocol' \
+  "$TMP/package-selection-drift.out"
+
 rm -f "${PROMOTION_IDENTITY:?}"
+printf 'FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$FRAM_ROOT" stale-package-revision immutable:stale-package-revision \
+  "$FAKE_BIN/fram-daemon" \
+  >"$FAKE_PROC/$LISTENER_PID/environ"
 env "${common_env[@]}" NORTH_PROC_ROOT="$FAKE_PROC" \
   NORTH_COORD_RUNTIME_STATE="$PROMOTION_STATE" NORTH_FRAM_RUNTIME=package \
   "$UP" --check-runtime >"$TMP/no-promotion-default.out"
@@ -497,10 +612,173 @@ grep -q '^coordinator runtime identity OK on :39871' "$TMP/rev-match-mode-adviso
 grep -q '^north coord-doctor: advisory .*matching revision' "$TMP/rev-match-mode-advisory.out"
 kill -0 "$LISTENER_PID"
 
+# The blue/green public ports belong to HAProxy, not Fram. Readiness follows
+# HAProxy's exact runtime selector to one private backend for this log, loads
+# that slot's durable generation identity, and attests the private JVM. The
+# strict log-fence probe remains on the public port so routing itself stays in
+# the safety boundary.
 kill "$LISTENER_PID"
 wait "$LISTENER_PID" 2>/dev/null || true
 LISTENER_PID=
-rm -f "$STATE/listener-pid" "$STATE/mode"
+rm -f "$STATE/listener-pid"
+
+sleep 60 &
+PROXY_PID=$!
+sleep 60 &
+BLUE_BACKEND_PID=$!
+sleep 60 &
+GREEN_BACKEND_PID=$!
+EXTRA_PIDS=("$PROXY_PID" "$BLUE_BACKEND_PID" "$GREEN_BACKEND_PID")
+printf '%s\n' "$PROXY_PID" >"$STATE/proxy-pid"
+printf '%s\n' "$BLUE_BACKEND_PID" >"$STATE/blue-backend-pid"
+printf '%s\n' "$GREEN_BACKEND_PID" >"$STATE/green-backend-pid"
+
+PROXY_MARKER="$TMP/proxy-bootstrap-complete"
+PROXY_SOCKET="$TMP/proxy-admin.sock"
+PROXY_MAP="$TMP/proxy-route.map"
+PROXY_TRANSACTION="$TMP/proxy-selector.transaction"
+PROXY_LOCK="$TMP/proxy-selector.lock"
+PROXY_RUNTIME="$TMP/proxy-runtime"
+printf 'fram-coordinator-cutover/v1 active blue\n' >"$PROXY_MARKER"
+: >"$PROXY_SOCKET"
+printf 'active blue\n' >"$PROXY_MAP"
+: >"$PROXY_LOCK"
+write_runtime_selection "$PROXY_RUNTIME-blue/active/current.identity" package \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "immutable:$FRAM_REV" \
+  "$SNAPSHOT_ROOT" "$SNAPSHOT_ROOT/bin/fram-daemon"
+write_runtime_selection "$PROXY_RUNTIME-green/active/current.identity" package \
+  "$SNAPSHOT_ROOT" "$FRAM_REV" "immutable:$FRAM_REV" \
+  "$SNAPSHOT_ROOT" "$SNAPSHOT_ROOT/bin/fram-daemon"
+
+mkdir -p "$FAKE_PROC/$PROXY_PID" "$FAKE_PROC/$BLUE_BACKEND_PID" \
+  "$FAKE_PROC/$GREEN_BACKEND_PID"
+printf 'NORTH_COORD_HAPROXY_CONFIG=/nix/store/test-haproxy.cfg\0NORTH_COORD_BOOTSTRAP_MARKER=%s\0' \
+  "$PROXY_MARKER" >"$FAKE_PROC/$PROXY_PID/environ"
+: >"$FAKE_PROC/$PROXY_PID/cgroup"
+printf 'NORTH_COORD_SLOT=blue\0FRAM_LOG=%s\0FRAM_PORT=41001\0FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$TMP/home/.local/state/north/facts.log" "$SNAPSHOT_ROOT" "$FRAM_REV" \
+  "immutable:$FRAM_REV" "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$BLUE_BACKEND_PID/environ"
+: >"$FAKE_PROC/$BLUE_BACKEND_PID/cgroup"
+printf 'NORTH_COORD_SLOT=green\0FRAM_LOG=%s\0FRAM_PORT=42001\0FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$TMP/home/.local/state/north/facts.log" "$SNAPSHOT_ROOT" "$FRAM_REV" \
+  "immutable:$FRAM_REV" "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$GREEN_BACKEND_PID/environ"
+: >"$FAKE_PROC/$GREEN_BACKEND_PID/cgroup"
+
+proxy_env=(
+  NORTH_PROC_ROOT="$FAKE_PROC"
+  NORTH_COORD_RUNTIME_STATE="$PROXY_RUNTIME"
+  NORTH_COORD_BOOTSTRAP_MARKER="$PROXY_MARKER"
+  NORTH_COORD_SELECTOR_SOCKET="$PROXY_SOCKET"
+  NORTH_COORD_SELECTOR_MAP="$PROXY_MAP"
+  NORTH_COORD_SELECTOR_TRANSACTION="$PROXY_TRANSACTION"
+  NORTH_COORD_SELECTOR_LOCK="$PROXY_LOCK"
+  NORTH_PROXY_ROUTE_READER="$FAKE_BIN/proxy-route-reader"
+  NORTH_FRAM_RUNTIME=package
+  FRAM_PACKAGE_REV="$FRAM_REV"
+)
+
+echo proxy-blue >"$STATE/mode"
+env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-blue.out"
+grep -q "selected package $FRAM_REV via blue backend :41001" \
+  "$TMP/proxy-blue.out"
+
+: >"$STATE/strict-probes"
+env "${common_env[@]}" "${proxy_env[@]}" "$ROOT/bin/north" coord-safety \
+  >"$TMP/proxy-safety.out"
+grep -q '^coordinator strict log fence OK on :39871$' "$TMP/proxy-safety.out"
+grep -q "strict-probe 39871 $TMP/home/.local/state/north/facts.log" \
+  "$STATE/strict-probes"
+if grep -q 'strict-probe 41001' "$STATE/strict-probes"; then
+  echo "north-coord-up test: proxy readiness moved the strict fence off the public port" >&2
+  exit 1
+fi
+
+echo proxy-green >"$STATE/mode"
+env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-green.out"
+grep -q "selected package $FRAM_REV via green backend :42001" \
+  "$TMP/proxy-green.out"
+
+echo proxy-malformed >"$STATE/mode"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-malformed.out" 2>&1; then
+  echo "north-coord-up test: malformed HAProxy selector was accepted" >&2
+  exit 1
+fi
+grep -q 'HAProxy active selector is malformed' "$TMP/proxy-malformed.out"
+
+echo proxy-missing >"$STATE/mode"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-missing.out" 2>&1; then
+  echo "north-coord-up test: missing HAProxy selector was accepted" >&2
+  exit 1
+fi
+grep -q 'HAProxy active selector is unavailable' "$TMP/proxy-missing.out"
+
+echo proxy-durable-disagreement >"$STATE/mode"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-durable-disagreement.out" 2>&1; then
+  echo "north-coord-up test: durable/runtime selector disagreement was accepted" >&2
+  exit 1
+fi
+grep -q 'durable/runtime route disagreement' \
+  "$TMP/proxy-durable-disagreement.out"
+
+echo proxy-transaction >"$STATE/mode"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-transaction.out" 2>&1; then
+  echo "north-coord-up test: unfinished selector transaction was accepted" >&2
+  exit 1
+fi
+grep -q 'unfinished selector transaction exists' "$TMP/proxy-transaction.out"
+
+echo proxy-blue >"$STATE/mode"
+mv "$PROXY_RUNTIME-blue/active/current.identity" \
+  "$PROXY_RUNTIME-blue/active/current.identity.missing"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-missing-runtime.out" 2>&1; then
+  echo "north-coord-up test: missing active-slot runtime selector was accepted" >&2
+  exit 1
+fi
+grep -q 'blue backend runtime selector is missing or malformed' \
+  "$TMP/proxy-missing-runtime.out"
+mv "$PROXY_RUNTIME-blue/active/current.identity.missing" \
+  "$PROXY_RUNTIME-blue/active/current.identity"
+
+printf 'NORTH_COORD_SLOT=green\0FRAM_LOG=%s\0FRAM_PORT=41001\0FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$TMP/home/.local/state/north/facts.log" "$SNAPSHOT_ROOT" "$FRAM_REV" \
+  "immutable:$FRAM_REV" "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$BLUE_BACKEND_PID/environ"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-route-backend-disagreement.out" 2>&1; then
+  echo "north-coord-up test: HAProxy route/backend disagreement was accepted" >&2
+  exit 1
+fi
+grep -q 'route selects blue but exactly one private backend.*observed 0' \
+  "$TMP/proxy-route-backend-disagreement.out"
+printf 'NORTH_COORD_SLOT=blue\0FRAM_LOG=%s\0FRAM_PORT=41001\0FRAM_RUNTIME_SOURCE=%s\0FRAM_RUNTIME_REV=%s\0FRAM_RUNTIME_TREE=%s\0FRAM_RUNTIME_DAEMON=%s\0' \
+  "$TMP/home/.local/state/north/facts.log" "$SNAPSHOT_ROOT" "$FRAM_REV" \
+  "immutable:$FRAM_REV" "$SNAPSHOT_ROOT/bin/fram-daemon" \
+  >"$FAKE_PROC/$BLUE_BACKEND_PID/environ"
+
+rm -f "$STATE/route-reads"
+echo proxy-flip >"$STATE/mode"
+if env "${common_env[@]}" "${proxy_env[@]}" "$UP" --check-runtime \
+  >"$TMP/proxy-route-race.out" 2>&1; then
+  echo "north-coord-up test: selector change during attestation was accepted" >&2
+  exit 1
+fi
+grep -q 'route changed or disagreed while attesting the blue backend' \
+  "$TMP/proxy-route-race.out"
+
+kill "${EXTRA_PIDS[@]}"
+wait "${EXTRA_PIDS[@]}" 2>/dev/null || true
+EXTRA_PIDS=()
+rm -f "$STATE/proxy-pid" "$STATE/blue-backend-pid" \
+  "$STATE/green-backend-pid" "$STATE/mode"
 
 # A live-checkout command never silently consumes a Nix-store FRAM_HOME/BIN.
 # Package mode is a deliberate selector, not residue inherited from a wrapper.
