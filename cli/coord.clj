@@ -389,6 +389,48 @@
 (defn read-edn-response! [reader]
   (parse-edn-line! (read-terminal-line! reader)))
 
+;; ---- optional JSON response decoding ---------------------------------------
+;; EDN is this client's default and stays that way: coord.clj is deliberately
+;; stdlib-only so hooks and sibling CLIs can load it without Fram's Cheshire
+;; classpath, and that guarantee is load-bearing.
+;;
+;; But EDN parsing dominates whole-corpus reads. Measured 2026-07-29 on the same
+;; ~345k-triple corpus: EDN 9,509-11,129 ms, JSON 2,978-4,013 ms — roughly 3x,
+;; which is why fram.rt/coord-live-state already asks for `:fmt :json`.
+;;
+;; So: ASK for Cheshire rather than require it. Babashka bundles it, so in
+;; practice this probe answers yes and the ns declaration stays free of it —
+;; which is the point: coord.clj gains a fast path without gaining a dependency
+;; that a non-bb loader would have to satisfy. The capability is resolved once;
+;; requiring-resolve is not free and this sits on a hot path.
+;;
+;; The degradation that actually fires in the field is not a missing decoder but
+;; a daemon that predates :fmt — see live-triples-at.
+(def ^:private json-decoder
+  (delay
+    (try
+      (when-let [parse (requiring-resolve 'cheshire.core/parse-string)]
+        (fn [line] (parse line)))
+      (catch Throwable _ nil))))
+
+(defn json-response-available?
+  "Whether this classpath can decode a JSON coordinator response."
+  []
+  (some? @json-decoder))
+
+(defn read-json-response!
+  "Read one terminal frame and decode it as JSON, reusing the same bounded
+   reader as the EDN path so byte limits and deadlines are identical.
+
+   Returns STRING-keyed data, matching the coordinator's JSON wire shape
+   (`\"version\"`, `\"log\"`, `\"facts\"`) — callers normalise."
+  [reader]
+  (let [decode @json-decoder]
+    (when-not decode
+      (throw (ex-info "JSON coordinator decoding is unavailable on this classpath"
+                      {:type :coordinator-json-unavailable})))
+    (decode (read-terminal-line! reader))))
+
 ;; Every North request carries the exact corpus identity. The distinct :for-log
 ;; envelope is a protocol boundary, not optional metadata: a pre-fence daemon
 ;; rejects the unknown op, so a new North client can never silently fall back to
@@ -444,7 +486,14 @@
 ;; newline, read one EDN reply line. The atom every other helper is built from.
 (def ^:private max-request-line-bytes (* 1024 1024))
 
-(defn- send-envelope [port envelope]
+(defn- send-envelope
+  "Send one request envelope and read exactly one terminal frame.
+
+  `read-response!` is parameterised only so a caller can opt into the JSON
+  decoder; it defaults to EDN, so every existing call site is byte-for-byte
+  unchanged."
+  ([port envelope] (send-envelope port envelope read-edn-response!))
+  ([port envelope read-response!]
   (with-open [s (connect-socket port)]
     (let [payload (pr-str envelope)
           payload-bytes (.getBytes payload java.nio.charset.StandardCharsets/UTF_8)
@@ -463,7 +512,7 @@
           reader (coordinator-reader s)]
       (.write w wire)
       (.flush w)
-      (read-edn-response! reader))))
+      (read-response! reader)))))
 
 (defn send-op [port op]
   (let [{:keys [port log]} (route-for-operation port op)]
@@ -472,20 +521,69 @@
 (defn send-op-for-log [port log op]
   (send-envelope port (log-envelope-for log op)))
 
+(defn- normalize-facts-response
+  "Both wire formats carry the same value; only key TYPE differs — EDN answers
+   with `:version`/`:facts`, JSON with `\"version\"`/`\"facts\"` (verified against
+   the live daemon, which also renders `:code` keywords as strings). Normalising
+   first keeps ONE validation below, so the two formats can never drift into
+   accepting different things."
+  [response]
+  (when (map? response)
+    {:version (or (:version response) (get response "version"))
+     :facts (or (:facts response) (get response "facts"))}))
+
+(defn- valid-triples
+  "The triples, as vectors, or nil if the response is not a well-formed corpus.
+   Coerces sequentials to vectors because a JSON decoder is free to hand back
+   any sequential; the per-element contract (3 strings) stays exact."
+  [triples]
+  (when (sequential? triples)
+    (let [rows (mapv #(if (vector? %) % (vec %)) triples)]
+      (when (every? #(and (= 3 (count %)) (every? string? %)) rows)
+        rows))))
+
+(defn- fetch-triples
+  "One :facts round trip in the requested wire format."
+  [port log json?]
+  (if json?
+    (send-envelope port
+                   (log-envelope-for log {:op :facts :fmt :json})
+                   read-json-response!)
+    (send-op-for-log port log {:op :facts})))
+
 (defn- live-triples-at [port log]
-  (try
-    (let [response (send-op-for-log port log {:op :facts})
-          triples (:facts response)]
-      (if (and (map? response)
-               (integer? (:version response))
-               (vector? triples)
-               (every?
-                #(and (vector? %) (= 3 (count %)) (every? string? %))
-                triples))
-        {:available true :version (:version response) :facts triples}
-        {:available false :error "malformed :facts response"}))
-    (catch Exception error
-      {:available false :error (.getMessage error)})))
+  ;; Ask for JSON when this classpath can decode it. The whole-corpus :facts
+  ;; response is the single largest thing North reads, and DECODING it — not
+  ;; producing or transferring it — is the dominant cost. Fram's own
+  ;; coord-live-state already opts in for exactly this reason
+  ;; (coord_daemon.clj:5629, "~12x faster as JSON than as EDN" at ~2MB).
+  ;;
+  ;; Falls back to EDN on any JSON failure rather than reporting the domain
+  ;; unavailable. A daemon predating :fmt support answers a REJECT, not a
+  ;; corpus, and the correct response to "this coordinator is older than I
+  ;; assumed" is to speak the older dialect — not to make north's whole live
+  ;; view vanish. Version skew between an installed north and a running fram is
+  ;; the normal state during a cutover, not an exceptional one.
+  (let [attempt
+        (fn [json?]
+          (let [response (normalize-facts-response (fetch-triples port log json?))
+                triples (valid-triples (:facts response))]
+            (if (and triples (integer? (:version response)))
+              {:available true :version (:version response) :facts triples}
+              {:available false :error "malformed :facts response"})))]
+    (try
+      (if (json-response-available?)
+        (let [json-result (try (attempt true)
+                               (catch Exception error
+                                 {:available false :error (.getMessage error)}))]
+          (if (:available json-result)
+            json-result
+            ;; Keep the EDN answer's error if it also fails: it is the format
+            ;; every coordinator speaks, so its complaint is the truer one.
+            (attempt false)))
+        (attempt false))
+      (catch Exception error
+        {:available false :error (.getMessage error)}))))
 
 (defn live-facts-view
   "Compose materialized live facts from the independently fenced coordination
