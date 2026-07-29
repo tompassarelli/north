@@ -63,6 +63,7 @@ function renderCheck(check: ReturnType<typeof checkHandoff>): string {
   return [
     `active ${active}${check.active.tier ? ` tier=${check.active.tier}` : ""} threshold=${check.threshold}`,
     `classification ${check.classification}`,
+    ...(check.unknownReason ? [`unknown ${check.unknownReason}`] : []),
     ...(check.trigger ? [
       `trigger ${check.trigger.rung}:${check.trigger.name} ${check.trigger.pct}% resets=${check.trigger.resetsAt}`,
     ] : []),

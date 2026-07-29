@@ -89,6 +89,41 @@ test("maps cached Codex primary evidence into the provider-neutral window rung",
   expect(accountAvailabilityRowIsUsable(row!)).toBe(true);
 });
 
+test("missing provider-required general rungs are explicit unknown capacity", () => {
+  const available = fixture.cases.find(({ name }) => name === "available")!.observation;
+  const anthropic = {
+    ...available,
+    targetId: "claude-missing-week",
+    windows: available.windows!.filter(({ limitId }) => limitId !== "claude:seven_day"),
+  };
+  const codex = fixture.cases.find(({ name }) => name === "available-codex")!.observation;
+  const openai = {
+    ...codex,
+    targetId: "codex-missing-primary",
+    windows: [],
+  };
+  const rows = normalizeAccountAvailability({
+    version: 1,
+    observations: [anthropic, openai],
+  }, { now: new Date(fixture.now) });
+
+  expect(rows.map(({ account, verdict, usableModels }) => ({
+    account, verdict, usableModels,
+  }))).toEqual([
+    {
+      account: "claude-missing-week",
+      verdict: "unknown",
+      usableModels: [],
+    },
+    {
+      account: "codex-missing-primary",
+      verdict: "unknown",
+      usableModels: [],
+    },
+  ]);
+  expect(rows.every((row) => accountAvailabilityRowIsUsable(row) === false)).toBe(true);
+});
+
 test("model selection makes a cooked requested model unusable without cooking the account", () => {
   const model = fixture.cases.find(({ name }) => name === "model-cooked")!;
   const store = { version: 1 as const, observations: [model.observation] };

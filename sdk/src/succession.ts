@@ -135,7 +135,7 @@ function availabilityAccount(value: unknown, index: number): AvailabilityAccount
   exactFields(rungs, ["window", "week", "models"], `${label}.rungs`);
   const models = object(rungs.models, `${label}.rungs.models`);
   const verdict = string(row.verdict, `${label}.verdict`);
-  if (!/^(available|cooked-week|cooked-window|model-cooked\[[^\]]+\])$/.test(verdict))
+  if (!/^(available|unknown|cooked-week|cooked-window|model-cooked\[[^\]]+\])$/.test(verdict))
     throw new Error(`${label}.verdict is outside the pinned contract`);
   return {
     account: string(row.account, `${label}.account`),
@@ -191,6 +191,7 @@ export function decideSuccession(
   const eligible = availability.accounts.filter((row) => row.provider === "anthropic");
   const evidenceStale = eligible.length === 0 || eligible.some((row) =>
     row.stale
+    || row.verdict === "unknown"
     || row.rungs.week === null
     || row.rungs.window === null
     || row.rungs.models[coordinatorModel] === undefined);

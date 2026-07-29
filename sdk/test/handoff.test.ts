@@ -19,8 +19,8 @@ function row(
   account: string,
   provider: "anthropic" | "openai",
   values: {
-    week?: number;
-    window?: number;
+    week?: number | null;
+    window?: number | null;
     models?: Record<string, number>;
     stale?: boolean;
     usableModels?: string[];
@@ -34,8 +34,14 @@ function row(
     observedAt,
     stale: values.stale ?? false,
     rungs: {
-      window: { name: "five-hour", pct: values.window ?? 20, resetsAt: reset },
-      week: { pct: values.week ?? 20, resetsAt: reset },
+      window: values.window === null ? null : {
+        name: provider === "openai" ? "primary" : "five-hour",
+        pct: values.window ?? 20,
+        resetsAt: reset,
+      },
+      week: values.week === null || (provider === "openai" && values.week === undefined)
+        ? null
+        : { pct: values.week ?? 20, resetsAt: reset },
       models: Object.fromEntries(
         Object.entries(values.models ?? { [defaultModel]: 20 })
           .map(([model, pct]) => [model, { pct, resetsAt: reset }]),
@@ -98,7 +104,7 @@ describe("active route classification and same-strength heir selection", () => {
     }, 80);
     expect(check.classification).toBe("model-dead");
     expect(check.trigger).toMatchObject({ rung: "model", model: "claude-opus-5" });
-    expect(check.receipts.active.rungs.week.pct).toBe(20);
+    expect(check.receipts.active.rungs.week?.pct).toBe(20);
   });
 
   test("below-threshold route stays active and does not name an heir", () => {
@@ -146,11 +152,61 @@ describe("active route classification and same-strength heir selection", () => {
   });
 });
 
-test("pinned availability parser rejects shape drift", () => {
-  const valid = row("codex-heir", "openai");
-  expect(parseAvailabilityRows([valid])).toEqual([valid]);
-  expect(() => parseAvailabilityRows([{ ...valid, surprise: true }]))
-    .toThrow("fields mismatch");
+describe("pinned account-availability boundary", () => {
+  const valid = row("codex-current", "openai", {
+    week: null,
+    window: 4,
+    models: {},
+    usableModels: [],
+  });
+
+  test("accepts the current OpenAI primary-window row with no fabricated week", () => {
+    expect(parseAvailabilityRows([valid])).toEqual([valid]);
+    expect(parseAvailabilityRows([valid])[0]?.rungs.week).toBeNull();
+    expect(checkHandoff([valid], {
+      provider: "openai",
+      account: "codex-current",
+      model: "gpt-5.6-sol",
+      tier: "senior",
+    }, 80)).toMatchObject({
+      classification: "available",
+      receipts: { active: { rungs: { week: null } } },
+    });
+  });
+
+  test("rejects missing rung fields at the JSON boundary", () => {
+    const { week: _week, ...missingWeek } = valid.rungs;
+    expect(() => parseAvailabilityRows([{
+      ...valid,
+      rungs: missingWeek,
+    }])).toThrow("account availability row[0].rungs fields mismatch (missing=week");
+  });
+
+  test("accepts null rungs but classifies required missing evidence as unknown", () => {
+    const anthropic = row("claude-unknown", "anthropic", {
+      week: null,
+      verdict: "unknown",
+    });
+    const check = checkHandoff([anthropic], {
+      provider: "anthropic",
+      account: "claude-unknown",
+      model: "claude-opus-5",
+      tier: "senior",
+    }, 80);
+    expect(check).toMatchObject({
+      classification: "unknown",
+      unknownReason: "anthropic/claude-unknown week rung is unavailable",
+    });
+    expect(check.trigger).toBeUndefined();
+    expect(check.heir).toBeUndefined();
+  });
+
+  test("rejects malformed non-null rungs with the exact row path", () => {
+    expect(() => parseAvailabilityRows([{
+      ...valid,
+      rungs: { ...valid.rungs, week: "unavailable" },
+    }])).toThrow("account availability row[0].rungs.week must be an object");
+  });
 });
 
 test("active route falls back to the current managed agent identity", () => {
@@ -183,6 +239,25 @@ test("warning detection reports every crossed rung", () => {
     "window:five-hour",
     "model:claude-opus-5",
   ]);
+});
+
+test("unknown candidate capacity never becomes an heir", () => {
+  const check = checkHandoff([
+    row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
+    row("codex-unknown", "openai", {
+      window: null,
+      week: null,
+      verdict: "unknown",
+      usableModels: ["gpt-5.6-sol"],
+    }),
+  ], {
+    provider: "anthropic",
+    account: "claude-active",
+    model: "claude-opus-5",
+    tier: "senior",
+  }, 80);
+  expect(check.classification).toBe("account-dead");
+  expect(check.heir).toBeUndefined();
 });
 
 test("provider-recovery evidence pins the complete heir route and embeds receipts", () => {
@@ -303,6 +378,27 @@ describe("handoff CLI", () => {
     })).toBe(0);
     expect(output.join("\n")).toContain("classification account-dead");
     expect(output.join("\n")).toContain("heir openai/codex-heir/gpt-5.6-sol");
+  });
+
+  test("check renders unknown required capacity without crashing", () => {
+    const output: string[] = [];
+    const errors: string[] = [];
+    expect(runHandoffCli(["check", "--provider", "anthropic"], {
+      env: {
+        AGENT_TARGET: "claude-unknown",
+        AGENT_MODEL: "claude-opus-5",
+        AGENT_TIER: "senior",
+      },
+      loadRows: () => [row("claude-unknown", "anthropic", {
+        week: null,
+        verdict: "unknown",
+      })],
+      stdout: (line) => output.push(line),
+      stderr: (line) => errors.push(line),
+    })).toBe(0);
+    expect(output.join("\n")).toContain("classification unknown");
+    expect(output.join("\n")).toContain("week rung is unavailable");
+    expect(errors).toEqual([]);
   });
 
   test("fire dry-run prints the complete spawn and executes nothing", () => {

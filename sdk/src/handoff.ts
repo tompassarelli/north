@@ -14,6 +14,7 @@ import {
   ROUTING_PIN_POLICY_VERSION,
   type RoutingPinEvidence,
 } from "./routing-economics";
+import type { AccountAvailabilityRow } from "./account-availability";
 import type { ProviderId } from "./providers/types";
 
 const REPO = resolve(import.meta.dir, "..", "..");
@@ -25,22 +26,11 @@ export interface AvailabilityRung {
   resetsAt: string;
 }
 
-export interface AvailabilityRow {
-  account: string;
-  provider: ProviderId;
-  observedAt: string;
-  stale: boolean;
-  rungs: {
-    window: AvailabilityRung & { name: string };
-    week: AvailabilityRung;
-    models: Record<string, AvailabilityRung>;
-  };
-  verdict: string;
-  usableModels: string[];
-}
+export type AvailabilityRow = AccountAvailabilityRow;
 
 export type HandoffClassification =
   | "available"
+  | "unknown"
   | "account-dead"
   | "window-dead"
   | "model-dead";
@@ -72,6 +62,7 @@ export interface HandoffCheck {
   threshold: number;
   classification: HandoffClassification;
   active: ActiveSessionRoute;
+  unknownReason?: string;
   trigger?: RungTrigger;
   heir?: HeirRoute;
   receipts: {
@@ -174,6 +165,16 @@ function timestamp(value: unknown, label: string): string {
   return rendered;
 }
 
+function availabilityVerdict(
+  value: unknown,
+  label: string,
+): AvailabilityRow["verdict"] {
+  const verdict = text(value, label);
+  if (!/^(available|unknown|cooked-week|cooked-window|model-cooked\[[^\]]+\])$/.test(verdict))
+    throw new Error(`${label} is outside the pinned contract`);
+  return verdict as AvailabilityRow["verdict"];
+}
+
 function parseRung(value: unknown, label: string, named = false): AvailabilityRung & { name?: string } {
   const raw = record(value, label);
   exactFields(raw, named ? ["name", "pct", "resetsAt"] : ["pct", "resetsAt"], label);
@@ -182,6 +183,14 @@ function parseRung(value: unknown, label: string, named = false): AvailabilityRu
     pct: percent(raw.pct, `${label}.pct`),
     resetsAt: timestamp(raw.resetsAt, `${label}.resetsAt`),
   };
+}
+
+function parseNullableRung(
+  value: unknown,
+  label: string,
+  named = false,
+): (AvailabilityRung & { name?: string }) | null {
+  return value === null ? null : parseRung(value, label, named);
 }
 
 export function parseAvailabilityRows(value: unknown): AvailabilityRow[] {
@@ -213,18 +222,18 @@ export function parseAvailabilityRows(value: unknown): AvailabilityRow[] {
       observedAt: timestamp(raw.observedAt, `${label}.observedAt`),
       stale: raw.stale,
       rungs: {
-        window: parseRung(rungs.window, `${label}.rungs.window`, true) as AvailabilityRow["rungs"]["window"],
-        week: parseRung(rungs.week, `${label}.rungs.week`),
+        window: parseNullableRung(
+          rungs.window,
+          `${label}.rungs.window`,
+          true,
+        ) as AvailabilityRow["rungs"]["window"],
+        week: parseNullableRung(rungs.week, `${label}.rungs.week`),
         models: parsedModels,
       },
-      verdict: text(raw.verdict, `${label}.verdict`),
+      verdict: availabilityVerdict(raw.verdict, `${label}.verdict`),
       usableModels: [...raw.usableModels],
     } satisfies AvailabilityRow;
   });
-  for (const [index, row] of rows.entries()) {
-    if (!/^(available|cooked-week|cooked-window|model-cooked\[[^\]]+\])$/.test(row.verdict))
-      throw new Error(`account availability row[${index}].verdict is outside the pinned contract`);
-  }
   const identities = rows.map(({ provider, account }) => `${provider}\u0000${account}`);
   if (new Set(identities).size !== identities.length)
     throw new Error("account availability JSON contains duplicate provider/account rows");
@@ -292,13 +301,13 @@ export function availabilityForRoute(
 }
 
 function triggerFor(row: AvailabilityRow, model: string | undefined, threshold: number): RungTrigger | undefined {
-  if (row.rungs.week.pct >= threshold) {
+  if (row.rungs.week && row.rungs.week.pct >= threshold) {
     return {
       rung: "week", name: "week", pct: row.rungs.week.pct,
       resetsAt: row.rungs.week.resetsAt,
     };
   }
-  if (row.rungs.window.pct >= threshold) {
+  if (row.rungs.window && row.rungs.window.pct >= threshold) {
     return {
       rung: "window", name: row.rungs.window.name, pct: row.rungs.window.pct,
       resetsAt: row.rungs.window.resetsAt,
@@ -314,6 +323,16 @@ function triggerFor(row: AvailabilityRow, model: string | undefined, threshold: 
   };
 }
 
+function unknownAvailabilityReason(row: AvailabilityRow): string | undefined {
+  if (!row.rungs.window)
+    return `${row.provider}/${row.account} window rung is unavailable`;
+  if (row.provider === "anthropic" && !row.rungs.week)
+    return `${row.provider}/${row.account} week rung is unavailable`;
+  if (row.verdict === "unknown")
+    return `${row.provider}/${row.account} availability verdict is unknown`;
+  return undefined;
+}
+
 function classification(trigger: RungTrigger | undefined): HandoffClassification {
   if (!trigger) return "available";
   if (trigger.rung === "week") return "account-dead";
@@ -326,7 +345,9 @@ function candidateUsable(
   model: string,
   threshold: number,
 ): boolean {
-  if (row.stale || row.rungs.week.pct >= threshold || row.rungs.window.pct >= threshold)
+  if (row.stale || unknownAvailabilityReason(row)
+      || (row.rungs.week !== null && row.rungs.week.pct >= threshold)
+      || (row.rungs.window !== null && row.rungs.window.pct >= threshold))
     return false;
   const scoped = Object.entries(row.rungs.models)
     .find(([candidate]) => modelMatches(row.provider, candidate, model));
@@ -381,6 +402,16 @@ export function checkHandoff(
   const tier = canonicalActive.tier
     ?? (canonicalActive.model ? semanticTierForModel(route.provider, canonicalActive.model) : undefined);
   const active = { ...canonicalActive, ...(tier ? { tier } : {}) };
+  const unknownReason = unknownAvailabilityReason(receipt);
+  if (unknownReason) {
+    return {
+      threshold,
+      classification: "unknown",
+      active,
+      unknownReason,
+      receipts: { active: receipt },
+    };
+  }
   const trigger = triggerFor(receipt, active.model, threshold);
   const heir = trigger ? heirFor(rows, active, tier, threshold) : undefined;
   return {
@@ -402,11 +433,11 @@ export function thresholdCrossings(
 ): RungTrigger[] {
   const threshold = handoffThreshold(thresholdValue);
   return [
-    ...(row.rungs.week.pct >= threshold ? [{
+    ...(row.rungs.week !== null && row.rungs.week.pct >= threshold ? [{
       rung: "week" as const, name: "week", pct: row.rungs.week.pct,
       resetsAt: row.rungs.week.resetsAt,
     }] : []),
-    ...(row.rungs.window.pct >= threshold ? [{
+    ...(row.rungs.window !== null && row.rungs.window.pct >= threshold ? [{
       rung: "window" as const, name: row.rungs.window.name, pct: row.rungs.window.pct,
       resetsAt: row.rungs.window.resetsAt,
     }] : []),
@@ -494,6 +525,8 @@ export function composeHandoffSpawn(
   notifyTarget: string,
   runtime: HandoffRuntime = {},
 ): HandoffSpawn {
+  if (check.classification === "unknown")
+    throw new Error(`handoff fire refused: active availability is unknown (${check.unknownReason ?? "required rung unavailable"})`);
   if (check.classification === "available")
     throw new Error("handoff fire refused: active route has not crossed the threshold");
   if (!check.heir)
