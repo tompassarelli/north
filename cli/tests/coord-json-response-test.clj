@@ -126,6 +126,33 @@
   (check! "facts without a version are malformed"
           (false? (:available (live-triples-at 7977 "/log")))))
 
+;; --- 4b. the fast path must not escape the stubbing seam --------------------
+;; The bug this pins actually shipped: the JSON path called send-envelope
+;; directly, so every caller and test that injects a coordinator failure by
+;; stubbing send-op-for-log was silently bypassed — the injected failure went to
+;; a REAL socket instead. live-facts-view-detail-test dropped from 11/11 to
+;; 5/11 and nothing else complained, because the tests that did pass were the
+;; ones not exercising the seam. A faster path that is unobservable to the
+;; failure-injection tests is not faster, it is untested.
+(let [seen (atom [])]
+  (with-redefs [north.coord/json-response-available? (constantly true)
+                north.coord/send-op-for-log
+                (fn [_ _ op & _] (swap! seen conj (:fmt op))
+                  {:version 7 :facts TRIPLES})]
+    (live-triples-at 7977 "/log")
+    (check! "the JSON request goes through send-op-for-log, not around it"
+            (= [:json] @seen))))
+
+(let [seen (atom 0)]
+  (with-redefs [north.coord/json-response-available? (constantly true)
+                north.coord/send-op-for-log
+                (fn [& _] (swap! seen inc) (throw (ex-info "injected" {})))]
+    (let [result (live-triples-at 7977 "/log")]
+      (check! "a failure injected at the seam still reaches BOTH attempts"
+              (= 2 @seen))
+      (check! "an injected seam failure surfaces as unavailable"
+              (false? (:available result))))))
+
 ;; --- 5. the capability probe is honest --------------------------------------
 (check! "this test classpath reports its real JSON capability"
         (boolean? (north.coord/json-response-available?)))
