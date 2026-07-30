@@ -354,10 +354,11 @@ for (const catalog of Object.values(providerCatalogs)) {
   }
 }
 const fableModel = providerCatalogs.anthropic.modelAliases.fable;
-if (resolvableDeliberations("frontier").has("high"))
-  throw new Error("unpinned frontier/high became reachable through an alternate exact-model route");
+// frontier/high is now deliberately reachable via the calibrated Fable route.
+if (!resolvableDeliberations("frontier").has("high"))
+  throw new Error("frontier/high should be reachable through the calibrated Fable frontier tier route");
 for (const model of ["fable", fableModel]) {
-  for (const reasoning of ["xhigh", "max"]) {
+  for (const reasoning of ["high", "xhigh"]) {
     const route = resolvePinnedModelRoute(providerCatalogs.anthropic, {
       model, tier: "frontier", reasoning,
     });
@@ -376,9 +377,9 @@ function expectPinnedRouteFailure(label, catalog, request, errorContains) {
   }
 }
 expectPinnedRouteFailure(
-  "raw-only Fable high", providerCatalogs.anthropic,
-  { model: "fable", tier: "frontier", reasoning: "high" },
-  "does not calibrate frontier/high",
+  "raw-only Fable max", providerCatalogs.anthropic,
+  { model: "fable", tier: "frontier", reasoning: "max" },
+  "does not calibrate frontier/max",
 );
 for (const reasoning of ["low", "medium"])
   expectPinnedRouteFailure(
@@ -726,16 +727,11 @@ const safeBespoke = routingFixtures.valid.find(({ name }) => name === "complete 
 if (!safeBespoke) throw new Error("safe bespoke routing fixture is missing");
 validateRoutingRequest(safeBespoke, staffing);
 {
+  // frontier/high is now a calibrated Fable rung — must be accepted, not rejected.
   const unpinnedFrontierHigh = structuredClone(safeBespoke);
   unpinnedFrontierHigh.tier = "frontier";
   unpinnedFrontierHigh.reasoning = "high";
-  try {
-    validateRoutingRequest(unpinnedFrontierHigh, staffing);
-    throw new Error("unpinned frontier/high routing request was accepted");
-  } catch (error) {
-    if (error.message === "unpinned frontier/high routing request was accepted" ||
-        !error.message.includes("unsupported route: tier 'frontier' with deliberation 'high'")) throw error;
-  }
+  validateRoutingRequest(unpinnedFrontierHigh, staffing);
 }
 for (const [id, expected] of roleIdCases) {
   const request = structuredClone(safeBespoke);
@@ -1420,8 +1416,8 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
       throw new Error(`generated provider matrix lost exact-model fact separation: ${phrase}`);
   const fableMatrixRow = providerMatrix.split("\n")
     .find((line) => line.startsWith(`| anthropic | \`${fableModel}\` |`));
-  if (!fableMatrixRow?.includes("| frontier: xhigh, max | low, medium, high |"))
-    throw new Error("Fable matrix must expose high as provider-supported but unrouted calibration input");
+  if (!fableMatrixRow?.includes("| frontier: high, xhigh | low, medium, max |"))
+    throw new Error("Fable matrix must expose max as provider-supported but unrouted calibration input");
   if (!routing.includes("support never implies a tier cross-product") ||
       !routing.includes("Static catalog compatibility establishes neither account") ||
       !doctrine.includes("are four\nseparate facts") ||

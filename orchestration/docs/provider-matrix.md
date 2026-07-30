@@ -31,7 +31,7 @@ delta lookup; unversioned calibration is never inherited.
 | anthropic | economy | `claude-sonnet-5` | `sonnet` | low | low | none — the existing unversioned Sonnet self-report does not establish an exact Sonnet 5 calibration |
 | anthropic | standard | `claude-sonnet-5` | `sonnet` | medium | medium | none — the existing unversioned Sonnet self-report does not establish an exact Sonnet 5 calibration |
 | anthropic | senior | `claude-opus-5` | `opus` | medium, high | high | none — adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a orchestration:elicit calibration pass |
-| anthropic | frontier | `claude-opus-5` | `opus` | xhigh | xhigh | none — adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a orchestration:elicit calibration pass |
+| anthropic | frontier | `claude-fable-5` | `fable` | high, xhigh | xhigh | [calibrated](deltas/claude-fable-5.md) |
 | openai | economy | `gpt-5.6-luna` | `luna` | low, medium | medium | [calibrated](deltas/gpt-5.6-luna.md) |
 | openai | standard | `gpt-5.6-terra` | `terra` | low, medium | medium | [calibrated](deltas/gpt-5.6-terra.md) |
 | openai | senior | `gpt-5.6-sol` | `sol` | medium, high | high | [calibrated](deltas/gpt-5.6-sol.md) |
@@ -58,7 +58,7 @@ No catalog support or route entry establishes either runtime fact.
 | anthropic | `claude-opus-5` | `opus` | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh | low, max |
 | anthropic | `claude-sonnet-5` | `sonnet` | effort | low, medium, high, xhigh, max | economy: low<br>standard: medium | high, xhigh, max |
 | anthropic | `claude-opus-4-8` | — | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | low |
-| anthropic | `claude-fable-5` | `fable` | effort | low, medium, high, xhigh, max | frontier: xhigh, max | low, medium, high |
+| anthropic | `claude-fable-5` | `fable` | effort | low, medium, high, xhigh, max | frontier: high, xhigh | low, medium, max |
 | openai | `gpt-5.6-luna` | `luna` | reasoning | low, medium, high, xhigh, max | economy: low, medium | high, xhigh, max |
 | openai | `gpt-5.6-terra` | `terra` | reasoning | low, medium, high, xhigh, max | standard: low, medium | high, xhigh, max |
 | openai | `gpt-5.6-sol` | `sol` | reasoning | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | low |
@@ -94,4 +94,3 @@ then prevents calibration inheritance from the default tier model.
 | Provider | Exact model | Aliases | Model delta |
 |---|---|---|---|
 | anthropic | `claude-opus-4-8` | — | none — the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration |
-| anthropic | `claude-fable-5` | `fable` | [calibrated](deltas/claude-fable-5.md) |

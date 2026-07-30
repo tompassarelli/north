@@ -283,9 +283,9 @@ test("model calibration uses exact catalog keys and never applies stale alias de
     presenceRegistrar: false,
     routingMetadata: preset("designer"),
   });
-  expect(fable.systemPrompt).not.toContain("Orchestration exact-model delta");
+  expect(fable.systemPrompt).toContain("Orchestration exact-model delta — anthropic:claude-fable-5");
   expect(harnessCompositionEvidence(fable)?.modelDelta).toMatchObject({
-    provider: "anthropic", model: "claude-fable-5", kind: "none",
+    provider: "anthropic", model: "claude-fable-5", kind: "calibrated", path: "docs/deltas/claude-fable-5.md",
   });
 });
 
