@@ -135,7 +135,7 @@ export function expectedLog(): string {
   const requested = explicit ?? resolve(home, ".local/state/north/facts.log");
   const split = resolve(dirname(requested), "coordination.log");
   let selected = requested;
-  if (!explicit && !process.env.FRAM_TELEMETRY_LOG) {
+  if (!explicit) {
     try { if (realpathSync(split)) selected = split; } catch { /* no split log */ }
   }
   return canonical(selected);

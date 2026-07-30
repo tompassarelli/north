@@ -411,7 +411,6 @@
          log-parent (or (.getParent (io/file initial-log)) ".")
          split-log (.getCanonicalPath (io/file log-parent "coordination.log"))
          split? (and (nil? explicit-log)
-                     (nil? explicit-telemetry)
                      (regular-file? split-log))
          selected-log (if split? split-log initial-log)
          threads (or (not-empty (get source "FRAM_THREADS"))
@@ -422,8 +421,9 @@
                     "FRAM_LOG" selected-log
                     "FRAM_THREADS" threads
                     "NORTH_PORT" port)
-       split? (assoc "FRAM_TELEMETRY_LOG"
-                     (.getCanonicalPath (io/file log-parent "telemetry.log")))))))
+       (and split? (nil? explicit-telemetry))
+       (assoc "FRAM_TELEMETRY_LOG"
+              (.getCanonicalPath (io/file log-parent "telemetry.log")))))))
 
 (defn resolve-coordinator [env args]
   (or (not-empty (get args "coordinator"))
