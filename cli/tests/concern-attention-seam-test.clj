@@ -38,7 +38,11 @@
       false)
     (catch Exception _ true)))
 
-(def fram "/home/tom/code/fram/main")
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")
+      (.getCanonicalPath
+       (io/file (System/getProperty "user.home") "code" "fram" "main"))))
 (def port
   (or (some #(when (port-free? %) %) (range 7650 7680))
       (throw (ex-info "no test port available" {}))))
