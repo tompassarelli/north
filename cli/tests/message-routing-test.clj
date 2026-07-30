@@ -32,6 +32,24 @@
   (swap! checks conj [label (boolean value)])
   (println (if value (str "PASS " label) (str "FAIL " label))))
 
+(let [expiry (+ (System/currentTimeMillis) 60000)]
+  (let [epoch-zero
+        (north.coord/decode-lease
+         (str "session-a|" expiry "|0"))]
+    (check "epoch zero remains parseable but is not lease authority"
+           (and (= 0 (:epoch epoch-zero))
+                (false?
+                 (north.coord/authoritative-lease? epoch-zero)))))
+  (doseq [[label value]
+          [["missing epoch" (str "session-a|" expiry)]
+           ["negative epoch" (str "session-a|" expiry "|-1")]
+           ["out-of-range epoch"
+            (str "session-a|" expiry "|9007199254740992")]
+           ["extra lease field" (str "session-a|" expiry "|1|extra")]
+           ["empty holder" (str "|" expiry "|1")]]]
+    (check (str label " is not lease authority")
+           (nil? (north.coord/decode-lease value)))))
+
 (def facts
   {["@role:north-integrator" "target"] "live-session"
    ["@agent:dead-session" "repo"] "north"
@@ -175,6 +193,28 @@
               (java.time.Instant/parse "2026-07-27T12:00:00Z")))))
   (check "readiness dead-letter scan performs no per-message many reads"
          (empty? @many-calls)))
+
+(let [expiry (+ (System/currentTimeMillis) 60000)]
+  (with-redefs
+   [north.coord/resolved
+    (fn [_ subject predicate]
+      (when (= [subject predicate]
+               ["@lease:session:wrong-holder" "lease"])
+        (str "somebody-else|" expiry "|1")))]
+    (check "future lease held by another control cannot admit a direct route"
+           (false?
+            (north.message-routing/recipient-live? 1 "wrong-holder")))))
+
+(let [expiry (+ (System/currentTimeMillis) 60000)]
+  (with-redefs
+   [north.coord/resolved
+    (fn [_ subject predicate]
+      (when (= [subject predicate]
+               ["@lease:session:epoch-zero" "lease"])
+        (str "epoch-zero|" expiry "|0")))]
+    (check "future matching lease with epoch zero cannot admit a direct route"
+           (false?
+            (north.message-routing/recipient-live? 1 "epoch-zero")))))
 
 (let [result
       (proc/shell

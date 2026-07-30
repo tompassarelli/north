@@ -124,6 +124,11 @@
            {:ok [["@lease:session:broken" "someone-else|9999999999999|1"]]
             :version 1 :engine "index"}
            "presence-online-json")
+          zero-epoch-result
+          (run-against-response
+           {:ok [["@lease:session:broken" "broken|9999999999999|0"]]
+            :version 1 :engine "index"}
+           "presence-online-json")
           overflow-result
           (run-against-response
            {:ok [["@lease:session:broken"
@@ -158,6 +163,8 @@
                                       "north:presence-online:v1"))))
       (check "session lease holder mismatch fails the JSON roster closed"
              (not (zero? (:exit wrong-holder-result))))
+      (check "zero-epoch session lease fails the JSON roster closed"
+             (not (zero? (:exit zero-epoch-result))))
       (check "overflowing lease integers fail the JSON roster closed"
              (not (zero? (:exit overflow-result))))
       (check "distinct duplicate session leases fail the JSON roster closed"

@@ -31,8 +31,15 @@ log_b="$tmp/expected corpus/facts.log"
 cp "$log_a" "$tmp/log-a.before"
 cp "$log_b" "$tmp/log-b.before"
 port="$(bb -e '(with-open [s (java.net.ServerSocket. 0)] (println (.getLocalPort s)))')"
+hermetic_env=(
+  env
+  -u FRAM_TELEMETRY_LOG
+  -u NORTH_TELEMETRY_PARTITION
+  -u NORTH_TELEMETRY_PORT
+)
 
-FRAM_REQUIRE_LOG_FENCE=1 FRAM_PORT="$port" FRAM_LOG="$log_a" \
+"${hermetic_env[@]}" FRAM_SNAPSHOT_BOOT=0 \
+  FRAM_REQUIRE_LOG_FENCE=1 FRAM_PORT="$port" FRAM_LOG="$log_a" \
   "$fram/bin/fram-daemon" "$port" "$log_a" \
   >"$tmp/daemon.out" 2>"$tmp/daemon.err" &
 daemon_pid=$!
@@ -40,7 +47,7 @@ daemon_pid=$!
 healthy=
 for _ in $(seq 1 120); do
   doctor_output="$(
-    HOME="$tmp/home" FRAM_PORT="$port" FRAM_LOG="$log_a" \
+    "${hermetic_env[@]}" HOME="$tmp/home" FRAM_PORT="$port" FRAM_LOG="$log_a" \
       "$fram/bin/fram" doctor 2>&1 || true
   )"
   if [[ "${doctor_output%%$'\n'*}" =~ ^coordinator\ UP\ on\ 127\.0\.0\.1:$port\ \(v[0-9]+\)$ ]]; then
@@ -57,7 +64,7 @@ if [[ -z "$healthy" ]]; then
 fi
 
 strict_probe="$(
-  HOME="$tmp/home" FRAM_LOG="$log_a" \
+  "${hermetic_env[@]}" HOME="$tmp/home" FRAM_LOG="$log_a" \
     bb "$root/cli/coord.clj" strict-probe "$port" "$log_a"
 )"
 grep -q ':ready true' <<<"$strict_probe"
@@ -74,7 +81,7 @@ common_env=(
 )
 
 shared_result="$(
-  env "${common_env[@]}" NORTH_ROOT="$root" bb -e '
+  "${hermetic_env[@]}" "${common_env[@]}" NORTH_ROOT="$root" bb -e '
     (load-file (str (System/getenv "NORTH_ROOT") "/cli/coord.clj"))
     (prn (north.coord/append!
           (Integer/parseInt (System/getenv "FRAM_PORT"))
@@ -83,18 +90,20 @@ shared_result="$(
 grep -q ':code :log-mismatch' <<<"$shared_result"
 
 capture_output="$(
-  env "${common_env[@]}" "$root/bin/north" capture "must not land in either corpus" 2>&1
+  "${hermetic_env[@]}" "${common_env[@]}" \
+    "$root/bin/north" capture "must not land in either corpus" 2>&1
 )"
 grep -Fq 'CORPUS MISMATCH' <<<"$capture_output"
 grep -Fq 'capture was not recorded' <<<"$capture_output"
 
 tell_output="$(
-  env "${common_env[@]}" "$root/bin/north" tell @wire-handle note must-not-land 2>&1
+  "${hermetic_env[@]}" "${common_env[@]}" \
+    "$root/bin/north" tell @wire-handle note must-not-land 2>&1
 )"
 grep -q 'REJECTED by coordinator.*different log' <<<"$tell_output"
 
 set +e
-env "${common_env[@]}" timeout 5 \
+"${hermetic_env[@]}" "${common_env[@]}" timeout 5 \
   bb "$root/cli/north-listen.clj" "$port" fence-probe --once \
   >"$tmp/listener.out" 2>&1
 listener_rc=$?
@@ -107,7 +116,7 @@ if grep -q 'listening' "$tmp/listener.out"; then
 fi
 
 set +e
-env "${common_env[@]}" timeout 3 \
+"${hermetic_env[@]}" "${common_env[@]}" timeout 3 \
   bb "$root/cli/north-reactor.clj" "$port" 100 \
   >"$tmp/reactor.out" 2>&1
 reactor_rc=$?
@@ -120,7 +129,7 @@ reactor_retries="$(grep -c 'subscription lost' "$tmp/reactor.out")"
 # Defense in depth: strict mode rejects a raw write even if a future North
 # client accidentally bypasses the envelope.
 raw_result="$(
-  NORTH_TEST_PORT="$port" bb -e '
+  "${hermetic_env[@]}" NORTH_TEST_PORT="$port" bb -e '
     (require (quote [clojure.edn :as edn]) (quote [clojure.java.io :as io]))
     (with-open [s (java.net.Socket. "127.0.0.1"
                                    (Integer/parseInt (System/getenv "NORTH_TEST_PORT")))]
