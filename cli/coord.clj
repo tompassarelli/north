@@ -694,17 +694,35 @@
              (every? #(and (vector? %) (every? string? %)) (:ok response))
              (integer? (:version response))
              (not (neg? (:version response)))
+             (= "index" (:engine response)))
+        error-envelope?
+        (and (map? response)
+             (not (contains? response :ok))
+             (vector? (:error response))
+             (seq (:error response))
+             (every? string? (:error response))
+             (keyword? (:code response))
+             (integer? (:version response))
+             (not (neg? (:version response)))
              (= "index" (:engine response)))]
     (cond
       success? response
 
-      (and (map? response)
-           (contains? response :error)
-           (= :query-row-limit (:code response)))
+      (and error-envelope? (= :query-row-limit (:code response)))
       (throw
        (ex-info "indexed query exceeded its row bound"
                 {:type :indexed-query-row-limit
-                 :max-rows max-rows}))
+                 :code (:code response)
+                 :max-rows max-rows
+                 :response response}))
+
+      error-envelope?
+      (throw
+       (ex-info (str "coordinator returned indexed-query error: "
+                     (name (:code response)))
+                {:type :indexed-query-error
+                 :code (:code response)
+                 :response response}))
 
       :else
       (throw

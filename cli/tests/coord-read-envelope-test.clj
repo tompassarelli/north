@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Rung 0 — the read primitives must never lie. Inject an error map, a malformed
 ;; envelope, and a transport timeout DIRECTLY at the coordinator primitives
-;; (resolved / many / query-rows) and prove every injected failure yields a
+;; (resolved / many / indexed-query / query-rows) and prove every injected failure yields a
 ;; TYPED, DISTINGUISHABLE throw — never a silent nil or empty collection that a
 ;; caller would read as "absent". Daemon-free: send-op is redefined per case, so
 ;; this is a pure contract test with no Fram checkout.
@@ -24,9 +24,9 @@
     (try
       {:threw? false :value (thunk)}
       (catch clojure.lang.ExceptionInfo e
-        {:threw? true :type (:type (ex-data e)) :value ::none})
+        {:threw? true :type (:type (ex-data e)) :data (ex-data e) :value ::none})
       (catch Exception e
-        {:threw? true :type (class e) :value ::none}))))
+        {:threw? true :type (class e) :data nil :value ::none}))))
 
 (defn const [reply] (fn [_] reply))
 (defn timeout [] (fn [_] (throw (ex-info "coordinator read timed out"
@@ -106,6 +106,34 @@
 (let [r (observe (timeout) #(north.coord/show-rows 1 "@x"))]
   (check! "show-rows surfaces a read timeout as a throw, not []"
           (and (:threw? r) (= :coordinator-read-timeout (:type r)))))
+
+;; ---- indexed-query: server aborts stay distinct from malformed envelopes --
+(def indexed-query-fixture
+  {:find "row"
+   :rules [{:head {:rel "row" :args [{:var "e"}]}
+            :body [{:rel "triple"
+                    :args [{:var "e"} "kind" "rebuild-request"]}]}]})
+(def query-time-limit-envelope
+  {:error ["query evaluation stopped: query-time-limit"]
+   :code :query-time-limit
+   :timeout-ms 30000
+   :version 7
+   :engine "index"})
+
+(let [r (observe (const query-time-limit-envelope)
+                 #(north.coord/indexed-query 1 indexed-query-fixture 16))]
+  (check! "indexed-query preserves a valid server evaluation timeout"
+          (and (:threw? r)
+               (= :indexed-query-error (:type r))
+               (= :query-time-limit (get-in r [:data :code]))
+               (= query-time-limit-envelope (get-in r [:data :response])))))
+
+(let [r (observe
+         (const (assoc query-time-limit-envelope :ok []))
+         #(north.coord/indexed-query 1 indexed-query-fixture 16))]
+  (check! "indexed-query keeps a contradictory success/error envelope malformed"
+          (and (:threw? r)
+               (= :malformed-indexed-query-response (:type r)))))
 
 ;; ---- query-rows / agg-rows: same discipline for :ok row reads -------------
 (let [r (observe (const {:ok [] :version 1 :engine "scan"})
