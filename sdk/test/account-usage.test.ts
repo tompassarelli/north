@@ -83,8 +83,8 @@ test("refreshes every isolated account concurrently with disjoint authoritative 
     .unavailableComponents).toEqual([{ limitId: "claude:five_hour", reason: "reset_unavailable" }]);
 });
 
-test("successful sampling invokes the handoff warning seam without changing reports", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "north-account-usage-handoff-"));
+test("successful sampling invokes the failover warning seam without changing reports", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-account-usage-failover-"));
   temporary.push(directory);
   const storePath = join(directory, "observations.json");
   const now = new Date();
@@ -103,7 +103,7 @@ test("successful sampling invokes the handoff warning seam without changing repo
       observedAt: now.toISOString(),
       windows: [{ limitId: "codex:primary", usedPercent: 20, resetsAt: reset }],
     }),
-    handoffObserver: ({ env: observed }) => observedEnvs.push(observed),
+    failoverObserver: ({ env: observed }) => observedEnvs.push(observed),
   });
   expect(reports.map(({ accountId, status }) => [accountId, status]))
     .toEqual([["codex-proton", "observed"]]);

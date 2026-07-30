@@ -353,8 +353,8 @@ north — your one card. Type a command to do the thing next to it.
     north account usage [id]           subscription windows, resets, and unknown reasons
     north account availability         cached per-account availability verdicts
     north account list [--verbose]    grouped accounts + live login state
-    north handoff check               classify the active provider rungs and name a same-tier heir
-    north handoff fire --thread ID --brief PATH [--dry-run]
+    north failover check              classify the active provider rungs and name a same-tier heir
+    north failover fire --thread ID --brief PATH [--dry-run]
                                        compose or launch a provider-recovery team lead
     north spend status [target]        API-billing budget: cap, reserved, settled, headroom
     north spend init|override <target> create a guarded budget · add a time-boxed override
@@ -424,10 +424,14 @@ CARD
     # Isolated Claude Code / Codex subscription account homes. The TypeScript
     # CLI owns path validation, allowlisted config links, and normalized auth.
     exec "$BUN" run "$NORTH/sdk/src/account-cli.ts" "${@:2}" ;;
-  handoff)
+  failover)
     # Provider-recovery control surface. Availability is read through the stable
     # cached JSON boundary; only `fire` without --dry-run may launch an heir.
-    exec "$BUN" run "$NORTH/sdk/src/handoff-cli.ts" "${@:2}" ;;
+    exec "$BUN" run "$NORTH/sdk/src/failover-cli.ts" "${@:2}" ;;
+  handoff)
+    # Renamed to `failover` (2026-07-30): "handoff" is doctrine vocabulary.
+    echo "renamed: use \`north failover\`" >&2
+    exit 1 ;;
   spend)
     # API-billing budget LEDGER (spend-guard step 2). Owns schema declaration,
     # the cap-checked CAS reservation, terminal settlement, and human overrides

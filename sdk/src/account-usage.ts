@@ -59,7 +59,7 @@ import {
   loadProviderUsageObservations,
   OBSERVATION_CLOCK_SKEW_MS,
 } from "./resource-policy";
-import { observeHandoffUsageSample } from "./handoff";
+import { observeFailoverUsageSample } from "./failover";
 
 export const ACCOUNT_USAGE_TTL_MS = COLLECTION_FAILURE_TTL_MS;
 const DEFAULT_ACCOUNT_USAGE_PROBE_TIMEOUT_MS = 30_000;
@@ -114,8 +114,8 @@ export interface RefreshAccountUsageOptions {
   createAnthropicControlLifecycle?: () => AnthropicProcessLifecycle;
   readAnthropic?: ReadAnthropic;
   readCodex?: ReadCodex;
-  /** Fixture seam for the post-sample, cached-evidence handoff warning hook. */
-  handoffObserver?: (runtime: { env: NodeJS.ProcessEnv }) => unknown;
+  /** Fixture seam for the post-sample, cached-evidence failover warning hook. */
+  failoverObserver?: (runtime: { env: NodeJS.ProcessEnv }) => unknown;
 }
 
 export type AccountUsageTarget = Pick<RoutingTarget, "id" | "provider" | "authMode" | "profile">;
@@ -533,7 +533,7 @@ export async function refreshAccountUsages(
   const reports = await Promise.all(accounts.map((account) => refreshOne(account, options, storePath, now)));
   throwIfProviderRefreshCancelled(options.signal);
   try {
-    (options.handoffObserver ?? observeHandoffUsageSample)({
+    (options.failoverObserver ?? observeFailoverUsageSample)({
       env: options.env ?? options.context?.env ?? process.env,
     });
   } catch {

@@ -69,7 +69,7 @@ function config(env: NodeJS.ProcessEnv = process.env): CliConfig {
     fireArgs: env.NORTH_SUCCESSION_FIRE_ARGS
       ? env.NORTH_SUCCESSION_FIRE_ARGS.split("\u001f")
       : [
-          "handoff",
+          "failover",
           "fire",
           "--thread",
           env.NORTH_SUCCESSION_ROOT_THREAD ?? "019fa4d4-93aa-7447-aae5-0a5bcfca6849",
