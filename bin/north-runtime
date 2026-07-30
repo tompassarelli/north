@@ -216,13 +216,9 @@ mint_id() {
 # The generation's on-disk record is authoritative; this fact is the observable
 # provenance. A coordinator that is down must never block delivery, so a failed
 # publication warns and the promote stands.
-record_fact() {
+publish_fact() {
   local id=$1 kind=$2 revision=$3 previous=$4 why=$5 source=$6 origin=$7 ts=$8
 
-  command -v "$bb" >/dev/null 2>&1 || {
-    warn "promote record not published: babashka is unavailable"
-    return 0
-  }
   FRAM_LOG="$coordination_log" "$bb" -e '
 (load-file (str (nth *command-line-args* 0) "/cli/coord.clj"))
 (let [args (vec *command-line-args*)
@@ -236,14 +232,30 @@ record_fact() {
   (println subject))' \
     "$cli_root" "$port" "@north-runtime-promote:$id" \
     kind north-runtime-promote \
+    promote_kind "$kind" \
     rev "$revision" \
     previous_rev "$previous" \
     why "$why" \
     ts "$ts" \
     source "$source" \
     origin "$origin" \
-    who "$(id -un)" >/dev/null 2>&1 ||
-    warn "promote record not published to the coordinator (deployment is live regardless)"
+    who "$(id -un)" >/dev/null 2>&1
+}
+
+# Retried on the same subject id, so a publication that landed but timed out on
+# the read is re-asserted identically rather than duplicated.
+record_fact() {
+  local attempt
+
+  command -v "$bb" >/dev/null 2>&1 || {
+    warn "promote record not published: babashka is unavailable"
+    return 0
+  }
+  for attempt in 1 2 3; do
+    if publish_fact "$@"; then return 0; fi
+    [ "$attempt" -eq 3 ] || sleep 2
+  done
+  warn "promote record not published to the coordinator (deployment is live regardless)"
 }
 
 behind_main() {
