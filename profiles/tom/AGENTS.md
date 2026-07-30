@@ -214,6 +214,17 @@ Build-only verify: `nix build --no-link`.
 Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 `nix develop` / `nix shell`.
 
+## Hot-loop repos never ride the rebuild cycle
+<!-- north-section: hot-loop-repos · bucket: write -->
+
+north, fram, and beagle deliver code through their own channels — live
+checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
+reactor, timers), sealed `north-enforcement-promote` (guards, deliberately
+slow). A rebuild whose purpose is adopting hot-loop code is a DEFECT: tag
+the ask `--why "code-adoption: …"`, capture a thread naming the coupling,
+and fix the channel instead. `north doctor` tracks code-adoption rebuild
+asks; the target is zero. Rebuilds are for system config only.
+
 ## Paths — full and `~`-anchored, always
 <!-- north-section: paths · bucket: core -->
 
