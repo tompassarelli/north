@@ -28,7 +28,8 @@ pass() { echo "ok: $1"; }
 mkdir -p "$origin/bin" "$origin/cli"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/concern"
-chmod +x "$origin/bin/north" "$origin/bin/concern"
+printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north-stream-sync-all"
+chmod +x "$origin/bin/north" "$origin/bin/concern" "$origin/bin/north-stream-sync-all"
 printf '(println "reactor")\n' >"$origin/cli/north-reactor.clj"
 printf '(ns north.coord)\n' >"$origin/cli/coord.clj"
 git -C "$origin" init -q -b main
@@ -88,5 +89,20 @@ pass "rollback reselects the retained previous deployment, recorded"
 [ "$(readlink -f "$state/current")" = "$(realpath "$state")/deployments/$second" ] ||
   fail "rollback is not itself rollback-able"
 pass "rollback is itself rollback-able"
+
+# The sweep unit chdirs into the deployment and degrades to the packaged
+# runtime on any missing entrypoint, so promote must refuse an incomplete tree.
+thin=$work/thin
+mkdir -p "$thin/bin" "$thin/cli"
+printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/north"
+printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/concern"
+chmod +x "$thin/bin/north" "$thin/bin/concern"
+touch "$thin/cli/north-reactor.clj" "$thin/cli/coord.clj"
+git -C "$thin" init -q -b main
+git -C "$thin" -c user.email=t@example.com -c user.name=t add -A
+git -C "$thin" -c user.email=t@example.com -c user.name=t commit -qm thin
+"$tool" promote "$thin" HEAD --why "thin" >/dev/null 2>&1 &&
+  fail "promote accepted a deployment missing an entrypoint the unit execs" || true
+pass "promote refuses a tree the sweep unit could not run from"
 
 echo "PASS north-runtime-promote-test"
