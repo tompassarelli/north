@@ -1073,8 +1073,9 @@ or is needed:
    `progress` or a dedicated handoff fact) on the exact thread id the work
    belongs to, so it is discoverable by id rather than living only in a
    transcript.
-3. **Offer or transfer it explicitly.** Name a recipient (a message, a
-   `driver`/`lead` reassignment, or an explicit offer fact) — handoff is a
+3. **Offer it explicitly.** Name a recipient (a message or an explicit offer
+   fact — never a `driver`/`lead` assignment on the recipient's behalf: a
+   manufactured claim is indistinguishable from adoption) — handoff is a
    transitive act between a giver and a receiver, not a broadcast into the
    void.
 4. **Recipient reads, and either claims or declines.** The recipient reads the
