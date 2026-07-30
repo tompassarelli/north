@@ -336,6 +336,16 @@
    :code-log (resolved port c "code_log")
    :touches (touches-of port c)})
 
+;; Bound to a bulk index for the duration of one CAS read phase; every other
+;; caller keeps the per-subject round-trip read.
+(def ^:dynamic *concern-metas* nil)
+
+(defn concern-meta
+  "One concern's meta: the bound bulk index when it holds an exact entry for
+   this subject, else the per-subject read."
+  [port c]
+  (or (get *concern-metas* c) (meta-of port c)))
+
 (defn active-concern?
   "Situational coordination exists only while both concerns remain open."
   [m]
@@ -464,9 +474,9 @@
   (let [spec (north.attention/canonical-notification-spec event)
         source-concerns (:source-concerns spec)
         expected-key (terminal-event-key concern source-concerns)
-        trigger-state (meta-of port concern)
+        trigger-state (concern-meta port concern)
         peer-id (first (remove #{concern} source-concerns))
-        peer-state (when peer-id (meta-of port peer-id))]
+        peer-state (when peer-id (concern-meta port peer-id))]
     (when-not
      (and (= "overlap-left" (:attention-kind spec))
           (= "notify" (:delivery spec))
@@ -608,21 +618,31 @@
   ["kind" "agent" "repo" "intent" "reached" "code_port" "code_log"
    "touches" "lease"])
 
+;; `about` only reaches attention events, so the render path never pays for it.
+(def concern-meta-predicates (conj concern-list-predicates "about"))
+
+;; Cardinality-single on the board: the bulk projection equals meta-of's
+;; resolved read only while each of these has at most one live value.
+(def concern-single-predicates
+  ["kind" "agent" "about" "repo" "intent" "code_port" "code_log"])
+
 (defn add-live-rows [facts predicate rows]
   (reduce (fn [current [entity value]]
             (update-in current [entity predicate] (fnil conj #{}) value))
           facts rows))
 
-(defn concern-list-facts [port]
-  (reduce
-   (fn [facts predicate]
-     (add-live-rows
-      facts predicate
-      (north.coord/agg-rows
-       port ["e" "r"]
-       [{:rel "triple" :args [{:var "e"} predicate {:var "r"}]}])))
-   {}
-   concern-list-predicates))
+(defn concern-list-facts
+  ([port] (concern-list-facts port concern-list-predicates))
+  ([port predicates]
+   (reduce
+    (fn [facts predicate]
+      (add-live-rows
+       facts predicate
+       (north.coord/agg-rows
+        port ["e" "r"]
+        [{:rel "triple" :args [{:var "e"} predicate {:var "r"}]}])))
+    {}
+    predicates)))
 
 (defn singleton-live [facts subject predicate]
   (let [values (get-in facts [subject predicate] #{})]
@@ -647,6 +667,9 @@
         reached (get-in facts [concern "reached"] #{})]
     (merge
      {:id concern
+      :kind (singleton-live facts concern "kind")
+      :about (singleton-live facts concern "about")
+      :reached reached
       :agent agent
       :repo (singleton-live facts concern "repo")
       :intent (singleton-live facts concern "intent")
@@ -662,6 +685,26 @@
        (keep (fn [[entity predicates]]
                (when (= #{"concern"} (get predicates "kind")) entity)))
        distinct))
+
+(defn bulk-meta-exact? [facts concern]
+  (every? #(<= (count (get-in facts [concern %] #{})) 1)
+          concern-single-predicates))
+
+(defn concern-meta-index
+  "One bulk read -> {concern-id meta}, so a read phase costs a fixed number of
+   queries instead of one nine-round-trip meta-of per concern. A subject whose
+   single-valued facts are ambiguous is OMITTED: concern-meta then falls back to
+   the resolved read, so the index can never disagree with meta-of."
+  [port]
+  (let [facts (concern-list-facts port concern-meta-predicates)
+        now (System/currentTimeMillis)]
+    (reduce
+     (fn [index c]
+       (if (bulk-meta-exact? facts c)
+         (assoc index c (update (meta-from-live facts c now) :agent norm-cid))
+         index))
+     {}
+     (concerns-from-live facts))))
 
 ;; ---- strict versioned MACHINE projection (design 019f4418) ------------------
 ;; The liveness class a machine consumer (the dashboard) needs, derived from the
@@ -735,11 +778,11 @@
 (defn code-overlap-data [spine cport clog c]
   (let [resp (code-op cport clog
                       {:op :concern-overlap :te (concern-subj c)})
-        mine (meta-of spine c)
+        mine (concern-meta spine c)
         hits (->> (:overlaps resp)
                   (keep (fn [o]
                           (let [sid (subj->id (:concern o))
-                                m (meta-of spine sid)]
+                                m (concern-meta spine sid)]
                             (when (and (active-concern? mine)
                                        (active-concern? m))
                               (canonical-overlap mine m (:shared o) "code-graph")))))
@@ -750,10 +793,10 @@
      :overlaps hits}))
 
 (defn path-overlap-data [port c]
-  (let [mine (meta-of port c)
+  (let [mine (concern-meta port c)
         hits (->> (all-concerns port)
                   (remove #(= % c))
-                  (map #(meta-of port %))
+                  (map #(concern-meta port %))
                   (keep (fn [peer]
                           (let [shared (set/intersection (:touches mine) (:touches peer))]
                             (when (and (active-concern? mine)
@@ -794,19 +837,20 @@
     (str (System/getProperty "user.home") (subs path 1))
     :else path))
 
-(defn legacy-code-log [spine c]
-  (when-let [repo (resolved spine c "repo")]
+(defn legacy-code-log [repo]
+  (when repo
     (north.coord/canonical-log-path
      (.getPath (io/file (expand-home repo) ".fram" "code.log")))))
 
 ;; The effective code-store pair for THIS concern comes from its stored identity,
 ;; then the legacy deterministic repo path, then the ambient explicit pair.
 (defn overlaps-for [spine c]
-  (let [stored-port (some-> (resolved spine c "code_port") ->port)
+  (let [mine (concern-meta spine c)
+        stored-port (some-> (:code-port mine) ->port)
         cport (or stored-port code-port)
         clog (when cport
-               (or (resolved spine c "code_log")
-                   (when stored-port (legacy-code-log spine c))
+               (or (:code-log mine)
+                   (when stored-port (legacy-code-log (:repo mine)))
                    code-log))]
     (when (and cport (str/blank? clog))
       (code-store-error!
@@ -930,30 +974,33 @@
    skips only its affected concern; reconciliation remains best-effort and the
    next bounded pass can heal it."
   [spine raw]
-  (let [concerns
-        (if raw
-          [(existing-concern! spine raw)]
-          (->> (all-concerns spine)
-               (filter #(active-concern? (meta-of spine %)))
-               sort))]
-    (->> concerns
-         (mapcat
-          (fn [concern]
-            (try
-              (binding [*throw-code-store-errors?* true]
-                (:overlaps (overlaps-for spine concern)))
-              (catch Exception error
-                (binding [*out* *err*]
-                  (println
-                   (str "concern: attention reconciliation deferred for "
-                        concern ": " (.getMessage error))))
-                []))))
-         (reduce (fn [pairs overlap]
-                   (assoc pairs (:pair-key overlap) overlap))
-                 {})
-         vals
-         (sort-by :pair-key)
-         vec)))
+  ;; Whole-corpus reconciliation is the same per-peer read as a transition; it
+  ;; reads one bulk snapshot rather than nine round trips per concern.
+  (binding [*concern-metas* (if raw *concern-metas* (concern-meta-index spine))]
+    (let [concerns
+          (if raw
+            [(existing-concern! spine raw)]
+            (->> (all-concerns spine)
+                 (filter #(active-concern? (concern-meta spine %)))
+                 sort))]
+      (->> concerns
+           (mapcat
+            (fn [concern]
+              (try
+                (binding [*throw-code-store-errors?* true]
+                  (:overlaps (overlaps-for spine concern)))
+                (catch Exception error
+                  (binding [*out* *err*]
+                    (println
+                     (str "concern: attention reconciliation deferred for "
+                          concern ": " (.getMessage error))))
+                  []))))
+           (reduce (fn [pairs overlap]
+                     (assoc pairs (:pair-key overlap) overlap))
+                   {})
+           vals
+           (sort-by :pair-key)
+           vec))))
 
 (defn reconcile-attention!
   "Idempotently materialize current active-overlap attention plus pending
@@ -1021,40 +1068,43 @@
         (north.coord/assert-batch-after-read!
          port concern
          (fn []
-           (let [before (meta-of port concern)]
-             (cond
-               (terminal-status-present? before trigger-status)
-               {:done {:status :already :concern concern
-                       :trigger-status trigger-status}}
+           ;; Every read of this phase is guarded by the global base captured
+           ;; just above, so it must cost queries, not one round trip per peer.
+           (binding [*concern-metas* (concern-meta-index port)]
+             (let [before (concern-meta port concern)]
+               (cond
+                 (terminal-status-present? before trigger-status)
+                 {:done {:status :already :concern concern
+                         :trigger-status trigger-status}}
 
-               (not (active-concern? before))
-               {:done {:status :ineligible :concern concern
-                       :trigger-status trigger-status}}
+                 (not (active-concern? before))
+                 {:done {:status :ineligible :concern concern
+                         :trigger-status trigger-status}}
 
-               (and (= "abandoned-stale" trigger-status)
-                    (not (stale-building-concern? port before)))
-               {:done {:status :ineligible :concern concern
-                       :trigger-status trigger-status}}
+                 (and (= "abandoned-stale" trigger-status)
+                      (not (stale-building-concern? port before)))
+                 {:done {:status :ineligible :concern concern
+                         :trigger-status trigger-status}}
 
-               :else
-               (let [before-overlaps (:overlaps (overlaps-for port concern))
-                     after (terminal-state before trigger-status)
-                     events
-                     (attention-events-for-transition
-                      before after before-overlaps)
-                     intents
-                     (mapv
-                      #(attention-event-intent-value
-                        port concern trigger-status %)
-                      events)]
-                 {:facts
-                  (vec
-                   (concat
-                    (map (fn [intent]
-                           {:p attention-event-intent-predicate
-                            :r intent})
-                         intents)
-                    [{:p "reached" :r trigger-status}]))})))))
+                 :else
+                 (let [before-overlaps (:overlaps (overlaps-for port concern))
+                       after (terminal-state before trigger-status)
+                       events
+                       (attention-events-for-transition
+                        before after before-overlaps)
+                       intents
+                       (mapv
+                        #(attention-event-intent-value
+                          port concern trigger-status %)
+                        events)]
+                   {:facts
+                    (vec
+                     (concat
+                      (map (fn [intent]
+                             {:p attention-event-intent-predicate
+                              :r intent})
+                           intents)
+                      [{:p "reached" :r trigger-status}]))}))))))
         transition
         (cond
           (:done result) (:done result)

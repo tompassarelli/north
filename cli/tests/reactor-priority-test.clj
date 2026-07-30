@@ -75,8 +75,35 @@
                {:status :skipped})
               #'with-sweep-lock (fn [f] (f)))
              #(sweep-once-exit-code)))))]
+  (check "a failed stale-concern stage is contained and starves no later stage"
+         (and (= :rebuild-window (first @calls))
+              (= :concerns (second @calls))
+              (some #{:clock-audit} @calls)
+              (zero? @exit)
+              (str/includes? output "terminal=completed")
+              (str/includes? output "rebuild-window=fired")
+              (not (str/includes? output "maintenance=degraded"))
+              (not (str/includes? output "terminal=failed")))
+         {:calls @calls :exit @exit :output output}))
+
+(let [calls (atom [])
+      exit (atom nil)
+      output
+      (with-out-str
+        (binding [*err* *out*]
+          (reset!
+           exit
+           (with-redefs-fn
+             (assoc
+              (stage-stubs calls (constantly 0) {:status :skipped})
+              #'with-sweep-lock (fn [f] (f))
+              #'sweep-lanes!
+              (fn [_]
+                (swap! calls conj :lanes)
+                (throw (ex-info "fixture lane sweep failed" {}))))
+             #(sweep-once-exit-code)))))]
   (check "post-launch maintenance failure preserves the owner success"
-         (and (= [:rebuild-window :concerns] @calls)
+         (and (= [:rebuild-window :concerns :lanes] @calls)
               (zero? @exit)
               (str/includes? output "terminal=completed")
               (str/includes? output "rebuild-window=fired")
