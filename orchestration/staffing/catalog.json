@@ -17,85 +17,85 @@
       "name": "executor", "taskGrade": "novice", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "the specified change, applied exactly",
-      "description": "Execute-shaped tasks — bounded, mechanical, fully specified. Apply a patch, rename a symbol, add obvious tests, fix lint. Economy remains valid for foundational implementation-only work when no invariant decision is owned. Do NOT use when any judgment call is needed (→ implementer) or when behavior crosses a seam (→ integrator)."
+      "description": "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Any judgment call → implementer; behavior crossing a seam → integrator."
     },
     {
       "name": "implementer", "taskGrade": "mid", "tier": "standard", "deliberation": "medium", "topology": "worker", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "a working feature or fix inside existing patterns",
-      "description": "Implement-shaped tasks — one feature or fix inside known patterns. The junior/mid-level development stock template. Foundational implementation inside established invariants may remain standard; owning an invariant decision raises the minimum without changing the deliverable into integration. Do NOT use for ambiguous cross-seam debugging (→ integrator) or for anything choosing a new shape (→ designer)."
+      "description": "Implement-shaped tasks — one feature or fix inside known patterns. Ambiguous cross-seam debugging → integrator; choosing a new shape → designer."
     },
     {
       "name": "integrator", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "a working change across seams, with the map of what moved",
-      "description": "Integrate-shaped tasks — changes across consequential behavioral seams, ambiguous debugging, and refactors with behavior at stake. Senior engineering stock template. Cross-boundary decision ownership or consequential seams establish the senior floor; repository layer alone does not. For choosing a new design shape rather than working within one, use designer instead."
+      "description": "Integrate-shaped tasks — changes across consequential behavioral seams, ambiguous debugging, refactors with behavior at stake. Choosing a new design shape rather than working within one → designer."
     },
     {
       "name": "designer", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "a decision with trade-offs, not code",
-      "description": "Design-shaped tasks — choosing the shape of things: APIs, data models, decomposition, lifecycle semantics, naming that commits the system. Also small-looking decisions with large blast radius (a one-line naming choice that shapes an API is design, not execute). Tech-lead grade. Produces a DECISION with trade-offs, not code — read-only tools by design."
+      "description": "Design-shaped tasks — choosing the shape of things: APIs, data models, decomposition, naming that commits the system; small decisions with large blast radius are design, not execute. Produces a DECISION with trade-offs, not code — read-only by design."
     },
     {
       "name": "director", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
       "tagline": "independent work reconciled into one evidence-backed result",
-      "description": "Director-shaped work — a task with two or more genuinely independent pieces whose seams must be designed, staffed, evidence-reconciled, and integrated. The standard high-capability orchestrator function: classifies each direct child from its local dependency shape, routes every worker or child orchestrator through fresh North admission and metering, consumes worker evidence and reconciled child outcomes, drives the aggregate end-to-end, independently spot-checks materially load-bearing seams, owns direct-child reduction and cross-cutting constraints, and returns one result. It does not execute terminal worker subtasks or absorb their full local-probe burden. Use a worker role for atomic or tightly coupled work; override taskGrade to principal when direction spans systems or long-lived constraints."
+      "description": "Director-shaped work — two or more genuinely independent pieces whose seams must be designed, staffed, and evidence-reconciled. Coordinates only: freshly admits each child, consumes evidence, independently spot-checks materially load-bearing seams, drives the aggregate end-to-end, and returns one result; never executes worker subtasks. Atomic or tightly coupled work → a worker role."
     },
     {
       "name": "team-lead", "taskGrade": "staff", "tier": "senior", "deliberation": "high", "topology": "orchestrator", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
       "tagline": "one workstream reconciled into a single evidence-backed result",
-      "description": "Team-lead orchestration — the first rung of the scope/influence ladder: coordinate ONE workstream, a bounded tree of directly-staffed workers (and tightly-scoped child orchestrators) delivering a single feature or outcome. Classifies each direct child from its local dependency shape, routes every child through fresh North admission and metering, reconciles worker evidence, and drives the workstream end-to-end to one evidence-backed result; it does not execute terminal worker subtasks. CONTEXT ENVELOPE — GIVEN: the full interior of its own workstream (every child brief, done-bar, worker evidence, and intra-workstream seam) plus the program-level interfaces, invariants, deadline and budget that bound it, held as CONSTRAINTS. NOT GIVEN: the interior of sibling workstreams, the program board, cross-workstream sequencing, or portfolio priorities — it sees the program only as a constraint surface, never as detail to reason about. ESCALATION: when a bounding constraint conflicts with delivery, a new cross-workstream seam appears, or scope grows past the one workstream, stop and raise `north escalate needs-replan` (summary + checkpoint + proposed re-decomposition), which routes to the first live agent up the declared parent chain. Scope, not raw intelligence, separates this rung from a worker: it stays at senior tier with high effort. Use program for several workstreams, portfolio for the whole board."
+      "description": "Team-lead orchestration — first rung of the scope ladder: coordinate ONE workstream (a bounded tree of directly staffed children) to a single reconciled, evidence-backed result. Sees its own workstream in full and the program above only as constraints. Several workstreams → program; the whole board → portfolio."
     },
     {
       "name": "program", "taskGrade": "principal", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
       "tagline": "several workstreams reconciled into one program outcome, with the cross-workstream seam map",
-      "description": "Program orchestration — the middle rung of the scope/influence ladder: coordinate SEVERAL workstreams toward one program goal. Staffs and reconciles multiple team-lead orchestrators (and workers), owns the seams BETWEEN workstreams, their sequencing, and shared-constraint coherence. Each workstream is freshly admitted through North; nesting never inherits the parent route or budget. CONTEXT ENVELOPE — GIVEN: the program board — every workstream's charter, interface, and done-bar, the cross-workstream seams, and each team-lead's reconciled outcome plus declared risks; the portfolio priorities that bound the program, held as CONSTRAINTS. NOT GIVEN: the full interior detail of every lane inside each workstream (that is each team-lead's to hold; pulling it up drowns the program seat and destroys the altitude that justifies it), nor the other programs in the portfolio or the org roadmap. ESCALATION: when program goals conflict, a cross-program dependency surfaces, or a decision needs portfolio or roadmap authority, stop and raise `north escalate needs-replan`, which routes to the first live agent up the declared parent chain. Deliverable: one reconciled program outcome across workstreams plus the cross-workstream seam map. Breadth widens and effort rises to xhigh; the mandate is coordination reach, not more raw horsepower than a team-lead."
+      "description": "Program orchestration — middle rung of the scope ladder: coordinate SEVERAL workstreams toward one program goal; owns the seams between workstreams and their sequencing, never any lane's interior. One workstream → team-lead; the whole board → portfolio."
     },
     {
       "name": "portfolio", "taskGrade": "distinguished", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
       "tagline": "the board held coherent — programs reconciled into one portfolio outcome",
-      "description": "Portfolio orchestration — the top rung of the scope/influence ladder: hold the whole BOARD. Coordinate multiple programs or independent initiatives, own cross-program seams, priority and sequencing across programs, and the coherence of the aggregate. The top of the standing tree, below only a human owner. CONTEXT ENVELOPE — GIVEN: the board of programs — each program's charter, top-level outcome, and cross-program dependencies, and the priority and allocation decisions among them; the human owner's stated goals and policy, held as CONSTRAINTS. NOT GIVEN: the interior of any workstream or lane, individual worker evidence, or per-lane execution detail — it reasons in programs and cross-program seams, and pulling lane detail up collapses the altitude that justifies the seat. ESCALATION: when priorities genuinely conflict at portfolio level, an initiative must be killed or rechartered, or a decision needs human policy or authority, stop and raise `north escalate needs-replan` to the human owner, its declared parent. Deliverable: one reconciled portfolio outcome plus the cross-program seam and priority map. Effort stays at xhigh and never max; the distinction from program is coordination breadth, not raw intelligence."
+      "description": "Portfolio orchestration — top rung of the scope ladder: hold the whole board; coordinate programs, own cross-program seams and priorities, below only a human owner. Reasons in programs and their seams, never lane detail."
     },
     {
       "name": "scout", "taskGrade": "junior", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "gathered findings, with provenance",
-      "description": "Research-assistant/scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources, map unknown territory. Read-only, low-cost fan-out unit — spawn several in parallel for multi-angle sweeps. GATHERS and reports; does not deep-synthesize or conclude. For deep analysis / root-cause / grounding a design in real behavior, use analyst instead; for cutting-edge inquiry use research-scientist."
+      "description": "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → cs-researcher."
     },
     {
       "name": "analyst", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "understanding, grounded in real behavior",
-      "description": "Research deep-dive work — how a system actually works, why it behaves as it does, root-cause, or grounding a proposed design against real behavior. Read-only: depth over breadth, traces to ground truth when an enforceable read-only execution surface exists, and otherwise falls back to explicitly static-only analysis with unobserved behavior named. Produces UNDERSTANDING, not an artifact disposition (→ reviewer), a decision (→ designer), or a change (→ integrator). Fan out when independently traceable mechanisms benefit from separate evidence trails and later synthesis; keep tightly coupled traces together regardless of subsystem count. Do NOT use for mere location/gathering (→ scout)."
+      "description": "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count."
     },
     {
       "name": "reviewer", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "one supplied artifact reviewed across multiple criteria, with prioritized findings and a disposition",
-      "description": "Artifact-review work — one supplied artifact or change in; multi-criterion, evidence-backed prioritized findings plus accept, changes-required, or cannot-assess out. Read-only senior evaluation. It does not fix or redesign the artifact, explain a mechanism as its primary deliverable (→ analyst), verify only one claim (→ verifier), rank multiple alternatives (→ judge), choose a new shape (→ designer), or apply a cross-seam change (→ integrator)."
+      "description": "Artifact review — one supplied artifact or change in; evidence-backed prioritized findings plus accept, changes-required, or cannot-assess out. Read-only; never fixes or redesigns. One claim → verifier; ranking alternatives → judge; mechanism explanation → analyst."
     },
     {
       "name": "verifier", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "one claim in, one adversarial verdict out",
-      "description": "Adversarial verification of one specific claim at any leverage — \"is this bug real\", \"does this fix actually hold\", \"try to refute this\". The standard fan-out unit for workflow verify stages. A justified stock-template override may move task grade, tier, and deliberation up or down while the task's quality floor remains binding; changing leverage does not turn verification into reviewing or judging."
+      "description": "Adversarial verification of one specific claim at any leverage — \"is this bug real\", \"does this fix actually hold\", \"try to refute this\". The standard fan-out unit for verify stages. Ranking alternatives → judge; multi-criterion review of one artifact → reviewer."
     },
     {
       "name": "judge", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "evaluate",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "competing alternatives in, a ranked decision out",
-      "description": "Rubric-backed scoring and selection among two or more supplied alternatives — judge panels over design attempts, choosing a winner, and identifying what to graft from runners-up. It does not verify a single claim or invent the candidate set. Staff-grade frontier judgment; produces a ranked decision, not code — read-only tools by design."
+      "description": "Rubric-backed ranking of two or more supplied alternatives — scores, a winner, and what to graft from runners-up. Does not verify a single claim (→ verifier) or invent the candidate set (→ designer). Read-only."
     },
     {
-      "name": "research-scientist", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "name": "cs-researcher", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
-      "description": "Research-science inquiry — open solution class, novel method, or cutting-edge computer-science work. Research is a FUNCTION, not a grade: this seat defaults to the staff-grade frontier contract it shares with designer and judge and may be overridden to any grade its task actually warrants. Frames competing hypotheses, designs discriminating experiments, and may invoke existing non-mutating tools or probes only. It does not author a new script, fixture, experimental apparatus, or code, even as ephemeral scratch; hand that work to an authoring role. Frontier capability with high deliberation; do NOT use for source gathering (→ scout), ordinary root-cause analysis (→ analyst), or selecting among known designs (→ designer)."
+      "description": "Research-grade inquiry — open solution class, novel method, answer genuinely unknown. Frames competing hypotheses and discriminating experiments; invokes existing non-mutating probes only, never authors code or apparatus (hand that to an authoring role). Source gathering → scout; ordinary root-cause → analyst. Research is a function, not a task grade."
     }
   ],
   "aliases": []

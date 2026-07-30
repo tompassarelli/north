@@ -26,11 +26,10 @@ team-lead altitude.
 
 ```
 TOPOLOGY: WORKER. Your jurisdiction is one terminal piece; own it end-to-end
-and do NOT delegate. When an independently staffed verifier is warranted, the
-immediate orchestrator staffs it as a sibling rather than making it your child.
-If the piece reveals independent decomposition, report that signal to your
-immediate parent for fresh classification and restaffing; never change your own
-topology. Supply evidence against the local done-bars and return the deliverable
+and do NOT delegate. If the piece reveals independent decomposition, report
+that signal to your immediate parent for fresh classification and restaffing —
+never change your own topology (a warranted verifier is staffed by the parent
+as your sibling, never as your child). Return the deliverable and its evidence
 UP to the immediate parent that owns reduction, never sideways.
 ```
 

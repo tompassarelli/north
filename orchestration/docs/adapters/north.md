@@ -65,19 +65,22 @@ target for that exact provider/model before the turn. Both checks are required.
 Routing defaults
 (canonical stock templates — generated from the machine `presets` key, do not hand-edit):
 
-  orchestration role         task grade      tier      reasoning  topology      posture   capabilities
-  ------------------  --------------  --------  ---------  ------------  --------  -----------------------------------------------------------------
-  executor            novice          economy   low        worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
-  implementer         mid             standard  medium     worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
-  integrator          senior          senior    high       worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
-  designer            staff           frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly
-  director            staff           frontier  xhigh      orchestrator  deliver   filesystem.read,filesystem.search,shell.readonly,web,coordination
-  scout               junior          economy   low        worker        explore   filesystem.read,filesystem.search,shell.readonly,web
-  analyst             senior          senior    high       worker        explore   filesystem.read,filesystem.search,shell.readonly,web
-  reviewer            senior          senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
-  verifier            senior          senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
-  judge               staff           frontier  xhigh      worker        evaluate  filesystem.read,filesystem.search,shell.readonly
-  research-scientist  research-grade  frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly,web
+  orchestration role  task grade     tier      reasoning  topology      posture   capabilities
+  ------------------  -------------  --------  ---------  ------------  --------  -----------------------------------------------------------------
+  executor            novice         economy   low        worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
+  implementer         mid            standard  medium     worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
+  integrator          senior         senior    high       worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
+  designer            staff          frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly
+  director            staff          frontier  xhigh      orchestrator  deliver   filesystem.read,filesystem.search,shell.readonly,web,coordination
+  team-lead           staff          senior    high       orchestrator  deliver   filesystem.read,filesystem.search,shell.readonly,web,coordination
+  program             principal      frontier  xhigh      orchestrator  deliver   filesystem.read,filesystem.search,shell.readonly,web,coordination
+  portfolio           distinguished  frontier  xhigh      orchestrator  deliver   filesystem.read,filesystem.search,shell.readonly,web,coordination
+  scout               junior         economy   low        worker        explore   filesystem.read,filesystem.search,shell.readonly,web
+  analyst             senior         senior    high       worker        explore   filesystem.read,filesystem.search,shell.readonly,web
+  reviewer            senior         senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
+  verifier            senior         senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
+  judge               staff          frontier  xhigh      worker        evaluate  filesystem.read,filesystem.search,shell.readonly
+  cs-researcher       staff          frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly,web
 
 ORCHESTRATION (role-jurisdiction law, see doctrine.md): a WORKER owns one
 terminal piece and MUST NOT delegate. An ORCHESTRATOR coordinates rather than

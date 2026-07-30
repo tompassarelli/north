@@ -1418,7 +1418,7 @@
           (System/exit 1))
       (= invoked-role "researcher")
       (do (println (red "researcher is retired because it was ambiguous"))
-          (println "use scout for source gathering, analyst for deep mechanism research, or research-scientist for cutting-edge inquiry")
+          (println "use scout for source gathering, analyst for deep mechanism research, or cs-researcher for cutting-edge inquiry")
           (System/exit 1))
       (and invoked-role (not (re-matches role-id-pattern invoked-role)))
       (do (println (red "role must be a lowercase kebab-case Orchestration role id")) (System/exit 1))

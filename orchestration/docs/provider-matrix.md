@@ -18,7 +18,7 @@ warning but remains reproducible and nonfatal; malformed or reversed dates fail.
 
 | Provider | As of | Review after | Official sources and scope |
 |---|---|---|---|
-| anthropic | 2026-07-16 | 2026-08-16 | [`claude-fable-5`](https://www.anthropic.com/claude/fable) — model-family, availability<br>[`claude-sonnet-5`](https://www.anthropic.com/news/claude-sonnet-5) — model-family, availability, effort-support<br>[`claude-opus-4-8`](https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-8) — model-family, availability, effort-support<br>[`claude-fable-5`, `claude-sonnet-5`, `claude-opus-4-8`](https://platform.claude.com/docs/en/build-with-claude/effort) — effort-support<br>[`claude-fable-5`, `claude-sonnet-5`, `claude-opus-4-8`](https://platform.claude.com/docs/en/about-claude/models/overview) — context-window, effective-date |
+| anthropic | 2026-07-24 | 2026-08-16 | [`claude-fable-5`](https://www.anthropic.com/claude/fable) — model-family, availability<br>[`claude-sonnet-5`](https://www.anthropic.com/news/claude-sonnet-5) — model-family, availability, effort-support<br>[`claude-opus-4-8`](https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-8) — model-family, availability, effort-support<br>[`claude-opus-5`, `claude-fable-5`, `claude-sonnet-5`, `claude-opus-4-8`](https://platform.claude.com/docs/en/build-with-claude/effort) — effort-support<br>[`claude-opus-5`, `claude-fable-5`, `claude-sonnet-5`, `claude-opus-4-8`](https://platform.claude.com/docs/en/about-claude/models/overview) — availability, model-family, context-window, effective-date |
 | openai | 2026-07-16 | 2026-08-16 | [`gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`](https://developers.openai.com/api/docs/models) — model-family, effort-support<br>[`gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`](https://openai.com/index/gpt-5-6/) — availability, context-window, effective-date |
 
 ## Semantic resolution
@@ -30,8 +30,8 @@ delta lookup; unversioned calibration is never inherited.
 |---|---|---|---|---|---|---|
 | anthropic | economy | `claude-sonnet-5` | `sonnet` | low | low | none — the existing unversioned Sonnet self-report does not establish an exact Sonnet 5 calibration |
 | anthropic | standard | `claude-sonnet-5` | `sonnet` | medium | medium | none — the existing unversioned Sonnet self-report does not establish an exact Sonnet 5 calibration |
-| anthropic | senior | `claude-opus-4-8` | `opus` | medium, high | high | none — the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration |
-| anthropic | frontier | `claude-fable-5` | `fable` | xhigh, max | xhigh | none — no elicited Fable self-report yet establishes an exact Claude Fable 5 calibration for the canonical frontier default |
+| anthropic | senior | `claude-opus-5` | `opus` | medium, high | high | none — adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a orchestration:elicit calibration pass |
+| anthropic | frontier | `claude-opus-5` | `opus` | xhigh | xhigh | none — adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a orchestration:elicit calibration pass |
 | openai | economy | `gpt-5.6-luna` | `luna` | low, medium | medium | [calibrated](deltas/gpt-5.6-luna.md) |
 | openai | standard | `gpt-5.6-terra` | `terra` | low, medium | medium | [calibrated](deltas/gpt-5.6-terra.md) |
 | openai | senior | `gpt-5.6-sol` | `sol` | medium, high | high | [calibrated](deltas/gpt-5.6-sol.md) |
@@ -55,8 +55,9 @@ No catalog support or route entry establishes either runtime fact.
 
 | Provider | Exact model | Aliases | Control | Provider-supported levels in Orchestration vocabulary | Calibrated exact routes | Supported but unrouted |
 |---|---|---|---|---|---|---|
+| anthropic | `claude-opus-5` | `opus` | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh | low, max |
 | anthropic | `claude-sonnet-5` | `sonnet` | effort | low, medium, high, xhigh, max | economy: low<br>standard: medium | high, xhigh, max |
-| anthropic | `claude-opus-4-8` | `opus` | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | low |
+| anthropic | `claude-opus-4-8` | — | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | low |
 | anthropic | `claude-fable-5` | `fable` | effort | low, medium, high, xhigh, max | frontier: xhigh, max | low, medium, high |
 | openai | `gpt-5.6-luna` | `luna` | reasoning | low, medium, high, xhigh, max | economy: low, medium | high, xhigh, max |
 | openai | `gpt-5.6-terra` | `terra` | reasoning | low, medium, high, xhigh, max | standard: low, medium | high, xhigh, max |
@@ -76,9 +77,21 @@ effective-date provenance is listed in the freshness table above.
 
 | Provider | Exact model | Aliases | Provider limit (tokens) | Effective from |
 |---|---|---|---|---|
+| anthropic | `claude-opus-5` | `opus` | 1,000,000 | 2026-07-24 |
 | anthropic | `claude-sonnet-5` | `sonnet` | 1,000,000 | 2026-07-16 |
-| anthropic | `claude-opus-4-8` | `opus` | 1,000,000 | 2026-07-16 |
+| anthropic | `claude-opus-4-8` | — | 1,000,000 | 2026-07-16 |
 | anthropic | `claude-fable-5` | `fable` | 1,000,000 | 2026-07-16 |
 | openai | `gpt-5.6-luna` | `luna` | 1,050,000 | 2026-07-16 |
 | openai | `gpt-5.6-terra` | `terra` | 1,050,000 | 2026-07-16 |
 | openai | `gpt-5.6-sol` | `sol` | 1,050,000 | 2026-07-16 |
+
+## Runtime-only exact-model delta entries
+
+These models are not a canonical unpinned semantic-tier default. An explicit
+model pin must pass the exact compatibility table above; exact delta lookup
+then prevents calibration inheritance from the default tier model.
+
+| Provider | Exact model | Aliases | Model delta |
+|---|---|---|---|
+| anthropic | `claude-opus-4-8` | — | none — the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration |
+| anthropic | `claude-fable-5` | `fable` | none — no elicited Fable self-report yet establishes an exact Claude Fable 5 calibration for the canonical frontier default |

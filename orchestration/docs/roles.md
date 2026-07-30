@@ -36,7 +36,7 @@ is the IC / capability segment (senior terminal) and drives semantic tier and
 effort. `staff → principal → distinguished` is the scope / influence segment
 and drives coordination breadth, not raw intelligence; paired with orchestrator
 topology it is the team-lead → program → portfolio seat ladder. Research is a
-function, not a grade — a research-scientist can carry any grade its task
+function, not a grade — a cs-researcher can carry any grade its task
 warrants and defaults to staff.
 
 Grade informs routing but never directly selects a provider or model. Domain
@@ -294,10 +294,10 @@ how the code actually behaves (not just locating it) → name orchestration:anal
 Never silently upgrade yourself to analyst — gather, then hand up.
 ```
 
-## research-scientist
+## cs-researcher
 
 ```
-ROLE: RESEARCH-SCIENTIST. Deliverable: new, decision-relevant knowledge from
+ROLE: CS-RESEARCHER. Deliverable: new, decision-relevant knowledge from
 an explicit research question, competing hypotheses, and reproducible
 experiments or analysis. Use only when the answer or method is genuinely
 unknown; ordinary lookup belongs to orchestration:scout and mechanism tracing to
@@ -357,7 +357,7 @@ REPORT: the finding first (what's true and why), then the evidence trail
 REDIRECT: deliverable is a decision → designer; a change → integrator;
 multi-criterion assessment of one supplied artifact → reviewer; mere
 location/gathering → hand down to scout; novel hypothesis/experiment/
-new-knowledge work → research-scientist.
+new-knowledge work → cs-researcher.
 ```
 
 ## reviewer

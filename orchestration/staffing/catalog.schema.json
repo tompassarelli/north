@@ -54,7 +54,7 @@
     "roleId": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
-      "not": { "enum": ["researcher"] }
+      "not": { "enum": ["researcher", "research-scientist"] }
     }
   }
 }

@@ -60,11 +60,12 @@ describe("Orchestration routing metadata boundary", () => {
     })).toThrow("bespoke composition requires all routing axes");
   });
 
-  test("researcher fails as ambiguous while explicit research functions remain canonical", () => {
-    expect(() => canonicalRole("researcher")).toThrow("role researcher is retired because it was ambiguous");
+  test("retired role ids fail while explicit research functions remain canonical", () => {
+    expect(() => canonicalRole("researcher")).toThrow("role researcher is retired");
+    expect(() => canonicalRole("research-scientist")).toThrow("cs-researcher");
     expect(canonicalRole("scout")).toBe("scout");
     expect(canonicalRole("analyst")).toBe("analyst");
-    expect(canonicalRole("research-scientist")).toBe("research-scientist");
+    expect(canonicalRole("cs-researcher")).toBe("cs-researcher");
     expect(canonicalRole("migration-forensics")).toBe("migration-forensics");
   });
 

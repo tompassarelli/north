@@ -72,7 +72,7 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
 
 test("North's managed hook contract admits Firn's source requirements exactly", () => {
   const path = resolve(
-    process.env.NORTH_FIRN_ROOT ?? resolve(import.meta.dir, "..", "..", "..", "nixos-config"),
+    process.env.NORTH_FIRN_ROOT ?? resolve(import.meta.dir, "..", "..", "..", "..", "nixos-config", "main"),
     "modules", "codex", "requirements.toml",
   );
   expect(existsSync(path)).toBe(true);

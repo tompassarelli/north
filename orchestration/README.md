@@ -51,7 +51,7 @@ Install it and your sessions gain:
    | `orchestration:reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
    | `orchestration:verifier` | senior / high | adversarial verification of one claim (justified overrides may move up or down; quality floor binds) |
    | `orchestration:judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
-   | `orchestration:research-scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
+   | `orchestration:cs-researcher` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
 
    Exact versioned model pins are generated from the dated provider catalogs;
    see [`docs/provider-matrix.md`](docs/provider-matrix.md). Every exact catalog
@@ -157,7 +157,7 @@ retains `presets`, `kind: "preset"`, and `nearestPreset` for compatibility.
 Each template is a transparent starting composition, not an identity
 constraint:
 `role` names the deliverable, `taskGrade` ranges from `novice` through
-`research-grade`, domain requirements state expertise/context the brief or
+`distinguished`, domain requirements state expertise/context the brief or
 adapter must supply (metadata alone loads nothing), topology grants
 coordination authority, semantic tier sets a model capability floor, and
 deliberation sets reasoning depth; posture sets what yields under collision.

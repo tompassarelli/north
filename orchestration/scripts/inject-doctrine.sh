@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # orchestration doctrine injector — SessionStart hook body (see .claude-plugin/plugin.json).
 # ============================================================================
-# Prints doctrine.md, but swaps the marked SPAWN SURFACES block for the ACTIVE
-# spawn adapter's block. This is what makes "flip the config -> the injected
-# instructions change" work, instead of baking a substrate into anyone's
-# provider adapter's bootstrap instruction file.
+# Emits the SESSION DIGEST of doctrine.md: everything except the spans marked
+# <!-- orchestration:full-only -->, with the marked SPAWN SURFACES block swapped
+# for the ACTIVE spawn adapter's block. Two goals, one file:
+#   - flip the config -> the injected instructions change (adapter splice),
+#   - the always-injected surface stays small; the full doctrine is read from
+#     disk at dispatch time (the digest's closing pointer says exactly that).
+# doctrine.md remains the single source; the digest is a mechanical extract,
+# never a hand-maintained copy.
 #
 #   adapter resolution:  $ORCHESTRATION_SPAWN_ADAPTER  >  ~/.claude/my-config.state
 #                        (dispatch=)            >  native (default)
@@ -36,16 +40,22 @@ fi
 
 block="$ROOT/docs/adapters/${adapter}.md"
 
-# native, or an unknown adapter with no block file -> emit the base doctrine with
-# the inline (native) block, markers stripped. Fail-open to a valid doctrine.
+# Splice the active adapter block (native keeps the inline block), then strip
+# the full-only spans and every remaining marker line. Fail-open: with no
+# adapter file the doctrine still emits with its inline native block.
 if [ "$adapter" = "native" ] || [ ! -f "$block" ]; then
-  grep -v -E '^<!-- /?orchestration:spawn-surfaces' "$DOCTRINE"
-  exit 0
-fi
+  cat "$DOCTRINE"
+else
+  awk -v blockfile="$block" '
+    /^<!-- orchestration:spawn-surfaces/    { while ((getline line < blockfile) > 0) print line; skip=1; next }
+    /^<!-- \/orchestration:spawn-surfaces/  { skip=0; next }
+    skip != 1                       { print }
+  ' "$DOCTRINE"
+fi | awk '
+  /^<!-- orchestration:full-only/    { skip=1; next }
+  /^<!-- \/orchestration:full-only/  { skip=0; next }
+  /^<!-- \/?orchestration:spawn-surfaces/ { next }
+  skip != 1 { print }
+'
 
-# Otherwise splice the adapter's block in place of the marked native block.
-awk -v blockfile="$block" '
-  /^<!-- orchestration:spawn-surfaces/    { while ((getline line < blockfile) > 0) print line; skip=1; next }
-  /^<!-- \/orchestration:spawn-surfaces/  { skip=0; next }
-  skip != 1                       { print }
-' "$DOCTRINE"
+printf '\nDIGEST NOTE — this injection is the session digest of the doctrine.\nBefore any nontrivial dispatch decision, read %s in full:\northogonal axes, resource policy, orchestrator/worker jurisdiction law, the\nstop-rule, workflow stage pins, and the bespoke-composition spec live there.\n' "$DOCTRINE"
