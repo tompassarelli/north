@@ -18,9 +18,13 @@
 (load-file (str cli-dir "/harness-state.clj"))
 (load-file (str cli-dir "/rebuild_intent_state.clj"))
 (load-file (str cli-dir "/rebuild_request_state.clj"))
+(load-file (str cli-dir "/rebuild_queue_legacy.clj"))
 
 (def subject-prefix "@rebuild-request:")
 (def window-prefix "@rebuild-window:")
+(def queue-subject "@rebuild-queue")
+(def queue-predicate "rebuild_queue")
+(def queue-version "north:rebuild-queue:v1")
 (def request-id-pattern #"^(?:@?rebuild-request:)?(\d{10,}-[0-9a-f]{8})$")
 (def window-id-pattern #"^(?:@?rebuild-window:)?(\d{10,}-[0-9a-f]{8})$")
 
@@ -157,10 +161,6 @@
          (filter #(and (vector? %) (= 2 (count %))))
          vec)))
 
-(defn- index-by-subject [pairs]
-  (reduce (fn [acc [subject value]] (if (contains? acc subject) acc (assoc acc subject value)))
-          {} pairs))
-
 (defn- decode-request-facts [subject raw satisfied-raw]
   (let [m (parse-json-map "rebuild_request" raw)
         satisfied (some->> satisfied-raw (parse-json-map "rebuild_request_satisfied"))]
@@ -186,24 +186,339 @@
       (decode-request-facts
        subject raw (first (get facts "rebuild_request_satisfied"))))))
 
+;; ---- exact active-set index -------------------------------------------------
+
+(declare ensure-schema!)
+
+(defn- canonical-request [request]
+  (north.rebuild-request-state/new-request
+   {:id (normalize-request-id (:id request))
+    :requester (:requester request)
+    :why (:why request)
+    :thread (:thread request)
+    :created-at-ms (:created-at-ms request)
+    :urgent-reason (:urgent-reason request)}))
+
+(defn- request-payload [request]
+  (cond-> (sorted-map
+           "id" (:id request)
+           "version" north.rebuild-request-state/protocol-version
+           "requester" (:requester request)
+           "why" (:why request)
+           "createdAtMs" (:created-at-ms request)
+           "urgent" (:urgent request))
+    (:thread request) (assoc "thread" (:thread request))
+    (:urgent-reason request) (assoc "urgentReason" (:urgent-reason request))))
+
+(defn- payload-request [payload]
+  (when-not (map? payload)
+    (throw (ex-info "rebuild queue request payload must be an object"
+                    {:type :malformed-rebuild-queue})))
+  (canonical-request
+   {:id (get payload "id")
+    :requester (get payload "requester")
+    :why (get payload "why")
+    :thread (get payload "thread")
+    :created-at-ms (get payload "createdAtMs")
+    :urgent-reason (get payload "urgentReason")}))
+
+(defn- ordered-requests [requests]
+  (->> requests
+       (sort-by (juxt :created-at-ms :id))
+       vec))
+
+(defn- upsert-request [requests request]
+  (ordered-requests
+   (conj (remove #(= (:id %) (:id request)) requests) request)))
+
+(defn- remove-request [requests id]
+  (->> requests (remove #(= id (:id %))) vec))
+
+(defn- queue-state-payload [{:keys [requests last-fired-ms legacy]}]
+  (sorted-map
+   "version" queue-version
+   "requests" (mapv request-payload requests)
+   "lastFiredMs" last-fired-ms
+   "legacy" (sorted-map
+             "path" (:path legacy)
+             "fileKey" (:file-key legacy)
+             "offset" (:offset legacy))))
+
+(defn- encode-queue-state [state]
+  (json/generate-string (queue-state-payload state)))
+
+(defn- decode-queue-state [raw]
+  (let [payload (parse-json-map "rebuild_queue" raw)
+        version (get payload "version")
+        request-payloads (get payload "requests")
+        last-fired-ms (get payload "lastFiredMs")
+        legacy (get payload "legacy")]
+    (when-not (= queue-version version)
+      (throw (ex-info (str "unsupported rebuild queue version " (pr-str version))
+                      {:type :unsupported-rebuild-queue-version
+                       :version version})))
+    (when-not (vector? request-payloads)
+      (throw (ex-info "rebuild queue requests must be an array"
+                      {:type :malformed-rebuild-queue})))
+    (when-not (or (nil? last-fired-ms)
+                  (and (integer? last-fired-ms) (not (neg? last-fired-ms))))
+      (throw (ex-info "rebuild queue lastFiredMs must be a non-negative integer or null"
+                      {:type :malformed-rebuild-queue})))
+    (when-not (map? legacy)
+      (throw (ex-info "rebuild queue legacy cursor must be an object"
+                      {:type :malformed-rebuild-queue})))
+    (let [requests (mapv payload-request request-payloads)
+          ids (mapv :id requests)
+          state {:version queue-version
+                 :requests (ordered-requests requests)
+                 :last-fired-ms last-fired-ms
+                 :legacy {:path (get legacy "path")
+                          :file-key (get legacy "fileKey")
+                          :offset (get legacy "offset")}}]
+      (when-not (= (count ids) (count (distinct ids)))
+        (throw (ex-info "rebuild queue contains duplicate request ids"
+                        {:type :malformed-rebuild-queue})))
+      (north.rebuild-queue-legacy/validate-cursor!
+       (:legacy state)
+       (north.rebuild-queue-legacy/log-metadata (:path (:legacy state))))
+      state)))
+
+(defn- load-queue-state [port]
+  (let [values (get (subject-facts port queue-subject) queue-predicate)]
+    (when (> (count values) 1)
+      (throw (ex-info "rebuild queue singleton has multiple live values"
+                      {:type :malformed-rebuild-queue})))
+    (some-> (first values) decode-queue-state)))
+
+(defn- legacy-operation [record]
+  (let [operation (:op record)]
+    (cond
+      (keyword? operation) (name operation)
+      (string? operation) operation
+      :else nil)))
+
+(defn- apply-legacy-record [state record]
+  (if-not (north.rebuild-queue-legacy/relevant-event? record)
+    state
+    (let [operation (legacy-operation record)
+          subject (:l record)
+          predicate (:p record)
+          value (:r record)]
+      (cond
+        (and (.startsWith subject subject-prefix)
+             (= predicate "rebuild_request")
+             (= operation "assert"))
+        (update state :requests upsert-request
+                (canonical-request
+                 (decode-request-facts subject value nil)))
+
+        (and (.startsWith subject subject-prefix)
+             (= predicate "rebuild_request")
+             (= operation "retract"))
+        (update state :requests remove-request
+                (subs subject (count subject-prefix)))
+
+        (and (.startsWith subject subject-prefix)
+             (= predicate "rebuild_request_satisfied")
+             (= operation "assert"))
+        (update state :requests remove-request
+                (subs subject (count subject-prefix)))
+
+        (and (.startsWith subject window-prefix)
+             (= predicate "window_action")
+             (= operation "assert")
+             (= value "fired"))
+        (update state :last-fired-ms
+                (fn [current]
+                  (max (or current 0)
+                       (or (mint-ms subject) 0))))
+
+        (#{"assert" "retract"} operation)
+        state
+
+        :else
+        (throw (ex-info "rebuild queue bridge found an unsupported legacy event"
+                        {:type :unsupported-legacy-rebuild-event
+                         :operation operation
+                         :subject subject
+                         :predicate predicate}))))))
+
+(defn- fold-legacy-batch [state batch]
+  (reduce apply-legacy-record state (:records batch)))
+
+(defn- bootstrap-queue-state []
+  (let [metadata (north.rebuild-queue-legacy/log-metadata
+                  (north.coord/expected-log))
+        target (:length metadata)
+        initial {:version queue-version
+                 :requests []
+                 :last-fired-ms nil
+                 :legacy (north.rebuild-queue-legacy/cursor metadata 0)}]
+    (loop [state initial
+           offset 0
+           bytes-read 0
+           events 0]
+      (let [batch (north.rebuild-queue-legacy/read-batch
+                   (:path metadata) offset target)]
+        (when (:partial-tail? batch)
+          (throw (ex-info "rebuild queue bootstrap reached a partial legacy log record"
+                          {:type :legacy-log-partial
+                           :path (:path metadata)
+                           :offset (:next-offset batch)})))
+        (let [next-state (fold-legacy-batch state batch)
+              next-offset (:next-offset batch)
+              next-bytes (+ bytes-read (- next-offset offset))
+              next-events (+ events
+                             (count (filter
+                                     north.rebuild-queue-legacy/relevant-event?
+                                     (:records batch))))]
+          (if (:caught-up? batch)
+            {:state (assoc next-state :legacy
+                           (north.rebuild-queue-legacy/cursor
+                            metadata next-offset))
+             :bridge {:mode "bootstrap"
+                      :start-offset 0
+                      :end-offset next-offset
+                      :target-offset target
+                      :bytes-read next-bytes
+                      :relevant-events next-events
+                      :corpus-queries 0
+                      :caught-up true}}
+            (recur next-state next-offset next-bytes next-events)))))))
+
+(defn- reconcile-legacy-state [state]
+  (let [metadata (north.rebuild-queue-legacy/log-metadata
+                  (get-in state [:legacy :path]))
+        _ (north.rebuild-queue-legacy/validate-cursor!
+           (:legacy state) metadata)
+        start (get-in state [:legacy :offset])
+        target (:length metadata)
+        batch (north.rebuild-queue-legacy/read-batch
+               (:path metadata) start target)]
+    (when (:partial-tail? batch)
+      (throw (ex-info "rebuild queue bridge reached a partial legacy log record"
+                      {:type :legacy-log-partial
+                       :path (:path metadata)
+                       :offset (:next-offset batch)})))
+    (let [relevant-events
+          (count (filter north.rebuild-queue-legacy/relevant-event?
+                         (:records batch)))
+          self-only? (and (:caught-up? batch)
+                          (seq (:records batch))
+                          (not (:non-self? batch)))
+          idle? (and (:caught-up? batch) (empty? (:records batch)))
+          next-state
+          (if (or self-only? idle?)
+            state
+            (-> (fold-legacy-batch state batch)
+                (assoc :legacy
+                       (north.rebuild-queue-legacy/cursor
+                        metadata (:next-offset batch)))))]
+      {:state next-state
+       :bridge {:mode (cond
+                        self-only? "self-tail"
+                        idle? "idle"
+                        :else "incremental")
+                :start-offset start
+                :end-offset (:next-offset batch)
+                :target-offset target
+                :bytes-read (- (:next-offset batch) start)
+                :relevant-events relevant-events
+                :corpus-queries 0
+                :caught-up (:caught-up? batch)}})))
+
+(defn- queue-update!
+  "Predicate-local OCC over the exact singleton. Unrelated corpus traffic never
+   conflicts; another queue writer does, and the transformation is recomputed."
+  [port transform]
+  (ensure-schema! port)
+  (let [planned (atom nil)
+        deadline (north.coord/retry-deadline-ns)
+        response
+        (north.coord/retry-conflicts-until!
+         deadline
+         (fn []
+           (let [base (north.coord/cur-ver-for-subject port queue-subject)
+                 existing (load-queue-state port)
+                 bootstrap (when-not existing (bootstrap-queue-state))
+                 before (or existing (:state bootstrap))
+                 result (transform before bootstrap)
+                 after (:state result)]
+             (reset! planned result)
+             (if (and existing (= before after))
+               {:done true}
+               (north.coord/send-op
+                port
+                {:op :assert
+                 :te queue-subject
+                 :p queue-predicate
+                 :r (encode-queue-state after)
+                 :base base})))))]
+    (when (:reject response)
+      (throw (ex-info "rebuild queue update could not commit"
+                      {:type :rebuild-queue-conflict
+                       :response response})))
+    @planned))
+
+(defn- queue-snapshot! [port]
+  (queue-update!
+   port
+   (fn [state bootstrap]
+     (if bootstrap
+       {:state state :snapshot state :bridge (:bridge bootstrap)}
+       (let [{next-state :state bridge :bridge}
+             (reconcile-legacy-state state)]
+         {:state next-state :snapshot next-state :bridge bridge})))))
+
+(defn- enqueue-request! [port request]
+  (queue-update!
+   port
+   (fn [state _]
+     (let [next-state (update state :requests upsert-request request)]
+       {:state next-state :snapshot next-state}))))
+
+(defn- dequeue-request! [port id]
+  (queue-update!
+   port
+   (fn [state _]
+     (let [next-state (update state :requests remove-request id)]
+       {:state next-state :snapshot next-state}))))
+
+(defn- note-fired-window! [port id]
+  (let [fired-ms (or (mint-ms id) (now-ms))]
+    (queue-update!
+     port
+     (fn [state _]
+       (let [next-state
+             (update state :last-fired-ms
+                     (fn [current] (max (or current 0) fired-ms)))]
+         {:state next-state :snapshot next-state})))))
+
+(defn- settle-window-queue! [port window-id request-ids]
+  (let [settled (set request-ids)
+        fired-ms (or (mint-ms window-id) (now-ms))]
+    (queue-update!
+     port
+     (fn [state _]
+       (let [next-state
+             (-> state
+                 (update :requests
+                         (fn [requests]
+                           (->> requests
+                                (remove #(contains? settled (:id %)))
+                                vec)))
+                 (update :last-fired-ms
+                         (fn [current] (max (or current 0) fired-ms))))]
+         {:state next-state :snapshot next-state})))))
+
 (defn load-requests
-  "The newest `max-detail` requests, decoded, plus how many older subjects were
-   left unread. Ordered oldest-first so window composition follows arrival."
+  "The exact active request set. Historical subjects remain available through
+   their own exact records; planning never re-queries the whole corpus."
   [port]
-  (let [requests (pairs-with port "rebuild_request" max-subjects)
-        satisfied (index-by-subject (pairs-with port "rebuild_request_satisfied" max-subjects))
-        ordered (->> requests
-                     (sort-by (fn [[subject _]] (or (mint-ms subject) 0)))
-                     reverse
-                     vec)
-        head (take max-detail ordered)]
-    {:requests (->> head
-                    (keep (fn [[subject raw]]
-                            (try (decode-request-facts subject raw (get satisfied subject))
-                                 (catch Exception _ nil))))
-                    (sort-by :created-at-ms)
-                    vec)
-     :unread-older (max 0 (- (count ordered) (count head)))}))
+  (let [{:keys [snapshot bridge]} (queue-snapshot! port)]
+    {:requests (:requests snapshot)
+     :unread-older 0
+     :bridge bridge}))
 
 (defn load-window-records
   "Window-owner records, newest first: {:id :at-ms :action :requests}."
@@ -237,13 +552,7 @@
 (defn last-fired-window-ms
   "When the owner last CONSUMED a window. A deferred launch never consumes one."
   [port]
-  ;; `(reduce max nil times)` reads as "no windows yet -> nil" but seeds the
-  ;; reduction WITH nil, so the first real record NPEs. Empty must be the only
-  ;; nil-producing case.
-  (let [times (->> (load-window-records port)
-                   (filter #(= "fired" (:action %)))
-                   (keep :at-ms))]
-    (when (seq times) (apply max times))))
+  (get-in (queue-snapshot! port) [:snapshot :last-fired-ms]))
 
 (defn intent-creation-times
   "createdAtMs of every recorded rebuild intent — the only durable trace a
@@ -262,7 +571,8 @@
 (defn ensure-schema! [port]
   (doseq [predicate ["rebuild_request" "rebuild_request_urgent"
                      "rebuild_request_satisfied" "window_action"
-                     "window_intent" "window_generation"]]
+                     "window_intent" "window_generation"
+                     queue-predicate]]
     (when-not (= "single" (north.coord/resolved port (str "@" predicate) "cardinality"))
       (north.coord/put! port (str "@" predicate) "cardinality" "single"))))
 
@@ -306,10 +616,10 @@
                                     "at" (instant created)))]))]
     (ensure-schema! port)
     (assert-batch! port (str subject-prefix id) facts)
+    (enqueue-request! port request)
     id))
 
-(defn mark-satisfied!
-  "Close one request against the generation that actually landed. Idempotent."
+(defn- write-satisfaction-projection!
   [port id {:keys [intent generation]}]
   (let [subject (request-subject id)
         at (now-ms)]
@@ -321,6 +631,13 @@
                        (cond-> (sorted-map "atMs" at "at" (instant at)
                                            "generation" (str generation))
                          intent (assoc "intent" intent))))
+    subject))
+
+(defn mark-satisfied!
+  "Close one request against the generation that actually landed. Idempotent."
+  [port id settlement]
+  (let [subject (write-satisfaction-projection! port id settlement)]
+    (dequeue-request! port (normalize-request-id id))
     subject))
 
 (defn open-window!
@@ -338,8 +655,14 @@
                          (map (fn [request-id] ["window_request" request-id]) request-ids)))
     id))
 
+(defn- write-window-action-projection! [port id action]
+  (north.coord/put! port (window-subject id) "window_action" action)
+  (window-subject id))
+
 (defn set-window-action! [port id action]
-  (north.coord/put! port (window-subject id) "window_action" action))
+  (write-window-action-projection! port id action)
+  (when (= "fired" action)
+    (note-fired-window! port id)))
 
 ;; ---- generation identity ----------------------------------------------------
 
@@ -368,14 +691,21 @@
 ;; ---- window owner -----------------------------------------------------------
 
 (defn plan-window [port]
-  (let [{:keys [requests unread-older]} (load-requests port)]
-    (assoc (north.rebuild-request-state/window-plan
-            {:now-ms (now-ms)
-             :last-window-ms (last-fired-window-ms port)
-             :window-ms (* 1000 (window-seconds))
-             :requests requests
-             :coordination-on? (coordination-on?)})
-           :unread-older unread-older)))
+  (let [{:keys [snapshot bridge]} (queue-snapshot! port)
+        requests (:requests snapshot)
+        plan
+        (if (:caught-up bridge)
+          (north.rebuild-request-state/window-plan
+           {:now-ms (now-ms)
+            :last-window-ms (:last-fired-ms snapshot)
+            :window-ms (* 1000 (window-seconds))
+            :requests requests
+            :coordination-on? (coordination-on?)})
+          {:action :waiting
+           :reason :legacy-reconciling
+           :open requests
+           :count (count requests)})]
+    (assoc plan :unread-older 0 :queue-read bridge)))
 
 (defn run-window!
   "Execute one claimed window through the mutexed rebuild/readiness path, then
@@ -400,11 +730,13 @@
     (flush)
     (if (zero? (:exit result))
       (let [generation (current-generation)]
+        (settle-window-queue! port window-id (mapv :id requests))
         (doseq [request requests]
-          (mark-satisfied! port (:id request) {:intent intent :generation generation}))
+          (write-satisfaction-projection!
+           port (:id request) {:intent intent :generation generation}))
         (when intent (north.coord/put! port (window-subject window-id) "window_intent" intent))
         (north.coord/put! port (window-subject window-id) "window_generation" generation)
-        (set-window-action! port window-id "fired")
+        (write-window-action-projection! port window-id "fired")
         (println (str "rebuild window " window-id " fired · " (count requests)
                       " request(s) satisfied · generation " generation))
         0)

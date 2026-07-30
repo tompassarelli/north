@@ -672,25 +672,37 @@
   [dry?]
   (try
     (let [plan (north.rebuild-request/plan-window port)
-          n (:count plan)]
+          n (:count plan)
+          queue-read (:queue-read plan)]
+      (println (str "[sweep] rebuild queue"
+                    " mode=" (:mode queue-read)
+                    " bridge_start=" (:start-offset queue-read)
+                    " bridge_end=" (:end-offset queue-read)
+                    " bridge_target=" (:target-offset queue-read)
+                    " bridge_bytes=" (:bytes-read queue-read)
+                    " bridge_events=" (:relevant-events queue-read)
+                    " corpus_queries=" (:corpus-queries queue-read)
+                    " caught_up=" (:caught-up queue-read)))
       (case (:action plan)
-        :idle {:action "idle" :count 0}
-        :queued {:action "queued" :count n}
-        :waiting {:action "waiting" :count n}
+        :idle {:action "idle" :count 0 :queue-read queue-read}
+        :queued {:action "queued" :count n :queue-read queue-read}
+        :waiting {:action "waiting" :count n :queue-read queue-read}
         :fire
         (if dry?
           (do (println (str "[sweep] WOULD open a rebuild window for " n " request(s)"))
-              {:action "would-fire" :count n})
+              {:action "would-fire" :count n :queue-read queue-read})
           (let [window-id (north.rebuild-request/open-window! port (mapv :id (:open plan)))
                 launch (launch-rebuild-window! window-id)]
             (if (:launched launch)
               (do (println (str "[sweep] rebuild window " window-id " launched for " n
                                 " request(s) — unit " (:unit launch)))
-                  {:action "fired" :count n :window window-id})
+                  {:action "fired" :count n :window window-id
+                   :queue-read queue-read})
               (do (north.rebuild-request/set-window-action! port window-id "deferred")
                   (println (str "[sweep] rebuild window " window-id " deferred: "
                                 (:reason launch)))
-                  {:action "deferred" :count n :window window-id}))))))
+                  {:action "deferred" :count n :window window-id
+                   :queue-read queue-read}))))))
     (catch Throwable t
       (println (str "[sweep] rebuild window error: " (.getMessage t)))
       {:action "error" :count 0 :error t})))
