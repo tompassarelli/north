@@ -2,7 +2,8 @@
 ;; Production worktree-janitor regression. A throwaway Git repository and a
 ;; separately fenced Fram coordinator exercise the real `north-reactor.clj
 ;; sweep-once` surface twice; no janitor function is called directly.
-(require '[babashka.process :as proc]
+(require '[babashka.fs :as fs]
+         '[babashka.process :as proc]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
@@ -103,10 +104,15 @@
     (git! "-C" repo "worktree" "add" "-q" "-b" branch path "HEAD")
     {:handle handle :branch branch :path path :subject (str "@agent:" handle)}))
 
+(defn managed-clone-path [repo handle]
+  ;; Match sdk/src/worktree.ts: worktreePath: /tmp/<repo-basename>-lane-<id>.
+  (.getCanonicalPath
+   (io/file "/tmp"
+            (str (.getName (io/file repo)) "-lane-" handle))))
+
 (defn create-clone! [repo parent handle]
   (let [branch (str "lane-" handle)
-        ;; Match sdk/src/worktree.ts: worktreePath: /tmp/<repo-basename>-lane-<id>.
-        path (.getCanonicalPath (io/file "/tmp" (str (.getName (io/file repo)) "-" branch)))]
+        path (managed-clone-path repo handle)]
     (git! "clone" "-q" "--no-hardlinks" repo path)
     (git! "-C" path "checkout" "-qb" branch "HEAD")
     (git! "-C" path "remote" "set-url" "--push" "origin"
@@ -160,8 +166,11 @@
            (java.nio.file.Files/createTempDirectory
             "north worktree janitor "
             (make-array java.nio.file.attribute.FileAttribute 0)))
+      repo-name (str "main repo " (.getName tmp))
       home (doto (io/file tmp "home") .mkdirs)
-      repo (.getCanonicalPath (io/file tmp "main repo"))
+      repo (.getCanonicalPath (io/file tmp repo-name))
+      clone-clean-path (managed-clone-path repo "clone-clean")
+      clone-dirty-path (managed-clone-path repo "clone-dirty")
       worktrees (doto (io/file tmp "managed worktrees") .mkdirs)
       log (io/file tmp "facts.log")
       heartbeat (io/file tmp "reactor-heartbeat")
@@ -424,6 +433,8 @@
 
     (finally
       (try (proc/destroy-tree daemon) (catch Throwable _ nil))
+      (fs/delete-tree clone-clean-path)
+      (fs/delete-tree clone-dirty-path)
       (doseq [file (reverse (file-seq tmp))]
         (try (io/delete-file file true) (catch Throwable _ nil)))))
 
