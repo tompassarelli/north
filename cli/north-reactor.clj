@@ -1085,10 +1085,16 @@
 
 (defn sweep-lock-path []
   (or (System/getenv "NORTH_REACTOR_SWEEP_LOCK_PATH")
-      (when-let [runtime-dir (System/getenv "XDG_RUNTIME_DIR")]
-        (.getPath (io/file runtime-dir "north-reactor-sweep.lock")))
-      (.getPath (io/file (System/getProperty "user.home")
-                         ".cache" "north" "reactor-sweep.lock"))))
+      (let [filename (if dry-run?
+                       "north-reactor-sweep-dry-run.lock"
+                       "north-reactor-sweep.lock")]
+        (if-let [runtime-dir (System/getenv "XDG_RUNTIME_DIR")]
+          (.getPath (io/file runtime-dir filename))
+          (.getPath (io/file (System/getProperty "user.home")
+                             ".cache" "north"
+                             (if dry-run?
+                               "reactor-sweep-dry-run.lock"
+                               "reactor-sweep.lock")))))))
 
 (def retryable-coordinator-types
   #{:coordinator-response-timeout

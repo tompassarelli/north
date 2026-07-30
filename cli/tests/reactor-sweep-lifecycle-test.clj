@@ -51,6 +51,12 @@
           {:dir root :out :string :err :string :extra-env environment}
           "bb" reactor "sweep-once" (when dry? ["--dry-run"]))))
 
+(defn start-default-lock-sweep [environment dry?]
+  (apply proc/process
+         {:dir root :out :string :err :string :extra-env environment}
+         "env" "-u" "NORTH_REACTOR_SWEEP_LOCK_PATH"
+         "bb" reactor "sweep-once" (when dry? ["--dry-run"])))
+
 (defn empty-coordinator-response [envelope]
   (let [request (:request envelope)]
     (case (:op request)
@@ -304,14 +310,14 @@
         blackhole (start-blackhole port)
         environment (common-env tmp port log lock 800)
         started (System/nanoTime)
-        first-sweep (start-sweep environment)]
+        first-sweep (start-sweep environment false)]
     (try
       (loop [attempt 0]
         (when (and (empty? @(:sockets blackhole)) (< attempt 100))
           (Thread/sleep 10)
           (recur (inc attempt))))
       (let [second-started (System/nanoTime)
-            second-result @(start-sweep environment)
+            second-result @(start-sweep environment false)
             second-elapsed-ms (long (/ (- (System/nanoTime) second-started) 1000000))
             second-output (str (:out second-result) (:err second-result))
             accepted-before-first-exit (count @(:sockets blackhole))
@@ -322,7 +328,8 @@
                (and (zero? (:exit second-result)) (< second-elapsed-ms 500)
                     (= 1 accepted-before-first-exit)
                     (str/includes? second-output
-                                   "terminal=deferred reason=already-running"))
+                                   "terminal=deferred reason=already-running")
+                    (str/includes? second-output (.getCanonicalPath lock)))
                second-output)
         (check "blocked coordinator has bounded clean terminal result"
                (and (zero? (:exit first-result)) (< first-elapsed-ms 2000)
@@ -331,6 +338,66 @@
                     (str/includes? first-output
                                    "action=retry-on-next-scheduled-run"))
                first-output))
+      (finally ((:stop blackhole)))))
+
+  ;; Without an explicit override, production and dry-run use separate locks.
+  ;; Each class still rejects a duplicate of itself while both primary runs are
+  ;; held on the same blackhole coordinator.
+  (let [port (free-port)
+        log (doto (io/file tmp "split-lock.log") (spit ""))
+        runtime-dir (doto (io/file tmp "split-lock-runtime") .mkdirs)
+        ignored-override (io/file tmp "ignored-explicit.lock")
+        blackhole (start-blackhole port)
+        environment
+        (assoc (common-env tmp port log ignored-override 2500)
+               "XDG_RUNTIME_DIR" (.getCanonicalPath runtime-dir))
+        production (start-default-lock-sweep environment false)]
+    (try
+      (loop [attempt 0]
+        (when (and (< (count @(:sockets blackhole)) 1) (< attempt 100))
+          (Thread/sleep 10)
+          (recur (inc attempt))))
+      (let [dry-run (start-default-lock-sweep environment true)]
+        (loop [attempt 0]
+          (when (and (< (count @(:sockets blackhole)) 2) (< attempt 100))
+            (Thread/sleep 10)
+            (recur (inc attempt))))
+        (let [second-dry @(start-default-lock-sweep environment true)
+              second-production @(start-default-lock-sweep environment false)
+              accepted-before-primary-exit (count @(:sockets blackhole))
+              production-result @production
+              dry-run-result @dry-run
+              production-output (str (:out production-result) (:err production-result))
+              dry-run-output (str (:out dry-run-result) (:err dry-run-result))
+              second-dry-output (str (:out second-dry) (:err second-dry))
+              second-production-output
+              (str (:out second-production) (:err second-production))]
+          (check "production and dry-run sweeps overlap on distinct default locks"
+                 (and (= 2 accepted-before-primary-exit)
+                      (zero? (:exit production-result))
+                      (zero? (:exit dry-run-result))
+                      (not (str/includes? production-output "already-running"))
+                      (not (str/includes? dry-run-output "already-running")))
+                 (str production-output dry-run-output))
+          (check "two dry-runs serialize on the deterministic dry-run lock"
+                 (and (zero? (:exit second-dry))
+                      (str/includes? second-dry-output
+                                     "terminal=deferred reason=already-running")
+                      (str/includes?
+                       second-dry-output
+                       (.getCanonicalPath
+                        (io/file runtime-dir
+                                 "north-reactor-sweep-dry-run.lock"))))
+                 second-dry-output)
+          (check "production double-fire protection remains on the production lock"
+                 (and (zero? (:exit second-production))
+                      (str/includes? second-production-output
+                                     "terminal=deferred reason=already-running")
+                      (str/includes?
+                       second-production-output
+                       (.getCanonicalPath
+                        (io/file runtime-dir "north-reactor-sweep.lock"))))
+                 second-production-output)))
       (finally ((:stop blackhole)))))
 
   ;; A bad lifecycle setting is a real operator/configuration failure, not a
