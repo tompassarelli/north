@@ -23,6 +23,12 @@ A separate, louder class: `reset --hard`, `stash`, `checkout -- <path>`,
 is the human's, not the lane's. It is checked across EVERY git call in the
 command, so a sanctioned verb earlier in the line cannot shield it.
 
+SANCTIONED TOOLS
+
+`wt-rescue` is the remediation this guard's deny message recommends, and it
+performs internally the very operations denied raw. Its own command segment is
+excised before any rule runs; every other segment on the line is still scanned.
+
 FAIL-OPEN, everywhere. An unparseable command, an unknown shape, any exception:
 return None and let the call through.
 """
@@ -68,6 +74,10 @@ INTERPRETERS = {"python", "python3", "perl", "ruby", "node", "bb", "bash", "sh",
 # `git stash` subcommands that only report.
 STASH_READS = {"list", "show"}
 
+# Tools whose whole job is a sanctioned remediation of a protected checkout.
+# Denying one leaves the deny message recommending a move the guard forbids.
+SANCTIONED_TOOLS = {"wt-rescue"}
+
 SEGMENT_SPLIT = r'\s*(?:&&|\|\||[;|&\n])\s*'
 
 
@@ -111,17 +121,17 @@ def _strip_heredoc_bodies(command):
     return "".join(out)
 
 
-def _redirect_targets(command):
+def _redirect_targets(text):
     """Files the shell would open for writing via > or >>.
 
+    TEXT is already heredoc-stripped: a redirect inside a heredoc BODY is data.
     `->` is NOT a redirect (excluded so an arrow inside a quoted string, e.g.
     `echo "a -> b"`, is not treated as one). `>&` (fd duplication, e.g. 2>&1)
     opens no file either, so it is excluded too.
     """
     return [m.group(1).strip('"\'')
             for m in re.finditer(
-                r'(?<![-&])>>?\s*(?!&)("[^"]+"|\'[^\']+\'|[^\s;&|<>]+)',
-                _strip_heredoc_bodies(command))]
+                r'(?<![-&])>>?\s*(?!&)("[^"]+"|\'[^\']+\'|[^\s;&|<>]+)', text)]
 
 
 def _tokens(command):
@@ -131,14 +141,36 @@ def _tokens(command):
         return command.split()
 
 
-def _git_invocations(command, cwd):
-    """(target, verb, args) for EVERY git call in COMMAND.
+def _leads_with_sanctioned_tool(segment):
+    """True when SEGMENT invokes a sanctioned tool as its own command."""
+    for tok in _tokens(segment):
+        if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", tok) or tok in ("env", "exec", "command"):
+            continue
+        return os.path.basename(tok) in SANCTIONED_TOOLS
+    return False
+
+
+def _excise_sanctioned(text):
+    """TEXT with sanctioned-tool segments dropped.
+
+    Per SEGMENT, never per command: `wt-rescue x && git -C main reset --hard`
+    still gets its second half scanned. Separators are kept verbatim — the
+    segment split cuts through `2>&1`, so rejoining without them would forge a
+    redirect out of an fd duplication.
+    """
+    parts = re.split("(" + SEGMENT_SPLIT + ")", text)
+    return "".join(p for i, p in enumerate(parts)
+                   if i % 2 or not _leads_with_sanctioned_tool(p))
+
+
+def _git_invocations(text, cwd):
+    """(target, verb, args) for EVERY git call in TEXT.
 
     Split per segment first: one sanctioned git call must not vouch for a
     mutating one later in the same line.
     """
     found = []
-    for segment in re.split(SEGMENT_SPLIT, _strip_heredoc_bodies(command)):
+    for segment in re.split(SEGMENT_SPLIT, text):
         tokens = _tokens(segment)
         for i, tok in enumerate(tokens):
             if os.path.basename(tok) != "git":
@@ -247,10 +279,12 @@ def decide(payload):
         return None
     cwd = payload.get("cwd") or os.getcwd()
     eff = _effective_cwd(command, cwd)
-    # Tokenise the command WITHOUT heredoc bodies: a `sed -i /path` or
-    # `rm /path` appearing inside heredoc data is text being written, not a
-    # command being run, and treating it as one denies legitimate work.
-    tokens = _tokens(_strip_heredoc_bodies(command))
+    # Every rule scans this, not the raw command. Heredoc bodies are stripped
+    # because a `sed -i /path` or `rm /path` in heredoc data is text being
+    # written, not a command being run; sanctioned-tool segments are excised
+    # because their remediation is the compliant move.
+    scan = _excise_sanctioned(_strip_heredoc_bodies(command))
+    tokens = _tokens(scan)
 
     def deny(path, project, why, what):
         return (f"This Bash command would {what} inside the PRIMARY checkout of "
@@ -258,7 +292,7 @@ def decide(payload):
                 f"{worktree_advice(project)}\n"
                 f"Reads are fine — it is the write that is refused.")
 
-    invocations = _git_invocations(command, eff)
+    invocations = _git_invocations(scan, eff)
 
     # 0. destroying uncommitted work in a main checkout — its own class, because
     #    the loss is the human's and is not recoverable from the ref.
@@ -275,7 +309,10 @@ def decide(payload):
                 f"work-in-progress; an agent never discards it. {why}\n\n"
                 f"Compliant moves:\n"
                 f"  git -C {target} status --porcelain   # inspect, do not discard\n"
-                f"  # ask the human to clear their own WIP, or work elsewhere:\n"
+                f"  wt-rescue {target}\n"
+                f"  # dirty main? run `wt-rescue` (relocates intact, restores clean)\n"
+                f"  # rare surgery only: `north config guards off` — deliberate\n"
+                f"  # bypass, state why, re-enable after\n"
                 f"{worktree_advice(project)}")
 
     # 1. mutating git, wherever it points
@@ -288,7 +325,7 @@ def decide(payload):
             return deny(target, project, why, f"run `git {verb}`")
 
     # 2. shell redirection into a protected path
-    for raw in _redirect_targets(command):
+    for raw in _redirect_targets(scan):
         resolved = _resolve(os.path.expanduser(raw), eff)
         hit = protected_project(resolved)
         if hit:
@@ -300,7 +337,7 @@ def decide(payload):
     #    within their own command. Scanning to the end of a compound command
     #    made `ln -s a b; echo "(none = clean)"` treat the echo's text as ln's
     #    destination and deny it. Split on shell separators first.
-    for segment in re.split(SEGMENT_SPLIT, _strip_heredoc_bodies(command)):
+    for segment in re.split(SEGMENT_SPLIT, scan):
         found = _scan_write_commands(_tokens(segment), eff, deny)
         if found:
             return found
@@ -310,7 +347,7 @@ def decide(payload):
     #    is refused on cwd alone; running it from elsewhere with absolute paths
     #    is unaffected.
     hit = protected_project(eff)
-    if hit and "<<" in command:
+    if hit and "<<" in scan:
         for tok in tokens:
             if os.path.basename(tok) in INTERPRETERS:
                 return deny(eff, hit[0], hit[1],

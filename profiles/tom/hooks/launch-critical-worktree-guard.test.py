@@ -259,6 +259,31 @@ _staged = run(bash("git restore --staged cli/x.clj", cwd=NORTH))
 check("git restore --staged is a mutation, not WIP destruction",
       _staged and "work-in-progress" not in _staged)
 
+print("--- wt-rescue is the sanctioned remediation and must pass ---")
+
+# It performs internally the cleanup denied raw. A guard that blocks the move
+# its own deny message recommends leaves the lane trapped.
+check("wt-rescue against a main is allowed",
+      run(bash(f"wt-rescue {NIXOS}")) is None)
+check("wt-rescue with no path, run from inside a main",
+      run(bash("wt-rescue", cwd=NORTH)) is None)
+check("wt-rescue --dry-run is allowed",
+      run(bash(f"wt-rescue {NORTH} --dry-run")) is None)
+check("the checkout-- denial names wt-rescue",
+      "wt-rescue" in (run(bash(f"git -C {NIXOS} checkout -- .")) or ""))
+check("the reset --hard denial names wt-rescue",
+      "wt-rescue" in (run(bash(f"git -C {NIXOS} reset --hard")) or ""))
+check("the denial names the deliberate-bypass escape",
+      "north config guards off" in (run(bash("git stash", cwd=NORTH)) or ""))
+check("the allowlist is per SEGMENT — a reset --hard after it still denies",
+      run(bash(f"wt-rescue {NORTH} && git -C {NORTH} reset --hard origin/main")))
+check("...and a plain mutation after it still denies",
+      run(bash(f"wt-rescue {NORTH}; git -C {NORTH} commit -m x")))
+check("a wt-rescue's own rescue worktree is a wt- destination",
+      run(bash("git add .", cwd="/home/tom/code/north/wt-rescue-20260730-1600")) is None)
+check("the word wt-rescue as mere text vouches for nothing",
+      run(bash(f"echo wt-rescue && git -C {NORTH} reset --hard")))
+
 check("reset --hard INSIDE a worktree is the lane's own business",
       run(bash("git reset --hard origin/main",
                cwd="/home/tom/code/north/wt-abc")) is None)
