@@ -45,9 +45,10 @@
       (edn/read-string (.readLine reader)))))
 (defn run-presence [port & args]
   (apply proc/sh {:out :string :err :string :continue true
-                  :extra-env {"FRAM_LOG" @test-log}}
+                  :extra-env {"FRAM_LOG" @test-log
+                              "NORTH_TELEMETRY_PARTITION" "0"}}
          "bb" presence-cli (str port) args))
-(defn run-against-response [response]
+(defn run-against-response [response & args]
   (with-open [server (java.net.ServerSocket. 0)]
     (let [served
           (future
@@ -59,7 +60,7 @@
                         (.getBytes (str (pr-str response) "\n")
                                    java.nio.charset.StandardCharsets/UTF_8))
                 (.flush writer))))
-          result (run-presence (.getLocalPort server) "presence-online-json")]
+          result (apply run-presence (.getLocalPort server) args)]
       @served
       result)))
 
@@ -68,14 +69,22 @@
            (java.nio.file.Files/createTempDirectory
             "north-presence-online" (make-array java.nio.file.attribute.FileAttribute 0)))
       facts (io/file tmp "facts.log")
+      _ (spit facts "")
+      log (.getCanonicalPath facts)
+      telemetry (io/file tmp "telemetry.log")
+      _ (spit telemetry "")
       daemon (do
-               (spit facts "")
                (proc/process {:dir fram :out :string :err :string
-                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+                              :extra-env {"FRAM_LOG" log
+                                          "FRAM_TELEMETRY_LOG"
+                                          (.getCanonicalPath telemetry)
+                                          "NORTH_TELEMETRY_PARTITION" "0"
+                                          "NORTH_TELEMETRY_PORT" (str port)
+                                          "FRAM_REQUIRE_LOG_FENCE" "1"
                                           "FRAM_SINGLE_VALUED" "agent dir session_id started_at"}}
                              "bb" "-cp" "out" "coord_daemon.clj"
-                             "serve-flat" (str port) (.getPath facts)))]
-  (reset! test-log (.getCanonicalPath facts))
+                             "serve-flat" (str port) log))]
+  (reset! test-log log)
   (try
     (check "throwaway Fram coordinator starts" (await-port port))
     (check "live session registers"
@@ -95,36 +104,44 @@
                   (str/includes? full "lapsed"))))
     (let [error-result
           (run-against-response
-           {:error ["coordinator unavailable"] :version 1 :engine "index"})
+           {:error ["coordinator unavailable"] :version 1 :engine "index"}
+           "presence-online-json")
           malformed-row-result
           (run-against-response
-           {:ok [["@lease:session:broken"]] :version 1 :engine "index"})
+           {:ok [["@lease:session:broken"]] :version 1 :engine "index"}
+           "presence-online-json")
           unsafe-version-result
           (run-against-response
-           {:ok [] :version 9007199254740992 :engine "index"})
+           {:ok [] :version 9007199254740992 :engine "index"}
+           "presence-online-json")
           malformed-lease-result
           (run-against-response
            {:ok [["@lease:session:broken" "not-a-lease"]]
-            :version 1 :engine "index"})
+            :version 1 :engine "index"}
+           "presence-online-json")
           wrong-holder-result
           (run-against-response
            {:ok [["@lease:session:broken" "someone-else|9999999999999|1"]]
-            :version 1 :engine "index"})
+            :version 1 :engine "index"}
+           "presence-online-json")
           overflow-result
           (run-against-response
            {:ok [["@lease:session:broken"
                   "broken|9007199254740992|1"]]
-            :version 1 :engine "index"})
+            :version 1 :engine "index"}
+           "presence-online-json")
           duplicate-distinct-result
           (run-against-response
            {:ok [["@lease:session:duplicate" "duplicate|9999999999999|1"]
                  ["@lease:session:duplicate" "duplicate|9999999999998|2"]]
-            :version 1 :engine "index"})
+            :version 1 :engine "index"}
+           "presence-online-json")
           duplicate-exact-result
           (run-against-response
            {:ok [["@lease:session:duplicate" "duplicate|9999999999999|1"]
                  ["@lease:session:duplicate" "duplicate|9999999999999|1"]]
-            :version 1 :engine "index"})]
+            :version 1 :engine "index"}
+           "presence-online-json")]
       (check "coordinator error cannot become a successful empty JSON roster"
              (and (not (zero? (:exit error-result)))
                   (not (str/includes? (:out error-result)
@@ -147,6 +164,27 @@
              (not (zero? (:exit duplicate-distinct-result))))
       (check "exact duplicate session leases fail the JSON roster closed"
              (not (zero? (:exit duplicate-exact-result)))))
+    (let [rejected-renewal
+          (run-against-response
+           {:reject [:held "session:rejected" "other-holder"]}
+           "renew" "rejected")
+          malformed-renewal
+          (run-against-response
+           {:ok true :holder "malformed" :exp "not-an-integer" :epoch 1}
+           "renew" "malformed")
+          wrong-holder-renewal
+          (run-against-response
+           {:ok 7
+            :holder "different-session"
+            :exp (+ (System/currentTimeMillis) 60000)
+            :epoch 7}
+           "renew" "expected-session")]
+      (check "a rejected session renewal exits nonzero"
+             (not (zero? (:exit rejected-renewal))))
+      (check "a malformed session lease grant exits nonzero"
+             (not (zero? (:exit malformed-renewal))))
+      (check "a mismatched session lease holder exits nonzero"
+             (not (zero? (:exit wrong-holder-renewal)))))
     (finally
       (proc/destroy-tree daemon)
       (doseq [file (reverse (file-seq tmp))]

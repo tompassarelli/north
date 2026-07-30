@@ -29,6 +29,40 @@
   (swap! checks conj [label (boolean value)])
   (println (if value (str "PASS " label) (str "FAIL " label))))
 
+(let [events (atom [])
+      refused?
+      (try
+        (with-redefs
+         [north.coord/validate-subscription!
+          (fn [_]
+            (swap! events conj :validate)
+            (throw (ex-info "subscription refused" {:type :refused})))
+          with-native-listener-generation!
+          (fn [_ _ _ _ body]
+            (swap! events conj :arm)
+            (body))]
+          (with-validated-native-listener-generation!
+           0 "@agent:test" "test" nil {:reject :refused}
+           #(swap! events conj :body)))
+        false
+        (catch clojure.lang.ExceptionInfo _ true))]
+  (check "a rejected subscription cannot publish an armed generation"
+         (and refused? (= [:validate] @events))))
+
+(let [events (atom [])]
+  (with-redefs
+   [north.coord/validate-subscription!
+    (fn [_] (swap! events conj :validate))
+    with-native-listener-generation!
+    (fn [_ _ _ _ body]
+      (swap! events conj :arm)
+      (body))]
+    (with-validated-native-listener-generation!
+     0 "@agent:test" "test" nil {:ok :subscribed}
+     #(swap! events conj :body)))
+  (check "listener generation is armed only after a validated handshake"
+         (= [:validate :arm :body] @events)))
+
 (let [passes (atom [{:reason :unavailable :message "connection refused"}
                     {:reason :closed :message "restart EOF"}
                     {:reason :stop :message "re-armed"}])
@@ -52,7 +86,7 @@
 (let [result
       (proc/shell
        {:continue true :out :string :err :string}
-       "timeout" "--signal=TERM" "--kill-after=0.1s" "0.15s"
+       "timeout" "--signal=TERM" "--kill-after=0.1s" "0.3s"
        "env" "-u" "NORTH_LISTEN_LIB"
        "NORTH_LISTEN_INITIAL_BACKOFF_MS=10"
        "NORTH_LISTEN_MAX_BACKOFF_MS=20"

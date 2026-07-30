@@ -64,6 +64,9 @@ fi
 if [ "${HOOK_TEST_MODE:-fast}" = slow ]; then
   sleep 30
 fi
+if [ "$kind" = presence ] && [ "${HOOK_TEST_PRESENCE_EXIT:-0}" -ne 0 ]; then
+  exit "$HOOK_TEST_PRESENCE_EXIT"
+fi
 exit 0
 EOF
 chmod +x "$SHIM/bb"
@@ -81,6 +84,7 @@ run_hook() {
   payload "$sid" | env -i \
     HOME="$FAKE_HOME" PATH="$SHIM:$PATH" XDG_RUNTIME_DIR="$xdg" \
     HOOK_TEST_STATE="$STATE" HOOK_TEST_MODE="$mode" AGENT_PROVIDER=openai \
+    HOOK_TEST_PRESENCE_EXIT="${HOOK_TEST_PRESENCE_EXIT:-0}" \
     bash "$HOOK" >"$out" 2>/dev/null
 }
 session_key() { "$ACTOR_KEY" session "$1"; }
@@ -121,6 +125,18 @@ check "background maintenance completes" await_locks "$XDG_FAST"
 COLD_KEY="$(session_key cold-fast-0001)"
 check "route convergence cache committed" test -s "$XDG_FAST/north-agent-routes/$COLD_KEY"
 check "presence throttle marker committed" test -s "$XDG_FAST/north-presence-renew/$COLD_KEY"
+
+echo "== failed presence renewal never advances the throttle marker =="
+XDG_REJECTED="$TMP/xdg-rejected-presence"
+OUT_REJECTED="$TMP/rejected-presence.out"
+HOOK_TEST_PRESENCE_EXIT=7 \
+  run_hook "$XDG_REJECTED" fast rejected-presence-01 "$OUT_REJECTED"
+rc=$?
+check "hook remains fail-open when presence renewal fails" test "$rc" -eq 0
+check "failed presence worker settles" await_locks "$XDG_REJECTED"
+REJECTED_KEY="$(session_key rejected-presence-01)"
+check "failed renewal leaves no throttle marker" \
+  test ! -e "$XDG_REJECTED/north-presence-renew/$REJECTED_KEY"
 
 echo "== 20MB envelope is parsed once, not once per field =="
 XDG_LARGE="$TMP/xdg-large"

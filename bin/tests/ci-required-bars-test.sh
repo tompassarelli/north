@@ -24,8 +24,10 @@ clojure_bars=(
   cli/tests/wip-cli-test.clj
   cli/tests/live-feed-integration-test.clj
   cli/tests/message-routing-test.clj
+  cli/tests/presence-online-integration-test.clj
   cli/tests/map-contract-test.clj
   cli/tests/message-audience-integration-test.clj
+  cli/tests/native-listener-liveness-integration-test.clj
   cli/tests/north-listen-reconnect-test.clj
   cli/tests/pending-pagination-integration-test.clj
   cli/tests/pred-cli-test.clj

@@ -5,6 +5,9 @@
 (def broadcast-address "*")
 (def role-prefix "@role:")
 (def agent-prefix "@agent:")
+(def listener-lease-prefix "listener:")
+(def listener-generation-pattern
+  #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 (def max-route-candidates 4096)
 (def route-page-size 128)
 (def max-mail-candidates 16384)
@@ -17,17 +20,65 @@
 (defn agent-subject [control]
   (str agent-prefix (bare-agent control)))
 
+(defn listener-resource [control]
+  (str listener-lease-prefix (bare-agent control)))
+
+(defn lease-live-at? [lease now]
+  (and (map? lease)
+       (string? (:holder lease))
+       (integer? (:exp lease))
+       (> (:exp lease) now)
+       (integer? (:epoch lease))
+       (pos? (:epoch lease))))
+
+(defn native-listener-live?
+  "A native listener's durable armed bit is only descriptive. Reachability also
+   requires the matching renewable generation lease. The before/after lease
+   reads close release/reacquire races around the point reads without rejecting
+   an ordinary renewal, whose holder stays generation-stable while its numeric
+   fence epoch advances."
+  [port control]
+  (let [subject (agent-subject control)
+        resource (listener-resource control)
+        before (north.coord/lease-of port resource)]
+    ;; Keep every load-bearing read explicit and ordered: lease -> generation
+    ;; -> state -> lease. Arming writes frozen, generation, armed; cleanup
+    ;; writes frozen before release. No interleaving can expose a false live
+    ;; generation through both lease snapshots.
+    (let [generation
+          (north.coord/resolved port subject "live_input_epoch")
+          state (north.coord/resolved port subject "live_input_state")
+          after (north.coord/lease-of port resource)
+          now (System/currentTimeMillis)]
+      (boolean
+       (and (lease-live-at? before now)
+            (lease-live-at? after now)
+            (= (:holder before) (:holder after))
+            (re-matches listener-generation-pattern generation)
+            (= generation (:holder before))
+            (= "armed" state))))))
+
+(defn armed-route-live?
+  [port control]
+  (let [subject (agent-subject control)
+        kind (north.coord/resolved port subject "kind")]
+    (case kind
+      "session" (native-listener-live? port control)
+      ;; Managed route state is SDK-owned. `north listen` never mutates it and
+      ;; mail keeps the existing managed route behavior.
+      "lane" (= "armed"
+                (north.coord/resolved port subject "live_input_state"))
+      false)))
+
 (defn recipient-live?
   "A direct recipient is reachable when its renewable session lease is live or
-   its provider listener is explicitly armed."
+   an authoritative listener route is explicitly armed."
   [port control]
   (let [control (bare-agent control)]
     (boolean
      (and (not (str/blank? control))
           (or (north.coord/online? port control)
-              (= "armed"
-                 (north.coord/resolved
-                  port (agent-subject control) "live_input_state")))))))
+              (armed-route-live? port control))))))
 
 (defn role-holders
   "All graph holders of ROLE-SLUG. Ordering is deterministic; liveness decides
