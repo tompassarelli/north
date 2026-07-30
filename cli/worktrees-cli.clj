@@ -216,7 +216,8 @@
         (primitive "git -C <worktree> status --porcelain=v1 --untracked-files=all")
         (primitive "git -C <repo>/main rev-list --left-right --count refs/heads/<main>...<head>")
         (primitive "concern list-json                                    (live-concern join)")
-        (primitive (str "gawk <live worktree facts> " (north.coord/expected-log)
+        (primitive (str "Clojure EDN fold <live worktree facts> "
+                        (north.coord/expected-log)
                         "   (lane registration join)"))
         (println))
       (let [concern-join (live-concerns containers)

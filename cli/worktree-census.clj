@@ -72,54 +72,26 @@
 ;; coordinator form of this question cannot be served — a two-variable query over
 ;; a 45 MB log answers `bad request: OutOfMemoryError` — so the fold is the read
 ;; path, exactly as `north wip` folds the log for its own corpus-wide question.
-(def ^:private worktree-fact-awk
-  (str
-   "{"
-   " marker=index($0, \", :p \\\"\");"
-   " if (!marker) next;"
-   " rest=substr($0, marker + 6);"
-   " predicate=substr(rest, 1, index(rest, \"\\\"\") - 1);"
-   " if (predicate != \"worktree\") next;"
-   " lmarker=index($0, \", :l \\\"\");"
-   " if (!lmarker) next;"
-   " subject=substr($0, lmarker + 6, marker - (lmarker + 6) - 1);"
-   " rmarker=index($0, \", :r \\\"\");"
-   " if (!rmarker) next;"
-   " rest=substr($0, rmarker + 6);"
-   " rend=index(rest, \"\\\", :ts \");"
-   " frameend=index(rest, \"\\\", :frame \");"
-   " if (frameend && frameend < rend) rend=frameend;"
-   " if (rend <= 1) next;"
-   " value=substr(rest, 1, rend - 1);"
-   " key=subject SUBSEP value;"
-   " if (index(substr($0, 1, 64), \":op \\\"assert\\\"\"))"
-   "   live[key]=subject \"\\t\" value;"
-   " else delete live[key]"
-   " }"
-   " END { for (key in live) print live[key] }"))
-
-(defn- decode-log-string [value]
-  (if (str/includes? value "\\")
-    (clojure.edn/read-string (str "\"" value "\""))
-    value))
+(defn- apply-worktree-fact [live line]
+  (if-not (str/includes? line ":p \"worktree\"")
+    live
+    (let [{:keys [op l p r]} (clojure.edn/read-string line)
+          claim [l r]]
+      (if-not (= "worktree" p)
+        live
+        (if (= "assert" op)
+          (conj live claim)
+          (disj live claim))))))
 
 (defn claimed-worktrees
   "Canonical worktree path -> the subject whose live fact claims it."
   [log-path]
-  (let [result (proc/shell {:out :string :err :string :continue true}
-                           "gawk" worktree-fact-awk log-path)]
-    (when-not (zero? (:exit result))
-      (throw (ex-info (str "canonical log worktree selection failed: "
-                           (str/trim (str (:err result))))
-                      {:exit (:exit result)})))
+  (with-open [reader (io/reader log-path)]
     (into {}
-          (keep (fn [line]
-                  (let [tab (.indexOf ^String line "\t")]
-                    (when (pos? tab)
-                      (when-let [path (canonical
-                                       (decode-log-string (subs line (inc tab))))]
-                        [path (decode-log-string (subs line 0 tab))])))))
-          (str/split-lines (str (:out result))))))
+          (keep (fn [[subject value]]
+                  (when-let [path (canonical value)]
+                    [path subject])))
+          (reduce apply-worktree-fact #{} (line-seq reader)))))
 
 (defn container-index [containers]
   {:by-name (into {} (map (juxt :repo :container)) containers)
