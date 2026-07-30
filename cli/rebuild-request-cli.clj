@@ -178,10 +178,13 @@
 (defn last-fired-window-ms
   "When the owner last CONSUMED a window. A deferred launch never consumes one."
   [port]
-  (->> (load-window-records port)
-       (remove #(= "deferred" (:action %)))
-       (keep :at-ms)
-       (reduce max nil)))
+  ;; `(reduce max nil times)` reads as "no windows yet -> nil" but seeds the
+  ;; reduction WITH nil, so the first real record NPEs. Empty must be the only
+  ;; nil-producing case.
+  (let [times (->> (load-window-records port)
+                   (remove #(= "deferred" (:action %)))
+                   (keep :at-ms))]
+    (when (seq times) (apply max times))))
 
 (defn intent-creation-times
   "createdAtMs of every recorded rebuild intent — the only durable trace a
