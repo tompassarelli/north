@@ -112,9 +112,12 @@
 (defn- sig-member-map [facts]
   (reduce (fn [m c] (assoc m (fact-sig c) true)) {} facts))
 
+(defn ^Boolean compose-telemetry-log? []
+  true)
+
 (defn- read-logs-merged [^String log]
   (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
-  (if (= tlog "") (fram.rt/read-log log) (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
+  (if (or (= tlog "") (not (compose-telemetry-log?))) (fram.rt/read-log log) (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
 
 (defn- retracted-sigs [ops]
   (reduce (fn [m a] (if (= (:op a) "retract") (assoc m (str (:l a) "|" (:p a) "|" (:r a)) true) m)) {} ops))
@@ -1335,7 +1338,7 @@
   (= sub "start") (if (>= (count args) 3) (cmd-clock-start log (nth args 2)) (println "usage: clock start <thread-id>"))
   (= sub "stop") (cmd-clock-stop log)
   (= sub "orphan") (if (>= (count args) 3) (cmd-clock-orphan log (nth args 2)) (println "usage: clock orphan <agent-id>"))
-  (= sub "status") (cmd-clock-status log)
+  (or (= sub "current") (= sub "status")) (cmd-clock-status log)
   (= sub "report") (cmd-clock-report log)
   (= sub "today") (cmd-clock-today log)
   (= sub "week") (cmd-clock-week log)
@@ -1343,8 +1346,8 @@
   (= sub "map") (if (>= (count args) 4) (cf/cmd-map (fram.rt/time-dir) (nth args 2) (nth args 3)) (println "usage: clock map <owner> <project-id>"))
   (= sub "projects") (cf/cmd-projects)
   (= sub "workspaces") (cf/cmd-workspaces)
-  :else (println "usage: clock rate <owner> [rate] | in <owner> | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <rate|in|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "usage: clock rate <owner> [rate] | in <owner> | current | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <rate|in|current|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond

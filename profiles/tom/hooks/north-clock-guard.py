@@ -1777,10 +1777,6 @@ def resolve_logs() -> list[str]:
     logs: list[str] = []
     if fram_log:
         logs.append(fram_log)
-        if telemetry_log:
-            logs.append(telemetry_log)
-        elif fram_log.endswith("/coordination.log"):
-            logs.append(f"{fram_log[:-len('/coordination.log')]}/telemetry.log")
     elif telemetry_log:
         raise AdmissionUnavailable("orphan telemetry corpus")
     elif not home:
@@ -1793,8 +1789,10 @@ def resolve_logs() -> list[str]:
             home, ".local/state/north/telemetry.log"
         )
         legacy = os.path.join(home, ".local/state/north/facts.log")
-        if os.path.exists(coordination) or os.path.exists(telemetry):
-            logs.extend((coordination, telemetry))
+        if os.path.exists(coordination):
+            logs.append(coordination)
+        elif os.path.exists(telemetry):
+            raise AdmissionUnavailable("orphan telemetry corpus")
         elif os.path.exists(legacy):
             logs.append(legacy)
     if not logs or any(
@@ -1868,11 +1866,11 @@ def fold_facts(logs: list[str]) -> dict[tuple[str, str], tuple[str, int]]:
     # is an outer safety net, not a target.
     events: list[tuple[int, int, str, str, str, str]] = []
     for source_index, path in enumerate(logs):
-        # Transaction ids are ordered within one append log, not globally
-        # unique across the coordination/telemetry corpus.  Keep the source in
-        # the event order so equal ids retain the configured log order used by
-        # North's stable merge replay.
-        seen_transactions: set[int] = set()
+        # One atomic coordinator batch gives several predicates on one subject
+        # the same transaction. Cross-subject reuse or duplicate keys remain
+        # ambiguous and fail closed.
+        transaction_subjects: dict[int, str] = {}
+        transaction_keys: set[tuple[int, str, str]] = set()
         with open(path, encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, 1):
                 if not line.strip():
@@ -1901,16 +1899,23 @@ def fold_facts(logs: list[str]) -> dict[tuple[str, str], tuple[str, int]]:
                 assert subject_match is not None
                 assert object_match is not None
                 transaction = int(transaction_match.group(1))
-                if transaction in seen_transactions:
+                subject = subject_match.group(1)
+                previous_subject = transaction_subjects.get(transaction)
+                event_key = (transaction, subject, predicate)
+                if (
+                    previous_subject is not None
+                    and previous_subject != subject
+                ) or event_key in transaction_keys:
                     raise AdmissionUnavailable(
                         f"duplicate relevant transaction {transaction}"
                     )
-                seen_transactions.add(transaction)
+                transaction_subjects[transaction] = subject
+                transaction_keys.add(event_key)
                 events.append(
                     (
                         transaction,
                         source_index,
-                        subject_match.group(1),
+                        subject,
                         predicate,
                         operation_match.group(1),
                         object_match.group(1),
@@ -1958,8 +1963,7 @@ def clock_decision(
         ):
             continue
         owner = facts.get("owner")
-        rate = facts.get("rate")
-        if not owner or not rate:
+        if not owner:
             raise AdmissionUnavailable("incomplete human client session")
         open_sessions.append((subject, owner))
     if len(open_sessions) > 1:

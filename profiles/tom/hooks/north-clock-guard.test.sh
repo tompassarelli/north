@@ -2,8 +2,8 @@
 # north-clock-guard.test.sh — hermetic test matrix for north-clock-guard.sh.
 # Run after EVERY edit to the hook: ./north-clock-guard.test.sh
 # Pipes synthetic PreToolUse hook-input JSON into the hook and asserts the
-# decision. FRAM_LOG/FRAM_TELEMETRY_LOG point at fixture files, or HOME points
-# at a scratch canonical corpus, so the real ~/.local/state/north logs are NEVER
+# decision. FRAM_LOG points at a fixture authority, or HOME points at a scratch
+# canonical corpus, so the real ~/.local/state/north logs are NEVER
 # read or written. AUTHORING_KILLSWITCH_STATE is likewise scratch-scoped so the
 # machine's real kill-switch cannot skew results.
 # shellcheck disable=SC2016  # fixtures contain literal $ and shell operators on purpose
@@ -343,7 +343,7 @@ run deny     '(l) non-user client_session cannot authorize billing' non-user-cli
 run trace    '(m) matching human clock cannot replace ticket trace' missing-ticket-trace.log Edit "$CLIENT_DIR/api.py"
 run trace    '(n) owner+Linear without title is not a North thread' titleless-ticket-trace.log Edit "$CLIENT_DIR/api.py"
 run trace    '(o) whitespace title is not a North thread' whitespace-title-ticket-trace.log Edit "$CLIENT_DIR/api.py"
-run unavailable '(p) incomplete human billing row fails closed' incomplete-client-session.log Edit "$CLIENT_DIR/api.py"
+run clock '(p) billing rate is not client-edit authority' incomplete-client-session.log Edit "$CLIENT_DIR/api.py"
 
 echo "== output protocol: native silence vs opt-in machine attestation =="
 open_edit_json="$(emit_json Edit "$CLIENT_DIR/api.py")"
@@ -844,6 +844,8 @@ run na 'exact north clock in recovery command is exempt' closed.log Bash \
   "north clock in msa" "$CLIENT_DIR"
 run na 'exact north clock status control command is exempt' closed.log Bash \
   "north clock status" "$CLIENT_DIR"
+run na 'exact north clock current control command is exempt' closed.log Bash \
+  "north clock current" "$CLIENT_DIR"
 run na 'exact north clock out recovery command is exempt' closed.log Bash \
   "north clock out" "$CLIENT_DIR"
 run na 'exact tell repairs the observed Linear identity catch-22' closed.log Bash \
@@ -1351,7 +1353,7 @@ run unavailable 'classified client edit + unreadable corpus' unreadable.log Edit
 run unavailable 'classified client edit + grossly garbled corpus' garbled.log Edit "$CLIENT_DIR/api.py"
 run unavailable 'classified client edit + malformed relevant fact' malformed-relevant.log Edit "$CLIENT_DIR/api.py"
 run unavailable 'duplicate relevant tx makes fold ordering uncertain' duplicate-tx.log Edit "$CLIENT_DIR/api.py"
-run unavailable 'partial canonical split cannot fall back to monolith' partial-split/coordination.log Edit "$CLIENT_DIR/api.py"
+run clock 'coordination clock authority survives absent telemetry' partial-split/coordination.log Edit "$CLIENT_DIR/api.py"
 run_payload attest unavailable 'malformed JSON envelope' closed.log '{not-json'
 run_payload attest unavailable 'duplicate root JSON key cannot replace the tool identity' closed.log \
   '{"tool_name":"Edit","tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}'
@@ -1423,8 +1425,9 @@ run_default() {
     "$HOOK" 2>/dev/null
 }
 
-# Stale facts.log says no clock; the live split says a human msa client session
-# is open. The end_time retraction proves exact current-state semantics.
+# Stale facts.log says no clock; coordination says a human msa client session
+# is open. Telemetry carries a contradictory misplaced historical session and
+# must not participate in edit authority.
 {
   assert_fact 1 '@stale-thread' owner msa
   assert_fact 2 '@stale-thread' linear MSA-321
@@ -1433,20 +1436,22 @@ run_default() {
   assert_fact 101 '@live-thread' owner msa
   assert_fact 102 '@live-thread' linear MSA-321
   assert_fact 120 '@live-thread' title 'MSA-321 live'
-} > "$DEFAULT_STATE/coordination.log"
-{
-  # Transaction ids are scoped to their source log: tx 101 also exists in the
-  # coordination log and must not make the combined corpus unavailable.
-  assert_fact 101 '@live-client-session' kind client_session
+  assert_fact 103 '@live-client-session' kind client_session
   assert_fact 104 '@live-client-session' owner msa
   assert_fact 105 '@live-client-session' clocked_by user
   assert_fact 106 '@live-client-session' rate 175
   assert_fact 107 '@live-client-session' start_time '2026-07-16T12:00:00Z'
   assert_fact 108 '@live-client-session' end_time '2026-07-16T12:01:00Z'
   fact 109 retract '@live-client-session' end_time '2026-07-16T12:01:00Z'
+} > "$DEFAULT_STATE/coordination.log"
+{
+  assert_fact 101 '@misplaced-client-session' kind client_session
+  assert_fact 102 '@misplaced-client-session' owner acme
+  assert_fact 103 '@misplaced-client-session' clocked_by user
+  assert_fact 104 '@misplaced-client-session' start_time '2026-07-16T12:00:00Z'
 } > "$DEFAULT_STATE/telemetry.log"
 split_out="$(run_default)"
-check_output silent 'split trace + re-opened human client session beat stale monolith' "$split_out"
+check_output silent 'coordination clock authority ignores stale monolith and telemetry' "$split_out"
 
 # The same pair remains selectable explicitly for isolated fixtures/instances.
 split_json="$(emit_json Edit "$DEFAULT_REPO/api.py")"
@@ -1455,10 +1460,11 @@ split_override_out="$(printf '%s' "$split_json" | env -u AGENT_NO_AUTHORING_HOOK
   HOME="$DEFAULT_HOME" FRAM_LOG="$DEFAULT_STATE/coordination.log" \
   FRAM_TELEMETRY_LOG="$DEFAULT_STATE/telemetry.log" \
   AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" "$HOOK" 2>/dev/null)"
-check_output silent 'explicit FRAM_LOG + FRAM_TELEMETRY_LOG pair is preserved' "$split_override_out"
+check_output silent 'explicit coordination authority ignores telemetry override' "$split_override_out"
 
 # Reverse the contradiction: stale facts.log has a human msa session, while the
-# live split has only an acme human session. The verdict must use live split data.
+# coordination authority has only an acme human session. Telemetry claims msa,
+# but cannot authorize or change the verdict.
 {
   assert_fact 1 '@stale-thread' owner msa
   assert_fact 2 '@stale-thread' linear MSA-321
@@ -1474,13 +1480,17 @@ check_output silent 'explicit FRAM_LOG + FRAM_TELEMETRY_LOG pair is preserved' "
   assert_fact 252 '@live-thread' title 'MSA-321 live'
   assert_fact 250 '@retracted-thread' linear MSA-321
   fact 251 retract '@retracted-thread' linear MSA-321
-} > "$DEFAULT_STATE/coordination.log"
-{
   assert_fact 203 '@client-session-acme' kind client_session
   assert_fact 204 '@client-session-acme' owner acme
   assert_fact 205 '@client-session-acme' clocked_by user
   assert_fact 206 '@client-session-acme' rate 200
   assert_fact 207 '@client-session-acme' start_time '2026-07-16T12:30:00Z'
+} > "$DEFAULT_STATE/coordination.log"
+{
+  assert_fact 203 '@telemetry-client-session-msa' kind client_session
+  assert_fact 204 '@telemetry-client-session-msa' owner msa
+  assert_fact 205 '@telemetry-client-session-msa' clocked_by user
+  assert_fact 206 '@telemetry-client-session-msa' start_time '2026-07-16T12:30:00Z'
 } > "$DEFAULT_STATE/telemetry.log"
 split_out="$(run_default)"
 if [[ ("$split_out" == *'"permissionDecision": "deny"'* ||
@@ -1488,9 +1498,9 @@ if [[ ("$split_out" == *'"permissionDecision": "deny"'* ||
       "$split_out" == *'WRONG client clock'* &&
       "$split_out" == *'client-session-acme'* &&
       "$split_out" != *'stale-client-session'* ]]; then
-  pass=$((pass + 1)); echo "PASS  mismatch  live split human-client verdict ignores stale monolith"
+  pass=$((pass + 1)); echo "PASS  mismatch  coordination verdict ignores telemetry and stale monolith"
 else
-  fail=$((fail + 1)); echo "FAIL  mismatch  split/hint result: $split_out"
+  fail=$((fail + 1)); echo "FAIL  mismatch  coordination authority result: $split_out"
 fi
 
 # With the split absent, the legacy monolith remains a supported fallback.
