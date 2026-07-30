@@ -132,6 +132,7 @@ jobs:
           bb cli/tests/mine-verbosity-test.clj
           bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/dashboard-doctor-exit-test.clj
+          bb cli/tests/rebuild-request-window-test.clj  # window owner decides on fixture time, never wall-clock
           bb cli/tests/coordinator-jvm-health-test.clj
           bb cli/tests/deployed-cli-test.clj
           BABASHKA_CLASSPATH="out:../fram/out" bb cli/tests/wip-cli-test.clj

@@ -48,6 +48,11 @@
 ;; DURABLE last-sweep heartbeat — the reactor's liveness trace `north doctor` reads.
 ;; Shared writer/reader lib (doctor loads the same file); we stamp it at each sweep.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/reactor-heartbeat.clj"))
+;; Rebuild QUEUE read/write path — the reactor is the window OWNER, and it drives
+;; the same verbs `north rebuild` exposes rather than writing request facts itself.
+(System/setProperty "north.rebuild-request-cli.lib" "1")
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
+                "/rebuild-request-cli.clj"))
 ;; Spend-guard breaker + burn/kill/reaper-settle primitives (step 3). Loaded AFTER
 ;; coord so its north.coord/* references resolve. The reactor is the ONLY place the
 ;; burn-rate trip is computed + written and the only terminal for dead-lane spend.
@@ -455,6 +460,59 @@
                      (flush)
                      :ran))))
 
+;; ---- REBUILD WINDOW OWNER ---------------------------------------------------
+;; Agents queue rebuild asks (`north rebuild request`) and never fire; this sweep
+;; is the ONLY collector. At most one coordinated rebuild per window, and a window
+;; is consumed only by a firing — a parked queue never burns one.
+(def REBUILD-WINDOW-UNIT "north-rebuild-window")
+
+(defn launch-rebuild-window!
+  "Run the claimed window OUTSIDE this sweep: a rebuild takes minutes and the
+   sweep is bounded to four. The FIXED unit name is the double-fire mutex —
+   systemd refuses a second start while one is running."
+  [window-id]
+  (try
+    (let [north (-> (io/file (System/getProperty "babashka.file"))
+                    .getParentFile .getParentFile (io/file "bin" "north") .getPath)
+          r (proc/shell {:out :string :err :string :continue true}
+                        "systemd-run" "--user" "--collect"
+                        (str "--unit=" REBUILD-WINDOW-UNIT)
+                        "--description=north coordinated rebuild window"
+                        north "rebuild" "run-window" window-id)]
+      (if (zero? (:exit r))
+        {:launched true :unit REBUILD-WINDOW-UNIT}
+        {:launched false :reason (str/trim (str (:err r)))}))
+    (catch Throwable t {:launched false :reason (str (.getMessage t))})))
+
+(defn maybe-rebuild-window!
+  "Collect open requests into ONE coordinated rebuild. With rebuild-coordination
+   off the owner only queues and reports; firing arms when that flip lands."
+  [dry?]
+  (try
+    (let [plan (north.rebuild-request/plan-window port)
+          n (:count plan)]
+      (case (:action plan)
+        :idle {:action "idle" :count 0}
+        :queued {:action "queued" :count n}
+        :waiting {:action "waiting" :count n}
+        :fire
+        (if dry?
+          (do (println (str "[sweep] WOULD open a rebuild window for " n " request(s)"))
+              {:action "would-fire" :count n})
+          (let [window-id (north.rebuild-request/open-window! port (mapv :id (:open plan)))
+                launch (launch-rebuild-window! window-id)]
+            (if (:launched launch)
+              (do (println (str "[sweep] rebuild window " window-id " launched for " n
+                                " request(s) — unit " (:unit launch)))
+                  {:action "fired" :count n :window window-id})
+              (do (north.rebuild-request/set-window-action! port window-id "deferred")
+                  (println (str "[sweep] rebuild window " window-id " deferred: "
+                                (:reason launch)))
+                  {:action "deferred" :count n :window window-id}))))))
+    (catch Throwable t
+      (println (str "[sweep] rebuild window error: " (.getMessage t)))
+      {:action "error" :count 0})))
+
 ;; ---- AGENT STREAM-LOG ROTATION (durable-but-untidy GC) ----------------------
 ;; north-data/agents/*.log are per-agent SDK stream logs — hundreds of files,
 ;; unbounded, off-graph. Two BOUNDED hygiene ops, piggybacked on the sweep and gated
@@ -587,12 +645,14 @@
         nk (try (north.spend-breaker/sweep-kill! port dry?)
                 (catch Throwable t (println (str "[sweep] sweep-kill error: " (.getMessage t))) 0))
         ca (maybe-clock-audit! dry?)
+        rw (maybe-rebuild-window! dry?)
         attention (if dry?
                     {:status :skipped}
                     (reconcile-attention-bounded! "post-sweep"))
         summary {:concerns nc :lanes nl :unpublished-drivers nd
                  :worktrees wt :agent-logs al :breaker burn
                  :lanes-killed nk :clock-audit ca
+                 :rebuild-window rw
                  :attention-reconcile attention}]
     ;; Durable last-sweep heartbeat — write ONLY on a real sweep so doctor can tell a
     ;; running reactor from a dead one. The same record carries the janitor result,
@@ -612,6 +672,7 @@
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
                   " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
                   " clock-audit=" (name ca)
+                  " rebuild-window=" (:action rw) ":" (:count rw)
                   " attention-reconcile=" (name (:status attention))))
     (flush)
     summary))

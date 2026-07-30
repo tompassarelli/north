@@ -343,6 +343,7 @@ north — your one card. Type a command to do the thing next to it.
     north clock in <owner>|out         open/close one human client billing session
     north clock start|stop             compatibility aliases for legacy thread sessions
     north clock audit                  commits-vs-clock coverage drift report
+    north rebuild request --why ...    queue a rebuild ask (returns at once; never builds)
     north rebuild-intent start ...     coordinate a held/batched firn rebuild
     north linear get|import|plan|sync  mechanical Linear bridge (sync is plan-only unless --apply)
 
@@ -458,6 +459,11 @@ CARD
     # Rebuild coordination is a fact + finite live-roster broadcast protocol.
     # The Clojure module owns its CAS-closed hold/response/all-clear state.
     exec "$BB" "$NORTH/cli/rebuild-intent-cli.clj" "${@:2}" ;;
+  rebuild)
+    # The QUEUE in front of that protocol: `request` records a durable ask and
+    # returns immediately — an agent never fires a rebuild itself. The reactor's
+    # window owner is the only collector. cli/rebuild-request-cli.clj.
+    exec "$BB" "$NORTH/cli/rebuild-request-cli.clj" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a
     # read-only plan; only an explicit `sync <thread> --apply` writes remotely.
