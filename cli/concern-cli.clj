@@ -44,8 +44,7 @@
 (def put!     north.coord/put!)
 (def many     north.coord/many)
 (def resolved north.coord/resolved)
-(def online?  north.coord/online?)   ; renewable-lease liveness — same rule as the presence roster
-(def lease-of north.coord/lease-of)  ; raw lease {:holder :exp :epoch} — needed for lapse-age
+(def lease-of north.coord/lease-of)  ; parsed lease; authority is checked below
 
 ;; ---- liveness-derived concern DECAY (design 019f4418) -----------------------
 ;; A concern's owner is judged live by the SAME renewable-lease rule the presence
@@ -77,6 +76,21 @@
 (defn concern-mint-ms [c]
   (some-> (re-find #"concern-(\d{10,})" (str c)) second parse-long))
 
+(defn owner-lease-liveness
+  "Project one owner's lease using the shared Fram authority shape. A lease for
+   another holder, an invalid epoch, or malformed data is absence—not a lapse
+   timestamp—and therefore falls back to concern age."
+  [concern handle lease now]
+  (if (and (north.coord/authoritative-lease? lease)
+           (= handle (:holder lease)))
+    (if (> (:exp lease) now)
+      {:online true :lapsed-ago-ms nil}
+      {:online false :lapsed-ago-ms (- now (:exp lease))})
+    {:online false
+     :lapsed-ago-ms
+     (when-let [minted (concern-mint-ms concern)]
+       (max 0 (- now minted)))}))
+
 (defn owner-liveness
   "-> {:online bool :lapsed-ago-ms nil-or-ms} for a concern meta. An agent-less
    concern can't lapse (nothing to renew) so it renders live. When an offline owner
@@ -89,10 +103,7 @@
       (let [h (if (str/starts-with? a "@") (subs a 1) a)
             l (lease-of port (str "session:" h))
             now (System/currentTimeMillis)]
-        (cond
-          (and l (> (:exp l) now)) {:online true  :lapsed-ago-ms nil}
-          l                        {:online false :lapsed-ago-ms (- now (:exp l))}
-          :else {:online false :lapsed-ago-ms (when-let [mm (concern-mint-ms (:id m))] (- now mm))})))))
+        (owner-lease-liveness (:id m) h l now)))))
 
 (defn with-liveness [port m] (merge m (owner-liveness port m)))
 
@@ -629,12 +640,7 @@
     (let [handle (if (str/starts-with? agent "@") (subs agent 1) agent)
           lease (north.coord/decode-lease
                  (singleton-live facts (str "@lease:session:" handle) "lease"))]
-      (cond
-        (and lease (> (:exp lease) now)) {:online true :lapsed-ago-ms nil}
-        lease {:online false :lapsed-ago-ms (- now (:exp lease))}
-        :else {:online false
-               :lapsed-ago-ms (when-let [minted (concern-mint-ms concern)]
-                                (- now minted))}))))
+      (owner-lease-liveness concern handle lease now))))
 
 (defn meta-from-live [facts concern now]
   (let [agent (singleton-live facts concern "agent")

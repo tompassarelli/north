@@ -78,6 +78,10 @@
                                     :args [{:var "e"} {:var "r"}]}
                              :body [{:rel "triple"
                                      :args [{:var "e"} "reached" {:var "r"}]}]}]}})))
+(defn values-of [subject predicate]
+  (set
+   (:values
+    (op {:op :resolved :te subject :p predicate}))))
 
 (def fails (atom 0))
 (defn check [label ok?]
@@ -88,6 +92,20 @@
                            "validation fixture" "src/example.clj"))
 (def cid (second (re-find #"(concern-\d+-[a-f0-9]+)" (:out declared))))
 (check "fixture concern declares successfully" (and (zero? (:exit declared)) cid))
+(check "bare concern owner is stored as one canonical principal ref"
+       (= #{"@validation-agent"}
+          (values-of (str "@" cid) "agent")))
+(def ref-declared
+  (run-concern "declare" "@validation-ref-owner" "/tmp"
+               "ref owner fixture" "src/ref-example.clj"))
+(def ref-cid
+  (second (re-find #"(concern-\d+-[a-f0-9]+)" (:out ref-declared))))
+(check "already-referenced concern owner is not double-prefixed"
+       (and
+        (zero? (:exit ref-declared))
+        ref-cid
+        (= #{"@validation-ref-owner"}
+           (values-of (str "@" ref-cid) "agent"))))
 (def before (set (reached-rows)))
 (doseq [[label argv]
         [["status without arguments" ["status"]]
@@ -120,8 +138,79 @@
   (check "concern ls is history-size bounded and returns within 2s"
          (and (not= result ::timeout)
               (zero? (:exit result))
-              (re-find #"ACTIVE CONCERNS — 251" (:out result))
+              (re-find #"ACTIVE CONCERNS — 252" (:out result))
               (< elapsed-ms 2000))))
+
+;; Both human and JSON projections must use the same authoritative lease rule.
+;; Invalid authority falls back to the concern's mint age; a future expiry from
+;; another holder or epoch zero must never render a negative lapse duration.
+(let [now (System/currentTimeMillis)
+      minted (- now (* 2 60 60 1000))
+      repo "/tmp/liveness-contract"
+      fixtures
+      [{:slug "valid" :agent "@liveness-valid"
+        :lease (str "liveness-valid|" (+ now 60000) "|1")
+        :classification "live" :online true}
+       {:slug "expired" :agent "@liveness-expired"
+        :lease (str "liveness-expired|" (- now 300000) "|1")
+        :classification "stale" :online false}
+       {:slug "wrong-holder" :agent "@liveness-wrong-holder"
+        :lease (str "somebody-else|" (+ now 60000) "|1")
+        :classification "stale" :online false}
+       {:slug "epoch-zero" :agent "@liveness-epoch-zero"
+        :lease (str "liveness-epoch-zero|" (+ now 60000) "|0")
+        :classification "stale" :online false}
+       {:slug "malformed" :agent "@liveness-malformed"
+        :lease "not-a-lease"
+        :classification "stale" :online false}]
+      fixture-ids
+      (into
+       {}
+       (map
+        (fn [{:keys [slug agent lease]}]
+          (let [id (str "@concern-" minted "-" slug)
+                handle (subs agent 1)]
+            (doseq [[predicate value]
+                    [["kind" "concern"]
+                     ["agent" agent]
+                     ["repo" repo]
+                     ["intent" (str slug " lease fixture")]
+                     ["reached" "building"]]]
+              (op {:op :assert :te id :p predicate :r value}))
+            (op {:op :assert
+                 :te (str "@lease:session:" handle)
+                 :p "lease"
+                 :r lease})
+            [slug id]))
+        fixtures))
+      projection (run-concern "list-json" repo)
+      parsed (json/parse-string (:out projection) true)
+      by-id (into {} (map (juxt :id identity)) (:concerns parsed))
+      listing (run-concern "ls" repo)
+      expected-by-id
+      (into
+       {}
+       (map
+        (fn [{:keys [slug classification online]}]
+          [(get fixture-ids slug)
+           {:classification classification :online online}])
+        fixtures))]
+  (check "valid, expired, wrong-holder, epoch-zero, and malformed leases classify exactly"
+         (and
+          (zero? (:exit projection))
+          (= (set (keys expected-by-id)) (set (keys by-id)))
+          (every?
+           (fn [[id expected]]
+             (= expected
+                (select-keys (get by-id id) [:classification :online])))
+           expected-by-id)))
+  (check "invalid lease authority falls back to concern mint age"
+         (and
+          (zero? (:exit listing))
+          (= 3 (count (re-seq #"owner lapsed 2h" (:out listing))))
+          (str/includes? (:out listing) "owner lapsed 5m")))
+  (check "invalid future expiries never render a negative lapse"
+         (not (str/includes? (:out listing) "owner lapsed -"))))
 
 ;; Strict versioned MACHINE projection: `list-json` enumerates structured rows so a
 ;; consumer never scrapes rendered text. Every row carries a closed-set liveness
