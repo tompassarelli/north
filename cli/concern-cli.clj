@@ -313,7 +313,9 @@
 (defn meta-of [port c]
   {:id c
    :kind (resolved port c "kind")
-   :agent (resolved port c "agent")
+   ;; canonical ref: the board is agent-writable, so a hand-seeded concern can
+   ;; carry a bare handle where `declare` would have written "@" <agent>.
+   :agent (norm-cid (resolved port c "agent"))
    :about (resolved port c "about")
    :repo (resolved port c "repo")
    :intent (resolved port c "intent")
@@ -365,12 +367,17 @@
 
     :else nil))
 
-(defn event-recipients [attention-kind after overlap]
-  (let [both (->> [(:left overlap) (:right overlap)]
-                  (keep :agent)
+(defn event-recipients
+  "Attention is advisory; the maturity ladder is authority. A peer whose owner
+   fact is unroutable even after canonicalization loses its notification rather
+   than wedging the transition that would have sent it."
+  [attention-kind after overlap]
+  (let [routable (fn [m] (let [a (:agent m)] (when (north.attention/ref-value? a) a)))
+        both (->> [(:left overlap) (:right overlap)]
+                  (keep routable)
                   distinct
                   sort)
-        peer (some-> (other-concern overlap (:id after)) :agent)]
+        peer (some-> (other-concern overlap (:id after)) routable)]
     (if (= "overlap-entered" attention-kind)
       both
       (if peer [peer] []))))
@@ -1088,14 +1095,16 @@
       ;; spine on the :7977 board (low-frequency declare/maturity); footprint NEVER lands here.
       ;; Mint a missing person label, but never overwrite a managed lane's
       ;; publisher-owned identity cache. Roster names are derived from axes.
-      (let [agent-e (str "@" agent)]
+      ;; norm-cid, not (str "@" …): a caller who already passed a ref minted "@@x",
+      ;; a principal no lease lookup or notification can ever route to.
+      (let [agent-e (norm-cid agent)]
         (when (and (nil? (resolved port agent-e "identity_manifest_sha256"))
                    (nil? (resolved port agent-e "display_name")))
           (put! port agent-e "display_name" agent)))
       (put! port id "title"  (str "[" repo "] " intent))   ; single
       (put! port id "kind"   "concern")                    ; single
-      (put! port id "agent"  (str "@" agent))              ; single
-      (put! port id "driver" (str "@" agent))              ; single (engine) — board visibility: active work
+      (put! port id "agent"  (norm-cid agent))             ; single
+      (put! port id "driver" (norm-cid agent))             ; single (engine) — board visibility: active work
       (put! port id "repo"   repo)                         ; single
       (put! port id "intent" intent)                       ; single
       (when about (put! port id "about" about))            ; single ref, validated before mutation
