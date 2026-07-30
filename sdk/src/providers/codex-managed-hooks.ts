@@ -43,6 +43,10 @@ const command = (
  * publication. Without AGENT_ID (a native Codex session), they delegate to the
  * pinned native lifecycle scripts with provider=openai. Reusing the native
  * scripts directly here would mint a duplicate session-* identity for one lane.
+ *
+ * launch-critical-worktree-guard.sh is wired on BOTH authoring matchers on
+ * purpose: apply_patch carries tool_input.file_path, Bash carries
+ * tool_input.command, and enforcement on one entrance is not enforcement.
  */
 export function expectedManagedCodexHooks(
   managedDir = CODEX_MANAGED_HOOKS_DIR,
@@ -71,6 +75,7 @@ export function expectedManagedCodexHooks(
           command("code-upstream-guard.sh", 10, managedDir),
           command("firn-guard.sh", 10, managedDir),
           command("north-clock-guard-codex", 10, managedDir),
+          command("launch-critical-worktree-guard.sh", 10, managedDir),
         ],
       },
       {
@@ -80,6 +85,7 @@ export function expectedManagedCodexHooks(
           command("tripwire-guard.sh", 10, managedDir),
           command("firn-guard.sh", 10, managedDir),
           command("north-clock-guard-codex", 10, managedDir),
+          command("launch-critical-worktree-guard.sh", 10, managedDir),
         ],
       },
     ],
