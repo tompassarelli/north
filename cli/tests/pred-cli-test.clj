@@ -128,7 +128,6 @@
     ["cli/agent-fact-internal.clj" "retract-with-fence!" "predicate"]
     ["cli/coord.clj" "assert-after-read!" "p"]
     ["cli/coord.clj" "assert-after-read-with-fence!" "p"]
-    ["cli/delivery-evidence-internal.clj" "append!" "predicate"]
     ;; lease-cli put-fenced carries a caller-supplied predicate under the fence.
     ["cli/lease-cli.clj" "put-with-fence!" "(required-text \"predicate\" (nth args 4 nil))"]
     ["cli/msg-cli.clj" "put!" "(arg-pred k)"]
@@ -141,6 +140,9 @@
     ["cli/msg-cli.clj" "retract!" "predicate"]
     ["cli/message-audience.clj" "append!" "rejected-by-predicate"]
     ["cli/message-audience.clj" "append!" "rejection-predicate"]
+    ;; The concern terminal outbox settles the fixed, registered
+    ;; attention_event_settled predicate through one shared constant.
+    ["cli/concern-cli.clj" "append!" "attention-event-settled-predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
     ["cli/north-mine.clj" "append!" "pred"]
     ["cli/north-mine.clj" "put!" "pred"]
@@ -250,6 +252,9 @@
     "routing_pin_reason_code" "routing_pin_detail" "routing_pin_evidence_status"
     "routing_pin_evidence_sha256"
     "judgment_grade" "judgment_grade_status" "judgment_grade_source"
+    "provider_error_detail"
+    "watchdog_reason" "watchdog_silence_ms"
+    "watchdog_last_outer_activity" "watchdog_last_provider_activity"
     "struggle_detector_policy_version" "struggle_topology"
     "struggle_error_streak_threshold" "struggle_loop_repeat_threshold"
     "struggle_loop_window" "struggle_no_progress_turn_threshold"
@@ -381,6 +386,16 @@
               (= "content-sealed audit marker for a planned snapshot restoration; paired assert/retract preserves raw provenance without a live graph fact"
                  (:doc restore-checkpoint)))))
 
+(let [rebuild-single #{"rebuild_intent" "all_clear"
+                       "rebuild_started" "rebuild_outcome"}]
+  (check "coordinated rebuild state is cataloged single/literal"
+         (every? #(= {:card "single" :kind "literal"}
+                      (select-keys (registry %) [:card :kind]))
+                 rebuild-single))
+  (check "coordinated rebuild responses are repeatable literals"
+         (= {:card "multi" :kind "literal"}
+            (select-keys (registry "rebuild_response") [:card :kind]))))
+
 (check "worktree ownership sentinels are honest literals"
        (every? #(= {:card "single" :kind "literal"}
                     (select-keys (registry %) [:card :kind]))
@@ -459,6 +474,32 @@
 (check "broadcast audience members are multi/literal"
        (= {:card "multi" :kind "literal"}
           (select-keys (registry "broadcast_to") [:card :kind])))
+
+(let [single-literal
+      #{"delivery" "start_version" "cursor_version" "attention_kind"
+        "start_offset" "cursor_offset" "cursor_anchor" "end_offset"
+        "end_version" "end_anchor" "read_at" "source_version" "event_key"
+        "delivery_class" "requires_ack"}
+      single-ref #{"subscriber" "about" "subscription" "recipient"}
+      multi-literal
+      #{"event_filter" "attention_event_intent" "attention_event_settled"}
+      multi-ref #{"source_concern" "read_by"}]
+  (check "attention scalar fields are cataloged single/literal"
+         (every? #(= {:card "single" :kind "literal"}
+                      (select-keys (registry %) [:card :kind]))
+                 single-literal))
+  (check "attention entity edges are cataloged with explicit ref cardinality"
+         (and
+          (every? #(= {:card "single" :kind "ref"}
+                       (select-keys (registry %) [:card :kind]))
+                  single-ref)
+          (every? #(= {:card "multi" :kind "ref"}
+                       (select-keys (registry %) [:card :kind]))
+                  multi-ref)))
+  (check "attention filters and terminal outbox records are repeatable literals"
+         (every? #(= {:card "multi" :kind "literal"}
+                      (select-keys (registry %) [:card :kind]))
+                 multi-literal)))
 
 (check "Linear adapter cardinality matches its executable schema"
        (every? (fn [[predicate card]] (= card (get-in registry [predicate :card])))

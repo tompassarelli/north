@@ -81,6 +81,10 @@
 ;; Every write goes through :7977 (coord/append!/put!), so the audit trail is a fact.
 (def CONCERN-STALE-MS north.reap/CONCERN-STALE-MS)   ; 24h
 (def LANE-STALE-MS    north.reap/LANE-STALE-MS)      ; 30min
+(def CONCERN-TRANSITION-TIMEOUT-MS 45000)
+(def concern-transition-cli
+  (-> (io/file (System/getProperty "babashka.file"))
+      .getParentFile (io/file "concern-cli.clj") .getPath))
 
 (defn q-col [body]
   (->> (:ok (north.coord/send-op port {:op :query
@@ -117,6 +121,54 @@
   (and (contains? rs "building")
        (not (rs "likely-to-land")) (not (rs "landed")) (not (rs "abandoned-stale"))))
 
+(defn retire-stale-concern!
+  "Invoke concern-cli's transition-aware terminal boundary. Its atomic outbox
+   + reached batch is the authority; the reactor never appends terminal concern
+   facts directly."
+  [concern]
+  (let [child
+        (proc/process
+         {:out :string :err :string}
+         "bb" concern-transition-cli (str port) "retire-stale" concern)
+        result
+        (deref child CONCERN-TRANSITION-TIMEOUT-MS ::timeout)]
+    (when (= ::timeout result)
+      (proc/destroy-tree child)
+      (throw
+       (ex-info "concern terminal transition timed out"
+                {:type :concern-terminal-transition-timeout
+                 :concern concern
+                 :timeout-ms CONCERN-TRANSITION-TIMEOUT-MS})))
+    (when-not (zero? (:exit result))
+      (throw
+       (ex-info "concern terminal transition failed"
+                {:type :concern-terminal-transition-failed
+                 :concern concern
+                 :exit (:exit result)
+                 :error (str/trim (str (:err result)))})))
+    (let [transition
+          (try
+            (edn/read-string (str/trim (str (:out result))))
+            (catch Exception error
+              (throw
+               (ex-info "concern terminal transition returned malformed output"
+                        {:type :malformed-concern-terminal-transition
+                         :concern concern}
+                        error))))]
+      (when-not
+       (and (map? transition)
+            (= #{:status :concern :trigger-status}
+               (set (keys transition)))
+            (#{:committed :already :ineligible} (:status transition))
+            (= concern (:concern transition))
+            (= "abandoned-stale" (:trigger-status transition)))
+        (throw
+         (ex-info "concern terminal transition returned an invalid result"
+                  {:type :malformed-concern-terminal-transition
+                   :concern concern
+                   :result transition})))
+      transition)))
+
 (defn sweep-concerns! [dry?]
   (let [concerns (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "concern"]}]))
         hits (for [c concerns
@@ -127,11 +179,26 @@
                               (or (nil? sweep-repo)
                                   (= sweep-repo (north.coord/resolved port c "repo"))))]
                {:c c :lapse lapse :agent (north.coord/resolved port c "agent")})]
-    (doseq [{:keys [c lapse agent]} hits]
-      (when-not dry? (north.coord/append! port c "reached" "abandoned-stale"))
-      (println (str "[sweep] " (if dry? "WOULD abandon" "abandoned-stale") " " c
-                    "  owner " agent " lapsed " (long (/ lapse 3600000)) "h")))
-    (count hits)))
+    (reduce
+     (fn [retired {:keys [c lapse agent]}]
+       (if dry?
+         (do
+           (println
+            (str "[sweep] WOULD abandon " c
+                 "  owner " agent " lapsed " (long (/ lapse 3600000)) "h"))
+           (inc retired))
+         (let [{:keys [status]} (retire-stale-concern! c)]
+           (println
+            (str "[sweep] "
+                 (case status
+                   :committed "abandoned-stale"
+                   :already "already abandoned-stale"
+                   :ineligible "skipped stale retirement")
+                 " " c "  owner " agent
+                 " lapsed " (long (/ lapse 3600000)) "h"))
+           (if (= :committed status) (inc retired) retired))))
+     0
+     hits)))
 
 (defn ping-coordinator [coord h]
   (try
@@ -459,6 +526,43 @@
                             "  -" (long (/ trimmed 1048576)) "MB (tail kept)")))))))
     {:deleted @deleted :capped @capped}))
 
+(def ATTENTION-RECONCILE-TIMEOUT-MS 45000)
+(def attention-reconcile-cli concern-transition-cli)
+
+(defn reconcile-attention-bounded!
+  "Run concern attention healing out of process. Failure or timeout is reported
+   and deferred to the next sweep; it never escapes into reactor liveness."
+  [reason]
+  (try
+    (let [child
+          (proc/process
+           {:out :string :err :string}
+           "bb" attention-reconcile-cli (str port) "reconcile-attention")
+          result (deref child ATTENTION-RECONCILE-TIMEOUT-MS ::timeout)]
+      (if (= ::timeout result)
+        (do
+          (proc/destroy-tree child)
+          (println
+           (str "[sweep] attention reconcile deferred reason=timeout"
+                " timeout_ms=" ATTENTION-RECONCILE-TIMEOUT-MS
+                " trigger=" reason))
+          {:status :timeout})
+        (let [ok? (zero? (:exit result))]
+          (println
+           (str "[sweep] attention reconcile "
+                (if ok? "completed" "deferred")
+                " trigger=" reason
+                (when-not ok?
+                  (str " exit=" (:exit result)
+                       " error=" (pr-str (str/trim (str (:err result))))))))
+          {:status (if ok? :completed :failed)
+           :exit (:exit result)})))
+    (catch Throwable error
+      (println
+       (str "[sweep] attention reconcile deferred trigger=" reason
+            " error=" (pr-str (.getMessage error))))
+      {:status :failed})))
+
 (defn sweep! [dry?]
   (let [nc (sweep-concerns! dry?) nl (sweep-lanes! dry?)
         nd (sweep-unpublished-driver-claims! dry?)
@@ -483,9 +587,13 @@
         nk (try (north.spend-breaker/sweep-kill! port dry?)
                 (catch Throwable t (println (str "[sweep] sweep-kill error: " (.getMessage t))) 0))
         ca (maybe-clock-audit! dry?)
+        attention (if dry?
+                    {:status :skipped}
+                    (reconcile-attention-bounded! "post-sweep"))
         summary {:concerns nc :lanes nl :unpublished-drivers nd
                  :worktrees wt :agent-logs al :breaker burn
-                 :lanes-killed nk :clock-audit ca}]
+                 :lanes-killed nk :clock-audit ca
+                 :attention-reconcile attention}]
     ;; Durable last-sweep heartbeat — write ONLY on a real sweep so doctor can tell a
     ;; running reactor from a dead one. The same record carries the janitor result,
     ;; so an operator can distinguish "reactor alive" from "cleanup actually ran".
@@ -503,7 +611,8 @@
                   " worktree-errors=" (get wt :errors 0)
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
                   " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
-                  " clock-audit=" (name ca)))
+                  " clock-audit=" (name ca)
+                  " attention-reconcile=" (name (:status attention))))
     (flush)
     summary))
 
@@ -523,7 +632,9 @@
 ;; tool-call frequency (presence leases, session stamps, per-run costs, messages,
 ;; command envelopes, agent/role registry). Skipping them keeps heal firing only on
 ;; REAL thread edits instead of on every heartbeat — the reactor's whole cost budget.
-(def ephemeral-prefixes ["@lease:" "@session:" "@run:" "@cmd:" "@agent:" "@role:"])
+(def ephemeral-prefixes
+  ["@lease:" "@session:" "@run:" "@cmd:" "@agent:" "@role:"
+   "@notification:" "@subscription:"])
 (defn ephemeral? [l]
   (and (string? l) (boolean (some #(str/starts-with? l %) ephemeral-prefixes))))
 
@@ -600,6 +711,9 @@
   ;; Stamp once at startup so a just-booted reactor reads FRESH in doctor immediately,
   ;; rather than MISSING for the first 5-min interval before sweep-loop's first pass.
   (north.reactor-heartbeat/write-heartbeat! port)
+  ;; Startup healing is isolated from subscription admission and bounded inside
+  ;; the child process wrapper.
+  (future (reconcile-attention-bounded! "startup"))
   (future (flusher))
   (future (sweep-loop))       ; liveness-derived reaping on the reactor cadence
   (loop []

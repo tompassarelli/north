@@ -38,20 +38,49 @@
           (>= attempt 200) false
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
 
-;; Real Fram daemon boot has been observed to take 20s+ under host contention
-;; (thread 019f9063 progress notes cite a 5.4s+ cold port-open under load);
-;; give the real-daemon-only startup check a much longer budget than the
-;; ordinary in-test await-predicate above.
-(defn await-daemon-boot [predicate]
-  (loop [attempt 0]
-    (cond (predicate) true
-          (>= attempt 300) false
-          :else (do (Thread/sleep 250) (recur (inc attempt))))))
+(def daemon-boot-timeout-ms (* 5 60 1000))
+(def daemon-boot-poll-ms 250)
 
-(defn run-msg [port log & args]
+(defn process-alive? [process]
+  (try (proc/alive? process) (catch Throwable _ false)))
+
+(defn await-daemon-boot [daemon port]
+  (let [deadline (+ (System/currentTimeMillis) daemon-boot-timeout-ms)]
+    (loop []
+      (cond
+        (port-open? port) {:status :ready}
+        (not (process-alive? daemon)) {:status :exited}
+        (>= (System/currentTimeMillis) deadline) {:status :timeout}
+        :else (do (Thread/sleep daemon-boot-poll-ms) (recur))))))
+
+(defn require-daemon-ready! [label daemon port]
+  (let [{:keys [status] :as observation} (await-daemon-boot daemon port)]
+    (when-not (= :ready status)
+      (when (process-alive? daemon)
+        (try (proc/destroy-tree daemon) (catch Throwable _ nil)))
+      (let [result (deref daemon 5000 nil)]
+        (throw
+         (ex-info
+          (str label ": real Fram daemon failed to start")
+          (merge observation
+                 {:port port
+                  :timeout-ms daemon-boot-timeout-ms
+                  :exit (:exit result)
+                  :stdout (or (:out result) "<unavailable>")
+                  :stderr (or (:err result) "<unavailable>")})))))))
+
+(defn isolated-env [port log telemetry-log]
+  {"FRAM_LOG" log
+   "FRAM_TELEMETRY_LOG" telemetry-log
+   "NORTH_PORT" (str port)
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str port)})
+
+(defn run-msg [port log telemetry-log & args]
   (apply proc/shell
          {:continue true :out :string :err :string
-          :extra-env {"AGENT_TOPOLOGY" "orchestrator" "FRAM_LOG" log}}
+          :extra-env (assoc (isolated-env port log telemetry-log)
+                            "AGENT_TOPOLOGY" "orchestrator")}
          "bb" msg-cli (str port) args))
 
 (defn coordinator-op [port log request]
@@ -99,29 +128,34 @@
               (map :p))
         (remove str/blank? (str/split-lines (slurp log)))))
 
-;; Boot a fresh, clean-env REAL Fram daemon (its own temp facts log + free port),
-;; run BODY with [port log], then tear it down deterministically. Each caller gets
+;; Boot a fresh, clean-env REAL Fram daemon (its own temp fact and telemetry logs
+;; plus a free port), run BODY with [port log telemetry-log], then tear it down
+;; deterministically. Each caller gets
 ;; an isolated corpus so an ordering/disconnect observation is never contaminated
-;; by a neighbour's commits. A boot failure records a FAILED check instead of
-;; throwing so the remaining checks still report.
+;; by a neighbour's commits. Startup fails immediately if the child exits and is
+;; bounded at five minutes for a clean Fram cold start.
 (defn with-real-fram-daemon [label body]
   (let [port (free-port)
         tmp (.toFile
              (java.nio.file.Files/createTempDirectory
               "north-msg-batch" (make-array java.nio.file.attribute.FileAttribute 0)))
         facts (io/file tmp "facts.log")
+        telemetry (io/file tmp "telemetry.log")
         _ (spit facts "")
+        _ (spit telemetry "")
         log (.getCanonicalPath facts)
+        telemetry-log (.getCanonicalPath telemetry)
         daemon (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+                 :extra-env (assoc (isolated-env port log telemetry-log)
+                                   "FRAM_REQUIRE_LOG_FENCE" "1")}
                 "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log)]
     (try
-      (if (await-daemon-boot #(port-open? port))
-        (body port log)
-        (check (str label ": real Fram daemon starts") false))
+      (require-daemon-ready! label daemon port)
+      (body port log telemetry-log)
       (finally
-        (proc/destroy-tree daemon)
+        (when (process-alive? daemon)
+          (try (proc/destroy-tree daemon) (catch Throwable _ nil)))
         (try @daemon (catch Exception _ nil))
         (doseq [f (reverse (file-seq tmp))] (.delete f))))))
 
@@ -149,21 +183,12 @@
   (throw
    (ex-info "Fram checkout not found; set FRAM_TEST_CHECKOUT or clone it beside North"
             {:fram fram})))
-(let [port (free-port)
-      tmp (.toFile
-           (java.nio.file.Files/createTempDirectory
-            "north-msg-batch" (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "facts.log")
-      _ (spit facts "")
-      log (.getCanonicalPath facts)
-      daemon (proc/process
-              {:dir fram :out :string :err :string
-               :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-              "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log)]
-  (try
-    (check "real Fram daemon (assert-batch-capable) starts"
-           (await-daemon-boot #(port-open? port)))
-    (let [result (run-msg port log "send" "--dead-drop" "producer" "recipient" "hello" "world")]
+(with-real-fram-daemon
+ "assert-batch-capable"
+ (fn [port log telemetry-log]
+   (check "real Fram daemon (assert-batch-capable) starts" true)
+   (let [result (run-msg port log telemetry-log
+                         "send" "--dead-drop" "producer" "recipient" "hello" "world")]
       (check "ordinary send exits clean against an assert-batch-capable daemon"
              (zero? (:exit result)))
       (check "send never emits the compat deprecation warning against a capable daemon"
@@ -176,11 +201,7 @@
                       (= "hello" (value-of port log e "subject"))
                       (= "world" (value-of port log e "body"))
                       (seq (values-of port log e "sent_at"))
-                      (= "recipient" (value-of port log e "to")))))))
-    (finally
-      (proc/destroy-tree daemon)
-      (try @daemon (catch Exception _ nil))
-      (doseq [f (reverse (file-seq tmp))] (.delete f)))))
+                      (= "recipient" (value-of port log e "to")))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; PATH 2: a mock coordinator that always rejects :assert-batch as an unknown
@@ -227,12 +248,17 @@
   (try (.close server) (catch Exception _ nil)))
 
 (let [port (free-port)
-      log "/tmp/north-msg-batch-mock.log"
+      tmp (.toFile
+           (java.nio.file.Files/createTempDirectory
+            "north-msg-batch-mock" (make-array java.nio.file.attribute.FileAttribute 0)))
+      log (.getCanonicalPath (io/file tmp "facts.log"))
+      telemetry-log (.getCanonicalPath (io/file tmp "telemetry.log"))
       mock (mock-legacy-coordinator! port)]
   (try
     (check "mock legacy coordinator (pre-gen-1023) starts"
            (await-predicate #(port-open? port)))
-    (let [result (run-msg port log "send" "--dead-drop" "producer" "recipient" "hello" "world")]
+    (let [result (run-msg port log telemetry-log
+                          "send" "--dead-drop" "producer" "recipient" "hello" "world")]
       (check "send against a pre-assert-batch coordinator still exits clean (legacy fallback)"
              (zero? (:exit result)))
       (check "legacy fallback logs a loud deprecation note"
@@ -247,7 +273,9 @@
                     (= "hello" (value-of port log e "subject"))
                     (= "world" (value-of port log e "body"))
                     (= "recipient" (value-of port log e "to"))))))
-    (finally (stop-mock! mock))))
+    (finally
+      (stop-mock! mock)
+      (doseq [f (reverse (file-seq tmp))] (.delete f)))))
 
 ;; ---------------------------------------------------------------------------
 ;; PATH 3: induced disconnect on the REAL :assert-batch wire — after the request
@@ -263,7 +291,7 @@
 ;; `to` last, one request, one :te.
 ;; ---------------------------------------------------------------------------
 (with-real-fram-daemon "induced disconnect"
- (fn [port log]
+ (fn [port log _telemetry-log]
    (let [te (str "@msg:disconnect-" (java.util.UUID/randomUUID))
          ;; ONE fixed fact set (fixed sent_at too) so the retry re-asserts the
          ;; IDENTICAL batch — the same logical publication, never a second one.
@@ -335,7 +363,7 @@
 ;; before the complete front exists (thread 019f9122 done_when: to-last ordering).
 ;; ---------------------------------------------------------------------------
 (with-real-fram-daemon "batch ordering"
- (fn [port log]
+ (fn [port log telemetry-log]
    (let [events (atom [])
          sub (subscribe! port log)
          reader-fut
@@ -349,7 +377,8 @@
      (try
        (check "firehose subscription is established against the real daemon"
               (integer? (:subscribed (:handshake sub))))
-       (let [result (run-msg port log "send" "--dead-drop" "producer" "recipient" "hello" "world")
+       (let [result (run-msg port log telemetry-log
+                             "send" "--dead-drop" "producer" "recipient" "hello" "world")
              e (second (re-find #"sent (@msg:\S+) ->" (:out result)))]
          (check "ordinary send exits clean while a subscriber observes the commit stream"
                 (zero? (:exit result)))

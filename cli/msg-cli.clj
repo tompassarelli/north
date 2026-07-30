@@ -272,6 +272,152 @@
       (= "unknown op" (:error response)) (assert-batch-legacy! port te facts)
       :else (reject-message! (str te " publication rejected: " (:reject response))))))
 
+(defn publish-message!
+  "Publish one complete human-message envelope. EXTRA-FRONT-FACTS are committed
+   in the same atomic batch as the ordinary envelope and therefore precede the
+   final `to` delivery trigger. Existing send/steer/broadcast behavior remains
+   on this one publication seam."
+  [port dead-drop? from requested-to subj body extra-front-facts]
+  (validate-message-input! from requested-to subj body)
+  (let [to (admitted-message-recipient! port requested-to dead-drop?)
+        steer? (= "steer" (some-> subj str str/trim str/lower-case))
+        steer-admission (when steer?
+                          (north.topology-authority/require-coordination! "steer")
+                          (require-live-steer! port to))
+        e (str "@msg:" (fresh-id from))
+        ;; Canonicalize the managed control type. Ordinary subjects retain their
+        ;; original spelling; every producer-admitted steer is exactly "steer".
+        ;; All message fields are write-once on a fresh @msg. `to` lands LAST
+        ;; (the listener trigger); assert-batch! guarantees that ordering.
+        front-facts
+        (into [["from" from]
+               ["subject" (if steer? "steer" (or subj ""))]
+               ["body" (or body "")]
+               ["sent_at" (str (java.time.Instant/now))]]
+              extra-front-facts)
+        complete-front-facts
+        (cond-> front-facts
+          steer-admission
+          (conj [target-identity-manifest-predicate
+                 (:identity-manifest steer-admission)]))]
+    ;; `north steer` labels its control message exactly `steer`. Ordinary
+    ;; worker -> coordinator completion/death mail remains legal; peer control
+    ;; does not become legal merely because the producer bypassed agents-cli.
+    (when steer-admission
+      ;; Steer's `to` lands through its own CAS below (assert-after-read!), not
+      ;; this batch — a route-change validation :assert-batch cannot express.
+      ;; Publish the complete front atomically first.
+      (assert-batch! port e complete-front-facts))
+    ;; A broadcast's concrete recipients are durable facts, captured before
+    ;; `to` lands. Sender exclusion is intentional: broadcast means peers.
+    (let [broadcast-audience
+          (when (= north.message-audience/broadcast-address to)
+            (north.message-audience/snapshot-broadcast! port e from))]
+      (if steer-admission
+        ;; This is the steer acceptance linearization point. Every
+        ;; load-bearing route read follows the global BASE capture, then Fram
+        ;; compares BASE + lands `to` in one serialized writer turn. A freeze
+        ;; between validation and this assert conflicts, retries the whole
+        ;; route read, and cannot leave an accepted post-freeze message.
+        (let [admitted-manifest (:identity-manifest steer-admission)
+              result
+              (north.coord/assert-after-read!
+               port e "to" to
+               (fn []
+                 (let [current (require-live-steer! port to)
+                       stored (one port e target-identity-manifest-predicate)]
+                   (when-not (and (= admitted-manifest stored)
+                                  (= admitted-manifest
+                                     (:identity-manifest current)))
+                     (reject-steer!
+                      "target route changed during message admission"))
+                   true)))]
+          (when (:reject result)
+            (reject-steer!
+             "target route changed during message admission")))
+        ;; Ordinary mail: every front fact plus `to` publishes as ONE
+        ;; all-or-none unit. assert-batch! still lands `to` last internally.
+        (assert-batch! port e (conj complete-front-facts ["to" to])))
+      (println (str (if steer? "queued for live injection " "sent ") e " -> " to
+                    (when broadcast-audience
+                      (str " (" (count broadcast-audience)
+                           " snapshotted recipients; sender excluded)"))))
+      e)))
+
+(def about-ref-pattern #"^@[A-Za-z0-9][A-Za-z0-9._:-]*$")
+
+(defn parse-directed-attention!
+  "Parse `<from> <recipient> [--about <@thread>] <body>`. Options are accepted
+   only before the single body argument so malformed and duplicate forms have
+   one deterministic rejection."
+  [verb args]
+  (let [[from requested-to & tail] args]
+    (when (or (nil? from) (nil? requested-to))
+      (reject-message!
+       (str verb " requires from, recipient, optional --about <@thread>, and body")))
+    (loop [remaining tail
+           about nil]
+      (let [arg (first remaining)]
+        (cond
+          (nil? arg)
+          (reject-message!
+           (str verb " requires exactly one non-option body argument"))
+
+          (= "--about" arg)
+          (cond
+            about
+            (reject-message! (str verb " received duplicate --about"))
+
+            (or (nil? (second remaining))
+                (str/starts-with? (second remaining) "--"))
+            (reject-message! (str verb " --about requires an @thread value"))
+
+            :else
+            (recur (nnext remaining) (second remaining)))
+
+          (str/starts-with? arg "--")
+          (reject-message! (str verb " received unknown option " arg))
+
+          (next remaining)
+          (reject-message!
+           (str verb " requires exactly one body argument after options"))
+
+          :else
+          {:from from :requested-to requested-to :about about :body arg})))))
+
+(defn validate-about!
+  [port about]
+  (when about
+    (let [kind (one port about "kind")]
+      (when-not (and (string? about)
+                     (<= (north.message-contract/utf8-bytes about)
+                         north.message-contract/max-target-bytes)
+                     (re-matches about-ref-pattern about)
+                     (not (str/blank? (one port about "title")))
+                     (or (nil? kind) (= "thread" kind)))
+        (reject-message!
+         (str "--about must be an exact @ref resolving to a title-bearing thread: "
+              about)))))
+  about)
+
+(defn publish-directed-attention! [port verb args]
+  (let [{:keys [from requested-to about body]}
+        (parse-directed-attention! verb args)
+        about (validate-about! port about)
+        mention? (= verb "mention")
+        subject (if mention? "mention" "URGENT")
+        attention-kind (if mention? "mention" "interrupt")
+        delivery-class (if mention? "inbox" "interrupt")
+        extra-front-facts
+        (cond-> [["attention_kind" attention-kind]
+                 ["delivery_class" delivery-class]
+                 ["requires_ack" "true"]]
+          about (conj ["about" about]))]
+    ;; Mention is a deliberate durable dead drop to a stable address. Interrupt
+    ;; retains the canonical live-recipient admission gate.
+    (publish-message! port mention? from requested-to subject body
+                      extra-front-facts)))
+
 (when-not (= "1" (System/getProperty "north.msg-cli.lib"))
  (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
@@ -283,70 +429,14 @@
           _ (when-not (= 4 (count args))
               (reject-message!
                "send requires [--dead-drop] plus exactly from, to, subject, and body"))
-          _ (validate-message-input! from requested-to subj body)
-          to (admitted-message-recipient! port requested-to dead-drop?)
-          steer? (= "steer" (some-> subj str str/trim str/lower-case))
-          steer-admission (when steer?
-                            (north.topology-authority/require-coordination! "steer")
-                            (require-live-steer! port to))
-          e (str "@msg:" (fresh-id from))
-      ;; Canonicalize the managed control type. Ordinary subjects retain their
-      ;; original spelling; every producer-admitted steer is exactly "steer".
-      ;; All message fields are write-once on a fresh @msg. `to`/`target` land
-      ;; LAST (the listener triggers on it); assert-batch! guarantees that
-      ;; ordering internally now, so no settle race, no sleep, and — for
-      ;; ordinary mail — no torn subject either (thread 019f9063).
-      front-facts
-      (cond-> [["from" from]
-               ["subject" (if steer? "steer" (or subj ""))]
-               ["body" (or body "")]
-               ["sent_at" (str (java.time.Instant/now))]]
-        steer-admission
-        (conj [target-identity-manifest-predicate
-               (:identity-manifest steer-admission)]))]
-      ;; `north steer` labels its control message exactly `steer`. Ordinary
-      ;; worker -> coordinator completion/death mail remains legal; peer control
-      ;; does not become legal merely because the producer bypassed agents-cli.
-      (when steer-admission
-        ;; Steer's `to` lands through its own CAS below (assert-after-read!),
-        ;; not this batch — a route-change validation :assert-batch cannot
-        ;; express. Publish the rest atomically first.
-        (assert-batch! port e front-facts))
-      ;; A broadcast's concrete recipients are durable facts, captured before
-      ;; `to` lands. Sender exclusion is intentional: broadcast means peers.
-      (let [broadcast-audience
-            (when (= north.message-audience/broadcast-address to)
-              (north.message-audience/snapshot-broadcast! port e from))]
-        (if steer-admission
-          ;; This is the steer acceptance linearization point. Every
-          ;; load-bearing route read follows the global BASE capture, then Fram
-          ;; compares BASE + lands `to` in one serialized writer turn. A freeze
-          ;; between validation and this assert conflicts, retries the whole
-          ;; route read, and cannot leave an accepted post-freeze message.
-          (let [admitted-manifest (:identity-manifest steer-admission)
-                result
-                (north.coord/assert-after-read!
-                 port e "to" to
-                 (fn []
-                   (let [current (require-live-steer! port to)
-                         stored (one port e target-identity-manifest-predicate)]
-                     (when-not (and (= admitted-manifest stored)
-                                    (= admitted-manifest
-                                       (:identity-manifest current)))
-                       (reject-steer!
-                        "target route changed during message admission"))
-                     true)))]
-            (when (:reject result)
-              (reject-steer!
-               "target route changed during message admission")))
-          ;; Ordinary mail: from/subject/body/sent_at/to publish as ONE
-          ;; all-or-none unit — the torn-mail fix. assert-batch! still lands
-          ;; `to` last inside the batch (delivery-trigger-preds ordering).
-          (assert-batch! port e (conj front-facts ["to" to])))
-        (println (str (if steer? "queued for live injection " "sent ") e " -> " to
-                      (when broadcast-audience
-                        (str " (" (count broadcast-audience)
-                             " snapshotted recipients; sender excluded)"))))))
+          _ (publish-message! port dead-drop? from requested-to subj body [])]
+      nil)
+
+    "mention"
+    (publish-directed-attention! port "mention" args)
+
+    "interrupt"
+    (publish-directed-attention! port "interrupt" args)
 
     "inbox"       ; <me>  — direct-to-me OR finite broadcast audience, minus acked_by
     (let [[me] args]
@@ -465,5 +555,5 @@
 
     (do
       (println
-       "usage: msg-cli.clj <port> {send [--dead-drop]|send-cmd|retry|cmd|cmds|inbox|thread|ack}")
+       "usage: msg-cli.clj <port> {send [--dead-drop]|mention|interrupt|send-cmd|retry|cmd|cmds|inbox|thread|ack}")
       (System/exit 2)))))

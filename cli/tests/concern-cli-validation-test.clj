@@ -16,27 +16,43 @@
     (catch Exception _ true)))
 (def port (or (some #(when (port-free? %) %) [7630 7631 7632])
               (throw (ex-info "no test port available" {}))))
-(def log (.getCanonicalPath
-          (io/file (System/getProperty "java.io.tmpdir")
-                   (str "concern-cli-validation-" (System/nanoTime) ".log"))))
+(def tmp
+  (.toFile
+   (java.nio.file.Files/createTempDirectory
+    "north-concern-cli-validation"
+    (make-array java.nio.file.attribute.FileAttribute 0))))
+(def log (.getCanonicalPath (io/file tmp "facts.log")))
+(def telemetry-log (.getCanonicalPath (io/file tmp "telemetry.log")))
 (spit log "")
+(spit telemetry-log "")
+(def isolated-env
+  {"FRAM_LOG" log
+   "FRAM_TELEMETRY_LOG" telemetry-log
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
   (p/process {:dir fram :out :string :err :string
-              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+              :extra-env (assoc isolated-env "FRAM_REQUIRE_LOG_FENCE" "1")}
              "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log))
 (defn cleanup []
   (try (p/destroy-tree daemon) (catch Throwable _ nil))
-  (.delete (io/file log)))
+  (doseq [file (reverse (file-seq tmp))]
+    (io/delete-file file true)))
 (.addShutdownHook (Runtime/getRuntime) (Thread. cleanup))
 (defn await-up []
   (loop [n 0]
     (cond
       (not (port-free? port)) true
-      (>= n 100) false
-      :else (do (Thread/sleep 50) (recur (inc n))))))
+      (>= n 300) false
+      :else (do (Thread/sleep 250) (recur (inc n))))))
 (when-not (await-up)
-  (binding [*out* *err*]
-    (println "test coordinator failed to start"))
+  (try (p/destroy-tree daemon) (catch Throwable _ nil))
+  (let [result (deref daemon 5000 nil)]
+    (binding [*out* *err*]
+      (println "test coordinator failed to start")
+      (println "exit:" (:exit result))
+      (println "stdout:" (or (:out result) "<unavailable>"))
+      (println "stderr:" (or (:err result) "<unavailable>"))))
   (cleanup)
   (System/exit 1))
 
@@ -53,7 +69,7 @@
       (edn/read-string (.readLine r)))))
 (defn run-concern [& args]
   @(apply p/process {:dir root :out :string :err :string
-                     :extra-env {"FRAM_LOG" log}}
+                     :extra-env isolated-env}
           "bb" "cli/concern-cli.clj" (str port) args))
 (defn reached-rows []
   (:ok (op {:op :query
@@ -95,7 +111,7 @@
         [predicate value] [["kind" "concern"] ["reached" "building"]]]
   (op {:op :assert :te id :p predicate :r value}))
 (let [proc (p/process {:dir root :out :string :err :string
-                       :extra-env {"FRAM_LOG" log}}
+                       :extra-env isolated-env}
                       "bb" "cli/concern-cli.clj" (str port) "ls")
       started (System/nanoTime)
       result (deref proc 2000 ::timeout)

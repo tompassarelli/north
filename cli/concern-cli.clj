@@ -22,7 +22,8 @@
 ;; path-string fallback.
 ;;
 ;; usage (port = north board, 7977):
-;;   declare <agent> <repo> "<intent>" <foot,foot,...>    mint a concern (+ shows overlaps)
+;;   declare <agent> <repo> "<intent>" <foot,foot,...> [--about <@thread>]
+;;                                                     mint a concern (+ shows overlaps)
 ;;       footprint entries: a code NODE (@mod#n or module/name) on a flipped repo, else a path.
 ;;   overlap <concern-id> [--landing]   who else is in my footprint, any status (code-graph
 ;;       blast join, or path); likely-to-land entries are MARKED — build against them.
@@ -36,6 +37,7 @@
 ;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/attention.clj"))
 (def send-op  north.coord/send-op)
 (def send-op-for-log north.coord/send-op-for-log)
 (def append!  north.coord/append!)
@@ -128,10 +130,17 @@
 (def code-port (some-> raw-code-port ->port))
 (def code-log (some-> raw-code-log north.coord/canonical-log-path))
 
+(def ^:dynamic *throw-code-store-errors?* false)
 (defn code-store-error! [message]
-  (binding [*out* *err*]
-    (println (str "concern: code-store safety check failed: " message)))
-  (System/exit 3))
+  (if *throw-code-store-errors?*
+    (throw
+     (ex-info
+      (str "concern: code-store safety check failed: " message)
+      {:type :concern-code-store-error}))
+    (do
+      (binding [*out* *err*]
+        (println (str "concern: code-store safety check failed: " message)))
+      (System/exit 3))))
 
 (defn exact-keys? [value expected]
   (and (map? value) (= expected (set (keys value)))))
@@ -223,8 +232,16 @@
 ;; Double-report is idempotent; full history is retained; no set-single! retract-then-put.
 (def maturity ["exploring" "building" "likely-to-land" "landed"])
 (def maturity-idx (into {} (map-indexed (fn [i m] [m i]) maturity)))
+(def concern-stale-ms (* 24 60 60 1000))
+(def attention-event-intent-predicate "attention_event_intent")
+(def attention-event-settled-predicate "attention_event_settled")
+(def attention-event-intent-schema
+  "north-concern-attention-event-intent-v1")
+(def attention-event-intent-max-bytes (* 16 1024))
+(def attention-event-reconcile-limit 64)
+(def terminal-attention-statuses #{"landed" "abandoned-stale"})
 (def usage
-  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> | overlap <id> [--landing] | ls [repo] | list-json [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
+  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> [--about <@thread>] | overlap <id> [--landing] | ls [repo] | list-json [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
 (defn usage-error! [message]
   (binding [*out* *err*]
     (println (str "concern: " message))
@@ -237,6 +254,29 @@
     (when-not (= "concern" (resolved port c "kind"))
       (usage-error! (str c " is not an existing concern")))
     c))
+(defn norm-ref [raw]
+  (when-not (str/blank? raw)
+    (if (str/starts-with? raw "@") raw (str "@" raw))))
+(defn existing-thread! [port raw]
+  (let [thread (norm-ref raw)
+        kind (when thread (resolved port thread "kind"))]
+    (when (or (nil? thread)
+              (str/blank? (resolved port thread "title"))
+              (and kind (not= "thread" kind)))
+      (usage-error! (str (or thread raw) " is not a title-bearing thread")))
+    thread))
+(defn parse-declare-args!
+  "Preserve the four-position declaration contract and admit one trailing
+   --about ref. Resolve that ref before declare performs its first mutation."
+  [port args]
+  (when-not (or (= 4 (count args))
+                (and (= 6 (count args)) (= "--about" (nth args 4))))
+    (usage-error!
+     "declare requires <agent> <repo> <intent> <foot,> and optional --about <@thread>"))
+  (let [[agent repo intent files] args
+        about (when (= 6 (count args))
+                (existing-thread! port (nth args 5)))]
+    {:agent agent :repo repo :intent intent :files files :about about}))
 (defn status-of [port c]
   (let [reached (many port c "reached")]
     (if (seq reached)
@@ -272,7 +312,9 @@
 
 (defn meta-of [port c]
   {:id c
+   :kind (resolved port c "kind")
    :agent (resolved port c "agent")
+   :about (resolved port c "about")
    :repo (resolved port c "repo")
    :intent (resolved port c "intent")
    :status (status-of port c)
@@ -280,6 +322,265 @@
    :code-port (resolved port c "code_port")
    :code-log (resolved port c "code_log")
    :touches (touches-of port c)})
+
+(defn active-concern?
+  "Situational coordination exists only while both concerns remain open."
+  [m]
+  (and (= "concern" (:kind m))
+       (not (:abandoned m))
+       (not= "landed" (:status m))))
+
+(defn canonical-overlap
+  "One order-independent overlap record. LEFT/RIGHT and SOURCE-CONCERNS are
+   canonical by concern id; SHARED is canonical set evidence."
+  [mine peer shared evidence]
+  (let [[left right] (sort-by :id [mine peer])
+        sources [(:id left) (:id right)]]
+    {:pair-key (str "concern-overlap:" (str/join ":" (map #(str/replace-first % #"^@" "") sources)))
+     :source-concerns sources
+     :left left
+     :right right
+     :shared (vec (sort (set shared)))
+     :evidence evidence}))
+
+(defn other-concern [overlap id]
+  (let [{:keys [left right]} overlap]
+    (cond (= id (:id left)) right
+          (= id (:id right)) left
+          :else nil)))
+
+(defn transition-kind [before after]
+  (cond
+    (and (not (active-concern? before)) (active-concern? after))
+    "overlap-entered"
+
+    (and (active-concern? before)
+         (active-concern? after)
+         (not= "likely-to-land" (:status before))
+         (= "likely-to-land" (:status after)))
+    "likely-to-land"
+
+    (and (active-concern? before) (not (active-concern? after)))
+    "overlap-left"
+
+    :else nil))
+
+(defn event-recipients [attention-kind after overlap]
+  (let [both (->> [(:left overlap) (:right overlap)]
+                  (keep :agent)
+                  distinct
+                  sort)
+        peer (some-> (other-concern overlap (:id after)) :agent)]
+    (if (= "overlap-entered" attention-kind)
+      both
+      (if peer [peer] []))))
+
+(defn pair-about
+  "An entered overlap is about a thread only when the pair supplies one
+   unambiguous non-nil thread ref: one side names it, or both name the same one."
+  [{:keys [left right]}]
+  (let [abouts (set (keep :about [left right]))]
+    (when (= 1 (count abouts)) (first abouts))))
+
+(defn event-about [attention-kind after overlap]
+  (if (= "overlap-entered" attention-kind)
+    (pair-about overlap)
+    (:about after)))
+
+(defn attention-events-for-transition
+  "Pure concern→attention integration seam. OVERLAPS are canonical records
+   returned by overlap discovery. The attention publisher hashes EVENT-KEY
+   with TO, so repeats converge on the same per-recipient notification."
+  [before after overlaps]
+  (if-let [attention-kind (transition-kind before after)]
+    (->> overlaps
+         (filter #(some #{(:id after)} (:source-concerns %)))
+         (mapcat
+          (fn [{:keys [pair-key source-concerns] :as overlap}]
+            (for [to (event-recipients attention-kind after overlap)]
+              {:event-key
+               (str pair-key ":" attention-kind
+                    (when-not (= "overlap-entered" attention-kind)
+                      (str ":" (str/replace-first (:id after) #"^@" ""))))
+               :to to
+               :about (event-about attention-kind after overlap)
+               :attention-kind attention-kind
+               :delivery "notify"
+               :subject
+               (case attention-kind
+                 "overlap-entered" "Concern overlap entered"
+                 "likely-to-land" "Overlapping concern is likely to land"
+                 "overlap-left" "Concern overlap ended")
+               :body
+               ;; The immutable body is identity-only. Shared evidence changes as
+               ;; footprints evolve and therefore cannot enter an idempotency claim.
+               (str/join " ↔ " source-concerns)
+               :source-concerns source-concerns})))
+         (sort-by (juxt :event-key :to))
+         vec)
+    []))
+
+(defn utf8-byte-count [value]
+  (alength
+   (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn terminal-event-key [concern source-concerns]
+  (str
+   "concern-overlap:"
+   (str/join
+    ":"
+    (map #(str/replace-first % #"^@" "")
+         (sort source-concerns)))
+   ":overlap-left:"
+   (str/replace-first concern #"^@" "")))
+
+(defn canonical-terminal-attention-event
+  "Validate the exact event shape admitted to the durable terminal outbox.
+   This runs both before encoding and after every read."
+  [port concern trigger-status event]
+  (when-not (contains? terminal-attention-statuses trigger-status)
+    (throw
+     (ex-info "unsupported concern attention terminal status"
+              {:type :invalid-concern-attention-intent
+               :trigger-status trigger-status})))
+  (let [spec (north.attention/canonical-notification-spec event)
+        source-concerns (:source-concerns spec)
+        expected-key (terminal-event-key concern source-concerns)
+        trigger-state (meta-of port concern)
+        peer-id (first (remove #{concern} source-concerns))
+        peer-state (when peer-id (meta-of port peer-id))]
+    (when-not
+     (and (= "overlap-left" (:attention-kind spec))
+          (= "notify" (:delivery spec))
+          (= "Concern overlap ended" (:subject spec))
+          (= 2 (count source-concerns))
+          (= 2 (count (set source-concerns)))
+          (some #{concern} source-concerns)
+          (= "concern" (:kind trigger-state))
+          (= "concern" (:kind peer-state))
+          (= (:agent peer-state) (:recipient spec))
+          (= (:about trigger-state) (:about spec))
+          (= expected-key (:event-key spec))
+          (= (str/join " ↔ " source-concerns) (:body spec)))
+      (throw
+       (ex-info "concern attention terminal event is not canonical"
+                {:type :invalid-concern-attention-intent
+                 :concern concern
+                 :trigger-status trigger-status})))
+    spec))
+
+(defn attention-event-intent-value
+  "Encode one bounded canonical EDN vector. A vector avoids map-order aliases,
+   and every field is revalidated when reconciliation reads it."
+  [port concern trigger-status event]
+  (let [{:keys [event-key recipient about attention-kind delivery subject body
+                source-concerns]}
+        (canonical-terminal-attention-event port concern trigger-status event)
+        encoded
+        (pr-str
+         [attention-event-intent-schema trigger-status event-key recipient about
+          attention-kind delivery subject body source-concerns])]
+    (when (> (utf8-byte-count encoded) attention-event-intent-max-bytes)
+      (throw
+       (ex-info "concern attention event intent exceeds its byte bound"
+                {:type :invalid-concern-attention-intent
+                 :max-bytes attention-event-intent-max-bytes})))
+    encoded))
+
+(defn parse-attention-event-intent
+  "Decode and canonicalize an outbox value. Tagged values, oversized input,
+   shape aliases, and semantically forged terminal events fail closed."
+  [port concern encoded]
+  (try
+    (when-not (and (string? encoded)
+                   (<= (utf8-byte-count encoded)
+                       attention-event-intent-max-bytes))
+      (throw
+       (ex-info "concern attention event intent is missing or too large" {})))
+    (let [value
+          (edn/read-string
+           {:readers {}
+            :default
+            (fn [tag _]
+              (throw
+               (ex-info "tagged values are forbidden in attention intents"
+                        {:tag tag})))}
+           encoded)]
+      (when-not (and (vector? value)
+                     (= 10 (count value))
+                     (= attention-event-intent-schema (nth value 0)))
+        (throw
+         (ex-info "concern attention event intent has the wrong shape" {})))
+      (let [[_ trigger-status event-key recipient about attention-kind delivery
+             subject body source-concerns]
+            value
+            event
+            {:event-key event-key
+             :to recipient
+             :about about
+             :attention-kind attention-kind
+             :delivery delivery
+             :subject subject
+             :body body
+             :source-concerns source-concerns}
+            canonical
+            (canonical-terminal-attention-event
+             port concern trigger-status event)]
+        (when-not (= encoded
+                     (attention-event-intent-value
+                      port concern trigger-status event))
+          (throw
+           (ex-info "concern attention event intent is not canonical EDN" {})))
+        {:trigger-status trigger-status
+         :event
+         {:event-key (:event-key canonical)
+          :to (:recipient canonical)
+          :about (:about canonical)
+          :attention-kind (:attention-kind canonical)
+          :delivery (:delivery canonical)
+          :subject (:subject canonical)
+          :body (:body canonical)
+          :source-concerns (:source-concerns canonical)}}))
+    (catch Exception error
+      (if (= :invalid-concern-attention-intent
+             (:type (ex-data error)))
+        (throw error)
+        (throw
+         (ex-info "invalid durable concern attention event intent"
+                  {:type :invalid-concern-attention-intent
+                   :concern concern}
+                  error))))))
+
+(defn publish-attention-events! [port events]
+  (mapv #(north.attention/publish-notification! port %) events))
+
+(defn publish-transition!
+  [port before after before-overlaps after-overlaps]
+  (let [kind (transition-kind before after)
+        overlaps (if (= "overlap-left" kind)
+                   before-overlaps
+                   after-overlaps)]
+    (publish-attention-events!
+     port
+     (attention-events-for-transition before after overlaps))))
+
+(defn desired-events-for-overlap
+  "Materialize the durable current-state attention projection for one active
+   pair: one entered event per owner, plus one peer event for each side that is
+   currently likely-to-land."
+  [overlap]
+  (let [{:keys [left right]} overlap
+        entered (attention-events-for-transition nil left [overlap])
+        likely
+        (mapcat
+         (fn [concern]
+           (when (= "likely-to-land" (:status concern))
+             (attention-events-for-transition
+              (assoc concern :status "building")
+              concern
+              [overlap])))
+         [left right])]
+    (vec (concat entered likely))))
 
 ;; `ls` is a whole-corpus view. Reading seven fields per concern made its runtime
 ;; grow linearly with historical concern count (>8s in the live corpus). Fetch
@@ -415,47 +716,60 @@
         (str (dim) base
              "\n       (STALE: owner lapsed " (ago (:lapsed-ago-ms m)) ")" (rst)))))
 
-;; ---- overlap surfaces -------------------------------------------------------
-;; CODE-GRAPH path: ask the code daemon which peer concerns' blast CLOSURE intersects
-;; mine (recursive reaches over calls_defn), then map each peer's @concern:<id> back to
-;; its :7977 spine for display. The path-string intersection is GONE on this path.
-(defn surface-code [spine cport clog c statuses none-msg]
+;; ---- overlap discovery + render ---------------------------------------------
+;; Discovery returns canonical data; rendering and the attention publisher share
+;; it instead of independently reimplementing overlap semantics.
+(defn code-overlap-data [spine cport clog c]
   (let [resp (code-op cport clog
                       {:op :concern-overlap :te (concern-subj c)})
+        mine (meta-of spine c)
         hits (->> (:overlaps resp)
                   (keep (fn [o]
                           (let [sid (subj->id (:concern o))
                                 m (meta-of spine sid)]
-                            (when (and (not= (:status m) "landed")
-                                       (or (nil? statuses) (statuses (:status m))))
-                              (assoc m :shared (:shared o))))))
+                            (when (and (active-concern? mine)
+                                       (active-concern? m))
+                              (canonical-overlap mine m (:shared o) "code-graph")))))
+                  (sort-by :pair-key)
                   vec)]
-    (if (empty? hits)
-      (println (str "  (none) — " none-msg " [code-graph blast join over " (count (:footprint resp)) " footprint node(s)]"))
-      (doseq [m0 hits]
-        (let [m (with-liveness spine m0)]
-          (println (decorate m))
-          (when (and (:online m) (= (:status m) "likely-to-land"))
-            (println "       [likely-to-land] — build against this"))
-          (println (str "       SHARES (blast-closure): " (str/join " " (sort (:shared m))))))))))
+    {:mine mine
+     :footprint-count (count (:footprint resp))
+     :overlaps hits}))
 
-;; FALLBACK path (non-flipped repo): the path-string touches intersection.
-(defn surface-path [port c statuses none-msg]
-  (let [mine (:touches (meta-of port c))
+(defn path-overlap-data [port c]
+  (let [mine (meta-of port c)
         hits (->> (all-concerns port)
                   (remove #(= % c))
                   (map #(meta-of port %))
-                  (remove #(= (:status %) "landed"))
-                  (filter #(seq (set/intersection mine (:touches %))))
-                  (filter #(or (nil? statuses) (statuses (:status %)))))]
+                  (keep (fn [peer]
+                          (let [shared (set/intersection (:touches mine) (:touches peer))]
+                            (when (and (active-concern? mine)
+                                       (active-concern? peer)
+                                       (seq shared))
+                              (canonical-overlap mine peer shared "path")))))
+                  (sort-by :pair-key)
+                  vec)]
+    {:mine mine :overlaps hits}))
+
+(defn render-overlap-data [spine {:keys [mine footprint-count overlaps]} statuses none-msg]
+  (let [hits (filter #(or (nil? statuses)
+                          (statuses (-> (other-concern % (:id mine)) :status)))
+                     overlaps)]
     (if (empty? hits)
-      (println (str "  (none) — " none-msg " {" (str/join " " (sort mine)) "}"))
-      (doseq [m0 hits]
-        (let [m (with-liveness port m0)]
+      (println
+       (str "  (none) — " none-msg
+            (if (some? footprint-count)
+              (str " [code-graph blast join over " footprint-count " footprint node(s)]")
+              (str " {" (str/join " " (sort (:touches mine))) "}"))))
+      (doseq [overlap hits]
+        (let [m (with-liveness spine (other-concern overlap (:id mine)))]
           (println (decorate m))
           (when (and (:online m) (= (:status m) "likely-to-land"))
             (println "       [likely-to-land] — build against this"))
-          (println (str "       SHARES: " (str/join " " (sort (set/intersection mine (:touches m)))))))))))
+          (println
+           (str "       SHARES"
+                (when (= "code-graph" (:evidence overlap)) " (blast-closure)")
+                ": " (str/join " " (:shared overlap)))))))))
 
 ;; New concerns store both halves of the code-store identity. For a pre-fence
 ;; concern that only stored code_port, derive the historical repo-local code log;
@@ -474,7 +788,7 @@
 
 ;; The effective code-store pair for THIS concern comes from its stored identity,
 ;; then the legacy deterministic repo path, then the ambient explicit pair.
-(defn surface [spine c statuses none-msg]
+(defn overlaps-for [spine c]
   (let [stored-port (some-> (resolved spine c "code_port") ->port)
         cport (or stored-port code-port)
         clog (when cport
@@ -484,8 +798,271 @@
     (when (and cport (str/blank? clog))
       (code-store-error!
        (str c " has a code_port but no reproducible code_log identity")))
-    (if cport (surface-code spine cport clog c statuses none-msg)
-              (surface-path spine c statuses none-msg))))
+    (if cport (code-overlap-data spine cport clog c)
+              (path-overlap-data spine c))))
+
+(defn pending-attention-intent-query
+  "Return only intent values without an exact durable settlement marker.
+   Keeping the subtraction in Fram prevents every sweep from replaying the
+   complete historical terminal outbox."
+  [concern]
+  (let [subject (or concern {:var "concern"})
+        head-args
+        (if concern
+          [{:var "intent"}]
+          [{:var "concern"} {:var "intent"}])]
+    {:find "pending_attention_event_intent"
+     :strata
+     [[{:head {:rel "attention_intent_candidate" :args head-args}
+        :body [{:rel "triple"
+                :args [subject attention-event-intent-predicate
+                       {:var "intent"}]}]}
+       {:head {:rel "attention_intent_settled" :args head-args}
+        :body [{:rel "triple"
+                :args [subject attention-event-settled-predicate
+                       {:var "intent"}]}]}]
+      [{:head {:rel "pending_attention_event_intent" :args head-args}
+        :body [{:rel "attention_intent_candidate" :args head-args}
+               {:rel "attention_intent_settled"
+                :args head-args :neg true}]}]]}))
+
+(defn pending-attention-event-intents [port raw]
+  (let [concern (when raw (existing-concern! port raw))
+        response
+        (north.coord/query-page
+         port
+         (pending-attention-intent-query concern)
+         attention-event-reconcile-limit
+         nil)
+        rows (:ok response)
+        row-arity (if concern 1 2)]
+    (when (:error response)
+      (throw
+       (ex-info "pending concern attention outbox query failed"
+                {:type :concern-attention-outbox-query-failed
+                 :error (:error response)})))
+    (when-not
+     (and (vector? rows)
+          (<= (count rows) attention-event-reconcile-limit)
+          (every?
+           #(and (vector? %)
+                 (= row-arity (count %))
+                 (every? string? %))
+           rows)
+          (boolean? (:more response)))
+      (throw
+       (ex-info "pending concern attention outbox page is malformed"
+                {:type :malformed-concern-attention-outbox-page})))
+    {:more (:more response)
+     :intents
+     (mapv
+      (fn [row]
+        (let [[subject encoded]
+              (if concern [concern (first row)] row)]
+          (merge
+           {:concern subject :encoded encoded}
+           (parse-attention-event-intent port subject encoded))))
+      rows)}))
+
+(defn terminal-intent-eligible? [port concern trigger-status]
+  (let [state (meta-of port concern)]
+    (and
+     (= "concern" (:kind state))
+     (case trigger-status
+       "landed" (= "landed" (:status state))
+       "abandoned-stale" (:abandoned state)
+       false))))
+
+(defn settle-attention-event-intent! [port concern encoded]
+  (let [result
+        (append! port concern attention-event-settled-predicate encoded)]
+    (when (:reject result)
+      (throw
+       (ex-info "concern attention event settlement was rejected"
+                {:type :concern-attention-settlement-rejected
+                 :concern concern})))
+    (when-not
+     (contains?
+      (set (many port concern attention-event-settled-predicate))
+      encoded)
+      (throw
+       (ex-info "concern attention event settlement read-back mismatch"
+                {:type :concern-attention-settlement-readback-mismatch
+                 :concern concern})))
+    true))
+
+(defn publish-pending-attention-event-intents!
+  "Publish each eligible outbox record idempotently, then settle its exact
+   canonical value. A crash after publication but before settlement safely
+   republishes the same deterministic notification on the next pass."
+  [port raw]
+  (let [{:keys [intents more]}
+        (pending-attention-event-intents port raw)]
+    {:more more
+     :notifications
+     (reduce
+      (fn [published
+           {:keys [concern encoded trigger-status event]}]
+        (if (terminal-intent-eligible? port concern trigger-status)
+          (let [notification
+                (north.attention/publish-notification! port event)]
+            (settle-attention-event-intent! port concern encoded)
+            (conj published notification))
+          published))
+      []
+      intents)}))
+
+(defn reconciliation-overlaps
+  "Discover each current pair at most once. A cold or unavailable code corpus
+   skips only its affected concern; reconciliation remains best-effort and the
+   next bounded pass can heal it."
+  [spine raw]
+  (let [concerns
+        (if raw
+          [(existing-concern! spine raw)]
+          (->> (all-concerns spine)
+               (filter #(active-concern? (meta-of spine %)))
+               sort))]
+    (->> concerns
+         (mapcat
+          (fn [concern]
+            (try
+              (binding [*throw-code-store-errors?* true]
+                (:overlaps (overlaps-for spine concern)))
+              (catch Exception error
+                (binding [*out* *err*]
+                  (println
+                   (str "concern: attention reconciliation deferred for "
+                        concern ": " (.getMessage error))))
+                []))))
+         (reduce (fn [pairs overlap]
+                   (assoc pairs (:pair-key overlap) overlap))
+                 {})
+         vals
+         (sort-by :pair-key)
+         vec)))
+
+(defn reconcile-attention!
+  "Idempotently materialize current active-overlap attention plus pending
+   durable terminal intents. Settled terminal history is subtracted in Fram
+   before it reaches this pass."
+  ([spine] (reconcile-attention! spine nil))
+  ([spine raw]
+   (let [{terminal-notifications :notifications
+          terminal-more :more}
+         (publish-pending-attention-event-intents! spine raw)
+         overlaps (reconciliation-overlaps spine raw)
+         events
+         (->> overlaps
+              (mapcat desired-events-for-overlap)
+              (reduce (fn [unique event]
+                        (assoc unique [(:event-key event) (:to event)] event))
+                      {})
+              vals
+              (sort-by (juxt :event-key :to))
+              vec)
+         current-notifications (publish-attention-events! spine events)
+         notifications
+         (vec (concat terminal-notifications current-notifications))]
+     {:overlaps (count overlaps)
+      :events (count events)
+      :terminal-events (count terminal-notifications)
+      :terminal-more terminal-more
+      :notifications notifications})))
+
+(defn terminal-state [before trigger-status]
+  (case trigger-status
+    "landed" (assoc before :status "landed")
+    "abandoned-stale" (assoc before :abandoned true)))
+
+(defn terminal-status-present? [state trigger-status]
+  (case trigger-status
+    "landed" (= "landed" (:status state))
+    "abandoned-stale" (:abandoned state)
+    false))
+
+(defn stale-building-concern? [port state]
+  (let [reached (set (many port (:id state) "reached"))
+        {:keys [online lapsed-ago-ms]} (owner-liveness port state)]
+    (and
+     (contains? reached "building")
+     (not (contains? reached "likely-to-land"))
+     (not (contains? reached "landed"))
+     (not (contains? reached "abandoned-stale"))
+     (not online)
+     (integer? lapsed-ago-ms)
+     (>= lapsed-ago-ms concern-stale-ms))))
+
+(defn terminal-concern-transition!
+  "Commit terminal overlap-left intents and the concern terminal fact in one
+   globally versioned subject-local batch. Publication follows from the durable
+   outbox, so every post-commit crash point is replayable."
+  [port concern trigger-status]
+  (when-not (contains? terminal-attention-statuses trigger-status)
+    (throw
+     (ex-info "unsupported concern terminal transition"
+              {:type :invalid-concern-terminal-transition
+               :trigger-status trigger-status})))
+  (let [concern (existing-concern! port concern)
+        result
+        (north.coord/assert-batch-after-read!
+         port concern
+         (fn []
+           (let [before (meta-of port concern)]
+             (cond
+               (terminal-status-present? before trigger-status)
+               {:done {:status :already :concern concern
+                       :trigger-status trigger-status}}
+
+               (not (active-concern? before))
+               {:done {:status :ineligible :concern concern
+                       :trigger-status trigger-status}}
+
+               (and (= "abandoned-stale" trigger-status)
+                    (not (stale-building-concern? port before)))
+               {:done {:status :ineligible :concern concern
+                       :trigger-status trigger-status}}
+
+               :else
+               (let [before-overlaps (:overlaps (overlaps-for port concern))
+                     after (terminal-state before trigger-status)
+                     events
+                     (attention-events-for-transition
+                      before after before-overlaps)
+                     intents
+                     (mapv
+                      #(attention-event-intent-value
+                        port concern trigger-status %)
+                      events)]
+                 {:facts
+                  (vec
+                   (concat
+                    (map (fn [intent]
+                           {:p attention-event-intent-predicate
+                            :r intent})
+                         intents)
+                    [{:p "reached" :r trigger-status}]))})))))
+        transition
+        (cond
+          (:done result) (:done result)
+          (:ok result) {:status :committed
+                        :concern concern
+                        :trigger-status trigger-status}
+          :else
+          (throw
+           (ex-info "concern terminal transition publication failed"
+                    {:type :concern-terminal-transition-failed
+                     :concern concern
+                     :trigger-status trigger-status
+                     :result result})))
+        reconciliation
+        (when (#{:committed :already} (:status transition))
+          (reconcile-attention! port concern))]
+    (cond-> transition
+      reconciliation (assoc :reconciliation reconciliation))))
+
+(defn surface [spine c statuses none-msg]
+  (render-overlap-data spine (overlaps-for spine c) statuses none-msg))
 
 ;; one concept, one word (vocabulary pass, thread 019f2032): `overlap` is THE footprint
 ;; view — any status, likely-to-land marked per line. --landing filters to those only
@@ -501,7 +1078,7 @@
       port (Integer/parseInt ps)]
   (case verb
     "declare"
-    (let [[agent repo intent files] args
+    (let [{:keys [agent repo intent files about]} (parse-declare-args! port args)
           fs (->> (str/split (or files "") #",") (map str/trim) (remove str/blank?))
           ;; @ sigil: every thread id in the facts log carries it; a bare id here made
           ;; fram's export strip the wrong char. Old bare-id concerns are tolerated, not rewritten.
@@ -521,6 +1098,7 @@
       (put! port id "driver" (str "@" agent))              ; single (engine) — board visibility: active work
       (put! port id "repo"   repo)                         ; single
       (put! port id "intent" intent)                       ; single
+      (when about (put! port id "about" about))            ; single ref, validated before mutation
       (when code-port (put! port id "code_port" (str code-port)))   ; so a reader finds the code store
       (when code-log (put! port id "code_log" code-log))            ; exact corpus identity
       (doseq [f fs] (append! port id "touches" f))         ; display labels (+ the fallback footprint)
@@ -546,8 +1124,16 @@
           (println (str "✓ concern " id))
           (println (str "  @" agent "  building  [" repo "]  touches {" (str/join " " fs) "}"))
           (println "  (no warm code daemon for this repo — footprint is path-string; `fram-code-on <repo>` enables code-node overlap)")))
-      (println "\nOverlapping concerns — coordinate, you are NOT blocked:")
-      (surface port id nil "no other concern is in your footprint")
+      ;; Publish only after the complete spine + footprint is externally visible.
+      (let [{:keys [overlaps] :as after-data} (overlaps-for port id)
+            after (:mine after-data)]
+        (publish-transition! port nil after [] overlaps)
+        ;; A second desired-state pass closes ordinary partial-publication
+        ;; windows; deterministic IDs make the repeat free.
+        (reconcile-attention! port id)
+        (println "\nOverlapping concerns — coordinate, you are NOT blocked:")
+        (render-overlap-data
+         port after-data nil "no other concern is in your footprint"))
       (println (str "\n  next: `concern overlap " id "` — who's in your footprint, likely-to-land"
                     " marked (build against those);  `concern status " id " likely-to-land` as you near merge.")))
 
@@ -597,6 +1183,30 @@
     (let [repo (first (remove #(str/starts-with? % "--") args))]
       (println (json/generate-string (concern-projection port repo))))
 
+    "reconcile-attention"                                ; hidden crash-healing seam
+    (let [[raw] args]
+      (when (> (count args) 1)
+        (usage-error! "reconcile-attention accepts at most one concern id"))
+      (let [{:keys [overlaps events terminal-events terminal-more
+                    notifications]}
+            (reconcile-attention! port raw)]
+        (println
+         (str "✓ concern attention reconciled overlaps=" overlaps
+              " desired=" events
+              " terminal=" terminal-events
+              " terminal_more=" terminal-more
+              " materialized=" (count notifications)))))
+
+    "retire-stale"                                      ; hidden reactor boundary
+    (let [[raw] args]
+      (when-not (= 1 (count args))
+        (usage-error! "retire-stale requires exactly <concern-id>"))
+      (prn
+       (select-keys
+        (terminal-concern-transition!
+         port raw "abandoned-stale")
+        [:status :concern :trigger-status])))
+
     "status"
     (let [[raw st] args]
       (when-not (= 2 (count args))
@@ -605,15 +1215,43 @@
         (usage-error! (str "invalid maturity " (pr-str st) "; expected one of "
                            (str/join ", " maturity))))
       (let [c (existing-concern! port raw)]
-        (append! port c "reached" st)                      ; monotone ladder — append, never set
-        (println (str "✓ " c " reached=" st " (status=" (status-of port c) ")"))))
+        (if (= "landed" st)
+          (let [transition
+                (terminal-concern-transition! port c "landed")]
+            (when (= :ineligible (:status transition))
+              (throw
+               (ex-info "inactive concern cannot newly reach landed"
+                        {:type :ineligible-concern-terminal-transition
+                         :concern c})))
+            (println
+             (str "✓ " c " reached=landed (status=landed)")))
+          (let [before (meta-of port c)
+                before-overlaps (:overlaps (overlaps-for port c))]
+            (append! port c "reached" st)                  ; monotone ladder — append, never set
+            (let [after (meta-of port c)
+                  after-overlaps
+                  (if (active-concern? after)
+                    (:overlaps (overlaps-for port c))
+                    [])]
+              (publish-transition!
+               port before after before-overlaps after-overlaps)
+              (reconcile-attention! port c)
+              (println
+               (str "✓ " c " reached=" st
+                    " (status=" (:status after) ")")))))))
 
     "done"
     (let [[raw] args]
       (when-not (= 1 (count args))
         (usage-error! "done requires exactly <concern-id>"))
-      (let [c (existing-concern! port raw)]
-        (append! port c "reached" "landed")
+      (let [c (existing-concern! port raw)
+            transition
+            (terminal-concern-transition! port c "landed")]
+        (when (= :ineligible (:status transition))
+          (throw
+           (ex-info "inactive concern cannot newly land"
+                    {:type :ineligible-concern-terminal-transition
+                     :concern c})))
         (println (str "✓ " c " landed"))))
 
     (do (println usage)

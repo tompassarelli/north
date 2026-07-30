@@ -4,6 +4,7 @@
 (require '[babashka.process :as proc]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
+         '[clojure.set :as set]
          '[clojure.string :as str])
 
 (def root
@@ -21,6 +22,13 @@
 (def checks (atom []))
 (def children (atom []))
 (def test-log (atom nil))
+(def test-telemetry-log (atom nil))
+
+(defn test-env [port]
+  {"FRAM_LOG" @test-log
+   "FRAM_TELEMETRY_LOG" @test-telemetry-log
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str port)})
 
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 (defn free-port [] (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
@@ -35,6 +43,20 @@
     (cond (predicate) true
           (>= attempt 240) false
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
+(defn await-daemon-boot [predicate]
+  (loop [attempt 0]
+    (cond (predicate) true
+          (>= attempt 300) false
+          :else (do (Thread/sleep 250) (recur (inc attempt))))))
+(defn fail-daemon-boot! [daemon]
+  (try (proc/destroy-tree daemon) (catch Exception _ nil))
+  (let [result (deref daemon 5000 nil)]
+    (throw
+     (ex-info
+      "throwaway Fram coordinator failed to start"
+      {:exit (:exit result)
+       :stdout (or (:out result) "<unavailable>")
+       :stderr (or (:err result) "<unavailable>")}))))
 (defn coordinator-op [port request]
   (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
     (.setSoTimeout socket 5000)
@@ -55,14 +77,27 @@
     result))
 (defn values-of [port subject predicate]
   (set (:values (coordinator-op port {:op :resolved :te subject :p predicate}))))
+(defn subjects-with-value [port predicate value]
+  (->> (:ok
+        (coordinator-op
+         port
+         {:op :query
+          :query
+          {:find "subject"
+           :rules
+           [{:head {:rel "subject" :args [{:var "subject"}]}
+             :body [{:rel "triple"
+                     :args [{:var "subject"} predicate value]}]}]}}))
+       (map first)
+       set))
 (defn run-cli [path port & args]
   (apply proc/shell {:continue true :out :string :err :string
-                     :extra-env {"FRAM_LOG" @test-log}}
+                     :extra-env (test-env port)}
          "bb" path (str port) args))
 (defn run-cli-with-env [path port extra-env & args]
   (apply proc/shell
          {:continue true :out :string :err :string
-          :extra-env (merge {"FRAM_LOG" @test-log} extra-env)}
+          :extra-env (merge (test-env port) extra-env)}
          "bb" path (str port) args))
 (defn run-msg [port & args] (apply run-cli msg-cli port args))
 (defn register! [port handle]
@@ -81,7 +116,7 @@
   (str/includes? (:out (run-msg port "inbox" handle)) subject))
 (defn start-listener! [port handle log & flags]
   (let [child (apply proc/process {:out log :err log
-                                   :extra-env {"FRAM_LOG" @test-log}}
+                                   :extra-env (test-env port)}
                      "bb" listener-cli (str port) handle flags)]
     (swap! children conj child)
     child))
@@ -99,18 +134,27 @@
            (java.nio.file.Files/createTempDirectory
             "north-message-audience" (make-array java.nio.file.attribute.FileAttribute 0)))
       facts (io/file tmp "facts.log")
+      telemetry (io/file tmp "telemetry.log")
       daemon (do
                (spit facts "")
+               (spit telemetry "")
                (proc/process
                 {:dir fram :out :string :err :string
                  :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+                             "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry)
+                             "NORTH_TELEMETRY_PARTITION" "0"
+                             "NORTH_TELEMETRY_PORT" (str port)
                              "FRAM_SINGLE_VALUED"
                              "from subject body sent_at to acked_at broadcast_audience_version agent dir session_id started_at"}}
                 "bb" "-cp" "out" "coord_daemon.clj"
                 "serve-flat" (str port) (.getPath facts)))]
   (reset! test-log (.getCanonicalPath facts))
+  (reset! test-telemetry-log (.getCanonicalPath telemetry))
   (try
-    (check "throwaway Fram coordinator starts" (await-predicate #(port-open? port)))
+    (let [started? (await-daemon-boot #(port-open? port))]
+      (check "throwaway Fram coordinator starts" started?)
+      (when-not started?
+        (fail-daemon-boot! daemon)))
     (let [wrapper-probe
           (proc/shell
            {:continue true :out :string :err :string
@@ -130,6 +174,47 @@
     (doseq [handle ["sender" "alice" "bob"]]
       (check (str handle " has a live session lease")
              (zero? (:exit (register! port handle)))))
+
+    ;; Saturate the recipient's raw `to` index with non-mail coordination
+    ;; subjects that sort before @msg. Filtering only after query-page would
+    ;; return an empty first hook turn and strand the canonical message behind
+    ;; the engine cursor; the pending relation itself must require an envelope.
+    (let [recipient "mail-isolation"
+          junk-ids
+          (mapv #(format "@aaa-attention-junk-%03d" %) (range 300))
+          message "@msg:zz-mail-isolation"
+          runtime (doto (io/file tmp "mail-isolation-runtime") .mkdirs)]
+      (doseq [junk junk-ids]
+        (assert-fact! port junk "kind" "notification")
+        (assert-fact! port junk "to" recipient))
+      (doseq [[predicate value]
+              [["from" "sender"]
+               ["subject" "mail survives routing saturation"]
+               ["body" "complete canonical envelope"]
+               ["sent_at" "2026-07-30T00:00:00Z"]
+               ["to" recipient]]]
+        (assert-fact! port message predicate value))
+      (let [manual (run-msg port "inbox" recipient)
+            peek
+            (run-cli-with-env
+             peek-cli port
+             {"XDG_RUNTIME_DIR" (.getCanonicalPath runtime)}
+             recipient)]
+        (check "manual inbox excludes non-mail to subjects"
+               (and (zero? (:exit manual))
+                    (str/includes?
+                     (:out manual) "mail survives routing saturation")
+                    (not (str/includes? (:out manual) "attention-junk"))))
+        (check "one bounded hook page reaches mail behind 300 non-mail to rows"
+               (and (zero? (:exit peek))
+                    (str/includes?
+                     (:out peek) "mail survives routing saturation")
+                    (= #{recipient} (values-of port message "acked_by"))))
+        (check "non-mail routing subjects are never acknowledged as mail"
+               (empty?
+                (set/intersection
+                 (set junk-ids)
+                 (subjects-with-value port "acked_by" recipient))))))
 
     ;; A live listener and an inbox-only recipient are both frozen into the same
     ;; send-time snapshot. The sender is explicitly excluded.
@@ -225,7 +310,7 @@
                      message (sent-subject send-result)
                      peeks (mapv (fn [_]
                                    (proc/process {:out :string :err :string
-                                                  :extra-env {"FRAM_LOG" @test-log}}
+                                                  :extra-env (test-env port)}
                                                  "bb" peek-cli (str port) "racer"))
                                  (range 4))
                      peek-results (mapv deref peeks)]
@@ -328,7 +413,7 @@
       (let [producers
             (mapv (fn [i]
                     (proc/process {:out :string :err :string
-                                   :extra-env {"FRAM_LOG" @test-log}}
+                                   :extra-env (test-env port)}
                                   "bb" msg-cli (str port) "send" "sender" "*"
                                   (str "burst-" i) (str "body-" i)))
                   (range 8))

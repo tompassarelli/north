@@ -89,4 +89,20 @@ if [ -n "${CODE_TARGET:-}" ]; then
   export NORTH_CODE_LOG="${CODE_TARGET#*	}"
 fi
 
-exec "$BB" "$ROOT/cli/concern-cli.clj" "$BOARD" "$@"
+args=("$@")
+if [ "${1:-}" = "declare" ] &&
+   [[ "${NORTH_THREAD_ID:-}" =~ [^[:space:]] ]]; then
+  explicit_about=0
+  for arg in "${args[@]}"; do
+    if [ "$arg" = "--about" ]; then
+      explicit_about=1
+      break
+    fi
+  done
+  if [ "$explicit_about" -eq 0 ]; then
+    thread_id="${NORTH_THREAD_ID#@}"
+    args+=(--about "@$thread_id")
+  fi
+fi
+
+exec "$BB" "$ROOT/cli/concern-cli.clj" "$BOARD" "${args[@]}"

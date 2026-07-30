@@ -20,6 +20,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/attention.clj"))
 (def send-op north.coord/send-op)
 (def append! north.coord/append!)
 (def rf      north.coord/resolved)
@@ -27,6 +28,70 @@
 (defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id] (append! port id "acked_by" me))   ; acked_by is multi — append (coexist)
+
+(defn unknown-attention-principal? [error]
+  (= :unknown-attention-principal (:type (ex-data error))))
+
+(defn listener-attention-principals [port node agent-id]
+  ;; Concerns historically store their owner as @<lane-id>, while follow
+  ;; ownership prefers @agent:<lane-id> or a role. Keep both exact refs in the
+  ;; listener's attention set; direct-message addresses remain bare literals.
+  (into #{node (str "@" agent-id)}
+        (north.attention/role-principals port agent-id)))
+
+(defn principal-follows [port principal]
+  ;; Direct listeners predate graph-backed identities and remain valid for
+  ;; mail even when their ephemeral @agent node has not been registered.
+  (try
+    (north.attention/following port principal)
+    (catch clojure.lang.ExceptionInfo error
+      (if (unknown-attention-principal? error)
+        []
+        (throw error)))))
+
+(defn listener-attention-scope [port principals]
+  (let [subscriptions
+        (->> principals
+             sort
+             (mapcat #(principal-follows port %))
+             (sort-by :id)
+             vec)]
+    {:subscriptions subscriptions
+     :followed (set (keep :about subscriptions))
+     :about->principals
+     (reduce
+      (fn [index {:keys [about subscriber]}]
+        (update index about (fnil conj #{}) subscriber))
+      {}
+      subscriptions)}))
+
+(defn attention-principals-for [scope about]
+  (get (:about->principals scope) about #{}))
+
+(defn print-attention-notification! [row]
+  (println
+   (format "◉  NOTICE %s  (for %s)\n   kind:    %s\n   about:   %s\n   subject: %s\n   body:    %s"
+           (:id row) (:recipient row) (:attention-kind row) (:about row)
+           (:subject row) (:body row)))
+  (flush))
+
+(defn catch-up-attention!
+  "Replay durable follows for PRINCIPALS. Inbox remains silent; notify is a
+   non-terminal notice delivered by the publisher's scoped `target` wake edge. The
+   returned IDs are newly materialized by this sync."
+  [port principals]
+  (vec
+   (mapcat
+    (fn [principal]
+      (try
+        (let [result (north.attention/sync-principal! port principal)
+              ids (distinct (:notification-ids result))]
+          ids)
+        (catch clojure.lang.ExceptionInfo error
+          (if (unknown-attention-principal? error)
+            []
+            (throw error)))))
+    (sort principals))))
 
 (defn positive-env-ms [name default-value]
   (let [raw (or (System/getenv name) (str default-value))
@@ -162,7 +227,9 @@
                 (System/exit 1))
       scoped? (boolean (some #{"--scoped"} flags))  ; P5: server-side scoped subscribe (daemon pushes only my commits)
       addrs   (atom #{uuid})
-      watched (atom #{})]
+      watched (atom #{})
+      attention-principals (atom #{node})
+      attention-scope (atom {:subscriptions [] :followed #{} :about->principals {}})]
   ;; Every pass refreshes graph-backed scope, then arms one subscription. A
   ;; scoped address change reconnects immediately; coordinator EOF/refusal or a
   ;; restart-time protocol failure retries forever with bounded backoff.
@@ -174,15 +241,23 @@
                     (into #{uuid}
                           (keep role-slug (rmany port node "holds"))))
             (reset! watched (set (rmany port node "watches")))
+            (reset! attention-principals
+                    (listener-attention-principals port node uuid))
+            (reset! attention-scope
+                    (listener-attention-scope port @attention-principals))
             (with-open [s (north.coord/connect-socket port)]
         (let [w (.getOutputStream s)
               reader (north.coord/coordinator-reader s)
+              transport-watch
+              (into
+               (into @watched (:followed @attention-scope))
+               (keep :id (:subscriptions @attention-scope)))
               ;; The daemon still needs "*" in its transport filter to forward
               ;; broadcast trigger commits. Client-side snapshot membership is
               ;; the delivery authority; "*" is never a command/direct address.
               sub (cond-> {:op :subscribe}
                     scoped? (assoc :filter {:addrs (conj @addrs north.message-audience/broadcast-address)
-                                            :watch @watched :node node}))]
+                                            :watch transport-watch :node node}))]
           (.write w
                   (.getBytes
                    (str (pr-str (north.coord/log-envelope sub)) "\n")
@@ -191,15 +266,33 @@
           (north.coord/validate-subscription!
            (north.coord/read-line-bounded! reader))
           (.setSoTimeout s 0)            ; validated long-lived stream: wait indefinitely for pushes
-          (println (format "● @agent:%s listening%s — addrs %s + %d watched thread(s)%s"
-                           uuid (if scoped? " [scoped]" "") (pr-str (sort @addrs)) (count @watched) (if once? "  [--once]" "")))
+          (println
+           (format
+            "● @agent:%s listening%s — addrs %s + %d watched + %d followed thread(s)%s"
+            uuid (if scoped? " [scoped]" "") (pr-str (sort @addrs))
+            (count @watched) (count (:followed @attention-scope))
+            (if once? "  [--once]" "")))
           (flush)
+          ;; The subscription is armed before replay. A change racing this
+          ;; catch-up is therefore either in the durable replay window, on the
+          ;; live stream, or both (where deterministic notification IDs dedupe).
+          (catch-up-attention! port @attention-principals)
+          (let [before (:followed @attention-scope)
+                refreshed
+                (listener-attention-scope port @attention-principals)]
+            (reset! attention-scope refreshed)
+            ;; A follow committed between the pre-connect snapshot and the
+            ;; validated handshake was caught up, but a scoped transport must
+            ;; reconnect once so its server-side watch set includes it.
+            (when (and scoped? (not= before (:followed refreshed)))
+              (reset! reconnect? true)))
           ;; Replay any repeat-safe command whose effect/diagnostics landed
           ;; before its terminal marker when a prior listener crashed.
           (when react? (react-pending! port uuid @addrs))
           (loop []
-            (when-let [line
-                       (north.coord/read-stream-line-bounded! reader)]
+            (when-not @reconnect?
+             (when-let [line
+                        (north.coord/read-stream-line-bounded! reader)]
               (let [ev (try (edn/read-string line) (catch Exception _ nil))]
                 (when (and (map? ev) (= :commit (:event ev)))
                   (let [{:keys [op l p r]} ev]
@@ -208,6 +301,16 @@
                       (and (= l node) (= p "holds"))
                       (do (when-let [sl (role-slug r)]
                             (swap! addrs (if (= op "assert") conj disj) sl)
+                            (swap! attention-principals
+                                   (if (= op "assert") conj disj) r)
+                            ;; A newly held stable role may already have pending
+                            ;; followed changes. Catch it up before changing the
+                            ;; logical/transport scope.
+                            (when (= op "assert")
+                              (catch-up-attention! port #{r}))
+                            (reset! attention-scope
+                                    (listener-attention-scope
+                                     port @attention-principals))
                             (println (format "  ↳ addrs: %s %s (now %s)"
                                              (if (= op "assert") "+role" "-role") sl (pr-str (sort @addrs)))) (flush)
                             (when scoped? (reset! reconnect? true))))
@@ -219,11 +322,84 @@
                                            (if (= op "assert") "watch" "unwatch") r (count @watched))) (flush)
                           (when scoped? (reset! reconnect? true)))
 
+                      ;; (b2) An unscoped listener sees subscription births and
+                      ;; endings on the firehose. Refresh its logical follow
+                      ;; scope immediately; scoped listeners pick up initial
+                      ;; follows and re-evaluate on their normal reconnects.
+                      (and (#{"assert" "retract"} op)
+                           (or (and (= p "kind") (= r "subscription"))
+                               (and (= p "ended_at")
+                                    (= "subscription" (rf port l "kind"))))
+                           (contains? @attention-principals
+                                      (rf port l "subscriber")))
+                      (let [principal (rf port l "subscriber")
+                            before (:followed @attention-scope)]
+                        ;; Ended subscriptions still replay through their
+                        ;; captured end cursor, so catch-up precedes removal
+                        ;; from the active followed set.
+                        (catch-up-attention! port #{principal})
+                        (let [refreshed
+                              (listener-attention-scope
+                               port @attention-principals)]
+                          (reset! attention-scope refreshed)
+                          (println
+                           (format "  ↳ attention scope: %d followed thread(s)"
+                                   (count (:followed refreshed))))
+                          (flush)
+                          (when (and scoped?
+                                     (not= before (:followed refreshed)))
+                            (reset! reconnect? true))))
+
+                      ;; (b3) Attention ownership stays on recipient/subscriber
+                      ;; refs. `target` is the routing-only birth/notification
+                      ;; edge. An unfollow retracts that exact target after its
+                      ;; atomic end boundary; active subscription subjects also
+                      ;; stay in the scoped watch set so ended_at is sufficient
+                      ;; to drive rescope.
+                      (and (#{"assert" "retract"} op)
+                           (= "target" p)
+                           (contains? @addrs r)
+                           (#{"notification" "subscription"}
+                            (rf port l "kind")))
+                      (case (rf port l "kind")
+                        "notification"
+                        (let [principal (rf port l "recipient")]
+                          (when (and (= op "assert")
+                                     (contains? @attention-principals principal))
+                            (let [row
+                                  (north.attention/notification-row
+                                   port l principal)]
+                              (when (= "notify" (:delivery row))
+                                (print-attention-notification! row)))))
+
+                        "subscription"
+                        (let [principal (rf port l "subscriber")
+                              before (:followed @attention-scope)]
+                          (when (contains? @attention-principals principal)
+                            ;; Ended subscriptions replay through their captured
+                            ;; boundary before the active scope is removed.
+                            (catch-up-attention! port #{principal})
+                            (let [refreshed
+                                  (listener-attention-scope
+                                   port @attention-principals)]
+                              (reset! attention-scope refreshed)
+                              (println
+                               (format
+                                "  ↳ attention scope: %d followed thread(s)"
+                                (count (:followed refreshed))))
+                              (flush)
+                              (when (and scoped?
+                                         (not= before (:followed refreshed)))
+                                (reset! reconnect? true)))))
+                        nil)
+
                       ;; (c) self-channel: a human message to my uuid OR a role I hold. `to` lands
                       ;; LAST now (msg-cli send writes it after the body), so from/subject/body are
                       ;; already visible — no settle sleep, and no envelope parsing (commands are
                       ;; @cmd: subjects handled in (c2), not mail bodies).
                       (and (= op "assert") (= p "to")
+                           (not (#{"notification" "subscription"}
+                                 (rf port l "kind")))
                            (north.message-audience/deliverable?
                             port l r uuid @addrs))
                       (let [claim (when ack?
@@ -244,7 +420,10 @@
                       ;; (c2) command landing: a @cmd:<id> whose routing `target` is one of my addrs.
                       ;; `target` is asserted LAST, so op+args are present. Drive the forward-chaining
                       ;; rule (coord/pending-cmds) — no string parse, no settle sleep.
-                      (and (= op "assert") (= p "target") (contains? @addrs r))
+                      (and (= op "assert") (= p "target")
+                           (not (#{"notification" "subscription"}
+                                 (rf port l "kind")))
+                           (contains? @addrs r))
                       (do (if react?
                             (react-pending! port uuid @addrs)   ; --react: execute + ack + reply
                             (println (format "⌘  COMMAND %s  op=%s  (target %s)" l (rf port l "op") r))) (flush)
@@ -261,11 +440,24 @@
                       ;; (d) watched-thread activity
                       (and (= op "assert") (contains? @watched l))
                       (do (println (format "◆  THREAD %s  %s = %s" l p r)) (flush)
-                          (when once? (System/exit 0)))))))
+                          (when once? (System/exit 0)))
+
+                      ;; (e) observer-driven followed-thread activity. Replay
+                      ;; matching stable principals into durable notifications.
+                      ;; This path NEVER consumes --once; only direct attention
+                      ;; and the legacy explicit watch contract may do that.
+                      (and (#{"assert" "retract"} op)
+                           (contains? (:followed @attention-scope) l))
+                      (let [principals
+                            (attention-principals-for @attention-scope l)]
+                        (catch-up-attention! port principals)
+                        (reset! attention-scope
+                                (listener-attention-scope
+                                 port @attention-principals)))))))
               ;; --scoped re-scope: break the inner read-loop so the outer reconnects with the new filter
               (if @reconnect?
                 (do (println "  ↳ re-scoping subscription (addr/watch changed)…") (flush))
-                (recur))))))
+                (recur)))))))
             (if @reconnect?
               {:reason :rescope}
               {:reason :closed
