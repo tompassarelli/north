@@ -670,7 +670,7 @@
                   {:action "deferred" :count n :window window-id}))))))
     (catch Throwable t
       (println (str "[sweep] rebuild window error: " (.getMessage t)))
-      {:action "error" :count 0})))
+      {:action "error" :count 0 :error t})))
 
 ;; ---- AGENT STREAM-LOG ROTATION (durable-but-untidy GC) ----------------------
 ;; north-data/agents/*.log are per-agent SDK stream logs — hundreds of files,
@@ -781,10 +781,8 @@
             " error=" (pr-str (.getMessage error))))
       {:status :failed})))
 
-(defn sweep! [dry?]
-  ;; Rebuild collection is the user-authorized critical path; maintenance may not starve it.
-  (let [rw (run-sweep-stage! :rebuild-window #(maybe-rebuild-window! dry?))
-        nc (run-sweep-stage! :concerns #(sweep-concerns! dry?))
+(defn sweep-maintenance! [dry? rw]
+  (let [nc (run-sweep-stage! :concerns #(sweep-concerns! dry?))
         nl (run-sweep-stage! :lanes #(sweep-lanes! dry?))
         nd (run-sweep-stage!
             :unpublished-driver-claims
@@ -861,6 +859,32 @@
                   " attention-reconcile=" (name (:status attention))))
     (flush)
     summary))
+
+(defn sweep! [dry?]
+  ;; A fired window is durable; independent maintenance cannot rewrite that outcome.
+  (let [rw (run-sweep-stage! :rebuild-window #(maybe-rebuild-window! dry?))]
+    (when (= "error" (:action rw))
+      (throw
+       (ex-info "rebuild window collection failed"
+                {:type :rebuild-window-collection-failed
+                 :rebuild-window (dissoc rw :error)}
+                (:error rw))))
+    (try
+      (sweep-maintenance! dry? rw)
+      (catch Throwable error
+        (if (= "fired" (:action rw))
+          (let [stage (or (some-> *sweep-runtime* :stage deref) :maintenance)
+                maintenance {:status :degraded :stage stage :error error}
+                summary {:rebuild-window rw
+                         :maintenance maintenance
+                         :terminal-status :completed}]
+            (println (str "[sweep] maintenance=degraded after rebuild-window=fired"
+                          " stage=" (name stage)
+                          " error=" (pr-str (.getMessage error))
+                          " action=retry-maintenance-on-next-scheduled-run"))
+            (flush)
+            summary)
+          (throw error))))))
 
 (defn sweep-loop []
   (loop []
@@ -1134,8 +1158,14 @@
                    #(run-bounded-sweep! dry-run? timeout-ms retry-ms))]
       (cond
         (= :completed (:status result))
-        (do (println (str "[sweep] terminal=completed attempts=" (:attempts result)
-                          " elapsed_ms=" (:elapsed-ms result)))
+        (let [maintenance (get-in result [:summary :maintenance])]
+          (println (str "[sweep] terminal=completed attempts=" (:attempts result)
+                        " elapsed_ms=" (:elapsed-ms result)
+                        (when (= :degraded (:status maintenance))
+                          (str " rebuild-window="
+                               (get-in result [:summary :rebuild-window :action])
+                               " maintenance=degraded"
+                               " stage=" (name (:stage maintenance))))))
             (flush)
             0)
 
