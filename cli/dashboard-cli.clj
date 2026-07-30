@@ -482,6 +482,31 @@
                      (parse-long (str/trim (:out behind-result))))]
         {:available true :behind behind :dirty-files dirty-files}))))
 
+(def runtime-promote-state (str HOME "/.local/state/north/runtime"))
+
+(defn promoted-runtime
+  "What `north-runtime promote` currently selects. The deployment directory is
+   named by the exact commit, so the selector alone carries the revision; an
+   absent selector is the pre-promote state, never a doctor failure."
+  ([] (promoted-runtime runtime-promote-state))
+  ([root]
+   (let [selector (io/file root "current")]
+     (if-not (.exists selector)
+       {:promoted? false}
+       (let [deployment (.getCanonicalPath selector)
+             revision (.getName (io/file deployment))]
+         (if-not (re-matches #"[0-9a-f]{40}" revision)
+           {:promoted? false :malformed deployment}
+           {:promoted? true :deployment deployment :revision revision}))))))
+
+(defn code-adoption-asks
+  "Open rebuild asks that exist only to adopt hot-loop code. Each one is a
+   delivery-channel defect, so the gauge's target is zero."
+  [open]
+  (filterv #(str/starts-with? (str/lower-case (str/trim (str (:why %))))
+                              "code-adoption:")
+           open))
+
 ;; ============================================================================
 ;; COMMANDS
 ;; ============================================================================
@@ -936,6 +961,16 @@
           (println (str "    " (if (pos? (or urgent 0)) (ylw "[warn]") (grn "[ok]  "))
                         " urgent rate " urgent "/" total " request(s) (" rate "%) in "
                         periodHours "h")))
+        ;; Hot-loop code (north/fram/beagle) has its own delivery channels, so a
+        ;; rebuild queued to adopt it is a defect in one of those channels.
+        (let [adoption (code-adoption-asks open)]
+          (println (str "    " (if (seq adoption) (ylw "[warn]") (grn "[ok]  "))
+                        " code-adoption rebuild asks: " (count adoption)
+                        (if (seq adoption)
+                          " — each is a policy DEFECT; hot-loop repos deliver by promote, not by rebuild"
+                          (dim " (target zero)"))))
+          (doseq [r adoption]
+            (println (format "      %-10s %-24s %s" (:age r) (:requester r) (:why r)))))
         (println (str "    " (dim "[--]  ") " drift-without-promote: " (:note promote)))))))
 
 (defn cmd-doctor [_]
@@ -1026,6 +1061,27 @@
               (mark-doctor-failed!)
               (println (str "    " (red "[ERR] ") "PRIMARY DIRTY: " dirty-files
                             " files — snapshot builds EXCLUDE these (silent-exclusion risk)")))))))))
+  ;; North's own runtime ships by promote, so its selected revision is a
+  ;; different question from the installed closure printed above.
+  (let [{:keys [promoted? revision deployment malformed]} (promoted-runtime)]
+    (cond
+      malformed
+      (println (str "    " (ylw "[warn] ") " promoted north runtime: selector does not "
+                    "resolve to a revision-named deployment (" malformed ")"))
+
+      (not promoted?)
+      (println (str "    " (dim "[--]  ") " promoted north runtime: no promote yet"
+                    (dim (str " (bin/north-runtime promote " (primary-repo "north") " HEAD)"))))
+
+      :else
+      (let [{:keys [available behind]} (deployment-drift "north" revision)]
+        (println (str "    " (cyn "north") "  promoted rev " (subs revision 0 7)
+                      "  " deployment))
+        (if-not available
+          (println (str "    " (ylw "[warn] ") " promoted north runtime: repo main unavailable"))
+          (println (str "    " (if (and behind (pos? behind)) (ylw "[warn] ") (grn "[ok]  "))
+                        " promoted north runtime: " (or behind "?")
+                        " commits behind repo main"))))))
   ;; stale FRAM_LOG env pointing at a claims-named path
   (println (bold "  env hygiene"))
   (let [fl (System/getenv "FRAM_LOG")]

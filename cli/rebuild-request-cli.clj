@@ -447,6 +447,9 @@
   (str
    "usage:\n"
    "  north rebuild request --why <text> [--thread <id>] [--urgent <reason>]\n"
+   "      an ask that exists only to adopt north/fram/beagle code is a DEFECT:\n"
+   "      tag it --why \"code-adoption: <what>\" so `north doctor` counts it,\n"
+   "      then fix the delivery channel (promote, not rebuild). Target: zero.\n"
    "  north rebuild list\n"
    "  north rebuild satisfy <request-id> --generation <path> [--intent <id>]\n"
    "  north rebuild run-window <window-id>\n"

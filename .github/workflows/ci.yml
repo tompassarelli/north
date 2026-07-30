@@ -93,6 +93,7 @@ jobs:
           bash bin/tests/sdk-test-entrypoint-test.sh
           bash cli/tests/package-helper-smoke-test.sh
           bash bin/tests/north-on-stop-test.sh
+          bash bin/tests/north-runtime-promote-test.sh  # runtime promote selector: exact commit, atomic swap, rollback
 
       - name: Docker context and runtime closure
         working-directory: north
@@ -134,6 +135,7 @@ jobs:
           bb cli/tests/mine-verbosity-test.clj
           bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/dashboard-doctor-exit-test.clj
+          bb cli/tests/dashboard-promoted-runtime-test.clj  # promoted-runtime selector reading + code-adoption gauge
           bb cli/tests/rebuild-request-window-test.clj  # window owner decides on fixture time, never wall-clock
           bb cli/tests/coordinator-jvm-health-test.clj
           bb cli/tests/deployed-cli-test.clj

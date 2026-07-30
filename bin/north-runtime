@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# north-runtime — North's runtime (reactor, timers) runs from a promoted COMMIT,
+# never from the generation the last rebuild pinned. Selector shape mirrors
+# north-coord-runtime: one git-worktree deployment per commit, a two-member
+# (current, previous) generation, ONE atomic selector move — so a crash leaves
+# either the old pair or the new pair selected, never a torn one.
+# Bash, because this must run with only coreutils + git, before North's own
+# runtime is available.
+set -euo pipefail
+
+umask 077
+
+program=${0##*/}
+project=north
+# Composed, never written literally: flake.nix's package-purity scan rejects an
+# embedded checkout path in any packaged file.
+default_origin=$HOME/code/$project/main
+state_root=${NORTH_RUNTIME_STATE:-$HOME/.local/state/$project/runtime}
+state_parent=${state_root%/*}
+deployments=$state_root/deployments
+generations=$state_root/generations
+active_link=$state_root/active
+current_link=$state_root/current
+previous_link=$state_root/previous
+selector_lock=$state_parent/.${project}-runtime.selector.lock
+coordination_log=${FRAM_LOG:-$HOME/.local/state/$project/coordination.log}
+port=${NORTH_PORT:-7977}
+bb=${NORTH_BB:-bb}
+cli_root=${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}
+
+record_format=north-runtime/v1
+identity_format=north-runtime-v1
+
+die() {
+  printf '%s: %s\n' "$program" "$*" >&2
+  exit 2
+}
+
+warn() {
+  printf '%s: %s\n' "$program" "$*" >&2
+}
+
+usage() {
+  cat >&2 <<EOF
+usage: $program promote [CHECKOUT] [REVISION] [--why TEXT]
+       $program rollback [--why TEXT]
+       $program status
+
+CHECKOUT defaults to the North primary checkout, REVISION to its HEAD.
+EOF
+  exit 2
+}
+
+valid_revision() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]]
+}
+
+valid_record_value() {
+  [[ -n "$1" && "$1" != *$'\n'* && "$1" != *$'\r'* ]]
+}
+
+# One writer at a time across the whole selector, so two concurrent promotes
+# cannot interleave generation creation with the selector move.
+prepare_lock() {
+  mkdir -p "$state_parent"
+  exec 9>"$selector_lock"
+  flock -x 9
+}
+
+require_layout() {
+  mkdir -p "$deployments" "$generations"
+  chmod 0700 "$state_root" "$deployments" "$generations"
+  # Stable public names; both resolve through the one selector that moves.
+  [ -L "$current_link" ] || ln -s active/current "$current_link"
+  [ -L "$previous_link" ] || ln -s active/previous "$previous_link"
+}
+
+selected() {
+  [ -L "$active_link" ] && [ -e "$active_link/current" ]
+}
+
+# Fields of one generation member, read from its identity file rather than
+# inferred from the symlink: the identity is what the promote attested.
+load_member() {
+  local member=$1 identity target
+  local -a fields
+
+  identity=$active_link/$member.identity
+  [ -f "$identity" ] && [ ! -L "$identity" ] ||
+    die "selected $member runtime identity is missing: $identity"
+  target=$(readlink -f "$active_link/$member") ||
+    die "selected $member runtime target is missing"
+  mapfile -t fields <"$identity"
+  [ "${#fields[@]}" -eq 5 ] && [ "${fields[0]}" = "$identity_format" ] ||
+    die "selected $member runtime identity is malformed: $identity"
+  [ "${fields[1]}" = checkout ] ||
+    die "selected $member runtime mode is not a checkout: ${fields[1]}"
+  member_source=${fields[2]}
+  member_revision=${fields[3]}
+  member_origin=${fields[4]}
+  [ "$target" = "$member_source" ] ||
+    die "selected $member symlink differs from its generation identity"
+  [ -d "$member_source" ] ||
+    die "selected $member deployment is missing: $member_source"
+}
+
+write_member() {
+  local generation=$1 member=$2 source=$3 revision=$4 origin=$5
+
+  ln -s "$source" "$generation/$member"
+  {
+    printf '%s\n' "$identity_format"
+    printf '%s\n' checkout
+    printf '%s\n' "$source"
+    printf '%s\n' "$revision"
+    printf '%s\n' "$origin"
+  } >"$generation/$member.identity"
+}
+
+render_record() {
+  local kind=$1 revision=$2 previous=$3 why=$4 source=$5 origin=$6 ts=$7
+  printf 'FORMAT %s\n' "$record_format"
+  printf 'KIND %s\n' "$kind"
+  printf 'REV %s\n' "$revision"
+  printf 'PREVIOUS %s\n' "$previous"
+  printf 'SOURCE %s\n' "$source"
+  printf 'ORIGIN %s\n' "$origin"
+  printf 'WHO %s\n' "$(id -un)"
+  printf 'TS %s\n' "$ts"
+  printf 'WHY %s\n' "$why"
+}
+
+# Publish one (current, previous) pair. The generation is written and synced in
+# full before the selector moves, and the selector moves by rename.
+commit_pair() {
+  local current_source=$1 current_revision=$2 current_origin=$3
+  local previous_source=$4 previous_revision=$5 previous_origin=$6
+  local record=$7
+  local generation_name generation active_temp
+
+  generation_name="$(date +%s%N)-$$-$RANDOM"
+  generation=$generations/$generation_name
+  [ ! -e "$generation" ] && [ ! -L "$generation" ] ||
+    die "generation already exists: $generation"
+  mkdir "$generation"
+  write_member "$generation" current "$current_source" "$current_revision" "$current_origin"
+  write_member "$generation" previous "$previous_source" "$previous_revision" "$previous_origin"
+  printf '%s' "$record" >"$generation/record"
+  sync -f "$generation/record"
+  sync -f "$generations"
+
+  active_temp=$state_root/.active.next.$$
+  [ ! -e "$active_temp" ] && [ ! -L "$active_temp" ] ||
+    die "temporary selector already exists: $active_temp"
+  ln -s "generations/$generation_name" "$active_temp"
+  mv -T "$active_temp" "$active_link"
+  sync -f "$state_root"
+}
+
+resolve_origin() {
+  local requested=$1 canonical toplevel
+
+  canonical=$(realpath -e "$requested") || die "checkout is missing: $requested"
+  toplevel=$(git -C "$canonical" rev-parse --show-toplevel 2>/dev/null) ||
+    die "not a Git checkout: $canonical"
+  [ "$(realpath -e "$toplevel")" = "$canonical" ] ||
+    die "checkout is not a Git worktree root: $canonical"
+  printf '%s' "$canonical"
+}
+
+# A deployment is only promotable if it can actually be RUN in place: the
+# entrypoints the reactor and its peers exec must exist as executables there.
+validate_deployment() {
+  local deployment=$1 revision=$2 observed entry
+
+  observed=$(git -C "$deployment" rev-parse HEAD 2>/dev/null) ||
+    die "deployment is not a readable Git tree: $deployment"
+  [ "$observed" = "$revision" ] ||
+    die "deployment HEAD is $observed, not the promoted $revision: $deployment"
+  for entry in bin/north bin/concern; do
+    [ -f "$deployment/$entry" ] && [ -x "$deployment/$entry" ] ||
+      die "deployment entrypoint is missing or not executable: $deployment/$entry"
+  done
+  for entry in cli/north-reactor.clj cli/coord.clj; do
+    [ -f "$deployment/$entry" ] ||
+      die "deployment runtime file is missing: $deployment/$entry"
+  done
+}
+
+ensure_deployment() {
+  local origin=$1 revision=$2
+  local deployment=$deployments/$revision
+
+  if [ ! -e "$deployment" ] && [ ! -L "$deployment" ]; then
+    git -C "$origin" worktree add --detach "$deployment" "$revision" >/dev/null ||
+      die "cannot check out $revision into $deployment"
+    sync -f "$deployments"
+  fi
+  validate_deployment "$deployment" "$revision"
+  printf '%s' "$deployment"
+}
+
+mint_id() {
+  local hex
+  hex=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  [ ${#hex} -eq 8 ] || die "cannot mint a promote id"
+  printf '%s-%s' "$(date +%s%3N)" "$hex"
+}
+
+# The generation's on-disk record is authoritative; this fact is the observable
+# provenance. A coordinator that is down must never block delivery, so a failed
+# publication warns and the promote stands.
+record_fact() {
+  local id=$1 kind=$2 revision=$3 previous=$4 why=$5 source=$6 origin=$7 ts=$8
+
+  command -v "$bb" >/dev/null 2>&1 || {
+    warn "promote record not published: babashka is unavailable"
+    return 0
+  }
+  FRAM_LOG="$coordination_log" "$bb" -e '
+(load-file (str (nth *command-line-args* 0) "/cli/coord.clj"))
+(let [args (vec *command-line-args*)
+      port (Integer/parseInt (nth args 1))
+      subject (nth args 2)
+      facts (mapv (fn [[p r]] {:p p :r r}) (partition 2 (drop 3 args)))
+      response (north.coord/send-op port {:op :assert-batch :te subject :facts facts})]
+  (when-not (:ok response)
+    (binding [*out* *err*] (println (str "coordinator rejected: " (pr-str response))))
+    (System/exit 1))
+  (println subject))' \
+    "$cli_root" "$port" "@north-runtime-promote:$id" \
+    kind north-runtime-promote \
+    rev "$revision" \
+    previous_rev "$previous" \
+    why "$why" \
+    ts "$ts" \
+    source "$source" \
+    origin "$origin" \
+    who "$(id -un)" >/dev/null ||
+    warn "promote record not published to the coordinator (deployment is live regardless)"
+}
+
+behind_main() {
+  local origin=$1 revision=$2 count
+  count=$(git -C "$origin" rev-list --count "$revision..HEAD" 2>/dev/null) || return 1
+  printf '%s' "$count"
+}
+
+print_status() {
+  local behind
+  load_member current
+  printf 'promoted=%s\n' "$member_revision"
+  printf 'deployment=%s\n' "$member_source"
+  printf 'selector=%s\n' "$current_link"
+  printf 'origin=%s\n' "$member_origin"
+  if behind=$(behind_main "$member_origin" "$member_revision"); then
+    printf 'behind=%s commit(s) behind %s HEAD\n' "$behind" "$member_origin"
+  else
+    printf 'behind=unknown (origin checkout unreadable)\n'
+  fi
+}
+
+promote_checkout() {
+  local requested_origin=$1 requested_rev=$2 why=$3
+  local origin revision deployment ts id
+  local previous_source previous_revision previous_origin
+
+  require_layout
+  origin=$(resolve_origin "$requested_origin")
+  revision=$(git -C "$origin" rev-parse --verify "${requested_rev}^{commit}" 2>/dev/null) ||
+    die "cannot resolve revision in $origin: $requested_rev"
+  valid_revision "$revision" || die "resolved revision is not an exact Git SHA: $revision"
+  valid_record_value "$why" || die "--why must be a non-empty single line"
+
+  deployment=$(ensure_deployment "$origin" "$revision")
+
+  if selected; then
+    load_member current
+    if [ "$member_revision" = "$revision" ]; then
+      print_status
+      return 0
+    fi
+    previous_source=$member_source
+    previous_revision=$member_revision
+    previous_origin=$member_origin
+  else
+    previous_source=$deployment
+    previous_revision=$revision
+    previous_origin=$origin
+  fi
+
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  commit_pair "$deployment" "$revision" "$origin" \
+    "$previous_source" "$previous_revision" "$previous_origin" \
+    "$(render_record promote "$revision" "$previous_revision" "$why" "$deployment" "$origin" "$ts")"
+  id=$(mint_id)
+  record_fact "$id" promote "$revision" "$previous_revision" "$why" "$deployment" "$origin" "$ts"
+  print_status
+}
+
+rollback_runtime() {
+  local why=$1 ts
+  local current_source current_revision current_origin
+  local target_source target_revision target_origin
+
+  selected || die "no promoted runtime to roll back from"
+  load_member current
+  current_source=$member_source
+  current_revision=$member_revision
+  current_origin=$member_origin
+  load_member previous
+  target_source=$member_source
+  target_revision=$member_revision
+  target_origin=$member_origin
+  [ "$target_revision" != "$current_revision" ] ||
+    die "the retained previous runtime is the selected one"
+  valid_record_value "$why" || die "--why must be a non-empty single line"
+
+  validate_deployment "$target_source" "$target_revision"
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  commit_pair "$target_source" "$target_revision" "$target_origin" \
+    "$current_source" "$current_revision" "$current_origin" \
+    "$(render_record rollback "$target_revision" "$current_revision" "$why" "$target_source" "$target_origin" "$ts")"
+  record_fact "$(mint_id)" rollback "$target_revision" "$current_revision" "$why" \
+    "$target_source" "$target_origin" "$ts"
+  print_status
+}
+
+show_status() {
+  if ! selected; then
+    printf 'promoted=none\n'
+    printf 'selector=%s\n' "$current_link"
+    printf 'hint=%s promote %s HEAD\n' "$program" "$default_origin"
+    return 0
+  fi
+  print_status
+}
+
+main() {
+  local command='' why='' positional=()
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h | --help) usage ;;
+      --why)
+        [ "$#" -ge 2 ] || usage
+        why=$2
+        shift 2
+        ;;
+      -*) usage ;;
+      promote | rollback | status)
+        [ -z "$command" ] || positional+=("$1")
+        [ -n "$command" ] || command=$1
+        shift
+        ;;
+      *)
+        positional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  [ -n "$command" ] || usage
+  prepare_lock
+  case "$command" in
+    promote)
+      [ "${#positional[@]}" -le 2 ] || usage
+      promote_checkout "${positional[0]:-$default_origin}" "${positional[1]:-HEAD}" \
+        "${why:-promote ${positional[1]:-HEAD}}"
+      ;;
+    rollback)
+      [ "${#positional[@]}" -eq 0 ] || usage
+      rollback_runtime "${why:-rollback to the retained previous runtime}"
+      ;;
+    status)
+      [ "${#positional[@]}" -eq 0 ] || usage
+      show_status
+      ;;
+  esac
+}
+
+main "$@"
