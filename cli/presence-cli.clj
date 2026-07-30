@@ -206,12 +206,16 @@
 
 (defn- probe-write-readback [port]
   ;; Registration is a WRITE. Reading the registry cannot prove a hook can renew.
-  (let [holder (str "doctor-" (System/currentTimeMillis))
-        granted (send-op port {:op :acquire-lease :res probe-lease-resource
-                               :holder holder :ttl-ms probe-lease-ttl-ms})
-        back (resolved port (str "@lease:" probe-lease-resource) "lease")]
-    (boolean (and (map? granted) (nil? (:reject granted)) (integer? (:exp granted))
-                  (string? back) (str/starts-with? back (str holder "|"))))))
+  ;; A rejected write throws here; that is a FALSE readback, never a probe error,
+  ;; or the fence diagnosis below is lost behind a generic exception.
+  (try
+    (let [holder (str "doctor-" (System/currentTimeMillis))
+          granted (send-op port {:op :acquire-lease :res probe-lease-resource
+                                 :holder holder :ttl-ms probe-lease-ttl-ms})
+          back (resolved port (str "@lease:" probe-lease-resource) "lease")]
+      (boolean (and (map? granted) (nil? (:reject granted)) (integer? (:exp granted))
+                    (string? back) (str/starts-with? back (str holder "|")))))
+    (catch Exception _ false)))
 
 (defn- lineage-registrations-within [port window-ms now]
   ;; @session:* is a telemetry-partition subject; the lease is not. That split is
@@ -232,21 +236,25 @@
                          (catch Exception _ false))))
              rows))))
 
+(defn- exception-message [e]
+  (or (not-empty (str (.getMessage e))) (.getName (class e))))
+
 (defn print-coordination-probe-json! [port now]
-  (let [payload
-        (try
-          (let [fence (probe-fence port)]
-            (merge fence
-                   {"version" "north:coordination-probe:v1"
-                    "log_fence_ok" (= (get fence "expected_log") (get fence "served_log"))
-                    "lease_write_readback_ok" (probe-write-readback port)
-                    "live_session_leases" (count (online-sessions port now))
-                    "lineage_registrations_in_ttl"
-                    (lineage-registrations-within port TTL now)
-                    "lease_ttl_ms" TTL}))
-          (catch Exception e
-            {"version" "north:coordination-probe:v1"
-             "error" (or (not-empty (str (.getMessage e))) (.getName (class e)))}))]
+  ;; The fence verdict is reported even when everything downstream of a broken
+  ;; fence fails: a diagnosis lost inside a generic exception is the defect.
+  (let [fence (try (probe-fence port) (catch Exception e {"error" (exception-message e)}))
+        base (merge {"version" "north:coordination-probe:v1"} fence)
+        base (if (contains? base "error")
+               base
+               (assoc base
+                      "log_fence_ok" (= (get fence "expected_log") (get fence "served_log"))
+                      "lease_write_readback_ok" (probe-write-readback port)))
+        payload
+        (merge base
+               (try {"live_session_leases" (count (online-sessions port now))
+                     "lineage_registrations_in_ttl" (lineage-registrations-within port TTL now)
+                     "lease_ttl_ms" TTL}
+                    (catch Exception e {"error" (exception-message e)})))]
     (println (json/generate-string payload))
     (when (or (contains? payload "error")
               (not (get payload "log_fence_ok"))
