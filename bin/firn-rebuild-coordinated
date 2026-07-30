@@ -18,17 +18,22 @@ why=
 window="immediately after coordination all-clear"
 hold=3m
 max_delay=15m
+automatic=false
 firn_args=()
 
 usage() {
   cat >&2 <<EOF
-usage: $program --why <text> [--window <text>] [--hold 3m] [--max-delay 15m] [-- <firn rebuild args>]
+usage: $program [--automatic] --why <text> [--window <text>] [--hold 3m] [--max-delay 15m] [-- <firn rebuild args>]
 EOF
   exit 2
 }
 
 while (($#)); do
   case "$1" in
+    --automatic)
+      automatic=true
+      shift
+      ;;
     --why|--window|--hold|--max-delay)
       (($# >= 2)) || usage
       case "$1" in
@@ -63,7 +68,8 @@ if [[ -r "$harness_conf" ]]; then
     [[ "$_k" == rebuild-coordination ]] && rebuild_coordination=$_v
   done <"$harness_conf"
 fi
-if [[ "$rebuild_coordination" != on ]]; then
+# A claimed automatic window skips only human ceremony; it still crosses the mutex/readiness path.
+if [[ "$rebuild_coordination" != on && "$automatic" != true ]]; then
   printf '%s: coordination ceremony off (enable: north config rebuild-coordination on) — running firn rebuild directly\n' "$program"
   exec "$firn_bin" rebuild "${firn_args[@]}"
 fi
@@ -95,21 +101,24 @@ command -v "$firn_bin" >/dev/null 2>&1 || {
   exit 2
 }
 
-intent_output=$(
-  "$north_bin" rebuild-intent start \
-    --why "$why" \
-    --window "$window" \
-    --hold "$hold" \
-    --max-delay "$max_delay"
-)
-intent_id=${intent_output##*$'\n'}
-[[ "$intent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || {
-  printf '%s: rebuild-intent start returned no canonical intent id\n' "$program" >&2
-  exit 2
-}
+intent_id=
+if [[ "$automatic" != true ]]; then
+  intent_output=$(
+    "$north_bin" rebuild-intent start \
+      --why "$why" \
+      --window "$window" \
+      --hold "$hold" \
+      --max-delay "$max_delay"
+  )
+  intent_id=${intent_output##*$'\n'}
+  [[ "$intent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || {
+    printf '%s: rebuild-intent start returned no canonical intent id\n' "$program" >&2
+    exit 2
+  }
 
-printf 'rebuild intent %s posted; entering hold\n' "$intent_id"
-"$north_bin" rebuild-intent await "$intent_id"
+  printf 'rebuild intent %s posted; entering hold\n' "$intent_id"
+  "$north_bin" rebuild-intent await "$intent_id"
+fi
 
 # This is the exact lock derivation owned by north-coord-runtime:
 #   state_parent/.state_name.restart.lock
@@ -126,7 +135,9 @@ if ! flock -w "$restart_lock_timeout" 9; then
   exit 2
 fi
 
-"$north_bin" rebuild-intent mark-started "$intent_id"
+if [[ -n "$intent_id" ]]; then
+  "$north_bin" rebuild-intent mark-started "$intent_id"
+fi
 
 set +e
 "$firn_bin" rebuild "${firn_args[@]}"
@@ -135,7 +146,9 @@ set -e
 
 if ((firn_rc != 0)); then
   report="firn rebuild rc $firn_rc"
-  "$north_bin" rebuild-intent failed "$intent_id" "$report"
+  if [[ -n "$intent_id" ]]; then
+    "$north_bin" rebuild-intent failed "$intent_id" "$report"
+  fi
   printf '%s: %s\n' "$program" "$report" >&2
   exit "$firn_rc"
 fi
@@ -155,7 +168,9 @@ fi
 if [[ -z "$post_rebuild_north_bin" || ! -x "$post_rebuild_north_bin" ]]; then
   readiness="post-rebuild North CLI is unavailable: $post_rebuild_north"
   report="firn rebuild rc 0; coordination readiness degraded: $readiness"
-  "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+  if [[ -n "$intent_id" ]]; then
+    "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+  fi
   printf '%s: deployment succeeded; coordination readiness degraded: %s\n' \
     "$program" "$readiness" >&2
   exit 0
@@ -178,7 +193,9 @@ while true; do
   if ((coord_attempt >= coord_retry_attempts)); then
     readiness="north $coord_probe rc $coord_rc after $coord_attempt attempts"
     report="firn rebuild rc 0; coordination readiness degraded: $readiness"
-    "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+    if [[ -n "$intent_id" ]]; then
+      "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+    fi
     printf '%s: deployment succeeded; coordination readiness degraded: %s\n' \
       "$program" "$readiness" >&2
     exit 0
@@ -193,5 +210,7 @@ while true; do
 done
 
 report="firn rebuild rc 0; north $coord_probe rc 0 (live runtime identity healthy)"
-"$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+if [[ -n "$intent_id" ]]; then
+  "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+fi
 printf 'deployment verified: %s\n' "$report"

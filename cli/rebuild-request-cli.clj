@@ -316,7 +316,7 @@
            :unread-older unread-older)))
 
 (defn run-window!
-  "Execute one claimed window: the existing coordinated-rebuild ceremony, then
+  "Execute one claimed window through the mutexed rebuild/readiness path, then
    close every request the window claimed against the landed generation. Runs
    OUTSIDE the reactor sweep (a rebuild outlives the sweep's bounded lifecycle),
    so it is a verb rather than an inline call."
@@ -331,7 +331,8 @@
                       vec)
         why (north.rebuild-request-state/compose-why requests)
         result (proc/shell {:out :string :err :string :continue true}
-                           (str repo-root "/bin/firn-rebuild-coordinated") "--why" why)
+                           (str repo-root "/bin/firn-rebuild-coordinated")
+                           "--automatic" "--why" why)
         out (str (:out result) (:err result))
         intent (second (re-find #"rebuild intent ([0-9a-f-]{36})" out))]
     (print out)
