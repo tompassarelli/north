@@ -30,6 +30,9 @@
 (def max-subjects 4096)
 (def max-detail 256)
 (def urgent-rate-period-ms (* 24 60 60 1000))
+(def exact-read-attempts 4)
+(def exact-read-initial-backoff-ms 250)
+(def exact-read-max-backoff-ms 2000)
 
 (def promote-root
   (or (System/getenv "NORTH_PROMOTE_ROOT") "/var/lib/north-enforcement"))
@@ -97,6 +100,47 @@
 (defn- only-value [port subject predicate]
   (first (north.coord/many port subject predicate)))
 
+(def ^:private retryable-exact-read-types
+  #{:coordinator-response-timeout
+    :coordinator-response-closed
+    :coordinator-response-truncated})
+
+(defn- retryable-exact-read-error? [error]
+  (boolean
+   (some (fn [cause]
+           (or (instance? java.net.ConnectException cause)
+               (instance? java.net.SocketTimeoutException cause)
+               (instance? java.net.SocketException cause)
+               (instance? java.io.EOFException cause)
+               (contains? retryable-exact-read-types (:type (ex-data cause)))))
+         (take-while some? (iterate #(.getCause ^Throwable %) error)))))
+
+(defn- exact-read-with-retry [operation]
+  (loop [attempt 1
+         backoff-ms exact-read-initial-backoff-ms]
+    (let [result (try
+                   {:value (operation)}
+                   (catch Exception error {:error error}))]
+      (if-let [error (:error result)]
+        (if (and (< attempt exact-read-attempts)
+                 (retryable-exact-read-error? error))
+          (do
+            (binding [*out* *err*]
+              (println (str "north rebuild: exact coordinator read unavailable; retry "
+                            attempt "/" exact-read-attempts " in " backoff-ms "ms")))
+            (Thread/sleep backoff-ms)
+            (recur (inc attempt)
+                   (min exact-read-max-backoff-ms (* 2 backoff-ms))))
+          (throw error))
+        (:value result)))))
+
+;; Window execution already knows each exact subject; keep it off the global query cache.
+(defn- subject-facts [port subject]
+  (reduce (fn [facts [predicate value]]
+            (update facts predicate (fnil conj []) value))
+          {}
+          (exact-read-with-retry #(north.coord/show-rows port subject))))
+
 ;; ONE indexed subject+value query per predicate. A per-subject `many` read
 ;; measured ~150ms on the live corpus, so fanning 70 of them out cost 10s —
 ;; a doctor probe cannot be built out of per-subject round trips.
@@ -135,10 +179,12 @@
                         :at-ms (get satisfied "atMs")}))))
 
 (defn decode-request
-  "Single-subject decode — the write paths already know exactly one subject."
+  "Single-subject decode — one exact show supplies both request and settlement."
   [port subject]
-  (when-let [raw (only-value port subject "rebuild_request")]
-    (decode-request-facts subject raw (only-value port subject "rebuild_request_satisfied"))))
+  (let [facts (subject-facts port subject)]
+    (when-let [raw (first (get facts "rebuild_request"))]
+      (decode-request-facts
+       subject raw (first (get facts "rebuild_request_satisfied"))))))
 
 (defn load-requests
   "The newest `max-detail` requests, decoded, plus how many older subjects were
@@ -174,6 +220,19 @@
                   :at-ms (mint-ms subject)
                   :action action
                   :requests (get requests subject [])})))))
+
+(defn load-window-record
+  "Load one claimed window through its exact subject, without a global query."
+  [port id]
+  (let [id (normalize-window-id id)
+        subject (str window-prefix id)
+        facts (subject-facts port subject)]
+    (when-let [action (first (get facts "window_action"))]
+      {:id id
+       :subject subject
+       :at-ms (mint-ms subject)
+       :action action
+       :requests (get facts "window_request" [])})))
 
 (defn last-fired-window-ms
   "When the owner last CONSUMED a window. A deferred launch never consumes one."
@@ -318,11 +377,10 @@
 (defn run-window!
   "Execute one claimed window through the mutexed rebuild/readiness path, then
    close every request the window claimed against the landed generation. Runs
-   OUTSIDE the reactor sweep (a rebuild outlives the sweep's bounded lifecycle),
-   so it is a verb rather than an inline call."
+  OUTSIDE the reactor sweep (a rebuild outlives the sweep's bounded lifecycle),
+  so it is a verb rather than an inline call."
   [port window-id]
-  (let [record (first (filter #(= (normalize-window-id window-id) (:id %))
-                              (load-window-records port)))
+  (let [record (load-window-record port window-id)
         _ (when-not record
             (throw (ex-info (str "no rebuild window " window-id)
                             {:type :window-not-found})))

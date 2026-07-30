@@ -121,13 +121,82 @@
   {:id request-id :requester "agent-a" :why "land queued work"
    :created-at-ms now :urgent false})
 
+(let [calls (atom [])
+      record
+      (with-redefs
+        [north.coord/show-rows
+         (fn [port subject]
+           (swap! calls conj [port subject])
+           [["kind" "rebuild-window"]
+            ["window_action" "launching"]
+            ["window_request" request-id]])
+         north.coord/indexed-query
+         (fn [& _] (throw (ex-info "global query used" {})))]
+        (rq/load-window-record 7977 window-id))]
+  (check "the window owner loads one exact subject without a global query"
+         (and (= [[7977 (str "@rebuild-window:" window-id)]] @calls)
+              (= window-record (select-keys record [:id :requests]))
+              (= "launching" (:action record)))))
+
+(let [calls (atom [])
+      subject (str "@rebuild-request:" request-id)
+      decoded
+      (with-redefs
+        [north.coord/show-rows
+         (fn [port actual-subject]
+           (swap! calls conj [port actual-subject])
+           [["rebuild_request"
+             (str "{\"version\":1,\"requester\":\"agent-a\","
+                  "\"why\":\"land queued work\",\"createdAtMs\":" now ","
+                  "\"urgent\":false}")]
+            ["rebuild_request_satisfied"
+             "{\"intent\":\"intent-a\",\"generation\":\"/nix/store/gen\",\"atMs\":7}"]])
+         north.coord/indexed-query
+         (fn [& _] (throw (ex-info "global query used" {})))]
+        (rq/decode-request 7977 subject))]
+  (check "an exact request show supplies both request and settlement"
+         (and (= [[7977 subject]] @calls)
+              (= request-id (:id decoded))
+              (= "land queued work" (:why decoded))
+              (= {:intent "intent-a" :generation "/nix/store/gen" :at-ms 7}
+                 (:satisfied decoded)))))
+
+(let [attempts (atom 0)
+      record
+      (with-redefs
+        [north.coord/show-rows
+         (fn [_ _]
+           (if (= 1 (swap! attempts inc))
+             (throw (ex-info "timed out" {:type :coordinator-response-timeout}))
+             [["window_action" "launching"]
+              ["window_request" request-id]]))]
+        (rq/load-window-record 7977 window-id))]
+  (check "a typed transient exact-read failure retries and succeeds"
+         (and (= 2 @attempts)
+              (= window-record (select-keys record [:id :requests])))))
+
+(let [attempts (atom 0)
+      error
+      (with-redefs
+        [north.coord/show-rows
+         (fn [_ _]
+           (swap! attempts inc)
+           (throw (ex-info "malformed" {:type :malformed-show-response})))]
+        (try
+          (rq/load-window-record 7977 window-id)
+          nil
+          (catch clojure.lang.ExceptionInfo error error)))]
+  (check "a nonretryable exact-read failure fails immediately"
+         (and (= 1 @attempts)
+              (= :malformed-show-response (:type (ex-data error))))))
+
 (let [shell-args (atom nil)
       satisfied (atom [])
       writes (atom [])
       action (atom nil)
       rc
       (with-redefs
-        [rq/load-window-records (fn [_] [window-record])
+        [rq/load-window-record (fn [_ _] window-record)
          rq/decode-request (fn [_ _] decoded-request)
          babashka.process/shell
          (fn [_ & args]
@@ -153,7 +222,7 @@
       action (atom nil)
       rc
       (with-redefs
-        [rq/load-window-records (fn [_] [window-record])
+        [rq/load-window-record (fn [_ _] window-record)
          rq/decode-request (fn [_ _] decoded-request)
          babashka.process/shell
          (fn [_ & _] {:exit 7 :out "" :err "failed\n"})
