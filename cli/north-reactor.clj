@@ -782,7 +782,17 @@
       {:status :failed})))
 
 (defn sweep-maintenance! [dry? rw]
-  (let [nc (run-sweep-stage! :concerns #(sweep-concerns! dry?))
+  ;; A rejected concern transition is one stage's failure, never maintenance's;
+  ;; only aggregate cancellation may still abort the run.
+  (let [nc (run-sweep-stage!
+            :concerns
+            #(try
+               (sweep-concerns! dry?)
+               (catch Throwable t
+                 (if (= :sweep-deadline (:type (ex-data t)))
+                   (throw t)
+                   (do (println (str "[sweep] concerns error: " (.getMessage t)))
+                       0)))))
         nl (run-sweep-stage! :lanes #(sweep-lanes! dry?))
         nd (run-sweep-stage!
             :unpublished-driver-claims
