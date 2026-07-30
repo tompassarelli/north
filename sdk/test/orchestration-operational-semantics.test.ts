@@ -32,9 +32,17 @@ afterEach(() => {
 });
 
 const preset = (role: string): RoutingMetadata => applyOrchestrationStaffing({ role });
-const managedCodexPreview = [
+// Only the network_proxy half varies, and it tracks the declared `web`
+// capability, not the sandbox. Enabled is expressible only through structured
+// `-c` overrides — Codex's `--enable network_proxy` is boolean shorthand.
+const managedCodexPreview = (web: boolean): string[] => [
   ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-  "--disable", "network_proxy",
+  ...(web
+    ? [
+      "-c", "features.network_proxy.enabled=true",
+      "-c", 'features.network_proxy.domains={"chromium.googlesource.com"="allow"}',
+    ]
+    : ["--disable", "network_proxy"]),
   ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
 ];
 
@@ -193,7 +201,8 @@ test("Orchestration capabilities compile to exact provider authority before work
   expect(director.allowedTools).toContain(READONLY_SHELL_TOOL);
   expect(director.allowedTools).not.toContain("Bash");
   expect(codexGlobalArguments(director)).toEqual([]);
-  expect(codexHarnessArguments(director)).toEqual(managedCodexPreview);
+  // director: read-only and web-declaring, like every orchestrator template.
+  expect(codexHarnessArguments(director)).toEqual(managedCodexPreview(true));
   const directorSurface = compileProviderAuthoritySurface("openai", director);
   expect(directorSurface.northEnabledTools).toEqual(expect.arrayContaining(["spawn", "dispatch"]));
   expect(directorSurface.web).toBe("cached");
@@ -209,7 +218,8 @@ test("Orchestration capabilities compile to exact provider authority before work
   expect(integrator.disallowedTools).toEqual(expect.arrayContaining(["WebSearch", "WebFetch"]));
   expect(integrator.env.NORTH_ORCHESTRATION_ROLE).toBe("integrator");
   expect(codexGlobalArguments(integrator)).toEqual([]);
-  expect(codexHarnessArguments(integrator)).toEqual(managedCodexPreview);
+  // integrator: a writing worker, no declared web.
+  expect(codexHarnessArguments(integrator)).toEqual(managedCodexPreview(false));
 });
 
 test("managed capacity resolves from the complete request before the provider seal", () => {
