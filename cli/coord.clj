@@ -110,6 +110,35 @@
                       {:type :invalid-coordinator-timeout :name name :value raw})))
     (Integer/parseInt raw)))
 
+(def ^:dynamic *request-deadline-ns*
+  "Optional absolute monotonic deadline shared by every coordinator turn in one
+   higher-level operation. Nil preserves each request's configured connect/read
+   timeout. Callers use this only when their public contract has a shorter total
+   deadline than one ordinary coordinator request."
+  nil)
+
+(defn request-deadline-ns
+  "Return an absolute monotonic deadline TIMEOUT-MS from now."
+  [timeout-ms]
+  (when-not (and (integer? timeout-ms) (pos? timeout-ms))
+    (throw (ex-info "coordinator request deadline requires positive milliseconds"
+                    {:type :invalid-coordinator-request-deadline
+                     :timeout-ms timeout-ms})))
+  (+ (System/nanoTime) (* 1000000 (long timeout-ms))))
+
+(defn- bounded-timeout-ms [configured-ms]
+  (if-not *request-deadline-ns*
+    configured-ms
+    (let [remaining-ns (- (long *request-deadline-ns*) (System/nanoTime))]
+      (when-not (pos? remaining-ns)
+        (throw
+         (ex-info "coordinator operation deadline exceeded"
+                  {:type :coordinator-operation-timeout})))
+      (int
+       (max 1
+            (min (long configured-ms)
+                 (quot (+ remaining-ns 999999) 1000000)))))))
+
 (def ^:dynamic *response-byte-limit-override* nil)
 
 ;; 64 MiB, not 8. The cap bounds how much one response may consume, but 8 MiB sat
@@ -182,8 +211,12 @@
     (try
       (.connect s
                 (java.net.InetSocketAddress. "127.0.0.1" (int port))
-                (timeout-ms "NORTH_COORD_CONNECT_TIMEOUT_MS" 1000))
-      (.setSoTimeout s (timeout-ms "NORTH_COORD_READ_TIMEOUT_MS" 30000))
+                (bounded-timeout-ms
+                 (timeout-ms "NORTH_COORD_CONNECT_TIMEOUT_MS" 1000)))
+      (.setSoTimeout
+       s
+       (bounded-timeout-ms
+        (timeout-ms "NORTH_COORD_READ_TIMEOUT_MS" 30000)))
       s
       (catch Throwable t
         (.close s)
@@ -354,7 +387,10 @@
 
 (defn- read-terminal-line! [reader]
   (let [timeout (timeout-ms "NORTH_COORD_READ_TIMEOUT_MS" 30000)
-        deadline (+ (System/nanoTime) (* 1000000 (long timeout)))
+        local-deadline (+ (System/nanoTime) (* 1000000 (long timeout)))
+        deadline (if *request-deadline-ns*
+                   (min (long *request-deadline-ns*) local-deadline)
+                   local-deadline)
         line (read-line-limited! reader deadline timeout false)]
     (ensure-terminal-eof! reader deadline timeout)
     line))
