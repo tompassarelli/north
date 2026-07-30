@@ -176,8 +176,8 @@
       "reason": "the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration"
     },
     "claude-fable-5": {
-      "kind": "none",
-      "reason": "no elicited Fable self-report yet establishes an exact Claude Fable 5 calibration for the canonical frontier default"
+      "kind": "calibrated",
+      "path": "docs/deltas/claude-fable-5.md"
     }
   },
   "tiers": {
