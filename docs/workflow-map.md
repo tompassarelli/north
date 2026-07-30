@@ -3,6 +3,15 @@
 *The definitive diagram-in-prose of the agentic stack's dispatch pipelines,
 doubling as the pipeline-debug spec.*
 
+> **Status (2026-07-30).** Moved here from the personal agent profile — this is
+> a north repo reference doc, not steering. Grounded in source read 2026-07-09;
+> since then the execution model went two-speed (2026-07-30, see `north:CLAUDE.md`),
+> coordination-v2 lane V1 landed (see the §3 status note), and `north trace`
+> shipped (`north:cli/trace-cli.clj`) implementing the §2/§4 playbook. The
+> invariant-spine checklist (§2) and failure modes F1–F7 (§3–4) remain the
+> operative debug spec; re-verify §1's line-level citations against source
+> before relying on them.
+
 > **Naming.** The stack as a whole has no settled name yet; a naming pass is
 > pending. Today the parts carry their own names and this doc uses them as
 > found in source: **fram** (fact engine), **north** (coordination substrate),
