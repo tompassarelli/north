@@ -26,6 +26,15 @@
        (finally (System/setProperty "babashka.file" test-file))))
 (def checks (atom []))
 (def test-log (atom nil))
+(def test-telemetry-log (atom nil))
+
+(defn test-env [port]
+  {"FRAM_LOG" @test-log
+   "FRAM_TELEMETRY_LOG" @test-telemetry-log
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str port)
+   "AGENT_TOPOLOGY" "orchestrator"
+   "NO_COLOR" "1"})
 
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 (defn free-port []
@@ -42,13 +51,25 @@
       (predicate) true
       (>= attempt 240) false
       :else (do (Thread/sleep 25) (recur (inc attempt))))))
+(defn await-daemon-boot [predicate]
+  (loop [attempt 0]
+    (cond
+      (predicate) true
+      (>= attempt 300) false
+      :else (do (Thread/sleep 250) (recur (inc attempt))))))
+(defn fail-daemon-boot! [daemon]
+  (try (proc/destroy-tree daemon) (catch Exception _ nil))
+  (let [result (deref daemon 5000 nil)]
+    (throw
+     (ex-info
+      "throwaway coordinator failed to start"
+      {:exit (:exit result)
+       :stdout (or (:out result) "<unavailable>")
+       :stderr (or (:err result) "<unavailable>")}))))
 (defn run-cli [path port & args]
   (apply proc/shell
          {:continue true :out :string :err :string
-          :extra-env {"FRAM_LOG" @test-log
-                      "NORTH_PORT" (str port)
-                      "AGENT_TOPOLOGY" "orchestrator"
-                      "NO_COLOR" "1"}}
+          :extra-env (assoc (test-env port) "NORTH_PORT" (str port))}
          "bb" path args))
 (defn publish! [port id provider live-input]
   (let [facts {"kind" "lane"
@@ -126,16 +147,25 @@
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-live-steer" (make-array java.nio.file.attribute.FileAttribute 0)))
       log (io/file tmp "facts.log")
+      telemetry (io/file tmp "telemetry.log")
       daemon (do
                (spit log "")
+               (spit telemetry "")
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+                             "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry)
+                             "NORTH_TELEMETRY_PARTITION" "0"
+                             "NORTH_TELEMETRY_PORT" (str port)}}
                 "bb" "-cp" "out" "coord_daemon.clj"
                 "serve-flat" (str port) (.getPath log)))]
   (reset! test-log (.getCanonicalPath log))
+  (reset! test-telemetry-log (.getCanonicalPath telemetry))
   (try
-    (check "throwaway coordinator starts" (eventually #(port-open? port)))
+    (let [started? (await-daemon-boot #(port-open? port))]
+      (check "throwaway coordinator starts" started?)
+      (when-not started?
+        (fail-daemon-boot! daemon)))
 
     (let [before (graph-message-ids port)
           invalid-cases
@@ -225,8 +255,9 @@
       (route! port "anthropic-streaming" "frozen"
               "00000000-0000-4000-8000-000000000004")
       (check "freeze after producer admission invalidates the queued steer"
-             (not (current-steer-route?
-                   port message "anthropic-streaming" "steer")))
+             (with-test-coordinator
+               (not (current-steer-route?
+                     port message "anthropic-streaming" "steer"))))
       (route! port "anthropic-streaming" "armed"
               "00000000-0000-4000-8000-000000000005")
       (check "re-arm with a new route epoch cannot resurrect stale steer mail"

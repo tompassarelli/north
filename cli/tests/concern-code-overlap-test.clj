@@ -17,9 +17,11 @@
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[babashka.process :as p])
 
+(def test-script (or (System/getProperty "babashka.file") *file*))
+(def lode (-> (io/file test-script)
+              .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram (str (System/getProperty "user.home") "/code/fram/main"))
 (def code-log (str fram "/.fram/code.log"))
-(def lode (str (System/getProperty "user.home") "/code/north"))
 (when-not (and (.exists (io/file (str fram "/out"))) (.exists (io/file code-log)))
   (println "SKIP — fram out/ or .fram/code.log absent (run fram build + an ingest first).")
   (System/exit 0))
@@ -39,20 +41,59 @@
 (defn port-free? [p] (try (with-open [s (java.net.Socket.)]
                             (.connect s (java.net.InetSocketAddress. "127.0.0.1" (int p)) 250) false)
                           (catch Exception _ true)))
-(def spine (some #(when (port-free? %) %) [7610 7611 7612]))
-(def cport (some #(when (port-free? %) %) [37610 37611 37612]))
-(def spine-log (str (System/getProperty "java.io.tmpdir") "/concern-cli-spine-" (System/nanoTime) ".log"))
-(def code-cpy  (str (System/getProperty "java.io.tmpdir") "/concern-cli-code-"  (System/nanoTime) ".log"))
-(def hot-file  (str (System/getProperty "java.io.tmpdir") "/concern-cli-hot-"   (System/nanoTime) ".edn"))
+(defn ephemeral-port []
+  (with-open [socket (java.net.ServerSocket. 0)]
+    (.setReuseAddress socket false)
+    (.getLocalPort socket)))
+(def ports
+  (loop [chosen []]
+    (if (= 4 (count chosen))
+      chosen
+      (let [candidate (ephemeral-port)]
+        (recur (if (and (port-free? candidate)
+                        (not (contains? (set chosen) candidate)))
+                 (conj chosen candidate)
+                 chosen))))))
+(def spine (nth ports 0))
+(def cport (nth ports 1))
+(def spine-telemetry-port (nth ports 2))
+(def code-telemetry-port (nth ports 3))
+(def tmp
+  (.toFile
+   (java.nio.file.Files/createTempDirectory
+    "north-concern-code-overlap"
+    (make-array java.nio.file.attribute.FileAttribute 0))))
+(defn temp-path [name] (.getCanonicalPath (io/file tmp name)))
+(def spine-log (temp-path "spine.log"))
+(def spine-telemetry-log (temp-path "spine-telemetry.log"))
+(def code-cpy (temp-path "code.log"))
+(def code-telemetry-log (temp-path "code-telemetry.log"))
+(def hot-file (temp-path "hot.edn"))
+(def spine-output (io/file tmp "spine.out"))
+(def code-output (io/file tmp "code.out"))
+(doseq [path [spine-log spine-telemetry-log code-telemetry-log]]
+  (spit path ""))
 (io/copy (io/file code-log) (io/file code-cpy))
-(spit spine-log "")
 
-(defn spawn [port log tag]
-  (p/process {:dir fram :out (io/file (System/getProperty "java.io.tmpdir") (str "concern-cli-" tag ".out"))
-              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                          "FRAM_SINGLE_VALUED" "code_port code_log"}
+(def spine-env
+  {"FRAM_LOG" spine-log
+   "FRAM_TELEMETRY_LOG" spine-telemetry-log
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str spine-telemetry-port)})
+(def code-env
+  {"FRAM_LOG" code-cpy
+   "FRAM_TELEMETRY_LOG" code-telemetry-log
+   "NORTH_TELEMETRY_PARTITION" "0"
+   "NORTH_TELEMETRY_PORT" (str code-telemetry-port)})
+
+(defn spawn-spine []
+  (p/process {:dir fram :out spine-output
+              :extra-env (assoc spine-env
+                                "FRAM_REQUIRE_LOG_FENCE" "1"
+                                "FRAM_SINGLE_VALUED" "code_port code_log")
               :err :out}
-             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log))
+             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
+             (str spine) spine-log))
 (def code-daemon-expr
   (str "(do "
        "(binding [*command-line-args* []] (load-file \"coord_daemon.clj\")) "
@@ -62,30 +103,79 @@
        "  (spit (System/getenv \"NORTH_TEST_HOT_FILE\") "
        "        (pr-str {:node node :blast (vec callers) :count (count callers)}))) "
        "(serve (Integer/parseInt (System/getenv \"NORTH_TEST_CODE_PORT\"))))"))
-(defn spawn-code [port log]
+(defn spawn-code []
   (p/process {:dir fram
-              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                          "NORTH_TEST_CODE_LOG" log
-                          "NORTH_TEST_HOT_FILE" hot-file
-                          "NORTH_TEST_CODE_PORT" (str port)}
-              :out (io/file (System/getProperty "java.io.tmpdir") "concern-cli-code.out")
+              :extra-env (merge code-env
+                                {"FRAM_REQUIRE_LOG_FENCE" "1"
+                                 "NORTH_TEST_CODE_LOG" code-cpy
+                                 "NORTH_TEST_HOT_FILE" hot-file
+                                 "NORTH_TEST_CODE_PORT" (str cport)})
+              :out code-output
               :err :out}
              "bb" "-cp" "out" "-e" code-daemon-expr))
-(println "booting spine" spine "+ code" cport "concurrently (folding fram corpus — up to ~3 min)…")
-;; spawn BOTH first so their folds overlap, then wait on both with one budget.
-(def sp (spawn spine spine-log "spine"))
-(def cp (spawn-code cport code-cpy))
-(def procs [sp cp])
-(defn killall [] (doseq [pr procs] (try (p/destroy-tree pr) (catch Throwable _ nil))))
-(.addShutdownHook (Runtime/getRuntime) (Thread. killall))
-(defn await-up [port] (loop [i 0] (cond (not (port-free? port)) true
-                                        (>= i 360) false
-                                        :else (do (Thread/sleep 500) (recur (inc i))))))
-(when-not (and (await-up spine) (await-up cport))
-  (println "ABORT — a daemon did not come up within budget")
-  (println "  spine.out:" (slurp (io/file (System/getProperty "java.io.tmpdir") "concern-cli-spine.out")))
-  (println "  code.out:"  (slurp (io/file (System/getProperty "java.io.tmpdir") "concern-cli-code.out")))
-  (killall) (System/exit 1))
+(println "booting spine" spine "+ code" cport
+         "concurrently (clean Fram fold budget: 5 min)…")
+(def sp (spawn-spine))
+(def cp (spawn-code))
+(def daemons [{:name "spine" :port spine :process sp :output spine-output}
+              {:name "code" :port cport :process cp :output code-output}])
+(defn process-alive? [process]
+  (try (p/alive? process) (catch Throwable _ false)))
+(defn daemon-state [{:keys [name port process]}]
+  {:name name
+   :port port
+   :ready? (not (port-free? port))
+   :alive? (process-alive? process)})
+(defn killall []
+  (doseq [{:keys [process]} daemons]
+    (try (p/destroy-tree process) (catch Throwable _ nil))))
+(defn cleanup []
+  (killall)
+  (doseq [file (reverse (file-seq tmp))]
+    (io/delete-file file true)))
+(.addShutdownHook (Runtime/getRuntime) (Thread. cleanup))
+(defn await-daemons []
+  (let [started (System/nanoTime)]
+    (loop [attempt 0]
+      (let [states (mapv daemon-state daemons)
+            elapsed-ms (quot (- (System/nanoTime) started) 1000000)]
+        (cond
+          (some (comp not :alive?) states)
+          {:ready? false :reason :process-exited :elapsed-ms elapsed-ms :states states}
+
+          (every? :ready? states)
+          {:ready? true :elapsed-ms elapsed-ms :states states}
+
+          (>= attempt 1200)
+          {:ready? false :reason :timeout :elapsed-ms elapsed-ms :states states}
+
+          :else
+          (do (Thread/sleep 250) (recur (inc attempt))))))))
+(defn output-text [file]
+  (if (.exists ^java.io.File file)
+    (slurp file)
+    "<output file absent>"))
+(def boot-result (await-daemons))
+(when-not (:ready? boot-result)
+  (killall)
+  (let [settled
+        (into {}
+              (map (fn [{:keys [name process]}]
+                     [name (try (deref process 5000 nil)
+                                (catch Throwable error
+                                  {:diagnostic-error (.getMessage error)}))]))
+              daemons)]
+    (binding [*out* *err*]
+      (println "ABORT — throwaway daemons failed to start:" (:reason boot-result)
+               "after" (:elapsed-ms boot-result) "ms")
+      (doseq [{:keys [name port alive? ready?]} (:states boot-result)
+              :let [daemon (first (filter #(= name (:name %)) daemons))
+                    result (get settled name)]]
+        (println " " name "port=" port "alive=" alive? "ready=" ready?
+                 "exit=" (or (:exit result) "<unavailable>"))
+        (println (str "  " name ".out:") (output-text (:output daemon))))))
+  (cleanup)
+  (System/exit 1))
 
 (def fails (atom 0))
 (defn check [label ok?] (println (str "  " (if ok? "PASS" "FAIL") " — " label)) (when-not ok? (swap! fails inc)))
@@ -105,9 +195,9 @@
 
 (def canonical-spine-log (.getCanonicalPath (io/file spine-log)))
 (def canonical-code-log (.getCanonicalPath (io/file code-cpy)))
-(def env {"FRAM_LOG" canonical-spine-log
-          "NORTH_CODE_LOG" canonical-code-log
-          "NORTH_CODE_PORT" (str cport)})
+(def env (merge spine-env
+                {"NORTH_CODE_LOG" canonical-code-log
+                 "NORTH_CODE_PORT" (str cport)}))
 (defn concern-subjects []
   (->> (op spine spine-log
            {:op :query
@@ -122,32 +212,30 @@
 ;; Fail before any spine mutation when either half of the code-store identity
 ;; is absent or points at a different strict corpus.
 (def missing-log
-  (cli-result {"FRAM_LOG" canonical-spine-log
-               "NORTH_CODE_PORT" (str cport)}
+  (cli-result (assoc spine-env
+                     "NORTH_CODE_PORT" (str cport))
               "declare" "missing-log" "~/code/fram" "must not land" node))
 (def relative-log
-  (cli-result {"FRAM_LOG" canonical-spine-log
-               "NORTH_CODE_LOG" "relative/code.log"
-               "NORTH_CODE_PORT" (str cport)}
+  (cli-result (assoc spine-env
+                     "NORTH_CODE_LOG" "relative/code.log"
+                     "NORTH_CODE_PORT" (str cport))
               "declare" "relative-log" "~/code/fram" "must not land" node))
 (def malformed-port
-  (cli-result {"FRAM_LOG" canonical-spine-log
-               "NORTH_CODE_LOG" canonical-code-log
-               "NORTH_CODE_PORT" "not-a-port"}
+  (cli-result (assoc spine-env
+                     "NORTH_CODE_LOG" canonical-code-log
+                     "NORTH_CODE_PORT" "not-a-port")
               "declare" "malformed-port" "~/code/fram" "must not land" node))
 (def out-of-range-port
-  (cli-result {"FRAM_LOG" canonical-spine-log
-               "NORTH_CODE_LOG" canonical-code-log
-               "NORTH_CODE_PORT" "65536"}
+  (cli-result (assoc spine-env
+                     "NORTH_CODE_LOG" canonical-code-log
+                     "NORTH_CODE_PORT" "65536")
               "declare" "range-port" "~/code/fram" "must not land" node))
-(def wrong-log-file
-  (io/file (System/getProperty "java.io.tmpdir")
-           (str "concern-cli-wrong-code-" (System/nanoTime) ".log")))
+(def wrong-log-file (io/file tmp "wrong-code.log"))
 (spit wrong-log-file "")
 (def wrong-log
-  (cli-result {"FRAM_LOG" canonical-spine-log
-               "NORTH_CODE_LOG" (.getCanonicalPath wrong-log-file)
-               "NORTH_CODE_PORT" (str cport)}
+  (cli-result (assoc spine-env
+                     "NORTH_CODE_LOG" (.getCanonicalPath wrong-log-file)
+                     "NORTH_CODE_PORT" (str cport))
               "declare" "wrong-log" "~/code/fram" "must not land" node))
 (check "code port without code log fails configuration before mutation"
        (and (= 2 (:exit missing-log))
@@ -193,7 +281,7 @@
 (def outA (cli env "declare" "alice" "~/code/fram" "rework kernel ctor" node))
 (def cidA (second (re-find #"(concern-\d+-[a-f0-9]+)" outA)))
 (cli env "declare" "bob" "~/code/fram" "tweak a caller" caller)
-(def ov (cli {"FRAM_LOG" canonical-spine-log} "overlap" cidA))
+(def ov (cli spine-env "overlap" cidA))
 (println outA)
 (check "declare resolved a code-node footprint (not a path string)"
        (str/includes? outA "footprint(code)"))
@@ -223,13 +311,12 @@
        (str/includes? lsout "likely-to-land"))
 
 ;; a non-flipped repo (no code daemon) degrades to path-string footprint
-(def outFb (cli {"FRAM_LOG" (.getCanonicalPath (io/file spine-log))}
+(def outFb (cli spine-env
                 "declare" "carol" "~/code/other" "non-flipped" "src/foo.clj,src/bar.clj"))
 (check "no code daemon -> path-string footprint fallback + fram-code-on nudge"
        (and (str/includes? outFb "touches {") (str/includes? outFb "fram-code-on")))
 
-(killall)
-(.delete wrong-log-file)
+(cleanup)
 (if (zero? @fails)
   (do (println "\nconcern-cli code-overlap: ALL PASS") (System/exit 0))
   (do (println (str "\nconcern-cli code-overlap: " @fails " FAIL")) (System/exit 1)))

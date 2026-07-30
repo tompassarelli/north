@@ -309,6 +309,16 @@ north — your one card. Type a command to do the thing next to it.
     north agents [--json]              who's live now + stable machine roster
     north watch <id>                   tail an agent's transcript
     north steer <id> "<msg>"           inject a message into a running agent
+    north mention <recipient> [--about <thread>] "<body>"
+                                       durable sender-driven request; offline is allowed
+    north interrupt <recipient> [--about <thread>] "<body>"
+                                       urgent sender-driven request; live recipient required
+    north follow <thread> [--as <principal>] [...]
+                                       subscribe to observer-driven thread attention
+    north unfollow <thread> [--as <principal>]
+    north following [--as <principal>]
+    north notifications [--as <principal>] [--all] [--mark-read]
+                                       inspect and acknowledge durable notifications
     north retask <id> "<goal>"         redirect a running agent's goal
     north escalate needs-replan ...    checkpoint scope overrun + route it up the live parent chain
     north evidence record <bar> <result>
@@ -506,6 +516,16 @@ CARD
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec "$BB" "$NORTH/cli/agents-cli.clj" "$@" ;;
+  follow|unfollow|following|notifications)
+    # Durable observer attention. attention-cli owns the complete argument
+    # contract; this wrapper deliberately forwards the verb and tail unchanged.
+    exec "$BB" "$NORTH/cli/attention-cli.clj" "${NORTH_PORT:-7977}" "$@" ;;
+  mention|interrupt)
+    # Sender-driven attention. Prefer the live harness identity, then North's
+    # stable agent id, then the configured author identity.
+    _north_attention_sender="${AGENT_ID:-${NORTH_AGENT_ID:-${NORTH_AUTHOR:-}}}"
+    exec "$BB" "$NORTH/cli/msg-cli.clj" "${NORTH_PORT:-7977}" \
+      "$1" "$_north_attention_sender" "${@:2}" ;;
   trace)
     # Single-agent lifecycle diagnosis — walk the invariant-spine checklist for one id,
     # flag the first failing stage (F1–F7). Read-only. cli/trace-cli.clj.

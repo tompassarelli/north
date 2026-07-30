@@ -16,6 +16,58 @@
 (defn check! [label ok detail]
   (swap! checks conj {:label label :ok (boolean ok) :detail detail}))
 
+(check! "durable attention entity kinds are core schema identities"
+        (and (contains? CORE-ENTITY-KINDS "subscription")
+             (contains? CORE-ENTITY-KINDS "notification")
+             (= "subscription" (get LEGACY-KIND->ENTITY-KIND "subscription"))
+             (= "notification" (get LEGACY-KIND->ENTITY-KIND "notification")))
+        (pr-str
+         (select-keys CORE-ENTITY-KINDS ["subscription" "notification"])))
+
+(let [schema (desired-schema {})]
+  (check! "durable attention predicates retain their cardinality and ref semantics"
+          (and
+           (= {:cardinality "single" :value_kind "ref"}
+              (select-keys (get schema "subscriber")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "single" :value_kind "ref"}
+              (select-keys (get schema "about")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "multi" :value_kind "literal"}
+              (select-keys (get schema "event_filter")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "multi" :value_kind "literal"}
+              (select-keys (get schema "attention_event_intent")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "multi" :value_kind "literal"}
+              (select-keys (get schema "attention_event_settled")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "multi" :value_kind "ref"}
+              (select-keys (get schema "source_concern")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "single" :value_kind "ref"}
+              (select-keys (get schema "recipient")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "multi" :value_kind "ref"}
+              (select-keys (get schema "read_by")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "single" :value_kind "literal"}
+              (select-keys (get schema "cursor_offset")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "single" :value_kind "literal"}
+              (select-keys (get schema "delivery_class")
+                           [:cardinality :value_kind]))
+           (= {:cardinality "single" :value_kind "literal"}
+              (select-keys (get schema "requires_ack")
+                           [:cardinality :value_kind])))
+          (pr-str
+           (select-keys schema
+                        ["subscriber" "about" "event_filter"
+                         "attention_event_intent" "attention_event_settled"
+                         "source_concern"
+                         "recipient" "read_by" "cursor_offset"
+                         "delivery_class" "requires_ack"]))))
+
 (defn ops-for [triples]
   (mapv (fn [index [subject predicate value]]
           {:tx (inc index) :op "assert" :l subject :p predicate :r value

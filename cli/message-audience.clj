@@ -32,6 +32,7 @@
 (def max-direct-address-bytes 512)
 (def pending-page-limit 256)
 (def manifest-sha256-bytes 64)
+(def max-message-id-bytes 512)
 (defn utf8-bytes [value]
   (alength (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))
 (def max-rejection-evidence-bytes
@@ -51,6 +52,34 @@
   (-> (str handle)
       (str/replace-first #"^@agent:" "")
       (str/replace-first #"^@session:" "")))
+
+(defn canonical-message-id?
+  "Only canonical @msg subjects enter human-mail consumers. Routing predicates
+   are shared by other coordination entities, so `to` alone is never proof that
+   a subject is mail."
+  [value]
+  (and (string? value)
+       (<= (utf8-bytes value) max-message-id-bytes)
+       (boolean
+        (re-matches #"^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+
+(defn message-envelope-clauses [entity]
+  [{:rel "fact" :args [entity "from" {:var "message_from"}]}
+   {:rel "fact" :args [entity "subject" {:var "message_subject"}]}
+   {:rel "fact" :args [entity "body" {:var "message_body"}]}
+   {:rel "fact" :args [entity "sent_at" {:var "message_sent_at"}]}])
+
+(defn complete-message-envelope?
+  "A canonical subject prefix is necessary but not sufficient: require the
+   complete legacy mail envelope that every production publisher writes before
+   its routing edge."
+  [port message]
+  (and
+   (canonical-message-id? message)
+   (every?
+    string?
+    (map #(coord/resolved port message %)
+         ["from" "subject" "body" "sent_at"]))))
 
 (defn online-handles
   "Finite session audience at one coordinator observation. Liveness uses the
@@ -295,17 +324,23 @@
         (mapv
          (fn [address]
            {:head {:rel "message_candidate" :args [{:var "e"}]}
-            :body [{:rel "fact"
-                    :args [{:var "e"} "to" address]}]})
+            :body
+            (into
+             [{:rel "fact"
+               :args [{:var "e"} "to" address]}]
+             (message-envelope-clauses {:var "e"}))})
          addresses)
         base-rules
         (into
          direct-rules
          [{:head {:rel "message_candidate" :args [{:var "e"}]}
-           :body [{:rel "fact"
-                   :args [{:var "e"} "broadcast_to" recipient]}
-                  {:rel "fact"
-                   :args [{:var "e"} "to" broadcast-address]}]}
+           :body
+           (into
+            [{:rel "fact"
+              :args [{:var "e"} "broadcast_to" recipient]}
+             {:rel "fact"
+              :args [{:var "e"} "to" broadcast-address]}]
+            (message-envelope-clauses {:var "e"}))}
           {:head {:rel "message_acknowledged" :args [{:var "e"}]}
            :body [{:rel "fact"
                    :args [{:var "e"} "acked_by" recipient]}]}
@@ -357,7 +392,13 @@
                             (:ok response)))
        (throw (ex-info "pending message page has malformed rows"
                        {:type :malformed-pending-message-page})))
-     (assoc response :messages (mapv first (:ok response))))))
+     (let [rows (->> (:ok response)
+                     (filter #(canonical-message-id? (first %)))
+                     vec)]
+       ;; Preserve Fram's cursor/version exactly. Filtering only the returned
+       ;; relation keeps non-mail routing subjects out of hook/live-feed
+       ;; candidate pages without inventing a client-derived cursor.
+       (assoc response :ok rows :messages (mapv first rows))))))
 
 (defn pending-steer-page
   "Read one bounded deterministic page of unsettled managed steer messages."
@@ -379,7 +420,10 @@
                             (:ok response)))
        (throw (ex-info "pending steer page has malformed rows"
                        {:type :malformed-pending-steer-page})))
-     (assoc response :messages (mapv first (:ok response))))))
+     (let [rows (->> (:ok response)
+                     (filter #(canonical-message-id? (first %)))
+                     vec)]
+       (assoc response :ok rows :messages (mapv first rows))))))
 
 (defn- recipient-keyed-ids
   "Message ids from ONE positive-triple rule, evaluated by the coordinator's warm
@@ -421,14 +465,19 @@
                       port [{:rel "triple" :args [{:var "e"} "acked_by" recipient]}])
         rejected (recipient-keyed-ids
                   port [{:rel "triple" :args [{:var "e"} rejected-by-predicate recipient]}])]
-    (vec (sort (set/difference (set/union direct broadcast)
-                               (set/union acknowledged rejected))))))
+    (->> (set/difference (set/union direct broadcast)
+                         (set/union acknowledged rejected))
+         (filter #(complete-message-envelope? port %))
+         sort
+         vec)))
 
 (defn deliverable?
   "Whether RECIPIENT may consume MESSAGE addressed TO. DIRECT-ADDRESSES contains
    the recipient's own handle plus any roles it currently holds. Broadcasts
    deliberately consult only the snapshotted concrete recipient handle."
   [port message to recipient direct-addresses]
-  (if (= broadcast-address to)
-    (contains? (audience port message) (bare-handle recipient))
-    (contains? (set direct-addresses) to)))
+  (and
+   (complete-message-envelope? port message)
+   (if (= broadcast-address to)
+     (contains? (audience port message) (bare-handle recipient))
+     (contains? (set direct-addresses) to))))

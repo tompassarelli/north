@@ -656,6 +656,7 @@
                       "bb" (str root "/cli/agents-cli.clj") "spawn" "designer" "probe"
                       "--provider" "openai"
                       "--pin-evidence" (pin-evidence-json [{:kind "provider" :value "openai"}])
+                      "--ad-hoc"
                       "--dry-run")]
   (check "spawn dry-run leads with semantic identity and retains control key separately"
          (and (zero? (:exit dry))
@@ -668,11 +669,12 @@
                          "bb" (str root "/cli/agents-cli.clj") "spawn" "designer" "probe"
                          "--provider" "anthropic"
                          "--pin-evidence" (pin-evidence-json [{:kind "provider" :value "anthropic"}])
+                         "--ad-hoc"
                          "--dry-run")]
-  (check "CLI dry route resolves anthropic frontier to the static Orchestration fable/xhigh route"
+  (check "CLI dry route resolves anthropic frontier to the current Orchestration opus/xhigh route"
          (and (zero? (:exit closed))
-              (re-find #"anthropic-ambient-fable-xhigh-orchestration-designer-[a-z0-9]+" (:out closed))
-              (not (str/includes? (:out closed) "anthropic-ambient-opus")))))
+              (re-find #"anthropic-ambient-opus-xhigh-orchestration-designer-[a-z0-9]+" (:out closed))
+              (not (str/includes? (:out closed) "anthropic-ambient-fable")))))
 
 (let [dry (proc/shell {:out :string :err :string :continue true
                        :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
@@ -681,6 +683,7 @@
                       "--pin-evidence" (pin-evidence-json
                                         [{:kind "provider" :value "openai"}
                                          {:kind "account" :value "codex-work"}])
+                      "--ad-hoc"
                       "--dry-run")]
   (check "spawn target becomes AGENT_TARGET and appears in the fallback identity"
          (and (zero? (:exit dry))
@@ -690,7 +693,7 @@
 (let [missing-pin (proc/shell {:out :string :err :string :continue true
                                :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
                               "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
-                              "--provider" "openai" "--dry-run")]
+                              "--provider" "openai" "--ad-hoc" "--dry-run")]
   (check "new public CLI provider pins fail closed without typed current evidence"
          (and (not (zero? (:exit missing-pin)))
               (str/includes? (str (:out missing-pin) (:err missing-pin))
@@ -700,7 +703,7 @@
 (let [assessed (proc/shell {:out :string :err :string :continue true
                             :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
                            "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
-                           "--assessment" (economy-assessment-json) "--dry-run")]
+                           "--assessment" (economy-assessment-json) "--ad-hoc" "--dry-run")]
   (check "public CLI accepts a canonical Orchestration assessment and forwards only its recorded marker"
          (and (zero? (:exit assessed))
               (str/includes? (:out assessed) "AGENT_ROUTING_ASSESSMENT=RECORDED")
@@ -712,6 +715,7 @@
                   "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
                   "--tier" "frontier" "--reasoning" "max"
                   "--override-reason" "exceptional deliberation required"
+                  "--ad-hoc"
                   "--dry-run")]
   (check "public CLI rejects max reasoning before lane creation without a canonical assessment"
          (and (not (zero? (:exit missing-max-assessment)))
