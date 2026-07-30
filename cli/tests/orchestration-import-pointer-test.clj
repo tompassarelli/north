@@ -35,9 +35,15 @@
       (throw (ex-info (str "unstubbed op " (:op op)) {})))))
 
 ;; put!/retract! are bound to north.coord at load, so the socket path is only
-;; closed off by stubbing the verbs the helpers call, not send-op alone.
+;; closed off by stubbing the verbs the helpers call, not send-op alone. put!
+;; models the engine's rule exactly: replace when the predicate is declared
+;; single, append (idempotently) otherwise.
 (defn stub-put [graph-atom]
-  (fn [_port te p r] ((stub-op graph-atom) _port {:op :assert :te te :p p :r r})))
+  (fn [_port te p r]
+    (if (= ["single"] (get @graph-atom [(str "@" p) "cardinality"]))
+      (swap! graph-atom assoc [te p] [r])
+      (swap! graph-atom update [te p] (fn [vs] (if (some #{r} vs) vs (conj (vec vs) r)))))
+    {:ok 1}))
 (defn stub-retract [graph-atom]
   (fn [_port te p r] ((stub-op graph-atom) _port {:op :retract :te te :p p :r r})))
 
@@ -54,53 +60,55 @@
     (check "version-arg falls back to the pointer with no arg" (= 7 (version-arg 0 nil)))
     (check "version-arg honours vN over the pointer"           (= 3 (version-arg 0 "v3")))))
 
-;; --- B. cardinality preflight ------------------------------------------------
+;; --- B. the flip on an ALREADY-declared coordinator (the steady state) -------
+;; put! supersedes, so one read confirms it and nothing is re-declared: a schema
+;; write invalidates the coordinator's whole read-side cache.
+(defn stub-resolved [graph-atom]
+  (fn [_port te p]
+    (let [vs (vec (get @graph-atom [te p] []))]
+      {:value (first vs) :members (count vs) :ambiguous? (> (count vs) 1)
+       :values vs :version 1})))
+
+(let [g (atom {["@catalog:current" "catalog_version"] ["5"]
+               ["@catalog_version" "cardinality"] ["single"]})]
+  (with-redefs [put! (stub-put g) retract! (stub-retract g) resolved-envelope (stub-resolved g)]
+    (flip! 0 6)
+    (check "a declared pointer flips to exactly the new version"
+           (= ["6"] (get @g ["@catalog:current" "catalog_version"])))
+    (check "the steady-state flip does not re-declare cardinality"
+           (= ["single"] (get @g ["@catalog_version" "cardinality"])))))
+
+;; --- C. the flip on an UNDECLARED coordinator: verify, then repair in place ---
 (let [g (atom {["@catalog:current" "catalog_version"] ["4"]})]
-  (with-redefs [send-op (stub-op g) put! (stub-put g) retract! (stub-retract g)]
-    (check "undeclared catalog_version is not single" (false? (declared-single? 0 "catalog_version")))
-    (ensure-pointer-single! 0)
-    (check "preflight declares @catalog_version cardinality single"
-           (= ["single"] (get @g ["@catalog_version" "cardinality"])))
-    (check "declared-single? sees the declaration" (true? (declared-single? 0 "catalog_version")))))
+  (with-redefs [put! (stub-put g) retract! (stub-retract g) resolved-envelope (stub-resolved g)]
+    (flip! 0 5)
+    (check "an appending flip is repaired to exactly the new version"
+           (= ["5"] (get @g ["@catalog:current" "catalog_version"])))
+    (check "the repair declares @catalog_version cardinality single"
+           (= ["single"] (get @g ["@catalog_version" "cardinality"])))))
 
-;; An already-appended pointer must be collapsed to the HIGHEST version before the
-;; declaration, since the engine refuses a lossy multi->single.
-(let [g (atom {["@catalog:current" "catalog_version"] ["2" "3"]})]
-  (with-redefs [send-op (stub-op g) put! (stub-put g) retract! (stub-retract g)]
-    (ensure-pointer-single! 0)
-    (check "preflight sheds the stale pointer value, keeping the highest"
-           (= ["3"] (get @g ["@catalog:current" "catalog_version"])))))
-
-;; A refused declaration must abort the import, never proceed to an appending flip.
-(let [g (atom {})]
-  (with-redefs [send-op (stub-op g)
-                retract! (stub-retract g)
-                put! (fn [& _] {:reject ["would collapse 1 live multi-valued group(s)"]})]
+;; The engine refuses a lossy multi->single, and that refusal must abort the import.
+(let [g (atom {["@catalog:current" "catalog_version"] ["4"]})]
+  (with-redefs [retract! (stub-retract g) resolved-envelope (stub-resolved g)
+                put! (fn [_port te p r]
+                       (if (= p "cardinality")
+                         {:reject ["would collapse 1 live multi-valued group(s)"]}
+                         ((stub-put g) 0 te p r)))]
     (check "a rejected declaration throws :catalog-cardinality-undeclared"
-           (= :catalog-cardinality-undeclared (ex-type #(ensure-pointer-single! 0))))))
+           (= :catalog-cardinality-undeclared (ex-type #(flip! 0 5))))))
 
-;; --- C. the flip post-condition ---------------------------------------------
-;; the real read is the STRICT resolved envelope, so an unreadable coordinator
-;; raises its own typed failure instead of looking like a pointer that never flipped
-(defn stub-resolved [vs]
-  (fn [_port _te _p] {:value (first vs) :members (count vs) :ambiguous? (> (count vs) 1)
-                      :values (vec vs) :version 1}))
+;; A flip that still has not taken after the repair must fail LOUDLY.
+(let [g (atom {})]
+  (with-redefs [put! (fn [& _] {:ok 1}) retract! (fn [& _] {:ok 1})
+                resolved-envelope (stub-resolved (atom {["@catalog:current" "catalog_version"] ["4" "5"]}))]
+    (check "an unrepairable pointer throws :catalog-flip-not-atomic"
+           (= :catalog-flip-not-atomic (ex-type #(flip! 0 5))))))
 
-(with-redefs [resolved-envelope (stub-resolved ["5"])]
-  (check "assert-flip! passes on a single-valued pointer" (nil? (assert-flip! 0 5))))
-
-(with-redefs [resolved-envelope (stub-resolved ["4" "5"])]
-  (check "an appended pointer throws :catalog-flip-not-atomic"
-         (= :catalog-flip-not-atomic (ex-type #(assert-flip! 0 5)))))
-
-(with-redefs [resolved-envelope (fn [& _] (throw (ex-info "boom" {:type :malformed-resolved-response})))]
+;; An unreadable coordinator must raise the READ failure, never a false non-flip.
+(with-redefs [put! (fn [& _] {:ok 1})
+              resolved-envelope (fn [& _] (throw (ex-info "boom" {:type :malformed-resolved-response})))]
   (check "an unreadable pointer surfaces the READ failure, not a false non-flip"
-         (= :malformed-resolved-response (ex-type #(assert-flip! 0 5)))))
-
-;; --- D. a failed cardinality read never reads as "not declared" --------------
-(with-redefs [send-op (fn [& _] {:error "query-time-limit"})]
-  (check "an errored cardinality query throws :catalog-cardinality-unreadable"
-         (= :catalog-cardinality-unreadable (ex-type #(declared-single? 0 "catalog_version")))))
+         (= :malformed-resolved-response (ex-type #(flip! 0 5)))))
 
 (let [n (count @results) ok (count (filter true? @results))]
   (println (format "%s %d/%d" (if (= n ok) "PASS" "FAIL") ok n))

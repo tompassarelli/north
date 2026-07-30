@@ -139,40 +139,38 @@
       (current-version port)
       (throw (ex-info "no @catalog:current pointer — import first" {}))))
 
-;; put! supersedes only for a predicate declared `@<pred> cardinality single`
-;; (fram schema-as-facts, sole runtime authority); undeclared, the flip APPENDS.
-;; Strict envelope: a failed query must never read as "not declared" and provoke
-;; a redeclaration (each one invalidates the coordinator's whole read cache).
-(defn declared-single? [port pred]
-  (let [subject (str "@" pred)
-        resp (send-op port {:op :query
-                            :query {:find "v" :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                                       :body [{:rel "triple" :args [subject "cardinality" {:var "v"}]}]}]}})]
-    (when-not (vector? (:ok resp))
-      (throw (ex-info (str "cannot read the cardinality declaration of " subject)
-                      {:type :catalog-cardinality-unreadable :response resp})))
-    (boolean (some #(= "single" (str (first %))) (:ok resp)))))
-
-(defn ensure-pointer-single! [port]
-  (when-not (declared-single? port "catalog_version")
-    ;; The engine refuses multi->single while a live group holds >1 value, so shed
-    ;; the pointer's own surplus first, keeping the highest version.
-    (let [vs (map str (exact-values port POINTER "catalog_version"))]
-      (when (> (count vs) 1)
-        (doseq [v (remove #{(last (sort-by #(or (parse-long %) -1) vs))} vs)]
-          (retract! port POINTER "catalog_version" v))))
-    (let [res (put! port "@catalog_version" "cardinality" "single")]
-      (when-not (:ok res)
-        (throw (ex-info (str "cannot declare catalog_version cardinality single: " (pr-str res))
-                        {:type :catalog-cardinality-undeclared :response res}))))))
-
 ;; resolved-envelope, not exact-values: an unreadable coordinator must raise its own
 ;; typed failure, never masquerade as an empty pointer that never flipped.
-(defn assert-flip! [port ver]
-  (let [{:keys [values]} (resolved-envelope port POINTER "catalog_version")]
-    (when-not (= (vec values) [(str ver)])
-      (throw (ex-info (str "pointer flip did not take: @catalog:current catalog_version = " (pr-str values))
-                      {:type :catalog-flip-not-atomic :expected ver :actual values})))))
+(defn pointer-values [port]
+  (vec (:values (resolved-envelope port POINTER "catalog_version"))))
+
+;; put! supersedes only for a predicate declared `@<pred> cardinality single`
+;; (fram schema-as-facts, the engine's sole runtime authority); undeclared it
+;; APPENDS and every consumer keeps electing the stale first value.
+(defn declare-single! [port]
+  (let [res (put! port "@catalog_version" "cardinality" "single")]
+    (when-not (:ok res)
+      (throw (ex-info (str "cannot declare catalog_version cardinality single: " (pr-str res))
+                      {:type :catalog-cardinality-undeclared :response res})))))
+
+;; Verify-then-repair rather than preflight-declare: on an already-declared
+;; coordinator (the steady state) this costs one read and never re-declares —
+;; each schema write invalidates the coordinator's whole read-side cache.
+(defn flip! [port ver]
+  (put! port POINTER "catalog_version" (str ver))
+  (when-not (= (pointer-values port) [(str ver)])
+    ;; The engine refuses multi->single while a live group holds >1 value, so shed
+    ;; the appended values first; re-put last so the newest op on the group is an
+    ;; ASSERT (under single the fold keys on (l,p), and a trailing retract would
+    ;; take the whole group with it).
+    (doseq [v (remove #{(str ver)} (pointer-values port))]
+      (retract! port POINTER "catalog_version" v))
+    (declare-single! port)
+    (put! port POINTER "catalog_version" (str ver))
+    (let [vs (pointer-values port)]
+      (when-not (= vs [(str ver)])
+        (throw (ex-info (str "pointer flip did not take: @catalog:current catalog_version = " (pr-str vs))
+                        {:type :catalog-flip-not-atomic :expected ver :actual vs}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Emit — every write goes to the version namespace (draft) until the flip.
@@ -316,9 +314,6 @@
 ;; Verbs.
 ;; ---------------------------------------------------------------------------
 (defn import! [port root]
-  ;; preflight, before anything is staged: refuse the import outright rather than
-  ;; publish a version whose pointer flip cannot supersede.
-  (ensure-pointer-single! port)
   (let [ver (inc (or (current-version port) 0))
         catalog (read-json root "staffing" "catalog.json")]
     (emit-staffing! port ver catalog)
@@ -329,8 +324,7 @@
     (emit-provider! port ver root "openai")
     (emit-selection! port ver root)
     ;; ATOMIC FLIP — one serialized write; consumers never see a torn import.
-    (put! port POINTER "catalog_version" (str ver))
-    (assert-flip! port ver)
+    (flip! port ver)
     ver))
 
 ;; measure — R2: import ONLY the multi-KB prompt_block literals to a throwaway
