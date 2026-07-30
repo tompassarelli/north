@@ -98,7 +98,9 @@ load_member() {
   member_source=${fields[2]}
   member_revision=${fields[3]}
   member_origin=${fields[4]}
-  [ "$target" = "$member_source" ] ||
+  # Compared canonically: the state root is itself reached through a symlink,
+  # so the recorded source and the resolved link name one tree by two paths.
+  [ "$target" = "$(realpath -m "$member_source")" ] ||
     die "selected $member symlink differs from its generation identity"
   [ -d "$member_source" ] ||
     die "selected $member deployment is missing: $member_source"
@@ -196,6 +198,7 @@ ensure_deployment() {
       die "cannot check out $revision into $deployment"
     sync -f "$deployments"
   fi
+  deployment=$(realpath -e "$deployment") || die "deployment is unreadable: $deployment"
   validate_deployment "$deployment" "$revision"
   printf '%s' "$deployment"
 }
@@ -236,7 +239,7 @@ record_fact() {
     ts "$ts" \
     source "$source" \
     origin "$origin" \
-    who "$(id -un)" >/dev/null ||
+    who "$(id -un)" >/dev/null 2>&1 ||
     warn "promote record not published to the coordinator (deployment is live regardless)"
 }
 
