@@ -234,7 +234,11 @@ incidental to the deliverable?" Correctness, error handling, and security
 are never laddered away at either layer. Comments: bearish — intention,
 trade-offs, paths-not-taken only; if the code can say it, drop it.
 
-**Language bias: Beagle first for general-purpose programs.** New tools,
+**Language bias: Beagle first for general-purpose programs.** Beagle is
+multi-target — choose the language target that fits the domain. What targets
+and forms exist is a compiler answer (`beagle:bin/beagle`), never a doc
+annotation; a doc that must carry such a list uses a generated fill, never
+hand-enumeration. New tools,
 scripts, and apps default to Beagle (`#lang beagle`; the beagle-authoring
 skill, `~/code/beagle/main/integrations/north/skills/beagle-authoring/SKILL.md`,
 bootstraps the stack — language `~/code/beagle`, engine `~/code/fram`).
