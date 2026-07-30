@@ -40,7 +40,11 @@ printf '(println "reactor two")\n' >"$origin/cli/north-reactor.clj"
 git -C "$origin" -c user.email=t@example.com -c user.name=t commit -qam second
 second=$(git -C "$origin" rev-parse HEAD)
 
-"$tool" status | grep -Fqx 'promoted=none' || fail "an unpromoted selector must report none"
+# Never `tool | grep -q`: grep exits at the first match and SIGPIPEs the tool,
+# which pipefail then reports as a failed pipeline. Capture, then assert.
+status() { "$tool" status >"$work/status.out"; }
+status
+grep -Fqx 'promoted=none' "$work/status.out" || fail "an unpromoted selector must report none"
 pass "unpromoted status is not an error"
 
 "$tool" promote "$origin" "$first" --why "test first" >"$work/promote.out" 2>"$work/promote.err"
@@ -74,7 +78,8 @@ pass "promoting the already-selected commit is idempotent"
   fail "the second promote did not move the selector"
 [ "$(readlink -f "$state/previous")" = "$(realpath "$state")/deployments/$first" ] ||
   fail "the second promote did not retain the previous deployment"
-"$tool" status | grep -Fq "behind=0 commit(s)" || fail "status must report drift against the origin HEAD"
+status
+grep -Fq "behind=0 commit(s)" "$work/status.out" || fail "status must report drift against the origin HEAD"
 pass "promote retains the previous member and reports drift"
 
 "$tool" rollback --why "test rollback" >/dev/null 2>&1
@@ -82,7 +87,8 @@ pass "promote retains the previous member and reports drift"
   fail "rollback did not reselect the previous deployment"
 grep -Fqx 'KIND rollback' "$(readlink -f "$state/active")/record" ||
   fail "rollback was not recorded as a rollback"
-"$tool" status | grep -Fq "behind=1 commit(s)" || fail "a rolled-back runtime must read as behind"
+status
+grep -Fq "behind=1 commit(s)" "$work/status.out" || fail "a rolled-back runtime must read as behind"
 pass "rollback reselects the retained previous deployment, recorded"
 
 "$tool" rollback --why "test re-roll" >/dev/null 2>&1
