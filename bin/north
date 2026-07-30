@@ -315,6 +315,15 @@ case "${1:-}" in
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
+    #
+    # `json show` is already an exact-subject operation. Sending it through
+    # north.main would first fetch and index the entire live corpus, then throw
+    # everything but one subject away. Managed admission uses this read before
+    # identity publication, so corpus growth can consume the complete startup
+    # acknowledgement budget before a provider is even constructed.
+    if [ "$1" = json ] && [ "${2:-}" = show ] && [ "$#" -eq 3 ]; then
+      exec "$BB" "$NORTH/cli/json-show-cli.clj" "$3"
+    fi
     north_slot_exec "$@" ;;
   coord-ready)
     coord_runtime_ready ;;
