@@ -53,8 +53,12 @@ case "$*" in
     printf 'north coord-safety\n'
     ;;
   coord-safety)
-    printf 'coordinator runtime selector and strict log fence ready\n'
-    exit "${NORTH_SAFETY_RC:-0}"
+    printf 'source checkout is not authorable\n' >&2
+    exit "${NORTH_SAFETY_RC:-9}"
+    ;;
+  coord-ready)
+    printf 'coordinator runtime identity ready\n'
+    exit "${NORTH_READY_RC:-0}"
     ;;
   *)
     printf 'unexpected current-generation north call: %s\n' "$*" >&2
@@ -111,11 +115,10 @@ mapfile -t success_calls <"$calls"
 [[ "${success_calls[1]}" == "north rebuild-intent await $intent_id" ]]
 [[ "${success_calls[2]}" == "north rebuild-intent mark-started $intent_id" ]]
 [[ "${success_calls[3]}" == "firn rebuild --verbose" ]]
-[[ "${success_calls[4]}" == "north-current --help" ]]
-[[ "${success_calls[5]}" == "north-current coord-safety" ]]
-[[ "${success_calls[6]}" == \
-  "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; north coord-safety rc 0 (live selector healthy; built-ahead allowed)" ]]
-grep -Fq 'deployment verified: firn rebuild rc 0; north coord-safety rc 0 (live selector healthy; built-ahead allowed)' \
+[[ "${success_calls[4]}" == "north-current coord-ready" ]]
+[[ "${success_calls[5]}" == \
+  "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; north coord-ready rc 0 (live runtime identity healthy)" ]]
+grep -Fq 'deployment verified: firn rebuild rc 0; north coord-ready rc 0 (live runtime identity healthy)' \
   "$scratch/success.out"
 if grep -Eq '^north (coord-safety|coord-ready|coord-doctor)$' "$calls"; then
   printf 'post-rebuild gate self-verified through the old wrapper\n' >&2
@@ -136,16 +139,34 @@ fi
 
 : >"$calls"
 set +e
-NORTH_SAFETY_RC=9 run_wrapper \
+NORTH_READY_RC=9 run_wrapper \
   >"$scratch/readiness-failure.out" 2>"$scratch/readiness-failure.err"
 readiness_failure_rc=$?
 set -e
-[[ "$readiness_failure_rc" -eq 9 ]]
+[[ "$readiness_failure_rc" -eq 0 ]]
 grep -Fxq \
-  "north rebuild-intent failed $intent_id firn rebuild rc 0; north coord-safety rc 9 after 1 attempts" \
+  "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; coordination readiness degraded: north coord-ready rc 9 after 1 attempts" \
   "$calls"
-if grep -Fq 'deployment-verified' "$calls"; then
-  printf 'failed deployment probe incorrectly reported verification\n' >&2
+grep -Fq \
+  'deployment succeeded; coordination readiness degraded: north coord-ready rc 9 after 1 attempts' \
+  "$scratch/readiness-failure.err"
+if grep -Fq 'rebuild-intent failed' "$calls"; then
+  printf 'degraded deployment readiness incorrectly overwrote rebuild success\n' >&2
+  exit 1
+fi
+
+: >"$calls"
+chmod -x "$post_north_fake"
+run_wrapper >"$scratch/missing-post-cli.out" 2>"$scratch/missing-post-cli.err"
+chmod +x "$post_north_fake"
+grep -Fxq \
+  "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; coordination readiness degraded: post-rebuild North CLI is unavailable: $system_profile/bin/north" \
+  "$calls"
+grep -Fq \
+  'deployment succeeded; coordination readiness degraded: post-rebuild North CLI is unavailable:' \
+  "$scratch/missing-post-cli.err"
+if grep -Fq 'rebuild-intent failed' "$calls"; then
+  printf 'missing readiness probe incorrectly overwrote rebuild success\n' >&2
   exit 1
 fi
 
@@ -218,7 +239,7 @@ run_ready() {
     NORTH_TELEMETRY_RUNTIME_STATE="$telemetry_state" \
     NORTH_TELEMETRY_PARTITION="${NORTH_TELEMETRY_PARTITION:-0}" \
     NORTH_TELEMETRY_PORT="${NORTH_TELEMETRY_PORT:-7978}" \
-    FRAM_TELEMETRY_LOG="${FRAM_TELEMETRY_LOG:-$telemetry_log}" \
+    FRAM_TELEMETRY_LOG="$telemetry_log" \
     "$north_cli" coord-ready
 }
 
