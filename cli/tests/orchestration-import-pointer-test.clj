@@ -80,14 +80,27 @@
            (= :catalog-cardinality-undeclared (ex-type #(ensure-pointer-single! 0))))))
 
 ;; --- C. the flip post-condition ---------------------------------------------
-(let [g (atom {["@catalog:current" "catalog_version"] ["5"]})]
-  (with-redefs [send-op (stub-op g)]
-    (check "assert-flip! passes on a single-valued pointer" (nil? (assert-flip! 0 5)))))
+;; the real read is the STRICT resolved envelope, so an unreadable coordinator
+;; raises its own typed failure instead of looking like a pointer that never flipped
+(defn stub-resolved [vs]
+  (fn [_port _te _p] {:value (first vs) :members (count vs) :ambiguous? (> (count vs) 1)
+                      :values (vec vs) :version 1}))
 
-(let [g (atom {["@catalog:current" "catalog_version"] ["4" "5"]})]
-  (with-redefs [send-op (stub-op g)]
-    (check "an appended pointer throws :catalog-flip-not-atomic"
-           (= :catalog-flip-not-atomic (ex-type #(assert-flip! 0 5))))))
+(with-redefs [resolved-envelope (stub-resolved ["5"])]
+  (check "assert-flip! passes on a single-valued pointer" (nil? (assert-flip! 0 5))))
+
+(with-redefs [resolved-envelope (stub-resolved ["4" "5"])]
+  (check "an appended pointer throws :catalog-flip-not-atomic"
+         (= :catalog-flip-not-atomic (ex-type #(assert-flip! 0 5)))))
+
+(with-redefs [resolved-envelope (fn [& _] (throw (ex-info "boom" {:type :malformed-resolved-response})))]
+  (check "an unreadable pointer surfaces the READ failure, not a false non-flip"
+         (= :malformed-resolved-response (ex-type #(assert-flip! 0 5)))))
+
+;; --- D. a failed cardinality read never reads as "not declared" --------------
+(with-redefs [send-op (fn [& _] {:error "query-time-limit"})]
+  (check "an errored cardinality query throws :catalog-cardinality-unreadable"
+         (= :catalog-cardinality-unreadable (ex-type #(declared-single? 0 "catalog_version")))))
 
 (let [n (count @results) ok (count (filter true? @results))]
   (println (format "%s %d/%d" (if (= n ok) "PASS" "FAIL") ok n))
