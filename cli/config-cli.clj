@@ -40,7 +40,9 @@
 (def CONTEXT-OUTPUT  (or (System/getenv "NORTH_CONTEXT_OUTPUT")
                          (str home "/.claude/CLAUDE.md")))
 (def SKILLS-PROFILE  (or (System/getenv "NORTH_SKILLS_PROFILE")
-                         (str home "/code/north/main/profiles/tom/skills")))
+                         (str (or (System/getenv "WORLD_REPO_NORTH")
+                                  (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
+                              "/agent-profile/skills")))
 (def SKILLS-FARM     (or (System/getenv "NORTH_SKILLS_FARM")
                          (str home "/.local/state/north/skills")))
 (def SKILLS-GENERATIONS (str SKILLS-FARM ".d"))
@@ -1147,9 +1149,10 @@
    symlink; the provider-neutral ~/.agents/AGENTS.md source is never mutated.
 
  8 SKILLS — resolved shared skill discovery.
-   North inventories the complete source at
-   ~/code/north/main/profiles/tom/skills. Optional `category:` frontmatter
-   groups skills; a missing category resolves as `uncategorized`.
+   North inventories the complete source at the stable North profile:
+   $WORLD_REPO_NORTH/agent-profile/skills (the current checkout is the
+   direct-invocation fallback). Optional `category:` frontmatter groups skills;
+   a missing category resolves as `uncategorized`.
      north config skills
      north config skills on|off <skill-id>
      north config skills category on|off <category>
