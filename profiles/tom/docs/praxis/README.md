@@ -1,23 +1,11 @@
 # Praxis — personal residue (canonical blocks live in orchestration)
 
-The generic spawn-payload system — function/role, task grade, domain
-requirements, topology, semantic tier, deliberation, postures, model deltas,
-and the compose/elicit procedures — is CANONICAL in Orchestration:
-`north:orchestration/doctrine.md` and `north:orchestration/docs/routing.md` (supporting
-blocks live under `north:orchestration/docs/`). Templates are overridable defaults;
-when none fits, use a fully specified bespoke composition with a reason and an
-explicit `promotionCandidate` decision (false by default). The compatibility
-wire keeps `composition.kind:"preset"` and `nearestPreset`. Select an exact
-template when its responsibility, deliverable, done criteria, report shape,
-and fixed topology/capability boundary fit. Override only task grade, domains,
-tier, reasoning, or posture, with a reason, while those properties remain
-unchanged. Any topology/authority change — or a different responsibility,
-deliverable, done criteria, report shape, or capability boundary — requires a
-complete bespoke composition. `nearestPreset` is optional and grants no
-capabilities; recurrence only informs human review and never promotes a
-composition automatically. Edit the blocks there; they ship to everyone, and
-north's harness reads them from there at spawn time.
-This directory holds only what is personal:
+The generic spawn-payload system — roles, grades, topologies, postures, model
+deltas, and the compose/elicit procedures — is CANONICAL in Orchestration
+(`north:orchestration/doctrine.md`, `north:orchestration/docs/routing.md`, and
+the blocks under `north:orchestration/docs/`). Edit it there; it ships to
+everyone, and north's harness reads it from there at spawn time. Nothing in
+this directory restates it. This directory holds only what is personal:
 
 ## Domain bootstrap (defaults by entry point)
 

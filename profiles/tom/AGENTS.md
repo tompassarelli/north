@@ -34,10 +34,8 @@ records its own concurrent `kind run` timing against its exact thread so actuals
 continue to ground estimates. Run clocks may overlap, start and stop with the
 lane, never appear on invoices, and never satisfy the client-edit guard. Do not
 serialize workers or churn the human client clock to make task telemetry fit.
-Closed legacy `session_of` rows already attached to an invoice remain in
-historical timelog/invoice totals so sent invoices do not change retroactively;
-that compatibility projection never makes a legacy or agent row a live billing
-session and never authorizes a new client edit.
+Closed legacy `session_of` rows stay in sent-invoice history (compat
+projection only — never a live session, never edit authority).
 
 The axes join only for traceability: at intake, derive the Linear ticket from
 the branch (`msa-NNN` → `MSA-NNN`) and find-or-`capture` exactly one thread with
@@ -62,9 +60,8 @@ Run it the moment the work's shape is clear (not when the first Edit looms):
 **dispatch** independent subtasks to agents IN PARALLEL, tier per SUBTASK
 (never inherited from the session) → **coordinate** only the cross-cutting
 seams (self-contained subtask ⇒ delegate it) → **attach verification where the
-outcome lives**: self-contained workers supply local bar evidence; add a
-context-carrying verifier sibling when verdict leverage warrants one; every
-emergent aggregate gets context-carrying whole-outcome attestation →
+outcome lives** (doctrine Law 7: local bar evidence; verifier sibling on
+verdict leverage; whole-outcome attestation for emergent aggregates) →
 **consume and reconcile** that evidence, with at most one suspicious
 load-bearing claim spot-checked on smell. Skip at ONE subtask; fires at 2+
 files or 2+ concerns. Coordinate, don't execute; reconcile evidence, don't
@@ -126,15 +123,9 @@ unevidenced ones (`bar_evidence` facts hold observed results). Capture stays
 zero-ceremony — the bar attaches when work is ACCEPTED, not when a thought
 is jotted.
 
-Evidence attaches where the done-claim lives. A self-contained terminal worker
-reports its own observed result against local bars; a context-carrying verifier
-sibling independently attests it only when a plausible wrong verdict has enough
-leverage to justify one. Pieces whose aggregate is the deliverable always get
-an independent, context-carrying attestation of the whole outcome — local
-evidence never sums to proof of the aggregate. A verifier reports per-claim
-verdict + probe + observed result. The coordinator consumes and reconciles
-those reports; it does not rerun completion probes wholesale, though it may
-spot-check at most one suspicious load-bearing claim before deciding.
+Where evidence attaches, who attests, and the coordinator's one-spot-check
+consumption budget are doctrine, not restated here: `north:orchestration/doctrine.md`
+Law 7 and the verification doctrine own them.
 Evidence you consume carries provenance too — before drawing a verdict from a
 fact, name the run that produced it; a reconciliation that cites evidence
 must cite its source. A derived number carries the same obligation: a metric
@@ -158,73 +149,26 @@ comes from content selection, never compression tricks.
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
 
-→ `~/.agents/docs/model-selection.md`
-→ `~/.agents/docs/praxis/` (spawn payload blocks; README = assembly)
+→ `~/.agents/docs/model-selection.md` (compose the envelope)
+→ `~/.agents/docs/praxis/README.md` (personal posture residue)
 
-Shared routing laws are CANONICAL in `north:orchestration/doctrine.md`; the portable
-contract is `north:orchestration/docs/routing.md`. Keep its axes independent:
-function/role (deliverable), `taskGrade` (work scope and judgment), domain
-requirements, topology (`worker`/`orchestrator`), semantic tier
-(`economy`, `standard`, `senior`, `frontier`), deliberation, and posture
-(`explore`, `deliver`, `evaluate`, `preserve`). `evaluate` prioritizes evidence
-quality, decision correctness, coverage, speed, then polish; unsupported
-verdicts become explicit `cannot-determine` findings. Templates are reusable
-defaults for common input-to-deliverable shapes, never mandatory identities,
-types, or limits. The compatibility wire encodes a stock template as
-`composition.kind:"preset"` and names the nearest-template hint
-`nearestPreset`.
+Routing law is CANONICAL in `north:orchestration/doctrine.md` (portable
+contract: `north:orchestration/docs/routing.md`); a session digest is injected
+at start, and the full doctrine is read before any nontrivial dispatch
+decision. This file never restates it — axes, templates, overrides, bespoke
+compositions, provider catalogs, and tier examples all live there.
 
-Select an exact template when its responsibility, deliverable, done criteria,
-report shape, and fixed topology/capability boundary fit. Override only task
-grade, domains, tier, reasoning, or posture, with a reason, while those
-properties remain unchanged. Any topology/authority change — or a different
-responsibility, deliverable, done criteria, report shape, or capability
-boundary — requires a complete bespoke composition with a distinct
-lowercase-kebab role ID, reason, explicit routing axes, promotion-candidate
-boolean, and structured contract: responsibility, deliverable, canonical
-capabilities, decision/escalation boundaries, done-when criteria, and report
-shape. `nearestPreset` is optional and never grants capabilities implicitly.
-Recurrence informs review; it never silently promotes a bespoke composition
-into the template library.
-
-Topology is only `worker` or `orchestrator`. Verifier and judge are worker
-roles, not topologies: a verifier evaluates one claim from affirmative or
-counterevidence and may conclude `cannot-determine`; a judge ranks multiple
-comparable alternatives against criteria declared before scoring.
-The live dispatch mode selects the spawn surface; Orchestration names the squad
-and provider adapters deliver it. On the managed path, North selects an
-available provider, resolves the semantic tier through its provider catalog,
-records the resolved provider/model/reason, and may fall back only before side
-effects. Provider model names and subscription entitlement pools are adapter
-facts, never global doctrine. Use `provider:auto` unless the user or task
-requires a provider. On the native path, the provider-native Codex
-Agent/Workflow surface owns execution; North may observe and coordinate but
-does not independently launch a worker.
-
-When the configured mode selects managed dispatch, translate an Orchestration
-pick to North's execution envelope containing the full eight-field request
-(`role`, `taskGrade`, `domainRequirements`, `topology`, `tier`, `reasoning`,
-`posture`, `composition`) plus `prompt` and normally `provider:'auto'`.
-Managed North work fails closed without either an exact/overridden template
-composition or a complete bespoke composition. When the mode permits native
-dispatch, preserve the selected Orchestration role and contract through the
-provider-native surface instead of manufacturing a North launch.
-`domainRequirements` declares expertise and context the brief must load; it is
-not proof of connector capability, authentication, or pre-turn authority.
-Deterministic Linear operations remain a separate `north linear` surface.
-Display provenance as `orchestration:<template-id>`,
-`orchestration:<template-id>+override`, or
-`orchestration:bespoke:<id>`; `orchestration:not-selected` is native-only and
-`orchestration:legacy-debt` is migration-only. Never emit ambiguous `orchestration:none`.
-Examples:
-scout/source gathering → `economy`; implementer → `standard`; integrator →
-`senior`; designer → `frontier`; research-scientist/cutting-edge research →
-`frontier` with `taskGrade:research-grade`. These are template defaults, not
-inference rules between axes. A dispatch denial is an instruction to use the
-configured surface, never permission to route around a forced mode.
-Provider-specific model deltas are resolved from
-`north:orchestration/providers` and `north:orchestration/docs`; personal posture residue
-lives in `~/.agents/docs/praxis/README.md`.
+Personal binds, durable across doctrine editions:
+- Request work semantically (role, grade, domains, topology, tier, reasoning,
+  posture, composition) and let North resolve provider/model; `provider:auto`
+  unless the user or task pins one. Managed dispatch fails closed without a
+  complete composition; native dispatch preserves the selected role and
+  contract instead of manufacturing a North launch.
+- Display provenance as `orchestration:<template-id>[+override]` or
+  `orchestration:bespoke:<id>`; never ambiguous `orchestration:none`.
+- Deterministic Linear operations stay on the separate `north linear` surface.
+- A dispatch denial is an instruction to use the configured surface, never
+  permission to route around a forced mode.
 
 ## Push freely — the scan is the guard, not a human
 <!-- north-section: push · bucket: write -->
