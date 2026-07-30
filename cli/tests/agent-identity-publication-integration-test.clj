@@ -35,6 +35,10 @@
   (loop [n 0]
     (cond (predicate) true (>= n 200) false
           :else (do (Thread/sleep 25) (recur (inc n))))))
+(defn scratch-process-env []
+  (-> (into {} (System/getenv))
+      (dissoc "FRAM_TELEMETRY_LOG")
+      (assoc "FRAM_REQUIRE_LOG_FENCE" "1")))
 (defn run-writer
   ([port operation subject value]
    (run-writer port operation subject value {}))
@@ -237,10 +241,11 @@
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-identity-publication" (make-array java.nio.file.attribute.FileAttribute 0)))
       log (io/file tmp "facts.log")
+      daemon-env (scratch-process-env)
       daemon (do
                (spit log "")
                (proc/process {:dir fram :out :string :err :string
-                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+                              :env daemon-env}
                              "bb" "-cp" "out" "coord_daemon.clj"
                              "serve-flat" (str port) (.getPath log)))
       subject "@agent:identity-publication-probe"
@@ -272,6 +277,10 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] @test-log)))
   (try
+    (check "scratch coordinator removes only ambient telemetry routing"
+           (= daemon-env
+              (assoc (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
+                     "FRAM_REQUIRE_LOG_FENCE" "1")))
     (check "throwaway coordinator starts" (eventually #(port-open? port)))
     (let [first-result (run-writer port "publish" subject (json/generate-string preset))
           stored (scalar-facts (entity-facts port subject))]
