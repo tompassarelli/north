@@ -233,8 +233,17 @@ dep → one-liner → smallest block; stop at the first sufficient rung. Core
 code (the thing the project IS): hand-roll deliberately — never outsource
 the core to a dep or golf it for line count. Test: "deliverable, or
 incidental to the deliverable?" Correctness, error handling, and security
-are never laddered away at either layer. Comments: bearish — intention,
-trade-offs, paths-not-taken only; if the code can say it, drop it.
+are never laddered away at either layer.
+
+**Comment conventions.** A comment states a constraint the code cannot say —
+an invariant, a cross-file coupling, why-not-the-obvious-way. Default one
+line; a comment longer than the code it governs is wrong. Never: how the bug
+was found, observed outputs or timings, dates, incident references, restating
+the next line, or arguing the change is correct — that narrative belongs in
+the commit message (dated by git for free) or the thread; relocate it, don't
+just delete it. Blame test: if `git blame` plus the commit message would
+answer "why is this here," the comment is redundant. Docstrings/API docs are
+a different surface with their own conventions.
 
 **Language bias: Beagle first for general-purpose programs.** Beagle is
 multi-target — choose the language target that fits the domain. What targets
