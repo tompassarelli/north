@@ -63,12 +63,6 @@
        (boolean
         (re-matches #"^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
 
-(defn message-envelope-clauses [entity]
-  [{:rel "fact" :args [entity "from" {:var "message_from"}]}
-   {:rel "fact" :args [entity "subject" {:var "message_subject"}]}
-   {:rel "fact" :args [entity "body" {:var "message_body"}]}
-   {:rel "fact" :args [entity "sent_at" {:var "message_sent_at"}]}])
-
 (defn complete-message-envelope?
   "A canonical subject prefix is necessary but not sufficient: require the
    complete legacy mail envelope that every production publisher writes before
@@ -315,8 +309,10 @@
 
 (defn pending-query
   "One stratified program for direct + broadcast candidates minus durable ack
-   and rejection settlement. Dynamic direct-address rules are strictly bounded
-   before this data structure exists."
+   and rejection settlement. First-party attention entities are excluded before
+   bounded pagination, while malformed canonical mail remains visible for
+   terminal rejection. Dynamic direct-address rules are strictly bounded before
+   this data structure exists."
   [recipient direct-addresses]
   (let [recipient (bare-handle recipient)
         addresses (bounded-direct-addresses recipient direct-addresses)
@@ -324,23 +320,23 @@
         (mapv
          (fn [address]
            {:head {:rel "message_candidate" :args [{:var "e"}]}
-            :body
-            (into
-             [{:rel "fact"
-               :args [{:var "e"} "to" address]}]
-             (message-envelope-clauses {:var "e"}))})
+            :body [{:rel "fact"
+                    :args [{:var "e"} "to" address]}]})
          addresses)
         base-rules
         (into
          direct-rules
          [{:head {:rel "message_candidate" :args [{:var "e"}]}
-           :body
-           (into
-            [{:rel "fact"
-              :args [{:var "e"} "broadcast_to" recipient]}
-             {:rel "fact"
-              :args [{:var "e"} "to" broadcast-address]}]
-            (message-envelope-clauses {:var "e"}))}
+           :body [{:rel "fact"
+                   :args [{:var "e"} "broadcast_to" recipient]}
+                  {:rel "fact"
+                   :args [{:var "e"} "to" broadcast-address]}]}
+          {:head {:rel "attention_entity" :args [{:var "e"}]}
+           :body [{:rel "fact"
+                   :args [{:var "e"} "kind" "notification"]}]}
+          {:head {:rel "attention_entity" :args [{:var "e"}]}
+           :body [{:rel "fact"
+                   :args [{:var "e"} "kind" "subscription"]}]}
           {:head {:rel "message_acknowledged" :args [{:var "e"}]}
            :body [{:rel "fact"
                    :args [{:var "e"} "acked_by" recipient]}]}
@@ -352,6 +348,8 @@
      [base-rules
       [{:head {:rel "pending_message" :args [{:var "e"}]}
         :body [{:rel "message_candidate" :args [{:var "e"}]}
+               {:rel "attention_entity"
+                :args [{:var "e"}] :neg true}
                {:rel "message_acknowledged"
                 :args [{:var "e"}] :neg true}
                {:rel "message_rejected"
@@ -396,8 +394,8 @@
                      (filter #(canonical-message-id? (first %)))
                      vec)]
        ;; Preserve Fram's cursor/version exactly. Filtering only the returned
-       ;; relation keeps non-mail routing subjects out of hook/live-feed
-       ;; candidate pages without inventing a client-derived cursor.
+       ;; relation keeps any other routed coordination subjects out of
+       ;; hook/live-feed consumers without inventing a client-derived cursor.
        (assoc response :ok rows :messages (mapv first rows))))))
 
 (defn pending-steer-page
@@ -477,7 +475,7 @@
    deliberately consult only the snapshotted concrete recipient handle."
   [port message to recipient direct-addresses]
   (and
-   (complete-message-envelope? port message)
+   (canonical-message-id? message)
    (if (= broadcast-address to)
      (contains? (audience port message) (bare-handle recipient))
      (contains? (set direct-addresses) to))))

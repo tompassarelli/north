@@ -1,8 +1,9 @@
 #!/usr/bin/env bb
 ;; ============================================================================
 ;; concern-code-overlap-test.clj — thread 019f1010-2705 CLI wiring.
-;; Boots a throwaway SPINE board + a throwaway warm CODE daemon (over fram's own
-;; ingested corpus) and drives bin/concern's CLI end-to-end, asserting:
+;; Boots a throwaway SPINE board + a throwaway warm CODE daemon (over a tiny
+;; freshly ingested two-definition corpus) and drives bin/concern's CLI
+;; end-to-end, asserting:
 ;;   - declare resolves a code-NODE footprint onto the CODE port; the spine carries
 ;;     code_port but NEVER a footprint fact (no port partition, acceptance 6);
 ;;   - overlap surfaces a caller-coupled peer via the daemon's blast-closure join
@@ -11,7 +12,7 @@
 ;;   - a repo with no code daemon DEGRADES to the path-string footprint (acceptance 7).
 ;; Daemon-side scope-correctness + rename-stability live in fram's
 ;; tests/coord_concern_overlap_test.clj; this guards the north CLI seam.
-;; SKIPs cleanly if fram's compiled out/ or .fram/code.log is absent.
+;; SKIPs cleanly if Fram's compiled out/ or the Beagle CLI is absent.
 ;;   bb cli/tests/concern-code-overlap-test.clj
 ;; ============================================================================
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
@@ -21,14 +22,20 @@
 (def lode (-> (io/file test-script)
               .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram (str (System/getProperty "user.home") "/code/fram/main"))
-(def code-log (str fram "/.fram/code.log"))
-(when-not (and (.exists (io/file (str fram "/out"))) (.exists (io/file code-log)))
-  (println "SKIP — fram out/ or .fram/code.log absent (run fram build + an ingest first).")
+(def beagle-home
+  (or (System/getenv "BEAGLE_HOME")
+      (str (System/getProperty "user.home") "/code/beagle/main")))
+(def beagle-bin
+  (or (System/getenv "FRAM_BEAGLE")
+      (str beagle-home "/bin/beagle")))
+(when-not (and (.exists (io/file (str fram "/out")))
+               (.canExecute (io/file beagle-bin)))
+  (println "SKIP — fram out/ or the Beagle CLI is absent.")
   (System/exit 0))
 
 (defn op [port log o]
   (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout s 120000)
+    (.setSoTimeout s 30000)
     (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
       (.write w
               (.getBytes
@@ -64,16 +71,65 @@
     "north-concern-code-overlap"
     (make-array java.nio.file.attribute.FileAttribute 0))))
 (defn temp-path [name] (.getCanonicalPath (io/file tmp name)))
+(defn delete-tree! [root]
+  (doseq [file (reverse (file-seq root))]
+    (io/delete-file file true)))
 (def spine-log (temp-path "spine.log"))
 (def spine-telemetry-log (temp-path "spine-telemetry.log"))
 (def code-cpy (temp-path "code.log"))
 (def code-telemetry-log (temp-path "code-telemetry.log"))
-(def hot-file (temp-path "hot.edn"))
+(def code-source (temp-path "overlap.bclj"))
 (def spine-output (io/file tmp "spine.out"))
 (def code-output (io/file tmp "code.out"))
 (doseq [path [spine-log spine-telemetry-log code-telemetry-log]]
   (spit path ""))
-(io/copy (io/file code-log) (io/file code-cpy))
+(spit code-source
+      (str "#lang beagle/clj\n\n"
+           "(defn callee [] nil)\n"
+           "(defn caller [] (callee))\n"))
+(def ingest-result
+  @(p/process {:dir fram
+               :extra-env {"BEAGLE_HOME" beagle-home
+                           "FRAM_BEAGLE" beagle-bin}
+               :out :string
+               :err :string}
+              "bin/fram-ingest-code" code-source
+              "--root" (.getCanonicalPath tmp)
+              "--out" code-cpy))
+(when-not (zero? (:exit ingest-result))
+  (binding [*out* *err*]
+    (println "ABORT — failed to ingest the isolated overlap corpus:")
+    (println (:err ingest-result)))
+  (delete-tree! tmp)
+  (System/exit 1))
+
+;; Current flat migration obtains link-ness from schema facts. Ingest preserves
+;; integer AST objects as @node references but emits only the AST itself, so seed
+;; every actual fN predicate plus the derived bound_to edge in this disposable
+;; log before ordinary boot. This stays valid when migration once again honors
+;; the documented @ convention.
+(def ingested-lines
+  (with-open [reader (io/reader code-cpy)]
+    (mapv edn/read-string (line-seq reader))))
+(def ast-ref-predicates
+  (-> (->> ingested-lines
+           (map :p)
+           (filter #(and (string? %) (re-matches #"f[0-9]+" %)))
+           set)
+      (conj "bound_to")
+      sort))
+(def max-ingest-tx (reduce max 0 (keep :tx ingested-lines)))
+(with-open [writer (io/writer code-cpy :append true)]
+  (doseq [[offset predicate] (map-indexed vector ast-ref-predicates)]
+    (.write writer
+            (str (pr-str {:tx (+ max-ingest-tx offset 1)
+                          :op "assert"
+                          :l (str "@" predicate)
+                          :p "value_kind"
+                          :r "ref"
+                          :ts (str (java.time.Instant/now))
+                          :by "concern-code-overlap-test"})
+                 "\n"))))
 
 (def spine-env
   {"FRAM_LOG" spine-log
@@ -94,27 +150,15 @@
               :err :out}
              "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
              (str spine) spine-log))
-(def code-daemon-expr
-  (str "(do "
-       "(binding [*command-line-args* []] (load-file \"coord_daemon.clj\")) "
-       "(boot-flat! (System/getenv \"NORTH_TEST_CODE_LOG\")) "
-       "(let [{:keys [blast]} (ensure-calls!) "
-       "      [node callers] (first (sort-by (comp count val) > blast))] "
-       "  (spit (System/getenv \"NORTH_TEST_HOT_FILE\") "
-       "        (pr-str {:node node :blast (vec callers) :count (count callers)}))) "
-       "(serve (Integer/parseInt (System/getenv \"NORTH_TEST_CODE_PORT\"))))"))
 (defn spawn-code []
   (p/process {:dir fram
-              :extra-env (merge code-env
-                                {"FRAM_REQUIRE_LOG_FENCE" "1"
-                                 "NORTH_TEST_CODE_LOG" code-cpy
-                                 "NORTH_TEST_HOT_FILE" hot-file
-                                 "NORTH_TEST_CODE_PORT" (str cport)})
+              :extra-env (assoc code-env "FRAM_REQUIRE_LOG_FENCE" "1")
               :out code-output
               :err :out}
-             "bb" "-cp" "out" "-e" code-daemon-expr))
+             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
+             (str cport) code-cpy))
 (println "booting spine" spine "+ code" cport
-         "concurrently (clean Fram fold budget: 5 min)…")
+         "concurrently over isolated fixture logs (readiness budget: 60s)…")
 (def sp (spawn-spine))
 (def cp (spawn-code))
 (def daemons [{:name "spine" :port spine :process sp :output spine-output}
@@ -131,8 +175,7 @@
     (try (p/destroy-tree process) (catch Throwable _ nil))))
 (defn cleanup []
   (killall)
-  (doseq [file (reverse (file-seq tmp))]
-    (io/delete-file file true)))
+  (delete-tree! tmp))
 (.addShutdownHook (Runtime/getRuntime) (Thread. cleanup))
 (defn await-daemons []
   (let [started (System/nanoTime)]
@@ -146,7 +189,7 @@
           (every? :ready? states)
           {:ready? true :elapsed-ms elapsed-ms :states states}
 
-          (>= attempt 1200)
+          (>= attempt 240)
           {:ready? false :reason :timeout :elapsed-ms elapsed-ms :states states}
 
           :else
@@ -185,12 +228,19 @@
 (defn cli [env & args]
   (:out (apply cli-result env args)))
 
-;; The code-daemon wrapper discovers the hottest node from the same warm cache
-;; it serves. Ingestion-local node integers never become fixtures.
-(def some-blast (edn/read-string (slurp hot-file)))
+;; Address the seed by stable module/name, then consume only the daemon-returned
+;; opaque node IDs. The fenced :blast is also the first warm call-graph read.
+(def some-blast
+  (op cport code-cpy {:op :blast :module "overlap" :name "callee"}))
+(when-not (pos? (:count some-blast 0))
+  (binding [*out* *err*]
+    (println "ABORT — isolated corpus has no caller-bearing binding:"
+             some-blast))
+  (cleanup)
+  (System/exit 1))
 (def node (:node some-blast))
 (def caller (first (:blast some-blast)))
-(println "hot node" node "->" (:count some-blast) "callers; using caller" caller)
+(println "fixture node" node "->" (:count some-blast) "callers; using caller" caller)
 (check "warm daemon resolves a code node with callers" (and node caller (pos? (:count some-blast 0))))
 
 (def canonical-spine-log (.getCanonicalPath (io/file spine-log)))
