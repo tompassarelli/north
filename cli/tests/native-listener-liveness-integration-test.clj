@@ -67,10 +67,12 @@
       (throw (ex-info "fixture assertion rejected" result)))
     result))
 
+(defn resolved-envelope [port log subject predicate]
+  (coordinator-op
+   port log {:op :resolved :te subject :p predicate}))
+
 (defn resolved [port log subject predicate]
-  (:value
-   (coordinator-op
-    port log {:op :resolved :te subject :p predicate})))
+  (:value (resolved-envelope port log subject predicate)))
 
 (defn values-of [port log subject predicate]
   (set
@@ -89,20 +91,31 @@
          :epoch (parse-long epoch)}))))
 
 (defn listener-snapshot [port log agent]
-  (let [node (str "@agent:" agent)]
+  (let [node (str "@agent:" agent)
+        state (resolved-envelope port log node "live_input_state")
+        generation (resolved-envelope port log node "live_input_epoch")]
     {:kind (resolved port log node "kind")
-     :state (resolved port log node "live_input_state")
-     :generation (resolved port log node "live_input_epoch")
+     :state (:value state)
+     :state-envelope state
+     :generation (:value generation)
+     :generation-envelope generation
      :lease (decode-lease
              (resolved port log
                        (str "@lease:listener:" agent) "lease"))}))
 
+(defn exact-singleton? [envelope expected]
+  (and (= 1 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= [expected] (:values envelope))
+       (= expected (:value envelope))))
+
 (defn matching-live-generation? [snapshot]
   (let [lease (:lease snapshot)]
     (and (= "session" (:kind snapshot))
-         (= "armed" (:state snapshot))
+         (exact-singleton? (:state-envelope snapshot) "armed")
          (map? lease)
-         (= (:generation snapshot) (:holder lease))
+         (exact-singleton?
+          (:generation-envelope snapshot) (:holder lease))
          (> (:exp lease) (System/currentTimeMillis)))))
 
 (defn isolated-env [port log]
@@ -190,8 +203,7 @@
          (isolated-env port log)
          {"FRAM_REQUIRE_LOG_FENCE" "1"
           "FRAM_SINGLE_VALUED"
-          (str "kind live_input_state live_input_epoch "
-               "from to subject body sent_at acked_at")})}
+          "kind from to subject body sent_at acked_at"})}
        "bb" "-cp" "out" "coord_daemon.clj"
        "serve-flat" (str port) log)]
   (try
@@ -248,8 +260,22 @@
           node (str "@agent:" agent)
           crash-output (io/file tmp "crash-listener.log")]
       (assert-fact! port log node "kind" "session")
+      (assert-fact! port log node "live_input_state" "armed")
+      (assert-fact! port log node "live_input_state" "frozen")
+      (assert-fact!
+       port log node "live_input_epoch"
+       "00000000-0000-4000-8000-000000000210")
+      (assert-fact!
+       port log node "live_input_epoch"
+       "00000000-0000-4000-8000-000000000211")
+      (let [ambiguous (listener-snapshot port log agent)]
+        (check "fixture starts with historical state and epoch ambiguity"
+               (and (:ambiguous? (:state-envelope ambiguous))
+                    (= 2 (:members (:state-envelope ambiguous)))
+                    (:ambiguous? (:generation-envelope ambiguous))
+                    (= 2 (:members (:generation-envelope ambiguous))))))
       (let [crashed (start-listener! port log crash-output agent)]
-        (check "native listener publishes only a matching live generation"
+        (check "startup repairs ambiguity to exact armed state and generation"
                (eventually
                 #(matching-live-generation?
                   (listener-snapshot port log agent))))
@@ -284,24 +310,37 @@
                             (not= (:holder (:lease stale))
                                   (:holder (:lease fresh)))))))
             (let [fresh (listener-snapshot port log agent)
-                  stale-freeze
+                  stale-state-retract
                   (coordinator-op
                    port log
-                   {:op :assert-with-fence
+                   {:op :retract-with-fence
                     :res (str "listener:" agent)
                     :holder (:holder (:lease stale))
                     :epoch (:epoch (:lease stale))
                     :te node
                     :p "live_input_state"
-                    :r "frozen"})]
-              (check "predecessor fence cannot freeze its successor"
-                     (and (= :fence-lost (:reject stale-freeze))
-                          (= "armed"
-                             (:state
-                              (listener-snapshot port log agent)))
-                          (= (:holder (:lease fresh))
-                             (:generation
-                              (listener-snapshot port log agent))))))
+                    :r "armed"})
+                  stale-epoch-retract
+                  (coordinator-op
+                   port log
+                   {:op :retract-with-fence
+                    :res (str "listener:" agent)
+                    :holder (:holder (:lease stale))
+                    :epoch (:epoch (:lease stale))
+                    :te node
+                    :p "live_input_epoch"
+                    :r (:holder (:lease fresh))})
+                  after-stale-cleanup
+                  (listener-snapshot port log agent)]
+              (check "predecessor fence cannot mutate its successor generation"
+                     (and
+                      (= :fence-lost (:reject stale-state-retract))
+                      (= :fence-lost (:reject stale-epoch-retract))
+                      (exact-singleton?
+                       (:state-envelope after-stale-cleanup) "armed")
+                      (exact-singleton?
+                       (:generation-envelope after-stale-cleanup)
+                       (:holder (:lease fresh))))))
             (let [sent
                   (run-message
                    port log "send" "test-sender" agent
@@ -323,8 +362,16 @@
               (check "clean one-shot exit freezes and releases its generation"
                      (eventually
                       #(let [snapshot (listener-snapshot port log agent)]
-                         (and (= "frozen" (:state snapshot))
-                              (nil? (:lease snapshot)))))))))))
+                         (and
+                          (exact-singleton?
+                           (:state-envelope snapshot) "frozen")
+                          (zero?
+                           (:members (:generation-envelope snapshot)))
+                          (false?
+                           (:ambiguous?
+                            (:generation-envelope snapshot)))
+                          (nil? (:generation snapshot))
+                          (nil? (:lease snapshot)))))))))))
 
     (let [agent "managed-listener-route"
           node (str "@agent:" agent)

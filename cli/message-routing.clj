@@ -24,12 +24,17 @@
   (str listener-lease-prefix (bare-agent control)))
 
 (defn lease-live-at? [lease now]
-  (and (map? lease)
-       (string? (:holder lease))
-       (integer? (:exp lease))
+  (and (north.coord/authoritative-lease? lease)
        (> (:exp lease) now)
-       (integer? (:epoch lease))
        (pos? (:epoch lease))))
+
+(defn exact-singleton?
+  [envelope expected]
+  (and (map? envelope)
+       (= 1 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= [expected] (:values envelope))
+       (= expected (:value envelope))))
 
 (defn native-listener-live?
   "A native listener's durable armed bit is only descriptive. Reachability also
@@ -46,17 +51,20 @@
     ;; writes frozen before release. No interleaving can expose a false live
     ;; generation through both lease snapshots.
     (let [generation
-          (north.coord/resolved port subject "live_input_epoch")
-          state (north.coord/resolved port subject "live_input_state")
+          (north.coord/resolved-envelope
+           port subject "live_input_epoch")
+          state
+          (north.coord/resolved-envelope
+           port subject "live_input_state")
           after (north.coord/lease-of port resource)
           now (System/currentTimeMillis)]
       (boolean
        (and (lease-live-at? before now)
             (lease-live-at? after now)
             (= (:holder before) (:holder after))
-            (re-matches listener-generation-pattern generation)
-            (= generation (:holder before))
-            (= "armed" state))))))
+            (re-matches listener-generation-pattern (:holder before))
+            (exact-singleton? generation (:holder before))
+            (exact-singleton? state "armed"))))))
 
 (defn armed-route-live?
   [port control]
@@ -66,8 +74,10 @@
       "session" (native-listener-live? port control)
       ;; Managed route state is SDK-owned. `north listen` never mutates it and
       ;; mail keeps the existing managed route behavior.
-      "lane" (= "armed"
-                (north.coord/resolved port subject "live_input_state"))
+      "lane" (exact-singleton?
+              (north.coord/resolved-envelope
+               port subject "live_input_state")
+              "armed")
       false)))
 
 (defn recipient-live?
