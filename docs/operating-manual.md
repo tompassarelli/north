@@ -228,6 +228,11 @@ export NORTH_TELEMETRY_PARTITION=1
 north up --restart
 ```
 
+These variables configure the **writer** at `north up`. Do not carry an
+ambient `FRAM_LOG` into an ordinary agent shell: a client-side override is
+fenced against the served corpus and turns exact-subject reads into refusals,
+which is why `north doctor` scrubs it (`env -u FRAM_LOG`) before probing.
+
 `north up` starts one strictly log-fenced Fram writer per port. Subjects whose
 token is `run`, `session`, `mine`, or `guard_denial` route to the telemetry
 writer; coordination subjects remain on `NORTH_PORT`. Variable-subject queries

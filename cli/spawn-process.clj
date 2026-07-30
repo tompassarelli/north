@@ -13,7 +13,10 @@
 (load-file (str (.getParent (io/file *file*)) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file *file*)) "/terminal-projection.clj"))
 
-(def default-startup-timeout-ms 45000)
+;; Must lose the race against the child's own pre-identity preflight: admission
+;; spends up to 30s per projector subprocess (sdk/src/orchestration-graph-source.ts)
+;; before provider selection resolves the model/effort identity facts carry.
+(def default-startup-timeout-ms 180000)
 ;; sdk/src/fram-graph-authoring.ts permits a lane-local coordinator to spend
 ;; 15 minutes folding its code log. The outer spawn acknowledgement must lose
 ;; that race: otherwise it SIGTERMs the healthy lane at 45 seconds and the boot
