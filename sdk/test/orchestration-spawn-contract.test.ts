@@ -67,8 +67,10 @@ test("SDK presets inherit catalog axes while declared compatible overrides win i
     tier: "frontier", reasoning: "xhigh", posture: "deliver",
     composition: { kind: "preset", id: "director", overrides: [] },
   });
+  // The retirement is the invariant; the successor list is naming churn. The
+  // CLI-facing wording stays pinned in agents-cli-routing.test.ts.
   expect(() => applyOrchestrationStaffing({ role: "researcher" }, catalog))
-    .toThrow("role researcher is retired because it was ambiguous");
+    .toThrow("role researcher is retired");
 });
 
 test("North CLI reads staffing/catalog.json and carries independent overrides", () => {
