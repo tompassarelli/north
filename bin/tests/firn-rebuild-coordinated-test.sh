@@ -15,7 +15,11 @@ new_generation="$scratch/system-new"
 system_profile="$scratch/current-system"
 runtime_state="$scratch/state/fram-runtime"
 restart_lock="$scratch/state/.fram-runtime.restart.lock"
+harness_conf="$scratch/harness.conf"
+off_harness_conf="$scratch/harness-off.conf"
 intent_id=01234567-89ab-cdef-8123-456789abcdef
+printf 'rebuild-coordination=on\n' >"$harness_conf"
+printf 'rebuild-coordination=off\n' >"$off_harness_conf"
 
 cat >"$north_fake" <<'SH'
 #!/usr/bin/env bash
@@ -93,9 +97,10 @@ run_wrapper() {
     CURRENT_SYSTEM_PROFILE="$system_profile" \
     NEW_SYSTEM_PROFILE="$new_generation" \
     NORTH_COORD_RUNTIME_STATE="$runtime_state" \
+    NORTH_HARNESS_CONF="${NORTH_HARNESS_CONF:-$harness_conf}" \
     NORTH_COORD_RESTART_LOCK_TIMEOUT="${NORTH_COORD_RESTART_LOCK_TIMEOUT:-1}" \
     NORTH_REBUILD_COORD_RETRY_ATTEMPTS="${NORTH_REBUILD_COORD_RETRY_ATTEMPTS:-1}" \
-    "$wrapper" --why "test generation" --hold 1s --max-delay 2s -- --verbose
+    "$wrapper" "$@" --why "test generation" --hold 1s --max-delay 2s -- --verbose
 }
 
 : >"$calls"
@@ -124,6 +129,28 @@ if grep -Eq '^north (coord-safety|coord-ready|coord-doctor)$' "$calls"; then
   printf 'post-rebuild gate self-verified through the old wrapper\n' >&2
   exit 1
 fi
+
+: >"$calls"
+NORTH_HARNESS_CONF="$off_harness_conf" run_wrapper --automatic \
+  >"$scratch/automatic-success.out"
+mapfile -t automatic_success_calls <"$calls"
+[[ "${automatic_success_calls[0]}" == "firn rebuild --verbose" ]]
+[[ "${automatic_success_calls[1]}" == "north-current coord-ready" ]]
+[[ "${#automatic_success_calls[@]}" -eq 2 ]]
+grep -Fq \
+  'deployment verified: firn rebuild rc 0; north coord-ready rc 0 (live runtime identity healthy)' \
+  "$scratch/automatic-success.out"
+
+: >"$calls"
+set +e
+FIRN_FAKE_RC=7 run_wrapper --automatic \
+  >"$scratch/automatic-failure.out" 2>"$scratch/automatic-failure.err"
+automatic_failure_rc=$?
+set -e
+[[ "$automatic_failure_rc" -eq 7 ]]
+grep -Fxq "firn rebuild --verbose" "$calls"
+[[ "$(wc -l <"$calls")" -eq 1 ]]
+grep -Fq 'firn rebuild rc 7' "$scratch/automatic-failure.err"
 
 : >"$calls"
 set +e
@@ -186,6 +213,18 @@ if grep -Eq 'mark-started|^firn ' "$calls"; then
   printf 'mutex-busy rebuild crossed the restart boundary\n' >&2
   exit 1
 fi
+
+: >"$calls"
+flock 8
+set +e
+NORTH_COORD_RESTART_LOCK_TIMEOUT=0 run_wrapper --automatic \
+  >"$scratch/automatic-mutex.out" 2>"$scratch/automatic-mutex.err"
+automatic_mutex_rc=$?
+set -e
+flock -u 8
+[[ "$automatic_mutex_rc" -eq 2 ]]
+grep -Fq 'restart-mutex-busy:' "$scratch/automatic-mutex.err"
+[[ ! -s "$calls" ]]
 
 # Exercise the public cheap-readiness primitive itself. Run a copied North
 # wrapper against a fake north-coord-up so the test proves exact per-writer
@@ -283,4 +322,4 @@ if [[ -s "$bb_calls" ]]; then
   exit 1
 fi
 
-echo "PASS coordinated wrapper orders intent/hold/all-clear/rebuild/cheap-readiness, reports failure, and shares the runtime restart mutex"
+echo "PASS coordinated wrapper preserves human ceremony and gives automatic windows mutexed rebuild/readiness without coordinator intent traffic"

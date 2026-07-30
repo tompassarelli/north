@@ -104,6 +104,62 @@
              {:action "deferred" :at-ms (- now 3000)}])]
          (nil? (rq/last-fired-window-ms 7977))))
 
+;; ---- execution -------------------------------------------------------------
+(def window-id "1000000000000-abcdef12")
+(def request-id "1000000000001-abcdef34")
+(def window-record {:id window-id :requests [request-id]})
+(def decoded-request
+  {:id request-id :requester "agent-a" :why "land queued work"
+   :created-at-ms now :urgent false})
+
+(let [shell-args (atom nil)
+      satisfied (atom [])
+      writes (atom [])
+      action (atom nil)
+      rc
+      (with-redefs
+        [rq/load-window-records (fn [_] [window-record])
+         rq/decode-request (fn [_ _] decoded-request)
+         babashka.process/shell
+         (fn [_ & args]
+           (reset! shell-args (vec args))
+           {:exit 0 :out "" :err ""})
+         rq/current-generation (fn [] "/nix/store/test-generation")
+         rq/mark-satisfied!
+         (fn [_ id outcome] (swap! satisfied conj [id outcome]))
+         north.coord/put! (fn [& args] (swap! writes conj args))
+         rq/set-window-action! (fn [_ id value] (reset! action [id value]))]
+        (rq/run-window! 7977 window-id))]
+  (check "the window owner uses automatic mode without a second human intent ceremony"
+         (and (zero? rc)
+              (= "--automatic" (nth @shell-args 1))
+              (= "--why" (nth @shell-args 2))
+              (= [[request-id {:intent nil :generation "/nix/store/test-generation"}]]
+                 @satisfied)
+              (= [window-id "fired"] @action)
+              (= "window_generation" (nth (first @writes) 2)))))
+
+(let [satisfied (atom [])
+      writes (atom [])
+      action (atom nil)
+      rc
+      (with-redefs
+        [rq/load-window-records (fn [_] [window-record])
+         rq/decode-request (fn [_ _] decoded-request)
+         babashka.process/shell
+         (fn [_ & _] {:exit 7 :out "" :err "failed\n"})
+         rq/current-generation
+         (fn [] (throw (ex-info "failed child reached generation read" {})))
+         rq/mark-satisfied! (fn [& args] (swap! satisfied conj args))
+         north.coord/put! (fn [& args] (swap! writes conj args))
+         rq/set-window-action! (fn [_ id value] (reset! action [id value]))]
+        (rq/run-window! 7977 window-id))]
+  (check "a failed automatic child leaves requests open and the window retryable"
+         (and (= 7 rc)
+              (empty? @satisfied)
+              (empty? @writes)
+              (= [window-id "failed"] @action))))
+
 ;; ---- composition bound -----------------------------------------------------
 (let [many (mapv #(request {:id (str %) :requester (str "agent-" %)
                             :why (str "reason " %) :at (+ now %)})
