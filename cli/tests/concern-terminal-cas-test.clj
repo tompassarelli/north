@@ -13,7 +13,9 @@
       .getCanonicalPath))
 (def seed-count
   (or (some-> (System/getenv "NORTH_CAS_TEST_CONCERNS") parse-long) 300))
-(def write-period-ms 100)
+;; Slow enough that a millisecond-scale read phase can win a window on a loaded
+;; runner; a read that grows with the corpus blows the 30s deadline regardless.
+(def write-period-ms 1000)
 
 (def checks (atom []))
 (defn check

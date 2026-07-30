@@ -319,7 +319,7 @@
       output (str (:out result) (:err result))]
   (check "rebuild queue-priority contract"
          (and (zero? (:exit result))
-              (str/includes? output "reactor priority: 5 / 5 PASS"))
+              (str/includes? output "reactor priority: 6 / 6 PASS"))
          output))
 
 (let [heal-test (str root "/cli/tests/reactor-heal-projection-test.clj")

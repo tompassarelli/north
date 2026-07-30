@@ -618,8 +618,10 @@
   ["kind" "agent" "repo" "intent" "reached" "code_port" "code_log"
    "touches" "lease"])
 
-;; `about` only reaches attention events, so the render path never pays for it.
-(def concern-meta-predicates (conj concern-list-predicates "about"))
+;; meta-of's exact field set: `about` reaches attention events, and owner leases
+;; are not concern facts — liveness is recomputed per render, never indexed.
+(def concern-meta-predicates
+  (conj (vec (remove #{"lease"} concern-list-predicates)) "about"))
 
 ;; Cardinality-single on the board: the bulk projection equals meta-of's
 ;; resolved read only while each of these has at most one live value.
@@ -701,7 +703,9 @@
     (reduce
      (fn [index c]
        (if (bulk-meta-exact? facts c)
-         (assoc index c (update (meta-from-live facts c now) :agent norm-cid))
+         (assoc index c (-> (meta-from-live facts c now)
+                            (update :agent norm-cid)
+                            (dissoc :online :lapsed-ago-ms)))
          index))
      {}
      (concerns-from-live facts))))
