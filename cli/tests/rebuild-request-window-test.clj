@@ -6,8 +6,12 @@
 (def root (-> (or (System/getProperty "babashka.file") *file*)
               io/file .getCanonicalFile .getParentFile .getParentFile .getParent str))
 (load-file (str root "/cli/rebuild_request_state.clj"))
+(System/setProperty "north.rebuild-request-cli.lib" "1")
+(System/setProperty "babashka.file" (str root "/cli/rebuild-request-cli.clj"))
+(load-file (str root "/cli/rebuild-request-cli.clj"))
 
 (alias 'q 'north.rebuild-request-state)
+(alias 'rq 'north.rebuild-request)
 
 (def checks (atom []))
 (defn check [label ok]
@@ -80,6 +84,25 @@
        ;; No last window + coordination off must still be :queued, so the flip
        ;; finds the queue intact rather than pre-burned.
        (= :queued (:action (plan {:coordination-on? false :last-window-ms nil}))))
+
+(check "only a fired window consumes the coalescing interval"
+       (with-redefs
+         [rq/load-window-records
+          (fn [_]
+            [{:action "launching" :at-ms (- now 1000)}
+             {:action "failed" :at-ms (- now 2000)}
+             {:action "deferred" :at-ms (- now 3000)}
+             {:action "fired" :at-ms (- now 4000)}])]
+         (= (- now 4000) (rq/last-fired-window-ms 7977))))
+
+(check "a queue with no fired window is immediately retryable"
+       (with-redefs
+         [rq/load-window-records
+          (fn [_]
+            [{:action "launching" :at-ms (- now 1000)}
+             {:action "failed" :at-ms (- now 2000)}
+             {:action "deferred" :at-ms (- now 3000)}])]
+         (nil? (rq/last-fired-window-ms 7977))))
 
 ;; ---- composition bound -----------------------------------------------------
 (let [many (mapv #(request {:id (str %) :requester (str "agent-" %)
