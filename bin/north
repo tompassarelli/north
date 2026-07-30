@@ -278,6 +278,7 @@ north — your one card. Type a command to do the thing next to it.
     north threads                      thread-kind overview: active/ready/blocked  (--all = everything; aliases: board, plate)
     north ready                        committed + unblocked work, start anytime, ranked by leverage
     north wip                          live managed lanes vs coordinator floor  (--check = exit 3 on pullable shortfall)
+    north worktrees                    every repo's wt-* trees: drift, dirt, age, owning lane/concern  (--json)
     north agenda                       what's dated / overdue today
     north health                       coordination rollup: lanes ran/died, stale concerns
     north trace <id>                   diagnose one agent's lifecycle
@@ -578,6 +579,11 @@ CARD
     # the existing :subscribe seam — no daemon change. Inherits FRAM_LOG/FRAM_THREADS.
     #   north reactor [port] [debounce-ms]   (defaults: 7977, 400)
     exec "$BB" "$NORTH/cli/north-reactor.clj" "${2:-${NORTH_PORT:-7977}}" "${@:3}" ;;
+  worktrees)
+    # Machine-wide worktree census: every wt-* sibling of a container repo's main
+    # checkout, joined to live concerns and graph lane registrations. Read-only.
+    # cli/worktrees-cli.clj.
+    exec "$BB" "$NORTH/cli/worktrees-cli.clj" "${@:2}" ;;
   worktree)
     # Explicit landing reconciliation. It never pushes and removes only
     # harvested lane refs already proved reachable from main.

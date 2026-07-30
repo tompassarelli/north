@@ -449,6 +449,184 @@
                                         " — " (:reason removed)))
                           {:kind :uncertain})))))))))))))
 
+;; ---- UNREGISTERED wt-* siblings ---------------------------------------------
+;; Same non-force discipline as the lane sweep above, for trees no fact claims.
+;; Dirty, unmerged, claimed, or live-concern-owned trees are never removed.
+
+(defn registered-worktree-paths
+  "Every worktree path the graph claims, whatever the subject kind. A claim of any
+   kind means another owner, so this sweep leaves it alone."
+  [log-path]
+  (set (keys (north.worktree-census/claimed-worktrees log-path))))
+
+(defn- validate-unregistered-provenance
+  "Prove against Git alone that this path is a linked `wt-` worktree of exactly
+   `root`, on its own non-baseline branch. The census supplies candidates; only
+   this function grants deletion authority."
+  [{:keys [root container]} base row]
+  (try
+    (let [worktree (registered-path (:worktree row))
+          branch (:branch row)]
+      (cond
+        (or (nil? worktree) (= worktree root))
+        {:ok? false :reason "worktree path is absent, relative, or the main checkout"}
+
+        (not (str/starts-with? (.getName (io/file worktree))
+                               north.worktree-census/worktree-leaf-prefix))
+        {:ok? false :reason "worktree leaf is not a wt- sibling"}
+
+        (not= container (.getCanonicalPath (.getParentFile (io/file worktree))))
+        {:ok? false :reason "worktree is not a sibling of the repository's main checkout"}
+
+        (or (nil? branch) (:detached row) (= branch base))
+        {:ok? false :reason "worktree has no branch of its own"}
+
+        (not (zero? (:exit (git "check-ref-format" "--branch" branch))))
+        {:ok? false :reason "branch name is not a valid git ref"}
+
+        (not (.isDirectory (io/file worktree)))
+        {:ok? false :reason "worktree path is not a directory"}
+
+        :else
+        (let [root-common (canonical-git-path
+                           (git "-C" root "rev-parse"
+                                "--path-format=absolute" "--git-common-dir"))
+              wt-common (canonical-git-path
+                         (git "-C" worktree "rev-parse"
+                              "--path-format=absolute" "--git-common-dir"))
+              root-dot-git (.getCanonicalPath (io/file root ".git"))
+              wt-top (canonical-git-path
+                      (git "-C" worktree "rev-parse" "--show-toplevel"))
+              actual-branch (git-output
+                             (git "-C" worktree "symbolic-ref" "--quiet"
+                                  "--short" "HEAD"))
+              branch-head (git-output
+                           (git "-C" root "rev-parse" (branch-ref branch)))
+              wt-head (git-output (git "-C" worktree "rev-parse" "HEAD"))]
+          (if (and (= root-common wt-common root-dot-git)
+                   (= worktree wt-top)
+                   (= branch actual-branch)
+                   (= true (worktree-registered? root worktree))
+                   (= true (branch-present? root branch))
+                   (safe-string? wt-head 128)
+                   (= branch-head wt-head))
+            {:ok? true :root root :worktree worktree :branch branch}
+            {:ok? false
+             :reason "real Git provenance does not match a linked worktree of this repository"}))))
+    (catch Throwable error
+      {:ok? false
+       :reason (str "Git provenance probe failed: "
+                    (or (.getMessage error) (.getName (class error))))})))
+
+(defn- unregistered-review-reason [row]
+  (cond
+    (:foreign row) "not a registered git worktree (separate clone or plain directory)"
+    (not (:dirty_known row)) "git status could not be read"
+    (not (:clean row)) (str "dirty (" (:dirty_tracked row) " tracked, "
+                            (:dirty_untracked row) " untracked)")
+    (:detached row) "detached HEAD"
+    (not (true? (:merged row))) (str "unmerged (" (:ahead row)
+                                     " commits not in " (:base row) ")")
+    :else "unclassified"))
+
+(defn- sweep-unregistered-row!
+  [dry? claimed live-concern-repos repo-entry base row]
+  (let [path (:worktree row)
+        age (north.worktree-census/human-age (:age_ms row))]
+    (cond
+      (contains? (force claimed) (registered-path path))
+      {:kind :claimed}
+
+      (not (north.worktree-census/stale? row))
+      {:kind :fresh}
+
+      (not (north.worktree-census/reapable? row))
+      (do
+        (println (str "[worktrees] REVIEW unregistered " path
+                      " — idle " age ", " (unregistered-review-reason row)
+                      "; never auto-removed"))
+        {:kind :review})
+
+      (contains? (force live-concern-repos) (:container repo-entry))
+      (do
+        (println (str "[worktrees] KEEP unregistered " path
+                      " — idle " age " but its repository has a live concern"))
+        {:kind :live-concern})
+
+      :else
+      (let [provenance (validate-unregistered-provenance repo-entry base row)]
+        (cond
+          (not (:ok? provenance))
+          (do
+            (println (str "[worktrees] KEEP unregistered " path
+                          " — " (:reason provenance)))
+            {:kind :uncertain})
+
+          ;; The census read status moments ago; the mutation gate re-reads it.
+          (not= :clean (:kind (worktree-status (:worktree provenance))))
+          (do
+            (println (str "[worktrees] KEEP unregistered " path
+                          " — status changed or became unreadable before removal"))
+            {:kind :uncertain})
+
+          dry?
+          (do
+            (println (str "[worktrees] WOULD REMOVE unregistered " path
+                          " — idle " age ", merged into " base ", clean"))
+            {:kind :would-remove})
+
+          :else
+          (let [removed (remove-clean-worktree! provenance)]
+            (case (:kind removed)
+              :removed
+              (do
+                (println (str "[worktrees] removed unregistered " path
+                              " and " (:branch provenance)))
+                {:kind :removed})
+
+              :partial
+              (do
+                (println (str "[worktrees] PARTIAL cleanup " path
+                              " — " (:reason removed)))
+                {:kind :partial})
+
+              (do
+                (println (str "[worktrees] KEEP unregistered " path
+                              " — " (:reason removed)))
+                {:kind :uncertain}))))))))
+
+(defn- unregistered-zero-result []
+  {:scanned 0 :claimed 0 :fresh 0 :review 0 :live-concern 0
+   :uncertain 0 :partial 0 :removed 0 :would-remove 0 :errors 0})
+
+(defn- container-selected? [repo-filter {:keys [repo container root]}]
+  (or (nil? repo-filter)
+      (= repo-filter repo)
+      (contains? #{container root} (registered-path repo-filter))))
+
+(defn sweep-unregistered-worktrees!
+  "Reclaim `wt-` siblings no fact claims. Both graph joins arrive as deferred
+   values the reactor supplies, so the sweep pays for them only when a tree
+   actually reaches that gate — and can be driven with no live daemon."
+  [{:keys [dry? repo-filter claimed-worktrees live-concern-repos]}]
+  (when-not (and (delay? claimed-worktrees) (delay? live-concern-repos))
+    (throw (ex-info "unregistered sweep requires the reactor's deferred graph joins" {})))
+  (reduce
+   (fn [result repo-entry]
+     (let [base (north.worktree-census/main-branch (:root repo-entry))
+           rows (north.worktree-census/repo-rows repo-entry)]
+       (reduce
+        (fn [result row]
+          (let [action (sweep-unregistered-row!
+                        dry? claimed-worktrees live-concern-repos
+                        repo-entry base row)]
+            (-> result (bump :scanned) (bump (:kind action)))))
+        result
+        rows)))
+   (unregistered-zero-result)
+   (filter #(container-selected? repo-filter %)
+           (north.worktree-census/containers))))
+
 (defn sweep-worktrees!
   "Inspect registered lane worktrees and reclaim only a canonically terminal,
    provenance-valid, status-clean tree on its derived branch. `lane-resolved?`
