@@ -392,7 +392,7 @@
         ;; leaving the reader to infer it from three hashes.
         (when (some #(= :stale-build (first (:verdict %))) judged)
           (println (str "  " (ylw "→") " commits are not in the system closure. Rebuild:"))
-          (println (dim "      firn-rebuild-coordinated --why \"<reason>\"")))
+          (println (dim "      north rebuild request --why \"<reason>\"")))
         (when (some #(= :stale-process (first (:verdict %))) judged)
           (println (str "  " (ylw "→")
                         " the closure is newer than the live process. Paired cutover:"))

@@ -201,12 +201,16 @@ relative links. `~/.agents` is the composed live projection. Claude Code and
 Codex configuration are thin adapters to that projection, never additional
 policy sources. Edit a file in its owning repository and commit it there.
 Firn owns the NixOS wiring and application step.
-`firn rebuild` is agent-runnable and builds a COMMIT SNAPSHOT (`rev=HEAD`),
-never the working tree — no session's uncommitted state blocks it or leaks
-into a generation. Your one gate: commit YOUR OWN changes first, or they
-won't be in the build (the pipeline prints what it excluded); `firn update`
-and raw nixos-rebuild/nh stay the USER's. Build-only verify:
-`nix build --no-link`.
+**Agents QUEUE rebuilds, never fire them.** `north rebuild request --why
+"<reason>"` records one durable ask and returns; `--urgent "<why>"` is counted
+and never refused. The reactor's window owner coalesces every open ask into ONE
+coordinated rebuild and closes each request against the generation that landed.
+Direct `firn rebuild` and `firn-rebuild-coordinated` are DENIED for agent tool
+calls (deliberate owner escape: `north config guards off`); `firn update` and
+raw nixos-rebuild/nh stay the USER's. A rebuild still builds a COMMIT SNAPSHOT
+(`rev=HEAD`), never the working tree — so your one gate is unchanged: commit
+YOUR OWN changes before the window fires or they won't be in the build.
+Build-only verify: `nix build --no-link`.
 Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 `nix develop` / `nix shell`.
 
