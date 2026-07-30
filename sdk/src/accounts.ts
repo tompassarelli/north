@@ -63,7 +63,7 @@ const PROVIDERS: AccountProvider[] = ["anthropic", "openai"];
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 // CLAUDE.md is deliberately NOT projected into account dirs: ~/.claude/CLAUDE.md
-// already loads in every session as /home/<user> ancestor project memory, so an
+// already loads in every session as ancestor project memory from the user's home, so an
 // account-dir copy double-loads the same global instructions.
 export const ACCOUNT_CONFIG_ALLOWLIST: Record<AccountProvider, readonly string[]> = {
   anthropic: [
