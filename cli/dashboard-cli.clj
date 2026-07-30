@@ -857,6 +857,87 @@
         (ok! (str "roster projection north:agent-roster:v1 · "
                   (:entries roster) " entries"))))))
 
+;; ---- activation health ------------------------------------------------------
+;; Is the estate's activation path being used as designed: are queued rebuild
+;; asks draining, is the rate inside its cap, is --urgent (never refused) being
+;; leaned on, and is config drifting with no promote to attest it.
+(def ACTIVATION-HEALTH-TIMEOUT-MS 20000)
+
+(defn activation-health-probe []
+  (let [r (run [(str NORTH "/bin/north") "rebuild" "health-json"]
+               :timeout ACTIVATION-HEALTH-TIMEOUT-MS)]
+    (cond
+      (:timeout r) {:err (str "rebuild queue probe exceeded its "
+                              ACTIVATION-HEALTH-TIMEOUT-MS "ms budget")}
+      (not (:ok r)) {:err (str "rebuild queue probe failed"
+                               (when-let [e (not-empty (str/trim (or (:err r) "")))]
+                                 (str ": " e)))}
+      :else
+      (let [payload (try (json/parse-string (str/trim (or (:out r) "")) true)
+                         (catch Exception _ nil))]
+        (if (and (map? payload)
+                 (= "north:rebuild-activation-health:v1" (:version payload)))
+          payload
+          {:err "rebuild queue probe did not emit north:rebuild-activation-health:v1"})))))
+
+(defn render-activation-health! []
+  (println (bold "  activation health"))
+  (echo-cmd (str NORTH "/bin/north") "rebuild" "health-json")
+  (let [health (activation-health-probe)]
+    (if-let [e (:err health)]
+      (do (mark-doctor-failed!)
+          (println (str "    " (red "[ERR] ") " " e)))
+      (let [{:keys [coordinationOn windowSeconds openCount open gauge urgent promote]} health
+            window-min (quot (or windowSeconds 3600) 60)
+            oldest (first (sort-by #(- (or (:ageMs %) 0)) open))]
+        ;; A parked queue (coordination off) is the DESIGNED state before the
+        ;; flip, so age never reads red there — only once the owner can drain.
+        (cond
+          (zero? (or openCount 0))
+          (println (str "    " (grn "[ok]  ") " no open rebuild requests · window "
+                        window-min "m · coordination "
+                        (if coordinationOn "on" "off")))
+
+          (not coordinationOn)
+          (println (str "    " (dim "[--]  ") " " openCount
+                        " open rebuild request(s), queue PARKED"
+                        " (rebuild-coordination off; oldest " (:age oldest) ")"))
+
+          (> (or (:ageMs oldest) 0) (* 2000 (or windowSeconds 3600)))
+          (do (mark-doctor-failed!)
+              (println (str "    " (red "[ERR] ") " " openCount
+                            " open rebuild request(s); oldest " (:age oldest)
+                            " exceeds two " window-min "m windows — the owner is not draining")))
+
+          :else
+          (println (str "    " (grn "[ok]  ") " " openCount
+                        " open rebuild request(s) · oldest " (:age oldest)
+                        " · window " window-min "m")))
+        (doseq [r (take 5 open)]
+          (println (format "      %-10s %-24s %s%s"
+                           (:age r) (:requester r)
+                           (if (:urgent r) (ylw "[urgent] ") "")
+                           (:why r))))
+        (let [{:keys [count threshold breached]} gauge]
+          (if breached
+            (do (mark-doctor-failed!)
+                (println (str "    " (red "[ERR] ") " " count
+                              " coordinated rebuild(s) in the last " window-min
+                              "m (threshold " threshold ") — the queue is being bypassed")))
+            (println (str "    " (grn "[ok]  ") " " count
+                          " coordinated rebuild(s) in the last " window-min
+                          "m (threshold " threshold ")"
+                          (when-not coordinationOn
+                            (dim " · direct rebuilds are uncounted while coordination is off"))))))
+        (let [{:keys [total urgent periodHours]} urgent
+              rate (if (pos? (or total 0))
+                     (int (Math/round (* 100.0 (/ (double urgent) total))))
+                     0)]
+          (println (str "    " (if (pos? (or urgent 0)) (ylw "[warn]") (grn "[ok]  "))
+                        " urgent rate " urgent "/" total " request(s) (" rate "%) in "
+                        periodHours "h")))
+        (println (str "    " (dim "[--]  ") " drift-without-promote: " (:note promote)))))))
+
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
@@ -904,6 +985,7 @@
     (println (str "    " reactor-line)))
   (render-dead-letters! PORT)
   (render-coordination-health!)
+  (render-activation-health!)
   ;; 24h/7d activity is observability, not readiness. `north health` currently
   ;; runs a deliberately broad aggregate and can take tens of seconds on the
   ;; large graph. Doctor consumes only a recent successful dashboard cache and

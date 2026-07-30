@@ -36,6 +36,21 @@
    :lineage_registrations_in_ttl 4
    :lease_ttl_ms 1800000})
 
+(def healthy-activation-health
+  {:version "north:rebuild-activation-health:v1"
+   :nowMs 1000000
+   :coordinationOn false
+   :windowSeconds 3600
+   :unreadOlder 0
+   :openCount 0
+   :open []
+   :gauge {:count 0 :threshold 2 :breached false}
+   :urgent {:total 0 :urgent 0 :rate 0.0 :periodHours 24}
+   :lastWindow nil
+   :promote {:available false
+             :path "/var/lib/north-enforcement/active/current"
+             :note "promote infra not yet deployed"}})
+
 (defn exercise-doctor
   ([failed?] (exercise-doctor failed? []))
   ([failed? dead-letters]
@@ -44,6 +59,8 @@
   ([failed? dead-letters drift coordination]
   (with-redefs [coordination-probe
                 (fn [] (get coordination :probe healthy-coordination-probe))
+                activation-health-probe
+                (fn [] (get coordination :activation healthy-activation-health))
                 roster-projection-probe
                 (fn [] (get coordination :roster {:entries 3}))
                 coord-safety-probe
@@ -226,6 +243,72 @@
        false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
        {:probe {:err "coordination probe exceeded its 20000ms budget"}})]
   (check "an unavailable coordination probe fails doctor rather than reading green"
+         (and (false? healthy)
+              (str/includes? output "20000ms budget"))))
+
+;; ACTIVATION HEALTH — the queue verb exists before any guard points at it, so
+;; doctor must report the queue's state without the (unlanded) promote infra.
+(let [{:keys [healthy output]} (exercise-doctor false)]
+  (check "activation health renders with an empty queue and no promote infra"
+         (and healthy
+              (str/includes? output "activation health")
+              (str/includes? output "no open rebuild requests")
+              (str/includes? output "0 coordinated rebuild(s) in the last 60m (threshold 2)")
+              (str/includes? output "urgent rate 0/0 request(s) (0%) in 24h")
+              (str/includes? output "drift-without-promote: promote infra not yet deployed"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:activation
+        (assoc healthy-activation-health
+               :openCount 2
+               :open [{:id "1-a" :requester "agent-a" :why "profile hook change"
+                       :urgent false :ageMs 600000 :age "10m"}
+                      {:id "1-b" :requester "agent-b" :why "guard wiring"
+                       :urgent true :ageMs 60000 :age "1m"}]
+               :urgent {:total 2 :urgent 1 :rate 0.5 :periodHours 24})})]
+  ;; The queue is PARKED by design until the rebuild-coordination flip; open
+  ;; asks must therefore be visible without failing doctor.
+  (check "a parked queue reports open requests without failing doctor"
+         (and healthy
+              (str/includes? output "2 open rebuild request(s), queue PARKED")
+              (str/includes? output "agent-a")
+              (str/includes? output "[urgent]")))
+  (check "urgent rate is warned, never refused"
+         (and (str/includes? output "[warn]")
+              (str/includes? output "urgent rate 1/2 request(s) (50%) in 24h"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:activation
+        (assoc healthy-activation-health
+               :coordinationOn true
+               :gauge {:count 5 :threshold 2 :breached true})})]
+  (check "a breached rebuilds-per-window gauge fails doctor"
+         (and (false? healthy)
+              (str/includes? output "5 coordinated rebuild(s) in the last 60m (threshold 2)")
+              (str/includes? output "the queue is being bypassed"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:activation
+        (assoc healthy-activation-health
+               :coordinationOn true
+               :openCount 1
+               :open [{:id "1-c" :requester "agent-c" :why "stale request"
+                       :urgent false :ageMs (* 5 3600 1000) :age "5h"}])})]
+  (check "an undrained queue fails doctor once the owner is armed"
+         (and (false? healthy)
+              (str/includes? output "exceeds two 60m windows"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:activation {:err "rebuild queue probe exceeded its 20000ms budget"}})]
+  (check "an unavailable rebuild queue probe fails doctor rather than reading green"
          (and (false? healthy)
               (str/includes? output "20000ms budget"))))
 
