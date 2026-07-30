@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decide whether one tool call writes into a launch-critical checkout.
+"""Decide whether one tool call writes into a protected `main` checkout.
 
 BASH COVERAGE
 
@@ -15,6 +15,13 @@ Reads from a primary stay allowed — `git log`, `git status`, `grep`, `cat`. So
 does the sanctioned escape route the deny message itself recommends:
 `git worktree add` and `git fetch <worktree> <branch>:refs/heads/main`. Only
 mutation is refused.
+
+WIP DESTRUCTION
+
+A separate, louder class: `reset --hard`, `stash`, `checkout -- <path>`,
+`restore`, `clean -f` against a main checkout throw away uncommitted work that
+is the human's, not the lane's. It is checked across EVERY git call in the
+command, so a sanctioned verb earlier in the line cannot shield it.
 
 FAIL-OPEN, everywhere. An unparseable command, an unknown shape, any exception:
 return None and let the call through.
@@ -57,6 +64,11 @@ COPY_COMMANDS = {"cp", "mv", "rsync", "ln"}
 DESTRUCTIVE_COMMANDS = {"rm", "rmdir", "shred"}
 
 INTERPRETERS = {"python", "python3", "perl", "ruby", "node", "bb", "bash", "sh", "zsh"}
+
+# `git stash` subcommands that only report.
+STASH_READS = {"list", "show"}
+
+SEGMENT_SPLIT = r'\s*(?:&&|\|\||[;|&\n])\s*'
 
 
 def _resolve(path, cwd):
@@ -119,36 +131,98 @@ def _tokens(command):
         return command.split()
 
 
-def _git_decision(tokens, cwd):
-    """(path, verb) for a mutating git call, else None."""
-    for i, tok in enumerate(tokens):
-        if os.path.basename(tok) != "git":
+def _git_invocations(command, cwd):
+    """(target, verb, args) for EVERY git call in COMMAND.
+
+    Split per segment first: one sanctioned git call must not vouch for a
+    mutating one later in the same line.
+    """
+    found = []
+    for segment in re.split(SEGMENT_SPLIT, _strip_heredoc_bodies(command)):
+        tokens = _tokens(segment)
+        for i, tok in enumerate(tokens):
+            if os.path.basename(tok) != "git":
+                continue
+            rest = tokens[i + 1:]
+            target, verb, j = cwd, None, 0
+            while j < len(rest):
+                t = rest[j]
+                if t == "-C" and j + 1 < len(rest):
+                    target = _resolve(os.path.expanduser(rest[j + 1]), cwd) or cwd
+                    j += 2
+                    continue
+                if t.startswith("-"):
+                    j += 1
+                    continue
+                verb = t
+                break
+            if verb:
+                found.append((target, verb, rest[j + 1:]))
+    return found
+
+
+def _short_letters(flags):
+    """The letters of clustered short flags: -fd -> {f, d}."""
+    return {c for f in flags if re.match(r"^-[A-Za-z]+$", f) for c in f[1:]}
+
+
+def _git_read_form(verb, args):
+    """True when a mutating verb was called in a form that only reports."""
+    flags = [a for a in args if a.startswith("-")]
+    plain = [a for a in args if not a.startswith("-")]
+    if verb == "stash":
+        return (plain[0] if plain else "push") in STASH_READS
+    if verb == "clean":
+        return "--dry-run" in flags or "n" in _short_letters(flags)
+    return False
+
+
+def _git_decision(invocations):
+    """(path, verb) for the first mutating git call, else None."""
+    for target, verb, args in invocations:
+        if verb in SANCTIONED_GIT or _git_read_form(verb, args):
             continue
-        rest = tokens[i + 1:]
-        target = cwd
-        verb = None
-        j = 0
-        while j < len(rest):
-            t = rest[j]
-            if t == "-C" and j + 1 < len(rest):
-                target = _resolve(os.path.expanduser(rest[j + 1]), cwd) or cwd
-                j += 2
-                continue
-            if t.startswith("-"):
-                j += 1
-                continue
-            verb = t
-            break
-        if verb in SANCTIONED_GIT:
-            return None
         if verb in FF_ONLY_GIT:
             # Only the fast-forward form is sanctioned; a bare merge/pull can
             # conflict and leave the checkout dirty, which is the whole problem.
-            if "--ff-only" in rest:
-                return None
+            if "--ff-only" in args:
+                continue
             return (target, verb + " (without --ff-only)")
         if verb in MUTATING_GIT:
             return (target, verb)
+    return None
+
+
+def _wip_destroying(verb, args):
+    """A short label when this git call discards uncommitted work, else None."""
+    flags = [a for a in args if a.startswith("-")]
+    plain = [a for a in args if not a.startswith("-")]
+
+    if verb == "reset":
+        for f in ("--hard", "--merge", "--keep"):
+            if f in flags:
+                return "git reset " + f
+        return None
+    if verb == "stash":
+        sub = plain[0] if plain else "push"
+        return None if sub in STASH_READS else "git stash " + sub
+    if verb == "checkout":
+        # Restoring paths overwrites the working tree; switching branches does
+        # not, and is caught as an ordinary mutation instead.
+        if "--" in args or "." in plain or "-f" in flags or "--force" in flags:
+            return "git checkout of working-tree paths"
+        return None
+    if verb == "restore":
+        # --staged alone only unstages; anything else rewrites the working tree.
+        if "--staged" in flags and "--worktree" not in flags:
+            return None
+        return "git restore"
+    if verb == "clean":
+        if _git_read_form(verb, args):
+            return None
+        if "--force" in flags or "f" in _short_letters(flags):
+            return "git clean -f"
+        return None
     return None
 
 
@@ -164,8 +238,8 @@ def decide(payload):
         if not hit:
             return None
         project, why = hit
-        return (f"{path} is inside the PRIMARY checkout of {project}, which is "
-                f"launch-critical. {why}\n\n{worktree_advice(project)}")
+        return (f"{path} is inside the PRIMARY checkout of {project}. {why}"
+                f"\n\n{worktree_advice(project)}")
 
     # --- Bash ----------------------------------------------------------------
     command = tool_input.get("command")
@@ -180,12 +254,32 @@ def decide(payload):
 
     def deny(path, project, why, what):
         return (f"This Bash command would {what} inside the PRIMARY checkout of "
-                f"{project} ({path}), which is launch-critical. {why}\n\n"
+                f"{project} ({path}). {why}\n\n"
                 f"{worktree_advice(project)}\n"
                 f"Reads are fine — it is the write that is refused.")
 
+    invocations = _git_invocations(command, eff)
+
+    # 0. destroying uncommitted work in a main checkout — its own class, because
+    #    the loss is the human's and is not recoverable from the ref.
+    for target, verb, args in invocations:
+        what = _wip_destroying(verb, args)
+        if not what:
+            continue
+        hit = protected_project(target)
+        if hit:
+            project, why = hit
+            return (
+                f"`{what}` targets {target}, the MAIN checkout of {project}. "
+                f"Uncommitted state in a main checkout is the human's "
+                f"work-in-progress; an agent never discards it. {why}\n\n"
+                f"Compliant moves:\n"
+                f"  git -C {target} status --porcelain   # inspect, do not discard\n"
+                f"  # ask the human to clear their own WIP, or work elsewhere:\n"
+                f"{worktree_advice(project)}")
+
     # 1. mutating git, wherever it points
-    g = _git_decision(tokens, eff)
+    g = _git_decision(invocations)
     if g:
         target, verb = g
         hit = protected_project(target)
@@ -206,7 +300,7 @@ def decide(payload):
     #    within their own command. Scanning to the end of a compound command
     #    made `ln -s a b; echo "(none = clean)"` treat the echo's text as ln's
     #    destination and deny it. Split on shell separators first.
-    for segment in re.split(r'\s*(?:&&|\|\||[;|&\n])\s*', _strip_heredoc_bodies(command)):
+    for segment in re.split(SEGMENT_SPLIT, _strip_heredoc_bodies(command)):
         found = _scan_write_commands(_tokens(segment), eff, deny)
         if found:
             return found
