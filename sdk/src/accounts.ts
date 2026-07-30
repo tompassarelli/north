@@ -62,9 +62,11 @@ export function isClaudeSubscriptionStatus(status: Record<string, unknown>): boo
 const PROVIDERS: AccountProvider[] = ["anthropic", "openai"];
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+// CLAUDE.md is deliberately NOT projected into account dirs: ~/.claude/CLAUDE.md
+// already loads in every session as /home/<user> ancestor project memory, so an
+// account-dir copy double-loads the same global instructions.
 export const ACCOUNT_CONFIG_ALLOWLIST: Record<AccountProvider, readonly string[]> = {
   anthropic: [
-    "CLAUDE.md",
     "settings.json",
     "agents",
     "commands",

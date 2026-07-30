@@ -141,11 +141,12 @@ test("add preserves routing fields, isolates roots, and links only allowlisted c
   expect(claudeRoot).not.toBe(codexRoot);
   expect(statSync(claudeRoot).mode & 0o777).toBe(0o700);
   expect(statSync(codexRoot).mode & 0o777).toBe(0o700);
-  expect(lstatSync(join(claudeRoot, "CLAUDE.md")).isSymbolicLink()).toBe(true);
-  expect(readlinkSync(join(claudeRoot, "CLAUDE.md"))).toBe(join(home, ".claude/CLAUDE.md"));
   expect(lstatSync(join(claudeRoot, "skills")).isSymbolicLink()).toBe(true);
   expect(lstatSync(join(codexRoot, "AGENTS.md")).isSymbolicLink()).toBe(true);
   for (const forbidden of [
+    // CLAUDE.md never projects into account dirs — ~/.claude/CLAUDE.md already
+    // loads as /home ancestor project memory; a copy here double-loads it.
+    join(claudeRoot, "CLAUDE.md"),
     join(claudeRoot, ".credentials.json"), join(claudeRoot, "sessions"),
     join(codexRoot, "config.toml"), join(codexRoot, "hooks.json"), join(codexRoot, "rules"),
     join(codexRoot, "auth.json"), join(codexRoot, "log"), join(codexRoot, "state.sqlite"),
@@ -316,11 +317,12 @@ test("same isolated target bootstraps safely across concurrent processes", async
   const exits = await Promise.all(children.map((child) => child.exited));
   const errors = await Promise.all(children.map((child) => new Response(child.stderr).text()));
   expect(exits, errors.join("\n")).toEqual(Array(workers).fill(0));
-  for (const name of ["CLAUDE.md", "skills"]) {
+  for (const name of ["skills"]) {
     const destination = join(accountRoot, name);
     expect(lstatSync(destination).isSymbolicLink()).toBe(true);
     expect(readlinkSync(destination)).toBe(join(home, ".claude", name));
   }
+  expect(() => lstatSync(join(accountRoot, "CLAUDE.md"))).toThrow();
 });
 
 test("unsafe ids are rejected without changing policy or escaping the account root", () => {
