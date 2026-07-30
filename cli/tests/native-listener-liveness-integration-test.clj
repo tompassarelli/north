@@ -14,6 +14,8 @@
       (str (System/getProperty "user.home") "/code/fram/main")))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def message-cli (str root "/cli/msg-cli.clj"))
+(def presence-cli (str root "/cli/presence-cli.clj"))
+(def peek-cli (str root "/cli/inbox-peek.clj"))
 (def checks (atom []))
 (def children (atom []))
 
@@ -145,6 +147,24 @@
           :extra-env (isolated-env port log)}
          "bb" message-cli (str port) args))
 
+(defn run-presence [port log & args]
+  (apply proc/sh
+         {:continue true
+          :out :string
+          :err :string
+          :extra-env (isolated-env port log)}
+         "bb" presence-cli (str port) args))
+
+(defn run-peek [port log runtime agent]
+  (proc/sh
+   {:continue true
+    :out :string
+    :err :string
+    :extra-env
+    (assoc (isolated-env port log)
+           "XDG_RUNTIME_DIR" (.getCanonicalPath (io/file runtime)))}
+   "bb" peek-cli (str port) agent))
+
 (defn output-has? [file text]
   (and (.isFile (io/file file))
        (str/includes? (slurp file) text)))
@@ -177,6 +197,53 @@
   (try
     (check "throwaway Fram coordinator starts"
            (eventually #(port-open? port)))
+    (let [agent "lease-only-session"
+          runtime (doto (io/file tmp "lease-only-runtime") .mkdirs)]
+      (check "lease-only native session registers without a listener"
+             (and
+              (zero?
+               (:exit
+                (run-presence
+                 port log "register" agent "/tmp/lease-only-session" agent)))
+              (nil? (:lease (listener-snapshot port log agent)))))
+      (let [sent
+            (run-message
+             port log "send" "test-sender" agent
+             "lease-only delivery"
+             "PostToolUse consumes this durable mail without a listener")
+            message
+            (some->> (:out sent)
+                     (re-find #"sent (@msg:[^ ]+) ->")
+                     second)]
+        (check "direct send admits a live renewable session lease"
+               (and (zero? (:exit sent)) message))
+        (let [peek (run-peek port log runtime agent)]
+          (check "lease-only mail is printed and acknowledged by inbox peek"
+                 (and
+                  (zero? (:exit peek))
+                  (str/includes? (:out peek) "lease-only delivery")
+                  (= #{agent} (values-of port log message "acked_by"))
+                  (nil? (:lease (listener-snapshot port log agent))))))))
+
+    (let [agent "wrong-holder-session"
+          lease
+          (str "somebody-else|"
+               (+ (System/currentTimeMillis) 60000)
+               "|1")]
+      (assert-fact!
+       port log (str "@lease:session:" agent) "lease" lease)
+      (let [rejected
+            (run-message
+             port log "send" "test-sender" agent
+             "wrong-holder rejection"
+             "a future expiry does not confer another holder's authority")]
+        (check "direct admission rejects a future lease held by another control"
+               (and
+                (= 2 (:exit rejected))
+                (str/includes?
+                 (str (:out rejected) (:err rejected))
+                 "has no live presence")))))
+
     (let [agent "native-listener-generation"
           node (str "@agent:" agent)
           crash-output (io/file tmp "crash-listener.log")]

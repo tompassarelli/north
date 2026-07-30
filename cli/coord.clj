@@ -1151,10 +1151,41 @@
 ;; so the presence roster (presence-cli) and any consumer that must judge liveness — e.g.
 ;; concern-cli hiding a lapsed agent's stale concerns — share ONE definition and cannot
 ;; drift on what "online" means. That single-definition guarantee is this file's whole job.
-(defn decode-lease [v]
+(def lease-max-safe-integer 9007199254740991)
+
+(defn decode-lease
+  "Decode exactly one canonical holder|expiry|epoch lease. Invalid or
+   non-interoperable wire integers are not liveness authority."
+  [v]
   (when (string? v)
-    (let [[h e ep] (str/split v #"\|")]
-      (when (and h e) {:holder h :exp (parse-long e) :epoch (parse-long (or ep "0"))}))))
+    (let [parts (str/split v #"\|" -1)
+          [holder expiry-text epoch-text] parts
+          expiry (when (and (= 3 (count parts))
+                            (re-matches #"[0-9]+" expiry-text))
+                   (parse-long expiry-text))
+          epoch (when (and (= 3 (count parts))
+                           (re-matches #"[0-9]+" epoch-text))
+                  (parse-long epoch-text))]
+      (when (and (= 3 (count parts))
+                 (not (str/blank? holder))
+                 (some? expiry)
+                 (some? epoch)
+                 (<= expiry lease-max-safe-integer)
+                 (<= epoch lease-max-safe-integer))
+        {:holder holder :exp expiry :epoch epoch}))))
+
+(defn authoritative-lease?
+  "True when a decoded lease can represent an acquired Fram lease. Epoch zero
+   remains parseable for historical diagnostics but never confers authority."
+  [lease]
+  (boolean
+   (and (map? lease)
+        (string? (:holder lease))
+        (not (str/blank? (:holder lease)))
+        (integer? (:exp lease))
+        (<= 0 (:exp lease) lease-max-safe-integer)
+        (integer? (:epoch lease))
+        (<= 1 (:epoch lease) lease-max-safe-integer))))
 
 (defn lease-of [port res] (decode-lease (resolved port (str "@lease:" res) "lease")))
 
@@ -1164,7 +1195,10 @@
   ([port handle] (online? port handle (System/currentTimeMillis)))
   ([port handle now]
    (let [l (lease-of port (str "session:" handle))]
-     (boolean (and l (> (:exp l) now))))))
+     (boolean
+      (and (authoritative-lease? l)
+           (= handle (:holder l))
+           (> (:exp l) now))))))
 
 ;; ============================================================================
 ;; INCREMENTAL AGGREGATE — the completion DUAL of mutual exclusion.

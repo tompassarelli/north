@@ -92,23 +92,12 @@
 
 (defn strict-lease
   [entity value]
-  (let [parts (str/split value #"\|" -1)
-        exp (when (= 3 (count parts)) (parse-long (nth parts 1)))
-        epoch (when (= 3 (count parts)) (parse-long (nth parts 2)))]
-    (when-not (and (= 3 (count parts))
-                   (not (str/blank? (nth parts 0)))
-                   (re-matches #"[0-9]+" (nth parts 1))
-                   (re-matches #"[0-9]+" (nth parts 2))
-                   (some? exp)
-                   (some? epoch)
-                   (<= exp max-safe-integer)
-                   (<= epoch max-safe-integer))
+  (let [lease (north.coord/decode-lease value)]
+    (when-not (north.coord/authoritative-lease? lease)
       (throw (ex-info "coordinator returned a malformed lease value"
                       {:type :malformed-presence-lease
                        :entity entity})))
-    {:holder (nth parts 0)
-     :exp exp
-     :epoch epoch}))
+    lease))
 
 (defn online-sessions
   "Return only unexpired session leases using one indexed graph query. The full

@@ -63,6 +63,24 @@
   (check "listener generation is armed only after a validated handshake"
          (= [:validate :arm :body] @events)))
 
+(let [mismatch
+      {:reject ["wrong log"]
+       :code :log-mismatch
+       :expected-log "/tmp/expected.log"
+       :served-log "/tmp/served.log"}
+      error
+      (try
+        (with-redefs [north.coord/send-op (fn [_ _] mismatch)]
+          (validate-listener-corpus! 1))
+        nil
+        (catch clojure.lang.ExceptionInfo caught caught))]
+  (check "listener corpus preflight preserves a typed fenced refusal"
+         (and
+          (= :invalid-subscription-handshake (:type (ex-data error)))
+          (= mismatch (:reply (ex-data error)))
+          (str/includes?
+           (.getMessage error) "refused the fenced subscription"))))
+
 (let [passes (atom [{:reason :unavailable :message "connection refused"}
                     {:reason :closed :message "restart EOF"}
                     {:reason :stop :message "re-armed"}])
@@ -82,6 +100,30 @@
   (check "each interruption is surfaced before retry"
          (= ["connection refused" "restart EOF"]
             (mapv (comp :message first) @notices))))
+
+(let [mismatch
+      (ex-info
+       "coordinator refused the fenced subscription"
+       {:type :invalid-subscription-handshake
+        :reply {:reject ["wrong log"] :code :log-mismatch}})
+      sleeps (atom [])
+      notices (atom [])
+      caught
+      (try
+        (run-with-reconnect!
+         #(listener-pass-failure mismatch)
+         #(swap! sleeps conj %)
+         #(swap! notices conj [%1 %2]))
+        nil
+        (catch clojure.lang.ExceptionInfo error error))]
+  (check "a fenced corpus mismatch exits with its original refusal"
+         (identical? mismatch caught))
+  (check "a fenced corpus mismatch is never slept or retried"
+         (and (empty? @sleeps) (empty? @notices))))
+
+(let [failure (listener-pass-failure (ex-info "connection closed" {}))]
+  (check "ordinary connection loss remains transient"
+         (= {:reason :unavailable :message "connection closed"} failure)))
 
 (let [result
       (proc/shell

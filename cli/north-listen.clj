@@ -299,18 +299,60 @@
   (north.coord/validate-subscription! subscription-response)
   (with-native-listener-generation! port node agent-id socket body))
 
+(defn validate-listener-corpus!
+  "Fail before scope reads when this process is pointed at a coordinator for a
+   different corpus. Retrying cannot change the process's FRAM_LOG."
+  [port]
+  (let [reply (north.coord/send-op port {:op :version})]
+    (when (contains? #{:log-mismatch "log-mismatch"} (:code reply))
+      (throw
+       (ex-info
+        (str "coordinator refused the fenced subscription: " (pr-str reply))
+        {:type :invalid-subscription-handshake
+         :expected-log (north.coord/expected-log)
+         :reply reply})))
+    reply))
+
 (defn stop-listener! []
   (throw (ex-info "listener one-shot complete" {:type :listener-stop})))
 
+(defn terminal-subscription-error?
+  "A corpus mismatch cannot heal while this process keeps the same FRAM_LOG.
+   Connection loss and incomplete handshakes remain transient restart races."
+  [error]
+  (let [{:keys [type reply]} (ex-data error)]
+    (and (= :invalid-subscription-handshake type)
+         (map? reply)
+         (contains? #{:log-mismatch "log-mismatch"} (:code reply)))))
+
+(defn listener-pass-failure [error]
+  (cond
+    (= :listener-stop (:type (ex-data error)))
+    {:reason :stop}
+
+    (terminal-subscription-error? error)
+    {:reason :fatal
+     :message (or (.getMessage error) (.getName (class error)))
+     :error error}
+
+    :else
+    {:reason :unavailable
+     :message (or (.getMessage error) (.getName (class error)))}))
+
 (defn run-with-reconnect!
-  "Drive subscription passes until a test/embedding pass returns :stop.
-   Production passes return :rescope, :closed, or :unavailable forever."
+  "Drive transient subscription passes until a test/embedding pass returns
+   :stop. A fatal fenced refusal is returned as an exception, not retried."
   [pass! sleep! notice!]
   (loop [failure-attempt 0]
     (let [result (pass!)]
       (case (:reason result)
         :stop result
         :rescope (recur 0)
+        :fatal
+        (throw
+         (or (:error result)
+             (ex-info (or (:message result) "listener subscription failed")
+                      {:type :listener-fatal})))
         (let [delay-ms (reconnect-backoff-ms failure-attempt)]
           (notice! result delay-ms)
           (sleep! delay-ms)
@@ -414,12 +456,14 @@
       attention-principals (atom #{node})
       attention-scope (atom {:subscriptions [] :followed #{} :about->principals {}})]
   ;; Every pass refreshes graph-backed scope, then arms one subscription. A
-  ;; scoped address change reconnects immediately; coordinator EOF/refusal or a
-  ;; restart-time protocol failure retries forever with bounded backoff.
+  ;; scoped address change reconnects immediately. Transient coordinator EOF or
+  ;; restart-time protocol failure retries with bounded backoff; a static corpus
+  ;; mismatch fails instead of retrying the same rejected fence forever.
   (run-with-reconnect!
    (fn []
     (let [reconnect? (atom false)]
           (try
+            (validate-listener-corpus! port)
             (reset! addrs
                     (into #{uuid}
                           (keep role-slug (rmany port node "holds"))))
@@ -651,11 +695,7 @@
               {:reason :closed
                :message "coordinator subscription stream closed"})
             (catch Exception error
-              (if (= :listener-stop (:type (ex-data error)))
-                {:reason :stop}
-                {:reason :unavailable
-                 :message (or (.getMessage error)
-                              (.getName (class error)))})))))
+              (listener-pass-failure error)))))
    (fn [delay-ms] (Thread/sleep delay-ms))
    (fn [result delay-ms]
      (binding [*out* *err*]
