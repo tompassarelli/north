@@ -37,6 +37,7 @@
 (def put!     north.coord/put!)
 (def append!  north.coord/append!)
 (def retract! north.coord/retract!)
+(def resolved-envelope north.coord/resolved-envelope)
 (def enumerate-selection-rules north.orchestration-selection/enumerate-selection-rules)
 (def rules-digest              north.orchestration-selection/rules-digest)
 
@@ -140,8 +141,17 @@
 
 ;; put! supersedes only for a predicate declared `@<pred> cardinality single`
 ;; (fram schema-as-facts, sole runtime authority); undeclared, the flip APPENDS.
+;; Strict envelope: a failed query must never read as "not declared" and provoke
+;; a redeclaration (each one invalidates the coordinator's whole read cache).
 (defn declared-single? [port pred]
-  (boolean (some #(= "single" (str %)) (exact-values port (str "@" pred) "cardinality"))))
+  (let [subject (str "@" pred)
+        resp (send-op port {:op :query
+                            :query {:find "v" :rules [{:head {:rel "v" :args [{:var "v"}]}
+                                                       :body [{:rel "triple" :args [subject "cardinality" {:var "v"}]}]}]}})]
+    (when-not (vector? (:ok resp))
+      (throw (ex-info (str "cannot read the cardinality declaration of " subject)
+                      {:type :catalog-cardinality-unreadable :response resp})))
+    (boolean (some #(= "single" (str (first %))) (:ok resp)))))
 
 (defn ensure-pointer-single! [port]
   (when-not (declared-single? port "catalog_version")
@@ -156,11 +166,13 @@
         (throw (ex-info (str "cannot declare catalog_version cardinality single: " (pr-str res))
                         {:type :catalog-cardinality-undeclared :response res}))))))
 
+;; resolved-envelope, not exact-values: an unreadable coordinator must raise its own
+;; typed failure, never masquerade as an empty pointer that never flipped.
 (defn assert-flip! [port ver]
-  (let [vs (map str (exact-values port POINTER "catalog_version"))]
-    (when-not (= vs [(str ver)])
-      (throw (ex-info (str "pointer flip did not take: @catalog:current catalog_version = " (pr-str vs))
-                      {:type :catalog-flip-not-atomic :expected ver :actual vs})))))
+  (let [{:keys [values]} (resolved-envelope port POINTER "catalog_version")]
+    (when-not (= (vec values) [(str ver)])
+      (throw (ex-info (str "pointer flip did not take: @catalog:current catalog_version = " (pr-str values))
+                      {:type :catalog-flip-not-atomic :expected ver :actual values})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Emit — every write goes to the version namespace (draft) until the flip.
