@@ -313,6 +313,15 @@
     (doseq [file (reverse (file-seq tmp))]
       (try (io/delete-file file true) (catch Throwable _ nil)))))
 
+(let [priority-test (str root "/cli/tests/reactor-priority-test.clj")
+      result (proc/shell {:out :string :err :string :continue true}
+                         "bb" priority-test)
+      output (str (:out result) (:err result))]
+  (check "rebuild queue-priority contract"
+         (and (zero? (:exit result))
+              (str/includes? output "reactor priority: 3 / 3 PASS"))
+         output))
+
 (let [results @checks
       passed (count (filter second results))]
   (doseq [[label ok detail] results]

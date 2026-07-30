@@ -782,7 +782,9 @@
       {:status :failed})))
 
 (defn sweep! [dry?]
-  (let [nc (run-sweep-stage! :concerns #(sweep-concerns! dry?))
+  ;; Rebuild collection is the user-authorized critical path; maintenance may not starve it.
+  (let [rw (run-sweep-stage! :rebuild-window #(maybe-rebuild-window! dry?))
+        nc (run-sweep-stage! :concerns #(sweep-concerns! dry?))
         nl (run-sweep-stage! :lanes #(sweep-lanes! dry?))
         nd (run-sweep-stage!
             :unpublished-driver-claims
@@ -828,9 +830,6 @@
               (north.reactor-heartbeat/write-heartbeat! port {:worktrees wt})))
         ca (run-sweep-stage! :clock-audit #(maybe-clock-audit! dry?))
         audit-deferred? (= :deferred (:status ca))
-        rw (if audit-deferred?
-             {:action "skipped" :count 0 :reason "clock-audit-deferred"}
-             (run-sweep-stage! :rebuild-window #(maybe-rebuild-window! dry?)))
         attention (if audit-deferred?
                     {:status :skipped :reason :clock-audit-deferred}
                     (run-sweep-stage!
