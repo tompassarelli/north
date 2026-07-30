@@ -382,7 +382,12 @@ Declare a concern before editing code for a feature, so others can see + shape a
 
 Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.
 Run \`$NORTH_HOME/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.
-Firn rebuilds go through \`$NORTH_HOME/bin/firn-rebuild-coordinated --why "<reason>"\`; never fire \`firn rebuild\` directly.
+Need a system rebuild? QUEUE the ask and keep working — you never fire one yourself:
+  $NORTH_HOME/bin/north rebuild request --why "<reason>"        # returns at once; never builds
+  ... --urgent "<why it cannot wait>"                            # counted, never refused
+The reactor's window owner coalesces every open ask into ONE coordinated rebuild and closes
+your request against the generation that landed. Direct \`firn rebuild\` / \`firn-rebuild-coordinated\`
+are DENIED for agents.
 
 To be reachable in REAL TIME, arm your interrupt listener as a BACKGROUND task now:
   $NORTH_HOME/bin/north listen $ID
