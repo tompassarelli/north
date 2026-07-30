@@ -96,21 +96,14 @@
 
 (check "only a fired window consumes the coalescing interval"
        (with-redefs
-         [rq/load-window-records
-          (fn [_]
-            [{:action "launching" :at-ms (- now 1000)}
-             {:action "failed" :at-ms (- now 2000)}
-             {:action "deferred" :at-ms (- now 3000)}
-             {:action "fired" :at-ms (- now 4000)}])]
+         [north.rebuild-request/queue-snapshot!
+          (fn [_] {:snapshot {:last-fired-ms (- now 4000)}})]
          (= (- now 4000) (rq/last-fired-window-ms 7977))))
 
 (check "a queue with no fired window is immediately retryable"
        (with-redefs
-         [rq/load-window-records
-          (fn [_]
-            [{:action "launching" :at-ms (- now 1000)}
-             {:action "failed" :at-ms (- now 2000)}
-             {:action "deferred" :at-ms (- now 3000)}])]
+         [north.rebuild-request/queue-snapshot!
+          (fn [_] {:snapshot {:last-fired-ms nil}})]
          (nil? (rq/last-fired-window-ms 7977))))
 
 ;; ---- execution -------------------------------------------------------------
@@ -191,6 +184,7 @@
               (= :malformed-show-response (:type (ex-data error))))))
 
 (let [shell-args (atom nil)
+      settled (atom nil)
       satisfied (atom [])
       writes (atom [])
       action (atom nil)
@@ -203,15 +197,19 @@
            (reset! shell-args (vec args))
            {:exit 0 :out "" :err ""})
          rq/current-generation (fn [] "/nix/store/test-generation")
-         rq/mark-satisfied!
+         north.rebuild-request/settle-window-queue!
+         (fn [_ id request-ids] (reset! settled [id request-ids]))
+         north.rebuild-request/write-satisfaction-projection!
          (fn [_ id outcome] (swap! satisfied conj [id outcome]))
          north.coord/put! (fn [& args] (swap! writes conj args))
-         rq/set-window-action! (fn [_ id value] (reset! action [id value]))]
+         north.rebuild-request/write-window-action-projection!
+         (fn [_ id value] (reset! action [id value]))]
         (rq/run-window! 7977 window-id))]
   (check "the window owner uses automatic mode without a second human intent ceremony"
          (and (zero? rc)
               (= "--automatic" (nth @shell-args 1))
               (= "--why" (nth @shell-args 2))
+              (= [window-id [request-id]] @settled)
               (= [[request-id {:intent nil :generation "/nix/store/test-generation"}]]
                  @satisfied)
               (= [window-id "fired"] @action)
