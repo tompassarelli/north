@@ -38,7 +38,14 @@
    ["@agent:dead-session" "role"] "integrator"
    ["@agent:live-session" "repo"] "north"
    ["@agent:live-session" "role"] "integrator"
-   ["@agent:armed-session" "live_input_state"] "armed"})
+   ["@agent:armed-session" "kind"] "session"
+   ["@agent:armed-session" "live_input_state"] "armed"
+   ["@agent:armed-session" "live_input_epoch"] "00000000-0000-4000-8000-000000000201"
+   ["@agent:stale-native" "kind"] "session"
+   ["@agent:stale-native" "live_input_state"] "armed"
+   ["@agent:stale-native" "live_input_epoch"] "00000000-0000-4000-8000-000000000202"
+   ["@agent:managed-armed" "kind"] "lane"
+   ["@agent:managed-armed" "live_input_state"] "armed"})
 
 (def mail-query-seen (atom nil))
 (def many-calls (atom []))
@@ -88,6 +95,12 @@
               (fn [_ subject predicate]
                 (swap! many-calls conj [subject predicate])
                 [])
+              north.coord/lease-of
+              (fn [_ resource]
+                (when (= resource "listener:armed-session")
+                  {:holder "00000000-0000-4000-8000-000000000201"
+                   :exp 9999999999999
+                   :epoch 17}))
               north.coord/online? (fn [_ control] (= control "live-session"))]
   (check "direct live recipient passes"
          (= {:address "live-session" :recipient "live-session"
@@ -104,11 +117,15 @@
   (check "msg-cli dead-drop deliberately bypasses absent-recipient admission"
          (= "dead-session"
             (admitted-message-recipient! 1 "dead-session" true)))
-  (check "armed listener passes without a lease"
+  (check "native armed listener passes with a matching unexpired generation lease"
          (= "armed-session"
             (:recipient
              (north.message-routing/require-live-address
               1 "legacy-reviewer"))))
+  (check "durable armed state without its native listener lease is unreachable"
+         (false? (north.message-routing/recipient-live? 1 "stale-native")))
+  (check "managed lane route authority remains unchanged"
+         (true? (north.message-routing/recipient-live? 1 "managed-armed")))
   (check "dead recipient fails and names a live same-route successor"
          (= {:live false :recipient "dead-session"
              :alternative "live-session"}

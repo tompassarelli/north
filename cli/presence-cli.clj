@@ -266,7 +266,14 @@
 (defn acquire-session-lease! [port h]
   (let [reply (send-op port {:op :acquire-lease :res (str "session:" h) :holder h :ttl-ms TTL})]
     (prn reply)
-    (when-not (and (map? reply) (nil? (:reject reply)) (integer? (:exp reply)))
+    (when-not (and (map? reply)
+                   (nil? (:reject reply))
+                   (= h (:holder reply))
+                   (integer? (:epoch reply))
+                   (pos? (:epoch reply))
+                   (= (:epoch reply) (:ok reply))
+                   (integer? (:exp reply))
+                   (> (:exp reply) (System/currentTimeMillis)))
       (binding [*out* *err*]
         (println (str "presence: session lease was not granted for " h ": " (pr-str reply))))
       (System/exit 1))

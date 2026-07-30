@@ -196,7 +196,9 @@ jobs:
           set -euo pipefail
           timeout --foreground 180s bb cli/tests/live-feed-integration-test.clj
           timeout --foreground 120s bb cli/tests/message-routing-test.clj
+          timeout --foreground 120s bb cli/tests/presence-online-integration-test.clj
           timeout --foreground 180s bb cli/tests/message-audience-integration-test.clj
+          timeout --foreground 120s bb cli/tests/native-listener-liveness-integration-test.clj
           timeout --foreground 120s bb cli/tests/north-listen-reconnect-test.clj
           timeout --foreground 180s bb cli/tests/pending-pagination-integration-test.clj
           timeout --foreground 180s bb cli/tests/peer-command-integration-test.clj

@@ -107,6 +107,10 @@
   (positive-env-ms "NORTH_LISTEN_INITIAL_BACKOFF_MS" 250))
 (def listener-max-backoff-ms
   (positive-env-ms "NORTH_LISTEN_MAX_BACKOFF_MS" 5000))
+(def listener-lease-ttl-ms
+  (positive-env-ms "NORTH_LISTENER_LEASE_TTL_MS" 120000))
+(def listener-renew-interval-ms
+  (max 10 (quot listener-lease-ttl-ms 3)))
 
 (when (< listener-max-backoff-ms listener-initial-backoff-ms)
   (throw
@@ -118,6 +122,185 @@
         multiplier (bit-shift-left 1 shift)]
     (min listener-max-backoff-ms
          (* listener-initial-backoff-ms multiplier))))
+
+(defn listener-resource [agent-id]
+  (str "listener:" agent-id))
+
+(defn require-listener-lease-grant!
+  [holder response]
+  (let [epoch (:epoch response)
+        expiry (:exp response)]
+    (when-not
+     (and (map? response)
+          (nil? (:reject response))
+          (= holder (:holder response))
+          (integer? epoch)
+          (pos? epoch)
+          (= epoch (:ok response))
+          (integer? expiry)
+          (> expiry (System/currentTimeMillis)))
+      (throw
+       (ex-info "coordinator did not grant the listener generation lease"
+                {:type :invalid-listener-lease-grant
+                 :holder holder
+                 :response response})))
+    response))
+
+(defn checked-listener-write!
+  [operation response]
+  (when (or (not (map? response)) (:reject response))
+    (throw
+     (ex-info "coordinator rejected listener route publication"
+              {:type :listener-route-publication-rejected
+               :operation operation
+               :response response})))
+  response)
+
+(defn listener-fence [generation]
+  {:resource (:resource generation)
+   :holder (:holder generation)
+   :epoch @(:epoch generation)})
+
+(defn fenced-listener-state!
+  [generation state]
+  (checked-listener-write!
+   [:listener-state state]
+   (north.coord/put-with-fence!
+    (:port generation) (listener-fence generation)
+    (:node generation) "live_input_state" state)))
+
+(defn acquire-listener-generation!
+  [port node agent-id]
+  (let [holder (str (java.util.UUID/randomUUID))
+        resource (listener-resource agent-id)
+        response
+        (send-op port {:op :acquire-lease
+                       :res resource
+                       :holder holder
+                       :ttl-ms listener-lease-ttl-ms})
+        grant (require-listener-lease-grant! holder response)
+        generation {:port port
+                    :node node
+                    :resource resource
+                    :holder holder
+                    :epoch (atom (:epoch grant))
+                    :active? (atom true)
+                    :stop-renewal? (atom false)}]
+    (try
+      ;; A predecessor killed without cleanup may leave durable `armed` behind.
+      ;; Publish a false boundary under this new fence before installing its
+      ;; generation, then make armed the last route write.
+      (fenced-listener-state! generation "frozen")
+      (checked-listener-write!
+       [:listener-generation holder]
+       (north.coord/put-with-fence!
+        port (listener-fence generation)
+        node "live_input_epoch" holder))
+      (fenced-listener-state! generation "armed")
+      generation
+      (catch Exception error
+        (try
+          (send-op port {:op :release-lease
+                         :res resource
+                         :holder holder
+                         :epoch @(:epoch generation)})
+          (catch Exception _ nil))
+        (throw error)))))
+
+(defn renew-listener-generation!
+  [generation]
+  (locking generation
+    (when @(:active? generation)
+      (let [response
+            (send-op
+             (:port generation)
+             {:op :renew-lease
+              :res (:resource generation)
+              :holder (:holder generation)
+              :epoch @(:epoch generation)
+              :ttl-ms listener-lease-ttl-ms})
+            grant (require-listener-lease-grant!
+                   (:holder generation) response)]
+        (reset! (:epoch generation) (:epoch grant))
+        grant))))
+
+(defn finish-listener-generation!
+  "Freeze before release while this generation still owns its fence. Cleanup is
+   idempotent and best-effort: a lost fence means a successor already owns the
+   route, so the predecessor must not touch its state."
+  [generation]
+  (reset! (:stop-renewal? generation) true)
+  (locking generation
+    (when (compare-and-set! (:active? generation) true false)
+      (try
+        (fenced-listener-state! generation "frozen")
+        (catch Exception error
+          (binding [*out* *err*]
+            (println
+             (str "north listen: listener freeze skipped: "
+                  (or (.getMessage error) (.getName (class error)))))
+            (flush))))
+      (try
+        (send-op (:port generation)
+                 {:op :release-lease
+                  :res (:resource generation)
+                  :holder (:holder generation)
+                  :epoch @(:epoch generation)})
+        (catch Exception error
+          (binding [*out* *err*]
+            (println
+             (str "north listen: listener lease release skipped: "
+                  (or (.getMessage error) (.getName (class error)))))
+            (flush)))))))
+
+(defn start-listener-renewer!
+  [generation unavailable!]
+  (future
+    (loop []
+      (Thread/sleep listener-renew-interval-ms)
+      (when-not @(:stop-renewal? generation)
+        (if-let [error
+                 (try
+                   (renew-listener-generation! generation)
+                   nil
+                   (catch Exception error error))]
+          (unavailable! error)
+          (recur))))))
+
+(defn with-native-listener-generation!
+  "Run BODY after the subscription handshake. Native sessions publish one
+   renewable listener generation; managed lanes retain SDK-only route authority."
+  [port node agent-id socket body]
+  (if-not (= "session" (rf port node "kind"))
+    (body)
+    (let [generation (acquire-listener-generation! port node agent-id)
+          renewer (start-listener-renewer!
+                   generation
+                   (fn [_]
+                     (try (.close ^java.net.Socket socket)
+                          (catch Exception _ nil))))
+          shutdown-hook
+          (Thread.
+           (fn [] (finish-listener-generation! generation))
+           (str "north-listener-cleanup-" agent-id))]
+      (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
+      (try
+        (body)
+        (finally
+          (reset! (:stop-renewal? generation) true)
+          (future-cancel renewer)
+          (finish-listener-generation! generation)
+          (try
+            (.removeShutdownHook (Runtime/getRuntime) shutdown-hook)
+            (catch IllegalStateException _ nil)))))))
+
+(defn with-validated-native-listener-generation!
+  [port node agent-id socket subscription-response body]
+  (north.coord/validate-subscription! subscription-response)
+  (with-native-listener-generation! port node agent-id socket body))
+
+(defn stop-listener! []
+  (throw (ex-info "listener one-shot complete" {:type :listener-stop})))
 
 (defn run-with-reconnect!
   "Drive subscription passes until a test/embedding pass returns :stop.
@@ -263,8 +446,13 @@
                    (str (pr-str (north.coord/log-envelope sub)) "\n")
                    java.nio.charset.StandardCharsets/UTF_8))
           (.flush w)
-          (north.coord/validate-subscription!
-           (north.coord/read-line-bounded! reader))
+          ;; Publication starts only after the daemon has acknowledged this
+          ;; exact subscription. A listener that never completes the handshake
+          ;; therefore cannot advertise itself as reachable.
+          (with-validated-native-listener-generation!
+           port node uuid s
+           (north.coord/read-line-bounded! reader)
+           (fn []
           (.setSoTimeout s 0)            ; validated long-lived stream: wait indefinitely for pushes
           (println
            (format
@@ -415,7 +603,7 @@
                             (north.message-audience/complete-delivery! port l uuid claim)
                             (println (str "   ↳ acked_by " uuid))
                             (flush))
-                          (when once? (System/exit 0))))
+                          (when once? (stop-listener!))))
 
                       ;; (c2) command landing: a @cmd:<id> whose routing `target` is one of my addrs.
                       ;; `target` is asserted LAST, so op+args are present. Drive the forward-chaining
@@ -427,7 +615,7 @@
                       (do (if react?
                             (react-pending! port uuid @addrs)   ; --react: execute + ack + reply
                             (println (format "⌘  COMMAND %s  op=%s  (target %s)" l (rf port l "op") r))) (flush)
-                          (when once? (System/exit 0)))
+                          (when once? (stop-listener!)))
 
                       ;; Backward-compatible recovery for unscoped listeners and
                       ;; historical producers that used failed_by retraction as
@@ -440,7 +628,7 @@
                       ;; (d) watched-thread activity
                       (and (= op "assert") (contains? @watched l))
                       (do (println (format "◆  THREAD %s  %s = %s" l p r)) (flush)
-                          (when once? (System/exit 0)))
+                          (when once? (stop-listener!)))
 
                       ;; (e) observer-driven followed-thread activity. Replay
                       ;; matching stable principals into durable notifications.
@@ -457,15 +645,17 @@
               ;; --scoped re-scope: break the inner read-loop so the outer reconnects with the new filter
               (if @reconnect?
                 (do (println "  ↳ re-scoping subscription (addr/watch changed)…") (flush))
-                (recur)))))))
+                (recur)))))))))
             (if @reconnect?
               {:reason :rescope}
               {:reason :closed
                :message "coordinator subscription stream closed"})
             (catch Exception error
-              {:reason :unavailable
-               :message (or (.getMessage error)
-                            (.getName (class error)))}))))
+              (if (= :listener-stop (:type (ex-data error)))
+                {:reason :stop}
+                {:reason :unavailable
+                 :message (or (.getMessage error)
+                              (.getName (class error)))})))))
    (fn [delay-ms] (Thread/sleep delay-ms))
    (fn [result delay-ms]
      (binding [*out* *err*]
