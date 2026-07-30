@@ -819,7 +819,9 @@ assert specific["hookEventName"] == "SessionStart"
 context = specific["additionalContext"]
 assert sys.argv[3] in context
 assert f"{sys.argv[2]}/bin/north listen {sys.argv[3]}" in context
-assert f"{sys.argv[2]}/bin/firn-rebuild-coordinated --why" in context
+assert f"{sys.argv[2]}/bin/north rebuild request --why" in context
+# Anti-ratchet: the injection must never hand an agent the wrapper back.
+assert f"{sys.argv[2]}/bin/firn-rebuild-coordinated --why" not in context
 PY
             test "$(cat "$hook_runtime/north-agent-ids/$hook_key")" = \
               "$hook_actor"
