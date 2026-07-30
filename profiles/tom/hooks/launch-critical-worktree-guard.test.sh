@@ -91,7 +91,7 @@ check deny  "$ROOT/client/msa/app/main/src/x.py"      "a client project's nested
 check allow "$ROOT/proj/wt-x/src/x.py"                "its worktree is the destination"
 check allow "$ROOT/proj/scratch.txt"                  "the container root is not a checkout"
 check allow "$ROOT/runtime-data/state.json"           "bare .git, no main/: runtime state stays writable"
-check allow "$ROOT/reference/upstream/main/README.md" "~/code/reference is read-only context"
+check allow "$ROOT/reference/upstream/main/README.md" "reference checkouts are read-only context"
 
 # Bash entrance on the same fixture: WIP destruction vs the landing flow.
 case "$(bash_decide "git -C $ROOT/proj/main reset --hard HEAD~1" "$HOME")" in
