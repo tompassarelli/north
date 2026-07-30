@@ -2,14 +2,21 @@
 ;; Shared coordinator-wire regressions that do not require a Fram checkout:
 ;; a pre-fence daemon must see only the unknown :for-log envelope, and a peer
 ;; that accepts but never replies must hit North's bounded read deadline.
-(require '[babashka.process :as proc]
+(require '[babashka.fs :as fs]
+         '[babashka.process :as proc]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root
   (.getCanonicalPath
-   (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
+   (io/file
+    (or (System/getenv "NORTH_TEST_ROOT")
+        (str (.getParent (io/file (System/getProperty "babashka.file")))
+             "/../..")))))
+(def selector-child-form
+  (str "(load-file (str (System/getenv \"NORTH_ROOT\") \"/cli/coord.clj\")) "
+       "(print (north.coord/expected-log))"))
 (def child-form
   (str "(load-file (str (System/getenv \"NORTH_ROOT\") \"/cli/coord.clj\")) "
        "(prn (north.coord/append! (Integer/parseInt (System/getenv \"NORTH_TEST_PORT\")) "
@@ -37,7 +44,60 @@
 (defn check! [label value]
   (swap! checks conj [label (boolean value)]))
 
+(defn selected-log [assignments]
+  (apply
+   proc/shell
+   {:continue true :out :string :err :string}
+   (concat
+    ["env" "-u" "FRAM_LOG" "-u" "FRAM_TELEMETRY_LOG"
+     (str "NORTH_ROOT=" root)]
+    assignments
+    ["bb" "-e" selector-child-form])))
+
 (load-file (str root "/cli/coord.clj"))
+
+(let [fixture
+      (.toFile
+       (java.nio.file.Files/createTempDirectory
+        "north-coord-selector"
+        (make-array java.nio.file.attribute.FileAttribute 0)))
+      home (io/file fixture "home")
+      state (io/file home ".local/state/north")
+      facts (io/file state "facts.log")
+      coordination (io/file state "coordination.log")
+      telemetry (io/file state "telemetry.log")]
+  (try
+    (.mkdirs state)
+    (doseq [file [facts coordination telemetry]] (spit file ""))
+    (let [explicit
+          (selected-log
+           [(str "HOME=" (.getPath home))
+            (str "FRAM_LOG=" (.getPath facts))
+            (str "FRAM_TELEMETRY_LOG=" (.getPath telemetry))])
+          split
+          (selected-log
+           [(str "HOME=" (.getPath home))
+            (str "FRAM_TELEMETRY_LOG=" (.getPath telemetry))])]
+      (check! "explicit FRAM_LOG wins over a seeded split"
+              (and (zero? (:exit explicit))
+                   (= (.getCanonicalPath facts)
+                      (str/trim (:out explicit)))))
+      (check! "seeded split selects coordination.log despite telemetry routing"
+              (and (zero? (:exit split))
+                   (= (.getCanonicalPath coordination)
+                      (str/trim (:out split))))))
+    (io/delete-file coordination)
+    (let [legacy
+          (selected-log
+           [(str "HOME=" (.getPath home))
+            (str "FRAM_TELEMETRY_LOG=" (.getPath telemetry))])]
+      (check! "legacy single-log mode remains compatible"
+              (and (zero? (:exit legacy))
+                   (= (.getCanonicalPath facts)
+                      (str/trim (:out legacy))))))
+    (finally
+      (fs/delete-tree fixture))))
+
 (let [ordinary
       (with-redefs [north.coord/send-op-for-log
                     (fn [_ _ _] (throw (ex-info "ordinary" {})))]
@@ -256,6 +316,26 @@
                (str/includes?
                 (:err result)
                 "coordinator response line is not exactly one valid EDN form"))))
+
+;; A corpus mismatch is an explicit refusal, never an invitation to retry the
+;; same operation without its log fence.
+(let [{:keys [result]}
+      (scripted-peer
+       (fn [socket]
+         (let [output (.getOutputStream socket)]
+           (.write output
+                   (.getBytes
+                    (str (pr-str {:reject ["wrong log"]
+                                  :code :log-mismatch})
+                         "\n")
+                    java.nio.charset.StandardCharsets/UTF_8))
+           (.flush output)))
+       {})
+      response (when (zero? (:exit result))
+                 (edn/read-string (str/trim (:out result))))]
+  (check! "log mismatch remains a fail-closed fenced refusal"
+          (and (= :log-mismatch (:code response))
+               (not (:ok response)))))
 
 ;; A request/response connection has exactly one terminal frame. Silently
 ;; accepting the first line would let a desynchronized or hostile peer smuggle

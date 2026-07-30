@@ -334,6 +334,19 @@ test("env-less MCP SDK launches materialize the canonical North instance exactly
     NORTH_PORT: "7977",
   });
 
+  const splitWithExplicitTelemetry = mcpSpawnEnvironment((home, env) => {
+    const state = join(home, ".local/state/north");
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, "coordination.log"), "");
+    env.FRAM_TELEMETRY_LOG = join(state, "custom-telemetry.log");
+  });
+  expect(splitWithExplicitTelemetry.childEnv).toMatchObject({
+    FRAM_LOG: join(splitWithExplicitTelemetry.home, ".local/state/north/coordination.log"),
+    FRAM_TELEMETRY_LOG: join(splitWithExplicitTelemetry.home, ".local/state/north/custom-telemetry.log"),
+    FRAM_THREADS: join(splitWithExplicitTelemetry.home, ".local/state/north/threads"),
+    NORTH_PORT: "7977",
+  });
+
   const explicit = mcpSpawnEnvironment((_home, env) => {
     const selected = join(_home, "selected");
     mkdirSync(selected, { recursive: true });
