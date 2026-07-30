@@ -61,10 +61,19 @@
 
 ;; ---- the window bound ------------------------------------------------------
 (check "a window that fired 30m ago holds the next collection"
-       (let [p (plan {:last-window-ms (- now (* 30 60 1000))})]
+       (let [p (plan {:last-window-ms (- now (* 30 60 1000))
+                      :requests [(first two-asks)]})]
          (and (= :waiting (:action p))
               (= :window-not-due (:reason p))
               (= (+ (- now (* 30 60 1000)) hour) (:next-due-ms p)))))
+
+(check "an urgent request bypasses an active coalescing window"
+       (= :fire
+          (:action
+           (plan {:last-window-ms (- now (* 30 60 1000))
+                  :requests [(request {:id "urgent" :requester "agent-a"
+                                       :why "runtime stabilization" :at now
+                                       :urgent true})]}))))
 
 (check "a window that fired exactly one window ago is due again"
        (= :fire (:action (plan {:last-window-ms (- now hour)}))))

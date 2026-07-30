@@ -99,7 +99,9 @@
       (assoc base :action :queued
              :reason :rebuild-coordination-off)
 
-      (and last-window-ms (< (- now-ms last-window-ms) window-ms))
+      (and (not-any? :urgent open)
+           last-window-ms
+           (< (- now-ms last-window-ms) window-ms))
       (assoc base :action :waiting
              :reason :window-not-due
              :next-due-ms (+ last-window-ms window-ms))
