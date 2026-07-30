@@ -15,13 +15,10 @@ import {
 const REPO = resolve(import.meta.dir, "..", "..");
 const WRITER = resolve(REPO, "cli", "delivery-evidence-internal.clj");
 export const RUN_RESERVATION_VERSION = "north:run-reservation:v1";
-// A cold Fram projection may consume the full 5s query limit twice (the
-// initial answer plus the writer's bounded retry) before the reservation
-// writer can either continue or report its typed refusal. The former 10s
-// subprocess timeout raced that internal contract and killed the writer first.
-// Keep a finite stale-writer boundary, but leave room for those reads, the 5s
-// marker-last publication window, readback, and bb startup.
-export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 45_000;
+// Must exceed the writer's inner coordinator windows with margin, or it kills a
+// healthy writer instead of letting it report its own typed refusal: read-retry
+// budget 15s, per-read socket deadline 30s, publication deadline 30s, readback.
+export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 180_000;
 // Covers the writer's bounded run/bar lease wait plus provenance reads and the
 // fenced commit. Killing it below those internal bounds can strand a live lease
 // and manufacture an ambiguous proof-transport failure.
@@ -58,16 +55,50 @@ export class DeliveryEvidenceProofTransportFailure extends Error {
   }
 }
 
-/** The sole reservation failure safe to replay before provider construction. */
-export class DeliveryReservationWriterProcessFailure
+/**
+ * A reservation attempt that never received a verdict, so a relaunch with the
+ * SAME context is safe: publication is one atomic batch, so the replay either
+ * finds its own complete reservation or a fresh run subject. A failure carrying
+ * any verdict — refusal, publication deadline, outer-timeout kill — is not one.
+ */
+export abstract class DeliveryReservationReplayableFailure
   extends DeliveryEvidenceRetryableError {
   readonly operation = "reserve";
+}
+
+export class DeliveryReservationWriterProcessFailure
+  extends DeliveryReservationReplayableFailure {
   readonly reason = "writer-process-failure";
 
   constructor(message: string) {
     super(message);
     this.name = "DeliveryReservationWriterProcessFailure";
   }
+}
+
+/** The writer's coordinator connection died mid-request: no verdict was read. */
+export class DeliveryReservationCoordinatorTransportFailure
+  extends DeliveryReservationReplayableFailure {
+  readonly reason = "coordinator-transport-failure";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DeliveryReservationCoordinatorTransportFailure";
+  }
+}
+
+// Transport deaths from north.coord's wire client (cli/coord.clj). A response
+// the writer never read is not a reservation verdict; anything else it prints,
+// including a malformed or oversized frame, stays terminal.
+const COORDINATOR_TRANSPORT_FAILURES = [
+  "coordinator response deadline exceeded",
+  "coordinator closed before sending a response line",
+  "coordinator closed during a response line",
+] as const;
+
+function coordinatorTransportFailure(reason: string | undefined): boolean {
+  return reason !== undefined
+    && COORDINATOR_TRANSPORT_FAILURES.some((failure) => reason.includes(failure));
 }
 
 export interface DeliveryRunContext {
@@ -82,10 +113,11 @@ export interface DeliveryReservation {
   baselineDoneWhen: string[];
 }
 
-// Reservation publication is the final pre-provider gate. A killed writer is
-// safe to relaunch with the SAME context because the coordinator publishes the
-// complete reservation atomically and the writer recognizes an exact replay.
-// Keep the policy here so spawn and dispatch cannot drift: one recovery
+// Reservation publication is the final pre-provider gate. A writer that never
+// delivered a verdict is safe to relaunch with the SAME context because the
+// coordinator publishes the complete reservation atomically and the writer
+// recognizes an exact replay; the relaunch buys fresh coordinator windows, not
+// a wait. Keep the policy here so spawn and dispatch cannot drift: one recovery
 // attempt, one short backoff, and no retry after any acknowledgement.
 export const DELIVERY_RESERVATION_RECOVERY_MAX_ATTEMPTS = 2;
 export const DELIVERY_RESERVATION_RECOVERY_BACKOFF_MS = 100;
@@ -178,7 +210,7 @@ export function reserveDeliveryRunWithRecovery(
     try {
       return reserve(context);
     } catch (error) {
-      if (!(error instanceof DeliveryReservationWriterProcessFailure)
+      if (!(error instanceof DeliveryReservationReplayableFailure)
           || attempt === maxAttempts) {
         throw error;
       }
@@ -348,15 +380,21 @@ export function deliveryEvidenceWriterError(
   processFailure?: unknown,
 ): Error & { retryable?: boolean } {
   let reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
-  let reservationWriterProcessFailure = false;
+  let replayable: ((message: string) => DeliveryReservationReplayableFailure) | undefined;
   if (operation === "reserve" && !reason?.startsWith("run reservation refused:")) {
     const detail = processFailure as { code?: unknown; signal?: unknown };
     const processReason = detail?.code === "ETIMEDOUT" || detail?.signal === "SIGTERM"
       ? "writer-timeout"
-      : reason
-        ? "writer-refusal"
-        : "writer-process-failure";
-    reservationWriterProcessFailure = processReason === "writer-process-failure";
+      : coordinatorTransportFailure(reason)
+        ? "coordinator-transport-failure"
+        : reason
+          ? "writer-refusal"
+          : "writer-process-failure";
+    if (processReason === "writer-process-failure") {
+      replayable = (message) => new DeliveryReservationWriterProcessFailure(message);
+    } else if (processReason === "coordinator-transport-failure") {
+      replayable = (message) => new DeliveryReservationCoordinatorTransportFailure(message);
+    }
     // The requested holder/run are validated before invocation. Do not include
     // the request body or capability: diagnostics are attributable without
     // turning a subprocess failure into a capability disclosure.
@@ -374,9 +412,7 @@ export function deliveryEvidenceWriterError(
     );
   }
   const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
-  if (reservationWriterProcessFailure) {
-    return new DeliveryReservationWriterProcessFailure(message);
-  }
+  if (replayable) return replayable(message);
   return reason?.startsWith("RETRYABLE:")
     || (operation === "reserve" && (
       reason?.includes("reason=writer-timeout")
@@ -399,6 +435,9 @@ export function deliveryReservationFailureCause(error: unknown): string {
   }
   if (message.includes("reason=writer-timeout")) return "writer timed out";
   if (message.includes("reason=writer-process-failure")) return "writer process failed";
+  if (message.includes("reason=coordinator-transport-failure")) {
+    return "coordinator transport failed";
+  }
   if (message === "delivery evidence reserve returned a malformed acknowledgement") {
     return "malformed acknowledgement";
   }
