@@ -128,6 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           bb cli/tests/concern-code-response-test.clj
+          bb cli/tests/concern-terminal-cas-test.clj  # terminal transition commits under concurrent coordination writes
           bb cli/tests/context-replacement-test.clj
           bb cli/tests/mine-verbosity-test.clj
           bb cli/tests/coord-wire-boundary-test.clj

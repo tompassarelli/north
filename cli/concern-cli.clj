@@ -792,20 +792,23 @@
      :footprint-count (count (:footprint resp))
      :overlaps hits}))
 
+;; Peer count here is the whole corpus, so this read ALWAYS runs off one bulk
+;; snapshot — reusing the caller's when a CAS read phase already built it.
 (defn path-overlap-data [port c]
-  (let [mine (concern-meta port c)
-        hits (->> (all-concerns port)
-                  (remove #(= % c))
-                  (map #(concern-meta port %))
-                  (keep (fn [peer]
-                          (let [shared (set/intersection (:touches mine) (:touches peer))]
-                            (when (and (active-concern? mine)
-                                       (active-concern? peer)
-                                       (seq shared))
-                              (canonical-overlap mine peer shared "path")))))
-                  (sort-by :pair-key)
-                  vec)]
-    {:mine mine :overlaps hits}))
+  (binding [*concern-metas* (or *concern-metas* (concern-meta-index port))]
+    (let [mine (concern-meta port c)
+          hits (->> (all-concerns port)
+                    (remove #(= % c))
+                    (map #(concern-meta port %))
+                    (keep (fn [peer]
+                            (let [shared (set/intersection (:touches mine) (:touches peer))]
+                              (when (and (active-concern? mine)
+                                         (active-concern? peer)
+                                         (seq shared))
+                                (canonical-overlap mine peer shared "path")))))
+                    (sort-by :pair-key)
+                    vec)]
+      {:mine mine :overlaps hits})))
 
 (defn render-overlap-data [spine {:keys [mine footprint-count overlaps]} statuses none-msg]
   (let [hits (filter #(or (nil? statuses)
@@ -976,7 +979,7 @@
   [spine raw]
   ;; Whole-corpus reconciliation is the same per-peer read as a transition; it
   ;; reads one bulk snapshot rather than nine round trips per concern.
-  (binding [*concern-metas* (if raw *concern-metas* (concern-meta-index spine))]
+  (binding [*concern-metas* (or *concern-metas* (concern-meta-index spine))]
     (let [concerns
           (if raw
             [(existing-concern! spine raw)]
