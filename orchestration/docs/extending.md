@@ -60,7 +60,7 @@ or report shape requires a bespoke composition. The v2 machine schema retains
    explicit; a nearest stock template does not silently donate its authority.
    Stable role/composition IDs are lowercase kebab case, start with a letter,
    and contain only lowercase letters, digits, and single hyphens. Retired IDs
-   remain reserved; use `scout`, `analyst`, or `research-scientist` instead of
+   remain reserved; use `scout`, `analyst`, or `cs-researcher` instead of
    the ambiguous former `researcher` role.
 6. `promotionCandidate` defaults false; nominate explicitly when useful.
    Recurrence adds evidence for a later human/orchestrator review; it never

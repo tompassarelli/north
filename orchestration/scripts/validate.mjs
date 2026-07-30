@@ -65,7 +65,7 @@ const providerDefinitionKeys = [
 const stockTemplateNames = [
   "executor", "implementer", "integrator", "designer", "director",
   "team-lead", "program", "portfolio",
-  "scout", "analyst", "reviewer", "verifier", "judge", "research-scientist",
+  "scout", "analyst", "reviewer", "verifier", "judge", "cs-researcher",
 ];
 if (staffing.version !== 2 || staffingSchema.properties?.version?.const !== 2 ||
     JSON.stringify(Object.keys(staffing).sort()) !== JSON.stringify([...staffingKeys].sort()) ||
@@ -145,7 +145,7 @@ const roleIdCases = [
   ["migration-forensics", true], ["role2", true],
   ["../outside", false], ["foo/bar", false], ["x:y", false],
   ["migration forensics", false], ["foo\nbar", false], ["foo\n", false],
-  ["Migration-Forensics", false], ["researcher", false],
+  ["Migration-Forensics", false], ["researcher", false], ["research-scientist", false],
 ];
 for (const [value, expected] of roleIdCases) {
   let runtimeAccepted = true;
@@ -495,15 +495,15 @@ try {
 const unrelatedProseFixture = { ...staffing, presets: staffing.presets.map((preset, index) =>
   index === 0 ? { ...preset, description: `${preset.description} Consolidated, fabled resolution.` } : preset) };
 validateProviderNeutralPresetProse(unrelatedProseFixture);
-// Research is a FUNCTION, not a grade: research-scientist is decoupled from the
+// Research is a FUNCTION, not a grade: cs-researcher is decoupled from the
 // retired research-grade rung and defaults to the staff frontier/xhigh contract
 // it shares with designer and judge. Distinctness from scout is enforced on the
 // task-shape axes (frontier/xhigh worker vs scout's economy/junior), not a grade.
 if (staffing.aliases.some(({ name }) => name === "researcher") ||
     !staffing.presets.find(({ name, taskGrade }) => name === "scout" && taskGrade === "junior") ||
     !staffing.presets.find(({ name, tier, deliberation, topology }) =>
-      name === "research-scientist" && tier === "frontier" && deliberation === "xhigh" && topology === "worker"))
-  throw new Error("research assistant/scout and cutting-edge research-scientist must remain distinct");
+      name === "cs-researcher" && tier === "frontier" && deliberation === "xhigh" && topology === "worker"))
+  throw new Error("research assistant/scout and cutting-edge cs-researcher must remain distinct");
 const openaiFixture = providerCatalogs.openai;
 const missingModelDeltas = { ...openaiFixture.modelDeltas };
 delete missingModelDeltas[openaiFixture.tiers.senior.model];
@@ -898,7 +898,7 @@ for (const [name, taskGrade, tier, deliberation] of [
 const nonAuthoringPresets = [
   "designer", "director", "team-lead", "program", "portfolio",
   "scout", "analyst", "reviewer", "verifier", "judge",
-  "research-scientist",
+  "cs-researcher",
 ];
 for (const name of nonAuthoringPresets) {
   const preset = staffing.presets.find((candidate) => candidate.name === name);
@@ -984,8 +984,11 @@ for (const alias of staffing.aliases) {
 
 {
   const retired = compose(["researcher"]);
-  if (retired.status === 0 || !retired.stderr.includes("role 'researcher' is retired because it was ambiguous"))
+  if (retired.status === 0 || !retired.stderr.includes("role 'researcher' is retired"))
     throw new Error("ambiguous researcher role must fail with a teaching migration");
+  const renamed = compose(["research-scientist"]);
+  if (renamed.status === 0 || !renamed.stderr.includes("cs-researcher"))
+    throw new Error("retired research-scientist role must redirect to cs-researcher");
 }
 
 // Bespoke composition: complete authority contract plus explicit promotion decision.
@@ -1386,19 +1389,19 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
   if (!/evidence quality\/validity > decision correctness > coverage\s+of the stated question > speed > polish/.test(postures))
     throw new Error("evaluate posture collision order drifted");
   if (!/Posture never expands[\s\S]{0,120}capability contract/i.test(postures) ||
-      !/read-only probes and written hypotheses for non-authoring\s+agents/i.test(postures))
+      !/Licensed within the capability contract: throwaway spikes and probes/i.test(postures))
     throw new Error("explore posture must not grant authoring authority to read-only stock templates");
   const analystDescription = staffing.presets.find(({ name }) => name === "analyst")?.description ?? "";
   if (!/falls back to explicitly static-only analysis[\s\S]{0,100}unobserved behavior/i.test(analystDescription) ||
       !/ANALYST[\s\S]{0,1000}no enforceable read-only execution surface[\s\S]{0,180}static-only/i.test(roles))
     throw new Error("analyst must fall back to labeled static-only analysis when read-only execution is unavailable");
   const researchDescription = staffing.presets.find(
-    ({ name }) => name === "research-scientist",
+    ({ name }) => name === "cs-researcher",
   )?.description ?? "";
-  if (!/existing non-mutating tools or probes only/i.test(researchDescription) ||
-      !/new script[\s\S]{0,120}apparatus[\s\S]{0,120}ephemeral scratch/i.test(researchDescription) ||
-      !/RESEARCH-SCIENTIST[\s\S]{0,900}new script[\s\S]{0,160}ephemeral scratch/i.test(roles))
-    throw new Error("research-scientist must use existing non-mutating probes and hand off all new apparatus authoring");
+  if (!/existing non-mutating probes only/i.test(researchDescription) ||
+      !/never authors code or apparatus/i.test(researchDescription) ||
+      !/CS-RESEARCHER[\s\S]{0,900}new script[\s\S]{0,160}ephemeral scratch/i.test(roles))
+    throw new Error("cs-researcher must use existing non-mutating probes and hand off all new apparatus authoring");
   if (!providerMatrix.includes("sources do not") || !providerMatrix.includes("exact rung economics"))
     throw new Error("generated provider matrix must distinguish official provenance from Orchestration calibration judgments");
   if (!providerMatrix.includes("every exact catalog model covered for each fact") ||

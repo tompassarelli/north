@@ -168,7 +168,7 @@ test("ambiguous researcher role fails with the three explicit research functions
   });
   expect(result.status).toBe(1);
   expect(result.stdout).toContain("researcher is retired because it was ambiguous");
-  for (const role of ["scout", "analyst", "research-scientist"]) expect(result.stdout).toContain(role);
+  for (const role of ["scout", "analyst", "cs-researcher"]) expect(result.stdout).toContain(role);
 });
 
 const delegate = (...args: string[]) => spawnSync("bb", [cli, "delegate", ...args], {

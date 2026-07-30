@@ -21,13 +21,16 @@ responsibility, deliverable, capability/authority boundary, done criteria, or
 report shape requires a bespoke composition. Machine payloads retain v2
 `kind:"preset"` and `nearestPreset` keys for compatibility.
 
+<!-- orchestration:full-only -->
 ORTHOGONAL AXES — never smuggle one decision inside another:
 - FUNCTION/ROLE names the responsibility and deliverable: executor,
   implementer, integrator, designer, director, scout, analyst, verifier, judge,
-  reviewer, research-scientist, and so on.
-- TASK GRADE names the prior for the work itself: novice, junior, mid, senior,
-  staff, principal, or research-grade. Grade is scope, autonomy, novelty, and
-  cross-boundary responsibility — not a model name and not a worker identity.
+  reviewer, cs-researcher, and so on.
+- TASK GRADE names the prior for the work itself, on two segments: novice →
+  junior → mid → senior (IC capability) and staff → principal → distinguished
+  (scope/influence). Grade is scope, autonomy, novelty, and cross-boundary
+  responsibility — not a model name and not a worker identity; research is a
+  function, not a grade.
 - DOMAIN REQUIREMENTS name expertise/context the worker must receive.
 - TOPOLOGY names worker or orchestrator coordination authority. It is
   conceptually independent of the other axes, but current templates ship
@@ -45,6 +48,7 @@ and not limits; every changed overrideable template axis is listed in
 `overrides[]` with one `overrideReason`. Topology is fixed for a stock template,
 not overrideable. An unchanged template carries
 neither a fake override nor a reason.
+<!-- /orchestration:full-only -->
 
 SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
 - direct — decompose, staff, verify, and reconcile ≥2 independent pieces;
@@ -75,11 +79,16 @@ SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
 - judge — rank two or more supplied alternatives against a stated rubric
   → orchestration:judge (frontier)
 - research-science — novel hypothesis formation, experiment design, and work
-  whose result or method is not already known → orchestration:research-scientist
-  (frontier; research-grade). It may invoke existing non-mutating tools and
-  probes only; authoring any new script, fixture, apparatus, or code, even
-  ephemeral scratch, is handed to an authoring role. This is not ordinary
-  source gathering.
+  whose result or method is not already known → orchestration:cs-researcher
+  (frontier; grade defaults staff — research is a function, not a grade). It
+  may invoke existing non-mutating tools and probes only; authoring any new
+  script, fixture, apparatus, or code, even ephemeral scratch, is handed to an
+  authoring role. This is not ordinary source gathering.
+- scope ladder (composite work at rising coordination breadth) — one
+  workstream → orchestration:team-lead (senior); several workstreams →
+  orchestration:program (frontier); the whole board → orchestration:portfolio
+  (frontier). director is the un-laddered generic composite orchestrator at
+  team-lead altitude.
 
 LAWS
 1. FOUNDATIONAL IMPACT, NOT REPOSITORY LAYER: implementation-only work may
@@ -119,6 +128,7 @@ LAWS
    coordinator; per-piece evidence or verifier reports never establish the
    whole by addition. A verifier reports a per-claim verdict + probe run +
    observed result.
+<!-- orchestration:full-only -->
    The coordinator nevertheless owns the final judgment: drive the assembled
    result end-to-end and independently spot-check the load-bearing assertion or
    seam contributed by each child on which that judgment depends. Keep this
@@ -260,6 +270,7 @@ Budget exhaustion, a repeated dependency cycle, bounded no-progress, or an
 unsettled child stops expansion and produces an explicit incomplete/escalated
 outcome; none is converted into a silent success or a reason to bypass the
 parent's reduction boundary.
+<!-- /orchestration:full-only -->
 
 BRIEF DONE-BARS. Every brief an orchestrator fans out ends each step with a
 checkable done-bar — a command + its expected output, or a grep + the hit
@@ -286,6 +297,7 @@ harness gives you:
   the squad pick or drop to an unrouted spawn.
 <!-- /orchestration:spawn-surfaces -->
 
+<!-- orchestration:full-only -->
 WORKFLOWS: these laws govern STAFFING every stage of any workflow. Use the
 active adapter's fenced invocation example for its concrete syntax, and pin
 the semantic route per stage:
@@ -323,3 +335,4 @@ for review whether nominated or not, never automatic promotion.
 Extension spec: docs/extending.md · assemble parts: the
 compose skill · calibrate a delta for a new model: the elicit skill.
 Templates are starting points, never the ceiling of possibility.
+<!-- /orchestration:full-only -->

@@ -422,7 +422,7 @@ for (const alias of COMPAT_ALIASES) {
   if (check) { console.error(`STALE: agents/${alias.name}.md (compat alias)`); dirty++; }
   else { writeFileSync(path, out); console.log(`wrote agents/${alias.name}.md (compat alias)`); }
 }
-for (const pathName of ["agents/researcher.md"]) {
+for (const pathName of ["agents/researcher.md", "agents/research-scientist.md"]) {
   const path = resolve(ROOT, pathName);
   if (!existsSync(path)) continue;
   if (check) { console.error(`STALE retired adapter: ${pathName}`); dirty++; }

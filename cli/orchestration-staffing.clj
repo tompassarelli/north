@@ -6,7 +6,7 @@
 
 (def stock-preset-names
   #{"executor" "implementer" "integrator" "designer" "director" "scout"
-    "analyst" "reviewer" "verifier" "judge" "research-scientist"
+    "analyst" "reviewer" "verifier" "judge" "cs-researcher"
     "team-lead" "program" "portfolio"})
 
 (def stock-authoring-roles #{"executor" "implementer" "integrator"})
