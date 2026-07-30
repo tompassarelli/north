@@ -57,6 +57,11 @@
                        :context "@catalog:current version"
                        :error (:error resp)
                        :code (:code resp)})))
+    ;; :value is the coexist-elect winner (earliest fact), so an appended pointer
+    ;; would project a STALE version silently — refuse instead of electing one.
+    (when (:ambiguous? resp)
+      (throw (ex-info "@catalog:current holds multiple catalog_version values — pointer flip did not supersede"
+                      {:type :catalog-pointer-ambiguous :values (:values resp)})))
     (or (some-> (:value resp) parse-long)
         (throw (ex-info "no @catalog:current pointer — import first"
                         {:type :catalog-pointer-missing})))))
