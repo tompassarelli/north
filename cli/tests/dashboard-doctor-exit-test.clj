@@ -26,12 +26,27 @@
     (finally
       (System/setProperty "babashka.file" test-script))))
 
+(def healthy-coordination-probe
+  {:version "north:coordination-probe:v1"
+   :expected_log "/data/coordination.log"
+   :served_log "/data/coordination.log"
+   :log_fence_ok true
+   :lease_write_readback_ok true
+   :live_session_leases 3
+   :lineage_registrations_in_ttl 4
+   :lease_ttl_ms 1800000})
+
 (defn exercise-doctor
   ([failed?] (exercise-doctor failed? []))
   ([failed? dead-letters]
    (exercise-doctor failed? dead-letters (fn [_ _] {:available true :behind 0 :dirty-files 0})))
-  ([failed? dead-letters drift]
-  (with-redefs [coord-safety-probe
+  ([failed? dead-letters drift] (exercise-doctor failed? dead-letters drift {}))
+  ([failed? dead-letters drift coordination]
+  (with-redefs [coordination-probe
+                (fn [] (get coordination :probe healthy-coordination-probe))
+                roster-projection-probe
+                (fn [] (get coordination :roster {:entries 3}))
+                coord-safety-probe
                 (fn [] (if failed?
                          {:ok false
                           :err "coordinator runtime identity UNHEALTHY — stale source"
@@ -131,6 +146,72 @@
   (check "dirty primary checkout fails doctor with snapshot exclusion alarm"
          (and (false? healthy)
               (str/includes? output "[ERR] PRIMARY DIRTY: 2 files — snapshot builds EXCLUDE these (silent-exclusion risk)"))))
+
+;; THE NEVER-AGAIN CLAUSE: doctor was green for months while the roster was dark.
+(let [{:keys [healthy output]} (exercise-doctor false)]
+  (check "coordination health is green when the hook path registers and reads back"
+         (and healthy
+              (str/includes? output "coordination health")
+              (str/includes? output "hook-path log fence /data/coordination.log")
+              (str/includes? output "presence write + readback")
+              (str/includes? output "presence 3 live lease(s)")
+              (str/includes? output "roster projection north:agent-roster:v1"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:probe (assoc healthy-coordination-probe
+                      :log_fence_ok false
+                      :expected_log "/data/facts.log")})]
+  (check "hook-path log fence mismatch fails doctor" (false? healthy))
+  (check "hook-path log fence mismatch names both logs"
+         (and (str/includes? output "[ERR]")
+              (str/includes? output "/data/facts.log")
+              (str/includes? output "/data/coordination.log"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:probe (assoc healthy-coordination-probe :lease_write_readback_ok false)})]
+  (check "a presence lease that does not survive write+readback fails doctor"
+         (and (false? healthy)
+              (str/includes? output "did not survive write + readback"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:probe (assoc healthy-coordination-probe
+                      :live_session_leases 0
+                      :lineage_registrations_in_ttl 7)})]
+  (check "zero live leases while sessions registered inside the TTL fails doctor"
+         (and (false? healthy)
+              (str/includes? output "presence is DARK")
+              (str/includes? output "7 session registration(s)"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:probe (assoc healthy-coordination-probe
+                      :live_session_leases 0
+                      :lineage_registrations_in_ttl 0)})]
+  (check "an honestly idle machine (no leases, no registrations) stays green"
+         (and healthy (str/includes? output "presence 0 live lease(s)"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:roster {:err "agent subject projection unavailable"}})]
+  (check "an erroring agent/roster projection fails doctor"
+         (and (false? healthy)
+              (str/includes? output "agent subject projection unavailable"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:probe {:err "coordination probe exceeded its 20000ms budget"}})]
+  (check "an unavailable coordination probe fails doctor rather than reading green"
+         (and (false? healthy)
+              (str/includes? output "20000ms budget"))))
 
 (let [child @(p/process ["env"
                          "NORTH_DASHBOARD_LIB=1"

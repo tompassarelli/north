@@ -9,7 +9,7 @@
 ;; Vocabulary law: facts (never claims), lanes/agents throughout.
 ;;
 ;;   north dashboard   → cmd-dashboard   (agents, concerns, board, daemons, health, profile)
-;;   north doctor      → cmd-doctor      (coordinator handshake, daemons, health, rev skew, env, guard hooks)
+;;   north doctor      → cmd-doctor      (coordinator handshake, daemons, coordination health, rev skew, env, guard hooks)
 
 (require '[babashka.process :as p]
          '[clojure.string :as str]
@@ -765,6 +765,91 @@
           (println (str "    " (grn "[ok]  ")
                         "no recent pending mail targets absent identities")))))))
 
+;; ---- coordination health ----------------------------------------------------
+;; Doctor was green for months while `north agents` printed nothing and the
+;; presence table was empty. Roster darkness is now a RED doctor finding.
+(def COORDINATION-PROBE-TIMEOUT-MS 20000)
+(def ROSTER-PROBE-TIMEOUT-MS 25000)
+
+(defn coordination-probe
+  "Reproduce the HOOK path: unwrapped bb, FRAM_LOG absent — that is the exact
+   environment north-on-spawn/-tooluse register presence from, and a probe that
+   only exercises doctor's own wrapped env cannot see a fence fault there."
+  []
+  (let [r (run ["env" "-u" "FRAM_LOG" "bb"
+                (str NORTH "/cli/presence-cli.clj") PORT "coordination-probe-json"]
+               :timeout COORDINATION-PROBE-TIMEOUT-MS)
+        payload (try (json/parse-string (str/trim (or (:out r) "")) true)
+                     (catch Exception _ nil))]
+    (cond
+      (:timeout r) {:err (str "coordination probe exceeded its "
+                              COORDINATION-PROBE-TIMEOUT-MS "ms budget")}
+      (not (map? payload))
+      {:err (str "coordination probe returned no usable payload"
+                 (when-let [e (not-empty (str/trim (or (:err r) "")))] (str ": " e)))}
+      (not= "north:coordination-probe:v1" (:version payload))
+      {:err "coordination probe returned an unrecognised contract"}
+      :else payload)))
+
+(defn roster-projection-probe []
+  (let [r (run [(str NORTH "/bin/north") "agents" "--json"]
+               :timeout ROSTER-PROBE-TIMEOUT-MS)]
+    (cond
+      (:timeout r) {:err (str "roster projection exceeded its "
+                              ROSTER-PROBE-TIMEOUT-MS "ms budget")}
+      (not (:ok r)) {:err (str "roster projection failed"
+                               (when-let [e (not-empty (str/trim (or (:err r) "")))]
+                                 (str ": " e)))}
+      :else
+      (let [payload (try (json/parse-string (str/trim (or (:out r) "")) true)
+                         (catch Exception _ nil))]
+        (if (and (map? payload)
+                 (= "north:agent-roster:v1" (:version payload))
+                 (vector? (:agents payload)))
+          {:entries (count (:agents payload))}
+          {:err "roster projection did not emit north:agent-roster:v1"})))))
+
+(defn render-coordination-health! []
+  (println (bold "  coordination health"))
+  (echo-cmd "env" "-u" "FRAM_LOG" "bb"
+            (str NORTH "/cli/presence-cli.clj") PORT "coordination-probe-json")
+  (let [probe (coordination-probe)
+        fail! (fn [msg] (mark-doctor-failed!)
+                (println (str "    " (red "[ERR] ") " " msg)))
+        ok! (fn [msg] (println (str "    " (grn "[ok]  ") " " msg)))]
+    (if-let [e (:err probe)]
+      (fail! e)
+      (let [{:keys [error log_fence_ok expected_log served_log lease_write_readback_ok
+                    live_session_leases lineage_registrations_in_ttl lease_ttl_ms]} probe]
+        (cond
+          error (fail! (str "coordination probe failed: " error))
+
+          (not log_fence_ok)
+          (fail! (str "hook-path log fence mismatch: a direct-bb client fences on "
+                      expected_log " but the coordinator serves " served_log
+                      " — presence registration is silently rejected"))
+
+          :else (ok! (str "hook-path log fence " expected_log)))
+        (when (and (not error) log_fence_ok)
+          (if lease_write_readback_ok
+            (ok! "presence write + readback through the hook path")
+            (fail! "presence lease did not survive write + readback through the hook path"))
+          (let [ttl-min (when (integer? lease_ttl_ms) (quot lease_ttl_ms 60000))
+                summary (str live_session_leases " live lease(s) · "
+                             lineage_registrations_in_ttl
+                             " session registration(s) in the " ttl-min "m TTL")]
+            (if (and (integer? live_session_leases) (zero? live_session_leases)
+                     (integer? lineage_registrations_in_ttl)
+                     (pos? lineage_registrations_in_ttl))
+              (fail! (str "presence is DARK: " summary
+                          " — the roster cannot see sessions the lineage hooks registered"))
+              (ok! (str "presence " summary)))))))
+    (let [roster (roster-projection-probe)]
+      (if-let [e (:err roster)]
+        (fail! e)
+        (ok! (str "roster projection north:agent-roster:v1 · "
+                  (:entries roster) " entries"))))))
+
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
@@ -811,6 +896,7 @@
     (when (str/includes? reactor-line "[ERR]") (mark-doctor-failed!))
     (println (str "    " reactor-line)))
   (render-dead-letters! PORT)
+  (render-coordination-health!)
   ;; 24h/7d activity is observability, not readiness. `north health` currently
   ;; runs a deliberately broad aggregate and can take tens of seconds on the
   ;; large graph. Doctor consumes only a recent successful dashboard cache and
