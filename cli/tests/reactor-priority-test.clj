@@ -61,20 +61,54 @@
          summary))
 
 (let [calls (atom [])
-      failure
-      (try
-        (with-redefs-fn
-          (stage-stubs
-           calls
-           #(throw (ex-info "fixture stale transition failed" {}))
-           {:status :skipped})
-          #(sweep! true))
-        nil
-        (catch Throwable error error))]
-  (check "stale-concern failure occurs only after rebuild collection"
+      exit (atom nil)
+      output
+      (with-out-str
+        (binding [*err* *out*]
+          (reset!
+           exit
+           (with-redefs-fn
+             (assoc
+              (stage-stubs
+               calls
+               #(throw (ex-info "fixture stale transition failed" {}))
+               {:status :skipped})
+              #'with-sweep-lock (fn [f] (f)))
+             #(sweep-once-exit-code)))))]
+  (check "post-launch maintenance failure preserves the owner success"
          (and (= [:rebuild-window :concerns] @calls)
-              (= "fixture stale transition failed" (.getMessage failure)))
-         {:calls @calls :failure failure}))
+              (zero? @exit)
+              (str/includes? output "terminal=completed")
+              (str/includes? output "rebuild-window=fired")
+              (str/includes? output "maintenance=degraded")
+              (not (str/includes? output "terminal=failed")))
+         {:calls @calls :exit @exit :output output}))
+
+(let [calls (atom [])
+      exit (atom nil)
+      output
+      (with-out-str
+        (binding [*err* *out*]
+          (reset!
+           exit
+           (with-redefs-fn
+             (assoc
+              (stage-stubs calls (constantly 0) {:status :skipped})
+              #'with-sweep-lock (fn [f] (f))
+              #'maybe-rebuild-window!
+              (fn [_]
+                (swap! calls conj :rebuild-window)
+                {:action "error"
+                 :count 0
+                 :error (ex-info "fixture queue collection failed" {})}))
+             #(sweep-once-exit-code)))))]
+  (check "queue-owner failure remains nonzero and actionable"
+         (and (= [:rebuild-window] @calls)
+              (= 1 @exit)
+              (str/includes? output "terminal=failed")
+              (str/includes? output "fixture queue collection failed")
+              (not (str/includes? output "maintenance=degraded")))
+         {:calls @calls :exit @exit :output output}))
 
 (let [results @checks
       passed (count (filter second results))]
