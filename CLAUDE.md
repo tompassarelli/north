@@ -21,11 +21,19 @@ always-loaded surface: load-bearing rules + thin pointers. Detail lives in what 
   tools.deps at boot is a hard error, never a fallback), and a service restart
   adopts it. Rollback = promote the previous SHA. `north doctor` prints the
   running SHA.
-- **Rebuilds are for system config only**: of the local inputs, only fram
-  auto-promotes its committed main at `firn rebuild`; north and beagle are
-  dev-channel and never trigger one.
-- Provider lifecycle hooks (north-on-spawn/-tooluse/-stop, guards) stay
-  generation-pinned on purpose — enforcement never runs from a mutable tree.
+- **Rebuilds are for system config only**: no local input auto-promotes at
+  `firn rebuild` any more. Fram's adoption verb is `north-coord-runtime
+  promote`; north and beagle are dev-channel and never trigger a rebuild.
+- Provider **guards** (agent-spawn/tripwire/clock-guard, harness-dial,
+  registry, and Beagle's Codex hooks) adopt through
+  `north-enforcement-promote <rev> --why …`: a sealed root-owned 0444
+  deployment under `/var/lib/north-enforcement`, attested by a promote record
+  and reached through the generation's stable /etc names. Enforcement still
+  never runs from a mutable tree — the tree it runs from is sealed by promote
+  instead of by the Nix store. The lifecycle runtimes
+  (north-on-spawn/-tooluse/-stop, north-mark-delegated) stay generation-pinned:
+  they execute out of the North package that supplies their PATH and
+  `NORTH_HOME`. Rollback = `north-enforcement-promote rollback --why …`.
 - Full detail: `nixos-config:docs/north-delivery-mode.md`.
 
 ## Agent dispatch — SDK + thread-driven posture
