@@ -486,11 +486,17 @@ flowchart TD
 > lapsed >30min with no `outcome` → `died-unreported`). The "specced" remedies
 > in F2/F3/F5 below are now LIVE — except SDK-lane lease renewal, which still
 > registers once and never renews (F2 remains real for SDK lanes).
+>
+> **Status note (2026-07-30).** SDK-lane lease renewal now exists too: `renewPresence`
+> in `north:sdk/src/harness.ts` renews on tool activity under the same ≥60s throttle,
+> wired through the harness PostToolUse hook and `renewHarnessPresence` in the
+> spawn/dispatch/Codex activity loops, and a rejected renewal is logged loudly instead
+> of swallowed. F2 is closed for SDK lanes.
 
 | # | failure mode | stage | what actually happens | field evidence |
 |---|--------------|-------|------------------------|----------------|
 | F1 | **API-death mid-lane** | 6 (COMPLETION/DEATH) manifesting during 4 (WORK) | The SDK runs the turn in a subprocess; OOM SIGKILL / parent SIGTERM / idle "Transport is closed" makes the async generator throw `exitError`. The error boundary (`spawn.ts:132`, `dispatch.ts:98`) catches it → `outcome="died"` + `notifyDeath`. Partial result still returned (supervision, not fail-fast). | thread progress: "alive-then-dead (N lanes died…)"; brief cites **7+ occurrences 2026-07-08/09** *(count per brief)* |
-| F2 | **lapsed-but-alive** | 3 (PRESENCE) | Lease TTL (30 min) expires while the lane is still working. SDK lanes register once and **never renew** (no PostToolUse in a bun subprocess), so a long lane goes `lapsed` though alive. Roster reads it as gone. | thread progress: "lapsed-but-alive (R1b committed after lapse)" |
+| F2 | **lapsed-but-alive** | 3 (PRESENCE) | Lease TTL (30 min) expires while the lane is still working. SDK lanes used to register once and never renew, so a long lane went `lapsed` though alive and the roster read it as gone. **Closed 2026-07-30**: SDK lanes renew on tool activity (harness `renewPresence`, ≥60s throttle). | thread progress: "lapsed-but-alive (R1b committed after lapse)" |
 | F3 | **alive-then-dead with fresh TTL** | 3 (PRESENCE) — inverse of F2 | The lane dies but its 30-min lease has not expired, so `north agents` still shows `ONLINE yes / <n>s`. If death was a hard SIGKILL that skipped the `finally`, even the death ping may be missing. | thread progress: "alive-then-dead (N lanes died with fresh TTL)" |
 | F4 | **zombie forks** | 1–3, 6 ALL ABSENT | A `/fork` (pattern F) does real work with no id mint, no identity, no presence, no death ping — invisible to every observation command. | §1 pattern F; brief |
 | F5 | **stale concerns misrouting** | 7 (REAPING absent) | A concern owned by a dead/lapsed agent stays `building`; `concern overlap` still counts it, so a live lane shapes its work around a footprint that will never land — or is routed off it. | thread census: "17 STALE-building from dead agents… stale concern misrouted lane X-E" |
@@ -522,10 +528,11 @@ below are its rule set.
   is still moving / commits still landing.
 - **Confirm:** `north watch <id>` advances **after** the lease shows `lapsed`;
   or a `committed`/`reached` fact timestamped later than the lease expiry.
-- **Remedy (today):** treat `lapsed` as advisory, not death — confirm with the
-  transcript before reaping. **Remedy (specced, coordination-v2 item 2):**
-  PostToolUse-style heartbeat that renews on activity, so TTL means *is-working*
-  and expiry becomes a real death signal.
+- **Remedy (LIVE, 2026-07-30):** the activity heartbeat renews on every tool call
+  (≥60s throttle) for session lineage and SDK lanes alike, so TTL means
+  *is-working* and expiry is a real death signal. A `lapsed` lane that is still
+  moving now means the renewal itself is failing — check the lane's stderr for
+  `[presence] … lease renewal FAILED`.
 
 ### F3 — alive-then-dead with fresh TTL
 - **Presents:** `north agents` shows `ONLINE yes / <n>s` but nothing is
