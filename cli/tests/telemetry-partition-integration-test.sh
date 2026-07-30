@@ -32,6 +32,9 @@ telemetry_log="$tmp/logs/telemetry.log"
 : >"$coord_log"
 printf '%s\n' \
   '{:tx 1 :op "assert" :l "@run:legacy" :p "kind" :r "run"}' \
+  '{:tx 2 :op "assert" :l "@session:outage-presence" :p "agent" :r "outage-presence"}' \
+  '{:tx 3 :op "assert" :l "@session:outage-presence" :p "session_id" :r "legacy-session"}' \
+  '{:tx 4 :op "assert" :l "@session:outage-presence" :p "current_thread" :r "legacy-decoy"}' \
   >"$telemetry_log"
 
 if ! ports="$(
@@ -47,7 +50,8 @@ read -r coord_port telemetry_port <<<"$ports"
 
 start_writer() {
   local port="$1" log="$2" output="$3"
-  FRAM_REQUIRE_LOG_FENCE=1 FRAM_PORT="$port" FRAM_LOG="$log" \
+  env -u FRAM_TELEMETRY_LOG -u NORTH_TELEMETRY_PARTITION -u NORTH_TELEMETRY_PORT \
+    FRAM_REQUIRE_LOG_FENCE=1 FRAM_PORT="$port" FRAM_LOG="$log" \
     "$fram/bin/fram-daemon" "$port" "$log" \
     >"$output.out" 2>"$output.err" &
 }
@@ -148,6 +152,112 @@ telemetry_pid=
 # shutdown checkpoint on SIGTERM, which is not a cross-origin write. The
 # invariant is that nothing mutates the log once its sole writer is dead.
 telemetry_before="$(sha256sum "$telemetry_log" | cut -d' ' -f1)"
+
+# Presence is coordination authority, not telemetry. A legacy telemetry session
+# descriptor remains readable history, but cannot block registration, provide
+# liveness, override current focus, or produce a second live row.
+presence_env=(
+  "${partition_env[@]}"
+  NORTH_COORD_CONNECT_TIMEOUT_MS=250
+  NORTH_COORD_READ_TIMEOUT_MS=1000
+)
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" \
+  register outage-presence "$root" outage-session \
+  >"$tmp/presence-register.out"
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" \
+  focus outage-presence coordination-focus coordination-workflow \
+  >"$tmp/presence-focus.out"
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" \
+  task outage-presence coordination-task \
+  >"$tmp/presence-task.out"
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" \
+  renew outage-presence \
+  >"$tmp/presence-renew.out"
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" presence-online-json \
+  >"$tmp/presence-online.json"
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" presence-online \
+  >"$tmp/presence-online.out"
+python3 - "$tmp/presence-online.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+rows = [
+    row for row in payload["sessions"]
+    if row["control_id"] == "outage-presence"
+]
+assert len(rows) == 1
+assert rows[0]["online"] is True
+PY
+grep -Fq 'outage-presence' "$tmp/presence-online.out"
+grep -Fq 'coordination-workflow' "$tmp/presence-online.out"
+if grep -Fq 'legacy-decoy' "$tmp/presence-online.out"; then
+  echo "telemetry partition integration: legacy telemetry focus became live authority" >&2
+  exit 1
+fi
+
+# Roster enrichment must stay on the same origin as the liveness lease. This
+# exact-subject slice succeeds while the telemetry socket is absent and cannot
+# import the legacy @session descriptor into the live row.
+env "${presence_env[@]}" \
+  NORTH_AGENTS_LIB=1 \
+  bb -e '
+    (System/setProperty "north.agents.lib" "1")
+    (load-file (str (System/getenv "NORTH_TEST_ROOT") "/cli/agents-cli.clj"))
+    (let [projection (roster-facts ["outage-presence"])
+          facts (get-in projection [:agents "outage-presence"])]
+      (when-not
+       (and (= "outage-session" (get facts "session_id"))
+            (= "coordination-focus" (get facts "current_thread"))
+            (= "coordination-workflow" (get facts "active_workflow"))
+            (= {} (:sessions projection)))
+        (throw (ex-info "live roster did not use its coordination-only slice"
+                        {:projection projection}))))'
+
+# The real native hook's focused fixture exercises this publisher end to end.
+# Keep the cross-origin test joined to that exact coordination-owned subject
+# rather than copying the publisher implementation into this harness.
+grep -Fq 'NORTH_NATIVE_SUBJECT="@agent:$ID"' "$root/bin/north-on-spawn"
+
+grep -Fq '@agent:outage-presence' "$coord_log"
+grep -Fq '@lease:session:outage-presence' "$coord_log"
+grep -Fq '"session_id", :r "outage-session"' "$coord_log"
+grep -Fq '"current_thread", :r "coordination-focus"' "$coord_log"
+grep -Fq '"active_workflow", :r "coordination-workflow"' "$coord_log"
+grep -Fq '"task", :r "coordination-task"' "$coord_log"
+if grep -Fq '@session:outage-presence' "$coord_log"; then
+  echo "telemetry partition integration: live presence descriptor used telemetry namespace" >&2
+  exit 1
+fi
+grep -Fq 'legacy-decoy' "$telemetry_log"
+[[ "$telemetry_before" == "$(sha256sum "$telemetry_log" | cut -d' ' -f1)" ]]
+
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" \
+  forget outage-presence \
+  >"$tmp/presence-forget.out"
+env "${presence_env[@]}" \
+  bb "$root/cli/presence-cli.clj" "$coord_port" presence-online-json \
+  >"$tmp/presence-after-forget.json"
+python3 - "$tmp/presence-after-forget.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+assert all(
+    row["control_id"] != "outage-presence"
+    for row in payload["sessions"]
+)
+PY
+[[ "$telemetry_before" == "$(sha256sum "$telemetry_log" | cut -d' ' -f1)" ]]
 
 env "${partition_env[@]}" bb -e '
   (load-file (str (System/getenv "NORTH_TEST_ROOT") "/cli/coord.clj"))

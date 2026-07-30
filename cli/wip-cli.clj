@@ -120,6 +120,14 @@
      (subs line (inc first-tab) second-tab)
      (decode-log-string (subs line (inc second-tab)))]))
 
+(defn- record-session-thread
+  [session-threads control value canonical?]
+  (let [candidate {:value value :rank (if canonical? 2 1)}
+        current (get session-threads control)]
+    (if (or (nil? current) (> (:rank candidate) (:rank current)))
+      (assoc session-threads control candidate)
+      session-threads)))
+
 (defn fold-selected-reader [reader]
     (loop [leases {}
            managed #{}
@@ -142,12 +150,16 @@
                    session-threads reservations work)
 
             (and (= predicate "current_thread")
-                 (str/starts-with? subject "@session:"))
-            (recur leases managed
-                   (assoc session-threads
-                          (subs subject (count "@session:"))
-                          value)
-                   reservations work)
+                 (or (str/starts-with? subject "@agent:")
+                     (str/starts-with? subject "@session:")))
+            (let [canonical? (str/starts-with? subject "@agent:")
+                  prefix (if canonical? "@agent:" "@session:")]
+              (recur leases managed
+                     (record-session-thread
+                      session-threads
+                      (subs subject (count prefix))
+                      value canonical?)
+                     reservations work))
 
             (#{"run_reservation_agent" "run_reservation_thread"} predicate)
             (recur leases managed session-threads
@@ -163,7 +175,10 @@
             (recur leases managed session-threads reservations work)))
         {:leases leases
          :managed managed
-         :session-threads session-threads
+         :session-threads
+         (into {} (map (fn [[control thread]]
+                         [control (:value thread)]))
+               session-threads)
          :reservations reservations
          :work (persistent! work)})))
 

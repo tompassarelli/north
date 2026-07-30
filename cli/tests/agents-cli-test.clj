@@ -484,32 +484,44 @@
                  (mapv #(get-in (second %) [:rules 0 :body 0 :args 0])
                        @indexed)))))
 
-(let [bulk [(str root "/bin/north") "json" "show-many"
-            "agent:lane-a,session:lane-a"]
-      calls (atom [])
+(let [calls (atom [])
       failed
-      (with-redefs [run (fn [argv & _]
-                          (swap! calls conj argv)
-                          {:ok false :exit 1})]
+      (with-redefs [north.coord/send-op
+                    (fn [port operation]
+                      (swap! calls conj
+                             [port north.coord/*operation-domain* operation])
+                      (throw (ex-info "coordination unavailable" {})))]
         (roster-facts
          (mapv #(str "lane-" %) (range max-live-controls))))
       valid-empty
-      (with-redefs [run (fn [& _] {:ok true :exit 0 :out "[]"})]
+      (with-redefs [north.coord/send-op
+                    (fn [& _] {:version 1 :log "/tmp/coordination.log"
+                               :facts []})]
         (roster-facts ["lane-a"]))
       malformed
-      (with-redefs [run (fn [& _]
-                          {:ok true :exit 0
-                           :out "[{\"subject\":\"agent:lane-a\",\"predicate\":\"task\"}]"})]
+      (with-redefs [north.coord/send-op
+                    (fn [& _] {:version 1 :log "/tmp/coordination.log"
+                               :facts [["@agent:lane-a" "task"]]})]
         (roster-facts ["lane-a"]))]
-  (check "bulk roster failure performs one bounded call, never a 2N fallback"
+  (check "coordination roster failure performs one bounded call, never a 2N fallback"
          (and (= 1 (count @calls))
               (= "agent subject projection unavailable" (:err failed))))
+  (check "live roster identity reads only coordination-owned @agent subjects"
+         (let [[port domain operation] (first @calls)
+               subjects (:subjects operation)]
+           (and (= 7977 port)
+                (= :coordination domain)
+                (= :facts-for-subjects (:op operation))
+                (= max-live-controls (count subjects))
+                (every? #(str/starts-with? % "@agent:") subjects)
+                (not-any? #(str/starts-with? % "@session:") subjects))))
   (check "a successful empty bulk projection remains distinguishable from failure"
          (= {:agents {} :sessions {}} valid-empty))
   (check "malformed bulk subject rows fail closed"
          (= "agent subject projection was malformed" (:err malformed))))
 
-(let [out (with-redefs [presence-rows (fn [] {:agents [{:id "lane-active" :online true :expires "10s" :expires-s 10}
+(let [run-ids (atom [])
+      out (with-redefs [presence-rows (fn [] {:agents [{:id "lane-active" :online true :expires "10s" :expires-s 10}
                                                         {:id "session-active" :online true :expires "20s" :expires-s 20}
                                                         {:id "lane-done" :online true :expires "30s" :expires-s 30}]})
                         roster-facts
@@ -537,6 +549,7 @@
                            :sessions {}})
                         roster-run-entries
                         (fn [ids]
+                          (reset! run-ids ids)
                           {:ok true
                            :by-agent (into {} (map #(vector % []) ids))})]
             (with-out-str (cmd-agents [])))]
@@ -547,6 +560,8 @@
               (str/includes? out "recently finished (1)")
               (str/includes? out "finished(process:ran, delivery:unverified)")
               (not (str/includes? out "live agents"))))
+  (check "native live sessions never depend on run telemetry for roster identity"
+         (= ["lane-active" "lane-done"] @run-ids))
   (check "ordinary roster output hides the internal presence probe"
          (not (str/includes? out "presence-cli.clj"))))
 

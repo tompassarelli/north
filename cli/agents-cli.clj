@@ -270,9 +270,6 @@
 (def max-live-controls 256)
 (def max-roster-fact-rows 32768)
 (def max-roster-run-candidates 4096)
-;; `north json show-many ""` costs 5.3s of bin/north preamble before any data
-;; moves (measured 2026-07-30), so the budget must clear that, not ~2x it.
-(def roster-subject-read-timeout-ms 30000)
 (def roster-conflict-key "__roster_conflicts")
 (def lane-resolution-key ::lane-resolution)
 
@@ -303,32 +300,23 @@
   (when-not
    (and (sequential? rows)
         (<= (count rows) max-roster-fact-rows)
-        (every? #(and (map? %)
-                      (= #{:subject :predicate :value} (set (keys %)))
-                      (string? (:subject %))
-                      (contains? allowed-subjects (:subject %))
-                      (string? (:predicate %))
-                      (string? (:value %)))
+        (every? #(and (vector? %)
+                      (= 3 (count %))
+                      (every? string? %)
+                      (contains? allowed-subjects (first %)))
                 rows))
     (throw (ex-info "agent subject projection was malformed" {})))
   (reduce
-   (fn [out {:keys [subject predicate value]}]
-     (cond
-       (str/starts-with? subject "agent:")
-       (update-in out [:agents (subs subject (count "agent:"))]
-                  #(fold-roster-fact (or % {}) predicate value))
-
-       (str/starts-with? subject "session:")
-       (update-in out [:sessions (subs subject (count "session:"))]
-                  #(fold-roster-fact (or % {}) predicate value))
-
-       :else out))
+   (fn [out [subject predicate value]]
+     (update-in out [:agents (subs subject (count "@agent:"))]
+                #(fold-roster-fact (or % {}) predicate value)))
    {:agents {} :sessions {}}
    rows))
 
 (defn roster-facts
-  "Read the exact live agent and session subjects in one structured fold. The
-  machine roster never parses a human presence table or a stored display fact."
+  "Read exact live @agent subjects from the coordination origin in one bounded
+  query. Historical telemetry @session descriptors are not live identity and
+  never enter the machine roster."
   [ids]
   (let [ids (vec (distinct ids))]
     (cond
@@ -341,22 +329,32 @@
       {:err "presence returned an invalid or over-broad control set"}
 
       :else
-      (let [subjects (mapcat (fn [id] [(str "agent:" id) (str "session:" id)]) ids)
-            subjects (vec subjects)
-            allowed-subjects (set subjects)
-            r (run [(str NORTH "/bin/north") "json" "show-many"
-                    (str/join "," subjects)]
-                   :timeout roster-subject-read-timeout-ms)]
-        (if (:ok r)
-          (try
-            (fold-roster-subjects (json/parse-string (:out r) true)
-                                  allowed-subjects)
-            (catch Exception _ {:err "agent subject projection was malformed"}))
-          ;; Do not recover an O(1) bulk failure with 2N sequential subprocesses:
-          ;; at the maximum live set that was 512 × 3s (25.6 minutes), exactly
-          ;; the timeout pathology this roster replaces. One failed bounded
-          ;; projection is an unavailable roster, never 256 fabricated empties.
-          {:err "agent subject projection unavailable"})))))
+      (let [subjects (mapv #(str "@agent:" %) ids)
+            allowed-subjects (set subjects)]
+        (let [response
+              (try
+                (binding [north.coord/*operation-domain* :coordination]
+                  (north.coord/send-op
+                   (Integer/parseInt PORT)
+                   {:op :facts-for-subjects :subjects subjects}))
+                (catch Exception _ ::unavailable))]
+          (cond
+            (= ::unavailable response)
+            {:err "agent subject projection unavailable"}
+
+            (not (and (map? response)
+                      (integer? (:version response))
+                      (not (neg? (:version response)))
+                      (string? (:log response))
+                      (vector? (:facts response))
+                      (<= (count (:facts response)) max-roster-fact-rows)))
+            {:err "agent subject projection was malformed"}
+
+            :else
+            (try
+              (fold-roster-subjects (:facts response) allowed-subjects)
+              (catch Exception _
+                {:err "agent subject projection was malformed"}))))))))
 
 (defn- roster-run-entries-attempt
   "One non-recursive attempt to resolve run candidates for IDS: a single
@@ -456,19 +454,23 @@
         (map
          (fn [control]
            (let [facts (get agents control {})
-                 agent-projection (get-in run-projection [:by-agent control])
-                 resolution
-                 (cond
-                   (not (:ok run-projection))
-                   {:status :indeterminate :reason (:reason run-projection)}
+                 managed? (= "lane" (get facts "kind"))
+                 agent-projection (get-in run-projection [:by-agent control])]
+             [control
+              (if-not managed?
+                facts
+                (let [resolution
+                      (cond
+                        (not (:ok run-projection))
+                        {:status :indeterminate :reason (:reason run-projection)}
 
-                   (map? agent-projection)
-                   {:status :indeterminate :reason (:err agent-projection)}
+                        (map? agent-projection)
+                        {:status :indeterminate :reason (:err agent-projection)}
 
-                   :else
-                   (north.terminal-projection/lane-resolution
-                    control facts (or agent-projection [])))]
-             [control (assoc facts lane-resolution-key resolution)])))
+                        :else
+                        (north.terminal-projection/lane-resolution
+                         control facts (or agent-projection [])))]
+                  (assoc facts lane-resolution-key resolution)))])))
         ids))
 
 (defn current-repo []
@@ -845,7 +847,9 @@
             facts (roster-facts ids)]
         (if (:err facts)
           {:err (:err facts)}
-          (let [run-projection (roster-run-entries ids)
+          (let [managed-ids
+                (filterv #(= "lane" (get-in facts [:agents % "kind"])) ids)
+                run-projection (roster-run-entries managed-ids)
                 agents (attach-lane-resolutions
                         ids (:agents facts) run-projection)
                 sessions (:sessions facts)]

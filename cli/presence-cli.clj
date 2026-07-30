@@ -6,8 +6,11 @@
 ;; agent's lease simply lapses and online? flips false on its own.
 ;;
 ;; Sibling to lease-cli.clj. Wire (daemon b619283): :assert/:version/:acquire-lease/:resolved/:query.
-;; A session is @session:<handle> (descriptive facts); liveness = lease on resource
-;; session:<handle> -> fact @lease:session:<handle> = "holder|exp|epoch".
+;; A live presence descriptor is @agent:<handle> in the coordination origin;
+;; liveness = lease on resource session:<handle> -> fact
+;; @lease:session:<handle> = "holder|exp|epoch". Historical @session:<handle>
+;; telemetry descriptors remain readable history, but never participate in the
+;; live roster.
 ;;
 ;; usage:
 ;;   bb presence-cli.clj <port> register <handle> <dir> <session_id>
@@ -38,24 +41,8 @@
 
 (declare strict-query-rows)
 
-(defn sessions [port]      ; -> [[session-entity handle] ...]  ONE row per uuid.
-  ;; `agent` is overloaded: it anchors @session:<h> (the session) AND every @run:<sid>
-  ;; telemetry record. The raw query returns one row PER run -> the roster showed N rows per agent. Scope
-  ;; to @session:* (the real anchor; exactly one per handle) and dedup by handle, so the roster is
-  ;; latest-per-uuid, lease-judged. (Datalog can't prefix-filter the entity, so we filter here.)
-  ;; A rejected op is not an empty registry: strict rows or throw.
-  (let [rows (strict-query-rows
-              (send-op port {:op :query
-                             :query {:find "s"
-                                     :rules [{:head {:rel "s" :args [{:var "e"} {:var "h"}]}
-                                              :body [{:rel "triple" :args [{:var "e"} "agent" {:var "h"}]}]}]}}))]
-    (->> (or rows [])
-         (filter (fn [[e _]] (str/starts-with? (str e) "@session:")))
-         (reduce (fn [m [e h]] (assoc m h [e h])) {})   ; one row per handle
-         vals
-         vec)))
-
 (def lease-session-prefix "@lease:session:")
+(def presence-agent-prefix "@agent:")
 (def max-session-lease-rows 100000)
 (def max-live-session-controls 256)
 (def max-control-bytes 256)
@@ -67,6 +54,9 @@
        (<= (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8))
            max-control-bytes)
        (boolean (re-matches control-pattern value))))
+
+(defn presence-entity [handle]
+  (str presence-agent-prefix handle))
 
 (defn strict-query-rows
   "Return an exact coordinator query result or throw. A transport/protocol
@@ -85,10 +75,39 @@
                                (string? (nth % 0))
                                (string? (nth % 1)))
                          (:ok response)))
-    (throw (ex-info "coordinator returned a malformed live-session lease projection"
+    (throw (ex-info "coordinator returned a malformed presence projection"
                     {:type :malformed-presence-query
                      :response response})))
   (:ok response))
+
+(defn presence-registrations
+  "Return coordination-owned presence descriptors. Historical @session rows
+   intentionally do not enter this projection."
+  [port]
+  (let [rows (strict-query-rows
+              (send-op port {:op :query
+                             :query {:find "presence"
+                                     :rules [{:head {:rel "presence"
+                                                     :args [{:var "e"} {:var "h"}]}
+                                              :body [{:rel "triple"
+                                                      :args [{:var "e"} "agent"
+                                                             {:var "h"}]}]}]}}))
+        registrations
+        (->> rows
+             (filter (fn [[entity _]]
+                       (str/starts-with? entity presence-agent-prefix)))
+             (mapv (fn [[entity handle]]
+                     (when-not (and (valid-control? handle)
+                                    (= entity (presence-entity handle)))
+                       (throw (ex-info "presence descriptor does not match its control"
+                                       {:type :malformed-presence-control
+                                        :entity entity})))
+                     [entity handle])))]
+    (when-not (= (count registrations)
+                 (count (set (map second registrations))))
+      (throw (ex-info "coordinator returned duplicate presence descriptors"
+                      {:type :duplicate-presence-descriptor})))
+    registrations))
 
 (defn strict-lease
   [entity value]
@@ -137,7 +156,7 @@
                                (throw (ex-info "session lease control is malformed"
                                                {:type :malformed-presence-control
                                                 :entity entity})))
-                             {:entity (str "@session:" handle)
+                             {:entity (presence-entity handle)
                               :handle handle
                               :lease lease}))))
                  vec)]
@@ -207,10 +226,10 @@
     (catch Exception _ false)))
 
 (defn- lineage-registrations-within [port window-ms now]
-  ;; @session:* is a telemetry-partition subject; the lease is not. That split is
-  ;; exactly how a half-registered session becomes invisible, so read both.
+  ;; Registration and the liveness marker share the coordination origin. Legacy
+  ;; telemetry session descriptors are history and cannot satisfy this probe.
   (let [resp (north.coord/query-page-in-domain
-              port :telemetry
+              port :coordination
               {:find "s" :rules [{:head {:rel "s" :args [{:var "e"} {:var "v"}]}
                                   :body [{:rel "triple"
                                           :args [{:var "e"} "started_at" {:var "v"}]}]}]}
@@ -220,7 +239,7 @@
       (throw (ex-info "session lineage projection was truncated or malformed" {})))
     (count
      (filter (fn [[e v]]
-               (and (string? e) (str/starts-with? e "@session:")
+               (and (string? e) (str/starts-with? e presence-agent-prefix)
                     (try (< (- now (.toEpochMilli (java.time.Instant/parse v))) window-ms)
                          (catch Exception _ false))))
              rows))))
@@ -283,7 +302,7 @@
     ;; the entire bloat). The LEASE renewal MUST stay per-call: that IS the heartbeat.
     ;; Re-stamp the session-start block only on a genuinely NEW session (session_id
     ;; changed for this handle) or if started_at is somehow missing.
-    (let [[h dir sid] args, se (str "@session:" h)
+    (let [[h dir sid] args, se (presence-entity h)
           new-session? (or (nil? (resolved port se "started_at"))
                            (not= (str (or sid "?")) (str (resolved port se "session_id"))))]
       (when new-session?
@@ -297,7 +316,7 @@
     (let [[h] args] (acquire-session-lease! port h))
 
     "task"
-    (let [[h t] args] (prn (put! port (str "@session:" h) "task" t)))   ; single
+    (let [[h t] args] (prn (put! port (presence-entity h) "task" t)))   ; single
 
     ;; ===========================================================================
     ;; AGENT REGISTRY. Handle is an opaque uuid (an ADDRESS, never a name). Identity is a
@@ -382,14 +401,14 @@
       (doseq [row (or hs [])] (println "  " (first row))))
 
     "focus"                                 ; <uuid> <current_thread> [active_workflow] — VOLATILE, on the session
-    (let [[h ct wf] args, se (str "@session:" h)]
+    (let [[h ct wf] args, se (presence-entity h)]
       (put! port se "current_thread" (or ct "-"))   ; single (LWW intent; see identify note)
       (when wf (put! port se "active_workflow" wf))  ; single
       (prn {:focus se :current_thread ct :active_workflow wf}))
 
     "presence"                              ; THE PROJECTION — agents + held roles + focus. Pinned first, then online, then rest.
     (print-presence! port now (mapv (fn [[entity handle]] {:entity entity :handle handle})
-                                    (or (sessions port) [])))
+                                    (presence-registrations port)))
 
     "presence-online"                       ; bounded projection used by live-only UIs
     (print-presence! port now (online-sessions port now))
@@ -402,7 +421,7 @@
 
     "slackers"                              ; derived; replaces the polling slacker-detector/reaper
     (let [_mins (if (seq args) (parse-long (first args)) 10)
-          ss (sort-by second (or (sessions port) []))]
+          ss (sort-by second (presence-registrations port))]
       (println "online but holding NO build-lease (slacker candidates):")
       (doseq [[_e h] ss]
         (let [l (lease-of port (str "session:" h))
@@ -426,7 +445,7 @@
     (let [;; playbook learning count (from :7977) — how many learnings exist now
           playbook-count (try (count (:values (send-op 7977 {:op :resolved :te "@2026-06-22-232740" :p "learning"})))
                               (catch Exception _ 0))
-          ss (or (sessions port) [])]
+          ss (presence-registrations port)]
       (println (format "%-14s %-5s %5s %4s %4s %-7s %-4s %s"
                        "AGENT" "SCORE" "IDLE" "GEN" "PBOK" "BUCKET" "PIN" "ROLES"))
       (doseq [[_e h] (sort-by second ss)]
@@ -505,8 +524,9 @@
                        h "."))))
 
     "forget"                                ; deregister: retract session facts + release the lease
-    (let [[h] args, se (str "@session:" h)]
-      (doseq [p ["agent" "dir" "session_id" "started_at" "task"]]
+    (let [[h] args, se (presence-entity h)]
+      (doseq [p ["agent" "dir" "session_id" "started_at" "task"
+                 "current_thread" "active_workflow"]]
         (when-let [v (resolved port se p)] (retract! port se p v)))
       (prn (send-op port {:op :release-lease :res (str "session:" h) :holder h})))
 
