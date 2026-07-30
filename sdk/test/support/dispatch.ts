@@ -12,29 +12,30 @@ const RUNTIME_FIELDS = new Set([
   "deliveryRuntime", "threadFactsLoadOptions", "childSettlementReader", "feedSubscriber",
   "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
   "admitResourceEnvelope", "completeResourceEnvelope", "admitBillableClock",
-  "releaseDriver",
+  "releaseDriver", "admitDispatchAuthority",
 ]);
 
-function split(value: DispatchDependencies & Record<string, unknown>): {
-  request: DispatchDependencies;
-  hasRuntime: boolean;
-} {
+// Dispatch-side twin of the pin in ./spawn.ts — same subprocess, same stubbed PATH.
+const pinnedDispatchAuthority = () => {};
+
+function split(
+  value: DispatchDependencies & Record<string, unknown>,
+): DispatchDependencies {
   const request: Record<string, unknown> = {};
-  const runtime: Record<string, unknown> = {};
+  const runtime: Record<string, unknown> = {
+    admitDispatchAuthority: pinnedDispatchAuthority,
+  };
   for (const [field, fieldValue] of Object.entries(value))
     (RUNTIME_FIELDS.has(field) ? runtime : request)[field] = fieldValue;
   bindDispatchTestRuntime(request, runtime);
-  return {
-    request: request as unknown as DispatchDependencies,
-    hasRuntime: Object.keys(runtime).length > 0,
-  };
+  return request as unknown as DispatchDependencies;
 }
 
 export function dispatch(
   threadId: string,
   value: DispatchDependencies & Record<string, unknown>,
 ) {
-  return productionDispatch(threadId, split(value).request);
+  return productionDispatch(threadId, split(value));
 }
 
 export function dispatchParallel(
@@ -43,13 +44,12 @@ export function dispatchParallel(
 ) {
   if (value === undefined)
     return productionDispatchParallel(threadIds, value as any);
-  const first = split(value);
-  if (!first.hasRuntime)
-    return productionDispatchParallel(threadIds, first.request);
+  // A bound runtime is consumed on take, so one dependencies object cannot serve
+  // N children — rebind per thread.
   if (value.agentId && threadIds.length > 1)
     throw new Error("dispatchParallel cannot reuse one explicit agentId across multiple children");
-  return Promise.all(threadIds.map((threadId, index) =>
-    productionDispatch(threadId, index === 0 ? first.request : split(value).request)));
+  return Promise.all(threadIds.map((threadId) =>
+    productionDispatch(threadId, split(value))));
 }
 
 export { createDispatchAgentId, selectDispatchAgentId };

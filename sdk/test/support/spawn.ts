@@ -14,12 +14,20 @@ const RUNTIME_FIELDS = new Set([
   "childSettlementReader", "feedSubscriber",
   "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
   "admitResourceEnvelope", "completeResourceEnvelope", "admitBillableClock",
+  "admitDispatchAuthority",
   "worktreeAllocationWriter", "prepareManagedFramCoordinator",
 ]);
 
+// Dispatch admission shells `bin/north`, which resolves babashka off PATH — where
+// every fixture here has stubbed it. dispatch-authority.test.ts drives the
+// production entrypoints against the real CLI and never reaches this default.
+const pinnedDispatchAuthority = () => {};
+
 function prepared(value: SpawnOptions & Record<string, unknown>): SpawnOptions {
   const request: Record<string, unknown> = {};
-  const runtime: Record<string, unknown> = {};
+  const runtime: Record<string, unknown> = {
+    admitDispatchAuthority: pinnedDispatchAuthority,
+  };
   for (const [field, fieldValue] of Object.entries(value))
     (RUNTIME_FIELDS.has(field) ? runtime : request)[field] = fieldValue;
   bindSpawnTestRuntime(request, runtime);

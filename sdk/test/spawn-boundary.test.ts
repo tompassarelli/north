@@ -496,8 +496,14 @@ test("Orchestration-derived frontier tier is hydrated before envelope admission"
   }
 });
 
+// Calls the PRODUCTION entrypoints by design, so it must pass their first boundary:
+// dispatch admission shells `bin/north`, which resolves babashka off this fixture's
+// stubbed PATH. Scope NORTH_BB to the preload's pristine snapshot, restore after.
 test("public spawn and dispatch reject hermetic runtime fields before invoking them", async () => {
   let callbacks = 0;
+  const previousBb = process.env.NORTH_BB;
+  process.env.NORTH_BB = process.env.NORTH_TEST_HERMETIC_BB;
+  try {
   const { spawn: publicSpawn } = await import("../src/spawn");
   await expect(publicSpawn({
     prompt: "must reject structural injection",
@@ -525,6 +531,10 @@ test("public spawn and dispatch reject hermetic runtime fields before invoking t
     },
   } as any)).rejects.toThrow("managed North dispatch request has unknown field loadThreadFacts");
   expect(callbacks).toBe(0);
+  } finally {
+    if (previousBb === undefined) delete process.env.NORTH_BB;
+    else process.env.NORTH_BB = previousBb;
+  }
 });
 
 // A CLI-spawned lane binds its thread through AGENT_THREAD, not through
