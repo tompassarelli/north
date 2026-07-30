@@ -27,6 +27,22 @@ import { gatedTest } from "./support/capabilities";
 import { providerSessionKey } from "../src/providers/provider-join";
 import { causeChain } from "../src/death";
 
+// The proxy tracks the declared `web` capability, not the sandbox. Spelled out
+// rather than imported from managedCodexNetworkArguments: an independent statement
+// of the contract, not a restatement of the producer.
+function expectedCodexFeatureArgs(web: boolean): string[] {
+  return [
+    ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
+    ...(web
+      ? [
+        "-c", "features.network_proxy.enabled=true",
+        "-c", 'features.network_proxy.domains={"chromium.googlesource.com"="allow"}',
+      ]
+      : ["--disable", "network_proxy"]),
+    ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
+  ];
+}
+
 // When this suite runs inside a managed north lane, the ambient graph identity
 // (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
 // env whitelist and leaks into the compiled Codex MCP args, breaking the exact
@@ -845,11 +861,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
   // adapter constructs and attests the selected account's complete runtime
   // layer in the same provider process that executes the turn.
   const argv = codexHarnessArguments(canonical);
-  const expected = [
-    ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-    "--disable", "network_proxy",
-    ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
-  ];
+  const expected = expectedCodexFeatureArgs(false);
   expect(argv).toEqual(expected);
   expect(existsSync(taskPath)).toBe(false);
   expect(argv).not.toContain("exec");
@@ -885,7 +897,8 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     routingMetadata: applyOrchestrationStaffing({ role: "scout" }),
     presenceRegistrar: false,
   }) as any;
-  expect(codexHarnessArguments(web)).toEqual(expected);
+  // scout: read-only and web-declaring.
+  expect(codexHarnessArguments(web)).toEqual(expectedCodexFeatureArgs(true));
   expect(existsSync(argvPath)).toBe(false);
 
   const unsupported = openaiProvider.query({
@@ -927,11 +940,8 @@ test("the executable Codex adapter admits exact managed orchestrator authority",
     routingMetadata: applyOrchestrationStaffing({ role: "director" }),
     presenceRegistrar: false,
   }) as any;
-  expect(codexHarnessArguments(options)).toEqual([
-    ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-    "--disable", "network_proxy",
-    ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
-  ]);
+  // director: read-only and web-declaring, like every orchestrator template.
+  expect(codexHarnessArguments(options)).toEqual(expectedCodexFeatureArgs(true));
 });
 
 test("managed executable resolution fails retry-safe before onRoute or query construction", async () => {

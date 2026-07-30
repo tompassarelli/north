@@ -141,9 +141,19 @@ test("Codex network argv preserves the structured Gitiles policy without a boole
   expect(enabled).not.toEqual(expect.arrayContaining(["--enable", "network_proxy"]));
   expect(enabled.filter((argument) => argument.includes("network_proxy"))).toHaveLength(2);
 
+  // Read-only does not strip declared web: the proxy tracks the capability,
+  // network_access tracks the shell surface.
   expect(managedCodexNetworkArguments({
     sandbox: "read-only",
     capabilities: ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
+  })).toEqual([
+    "-c", "features.network_proxy.enabled=true",
+    "-c", 'features.network_proxy.domains={"chromium.googlesource.com"="allow"}',
+  ]);
+  // No declared web — proxy off at either sandbox.
+  expect(managedCodexNetworkArguments({
+    sandbox: "read-only",
+    capabilities: ["filesystem.read", "filesystem.search", "shell.readonly"],
   })).toEqual(["--disable", "network_proxy"]);
   expect(managedCodexNetworkArguments({
     sandbox: "workspace-write",
