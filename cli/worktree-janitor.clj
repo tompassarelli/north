@@ -4,7 +4,8 @@
 ;; production surface is `north-reactor.clj sweep-once`, and the long-running
 ;; reactor calls the exact same `sweep-worktrees!` function on its normal sweep.
 (ns north.worktree-janitor
-  (:require [babashka.process :as proc]
+  (:require [babashka.fs :as fs]
+            [babashka.process :as proc]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
@@ -321,7 +322,7 @@
   ;; A managed clone owns its entire git-dir. Provenance above establishes its
   ;; marker tuple before this recursive removal; no canonical ref is touched.
   (try
-    (io/delete-file (io/file worktree) true)
+    (fs/delete-tree worktree)
     (if (.exists (io/file worktree))
       {:kind :partial :reason "managed clone removal returned but its path remains"}
       {:kind :removed})
@@ -458,6 +459,8 @@
   (let [subjects (sort
                   (distinct
                    (q-col port [{:rel "triple"
+                                 :args [{:var "e"} "kind" "lane"]}
+                                {:rel "triple"
                                  :args [{:var "e"} "worktree" {:var "_w"}]}])))]
     (reduce
      (fn [result subject]
