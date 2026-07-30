@@ -257,11 +257,14 @@
 
 ;; ---- writes -----------------------------------------------------------------
 
+;; Declare-if-absent: a schema write invalidates the coordinator's whole query
+;; cache, so skip it when the exact-subject read already shows it declared.
 (defn ensure-schema! [port]
   (doseq [predicate ["rebuild_request" "rebuild_request_urgent"
                      "rebuild_request_satisfied" "window_action"
                      "window_intent" "window_generation"]]
-    (north.coord/put! port (str "@" predicate) "cardinality" "single")))
+    (when-not (= "single" (north.coord/resolved port (str "@" predicate) "cardinality"))
+      (north.coord/put! port (str "@" predicate) "cardinality" "single"))))
 
 (defn assert-batch! [port subject facts]
   (let [response (north.coord/send-op
