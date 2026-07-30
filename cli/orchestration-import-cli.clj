@@ -21,14 +21,16 @@
 ;; usage:
 ;;   bb orchestration-import-cli.clj <port> import   [orchestration-home]  stage + flip pointer
 ;;   bb orchestration-import-cli.clj <port> measure  [orchestration-home]  R2 throwaway interning probe
-;;   bb orchestration-import-cli.clj <port> retract  <version>      undo one imported version
-;;   bb orchestration-import-cli.clj <port> show     [version]      print the pointed subgraph ids
+;;   bb orchestration-import-cli.clj <port> retract  <N|vN>         undo one imported version
+;;   bb orchestration-import-cli.clj <port> show     [N|vN]         print the pointed subgraph ids
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[cheshire.core :as json]
          '[babashka.process :as p])
 
-(def CLI-DIR (.getParent (io/file (System/getProperty "babashka.file"))))
+;; *file*, not babashka.file: under a test's load-file only *file* still names THIS
+;; file, so the sibling loads below resolve either way.
+(def CLI-DIR (.getParent (io/file *file*)))
 (load-file (str CLI-DIR "/coord.clj"))
 (load-file (str CLI-DIR "/orchestration-selection.clj"))
 (def send-op  north.coord/send-op)
@@ -121,6 +123,44 @@
   (some-> (first (exact-values port POINTER "catalog_version")) parse-long))
 
 (defn ns-subject [ver & parts] (str "@catalog:v" ver ":" (str/join ":" parts)))
+
+;; Accepts both spellings the surface prints (`3`, `v3`); an unparseable arg must
+;; fail loudly, never degrade to nil and silently read the pointer instead.
+(defn parse-version [arg]
+  (when (some? arg)
+    (if-let [[_ n] (re-matches #"v?(\d+)" (str arg))]
+      (parse-long n)
+      (throw (ex-info (str "bad catalog version " (pr-str arg) " — expected N or vN")
+                      {:type :catalog-bad-version :arg arg})))))
+
+(defn version-arg [port arg]
+  (or (parse-version arg)
+      (current-version port)
+      (throw (ex-info "no @catalog:current pointer — import first" {}))))
+
+;; put! supersedes only for a predicate declared `@<pred> cardinality single`
+;; (fram schema-as-facts, sole runtime authority); undeclared, the flip APPENDS.
+(defn declared-single? [port pred]
+  (boolean (some #(= "single" (str %)) (exact-values port (str "@" pred) "cardinality"))))
+
+(defn ensure-pointer-single! [port]
+  (when-not (declared-single? port "catalog_version")
+    ;; The engine refuses multi->single while a live group holds >1 value, so shed
+    ;; the pointer's own surplus first, keeping the highest version.
+    (let [vs (map str (exact-values port POINTER "catalog_version"))]
+      (when (> (count vs) 1)
+        (doseq [v (remove #{(last (sort-by #(or (parse-long %) -1) vs))} vs)]
+          (retract! port POINTER "catalog_version" v))))
+    (let [res (put! port "@catalog_version" "cardinality" "single")]
+      (when-not (:ok res)
+        (throw (ex-info (str "cannot declare catalog_version cardinality single: " (pr-str res))
+                        {:type :catalog-cardinality-undeclared :response res}))))))
+
+(defn assert-flip! [port ver]
+  (let [vs (map str (exact-values port POINTER "catalog_version"))]
+    (when-not (= vs [(str ver)])
+      (throw (ex-info (str "pointer flip did not take: @catalog:current catalog_version = " (pr-str vs))
+                      {:type :catalog-flip-not-atomic :expected ver :actual vs})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Emit — every write goes to the version namespace (draft) until the flip.
@@ -264,6 +304,9 @@
 ;; Verbs.
 ;; ---------------------------------------------------------------------------
 (defn import! [port root]
+  ;; preflight, before anything is staged: refuse the import outright rather than
+  ;; publish a version whose pointer flip cannot supersede.
+  (ensure-pointer-single! port)
   (let [ver (inc (or (current-version port) 0))
         catalog (read-json root "staffing" "catalog.json")]
     (emit-staffing! port ver catalog)
@@ -275,6 +318,7 @@
     (emit-selection! port ver root)
     ;; ATOMIC FLIP — one serialized write; consumers never see a torn import.
     (put! port POINTER "catalog_version" (str ver))
+    (assert-flip! port ver)
     ver))
 
 ;; measure — R2: import ONLY the multi-KB prompt_block literals to a throwaway
@@ -335,16 +379,21 @@
     (println (format "pointer @catalog:current -> v%s (%d subjects)" ver (count mine)))
     (doseq [s mine] (println "  " s))))
 
-(let [[ps verb arg] *command-line-args*
-      port (Integer/parseInt (or ps "7977"))]
-  (case verb
-    "import"  (let [ver (import! port (orchestration-home arg))]
-                (println (format "✓ imported catalog v%d on :%d; @catalog:current -> v%d" ver port ver)))
-    "measure" (let [m (measure! port (orchestration-home arg))]
-                (println (json/generate-string m)))
-    "retract" (let [ver (Integer/parseInt (or arg (str (current-version port))))
-                    n (retract-version! port ver)]
-                (println (format "✓ retracted %d facts under @catalog:v%d:" n ver)))
-    "show"    (show! port (or (some-> arg parse-long) (current-version port)))
-    (do (println "usage: orchestration-import-cli.clj <port> {import|measure|retract <ver>|show [ver]} [orchestration-home]")
-        (System/exit 2))))
+(defn -main [& [ps verb arg]]
+  (let [port (Integer/parseInt (or ps "7977"))]
+    (case verb
+      "import"  (let [ver (import! port (orchestration-home arg))]
+                  (println (format "✓ imported catalog v%d on :%d; @catalog:current -> v%d" ver port ver)))
+      "measure" (let [m (measure! port (orchestration-home arg))]
+                  (println (json/generate-string m)))
+      "retract" (let [ver (version-arg port arg)
+                      n (retract-version! port ver)]
+                  (println (format "✓ retracted %d facts under @catalog:v%d:" n ver)))
+      "show"    (show! port (version-arg port arg))
+      (do (println "usage: orchestration-import-cli.clj <port> {import|measure|retract <N|vN>|show [N|vN]} [orchestration-home]")
+          (System/exit 2)))))
+
+;; DUAL MODE (the projector's precedent): dormant when a sibling test load-file's
+;; this as a library to exercise the pointer-cardinality helpers against stubs.
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
