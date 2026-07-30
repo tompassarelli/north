@@ -171,8 +171,10 @@ STOP only for: a flagged secret (FIX the leak, never push it), force-push or
 rewrite of published history, private→public exposure, or another agent's
 in-flight WIP. GitHub releases: version tag as the title, details in body.
 Branch hygiene: origin carries main only (plus tags). Worktree/lane branches
-are local and ephemeral — land by fetch + `safe-push --to main`, then delete
-the local branch. Never publish a feature branch name.
+are local and ephemeral — land by fetch + `safe-push --to main`. Landing's
+done-bar includes cleanup: remove your worktree and delete your branch
+(`wt-reap` sweeps every merged+clean sibling); a landed lane that leaves its
+worktree behind is not done. Never publish a feature branch name.
 
 ## External code — license first
 <!-- north-section: external-code · bucket: write -->
