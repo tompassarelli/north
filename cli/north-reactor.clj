@@ -886,10 +886,13 @@
             summary)
           (throw error))))))
 
+(declare sweep-once-exit-code)
+
 (defn sweep-loop []
   (loop []
     (Thread/sleep (* 5 60 1000))                    ; 5-min cadence, first sweep after one interval
-    (try (sweep! false)
+    ;; Both automatic owners enter through the same lock and aggregate deadline.
+    (try (sweep-once-exit-code)
          (catch Throwable t (println (str "[sweep] error: " (.getMessage t))) (flush)))
     (recur)))
 

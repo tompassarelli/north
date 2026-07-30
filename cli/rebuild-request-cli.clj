@@ -182,7 +182,7 @@
   ;; reduction WITH nil, so the first real record NPEs. Empty must be the only
   ;; nil-producing case.
   (let [times (->> (load-window-records port)
-                   (remove #(= "deferred" (:action %)))
+                   (filter #(= "fired" (:action %)))
                    (keep :at-ms))]
     (when (seq times) (apply max times))))
 

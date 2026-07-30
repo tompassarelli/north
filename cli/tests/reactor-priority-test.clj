@@ -110,6 +110,17 @@
               (not (str/includes? output "maintenance=degraded")))
          {:calls @calls :exit @exit :output output}))
 
+(let [source (slurp reactor)
+      body (second
+            (re-find
+             #"(?s)\(defn sweep-loop \[\](.*?)\n\n;; bin/north"
+             source))]
+  (check "periodic reactor owner enters through the locked one-shot lifecycle"
+         (and (string? body)
+              (str/includes? body "(sweep-once-exit-code)")
+              (not (str/includes? body "(sweep! false)")))
+         body))
+
 (let [results @checks
       passed (count (filter second results))]
   (doseq [[label ok detail] results]
