@@ -426,7 +426,46 @@
           pair (canonical-overlap building peer ["src/shared.clj"] "path")]
       (check "an abandoned member suppresses subsequent pair events"
              (empty?
-              (attention-events-for-transition abandoned abandoned [pair])))))
+              (attention-events-for-transition abandoned abandoned [pair])))
+      (check "an unroutable owner fact drops its notification, never the transition"
+             (empty?
+              (attention-events-for-transition
+               building (assoc building :status "landed")
+               [(canonical-overlap building (assoc peer :agent "not a ref")
+                                   ["src/shared.clj"] "path")]))))
+
+    ;; A concern seeded outside `declare` (raw fact writes) can carry a BARE owner
+    ;; handle where the board's convention is a ref — and it is a PEER's fact, so
+    ;; it must never fail this owner's declare or transition.
+    (let [seed-id (str "@concern-" (System/currentTimeMillis) "-seed")
+          _ (doseq [[predicate value]
+                    [["kind" "concern"] ["agent" "agent-seeded"]
+                     ["driver" "@agent-seeded"] ["repo" "/tmp/no-code"]
+                     ["intent" "hand-seeded peer"] ["touches" "src/bare.clj"]
+                     ["reached" "building"]]]
+              (fact! seed-id predicate value))
+          host (run-concern "declare" "agent-host" "/tmp/no-code"
+                            "bare-owner host" "src/bare.clj")
+          host-id (concern-id host)
+          landed (try (terminal-concern-transition! port host-id "landed")
+                      (catch Exception error {:status :threw
+                                              :error (ex-message error)}))
+          recipients (set (map :recipient (notification-rows)))]
+      (check "a peer's bare owner handle canonicalizes instead of failing declare or the transition"
+             (and (zero? (:exit host))
+                  (= "@agent-seeded" (:agent (meta-of port seed-id)))
+                  (= :committed (:status landed))
+                  (contains? recipients "@agent-seeded"))
+             {:host-exit (:exit host) :host-err (:err host)
+              :landed landed :recipients recipients}))
+
+    (check "declare stores one owner ref even when the caller already passed one"
+           (let [reffed (run-concern "declare" "@agent-reffed" "/tmp/no-code"
+                                     "ref-passing declaration" "src/reffed.clj")
+                 reffed-id (concern-id reffed)]
+             (= ["@agent-reffed" "@agent-reffed"]
+                [(:value (op {:op :resolved :te reffed-id :p "agent"}))
+                 (:value (op {:op :resolved :te reffed-id :p "driver"}))]))))
 
   (let [mint (- (System/currentTimeMillis) (* 25 60 60 1000))
         retiring (str "@concern-" mint "-retire")
