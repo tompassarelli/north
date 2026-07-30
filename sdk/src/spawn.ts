@@ -158,6 +158,9 @@ interface SpawnRuntime {
   admitResourceEnvelope?: typeof admitResourceEnvelope;
   completeResourceEnvelope?: typeof completeResourceEnvelope;
   admitBillableClock?: typeof admitBillableClock;
+  /** Subprocess to `bin/north`, which resolves babashka off PATH — and a hermetic
+   * fixture owns PATH. Production never injects. */
+  admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
   worktreeAllocationWriter?: WorktreeAllocationWriter;
   prepareManagedFramCoordinator?: typeof prepareManagedFramCoordinator;
 }
@@ -1331,7 +1334,7 @@ function assertRecursiveChildBinding(
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
   const injected = takeSpawnTestRuntime<SpawnRuntime>(opts) ?? {};
-  admitManagedDispatchAuthority();
+  (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedSpawnOptions(opts);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);

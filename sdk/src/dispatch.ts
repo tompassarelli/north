@@ -142,6 +142,9 @@ interface DispatchRuntime {
   admitResourceEnvelope?: typeof admitResourceEnvelope;
   completeResourceEnvelope?: typeof completeResourceEnvelope;
   admitBillableClock?: typeof admitBillableClock;
+  /** Subprocess to `bin/north`, which resolves babashka off PATH — and a hermetic
+   * fixture owns PATH. Production never injects. */
+  admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
   releaseDriver?: (
     driver: ReturnType<typeof claimDispatchDriver>,
   ) => boolean | Promise<boolean>;
@@ -1064,7 +1067,7 @@ export async function dispatch(
   dependencies: DispatchDependencies,
 ): Promise<DispatchResult> {
   const injected = takeDispatchTestRuntime<DispatchRuntime>(dependencies) ?? {};
-  admitManagedDispatchAuthority();
+  (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedDispatchDependencies(dependencies);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
