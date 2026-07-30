@@ -139,7 +139,7 @@ functions on worker topology, not topologies: `topology` is only `worker` or
 | review | reviewer | senior | worker | evaluate |
 | verify | verifier | senior | worker | evaluate |
 | judge | judge | frontier | worker | evaluate |
-| research-science | cs-researcher | frontier | worker | explore |
+| research-science | scientist | frontier | worker | explore |
 
 These are stock templates, not coupled identities. `taskGrade`, domain
 requirements, topology, semantic tier, deliberation, and posture are

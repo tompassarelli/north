@@ -80,7 +80,7 @@ Routing defaults
   reviewer            senior         senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
   verifier            senior         senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
   judge               staff          frontier  xhigh      worker        evaluate  filesystem.read,filesystem.search,shell.readonly
-  cs-researcher       staff          frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly,web
+  scientist           staff          frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly,web
 
 ORCHESTRATION (role-jurisdiction law, see doctrine.md): a WORKER owns one
 terminal piece and MUST NOT delegate. An ORCHESTRATOR coordinates rather than

@@ -51,7 +51,7 @@ Install it and your sessions gain:
    | `orchestration:reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
    | `orchestration:verifier` | senior / high | adversarial verification of one claim (justified overrides may move up or down; quality floor binds) |
    | `orchestration:judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
-   | `orchestration:cs-researcher` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
+   | `orchestration:scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
 
    Exact versioned model pins are generated from the dated provider catalogs;
    see [`docs/provider-matrix.md`](docs/provider-matrix.md). Every exact catalog

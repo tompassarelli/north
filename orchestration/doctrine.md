@@ -25,7 +25,7 @@ report shape requires a bespoke composition. Machine payloads retain v2
 ORTHOGONAL AXES — never smuggle one decision inside another:
 - FUNCTION/ROLE names the responsibility and deliverable: executor,
   implementer, integrator, designer, director, scout, analyst, verifier, judge,
-  reviewer, cs-researcher, and so on.
+  reviewer, scientist, and so on.
 - TASK GRADE names the prior for the work itself, on two segments: novice →
   junior → mid → senior (IC capability) and staff → principal → distinguished
   (scope/influence). Grade is scope, autonomy, novelty, and cross-boundary
@@ -79,7 +79,7 @@ SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
 - judge — rank two or more supplied alternatives against a stated rubric
   → orchestration:judge (frontier)
 - research-science — novel hypothesis formation, experiment design, and work
-  whose result or method is not already known → orchestration:cs-researcher
+  whose result or method is not already known → orchestration:scientist
   (frontier; grade defaults staff — research is a function, not a grade). It
   may invoke existing non-mutating tools and probes only; authoring any new
   script, fixture, apparatus, or code, even ephemeral scratch, is handed to an
