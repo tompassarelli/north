@@ -38,6 +38,7 @@
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool-reconcile.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/attention.clj"))
 (def send-op  north.coord/send-op)
 (def send-op-for-log north.coord/send-op-for-log)
@@ -253,7 +254,7 @@
 (def attention-event-reconcile-limit 64)
 (def terminal-attention-statuses #{"landed" "abandoned-stale"})
 (def usage
-  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> [--about <@thread>] | overlap <id> [--landing] | ls [repo] | list-json [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
+  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> [--about <@thread>] | reconcile-local | overlap <id> [--landing] | ls [repo] | list-json [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
 (defn usage-error! [message]
   (binding [*out* *err*]
     (println (str "concern: " message))
@@ -277,6 +278,35 @@
               (and kind (not= "thread" kind)))
       (usage-error! (str (or thread raw) " is not a title-bearing thread")))
     thread))
+(defn thread-binding-cid! [port thread]
+  (let [response
+        (send-op
+         port
+         {:op :claim-read
+          :te thread
+          :p "kind"})]
+    (cond
+      (and (map? response)
+           (true? (:ok response))
+           (= "thread" (:claim response))
+           (integer? (:claim-cid response))
+           (pos? (:claim-cid response))
+           (integer? (:version response)))
+      (:claim-cid response)
+
+      (and (map? response)
+           (or (contains? response :reject)
+               (contains? response :error)))
+      (throw
+       (ex-info "coordinator could not bind --about to one stable thread fact"
+                {:type :concern-declare-semantic-rejection
+                 :response response}))
+
+      :else
+      (throw
+       (ex-info "coordinator acknowledgement for --about binding is ambiguous"
+                {:type :concern-declare-transport-unknown
+                 :response response})))))
 (defn parse-declare-args!
   "Preserve the four-position declaration contract and admit one trailing
    --about ref. Parsing and canonical intent construction happen before the
@@ -1212,7 +1242,7 @@
      {:predicate "kind" :object "concern" :cardinality "single"}])))
 
 (defn build-concern-operation
-  [{:keys [agent repo intent about files]}]
+  [{:keys [agent repo intent about about-binding-cid files]}]
   (let [created-at (java.time.Instant/now)
         operation-id (str (java.util.UUID/randomUUID))
         concern-id
@@ -1224,6 +1254,7 @@
       :target-log (north.coord/expected-log)
       :created-at (str created-at)
       :about about
+      :about-binding-cid about-binding-cid
       :facts
       (concern-declare-facts
        {:agent agent
@@ -1231,6 +1262,19 @@
         :intent intent
         :about about
         :files files})})))
+
+(defn bind-about-operation [operation binding-cid]
+  (north.concern-spool/build-operation
+   {:operation-id (:operation-id operation)
+    :concern-id (:concern-id operation)
+    :target-log (:target-log operation)
+    :created-at (:created-at operation)
+    :about (get-in operation [:precondition :about :subject])
+    :about-binding-cid binding-cid
+    :facts
+    (mapv
+     #(select-keys % [:predicate :object :cardinality])
+     (:facts operation))}))
 
 (defn checked-declare-batch! [port operation]
   (let [response
@@ -1282,6 +1326,14 @@
     (configuration-error!
      (str "coordinator transport is unavailable; --about must be an exact @ref "
           "before a durable-local operation can be published (nothing was spooled)")))
+  (when (and about-raw
+             (nil? (get-in operation
+                           [:precondition :about :binding-cid])))
+    (binding [*out* *err*]
+      (println
+       (str "concern: coordinator transport is unavailable before --about "
+            "could be bound to a stable thread identity; nothing was spooled")))
+    (System/exit 4))
   (try
     (let [receipt
           (north.concern-spool/publish-operation!
@@ -1316,14 +1368,15 @@
                   sort
                   vec)
           agent-e (norm-cid agent)
-          operation
-          (build-concern-operation
-           {:agent agent-e
-            :repo repo
-            :intent intent
-            :about about
-            :files fs})
-          id (:concern-id operation)
+          operation*
+          (atom
+           (build-concern-operation
+            {:agent agent-e
+             :repo repo
+             :intent intent
+             :about about
+             :files fs}))
+          id (:concern-id @operation*)
           batch-acked? (atom false)
           code-result* (atom nil)
           after-data* (atom nil)]
@@ -1336,11 +1389,16 @@
                          (declare-transport-timeout-ms))]
                 ;; Preserve live preconditions: an about ref must name a real
                 ;; thread, and unmanaged principals still receive a label.
-                (when about (existing-thread! port about))
+                (when about
+                  (let [thread (existing-thread! port about)
+                        binding-cid (thread-binding-cid! port thread)]
+                    (swap! operation*
+                           bind-about-operation
+                           binding-cid)))
                 (ensure-agent-label! port agent agent-e)
                 ;; One all-or-none spine publication carries the exact same
                 ;; live facts as before, with kind=concern terminal.
-                (checked-declare-batch! port operation)
+                (checked-declare-batch! port @operation*)
                 (reset! batch-acked? true)
                 ;; Footprint remains on the code corpus only. A durable-local
                 ;; operation never writes either canonical log directly.
@@ -1385,7 +1443,7 @@
                      :code-result (or @code-result* {:mode :path})
                      :after-data @after-data*
                      :attention-deferred (.getMessage error)}
-                    (durable-local-declare! operation about-raw))
+                    (durable-local-declare! @operation* about-raw))
                   (throw error))))]
         (when (= "coordinator" (:durability result))
           (let [{:keys [mode hits misses]} (:code-result result)]
@@ -1425,6 +1483,32 @@
                 "` — who's in your footprint, likely-to-land"
                 " marked (build against those);  `concern status " id
                 " likely-to-land` as you near merge.")))))
+
+    "reconcile-local"
+    (do
+      (when (seq args)
+        (usage-error! "reconcile-local accepts no arguments"))
+      (let [{:keys [status selected processed bytes settled conflicts
+                    already-settled already-conflict deferred remaining
+                    elapsed-ms]}
+            (north.concern-spool-reconcile/reconcile-pass! port)]
+        (if (= :busy status)
+          (do
+            (binding [*out* *err*]
+              (println "concern: local reconciler is already running"))
+            (System/exit 3))
+          (println
+           (str "✓ concern local reconciliation"
+                " selected=" selected
+                " processed=" processed
+                " bytes=" bytes
+                " settled=" settled
+                " conflicts=" conflicts
+                " already_settled=" already-settled
+                " already_conflict=" already-conflict
+                " deferred=" deferred
+                " remaining=" remaining
+                " elapsed_ms=" elapsed-ms)))))
 
     "overlap"
     (let [[c & flags] args]
