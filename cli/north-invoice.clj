@@ -56,7 +56,8 @@
       legacy-human-time? (fn [thread]
                            (boolean
                             (some (fn [s]
-                                    (and (= (one s "session_of") thread)
+                                    (and (not= (one s "kind") "client_session")
+                                         (= (one s "session_of") thread)
                                          (human? s)
                                          (closed? s)))
                                   allsub)))

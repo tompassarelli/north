@@ -236,9 +236,12 @@
 ;; to pre-split. The fold is order-independent across logs (disjoint subject
 ;; keys, keyed-latest by max :tx), so a plain concat folds identically to the
 ;; coordinator's :tx-sorted merge — no sort needed.
+;; Partitioned human-clock reads disable telemetry on the cold fallback.
+(defn compose-telemetry-log? [] :- Bool true)
+
 (defn- read-logs-merged [log :- String] :- (Vec fold/FactOp)
   (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
-    (if (= tlog "")
+    (if (or (= tlog "") (not (compose-telemetry-log?)))
       (fram.rt/read-log log)
       (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
 
@@ -2161,7 +2164,7 @@
             (if (>= (count args) 3)
               (cmd-clock-orphan log (nth args 2))
               (println "usage: clock orphan <agent-id>"))]
-           [(= sub "status") (cmd-clock-status log)]
+           [(or (= sub "current") (= sub "status")) (cmd-clock-status log)]
            [(= sub "report") (cmd-clock-report log)]
            [(= sub "today")  (cmd-clock-today log)]
            [(= sub "week")   (cmd-clock-week log)]
@@ -2172,8 +2175,8 @@
               (println "usage: clock map <owner> <project-id>"))]
            [(= sub "projects")   (cf/cmd-projects)]
            [(= sub "workspaces") (cf/cmd-workspaces)]
-           [:else (println "usage: clock rate <owner> [rate] | in <owner> | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")]))]
-      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <rate|in|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
+           [:else (println "usage: clock rate <owner> [rate] | in <owner> | current | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")]))]
+      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <rate|in|current|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
 
 ;; Composable command boundary: returns the exact validation status without
 ;; terminating its host process. Retired schema-seed is a deliberate compatibility

@@ -79,7 +79,8 @@
                   (let [thr (strip-at (one s "session_of"))
                         st  (one s "start_time")
                         en  (one s "end_time")]
-                    (if (and (contains? tset thr)
+                    (if (and (not= (one s "kind") "client_session")
+                             (contains? tset thr)
                              (and (closed? s)
                                   (or (human? s) (historical-invoiced-agent? s))))
                       (let [secs (- (iso->sec en) (iso->sec st))
