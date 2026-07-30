@@ -1,15 +1,16 @@
 #!/usr/bin/env bb
 ;; Whole-run lifecycle regression for the production north-reactor sweep-once
-;; entrypoint. Fixtures are isolated: an empty temporary log, a throwaway Fram
-;; coordinator, and a planted blackhole socket. Canonical Fram is never mutated.
+;; entrypoint. Fixtures are isolated: an empty temporary log, a strict
+;; empty-corpus wire stub, and a planted blackhole socket. Canonical Fram is
+;; never started or mutated.
 (require '[babashka.process :as proc]
+         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def reactor (str root "/cli/north-reactor.clj"))
-(def fram "/home/tom/code/fram/main")
 (def checks (atom []))
 
 (defn check [label ok detail]
@@ -43,15 +44,61 @@
    "NORTH_COORD_CONNECT_TIMEOUT_MS" "50"
    "NORTH_COORD_READ_TIMEOUT_MS" "10000"})
 
-(defn start-sweep [environment]
-  (proc/process {:dir root :out :string :err :string :extra-env environment}
-                "bb" reactor "sweep-once" "--dry-run"))
+(defn start-sweep
+  ([environment] (start-sweep environment true))
+  ([environment dry?]
+   (apply proc/process
+          {:dir root :out :string :err :string :extra-env environment}
+          "bb" reactor "sweep-once" (when dry? ["--dry-run"]))))
 
-(defn start-coordinator [port log]
-  (proc/process {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-                "bb" "-cp" "out" "coord_daemon.clj"
-                "serve-flat" (str port) (.getCanonicalPath log)))
+(defn empty-coordinator-response [envelope]
+  (let [request (:request envelope)]
+    (case (:op request)
+      :version {:version 0}
+      :resolved {:value nil :members 0 :ambiguous? false :values [] :version 0}
+      :query (if (:query-max-rows request)
+               {:ok [] :version 0 :engine "index"}
+               {:ok []})
+      :query-page {:ok [] :more false :next nil :version 0 :engine "scan"}
+      :facts {:facts [] :version 0}
+      :show {:ok []}
+      {:ok true :version 0})))
+
+(defn start-coordinator [port _log]
+  (let [server (java.net.ServerSocket. port)
+        sockets (atom [])
+        handlers (atom [])
+        stopped (atom false)
+        acceptor
+        (future
+          (while (not @stopped)
+            (try
+              (let [socket (.accept server)
+                    handler
+                    (future
+                      (swap! sockets conj socket)
+                      (try
+                        (with-open [socket socket
+                                    reader (io/reader socket)
+                                    writer (io/writer socket)]
+                          (when-let [line (.readLine ^java.io.BufferedReader reader)]
+                            (.write ^java.io.Writer writer
+                                    (str (pr-str
+                                          (empty-coordinator-response
+                                           (edn/read-string line)))
+                                         "\n"))
+                            (.flush ^java.io.Writer writer)))
+                        (catch Throwable _ nil)))]
+                (swap! handlers conj handler))
+              (catch java.net.SocketException _ nil))))]
+    {:stop
+     (fn []
+       (reset! stopped true)
+       (try (.close server) (catch Throwable _ nil))
+       (doseq [socket @sockets]
+         (try (.close ^java.net.Socket socket) (catch Throwable _ nil)))
+       (doseq [handler @handlers] (future-cancel handler))
+       (future-cancel acceptor))}))
 
 (defn start-blackhole [port]
   (let [server (java.net.ServerSocket. port)
@@ -72,6 +119,32 @@
                (try (.close ^java.net.Socket socket) (catch Throwable _ nil)))
              (future-cancel acceptor))}))
 
+(defn pid-alive? [pid]
+  (boolean
+   (when pid
+     (some-> (java.lang.ProcessHandle/of (long pid))
+             (.orElse nil)
+             (.isAlive)))))
+
+(defn await-file [file timeout-ms]
+  (let [deadline (+ (System/nanoTime) (* 1000000 timeout-ms))]
+    (loop []
+      (cond
+        (.isFile ^java.io.File file) true
+        (>= (System/nanoTime) deadline) false
+        :else (do (Thread/sleep 10) (recur))))))
+
+(defn await-pid-gone [pid timeout-ms]
+  (let [deadline (+ (System/nanoTime) (* 1000000 timeout-ms))]
+    (loop []
+      (cond
+        (not (pid-alive? pid)) true
+        (>= (System/nanoTime) deadline) false
+        :else (do (Thread/sleep 10) (recur))))))
+
+(defn read-pid [file]
+  (try (parse-long (str/trim (slurp file))) (catch Throwable _ nil)))
+
 (def tmp (.toFile
           (java.nio.file.Files/createTempDirectory
            "north-reactor-sweep-lifecycle-"
@@ -90,13 +163,12 @@
         _ (spit log "")
         started (System/nanoTime)
         sweep (start-sweep environment)
-        _ (Thread/sleep 250)
+        _ (Thread/sleep 1200)
         daemon (start-coordinator port log)]
     (try
       (when-not (await-port port)
-        (throw (ex-info "throwaway coordinator did not start"
-                        {:stdout (deref (:out daemon))
-                         :stderr (deref (:err daemon))})))
+        ((:stop daemon))
+        (throw (ex-info "throwaway coordinator did not start" {})))
       (let [result @sweep
             elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))
             output (str (:out result) (:err result))]
@@ -107,7 +179,82 @@
                     (re-find #"attempts=(?:[2-9]|[1-9][0-9]+)\b" output))
                output))
       (finally
-        (try (proc/destroy-tree daemon) (catch Throwable _ nil)))))
+        ((:stop daemon)))))
+
+  ;; Core liveness work completes before the daily audit. A TERM-resistant audit
+  ;; with a child and grandchild must lose to the aggregate deadline, leave the
+  ;; real core heartbeat behind, and be fully gone before terminal output. The
+  ;; attention phase is after the audit and therefore must never start.
+  (let [port (free-port)
+        log (doto (io/file tmp "hung-audit.log") (spit ""))
+        lock (io/file tmp "hung-audit.lock")
+        heartbeat (io/file tmp "heartbeat")
+        audit (io/file tmp "hung-clock-audit.sh")
+        parent-pid-file (io/file tmp "audit-parent.pid")
+        child-pid-file (io/file tmp "audit-child.pid")
+        grandchild-pid-file (io/file tmp "audit-grandchild.pid")
+        _ (spit audit
+                (str "#!/bin/sh\n"
+                     "set -eu\n"
+                     "printf '%s\\n' \"$$\" > \"$NORTH_TEST_AUDIT_PARENT_PID\"\n"
+                     "sh -c 'trap \"\" TERM; "
+                     "printf \"%s\\\\n\" \"$$\" > \"$NORTH_TEST_AUDIT_CHILD_PID\"; "
+                     "sleep 1000 & grandchild=$!; "
+                     "printf \"%s\\\\n\" \"$grandchild\" > \"$NORTH_TEST_AUDIT_GRANDCHILD_PID\"; "
+                     "wait' &\n"
+                     "trap '' TERM\n"
+                     "wait\n"))
+        _ (.setExecutable audit true)
+        environment
+        (merge
+         (common-env tmp port log lock 6000)
+         {"NORTH_REACTOR_CLOCK_AUDIT_BIN" (.getCanonicalPath audit)
+          "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS" "30000"
+          "NORTH_TEST_AUDIT_PARENT_PID" (.getCanonicalPath parent-pid-file)
+          "NORTH_TEST_AUDIT_CHILD_PID" (.getCanonicalPath child-pid-file)
+          "NORTH_TEST_AUDIT_GRANDCHILD_PID" (.getCanonicalPath grandchild-pid-file)})
+        daemon (start-coordinator port log)]
+    (try
+      (when-not (await-port port)
+        ((:stop daemon))
+        (throw (ex-info "hung-audit coordinator did not start" {})))
+      (.delete heartbeat)
+      (let [started (System/nanoTime)
+            sweep (start-sweep environment false)
+            result @sweep
+            elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))
+            output (str (:out result) (:err result))
+            pid-files-ready?
+            (every? #(await-file % 1000)
+                    [parent-pid-file child-pid-file grandchild-pid-file])
+            pids (mapv read-pid
+                       [parent-pid-file child-pid-file grandchild-pid-file])
+            all-gone? (and pid-files-ready?
+                           (every? #(await-pid-gone % 3000) pids))
+            heartbeat-record
+            (try (edn/read-string (slurp heartbeat)) (catch Throwable _ nil))]
+        (check "hung audit loses to aggregate deadline with explicit clean deferral"
+               (and (zero? (:exit result))
+                    (< elapsed-ms 10000)
+                    (str/includes? output "terminal=deferred reason=deadline")
+                    (str/includes? output "stage=clock-audit")
+                    (str/includes? output "child_cleanup=1/1 surviving=0"))
+               output)
+        (check "registered audit parent, child, and grandchild are gone before terminal"
+               (and pid-files-ready? (every? some? pids) all-gone?)
+               (str "pids=" (pr-str pids) " output=" output))
+        (check "completed core sweep publishes heartbeat despite audit deferral"
+               (and (map? heartbeat-record)
+                    (string? (:at heartbeat-record))
+                    (map? (:details heartbeat-record))
+                    (map? (get-in heartbeat-record [:details :worktrees])))
+               (str "heartbeat=" (pr-str heartbeat-record) " output=" output))
+        (check "aggregate deadline starts no post-audit phase"
+               (and (not (str/includes? output "attention reconcile"))
+                    (not (str/includes? output "[sweep] rebuild window")))
+               output))
+      (finally
+        ((:stop daemon)))))
 
   ;; A server that accepts but never answers defeats the coordinator's normal
   ;; read path. The whole-run deadline must still terminate the process cleanly.

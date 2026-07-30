@@ -75,6 +75,127 @@
                                  (System/getenv "FRAM_PORT") "7977")))
 (def debounce-ms (Integer/parseInt (or (when-not sweep-verb? (second s-args)) "400")))
 
+;; A bounded sweep owns every subprocess it starts. The outer deadline and the
+;; phase runner synchronize on this context so cancellation wins atomically:
+;; after it flips, no later phase can start and no new child can register.
+(def ^:dynamic *sweep-runtime* nil)
+(def CHILD-TERM-GRACE-MS 250)
+(def CHILD-KILL-GRACE-MS 2000)
+
+(defn deadline-remaining-ms [deadline-ns]
+  (max 0 (long (/ (- deadline-ns (System/nanoTime)) 1000000))))
+
+(defn child-handles [child]
+  (let [root (.toHandle ^java.lang.Process (:proc child))]
+    (with-open [descendants (.descendants root)]
+      (vec (cons root (iterator-seq (.iterator descendants)))))))
+
+(defn handle-alive? [^java.lang.ProcessHandle handle]
+  (try (.isAlive handle) (catch Throwable _ false)))
+
+(defn await-handles-gone! [handles timeout-ms]
+  (let [deadline (+ (System/nanoTime) (* 1000000 timeout-ms))]
+    (loop []
+      (let [alive (vec (filter handle-alive? handles))]
+        (cond
+          (empty? alive) []
+          (>= (System/nanoTime) deadline) alive
+          :else
+          (do
+            (try (Thread/sleep 10) (catch InterruptedException _ nil))
+            (recur)))))))
+
+(defn terminate-child-tree!
+  "TERM, then KILL, the snapshotted process tree and wait for every handle to
+   disappear. A terminal sweep result must never race a surviving child."
+  [child]
+  (let [initial (child-handles child)]
+    (doseq [^java.lang.ProcessHandle handle initial]
+      (when (handle-alive? handle)
+        (try (.destroy handle) (catch Throwable _ nil))))
+    (let [after-term (await-handles-gone! initial CHILD-TERM-GRACE-MS)
+          ;; A TERM-resistant parent may have forked after the first snapshot.
+          expanded (vec (distinct
+                         (concat initial
+                                 (try (child-handles child)
+                                      (catch Throwable _ [])))))]
+      (when (seq after-term)
+        (doseq [^java.lang.ProcessHandle handle expanded]
+          (when (handle-alive? handle)
+            (try (.destroyForcibly handle) (catch Throwable _ nil)))))
+      (let [survivors (await-handles-gone! expanded CHILD-KILL-GRACE-MS)]
+        (when (seq survivors)
+          (throw
+           (ex-info "reactor child process tree survived cancellation"
+                    {:type :sweep-child-cleanup-failed
+                     :pids (mapv #(.pid ^java.lang.ProcessHandle %) survivors)})))
+        {:handles (count expanded) :terminated (count expanded)}))))
+
+(defn sweep-deadline-ex [stage]
+  (ex-info "aggregate reactor sweep deadline reached"
+           {:type :sweep-deadline :stage stage}))
+
+(defn run-sweep-stage! [stage f]
+  (when *sweep-runtime*
+    (locking *sweep-runtime*
+      (when (or @(:cancelled? *sweep-runtime*)
+                (zero? (deadline-remaining-ms (:deadline-ns *sweep-runtime*))))
+        (throw (sweep-deadline-ex stage)))
+      (reset! (:stage *sweep-runtime*) stage)))
+  (f))
+
+(defn start-sweep-child!
+  "Start and register a reactor-owned child under the same lock that publishes
+   aggregate cancellation. Outside sweep-once, retain the normal bounded child."
+  [label options & command]
+  (if-not *sweep-runtime*
+    (apply proc/process options command)
+    (locking *sweep-runtime*
+      (when (or @(:cancelled? *sweep-runtime*)
+                (zero? (deadline-remaining-ms (:deadline-ns *sweep-runtime*))))
+        (throw (sweep-deadline-ex label)))
+      (let [child (apply proc/process options command)]
+        (swap! (:children *sweep-runtime*) assoc child {:label label})
+        child))))
+
+(defn unregister-sweep-child! [child]
+  (when *sweep-runtime*
+    (swap! (:children *sweep-runtime*) dissoc child)))
+
+(defn await-sweep-child!
+  "Wait for one registered child. Timeout and interruption both synchronously
+   drain its process tree before returning or propagating."
+  [child timeout-ms]
+  (try
+    (let [result (deref child timeout-ms ::timeout)]
+      (if (= ::timeout result)
+        (let [cleanup (terminate-child-tree! child)]
+          (unregister-sweep-child! child)
+          {:status :timeout :cleanup cleanup})
+        (do
+          (unregister-sweep-child! child)
+          {:status :completed :result result})))
+    (catch InterruptedException interrupted
+      (try (terminate-child-tree! child) (catch Throwable _ nil))
+      (unregister-sweep-child! child)
+      (throw interrupted))))
+
+(defn cancel-sweep-runtime! [runtime]
+  (let [registered
+        (locking runtime
+          (reset! (:cancelled? runtime) true)
+          (vec @(:children runtime)))
+        cleanups
+        (mapv
+         (fn [[child {:keys [label]}]]
+           (let [cleanup (terminate-child-tree! child)]
+             (swap! (:children runtime) dissoc child)
+             {:label label :cleanup cleanup}))
+         registered)]
+    {:registered (count registered)
+     :terminated (count cleanups)
+     :surviving (count @(:children runtime))}))
+
 ;; ---- LIVENESS-DERIVED REAPING (design 019f4418) -----------------------------
 ;; Two terminal verdicts the reactor writes on its cadence (or via sweep-once):
 ;;   1. a `building` concern whose owner has been LAPSED >24h  -> reached=abandoned-stale
@@ -132,18 +253,18 @@
    facts directly."
   [concern]
   (let [child
-        (proc/process
+        (start-sweep-child!
+         :concern-terminal-transition
          {:out :string :err :string}
          "bb" concern-transition-cli (str port) "retire-stale" concern)
-        result
-        (deref child CONCERN-TRANSITION-TIMEOUT-MS ::timeout)]
-    (when (= ::timeout result)
-      (proc/destroy-tree child)
+        awaited (await-sweep-child! child CONCERN-TRANSITION-TIMEOUT-MS)]
+    (when (= :timeout (:status awaited))
       (throw
        (ex-info "concern terminal transition timed out"
                 {:type :concern-terminal-transition-timeout
                  :concern concern
                  :timeout-ms CONCERN-TRANSITION-TIMEOUT-MS})))
+    (let [result (:result awaited)]
     (when-not (zero? (:exit result))
       (throw
        (ex-info "concern terminal transition failed"
@@ -172,7 +293,7 @@
                   {:type :malformed-concern-terminal-transition
                    :concern concern
                    :result transition})))
-      transition)))
+      transition))))
 
 (defn sweep-concerns! [dry?]
   (let [concerns (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "concern"]}]))
@@ -423,9 +544,28 @@
 ;; the gate is self-describing and survives a reactor restart. --dry-run reports WOULD
 ;; without writing, keeping sweep-once --dry-run clean.
 (def CLOCK-AUDIT-INTERVAL-MS (* 24 60 60 1000))         ; once per day
+(def DEFAULT-CLOCK-AUDIT-TIMEOUT-MS 45000)
+(def MAX-CLOCK-AUDIT-TIMEOUT-MS 120000)
 (def clock-audit-bin
-  (-> (io/file (System/getProperty "babashka.file"))
-      .getParentFile .getParentFile (io/file "bin" "north-clock-audit") .getPath))
+  (or (System/getenv "NORTH_REACTOR_CLOCK_AUDIT_BIN")
+      (-> (io/file (System/getProperty "babashka.file"))
+          .getParentFile .getParentFile (io/file "bin" "north-clock-audit") .getPath)))
+
+(defn clock-audit-timeout-ms []
+  (let [raw (System/getenv "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS")
+        value (try
+                (Long/parseLong (or raw (str DEFAULT-CLOCK-AUDIT-TIMEOUT-MS)))
+                (catch Throwable _ -1))]
+    (when-not (<= 1 value MAX-CLOCK-AUDIT-TIMEOUT-MS)
+      (throw
+       (ex-info
+        (str "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS must be between 1 and "
+             MAX-CLOCK-AUDIT-TIMEOUT-MS " milliseconds")
+        {:type :invalid-sweep-lifecycle-setting
+         :name "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS"
+         :value raw
+         :maximum MAX-CLOCK-AUDIT-TIMEOUT-MS})))
+    value))
 
 (defn last-clock-audit-ms
   "Newest kind=clock_audit_run run_at as epoch-ms, or nil if none exists yet."
@@ -438,27 +578,46 @@
     (when (seq ms) (reduce max ms))))
 
 (defn maybe-clock-audit!
-  "Run clock-audit --persist at most once per day. Returns :ran / :would / :skip.
-   clock-audit exits 1 on uncovered commits — :continue true so drift never crashes
-   the reactor. Best-effort: a failure is logged, not fatal."
+  "Run clock-audit --persist at most once per day in an owned, bounded child.
+   Exit 1 means uncovered commits and is still a completed audit. Timeout or
+   launch failure is an explicit deferral, never a lost heartbeat."
   [dry?]
   (let [last (last-clock-audit-ms)
         due? (or (nil? last) (>= (- (System/currentTimeMillis) last) CLOCK-AUDIT-INTERVAL-MS))]
     (cond
-      (not due?) :skip
+      (not due?) {:status :skipped :reason :not-due}
       dry?       (do (println (str "[sweep] WOULD run clock-audit --persist"
                                    (when last (str " (last " (long (/ (- (System/currentTimeMillis) last) 3600000)) "h ago)"))))
-                     :would)
-      :else      (do (try
-                       (let [r (proc/shell {:out :string :err :string :continue true}
-                                           clock-audit-bin "--persist")]
-                         (println (str "[sweep] clock-audit --persist exit=" (:exit r)))
-                         (when (seq (str/trim (str (:err r))))
-                           (println (str "[sweep] clock-audit stderr: " (str/trim (str (:err r)))))))
-                       (catch Throwable t
-                         (println (str "[sweep] clock-audit error: " (.getMessage t)))))
-                     (flush)
-                     :ran))))
+                     {:status :would-run})
+      :else
+      (let [timeout-ms (clock-audit-timeout-ms)]
+        (try
+          (let [child (start-sweep-child!
+                       :clock-audit
+                       {:out :string :err :string}
+                       clock-audit-bin "--persist")
+                awaited (await-sweep-child! child timeout-ms)]
+            (if (= :timeout (:status awaited))
+              (do
+                (println (str "[sweep] clock-audit deferred reason=timeout"
+                              " timeout_ms=" timeout-ms))
+                (flush)
+                {:status :deferred :reason :timeout :timeout-ms timeout-ms
+                 :cleanup (:cleanup awaited)})
+              (let [result (:result awaited)]
+                (println (str "[sweep] clock-audit --persist exit=" (:exit result)))
+                (when (seq (str/trim (str (:err result))))
+                  (println (str "[sweep] clock-audit stderr: "
+                                (str/trim (str (:err result))))))
+                (flush)
+                {:status :completed :exit (:exit result)})))
+          (catch InterruptedException interrupted
+            (throw interrupted))
+          (catch Throwable error
+            (println (str "[sweep] clock-audit deferred reason=error error="
+                          (pr-str (.getMessage error))))
+            (flush)
+            {:status :deferred :reason :error :error error}))))))
 
 ;; ---- REBUILD WINDOW OWNER ---------------------------------------------------
 ;; Agents queue rebuild asks (`north rebuild request`) and never fire; this sweep
@@ -593,19 +752,20 @@
   [reason]
   (try
     (let [child
-          (proc/process
+          (start-sweep-child!
+           :attention-reconcile
            {:out :string :err :string}
            "bb" attention-reconcile-cli (str port) "reconcile-attention")
-          result (deref child ATTENTION-RECONCILE-TIMEOUT-MS ::timeout)]
-      (if (= ::timeout result)
+          awaited (await-sweep-child! child ATTENTION-RECONCILE-TIMEOUT-MS)]
+      (if (= :timeout (:status awaited))
         (do
-          (proc/destroy-tree child)
           (println
            (str "[sweep] attention reconcile deferred reason=timeout"
                 " timeout_ms=" ATTENTION-RECONCILE-TIMEOUT-MS
                 " trigger=" reason))
           {:status :timeout})
-        (let [ok? (zero? (:exit result))]
+        (let [result (:result awaited)
+              ok? (zero? (:exit result))]
           (println
            (str "[sweep] attention reconcile "
                 (if ok? "completed" "deferred")
@@ -622,44 +782,69 @@
       {:status :failed})))
 
 (defn sweep! [dry?]
-  (let [nc (sweep-concerns! dry?) nl (sweep-lanes! dry?)
-        nd (sweep-unpublished-driver-claims! dry?)
-        wt (try
-             (north.worktree-janitor/sweep-worktrees!
-              {:port port
-               :dry? dry?
-               :repo-filter sweep-repo
-               :lane-resolved? lane-resolved?*})
-             (catch Throwable t
-               (println (str "[sweep] worktree janitor error: " (.getMessage t)))
-               {:scanned 0 :unresolved 0 :dirty 0 :uncertain 0 :partial 0
-                :already-removed 0
-                :removed 0 :would-remove 0 :orphan-facts-written 0
-                :errors 1}))
-        al (sweep-agent-logs! dry?)
+  (let [nc (run-sweep-stage! :concerns #(sweep-concerns! dry?))
+        nl (run-sweep-stage! :lanes #(sweep-lanes! dry?))
+        nd (run-sweep-stage!
+            :unpublished-driver-claims
+            #(sweep-unpublished-driver-claims! dry?))
+        wt (run-sweep-stage!
+            :worktree-janitor
+            #(try
+               (north.worktree-janitor/sweep-worktrees!
+                {:port port
+                 :dry? dry?
+                 :repo-filter sweep-repo
+                 :lane-resolved? lane-resolved?*})
+               (catch Throwable t
+                 (println (str "[sweep] worktree janitor error: " (.getMessage t)))
+                 {:scanned 0 :unresolved 0 :dirty 0 :uncertain 0 :partial 0
+                  :already-removed 0
+                  :removed 0 :would-remove 0 :orphan-facts-written 0
+                  :errors 1})))
+        al (run-sweep-stage! :agent-logs #(sweep-agent-logs! dry?))
         ;; Spend-guard backstop (step 3): burn-rate breach TRIPS the global breaker;
         ;; a tripped breaker SIGKILLs every verified live breached lane + settles it.
         ;; Best-effort — a coordinator hiccup here never crashes the liveness sweep.
-        burn (try (north.spend-breaker/sweep-burn! port dry?)
-                  (catch Throwable t (println (str "[sweep] burn error: " (.getMessage t))) {:tripped false}))
-        nk (try (north.spend-breaker/sweep-kill! port dry?)
-                (catch Throwable t (println (str "[sweep] sweep-kill error: " (.getMessage t))) 0))
-        ca (maybe-clock-audit! dry?)
-        rw (maybe-rebuild-window! dry?)
-        attention (if dry?
-                    {:status :skipped}
-                    (reconcile-attention-bounded! "post-sweep"))
+        burn (run-sweep-stage!
+              :spend-burn
+              #(try
+                 (north.spend-breaker/sweep-burn! port dry?)
+                 (catch Throwable t
+                   (println (str "[sweep] burn error: " (.getMessage t)))
+                   {:tripped false})))
+        nk (run-sweep-stage!
+            :spend-kill
+            #(try
+               (north.spend-breaker/sweep-kill! port dry?)
+               (catch Throwable t
+                 (println (str "[sweep] sweep-kill error: " (.getMessage t)))
+                 0)))
+        ;; The liveness work is complete at this boundary. Stamp it before
+        ;; optional maintenance so a deferred audit cannot make a healthy core
+        ;; sweep look dead.
+        _ (run-sweep-stage!
+           :core-heartbeat
+           #(when-not dry?
+              (north.reactor-heartbeat/write-heartbeat! port {:worktrees wt})))
+        ca (run-sweep-stage! :clock-audit #(maybe-clock-audit! dry?))
+        audit-deferred? (= :deferred (:status ca))
+        rw (if audit-deferred?
+             {:action "skipped" :count 0 :reason "clock-audit-deferred"}
+             (run-sweep-stage! :rebuild-window #(maybe-rebuild-window! dry?)))
+        attention (if audit-deferred?
+                    {:status :skipped :reason :clock-audit-deferred}
+                    (run-sweep-stage!
+                     :attention-reconcile
+                     #(if dry?
+                        {:status :skipped}
+                        (reconcile-attention-bounded! "post-sweep"))))
         summary {:concerns nc :lanes nl :unpublished-drivers nd
                  :worktrees wt :agent-logs al :breaker burn
                  :lanes-killed nk :clock-audit ca
                  :rebuild-window rw
-                 :attention-reconcile attention}]
-    ;; Durable last-sweep heartbeat — write ONLY on a real sweep so doctor can tell a
-    ;; running reactor from a dead one. The same record carries the janitor result,
-    ;; so an operator can distinguish "reactor alive" from "cleanup actually ran".
-    ;; --dry-run leaves no trace (mirrors clock-audit).
-    (when-not dry?
-      (north.reactor-heartbeat/write-heartbeat! port {:worktrees wt}))
+                 :attention-reconcile attention
+                 :terminal-status (if audit-deferred? :deferred :completed)
+                 :deferred-reason (when audit-deferred? :clock-audit)}]
     (println (str "[sweep] " (when dry? "(dry-run) ") "concerns abandoned=" nc
                   " lanes reaped=" nl " unpublished drivers released=" nd
                   " worktrees removed=" (:removed wt)
@@ -671,7 +856,8 @@
                   " worktree-errors=" (get wt :errors 0)
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
                   " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
-                  " clock-audit=" (name ca)
+                  " clock-audit=" (name (:status ca))
+                  (when-let [reason (:reason ca)] (str ":" (name reason)))
                   " rebuild-window=" (:action rw) ":" (:count rw)
                   " attention-reconcile=" (name (:status attention))))
     (flush)
@@ -839,24 +1025,50 @@
            (str ": " message)))))
 
 (defn remaining-ms [deadline-ns]
-  (max 0 (long (/ (- deadline-ns (System/nanoTime)) 1000000))))
+  (deadline-remaining-ms deadline-ns))
 
 (defn run-sweep-attempt!
-  "Run one attempt without allowing it past deadline-ns. The promise avoids
-   ExecutionException wrapping and lets the caller classify the original cause."
+  "Run one attempt without allowing it past deadline-ns. Cancellation closes
+   phase admission first, then drains every registered child before returning."
   [dry? deadline-ns]
   (let [result (promise)
+        runtime {:deadline-ns deadline-ns
+                 :cancelled? (atom false)
+                 :stage (atom :starting)
+                 :children (atom {})}
         task (future
-               (try
-                 (deliver result {:status :completed :summary (sweep! dry?)})
-                 (catch Throwable throwable
-                   (deliver result {:status :error :error throwable}))))
+               (binding [*sweep-runtime* runtime]
+                 (try
+                   (let [summary (sweep! dry?)]
+                     (deliver result
+                              {:status (:terminal-status summary)
+                               :reason (:deferred-reason summary)
+                               :summary summary}))
+                   (catch Throwable throwable
+                     (deliver
+                      result
+                      (if (= :sweep-deadline (:type (ex-data throwable)))
+                        {:status :deadline :stage (:stage (ex-data throwable))}
+                        {:status :error :error throwable}))))))
         remaining (remaining-ms deadline-ns)
         observed (if (pos? remaining)
                    (deref result remaining ::deadline)
                    ::deadline)]
-    (if (= ::deadline observed)
-      (do (future-cancel task) {:status :deadline})
+    (if (or (= ::deadline observed) (= :deadline (:status observed)))
+      (try
+        ;; Snapshot+close admission before interrupting the task. Otherwise its
+        ;; InterruptedException cleanup can unregister the child between those
+        ;; two acts and make the terminal receipt nondeterministically say 0/0.
+        (let [cleanup (cancel-sweep-runtime! runtime)]
+          (future-cancel task)
+          {:status :deadline
+           :stage (or (:stage observed) @(:stage runtime))
+           :child-cleanup cleanup})
+        (catch Throwable cleanup-error
+          (future-cancel task)
+          {:status :failed
+           :stage @(:stage runtime)
+           :error cleanup-error}))
       observed)))
 
 (defn run-bounded-sweep!
@@ -871,8 +1083,12 @@
           (assoc observed :attempts attempt
                           :elapsed-ms (long (/ (- (System/nanoTime) started-ns) 1000000)))
 
+          (= :deferred status)
+          (assoc observed :attempts attempt
+                          :elapsed-ms (long (/ (- (System/nanoTime) started-ns) 1000000)))
+
           (= :deadline status)
-          {:status :deadline :attempts attempt :timeout-ms timeout-ms}
+          (assoc observed :attempts attempt :timeout-ms timeout-ms)
 
           (not (retryable-coordinator-error? error))
           {:status :failed :attempts attempt :error error}
@@ -925,10 +1141,29 @@
             (flush)
             0)
 
+        (= :deferred (:status result))
+        (let [audit (get-in result [:summary :clock-audit])]
+          (println (str "[sweep] terminal=deferred reason="
+                        (name (or (:reason result) :maintenance))
+                        (when-let [audit-reason (:reason audit)]
+                          (str " audit_reason=" (name audit-reason)))
+                        (when-let [timeout (:timeout-ms audit)]
+                          (str " timeout_ms=" timeout))
+                        " attempts=" (:attempts result)
+                        " action=retry-on-next-scheduled-run"))
+          (flush)
+          0)
+
         (contains? #{:deadline :unavailable} (:status result))
         (do (println (str "[sweep] terminal=deferred reason=" (name (:status result))
                           " timeout_ms=" timeout-ms
                           " attempts=" (:attempts result)
+                          (when-let [stage (:stage result)]
+                            (str " stage=" (name stage)))
+                          (when-let [cleanup (:child-cleanup result)]
+                            (str " child_cleanup="
+                                 (:terminated cleanup) "/" (:registered cleanup)
+                                 " surviving=" (:surviving cleanup)))
                           (when-let [error (:error result)]
                             (str " last_error=\"" (concise-error error) "\""))
                           " action=retry-on-next-scheduled-run"))
