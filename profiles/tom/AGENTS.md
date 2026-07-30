@@ -282,9 +282,12 @@ detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
   bug: measure (`nproc`, `/proc/loadavg`) instead; agent work is
   network-bound. Benchmark/experiment isolation protocol:
   → `~/.agents/docs/measure-load.md`
-- **Desktop translucency is intentional** (niri per-window opacity): never
-  flag, diagnose, or "fix" it. Judge screenshot colors by the CSS/config
+- **Screenshots over translucent windows:** judge colors by the config
   values and their base16 set, never by compositing over the wallpaper.
+- **Human WIP is not yours:** dirty state in any `main/` checkout is human
+  property — never commit, stash, reset, or diagnose it (guard-enforced).
+  An anomaly outside your task's footprint gets one sentence or a
+  `north capture`, never an inline investigation.
 - **Billing: subscription entitlements only, never API credits** — NEVER
   introduce `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, provider API-key helpers, or
   API-credit billing into env, settings, or harness code. Provider adapters
