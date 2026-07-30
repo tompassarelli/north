@@ -18,6 +18,8 @@
 #
 #   Worktrees are the sanctioned destination and must never be caught: a
 #   worktree lives at ~/code/<project>/wt-<slug> and is carved out by name.
+#   `wt-rescue`, the remediation the deny message recommends, is allowlisted for
+#   the same reason — see SANCTIONED_TOOLS in lib/launch_critical_decide.py.
 #
 #   The human is unaffected: they edit through their editor, not through the
 #   harness's Edit/Write tools, so this code never runs for them.

@@ -106,9 +106,18 @@ case "$(bash_decide "git -C $ROOT/proj/wt-x reset --hard HEAD~1" "$HOME")" in
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  reset --hard in a worktree must be allowed" >&2 ;;
 esac
-case "$(bash_decide "git -C $ROOT/proj/main merge --ff-only slug && git -C $ROOT/proj/main branch -d slug" "$HOME")" in
+case "$(bash_decide "git -C $ROOT/proj/main merge --ff-only slug && git -C $ROOT/proj/main branch -d slug && git -C $ROOT/proj/main worktree prune && safe-push --to main" "$HOME")" in
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  the landing flow must run from main" >&2 ;;
+esac
+# wt-rescue is the sanctioned remediation the deny message points at.
+case "$(bash_decide "wt-rescue $ROOT/proj/main" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  wt-rescue must be allowed against a main" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/main checkout -- ." "$HOME")" in
+  *wt-rescue*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  checkout -- in a main must deny and name wt-rescue" >&2 ;;
 esac
 
 rm -rf "${FIXTURE:?}"
