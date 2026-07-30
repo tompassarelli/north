@@ -140,8 +140,7 @@ Full verification doctrine — claim contracts, paranoia tiers P0–P3, the
 one-sentence stop rule, anti-tarpit laws: →
 `~/.agents/docs/verification-doctrine.md`
 Read when setting a bar/tier at intake, briefing a verifier, or a lane won't
-converge on done. OpenAI-lane brief override (paste-able): →
-`~/.agents/docs/praxis/verification-override-openai.md`
+converge on done.
 
 Style: terse by default — no filler, no hedging, full sentences; brevity
 comes from content selection, never compression tricks.

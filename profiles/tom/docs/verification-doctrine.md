@@ -6,9 +6,6 @@ and the OpenAI-driven `fram-reliability-supervisor`
 (`@msg:20260728-144551` → `@msg:20260728-144742` → settlement
 `@msg:20260728-145018`). Supersedes the session draft at
 `~/docs/private/verification-doctrine.md`.
-**Companion payload:** the paste-able brief override for OpenAI lanes lives at
-`~/.agents/docs/praxis/verification-override-openai.md`
-— this doc is the why and the law; that file is what ships in a brief.
 **Public mirror:** the portable, provider-neutral form is published at
 https://github.com/tompassarelli/stop-the-loop (checkout:
 `~/code/stop-the-loop`, policy = `README.md`). When a refinement here changes
@@ -217,13 +214,16 @@ Cross-cutting rules:
 | Dispositionless verification | Pass ends with "continuing to investigate" | Forbidden state; emit pass/fail/cannot-determine now |
 | Authority laundering | Escalating for permission the contract already grants ("may I run the declared probe?") | Name the decision type outside the contract or execute; deference is not diligence |
 
-## 6. OpenAI-lane override block
+## 6. Provider countermeasures
 
-The paste-able brief payload (imperative form of this doctrine, self-contained
-with a compact tier table) is maintained at
-`~/.agents/docs/praxis/verification-override-openai.md`.
-Attach it to any OpenAI-provider lane whose work includes implementation or
-verification. Do not fork its text — edit it there.
+Provider-specific imperative projections of this doctrine ship as wired
+dispatch blocks (provider deltas), never as paste-docs — a payload without a
+delivery mechanism is just a fork waiting to drift. The 2026-07 OpenAI-lane
+override was reaped on 2026-07-30 while OpenAI orchestration is ineligible;
+its battle-tested text is recoverable via
+`git show 6363139:profiles/tom/docs/praxis/verification-override-openai.md`,
+and re-wiring it at re-enable is tracked on north thread
+`019fb1f4-c933-7623-96fc-856eab8f2a29`.
 
 ## 7. Provenance
 
