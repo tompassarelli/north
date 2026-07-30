@@ -31,9 +31,9 @@ builtin source "$SCRIPT_DIR/lib/authoring-killswitch.sh" 2>/dev/null ||
   deny_unavailable
 authoring_guards_off && exit 0
 
-# Dedicated clock-guard knob (tom, 2026-07-24): billing clock demoted to
-# opt-in. First line "off" in the state file disables ONLY this guard;
-# missing/other content leaves it active. Other guards unaffected.
+# Dedicated clock-guard knob. First line "off" in the state file disables
+# ONLY this guard; missing/other content leaves it active. Other guards
+# unaffected.
 # SDK managed-guard calls set NORTH_CLOCK_GUARD_ATTEST=1 and require a
 # positive attestation — silence there is denied as unavailable, so the
 # off branch must still emit {"northClockGuard":"not-applicable"}.

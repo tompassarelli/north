@@ -10,7 +10,7 @@
 # `off`. Every rule here is asserted by ../harness-dial-cases.tsv, which the
 # Clojure report and the TS SDK assert against the same way.
 #
-# Two categories are special and both are load-bearing:
+# Two categories are special:
 #   authoring    — stored under the pre-existing `guards` key, not a second
 #                  key, so `north config guards off` keeps meaning exactly
 #                  what it means today and no migration is needed.

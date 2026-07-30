@@ -1,16 +1,15 @@
 """Shared path policy for the launch-critical guard.
 
-THE LAYOUT (canonical, 2026-07-29)
+THE LAYOUT
 
     ~/code/<project>/          container only — never a checkout
     ~/code/<project>/main/     the clean main checkout; agents NEVER write here
     ~/code/<project>/wt-<slug>/  every agent's working tree
 
-One rule expresses both this layout and the one it replaces: deny anything
-inside ~/code/<project>, EXCEPT inside a wt-* directory. Today the checkout is
-at ~/code/<project> itself and worktrees live elsewhere; after migration the
-checkout is ~/code/<project>/main and worktrees are siblings. The rule is
-correct in both, so enforcement does not have to be sequenced with the move.
+One rule expresses both a checkout at ~/code/<project> itself and one at
+~/code/<project>/main: deny anything inside ~/code/<project>, EXCEPT inside a
+wt-* directory. Which layout is in play is distinguished by where the `.git`
+directory actually lives.
 """
 
 import os

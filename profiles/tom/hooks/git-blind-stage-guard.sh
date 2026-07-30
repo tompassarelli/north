@@ -2,12 +2,9 @@
 # PreToolUse guard — refuses BLIND git staging: `git add -A`, `git add -u`,
 # `git add .`, and `git commit -a` (incl. `-am`-style short clusters).
 # ============================================================================
-# WHY: the failure mode this closes is "I did not know what I was committing."
 # Enumerating paths (`git add path/to/file`) forces the agent to know the
 # diff before it lands; blind staging sweeps in whatever else is dirty in the
 # tree — including another agent's in-flight WIP or an unreviewed cherry-pick.
-# Evidence: nixos-config-lane provenance-gap thread (2 of 2 blind-stage uses
-# in one session were wrong and both shipped to main).
 #
 # THE FALSE-POSITIVE TRAP (why this needs care, not just a substring grep):
 # naive substring matching would deny a commit whose MESSAGE mentions the
@@ -196,8 +193,7 @@ if hit is None:
 reason = (
     "BLOCKED: blind staging refused (%s) — enumerate the paths you intend to "
     "commit instead, e.g. `git add path/to/file` or `git commit path/to/file "
-    "-m '...'`. This exists because blind staging has twice swept unreviewed "
-    "changes to main. A commit MESSAGE or heredoc body that merely mentions "
+    "-m '...'`. A commit MESSAGE or heredoc body that merely mentions "
     "the phrase is unaffected — only a real command-position invocation is "
     "denied. Rare explicit override: `north config guards off` (persistent, "
     "live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."

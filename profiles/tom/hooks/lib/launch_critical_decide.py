@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 """Decide whether one tool call writes into a launch-critical checkout.
 
-WHY THIS COVERS BASH (observed 2026-07-29, not hypothetical)
+BASH COVERAGE
 
-The original guard inspected `tool_input.file_path`, which exists only for
-Edit/Write/MultiEdit. A Bash call carries `tool_input.command`, so the guard
-returned "no opinion" for every one of them.
-
-On 2026-07-29 an agent modified all three launch-critical primaries — patching
-.clj files with `python3 - <<EOF` heredocs, running `git add`/`git commit`/
-`git reset --hard`, and pushing from the primary — and the guard did not fire
-once. Not through evasion: Bash is simply the tool an agent reaches for when
-scripting an edit, and that entrance had no lock on it. A policy enforced on one
-door is not enforced.
+`tool_input.file_path` exists only for Edit/Write/MultiEdit. A Bash call
+carries `tool_input.command` instead, so this module parses Bash commands
+(git verbs, redirects, in-place/destination-taking commands, interpreter
+heredocs) to catch writes that route through the shell rather than a
+file_path.
 
 READ vs WRITE
 
@@ -22,8 +17,7 @@ does the sanctioned escape route the deny message itself recommends:
 mutation is refused.
 
 FAIL-OPEN, everywhere. An unparseable command, an unknown shape, any exception:
-return None and let the call through. A guard that blocks work when it is itself
-confused is worse than the leak it prevents.
+return None and let the call through.
 """
 
 import json
@@ -43,8 +37,7 @@ MUTATING_GIT = {
 }
 
 # Explicitly allowed from a primary — these are how you LEAVE it and how work
-# LANDS in it. Blocking them would trap a lane with no compliant move, and a
-# guard with no compliant move is one the next person switches off.
+# LANDS in it.
 SANCTIONED_GIT = {"worktree", "fetch"}
 
 # merge/pull are mutations, but --ff-only cannot dirty the tree or invent a
@@ -91,11 +84,9 @@ def _effective_cwd(command, cwd):
 def _strip_heredoc_bodies(command):
     """The command with heredoc BODIES removed, keeping a `<<` marker.
 
-    A heredoc body is DATA, not shell syntax. Scanning it produced false
-    denials: writing this guard's own test file, whose fixtures contain the
-    string `> /home/tom/code/north/main/cli/x.clj`, was refused as if that were a
-    real redirect. The `<<` itself is preserved because rule 4 still needs to
-    know a heredoc was present.
+    A heredoc body is DATA, not shell syntax, and must not be scanned for
+    redirects or paths. The `<<` itself is preserved because rule 4 still
+    needs to know a heredoc was present.
     """
     out, i = [], 0
     for m in re.finditer(r'<<-?\s*[\'"]?(\w+)[\'"]?', command):
@@ -111,10 +102,9 @@ def _strip_heredoc_bodies(command):
 def _redirect_targets(command):
     """Files the shell would open for writing via > or >>.
 
-    `->` is NOT a redirect: the naive pattern matched the '>' of an arrow inside
-    a quoted string and denied `echo "a -> b"` from a protected directory. `>&`
-    (fd duplication, e.g. 2>&1) opens no file either. False positives are how a
-    guard ends up switched off, so both are excluded.
+    `->` is NOT a redirect (excluded so an arrow inside a quoted string, e.g.
+    `echo "a -> b"`, is not treated as one). `>&` (fd duplication, e.g. 2>&1)
+    opens no file either, so it is excluded too.
     """
     return [m.group(1).strip('"\'')
             for m in re.finditer(
@@ -222,10 +212,9 @@ def decide(payload):
             return found
 
     # 4. an interpreter fed a heredoc, while cwd is a protected checkout. The
-    #    written path lives inside the script and cannot be parsed out, and this
-    #    is exactly the shape that patched three primaries on 2026-07-29
-    #    (`cd ~/code/north/main && python3 - <<'PYEOF'`). Refused on cwd alone;
-    #    running it from elsewhere with absolute paths is unaffected.
+    #    written path lives inside the script and cannot be parsed out, so this
+    #    is refused on cwd alone; running it from elsewhere with absolute paths
+    #    is unaffected.
     hit = protected_project(eff)
     if hit and "<<" in command:
         for tok in tokens:

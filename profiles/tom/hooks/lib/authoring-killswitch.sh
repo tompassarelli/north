@@ -3,9 +3,7 @@
 #
 # The implementation moved to harness-dial.sh when the authoring kill-switch
 # generalized into the control-plane dial. This file stays, and stays sourced
-# by name, because six guard hooks and `north config` reference it directly;
-# routing them through one shim is cheaper and safer than editing six live
-# enforcement scripts to gain behavior they already have.
+# by name, because six guard hooks and `north config` reference it directly.
 #
 # Registered hook callers now receive the complete shared dial: item beats
 # category, category beats all, and the authoring env override still beats

@@ -1,7 +1,6 @@
 # registry.tsv — the hook inventory. Data, not code: the bash lib, the
 # Clojure report, and the TS SDK all read this one table, so "what hooks
-# exist" has exactly one answer. Nothing enumerated hooks before this file,
-# which is why "some vs all" was not expressible.
+# exist" has exactly one answer.
 #
 # kind      deny = can refuse a tool call · advisory = shapes output only ·
 #           identity = agent presence, mail, and coordination
