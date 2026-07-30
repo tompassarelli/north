@@ -359,9 +359,22 @@ function writeThreadFake(
   title: string,
   runFacts?: Array<{ predicate: string; value: string }>,
   recursiveParent?: string,
-): { command: string; calls: string } {
+): { command: string; calls: string; showRows: Record<string, string[][]> } {
   const command = join(directory, "north-fake");
   const calls = join(directory, "calls.log");
+  const threadRows = [
+    ["title", title],
+    ["kind", "thread"],
+    ["committed", "2026-07-19"],
+    ...(recursiveParent ? [["part_of", `@${recursiveParent}`]] : []),
+  ];
+  const showRows: Record<string, string[][]> = {
+    [`@${String(receipt.id)}`]: threadRows,
+  };
+  if (recursiveParent) showRows[`@${recursiveParent}`] = threadRows;
+  if (runFacts) {
+    showRows["@run-parent"] = runFacts.map(({ predicate, value }) => [predicate, value]);
+  }
   writeFileSync(command, `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
 if [ "$1" = "capture" ]; then
@@ -371,23 +384,10 @@ fi
 if [ "$1" = "tell" ]; then
   exit 0
 fi
-if [ "$1" = "json" ] && [ "$2" = "show" ]; then
-  if [ "$3" = "run-parent" ] && [ -n ${JSON.stringify(runFacts ? "yes" : "")} ]; then
-    printf '%s\\n' ${JSON.stringify(JSON.stringify(runFacts ?? []))}
-    exit 0
-  fi
-  printf '%s\\n' ${JSON.stringify(JSON.stringify([
-    { predicate: "title", value: title },
-    { predicate: "kind", value: "thread" },
-    { predicate: "committed", value: "2026-07-19" },
-    ...(recursiveParent ? [{ predicate: "part_of", value: `@${recursiveParent}` }] : []),
-  ]))}
-  exit 0
-fi
 exit 1
 `);
   chmodSync(command, 0o755);
-  return { command, calls };
+  return { command, calls, showRows };
 }
 
 function reservationFacts(
@@ -420,11 +420,17 @@ function reservationFacts(
 function resolveDelegateThread(
   request: { task: string; explicit?: string },
   env: Record<string, string>,
+  fake: ReturnType<typeof writeThreadFake>,
 ) {
   const expression = [
     `(System/setProperty "north.agents.lib" "1")`,
     `(load-file ${JSON.stringify(cli)})`,
-    `(println (json/generate-string (resolve-delegate-thread! {:task ${JSON.stringify(request.task)} :explicit-thread ${request.explicit ? JSON.stringify(request.explicit) : "nil"}} false)))`,
+    `(let [fixture-rows (json/parse-string ${JSON.stringify(JSON.stringify(fake.showRows))})]`,
+    `(with-redefs [north.coord/show-rows`,
+    `(fn [_port subject]`,
+    `(spit ${JSON.stringify(fake.calls)} (str "show " subject "\\n") :append true)`,
+    `(get fixture-rows subject []))]`,
+    `(println (json/generate-string (resolve-delegate-thread! {:task ${JSON.stringify(request.task)} :explicit-thread ${request.explicit ? JSON.stringify(request.explicit) : "nil"}} false)))))`,
   ].join(" ");
   return spawnSync("bb", ["-e", expression], {
     encoding: "utf8",
@@ -458,7 +464,7 @@ test("delegate captures exactly one thread when no explicit or managed binding e
       NORTH_RUN_ID: "",
       NORTH_THREAD_ID: "",
       NORTH_RUN_CAPABILITY: "",
-    });
+    }, fake);
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout.trim())).toMatchObject({
       id: "captured-thread",
@@ -466,7 +472,7 @@ test("delegate captures exactly one thread when no explicit or managed binding e
     });
     const calls = readFileSync(fake.calls, "utf8").trim().split("\n");
     expect(calls.filter((line) => line.startsWith("capture "))).toEqual([`capture ${task}`]);
-    expect(calls.filter((line) => line === "json show captured-thread")).toHaveLength(1);
+    expect(calls.filter((line) => line === "show @captured-thread")).toHaveLength(1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -499,7 +505,7 @@ test("delegate derives a bounded single-line capture title without truncating th
       NORTH_RUN_ID: "",
       NORTH_THREAD_ID: "",
       NORTH_RUN_CAPABILITY: "",
-    });
+    }, fake);
     expect(result.status).toBe(0);
     expect(Buffer.byteLength(title, "utf8")).toBeLessThanOrEqual(160);
     expect(title).not.toContain("\n");
@@ -549,16 +555,27 @@ test("delegate explicit binding reuses its thread while a managed parent receive
       NORTH_RUN_ID: "",
       NORTH_THREAD_ID: "",
       NORTH_RUN_CAPABILITY: "",
-    });
+    }, fake);
     expect(explicit.status).toBe(0);
     expect(JSON.parse(explicit.stdout.trim())).toMatchObject({
       id: "existing-thread",
       source: "explicit",
     });
-    const dryCli = spawnSync("bb", [
-      cli, "delegate", "child task", "--role", "integrator",
-      "--thread", "@existing-thread", "--dry-run",
-    ], {
+    const dryCliExpression = [
+      `(System/setProperty "north.agents.lib" "1")`,
+      `(load-file ${JSON.stringify(cli)})`,
+      `(let [fixture-rows (json/parse-string ${JSON.stringify(JSON.stringify(fake.showRows))})]`,
+      `(with-redefs [north.coord/show-rows`,
+      `(fn [_port subject]`,
+      `(spit ${JSON.stringify(fake.calls)} (str "show " subject "\\n") :append true)`,
+      `(get fixture-rows subject []))]`,
+      `(cmd-delegate (json/parse-string`,
+      `${JSON.stringify(JSON.stringify([
+        "child task", "--role", "integrator",
+        "--thread", "@existing-thread", "--dry-run",
+      ]))}))))`,
+    ].join(" ");
+    const dryCli = spawnSync("bb", ["-e", dryCliExpression], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -577,15 +594,18 @@ test("delegate explicit binding reuses its thread while a managed parent receive
       NORTH_THREAD_ID: "existing-thread",
       NORTH_RUN_CAPABILITY: "capability",
       AGENT_ID: "parent-agent",
-    });
+    }, fake);
     expect(inherited.status).toBe(0);
     expect(JSON.parse(inherited.stdout.trim())).toMatchObject({
       id: "fresh-child-thread",
       source: "recursive-child",
       parent: "existing-thread",
     });
-    expect(readFileSync(fake.calls, "utf8")).toContain("capture child task");
-    expect(readFileSync(fake.calls, "utf8")).toContain(
+    const calls = readFileSync(fake.calls, "utf8");
+    expect(calls).toContain("show @run-parent");
+    expect(calls).toContain("show @fresh-child-thread");
+    expect(calls).toContain("capture child task");
+    expect(calls).toContain(
       "tell fresh-child-thread part_of existing-thread",
     );
   } finally {
