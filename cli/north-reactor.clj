@@ -1101,11 +1101,14 @@
 (defn retryable-coordinator-error? [throwable]
   (boolean
    (some (fn [cause]
-           (or (instance? java.net.ConnectException cause)
-               (instance? java.net.SocketTimeoutException cause)
-               (instance? java.net.SocketException cause)
-               (instance? java.io.EOFException cause)
-               (contains? retryable-coordinator-types (:type (ex-data cause)))))
+           (let [data (ex-data cause)]
+             (or (instance? java.net.ConnectException cause)
+                 (instance? java.net.SocketTimeoutException cause)
+                 (instance? java.net.SocketException cause)
+                 (instance? java.io.EOFException cause)
+                 (contains? retryable-coordinator-types (:type data))
+                 (and (= :indexed-query-error (:type data))
+                      (= :query-time-limit (:code data))))))
          (throwable-chain throwable))))
 
 (defn concise-error [throwable]

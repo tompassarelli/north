@@ -64,41 +64,42 @@
       :show {:ok []}
       {:ok true :version 0})))
 
-(defn start-coordinator [port _log]
-  (let [server (java.net.ServerSocket. port)
-        sockets (atom [])
-        handlers (atom [])
-        stopped (atom false)
-        acceptor
-        (future
-          (while (not @stopped)
-            (try
-              (let [socket (.accept server)
-                    handler
-                    (future
-                      (swap! sockets conj socket)
-                      (try
-                        (with-open [socket socket
-                                    reader (io/reader socket)
-                                    writer (io/writer socket)]
-                          (when-let [line (.readLine ^java.io.BufferedReader reader)]
-                            (.write ^java.io.Writer writer
-                                    (str (pr-str
-                                          (empty-coordinator-response
-                                           (edn/read-string line)))
-                                         "\n"))
-                            (.flush ^java.io.Writer writer)))
-                        (catch Throwable _ nil)))]
-                (swap! handlers conj handler))
-              (catch java.net.SocketException _ nil))))]
-    {:stop
-     (fn []
-       (reset! stopped true)
-       (try (.close server) (catch Throwable _ nil))
-       (doseq [socket @sockets]
-         (try (.close ^java.net.Socket socket) (catch Throwable _ nil)))
-       (doseq [handler @handlers] (future-cancel handler))
-       (future-cancel acceptor))}))
+(defn start-coordinator
+  ([port log] (start-coordinator port log empty-coordinator-response))
+  ([port _log response-for]
+   (let [server (java.net.ServerSocket. port)
+         sockets (atom [])
+         handlers (atom [])
+         stopped (atom false)
+         acceptor
+         (future
+           (while (not @stopped)
+             (try
+               (let [socket (.accept server)
+                     handler
+                     (future
+                       (swap! sockets conj socket)
+                       (try
+                         (with-open [socket socket
+                                     reader (io/reader socket)
+                                     writer (io/writer socket)]
+                           (when-let [line (.readLine ^java.io.BufferedReader reader)]
+                             (.write ^java.io.Writer writer
+                                     (str (pr-str
+                                           (response-for (edn/read-string line)))
+                                          "\n"))
+                             (.flush ^java.io.Writer writer)))
+                         (catch Throwable _ nil)))]
+                 (swap! handlers conj handler))
+               (catch java.net.SocketException _ nil))))]
+     {:stop
+      (fn []
+        (reset! stopped true)
+        (try (.close server) (catch Throwable _ nil))
+        (doseq [socket @sockets]
+          (try (.close ^java.net.Socket socket) (catch Throwable _ nil)))
+        (doseq [handler @handlers] (future-cancel handler))
+        (future-cancel acceptor))})))
 
 (defn start-blackhole [port]
   (let [server (java.net.ServerSocket. port)
@@ -177,6 +178,44 @@
                     (str/includes? output "coordinator unavailable")
                     (str/includes? output "terminal=completed")
                     (re-find #"attempts=(?:[2-9]|[1-9][0-9]+)\b" output))
+               output))
+      (finally
+        ((:stop daemon)))))
+
+  ;; A server-side query evaluation timeout is an answered error envelope, not a
+  ;; malformed response or a wire timeout. The sweep retries it, then completes.
+  (let [port (free-port)
+        log (doto (io/file tmp "query-time-limit.log") (spit ""))
+        lock (io/file tmp "query-time-limit.lock")
+        stopped-once? (atom false)
+        response-for
+        (fn [envelope]
+          (let [request (:request envelope)]
+            (if (and (= :query (:op request))
+                     (:query-max-rows request)
+                     (compare-and-set! stopped-once? false true))
+              {:error ["query evaluation stopped: query-time-limit"]
+               :code :query-time-limit
+               :timeout-ms 30000
+               :version 0
+               :engine "index"}
+              (empty-coordinator-response envelope))))
+        environment (common-env tmp port log lock 5000)
+        daemon (start-coordinator port log response-for)]
+    (try
+      (when-not (await-port port)
+        ((:stop daemon))
+        (throw (ex-info "query-time-limit coordinator did not start" {})))
+      (let [result @(start-sweep environment)
+            output (str (:out result) (:err result))]
+        (check "server query-time-limit retries instead of becoming malformed"
+               (and (zero? (:exit result))
+                    @stopped-once?
+                    (str/includes? output
+                                   "indexed-query error: query-time-limit")
+                    (str/includes? output "coordinator unavailable")
+                    (str/includes? output "terminal=completed")
+                    (not (str/includes? output "malformed indexed-query")))
                output))
       (finally
         ((:stop daemon)))))
