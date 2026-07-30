@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   activeSessionRoute,
-  checkHandoff,
-  composeHandoffSpawn,
-  fireHandoff,
-  observeHandoffUsageSample,
+  checkFailover,
+  composeFailoverSpawn,
+  fireFailover,
+  observeFailoverUsageSample,
   parseAvailabilityRows,
   recoveryPinEvidence,
   thresholdCrossings,
   type AvailabilityRow,
-} from "../src/handoff";
-import { runHandoffCli } from "../src/handoff-cli";
+} from "../src/failover";
+import { runFailoverCli } from "../src/failover-cli";
 
 const reset = "2026-07-29T00:00:00.000Z";
 const observedAt = "2026-07-28T05:00:00.000Z";
@@ -58,7 +58,7 @@ const openaiHeir = row("codex-heir", "openai", {
 
 describe("active route classification and same-strength heir selection", () => {
   test("week threshold kills the account", () => {
-    const check = checkHandoff([
+    const check = checkFailover([
       row("claude-active", "anthropic", { week: 80, verdict: "cooked-week" }),
       openaiHeir,
     ], {
@@ -79,7 +79,7 @@ describe("active route classification and same-strength heir selection", () => {
   });
 
   test("window threshold kills the route until reset", () => {
-    const check = checkHandoff([
+    const check = checkFailover([
       row("claude-active", "anthropic", { window: 91, verdict: "cooked-window" }),
       openaiHeir,
     ], {
@@ -91,7 +91,7 @@ describe("active route classification and same-strength heir selection", () => {
   });
 
   test("model threshold keeps the account alive and kills only the active model", () => {
-    const check = checkHandoff([
+    const check = checkFailover([
       row("claude-active", "anthropic", {
         models: { "claude-opus-5": 95, "claude-sonnet-5": 10 },
         usableModels: ["claude-sonnet-5"],
@@ -108,7 +108,7 @@ describe("active route classification and same-strength heir selection", () => {
   });
 
   test("below-threshold route stays active and does not name an heir", () => {
-    const check = checkHandoff([
+    const check = checkFailover([
       row("claude-active", "anthropic"),
       openaiHeir,
     ], {
@@ -120,7 +120,7 @@ describe("active route classification and same-strength heir selection", () => {
   });
 
   test("stale and model-cooked candidates do not count as capacity", () => {
-    const check = checkHandoff([
+    const check = checkFailover([
       row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
       row("codex-stale", "openai", { stale: true }),
       row("codex-cooked", "openai", {
@@ -136,7 +136,7 @@ describe("active route classification and same-strength heir selection", () => {
   });
 
   test("stale active evidence cannot authorize recovery", () => {
-    expect(() => checkHandoff([
+    expect(() => checkFailover([
       row("claude-active", "anthropic", {
         week: 100,
         stale: true,
@@ -163,7 +163,7 @@ describe("pinned account-availability boundary", () => {
   test("accepts the current OpenAI primary-window row with no fabricated week", () => {
     expect(parseAvailabilityRows([valid])).toEqual([valid]);
     expect(parseAvailabilityRows([valid])[0]?.rungs.week).toBeNull();
-    expect(checkHandoff([valid], {
+    expect(checkFailover([valid], {
       provider: "openai",
       account: "codex-current",
       model: "gpt-5.6-sol",
@@ -187,7 +187,7 @@ describe("pinned account-availability boundary", () => {
       week: null,
       verdict: "unknown",
     });
-    const check = checkHandoff([anthropic], {
+    const check = checkFailover([anthropic], {
       provider: "anthropic",
       account: "claude-unknown",
       model: "claude-opus-5",
@@ -242,7 +242,7 @@ test("warning detection reports every crossed rung", () => {
 });
 
 test("unknown candidate capacity never becomes an heir", () => {
-  const check = checkHandoff([
+  const check = checkFailover([
     row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
     row("codex-unknown", "openai", {
       window: null,
@@ -261,7 +261,7 @@ test("unknown candidate capacity never becomes an heir", () => {
 });
 
 test("provider-recovery evidence pins the complete heir route and embeds receipts", () => {
-  const check = checkHandoff([
+  const check = checkFailover([
     row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
     openaiHeir,
   ], {
@@ -280,7 +280,7 @@ test("provider-recovery evidence pins the complete heir route and embeds receipt
 });
 
 test("dry-run composition is complete and execution remains injectable", () => {
-  const check = checkHandoff([
+  const check = checkFailover([
     row("claude-active", "anthropic", { window: 100, verdict: "cooked-window" }),
     openaiHeir,
   ], {
@@ -291,7 +291,7 @@ test("dry-run composition is complete and execution remains injectable", () => {
     ["root", [{ predicate: "title", value: "root program" }]],
     ["child", [{ predicate: "title", value: "child lane" }, { predicate: "part_of", value: "@root" }]],
   ]);
-  const spawn = composeHandoffSpawn(check, "root", "/fixture/succession.md", "human", {
+  const spawn = composeFailoverSpawn(check, "root", "/fixture/succession.md", "human", {
     now: new Date("2026-07-28T05:30:00.000Z"),
     northBin: "/fixture/north",
     peerBb: "/fixture/bb",
@@ -313,12 +313,12 @@ test("dry-run composition is complete and execution remains injectable", () => {
   expect(spawn.prompt).toContain("THREAD MAP");
   expect(spawn.notification.args).toEqual([
     "/fixture/msg-cli.clj", "9000", "send", "coordinator", "human",
-    "PROVIDER HANDOFF FIRED",
+    "PROVIDER FAILOVER FIRED",
     "@root -> openai/codex-heir/gpt-5.6-sol (senior); reason=provider-recovery",
   ]);
 
   const commands: Array<[string, string[]]> = [];
-  fireHandoff(spawn, {
+  fireFailover(spawn, {
     run: (executable, args) => {
       commands.push([executable, args]);
       return { status: 0 };
@@ -342,19 +342,19 @@ test("available routes and missing heirs refuse fire composition", () => {
     getChildren: () => [],
     getFacts: () => [],
   };
-  expect(() => composeHandoffSpawn(
-    checkHandoff([row("claude-active", "anthropic")], active, 80),
+  expect(() => composeFailoverSpawn(
+    checkFailover([row("claude-active", "anthropic")], active, 80),
     "root", "/brief", "human", runtime,
   )).toThrow("has not crossed");
-  expect(() => composeHandoffSpawn(
-    checkHandoff([
+  expect(() => composeFailoverSpawn(
+    checkFailover([
       row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
     ], active, 80),
     "root", "/brief", "human", runtime,
   )).toThrow("no same-tier");
 });
 
-describe("handoff CLI", () => {
+describe("failover CLI", () => {
   const rows = [
     row("claude-active", "anthropic", { week: 100, verdict: "cooked-week" }),
     openaiHeir,
@@ -371,7 +371,7 @@ describe("handoff CLI", () => {
 
   test("check renders the active trigger and heir", () => {
     const output: string[] = [];
-    expect(runHandoffCli(["check", "--threshold", "80"], {
+    expect(runFailoverCli(["check", "--threshold", "80"], {
       env,
       loadRows: () => rows,
       stdout: (line) => output.push(line),
@@ -383,7 +383,7 @@ describe("handoff CLI", () => {
   test("check renders unknown required capacity without crashing", () => {
     const output: string[] = [];
     const errors: string[] = [];
-    expect(runHandoffCli(["check", "--provider", "anthropic"], {
+    expect(runFailoverCli(["check", "--provider", "anthropic"], {
       env: {
         AGENT_TARGET: "claude-unknown",
         AGENT_MODEL: "claude-opus-5",
@@ -404,7 +404,7 @@ describe("handoff CLI", () => {
   test("fire dry-run prints the complete spawn and executes nothing", () => {
     const output: string[] = [];
     let executions = 0;
-    expect(runHandoffCli([
+    expect(runFailoverCli([
       "fire", "--thread", "root", "--brief", "/fixture/succession.md", "--dry-run",
     ], {
       env,
@@ -431,7 +431,7 @@ describe("handoff CLI", () => {
 
   test("fire executes spawn then notification through injected commands", () => {
     const commands: string[] = [];
-    expect(runHandoffCli([
+    expect(runFailoverCli([
       "fire", "--thread", "root", "--brief", "/fixture/succession.md",
     ], {
       env,
@@ -456,7 +456,7 @@ describe("handoff CLI", () => {
 
   test("notification failure does not obscure a successful heir spawn", () => {
     let calls = 0;
-    expect(runHandoffCli([
+    expect(runFailoverCli([
       "fire", "--thread", "root", "--brief", "/fixture/succession.md",
     ], {
       env,
@@ -493,12 +493,12 @@ describe("warn-first usage detection", () => {
     AGENT_ID: "coordinator",
     AGENT_COORDINATOR: "human",
     NORTH_PORT: "9000",
-    NORTH_HANDOFF_WARN_THRESHOLD: "80",
+    NORTH_FAILOVER_WARN_THRESHOLD: "80",
   };
 
   test("default-off emits one fact and mail per crossed rung with no fire", () => {
     const commands: Array<{ executable: string; args: string[] }> = [];
-    const warnings = observeHandoffUsageSample({
+    const warnings = observeFailoverUsageSample({
       env: baseEnv,
       loadRows: () => rows,
       northBin: "/fixture/north",
@@ -516,17 +516,17 @@ describe("warn-first usage detection", () => {
     expect(commands).toHaveLength(6);
     expect(commands.filter(({ args }) => args[0] === "tell")).toHaveLength(3);
     expect(commands.filter(({ args }) => args.includes("PROVIDER CAPACITY WARNING"))).toHaveLength(3);
-    expect(commands.some(({ args }) => args[0] === "handoff")).toBe(false);
+    expect(commands.some(({ args }) => args[0] === "failover")).toBe(false);
   });
 
   test("enabled automatic fire remains after every warning command", () => {
     const commands: string[] = [];
-    const warnings = observeHandoffUsageSample({
+    const warnings = observeFailoverUsageSample({
       env: {
         ...baseEnv,
-        NORTH_HANDOFF_AUTO_FIRE: "true",
-        NORTH_HANDOFF_ROOT_THREAD: "program-root",
-        NORTH_HANDOFF_BRIEF: "/fixture/succession.md",
+        NORTH_FAILOVER_AUTO_FIRE: "true",
+        NORTH_FAILOVER_ROOT_THREAD: "program-root",
+        NORTH_FAILOVER_BRIEF: "/fixture/succession.md",
       },
       loadRows: () => rows,
       northBin: "/fixture/north",
@@ -540,12 +540,12 @@ describe("warn-first usage detection", () => {
     expect(warnings.every(({ automaticFire }) => automaticFire === true)).toBe(true);
     expect(commands).toHaveLength(7);
     expect(commands.at(-1)).toBe(
-      "/fixture/north handoff fire --thread program-root --brief /fixture/succession.md",
+      "/fixture/north failover fire --thread program-root --brief /fixture/succession.md",
     );
   });
 
   test("auto provider resolves from active agent identity before warning", () => {
-    const warnings = observeHandoffUsageSample({
+    const warnings = observeFailoverUsageSample({
       env: {
         ...baseEnv,
         AGENT_PROVIDER: "auto",

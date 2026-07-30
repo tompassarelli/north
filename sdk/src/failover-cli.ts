@@ -1,32 +1,32 @@
 import {
   activeSessionRoute,
   activeSessionIdentityFacts,
-  checkHandoff,
-  composeHandoffSpawn,
-  fireHandoff,
-  handoffThreshold,
+  checkFailover,
+  composeFailoverSpawn,
+  fireFailover,
+  failoverThreshold,
   loadAvailabilityRows,
-  type HandoffRuntime,
-} from "./handoff";
+  type FailoverRuntime,
+} from "./failover";
 
-const USAGE = `usage: north handoff <command>
+const USAGE = `usage: north failover <command>
 
-  north handoff check [--provider anthropic|openai] [--threshold N]
-  north handoff fire --thread <root> --brief <path> [--dry-run]
+  north failover check [--provider anthropic|openai] [--threshold N]
+  north failover fire --thread <root> --brief <path> [--dry-run]
 
 Environment:
   AGENT_PROVIDER / AGENT_TARGET / AGENT_MODEL / AGENT_TIER  active route
-  NORTH_HANDOFF_WARN_THRESHOLD                             default 80
-  NORTH_HANDOFF_NOTIFY or AGENT_COORDINATOR                human notification target
-  NORTH_HANDOFF_AUTO_FIRE                                  default off; 1|true|on enables
-  NORTH_HANDOFF_ROOT_THREAD / NORTH_HANDOFF_BRIEF          automatic-fire context`;
+  NORTH_FAILOVER_WARN_THRESHOLD                             default 80
+  NORTH_FAILOVER_NOTIFY or AGENT_COORDINATOR                human notification target
+  NORTH_FAILOVER_AUTO_FIRE                                  default off; 1|true|on enables
+  NORTH_FAILOVER_ROOT_THREAD / NORTH_FAILOVER_BRIEF          automatic-fire context`;
 
 interface Parsed {
   values: Record<string, string>;
   flags: Set<string>;
 }
 
-export interface HandoffCliRuntime extends HandoffRuntime {
+export interface FailoverCliRuntime extends FailoverRuntime {
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
 }
@@ -41,7 +41,7 @@ function parse(args: string[], valueFlags: Set<string>, booleanFlags = new Set<s
       flags.add(arg);
       continue;
     }
-    if (!valueFlags.has(arg)) throw new Error(`unknown handoff option ${arg}`);
+    if (!valueFlags.has(arg)) throw new Error(`unknown failover option ${arg}`);
     if (values[arg] !== undefined) throw new Error(`duplicate ${arg}`);
     const value = args[++index];
     if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
@@ -51,10 +51,10 @@ function parse(args: string[], valueFlags: Set<string>, booleanFlags = new Set<s
 }
 
 function threshold(env: NodeJS.ProcessEnv, raw?: string): number {
-  return handoffThreshold(raw ?? env.NORTH_HANDOFF_WARN_THRESHOLD ?? 80);
+  return failoverThreshold(raw ?? env.NORTH_FAILOVER_WARN_THRESHOLD ?? 80);
 }
 
-function renderCheck(check: ReturnType<typeof checkHandoff>): string {
+function renderCheck(check: ReturnType<typeof checkFailover>): string {
   const active = [
     check.active.provider,
     check.active.account,
@@ -73,9 +73,9 @@ function renderCheck(check: ReturnType<typeof checkHandoff>): string {
   ].join("\n");
 }
 
-export function runHandoffCli(
+export function runFailoverCli(
   args: string[],
-  runtime: HandoffCliRuntime = {},
+  runtime: FailoverCliRuntime = {},
 ): number {
   const out = runtime.stdout ?? console.log;
   const err = runtime.stderr ?? console.error;
@@ -96,14 +96,14 @@ export function runHandoffCli(
         env,
         activeSessionIdentityFacts(parsed.values["--provider"], runtime),
       );
-      out(renderCheck(checkHandoff(rows, route, threshold(env, parsed.values["--threshold"]))));
+      out(renderCheck(checkFailover(rows, route, threshold(env, parsed.values["--threshold"]))));
       return 0;
     }
     if (command === "fire") {
       const parsed = parse(rest, new Set(["--thread", "--brief"]), new Set(["--dry-run"]));
       const rootThread = parsed.values["--thread"];
       const brief = parsed.values["--brief"];
-      if (!rootThread || !brief) throw new Error("handoff fire requires --thread <root> and --brief <path>");
+      if (!rootThread || !brief) throw new Error("failover fire requires --thread <root> and --brief <path>");
       const rows = loadRows();
       const route = activeSessionRoute(
         rows,
@@ -111,14 +111,14 @@ export function runHandoffCli(
         env,
         activeSessionIdentityFacts(undefined, runtime),
       );
-      const check = checkHandoff(rows, route, threshold(env));
-      const notify = env.NORTH_HANDOFF_NOTIFY ?? env.AGENT_COORDINATOR ?? "";
-      const spawn = composeHandoffSpawn(check, rootThread, brief, notify, runtime);
+      const check = checkFailover(rows, route, threshold(env));
+      const notify = env.NORTH_FAILOVER_NOTIFY ?? env.AGENT_COORDINATOR ?? "";
+      const spawn = composeFailoverSpawn(check, rootThread, brief, notify, runtime);
       if (parsed.flags.has("--dry-run")) {
         out(JSON.stringify(spawn, null, 2));
         return 0;
       }
-      fireHandoff(spawn, runtime);
+      fireFailover(spawn, runtime);
       out(`spawned heir ${spawn.check.heir!.provider}/${spawn.check.heir!.account}/${spawn.check.heir!.model} for @${rootThread}`);
       return 0;
     }
@@ -129,4 +129,4 @@ export function runHandoffCli(
   }
 }
 
-if (import.meta.main) process.exit(runHandoffCli(process.argv.slice(2)));
+if (import.meta.main) process.exit(runFailoverCli(process.argv.slice(2)));

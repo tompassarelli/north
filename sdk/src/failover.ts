@@ -28,7 +28,7 @@ export interface AvailabilityRung {
 
 export type AvailabilityRow = AccountAvailabilityRow;
 
-export type HandoffClassification =
+export type FailoverClassification =
   | "available"
   | "unknown"
   | "account-dead"
@@ -58,9 +58,9 @@ export interface HeirRoute {
   observedAt: string;
 }
 
-export interface HandoffCheck {
+export interface FailoverCheck {
   threshold: number;
-  classification: HandoffClassification;
+  classification: FailoverClassification;
   active: ActiveSessionRoute;
   unknownReason?: string;
   trigger?: RungTrigger;
@@ -77,7 +77,7 @@ export interface ThreadMapEntry {
   facts: Fact[];
 }
 
-export interface HandoffContextPackage {
+export interface FailoverContextPackage {
   brief: {
     path: string;
     sha256: string;
@@ -86,10 +86,10 @@ export interface HandoffContextPackage {
   threadMap: ThreadMapEntry[];
 }
 
-export interface HandoffSpawn {
+export interface FailoverSpawn {
   version: 1;
-  check: HandoffCheck;
-  context: HandoffContextPackage;
+  check: FailoverCheck;
+  context: FailoverContextPackage;
   pinEvidence: RoutingPinEvidence;
   prompt: string;
   command: {
@@ -100,7 +100,7 @@ export interface HandoffSpawn {
     executable: string;
     args: string[];
     target: string;
-    subject: "PROVIDER HANDOFF FIRED";
+    subject: "PROVIDER FAILOVER FIRED";
     body: string;
   };
 }
@@ -111,7 +111,7 @@ type SpawnResult = {
   stderr?: string | Buffer;
 };
 
-export interface HandoffRuntime {
+export interface FailoverRuntime {
   env?: NodeJS.ProcessEnv;
   now?: Date;
   northBin?: string;
@@ -124,7 +124,7 @@ export interface HandoffRuntime {
   run?: (executable: string, args: string[]) => SpawnResult;
 }
 
-export interface HandoffWarning {
+export interface FailoverWarning {
   version: 1;
   thread?: string;
   threshold: number;
@@ -256,10 +256,10 @@ export function loadAvailabilityRows(
   }
 }
 
-export function handoffThreshold(value: unknown = DEFAULT_THRESHOLD): number {
+export function failoverThreshold(value: unknown = DEFAULT_THRESHOLD): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100)
-    throw new Error("handoff threshold must be greater than 0 and at most 100");
+    throw new Error("failover threshold must be greater than 0 and at most 100");
   return parsed;
 }
 
@@ -333,7 +333,7 @@ function unknownAvailabilityReason(row: AvailabilityRow): string | undefined {
   return undefined;
 }
 
-function classification(trigger: RungTrigger | undefined): HandoffClassification {
+function classification(trigger: RungTrigger | undefined): FailoverClassification {
   if (!trigger) return "available";
   if (trigger.rung === "week") return "account-dead";
   if (trigger.rung === "window") return "window-dead";
@@ -385,12 +385,12 @@ function heirFor(
   })[0];
 }
 
-export function checkHandoff(
+export function checkFailover(
   rows: readonly AvailabilityRow[],
   route: ActiveSessionRoute,
   thresholdValue: unknown = DEFAULT_THRESHOLD,
-): HandoffCheck {
-  const threshold = handoffThreshold(thresholdValue);
+): FailoverCheck {
+  const threshold = failoverThreshold(thresholdValue);
   const receipt = activeRow(rows, route);
   if (receipt.stale)
     throw new Error(`active availability evidence for ${receipt.provider}/${receipt.account} is stale`);
@@ -431,7 +431,7 @@ export function thresholdCrossings(
   row: AvailabilityRow,
   thresholdValue: unknown = DEFAULT_THRESHOLD,
 ): RungTrigger[] {
-  const threshold = handoffThreshold(thresholdValue);
+  const threshold = failoverThreshold(thresholdValue);
   return [
     ...(row.rungs.week !== null && row.rungs.week.pct >= threshold ? [{
       rung: "week" as const, name: "week", pct: row.rungs.week.pct,
@@ -452,8 +452,8 @@ export function thresholdCrossings(
 export function contextPackage(
   rootThread: string,
   briefPath: string,
-  runtime: HandoffRuntime = {},
-): HandoffContextPackage {
+  runtime: FailoverRuntime = {},
+): FailoverContextPackage {
   const readBrief = runtime.readBrief ?? ((path: string) => readFileSync(path, "utf8"));
   const getFacts = runtime.getFacts ?? getThreadFacts;
   const children = (runtime.getChildren ?? getChildren)(rootThread);
@@ -479,7 +479,7 @@ export function contextPackage(
   };
 }
 
-function recoveryDetail(check: HandoffCheck): string {
+function recoveryDetail(check: FailoverCheck): string {
   return `provider-recovery ${JSON.stringify({
     threshold: check.threshold,
     trigger: check.trigger,
@@ -488,7 +488,7 @@ function recoveryDetail(check: HandoffCheck): string {
   })}`;
 }
 
-export function recoveryPinEvidence(check: HandoffCheck, now = new Date()): RoutingPinEvidence {
+export function recoveryPinEvidence(check: FailoverCheck, now = new Date()): RoutingPinEvidence {
   if (!check.heir) throw new Error("cannot compose provider-recovery pin evidence without an heir");
   return {
     policyVersion: ROUTING_PIN_POLICY_VERSION,
@@ -504,7 +504,7 @@ export function recoveryPinEvidence(check: HandoffCheck, now = new Date()): Rout
   };
 }
 
-function contextPrompt(rootThread: string, context: HandoffContextPackage): string {
+function contextPrompt(rootThread: string, context: FailoverContextPackage): string {
   return [
     `You are the heir team-lead orchestrator for root thread @${rootThread}.`,
     "Continue the workstream from this sealed succession context package.",
@@ -518,30 +518,30 @@ function contextPrompt(rootThread: string, context: HandoffContextPackage): stri
   ].join("\n");
 }
 
-export function composeHandoffSpawn(
-  check: HandoffCheck,
+export function composeFailoverSpawn(
+  check: FailoverCheck,
   rootThread: string,
   briefPath: string,
   notifyTarget: string,
-  runtime: HandoffRuntime = {},
-): HandoffSpawn {
+  runtime: FailoverRuntime = {},
+): FailoverSpawn {
   if (check.classification === "unknown")
-    throw new Error(`handoff fire refused: active availability is unknown (${check.unknownReason ?? "required rung unavailable"})`);
+    throw new Error(`failover fire refused: active availability is unknown (${check.unknownReason ?? "required rung unavailable"})`);
   if (check.classification === "available")
-    throw new Error("handoff fire refused: active route has not crossed the threshold");
+    throw new Error("failover fire refused: active route has not crossed the threshold");
   if (!check.heir)
-    throw new Error("handoff fire refused: no same-tier provider/account/model heir has fresh capacity");
+    throw new Error("failover fire refused: no same-tier provider/account/model heir has fresh capacity");
   if (!notifyTarget.trim())
-    throw new Error("handoff fire requires NORTH_HANDOFF_NOTIFY or AGENT_COORDINATOR");
+    throw new Error("failover fire requires NORTH_FAILOVER_NOTIFY or AGENT_COORDINATOR");
   const now = runtime.now ?? new Date();
   const context = contextPackage(rootThread, briefPath, runtime);
   const pinEvidence = recoveryPinEvidence(check, now);
   const prompt = contextPrompt(rootThread, context);
   const northBin = runtime.northBin ?? process.env.NORTH_BIN ?? `${REPO}/bin/north`;
-  const subject = "PROVIDER HANDOFF FIRED" as const;
+  const subject = "PROVIDER FAILOVER FIRED" as const;
   const body = `@${rootThread} -> ${check.heir.provider}/${check.heir.account}/${check.heir.model} (${check.heir.tier}); reason=provider-recovery`;
   const env = runtime.env ?? process.env;
-  const sender = env.AGENT_ID ?? "north-handoff";
+  const sender = env.AGENT_ID ?? "north-failover";
   const port = env.NORTH_PORT ?? "7977";
   return {
     version: 1,
@@ -580,7 +580,7 @@ export function composeHandoffSpawn(
 }
 
 function runChecked(
-  run: NonNullable<HandoffRuntime["run"]>,
+  run: NonNullable<FailoverRuntime["run"]>,
   executable: string,
   args: string[],
   label: string,
@@ -592,7 +592,7 @@ function runChecked(
   }
 }
 
-export function fireHandoff(spawn: HandoffSpawn, runtime: HandoffRuntime = {}): void {
+export function fireFailover(spawn: FailoverSpawn, runtime: FailoverRuntime = {}): void {
   const run = runtime.run ?? ((executable: string, args: string[]) =>
     spawnSync(executable, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
   runChecked(run, spawn.command.executable, spawn.command.args, "heir spawn");
@@ -637,7 +637,7 @@ export function activeSessionRoute(
 
 export function activeSessionIdentityFacts(
   providerOverride: string | undefined,
-  runtime: HandoffRuntime = {},
+  runtime: FailoverRuntime = {},
 ): Fact[] {
   const env = runtime.env ?? process.env;
   if (!env.AGENT_ID) return [];
@@ -647,15 +647,15 @@ export function activeSessionIdentityFacts(
   return (runtime.getFacts ?? getThreadFacts)(`agent:${env.AGENT_ID}`);
 }
 
-export function automaticHandoffFireEnabled(
+export function automaticFailoverFireEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return ["1", "true", "on"].includes((env.NORTH_HANDOFF_AUTO_FIRE ?? "").toLowerCase());
+  return ["1", "true", "on"].includes((env.NORTH_FAILOVER_AUTO_FIRE ?? "").toLowerCase());
 }
 
-export function handoffWarningCommands(
-  warning: HandoffWarning,
-  runtime: HandoffRuntime = {},
+export function failoverWarningCommands(
+  warning: FailoverWarning,
+  runtime: FailoverRuntime = {},
 ): Array<{ executable: string; args: string[] }> {
   const env = runtime.env ?? process.env;
   const northBin = runtime.northBin ?? env.NORTH_BIN ?? `${REPO}/bin/north`;
@@ -663,10 +663,10 @@ export function handoffWarningCommands(
   if (warning.thread) {
     commands.push({
       executable: northBin,
-      args: ["tell", warning.thread, "handoff_warning", JSON.stringify(warning)],
+      args: ["tell", warning.thread, "failover_warning", JSON.stringify(warning)],
     });
   }
-  const notify = env.NORTH_HANDOFF_NOTIFY ?? env.AGENT_COORDINATOR;
+  const notify = env.NORTH_FAILOVER_NOTIFY ?? env.AGENT_COORDINATOR;
   if (notify) {
     const route = [
       warning.active.provider,
@@ -679,7 +679,7 @@ export function handoffWarningCommands(
         runtime.msgCli ?? `${REPO}/cli/msg-cli.clj`,
         env.NORTH_PORT ?? "7977",
         "send",
-        env.AGENT_ID ?? "north-handoff",
+        env.AGENT_ID ?? "north-failover",
         notify,
         "PROVIDER CAPACITY WARNING",
         `${route} ${warning.crossing.rung}:${warning.crossing.name}=${warning.crossing.pct}% `
@@ -694,7 +694,7 @@ export function handoffWarningCommands(
 function runBestEffort(
   executable: string,
   args: string[],
-  runtime: HandoffRuntime,
+  runtime: FailoverRuntime,
 ): void {
   try {
     const run = runtime.run ?? ((command: string, commandArgs: string[]) =>
@@ -714,9 +714,9 @@ function runBestEffort(
  * cached availability JSON, emits warnings first, and invokes automatic fire
  * only under the explicit default-off gate.
  */
-export function observeHandoffUsageSample(
-  runtime: HandoffRuntime = {},
-): HandoffWarning[] {
+export function observeFailoverUsageSample(
+  runtime: FailoverRuntime = {},
+): FailoverWarning[] {
   const env = runtime.env ?? process.env;
   const provider = env.AGENT_PROVIDER;
   if (provider !== "anthropic" && provider !== "openai" && !env.AGENT_ID) return [];
@@ -730,8 +730,8 @@ export function observeHandoffUsageSample(
     );
     const receipt = availabilityForRoute(rows, active);
     if (receipt.stale) return [];
-    const threshold = handoffThreshold(env.NORTH_HANDOFF_WARN_THRESHOLD ?? DEFAULT_THRESHOLD);
-    const automaticFire = automaticHandoffFireEnabled(env);
+    const threshold = failoverThreshold(env.NORTH_FAILOVER_WARN_THRESHOLD ?? DEFAULT_THRESHOLD);
+    const automaticFire = automaticFailoverFireEnabled(env);
     const warnings = thresholdCrossings(receipt, threshold).map((crossing) => ({
       version: 1 as const,
       ...(env.AGENT_THREAD ? { thread: env.AGENT_THREAD } : {}),
@@ -742,20 +742,20 @@ export function observeHandoffUsageSample(
       automaticFire,
     }));
     for (const warning of warnings) {
-      for (const command of handoffWarningCommands(warning, runtime))
+      for (const command of failoverWarningCommands(warning, runtime))
         runBestEffort(command.executable, command.args, runtime);
     }
 
     // Warn-first is literal ordering: every warning fact/mail command above is
     // attempted before the gated fire command is even composed.
     if (automaticFire && warnings.length) {
-      const root = env.NORTH_HANDOFF_ROOT_THREAD ?? env.AGENT_THREAD;
-      const brief = env.NORTH_HANDOFF_BRIEF;
-      const check = checkHandoff(rows, active, threshold);
+      const root = env.NORTH_FAILOVER_ROOT_THREAD ?? env.AGENT_THREAD;
+      const brief = env.NORTH_FAILOVER_BRIEF;
+      const check = checkFailover(rows, active, threshold);
       if (root && brief && check.classification !== "available" && check.heir) {
         runBestEffort(
           runtime.northBin ?? env.NORTH_BIN ?? `${REPO}/bin/north`,
-          ["handoff", "fire", "--thread", root, "--brief", brief],
+          ["failover", "fire", "--thread", root, "--brief", brief],
           runtime,
         );
       }

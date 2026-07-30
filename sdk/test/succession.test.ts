@@ -226,7 +226,7 @@ test("pulse mirrors the fallback file and writes one superseding graph fact", ()
   ]);
 });
 
-test("check consumes only cached availability and the injected handoff fire surface", () => {
+test("check consumes only cached availability and the injected failover fire surface", () => {
   const dir = mkdtempSync(join(tmpdir(), "north-succession-cli-"));
   scratch.push(dir);
   const commands: Array<{ command: string; args: string[]; timeoutMs: number }> = [];
@@ -253,7 +253,7 @@ test("check consumes only cached availability and the injected handoff fire surf
     NORTH_SUCCESSION_PENDING_FILE: join(dir, "pending"),
     NORTH_SUCCESSION_FIRE_COMMAND: "/store/north/bin/north",
     NORTH_SUCCESSION_FIRE_ARGS: [
-      "handoff", "fire", "--thread", "program-root", "--brief", "/store/succession.md",
+      "failover", "fire", "--thread", "program-root", "--brief", "/store/succession.md",
     ].join("\u001f"),
   }, run, new Date("2026-07-28T02:00:00.000Z"));
   expect(status).toBe(0);
@@ -264,7 +264,7 @@ test("check consumes only cached availability and the injected handoff fire surf
   });
   expect(commands.some(({ args }) => args.includes("--refresh"))).toBe(false);
   expect(commands.some(({ args }) =>
-    args.join(" ") === "handoff fire --thread program-root --brief /store/succession.md")).toBe(true);
+    args.join(" ") === "failover fire --thread program-root --brief /store/succession.md")).toBe(true);
   expect(commands.filter(({ args }) => args[0] === "tell").map(({ args }) => args[2]))
     .toEqual(["succession_decision", "succession_fire"]);
 });
