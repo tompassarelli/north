@@ -172,6 +172,22 @@
 (let [{:keys [healthy output]}
       (exercise-doctor
        false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
+       {:probe {:version "north:coordination-probe:v1"
+                :expected_log "/data/facts.log"
+                :served_log "/data/coordination.log"
+                :log_fence_ok false
+                :lease_write_readback_ok false
+                :error "coordinator returned a malformed resolved response"}})]
+  ;; Everything downstream of a broken fence throws. Name the fence, not the
+  ;; exception it caused.
+  (check "a broken fence is diagnosed by cause, not by the exception it produced"
+         (and (false? healthy)
+              (str/includes? output "hook-path log fence mismatch")
+              (str/includes? output "/data/facts.log"))))
+
+(let [{:keys [healthy output]}
+      (exercise-doctor
+       false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
        {:probe (assoc healthy-coordination-probe :lease_write_readback_ok false)})]
   (check "a presence lease that does not survive write+readback fails doctor"
          (and (false? healthy)

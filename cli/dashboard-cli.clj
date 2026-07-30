@@ -821,19 +821,26 @@
       (fail! e)
       (let [{:keys [error log_fence_ok expected_log served_log lease_write_readback_ok
                     live_session_leases lineage_registrations_in_ttl lease_ttl_ms]} probe]
+        ;; A broken fence is the most specific cause and is named first: every
+        ;; downstream read fails BECAUSE of it, so leading with their exception
+        ;; buries the diagnosis.
         (cond
-          error (fail! (str "coordination probe failed: " error))
-
-          (not log_fence_ok)
+          (false? log_fence_ok)
           (fail! (str "hook-path log fence mismatch: a direct-bb client fences on "
                       expected_log " but the coordinator serves " served_log
                       " — presence registration is silently rejected"))
 
+          (nil? log_fence_ok)
+          (fail! (str "coordination probe failed: " error))
+
           :else (ok! (str "hook-path log fence " expected_log)))
-        (when (and (not error) log_fence_ok)
+        (when (some? log_fence_ok)
           (if lease_write_readback_ok
             (ok! "presence write + readback through the hook path")
-            (fail! "presence lease did not survive write + readback through the hook path"))
+            (fail! "presence lease did not survive write + readback through the hook path")))
+        (when (and log_fence_ok error)
+          (fail! (str "coordination probe failed: " error)))
+        (when (and log_fence_ok (not error))
           (let [ttl-min (when (integer? lease_ttl_ms) (quot lease_ttl_ms 60000))
                 summary (str live_session_leases " live lease(s) · "
                              lineage_registrations_in_ttl
