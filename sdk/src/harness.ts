@@ -691,7 +691,7 @@ function splitStandingGuards(section: ConstitutionSection, b: ConstitutionBucket
     else if (t.includes("api credits") || t.includes("api-key") || t.includes("api_key"))
       b.write.push(bullet); // full API-credit ban; a 1-line stub is added to CORE below
     else
-      b.core.push(bullet); // fleet-vocab, translucency (on-demand), unknown -> CORE
+      b.core.push(bullet); // translucency (on-demand), unknown -> CORE
   }
 }
 

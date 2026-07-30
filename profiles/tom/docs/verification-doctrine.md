@@ -1,11 +1,6 @@
 # Verification Doctrine — Definition of Done, Explicit
 
-**Status:** canonical. Consolidated 2026-07-28 from an adversarial doctrine
-exchange between a Claude supervisor session (`native-3f0117be…`, host tom)
-and the OpenAI-driven `fram-reliability-supervisor`
-(`@msg:20260728-144551` → `@msg:20260728-144742` → settlement
-`@msg:20260728-145018`). Supersedes the session draft at
-`~/docs/private/verification-doctrine.md`.
+**Status:** canonical. Provenance: `verification-doctrine-provenance.md`.
 **Public mirror:** the portable, provider-neutral form is published at
 https://github.com/tompassarelli/stop-the-loop (checkout:
 `~/code/stop-the-loop`, policy = `README.md`). When a refinement here changes
@@ -15,7 +10,7 @@ the portable rules, mirror it there and safe-push.
 
 ## 1. The disease this cures
 
-Unsupervised agents (observed acutely in OpenAI-driven lanes) fall into
+Unsupervised agents fall into
 open-ended verification: an audit with no terminal condition. The mechanism is
 always the same — residual uncertainty is treated as a **debt the agent must
 personally retire through more work**, and "more verification" always looks
@@ -29,8 +24,7 @@ marginally justified, so the loop never closes. Observed concrete forms:
   but no observations.
 - **Soak loops** — N≥5 statistical reruns proposed for a deterministic claim.
 - **Mid-flight tier invention** — a production canary added during
-  verification instead of declared at intake (even when the tier itself was
-  right — see §7, the fram case).
+  verification instead of declared at intake.
 - **Policy churn** — re-deriving the verification funnel each cycle instead of
   executing the next bounded probe. Spinning with better prose.
 
@@ -110,10 +104,9 @@ intake ──► execute ──► verify ──► disposition
 "Done" is not a feeling of sufficient coverage — it is **the pre-declared bar
 observed green**. Doubt about coverage that appears during verification is
 classified by Law 5: it either fails a current claim now, or improves the
-NEXT intake's bar as a new thread. It never extends the current pass. This is
-the single deepest difference from the observed OpenAI default, which
-wayfinds by asking "am I confident yet?" (unbounded, feeling-shaped) instead
-of "is the declared bar green?" (bounded, observation-shaped).
+NEXT intake's bar as a new thread. It never extends the current pass. Wayfind by
+"is the declared bar green?" (bounded, observation-shaped), never by
+"am I confident yet?" (unbounded, feeling-shaped).
 
 **Stop rule (one sentence):** stop verifying when every intake claim has a
 terminal disposition and every tier-required aggregate/canary observation is
@@ -214,21 +207,9 @@ Cross-cutting rules:
 | Dispositionless verification | Pass ends with "continuing to investigate" | Forbidden state; emit pass/fail/cannot-determine now |
 | Authority laundering | Escalating for permission the contract already grants ("may I run the declared probe?") | Name the decision type outside the contract or execute; deference is not diligence |
 
-## 6. Provider countermeasures
+## 6. Provenance and provider payloads
 
-Provider-specific imperative projections of this doctrine ship as wired
-dispatch blocks (provider deltas), never as paste-docs — a payload without a
-delivery mechanism is just a fork waiting to drift. The 2026-07 OpenAI-lane
-override was reaped on 2026-07-30 while OpenAI orchestration is ineligible;
-its battle-tested text is recoverable via
-`git show 6363139:profiles/tom/docs/praxis/verification-override-openai.md`,
-and re-wiring it at re-enable is tracked on north thread
+Reconciliation record: `verification-doctrine-provenance.md`. Provider-specific
+imperative projections ship as wired dispatch blocks (provider deltas), never
+paste-docs; re-wiring the OpenAI block at re-enable is thread
 `019fb1f4-c933-7623-96fc-856eab8f2a29`.
-
-## 7. Provenance
-
-Consolidated 2026-07-28 from an adversarial doctrine exchange with the
-OpenAI-driven `fram-reliability-supervisor`, plus six same-week field
-refinements. The full reconciliation record — what was accepted, rejected,
-and why each law took its shape — lives in
-`~/.agents/docs/verification-doctrine-provenance.md`.
