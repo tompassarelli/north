@@ -1,0 +1,750 @@
+#!/usr/bin/env bb
+;; Offline concern reconciliation is a finite, exact-log recovery boundary.
+(require '[babashka.process :as p]
+         '[clojure.edn :as edn]
+         '[clojure.java.io :as io]
+         '[clojure.string :as str])
+
+(def test-root
+  (-> (io/file (System/getProperty "babashka.file"))
+      .getParentFile .getParentFile .getParentFile .getCanonicalPath))
+(def subject-root
+  (.getCanonicalPath
+   (io/file (or (System/getenv "NORTH_TEST_SUBJECT_ROOT") test-root))))
+(def fram-root "/home/tom/code/fram/main")
+
+(load-file (str test-root "/cli/coord.clj"))
+(load-file (str test-root "/cli/concern-spool.clj"))
+
+(def fails (atom 0))
+(defn check [label observation]
+  (println (str "  " (if observation "PASS" "FAIL") " — " label))
+  (when-not observation (swap! fails inc))
+  observation)
+
+(defn temp-directory [prefix]
+  (.toFile
+   (java.nio.file.Files/createTempDirectory
+    prefix
+    (make-array java.nio.file.attribute.FileAttribute 0))))
+
+(defn delete-tree! [file]
+  (doseq [entry (reverse (file-seq file))]
+    (io/delete-file entry true)))
+
+(defn free-port []
+  (with-open [socket (java.net.ServerSocket. 0)]
+    (.getLocalPort socket)))
+
+(defn await-port [port process]
+  (loop [attempt 0]
+    (cond
+      (>= attempt 100) false
+      (not= ::running (deref process 0 ::running)) false
+      :else
+      (let [open?
+            (try
+              (with-open [socket (java.net.Socket.)]
+                (.connect
+                 socket
+                 (java.net.InetSocketAddress. "127.0.0.1" (int port))
+                 50)
+                true)
+              (catch Exception _ false))]
+        (if open?
+          true
+          (do (Thread/sleep 50) (recur (inc attempt))))))))
+
+(defn coordinator-op [port log request]
+  (north.coord/send-op-for-log port (.getCanonicalPath log) request))
+
+(defn sample-operation [log concern-id]
+  (north.concern-spool/build-operation
+   {:operation-id (str (java.util.UUID/randomUUID))
+    :concern-id concern-id
+    :target-log (.getCanonicalPath log)
+    :created-at (str (java.time.Instant/now))
+    :facts
+    [{:predicate "title" :object "[north] reconcile fixture" :cardinality "single"}
+     {:predicate "agent" :object "@offline-fixture" :cardinality "single"}
+     {:predicate "driver" :object "@offline-fixture" :cardinality "single"}
+     {:predicate "repo" :object "north" :cardinality "single"}
+     {:predicate "intent" :object "reconcile fixture" :cardinality "single"}
+     {:predicate "touches" :object "cli/reconcile.clj" :cardinality "multi"}
+     {:predicate "reached" :object "building" :cardinality "multi"}
+     {:predicate "kind" :object "concern" :cardinality "single"}]}))
+
+(defn start-daemon [port log telemetry]
+  (p/process
+   {:dir fram-root
+    :out :string
+    :err :string
+    :extra-env
+    {"FRAM_LOG" (.getCanonicalPath log)
+     "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry)
+     "NORTH_TELEMETRY_PARTITION" "0"
+     "FRAM_REQUIRE_LOG_FENCE" "1"}}
+   "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
+   (str port) (.getCanonicalPath log)))
+
+(defn run-reconcile-cli [root port log spool state]
+  (deref
+   (p/process
+    {:dir root
+     :out :string
+     :err :string
+     :extra-env
+     {"NORTH_HOME" root
+      "NORTH_BB" "bb"
+      "NORTH_PORT" (str port)
+      "FRAM_LOG" (.getCanonicalPath log)
+      "NORTH_TELEMETRY_PARTITION" "0"
+      "NORTH_CONCERN_SPOOL_DIR" (.getCanonicalPath spool)
+      "NORTH_CONCERN_RECONCILE_DIR" (.getCanonicalPath state)}}
+    (str root "/bin/concern") "reconcile-local")
+   5000
+   {:exit 124 :out "" :err "timeout"}))
+
+(defn parent-red-probe []
+  (let [tmp (temp-directory "north-concern-reconcile-parent-red")
+        spool (doto (io/file tmp "spool") .mkdirs)
+        state (io/file tmp "state")
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        telemetry (doto (io/file tmp "telemetry.log") (spit ""))
+        port (free-port)
+        operation
+        (sample-operation
+         log
+         (str "@concern-" (System/currentTimeMillis) "-a001"))
+        daemon (start-daemon port log telemetry)]
+    (try
+      (check "strict scratch coordinator starts" (await-port port daemon))
+      (with-redefs [north.concern-spool/state-directory
+                    (fn [] (.toPath spool))]
+        (north.concern-spool/publish-operation! operation))
+      (let [result (run-reconcile-cli subject-root port log spool state)
+            projection
+            (coordinator-op
+             port log {:op :show :te (:concern-id operation)})]
+        (check "one local reconciliation commits the complete pending concern"
+               (and (zero? (:exit result))
+                    (= (frequencies
+                        (mapv (juxt :predicate :object) (:facts operation)))
+                       (frequencies (:rows projection))))))
+      (finally
+        (try (p/destroy-tree daemon) (catch Throwable _ nil))
+        (delete-tree! tmp)))))
+
+(when (= "parent-red" (first *command-line-args*))
+  (parent-red-probe)
+  (System/exit (if (zero? @fails) 0 1)))
+
+(load-file (str test-root "/cli/concern-spool-reconcile.clj"))
+
+(def generous-limits
+  {:max-items 128
+   :max-bytes (* 8 1024 1024)
+   :max-millis 10000})
+
+(def fixture-sequence (atom 0))
+
+(defn fresh-concern-id []
+  (let [value (swap! fixture-sequence inc)]
+    (str "@concern-"
+         (+ (System/currentTimeMillis) value)
+         "-"
+         (format "%04x" (mod value 65536)))))
+
+(defn fixture-operation
+  ([log label]
+   (fixture-operation log label nil nil))
+  ([log label about]
+   (fixture-operation log label about nil))
+  ([log label about about-binding-cid]
+   (let [concern-id (fresh-concern-id)
+         facts
+         (vec
+          (concat
+           [{:predicate "title"
+             :object (str "[north] " label)
+             :cardinality "single"}
+            {:predicate "agent"
+             :object "@offline-fixture"
+             :cardinality "single"}
+            {:predicate "driver"
+             :object "@offline-fixture"
+             :cardinality "single"}
+            {:predicate "repo" :object "north" :cardinality "single"}
+            {:predicate "intent" :object label :cardinality "single"}]
+           (when about
+             [{:predicate "about" :object about :cardinality "single"}])
+           [{:predicate "touches"
+             :object (str "cli/" label ".clj")
+             :cardinality "multi"}
+            {:predicate "reached" :object "building" :cardinality "multi"}
+            {:predicate "kind" :object "concern" :cardinality "single"}]))]
+     (north.concern-spool/build-operation
+      {:operation-id (str (java.util.UUID/randomUUID))
+       :concern-id concern-id
+       :target-log (.getCanonicalPath (io/file log))
+       :created-at (str (java.time.Instant/now))
+       :about about
+       :about-binding-cid about-binding-cid
+       :facts facts}))))
+
+(defn reidentify-operation [operation operation-id]
+  (north.concern-spool/build-operation
+   {:operation-id operation-id
+    :concern-id (:concern-id operation)
+    :target-log (:target-log operation)
+    :created-at (:created-at operation)
+    :about (get-in operation [:precondition :about :subject])
+    :about-binding-cid
+    (get-in operation [:precondition :about :binding-cid])
+    :facts
+    (mapv #(select-keys % [:predicate :object :cardinality])
+          (:facts operation))}))
+
+(defn publish! [spool operation]
+  (with-redefs [north.concern-spool/state-directory
+                (fn [] (.toPath (io/file spool)))]
+    (north.concern-spool/publish-operation! operation)))
+
+(defn run-pass
+  ([port spool state]
+   (run-pass port spool state generous-limits))
+  ([port spool state pass-limits]
+   (north.concern-spool-reconcile/reconcile-pass!
+    port
+    {:spool-directory (.toPath (io/file spool))
+     :state-directory (.toPath (io/file state))
+     :limits pass-limits})))
+
+(defn operation-files [directory]
+  (if-not (.isDirectory (io/file directory))
+    []
+    (->> (.listFiles (io/file directory))
+         (filter #(str/ends-with? (.getName %) ".op.edn"))
+         (sort-by #(.getName %))
+         vec)))
+
+(defn record-files [directory suffix]
+  (if-not (.isDirectory (io/file directory))
+    []
+    (->> (.listFiles (io/file directory))
+         (filter #(str/ends-with? (.getName %) suffix))
+         (sort-by #(.getName %))
+         vec)))
+
+(defn operation-record [state operation suffix]
+  (io/file
+   state
+   (str (:operation-id operation) suffix)))
+
+(defn settled-record [state operation]
+  (operation-record state operation ".settled.edn"))
+
+(defn conflict-record [state operation]
+  (operation-record state operation ".conflict.edn"))
+
+(defn read-record [file]
+  (edn/read-string (slurp file)))
+
+(defn version [port log]
+  (:version (coordinator-op port log {:op :version})))
+
+(defn show [port log operation]
+  (coordinator-op
+   port log {:op :show :te (:concern-id operation)}))
+
+(defn exact-projection? [operation rows]
+  (= (frequencies
+      (mapv (juxt :predicate :object) (:facts operation)))
+     (frequencies rows)))
+
+(defn assert-operation! [port log operation]
+  (coordinator-op
+   port
+   log
+   {:op :assert-batch
+    :te (:concern-id operation)
+    :facts
+    (mapv
+     (fn [{:keys [predicate object]}]
+       {:p predicate :r object})
+     (:facts operation))}))
+
+(defn assert-facts! [port log subject facts]
+  (coordinator-op
+   port log {:op :assert-batch :te subject :facts facts}))
+
+(defn kind-binding-cid [port log subject]
+  (:claim-cid
+   (coordinator-op
+    port log {:op :claim-read :te subject :p "kind"})))
+
+(defn start-blackhole [port]
+  (let [server (java.net.ServerSocket. port)
+        sockets (atom [])
+        acceptor
+        (future
+          (try
+            (loop []
+              (let [socket (.accept server)]
+                (swap! sockets conj socket)
+                (future
+                  (try
+                    (.read (.getInputStream socket))
+                    (Thread/sleep 5000)
+                    (catch Throwable _ nil)))
+                (recur)))
+            (catch Throwable _ nil)))]
+    {:server server :sockets sockets :acceptor acceptor}))
+
+(defn stop-blackhole! [{:keys [server sockets acceptor]}]
+  (try (.close server) (catch Throwable _ nil))
+  (doseq [socket @sockets]
+    (try (.close socket) (catch Throwable _ nil)))
+  (future-cancel acceptor))
+
+(defn crash-restart-probe!
+  [port log spool state stage label]
+  (let [operation (fixture-operation log label)
+        _ (publish! spool operation)
+        version-before (version port log)
+        injected
+        (binding
+         [north.concern-spool-reconcile/*reconcile-stage!*
+          (fn [observed-stage _]
+            (when (= stage observed-stage)
+              (throw
+               (ex-info
+                (str "injected " (name stage) " crash")
+                {:stage stage}))))]
+          (run-pass port spool state))
+        version-after-crash (version port log)
+        no-record?
+        (and (not (.exists (settled-record state operation)))
+             (not (.exists (conflict-record state operation))))
+        pending?
+        (.isFile
+         (io/file spool (str (:operation-id operation) ".op.edn")))
+        restarted (run-pass port spool state)
+        version-after-restart (version port log)
+        replayed (run-pass port spool state)
+        version-after-replay (version port log)
+        projection (:rows (show port log operation))]
+    (check (str label " crash retains the pending operation without a marker")
+           (and (= 1 (:deferred injected))
+                no-record?
+                pending?))
+    (check (str label " restart converges to one exact settled projection")
+           (and (= 1 (:settled restarted))
+                (.isFile (settled-record state operation))
+                (not (.exists (conflict-record state operation)))
+                (exact-projection? operation projection)))
+    (check (str label " replay cannot duplicate the recovered commit")
+           (and (pos? (:already-settled replayed))
+                (= version-after-restart version-after-replay)
+                (if (= stage :pre-commit)
+                  (and (= version-before version-after-crash)
+                       (> version-after-restart version-after-crash))
+                  (and (> version-after-crash version-before)
+                       (= version-after-crash version-after-restart)))))))
+
+(defn primary-probes []
+  (let [tmp (temp-directory "north-concern-reconcile")
+        spool (doto (io/file tmp "spool") .mkdirs)
+        state (io/file tmp "state")
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        telemetry (doto (io/file tmp "telemetry.log") (spit ""))
+        wrong-log (doto (io/file tmp "wrong.log") (spit "wrong-log-sentinel\n"))
+        port (free-port)
+        daemon (start-daemon port log telemetry)]
+    (try
+      (check "focused strict scratch coordinator starts"
+             (await-port port daemon))
+
+      ;; A normal restartable operation lands once, remains locally durable, and
+      ;; is skipped on every later pass.
+      (let [operation (fixture-operation log "double-reconcile")
+            _ (publish! spool operation)
+            first-pass (run-pass port spool state)
+            first-version (version port log)
+            second-pass (run-pass port spool state)
+            second-version (version port log)]
+        (check "double reconcile commits one complete concern exactly once"
+               (and (= 1 (:settled first-pass))
+                    (zero? (:conflicts first-pass))
+                    (exact-projection?
+                     operation (:rows (show port log operation)))
+                    (= first-version second-version)
+                    (= 1 (:processed second-pass))
+                    (= 1 (:already-settled second-pass))))
+        (check "settlement is fsynced separately while the sole pending copy remains"
+               (and (.isFile (settled-record state operation))
+                    (.isFile
+                     (io/file
+                      spool
+                      (str (:operation-id operation) ".op.edn")))
+                    (= "north-concern-reconciliation-committed-v1"
+                       (:commit (read-record
+                                 (settled-record state operation)))))))
+
+      ;; An identical projection may predate the local receipt when an ack was
+      ;; lost. It settles without another coordinator mutation.
+      (let [operation (fixture-operation log "identical-preexisting")
+            ack (assert-operation! port log operation)
+            _ (publish! spool operation)
+            before (version port log)
+            result (run-pass port spool state)
+            after (version port log)
+            record (read-record (settled-record state operation))]
+        (check "identical preexisting projection settles idempotently"
+               (and (true? (:batch ack))
+                    (= before after)
+                    (= 1 (:settled result))
+                    (= "identical-preexisting" (:reason record))
+                    (exact-projection?
+                     operation (:rows (show port log operation))))))
+
+      ;; Any nonempty non-exact subject is a retained conflict. The reconciler
+      ;; never tries to fill a partial spine.
+      (let [operation (fixture-operation log "differing")
+            _ (assert-facts!
+               port log (:concern-id operation)
+               [{:p "title" :r "existing different title"}])
+            _ (publish! spool operation)
+            before (version port log)
+            result (run-pass port spool state)
+            after (version port log)
+            record (read-record (conflict-record state operation))]
+        (check "differing or partial projection is retained with zero target mutation"
+               (and (= before after)
+                    (= 1 (:conflicts result))
+                    (= "projection-differs" (:reason record))
+                    (= [["title" "existing different title"]]
+                       (:rows (show port log operation)))
+                    (.isFile
+                     (io/file
+                      spool
+                      (str (:operation-id operation) ".op.edn"))))))
+
+      ;; The Phase 1 envelope is cryptographically self-consistent even when a
+      ;; hand-built payload violates the fixed concern spine. Phase 2 rejects
+      ;; that shape locally instead of discovering it after a write.
+      (let [seed (fixture-operation log "invalid-single")
+            facts
+            (vec
+             (concat
+              (butlast (:facts seed))
+              [{:predicate "title"
+                :object "second conflicting title"
+                :cardinality "single"}
+               (last (:facts seed))]))
+            operation
+            (north.concern-spool/build-operation
+             {:operation-id (str (java.util.UUID/randomUUID))
+              :concern-id (:concern-id seed)
+              :target-log (.getCanonicalPath log)
+              :created-at (str (java.time.Instant/now))
+              :facts
+              (mapv #(select-keys % [:predicate :object :cardinality])
+                    facts)})
+            _ (publish! spool operation)
+            before (version port log)
+            result (run-pass port spool state)
+            after (version port log)
+            record (read-record (conflict-record state operation))]
+        (check "self-consistent invalid cardinality conflicts before target mutation"
+               (and (= before after)
+                    (= 1 (:conflicts result))
+                    (= "invalid-operation" (:reason record))
+                    (empty? (:rows (show port log operation))))))
+
+      ;; A ref can be retargeted to another perfectly valid titled thread. The
+      ;; immutable kind-fact CID distinguishes that from the original binding.
+      (let [original "@thread:original-binding"
+            retarget "@thread:retarget-binding"
+            _ (assert-facts!
+               port log original
+               [{:p "title" :r "original valid thread"}
+                {:p "kind" :r "thread"}])
+            _ (assert-facts!
+               port log retarget
+               [{:p "title" :r "different valid thread"}
+                {:p "kind" :r "thread"}])
+            original-cid (kind-binding-cid port log original)
+            operation
+            (fixture-operation
+             log "about-binding" retarget original-cid)
+            _ (publish! spool operation)
+            before (version port log)
+            result (run-pass port spool state)
+            after (version port log)
+            record (read-record (conflict-record state operation))]
+        (check "valid-thread alias retarget conflicts before concern mutation"
+               (and (= before after)
+                    (= 1 (:conflicts result))
+                    (= "about-binding-changed" (:reason record))
+                    (= #{"thread"}
+                       (set
+                        (:values
+                         (coordinator-op
+                          port log
+                          {:op :resolved
+                           :te retarget
+                           :p "kind"}))))
+                    (empty? (:rows (show port log operation))))))
+
+      ;; The target-log fence rejects the nested read before a write is possible.
+      (let [operation (fixture-operation wrong-log "wrong-log")
+            _ (publish! spool operation)
+            served-before (version port log)
+            wrong-before (slurp wrong-log)
+            result (run-pass port spool state)
+            served-after (version port log)
+            record (read-record (conflict-record state operation))]
+        (check "wrong-log intent becomes an explicit immutable zero-mutation conflict"
+               (and (= served-before served-after)
+                    (= wrong-before (slurp wrong-log))
+                    (= 1 (:conflicts result))
+                    (= "wrong-log" (:reason record))
+                    (empty?
+                     (:rows
+                      (coordinator-op
+                       port log
+                       {:op :show :te (:concern-id operation)}))))))
+
+      ;; Phase 1's publication lock must survive concurrent producers; Phase 2
+      ;; consumes their final names in deterministic lexical order.
+      (let [parallel-spool (doto (io/file tmp "parallel-spool") .mkdirs)
+            parallel-state (io/file tmp "parallel-state")
+            operations
+            (vec
+             (repeatedly
+              16
+              #(fixture-operation log (str "parallel-" (swap! fixture-sequence inc)))))
+            receipts
+            (with-redefs
+             [north.concern-spool/state-directory
+              (fn [] (.toPath parallel-spool))]
+              (->> operations
+                   (mapv
+                    (fn [operation]
+                      (future
+                        (north.concern-spool/publish-operation!
+                         operation
+                         (+ (System/nanoTime) (* 1000000 5000))))))
+                   (mapv deref)))
+            expected-files
+            (->> receipts
+                 (map #(str (:operation-id %) ".op.edn"))
+                 sort
+                 vec)
+            result (run-pass port parallel-spool parallel-state)
+            observed-files (mapv :file (:outcomes result))]
+        (check "16 parallel publishers retain 16 complete immutable operations"
+               (and (= 16 (count receipts))
+                    (= 16 (count (set (map :operation-id receipts))))
+                    (every?
+                     #(north.concern-spool/read-operation-file!
+                       (io/file
+                        parallel-spool
+                        (str (:operation-id %) ".op.edn")))
+                     receipts)))
+        (check "one bounded pass consumes parallel operations in deterministic order"
+               (and (= expected-files observed-files)
+                    (= 16 (:settled result))
+                    (every?
+                     #(exact-projection? % (:rows (show port log %)))
+                     operations))))
+
+      ;; Already-settled names do not starve later work at a one-item boundary.
+      (let [item-spool (doto (io/file tmp "item-spool") .mkdirs)
+            item-state (io/file tmp "item-state")
+            left (fixture-operation log "item-bound-left")
+            right (fixture-operation log "item-bound-right")
+            _ (publish! item-spool left)
+            _ (publish! item-spool right)
+            one-item
+            {:max-items 1 :max-bytes (* 1024 1024) :max-millis 5000}
+            first-pass (run-pass port item-spool item-state one-item)
+            second-pass (run-pass port item-spool item-state one-item)]
+        (check "durable cursor advances a deterministic one-item boundary"
+               (and (= 1 (:processed first-pass))
+                    (= 1 (:settled first-pass))
+                    (= 1 (:remaining first-pass))
+                    (= 1 (:processed second-pass))
+                    (= 1 (:settled second-pass))
+                    (.isFile (settled-record item-state left))
+                    (.isFile (settled-record item-state right)))))
+
+      ;; A marker name is never authority by itself. A corrupt marker is
+      ;; surfaced, and the durable cursor lets later work proceed next pass.
+      (let [marker-spool (doto (io/file tmp "marker-spool") .mkdirs)
+            marker-state (doto (io/file tmp "marker-state") .mkdirs)
+            operations
+            (->> [(fixture-operation log "corrupt-marker")
+                  (fixture-operation log "after-corrupt-marker")]
+                 (sort-by :operation-id)
+                 vec)
+            corrupt (first operations)
+            later (second operations)
+            _ (doseq [operation operations]
+                (publish! marker-spool operation))
+            _ (spit (conflict-record marker-state corrupt) "{:truncated true}\n")
+            one-item
+            {:max-items 1 :max-bytes (* 1024 1024) :max-millis 5000}
+            first-pass (run-pass port marker-spool marker-state one-item)
+            second-pass (run-pass port marker-spool marker-state one-item)]
+        (check "corrupt marker cannot suppress operation validation"
+               (and (= 1 (:deferred first-pass))
+                    (empty? (:rows (show port log corrupt)))))
+        (check "permanently deferred marker prefix cannot starve the lexical tail"
+               (and (= 1 (:settled second-pass))
+                    (exact-projection?
+                     later (:rows (show port log later))))))
+
+      ;; An operation larger than the configured byte slice consumes a bounded
+      ;; deferred turn and advances the cursor instead of pinning the queue.
+      (let [byte-spool (doto (io/file tmp "byte-spool") .mkdirs)
+            byte-state (io/file tmp "byte-state")
+            big
+            (reidentify-operation
+             (fixture-operation log (apply str (repeat 5000 "x")))
+             "00000000-0000-0000-0000-000000000001")
+            small
+            (reidentify-operation
+             (fixture-operation log "small-after-oversize")
+             "ffffffff-ffff-ffff-ffff-fffffffffff2")
+            _ (publish! byte-spool big)
+            small-receipt (publish! byte-spool small)
+            small-bytes
+            (.length
+             (io/file byte-spool
+                      (str (:operation-id small-receipt) ".op.edn")))
+            byte-limits
+            {:max-items 1
+             :max-bytes (inc small-bytes)
+             :max-millis 5000}
+            first-pass (run-pass port byte-spool byte-state byte-limits)
+            second-pass (run-pass port byte-spool byte-state byte-limits)]
+        (check "over-byte lexical head is deferred without reading or mutation"
+               (and (= 1 (:deferred first-pass))
+                    (= "operation-exceeds-remaining-pass-byte-budget"
+                       (:reason (first (:outcomes first-pass))))
+                    (empty? (:rows (show port log big)))))
+        (check "over-byte head cannot starve a later operation that fits"
+               (and (= 1 (:settled second-pass))
+                    (exact-projection?
+                     small (:rows (show port log small))))))
+
+      ;; The lock spans the whole pass. A peer gets a bounded busy result and
+      ;; never enters the operation loop.
+      (let [lock-spool (doto (io/file tmp "lock-spool") .mkdirs)
+            lock-state (io/file tmp "lock-state")
+            entered (promise)
+            release (promise)
+            holder
+            (future
+              (binding
+               [north.concern-spool-reconcile/*reconcile-stage!*
+                (fn [stage _]
+                  (when (= :lock-acquired stage)
+                    (deliver entered true)
+                    @release))]
+                (run-pass port lock-spool lock-state)))
+            acquired? (deref entered 2000 false)
+            contender (run-pass port lock-spool lock-state)
+            _ (deliver release true)
+            holder-result (deref holder 5000 {:status :timeout})]
+        (check "exactly one reconciler owns the process lock"
+               (and acquired?
+                    (= :busy (:status contender))
+                    (= :complete (:status holder-result)))))
+
+      ;; A real process death after marker rename cannot run the cursor write or
+      ;; directory fsync. Restart validates the operation/marker binding and
+      ;; completes that fsync before treating the operation as terminal.
+      (let [operation (fixture-operation log "marker-rename-crash")
+            _ (publish! spool operation)
+            crashed?
+            (try
+              (binding
+               [north.concern-spool-reconcile/*reconcile-stage!*
+                (fn [stage context]
+                  (when (and (= :record-renamed stage)
+                             (= (:operation-id operation)
+                                (get-in context
+                                        [:record :operation-id])))
+                    (throw (Error. "injected marker rename crash"))))]
+                (run-pass port spool state))
+              false
+              (catch Error _ true))
+            version-after-crash (version port log)
+            marker-visible? (.isFile (settled-record state operation))
+            restarted (run-pass port spool state)
+            version-after-restart (version port log)]
+        (check "post-rename process death leaves a visible complete marker"
+               (and crashed? marker-visible?))
+        (check "restart validates, re-fsyncs, and skips the bound marker"
+               (and (pos? (:already-settled restarted))
+                    (= version-after-crash version-after-restart)
+                    (exact-projection?
+                     operation (:rows (show port log operation))))))
+
+      (crash-restart-probe!
+       port log spool state :pre-commit "pre-commit")
+      (crash-restart-probe!
+       port log spool state :post-commit-pre-ack "post-commit-pre-ack")
+      (crash-restart-probe!
+       port log spool state :post-readback-pre-settlement
+       "post-readback-pre-settlement")
+
+      (finally
+        (try (p/destroy-tree daemon) (catch Throwable _ nil))
+        (delete-tree! tmp)))))
+
+(defn bounded-transport-probe []
+  (let [tmp (temp-directory "north-concern-reconcile-bounded")
+        spool (doto (io/file tmp "spool") .mkdirs)
+        state (io/file tmp "state")
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        port (free-port)
+        server (start-blackhole port)
+        operation (fixture-operation log "bounded-blackhole")]
+    (try
+      (publish! spool operation)
+      (let [started (System/nanoTime)
+            result
+            (run-pass
+             port spool state
+             {:max-items 1
+              :max-bytes (* 1024 1024)
+              :max-millis 120})
+            elapsed-ms (quot (- (System/nanoTime) started) 1000000)]
+        (check "time bound cuts off an unreadable coordinator without losing intent"
+               (and (= 1 (:deferred result))
+                    (< elapsed-ms 1000)
+                    (.isFile
+                     (io/file
+                      spool
+                      (str (:operation-id operation) ".op.edn")))
+                    (not (.exists (settled-record state operation)))
+                    (not (.exists (conflict-record state operation))))))
+      (finally
+        (stop-blackhole! server)
+        (delete-tree! tmp)))))
+
+(primary-probes)
+(bounded-transport-probe)
+
+(if (zero? @fails)
+  (do
+    (println "\nconcern offline reconciliation O2/O3: ALL PASS")
+    (System/exit 0))
+  (do
+    (println (str "\nconcern offline reconciliation O2/O3: "
+                  @fails " FAIL"))
+    (System/exit 1)))

@@ -253,12 +253,11 @@
     (let [runs
           (->> (range 6)
                (mapv
-                (fn [index]
+                (fn [_index]
                   (future
                     (run-declare
                      subject-root port log spool repo
-                     {"NORTH_CONCERN_SPOOL_MAX_FILES" "8"}
-                     "--about" (str "@parallel-thread-" index)))))
+                     {"NORTH_CONCERN_SPOOL_MAX_FILES" "8"}))))
                (mapv deref))
           files (operation-files spool)
           operations
@@ -317,6 +316,91 @@
              (and (= 2 (:exit result))
                   (empty? (operation-files spool))
                   (not (str/includes? (:out result) "durable-local")))))
+    (finally
+      (stop-server! server)
+      (delete-tree! tmp))))
+
+;; An exact spelling is not enough to preserve an alias binding while the
+;; coordinator is wholly unreadable. Refuse rather than spool an unbound about.
+(let [tmp (temp-directory "north-concern-offline-about-unbound")
+      repo (doto (io/file tmp "repo") .mkdirs)
+      spool (io/file tmp "spool")
+      log (doto (io/file tmp "coordination.log") (spit "about-sentinel\n"))
+      port (free-port)
+      server (start-blackhole port)]
+  (try
+    (let [result
+          (run-declare
+           subject-root port log spool repo {}
+           "--about" "@thread:offline")]
+      (check "unreadable exact about binding never spools"
+             (and (= 4 (:exit result))
+                  (empty? (operation-files spool))
+                  (str/includes? (:err result) "stable thread identity")
+                  (not (str/includes? (:out result) "durable-local")))))
+    (finally
+      (stop-server! server)
+      (delete-tree! tmp))))
+
+;; If the thread reads succeeded before the declaration ack became ambiguous,
+;; the durable operation carries the exact kind-fact CID for O2 retarget checks.
+(let [tmp (temp-directory "north-concern-offline-about-bound")
+      repo (doto (io/file tmp "repo") .mkdirs)
+      spool (io/file tmp "spool")
+      log (doto (io/file tmp "coordination.log") (spit "bound-sentinel\n"))
+      port (free-port)
+      resolved-response
+      (fn [value]
+        {:value value
+         :members (if value 1 0)
+         :ambiguous? false
+         :values (if value [value] [])
+         :version 41})
+      server
+      (start-responder
+       port
+       (fn [request]
+         (case (:op request)
+           :resolved
+           (case (:p request)
+             "kind" (resolved-response "thread")
+             "title" (resolved-response "Bound thread")
+             "identity_manifest_sha256" (resolved-response nil)
+             "display_name" (resolved-response "@offline-fixture")
+             (resolved-response nil))
+
+           :claim-read
+           {:ok true
+            :claim-cid 7301
+            :claim "thread"
+            :status nil
+            :verdict nil
+            :rejection nil
+            :provenance []
+            :version 41}
+
+           :assert-batch {}
+
+           {:error "unexpected test operation"})))]
+  (try
+    (let [result
+          (run-declare
+           subject-root port log spool repo {}
+           "--about" "@thread:bound")
+          files (operation-files spool)
+          operation
+          (when (= 1 (count files))
+            (north.concern-spool/read-operation-file! (first files)))]
+      (check "captured stable about binding survives an ambiguous declaration ack"
+             (and (zero? (:exit result))
+                  (= 1 (count files))
+                  (= 7301
+                     (get-in operation
+                             [:precondition :about :binding-cid]))
+                  (= ["@thread:bound"]
+                     (->> (:facts operation)
+                          (filter #(= "about" (:predicate %)))
+                          (mapv :object))))))
     (finally
       (stop-server! server)
       (delete-tree! tmp))))

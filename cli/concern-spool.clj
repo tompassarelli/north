@@ -161,7 +161,8 @@
 
 (defn build-operation
   "Build the complete immutable concern-declare operation before transport."
-  [{:keys [operation-id concern-id target-log created-at facts about]}]
+  [{:keys [operation-id concern-id target-log created-at facts about
+           about-binding-cid]}]
   (when-not (and (string? operation-id)
                  (re-matches #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
                              operation-id))
@@ -185,6 +186,13 @@
     (fail! "offline concern about precondition must be an exact ref"
            {:type :invalid-concern-operation
             :field :about}))
+  (when (and about-binding-cid
+             (not (and about
+                       (integer? about-binding-cid)
+                       (pos? about-binding-cid))))
+    (fail! "offline concern about binding cid must be a positive integer"
+           {:type :invalid-concern-operation
+            :field :about-binding-cid}))
   (let [ordered-facts (canonical-facts facts)
         terminal-fact (peek ordered-facts)
         _ (when-not
@@ -203,10 +211,13 @@
           :projection-sha256 facts-digest)
           about
           (assoc :about
-                 (sorted-map
-                  :subject about
-                  :requires-kind "thread"
-                  :requires-title true)))
+                 (cond->
+                  (sorted-map
+                   :subject about
+                   :requires-kind "thread"
+                   :requires-title true)
+                   about-binding-cid
+                   (assoc :binding-cid about-binding-cid))))
         precondition-digest (sha256 (canonical-edn precondition))
         commit-marker
         (sorted-map
@@ -247,6 +258,8 @@
             :target-log (:target-log operation)
             :created-at (:created-at operation)
             :about (get-in operation [:precondition :about :subject])
+            :about-binding-cid
+            (get-in operation [:precondition :about :binding-cid])
             :facts
             (mapv #(select-keys % [:predicate :object :cardinality])
                   (:facts operation))})]
