@@ -562,6 +562,22 @@ validates targets resolve — no dangling refs).
   `@topic-*` node. This **replaces tags**: if two threads are "kind of related,"
   relate them; don't depend.
 
+**Which edge — the test.** Ask what the candidate parent would lose:
+
+1. Does this thread advance the parent's **own deliverable**, such that the
+   parent is incomplete without it? → **`part_of`**. Composition is
+   "the parent's work includes this", not "the parent knows about this".
+2. Not composition, but must **land before** this thread can proceed? →
+   **`depends_on`**. Ordering only; the fact server marks this thread blocked
+   while the target is non-terminal.
+3. Neither, but the two are **co-discoverable** — a reader who found one wants
+   the other? → **`relates_to`**.
+
+A **theme** is always case 3. `@topic-*` threads exist to be pointed at, and
+they never own work: `relates_to @topic-<name>`, never `part_of @topic-<name>`.
+Hanging work under a theme as a parent makes the theme look like a project with
+a deliverable it does not have, and makes every subtree query lie.
+
 ---
 
 ## relates_to and topic threads (former tags)
@@ -815,6 +831,8 @@ north             # THE CARD: one screen of every significant incantation, group
 north dashboard   # the cockpit: live agents, concerns by repo, board counts,
                   # daemon health, condensed `north health`, profile rung per layer
 north doctor      # is everything healthy (the health sweep above)
+north worktrees   # every repo's wt-* trees: drift, dirt, age, owning lane/concern
+                  # (--json; § "Worktree lifecycle")
 north account status      # provider-owned subscription login, per isolated target
 north account list        # named account targets and their isolated CLI homes
 north account usage       # per-account subscription windows, resets, fixed failures
@@ -1052,11 +1070,53 @@ an owner dies without running `concern done`:
    one-shot probe is the normal reactor surface:
    `bb ~/code/north/main/cli/north-reactor.clj sweep-once [--dry-run]`.
 
+5. **Unregistered-worktree janitor.** The same sweep also reaps `wt-*` siblings
+   that no fact claims — the hand-made worktrees that accumulated because
+   nothing owned their cleanup. A tree is reclaimed only when Git proves it is a
+   linked worktree of that repository on its own branch, that branch is merged,
+   the status is clean, the tree has been idle **>48h**, no registration of any
+   kind names it, and no **live concern** claims its repository. Removal is the
+   same non-force `git worktree remove` + `git branch -d` with the same
+   postcondition checks. A stale tree that is dirty, unmerged, or detached is
+   **never** auto-removed: it is surfaced as `REVIEW unregistered <path>` in the
+   sweep report and counted in `needs-review=`, to be salvaged or landed by a
+   human. Nothing about an unregistered tree is written to the graph — a fact
+   about a mutable directory would outlive the state it describes, so
+   `north worktrees` re-derives it from Git instead.
+
 The **activity heartbeat** that powers all of the above: the `north-on-tooluse`
 PostToolUse hook renews the owner's presence lease on tool calls, **throttled to
 once per 60s** (marker in `XDG_RUNTIME_DIR`). A renewal therefore *means*
 "this agent ran a tool recently" (IS-WORKING), so lease expiry is a real death
 signal — not merely "never registered".
+
+#### Worktree lifecycle
+
+A worktree is born with a lane and **dies with the landing**. Landing's done-bar
+is not "the ref is on main" — it is ref-on-main **plus** the worktree removed
+and its branch deleted (`git -C <repo>/main worktree remove <path>` then
+`git branch -d <branch>`; `wt-reap` sweeps every merged+clean sibling). A landed
+lane that leaves its worktree behind is not done, and origin never carries a
+lane branch.
+
+What escapes that bar is caught, not lost. A `wt-*` tree idle past 48h with no
+owning lane and no live concern is **stale**: merged and clean ones are reaped
+by the reactor's unregistered-worktree janitor (§ item 5 above); dirty or
+unmerged ones are only ever **surfaced** for review, never auto-removed, because
+the uncommitted bytes may be the only copy.
+
+`north worktrees` is the census. It reads every container repo under `~/code`
+(never `client/` or `reference/`) and prints one row per `wt-*` tree: drift
+against main, tracked/untracked dirt, age of last write, the live concern
+holding its repository, and the lane registration the fact server has for it —
+with `--json` for machine consumers. It composes `git`, `concern`, and the fact
+server and prints each primitive it runs; when a join cannot answer, that column
+degrades to `-` and nothing is called reapable that run.
+
+```sh
+north worktrees                 # the whole machine
+north worktrees north --json    # one repo, machine-readable
+```
 
 #### Handoff — an explicit procedure
 

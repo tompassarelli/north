@@ -40,6 +40,10 @@
 ;; PURE reap decisions (verdict off in-memory facts) — split out so reap_test.clj can
 ;; drive the join/lapse/verdict logic with no live daemon. Sibling of coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/reap.clj"))
+;; Shared Git-derived worktree read model. `north worktrees` renders it; the
+;; janitor's unregistered sweep decides off it. Must load before the janitor.
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
+                "/worktree-census.clj"))
 ;; Side-effect-free managed-worktree janitor. It is deliberately owned by this
 ;; reactor: `sweep-once` and the five-minute loop execute the same function with
 ;; this file's canonical full terminal/run resolver.
@@ -294,6 +298,25 @@
                    :concern concern
                    :result transition})))
       transition))))
+
+(defn live-concern-repos
+  "Container paths a LIVE concern currently claims, by the same lease rule
+   `concern ls` renders. Only the unregistered-worktree sweep consumes it, and
+   only when a tree is otherwise reapable, so the extra per-concern reads are
+   never paid on an idle sweep."
+  []
+  (let [index (north.worktree-census/container-index
+               (north.worktree-census/containers))]
+    (into #{}
+          (for [c (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "concern"]}]))
+                :let [reached (set (north.coord/many port c "reached"))]
+                :when (and (not (reached "landed"))
+                           (not (reached "abandoned-stale"))
+                           (nil? (owner-lapse-ms c)))
+                :let [container (north.worktree-census/resolve-container
+                                 index (north.coord/resolved port c "repo"))]
+                :when container]
+            container))))
 
 (defn sweep-concerns! [dry?]
   (let [concerns (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "concern"]}]))
@@ -811,6 +834,22 @@
                   :already-removed 0
                   :removed 0 :would-remove 0 :orphan-facts-written 0
                   :errors 1})))
+        uw (run-sweep-stage!
+            :unregistered-worktree-janitor
+            #(try
+               (north.worktree-janitor/sweep-unregistered-worktrees!
+                {:dry? dry?
+                 :repo-filter sweep-repo
+                 :claimed-worktrees
+                 (delay (north.worktree-janitor/registered-worktree-paths
+                         (north.coord/expected-log)))
+                 :live-concern-repos (delay (live-concern-repos))})
+               (catch Throwable t
+                 (println (str "[sweep] unregistered worktree janitor error: "
+                               (.getMessage t)))
+                 {:scanned 0 :claimed 0 :fresh 0 :review 0 :live-concern 0
+                  :uncertain 0 :partial 0 :removed 0 :would-remove 0
+                  :errors 1})))
         al (run-sweep-stage! :agent-logs #(sweep-agent-logs! dry?))
         ;; Spend-guard backstop (step 3): burn-rate breach TRIPS the global breaker;
         ;; a tripped breaker SIGKILLs every verified live breached lane + settles it.
@@ -835,7 +874,8 @@
         _ (run-sweep-stage!
            :core-heartbeat
            #(when-not dry?
-              (north.reactor-heartbeat/write-heartbeat! port {:worktrees wt})))
+              (north.reactor-heartbeat/write-heartbeat!
+               port {:worktrees wt :unregistered-worktrees uw})))
         ca (run-sweep-stage! :clock-audit #(maybe-clock-audit! dry?))
         audit-deferred? (= :deferred (:status ca))
         attention (if audit-deferred?
@@ -846,7 +886,8 @@
                         {:status :skipped}
                         (reconcile-attention-bounded! "post-sweep"))))
         summary {:concerns nc :lanes nl :unpublished-drivers nd
-                 :worktrees wt :agent-logs al :breaker burn
+                 :worktrees wt :unregistered-worktrees uw
+                 :agent-logs al :breaker burn
                  :lanes-killed nk :clock-audit ca
                  :rebuild-window rw
                  :attention-reconcile attention
@@ -861,6 +902,14 @@
                   " already-reclaimed=" (:already-removed wt)
                   " orphan-facts=" (:orphan-facts-written wt)
                   " worktree-errors=" (get wt :errors 0)
+                  " unregistered scanned=" (:scanned uw)
+                  " removed=" (:removed uw)
+                  " would-remove=" (:would-remove uw)
+                  " needs-review=" (:review uw)
+                  " concern-held=" (:live-concern uw)
+                  " kept-uncertain=" (:uncertain uw)
+                  " partial=" (:partial uw)
+                  " errors=" (get uw :errors 0)
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
                   " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
                   " clock-audit=" (name (:status ca))
