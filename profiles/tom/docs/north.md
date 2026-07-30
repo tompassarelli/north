@@ -60,11 +60,7 @@ run `north doctor`. If it reports DOWN/DEGRADED, run
 
 ## Session state lives on threads — no markdown dumps (dogfood protocol)
 
-The graph is the working memory, not your context window. The recurring failure
-this kills: session state written as `docs/private/SESSION-DUMP-*.md`, recovered
-by pasting files into a fresh context — while the substrate built for exactly
-this sits unused (and unwatched: two integrity regressions went unnoticed for
-days because nobody lived in the graph).
+The graph is the working memory, not your context window.
 
 1. **Substantive work runs on a thread.** Find-or-capture it at session start;
    `tell <id> driver @claude-code` when you actually start pushing.

@@ -8,7 +8,7 @@ always-loaded surface: load-bearing rules + thin pointers. Detail lives in what 
 - **north** = the app: the durable thread/intent ledger served by the canonical coordinator on **:7977** (data `~/code/north-data` → `~/.local/state/north`).
 - **One branch, always `main`** (all repos consolidated 2026-06-23 — no feature branches; a pin is a SHA, never a branch).
 
-## Execution model — two-speed (2026-07-30)
+## Execution model — two-speed
 
 - **`north` / `north-mcp` run LIVE from this checkout** (`~/code/north/main`): an
   edit takes effect on the next invocation — no rebuild, no restart.
@@ -49,7 +49,7 @@ Agent coordination uses the **TypeScript SDK** (`~/code/north/main/sdk/`), not b
 - north thread `2026-06-23-132319` — store-layer purity + north-as-client architecture.
 - `~/code/fram/main` — the engine (fact model, coordinator, lease primitive).
 
-## The agent-profile contract (2026-07-30)
+## The agent-profile contract
 
 `north:agent-profile` is a **stable symlink** to whatever directory currently
 holds the personal agent profile (today `profiles/tom`). It exists so that

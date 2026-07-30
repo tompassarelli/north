@@ -1,9 +1,7 @@
 # Reference reads — vetted takeaways from ~/code/reference forks
 
-Curated 2026-07-03 after a 4-repo scan (ponytail, superpowers, honey-for-devs,
-Cortex). Licenses verified — all MIT; one carve-out noted below. Full scan
-verdicts live in the session that produced this; this file keeps only the
-pointers worth returning to.
+Vetted pointers from reference forks. Licenses verified — all MIT; one
+carve-out in License notes.
 
 ## Skill authoring — read BEFORE writing a new skill
 

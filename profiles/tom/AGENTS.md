@@ -134,7 +134,9 @@ Read when setting a bar/tier at intake, briefing a verifier, or a lane won't
 converge on done.
 
 Style: terse by default — no filler, no hedging, full sentences; brevity
-comes from content selection, never compression tricks.
+comes from content selection, never compression tricks. Per clause: keep the
+rule, its trigger, and the compliant move; provenance, rationale, and war
+stories live on threads or provenance files, never in always-loaded text.
 
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
@@ -272,8 +274,6 @@ detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
   introduce `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, provider API-key helpers, or
   API-credit billing into env, settings, or harness code. Provider adapters
   use the authenticated Claude Code or Codex subscription surface.
-- **Vocabulary:** agent groups are lanes / agents / workers / spawns — never
-  "fleet" (the harness's own "FleetView" string is not our vocabulary).
 - **`rm` on variable paths:** never write `rm … "$VAR"/glob` — an unset
   `$VAR` expands to a bare-root delete, and the rm-guard fires on the shape.
   Instead: `rm -rf "${VAR:?}"/…` (aborts when unset), or remove-and-recreate
