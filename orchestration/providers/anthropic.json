@@ -152,8 +152,8 @@
       ],
       "routes": {
         "frontier": [
-          "xhigh",
-          "max"
+          "high",
+          "xhigh"
         ]
       },
       "contextWindow": {
@@ -204,8 +204,9 @@
       "defaultEffort": "high"
     },
     "frontier": {
-      "model": "claude-opus-5",
+      "model": "claude-fable-5",
       "efforts": [
+        "high",
         "xhigh"
       ],
       "defaultEffort": "xhigh"

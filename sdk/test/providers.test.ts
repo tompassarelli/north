@@ -721,10 +721,9 @@ test("provider effective-authority closure defense remains exact", () => {
 });
 
 test("Anthropic frontier follows Orchestration's static route without a hidden time swap", () => {
-  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-opus-5", effort: "xhigh" });
-  expect(() => resolveTier("anthropic", "frontier", undefined, "high"))
-    .toThrow("provider anthropic cannot resolve semantic tier frontier with reasoning high");
-  expect(resolveTier("anthropic", "frontier", undefined, "xhigh")).toEqual({ tier: "frontier", model: "claude-opus-5", effort: "xhigh" });
+  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
+  expect(resolveTier("anthropic", "frontier", undefined, "high")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "high" });
+  expect(resolveTier("anthropic", "frontier", undefined, "xhigh")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
   expect(() => resolveTier("anthropic", "frontier", "sonnet", "xhigh"))
     .toThrow("model claude-sonnet-5 does not support reasoning xhigh");
   expect(() => resolveTier("openai", "frontier", "luna", "xhigh"))
@@ -736,11 +735,13 @@ test("Anthropic frontier follows Orchestration's static route without a hidden t
     .toThrow("provider anthropic cannot resolve semantic tier frontier with reasoning max");
   expect(resolveTier("openai", "frontier")).toEqual({ tier: "frontier", model: "gpt-5.6-sol", effort: "xhigh" });
   delete process.env.NORTH_FABLE_NOW;
-  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-opus-5", effort: "xhigh" });
+  expect(resolveTier("anthropic", "frontier")).toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
   expect(resolveTier("anthropic", "frontier", "fable", "xhigh"))
     .toEqual({ tier: "frontier", model: "claude-fable-5", effort: "xhigh" });
-  expect(() => resolveTier("anthropic", "frontier", "fable", "high"))
-    .toThrow("model claude-fable-5 does not support reasoning high at semantic tier frontier");
+  expect(resolveTier("anthropic", "frontier", "fable", "high"))
+    .toEqual({ tier: "frontier", model: "claude-fable-5", effort: "high" });
+  expect(() => resolveTier("anthropic", "frontier", "fable", "max"))
+    .toThrow("model claude-fable-5 does not support reasoning max at semantic tier frontier");
 });
 
 function fakeProvider(id: ProviderId, query: AgentProvider["query"]): AgentProvider {

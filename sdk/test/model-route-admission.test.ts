@@ -148,12 +148,12 @@ test("Orchestration exact routes do not cross-product tier defaults", () => {
   expect(resolveTier("anthropic", "frontier", "fable", "xhigh")).toEqual({
     tier: "frontier", model: "claude-fable-5", effort: "xhigh",
   });
-  expect(resolveTier("anthropic", "frontier", "fable", "max")).toEqual({
-    tier: "frontier", model: "claude-fable-5", effort: "max",
+  expect(resolveTier("anthropic", "frontier", "fable", "high")).toEqual({
+    tier: "frontier", model: "claude-fable-5", effort: "high",
   });
-  expect(() => resolveTier("anthropic", "frontier", "fable", "high"))
-    .toThrow("does not support reasoning high at semantic tier frontier");
-  expect(providerSupportsRoute("anthropic", "frontier", "high", "fable")).toBe(false);
+  expect(() => resolveTier("anthropic", "frontier", "fable", "max"))
+    .toThrow("does not support reasoning max at semantic tier frontier");
+  expect(providerSupportsRoute("anthropic", "frontier", "high", "fable")).toBe(true);
   expect(providerSupportsRoute("anthropic", "frontier", "xhigh", "fable")).toBe(true);
   expect(resolveModelAlias("anthropic", "__proto__")).toBe("__proto__");
   expect(() => resolveTier("anthropic", "frontier", "__proto__", "xhigh"))
