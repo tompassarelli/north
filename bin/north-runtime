@@ -179,7 +179,10 @@ validate_deployment() {
     die "deployment is not a readable Git tree: $deployment"
   [ "$observed" = "$revision" ] ||
     die "deployment HEAD is $observed, not the promoted $revision: $deployment"
-  for entry in bin/north bin/concern; do
+  # The sweep unit runs with cwd = the resolved deployment root and silently
+  # degrades to the packaged runtime when any of these is absent, so an
+  # incomplete tree must never reach the selector.
+  for entry in bin/north bin/north-stream-sync-all bin/concern; do
     [ -f "$deployment/$entry" ] && [ -x "$deployment/$entry" ] ||
       die "deployment entrypoint is missing or not executable: $deployment/$entry"
   done
