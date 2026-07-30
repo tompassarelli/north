@@ -284,10 +284,14 @@ detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
   → `~/.agents/docs/measure-load.md`
 - **Screenshots over translucent windows:** judge colors by the config
   values and their base16 set, never by compositing over the wallpaper.
-- **Human WIP is not yours:** dirty state in any `main/` checkout is human
-  property — never commit, stash, reset, or diagnose it (guard-enforced).
-  An anomaly outside your task's footprint gets one sentence or a
-  `north capture`, never an inline investigation.
+- **Human WIP is not yours; a dirty main gets rescued, never destroyed.**
+  Never commit, stash, reset, or clean a `main/` checkout directly
+  (guard-enforced). Remediation is standing policy: `wt-rescue` relocates
+  the dirty state intact to a rescue worktree and restores main to clean.
+  Genuine git surgery on a main rides the deliberate bypass
+  (`north config guards off`), stated aloud, guards back on after.
+  Out-of-footprint anomalies: one sentence or a `north capture`, never an
+  inline investigation.
 - **Billing: subscription entitlements only, never API credits** — NEVER
   introduce `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, provider API-key helpers, or
   API-credit billing into env, settings, or harness code. Provider adapters
