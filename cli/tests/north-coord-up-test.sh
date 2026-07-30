@@ -276,14 +276,17 @@ grep -q "^FRAM_RUNTIME_TREE=$FRAM_TREE$" "$RUNTIME_RECORD"
 env "${common_env[@]}" "$UP" --check-runtime >"$TMP/runtime-check.out"
 grep -q '^coordinator runtime identity OK on :39871' "$TMP/runtime-check.out"
 
-# A tracked mutation does not change HEAD; checkout health must still fail
-# closed while leaving the already-running coordinator untouched.
+# A tracked mutation does not change the selected running runtime. Health reads
+# accept that runtime, while a new checkout start still fails closed.
 printf 'tracked Fram source\nmutated at unchanged HEAD\n' >"$FRAM_ROOT/runtime.clj"
-if env "${common_env[@]}" "$UP" --check-runtime >"$TMP/dirty-runtime.out" 2>&1; then
-  echo "north-coord-up test: tracked-dirty checkout was accepted at unchanged HEAD" >&2
+env "${common_env[@]}" "$UP" --check-runtime >"$TMP/dirty-runtime.out"
+grep -q '^coordinator runtime identity OK on :39871' "$TMP/dirty-runtime.out"
+if env "${common_env[@]}" "$UP" >"$TMP/dirty-start.out" 2>&1; then
+  echo "north-coord-up test: tracked-dirty checkout start was accepted" >&2
   exit 1
 fi
-grep -q "refusing tracked-dirty Fram checkout at $FRAM_REV" "$TMP/dirty-runtime.out"
+grep -q "refusing tracked-dirty Fram checkout at $FRAM_REV" "$TMP/dirty-start.out"
+grep -Fqx "    wt-rescue $FRAM_ROOT" "$TMP/dirty-start.out"
 kill -0 "$DAEMON_PID"
 printf 'tracked Fram source\n' >"$FRAM_ROOT/runtime.clj"
 git -C "$FRAM_ROOT" diff --quiet --no-ext-diff HEAD --

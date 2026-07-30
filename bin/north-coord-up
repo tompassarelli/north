@@ -169,12 +169,8 @@ if [[ "$runtime_selector" == checkout ]]; then
     echo "north up: checkout mode requires a versioned Fram Git checkout: $FRAM_HOME" >&2
     exit 2
   fi
-  if ! git -C "$FRAM_HOME" diff --quiet --no-ext-diff HEAD --; then
-    # Name the offending files and the way out. The bare refusal cost hours on
-    # 2026-07-29: an agent's ten modified files here blocked every coordinator
-    # restart, so a rebuilt closure could not be adopted and `firn rebuild` kept
-    # reporting failure AFTER the build had already succeeded — with nothing in
-    # the message saying which files, whose, or what to do.
+  if [[ "$check_runtime" -ne 1 ]] &&
+     ! git -C "$FRAM_HOME" diff --quiet --no-ext-diff HEAD --; then
     dirty_count="$(git -C "$FRAM_HOME" diff --name-only HEAD -- | wc -l)"
     dirty_branch="$(git -C "$FRAM_HOME" branch --show-current 2>/dev/null)"
     {
@@ -183,12 +179,8 @@ if [[ "$runtime_selector" == checkout ]]; then
       git -C "$FRAM_HOME" diff --name-only HEAD -- | sed 's/^/    /' | head -10
       [[ "$dirty_count" -gt 10 ]] && echo "    … $((dirty_count - 10)) more"
       echo "  A coordinator must not serve a half-edited engine, so this is deliberate."
-      echo "  Resolve by ONE of:"
-      echo "    git -C $FRAM_HOME stash          # if the work is yours and unfinished"
-      echo "    git -C $FRAM_HOME commit -a      # if it is finished"
-      echo "    git -C $FRAM_HOME checkout -- .  # if it is unwanted (DESTRUCTIVE)"
-      echo "  If the work is ANOTHER agent's, do not touch it — ask before discarding."
-      echo "  Agents: edit Fram in a worktree, never this primary. See ~/code/AGENTS.md."
+      echo "  Preserve the work and restore main with:"
+      echo "    wt-rescue $FRAM_HOME"
     } >&2
     exit 2
   fi
