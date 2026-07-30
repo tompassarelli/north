@@ -15,6 +15,7 @@
                 (str root "/../fram/main")))))
 (def reactor (str root "/cli/north-reactor.clj"))
 (def checks (atom []))
+(def control-subject-count 1352)
 
 (defn check [label ok detail]
   (swap! checks conj [label (boolean ok) detail]))
@@ -55,6 +56,20 @@
         (emit! (format "@noise:%04d" subject-index)
                "noise"
                (format "value-%03d" value-index)))
+      ;; Allocation, reservation, and other worktree-control records carry a
+      ;; worktree fact but are not lane entities. The janitor must exclude this
+      ;; production-scale population in its seed query, before classification
+      ;; can emit one KEEP line per subject.
+      (doseq [control-index (range control-subject-count)]
+        (let [[prefix kind]
+              (case (mod control-index 3)
+                0 ["worktree-allocation" "worktree_allocation"]
+                1 ["worktree-reservation" "worktree_reservation"]
+                ["worktree-control" "control"])
+              subject (format "@%s:%04d" prefix control-index)]
+          (emit! subject "kind" kind)
+          (emit! subject "worktree"
+                 (format "/tmp/non-lane-worktree-control-%04d" control-index))))
       ;; Forty-eight old lanes reproduce the incident's multiplicative shape:
       ;; every lane needs the run-candidate lookup. Half have a committed run and
       ;; must remain protected; half are unresolved and must remain reapable.
@@ -63,6 +78,7 @@
               lane (str "@agent:" handle)]
           (emit! lane "kind" "lane")
           (emit! lane "spawned_at" "2026-01-01T00:00:00Z")
+          (emit! lane "worktree" (format "/tmp/large-corpus-lane-%02d" lane-index))
           (when (odd? lane-index)
             (let [run (str "@run:" handle)]
               (emit! run "agent" handle)
@@ -72,7 +88,7 @@
       ;; Keep the unrelated once-daily subprocess gate idle.
       (emit! "@clock-audit-large-corpus" "kind" "clock_audit_run")
       (emit! "@clock-audit-large-corpus" "run_at" (str (java.time.Instant/now)))
-      @tx)))
+      {:live-facts @tx :control-subjects control-subject-count})))
 
 (def tmp (.toFile
           (java.nio.file.Files/createTempDirectory
@@ -82,7 +98,9 @@
 (try
   (let [port (free-port)
         log (io/file tmp "facts.log")
-        live-facts (write-large-log! log)
+        fixture (write-large-log! log)
+        live-facts (:live-facts fixture)
+        control-subjects (:control-subjects fixture)
         home (doto (io/file tmp "home") .mkdirs)
         agent-logs (doto (io/file tmp "agent-logs") .mkdirs)
         daemon
@@ -113,15 +131,31 @@
                "NORTH_COORD_READ_TIMEOUT_MS" "10000"}}
              "bb" reactor "sweep-once" "--dry-run")
             elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))
-            output (str (:out result) (:err result))]
+            output (str (:out result) (:err result))
+            output-bytes (alength (.getBytes output "UTF-8"))]
         (check "fixture exceeds the observed 221k-fact production scale"
                (> live-facts 221000) (str "live-facts=" live-facts))
+        (check "fixture includes the observed non-lane worktree control scale"
+               (>= control-subjects 1352)
+               (str "control-subjects=" control-subjects))
         (check "large-corpus sweep completes instead of spending the four-minute budget"
                (and (zero? (:exit result))
                     (< elapsed-ms 60000)
                     (str/includes? output "terminal=completed")
                     (not (str/includes? output "terminal=deferred")))
                (str "elapsed-ms=" elapsed-ms "\n" output))
+        (check "non-lane worktree controls produce no invalid-subject output flood"
+               (and (not (str/includes? output "invalid managed-lane subject"))
+                    (< output-bytes 65536))
+               (str "output-bytes=" output-bytes "\n" output))
+        (check "canonical lane worktree subjects still enter classification"
+               (and (some #(and (str/starts-with? % "[worktrees]")
+                                (str/includes? % "@agent:large-corpus-01"))
+                          (str/split-lines output))
+                    (not (str/includes?
+                          output
+                          "[worktrees] KEEP @agent:large-corpus-01 — invalid managed-lane subject")))
+               output)
         (check "unresolved stale lanes remain reapable"
                (and (str/includes? output "lanes reaped=24")
                     (str/includes? output "WOULD reap lane @agent:large-corpus-00"))

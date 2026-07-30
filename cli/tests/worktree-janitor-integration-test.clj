@@ -205,9 +205,17 @@
           branch-delete-fail (create-worktree! repo worktrees "branch-delete-failure")
           clone-clean (create-clone! repo worktrees "clone-clean")
           clone-dirty (create-clone! repo worktrees "clone-dirty")
+          control-subjects
+          [["@worktree-allocation:janitor-fixture" "worktree_allocation"]
+           ["@worktree-reservation:janitor-fixture" "worktree_reservation"]
+           ["@worktree-control:janitor-fixture" "control"]]
           lanes [clean dirty live torn hostile status-fail provenance-fail
                  post-remove-fail branch-delete-fail clone-clean clone-dirty]]
       (doseq [lane lanes] (register-lane! port repo lane nil))
+      (doseq [[subject kind] control-subjects]
+        (assert-fact! port subject "kind" kind)
+        (assert-fact! port subject "worktree"
+                      (str "/tmp/non-lane-" (subs subject 1))))
       ;; Graph data may never choose the branch passed to Git. Make one exact
       ;; registration hostile while its real worktree remains perfectly valid.
       (assert-fact! port (:subject hostile) "branch" "main")
@@ -288,7 +296,13 @@
                (and (str/includes? (:out first-run) "worktrees removed=2")
                     (str/includes? (:out first-run) "dirty-kept=2")
                     (str/includes? (:out first-run) "partial-cleanup=2")
-                    (str/includes? (:out first-run) "orphan-facts=1"))
+                    (str/includes? (:out first-run) "orphan-facts=2"))
+               (:out first-run))
+        (check "non-lane worktree control subjects never enter classification"
+               (and (not (str/includes? (:out first-run)
+                                        "invalid managed-lane subject"))
+                    (every? #(not (str/includes? (:out first-run) (first %)))
+                            control-subjects))
                (:out first-run))
         (check "resolved-clean expected worktree disappears"
                (not (.exists (io/file (:path clean)))))
@@ -321,9 +335,11 @@
         (check "every non-removable worktree remains present"
                (every? #(.isDirectory (io/file (:path %)))
                        [dirty live torn hostile status-fail provenance-fail clone-dirty]))
-        (check "every non-removable branch remains present"
-               (every? #(branch-present? repo (:branch %))
-                       [dirty live torn hostile status-fail provenance-fail clone-dirty]))
+        (check "every non-removable branch remains at its authoritative location"
+               (and (every? #(branch-present? repo (:branch %))
+                            [dirty live torn hostile status-fail provenance-fail])
+                    (branch-present? (:path clone-dirty) (:branch clone-dirty))
+                    (not (branch-present? repo (:branch clone-dirty)))))
         (check "dirty worktree bytes survive exactly"
                (= dirty-before (tree-snapshot (:path dirty))))
         (doseq [lane watched]
