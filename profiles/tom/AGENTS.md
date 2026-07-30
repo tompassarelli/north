@@ -21,36 +21,32 @@ Spawn/steer/observe/concurrency: → `~/.agents/docs/agent-protocol.md`
 
 **Human/client presence is the billing clock.** Before any edit under
 `~/code/client/<owner>/**`, exactly one open North row must identify
-`kind client_session`, `clocked_by user`, and that `owner` (with its captured
-rate). Use `north clock in <owner>` once when the client block starts and
-`north clock out` only when the human context clearly leaves that client. A
-switch among tickets for the same client does **not** stop or restart this
-clock. Ambiguous topic drift gets one warning; explicit client/repo departure
-clocks out. Generation waits, builds, and delegated work remain inside the
-client block while it is still the focal human context.
+`kind client_session`, `clocked_by user`, and that `owner`. `north clock in
+<owner>` once when the client block starts; `north clock out` only when the
+human context clearly leaves that client. Ticket switches within a client
+never restart the clock; ambiguous drift gets one warning; explicit departure
+clocks out. Generation waits, builds, and delegated work stay inside the
+block while the client remains the focal human context.
 
-**Agent/task duration is telemetry, not billing authority.** Every managed lane
-records its own concurrent `kind run` timing against its exact thread so actuals
-continue to ground estimates. Run clocks may overlap, start and stop with the
-lane, never appear on invoices, and never satisfy the client-edit guard. Do not
-serialize workers or churn the human client clock to make task telemetry fit.
-Closed legacy `session_of` rows stay in sent-invoice history (compat
-projection only — never a live session, never edit authority).
+**Agent/task duration is telemetry, never billing authority.** Every managed
+lane records its own concurrent `kind run` timing against its thread. Run
+clocks may overlap, start and stop with the lane, never appear on invoices,
+and never satisfy the client-edit guard. Do not serialize workers or churn
+the client clock to fit telemetry. Closed legacy `session_of` rows stay in
+sent-invoice history (compat projection — never a live session, never edit
+authority).
 
 The axes join only for traceability: at intake, derive the Linear ticket from
-the branch (`msa-NNN` → `MSA-NNN`) and find-or-`capture` exactly one thread with
-`owner msa` + `linear MSA-NNN`. `north-clock-guard` then requires both that exact
-branch/thread identity and the matching human `client_session`; it does not
-require the session to point at the ticket. North coordination and clock
-commands always remain available so the guard cannot block its own recovery.
-Unrelated repositories and proved read-only operations do not inherit a deny
-merely from the provider hook's original client cwd; ambiguous actual client
-mutations still fail closed.
+the branch (`msa-NNN` → `MSA-NNN`) and find-or-`capture` exactly one thread
+with `owner msa` + `linear MSA-NNN`. `north-clock-guard` requires that exact
+branch/thread identity plus the matching human `client_session` — not that
+the session point at the ticket. Coordination and clock commands always
+remain available; unrelated repos and proved read-only operations inherit no
+deny from a client cwd; ambiguous client mutations fail closed.
 
-Billing is derived, never invented: worklog = `north-timelog`, invoice state
-machine = `north-invoice` (uninvoiced → invoice-sent → invoice-paid). Bypass only
-deliberately (`north config guards off`, or launch with
-`AGENT_NO_AUTHORING_HOOKS=1`; the legacy Claude-named alias remains supported).
+Billing is derived, never invented: worklog = `north-timelog`, invoices =
+`north-invoice` (uninvoiced → invoice-sent → invoice-paid). Bypass only
+deliberately: `north config guards off` or `AGENT_NO_AUTHORING_HOOKS=1`.
 
 ## Pre-edit gate — MANDATORY at task intake
 <!-- north-section: pre-edit-gate · bucket: orch -->
@@ -80,9 +76,8 @@ may or should create workers:
 - `managed-forced`: dispatch workers through North; provider-native
   Agent/Workflow calls are denied.
 
-A live change takes effect at the next dispatch decision. Never use profile
-prose to override the configured mode. The supervisor posture is otherwise
-unchanged: the user talks to a listener, never a worker. Each dispatched job
+A live change takes effect at the next dispatch decision; profile prose never
+overrides the mode. The user talks to a listener, never a worker. Each dispatched job
 becomes a lane through the selected surface, with one binary context decision:
 fork this session's context along (the default) or send a clean-room brief.
 Inline work is limited to answering from context, reading, consuming and
@@ -113,9 +108,8 @@ the user the finish as ONE command, and say exactly why.
 
 "Done"/"verified"/"fixed" is a JUDGMENT and must cite its evidence: state the
 probe run and the result observed ("north validate → exit 0", "firn build +
-validate → green"), never the bare adjective. firn's green gates are the
-precedent: rebuild is earned by build+validate output, not by belief. Same
-discipline graph-side: threads SHOULD carry `done_when` facts (probe +
+validate → green"), never the bare adjective.
+Graph-side: threads SHOULD carry `done_when` facts (probe +
 expected result, one per fact) by commit time; `north dispatch` warns when a
 committed thread lacks them and workers define their own bar as a first act;
 outcomes on barred threads echo the bars, and needs-review surfaces
@@ -126,15 +120,12 @@ is jotted.
 Where evidence attaches, who attests, and the coordinator's one-spot-check
 consumption budget are doctrine, not restated here: `north:orchestration/doctrine.md`
 Law 7 and the verification doctrine own them.
-Evidence you consume carries provenance too — before drawing a verdict from a
-fact, name the run that produced it; a reconciliation that cites evidence
-must cite its source. A derived number carries the same obligation: a metric
-is a claim made by code, not an observation of the world — read the
-producing line before reasoning from it. Never compare a same-named metric
-across systems without reading both producers; a value that never varies
-still looks like data. When a hypothesis is load-bearing enough to act on,
-run the cheapest experiment that could FALSIFY it, not the next inference
-that could support it — move the input and check whether the metric moves.
+Consumed evidence carries provenance: name the run that produced a fact
+before drawing a verdict from it. A derived metric is a claim made by code —
+read the producing line before reasoning from it, and never compare a
+same-named metric across systems without reading both producers. When a
+hypothesis is load-bearing enough to act on, run the cheapest experiment
+that could FALSIFY it — move the input, watch the metric.
 
 Full verification doctrine — claim contracts, paranoia tiers P0–P3, the
 one-sentence stop rule, anti-tarpit laws: →
@@ -219,9 +210,8 @@ Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 <!-- north-section: paths · bucket: core -->
 
 Every path you write (chat, docs, comments, output): full from `~`, never
-bare-relative — the reader must never intuit a cwd. Touching a repo you're
-not cwd'd into: read its root `AGENTS.md` first (the harness only auto-loads
-the cwd's).
+bare-relative. Touching a repo you're not cwd'd into: read its root
+`AGENTS.md` first (the harness only auto-loads the cwd's).
 
 ## Racket / Beagle — the stale-bytecode trap
 <!-- north-section: beagle · bucket: beagle -->
@@ -282,18 +272,10 @@ detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
   introduce `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, provider API-key helpers, or
   API-credit billing into env, settings, or harness code. Provider adapters
   use the authenticated Claude Code or Codex subscription surface.
-- **Banned vocabulary: "fleet"** for agent groups — dead pre-rename naming;
-  the harness's own "FleetView" string is not our vocabulary and must not
-  leak back in. Say lanes / agents / workers / spawns. (Ordinary English
-  "fleeting" is fine.)
-- **`rm` on variable paths — make it self-evidently safe so the rm-guard
-  never has to prompt.** The guard fires on `rm … "$VAR"/glob` because an
-  empty/unset `$VAR` expands to a bare-root delete (`rm -f /*.lock`). So
-  NEVER write that shape. Instead: (a) brace-guard every interpolated path
-  segment — `rm -rf "${VAR:?}"/*.lock` aborts if `VAR` is empty/unset; or
-  (b) delete the whole scratch dir by its literal absolute path and recreate
-  it (`rm -rf /tmp/claude-…/scratch && mkdir -p …`), never per-glob inside a
-  variable; or (c) rely on tooling that already excludes (rsync `--exclude`)
-  and skip the follow-up `rm` entirely. Scratch/temp cleanup is routine and
-  should run without a prompt — the fix is command hygiene, not disabling the
-  guard.
+- **Vocabulary:** agent groups are lanes / agents / workers / spawns — never
+  "fleet" (the harness's own "FleetView" string is not our vocabulary).
+- **`rm` on variable paths:** never write `rm … "$VAR"/glob` — an unset
+  `$VAR` expands to a bare-root delete, and the rm-guard fires on the shape.
+  Instead: `rm -rf "${VAR:?}"/…` (aborts when unset), or remove-and-recreate
+  the scratch dir by its literal absolute path, or let rsync `--exclude`
+  make the follow-up `rm` unnecessary. Fix the command, not the guard.
