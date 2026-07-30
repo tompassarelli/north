@@ -114,6 +114,10 @@ for (const key of ["NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY"])
 // operator's telemetry log. FRAM_LOG is deliberately left alone: the coordinator takes
 // its canonical log as argv, and the tests that need one set FRAM_LOG explicitly.
 delete process.env.FRAM_TELEMETRY_LOG;
+// NORTH_TELEMETRY_PARTITION=1 and FRAM_TELEMETRY_LOG are one precondition
+// (coord.clj throws on the split pair) — scrub both; partition tests set both.
+delete process.env.NORTH_TELEMETRY_PARTITION;
+delete process.env.NORTH_TELEMETRY_PORT;
 //
 // When the suite runs inside a live managed north lane, the ambient
 // NORTH_PORT points at the REAL coordinator on the session's port. Admission
@@ -274,11 +278,24 @@ if (!process.env.AGENT_LAWS_PATH) {
 // of code (observed 2026-07-24: host harness.conf had guards=off, which alone flips
 // "topology controls prompt and tools with positive-only orchestration authority"
 // from 14/14 to 13/14 with NO src/ diff at all — confirmed by toggling the real file
-// to guards=on and rerunning green). Pin the killswitch state path to a file that
-// never exists, so the fallback always resolves to guards-on (the safe hermetic
-// default) unless a test explicitly opts into its own fixture.
+// to guards=on and rerunning green). Pin the harness state at a fixture this suite
+// owns, so the fallback always resolves to guards-on (the safe hermetic default)
+// unless a test explicitly opts into its own fixture.
+//
+// No `guards=` key: authoringGuardsOff() reads that prefix only, so the file pins
+// the dispatch mode without touching guards. The legacy path is pinned too —
+// source-path falls back to ~/.claude/my-config.state when canonical is absent.
 if (!process.env.NORTH_HARNESS_STATE && !process.env.AUTHORING_KILLSWITCH_STATE) {
-  process.env.NORTH_HARNESS_STATE = join(
-    tmpdir(), `north-sdk-no-harness-state-${process.pid}.conf`,
+  const state = join(tmpdir(), `north-sdk-harness-state-${process.pid}.conf`);
+  writeFileSync(state, "dispatch=managed-forced\n");
+  process.env.NORTH_HARNESS_STATE = state;
+}
+if (!process.env.NORTH_LEGACY_HARNESS_STATE) {
+  process.env.NORTH_LEGACY_HARNESS_STATE = join(
+    tmpdir(), `north-sdk-no-legacy-harness-state-${process.pid}.conf`,
   );
 }
+
+// Snapshotted while PATH is still pristine, under a name nothing in src/ reads: a
+// fixture that stubs `bb` scopes NORTH_BB to this for calls that need the real engine.
+process.env.NORTH_TEST_HERMETIC_BB = Bun.which("bb") ?? "bb";
