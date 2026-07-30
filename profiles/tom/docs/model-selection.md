@@ -57,5 +57,25 @@ Never route through API keys or API-credit balances.
 
 Verification attachment (worker evidence, verifier siblings, whole-outcome
 attestation, the coordinator's spot-check budget) is doctrine Law 7 — not
-restated here. Personal domain/posture defaults:
-`~/.agents/docs/praxis/README.md`.
+restated here.
+
+## Personal defaults — domain bootstrap
+
+| Domain | Path signal | Default posture | Notes |
+|---|---|---|---|
+| Client delivery | `~/code/client/*` | deliver (preserve on existing code) | Deadline-real. Ladder hard: glue minimized. Confidential — no cross-references out. |
+| Novel core / research | `~/code/beagle`, north core, new primitives | explore → deliver once shaped | Priors law ACTIVE: distrust fluent defaults, derive and verify. Core inversion: hand-build the deliverable. |
+| Infrastructure / config | `~/code/nixos-config`, dotfiles, CI | deliver, preserve-leaning | Reproducibility rules; blast radius = every future rebuild. |
+| Others' code | `~/code/reference/*` | read-only | Never edit; license check before leveraging. |
+
+Domain sets defaults; task shape can override a default; orchestration's
+escape hatch overrides everything.
+
+`fable-self-report.md` — historical model introspection (§11 generic payload,
+§12 compilation method + trial predictions). Calibration evidence, never
+routing policy; provider catalogs and North availability signals decide
+whether any concrete model is eligible.
+
+**Freeze rule:** edit this structure only after a real spawn hit a misfit
+TWICE — never speculatively; no new roles, postures, domains, or deltas
+ahead of demand.
