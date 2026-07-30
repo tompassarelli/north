@@ -140,15 +140,17 @@
      (log-op 7 "assert" "@lease:session:lane-a" "lease"
              "lane-a|2000000000000|7")
      (log-op 8 "assert" "@agent:lane-a" "kind" "lane")
-     (log-op 9 "assert" "@session:coordinator" "current_thread"
+     (log-op 9 "assert" "@agent:coordinator" "current_thread"
              "@floor-thread")]))
   (spit
    telemetry
    (str/join
     "\n"
-    [(log-op 10 "assert" "@run:one" "run_reservation_agent"
+    [(log-op 10 "assert" "@session:coordinator" "current_thread"
+             "@legacy-telemetry-thread")
+     (log-op 11 "assert" "@run:one" "run_reservation_agent"
              "@agent:lane-a")
-     (log-op 11 "assert" "@run:one" "run_reservation_thread"
+     (log-op 12 "assert" "@run:one" "run_reservation_thread"
              "@work")]))
   (let [state
         (north.wip-cli/fold-log-paths (str coordination) (str telemetry))]
@@ -164,6 +166,8 @@
            (and (= #{"lane-a"} (:managed state))
                 (= "@floor-thread"
                    (get (:session-threads state) "coordinator"))
+                (not= "@legacy-telemetry-thread"
+                      (get (:session-threads state) "coordinator"))
                 (= {"lane-a" #{"@work"}}
                    (north.wip-cli/reservation-bindings
                     (:reservations state)))))))
