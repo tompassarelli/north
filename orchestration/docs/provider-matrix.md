@@ -94,4 +94,4 @@ then prevents calibration inheritance from the default tier model.
 | Provider | Exact model | Aliases | Model delta |
 |---|---|---|---|
 | anthropic | `claude-opus-4-8` | — | none — the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration |
-| anthropic | `claude-fable-5` | `fable` | none — no elicited Fable self-report yet establishes an exact Claude Fable 5 calibration for the canonical frontier default |
+| anthropic | `claude-fable-5` | `fable` | [calibrated](deltas/claude-fable-5.md) |
