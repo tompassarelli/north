@@ -175,17 +175,18 @@
       (check (str handle " has a live session lease")
              (zero? (:exit (register! port handle)))))
 
-    ;; Saturate the recipient's raw `to` index with non-mail coordination
-    ;; subjects that sort before @msg. Filtering only after query-page would
-    ;; return an empty first hook turn and strand the canonical message behind
-    ;; the engine cursor; the pending relation itself must require an envelope.
+    ;; Saturate the recipient's raw `to` index with canonical-looking
+    ;; first-party attention entities that sort before the real mail. A
+    ;; canonical client guard cannot distinguish these rows, so the pending
+    ;; relation must exclude both attention kinds before bounded pagination.
     (let [recipient "mail-isolation"
           junk-ids
-          (mapv #(format "@aaa-attention-junk-%03d" %) (range 300))
+          (mapv #(format "@msg:aaa-attention-junk-%03d" %) (range 300))
           message "@msg:zz-mail-isolation"
           runtime (doto (io/file tmp "mail-isolation-runtime") .mkdirs)]
-      (doseq [junk junk-ids]
-        (assert-fact! port junk "kind" "notification")
+      (doseq [[index junk] (map-indexed vector junk-ids)]
+        (assert-fact! port junk "kind"
+                      (if (even? index) "notification" "subscription"))
         (assert-fact! port junk "to" recipient))
       (doseq [[predicate value]
               [["from" "sender"]
@@ -200,17 +201,17 @@
              peek-cli port
              {"XDG_RUNTIME_DIR" (.getCanonicalPath runtime)}
              recipient)]
-        (check "manual inbox excludes non-mail to subjects"
+        (check "manual inbox excludes first-party attention entities"
                (and (zero? (:exit manual))
                     (str/includes?
                      (:out manual) "mail survives routing saturation")
                     (not (str/includes? (:out manual) "attention-junk"))))
-        (check "one bounded hook page reaches mail behind 300 non-mail to rows"
+        (check "one bounded hook page reaches mail behind 300 attention rows"
                (and (zero? (:exit peek))
                     (str/includes?
                      (:out peek) "mail survives routing saturation")
                     (= #{recipient} (values-of port message "acked_by"))))
-        (check "non-mail routing subjects are never acknowledged as mail"
+        (check "attention entities are never acknowledged as mail"
                (empty?
                 (set/intersection
                  (set junk-ids)

@@ -374,6 +374,15 @@
                (put-fact! port message "to" "anthropic-streaming")
                message))
            (range 1 33))]
+      (check "canonical poison remains visible to bounded live-feed replay"
+             (with-test-coordinator
+               (set/subset?
+                (set poison-ids)
+                (set
+                 (:messages
+                  (north.message-audience/pending-message-page
+                   port "anthropic-streaming"
+                   #{"anthropic-streaming"}))))))
       (doseq [message poison-ids]
         (check (str "poison frame " message " terminally rejects")
                (= :rejected
