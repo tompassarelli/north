@@ -891,14 +891,19 @@
 
 (defn heal! []
   ;; Shell the SAME `north heal` a human runs — byte-identical projection, fail-closed
-  ;; on hand edits, reads the flat log directly (no daemon dependency). FRAM_LOG/
-  ;; FRAM_THREADS/FRAM_PORT are inherited from our env, pinning the target state.
+  ;; on hand edits, reads the flat log directly (no daemon dependency). FRAM_LOG
+  ;; is pinned to this coordination corpus; FRAM_THREADS/FRAM_PORT stay inherited.
   ;; NOISE FIX: a permanent hand-edit refusal re-prints "heal REFUSED …" on EVERY flush,
   ;; so a single unresolved conflict grew reactor-7977.log to 642KB of one repeated line —
   ;; burying real events. Dedup: log heal output only when it CHANGES from the last line.
   ;; A resolved conflict (output goes empty/different) prints again, so no signal is lost.
   (try
-    (let [r    (proc/shell {:out :string :err :string :continue true} north-bin "heal")
+    (let [r    (proc/shell
+                {:out :string :err :string :continue true
+                 :extra-env {"FRAM_LOG" (north.coord/expected-log)
+                             "NORTH_TELEMETRY_PARTITION" "0"
+                             "FRAM_TELEMETRY_LOG" ""}}
+                north-bin "heal")
           out  (str/trim (str (:out r) (when (seq (:err r)) (str "\n" (:err r)))))
           line (when (seq out) (str "[reactor] " (str/replace out #"\n+" " | ")))]
       (when (and line (not= line @last-heal-out))

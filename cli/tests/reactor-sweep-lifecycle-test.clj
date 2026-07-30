@@ -322,6 +322,15 @@
               (str/includes? output "reactor priority: 3 / 3 PASS"))
          output))
 
+(let [heal-test (str root "/cli/tests/reactor-heal-projection-test.clj")
+      result (proc/shell {:out :string :err :string :continue true}
+                         "bb" heal-test)
+      output (str (:out result) (:err result))]
+  (check "coordination-only auto-heal contract"
+         (and (zero? (:exit result))
+              (str/includes? output "reactor heal projection: 2 / 2 PASS"))
+         output))
+
 (let [results @checks
       passed (count (filter second results))]
   (doseq [[label ok detail] results]
