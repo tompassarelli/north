@@ -18,6 +18,7 @@ shell_bars=(
 clojure_bars=(
   cli/tests/agent-identity-publication-integration-test.clj
   cli/tests/agents-cli-test.clj
+  cli/tests/json-show-indexed-test.clj
   cli/tests/dashboard-doctor-exit-test.clj
   cli/tests/rebuild-request-window-test.clj
   cli/tests/rebuild-window-wake-test.clj
