@@ -395,10 +395,10 @@ Dormant (no tokens) until a peer addresses you; when it returns you have mail â€
 $ROLE_ALIAS_CONTEXT
 Address peers ALIAS-FIRST using their stable <repo>-<role> name. Direct agent ids are
 session-scoped and should be used only when that exact current session is intended.
-\`msg-cli send\` resolves aliases at send time and FAILS LOUDLY when the concrete recipient
+\`north-comms send\` resolves aliases at send time and FAILS LOUDLY when the concrete recipient
 has neither a live lease nor an armed listener; do not guess or retry another session hash.
 \`--dead-drop\` is only for a deliberate send to an absent identity.
-Ping a peer:  bb $NORTH_HOME/cli/msg-cli.clj 7977 send $ID <peer-role-alias> "URGENT" "<message>"
+Ping a peer:  $NORTH_HOME/bin/north-comms send $ID <peer-role-alias> "URGENT" "<message>"
 EOF
 )"
 

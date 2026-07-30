@@ -8,11 +8,19 @@
 
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
+(def fram-source
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")))
+(when-not (seq fram-source)
+  (throw
+   (ex-info
+    "Fram fixture required; set FRAM_TEST_CHECKOUT to a pinned checkout or package libexec/fram"
+    {})))
 (def fram
-  (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_PATH")
-                (str root "/../fram/main")))))
+  (.getCanonicalPath (io/file fram-source)))
+(when-not (and (.isFile (io/file fram "coord_daemon.clj"))
+               (.isDirectory (io/file fram "out")))
+  (throw (ex-info "Fram fixture lacks coord_daemon.clj or out/" {:fram fram})))
 (def reactor (str root "/cli/north-reactor.clj"))
 (def checks (atom []))
 (def control-subject-count 1352)
@@ -106,7 +114,11 @@
         daemon
         (proc/process
          {:dir fram :out :string :err :string
-          :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
+          :env
+          (merge
+           (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
+           {"FRAM_REQUIRE_LOG_FENCE" "1"
+            "NORTH_TELEMETRY_PARTITION" "0"})}
          "bb" "-cp" "out" "coord_daemon.clj"
          "serve-flat" (str port) (.getCanonicalPath log))]
     (try
@@ -123,6 +135,8 @@
               {"HOME" (.getCanonicalPath home)
                "FRAM_PORT" (str port)
                "FRAM_LOG" (.getCanonicalPath log)
+               "NORTH_TELEMETRY_PARTITION" "0"
+               "FRAM_TELEMETRY_LOG" ""
                "NORTH_AGENT_LOGS_DIR" (.getCanonicalPath agent-logs)
                "NORTH_REACTOR_HEARTBEAT" (.getCanonicalPath (io/file tmp "heartbeat"))
                "NORTH_REACTOR_SWEEP_LOCK_PATH" (.getCanonicalPath (io/file tmp "sweep.lock"))

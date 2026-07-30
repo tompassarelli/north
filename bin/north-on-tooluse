@@ -338,9 +338,12 @@ if [ "$now_s" -eq 0 ] || [ $(( now_s - last_s )) -ge 60 ]; then
     else
       (
         trap 'rm -rf -- "${RENEW_LOCK:?}" 2>/dev/null || true' EXIT
-        if timeout --signal=TERM --kill-after=0.2s 3s \
-            bb "$NORTH_HOME/cli/presence-cli.clj" "${NORTH_PORT:-7977}" \
-            register "$ID" "$REPO" "$ID" >/dev/null 2>&1
+        if timeout --signal=TERM --kill-after=0.2s 3s env \
+            NORTH_COMMS_DIR="$REPO" \
+            NORTH_COMMS_SESSION_ID="$ID" \
+            NORTH_COMMS_ALIAS="$ROLE_ALIAS" \
+            "$NORTH_HOME/bin/north-comms" presence "$ID" --announce \
+            >/dev/null 2>&1
         then
           renew_tmp="${RENEW_MARK}.$$.${RANDOM}.tmp"
           if printf '%s' "$now_s" >"$renew_tmp" 2>/dev/null; then
@@ -357,7 +360,7 @@ fi
 # deadline interrupts a slow ack, command substitution retains the delivered
 # text and the message can safely repeat later instead of disappearing.
 MAIL="$(timeout --signal=TERM --kill-after=0.2s 2s \
-  bb "$NORTH_HOME/cli/inbox-peek.clj" "${NORTH_PORT:-7977}" "$ID" 2>/dev/null || true)"
+  "$NORTH_HOME/bin/north-comms" poll "$ID" 2>/dev/null || true)"
 [ -z "$MAIL" ] && exit 0
 
 CTX="[north] new peer message(s):

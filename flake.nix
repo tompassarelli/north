@@ -200,7 +200,9 @@
             (lib.fileset.difference ./cli ./cli/tests)
             ./sdk/src
             ./contracts/agent-run-ledger-v1.json
+            ./profiles/tom/hooks/lib/harness-dial.sh
             ./bin/north
+            ./bin/north-comms
             ./bin/north-mcp
             ./bin/north-actor-key
             ./bin/north-mark-delegated
@@ -414,9 +416,12 @@ EOF
           dontBuild = true;
           installPhase = ''
             runHook preInstall
-            mkdir -p $out/bin $out/contracts $out/out $out/sdk
+            mkdir -p $out/bin $out/contracts $out/out $out/sdk \
+              $out/profiles/tom/hooks/lib
             cp -r out/. $out/out/
             cp contracts/agent-run-ledger-v1.json $out/contracts/
+            cp profiles/tom/hooks/lib/harness-dial.sh \
+              $out/profiles/tom/hooks/lib/
             # bb-verb CLIs (agents/watch/trace/health/dials/dashboard/config/...)
             # route through $root/cli — without this every non-engine verb dies
             # on the packaged binary with "File does not exist: .../cli/*.clj".
@@ -427,7 +432,7 @@ EOF
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
-            cp bin/north bin/north-mcp bin/north-actor-key \
+            cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-sd-listen \
               bin/north-coord-up bin/firn-rebuild-coordinated \
@@ -470,6 +475,11 @@ EOF
               --set NORTH_MCP_BUN ${pkgs.bun}/bin/bun \
               --set NORTH_SCHEMA_STAGE_PYTHON ${pkgs.python3}/bin/python3 \
               --set NORTH_MANAGED_CODEX_BIN ${codexPkg}/bin/codex
+
+            wrapProgram $out/bin/north-comms \
+              --prefix PATH : ${runtimePath} \
+              --set NORTH_HOME $out \
+              --set NORTH_BB ${pkgs.babashka}/bin/bb
 
             for hook in north-mark-delegated north-on-spawn north-on-stop \
               north-on-tooluse; do

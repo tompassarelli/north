@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -20,7 +20,7 @@ import { READONLY_SHELL_SERVER, READONLY_SHELL_TOOL } from "../src/readonly-shel
 
 const north = resolve(import.meta.dir, "../..");
 const savedEnv = Object.fromEntries(
-  ["NORTH_ORCHESTRATION_HOME", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_BIN", "NORTH_DISPATCH_DRIVER_PRECLAIMED"]
+  ["NORTH_ORCHESTRATION_HOME", "NORTH_STAFFING_SOURCE", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_BIN", "NORTH_DISPATCH_DRIVER_PRECLAIMED"]
     .map((key) => [key, process.env[key]]),
 );
 
@@ -80,9 +80,11 @@ test("preset roles receive the exact canonical role contract and fail closed whe
 
   const empty = mkdtempSync(join(tmpdir(), "north-orchestration-missing-"));
   try {
+    cpSync(resolve(north, "orchestration/providers"), resolve(empty, "providers"), { recursive: true });
+    process.env.NORTH_STAFFING_SOURCE = "file";
     process.env.NORTH_ORCHESTRATION_HOME = empty;
     expect(() => orchestrationAppendix(preset("integrator"), north))
-      .toThrow("/providers/anthropic.json");
+      .toThrow("Orchestration contract unavailable: role:integrator");
   } finally { rmSync(empty, { recursive: true, force: true }); }
 });
 

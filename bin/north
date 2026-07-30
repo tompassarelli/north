@@ -545,9 +545,10 @@ CARD
     exec "$BB" "$NORTH/cli/attention-cli.clj" "${NORTH_PORT:-7977}" "$@" ;;
   mention|interrupt)
     # Sender-driven attention. Prefer the live harness identity, then North's
-    # stable agent id, then the configured author identity.
+    # stable agent id, then the configured author identity. The shared comms
+    # seam owns transport selection; no Attention entry point bypasses it.
     _north_attention_sender="${AGENT_ID:-${NORTH_AGENT_ID:-${NORTH_AUTHOR:-}}}"
-    exec "$BB" "$NORTH/cli/msg-cli.clj" "${NORTH_PORT:-7977}" \
+    exec "$NORTH/bin/north-comms" \
       "$1" "$_north_attention_sender" "${@:2}" ;;
   trace)
     # Single-agent lifecycle diagnosis — walk the invariant-spine checklist for one id,
