@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse agent-spawn-guard — enforcement half of the north config dispatch setting.
 # ============================================================================
-# Successor of agent-redirect.sh (removed in the P6 hook cleanup, ae3b31e).
-# Reinstated 2026-07-03: without a mechanical intercept, native catch-all
-# spawns (general-purpose, serial, no claim trail) recurred — prose in
-# CLAUDE.md demonstrably does not hold. Fires on subagent tool calls too,
-# so nested native spawns are covered.
+# Fires on subagent tool calls too, so nested native spawns are covered.
 #
 # Dispatch vocabulary, state selection, defaults, and legacy aliases are owned
 # by `north config dispatch --guard-action`. This hook consumes only its stable

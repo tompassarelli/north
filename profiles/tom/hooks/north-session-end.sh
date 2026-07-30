@@ -3,12 +3,12 @@
 # marking its still-active concerns `done` (reach `landed`), so a peer's
 # `concern ls` is instant-clean the moment the terminal closes.
 #
-# WHY reconstruct the id instead of reading a pidfile: the registrar
-# The generation-owned north-on-spawn wrapper does NOT persist the agent id — it derives it
-# deterministically as ${NORTH_AGENT_ID:-cc-<repo>-<session_id[:8]>} from the
-# (NORTH_AGENT_ID primary; TERN_AGENT_ID accepted as transitional fallback)
-# session_id + cwd that Claude Code also hands this hook on stdin. We mirror that
-# derivation EXACTLY, so no spawn-side change (and no state file) is needed.
+# The generation-owned north-on-spawn wrapper does NOT persist the agent id — it
+# derives it deterministically as ${NORTH_AGENT_ID:-cc-<repo>-<session_id[:8]>}
+# from the (NORTH_AGENT_ID primary; TERN_AGENT_ID accepted as transitional
+# fallback) session_id + cwd that Claude Code also hands this hook on stdin.
+# We mirror that derivation EXACTLY, so no spawn-side change (and no state
+# file) is needed.
 #
 # Presence heartbeat death is handled elsewhere: it lapses on its own when the
 # session process exits, and a separate change hides stale-heartbeat concerns from
