@@ -62,8 +62,23 @@
    ["@agent:stale-native" "kind"] "session"
    ["@agent:stale-native" "live_input_state"] "armed"
    ["@agent:stale-native" "live_input_epoch"] "00000000-0000-4000-8000-000000000202"
+   ["@agent:ambiguous-state" "kind"] "session"
+   ["@agent:ambiguous-state" "live_input_state"] "armed"
+   ["@agent:ambiguous-state" "live_input_epoch"] "00000000-0000-4000-8000-000000000203"
+   ["@agent:ambiguous-epoch" "kind"] "session"
+   ["@agent:ambiguous-epoch" "live_input_state"] "armed"
+   ["@agent:ambiguous-epoch" "live_input_epoch"] "00000000-0000-4000-8000-000000000204"
    ["@agent:managed-armed" "kind"] "lane"
-   ["@agent:managed-armed" "live_input_state"] "armed"})
+   ["@agent:managed-armed" "live_input_state"] "armed"
+   ["@agent:managed-ambiguous" "kind"] "lane"
+   ["@agent:managed-ambiguous" "live_input_state"] "armed"})
+
+(def ambiguous-values
+  {["@agent:ambiguous-state" "live_input_state"] ["armed" "frozen"]
+   ["@agent:ambiguous-epoch" "live_input_epoch"]
+   ["00000000-0000-4000-8000-000000000204"
+    "00000000-0000-4000-8000-000000000205"]
+   ["@agent:managed-ambiguous" "live_input_state"] ["armed" "frozen"]})
 
 (def mail-query-seen (atom nil))
 (def many-calls (atom []))
@@ -81,6 +96,18 @@
 
 (defn resolved [_ subject predicate]
   (get facts [subject predicate]))
+
+(defn resolved-envelope [_ subject predicate]
+  (let [values
+        (or (get ambiguous-values [subject predicate])
+            (some-> (get facts [subject predicate]) vector)
+            [])
+        members (count values)]
+    {:value (first values)
+     :members members
+     :ambiguous? (> members 1)
+     :values values
+     :version 1}))
 
 (defn page [_ query _ _]
   (let [rules (get query :rules)
@@ -108,6 +135,7 @@
      :next nil}))
 
 (with-redefs [north.coord/resolved resolved
+              north.coord/resolved-envelope resolved-envelope
               north.coord/query-page page
               north.coord/many
               (fn [_ subject predicate]
@@ -115,10 +143,17 @@
                 [])
               north.coord/lease-of
               (fn [_ resource]
-                (when (= resource "listener:armed-session")
-                  {:holder "00000000-0000-4000-8000-000000000201"
-                   :exp 9999999999999
-                   :epoch 17}))
+                (when-let
+                 [holder
+                  (get
+                   {"listener:armed-session"
+                    "00000000-0000-4000-8000-000000000201"
+                    "listener:ambiguous-state"
+                    "00000000-0000-4000-8000-000000000203"
+                    "listener:ambiguous-epoch"
+                    "00000000-0000-4000-8000-000000000204"}
+                   resource)]
+                  {:holder holder :exp 9999999999999 :epoch 17}))
               north.coord/online? (fn [_ control] (= control "live-session"))]
   (check "direct live recipient passes"
          (= {:address "live-session" :recipient "live-session"
@@ -142,8 +177,17 @@
               1 "legacy-reviewer"))))
   (check "durable armed state without its native listener lease is unreachable"
          (false? (north.message-routing/recipient-live? 1 "stale-native")))
+  (check "an ambiguous listener state rejects even when armed is selected"
+         (false?
+          (north.message-routing/recipient-live? 1 "ambiguous-state")))
+  (check "an ambiguous listener epoch rejects even when the holder is selected"
+         (false?
+          (north.message-routing/recipient-live? 1 "ambiguous-epoch")))
   (check "managed lane route authority remains unchanged"
          (true? (north.message-routing/recipient-live? 1 "managed-armed")))
+  (check "an ambiguous managed route state fails closed"
+         (false?
+          (north.message-routing/recipient-live? 1 "managed-ambiguous")))
   (check "dead recipient fails and names a live same-route successor"
          (= {:live false :recipient "dead-session"
              :alternative "live-session"}

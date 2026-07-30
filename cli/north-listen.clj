@@ -161,13 +161,78 @@
    :holder (:holder generation)
    :epoch @(:epoch generation)})
 
+(defn exact-listener-envelope?
+  [envelope target]
+  (and (= 1 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= [target] (:values envelope))
+       (= target (:value envelope))))
+
+(defn empty-listener-envelope?
+  [envelope]
+  (and (zero? (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= [] (:values envelope))
+       (nil? (:value envelope))))
+
+(defn require-listener-envelope!
+  [operation predicate target envelope expected?]
+  (when-not (expected? envelope)
+    (throw
+     (ex-info "listener route publication did not converge to its exact envelope"
+              {:type :listener-route-envelope-not-exact
+               :operation operation
+               :predicate predicate
+               :target target
+               :envelope envelope})))
+  envelope)
+
+(defn fenced-replace-listener-value!
+  "Replace every non-target live value under the current listener fence, assert
+   TARGET, then prove the resulting envelope is exactly one unambiguous value.
+   The multi-turn transition fails closed: arming happens only after frozen
+   state and the exact generation are already authoritative."
+  [generation predicate target]
+  (let [port (:port generation)
+        node (:node generation)
+        fence (listener-fence generation)
+        before (north.coord/resolved-envelope port node predicate)]
+    (doseq [value (:values before)
+            :when (not= value target)]
+      (checked-listener-write!
+       [:listener-value-retract predicate value]
+       (north.coord/retract-with-fence!
+        port fence node predicate value)))
+    (checked-listener-write!
+     [:listener-value-assert predicate target]
+     (north.coord/put-with-fence!
+      port fence node predicate target))
+    (require-listener-envelope!
+     :replace predicate target
+     (north.coord/resolved-envelope port node predicate)
+     #(exact-listener-envelope? % target))))
+
+(defn fenced-clear-listener-values!
+  "Retract every live value under the current listener fence and prove absence."
+  [generation predicate]
+  (let [port (:port generation)
+        node (:node generation)
+        fence (listener-fence generation)
+        before (north.coord/resolved-envelope port node predicate)]
+    (doseq [value (:values before)]
+      (checked-listener-write!
+       [:listener-value-retract predicate value]
+       (north.coord/retract-with-fence!
+        port fence node predicate value)))
+    (require-listener-envelope!
+     :clear predicate nil
+     (north.coord/resolved-envelope port node predicate)
+     empty-listener-envelope?)))
+
 (defn fenced-listener-state!
   [generation state]
-  (checked-listener-write!
-   [:listener-state state]
-   (north.coord/put-with-fence!
-    (:port generation) (listener-fence generation)
-    (:node generation) "live_input_state" state)))
+  (fenced-replace-listener-value!
+   generation "live_input_state" state))
 
 (defn acquire-listener-generation!
   [port node agent-id]
@@ -191,11 +256,8 @@
       ;; Publish a false boundary under this new fence before installing its
       ;; generation, then make armed the last route write.
       (fenced-listener-state! generation "frozen")
-      (checked-listener-write!
-       [:listener-generation holder]
-       (north.coord/put-with-fence!
-        port (listener-fence generation)
-        node "live_input_epoch" holder))
+      (fenced-replace-listener-value!
+       generation "live_input_epoch" holder)
       (fenced-listener-state! generation "armed")
       generation
       (catch Exception error
@@ -234,18 +296,21 @@
     (when (compare-and-set! (:active? generation) true false)
       (try
         (fenced-listener-state! generation "frozen")
+        (fenced-clear-listener-values! generation "live_input_epoch")
         (catch Exception error
           (binding [*out* *err*]
             (println
-             (str "north listen: listener freeze skipped: "
+             (str "north listen: listener cleanup skipped: "
                   (or (.getMessage error) (.getName (class error)))))
             (flush))))
       (try
-        (send-op (:port generation)
-                 {:op :release-lease
-                  :res (:resource generation)
-                  :holder (:holder generation)
-                  :epoch @(:epoch generation)})
+        (checked-listener-write!
+         [:listener-lease-release (:holder generation)]
+         (send-op (:port generation)
+                  {:op :release-lease
+                   :res (:resource generation)
+                   :holder (:holder generation)
+                   :epoch @(:epoch generation)}))
         (catch Exception error
           (binding [*out* *err*]
             (println
