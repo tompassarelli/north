@@ -55,6 +55,16 @@
   (check "current-version surfaces the timeout, not a misleading missing-pointer"
          (= :catalog-projection-query-failed (ex-type #(current-version 7977)))))
 
+;; --- B2. an appended pointer is refused, never silently elected -------------
+;; :value is the coexist-elect winner (the EARLIEST fact), so a pointer that
+;; appended instead of superseding would project the STALE version in silence.
+(with-redefs [send-op (fn [_ _] {:value "2" :members 2 :values ["2" "3"] :ambiguous? true :version 1})]
+  (check "current-version refuses an ambiguous @catalog:current"
+         (= :catalog-pointer-ambiguous (ex-type #(current-version 7977)))))
+
+(with-redefs [send-op (fn [_ _] {:value "3" :members 1 :values ["3"] :ambiguous? false :version 1})]
+  (check "current-version accepts a single-valued pointer" (= 3 (current-version 7977))))
+
 ;; --- C. happy path is unchanged ---------------------------------------------
 (with-redefs [send-op (fn [_ _] {:rows [["axis" "tier"] ["rank" "0"]] :version 1})]
   (check "facts returns the parsed rows on a healthy :show envelope"
