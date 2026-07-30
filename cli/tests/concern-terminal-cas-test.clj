@@ -38,9 +38,14 @@
       (System/getenv "FRAM_PATH")
       (.getCanonicalPath
        (io/file (System/getProperty "user.home") "code" "fram" "main"))))
+;; A silent skip in CI is a gate that can never fail; CI must set FRAM_TEST_CHECKOUT
+;; (or FRAM_PATH) so this always runs there — an absent Fram under CI is a hard error.
 (when-not (.isDirectory (io/file fram "out"))
-  (println "SKIP — compiled Fram out/ is absent")
-  (System/exit 0))
+  (if (System/getenv "CI")
+    (do (println "FAIL — compiled Fram out/ is absent under CI (FRAM_TEST_CHECKOUT/FRAM_PATH unset or wrong)")
+        (System/exit 1))
+    (do (println "SKIP — compiled Fram out/ is absent")
+        (System/exit 0))))
 
 (def port
   (or (some #(when (port-free? %) %) (range 7690 7740))
