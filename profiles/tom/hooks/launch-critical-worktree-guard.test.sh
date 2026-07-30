@@ -16,7 +16,12 @@ pass=0 fail=0
 # disable value — see lib/authoring-killswitch.sh.
 decide() {
   printf '{"tool_input":{"file_path":"%s"}}' "$1" \
-    | AGENT_NO_AUTHORING_HOOKS=0 "$HOOK" 2>/dev/null
+    | AGENT_NO_AUTHORING_HOOKS=0 LAUNCH_CRITICAL_CODE_ROOT="${ROOT:-}" "$HOOK" 2>/dev/null
+}
+
+bash_decide() { # bash_decide <command> <cwd>
+  printf '{"tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' "$1" "$2" \
+    | AGENT_NO_AUTHORING_HOOKS=0 LAUNCH_CRITICAL_CODE_ROOT="${ROOT:-}" "$HOOK" 2>/dev/null
 }
 
 check() { # check <expect deny|allow> <path> <why>
@@ -70,6 +75,45 @@ check allow "$HOME/code/framework/x.clj"           "framework != fram"
 check allow "$HOME/code/gjoa/x.clj"                "unrelated project"
 check allow "/tmp/scratch.txt"                     "outside ~/code entirely"
 
+check deny "$HOME/code/nixos-config/main/modules/x.nix" "nixos-config primary, the 2026-07-30 near-miss"
+
+# --- 3b. every container's main, on a fixture layout -------------------------
+# Dynamic detection: a project this guard has never heard of, its client-nested
+# sibling, and the near-misses that must stay writable.
+FIXTURE="$(mktemp -d)"
+ROOT="$FIXTURE/code"
+mkdir -p "$ROOT/proj/main/.git" "$ROOT/proj/wt-x" \
+         "$ROOT/client/msa/app/main/.git" "$ROOT/reference/upstream/main/.git" \
+         "$ROOT/runtime-data/.git"
+
+check deny  "$ROOT/proj/main/src/x.py"                "an unheard-of project's main"
+check deny  "$ROOT/client/msa/app/main/src/x.py"      "a client project's nested main"
+check allow "$ROOT/proj/wt-x/src/x.py"                "its worktree is the destination"
+check allow "$ROOT/proj/scratch.txt"                  "the container root is not a checkout"
+check allow "$ROOT/runtime-data/state.json"           "bare .git, no main/: runtime state stays writable"
+check allow "$ROOT/reference/upstream/main/README.md" "~/code/reference is read-only context"
+
+# Bash entrance on the same fixture: WIP destruction vs the landing flow.
+case "$(bash_decide "git -C $ROOT/proj/main reset --hard HEAD~1" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  reset --hard in a container main must be denied" >&2 ;;
+esac
+case "$(bash_decide "git stash" "$ROOT/proj/main")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  stash in a container main must be denied" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/wt-x reset --hard HEAD~1" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  reset --hard in a worktree must be allowed" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/main merge --ff-only slug && git -C $ROOT/proj/main branch -d slug" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  the landing flow must run from main" >&2 ;;
+esac
+
+rm -rf "${FIXTURE:?}"
+unset ROOT FIXTURE
+
 # --- 4. fail-open ------------------------------------------------------------
 check allow "" "empty file_path"
 printf 'not json at all' | AGENT_NO_AUTHORING_HOOKS=0 "$HOOK" >/dev/null 2>&1 \
@@ -94,6 +138,18 @@ done
 per_ms=$(( ( $(date +%s%N) - start ) / 50 / 1000000 ))
 if [ "$per_ms" -le 25 ]; then pass=$((pass + 1)); else
   fail=$((fail + 1)); echo "FAIL  allow path ${per_ms}ms/call — too slow for PreToolUse" >&2
+fi
+
+# A path under ~/code with no `main` component cannot be protected either, so
+# the second pre-filter stage must keep it off python3 as well.
+start=$(date +%s%N)
+for _ in $(seq 50); do
+  printf '{"tool_input":{"file_path":"%s/code/gjoa/docs/x.md"}}' "$HOME" \
+    | AGENT_NO_AUTHORING_HOOKS=0 "$HOOK" >/dev/null 2>&1
+done
+per_ms=$(( ( $(date +%s%N) - start ) / 50 / 1000000 ))
+if [ "$per_ms" -le 25 ]; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); echo "FAIL  ~/code non-main path ${per_ms}ms/call — pre-filter regressed" >&2
 fi
 
 printf '%s\n' "launch-critical-worktree-guard: $pass passed, $fail failed"

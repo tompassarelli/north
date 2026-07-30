@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """The guard must refuse the Bash calls that actually breached the primaries.
 
-Every DENY case below is a verbatim command shape an agent ran against a
-launch-critical primary on 2026-07-29 while the guard was live and wired. None
-of them fired, because the guard only inspected `tool_input.file_path`, which a
-Bash call does not have. These cases exist so that hole cannot reopen.
+The DENY cases in the first section are verbatim command shapes an agent ran
+against a launch-critical primary on 2026-07-29 while the guard was live and
+wired. None of them fired, because the guard only inspected
+`tool_input.file_path`, which a Bash call does not have. These cases exist so
+that hole cannot reopen. Later sections cover every protected `main` and the
+WIP-destroying git verbs.
 
 The ALLOW cases matter just as much: a guard that also blocks reads, or blocks
 `git worktree add` — the very escape route its deny message recommends — traps
@@ -13,8 +15,10 @@ the agent with no compliant move, and the next person turns the guard off.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DECIDE = os.path.join(HERE, "lib", "launch_critical_decide.py")
@@ -23,9 +27,14 @@ failures = []
 checks = 0
 
 
-def run(payload):
+def run(payload, code_root=None):
+    env = dict(os.environ)
+    if code_root:
+        env["LAUNCH_CRITICAL_CODE_ROOT"] = code_root
+    else:
+        env.pop("LAUNCH_CRITICAL_CODE_ROOT", None)
     p = subprocess.run([sys.executable, DECIDE], input=json.dumps(payload),
-                       capture_output=True, text=True, timeout=30)
+                       capture_output=True, text=True, timeout=30, env=env)
     out = p.stdout.strip()
     if not out:
         return None
@@ -167,6 +176,115 @@ check("Edit into a wt- worktree is allowed",
            "tool_input": {"file_path": "/home/tom/code/north/wt-a/cli/x.clj"}}) is None)
 check("Edit outside ~/code is allowed",
       run({"tool_name": "Edit", "tool_input": {"file_path": "/tmp/x.clj"}}) is None)
+
+print("--- every container's main, not only the launch-critical ones ---")
+
+# A fixture code root: dynamic detection must cover a project the guard has
+# never heard of, and must not sweep in the near-misses that live beside one.
+FIX = tempfile.mkdtemp(prefix="lc-guard-")
+ROOT = os.path.join(FIX, "code")
+for rel in ("proj/main/.git", "proj/wt-x/.git", "client/msa/app/main/.git",
+            "reference/upstream/main/.git", "runtime-data/.git",
+            "beagle/.git", "plain-dir"):
+    os.makedirs(os.path.join(ROOT, rel), exist_ok=True)
+
+PROJ = os.path.join(ROOT, "proj", "main")
+CLIENT = os.path.join(ROOT, "client", "msa", "app", "main")
+
+
+def fixture(command, cwd=None):
+    return run(bash(command, cwd=cwd or ROOT), code_root=ROOT)
+
+
+check("an unheard-of project's main is protected",
+      fixture("git commit -m x", cwd=PROJ))
+check("a client project's nested main is protected",
+      fixture("git add .", cwd=CLIENT))
+check("the deny names the nested container",
+      "client/msa/app" in (fixture("git add .", cwd=CLIENT) or ""))
+check("its wt- worktree is not",
+      fixture("git commit -m x", cwd=os.path.join(ROOT, "proj", "wt-x")) is None)
+check("a data dir with a bare .git and no main/ stays writable",
+      fixture("git commit -m x", cwd=os.path.join(ROOT, "runtime-data")) is None)
+check("a directory that is no checkout at all is untouched",
+      fixture("rm -rf junk", cwd=os.path.join(ROOT, "plain-dir")) is None)
+check("~/code/reference is read-only context, never this guard's business",
+      fixture("cat notes.md",
+              cwd=os.path.join(ROOT, "reference", "upstream", "main")) is None)
+check("a launch-critical container that IS the checkout (pre-migration)",
+      fixture("git add .", cwd=os.path.join(ROOT, "beagle")))
+check("Edit into an unheard-of project's main is denied",
+      run({"tool_name": "Edit",
+           "tool_input": {"file_path": os.path.join(PROJ, "src/x.py")}},
+          code_root=ROOT))
+check("Edit into ~/code/reference is allowed",
+      run({"tool_name": "Edit",
+           "tool_input": {"file_path": os.path.join(
+               ROOT, "reference/upstream/main/x.py")}},
+          code_root=ROOT) is None)
+
+shutil.rmtree(FIX, ignore_errors=True)
+
+print("--- destroying human WIP in a main checkout ---")
+
+NIXOS = "/home/tom/code/nixos-config/main"
+
+check("reset --hard against nixos-config/main (the 2026-07-30 near-miss)",
+      run(bash("git -C /home/tom/code/nixos-config/main reset --hard HEAD~1")))
+check("the deny names a compliant move",
+      "status --porcelain" in (run(bash(f"git -C {NIXOS} reset --hard")) or ""))
+check("reset --merge is the same loss", run(bash(f"git -C {NIXOS} reset --merge")))
+check("stash from inside a main", run(bash("git stash", cwd=NIXOS)))
+check("stash push with a message", run(bash("git stash push -m wip", cwd=NORTH)))
+check("stash pop", run(bash("git stash pop", cwd=NORTH)))
+check("checkout -- <path> discards the edit",
+      run(bash("git checkout -- cli/x.clj", cwd=NORTH)))
+check("restore of the working tree", run(bash("git restore cli/x.clj", cwd=NORTH)))
+check("clean -fd", run(bash("git clean -fd", cwd=NORTH)))
+check("clean -ffdx", run(bash(f"git -C {NIXOS} clean -ffdx")))
+
+# The hole this class closes: the old scan stopped at the FIRST git call, so a
+# sanctioned verb ahead of a destructive one vouched for the whole line.
+check("a sanctioned verb earlier in the line does not shield a reset --hard",
+      run(bash(f"git -C {NORTH} worktree add /tmp/wt-y -b y && "
+               f"git -C {NORTH} reset --hard origin/main")))
+check("...nor a stash after a fetch",
+      run(bash(f"git -C {NORTH} fetch origin && git -C {NORTH} stash")))
+
+check("git stash list is a read", run(bash("git stash list", cwd=NORTH)) is None)
+check("git clean --dry-run is a read", run(bash("git clean -nd", cwd=NORTH)) is None)
+# --staged spares the working tree, so it is not WIP destruction — but it still
+# rewrites an index the human staged, so it stays denied as an ordinary mutation.
+_staged = run(bash("git restore --staged cli/x.clj", cwd=NORTH))
+check("git restore --staged is a mutation, not WIP destruction",
+      _staged and "work-in-progress" not in _staged)
+
+check("reset --hard INSIDE a worktree is the lane's own business",
+      run(bash("git reset --hard origin/main",
+               cwd="/home/tom/code/north/wt-abc")) is None)
+check("stash inside a worktree is fine",
+      run(bash("git -C /home/tom/code/north/wt-abc stash")) is None)
+check("clean -fd inside a worktree is fine",
+      run(bash("git clean -fd", cwd="/home/tom/code/fram/wt-abc")) is None)
+
+print("--- the landing flow must still run from main ---")
+
+check("worktree remove", run(bash(
+    "git -C /home/tom/code/north/main worktree remove /home/tom/code/north/wt-x")) is None)
+check("worktree prune",
+      run(bash("git -C /home/tom/code/north/main worktree prune")) is None)
+check("branch -d", run(bash("git -C /home/tom/code/north/main branch -d slug")) is None)
+check("branch -D", run(bash("git branch -D slug", cwd=NORTH)) is None)
+check("safe-push", run(bash("safe-push --to main", cwd=NORTH)) is None)
+check("git show", run(bash("git show --stat HEAD", cwd=NORTH)) is None)
+check("the whole sequence in one command", run(bash(
+    "git -C /home/tom/code/north/main merge --ff-only slug && "
+    "git -C /home/tom/code/north/main branch -d slug && "
+    "git -C /home/tom/code/north/main worktree prune")) is None)
+check("rebase run in a WORKTREE is untouched",
+      run(bash("git rebase main", cwd="/home/tom/code/north/wt-abc")) is None)
+check("rebase run in main is not",
+      run(bash("git rebase origin/main", cwd=NORTH)))
 
 print("--- fail-open ---")
 
