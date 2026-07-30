@@ -16,6 +16,7 @@
 ;;   bb presence-cli.clj <port> presence                             ; projection (replaces ls presence/ + age math)
 ;;   bb presence-cli.clj <port> presence-online                      ; bounded live-only projection for cockpit/roster
 ;;   bb presence-cli.clj <port> presence-online-json                 ; stable machine projection (never parse columns)
+;;   bb presence-cli.clj <port> coordination-probe-json              ; doctor health probe: fence + write-readback + lease/lineage divergence
 ;;   bb presence-cli.clj <port> slackers [minutes]                   ; derived: online + holds no work-lease
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[cheshire.core :as json])
@@ -35,15 +36,19 @@
 (def decode-lease north.coord/decode-lease)
 (def lease-of     north.coord/lease-of)
 
+(declare strict-query-rows)
+
 (defn sessions [port]      ; -> [[session-entity handle] ...]  ONE row per uuid.
   ;; `agent` is overloaded: it anchors @session:<h> (the session) AND every @run:<sid>
   ;; telemetry record. The raw query returns one row PER run -> the roster showed N rows per agent. Scope
   ;; to @session:* (the real anchor; exactly one per handle) and dedup by handle, so the roster is
   ;; latest-per-uuid, lease-judged. (Datalog can't prefix-filter the entity, so we filter here.)
-  (let [rows (:ok (send-op port {:op :query
-                      :query {:find "s"
-                              :rules [{:head {:rel "s" :args [{:var "e"} {:var "h"}]}
-                                       :body [{:rel "triple" :args [{:var "e"} "agent" {:var "h"}]}]}]}}))]
+  ;; A rejected op is not an empty registry: strict rows or throw.
+  (let [rows (strict-query-rows
+              (send-op port {:op :query
+                             :query {:find "s"
+                                     :rules [{:head {:rel "s" :args [{:var "e"} {:var "h"}]}
+                                              :body [{:rel "triple" :args [{:var "e"} "agent" {:var "h"}]}]}]}}))]
     (->> (or rows [])
          (filter (fn [[e _]] (str/starts-with? (str e) "@session:")))
          (reduce (fn [m [e h]] (assoc m h [e h])) {})   ; one row per handle
@@ -185,6 +190,80 @@
               "expires_s" (max 0 (quot (- (:exp lease) now) 1000))})
            session-rows)})))
 
+;; ---- coordination health probe ----------------------------------------------
+;; MUST be invoked the way the hooks are (direct bb, unwrapped env) or it cannot
+;; observe a hook-path fence fault.
+(def probe-lease-resource "doctor-probe:presence")   ; not session:* — never joins the roster
+(def probe-lease-ttl-ms 5000)
+(def max-lineage-rows 4096)
+
+(defn- probe-fence [port]
+  (let [expected (north.coord/expected-log)
+        raw (north.coord/send-raw-op port {:op :version})
+        served (:served-log raw)]
+    {"expected_log" expected
+     "served_log" (when (string? served) (.getCanonicalPath (io/file served)))}))
+
+(defn- probe-write-readback [port]
+  ;; Registration is a WRITE. Reading the registry cannot prove a hook can renew.
+  (let [holder (str "doctor-" (System/currentTimeMillis))
+        granted (send-op port {:op :acquire-lease :res probe-lease-resource
+                               :holder holder :ttl-ms probe-lease-ttl-ms})
+        back (resolved port (str "@lease:" probe-lease-resource) "lease")]
+    (boolean (and (map? granted) (nil? (:reject granted)) (integer? (:exp granted))
+                  (string? back) (str/starts-with? back (str holder "|"))))))
+
+(defn- lineage-registrations-within [port window-ms now]
+  ;; @session:* is a telemetry-partition subject; the lease is not. That split is
+  ;; exactly how a half-registered session becomes invisible, so read both.
+  (let [resp (north.coord/query-page-in-domain
+              port :telemetry
+              {:find "s" :rules [{:head {:rel "s" :args [{:var "e"} {:var "v"}]}
+                                  :body [{:rel "triple"
+                                          :args [{:var "e"} "started_at" {:var "v"}]}]}]}
+              max-lineage-rows nil)
+        rows (:ok resp)]
+    (when-not (and (vector? rows) (false? (:more resp)))
+      (throw (ex-info "session lineage projection was truncated or malformed" {})))
+    (count
+     (filter (fn [[e v]]
+               (and (string? e) (str/starts-with? e "@session:")
+                    (try (< (- now (.toEpochMilli (java.time.Instant/parse v))) window-ms)
+                         (catch Exception _ false))))
+             rows))))
+
+(defn print-coordination-probe-json! [port now]
+  (let [payload
+        (try
+          (let [fence (probe-fence port)]
+            (merge fence
+                   {"version" "north:coordination-probe:v1"
+                    "log_fence_ok" (= (get fence "expected_log") (get fence "served_log"))
+                    "lease_write_readback_ok" (probe-write-readback port)
+                    "live_session_leases" (count (online-sessions port now))
+                    "lineage_registrations_in_ttl"
+                    (lineage-registrations-within port TTL now)
+                    "lease_ttl_ms" TTL}))
+          (catch Exception e
+            {"version" "north:coordination-probe:v1"
+             "error" (or (not-empty (str (.getMessage e))) (.getName (class e)))}))]
+    (println (json/generate-string payload))
+    (when (or (contains? payload "error")
+              (not (get payload "log_fence_ok"))
+              (not (get payload "lease_write_readback_ok")))
+      (System/exit 1))))
+
+;; The hook throttle advances only on a zero exit, so a lease that did not land
+;; must exit nonzero — a printed :reject with rc=0 reads as a renewed lease.
+(defn acquire-session-lease! [port h]
+  (let [reply (send-op port {:op :acquire-lease :res (str "session:" h) :holder h :ttl-ms TTL})]
+    (prn reply)
+    (when-not (and (map? reply) (nil? (:reject reply)) (integer? (:exp reply)))
+      (binding [*out* *err*]
+        (println (str "presence: session lease was not granted for " h ": " (pr-str reply))))
+      (System/exit 1))
+    reply))
+
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)
       now  (System/currentTimeMillis)]      ; same machine as coord -> agent-now ~ coord-now
@@ -208,10 +287,10 @@
         (put! port se "dir" (or dir "?"))            ; single
         (put! port se "session_id" (or sid "?"))     ; single
         (put! port se "started_at" (str (java.time.Instant/now))))  ; single, once/session
-      (prn (send-op port {:op :acquire-lease :res (str "session:" h) :holder h :ttl-ms TTL})))
+      (acquire-session-lease! port h))
 
     "renew"
-    (let [[h] args] (prn (send-op port {:op :acquire-lease :res (str "session:" h) :holder h :ttl-ms TTL})))
+    (let [[h] args] (acquire-session-lease! port h))
 
     "task"
     (let [[h t] args] (prn (put! port (str "@session:" h) "task" t)))   ; single
@@ -313,6 +392,9 @@
 
     "presence-online-json"                  ; stable bounded machine projection
     (print-presence-json! now (online-sessions port now))
+
+    "coordination-probe-json"               ; doctor's honest health signal; exits 1 when broken
+    (print-coordination-probe-json! port now)
 
     "slackers"                              ; derived; replaces the polling slacker-detector/reaper
     (let [_mins (if (seq args) (parse-long (first args)) 10)

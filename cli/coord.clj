@@ -441,6 +441,8 @@
                     {:type :invalid-log-identity :log log})))
   (.getCanonicalPath (io/file log)))
 
+;; FRAM_LOG selects WHICH CORPUS; FRAM_TELEMETRY_LOG only says where telemetry
+;; goes and must never veto that selection (bin/north 94643cc).
 (defn expected-log []
   (let [explicit (System/getenv "FRAM_LOG")
         home (or (System/getenv "HOME") (System/getProperty "user.home"))
@@ -448,9 +450,7 @@
                    (or explicit
                        (str home "/.local/state/north/facts.log")))
         split (io/file (.getParentFile requested) "coordination.log")
-        selected (if (and (nil? explicit)
-                          (nil? (System/getenv "FRAM_TELEMETRY_LOG"))
-                          (.isFile split))
+        selected (if (and (nil? explicit) (.isFile split))
                    split
                    requested)]
     (.getCanonicalPath selected)))

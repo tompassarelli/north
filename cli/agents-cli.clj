@@ -270,6 +270,9 @@
 (def max-live-controls 256)
 (def max-roster-fact-rows 32768)
 (def max-roster-run-candidates 4096)
+;; `north json show-many ""` costs 5.3s of bin/north preamble before any data
+;; moves (measured 2026-07-30), so the budget must clear that, not ~2x it.
+(def roster-subject-read-timeout-ms 30000)
 (def roster-conflict-key "__roster_conflicts")
 (def lane-resolution-key ::lane-resolution)
 
@@ -328,14 +331,22 @@
   machine roster never parses a human presence table or a stored display fact."
   [ids]
   (let [ids (vec (distinct ids))]
-    (if (or (> (count ids) max-live-controls)
-            (not-every? valid-control-id? ids))
+    (cond
+      ;; An empty live set is an answer, not a projection failure: never spend a
+      ;; timeout-bounded subprocess to learn nothing.
+      (empty? ids) {:agents {} :sessions {}}
+
+      (or (> (count ids) max-live-controls)
+          (not-every? valid-control-id? ids))
       {:err "presence returned an invalid or over-broad control set"}
+
+      :else
       (let [subjects (mapcat (fn [id] [(str "agent:" id) (str "session:" id)]) ids)
             subjects (vec subjects)
             allowed-subjects (set subjects)
             r (run [(str NORTH "/bin/north") "json" "show-many"
-                    (str/join "," subjects)] :timeout 10000)]
+                    (str/join "," subjects)]
+                   :timeout roster-subject-read-timeout-ms)]
         (if (:ok r)
           (try
             (fold-roster-subjects (json/parse-string (:out r) true)
