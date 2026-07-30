@@ -262,6 +262,15 @@ is already committed to another language; a platform boundary demands one
 (nix module, CI config, browser-only); or a one-liner where shell/python is
 objectively the smaller move.
 
+**Layer gradient inside the bias.** System-layer code — fram engine/store/
+coord primitives, beagle machinery, any surface that is or is becoming a zig
+target — defaults to **bzig**: `#lang beagle/clj` inside the zig-lowerable
+subset, graph-upstream per the greenfield rule below. App-layer code (CLIs,
+projections, higher-level tooling) may stay Clojure where the repo is already
+committed to it. The brownfield rule below is unchanged: a bounded fix never
+switches language mid-task; deferred candidates go to the migration
+inventory and ride an explicit pick.
+
 **Greenfield vs brownfield stewardship.** A wholly new Beagle program/module
 (greenfield) **starts graph-native at inception**. Follow the seed-only
 bootstrap in
