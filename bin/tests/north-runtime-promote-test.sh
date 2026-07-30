@@ -10,6 +10,11 @@ work=$(mktemp -d)
 trap 'chmod -R u+w "${work:?}" 2>/dev/null || true; rm -rf "${work:?}"' EXIT
 
 origin=$work/origin
+# Reached through a symlink on purpose: the real state root is one
+# (~/.local/state/north -> ~/code/north-data), and an identity compared
+# non-canonically against a resolved link fails there and nowhere else.
+mkdir -p "$work/data"
+ln -s data "$work/state"
 state=$work/state
 export NORTH_RUNTIME_STATE=$state
 # No listener here on purpose: a coordinator that cannot be reached must warn,
@@ -43,7 +48,7 @@ grep -Fq "promote record not published" "$work/promote.err" ||
   fail "an unreachable coordinator must warn"
 pass "promote selects the exact commit and survives an unreachable coordinator"
 
-[ "$(readlink -f "$state/current")" = "$state/deployments/$first" ] ||
+[ "$(readlink -f "$state/current")" = "$(realpath "$state")/deployments/$first" ] ||
   fail "the stable selector does not resolve to the deployment"
 [ "$(git -C "$state/deployments/$first" rev-parse HEAD)" = "$first" ] ||
   fail "the deployment is not checked out at the promoted commit"
@@ -64,15 +69,15 @@ before=$(readlink -f "$state/active")
 pass "promoting the already-selected commit is idempotent"
 
 "$tool" promote "$origin" "$second" --why "test second" >/dev/null 2>&1
-[ "$(readlink -f "$state/current")" = "$state/deployments/$second" ] ||
+[ "$(readlink -f "$state/current")" = "$(realpath "$state")/deployments/$second" ] ||
   fail "the second promote did not move the selector"
-[ "$(readlink -f "$state/previous")" = "$state/deployments/$first" ] ||
+[ "$(readlink -f "$state/previous")" = "$(realpath "$state")/deployments/$first" ] ||
   fail "the second promote did not retain the previous deployment"
 "$tool" status | grep -Fq "behind=0 commit(s)" || fail "status must report drift against the origin HEAD"
 pass "promote retains the previous member and reports drift"
 
 "$tool" rollback --why "test rollback" >/dev/null 2>&1
-[ "$(readlink -f "$state/current")" = "$state/deployments/$first" ] ||
+[ "$(readlink -f "$state/current")" = "$(realpath "$state")/deployments/$first" ] ||
   fail "rollback did not reselect the previous deployment"
 grep -Fqx 'KIND rollback' "$(readlink -f "$state/active")/record" ||
   fail "rollback was not recorded as a rollback"
@@ -80,7 +85,7 @@ grep -Fqx 'KIND rollback' "$(readlink -f "$state/active")/record" ||
 pass "rollback reselects the retained previous deployment, recorded"
 
 "$tool" rollback --why "test re-roll" >/dev/null 2>&1
-[ "$(readlink -f "$state/current")" = "$state/deployments/$second" ] ||
+[ "$(readlink -f "$state/current")" = "$(realpath "$state")/deployments/$second" ] ||
   fail "rollback is not itself rollback-able"
 pass "rollback is itself rollback-able"
 
