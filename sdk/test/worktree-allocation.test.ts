@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
-  existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -113,6 +113,21 @@ describe("physical allocation registration", () => {
       error: { code: "manual_reclamation_required", phase: "finalize" },
     });
     expect(existsSync(lease.path)).toBe(true);
+    rmSync(lease.path, { recursive: true, force: true });
+  });
+
+  test("a container cwd resolves to its main/ checkout instead of failing git discovery", () => {
+    const container = join(root, `container-${process.pid}`);
+    mkdirSync(container, { recursive: true });
+    const checkout = initializedRepo(container, "main");
+    const capture: Capture = { registrations: [], events: [] };
+    const id = `container-${process.pid}`;
+    const lease = provisionWorktree(id, { repoRoot: container, ...ownership(id, capture) });
+
+    expect(lease.repoRoot).toBe(realpathSync(checkout));
+    expect(capture.registrations[0].sourceRoot).toBe(realpathSync(checkout));
+
+    worktreeFinalize(id, "ran", { ...lease });
     rmSync(lease.path, { recursive: true, force: true });
   });
 

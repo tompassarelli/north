@@ -1257,11 +1257,12 @@
 (def ^:dynamic *delegate-request* nil)
 (declare resolve-delegate-thread! resolve-recursive-child-thread! delegate-brief)
 
-(defn title-bearing-thread?
+(defn thread-title-verdict
   "A spawn attribution target exists only when the coordinator's exact-subject
   projection contains exactly one nonblank title. Read through the same :show
   projection as the daemon-first CLI; the independent :resolved index can lag
-  that projection and must not turn a visible thread into a false absence."
+  that projection and must not turn a visible thread into a false absence.
+  A failed read is :unreadable — a degraded coordinator is not an absent thread."
   [id]
   (try
     (let [subject (str "@" (str/replace-first (str id) #"^@" ""))
@@ -1269,9 +1270,14 @@
                        (filter #(= "title" (first %))
                                (north.coord/show-rows
                                 (Integer/parseInt PORT) subject)))]
-      (and (= 1 (count titles))
-           (not (str/blank? (first titles)))))
-    (catch Exception _ false)))
+      (if (and (= 1 (count titles))
+               (not (str/blank? (first titles))))
+        :titled
+        :untitled))
+    (catch Exception _ :unreadable)))
+
+(defn title-bearing-thread? [id]
+  (= :titled (thread-title-verdict id)))
 
 (defn cmd-spawn [args]
   (north.topology-authority/require-coordination! "spawn")
@@ -1324,8 +1330,14 @@
         ;; gate passed it. A thread exists iff it carries a title.
         _ (when thread
             (let [bare (str/replace-first (str thread) #"^@" "")
-                  titled? (title-bearing-thread? bare)]
-              (when-not titled?
+                  verdict (thread-title-verdict bare)]
+              (when (= :unreadable verdict)
+                (binding [*out* *err*]
+                  (println (red (str "--thread " bare " could not be read through the coordinator")))
+                  (println (dim "  the exact-subject projection failed; this is a degraded coordinator, not a missing thread."))
+                  (println (dim "  check `north doctor`, then retry.")))
+                (System/exit 75))
+              (when (= :untitled verdict)
                 (binding [*out* *err*]
                   (println (red (str "--thread " bare " names no thread")))
                   (println (dim "  it is well-formed but carries no title, so nothing would join to it."))
@@ -1719,39 +1731,48 @@
   (or (canonical-delegate-thread raw)
       (delegate-die "--thread must be a bare or single-@ ASCII North thread id")))
 
-(defn- parse-structured-facts [raw]
-  (try
-    (let [facts (json/parse-string (str/trim raw) true)]
-      (when (and (sequential? facts)
-                 (every? #(and (map? %)
-                               (= #{:predicate :value} (set (keys %)))
-                               (string? (:predicate %))
-                               (string? (:value %)))
-                         facts))
-        facts))
-    (catch Exception _ nil)))
+(defn- structured-facts? [facts]
+  (and (sequential? facts)
+       (every? #(and (map? %)
+                     (= #{:predicate :value} (set (keys %)))
+                     (string? (:predicate %))
+                     (string? (:value %)))
+               facts)))
 
-(defn- parse-structured-facts! [label raw]
-  (or (parse-structured-facts raw)
-      (delegate-die (str label " returned an invalid structured fact projection"))))
+;; Intake reads are EXACT-SUBJECT: `north json show` folds the whole live corpus
+;; per call and cannot fit any intake deadline. ::unreadable keeps a degraded
+;; coordinator distinguishable from a subject that genuinely carries no facts.
+(def structured-read-attempts 2)
+(def structured-read-retry-ms 500)
 
-(defn- parse-thread-facts! [id raw]
-  (let [facts (parse-structured-facts! (str "thread @" id) raw)]
-    (let [titles (mapv :value (filter #(= "title" (:predicate %)) facts))]
-      (when-not (and (= 1 (count titles)) (not (str/blank? (first titles))))
-        (delegate-die (str "thread @" id " is not a title-bearing North thread")))
-      {:id id
-       :title (first titles)
-       :facts facts
-       :committed? (boolean (some #(= "committed" (:predicate %)) facts))
-       :done-when (mapv :value (filter #(= "done_when" (:predicate %)) facts))})))
+(defn- structured-subject-facts [subject]
+  (loop [attempt 1]
+    (let [result (try
+                   (mapv (fn [[predicate value]] {:predicate predicate :value value})
+                         (north.coord/show-rows (Integer/parseInt PORT) subject))
+                   (catch Exception _ ::unreadable))]
+      (if (and (= ::unreadable result) (< attempt structured-read-attempts))
+        (do (Thread/sleep structured-read-retry-ms) (recur (inc attempt)))
+        result))))
+
+(defn- parse-thread-facts! [id facts]
+  (when-not (structured-facts? facts)
+    (delegate-die (str "thread @" id " returned an invalid structured fact projection")))
+  (let [titles (mapv :value (filter #(= "title" (:predicate %)) facts))]
+    (when-not (and (= 1 (count titles)) (not (str/blank? (first titles))))
+      (delegate-die (str "thread @" id " is not a title-bearing North thread")))
+    {:id id
+     :title (first titles)
+     :facts facts
+     :committed? (boolean (some #(= "committed" (:predicate %)) facts))
+     :done-when (mapv :value (filter #(= "done_when" (:predicate %)) facts))}))
 
 (defn- read-delegate-thread! [raw]
   (let [id (normalize-delegate-thread raw)
-        result (run [NORTH-CLI "json" "show" id] :timeout 10000)]
-    (when-not (:ok result)
+        facts (structured-subject-facts (str "@" id))]
+    (when (= ::unreadable facts)
       (delegate-die (str "cannot prove delegate thread @" id " through North's structured read boundary")))
-    (parse-thread-facts! id (:out result))))
+    (parse-thread-facts! id facts)))
 
 (defn- fact-set [facts]
   (reduce (fn [acc {:keys [predicate value]}]
@@ -1794,11 +1815,9 @@
       (try
         (let [run-id (canonical-delegate-thread ambient-run)
               thread-id (canonical-delegate-thread thread)
-              result (when (and run-id thread-id)
-                       (run [NORTH-CLI "json" "show" run-id] :timeout 10000))
-              facts (when (:ok result)
-                      (fact-set
-                       (parse-structured-facts (:out result))))
+              rows (when (and run-id thread-id)
+                     (structured-subject-facts (str "@" run-id)))
+              facts (when (structured-facts? rows) (fact-set rows))
               reporter (str "@agent:" (str/replace-first agent #"^@?agent:" ""))]
           (if (and run-id
                    thread-id
@@ -1815,11 +1834,17 @@
         (catch Exception _
           {:kind :none :residue? true})))))
 
+;; `north capture` renders the thread .md by folding the whole log and waits on
+;; bin/north's verb slot first (NORTH_VERB_SLOT_WAIT, 120s), so the delegate's
+;; capture budget must exceed both or every busy-box delegation dies at intake.
+(def delegate-capture-timeout-ms 180000)
+
 (defn- capture-delegate-thread! [task]
   (let [title (delegate-thread-title task)
         capture-env (assoc (into {} (System/getenv))
                            "NORTH_CAPTURE_STRUCTURED" "1")
-        result (run [NORTH-CLI "capture" title] :timeout 15000 :env capture-env)]
+        result (run [NORTH-CLI "capture" title]
+                    :timeout delegate-capture-timeout-ms :env capture-env)]
     (when-not (:ok result)
       (delegate-die "North could not capture a durable delegate thread"))
     (let [receipt (try (json/parse-string (str/trim (:out result)) true)
@@ -1849,16 +1874,21 @@
             (delegate-die "captured delegate thread failed exact title/commit readback"))
           (assoc thread :source :captured))))))
 
+;; A wrapper deadline under north.coord's own 30s read window can destroy a
+;; valid in-flight write and strand a half-linked child.
+(def delegate-link-timeout-ms 45000)
+
 (defn- capture-recursive-child-thread! [task parent]
   (let [captured (capture-delegate-thread! task)
         child (:id captured)
-        linked (run [NORTH-CLI "tell" child "part_of" parent] :timeout 10000)]
+        linked (run [NORTH-CLI "tell" child "part_of" parent]
+                    :timeout delegate-link-timeout-ms)]
     (when-not (:ok linked)
       ;; The provider has not started. Preserve the failed capture as an honest
       ;; terminal coordination artifact instead of leaving an unattached task.
       (run [NORTH-CLI "tell" child "abandoned"
             "recursive child binding failed before provider execution"]
-           :timeout 10000)
+           :timeout delegate-link-timeout-ms)
       (delegate-die (str "North could not link recursive child @" child
                          " part_of @" parent)))
     (let [verified (read-delegate-thread! child)
@@ -1869,7 +1899,7 @@
       (when-not (= #{(str "@" parent)} parents)
         (run [NORTH-CLI "tell" child "abandoned"
               "recursive child link failed exact readback before provider execution"]
-             :timeout 10000)
+             :timeout delegate-link-timeout-ms)
         (delegate-die (str "recursive child @" child
                            " did not read back exact parent @" parent)))
       (assoc verified :source :recursive-child :parent parent))))

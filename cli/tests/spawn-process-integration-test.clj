@@ -70,7 +70,7 @@
              (committed (assoc ready-base "composition_kind" "invalid")))))
 
   (check "Fram graph lanes outlive their 15-minute coordinator boot ceiling"
-         (and (= 45000
+         (and (= 180000
                  (north.spawn-process/default-startup-timeout-for-capabilities
                   ["filesystem.write"]))
               (= 1020000

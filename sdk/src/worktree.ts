@@ -183,8 +183,21 @@ function gitCommonDir(repoRoot: string): string {
   ]).trim());
 }
 
+// `~/code/<project>` is a CONTAINER whose checkout is its `main/` child, so a lane
+// dispatched from the container directory still resolves to exactly one repo root.
 function sourceRoot(repoRoot: string): string {
-  return realpathSync(git(["-C", repoRoot, "rev-parse", "--show-toplevel"]).trim());
+  try {
+    return realpathSync(git(["-C", repoRoot, "rev-parse", "--show-toplevel"]).trim());
+  } catch (error) {
+    const nested = join(resolve(repoRoot), "main");
+    if (existsSync(join(nested, ".git")))
+      return realpathSync(git(["-C", nested, "rev-parse", "--show-toplevel"]).trim());
+    throw new Error(
+      `managed worktree allocation requires a git checkout: neither ${repoRoot} `
+      + `nor ${nested} is one`,
+      { cause: error },
+    );
+  }
 }
 
 function repositoryIdentity(commonDir: string): string {
