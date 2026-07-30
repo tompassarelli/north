@@ -46,10 +46,20 @@ case "$kind" in
     [ "${HOOK_TEST_MODE:-fast}" = reject ] && exit 1
     ;;
   presence)
-    printf '%s\n' "${4:-}" >>"$HOOK_TEST_STATE/presences.log"
+    presence_id="${4:-}"
+    printf '%s\n' "$presence_id" >>"$HOOK_TEST_STATE/presences.log"
+    : >"$HOOK_TEST_STATE/presence-complete-$presence_id"
     ;;
 esac
-if [ "${HOOK_TEST_MODE:-fast}" = slow ]; then
+if [ "${HOOK_TEST_MODE:-fast}" = slow-after-presence ] &&
+   [ "$kind" = projection ]; then
+  projection_id="${NORTH_NATIVE_SUBJECT#@agent:}"
+  for _ in $(seq 1 800); do
+    [ ! -e "$HOOK_TEST_STATE/presence-complete-$projection_id" ] || break
+    sleep 0.01
+  done
+  [ -e "$HOOK_TEST_STATE/presence-complete-$projection_id" ] || exit 2
+  printf '%s\n' "$projection_id" >>"$HOOK_TEST_STATE/delayed-after-presence.log"
   sleep 30
 fi
 exit 0
@@ -291,12 +301,21 @@ XDG_SLOW="$TMP/xdg-slow"
 OUT_SLOW="$TMP/slow.out"
 : >"$STATE/starts.log"
 t0="$(date +%s%3N)"
-run_hook "$XDG_SLOW" slow slow0001 SessionStart "" "" "$OUT_SLOW"
+run_hook "$XDG_SLOW" slow-after-presence slow0001 SessionStart "" "" "$OUT_SLOW"
 rc=$?
 elapsed=$(( $(date +%s%3N) - t0 ))
 check "delayed startup exits zero" test "$rc" -eq 0
-check "delayed startup returns under 1s with workers live (${elapsed}ms)" test "$elapsed" -lt 1000
 check "delayed startup still emits valid context JSON" valid_context_json "$OUT_SLOW"
+SLOW_ID="$(context_id "$OUT_SLOW")"
+for _ in $(seq 1 800); do
+  [ ! -e "$STATE/delayed-after-presence.log" ] || break
+  sleep 0.01
+done
+# The inner shell expands its positional parameters.
+# shellcheck disable=SC2016
+check "delayed projection starts after presence without holding startup (${elapsed}ms)" \
+  bash -c 'test "$1" -lt 1000 && grep -Fxq "$2" "$3"' \
+  _ "$elapsed" "$SLOW_ID" "$STATE/delayed-after-presence.log"
 SLOW_KEY="$(session_key slow0001)"
 check "identity seed remains available for PostToolUse repair" test -s "$XDG_SLOW/north-agent-routes/$SLOW_KEY.seed"
 sleep 6.5

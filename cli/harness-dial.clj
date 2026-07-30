@@ -69,6 +69,31 @@
   (env-decision (or (not-empty (or (System/getenv "AGENT_NO_AUTHORING_HOOKS") ""))
                     (not-empty (or (System/getenv "CLAUDE_NO_AUTHORING_HOOKS") "")))))
 
+;; --- communications protocol ---------------------------------------------
+
+(def comms-protocols #{"off" "db" "file" "both"})
+(def comms-surfaces #{"native" "managed"})
+
+(defn comms-selection
+  "Resolve the protocol for one execution surface. `get-state` is
+   (fn [key] raw-or-nil). Malformed state fails closed to today's db/forced
+   behavior; the config writer rejects malformed values before persistence."
+  [get-state surface]
+  (let [surface (if (comms-surfaces surface) surface "native")
+        raw-base (get-state "comms")
+        base (if (comms-protocols raw-base) raw-base "db")
+        raw-override (get-state (str "comms." surface))
+        selected (if (comms-protocols raw-override) raw-override base)
+        raw-enforcement (get-state "comms.enforcement")
+        enforcement (if (#{"forced" "biased"} raw-enforcement)
+                      raw-enforcement
+                      "forced")]
+    {:surface surface
+     :base base
+     :override (if (comms-protocols raw-override) raw-override "inherit")
+     :selected selected
+     :enforcement enforcement}))
+
 ;; --- registry -------------------------------------------------------------
 
 (defn registry-path [home]

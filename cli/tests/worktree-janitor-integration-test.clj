@@ -11,9 +11,19 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
+(def fram-source
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")))
+(when-not (seq fram-source)
+  (throw
+   (ex-info
+    "Fram fixture required; set FRAM_TEST_CHECKOUT to a pinned checkout or package libexec/fram"
+    {})))
 (def fram
-  (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
+  (.getCanonicalPath (io/file fram-source)))
+(when-not (and (.isFile (io/file fram "coord_daemon.clj"))
+               (.isDirectory (io/file fram "out")))
+  (throw (ex-info "Fram fixture lacks coord_daemon.clj or out/" {:fram fram})))
 (def reactor (str root "/cli/north-reactor.clj"))
 (def lander (str root "/cli/worktree-lander.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
@@ -159,7 +169,9 @@
          {:out :string :err :string :continue true
           :extra-env (merge environment
                             {"FRAM_PORT" (str port)
-                             "FRAM_LOG" @test-log})}
+                             "FRAM_LOG" @test-log
+                             "NORTH_TELEMETRY_PARTITION" "0"
+                             "FRAM_TELEMETRY_LOG" ""})}
          "bb" reactor "sweep-once" flags))
 
 ;; ---- unregistered wt-* census fixture ---------------------------------------
@@ -186,11 +198,11 @@
       (str/replace #"^gitdir:\s*" "")
       str/trim))
 
-(defn age-worktree! [path when]
+(defn age-worktree! [path timestamp]
   (doseq [target [(io/file (worktree-git-dir path) "logs" "HEAD") (io/file path)]]
     (when (.exists target)
       (proc/shell {:out :string :err :string}
-                  "touch" "-d" when (.getPath target)))))
+                  "touch" "-d" timestamp (.getPath target)))))
 
 (defn census-repo! [census-root name]
   (let [root (.getCanonicalPath (io/file census-root name "main"))]
@@ -236,15 +248,18 @@
       git-log (io/file tmp "git-calls.log")
       git-wrapper (io/file tmp "git-wrapper")
       post-remove-marker (io/file tmp "post-remove-failure-armed")
-      daemon-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                  "FRAM_SINGLE_VALUED"
-                  (str/join " " ["kind" "repo" "worktree" "branch" "agent" "lease"
-                                     "outcome" "process_outcome" "delivery_outcome"
-                                     "delivery_reason" "terminal_manifest_sha256" "run_at"])}
+      daemon-env
+      (merge
+       (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
+       {"FRAM_REQUIRE_LOG_FENCE" "1"
+        "NORTH_TELEMETRY_PARTITION" "0"
+        "FRAM_SINGLE_VALUED"
+        (str/join " " ["kind" "repo" "worktree" "branch" "agent" "lease"
+                       "outcome" "process_outcome" "delivery_outcome"
+                       "delivery_reason" "terminal_manifest_sha256" "run_at"])})
       daemon (do
                (spit log "")
-               (proc/process {:dir fram :out :string :err :string
-                              :extra-env daemon-env}
+               (proc/process {:dir fram :out :string :err :string :env daemon-env}
                              "bb" "-cp" "out" "coord_daemon.clj"
                              "serve-flat" (str port) (.getPath log)))]
   (reset! test-log (.getCanonicalPath log))
@@ -388,6 +403,10 @@
             before-dry-log (slurp log)
             dry-run (run-reactor port environment "--dry-run")
             after-dry-log (slurp log)
+            census-after-dry
+            (into {} (map (juxt :slug #(tree-snapshot (:path %))))
+                  [census-reapable census-dirty census-unmerged
+                   census-fresh census-claimed census-held])
             first-run (run-reactor port environment)
             after-first-log (slurp log)
             orphan-values (many port (:subject dirty) "worktree_orphaned")]
@@ -402,9 +421,7 @@
                     (str/includes? (:out dry-run) "would-remove=1")
                     (str/includes? (:out dry-run) "needs-review=2")
                     (str/includes? (:out dry-run) "concern-held=1")
-                    (every? #(.isDirectory (io/file (:path %)))
-                            [census-reapable census-dirty census-unmerged
-                             census-fresh census-claimed census-held]))
+                    (= census-before census-after-dry))
                (:out dry-run))
         (check "dry-run surfaces dirty and unmerged stale trees for review"
                (and (str/includes? (:out dry-run)

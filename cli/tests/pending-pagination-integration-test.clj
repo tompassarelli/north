@@ -13,6 +13,11 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (str (System/getProperty "user.home") "/code/fram/main")))
+(load-file (str fram "/tests/log_split_readiness_lib.clj"))
+(defn pagination-process-env
+  [overrides]
+  (merge (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
+         overrides))
 (def inbox-peek (str root "/cli/inbox-peek.clj"))
 (System/setProperty "north.live-feed.lib" "1")
 (let [test-file (System/getProperty "babashka.file")
@@ -40,10 +45,6 @@
     (catch clojure.lang.ExceptionInfo error
       (= expected (:type (ex-data error))))))
 
-(defn free-port []
-  (with-open [socket (java.net.ServerSocket. 0)]
-    (.getLocalPort socket)))
-
 (defn port-open? [port]
   (try
     (with-open [socket (java.net.Socket.)]
@@ -53,12 +54,32 @@
       true)
     (catch Exception _ false)))
 
-(defn eventually [f]
-  (loop [remaining 300]
-    (cond
-      (try (f) (catch Throwable _ false)) true
-      (zero? remaining) false
-      :else (do (Thread/sleep 20) (recur (dec remaining))))))
+(defn await-coordinator! [daemon port log]
+  (try
+    (await-ready
+     daemon port
+     #(and (port-open? %)
+           (:ready (north.coord/strict-coordinator-status % log)))
+     :deadline-ms 75000
+     :poll-ms 100)
+    (catch clojure.lang.ExceptionInfo error
+      (throw
+       (ex-info
+        "throwaway paged coordinator failed to become strict-ready"
+        (merge (ex-data error)
+               {:pid (.pid ^Process (:proc daemon))
+                :log log
+                :port port})
+        error)))))
+
+(defn listener-pids [port]
+  (->> (:out
+        (proc/shell
+         {:continue true :out :string :err :string}
+         "ss" "-tlnpH" (str "sport = :" port)))
+       (re-seq #"pid=([0-9]+)")
+       (map (comp parse-long second))
+       set))
 
 (defn stop-process! [process]
   (try (proc/destroy-tree process) (catch Throwable _ nil))
@@ -189,14 +210,20 @@
        {:dir fram
         :out :string
         :err :string
-        :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-       "bb" "-cp" "out" "coord_daemon.clj"
+        :env (pagination-process-env {"FRAM_REQUIRE_LOG_FENCE" "1"})}
+       (str fram "/bin/fram-daemon")
        "serve-flat" (str port) canonical-log)
       page-sizes (atom [])
       original-page north.message-audience/pending-message-page]
   (try
-    (check! "throwaway paged coordinator starts"
-            (eventually #(port-open? port)))
+    (await-coordinator! daemon port canonical-log)
+    (let [status (north.coord/strict-coordinator-status port canonical-log)
+          daemon-pid (.pid ^Process (:proc daemon))]
+      (check! "throwaway paged coordinator is strict-ready on its scratch log"
+              (and (:ready status)
+                   (= canonical-log (:log status))))
+      (check! "throwaway paged coordinator owns its kernel-selected port"
+              (contains? (listener-pids port) daemon-pid)))
     ;; The PostToolUse path must not scan/materialize the whole relation before
     ;; its first byte. Run the real helper twice under the exact 2s outer
     ;; hook deadline. Distinct subjects prove the persisted deletion-safe cursor
@@ -219,8 +246,10 @@
                    {:continue true
                     :out :string
                     :err :string
-                    :extra-env {"FRAM_LOG" canonical-log
-                                "XDG_RUNTIME_DIR" (.getCanonicalPath runtime)}}
+                    :env
+                    (pagination-process-env
+                     {"FRAM_LOG" canonical-log
+                      "XDG_RUNTIME_DIR" (.getCanonicalPath runtime)})}
                    "timeout" "--signal=TERM" "--kill-after=0.1s" "2s"
                    "bb" inbox-peek (str port) recipient)]
               (assoc result
@@ -474,7 +503,8 @@
         (check! "replay reaches a final empty first page"
                 (zero? (last @page-sizes)))))
     (finally
-      (stop-process! daemon))))
+      (stop-process! daemon)
+      (cleanup-scratch (.getCanonicalPath tmp)))))
 
 ;; North independently enforces the page protocol at its own client boundary.
 (let [{:keys [port worker]}

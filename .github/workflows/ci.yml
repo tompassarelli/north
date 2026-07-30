@@ -101,6 +101,8 @@ jobs:
 
       - name: Domain tests (run on the committed out/, no Beagle build needed)
         working-directory: north
+        env:
+          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
         run: |
           set -euo pipefail
           CP="out:../fram/out"
