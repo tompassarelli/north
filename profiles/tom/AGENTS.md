@@ -148,8 +148,8 @@ comes from content selection, never compression tricks.
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
 
-→ `~/.agents/docs/model-selection.md` (compose the envelope)
-→ `~/.agents/docs/praxis/README.md` (personal posture residue)
+→ `~/.agents/docs/model-selection.md` (compose the envelope; personal
+domain/posture defaults + freeze rule live there too)
 
 Routing law is CANONICAL in `north:orchestration/doctrine.md` (portable
 contract: `north:orchestration/docs/routing.md`); a session digest is injected
