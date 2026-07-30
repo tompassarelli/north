@@ -56,6 +56,9 @@
 (declare-extern fram.rt/coord-port [-> Int])
 (declare-extern fram.rt/coord-status-for-log [Int String -> String])
 (declare-extern fram.rt/coord-live-facts [Int String -> (Vec k/Fact)])
+;; Exact-subject warm read ({:version :rows [[p r] ...]} | nil). Any because the
+;; extern is the untyped wire seam, exactly like coord-request-for-log above.
+(declare-extern fram.rt/coord-show-for-log [Int String String -> Any])
 
 ;; --- thread id: north-owned UUIDv7 minter --------------------------------
 ;; A UUIDv7 packs a 48-bit ms timestamp in the high bits, so ids are both
@@ -222,8 +225,7 @@
 ;; daemon-less, just slower.
 ;; Deliberately NOT warm: doctor/heal/boot (doctor's whole job is checking the
 ;; daemon AGAINST an independent fold of the log — a daemon-served view would
-;; have it vouch for itself; heal/boot classify through the same probe), capture's
-;; post-write render (the .md is defined as a projection OF THE LOG), and
+;; have it vouch for itself; heal/boot classify through the same probe) and
 ;; needs-review (reads fold-latest — per-assertion tx/frame provenance the live
 ;; view doesn't carry; a candidate for plan (b)'s snapshot surface).
 ;; logs: north-side mirror of the coordinator's read-logs-merged
@@ -263,6 +265,24 @@
 
 (defn- live-idx [log :- String] :- k/Index
   (k/build-index (live-facts log)))
+
+;; :show rows keep the whole-corpus :facts projection's order (coord_daemon.clj
+;; subject-wire-snapshot) — that contract is what makes a slice render byte-identical.
+;; [] conflates daemon-down/no-:show/wrong-corpus with an absent subject, so every
+;; caller needs a whole-corpus fallback (the coord-live-facts convention).
+(defn- coord-subject-facts [log :- String te :- String] :- (Vec k/Fact)
+  (let [rows :- (Vec (Vec String))
+        (try
+          (let [resp (fram.rt/coord-show-for-log (fram.rt/coord-port) log te)]
+            (if (nil? resp) [] (:rows resp)))
+          (catch Exception _ []))]
+    (mapv (fn [row :- (Vec String)] :- k/Fact
+            (k/->Fact te (nth row 0) (nth row 1)))
+          rows)))
+
+(defn- subject-facts [log :- String te :- String] :- (Vec k/Fact)
+  (let [warm (coord-subject-facts log te)]
+    (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
 
 ;; --- write THROUGH the coordinator (serialized, safe under concurrent agents) --
 (defn coordinator-failure-message [code :- Int port :- Int log :- String consequence :- String] :- String
@@ -444,7 +464,17 @@
                  oks (count (filterv (fn [r :- String] :- Bool (str/starts-with? r "ok:")) results))]
              (if (= oks (count facts))
                (do
-                 (fram.rt/spit-file path (exp/thread-md (:facts (fold/fold (fram.rt/read-log log))) te))
+                 ;; Freshly minted id: an empty warm read-back means the read failed,
+                 ;; never that the subject is absent.
+                 ;; thread-md resolves predicate metadata out of the vector it is handed,
+                 ;; so a value_kind declared on a capture predicate renders as its
+                 ;; fallback kind here until the next whole-corpus re-render.
+                 (fram.rt/spit-file
+                  path
+                  (exp/thread-md
+                   (let [warm (coord-subject-facts log te)]
+                     (if (empty? warm) facts warm))
+                   te))
                  (if (structured-capture?)
                    (print-capture-receipt
                     id te title path (count facts) oks true "captured")
@@ -962,7 +992,14 @@
                    base)]
     (vec (concat live-base (parked-assignment-reviews live-idx today before? live?)))))
 
-(defn cmd-json [log :- String what :- String arg :- String all? :- Bool] :- Nil
+;; Split out of cmd-json's corpus-wide let so a single-subject show never binds
+;; live-facts: the whole point is that this verb touches ONE subject.
+(defn- cmd-json-show [log :- String arg :- String] :- Nil
+  (println (fram.rt/to-json
+            (mapv (fn [c :- k/Fact] :- JFact (->JFact (:p c) (:r c)))
+                  (subject-facts log (str "@" arg))))))
+
+(defn- cmd-json-corpus [log :- String what :- String arg :- String all? :- Bool] :- Nil
   (let [facts (live-facts log)
         idx (k/build-index facts)
         today (fram.rt/today-iso)
@@ -1004,10 +1041,6 @@
                             (->JClockRow (short-id (:te r)) (title-of idx (:te r)) (:est-h r) (:act-sec r) (:term r)))
                           rs)
                     (->JCalib (:pct cal) (:sample cal))))))]
-      [(= what "show")
-       (println (fram.rt/to-json
-                 (mapv (fn [c :- k/Fact] :- JFact (->JFact (:p c) (:r c)))
-                       (k/q-by-l facts (str "@" arg)))))]
       [(= what "show-many")
        (let [subjects (filterv (fn [s :- String] :- Bool (not (str/blank? s)))
                                (mapv (fn [s :- String] :- String (short-id s))
@@ -1063,6 +1096,11 @@
                  (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready")
                                   (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))]
       [:else (println "usage: json board|ready|blocked|needs-review|clock-report|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation")])))
+
+(defn cmd-json [log :- String what :- String arg :- String all? :- Bool] :- Nil
+  (if (= what "show")
+    (cmd-json-show log arg)
+    (cmd-json-corpus log what arg all?)))
 
 (defn cmd-needs-review [log :- String] :- Nil
   (let [as (fram.rt/read-log log)

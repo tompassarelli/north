@@ -126,6 +126,18 @@
 (defn- live-idx [^String log]
   (k/build-index (live-facts log)))
 
+(defn- coord-subject-facts [^String log ^String te]
+  (let [rows (try
+  (let [resp (fram.rt/coord-show-for-log (fram.rt/coord-port) log te)]
+  (if (nil? resp) [] (:rows resp)))
+  (catch Exception _
+    []))]
+  (mapv (fn [row] (k/->Fact te (nth row 0) (nth row 1))) rows)))
+
+(defn- subject-facts [^String log ^String te]
+  (let [warm (coord-subject-facts log te)]
+  (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
+
 (defn ^String coordinator-failure-message [code port ^String log ^String consequence]
   (let [summary (cond
   (= code -1) (str "coordinator UNREACHABLE on 127.0.0.1:" port)
@@ -229,7 +241,8 @@
    results (mapv (fn [c] (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)) facts)
    oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
-  (fram.rt/spit-file path (exp/thread-md (:facts (fold/fold (fram.rt/read-log log))) te))
+  (fram.rt/spit-file path (exp/thread-md (let [warm (coord-subject-facts log te)]
+  (if (empty? warm) facts warm)) te))
   (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via coordinator. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
   (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files.")))))))))))
 
@@ -589,7 +602,10 @@
    live-base (filterv (fn [rv] (if (= (:pred rv) "done_when") (live? live-idx (:te rv)) true)) base)]
   (vec (concat live-base (parked-assignment-reviews live-idx today before? live?)))))
 
-(defn cmd-json [^String log ^String what ^String arg ^Boolean all?]
+(defn- cmd-json-show [^String log ^String arg]
+  (println (fram.rt/to-json (mapv (fn [c] (->JFact (:p c) (:r c))) (subject-facts log (str "@" arg))))))
+
+(defn- cmd-json-corpus [^String log ^String what ^String arg ^Boolean all?]
   (let [facts (live-facts log)
    idx (k/build-index facts)
    today (fram.rt/today-iso)
@@ -608,7 +624,6 @@
   (= what "clock-report") (let [rs (clk/rows idx (fn [s] (fram.rt/iso-to-seconds s)) (fn [s] (fram.rt/parse-int s)))
    cal (clk/calibration rs)]
   (println (fram.rt/to-json (->JClockReport (mapv (fn [r] (->JClockRow (short-id (:te r)) (title-of idx (:te r)) (:est-h r) (:act-sec r) (:term r))) rs) (->JCalib (:pct cal) (:sample cal))))))
-  (= what "show") (println (fram.rt/to-json (mapv (fn [c] (->JFact (:p c) (:r c))) (k/q-by-l facts (str "@" arg)))))
   (= what "show-many") (let [subjects (filterv (fn [s] (not (str/blank? s))) (mapv (fn [s] (short-id s)) (vec (str/split arg #","))))
    subject-set (reduce (fn [m s] (assoc m (str "@" s) true)) {} subjects)]
   (println (fram.rt/to-json (mapv (fn [c] (->JSubjectFact (short-id (:l c)) (:p c) (:r c))) (filterv (fn [c] (get subject-set (:l c) false)) facts)))))
@@ -622,6 +637,9 @@
   (and (some? l) (str/starts-with? l "@agent:")))) facts))))
   (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
   :else (println "usage: json board|ready|blocked|needs-review|clock-report|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
+
+(defn cmd-json [^String log ^String what ^String arg ^Boolean all?]
+  (if (= what "show") (cmd-json-show log arg) (cmd-json-corpus log what arg all?)))
 
 (defn cmd-needs-review [^String log]
   (let [as (fram.rt/read-log log)

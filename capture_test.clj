@@ -96,8 +96,53 @@
     [(with-out-str (m/run ["capture" "--help"] "/tmp/threads" "/tmp/facts.log"))
      (with-out-str (m/run ["capture" "-h"] "/tmp/threads" "/tmp/facts.log"))]))
 
+;; --- admission latency: both hot verbs must ask for ONE SUBJECT --------------
+;; A whole-corpus read here is the 20s/106s defect, so rt/read-log and
+;; rt/coord-live-facts THROW: the shape is pinned by making the slow query fatal,
+;; not by timing it.
+(def admission-shows (atom []))
+(defn- shows-only [rows]
+  {#'rt/coord-show-for-log (fn [_ _ te] (swap! admission-shows conj te) {:version 1 :rows rows})
+   #'rt/read-log (fn [& _] (throw (ex-info "whole-log read on an exact-subject path" {})))
+   #'rt/coord-live-facts (fn [& _] (throw (ex-info "whole-corpus read on an exact-subject path" {})))})
+
+(def render-rows
+  [["title" "Exact subject render"] ["kind" "thread"] ["created_by" "@tom_passarelli"]])
+(def rendered (atom nil))
+(def capture-render-output
+  (with-redefs-fn
+    (merge (shows-only render-rows)
+           {#'m/uuidv7 (fn [] "019f0000-0000-7000-8000-000000000002")
+            #'rt/ensure-dir (fn [_] nil)
+            #'rt/today-iso (fn [] "2026-07-19")
+            #'rt/now-iso (fn [] "2026-07-19T00:00:00Z")
+            #'rt/coord-port (fn [] 7977)
+            #'rt/coord-version-for-log (fn [_ _] 1)
+            #'m/tell-retry (fn [& _] "ok:2")
+            #'rt/spit-file (fn [_ content] (reset! rendered content) nil)})
+    #(with-out-str
+       (m/cmd-capture "/tmp/north-capture-test" "/tmp/facts.log"
+                      "Exact subject render" "personal"))))
+
+(def json-show-output
+  (with-redefs-fn (shows-only [["title" "Exact subject show"] ["kind" "thread"]])
+    #(with-out-str (m/cmd-json "/tmp/facts.log" "show" "019f0000-0000-7000-8000-000000000003" false))))
+
 (def checks
-  [["uuidv7 is a version-7 uuid"                 (boolean (re-matches uuid-re u1))]
+  [["capture renders from an exact-subject read, never a whole-log fold"
+    (and (some? @rendered)
+         (str/includes? @rendered "title  \"Exact subject render\"")
+         (str/includes? @rendered "created_by  \"@tom_passarelli\"")
+         (str/includes? capture-render-output "captured -> "))]
+   ["capture's exact-subject read asks for exactly the thread it just wrote"
+    (= "@019f0000-0000-7000-8000-000000000002" (first @admission-shows))]
+   ["json show reads one subject, never the whole corpus"
+    (= [{:predicate "title" :value "Exact subject show"}
+        {:predicate "kind" :value "thread"}]
+       (json/parse-string (str/trim json-show-output) true))]
+   ["json show asks the coordinator for exactly the requested subject"
+    (some #{"@019f0000-0000-7000-8000-000000000003"} @admission-shows)]
+   ["uuidv7 is a version-7 uuid"                 (boolean (re-matches uuid-re u1))]
    ["uuidv7 is NOT the old date-id scheme"       (nil? (re-matches date-id-re u1))]
    ["uuidv7 parses as a UUID, version 7"         (= 7 (.version (java.util.UUID/fromString u1)))]
    ["uuidv7 ids are distinct"                    (not= u1 u2)]
