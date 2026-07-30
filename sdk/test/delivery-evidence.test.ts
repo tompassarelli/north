@@ -5,7 +5,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DeliveryEvidenceProofTransportFailure, DeliveryReservationWriterProcessFailure,
+  DeliveryEvidenceProofTransportFailure, DeliveryEvidenceRecordTransportFailure,
+  DeliveryReservationWriterProcessFailure,
   deliveryEvidenceWriterError, deliveryReservationFailureCause, deliveryRunEnvironment,
   deliveryWriterInvocation, loadDeliveryRunState, newDeliveryRunContext,
   parseEvidenceRecordArgv, recordRunBarEvidence, recordUnreservedBarEvidence,
@@ -115,7 +116,37 @@ test("proof transport failure is distinct and never asks for task repetition", (
   );
   expect(processFailure).toBeInstanceOf(DeliveryEvidenceProofTransportFailure);
   expect(processFailure.retryable).toBe(false);
-  expect(DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS).toBe(45_000);
+  // Same shape as the reservation writer, one hop later: the outer boundary
+  // must lose the race against the writer's own read-retry (15s) + lease-wait
+  // (15s) budgets and up to three fenced 30s round-trips.
+  expect(DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS).toBe(180_000);
+  expect(DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS).toBeGreaterThan(
+    15_000 + 15_000 + 3 * 30_000,
+  );
+});
+
+test("a record-path coordinator transport death is retryable, unlike a landed-write proof-transport failure", () => {
+  for (const transport of [
+    "coordinator response deadline exceeded",
+    "coordinator closed before sending a response line",
+    "coordinator closed during a response line",
+  ]) {
+    const failure = deliveryEvidenceWriterError(
+      "record", `Message: ${transport}\n`,
+    );
+    expect(failure).toBeInstanceOf(DeliveryEvidenceRecordTransportFailure);
+    expect(failure.name).toBe("DeliveryEvidenceRecordTransportFailure");
+    expect(failure.retryable).toBe(true);
+    expect(failure.message).toBe(`delivery evidence record rejected: ${transport}`);
+  }
+  // A landed-but-unconfirmed write stays terminal and never replays.
+  const landed = deliveryEvidenceWriterError(
+    "record",
+    "Message: PROOF_TRANSPORT_FAILURE: run-bound proof publication was not"
+    + " acknowledged; do not repeat the task\n",
+  );
+  expect(landed).toBeInstanceOf(DeliveryEvidenceProofTransportFailure);
+  expect(landed.retryable).toBe(false);
 });
 
 test("reservation failure diagnostics expose only bounded semantic causes", () => {

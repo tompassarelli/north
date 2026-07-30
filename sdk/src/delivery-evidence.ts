@@ -19,10 +19,9 @@ export const RUN_RESERVATION_VERSION = "north:run-reservation:v1";
 // healthy writer instead of letting it report its own typed refusal: read-retry
 // budget 15s, per-read socket deadline 30s, publication deadline 30s, readback.
 export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 180_000;
-// Covers the writer's bounded run/bar lease wait plus provenance reads and the
-// fenced commit. Killing it below those internal bounds can strand a live lease
-// and manufacture an ambiguous proof-transport failure.
-export const DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS = 45_000;
+// Same shape one hop later: read-retry budget 15s, lease-wait budget 15s, and
+// up to three fenced round-trips each bounded by the 30s per-read deadline.
+export const DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS = 180_000;
 const RUN_RESERVATION_BODY = [
   "run_capability_sha256",
   "run_reservation_agent",
@@ -99,6 +98,18 @@ const COORDINATOR_TRANSPORT_FAILURES = [
 function coordinatorTransportFailure(reason: string | undefined): boolean {
   return reason !== undefined
     && COORDINATOR_TRANSPORT_FAILURES.some((failure) => reason.includes(failure));
+}
+
+// A transport death carries no write verdict; record's bar+observed dedup makes a same-request replay safe.
+export class DeliveryEvidenceRecordTransportFailure
+  extends DeliveryEvidenceRetryableError {
+  readonly operation = "record";
+  readonly reason = "coordinator-transport-failure";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "DeliveryEvidenceRecordTransportFailure";
+  }
 }
 
 export interface DeliveryRunContext {
@@ -412,6 +423,9 @@ export function deliveryEvidenceWriterError(
     );
   }
   const message = `delivery evidence ${operation} rejected${reason ? `: ${reason}` : ""}`;
+  if (operation === "record" && coordinatorTransportFailure(reason)) {
+    return new DeliveryEvidenceRecordTransportFailure(message);
+  }
   if (replayable) return replayable(message);
   return reason?.startsWith("RETRYABLE:")
     || (operation === "reserve" && (
