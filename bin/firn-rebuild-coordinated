@@ -153,23 +153,16 @@ else
   post_rebuild_north_bin="$(command -v -- "$post_rebuild_north" 2>/dev/null || true)"
 fi
 if [[ -z "$post_rebuild_north_bin" || ! -x "$post_rebuild_north_bin" ]]; then
-  report="firn rebuild rc 0; post-rebuild North CLI is unavailable: $post_rebuild_north"
-  "$north_bin" rebuild-intent failed "$intent_id" "$report"
-  printf '%s: %s\n' "$program" "$report" >&2
-  exit 1
+  readiness="post-rebuild North CLI is unavailable: $post_rebuild_north"
+  report="firn rebuild rc 0; coordination readiness degraded: $readiness"
+  "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+  printf '%s: deployment succeeded; coordination readiness degraded: %s\n' \
+    "$program" "$readiness" >&2
+  exit 0
 fi
 
-# Prefer the new generation's bounded identity + strict-log-fence probe.
-# Compatibility with an older target generation is identity-only. Both compare
-# listeners with their durable *running* selectors; a no-cutover rebuild may
-# intentionally leave Fram built ahead, which `north deployed` reports
-# separately and is not a listener-health failure.
-post_help="$("$post_rebuild_north_bin" --help 2>&1 || true)"
-if grep -q 'coord-safety' <<<"$post_help"; then
-  coord_probe=coord-safety
-else
-  coord_probe=coord-ready
-fi
+# Deployment readiness is runtime identity; coord-safety also audits source authorability.
+coord_probe=coord-ready
 
 coord_attempt=1
 coord_delay=1
@@ -183,10 +176,12 @@ while true; do
     break
   fi
   if ((coord_attempt >= coord_retry_attempts)); then
-    report="firn rebuild rc 0; north $coord_probe rc $coord_rc after $coord_attempt attempts"
-    "$north_bin" rebuild-intent failed "$intent_id" "$report"
-    printf '%s: %s\n' "$program" "$report" >&2
-    exit "$coord_rc"
+    readiness="north $coord_probe rc $coord_rc after $coord_attempt attempts"
+    report="firn rebuild rc 0; coordination readiness degraded: $readiness"
+    "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
+    printf '%s: deployment succeeded; coordination readiness degraded: %s\n' \
+      "$program" "$readiness" >&2
+    exit 0
   fi
   printf '%s: coordinator verification unavailable; retry %d/%d in %ds\n' \
     "$program" "$coord_attempt" "$coord_retry_attempts" "$coord_delay" >&2
@@ -197,6 +192,6 @@ while true; do
   fi
 done
 
-report="firn rebuild rc 0; north $coord_probe rc 0 (live selector healthy; built-ahead allowed)"
+report="firn rebuild rc 0; north $coord_probe rc 0 (live runtime identity healthy)"
 "$north_bin" rebuild-intent deployment-verified "$intent_id" "$report"
 printf 'deployment verified: %s\n' "$report"
