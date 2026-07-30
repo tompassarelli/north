@@ -11,7 +11,18 @@
 set -euo pipefail
 ROOT="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
 BOARD="${NORTH_PORT:-7977}"
-BB="${NORTH_BB:-bb}"
+# See bin/north for the resolution-chain rationale: a promoted deployment's
+# exec unit may carry neither bb nor NORTH_BB on PATH.
+if [ -n "${NORTH_BB:-}" ]; then
+  BB="$NORTH_BB"
+elif command -v bb >/dev/null 2>&1; then
+  BB="bb"
+elif [ -x /run/current-system/sw/bin/bb ]; then
+  BB="/run/current-system/sw/bin/bb"
+else
+  echo "concern: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
+  exit 127
+fi
 # The concern CLI talks to the coordination spine directly instead of routing
 # through bin/north, so it must carry the same canonical log fence itself.
 # Leaving this unset falls back to the retired facts.log name in coord.clj and

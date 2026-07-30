@@ -86,7 +86,19 @@ FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
 export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT
 unset _north_world_manifest
 
-BB="${NORTH_BB:-bb}"
+# A promoted deployment's exec unit may carry a PATH with neither bb nor
+# NORTH_BB: fall back through PATH, then the fixed NixOS system-profile path,
+# before failing loud — the promoted tree must not depend on a nix wrapper.
+if [ -n "${NORTH_BB:-}" ]; then
+  BB="$NORTH_BB"
+elif command -v bb >/dev/null 2>&1; then
+  BB="bb"
+elif [ -x /run/current-system/sw/bin/bb ]; then
+  BB="/run/current-system/sw/bin/bb"
+else
+  echo "north: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
+  exit 127
+fi
 BUN="${NORTH_BUN:-bun}"
 
 if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
