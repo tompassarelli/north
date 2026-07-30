@@ -62,10 +62,11 @@ describe("Orchestration routing metadata boundary", () => {
 
   test("retired role ids fail while explicit research functions remain canonical", () => {
     expect(() => canonicalRole("researcher")).toThrow("role researcher is retired");
-    expect(() => canonicalRole("research-scientist")).toThrow("cs-researcher");
+    expect(() => canonicalRole("research-scientist")).toThrow("scientist");
+    expect(() => canonicalRole("cs-researcher")).toThrow("scientist");
     expect(canonicalRole("scout")).toBe("scout");
     expect(canonicalRole("analyst")).toBe("analyst");
-    expect(canonicalRole("cs-researcher")).toBe("cs-researcher");
+    expect(canonicalRole("scientist")).toBe("scientist");
     expect(canonicalRole("migration-forensics")).toBe("migration-forensics");
   });
 

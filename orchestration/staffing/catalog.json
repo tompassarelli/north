@@ -65,7 +65,7 @@
       "name": "scout", "taskGrade": "junior", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "gathered findings, with provenance",
-      "description": "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → cs-researcher."
+      "description": "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → scientist."
     },
     {
       "name": "analyst", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "explore",
@@ -92,7 +92,7 @@
       "description": "Rubric-backed ranking of two or more supplied alternatives — scores, a winner, and what to graft from runners-up. Does not verify a single claim (→ verifier) or invent the candidate set (→ designer). Read-only."
     },
     {
-      "name": "cs-researcher", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
+      "name": "scientist", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
       "description": "Research-grade inquiry — open solution class, novel method, answer genuinely unknown. Frames competing hypotheses and discriminating experiments; invokes existing non-mutating probes only, never authors code or apparatus (hand that to an authoring role). Source gathering → scout; ordinary root-cause → analyst. Research is a function, not a task grade."

@@ -1,6 +1,6 @@
 ---
 name: "scout"
-description: "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → cs-researcher. Task grade: junior."
+description: "Scout work — locate, map, gather: where is X, what calls Y, sweep a codebase or the web for sources. Read-only, low-cost fan-out unit; spawn several in parallel. Gathers and reports without deep synthesis. Deep analysis or root-cause → analyst; cutting-edge inquiry → scientist. Task grade: junior."
 model: "claude-sonnet-5"
 effort: "low"
 tools: "Read, Grep, Glob, WebSearch, WebFetch"

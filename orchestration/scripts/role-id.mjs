@@ -2,13 +2,13 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export const ROLE_ID_PATTERN_SOURCE = "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$";
 export const ROLE_ID_PATTERN = new RegExp(ROLE_ID_PATTERN_SOURCE);
-export const RETIRED_ROLE_IDS = Object.freeze(["researcher", "research-scientist"]);
+export const RETIRED_ROLE_IDS = Object.freeze(["researcher", "research-scientist", "cs-researcher"]);
 
 export function canonicalRoleId(value, label = "role") {
   if (typeof value !== "string" || !ROLE_ID_PATTERN.test(value))
     throw new Error(`${label} must be a lowercase kebab-case ID matching ${ROLE_ID_PATTERN_SOURCE}`);
   if (RETIRED_ROLE_IDS.includes(value))
-    throw new Error(`role '${value}' is retired; use scout for source gathering, analyst for deep mechanism research, or cs-researcher for cutting-edge inquiry`);
+    throw new Error(`role '${value}' is retired; use scout for source gathering, analyst for deep mechanism research, or scientist for cutting-edge inquiry`);
   return value;
 }
 

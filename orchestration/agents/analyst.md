@@ -42,7 +42,7 @@ REPORT: the finding first (what's true and why), then the evidence trail
 REDIRECT: deliverable is a decision → designer; a change → integrator;
 multi-criterion assessment of one supplied artifact → reviewer; mere
 location/gathering → hand down to scout; novel hypothesis/experiment/
-new-knowledge work → cs-researcher.
+new-knowledge work → scientist.
 
 ## Task grade: senior
 TASK GRADE: SENIOR. Own ambiguous work spanning consequential boundaries. Trace
