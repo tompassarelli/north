@@ -1,0 +1,120 @@
+PROPOSAL ONLY — NOT APPLIED
+
+Owner path: ~/code/fram/main/integrations/north/hooks/code-upstream-guard.sh
+Landing path: sealed North enforcement promotion, with owner-repo hook tests.
+
+diff --git a/integrations/north/hooks/code-upstream-guard.sh b/integrations/north/hooks/code-upstream-guard.sh
+--- a/integrations/north/hooks/code-upstream-guard.sh
++++ b/integrations/north/hooks/code-upstream-guard.sh
+@@ -94,6 +94,12 @@
+ [ "$payload_oversized" -eq 0 ] || exit 0
+ 
+ REGISTRY="${GRAPH_UPSTREAM_REGISTRY:-$HOME/.config/fram/graph-upstream-files}"
++TEXT_ARM_TOKEN="${NORTH_TEXT_ARM_TOKEN:-}"
++TEXT_ARM_THREAD="${NORTH_TASK_THREAD:-}"
++TEXT_ARM_TOKEN_ROOT=""
++if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
++  TEXT_ARM_TOKEN_ROOT="$XDG_RUNTIME_DIR/north/text-arm-tokens"
++fi
+ 
+ # Resolve the redirect verbs once (kept in one place so the deny reason stays honest
+ # about what the agent should call instead of Edit/Write).
+@@ -119,10 +125,13 @@
+ # hook's JSON envelope (sys.stdin must stay the harness's PreToolUse payload). Args
+ # carry the registry path + deny reason so no shell interpolation lands inside python.
+ read -r -d '' PY <<'PYEOF' || true
+-import sys, json, os, re, subprocess, getpass, pwd, stat
++import sys, json, os, re, subprocess, getpass, pwd, stat, time
+ 
+ registry_path = sys.argv[1]
+ deny_reason   = sys.argv[2]
++token_path    = sys.argv[3]
++token_root    = sys.argv[4]
++task_thread   = sys.argv[5]
+ 
+ def fail_open():
+     # No opinion -> allow. Empty stdout, exit 0.
+@@ -340,11 +349,76 @@
+         return False
+     return False
+ 
++def same_file_identity(left, right):
++    if os.path.realpath(left) == os.path.realpath(right):
++        return True
++    left_prov = git_provenance(left)
++    return left_prov is not None and git_provenance(right) == left_prov
++
++def valid_text_arm_token(path):
++    # The issuer first records text_arm_token_issued on the task thread, then
++    # publishes this 0600 runtime token. The hook stays read-only and bounded.
++    if not token_path or not token_root or not task_thread:
++        return False
++    try:
++        root_real = os.path.realpath(token_root)
++        token_real = os.path.realpath(token_path)
++        root_stat = os.lstat(token_root)
++        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
++            return False
++        if root_stat.st_uid != os.geteuid() or (root_stat.st_mode & 0o077):
++            return False
++        if os.path.dirname(token_real) != root_real:
++            return False
++        fd = os.open(token_path, os.O_RDONLY | os.O_NOFOLLOW)
++        with os.fdopen(fd) as handle:
++            token_stat = os.fstat(handle.fileno())
++            if (not stat.S_ISREG(token_stat.st_mode)
++                    or token_stat.st_uid != os.geteuid()
++                    or (token_stat.st_mode & 0o077)
++                    or token_stat.st_size > 65536):
++                return False
++            token = json.load(handle)
++    except Exception:
++        return False
++
++    now = int(time.time())
++    issued = token.get("issued_at_epoch")
++    expires = token.get("expires_at_epoch")
++    files = token.get("files")
++    if token.get("version") != 1 or token.get("arm") != "text":
++        return False
++    if token.get("thread") != task_thread:
++        return False
++    if not isinstance(issued, int) or not isinstance(expires, int):
++        return False
++    if issued > now + 60 or expires <= now or expires <= issued:
++        return False
++    if expires - issued > 14400 or expires > now + 14400:
++        return False
++    if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
++                        str(token.get("token_id", ""))):
++        return False
++    if not re.fullmatch(r"[0-9a-f]{64}", str(token.get("audit_fact_sha256", ""))):
++        return False
++    if not isinstance(token.get("why"), str) or not token["why"].strip():
++        return False
++    if not isinstance(files, list) or not files or len(files) > 64:
++        return False
++    if not all(isinstance(item, str) and os.path.isabs(item) for item in files):
++        return False
++    return any(same_file_identity(path, item) for item in files)
++
+ canonical = in_registry(fp) or self_declared(fp)
+ 
+ if not canonical:
+     fail_open()
+ 
++# A valid token is a task-scoped virtual de-adoption. Invalid, expired, unsafe,
++# or wrong-file tokens fall through to the existing refusal.
++if valid_text_arm_token(fp):
++    fail_open()
++
+ # POSITIVE MATCH -> deny this Edit/Write/MultiEdit and redirect to the graph verbs.
+ print(json.dumps({
+     "hookSpecificOutput": {
+@@ -356,4 +430,5 @@
+ sys.exit(0)
+ PYEOF
+ 
+-printf '%s' "$payload" | python3 -c "$PY" "$REGISTRY" "$DENY_REASON"
++printf '%s' "$payload" | python3 -c "$PY" "$REGISTRY" "$DENY_REASON" \
++  "$TEXT_ARM_TOKEN" "$TEXT_ARM_TOKEN_ROOT" "$TEXT_ARM_THREAD"
