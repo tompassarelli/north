@@ -14,6 +14,8 @@
 # A separate topology invariant applies to Bash regardless of dispatch mode:
 #   AGENT_TOPOLOGY=worker -> DENY direct North/provider agent work + peer control
 #   orchestrator/unset    -> allow (native sessions have no managed topology)
+# Any explicit topology also bounds North thread writes and denies capture.
+# An unset native session is indistinguishable from the interactive user here.
 # This is a static command-position policy guard, not a shell security boundary:
 # runtime-built commands (variables, functions, eval-generated text) are outside
 # what a PreToolUse string inspection can resolve. Provider tool exposure remains
@@ -551,6 +553,64 @@ def north_config_mutation(args):
     }
     return None if tuple(rest) in read_only else "north config mutation"
 
+AGENT_REPORT_PREDICATES = {"started", "checkpoint", "blocked", "landed", "handoff"}
+
+def direct_agent_write_violation(command, args, cwd):
+    command, args = unwrap(command, args)
+    if not command:
+        return None
+    name = basename(command)
+
+    if name in SHELLS:
+        for command_string in shell_command_strings(name, args):
+            match = forbidden_agent_write_shell(command_string, cwd)
+            if match:
+                return match
+        shell_args = drop_options(args)
+        if shell_args and basename(shell_args[0]) == "north":
+            return direct_agent_write_violation(shell_args[0], shell_args[1:], cwd)
+        return None
+
+    if name != "north" or not args:
+        return None
+    verb = args[0]
+    if verb == "capture":
+        return "north capture"
+    if verb == "tell":
+        predicate = args[2] if len(args) > 2 else ""
+        if len(args) != 4 or predicate not in AGENT_REPORT_PREDICATES:
+            return "north tell " + (predicate or "<missing-predicate>")
+        return None
+    if verb in ("retract", "untell", "set"):
+        return "north " + verb
+    return None
+
+def forbidden_agent_write_shell(command, cwd):
+    if not isinstance(command, str):
+        return None
+    for nested in command_substitutions(command):
+        match = forbidden_agent_write_shell(nested, cwd)
+        if match:
+            return match
+    for segment in command_segments(command):
+        executable, args = initial_command(segment)
+        if executable:
+            match = direct_agent_write_violation(executable, args, cwd)
+            if match:
+                return match
+    return None
+
+def mcp_agent_write_violation(tool, tool_input):
+    if tool == "mcp__north__capture":
+        return tool
+    if tool == "mcp__north__tell":
+        predicate = str(tool_input.get("predicate", ""))
+        if predicate not in AGENT_REPORT_PREDICATES:
+            return tool + " " + (predicate or "<missing-predicate>")
+    if tool in ("mcp__north__retract", "mcp__north__untell", "mcp__north__set"):
+        return tool
+    return None
+
 def is_direct_spawn(command, args, cwd):
     command, args = unwrap(command, args)
     if not command:
@@ -636,8 +696,31 @@ def forbidden_shell(command, cwd):
                 return match
     return None
 
+topology = os.environ.get("AGENT_TOPOLOGY", "").strip().lower()
+if topology:
+    write_violation = None
+    if tool in ("Bash", "shell", "exec_command"):
+        write_violation = forbidden_agent_write_shell(
+            ti.get("command", ""), data.get("cwd", "") or "",
+        )
+    else:
+        write_violation = mcp_agent_write_violation(tool, ti)
+    if write_violation:
+        reason = (
+            "DENIED by agent thread-write policy (matched " + write_violation + "): "
+            "agent sessions cannot create threads or edit arbitrary facts. Report only "
+            "started, checkpoint, blocked, landed, or handoff on the assigned thread; "
+            "return any new-thread request to the user."
+        )
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }}))
+        sys.exit(0)
+
 if tool in ("Bash", "shell", "exec_command"):
-    if os.environ.get("AGENT_TOPOLOGY", "").strip().lower() != "worker":
+    if topology != "worker":
         sys.exit(0)
     command = ti.get("command", "")
     match = forbidden_shell(command, data.get("cwd", "") or "")

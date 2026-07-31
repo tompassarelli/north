@@ -54,6 +54,9 @@ run() {
   if [[ "$tool" =~ ^(Bash|shell|exec_command)$ ]]; then
     input="$(jq -nc --arg t "$tool" --arg c "$payload" --arg d "$REPO" \
       '{tool_name:$t,tool_input:{command:$c},cwd:$d}')"
+  elif [[ "$tool" == mcp__north__* ]]; then
+    input="$(jq -nc --arg t "$tool" --argjson i "$payload" \
+      '{tool_name:$t,tool_input:$i}')"
   else
     input="$(jq -nc --arg t "$tool" --arg p "$payload" \
       '{tool_name:$t,tool_input:{subagent_type:"general-purpose",prompt:$p}}')"
@@ -230,17 +233,36 @@ run allow 'rg pattern mention is prose' worker Bash "rg -n 'codex exec|claude -p
 run allow 'Python test literal is an argument' worker Bash 'python3 -c '\''assert "north spawn" == "north spawn"'\'''
 run allow 'test script path does not reveal its contents' worker Bash 'bash ./agent-spawn-guard.test.sh'
 run allow 'North show remains available' worker Bash 'north show thread-1'
-run allow 'North tell remains available' worker Bash 'north tell thread-1 progress done'
-run allow 'North capture remains available' worker Bash 'north capture "an idea"'
+run deny 'arbitrary North tell is unavailable' worker Bash 'north tell thread-1 progress done'
+run deny 'North capture is unavailable' worker Bash 'north capture "an idea"'
+run deny 'command-local topology unset cannot expose capture' worker Bash 'env -u AGENT_TOPOLOGY north capture "an idea"'
+run deny 'nested shell cannot expose arbitrary tells' worker Bash 'bash -lc "north tell thread-1 outcome done"'
+for predicate in started checkpoint blocked landed handoff; do
+  run allow "North $predicate report remains available" worker Bash \
+    "north tell thread-1 $predicate report"
+done
+run deny 'North retract is unavailable' worker Bash 'north retract thread-1 checkpoint report'
+run deny 'MCP capture is unavailable' worker mcp__north__capture '{"title":"an idea"}'
+run deny 'arbitrary MCP tell is unavailable' worker mcp__north__tell \
+  '{"id":"thread-1","predicate":"progress","value":"done"}'
+run allow 'allowlisted MCP tell remains available' worker mcp__north__tell \
+  '{"id":"thread-1","predicate":"checkpoint","value":"report"}'
+run deny 'MCP retract is unavailable' worker mcp__north__retract \
+  '{"id":"thread-1","predicate":"checkpoint","value":"report"}'
 run allow 'North clock remains available' worker Bash 'north clock status'
 run allow 'North status/help diagnostics remain available' worker Bash 'north agents && north providers && north --help'
 
 echo '== topology boundary and dispatch-mode independence =='
+run deny 'orchestrator cannot create threads' orchestrator Bash 'north capture "an idea"'
+run deny 'orchestrator cannot write arbitrary facts' orchestrator Bash 'north tell thread-1 outcome done'
+run allow 'orchestrator can report handoff' orchestrator Bash 'north tell thread-1 handoff report'
 run allow 'orchestrator may create North lane' orchestrator Bash 'north spawn implementer work'
 run allow 'orchestrator may run provider agent' orchestrator Bash 'codex exec work'
 run allow 'orchestrator may open provider session' orchestrator Bash 'claude'
 run allow 'native/unmanaged session has no topology restriction' unset Bash 'north delegate work'
 run allow 'native/unmanaged session may open provider session' unset Bash 'codex'
+run allow 'native/unmanaged session retains thread capture' unset Bash 'north capture "an idea"'
+run allow 'native/unmanaged session retains arbitrary tells' unset Bash 'north tell thread-1 progress done'
 run allow 'non-Bash tool is not topology shell surface' worker Read 'north spawn implementer work'
 set_state native on
 run deny 'dispatch=native (legacy) does not waive worker topology' worker Bash 'north spawn implementer work'
