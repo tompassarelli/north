@@ -19,6 +19,8 @@
        "7977")))
 (def busy-retries 40)
 (def busy-retry-ms 100)
+(def active-wait-timeout-ms (* 10 60 1000))
+(def active-wait-ms 250)
 
 (defn subscription-request []
   {:op :subscribe
@@ -30,16 +32,45 @@
        (= north.rebuild-request/queue-subject (:l event))
        (= north.rebuild-request/queue-predicate (:p event))))
 
+(defn wait-for-window-release! [deadline-ns]
+  (loop []
+    (case (:state (north.rebuild-window-owner/window-unit-state))
+      :inactive true
+      :unknown false
+      :active
+      (if (>= (System/nanoTime) deadline-ns)
+        false
+        (do
+          (Thread/sleep active-wait-ms)
+          (recur))))))
+
 (defn wake-owner! [reason]
-  (let [started (System/nanoTime)]
+  (let [started (System/nanoTime)
+        active-deadline
+        (+ started (* 1000000 active-wait-timeout-ms))]
     (loop [attempt 0]
       (let [result
             (north.rebuild-window-owner/collect! port false north-bin)]
-        (if (and (= "owner-busy" (:action result))
-                 (< attempt busy-retries))
+        (cond
+          (and (= "owner-busy" (:action result))
+               (< attempt busy-retries))
           (do
             (Thread/sleep busy-retry-ms)
             (recur (inc attempt)))
+
+          (= "active" (:action result))
+          (if (wait-for-window-release! active-deadline)
+            (recur 0)
+            (let [elapsed-ms
+                  (long (/ (- (System/nanoTime) started) 1000000))]
+              (println (str "[rebuild-owner] wake=" (name reason)
+                            " action=active-rearm-deferred"
+                            " elapsed_ms=" elapsed-ms))
+              (flush)
+              (assoc result :elapsed-ms elapsed-ms
+                     :reason "active window did not release before fallback")))
+
+          :else
           (let [elapsed-ms
                 (long (/ (- (System/nanoTime) started) 1000000))]
             (println (str "[rebuild-owner] wake=" (name reason)
