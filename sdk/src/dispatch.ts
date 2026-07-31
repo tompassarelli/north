@@ -802,7 +802,7 @@ async function runDispatch(
       subject: "SESSION CAP",
       detail: `managed session reached ${sessionHardCap.hardCapMs}ms hard cap; `
         + `handoff=${sessionHardCap.handoffPath ?? "unavailable"}; `
-        + `thread_index=${sessionHardCap.indexed ? "recorded" : "unavailable"}`,
+        + `handoff_index=${sessionHardCap.indexed ? "thread" : "outbox"}`,
     };
   } else if (hostSignal && !watchdogAbort) {
     outcome = "died";
