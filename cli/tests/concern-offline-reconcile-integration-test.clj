@@ -517,7 +517,7 @@
                        {:op :show :te (:concern-id operation)}))))))
 
       ;; Phase 1's publication lock must survive concurrent producers; Phase 2
-      ;; consumes their final names in deterministic lexical order.
+      ;; consumes their canonical creation order with operation id as tie-break.
       (let [parallel-spool (doto (io/file tmp "parallel-spool") .mkdirs)
             parallel-state (io/file tmp "parallel-state")
             operations
@@ -538,9 +538,9 @@
                          (+ (System/nanoTime) (* 1000000 5000))))))
                    (mapv deref)))
             expected-files
-            (->> receipts
+            (->> operations
+                 (sort-by (juxt :created-at :operation-id))
                  (map #(str (:operation-id %) ".op.edn"))
-                 sort
                  vec)
             result (run-pass port parallel-spool parallel-state)
             observed-files (mapv :file (:outcomes result))]
@@ -553,7 +553,7 @@
                         parallel-spool
                         (str (:operation-id %) ".op.edn")))
                      receipts)))
-        (check "one bounded pass consumes parallel operations in deterministic order"
+        (check "one bounded pass consumes parallel operations in canonical creation order"
                (and (= expected-files observed-files)
                     (= 16 (:settled result))
                     (every?
@@ -587,7 +587,7 @@
             operations
             (->> [(fixture-operation log "corrupt-marker")
                   (fixture-operation log "after-corrupt-marker")]
-                 (sort-by :operation-id)
+                 (sort-by (juxt :created-at :operation-id))
                  vec)
             corrupt (first operations)
             later (second operations)
@@ -601,7 +601,7 @@
         (check "corrupt marker cannot suppress operation validation"
                (and (= 1 (:deferred first-pass))
                     (empty? (:rows (show port log corrupt)))))
-        (check "permanently deferred marker prefix cannot starve the lexical tail"
+        (check "permanently deferred marker prefix cannot starve the ordered tail"
                (and (= 1 (:settled second-pass))
                     (exact-projection?
                      later (:rows (show port log later))))))
@@ -630,7 +630,7 @@
              :max-millis 5000}
             first-pass (run-pass port byte-spool byte-state byte-limits)
             second-pass (run-pass port byte-spool byte-state byte-limits)]
-        (check "over-byte lexical head is deferred without reading or mutation"
+        (check "over-byte ordered head is deferred without mutation"
                (and (= 1 (:deferred first-pass))
                     (= "operation-exceeds-remaining-pass-byte-budget"
                        (:reason (first (:outcomes first-pass))))
@@ -737,8 +737,183 @@
         (stop-blackhole! server)
         (delete-tree! tmp)))))
 
+(defn load-concern-cli-prefix! []
+  (let [test-script (System/getProperty "babashka.file")
+        source-path (str test-root "/cli/concern-cli.clj")
+        source-text (slurp source-path)
+        main-offset (str/last-index-of source-text "\n(let [[ps verb")]
+    (when-not main-offset
+      (throw (ex-info "concern CLI main form marker not found" {})))
+    (System/setProperty "babashka.file" source-path)
+    (load-string (subs source-text 0 main-offset))
+    (System/setProperty "babashka.file" test-script)))
+
+(defn terminal-replay-probe []
+  (load-concern-cli-prefix!)
+  (let [tmp (temp-directory "north-concern-terminal-replay")
+        spool (doto (io/file tmp "spool") .mkdirs)
+        state (io/file tmp "state")
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        target-log (.getCanonicalPath log)
+        concern "@concern-1785506000000-a001"
+        peer "@concern-1785506000001-b002"
+        raced "@concern-1785506000002-c003"
+        transition
+        (north.concern-spool/build-operation
+         {:operation-type north.concern-spool/transition-operation-type
+          :operation-id "ffffffff-ffff-ffff-ffff-fffffffffff1"
+          :concern-id concern
+          :target-log target-log
+          :created-at "2026-07-31T08:00:00Z"
+          :facts
+          [{:predicate "reached" :object "landed" :cardinality "multi"}]})
+        raced-transition
+        (north.concern-spool/build-operation
+         {:operation-type north.concern-spool/transition-operation-type
+          :operation-id "00000000-0000-0000-0000-000000000002"
+          :concern-id raced
+          :target-log target-log
+          :created-at "2026-07-31T08:00:01Z"
+          :facts
+          [{:predicate "reached" :object "landed" :cardinality "multi"}]})
+        states
+        {concern {:id concern :kind "concern" :agent "@agent-a"
+                  :about nil :repo "north" :intent "terminal replay"
+                  :status "building" :abandoned false
+                  :touches #{"cli/shared.clj"}}
+         peer {:id peer :kind "concern" :agent "@agent-b"
+               :about nil :repo "north" :intent "peer"
+               :status "building" :abandoned false
+               :touches #{"cli/shared.clj"}}
+         raced {:id raced :kind "concern" :agent "@agent-c"
+                :about nil :repo "north" :intent "lost race"
+                :status "building" :abandoned true
+                :touches #{"cli/raced.clj"}}}
+        rows
+        (atom
+         {concern [["kind" "concern"] ["agent" "@agent-a"]
+                   ["repo" "north"] ["intent" "terminal replay"]
+                   ["touches" "cli/shared.clj"] ["reached" "building"]]
+          raced [["kind" "concern"] ["agent" "@agent-c"]
+                 ["repo" "north"] ["intent" "lost race"]
+                 ["touches" "cli/raced.clj"]
+                 ["reached" "building"] ["reached" "abandoned-stale"]]})
+        version* (atom 20)
+        batches (atom [])
+        fake-send
+        (fn [_port exact-log request]
+          (when-not (= target-log exact-log)
+            (throw (ex-info "wrong test log" {:exact-log exact-log})))
+          (case (:op request)
+            :version {:version @version*}
+            :show {:version @version*
+                   :rows (vec (get @rows (:te request) []))}
+            :assert-batch-at-version
+            (if (not= @version* (:base request))
+              {:reject :conflict}
+              (let [facts (:facts request)
+                    subject (:te request)
+                    existing (set (get @rows subject []))
+                    written
+                    (->> facts
+                         (mapv (juxt :p :r))
+                         (remove existing)
+                         vec)
+                    idempotent
+                    (->> facts
+                         (mapv (juxt :p :r))
+                         (filter existing)
+                         vec)
+                    next-version (swap! version* inc)]
+                (swap! batches conj {:subject subject :facts facts})
+                (swap! rows update subject
+                       (fn [current]
+                         (vec (distinct (concat current written)))))
+                {:ok next-version
+                 :written (mapv pr-str written)
+                 :idempotent (mapv pr-str idempotent)
+                 :batch true}))
+            {:error "unexpected fake coordinator operation"}))]
+    (try
+      (publish! spool transition)
+      (publish! spool raced-transition)
+      (let [before-version @version*
+            result
+            (with-redefs-fn
+             {#'north.coord/send-op-for-log fake-send
+              (resolve 'concern-meta-index) (fn [_] {})
+              (resolve 'concern-meta)
+              (fn [_ subject] (get states subject))
+              (resolve 'many)
+              (fn [_ subject predicate]
+                (if (= "reached" predicate)
+                  (mapv second
+                        (filter #(= "reached" (first %))
+                                (get @rows subject [])))
+                  []))
+              (resolve 'overlaps-for)
+              (fn [_ subject]
+                {:mine (get states subject)
+                 :overlaps
+                 (if (= concern subject)
+                   [{:pair-key
+                     "concern-overlap:concern-1785506000000-a001:concern-1785506000001-b002"
+                     :source-concerns [concern peer]
+                     :left (get states concern)
+                     :right (get states peer)
+                     :shared ["cli/shared.clj"]
+                     :evidence "path"}]
+                   [])})
+              (resolve 'attention-event-intent-value)
+              (fn [_ subject status event]
+                (pr-str ["test-intent" subject status (:event-key event)]))}
+             (fn []
+               (binding
+                [north.concern-spool-reconcile/*transition-plan!*
+                 @(resolve 'concern-transition-plan!)]
+                 (run-pass 7977 spool state))))
+            outcome-files (mapv :file (:outcomes result))
+            terminal-batch (first @batches)
+            conflict (read-record (conflict-record state raced-transition))
+            replay-version @version*
+            replay
+            (with-redefs [north.coord/send-op-for-log fake-send]
+              (binding
+               [north.concern-spool-reconcile/*transition-plan!*
+                @(resolve 'concern-transition-plan!)]
+                (run-pass 7977 spool state)))]
+        (check "terminal replay processes queued operations in deterministic order"
+               (= ["ffffffff-ffff-ffff-ffff-fffffffffff1.op.edn"
+                   "00000000-0000-0000-0000-000000000002.op.edn"]
+                  outcome-files))
+        (check "spooled terminal transition reconciles with its warning intent atomically"
+               (and (= 1 (:settled result))
+                    (= 1 (:conflicts result))
+                    (> @version* before-version)
+                    (= concern (:subject terminal-batch))
+                    (= ["attention_event_intent" "reached"]
+                       (mapv :p (:facts terminal-batch)))
+                    (contains? (set (get @rows concern)) ["reached" "landed"])
+                    (.isFile (settled-record state transition))))
+        (check "a terminal transition that lost its race surfaces an immutable conflict"
+               (and (= "transition-overtaken" (:reason conflict))
+                    (.isFile (conflict-record state raced-transition))
+                    (not (contains? (set (get @rows raced))
+                                    ["reached" "landed"]))))
+        (check "settled and conflicted transitions replay idempotently"
+               (and (= replay-version @version*)
+                    (= 1 (:already-settled replay))
+                    (= 1 (:already-conflict replay)))))
+      (finally
+        (delete-tree! tmp)))))
+
+(when (= "terminal-offline" (first *command-line-args*))
+  (terminal-replay-probe)
+  (System/exit (if (zero? @fails) 0 1)))
+
 (primary-probes)
 (bounded-transport-probe)
+(terminal-replay-probe)
 
 (if (zero? @fails)
   (do
