@@ -141,12 +141,9 @@
 
 (def ^:dynamic *response-byte-limit-override* nil)
 
-;; 64 MiB, not 8. The cap bounds how much one response may consume, but 8 MiB sat
-;; BELOW what North's own warm path needs: the whole-corpus `:facts` view is
-;; ~345k triples, and both the coordination and telemetry domains blew the limit
-;; on every call. The failure was invisible and expensive — `live-triples-at`
-;; marked the domain unavailable, north fell back to a COLD FOLD of the 36 MB log
-;; on disk, and the answer was still correct, just far slower.
+;; 64 MiB is the hard ceiling for non-paged coordinator responses. North's
+;; whole-corpus warm path no longer depends on fitting beneath it: live-facts-view
+;; drains the daemon's separately bounded :query-page response instead.
 ;;
 ;; Measured 2026-07-29, `north validate`, same corpus and load:
 ;;   8 MiB cap   44,326 ms   (cap exceeded -> cold fold)
@@ -155,8 +152,8 @@
 ;; default to the ceiling the policy had always allowed rather than inventing a
 ;; new bound.
 ;;
-;; This does NOT make the whole-corpus fetch cheap — that is a separate refactor
-;; (predicate-scoped reads). It stops a silent 2x penalty on top of it.
+;; Raising this ceiling again is not a warm-read mitigation; paging is the
+;; load-bearing bound.
 (def ^:private default-response-byte-limit "67108864")
 
 (defn- response-byte-limit []
@@ -593,39 +590,65 @@
     (send-op-for-log port log {:op :facts :fmt :json} read-json-response!)
     (send-op-for-log port log {:op :facts})))
 
-(defn- live-triples-at [port log]
-  ;; Ask for JSON when this classpath can decode it. The whole-corpus :facts
-  ;; response is the single largest thing North reads, and DECODING it — not
-  ;; producing or transferring it — is the dominant cost. Fram's own
-  ;; coord-live-state already opts in for exactly this reason
-  ;; (coord_daemon.clj:5629, "~12x faster as JSON than as EDN" at ~2MB).
-  ;;
-  ;; Falls back to EDN on any JSON failure rather than reporting the domain
-  ;; unavailable. A daemon predating :fmt support answers a REJECT, not a
-  ;; corpus, and the correct response to "this coordinator is older than I
-  ;; assumed" is to speak the older dialect — not to make north's whole live
-  ;; view vanish. Version skew between an installed north and a running fram is
-  ;; the normal state during a cutover, not an exceptional one.
-  (let [attempt
-        (fn [json?]
-          (let [response (normalize-facts-response (fetch-triples port log json?))
-                triples (valid-triples (:facts response))]
-            (if (and triples (integer? (:version response)))
-              {:available true :version (:version response) :facts triples}
-              {:available false :error "malformed :facts response"})))]
-    (try
-      (if (json-response-available?)
-        (let [json-result (try (attempt true)
-                               (catch Exception error
-                                 {:available false :error (.getMessage error)}))]
-          (if (:available json-result)
-            json-result
-            ;; Keep the EDN answer's error if it also fails: it is the format
-            ;; every coordinator speaks, so its complaint is the truer one.
-            (attempt false)))
-        (attempt false))
-      (catch Exception error
-        {:available false :error (.getMessage error)}))))
+(declare query-page-in-domain)
+
+(def ^:private live-facts-page-query
+  {:find "north_live_fact"
+   :rules [{:head {:rel "north_live_fact"
+                   :args [{:var "subject"} {:var "predicate"} {:var "value"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} {:var "predicate"} {:var "value"}]}]}]})
+
+(defn- live-triples-at [port domain]
+  ;; Every page must come from one immutable coordinator version. A write between
+  ;; pages can move a row behind the key cursor, so version drift is an aborted
+  ;; pagination, never evidence of a complete warm domain.
+  (try
+    (loop [after nil expected-version nil triples []]
+      (let [response
+            (query-page-in-domain
+             port domain live-facts-page-query query-page-row-limit after)
+            version (:version response)
+            rows (:ok response)
+            more (:more response)
+            next-cursor (:next response)]
+        (when (:error response)
+          (throw
+           (ex-info "coordinator paged facts query failed"
+                    {:type :paged-facts-query-failed
+                     :error (:error response)})))
+        (when-not
+         (and (integer? version)
+              (not (neg? version))
+              (vector? rows)
+              (every? #(and (vector? %)
+                            (= 3 (count %))
+                            (every? string? %))
+                      rows)
+              (boolean? more)
+              (if more (valid-query-page-cursor? next-cursor) (nil? next-cursor)))
+          (throw
+           (ex-info "coordinator returned a malformed paged facts response"
+                    {:type :malformed-paged-facts-response})))
+        (when (and expected-version (not= expected-version version))
+          (throw
+           (ex-info
+            (str "coordinator paged facts version changed from "
+                 expected-version " to " version " before the final page")
+            {:type :paged-facts-version-drift
+             :expected-version expected-version
+             :actual-version version})))
+        (when (and more (or (empty? rows) (= after next-cursor)))
+          (throw
+           (ex-info "coordinator paged facts cursor did not advance"
+                    {:type :stalled-paged-facts-cursor})))
+        (let [all-triples (into triples rows)]
+          (if more
+            (recur next-cursor (or expected-version version) all-triples)
+            {:available true :version version :facts all-triples}))))
+    (catch Exception error
+      {:available false
+       :error (or (.getMessage error) "paged facts read failed without a reason")})))
 
 (defn live-facts-view
   "Compose materialized live facts from the independently fenced coordination
@@ -646,9 +669,9 @@
   ;; read rather than trailing it.
   (let [telemetry-future
         (when (telemetry-partition-enabled?)
-          (future (live-triples-at (configured-telemetry-port) (telemetry-log-path))))
+          (future (live-triples-at (configured-telemetry-port) :telemetry)))
         coordination
-        (live-triples-at coordination-port (expected-log))
+        (live-triples-at coordination-port :coordination)
         telemetry
         (when telemetry-future
           ;; Bounded: a hung domain must not hang the caller forever. On timeout
