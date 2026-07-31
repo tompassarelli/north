@@ -40,6 +40,7 @@
              :l "@rebuild-queue" :p "rebuild_queue" :r "{}"}
       started (System/nanoTime)
       first-wake-result (atom nil)
+      duplicate-result (atom nil)
       _ (with-out-str
           (with-redefs
             [owner/with-owner-lock (fn [f] (f))
@@ -56,7 +57,8 @@
                (reset! unit-active? true)
                {:launched true :unit owner/rebuild-window-unit})]
             (reset! first-wake-result (watch/process-event! event))
-            (watch/process-event! event)))
+            (reset! duplicate-result
+                    (owner/collect-unlocked! 7977 false "/fixture/north"))))
       elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))]
   (check "urgent queue publication reaches one claim promptly"
          (and (= "fired" (:action @first-wake-result))
@@ -66,8 +68,36 @@
          {:elapsed-ms elapsed-ms :claims @claims :launches @launches
           :result @first-wake-result})
   (check "a duplicate wake observes the active fixed unit and makes no second claim"
-         (and (= 1 (count @claims)) (= 1 (count @launches)))
-         {:claims @claims :launches @launches}))
+         (and (= "active" (:action @duplicate-result))
+              (= 1 (count @claims))
+              (= 1 (count @launches)))
+         {:result @duplicate-result :claims @claims :launches @launches}))
+
+(let [collect-calls (atom 0)
+      state-reads (atom 0)
+      wake-result (atom nil)
+      _ (with-out-str
+          (with-redefs
+            [owner/collect!
+             (fn [& _]
+               (if (= 1 (swap! collect-calls inc))
+                 {:action "active" :count 1}
+                 {:action "fired" :count 1 :window "rearmed-window"}))
+             owner/window-unit-state
+             (fn []
+               {:state (if (= 1 (swap! state-reads inc))
+                         :active
+                         :inactive)})
+             watch/active-wait-ms 0
+             watch/active-wait-timeout-ms 1000]
+            (reset! wake-result (watch/wake-owner! :queue-commit))))]
+  (check "an active-window wake re-arms after unit completion without a new commit"
+         (and (= "fired" (:action @wake-result))
+              (= 2 @collect-calls)
+              (= 2 @state-reads))
+         {:result @wake-result
+          :collect-calls @collect-calls
+          :state-reads @state-reads}))
 
 (let [durable (atom [])
       shell-called? (atom false)
