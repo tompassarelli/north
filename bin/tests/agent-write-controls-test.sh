@@ -112,6 +112,17 @@ expect_denied "native/no-topology capture" \
   env -u AGENT_TOPOLOGY -u AGENT_ID -u NORTH_AGENT_ID "${common_env[@]}" \
   "$root/bin/north" capture "native-created thread"
 
+run_codex() {
+  local codex_thread_id="$1"
+  shift
+  env -u AGENT_TOPOLOGY -u AGENT_ID -u NORTH_AGENT_ID -u NORTH_AUTHOR \
+    "${common_env[@]}" CODEX_THREAD_ID="$codex_thread_id" "$@"
+}
+
+expect_denied "native Codex capture" \
+  run_codex codex-session-a \
+  "$root/bin/north" capture "native-codex-created thread"
+
 forged_token="$(printf 'a%.0s' {1..64})"
 expect_denied "legacy trusted boolean cannot bypass authority" \
   env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
@@ -167,6 +178,29 @@ for predicate in started checkpoint blocked landed handoff; do
   grep -Fq 'rate-limited to one per agent/thread every 600s' "$scratch/denied.out"
   [[ "$(wc -l <"$calls")" -eq 1 ]]
 done
+
+for predicate in started checkpoint blocked landed handoff; do
+  rm -rf "${runtime:?}/north-agent-reports"
+  : >"$calls"
+  run_codex codex-session-a "$root/bin/north" tell \
+    "$thread_a" "$predicate" first >/dev/null
+  expect_denied "same Codex session repeats $predicate inside 600 seconds" \
+    run_codex codex-session-a "$root/bin/north" tell \
+    "$thread_a" "$predicate" second
+  grep -Fq 'rate-limited to one per agent/thread every 600s' "$scratch/denied.out"
+  [[ "$(wc -l <"$calls")" -eq 1 ]]
+done
+
+rm -rf "${runtime:?}/north-agent-reports"
+: >"$calls"
+run_codex codex-session-a "$root/bin/north" tell \
+  "$thread_a" started "first Codex session" >/dev/null
+expect_denied "same Codex session shares the limit across report predicates" \
+  run_codex codex-session-a "$root/bin/north" tell \
+  "$thread_a" checkpoint "same Codex session"
+run_codex codex-session-b "$root/bin/north" tell \
+  "$thread_a" checkpoint "second Codex session" >/dev/null
+[[ "$(wc -l <"$calls")" -eq 2 ]]
 
 rm -rf "${runtime:?}/north-agent-reports"
 : >"$calls"
