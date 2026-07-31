@@ -67,7 +67,7 @@
                {:ok []})
       :query-page {:ok [] :more false :next nil :version 0 :engine "scan"}
       :facts {:facts [] :version 0}
-      :show {:ok []}
+      :show {:rows [] :version 0}
       {:ok true :version 0})))
 
 (defn start-coordinator
