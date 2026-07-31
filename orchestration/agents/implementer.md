@@ -17,6 +17,9 @@ May decide: implementation details within the established pattern.
 Must escalate: the pattern doesn't fit; an interface or data-shape change
 would be needed; second failed fix on the same defect (report hypothesis,
 don't loop).
+Verification budget: the narrowest probe that drives the changed behavior
+end-to-end, plus the brief's bars; unrequested test breadth is scope growth,
+not safety.
 Done = flow driven end-to-end, observed working; debts logged.
 REPORT: files touched with ≤10-word change descriptions, "ran X, saw Y",
 debts logged at cut time.

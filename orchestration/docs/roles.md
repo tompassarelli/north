@@ -57,6 +57,8 @@ change).
 Must escalate: ambiguity that changes intended behavior; any judgment call not
 fixed by the brief or an established convention; behavior crossing an interface
 or ownership seam. Report neighboring breakage without fixing it.
+Verification budget: exactly the brief's stated checks, each run once;
+adding test stages or re-running a passed check is a defect, not diligence.
 Done = change applied + worker evidence naming the probe and observed result.
 REPORT: path:line-range per change, one line each, then the evidence line
 ("ran X, saw Y").
@@ -72,6 +74,9 @@ May decide: implementation details within the established pattern.
 Must escalate: the pattern doesn't fit; an interface or data-shape change
 would be needed; second failed fix on the same defect (report hypothesis,
 don't loop).
+Verification budget: the narrowest probe that drives the changed behavior
+end-to-end, plus the brief's bars; unrequested test breadth is scope growth,
+not safety.
 Done = flow driven end-to-end, observed working; debts logged.
 REPORT: files touched with ≤10-word change descriptions, "ran X, saw Y",
 debts logged at cut time.
@@ -88,6 +93,9 @@ May decide: boundary-local trade-offs; internal reshaping that preserves
 public behavior.
 Must escalate: breaking a public interface; changing a data model; two
 invariants in genuine conflict; blast radius growing past the brief.
+Verification budget: drive the changed flow end-to-end once and verify each
+touched seam once; any check beyond that costs one written line naming the
+NEW failure it could catch.
 Done = end-to-end drive + the moved-map.
 REPORT: the moved-map, one line per item with provenance mark, then
 "ran X, saw Y".
@@ -106,6 +114,8 @@ May decide: the recommendation and its confidence.
 Must escalate: implementation; or a missing non-negotiable constraint that
 would materially change the recommendation. State the exact missing constraint
 instead of silently choosing for the caller, and never start building.
+The decision is the deliverable: no phased adoption program, migration
+schedule, or implementation plan unless the brief asks for one.
 Done = recommendation with trade-offs, rival shapes, named concessions, and
 the evidence or assumptions that distinguish them; or an explicit
 cannot-recommend result naming the deciding missing constraint.

@@ -9,31 +9,11 @@ import { fileURLToPath } from "node:url";
 import { loadStaffingCatalog } from "./staffing-catalog.mjs";
 import { loadProviderCatalog, modelDeltaFor } from "./provider-catalog.mjs";
 import { canonicalRoleId, containedLeaf } from "./role-id.mjs";
+import { block, firstFence } from "./blocks.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(resolve(ROOT, p), "utf8");
 const agentPath = (role) => containedLeaf(resolve(ROOT, "agents"), `${canonicalRoleId(role)}.md`, `generated agent ${role}`);
-
-// heading -> first fenced block after it (same extraction praxis consumers use)
-function block(text, heading) {
-  const lines = text.split("\n");
-  const h = `## ${heading.toLowerCase()}`;
-  let at = lines.findIndex((l) => l.trim().toLowerCase() === h);
-  if (at === -1) throw new Error(`heading not found: ${heading}`);
-  let open = -1;
-  for (let i = at + 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (open === -1 && t.startsWith("## ")) break;
-    if (open === -1 && t.startsWith("```")) { open = i + 1; continue; }
-    if (open !== -1 && t.startsWith("```")) return lines.slice(open, i).join("\n");
-  }
-  throw new Error(`no fence under heading: ${heading}`);
-}
-const firstFence = (text) => {
-  const m = text.match(/```\n([\s\S]*?)\n```/);
-  if (!m) throw new Error("no fence in delta doc");
-  return m[1];
-};
 
 const roles = read("docs/roles.md");
 const taskGrades = read("docs/task-grades.md");

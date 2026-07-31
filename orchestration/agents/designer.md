@@ -19,6 +19,8 @@ May decide: the recommendation and its confidence.
 Must escalate: implementation; or a missing non-negotiable constraint that
 would materially change the recommendation. State the exact missing constraint
 instead of silently choosing for the caller, and never start building.
+The decision is the deliverable: no phased adoption program, migration
+schedule, or implementation plan unless the brief asks for one.
 Done = recommendation with trade-offs, rival shapes, named concessions, and
 the evidence or assumptions that distinguish them; or an explicit
 cannot-recommend result naming the deciding missing constraint.

@@ -18,6 +18,9 @@ May decide: boundary-local trade-offs; internal reshaping that preserves
 public behavior.
 Must escalate: breaking a public interface; changing a data model; two
 invariants in genuine conflict; blast radius growing past the brief.
+Verification budget: drive the changed flow end-to-end once and verify each
+touched seam once; any check beyond that costs one written line naming the
+NEW failure it could catch.
 Done = end-to-end drive + the moved-map.
 REPORT: the moved-map, one line per item with provenance mark, then
 "ran X, saw Y".

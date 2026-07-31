@@ -9,11 +9,16 @@ Template workers or purpose-built compositions? How should each worker be
 prompted, and what should each report back? **Let the orchestration figure it out.**
 
 Orchestration's portable core (routing laws, template library, payload method) is
-adapter-agnostic; concrete delivery happens through adapters, of which two
-ship today: a Claude Code plugin adapter and a [North multi-provider execution
-adapter](docs/adapters/north.md). Orchestration chooses the semantic route; the
+adapter-agnostic; concrete delivery happens through adapters, of which three
+ship today: a Claude Code plugin adapter, a [North multi-provider execution
+adapter](docs/adapters/north.md), and a [codex-cli adapter](docs/adapters/codex-cli.md)
+for direct OpenAI lane dispatch. Orchestration chooses the semantic route; the
 adapter resolves it to the provider, model, and reasoning/effort — whether
 it's a single worker or a multi-stage workflow.
+`scripts/compose-payload.mjs` assembles a stock template's full behavioral
+payload (role, grade, topology, posture, comms, provider family block, exact
+model delta) for any provider, so custom-surface lanes never launch on a bare
+task prompt.
 
 Install it and your sessions gain:
 

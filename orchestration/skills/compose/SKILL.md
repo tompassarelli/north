@@ -62,6 +62,9 @@ pass it through the selected adapter's documented spawn surface.
    - Model delta — `docs/deltas/<model>.md`: include only when the selected
      provider adapter ships a calibrated delta for the concrete model. Absence
      is explicit, not permission to borrow a different provider's delta.
+   - Provider family — `docs/deltas/openai-common.md` (OpenAI lanes only):
+     family-wide deployment policy, composed between comms and the model
+     delta; it rides alongside the exact model's delta, never instead of it.
    Done: role, grade, topology, posture, and comms paths are named; the exact
    concrete model's delta path is named or explicitly `none` for this adapter.
 4. **Derive and pin provider-neutral routing**: classify decision ownership,
@@ -80,9 +83,13 @@ pass it through the selected adapter's documented spawn surface.
    sidecar and the emitted request retains exactly eight fields.
    Done: tier + deliberation are literal Orchestration request values; provider is a
    literal North envelope value (normally `auto`), never a ninth Orchestration field.
-5. **Paste** the blocks above the task text. Trim the delta before trimming
-   role/posture.
-   Done: `wc -l` of the assembled payload ≤ 60, every block above the task.
+5. **Assemble** the blocks above the task text — mechanically via
+   `scripts/compose-payload.mjs <role> --provider <name>` for a stock
+   template; by hand only for a bespoke composition. Budget: the assembled
+   behavioral payload (excluding task text) stays ≤ 170 lines; when trimming,
+   cut the model delta before the family block and the family block before
+   posture/grade; role, topology, and comms are never trimmed.
+   Done: every block above the task; payload minus task ≤ 170 lines.
 6. If no block fits, write a bespoke role contract and record: an optional
    `nearestPreset` stock-template reference when useful, why a stock template
    was not used,
