@@ -74,6 +74,11 @@ OUTPUT NORMS — every report, regardless of role:
   invalidated, bar renegotiation proposed, unforeseen decision point,
   retried approach. Coordinators count these — don't bury them.
 
+ESTIMATION PROTOCOL — Every dispatch carries estimated tokens and wall minutes
+as an attributed append-only telemetry event. Intake may append one revised
+estimate with a reason; it never overwrites. Finish reconciles actual tokens and
+wall time. Estimates and actuals are telemetry, never billing authority.
+
 ## Delta protocol — tuned to this model's documented tendencies
 Delta protocol. Your practice — read before writing, chase call sites for the
 invariants nobody wrote down, smallest honest diff, reproduce before fixing,

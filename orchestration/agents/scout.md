@@ -70,3 +70,8 @@ OUTPUT NORMS — every report, regardless of role:
 - Note judgment events as they happen in prose: assumption logged or
   invalidated, bar renegotiation proposed, unforeseen decision point,
   retried approach. Coordinators count these — don't bury them.
+
+ESTIMATION PROTOCOL — Every dispatch carries estimated tokens and wall minutes
+as an attributed append-only telemetry event. Intake may append one revised
+estimate with a reason; it never overwrites. Finish reconciles actual tokens and
+wall time. Estimates and actuals are telemetry, never billing authority.
