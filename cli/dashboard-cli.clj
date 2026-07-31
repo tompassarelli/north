@@ -179,7 +179,7 @@
 ;; more, no less. A payload with an extra top-level field is as much a silent-
 ;; corruption vector as an extra row field, so it's rejected the same way.
 (def ^:private concern-envelope-keys #{:version :concerns})
-(def ^:private concern-maturities #{"exploring" "building" "likely-to-land" "landed"})
+(def ^:private concern-maturities #{"exploring" "building" "likely-to-land" "landed" "deployed"})
 (def ^:private concern-classifications #{"live" "stale" "orphaned" "retired"})
 
 (defn- expected-classification

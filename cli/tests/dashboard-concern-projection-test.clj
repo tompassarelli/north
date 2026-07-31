@@ -107,6 +107,11 @@
 
 ;; sanity: the base row is accepted, so every rejection below isolates its mutation
 (accepts? "baseline valid row is accepted" valid-row)
+(check "deployed maturity is accepted and preserved"
+       (= "deployed"
+          (-> (parse-concern-projection
+               (one-row (assoc valid-row :maturity "deployed")))
+              :concerns first :status)))
 
 ;; missing keys — one per required field (agent is nullable, tested separately)
 (doseq [k [:id :repo :intent :maturity :classification :online :retired :touches]]
