@@ -53,10 +53,14 @@ export interface SessionHardCapWriterRuntime {
 export interface ManagedSessionHardCapOptions extends SessionHardCapContext {
   /** Test-only injection. Production callers omit this fixed code-owned bound. */
   hardCapMs?: number;
-  schedule?: (callback: () => void, delayMs: number) => unknown;
+  schedule?: (callback: () => void | Promise<void>, delayMs: number) => unknown;
   cancel?: (timer: unknown) => void;
   writeHandoff?: (document: SessionHardCapDocument) => SessionHardCapWriteResult;
   replayHandoffs?: () => number;
+  /** Test seam; production stores the deadline under the normal North state root. */
+  stateDirectory?: string;
+  /** Test seam for deterministic restart/recovery deadlines. */
+  now?: () => Date;
 }
 
 export interface SessionHardCapStatus {
@@ -77,8 +81,24 @@ interface SessionHardCapIndexRecord {
   artifactSha256: string;
 }
 
+interface SessionHardCapDeadlineDocument extends SessionHardCapContext {
+  version: 1;
+  type: "managed_session_deadline";
+  startedAt: string;
+  deadlineAt: string;
+  hardCapMs: number;
+}
+
+interface SessionHardCapDeadline {
+  remainingMs: number;
+  path?: string;
+  serialized?: string;
+}
+
 const MAX_HANDOFF_REPLAY_RECORDS = 8;
 const MAX_HANDOFF_RECORD_BYTES = 64 * 1024;
+// Both Codex transports own bounded process-tree teardown below 3.5s.
+const HARD_CAP_QUERY_INTERRUPT_TIMEOUT_MS = 5_000;
 
 function sessionHardCapDocument(
   context: SessionHardCapContext,
@@ -100,6 +120,28 @@ function safeHandoffFilename(agentId: string): string {
   const label = agentId.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "agent";
   const digest = createHash("sha256").update(agentId).digest("hex").slice(0, 12);
   return `${label}-${digest}.json`;
+}
+
+function validNow(runtime: Pick<SessionHardCapWriterRuntime, "now">): Date {
+  const now = (runtime.now ?? (() => new Date()))();
+  if (!Number.isFinite(now.getTime()))
+    throw new Error("managed session hard-cap clock returned an invalid date");
+  return now;
+}
+
+function sessionHardCapDeadlineDocument(
+  context: SessionHardCapContext,
+  hardCapMs: number,
+  startedAt: Date,
+): SessionHardCapDeadlineDocument {
+  return {
+    version: 1,
+    type: "managed_session_deadline",
+    startedAt: startedAt.toISOString(),
+    deadlineAt: new Date(startedAt.getTime() + hardCapMs).toISOString(),
+    hardCapMs,
+    ...context,
+  };
 }
 
 function sha256(value: string | Uint8Array): string {
@@ -208,6 +250,74 @@ function durableHandoffDocument(
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     return existingHandoffDocument(path, context, hardCapMs);
   }
+}
+
+function existingSessionHardCapDeadline(
+  path: string,
+  context: SessionHardCapContext,
+  hardCapMs: number,
+): SessionHardCapDeadlineDocument {
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_HANDOFF_RECORD_BYTES)
+    throw new Error(`managed session deadline is unsafe: ${path}`);
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as SessionHardCapDeadlineDocument;
+  const startedAt = new Date(parsed.startedAt);
+  const expected = sessionHardCapDeadlineDocument(context, hardCapMs, startedAt);
+  if (!Number.isFinite(startedAt.getTime())
+      || Date.parse(parsed.deadlineAt) - startedAt.getTime() !== hardCapMs
+      || `${JSON.stringify(parsed, null, 2)}\n` !== `${JSON.stringify(expected, null, 2)}\n`) {
+    throw new Error(`managed session deadline conflicts with its lane identity: ${path}`);
+  }
+  return parsed;
+}
+
+function acquireSessionHardCapDeadline(
+  context: SessionHardCapContext,
+  hardCapMs: number,
+  runtime: SessionHardCapWriterRuntime,
+  persist: boolean,
+): SessionHardCapDeadline {
+  const now = validNow(runtime);
+  if (!persist) {
+    return {
+      remainingMs: hardCapMs,
+    };
+  }
+  const directory = handoffStateDirectory(runtime);
+  const path = resolve(directory, "deadlines", safeHandoffFilename(context.agentId));
+  let document: SessionHardCapDeadlineDocument;
+  try {
+    document = existingSessionHardCapDeadline(path, context, hardCapMs);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const candidate = sessionHardCapDeadlineDocument(context, hardCapMs, now);
+    const serialized = `${JSON.stringify(candidate, null, 2)}\n`;
+    try {
+      atomicWriteOnce(path, serialized);
+      document = candidate;
+    } catch (writeError) {
+      if ((writeError as NodeJS.ErrnoException).code !== "EEXIST") throw writeError;
+      document = existingSessionHardCapDeadline(path, context, hardCapMs);
+    }
+  }
+  const deadlineAt = Date.parse(document.deadlineAt);
+  return {
+    remainingMs: Math.max(0, Math.min(hardCapMs, deadlineAt - now.getTime())),
+    path,
+    serialized: `${JSON.stringify(document, null, 2)}\n`,
+  };
+}
+
+function settleSessionHardCapDeadline(deadline: SessionHardCapDeadline): void {
+  if (!deadline.path || !deadline.serialized) return;
+  try {
+    if (readFileSync(deadline.path, "utf8") !== deadline.serialized)
+      throw new Error(`managed session deadline changed before settlement: ${deadline.path}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  removeDurably(deadline.path);
 }
 
 function handoffIdempotencyKey(document: SessionHardCapDocument): string {
@@ -459,11 +569,13 @@ export class ManagedQueryTermination {
   readonly abortController = new AbortController();
   private query: AgentQuery | undefined;
   private closeInput: (() => void) | undefined;
+  private inputClosed = false;
   private closePromise: Promise<void> | undefined;
   private signalled: HostTerminationSignal | undefined;
   private readonly participant: HostTerminationParticipant;
   private readonly resources = new Set<ManagedOwnedResource>();
   private readonly hardCapOptions: ManagedSessionHardCapOptions | undefined;
+  private readonly hardCapDeadline: SessionHardCapDeadline | undefined;
   private readonly cancelHardCapTimer: (timer: unknown) => void;
   private hardCapTimer: unknown;
   private hardCapActive = false;
@@ -497,13 +609,32 @@ export class ManagedQueryTermination {
     if (hardCapOptions) {
       const hardCapMs = hardCapOptions.hardCapMs
         ?? DEFAULT_MANAGED_SESSION_HARD_CAP_MS;
+      const deadline = acquireSessionHardCapDeadline(
+        {
+          agentId: hardCapOptions.agentId,
+          goal: hardCapOptions.goal,
+          repo: hardCapOptions.repo,
+          ...(hardCapOptions.threadId ? { threadId: hardCapOptions.threadId } : {}),
+          ...(hardCapOptions.worktree ? { worktree: hardCapOptions.worktree } : {}),
+          ...(hardCapOptions.branch ? { branch: hardCapOptions.branch } : {}),
+        },
+        hardCapMs,
+        {
+          ...(hardCapOptions.stateDirectory
+            ? { stateDirectory: hardCapOptions.stateDirectory } : {}),
+          ...(hardCapOptions.now ? { now: hardCapOptions.now } : {}),
+        },
+        hardCapOptions.schedule === undefined
+          || hardCapOptions.stateDirectory !== undefined,
+      );
+      this.hardCapDeadline = deadline;
       const schedule = hardCapOptions.schedule ?? ((callback, delayMs) => {
-        const timer = setTimeout(callback, delayMs);
+        const timer = setTimeout(() => { void callback(); }, delayMs);
         timer.unref();
         return timer;
       });
       this.hardCapActive = true;
-      this.hardCapTimer = schedule(() => this.reachHardCap(), hardCapMs);
+      this.hardCapTimer = schedule(() => this.reachHardCap(), deadline.remainingMs);
       this.replayHandoffsSafely();
     }
   }
@@ -560,13 +691,19 @@ export class ManagedQueryTermination {
   }
 
   close(): Promise<void> {
+    return this.closeWithInterruptTimeout();
+  }
+
+  private closeWithInterruptTimeout(
+    interruptTimeoutMs = 1_000,
+  ): Promise<void> {
     this.cancelSessionHardCap();
     return this.closePromise ??= (async () => {
       this.closeInputSafely();
       const failures: unknown[] = [];
       if (this.query) {
         try {
-          await interruptAgentQuery(this.query);
+          await interruptAgentQuery(this.query, interruptTimeoutMs);
           await this.query.close?.();
         } catch (error) {
           failures.push(error);
@@ -607,10 +744,15 @@ export class ManagedQueryTermination {
   release(): void {
     this.released = true;
     this.cancelSessionHardCap();
-    this.participant.release();
+    try {
+      if (!this.hardCapFrozen && this.hardCapDeadline)
+        settleSessionHardCapDeadline(this.hardCapDeadline);
+    } finally {
+      this.participant.release();
+    }
   }
 
-  private reachHardCap(): void {
+  private async reachHardCap(): Promise<void> {
     if (!this.hardCapActive || this.released || this.hardCapReached
         || !this.hardCapOptions) return;
     this.hardCapActive = false;
@@ -633,10 +775,18 @@ export class ManagedQueryTermination {
         ...(this.hardCapOptions.branch
           ? { branch: this.hardCapOptions.branch } : {}),
       };
-      const document = sessionHardCapDocument(context, hardCapMs, new Date());
+      const document = sessionHardCapDocument(
+        context,
+        hardCapMs,
+        validNow({ ...(this.hardCapOptions.now ? { now: this.hardCapOptions.now } : {}) }),
+      );
       handoff = this.hardCapOptions.writeHandoff
         ? this.hardCapOptions.writeHandoff(document)
-        : writeSessionHardCapHandoff(context, hardCapMs);
+        : writeSessionHardCapHandoff(context, hardCapMs, {
+          ...(this.hardCapOptions.stateDirectory
+            ? { stateDirectory: this.hardCapOptions.stateDirectory } : {}),
+          ...(this.hardCapOptions.now ? { now: this.hardCapOptions.now } : {}),
+        });
     } catch (error) {
       console.error(
         `[session-cap] @agent:${this.hardCapOptions.agentId} terminal handoff write failed: `
@@ -650,14 +800,15 @@ export class ManagedQueryTermination {
       );
       return;
     }
-    this.hardCapReached = {
-      hardCapMs,
-      handoffPath: handoff.path,
-      indexed: handoff.indexed,
-      spooled: handoff.spooled ?? false,
-    };
     this.hardCapError = new SessionHardCapError(hardCapMs, handoff.path || undefined);
     this.abortController.abort(this.hardCapError);
+    try { await this.closeWithInterruptTimeout(HARD_CAP_QUERY_INTERRUPT_TIMEOUT_MS); }
+    catch (error) {
+      console.error(
+        `[session-cap] @agent:${this.hardCapOptions.agentId} graceful teardown reported: `
+        + (error instanceof Error ? error.message : String(error)),
+      );
+    }
     try { this.forceClose(); }
     catch (error) {
       console.error(
@@ -665,6 +816,12 @@ export class ManagedQueryTermination {
         + (error instanceof Error ? error.message : String(error)),
       );
     }
+    this.hardCapReached = {
+      hardCapMs,
+      handoffPath: handoff.path,
+      indexed: handoff.indexed,
+      spooled: handoff.spooled ?? false,
+    };
   }
 
   private replayHandoffsSafely(): void {
@@ -689,7 +846,9 @@ export class ManagedQueryTermination {
   }
 
   private closeInputSafely(): void {
-    try { this.closeInput?.(); }
+    if (this.inputClosed || !this.closeInput) return;
+    this.inputClosed = true;
+    try { this.closeInput(); }
     catch { /* idempotent input close is best-effort */ }
   }
 }
