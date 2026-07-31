@@ -2,6 +2,7 @@
 // Assembles a stock-template lane's behavioral payload (the block stack
 // build-agents.mjs compiles into plugin agents) for custom dispatch surfaces:
 // compose-payload.mjs <role> --provider <name> [--model|--reasoning|--tier ...]
+// [--steering light|moderate|strong]
 // [--conformance advisory|preferred|required] [--task <file|->] [--no-family].
 // Payload → stdout, resolution → stderr.
 import { readFileSync, existsSync } from "node:fs";
@@ -16,6 +17,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(resolve(ROOT, p), "utf8");
 
 const FAMILY_BLOCKS = { openai: "docs/deltas/openai-common.md" };
+const STRONG_VERIFICATION_BLOCK = "docs/artifacts/verification-loop-strong.md";
+
+export const CONFORMANCE_HEADERS = {
+  advisory: "CONFORMANCE: advisory — the blocks below are calibrated defaults distilled from observed failures; weigh them with your own judgment, and note each deviation in one logged line.",
+  preferred: "CONFORMANCE: preferred — the blocks below are the operating defaults; deviate only with a logged one-line reason.",
+  required: "CONFORMANCE: required — the blocks below are binding requirements; follow them exactly.",
+};
 
 function parseArgs(argv) {
   const args = { flags: {} };
@@ -23,6 +31,13 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--no-family") { args.flags.noFamily = true; continue; }
+    if (a === "--steering") {
+      const value = argv[++i];
+      if (!["light", "moderate", "strong"].includes(value))
+        throw new Error("--steering must be light, moderate, or strong");
+      args.flags.steering = value;
+      continue;
+    }
     if (a === "--conformance") {
       const value = argv[++i];
       if (!["advisory", "preferred", "required"].includes(value))
@@ -105,17 +120,14 @@ function main() {
     block(read("docs/comms.md"), "universal"),
   ];
 
+  const steering = flags.steering ?? "moderate";
+
   // Conformance modulates binding register only; content is identical. The
   // 2026-07-31 A/B held all three targeted safety behaviors under advisory
   // and shortened output — see docs/openai-steering.md, retest results.
-  const CONFORMANCE_HEADERS = {
-    advisory: "CONFORMANCE: advisory — the blocks below are calibrated defaults distilled from observed failures; weigh them with your own judgment, and note each deviation in one logged line.",
-    preferred: "CONFORMANCE: preferred — the blocks below are the operating defaults; deviate only with a logged one-line reason.",
-    required: "",
-  };
   const conformance = flags.conformance ?? "required";
   const conformanceHeader = CONFORMANCE_HEADERS[conformance];
-  if (conformanceHeader) parts.push("", conformanceHeader);
+  parts.push("", conformanceHeader);
 
   const familyPath = FAMILY_BLOCKS[provider];
   if (familyPath && !flags.noFamily) {
@@ -124,11 +136,16 @@ function main() {
     parts.push("", `## Provider family protocol (${provider})`, firstFence(read(familyPath)));
   }
 
-  const delta = modelDeltaFor(catalog, resolved.model);
-  if (delta.kind === "calibrated")
-    parts.push("", "## Delta protocol — tuned to this model's documented tendencies", firstFence(read(delta.path)));
-  else
-    parts.push("", `<!-- model delta: explicit none for ${resolved.model} — ${delta.reason} -->`);
+  if (steering !== "light") {
+    const delta = modelDeltaFor(catalog, resolved.model);
+    if (delta.kind === "calibrated")
+      parts.push("", "## Delta protocol — tuned to this model's documented tendencies", firstFence(read(delta.path)));
+    else
+      parts.push("", `<!-- model delta: explicit none for ${resolved.model} — ${delta.reason} -->`);
+  }
+
+  if (steering === "strong")
+    parts.push("", "## Strong verification-loop protocol", firstFence(read(STRONG_VERIFICATION_BLOCK)));
 
   if (flags.task) {
     const task = flags.task === "-" ? readFileSync(0, "utf8") : readFileSync(resolve(process.cwd(), flags.task), "utf8");
@@ -142,7 +159,7 @@ function main() {
   const sandbox = caps.includes("filesystem.write") || caps.includes("shell") ? "workspace-write" : "read-only";
   const behavioral = payload.split("\n").length - (flags.task ? flags.task.length : 0);
   process.stderr.write(
-    `resolved: ${resolved.provider}/${resolved.model} tier=${tier} reasoning=${resolved.reasoning} ` +
+    `resolved: ${resolved.provider}/${resolved.model} tier=${tier} reasoning=${resolved.reasoning} steering=${steering} ` +
     `topology=${preset.topology} sandbox=${sandbox}\n` +
     (provider === "openai"
       ? `invoke: codex exec -m ${resolved.model} -c model_reasoning_effort='"${resolved.reasoning}"' -s ${sandbox} --ephemeral -C <workdir> -o <result-file> - < <payload-file>\n`
@@ -151,4 +168,4 @@ function main() {
   );
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
