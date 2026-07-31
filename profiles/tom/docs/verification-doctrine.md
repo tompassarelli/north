@@ -119,8 +119,9 @@ lane's other independent claims and not the system. Independent claims never
 queue behind a blocked one — finish them and deliver one consolidated
 report. Exit classes carry typed resumption rights:
 
-- **fail** → a correction lane: auto-spawnable, own claim contract and
-  budget.
+- **fail** → report the failure and smallest next correction to the user, then
+  stop. Only the user may open a separate correction task with its own claim
+  contract and budget; agents never auto-open or spawn correction work.
 - **cannot-determine (missing or broken capability)** → an infrastructure
   repair lane: auto-spawnable when the fix is itself ≤P1 and inside existing
   authority; above that — or on repeated failure of the same capability —
