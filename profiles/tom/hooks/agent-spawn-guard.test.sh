@@ -261,8 +261,12 @@ run allow 'orchestrator may run provider agent' orchestrator Bash 'codex exec wo
 run allow 'orchestrator may open provider session' orchestrator Bash 'claude'
 run allow 'native/unmanaged session has no topology restriction' unset Bash 'north delegate work'
 run allow 'native/unmanaged session may open provider session' unset Bash 'codex'
-run allow 'native/unmanaged session retains thread capture' unset Bash 'north capture "an idea"'
-run allow 'native/unmanaged session retains arbitrary tells' unset Bash 'north tell thread-1 progress done'
+run deny 'native/no-topology session cannot capture' unset Bash 'north capture "an idea"'
+run deny 'native/no-topology session cannot tell arbitrary facts' unset Bash 'north tell thread-1 progress done'
+run deny 'native/no-topology session cannot invoke trusted author wrapper' unset Bash \
+  'north-author tell thread-1 progress done'
+run allow 'native/no-topology session can report a checkpoint' unset Bash \
+  'north tell thread-1 checkpoint report'
 run allow 'non-Bash tool is not topology shell surface' worker Read 'north spawn implementer work'
 set_state native on
 run deny 'dispatch=native (legacy) does not waive worker topology' worker Bash 'north spawn implementer work'

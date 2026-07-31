@@ -14,8 +14,9 @@
 # A separate topology invariant applies to Bash regardless of dispatch mode:
 #   AGENT_TOPOLOGY=worker -> DENY direct North/provider agent work + peer control
 #   orchestrator/unset    -> allow (native sessions have no managed topology)
-# Any explicit topology also bounds North thread writes and denies capture.
-# An unset native session is indistinguishable from the interactive user here.
+# Every agent tool call bounds North thread writes and denies capture, including
+# native provider sessions that carry no managed topology. Unrestricted human
+# and internal writes use the private `north-author` capability outside hooks.
 # This is a static command-position policy guard, not a shell security boundary:
 # runtime-built commands (variables, functions, eval-generated text) are outside
 # what a PreToolUse string inspection can resolve. Provider tool exposure remains
@@ -571,6 +572,8 @@ def direct_agent_write_violation(command, args, cwd):
             return direct_agent_write_violation(shell_args[0], shell_args[1:], cwd)
         return None
 
+    if name == "north-author":
+        return "north-author"
     if name != "north" or not args:
         return None
     verb = args[0]
@@ -581,7 +584,7 @@ def direct_agent_write_violation(command, args, cwd):
         if len(args) != 4 or predicate not in AGENT_REPORT_PREDICATES:
             return "north tell " + (predicate or "<missing-predicate>")
         return None
-    if verb in ("retract", "untell", "set"):
+    if verb in ("retract", "untell", "set", "merge", "import"):
         return "north " + verb
     return None
 
@@ -697,27 +700,26 @@ def forbidden_shell(command, cwd):
     return None
 
 topology = os.environ.get("AGENT_TOPOLOGY", "").strip().lower()
-if topology:
-    write_violation = None
-    if tool in ("Bash", "shell", "exec_command"):
-        write_violation = forbidden_agent_write_shell(
-            ti.get("command", ""), data.get("cwd", "") or "",
-        )
-    else:
-        write_violation = mcp_agent_write_violation(tool, ti)
-    if write_violation:
-        reason = (
-            "DENIED by agent thread-write policy (matched " + write_violation + "): "
-            "agent sessions cannot create threads or edit arbitrary facts. Report only "
-            "started, checkpoint, blocked, landed, or handoff on the assigned thread; "
-            "return any new-thread request to the user."
-        )
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        }}))
-        sys.exit(0)
+write_violation = None
+if tool in ("Bash", "shell", "exec_command"):
+    write_violation = forbidden_agent_write_shell(
+        ti.get("command", ""), data.get("cwd", "") or "",
+    )
+else:
+    write_violation = mcp_agent_write_violation(tool, ti)
+if write_violation:
+    reason = (
+        "DENIED by agent thread-write policy (matched " + write_violation + "): "
+        "agent sessions cannot create threads or edit arbitrary facts. Report only "
+        "started, checkpoint, blocked, landed, or handoff on the assigned thread; "
+        "return any new-thread request to the user."
+    )
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+    sys.exit(0)
 
 if tool in ("Bash", "shell", "exec_command"):
     if topology != "worker":

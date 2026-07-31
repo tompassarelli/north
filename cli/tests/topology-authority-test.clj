@@ -131,7 +131,11 @@
                            (str root "/bin/north") verb "agent:peer-agent" predicate "probe")]
     (check (str "generic " verb " denies peer agent authority predicate " predicate)
            (and (not (zero? (:exit result)))
-                (str/includes? (:err result) "worker topology cannot mutate agent identity")
+                (str/includes?
+                 (:err result)
+                 (if (= verb "tell")
+                   "agent sessions may report only"
+                   "unrestricted thread-write authority is absent"))
                 (not (str/includes? (:err result) "subject resolver"))))))
 
 (let [result (proc/shell {:out :string :err :string :continue true
@@ -141,7 +145,7 @@
                          (str root "/bin/north") "tell" "agent:worker-self" "provider" "self-publish")]
   (check "generic self identity mutation is denied before graph access"
          (and (not (zero? (:exit result)))
-              (str/includes? (:err result) "worker topology cannot mutate agent identity")
+              (str/includes? (:err result) "agent sessions may report only")
               (not (str/includes? (:err result) "subject resolver")))))
 
 (doseq [topology ["worker" "orchestrator"]]
@@ -153,9 +157,7 @@
                            "run-other-lane" "run_bar_evidence" "{}")]
     (check (str "generic run mutation is denied for managed " topology " topology")
            (and (not (zero? (:exit result)))
-                (str/includes?
-                 (:err result)
-                 "generic fact verbs cannot mutate harness-owned run facts")
+                (str/includes? (:err result) "agent sessions may report only")
                 (not (str/includes? (:err result) "subject resolver"))))))
 
 (let [result (proc/shell {:out :string :err :string :continue true}
@@ -164,9 +166,7 @@
                          "run-unset-env-bypass" "run_bar_evidence" "{}")]
   (check "unsetting managed identity cannot bypass harness-owned run facts"
          (and (not (zero? (:exit result)))
-              (str/includes?
-               (:err result)
-               "generic fact verbs cannot mutate harness-owned run facts")
+              (str/includes? (:err result) "agent sessions may report only")
               (not (str/includes? (:err result) "subject resolver")))))
 
 (let [scrubbed
@@ -175,6 +175,8 @@
         "NORTH_RUN_ID" "run-parent"
         "NORTH_THREAD_ID" "thread-parent"
         "NORTH_RUN_CAPABILITY" "parent-secret"
+        "NORTH_THREAD_WRITE_CAPABILITY" "author-secret"
+        "NORTH_THREAD_WRITE_CAPABILITY_FILE" "/tmp/author-secret"
         "AGENT_ROUTING_ASSESSMENT" "parent-assessment"
         "NORTH_ROUTING_PIN_EVIDENCE" "parent-pin"
         "UNRELATED" "preserved"})]
@@ -182,7 +184,10 @@
          (and (= "preserved" (get scrubbed "UNRELATED"))
               (not-any? #(contains? scrubbed %)
                         ["NORTH_RUN_ID" "NORTH_THREAD_ID"
-                         "NORTH_RUN_CAPABILITY" "AGENT_ROUTING_ASSESSMENT"
+                         "NORTH_RUN_CAPABILITY"
+                         "NORTH_THREAD_WRITE_CAPABILITY"
+                         "NORTH_THREAD_WRITE_CAPABILITY_FILE"
+                         "AGENT_ROUTING_ASSESSMENT"
                          "NORTH_ROUTING_PIN_EVIDENCE"]))))
 
 (let [result (proc/shell {:out :string :err :string :continue true
@@ -192,7 +197,7 @@
                                       "FRAM_HOME" "/definitely/absent"}}
                          (str root "/bin/north") "tell" "agent:worker-self" "provider" "trusted")]
   (check "legacy trusted-write environment cannot bypass the generic worker guard"
-         (and (str/includes? (:err result) "worker topology cannot mutate agent identity")
+         (and (str/includes? (:err result) "agent sessions may report only")
               (not (str/includes? (:err result) "subject resolver unavailable")))))
 
 (let [result (proc/shell {:out :string :err :string :continue true
@@ -200,9 +205,10 @@
                                       "AGENT_ID" "worker-self"
                                       "FRAM_HOME" "/definitely/absent"}}
                          (str root "/bin/north") "tell" "thread-probe" "goal" "ordinary-fact")]
-  (check "ordinary thread fact writes pass the topology boundary"
-         (and (not (str/includes? (:err result) "worker topology cannot mutate"))
-              (str/includes? (:err result) "subject resolver unavailable"))))
+  (check "ordinary thread fact writes stop at the bounded report boundary"
+         (and (not (zero? (:exit result)))
+              (str/includes? (:err result) "agent sessions may report only")
+              (not (str/includes? (:err result) "subject resolver unavailable")))))
 
 (doseq [[verb args] [["identify" ["peer-agent" "opus" "high"]]
                      ["assign" ["peer-agent" "director"]]
