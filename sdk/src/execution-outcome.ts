@@ -119,6 +119,7 @@ const BLOCKED_REASON: Record<string, string> = {
   died: "provider_process_died",
   stalled: "provider_process_stalled",
   watchdog_aborted: "north_watchdog_execution_inactivity",
+  session_hard_cap: "north_managed_session_hard_cap",
   max_turns: "provider_turn_cap",
   capped: "provider_cap",
   resource_envelope_exceeded: "resource_envelope_exceeded",

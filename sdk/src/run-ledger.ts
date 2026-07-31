@@ -430,7 +430,7 @@ export async function publishRunLifecycleLedger(
   // observations remain useful events, but the @run header must not claim a
   // complete lifecycle ledger.
   const terminalBoundaryObserved = !new Set([
-    "died", "stalled", "watchdog_aborted",
+    "died", "stalled", "watchdog_aborted", "session_hard_cap",
   ]).has(observations.outcome);
   return complete && terminalBoundaryObserved ? ledger.finalize() : undefined;
 }

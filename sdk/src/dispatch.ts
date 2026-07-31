@@ -759,7 +759,9 @@ async function runDispatch(
       catch (error) { queryCloseError = error; }
     }
   } catch (err) {
-    if (err instanceof ResourceEnvelopeExceededError) {
+    if (termination.hardCapStatus()) {
+      outcome = "session_hard_cap";
+    } else if (err instanceof ResourceEnvelopeExceededError) {
       outcome = "resource_envelope_exceeded";
       console.error(`[envelope] @agent:${agentId} ${err.message}`);
     } else if (err instanceof ProviderRetrySafeError) {
@@ -791,8 +793,18 @@ async function runDispatch(
     catch (error) { queryCloseError = error; }
   }
 
+  const sessionHardCap = termination.hardCapStatus();
   const hostSignal = termination.hostSignal();
-  if (hostSignal && !watchdogAbort) {
+  if (sessionHardCap && !watchdogAbort) {
+    outcome = "session_hard_cap";
+    providerErrorDetail = undefined;
+    terminalSignal = {
+      subject: "SESSION CAP",
+      detail: `managed session reached ${sessionHardCap.hardCapMs}ms hard cap; `
+        + `handoff=${sessionHardCap.handoffPath ?? "unavailable"}; `
+        + `thread_index=${sessionHardCap.indexed ? "recorded" : "unavailable"}`,
+    };
+  } else if (hostSignal && !watchdogAbort) {
     outcome = "died";
     const error = new Error(`host terminated by ${hostSignal}`);
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
@@ -803,7 +815,7 @@ async function runDispatch(
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
   }
 
-  if (liveInputFreezeError && !watchdogAbort) {
+  if (liveInputFreezeError && !watchdogAbort && !sessionHardCap) {
     let retrySucceeded = false;
     try {
       await liveInputRoute.freezeAndUnbind();
@@ -1123,7 +1135,15 @@ export async function dispatch(
     agentId: admitted.agentId,
     driverOptions: injected.driverOptions,
   });
-  const termination = new ManagedQueryTermination(injected.registerTermination);
+  const termination = new ManagedQueryTermination(
+    injected.registerTermination,
+    {
+      agentId,
+      threadId,
+      goal: preflight.title,
+      repo: workingDirectory,
+    },
+  );
   let driver: ReturnType<typeof claimDispatchDriver> | undefined;
   let admission: EnvelopeAdmission | undefined;
   let result!: DispatchResult;
