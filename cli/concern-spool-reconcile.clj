@@ -46,10 +46,6 @@
 (def ^:dynamic *reconcile-stage!*
   "Test seam for deterministic crash and lock-contention injection."
   (fn [_stage _context] nil))
-(def ^:dynamic *transition-plan!*
-  "Concern CLI callback that rebuilds the exact transition batch after the
-   reconciler has captured its global base. Nil defers transition operations."
-  nil)
 
 (defn- fail! [message data]
   (throw (ex-info message data)))
@@ -544,13 +540,6 @@
               (catch Throwable _ nil)))
           (throw error))))))
 
-(defn- operation-order-key [^Path path]
-  (try
-    (let [operation (north.concern-spool/read-operation-file! path)]
-      [0 (Instant/parse (:created-at operation)) (:operation-id operation)])
-    (catch Throwable _
-      [1 "" (str (.getFileName path))])))
-
 (defn- operation-files [^Path spool-directory deadline-ns]
   (if-not (ensure-spool-directory! spool-directory)
     []
@@ -563,16 +552,7 @@
            "concern reconciliation spool scan deadline exceeded"
            {:entries entry-count}))
         (if-not remaining
-          (->> operations
-               (mapv
-                (fn [^Path path]
-                  (when-not (< (System/nanoTime) deadline-ns)
-                    (deferred!
-                     "concern reconciliation spool ordering deadline exceeded"
-                     {:entries entry-count}))
-                  [path (operation-order-key path)]))
-               (sort-by second)
-               (mapv first))
+          (vec (sort-by #(str (.getFileName ^Path %)) operations))
           (let [path ^Path (first remaining)
                 next-count (inc entry-count)
                 operation?
@@ -599,17 +579,11 @@
 (defn- rotate-after [files last-file]
   (if-not last-file
     files
-    (let [index
-          (first
-           (keep-indexed
-            (fn [position ^Path path]
-              (when (= last-file (str (.getFileName path))) position))
-            files))]
-      (if (nil? index)
-        files
-        (vec
-         (concat (subvec files (inc index))
-                 (subvec files 0 (inc index))))))))
+    (let [[before after]
+          (split-with
+           #(<= (compare (str (.getFileName ^Path %)) last-file) 0)
+           files)]
+      (vec (concat after before)))))
 
 (defn- operation-id-from-path [^Path path]
   (second
@@ -749,7 +723,7 @@
   (and (string? value)
        (re-matches #"@[A-Za-z0-9][A-Za-z0-9._:-]*" value)))
 
-(defn- validate-declaration-operation! [operation]
+(defn- validate-concern-operation! [operation]
   (let [facts (:facts operation)
         grouped (group-by :predicate facts)
         values (fn [predicate] (mapv :object (get grouped predicate [])))
@@ -835,36 +809,6 @@
                 :field :facts})))
     operation))
 
-(defn- validate-transition-operation! [operation]
-  (let [facts (:facts operation)
-        fact (first facts)]
-    (when-not
-     (and (= north.concern-spool/transition-operation-type
-             (:operation-type operation))
-          (= 1 (count facts))
-          (= "reached" (:predicate fact))
-          (= "multi" (:cardinality fact))
-          (contains? north.concern-spool/transition-statuses (:object fact))
-          (= "concern-transition-or-exact"
-             (get-in operation [:precondition :mode]))
-          (= (:concern-id operation)
-             (get-in operation [:precondition :subject]))
-          (= (:facts-sha256 operation)
-             (get-in operation [:precondition :projection-sha256]))
-          (nil? (get-in operation [:precondition :about])))
-      (fail! "offline concern transition has an unsupported shape"
-             {:type :invalid-concern-operation
-              :field :facts}))
-    operation))
-
-(defn- validate-concern-operation! [operation]
-  (case (:operation-type operation)
-    "concern-declare" (validate-declaration-operation! operation)
-    "concern-transition" (validate-transition-operation! operation)
-    (fail! "offline concern operation type is unsupported"
-           {:type :invalid-concern-operation
-            :field :operation-type})))
-
 (defn- exact-projection? [operation rows]
   (= (frequencies (expected-rows operation))
      (frequencies rows)))
@@ -927,7 +871,7 @@
              (count (:idempotent response))))
        (true? (:batch response))))
 
-(defn- declaration-commit-attempt! [port operation]
+(defn- commit-attempt! [port operation]
   (let [snapshot (read-snapshot-at-base port operation)]
     (if (= :conflict (:reject snapshot))
       snapshot
@@ -989,90 +933,7 @@
                 "coordinator acknowledgement for reconciled concern is ambiguous"
                 {:response response})))))))))
 
-(defn- transition-snapshot-at-base [port operation]
-  (let [base (exact-version! port (:target-log operation))
-        subject-view
-        (exact-show! port (:target-log operation) (:concern-id operation))]
-    (if (not= base (:version subject-view))
-      {:reject :conflict}
-      {:base base :rows (:rows subject-view)})))
-
-(defn- transition-present? [operation rows]
-  (contains?
-   (set rows)
-   ["reached" (get-in operation [:facts 0 :object])]))
-
-(defn- transition-commit-attempt! [port operation]
-  (let [snapshot (transition-snapshot-at-base port operation)]
-    (if (= :conflict (:reject snapshot))
-      snapshot
-      (if (transition-present? operation (:rows snapshot))
-        {:done :identical
-         :observed-version (:base snapshot)
-         :rows (:rows snapshot)}
-        (if-not *transition-plan!*
-          (deferred!
-           "concern transition reconciliation requires its CLI planner"
-           {:operation-id (:operation-id operation)})
-          (let [plan (*transition-plan!* port operation snapshot)]
-            (cond
-              (:local-conflict plan) plan
-
-              (:done plan)
-              {:done (:done plan)
-               :observed-version (:base snapshot)
-               :rows (:rows snapshot)}
-
-              :else
-              (let [facts (:facts plan)]
-                (when-not (and (vector? facts) (seq facts))
-                  (deferred!
-                   "concern transition planner returned no canonical batch"
-                   {:operation-id (:operation-id operation)}))
-                (*reconcile-stage!* :pre-commit
-                                    {:operation operation
-                                     :base (:base snapshot)})
-                (let [response
-                      (north.coord/send-op-for-log
-                       port
-                       (:target-log operation)
-                       {:op :assert-batch-at-version
-                        :te (:concern-id operation)
-                        :facts facts
-                        :base (:base snapshot)})]
-                  (cond
-                    (= :conflict (:reject response)) response
-
-                    (valid-commit-ack? response (count facts))
-                    (do
-                      (*reconcile-stage!*
-                       :post-commit-pre-ack
-                       {:operation operation :response response})
-                      {:done :committed
-                       :observed-version (:ok response)
-                       :ack response})
-
-                    (wrong-log-response? response)
-                    (response-conflict! response)
-
-                    (explicit-rejection? response)
-                    {:local-conflict true
-                     :reason "atomic-transition-rejected"
-                     :observed-version
-                     (or (:version response) (:base snapshot))
-                     :rows (:rows snapshot)}
-
-                    :else
-                    (deferred!
-                     "coordinator acknowledgement for reconciled concern transition is ambiguous"
-                     {:response response})))))))))))
-
-(defn- commit-attempt! [port operation]
-  (case (:operation-type operation)
-    "concern-declare" (declaration-commit-attempt! port operation)
-    "concern-transition" (transition-commit-attempt! port operation)))
-
-(defn- declaration-readback! [port operation deadline-ns]
+(defn- exact-readback! [port operation deadline-ns]
   (let [snapshot
         (north.coord/retry-conflicts-until!
          deadline-ns
@@ -1099,36 +960,6 @@
        :rows (:rows snapshot)}
 
       :else snapshot)))
-
-(defn- transition-readback! [port operation deadline-ns]
-  (let [snapshot
-        (north.coord/retry-conflicts-until!
-         deadline-ns
-         16
-         #(transition-snapshot-at-base port operation))]
-    (cond
-      (= :deadline (:reject snapshot))
-      (deferred!
-       "concern transition reconciliation readback deadline exceeded"
-       {:operation-id (:operation-id operation)})
-
-      (= :conflict (:reject snapshot))
-      (deferred!
-       "concern transition reconciliation readback did not stabilize"
-       {:operation-id (:operation-id operation)})
-
-      (not (transition-present? operation (:rows snapshot)))
-      {:local-conflict true
-       :reason "readback-transition-missing"
-       :observed-version (:base snapshot)
-       :rows (:rows snapshot)}
-
-      :else snapshot)))
-
-(defn- exact-readback! [port operation deadline-ns]
-  (case (:operation-type operation)
-    "concern-declare" (declaration-readback! port operation deadline-ns)
-    "concern-transition" (transition-readback! port operation deadline-ns)))
 
 (defn- reconcile-operation! [port ^Path state-dir operation deadline-ns]
   (if-let [record (existing-record state-dir operation)]
