@@ -5,6 +5,8 @@
 #
 # MECHANISM: Bash carries tool_input.command, Edit/Write/MultiEdit carry
 # tool_input.file_path — both are inspected so every entrance is covered.
+# apply_patch carries targets in its envelope; tool-call and shell entrances are
+# both parsed.
 #
 # Policy lives in ~/code/AGENTS.md (repository layout, launch-critical repos);
 # enforcement lives here — PreToolUse is the only event that can refuse a call
@@ -59,12 +61,17 @@ type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 # in play.
 if [ -z "${LAUNCH_CRITICAL_CODE_ROOT:-}" ]; then
   case "$payload" in
-    */code/*) ;;
-    *) exit 0 ;;
-  esac
-  case "$payload" in
-    *main*|*/code/fram*|*/code/north*|*/code/beagle*|*/code/nixos-config*) ;;
-    *) exit 0 ;;
+    *apply_patch*|*'Begin Patch'*) ;;   # envelope paths may be relative; python must resolve them
+    *)
+      case "$payload" in
+        */code/*) ;;
+        *) exit 0 ;;
+      esac
+      case "$payload" in
+        *main*|*/code/fram*|*/code/north*|*/code/beagle*|*/code/nixos-config*) ;;
+        *) exit 0 ;;
+      esac
+      ;;
   esac
 fi
 

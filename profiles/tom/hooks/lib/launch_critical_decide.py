@@ -9,6 +9,12 @@ carries `tool_input.command` instead, so this module parses Bash commands
 heredocs) to catch writes that route through the shell rather than a
 file_path.
 
+APPLY_PATCH
+
+apply_patch carries Add/Update/Delete File targets and Move to destinations
+inside its patch envelope. Both direct tool calls and Bash string/argv entrances
+are parsed.
+
 READ vs WRITE
 
 Reads from a primary stay allowed — `git log`, `git status`, `grep`, `cat`. So
@@ -29,8 +35,9 @@ SANCTIONED TOOLS
 performs internally the very operations denied raw. Its own command segment is
 excised before any rule runs; every other segment on the line is still scanned.
 
-FAIL-OPEN, everywhere. An unparseable command, an unknown shape, any exception:
-return None and let the call through.
+FAIL-OPEN for unparseable commands, unknown shapes, and internal exceptions. A
+recognized apply_patch call whose envelope cannot be parsed is denied: it is a
+write, and a write whose targets cannot be read cannot be checked.
 """
 
 import json
@@ -77,6 +84,13 @@ STASH_READS = {"list", "show"}
 # Tools whose whole job is a sanctioned remediation of a protected checkout.
 # Denying one leaves the deny message recommending a move the guard forbids.
 SANCTIONED_TOOLS = {"wt-rescue"}
+
+# Header forms are the complete grammar the Codex binary accepts:
+# Add File / Update File / Delete File, plus Move to inside an update hunk.
+PATCH_BEGIN = "*** Begin Patch"
+PATCH_FILE_HEADER = re.compile(r"^\*\*\* (?:Add|Update|Delete) File:\s+(.+?)\s*$", re.M)
+PATCH_MOVE_HEADER = re.compile(r"^\*\*\* Move to:\s+(.+?)\s*$", re.M)
+PATCH_ENVELOPE = re.compile(r"\*\*\* Begin Patch.*?(?:\*\*\* End Patch|\Z)", re.S)
 
 SEGMENT_SPLIT = r'\s*(?:&&|\|\||[;|&\n])\s*'
 
@@ -141,13 +155,18 @@ def _tokens(command):
         return command.split()
 
 
-def _leads_with_sanctioned_tool(segment):
-    """True when SEGMENT invokes a sanctioned tool as its own command."""
+def _leads_with(segment, names):
+    """True when SEGMENT invokes one of NAMES as its own command."""
     for tok in _tokens(segment):
         if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", tok) or tok in ("env", "exec", "command"):
             continue
-        return os.path.basename(tok) in SANCTIONED_TOOLS
+        return os.path.basename(tok) in names
     return False
+
+
+def _leads_with_sanctioned_tool(segment):
+    """True when SEGMENT invokes a sanctioned tool as its own command."""
+    return _leads_with(segment, SANCTIONED_TOOLS)
 
 
 def _excise_sanctioned(text):
@@ -161,6 +180,106 @@ def _excise_sanctioned(text):
     parts = re.split("(" + SEGMENT_SPLIT + ")", text)
     return "".join(p for i, p in enumerate(parts)
                    if i % 2 or not _leads_with_sanctioned_tool(p))
+
+
+def _patch_targets(envelope):
+    """Raw file targets named by one apply_patch envelope."""
+    return (PATCH_FILE_HEADER.findall(envelope)
+            + PATCH_MOVE_HEADER.findall(envelope))
+
+
+def _find_envelope(value):
+    """The first nested string containing an apply_patch envelope."""
+    if isinstance(value, str):
+        return value if PATCH_BEGIN in value else None
+    if isinstance(value, dict):
+        for child in value.values():
+            found = _find_envelope(child)
+            if found is not None:
+                return found
+    return None
+
+
+def _invokes_apply_patch(stripped_text):
+    """True when a shell segment invokes apply_patch as its command."""
+    return any(_leads_with(segment, {"apply_patch"})
+               for segment in re.split(SEGMENT_SPLIT, stripped_text))
+
+
+def _apply_patch_fail_closed():
+    return (
+        "This apply_patch call is denied fail-closed: a patch whose targets "
+        "cannot be read cannot be checked. Re-issue it with well-formed "
+        "`*** Add/Update/Delete File:` headers. Deliberate bypass: "
+        "`north config guards off`.")
+
+
+def _apply_patch_target_decision(targets, cwd):
+    for target in targets:
+        path = _resolve(os.path.expanduser(target), cwd)
+        hit = protected_project(path)
+        if hit:
+            project, why = hit
+            return (f"This apply_patch envelope would write {path} inside the "
+                    f"PRIMARY checkout of {project}. {why}\n\n"
+                    f"{worktree_advice(project)}")
+    return None
+
+
+def _apply_patch_tool_decision(tool_input, payload):
+    """Decision for a direct apply_patch tool call."""
+    cwd = payload.get("cwd") or os.getcwd()
+    if isinstance(tool_input, dict):
+        explicit = [tool_input.get(key) for key in ("file_path", "path")]
+        verdict = _apply_patch_target_decision(
+            [value for value in explicit if isinstance(value, str)], cwd)
+        if verdict:
+            return verdict
+        selected_cwd = tool_input.get("workdir") or tool_input.get("cwd")
+        patch_cwd = selected_cwd if isinstance(selected_cwd, str) else cwd
+    else:
+        patch_cwd = cwd
+
+    envelope = _find_envelope(tool_input)
+    if envelope is None:
+        return _apply_patch_fail_closed()
+    targets = _patch_targets(envelope)
+    if not targets:
+        return _apply_patch_fail_closed()
+    return _apply_patch_target_decision(targets, patch_cwd)
+
+
+def _apply_patch_command_decision(command, cwd, stripped=None):
+    """Decision for apply_patch invoked through a shell string or argv."""
+    if isinstance(command, str):
+        stripped = stripped if stripped is not None else _strip_heredoc_bodies(command)
+        invoked = _invokes_apply_patch(stripped)
+        envelopes = PATCH_ENVELOPE.findall(command)
+    elif isinstance(command, list):
+        invoked = bool(command and os.path.basename(command[0]) == "apply_patch")
+        if (not invoked and command
+                and os.path.basename(command[0]) in {"bash", "sh", "zsh"}):
+            for i, flag in enumerate(command[1:-1], start=1):
+                if flag.startswith("-") and "c" in flag[1:]:
+                    inner = command[i + 1]
+                    invoked = _invokes_apply_patch(_strip_heredoc_bodies(inner))
+                    break
+        envelopes = PATCH_ENVELOPE.findall("\n".join(command))
+    else:
+        return None
+
+    if not invoked:
+        return None
+    if not envelopes:
+        return _apply_patch_fail_closed()
+    for envelope in envelopes:
+        targets = _patch_targets(envelope)
+        if not targets:
+            return _apply_patch_fail_closed()
+        verdict = _apply_patch_target_decision(targets, cwd)
+        if verdict:
+            return verdict
+    return None
 
 
 def _git_invocations(text, cwd):
@@ -263,6 +382,10 @@ def decide(payload):
     tool = payload.get("tool_name") or ""
     tool_input = payload.get("tool_input") or {}
 
+    # --- apply_patch ----------------------------------------------------------
+    if tool.endswith("apply_patch"):
+        return _apply_patch_tool_decision(tool_input, payload)
+
     # --- Edit / Write / MultiEdit: the original, unchanged behaviour ---------
     if tool != "Bash":
         path = tool_input.get("file_path")
@@ -275,6 +398,12 @@ def decide(payload):
 
     # --- Bash ----------------------------------------------------------------
     command = tool_input.get("command")
+    if isinstance(command, list) and all(isinstance(x, str) for x in command):
+        verdict = _apply_patch_command_decision(
+            command, payload.get("cwd") or os.getcwd())
+        if verdict:
+            return verdict
+        return None
     if not isinstance(command, str) or not command:
         return None
     cwd = payload.get("cwd") or os.getcwd()
@@ -284,14 +413,17 @@ def decide(payload):
     # written, not a command being run; sanctioned-tool segments are excised
     # because their remediation is the compliant move.
     scan = _excise_sanctioned(_strip_heredoc_bodies(command))
-    tokens = _tokens(scan)
-
     def deny(path, project, why, what):
         return (f"This Bash command would {what} inside the PRIMARY checkout of "
                 f"{project} ({path}). {why}\n\n"
                 f"{worktree_advice(project)}\n"
                 f"Reads are fine — it is the write that is refused.")
 
+    verdict = _apply_patch_command_decision(command, eff, scan)
+    if verdict:
+        return verdict
+
+    tokens = _tokens(scan)
     invocations = _git_invocations(scan, eff)
 
     # 0. destroying uncommitted work in a main checkout — its own class, because
