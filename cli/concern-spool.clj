@@ -14,13 +14,7 @@
            [java.time Instant]))
 
 (def schema-version "north-concern-operation-v1")
-(def declaration-operation-type "concern-declare")
-(def transition-operation-type "concern-transition")
-(def transition-statuses
-  #{"exploring" "building" "likely-to-land" "landed" "abandoned-stale"})
-;; Compatibility name retained for callers/tests that identify the original
-;; declaration envelope through this var.
-(def operation-type declaration-operation-type)
+(def operation-type "concern-declare")
 (def commit-marker-value "north-local-operation-committed-v1")
 (def default-max-record-bytes (* 64 1024))
 (def default-max-files 256)
@@ -166,15 +160,9 @@
    facts))
 
 (defn build-operation
-  "Build one complete immutable concern operation before transport."
-  [{:keys [operation-type operation-id concern-id target-log created-at facts
-           about about-binding-cid]}]
-  (let [operation-type (or operation-type declaration-operation-type)]
-  (when-not (#{declaration-operation-type transition-operation-type}
-              operation-type)
-    (fail! "unsupported offline concern operation type"
-           {:type :invalid-concern-operation
-            :field :operation-type}))
+  "Build the complete immutable concern-declare operation before transport."
+  [{:keys [operation-id concern-id target-log created-at facts about
+           about-binding-cid]}]
   (when-not (and (string? operation-id)
                  (re-matches #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
                              operation-id))
@@ -192,10 +180,6 @@
       (fail! "offline concern creation instant is not ISO-8601"
              {:type :invalid-concern-operation
               :field :created-at})))
-  (when (and (= transition-operation-type operation-type) about)
-    (fail! "offline concern transition cannot carry an about binding"
-           {:type :invalid-concern-operation
-            :field :about}))
   (when (and about
              (not (and (string? about)
                        (re-matches #"@[A-Za-z0-9][A-Za-z0-9._:-]*" about))))
@@ -211,54 +195,35 @@
             :field :about-binding-cid}))
   (let [ordered-facts (canonical-facts facts)
         terminal-fact (peek ordered-facts)
-        expected-terminal
-        (if (= declaration-operation-type operation-type)
-          ["kind" "concern" "single"]
-          ["reached" (:object terminal-fact) "multi"])
-        actual-terminal
-        [(:predicate terminal-fact)
-         (:object terminal-fact)
-         (:cardinality terminal-fact)]
-        _ (when (and (= transition-operation-type operation-type)
-                     (not (contains? transition-statuses
-                                     (:object terminal-fact))))
-            (fail! "offline concern transition status is unsupported"
+        _ (when-not
+            (and (= "kind" (:predicate terminal-fact))
+                 (= "concern" (:object terminal-fact))
+                 (= "single" (:cardinality terminal-fact)))
+            (fail! "kind=concern must be the terminal fact"
                    {:type :invalid-concern-operation
-                    :field :facts}))
-        _ (when-not (= expected-terminal actual-terminal)
-            (fail!
-             (if (= declaration-operation-type operation-type)
-               "kind=concern must be the terminal fact"
-               "reached=<transition> must be the terminal fact")
-             {:type :invalid-concern-operation
-              :field :terminal-commit-marker}))
+                    :field :terminal-commit-marker}))
         facts-digest (sha256 (canonical-edn ordered-facts))
         precondition
-        (if (= declaration-operation-type operation-type)
-          (cond->
-           (sorted-map
-            :mode "subject-absent-or-exact"
-            :subject concern-id
-            :projection-sha256 facts-digest)
-            about
-            (assoc :about
-                   (cond->
-                    (sorted-map
-                     :subject about
-                     :requires-kind "thread"
-                     :requires-title true)
-                     about-binding-cid
-                     (assoc :binding-cid about-binding-cid))))
-          (sorted-map
-           :mode "concern-transition-or-exact"
-           :subject concern-id
-           :projection-sha256 facts-digest))
+        (cond->
+         (sorted-map
+          :mode "subject-absent-or-exact"
+          :subject concern-id
+          :projection-sha256 facts-digest)
+          about
+          (assoc :about
+                 (cond->
+                  (sorted-map
+                   :subject about
+                   :requires-kind "thread"
+                   :requires-title true)
+                   about-binding-cid
+                   (assoc :binding-cid about-binding-cid))))
         precondition-digest (sha256 (canonical-edn precondition))
         commit-marker
         (sorted-map
          :ordinal (:ordinal terminal-fact)
-         :predicate (:predicate terminal-fact)
-         :object (:object terminal-fact))
+         :predicate "kind"
+         :object "concern")
         unsigned
         (sorted-map
          :schema-version schema-version
@@ -273,7 +238,7 @@
          :precondition-sha256 precondition-digest
          :terminal-commit-marker commit-marker
          :commit commit-marker-value)]
-    (assoc unsigned :sha256 (sha256 (canonical-edn unsigned))))))
+    (assoc unsigned :sha256 (sha256 (canonical-edn unsigned)))))
 
 (defn validate-operation!
   "Validate a parsed operation and return its canonical value."
@@ -288,8 +253,7 @@
               :field :top-level}))
     (let [rebuilt
           (build-operation
-           {:operation-type (:operation-type operation)
-            :operation-id (:operation-id operation)
+           {:operation-id (:operation-id operation)
             :concern-id (:concern-id operation)
             :target-log (:target-log operation)
             :created-at (:created-at operation)
@@ -303,6 +267,10 @@
         (fail! "unsupported offline concern operation schema"
                {:type :invalid-concern-operation
                 :field :schema-version}))
+      (when-not (= operation-type (:operation-type operation))
+        (fail! "unsupported offline concern operation type"
+               {:type :invalid-concern-operation
+                :field :operation-type}))
       (when-not (= commit-marker-value (:commit operation))
         (fail! "offline concern operation lacks its terminal commit marker"
                {:type :invalid-concern-operation
