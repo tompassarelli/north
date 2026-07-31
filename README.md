@@ -1,166 +1,121 @@
 # North
 
-A **fact-native coordination substrate**. One graph of `(subject predicate
-object)` triples, two faces derived from it:
+North is a work tracker and agent orchestrator whose board, lanes, and
+timesheets are all queries over one graph of triples.
 
-- **A life/work ledger** — capture an intention; query what's **ready**,
-  **blocked**, and the highest-leverage keystone. The board is *derived*, never
-  hand-maintained.
-- **A managed multi-agent orchestrator** — a canonical coordinator daemon,
-  agent lanes spawned with full identity/telemetry/attribution, Orchestration-routed
-  dispatch, and concurrent-agent coordination (concerns, leases, mail).
+The primitive is a **thread**: any node carrying a `title`. There is no
+`task`/`project`/`epic` type and no `state` column — a thread's condition is
+read off its facts. `committed` means accepted, a live `driver` means active,
+an unresolved `depends_on` means blocked, an `outcome` means done
+([`src/north/projections.bclj`](src/north/projections.bclj)). Agent lanes are
+threads too, so a running lane, its run ledger, its done-bar evidence, and the
+intention it was spawned to serve all sit in the same graph as your own work,
+and one query reads both. North supplies the coordination vocabulary and the
+lifecycle derivations; the storage engine underneath is
+[Fram](https://github.com/Autonymy/fram), a slot-addressable typed-triple
+substrate.
 
-These are not two products. **Agents are threads; coordination is facts.** A
-spawned lane, its run ledger, its done-bar evidence, and the intent it serves
-share one graph with your personal work — so the same reads see both, and
-lifecycle is *derived* (committed = accepted, `outcome` = done, `driver` =
-active, `depends_on` = blocked), never a stored status field.
+## Documentation
 
-North is a **consumer of the [Fram](https://github.com/tompassarelli/fram)
-engine** (a domain-neutral fact substrate). It supplies the *coordination
-domain*: the lifecycle projections, the cardinality vocab (`FRAM_SINGLE_VALUED`),
-capture conventions, time tracking, and the agent lifecycle + routing surface.
-
-## The two faces
-
-### The personal ledger — capture → ready/blocked/leverage → clock
-
-The primitive is `thread`: any node with a `title`. There is no `task`/
-`project`/`epic` type and no `state` enum — condition is a **query over facts**.
-Capture a thought, assert facts about it, and the projections do the rest:
-
-```sh
-north capture "<thought>"   # mint a committed thread (fact-first)
-north ready                 # committed ∧ unblocked, ranked by leverage
-north blocked               # waiting on a depends_on target
-north board                 # active drivers + top-ready + counts (alias: plate)
-north show <id>             # one thread's facts + body
-north clock in <owner>      # one human client billing session (Clockify sync target)
-```
-
-Time tracking (`north clock`), staleness/`needs-review`, and billing are all
-fact-native projections — `src/north/{projections,clock,clockify,staleness,audit}.bclj`.
-
-### The agent substrate — coordinator → lanes → Orchestration routing → attribution
-
-The same graph is the coordination plane for managed multi-agent work:
-
-- **Coordinator** — a canonical Fram daemon on `127.0.0.1:7977` (default
-  `NORTH_PORT`). Every write serializes and is rule-checked through it.
-  `north up` ([`bin/north-coord-up`](bin/north-coord-up)) starts it locally; the
-  hosted mode runs one per tenant via
-  [`deploy/north-coordinator@.service`](deploy/north-coordinator@.service).
-- **Managed lanes** — spawned through the TypeScript SDK
-  ([`sdk/src/spawn.ts`](sdk/src/spawn.ts),
-  [`sdk/src/dispatch.ts`](sdk/src/dispatch.ts)). Each lane gets a fresh
-  full-UUID identity, a run reservation with a capability minted *before*
-  provider eyecution, a run ledger, and a truthful terminal
-  (`delivery=reported|unverified|blocked`).
-- **Orchestration routing** — `north spawn`/`delegate` read Orchestration's staffing catalog
-  (`~/code/north/main/orchestration/staffing/catalog.json`) to answer *who* does the work
-  (role/tier/reasoning/posture); North answers *where* it runs and *how* you see
-  it (provider account, subscription pressure, dashboard). Orchestration is
-  account-blind; North resolves the tier through the chosen provider's catalog.
-  See [docs/provider-architecture.md](docs/provider-architecture.md).
-- **Done-bar evidence** — dispatch warns when a committed thread lacks a
-  `done_when` bar; managed workers record observed probe results with
-  `north evidence record`, run-scoped and capability-checked.
-- **Concurrent-agent coordination** — *concerns* declare a footprint (they
-  coeyist, never block), *leases* claim exclusive jurisdiction, and *mail*
-  (`msg-cli`) plus `north watch`/`steer`/`retask` drive live lanes.
-
-```sh
-north agents [--json]           # who's live now + the stable machine roster
-north spawn <role> "<prompt>"   # compose a worker from Orchestration's catalog
-north delegate "<task>" ...     # atomic (--role) or --composite handoff
-north watch <id>                # tail a running lane's transcript
-north steer <id> "<msg>"        # inject a message into a running lane
-north trace <id>                # diagnose one lane's lifecycle (F1–F7)
-```
-
-In-harness agents dispatch through MCP (`mcp__north__dispatch` / `spawn`) rather
-than the shell verbs.
-
-## Shape
-
-- **Engine** → [Fram](https://github.com/tompassarelli/fram) (`~/code/fram/main`):
-  facts, Datalog, the coordinator daemon. The hard substrate.
-- **Coordination domain** → `src/north/*.bclj`: the lifecycle derivations,
-  billing projection, and staleness layer that make the engine a work ledger.
-- **CLI** → [`bin/north`](bin/north): aims the Fram engine at your data and sets
-  capture provenance. Life/coordination verbs (`ready`/`board`/`capture`/`clock`/
-  `agents`/`spawn`/`delegate`/`watch`/`trace`/`config`/…) route to `north.main`
-  or the `cli/` handlers; engine verbs (`import`/`show`/`validate`/`tell`/…) to Fram.
-- **Emergency recovery** → `north panic`: when the coordinator or its runtime
-  dependencies are unavailable, this Bash-only kill switch writes
-  `dispatch=native` and `guards=off` to `~/.local/state/north/harness.conf`.
-  It preserves other keys and prints the exact restore commands; use it only to
-  return to stock native operation while repairing North.
-- **Agent surface** → [`cli/agents-cli.clj`](cli/agents-cli.clj) and the
-  TypeScript SDK under [`sdk/src/`](sdk/src): spawn, dispatch, run ledger,
-  routing, provider adapters.
-- **MCP** → [`bin/north-mcp`](bin/north-mcp): the AI-facing edge — every tool
-  maps to a tested CLI op through the coordinator write path.
-- **Data** → your own private store (the canonical `facts.log`, projected to
-  `~/.local/state/north/` at runtime). Data is **not** part of this repo.
-
-## Hosting
-
-Run it three ways off one architecture — **on your laptop, on a server you own,
-or as a multi-tenant service you host for others** — with no fork in the design;
-only the transport in front of the coordinator changes.
-
-- **[docs/hosting.md](docs/hosting.md)** — the three modes (self-host single boy,
-  self-host remote, multi-tenant SaaS), the instance-per-tenant model, security,
-  ops, and the roadmap.
-- **[deploy/](deploy/)** — `docker-compose.eyample.yml`, systemd units, and the
-  authenticated **[gateway](deploy/gateway/)** (bearer token → tenant → that
-  tenant's coordinator) with `provision.sh` + an integration test. The one
-  runtime image (`Dockerfile`, bb + Fram + North) lives at the repo root.
-
-## Docs
-
-- [docs/operating-manual.md](docs/operating-manual.md) — the working manual:
-  thread model, fact format, derived lifecycle, the CLI surface, agent
-  lifecycle, concurrent-write safety, and session behavior. **Start here.**
-- [docs/fact-native-redesign.md](docs/fact-native-redesign.md) — the design
-  record for the fact-native model.
+- [docs/operating-manual.md](docs/operating-manual.md) — thread model, fact
+  format, derived lifecycle, the CLI surface, agent lifecycle, concurrent-write
+  safety. **Start here.**
+- [docs/architecture.md](docs/architecture.md) — what lives where: engine,
+  coordination domain, CLI, agent SDK, MCP edge, your data.
+- [docs/hosting.md](docs/hosting.md) — laptop, a server you own, or
+  multi-tenant service off one architecture; [`deploy/`](deploy/) holds the
+  artifacts.
 - [docs/provider-architecture.md](docs/provider-architecture.md) — routing,
-  provider accounts, and subscription-entitlement billing.
-- [docs/PROPOSAL.md](docs/PROPOSAL.md) — the original vision and architecture.
+  provider accounts, subscription-entitlement billing.
+- [docs/fact-native-redesign.md](docs/fact-native-redesign.md) and
+  [docs/PROPOSAL.md](docs/PROPOSAL.md) — the design record.
+- [docs/building-and-testing.md](docs/building-and-testing.md) — rebuilding
+  from source and running the suites.
 
-## Running and building
+## Quickstart
 
-**Running the ledger needs only [babashka](https://babashka.org)** — the
-compiled Clojure is committed in `out/` (no Beagle required at runtime), same as
-Fram. You need the Fram engine checked out too (`FRAM_HOME`, default
-`~/code/fram/main`); `bin/north` puts both on the classpath. The agent SDK and MCP
-edge additionally need [Bun](https://bun.sh).
+```console
+$ nix run github:tompassarelli/north
+north — coordinate work, agents, and time
 
-North links Fram's library API, so its eyact source is pinned by the `fram`
-node in [`flake.lock`](flake.lock). The Niy package, CI, and Docker image all
-consume that one lock record mechanically; there is no second revision file to
-update or let drift.
+  NOW
+    north dashboard               agents, concerns, board, health — one screen
+    north ready                   what you could start now, ranked by leverage
+    north inbox                   notifications waiting on you
+    north agenda                  dated and overdue work
 
-To **rebuild** from the `.bclj` sources you also need
-[Beagle](https://github.com/tompassarelli/beagle) (the Lisp North is written
-in). `build.sh` links the engine sources in (`src/fram`, gitignored) and compiles
-the coordination-domain modules into `out/`; commit the result when sources
-change. Set `FRAM_HOME`/`BEAGLE_HOME` if they aren't at the defaults.
+  WORK
+    north capture "<thought>"     one thought → one committed thread
+    north show <id>               a thread's facts + body
+    north tell <id> <pred> <val>  assert a fact (retract removes)
+    north threads                 active / ready / blocked overview
+    north clock in <owner>|out    the client billing session
 
-## Tests
+  AGENTS
+    north delegate "<task>"       hand work to a new lane
+    north agents                  who's live now
+    north watch <id>              tail one agent's transcript
+    north steer <id> "<msg>"      nudge it mid-flight
 
-Life-domain (babashka) + gateway, then the agent SDK (the `sdk` package script
-owns hermetic preloads and test isolation — don't bypass it):
-
-```sh
-CP="out:$FRAM_HOME/out"
-bb -cp "$CP" clock_test.clj
-bb -cp "$CP" staleness_test.clj
-FRAM_LOG="$FRAM_HOME/facts.log" bb -cp "$CP" lifecycle_test.clj
-bash deploy/gateway/smoke_test.sh        # gateway auth + routing
-cd sdk && bun run check && bun run test  # TypeScript agent SDK
+  [SYSTEM and MORE groups elided]
 ```
+
+That card is one screen because work and agents are one graph — `north ready`
+and `north agents` are two projections of the same triples. It is generated
+from [`cli/surface.edn`](cli/surface.edn), and
+[`cli/tests/surface-sync-test.clj`](cli/tests/surface-sync-test.clj) fails when
+the registry, the rendered pages, and `bin/north`'s dispatch disagree.
+`north help <topic>` opens one of six topic pages; `north help --all` prints
+the whole surface.
+
+Without Nix, the ledger needs [babashka](https://babashka.org) and a Fram
+checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
+[Bun](https://bun.sh). See
+[docs/building-and-testing.md](docs/building-and-testing.md).
+
+## Why?
+
+- **Lifecycle is derived, never stored.** There is no status field to forget to
+  update: ready is committed ∧ unblocked, blocked is an unresolved
+  `depends_on`, done is an `outcome`. A `driver` fact is an assignment rather
+  than proof of activity, so liveness enters as a separate classifier input
+  ([`src/north/projections.bclj`](src/north/projections.bclj)).
+- **Agents and intentions share one graph.** A spawned lane gets a full-UUID
+  identity, a run reservation written before the provider is invoked, a run
+  ledger, and a truthful terminal (`delivery=reported|unverified|blocked`)
+  ([`sdk/src/spawn.ts`](sdk/src/spawn.ts),
+  [`cli/run-ledger.clj`](cli/run-ledger.clj)).
+- **Done-bars carry evidence.** Dispatch warns when a committed thread has no
+  `done_when` ([`sdk/src/dispatch.ts`](sdk/src/dispatch.ts)), and workers record
+  observed probe results with `north evidence record`, reserved against the bars
+  the thread carried at dispatch ([`cli/bars-cli.clj`](cli/bars-cli.clj)).
+- **Concurrent agents coordinate without locking.** *Concerns* declare a
+  footprint and coexist, *leases* claim exclusive jurisdiction, and *mail* plus
+  `north watch`/`steer`/`retask` drive live lanes
+  ([`cli/concern-cli.clj`](cli/concern-cli.clj),
+  [`cli/lease-cli.clj`](cli/lease-cli.clj),
+  [`cli/msg-cli.clj`](cli/msg-cli.clj)).
+- **One serialized write path.** Every write goes through a coordinator daemon
+  on `127.0.0.1:7977` (`NORTH_PORT`) that serializes and rule-checks it;
+  `north up` starts one ([`bin/north-coord-up`](bin/north-coord-up)).
+- **Time and billing are projections, not a second system.** `north clock`
+  opens one human client session, and worklogs and invoices derive from those
+  same facts ([`src/north/clock.bclj`](src/north/clock.bclj),
+  [`cli/north-timelog.clj`](cli/north-timelog.clj),
+  [`cli/north-invoice.clj`](cli/north-invoice.clj)).
+
+## Status
+
+North is pre-1.0: surfaces change between releases and there are no
+back-compatibility shims. Your data is not in this repository — the canonical
+`facts.log` lives in your own store, projected to `~/.local/state/north/` at
+runtime. When the coordinator or its runtime is unavailable, `north panic` is a
+Bash-only recovery path that writes `dispatch=native` and `guards=off` to
+`~/.local/state/north/harness.conf`, preserves other keys, and prints the exact
+restore commands.
+
+For the working manual, start with
+[docs/operating-manual.md](docs/operating-manual.md).
 
 ## License
 
