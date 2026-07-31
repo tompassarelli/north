@@ -93,6 +93,83 @@
         (and (str/includes? fixture-output "EXACT UUID")
              (str/includes? fixture-output "Exact UUID subject")))
 
+(def page-cursor "fram-query-page-v1.YQ")
+
+(def complete-page-calls (atom []))
+(def complete-view
+  (with-redefs [north.coord/telemetry-partition-enabled? (constantly false)
+                north.coord/query-page-in-domain
+                (fn [_ domain _query _limit after]
+                  (swap! complete-page-calls conj [domain after])
+                  (if (nil? after)
+                    {:ok (subvec cold-rows 0 2)
+                     :more true :next page-cursor :version 12 :engine "scan"}
+                    {:ok (subvec cold-rows 2)
+                     :more false :next nil :version 12 :engine "scan"}))]
+    (north.coord/live-facts-view 7977)))
+
+(def complete-cold-reads (atom 0))
+(def complete-output
+  (with-redefs [main/compose-telemetry-log? (constantly false)
+                rt/coord-live-state
+                (fn [& _]
+                  {:facts (mapv (fn [[subject predicate value]]
+                                  (kernel/->Fact subject predicate value))
+                                (:facts complete-view))
+                   :complete (:complete complete-view)})
+                rt/read-log
+                (fn [& _]
+                  (swap! complete-cold-reads inc)
+                  (throw (ex-info "complete warm path attempted a cold fold" {})))]
+    (with-out-str (main/cmd-board fixture-log true))))
+
+(check! "all warm pages produce the correct board without a cold fold"
+        (and (true? (:complete complete-view))
+             (= cold-rows (:facts complete-view))
+             (= [[:coordination nil] [:coordination page-cursor]]
+                @complete-page-calls)
+             (zero? @complete-cold-reads)
+             (str/includes? complete-output "THREADS — 1 open")
+             (str/includes? complete-output "Cold fixture thread")))
+
+(def aborted-page-calls (atom []))
+(def aborted-view
+  (with-redefs [north.coord/telemetry-partition-enabled? (constantly false)
+                north.coord/query-page-in-domain
+                (fn [_ domain _query _limit after]
+                  (swap! aborted-page-calls conj [domain after])
+                  (if (nil? after)
+                    {:ok (subvec cold-rows 0 2)
+                     :more true :next page-cursor :version 12 :engine "scan"}
+                    (throw (ex-info "injected pagination abort" {}))))]
+    (north.coord/live-facts-view 7977)))
+
+(def original-read-log rt/read-log)
+(def aborted-cold-reads (atom 0))
+(def aborted-output
+  (with-redefs [main/compose-telemetry-log? (constantly false)
+                rt/coord-live-state
+                (fn [& _]
+                  {:facts (mapv (fn [[subject predicate value]]
+                                  (kernel/->Fact subject predicate value))
+                                (:facts aborted-view))
+                   :complete (:complete aborted-view)})
+                rt/read-log
+                (fn [log]
+                  (swap! aborted-cold-reads inc)
+                  (original-read-log log))]
+    (with-out-str (main/cmd-board fixture-log true))))
+
+(check! "aborted warm pagination is incomplete and falls back to the correct cold board"
+        (and (false? (:complete aborted-view))
+             (empty? (:facts aborted-view))
+             (= ["coordination"] (:unavailable aborted-view))
+             (= [[:coordination nil] [:coordination page-cursor]]
+                @aborted-page-calls)
+             (pos? @aborted-cold-reads)
+             (str/includes? aborted-output "THREADS — 1 open")
+             (str/includes? aborted-output "Cold fixture thread")))
+
 (def composed-state
   (with-redefs [north.coord/telemetry-partition-enabled? (constantly true)
                 north.coord/live-facts-view
