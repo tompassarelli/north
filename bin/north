@@ -50,7 +50,7 @@ export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
 # this compatibility set only until a verified two-corpus snapshot, canonical
 # schema-migrate execution, strict audit, and restart proof have all landed; its
 # removal is deliberately sequenced after that live-data cutover.
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade started blocked landed handoff}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -166,9 +166,45 @@ north_slot_exec() {
   exec "${NORTH_MAIN[@]}" "$@"
 }
 
-# judgment_grade is dispatcher/orchestrator-owned calibration input. Ordinary
-# worker thread writes remain available, but managed workers cannot tell,
-# retract, or cold-set this predicate. New values pass the one canonical parser;
+# An explicit topology marks an agent process. Interactive user shells have no
+# topology and retain the full fact-authoring surface.
+agent_session() {
+  [ -n "${AGENT_TOPOLOGY:-}" ]
+}
+
+# Agent thread reports are a bounded delivery protocol, not a general graph
+# editor. Evidence retains its separate capability-bound writer.
+guard_agent_thread_write() {
+  agent_session || return 0
+  case "${1:-}" in
+    capture)
+      echo "north: capture REFUSED — agent sessions cannot create threads; return the request to the user" >&2
+      return 1
+      ;;
+    tell)
+      if [ "$#" -ne 4 ]; then
+        echo "north: tell REFUSED — agent reports require exactly: <thread> <started|checkpoint|blocked|landed|handoff> <value>" >&2
+        return 1
+      fi
+      case "${3:-}" in
+        started|checkpoint|blocked|landed|handoff) return 0 ;;
+        *)
+          echo "north: tell REFUSED — agent sessions may report only started, checkpoint, blocked, landed, or handoff" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    retract|untell|set)
+      echo "north: $1 REFUSED — agent sessions cannot retract or cold-set thread facts" >&2
+      return 1
+      ;;
+  esac
+}
+
+guard_agent_thread_write "$@" || exit 1
+
+# judgment_grade is dispatcher/orchestrator-owned calibration input, never an
+# agent delivery report. New values pass the one canonical parser;
 # malformed legacy values can still be retracted by an ambient human/orchestrator.
 # `set` is included because the generic engine passthrough would otherwise bypass
 # the coordinated tell policy (and remains discouraged under concurrency).
@@ -197,8 +233,8 @@ guard_judgment_grade_write() {
 
 guard_judgment_grade_write "$@" || exit 1
 
-# A worker still needs ordinary THREAD fact writes. Agent identity/lifecycle is
-# harness evidence, not agent-authored data: generic fact verbs may not mutate
+# Agent identity/lifecycle is harness evidence, not agent-authored data:
+# generic fact verbs may not mutate
 # any agent subject (self or peer). Trusted harness writes use a subprocess-only
 # private writer not routed by this CLI; peer control remains an orchestrator
 # operation. This is an application boundary, not same-UID hostile-code isolation.
@@ -230,6 +266,64 @@ deny_generic_run_mutation() {
 }
 
 deny_generic_run_mutation "$@" || exit 1
+
+prepare_agent_checkpoint_write() {
+  agent_session || return 0
+  [ "${1:-}" = tell ] && [ "${3:-}" = checkpoint ] || return 0
+
+  local runtime_dir key now previous age wait
+  runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/north-agent-checkpoints"
+  umask 077
+  mkdir -p "$runtime_dir" || {
+    echo "north: checkpoint REFUSED — cannot open the agent checkpoint rate-limit state" >&2
+    return 1
+  }
+  key="$(
+    printf '%s\0%s' \
+      "${AGENT_ID:-${NORTH_AGENT_ID:-${NORTH_AUTHOR:-${AGENT_TOPOLOGY}}}}" \
+      "${2#@}" | sha256sum
+  )"
+  key="${key%% *}"
+  north_checkpoint_marker="$runtime_dir/$key"
+  exec {north_checkpoint_lock_fd}>>"$runtime_dir/$key.lock" || {
+    echo "north: checkpoint REFUSED — cannot lock the agent checkpoint rate limit" >&2
+    return 1
+  }
+  flock -w 5 "$north_checkpoint_lock_fd" || {
+    echo "north: checkpoint REFUSED — checkpoint rate-limit lock is busy" >&2
+    return 1
+  }
+  now="$(date +%s)"
+  if [ -e "$north_checkpoint_marker" ]; then
+    previous="$(stat -c %Y "$north_checkpoint_marker" 2>/dev/null || printf '%s' "$now")"
+    age=$((now - previous))
+    if [ "$age" -lt 600 ]; then
+      wait=$((600 - age))
+      echo "north: checkpoint REFUSED — agent checkpoints are rate-limited to one per thread every 600s (retry in about ${wait}s)" >&2
+      return 1
+    fi
+  fi
+}
+
+exec_agent_checkpoint_write() {
+  if [ -z "${north_checkpoint_marker:-}" ]; then
+    exec "$@"
+  fi
+  "$@"
+  local status=$?
+  if [ "$status" -eq 0 ]; then
+    record_agent_checkpoint_success || return $?
+  fi
+  return "$status"
+}
+
+record_agent_checkpoint_success() {
+  [ -n "${north_checkpoint_marker:-}" ] || return 0
+  touch "$north_checkpoint_marker" || {
+    echo "north: checkpoint committed but rate-limit state could not be recorded" >&2
+    return 74
+  }
+}
 
 # Cheap deployment-readiness boundary. Runtime identity comes from the selected
 # coordinator generation and the live listener process; unlike coord-doctor,
@@ -651,6 +745,7 @@ CARD
         *)      set -- "$1" "${canon#@}" "${@:3}" ;;
       esac
     fi
+    prepare_agent_checkpoint_write "$@" || exit 1
     framverb="$1"; [ "$framverb" = retract ] && framverb=untell
     # Done-bars echo (friction gradient): closing a barred thread SEES its bars
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
@@ -668,10 +763,11 @@ CARD
     case "${2#@}" in
       run:*|session:*|mine:*|guard_denial:*)
         if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-          exec env -u FRAM_TELEMETRY_LOG \
+          exec_agent_checkpoint_write env -u FRAM_TELEMETRY_LOG \
             FRAM_PORT="$NORTH_TELEMETRY_PORT" \
             FRAM_LOG="$FRAM_TELEMETRY_LOG" \
             "$FRAM_BIN/fram" "$framverb" "${@:2}"
+          exit $?
         fi ;;
     esac
     if [ "${north_exact_subject:-0}" = 1 ]; then
@@ -681,6 +777,7 @@ CARD
       existing_status=$?
       case "$existing_status" in
         0)
+          record_agent_checkpoint_success || exit $?
           printf '%s\n' "$existing_output"
           exit 0
           ;;
@@ -698,7 +795,8 @@ CARD
           ;;
       esac
     fi
-    exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
+    exec_agent_checkpoint_write "$FRAM_BIN/fram" "$framverb" "${@:2}"
+    exit $? ;;
   *)  # engine verbs: import/export/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;
 esac
