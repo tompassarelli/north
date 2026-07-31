@@ -30,12 +30,35 @@ prints the suggested invocation to stderr. Pin `-m` and
 
 | Stock-template capabilities | Sandbox | Notes |
 |---|---|---|
-| `filesystem.write` + `shell` | `-s workspace-write -C <workdir>` | writes confined to the lane's workdir (worktree or clone); `--add-dir` for named extra surfaces only |
+| `filesystem.write` + `shell` | `-s workspace-write -C <workdir>` | writes confined to the lane's workdir — which MUST be a self-contained local clone (see below); `--add-dir` for named extra surfaces only |
 | read-only set (`shell.readonly`, no write) | `-s read-only` | codex's read-only sandbox is an OS-enforced write denial, so `shell.readonly` roles KEEP live shell probes on this adapter (unlike the Claude plugin adapter, which must withhold Bash) |
 | `coordination` (orchestrator topology) | not dispatchable | this adapter has no per-child admission/settlement surface; orchestrator seats run on the session or North side and fan WORKER lanes out here |
 
 Always pass `-s` explicitly — the user-level codex config is permissive
 (filesystem unrestricted) and must never be relied on as a boundary.
+
+## Authoring-lane workspace topology (mandatory)
+
+An authoring lane's workdir is a SELF-CONTAINED LOCAL CLONE on real disk:
+
+```sh
+git clone --local /path/to/<repo>/main /path/to/lanes/<lane-name>
+```
+
+Never either of these, both of which produce `blocked-by-execution` on the
+first `git add` by construction:
+
+- **A git worktree of a guarded main.** A worktree's `.git` is a pointer
+  file; its index, HEAD, locks, and all committed objects live under the
+  MAIN checkout's `.git` — outside the lane's writable root. The lane can
+  edit every file and commit none of them.
+- **Anything under `/tmp`.** The codex sandbox virtualizes `/tmp`; a clone
+  there reads normally but its `.git` writes land on a read-only path.
+
+`--local` hardlinks objects, so clones are cheap. The lane commits freely
+in its own universe; landing is the orchestrator's act — fetch from the
+clone, review, fast-forward, `safe-push`. Read-only lanes need none of
+this: point `-C` anywhere readable.
 
 ## Lane shapes
 
