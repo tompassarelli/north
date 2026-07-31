@@ -10,12 +10,12 @@ north help store — the fact corpus and its schema
   north tools                                the curated MCP tool surface + the fram engine core
   north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
   north boot                                 session orientation: safety verdict, hygiene, the entry-point note
-  north import                               fold threads/ file edits into the log (trusted writer)
+  north import                               fold threads/ file edits into the log (idempotent, safe anytime)
   north export <out-dir>                     regenerate threads/ from the log — never during concurrent work
   north snapshot create|verify|restore-plan  immutable dual-log checkpoint and restore planning
   north schema-migrate plan|audit            deterministic schema cutover; plan/audit stay read-only
   north corpus-transaction check-boundaries  verify split-log append safety before maintenance
-  north set …                                legacy — direct log append — trusted single-writer/offline only
+  north set …                                legacy — direct log append — single-writer/offline only; races otherwise
 
   any other verb passes through to the fram engine (ask, watch, …)
 

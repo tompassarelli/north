@@ -2,13 +2,10 @@ north — coordinate work, agents, and time — the complete reference
 (`north help <topic>` is one section; bare `north` is the daily card)
 
 WORK — threads: thought → fact → outcome
-  north-author capture "<title>" [owner]    trusted thread creation (agent-session north capture is sealed)
-                                            agent sessions: north capture is refused — return the request to the user
+  north capture "<title>" [owner]           mint a committed thread from one thought (zero ceremony)
   north show <id|slug|substring>            one thread's facts + body; resolves id, slug, substring
-  north tell <id> <report> <value>          bounded agent report: started · checkpoint · blocked · landed · handoff
-                                            north-author tell <id> <pred> <val> — trusted fact authoring
-                                            one report per agent/thread per 600s
-  north retract <id> <pred> <value>         trusted-writer fact retraction — humans: north-author retract  (alias: untell)
+  north tell <id> <pred> <value>            assert a fact through the fact server (serialized, rule-checked)
+  north retract <id> <pred> <value>         retract a fact through the fact server  (alias: untell)
   north threads [--all]                     thread-kind overview: active drivers, top ready, counts  (aliases: board, plate)
   north ready [--all]                       committed + unblocked work, ranked by leverage
   north next                                the recommended next pull
@@ -26,7 +23,7 @@ WORK — threads: thought → fact → outcome
   north worktrees [repo] [--json]           every repo's wt-* trees: drift, dirt, age, owning lane/concern
   north worktree lander [repo]              landing reconciliation: harvest lane refs already merged to main
   north linear get|import|plan|sync         mechanical Linear bridge (sync is plan-only unless --apply)
-  north merge <from> <to>                   fold one node into another; refs follow (trusted writer)
+  north merge <from> <to>                   fold one node into another; refs follow
 
 AGENTS — delegate work, drive and observe agents
   north delegate "<task>"           hand work to a new lane; intake classifies atomic vs composite
@@ -99,12 +96,12 @@ STORE — the fact corpus and its schema
   north tools                                the curated MCP tool surface + the fram engine core
   north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
   north boot                                 session orientation: safety verdict, hygiene, the entry-point note
-  north import                               fold threads/ file edits into the log (trusted writer)
+  north import                               fold threads/ file edits into the log (idempotent, safe anytime)
   north export <out-dir>                     regenerate threads/ from the log — never during concurrent work
   north snapshot create|verify|restore-plan  immutable dual-log checkpoint and restore planning
   north schema-migrate plan|audit            deterministic schema cutover; plan/audit stay read-only
   north corpus-transaction check-boundaries  verify split-log append safety before maintenance
-  north set …                                legacy — direct log append — trusted single-writer/offline only
+  north set …                                legacy — direct log append — single-writer/offline only; races otherwise
 
   any other verb passes through to the fram engine (ask, watch, …)
 

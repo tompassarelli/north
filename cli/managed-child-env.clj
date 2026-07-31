@@ -17,10 +17,7 @@
    ;; Per-run proof authority belongs only to the exact child for which the
    ;; harness committed a reservation. A nested spawn receives a fresh explicit
    ;; context or none; it must never inherit its parent's capability.
-   "NORTH_RUN_ID" "NORTH_THREAD_ID" "NORTH_RUN_CAPABILITY"
-   ;; Unrestricted thread authoring is parent-process-bound and must never
-   ;; become ambient authority in any managed child.
-   "NORTH_THREAD_WRITE_CAPABILITY" "NORTH_THREAD_WRITE_CAPABILITY_FILE"])
+   "NORTH_RUN_ID" "NORTH_THREAD_ID" "NORTH_RUN_CAPABILITY"])
 
 (defn scrub
   ([] (scrub (into {} (System/getenv))))

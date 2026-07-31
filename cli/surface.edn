@@ -18,24 +18,21 @@
  "any other verb passes through to the fram engine (ask, watch, …)"
  :commands
  [;; ---------------------------------------------------------------- work
-  {:verb "capture" :form "north-author capture \"<title>\" [owner]" :topic :work
-   :summary "trusted thread creation (agent-session north capture is sealed)"
-   :details ["agent sessions: north capture is refused — return the request to the user"]
-   :card {:section :work :form "north-author capture \"<thought>\""
+  {:verb "capture" :form "north capture \"<title>\" [owner]" :topic :work
+   :summary "mint a committed thread from one thought (zero ceremony)"
+   :card {:section :work :form "north capture \"<thought>\""
           :text "one thought → one committed thread"}}
   {:verb "show" :form "north show <id|slug|substring>" :topic :work
    :summary "one thread's facts + body; resolves id, slug, substring"
    :card {:section :work :form "north show <id>"
           :text "a thread's facts + body"}}
-  {:verb "tell" :form "north tell <id> <report> <value>" :topic :work
-   :summary "bounded agent report: started · checkpoint · blocked · landed · handoff"
-   :details ["north-author tell <id> <pred> <val> — trusted fact authoring"
-             "one report per agent/thread per 600s"]
-   :card {:section :work :form "north tell <id> <report> <val>"
-          :text "agent report; north-author tell = trusted"}}
+  {:verb "tell" :form "north tell <id> <pred> <value>" :topic :work
+   :summary "assert a fact through the fact server (serialized, rule-checked)"
+   :card {:section :work :form "north tell <id> <pred> <val>"
+          :text "assert a fact (retract removes)"}}
   {:verb "retract" :form "north retract <id> <pred> <value>" :topic :work
    :aliases ["untell"]
-   :summary "trusted-writer fact retraction — humans: north-author retract"}
+   :summary "retract a fact through the fact server"}
   {:verb "threads" :form "north threads [--all]" :topic :work
    :aliases ["board" "plate"]
    :summary "thread-kind overview: active drivers, top ready, counts"
@@ -77,7 +74,7 @@
   {:verb "linear" :form "north linear get|import|plan|sync" :topic :work
    :summary "mechanical Linear bridge (sync is plan-only unless --apply)"}
   {:verb "merge" :form "north merge <from> <to>" :topic :work :dispatch :fram
-   :summary "fold one node into another; refs follow (trusted writer)"}
+   :summary "fold one node into another; refs follow"}
 
   ;; -------------------------------------------------------------- agents
   {:verb "delegate" :form "north delegate \"<task>\"" :topic :agents
@@ -208,11 +205,11 @@
   {:verb "boot" :form "north boot" :topic :store
    :summary "session orientation: safety verdict, hygiene, the entry-point note"}
   {:verb "import" :form "north import" :topic :store :dispatch :fram
-   :summary "fold threads/ file edits into the log (trusted writer)"}
+   :summary "fold threads/ file edits into the log (idempotent, safe anytime)"}
   {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :fram
    :summary "regenerate threads/ from the log — never during concurrent work"}
   {:verb "set" :form "north set …" :topic :store :dispatch :fram :status :legacy
-   :summary "direct log append — trusted single-writer/offline only"}
+   :summary "direct log append — single-writer/offline only; races otherwise"}
   {:verb "snapshot" :form "north snapshot create|verify|restore-plan" :topic :store
    :summary "immutable dual-log checkpoint and restore planning"}
   {:verb "schema-migrate" :form "north schema-migrate plan|audit" :topic :store

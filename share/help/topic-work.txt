@@ -1,12 +1,9 @@
 north help work — threads: thought → fact → outcome
 
-  north-author capture "<title>" [owner]    trusted thread creation (agent-session north capture is sealed)
-                                            agent sessions: north capture is refused — return the request to the user
+  north capture "<title>" [owner]           mint a committed thread from one thought (zero ceremony)
   north show <id|slug|substring>            one thread's facts + body; resolves id, slug, substring
-  north tell <id> <report> <value>          bounded agent report: started · checkpoint · blocked · landed · handoff
-                                            north-author tell <id> <pred> <val> — trusted fact authoring
-                                            one report per agent/thread per 600s
-  north retract <id> <pred> <value>         trusted-writer fact retraction — humans: north-author retract  (alias: untell)
+  north tell <id> <pred> <value>            assert a fact through the fact server (serialized, rule-checked)
+  north retract <id> <pred> <value>         retract a fact through the fact server  (alias: untell)
   north threads [--all]                     thread-kind overview: active drivers, top ready, counts  (aliases: board, plate)
   north ready [--all]                       committed + unblocked work, ranked by leverage
   north next                                the recommended next pull
@@ -24,6 +21,6 @@ north help work — threads: thought → fact → outcome
   north worktrees [repo] [--json]           every repo's wt-* trees: drift, dirt, age, owning lane/concern
   north worktree lander [repo]              landing reconciliation: harvest lane refs already merged to main
   north linear get|import|plan|sync         mechanical Linear bridge (sync is plan-only unless --apply)
-  north merge <from> <to>                   fold one node into another; refs follow (trusted writer)
+  north merge <from> <to>                   fold one node into another; refs follow
 
   north help --all — the complete reference · bare `north` — the daily card

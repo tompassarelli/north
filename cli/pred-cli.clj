@@ -192,11 +192,6 @@
    ["run_reserved_at" "multi" "literal" "conflict-visible strict UTC instant at which a run subject was reserved"]
    ["run_reservation_manifest_sha256" "multi" "literal" "conflict-visible digest committing the exact run reservation projection"]
    ["run_bar_evidence" "multi" "literal" "canonical writer-scoped self-reported done-bar observation for one run/thread/reporter"]
-   ["started"        "single" "literal" "bounded agent report that work started"]
-   ["checkpoint"     "multi"  "literal" "rate-limited agent progress checkpoint"]
-   ["blocked"        "single" "literal" "bounded agent report naming the current blocker"]
-   ["landed"         "single" "literal" "bounded agent report naming the landed result"]
-   ["handoff"        "single" "literal" "bounded agent report naming an explicit transfer frame"]
    ["learning"       "multi"  "literal" "playbook learnings accumulated on a thread"]
    ["progress"       "multi"  "literal" "append-only progress update on a thread"]
    ["done_when"      "multi"  "literal" "probe and expected result that define completion"]
@@ -646,7 +641,7 @@
 ;; remain covered by VOCAB and the parity test.
 (def DYNAMIC-PREDICATE-SURFACES
   [{:id "cli-tell" :path "bin/north"
-    :reason "north tell/retract accepts user-authored predicates plus the bounded agent report set"}
+    :reason "north tell/retract accepts user-authored graph predicates"}
    {:id "mcp-tell" :path "bin/north-mcp"
     :reason "the generic MCP tell tool accepts a caller-supplied predicate"}
    {:id "peer-tell" :path "sdk/src/harness.ts"
