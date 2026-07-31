@@ -252,7 +252,10 @@
         log (.getCanonicalPath (io/file temp "facts.log"))
         port (free-port)
         singles "owner rate kind clocked_by start_time end_time"
-        environment {"FRAM_LOG" log
+        ;; bin/north falls back to $HOME/code/fram/main, which no CI runner has;
+        ;; point it at the sibling checkout these tests already resolved.
+        environment {"FRAM_HOME" fram
+                     "FRAM_LOG" log
                      "FRAM_PORT" (str port)
                      "FRAM_SINGLE_VALUED" singles
                      "NORTH_AGENT_ID" ""
@@ -392,7 +395,10 @@
         log (.getCanonicalPath (io/file temp "facts.log"))
         port (free-port)
         singles "owner rate kind clocked_by start_time end_time"
-        environment {"FRAM_LOG" log
+        ;; bin/north falls back to $HOME/code/fram/main, which no CI runner has;
+        ;; point it at the sibling checkout these tests already resolved.
+        environment {"FRAM_HOME" fram
+                     "FRAM_LOG" log
                      "FRAM_PORT" (str port)
                      "FRAM_SINGLE_VALUED" singles
                      "NORTH_AGENT_ID" ""
