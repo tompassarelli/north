@@ -57,6 +57,10 @@
 (System/setProperty "north.rebuild-request-cli.lib" "1")
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
                 "/rebuild-request-cli.clj"))
+;; The event-driven owner and this periodic fallback share one serialized
+;; plan/claim/launch implementation.
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
+                "/rebuild_window_owner.clj"))
 ;; Spend-guard breaker + burn/kill/reaper-settle primitives (step 3). Loaded AFTER
 ;; coord so its north.coord/* references resolve. The reactor is the ONLY place the
 ;; burn-rate trip is computed + written and the only terminal for dead-lane spend.
@@ -642,70 +646,14 @@
             (flush)
             {:status :deferred :reason :error :error error}))))))
 
-;; ---- REBUILD WINDOW OWNER ---------------------------------------------------
-;; Agents queue rebuild asks (`north rebuild request`) and never fire; this sweep
-;; is the ONLY collector. At most one coordinated rebuild per window, and a window
-;; is consumed only by a firing — a parked queue never burns one.
-(def REBUILD-WINDOW-UNIT "north-rebuild-window")
-
-(defn launch-rebuild-window!
-  "Run the claimed window OUTSIDE this sweep: a rebuild takes minutes and the
-   sweep is bounded to four. The FIXED unit name is the double-fire mutex —
-   systemd refuses a second start while one is running."
-  [window-id]
-  (try
-    (let [north (-> (io/file (System/getProperty "babashka.file"))
-                    .getParentFile .getParentFile (io/file "bin" "north") .getPath)
-          r (proc/shell {:out :string :err :string :continue true}
-                        "systemd-run" "--user" "--collect"
-                        (str "--unit=" REBUILD-WINDOW-UNIT)
-                        "--description=north coordinated rebuild window"
-                        north "rebuild" "run-window" window-id)]
-      (if (zero? (:exit r))
-        {:launched true :unit REBUILD-WINDOW-UNIT}
-        {:launched false :reason (str/trim (str (:err r)))}))
-    (catch Throwable t {:launched false :reason (str (.getMessage t))})))
-
+;; ---- REBUILD WINDOW PERIODIC FALLBACK --------------------------------------
 (defn maybe-rebuild-window!
-  "Collect open requests into ONE coordinated rebuild. With rebuild-coordination
-   off the owner only queues and reports; firing arms when that flip lands."
+  "The broad sweep is the durable periodic fallback for the dedicated
+   subscription-driven queue owner."
   [dry?]
-  (try
-    (let [plan (north.rebuild-request/plan-window port)
-          n (:count plan)
-          queue-read (:queue-read plan)]
-      (println (str "[sweep] rebuild queue"
-                    " mode=" (:mode queue-read)
-                    " bridge_start=" (:start-offset queue-read)
-                    " bridge_end=" (:end-offset queue-read)
-                    " bridge_target=" (:target-offset queue-read)
-                    " bridge_bytes=" (:bytes-read queue-read)
-                    " bridge_events=" (:relevant-events queue-read)
-                    " corpus_queries=" (:corpus-queries queue-read)
-                    " caught_up=" (:caught-up queue-read)))
-      (case (:action plan)
-        :idle {:action "idle" :count 0 :queue-read queue-read}
-        :queued {:action "queued" :count n :queue-read queue-read}
-        :waiting {:action "waiting" :count n :queue-read queue-read}
-        :fire
-        (if dry?
-          (do (println (str "[sweep] WOULD open a rebuild window for " n " request(s)"))
-              {:action "would-fire" :count n :queue-read queue-read})
-          (let [window-id (north.rebuild-request/open-window! port (mapv :id (:open plan)))
-                launch (launch-rebuild-window! window-id)]
-            (if (:launched launch)
-              (do (println (str "[sweep] rebuild window " window-id " launched for " n
-                                " request(s) — unit " (:unit launch)))
-                  {:action "fired" :count n :window window-id
-                   :queue-read queue-read})
-              (do (north.rebuild-request/set-window-action! port window-id "deferred")
-                  (println (str "[sweep] rebuild window " window-id " deferred: "
-                                (:reason launch)))
-                  {:action "deferred" :count n :window window-id
-                   :queue-read queue-read}))))))
-    (catch Throwable t
-      (println (str "[sweep] rebuild window error: " (.getMessage t)))
-      {:action "error" :count 0 :error t})))
+  (let [north (-> (io/file (System/getProperty "babashka.file"))
+                  .getParentFile .getParentFile (io/file "bin" "north") .getPath)]
+    (north.rebuild-window-owner/collect! port dry? north)))
 
 ;; ---- AGENT STREAM-LOG ROTATION (durable-but-untidy GC) ----------------------
 ;; north-data/agents/*.log are per-agent SDK stream logs — hundreds of files,
