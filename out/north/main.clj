@@ -123,8 +123,8 @@
   (reduce (fn [m a] (if (= (:op a) "retract") (assoc m (str (:l a) "|" (:p a) "|" (:r a)) true) m)) {} ops))
 
 (defn- live-facts [^String log]
-  (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
-  (if (empty? warm) (:facts (fold/fold (read-logs-merged log))) warm)))
+  (let [warm-state (fram.rt/coord-live-state (fram.rt/coord-port) log)]
+  (if (and (some? warm-state) (not (= false (:complete warm-state)))) (:facts warm-state) (:facts (fold/fold (read-logs-merged log))))))
 
 (defn- live-idx [^String log]
   (k/build-index (live-facts log)))

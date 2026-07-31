@@ -14,7 +14,7 @@
 (load-file
  (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
-(def original-live-facts rt/coord-live-facts)
+(def original-live-state rt/coord-live-state)
 (def original-coord-port rt/coord-port)
 (def original-version-for-log rt/coord-version-for-log)
 (def original-assert-for-log rt/coord-assert-for-log)
@@ -32,8 +32,9 @@
 
 (defn composed-live-facts [port log]
   (if-not (north.coord/telemetry-partition-enabled?)
-    (original-live-facts port log)
-    (let [{:keys [facts unavailable unavailable-detail]}
+    (when-let [state (original-live-state port log)]
+      (assoc state :complete true))
+    (let [{:keys [facts domains unavailable unavailable-detail complete]}
           (north.coord/live-facts-view (coordination-port))]
       (when (seq unavailable)
         (binding [*out* *err*]
@@ -46,9 +47,11 @@
                 (str/join ", " unavailable)))
           (doseq [[domain reason] unavailable-detail]
             (println (str "  " domain ": " reason)))))
-      (mapv (fn [[subject predicate value]]
-              (kernel/->Fact subject predicate value))
-            facts))))
+      {:facts (mapv (fn [[subject predicate value]]
+                      (kernel/->Fact subject predicate value))
+                    facts)
+       :domains domains
+       :complete complete})))
 
 (def telemetry-clock-verbs
   #{"start" "orphan" "sync"})
@@ -76,6 +79,10 @@
 
 (defn coordination-live-facts [port log]
   (:facts (coordination-snapshot port log)))
+
+(defn coordination-live-state [port log]
+  {:facts (coordination-live-facts port log)
+   :complete true})
 
 (defn triples-index [triples]
   (kernel/build-index
@@ -305,9 +312,9 @@
         telemetry-write? (telemetry-clock-command? args)
         writer-port (if telemetry-write? (telemetry-port) (original-coord-port))
         writer-log (if telemetry-write? (telemetry-log) (rt/log-path))
-        live-reader (if authority? coordination-live-facts composed-live-facts)]
+        live-reader (if authority? coordination-live-state composed-live-facts)]
     (with-redefs
-     [rt/coord-live-facts live-reader
+     [rt/coord-live-state live-reader
       main/compose-telemetry-log? (fn [] (not authority?))
       rt/coord-port (fn [] writer-port)
       rt/coord-version-for-log
