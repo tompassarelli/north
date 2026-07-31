@@ -23,8 +23,8 @@ function inertParticipant(): HostTerminationParticipant {
   };
 }
 
-test("managed sessions hard-cap at exactly 60 minutes and write one handoff before teardown", () => {
-  let fire!: () => void;
+test("managed sessions hard-cap at exactly 60 minutes and write one handoff before teardown", async () => {
+  let fire!: () => void | Promise<void>;
   const cancelled: unknown[] = [];
   const events: string[] = [];
   const termination = new ManagedQueryTermination(
@@ -59,8 +59,8 @@ test("managed sessions hard-cap at exactly 60 minutes and write one handoff befo
     async *[Symbol.asyncIterator]() {},
   });
 
-  fire();
-  fire();
+  await fire();
+  await fire();
 
   expect(events).toEqual([
     "input-closed",
@@ -82,6 +82,114 @@ test("managed sessions hard-cap at exactly 60 minutes and write one handoff befo
   termination.cleanupSettled();
   termination.release();
   expect(cancelled).toEqual(["deadline"]);
+});
+
+test("a recovered lane inherits its original absolute deadline", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-session-deadline-"));
+  const scheduled: number[] = [];
+  let now = new Date("2026-07-31T00:00:00.000Z");
+  const options = {
+    agentId: "lane-recovered-deadline",
+    threadId: "thread-recovered-deadline",
+    goal: "one bounded deliverable",
+    repo: "/home/tom/code/north",
+    stateDirectory: directory,
+    now: () => now,
+    schedule: (_callback: () => void, delayMs: number) => {
+      scheduled.push(delayMs);
+      return `deadline-${scheduled.length}`;
+    },
+    cancel: () => {},
+    writeHandoff: () => {
+      throw new Error("deadline was not fired");
+    },
+  };
+  try {
+    const original = new ManagedQueryTermination(
+      () => inertParticipant(),
+      options as any,
+    );
+    now = new Date("2026-07-31T00:15:00.000Z");
+    const recovered = new ManagedQueryTermination(
+      () => inertParticipant(),
+      options as any,
+    );
+
+    expect(scheduled).toEqual([
+      DEFAULT_MANAGED_SESSION_HARD_CAP_MS,
+      DEFAULT_MANAGED_SESSION_HARD_CAP_MS - 15 * 60_000,
+    ]);
+    recovered.release();
+    original.release();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("hard-cap expiry awaits Codex-style interrupt when forceClose is absent", async () => {
+  let fire!: () => void | Promise<void>;
+  let settleInterrupt!: () => void;
+  let providerAlive = true;
+  let queryUnsettled = true;
+  const events: string[] = [];
+  const termination = new ManagedQueryTermination(
+    () => inertParticipant(),
+    {
+      agentId: "lane-codex-hard-cap",
+      threadId: "thread-codex-hard-cap",
+      goal: "terminate the provider",
+      repo: "/home/tom/code/north",
+      schedule: (callback) => {
+        fire = callback;
+        return "deadline";
+      },
+      cancel: () => {},
+      writeHandoff: () => {
+        events.push("handoff");
+        return {
+          path: "/state/session-handoffs/lane-codex-hard-cap.json",
+          indexed: true,
+          spooled: false,
+        };
+      },
+    },
+  );
+  termination.signal.addEventListener("abort", () => events.push("abort"));
+  termination.attachInput(() => events.push("input-closed"));
+  termination.attachQuery({
+    interrupt: () => new Promise<void>((resolve) => {
+      settleInterrupt = () => {
+        resolve();
+      };
+    }).then(() => {
+      providerAlive = false;
+      queryUnsettled = false;
+      events.push("query-interrupted");
+    }),
+    async *[Symbol.asyncIterator]() {},
+  });
+
+  const expiry = Promise.resolve(fire());
+  await Promise.resolve();
+  expect(termination.hardCapStatus()).toBeUndefined();
+  expect(providerAlive).toBe(true);
+  expect(queryUnsettled).toBe(true);
+  settleInterrupt();
+  await expiry;
+
+  expect(events).toEqual([
+    "input-closed",
+    "handoff",
+    "abort",
+    "query-interrupted",
+  ]);
+  expect(providerAlive).toBe(false);
+  expect(queryUnsettled).toBe(false);
+  expect(termination.hardCapStatus()).toMatchObject({
+    hardCapMs: DEFAULT_MANAGED_SESSION_HARD_CAP_MS,
+    indexed: true,
+  });
+  termination.release();
 });
 
 test("managed requests and plausible environment overrides cannot change the production cap", async () => {
@@ -248,9 +356,9 @@ test("an explicit writer runtime overrides an unusable NORTH_BIN environment", (
   }
 });
 
-test("forced thread-index failure spools once before provider teardown and replays at settlement", () => {
+test("forced thread-index failure spools once before provider teardown and replays at settlement", async () => {
   const directory = mkdtempSync(join(tmpdir(), "north-session-hard-cap-failure-"));
-  let fire!: () => void;
+  let fire!: () => void | Promise<void>;
   let indexAvailable = false;
   let indexAttempts = 0;
   const events: string[] = [];
@@ -300,8 +408,8 @@ test("forced thread-index failure spools once before provider teardown and repla
       async *[Symbol.asyncIterator]() {},
     });
 
-    fire();
-    fire();
+    await fire();
+    await fire();
 
     expect(events).toEqual([
       "input-closed",
