@@ -1664,6 +1664,8 @@ export function harnessOptions(o: HarnessOpts): Options {
     NORTH_RUN_ID: _inheritedRun,
     NORTH_THREAD_ID: _inheritedThread,
     NORTH_RUN_CAPABILITY: _inheritedCapability,
+    NORTH_THREAD_WRITE_CAPABILITY: _inheritedThreadWriteCapability,
+    NORTH_THREAD_WRITE_CAPABILITY_FILE: _inheritedThreadWriteCapabilityFile,
     NORTH_MANAGED_LANE: _inheritedManagedLane,
     NORTH_ORCHESTRATION_ROLE: _inheritedOrchestrationRole,
     NORTH_CODEX_BIN: _inheritedCodexOverride,

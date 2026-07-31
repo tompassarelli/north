@@ -54,15 +54,14 @@ expect_denied() {
   grep -Fq 'REFUSED' "$scratch/denied.out"
 }
 
-for topology in worker orchestrator; do
-  agent_env=("${common_env[@]}" AGENT_TOPOLOGY="$topology" AGENT_ID="$topology-agent")
+for topology in worker orchestrator native; do
+  agent_env=("${common_env[@]}" AGENT_ID="$topology-agent")
+  [ "$topology" = native ] || agent_env+=(AGENT_TOPOLOGY="$topology")
   for predicate in started checkpoint blocked landed handoff; do
     env "${agent_env[@]}" "$root/bin/north" tell \
       "$thread_a" "$predicate" "$topology $predicate" >/dev/null
-    if [ "$predicate" = checkpoint ]; then
-      find "$runtime/north-agent-checkpoints" -type f ! -name '*.lock' \
-        -exec touch -d '11 minutes ago' {} +
-    fi
+    find "$runtime/north-agent-reports" -type f ! -name '*.lock' \
+      -exec touch -d '11 minutes ago' {} +
   done
   expect_denied "$topology arbitrary tell" \
     env "${agent_env[@]}" "$root/bin/north" tell "$thread_a" progress report
@@ -70,21 +69,61 @@ for topology in worker orchestrator; do
     env "${agent_env[@]}" "$root/bin/north" retract "$thread_a" checkpoint report
   expect_denied "$topology capture" \
     env "${agent_env[@]}" "$root/bin/north" capture "agent-created thread"
+  expect_denied "$topology merge" \
+    env "${agent_env[@]}" "$root/bin/north" merge "$thread_a" "$thread_b"
+  expect_denied "$topology import" \
+    env "${agent_env[@]}" "$root/bin/north" import
 done
 
-env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
-  "$root/bin/north" tell "$thread_a" progress "interactive report" >/dev/null
-env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
-  "$root/bin/north" capture "interactive thread" >/dev/null
+expect_denied "native/no-topology arbitrary tell" \
+  env -u AGENT_TOPOLOGY -u AGENT_ID -u NORTH_AGENT_ID "${common_env[@]}" \
+  "$root/bin/north" tell "$thread_a" progress "native report"
+expect_denied "native/no-topology capture" \
+  env -u AGENT_TOPOLOGY -u AGENT_ID -u NORTH_AGENT_ID "${common_env[@]}" \
+  "$root/bin/north" capture "native-created thread"
 
-rm -rf "${runtime:?}/north-agent-checkpoints"
+forged_token="$(printf 'a%.0s' {1..64})"
+expect_denied "legacy trusted boolean cannot bypass authority" \
+  env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+  NORTH_TRUSTED_HARNESS_WRITE=1 \
+  "$root/bin/north" tell "$thread_a" progress forged
+expect_denied "token without its private file cannot bypass authority" \
+  env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+  NORTH_THREAD_WRITE_CAPABILITY="$forged_token" \
+  "$root/bin/north" tell "$thread_a" progress forged
+
+env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+  "$root/bin/north-author" tell "$thread_a" progress "trusted report" >/dev/null
+env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+  "$root/bin/north-author" capture "trusted thread" >/dev/null
+if find "$runtime/north-thread-write-authority" -type f -print -quit |
+   grep -q .; then
+  echo "agent write controls: north-author left a capability file behind" >&2
+  exit 1
+fi
+
+rm -rf "${runtime:?}/north-agent-reports"
 : >"$calls"
 rate_env=("${common_env[@]}" AGENT_TOPOLOGY=worker AGENT_ID=rate-agent)
+
+for predicate in started checkpoint blocked landed handoff; do
+  rm -rf "${runtime:?}/north-agent-reports"
+  : >"$calls"
+  env "${rate_env[@]}" "$root/bin/north" tell \
+    "$thread_a" "$predicate" first >/dev/null
+  expect_denied "second $predicate report inside 600 seconds" \
+    env "${rate_env[@]}" "$root/bin/north" tell "$thread_a" "$predicate" second
+  grep -Fq 'rate-limited to one per agent/thread every 600s' "$scratch/denied.out"
+  [[ "$(wc -l <"$calls")" -eq 1 ]]
+done
+
+rm -rf "${runtime:?}/north-agent-reports"
+: >"$calls"
 env "${rate_env[@]}" "$root/bin/north" tell \
-  "$thread_a" checkpoint first >/dev/null
-expect_denied "second checkpoint inside 600 seconds" \
+  "$thread_a" started first >/dev/null
+expect_denied "different report predicate shares the agent/thread limit" \
   env "${rate_env[@]}" "$root/bin/north" tell "$thread_a" checkpoint second
-grep -Fq 'rate-limited to one per thread every 600s' "$scratch/denied.out"
+grep -Fq 'rate-limited to one per agent/thread every 600s' "$scratch/denied.out"
 [[ "$(wc -l <"$calls")" -eq 1 ]]
 
 env "${rate_env[@]}" "$root/bin/north" tell \
@@ -92,12 +131,12 @@ env "${rate_env[@]}" "$root/bin/north" tell \
 env "${common_env[@]}" AGENT_TOPOLOGY=worker AGENT_ID=other-agent \
   "$root/bin/north" tell "$thread_a" checkpoint "different agent" >/dev/null
 
-find "$runtime/north-agent-checkpoints" -type f ! -name '*.lock' \
+find "$runtime/north-agent-reports" -type f ! -name '*.lock' \
   -exec touch -d '11 minutes ago' {} +
 env "${rate_env[@]}" "$root/bin/north" tell \
   "$thread_a" checkpoint "after interval" >/dev/null
 
-rm -rf "${runtime:?}/north-agent-checkpoints"
+rm -rf "${runtime:?}/north-agent-reports"
 if env "${rate_env[@]}" "$root/bin/north" tell \
   "$thread_a" checkpoint fail >"$scratch/fail.out" 2>&1; then
   echo "agent write controls: fake failed checkpoint unexpectedly succeeded" >&2
@@ -106,7 +145,7 @@ fi
 env "${rate_env[@]}" "$root/bin/north" tell \
   "$thread_a" checkpoint "retry after failure" >/dev/null
 
-rm -rf "${runtime:?}/north-agent-checkpoints"
+rm -rf "${runtime:?}/north-agent-reports"
 set +e
 env "${rate_env[@]}" "$root/bin/north" tell \
   "$thread_a" checkpoint concurrent-a >"$scratch/concurrent-a.out" 2>&1 &
@@ -125,10 +164,10 @@ if ! { { [ "$status_a" -eq 0 ] && [ "$status_b" -ne 0 ]; } ||
     "$status_a" "$status_b" >&2
   exit 1
 fi
-grep -Fq 'rate-limited to one per thread every 600s' \
+grep -Fq 'rate-limited to one per agent/thread every 600s' \
   "$scratch/concurrent-a.out" "$scratch/concurrent-b.out"
 
-rm -rf "${runtime:?}/north-agent-checkpoints"
+rm -rf "${runtime:?}/north-agent-reports"
 env "${rate_env[@]}" "$root/bin/north" tell \
   @alias checkpoint "resolved handle" >/dev/null
 expect_denied "handle and UUID share a canonical checkpoint limit" \

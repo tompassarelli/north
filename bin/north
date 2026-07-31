@@ -166,19 +166,46 @@ north_slot_exec() {
   exec "${NORTH_MAIN[@]}" "$@"
 }
 
-# An explicit topology marks an agent process. Interactive user shells have no
-# topology and retain the full fact-authoring surface.
-agent_session() {
-  [ -n "${AGENT_TOPOLOGY:-}" ]
+# Unrestricted thread authoring is positive authority, never the absence of
+# managed topology. `north-author` issues one parent-bound token file for its
+# exact child process; ordinary and native/no-topology agent shells receive
+# neither half of the capability.
+north_trusted_thread_writer=0
+consume_trusted_thread_write_capability() {
+  local supplied_token="${NORTH_THREAD_WRITE_CAPABILITY:-}"
+  local capability_file="${NORTH_THREAD_WRITE_CAPABILITY_FILE:-}"
+  local authority_dir resolved_dir resolved_file owner mode
+  local capability_parent stored_token extra
+
+  unset NORTH_THREAD_WRITE_CAPABILITY NORTH_THREAD_WRITE_CAPABILITY_FILE
+  [ -n "$supplied_token" ] && [ -n "$capability_file" ] || return 0
+  [[ "$supplied_token" =~ ^[0-9a-f]{64}$ ]] || return 0
+
+  authority_dir="${XDG_RUNTIME_DIR:-/tmp}/north-thread-write-authority"
+  resolved_dir="$(readlink -f -- "$authority_dir" 2>/dev/null)" || return 0
+  resolved_file="$(readlink -f -- "$capability_file" 2>/dev/null)" || return 0
+  case "$resolved_file" in "$resolved_dir"/*) ;; *) return 0 ;; esac
+  [ ! -L "$capability_file" ] && [ -f "$capability_file" ] || return 0
+  owner="$(stat -c %u -- "$capability_file" 2>/dev/null)" || return 0
+  mode="$(stat -c %a -- "$capability_file" 2>/dev/null)" || return 0
+  [ "$owner" = "$(id -u)" ] && [ "$mode" = 600 ] || return 0
+  IFS=' ' read -r capability_parent stored_token extra <"$capability_file" || return 0
+  [ -z "${extra:-}" ] || return 0
+  [ "$capability_parent" = "$PPID" ] || return 0
+  [ "$stored_token" = "$supplied_token" ] || return 0
+  north_trusted_thread_writer=1
 }
 
+consume_trusted_thread_write_capability
+
 # Agent thread reports are a bounded delivery protocol, not a general graph
-# editor. Evidence retains its separate capability-bound writer.
+# editor. Evidence retains its separate capability-bound writer. Missing,
+# malformed, stale, or forged authority all select this bounded path.
 guard_agent_thread_write() {
-  agent_session || return 0
+  [ "$north_trusted_thread_writer" -eq 0 ] || return 0
   case "${1:-}" in
     capture)
-      echo "north: capture REFUSED — agent sessions cannot create threads; return the request to the user" >&2
+      echo "north: capture REFUSED — unrestricted thread-write authority is absent; return the request to the user" >&2
       return 1
       ;;
     tell)
@@ -194,8 +221,8 @@ guard_agent_thread_write() {
           ;;
       esac
       ;;
-    retract|untell|set)
-      echo "north: $1 REFUSED — agent sessions cannot retract or cold-set thread facts" >&2
+    retract|untell|set|merge|import)
+      echo "north: $1 REFUSED — unrestricted thread-write authority is absent" >&2
       return 1
       ;;
   esac
@@ -267,15 +294,19 @@ deny_generic_run_mutation() {
 
 deny_generic_run_mutation "$@" || exit 1
 
-prepare_agent_checkpoint_write() {
-  agent_session || return 0
-  [ "${1:-}" = tell ] && [ "${3:-}" = checkpoint ] || return 0
+prepare_agent_report_write() {
+  [ "$north_trusted_thread_writer" -eq 0 ] || return 0
+  [ "${1:-}" = tell ] || return 0
+  case "${3:-}" in
+    started|checkpoint|blocked|landed|handoff) ;;
+    *) return 0 ;;
+  esac
 
   local runtime_dir key now previous age wait
-  runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/north-agent-checkpoints"
+  runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/north-agent-reports"
   umask 077
   mkdir -p "$runtime_dir" || {
-    echo "north: checkpoint REFUSED — cannot open the agent checkpoint rate-limit state" >&2
+    echo "north: report REFUSED — cannot open the agent report rate-limit state" >&2
     return 1
   }
   key="$(
@@ -284,43 +315,43 @@ prepare_agent_checkpoint_write() {
       "${2#@}" | sha256sum
   )"
   key="${key%% *}"
-  north_checkpoint_marker="$runtime_dir/$key"
-  exec {north_checkpoint_lock_fd}>>"$runtime_dir/$key.lock" || {
-    echo "north: checkpoint REFUSED — cannot lock the agent checkpoint rate limit" >&2
+  north_agent_report_marker="$runtime_dir/$key"
+  exec {north_agent_report_lock_fd}>>"$runtime_dir/$key.lock" || {
+    echo "north: report REFUSED — cannot lock the agent report rate limit" >&2
     return 1
   }
-  flock -w 5 "$north_checkpoint_lock_fd" || {
-    echo "north: checkpoint REFUSED — checkpoint rate-limit lock is busy" >&2
+  flock -w 5 "$north_agent_report_lock_fd" || {
+    echo "north: report REFUSED — agent report rate-limit lock is busy" >&2
     return 1
   }
   now="$(date +%s)"
-  if [ -e "$north_checkpoint_marker" ]; then
-    previous="$(stat -c %Y "$north_checkpoint_marker" 2>/dev/null || printf '%s' "$now")"
+  if [ -e "$north_agent_report_marker" ]; then
+    previous="$(stat -c %Y "$north_agent_report_marker" 2>/dev/null || printf '%s' "$now")"
     age=$((now - previous))
     if [ "$age" -lt 600 ]; then
       wait=$((600 - age))
-      echo "north: checkpoint REFUSED — agent checkpoints are rate-limited to one per thread every 600s (retry in about ${wait}s)" >&2
+      echo "north: report REFUSED — agent reports are rate-limited to one per agent/thread every 600s (retry in about ${wait}s)" >&2
       return 1
     fi
   fi
 }
 
-exec_agent_checkpoint_write() {
-  if [ -z "${north_checkpoint_marker:-}" ]; then
+exec_agent_report_write() {
+  if [ -z "${north_agent_report_marker:-}" ]; then
     exec "$@"
   fi
   "$@"
   local status=$?
   if [ "$status" -eq 0 ]; then
-    record_agent_checkpoint_success || return $?
+    record_agent_report_success || return $?
   fi
   return "$status"
 }
 
-record_agent_checkpoint_success() {
-  [ -n "${north_checkpoint_marker:-}" ] || return 0
-  touch "$north_checkpoint_marker" || {
-    echo "north: checkpoint committed but rate-limit state could not be recorded" >&2
+record_agent_report_success() {
+  [ -n "${north_agent_report_marker:-}" ] || return 0
+  touch "$north_agent_report_marker" || {
+    echo "north: report committed but rate-limit state could not be recorded" >&2
     return 74
   }
 }
@@ -444,9 +475,12 @@ north — your one card. Type a command to do the thing next to it.
     (agents dispatch via MCP)          in-harness agents call mcp__north__dispatch / spawn
 
   LIFE   (capture thoughts, track work + time)
-    north capture "<thought>"          turn a thought into a thread
+    north-author capture "<thought>"   trusted human/internal thread creation
     north show <id>                    read one thread's facts
-    north tell <id> <pred> <val>       assert a fact   (north retract … to remove)
+    north-author tell <id> <pred> <val>
+                                       trusted fact authoring   (retract … to remove)
+    north tell <id> <report> <value>   bounded agent report: started, checkpoint,
+                                       blocked, landed, or handoff
     north clock in <owner>|out         open/close one human client billing session
     north clock start|stop             compatibility aliases for legacy thread sessions
     north clock audit                  commits-vs-clock coverage drift report
@@ -745,7 +779,7 @@ CARD
         *)      set -- "$1" "${canon#@}" "${@:3}" ;;
       esac
     fi
-    prepare_agent_checkpoint_write "$@" || exit 1
+    prepare_agent_report_write "$@" || exit 1
     framverb="$1"; [ "$framverb" = retract ] && framverb=untell
     # Done-bars echo (friction gradient): closing a barred thread SEES its bars
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
@@ -763,7 +797,7 @@ CARD
     case "${2#@}" in
       run:*|session:*|mine:*|guard_denial:*)
         if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-          exec_agent_checkpoint_write env -u FRAM_TELEMETRY_LOG \
+          exec_agent_report_write env -u FRAM_TELEMETRY_LOG \
             FRAM_PORT="$NORTH_TELEMETRY_PORT" \
             FRAM_LOG="$FRAM_TELEMETRY_LOG" \
             "$FRAM_BIN/fram" "$framverb" "${@:2}"
@@ -777,7 +811,7 @@ CARD
       existing_status=$?
       case "$existing_status" in
         0)
-          record_agent_checkpoint_success || exit $?
+          record_agent_report_success || exit $?
           printf '%s\n' "$existing_output"
           exit 0
           ;;
@@ -795,7 +829,7 @@ CARD
           ;;
       esac
     fi
-    exec_agent_checkpoint_write "$FRAM_BIN/fram" "$framverb" "${@:2}"
+    exec_agent_report_write "$FRAM_BIN/fram" "$framverb" "${@:2}"
     exit $? ;;
   *)  # engine verbs: import/export/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;
