@@ -24,6 +24,11 @@ bash_decide() { # bash_decide <command> <cwd>
     | AGENT_NO_AUTHORING_HOOKS=0 LAUNCH_CRITICAL_CODE_ROOT="${ROOT:-}" "$HOOK" 2>/dev/null
 }
 
+apply_decide() { # apply_decide <envelope-with-\n> <cwd>
+  printf '{"tool_name":"apply_patch","tool_input":{"input":"%s"},"cwd":"%s"}' "$1" "$2" \
+    | AGENT_NO_AUTHORING_HOOKS=0 LAUNCH_CRITICAL_CODE_ROOT="${ROOT:-}" "$HOOK" 2>/dev/null
+}
+
 check() { # check <expect deny|allow> <path> <why>
   local want=$1 path=$2 why=$3 out got
   out="$(decide "$path")"
@@ -119,9 +124,26 @@ case "$(bash_decide "git -C $ROOT/proj/main checkout -- ." "$HOME")" in
   *wt-rescue*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  checkout -- in a main must deny and name wt-rescue" >&2 ;;
 esac
+case "$(apply_decide "*** Begin Patch\n*** Update File: $ROOT/proj/main/src/x.py\n@@\n-a\n+b\n*** End Patch" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  apply_patch into a container main must be denied" >&2 ;;
+esac
+case "$(apply_decide "*** Begin Patch\n*** Update File: $ROOT/proj/wt-x/src/x.py\n@@\n-a\n+b\n*** End Patch" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  apply_patch into a worktree must be allowed" >&2 ;;
+esac
+case "$(apply_decide "*** Begin Patch\n*** Nonsense\n*** End Patch" "$ROOT/proj/main")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  malformed apply_patch must fail closed" >&2 ;;
+esac
 
 rm -rf "${FIXTURE:?}"
 unset ROOT FIXTURE
+
+case "$(apply_decide "*** Begin Patch\n*** Update File: code/north/main/cli/x.clj\n@@\n-a\n+b\n*** End Patch" "/home/tom")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  relative apply_patch must bypass the cheap pre-filter" >&2 ;;
+esac
 
 # --- 4. fail-open ------------------------------------------------------------
 check allow "" "empty file_path"

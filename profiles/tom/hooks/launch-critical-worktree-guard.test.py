@@ -45,6 +45,16 @@ def bash(command, cwd="/home/tom"):
     return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd}
 
 
+def patch(envelope, cwd="/home/tom", key="input", tool="apply_patch", extra=None):
+    ti = {key: envelope}
+    if extra:
+        ti.update(extra)
+    return {"tool_name": tool, "tool_input": ti, "cwd": cwd}
+
+
+ENV = "*** Begin Patch\n*** {verb} File: {path}\n{body}*** End Patch"
+
+
 def check(label, condition):
     global checks
     checks += 1
@@ -310,6 +320,84 @@ check("rebase run in a WORKTREE is untouched",
       run(bash("git rebase main", cwd="/home/tom/code/north/wt-abc")) is None)
 check("rebase run in main is not",
       run(bash("git rebase origin/main", cwd=NORTH)))
+
+print("--- apply_patch envelopes: every header form ---")
+
+add_main = ENV.format(verb="Add", path=f"{NORTH}/cli/x.clj", body="+x\n")
+update_relative = ENV.format(verb="Update", path="cli/x.clj", body="@@\n-a\n+b\n")
+delete_fram = ENV.format(verb="Delete", path=f"{FRAM}/x.clj", body="")
+move_main = ENV.format(
+    verb="Update", path="/home/tom/code/north/wt-abc/a.clj",
+    body=f"*** Move to: {NORTH}/a.clj\n@@\n-a\n+b\n")
+move_worktree = ENV.format(
+    verb="Update", path="/home/tom/code/north/wt-abc/a.clj",
+    body="*** Move to: /home/tom/code/north/wt-abc/b.clj\n@@\n-a\n+b\n")
+tmp_add = ENV.format(verb="Add", path="/tmp/x.txt", body="+x\n")
+
+check("Add File with an absolute primary target is denied", run(patch(add_main)))
+check("Update File resolves a relative target against cwd",
+      run(patch(update_relative, cwd=NORTH)))
+check("Delete File into fram's primary is denied", run(patch(delete_fram)))
+check("Move to destination alone trips primary protection", run(patch(move_main)))
+check("Update and Move to within a worktree are allowed",
+      run(patch(move_worktree)) is None)
+check("Add File outside protected checkouts is allowed", run(patch(tmp_add)) is None)
+check("a nested envelope is found recursively", run({
+    "tool_name": "apply_patch",
+    "tool_input": {"arguments": {"patch": add_main}},
+    "cwd": "/home/tom",
+}))
+check("a prefixed functions.apply_patch tool is recognized",
+      run(patch(add_main, tool="functions.apply_patch")))
+check("an explicit file_path remains authoritative",
+      run(patch(tmp_add, extra={"file_path": f"{NORTH}/cli/x.clj"})))
+check("the apply_patch deny names the project",
+      "north" in (run(patch(add_main)) or ""))
+check("the apply_patch deny gives the worktree escape route",
+      "worktree add" in (run(patch(add_main)) or ""))
+malformed = "*** Begin Patch\n*** Frobnicate: x\n*** End Patch"
+check("a malformed apply_patch envelope is denied", run(patch(malformed)))
+check("the malformed-envelope deny is explicitly fail-closed",
+      "fail-closed" in (run(patch(malformed)) or ""))
+check("an apply_patch tool call without an envelope is denied",
+      run(patch("no patch here")))
+check("tool_input.workdir wins over payload cwd for relative targets",
+      run(patch(update_relative, cwd="/tmp", extra={"workdir": NORTH})))
+check("a relative target under /tmp is allowed",
+      run(patch(ENV.format(verb="Update", path="x.txt", body="@@\n-a\n+b\n"),
+                extra={"workdir": "/tmp"})) is None)
+
+print("--- apply_patch through the shell ---")
+
+protected_heredoc = (
+    "apply_patch <<'EOF'\n" + add_main + "\nEOF")
+worktree_envelope = ENV.format(
+    verb="Update", path="/home/tom/code/north/wt-abc/cli/x.clj",
+    body="@@\n-a\n+b\n")
+worktree_heredoc = "apply_patch <<'EOF'\n" + worktree_envelope + "\nEOF"
+check("a shell apply_patch heredoc into a primary is denied",
+      run(bash(protected_heredoc)))
+check("a shell apply_patch heredoc into a worktree is allowed",
+      run(bash(worktree_heredoc)) is None)
+check("an envelope written as pure heredoc data is allowed", run(bash(
+    "cat > /tmp/t.md <<'EOF'\n*** Begin Patch\n"
+    f"*** Update File: {NORTH}/x\n*** End Patch\nEOF")) is None)
+check("apply_patch input redirection fails closed",
+      "fail-closed" in (run(bash("apply_patch < /tmp/patch.txt")) or ""))
+check("the direct apply_patch argv form is denied", run(bash([
+    "apply_patch", add_main,
+])))
+check("the direct apply_patch argv form allows a worktree", run(bash([
+    "apply_patch", worktree_envelope,
+])) is None)
+check("an argv shell wrapper invoking apply_patch is denied", run(bash([
+    "bash", "-lc", protected_heredoc,
+])))
+check("an allowed envelope cannot shield a later destructive git command",
+      run(bash(worktree_heredoc +
+               f"\n&& git -C {NORTH} reset --hard")))
+check("generic non-apply_patch argv handling remains out of scope",
+      run(bash(["rm", f"{NORTH}/x"])) is None)
 
 print("--- fail-open ---")
 
