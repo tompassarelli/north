@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
-;; Phase 1 bar: concern declare remains live-compatible and gains one bounded,
-;; private, immutable local durability path for coordinator transport ambiguity.
+;; Concern operations share one bounded, private, immutable local durability
+;; path for coordinator transport ambiguity.
 (require '[babashka.process :as p]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
@@ -167,6 +167,89 @@
       {:timeout true :elapsed-ms elapsed-ms :exit nil :out "" :err ""}
       (assoc result :timeout false :elapsed-ms elapsed-ms))))
 
+(defn run-transition [root port log spool verb args extra-env]
+  (let [env
+        (merge
+         {"NORTH_BB" "bb"
+          "NORTH_PORT" (str port)
+          "FRAM_LOG" (.getCanonicalPath log)
+          "NORTH_TELEMETRY_PARTITION" "0"
+          "NORTH_CONCERN_SPOOL_DIR" (.getCanonicalPath spool)
+          "NORTH_COORD_CONNECT_TIMEOUT_MS" "100"
+          "NORTH_COORD_READ_TIMEOUT_MS" "100"
+          "NORTH_CONCERN_TRANSITION_TRANSPORT_TIMEOUT_MS" "100"}
+         extra-env)
+        process
+        (apply
+         p/process
+         {:dir root :out :string :err :string :extra-env env}
+         (str root "/bin/concern") verb args)
+        started (System/nanoTime)
+        result (deref process 2000 ::timeout)
+        elapsed-ms (quot (- (System/nanoTime) started) 1000000)]
+    (when (= ::timeout result) (p/destroy-tree process))
+    (if (= ::timeout result)
+      {:timeout true :elapsed-ms elapsed-ms :exit nil :out "" :err ""}
+      (assoc result :timeout false :elapsed-ms elapsed-ms))))
+
+(defn terminal-offline-probe [root]
+  (let [tmp (temp-directory "north-concern-terminal-offline")
+        spool (io/file tmp "spool")
+        size-spool (io/file tmp "size-spool")
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        concern "@concern-1785506000000-a001"
+        port 17991]
+    (try
+      (let [done
+            (run-transition
+             root port log spool "done" [concern]
+             {"NORTH_CONCERN_SPOOL_MAX_FILES" "1"})
+            files (operation-files spool)
+            operation
+            (when (= 1 (count files))
+              (north.concern-spool/read-operation-file! (first files)))
+            full
+            (run-transition
+             root port log spool "status" [concern "likely-to-land"]
+             {"NORTH_CONCERN_SPOOL_MAX_FILES" "1"})
+            oversized
+            (run-transition
+             root port log size-spool "status" [concern "building"]
+             {"NORTH_CONCERN_SPOOL_MAX_RECORD_BYTES" "100"})]
+        (check "unreachable terminal transition returns one bounded durable-local receipt"
+               (and (not (:timeout done))
+                    (zero? (:exit done))
+                    (< (:elapsed-ms done) 1500)
+                    (= 1 (count files))
+                    (str/includes? (:out done) "transition=landed")
+                    (str/includes? (:out done) "durable-local")))
+        (check "terminal transition reuses the v1 canonical operation format"
+               (and (= "north-concern-operation-v1"
+                       (:schema-version operation))
+                    (= "concern-transition" (:operation-type operation))
+                    (= concern (:concern-id operation))
+                    (= [["reached" "landed" "multi"]]
+                       (mapv
+                        (juxt :predicate :object :cardinality)
+                        (:facts operation)))
+                    (= "concern-transition-or-exact"
+                       (get-in operation [:precondition :mode]))))
+        (check "terminal operations obey the existing entry cap"
+               (and (= 4 (:exit full))
+                    (str/includes? (:err full) "spool is full")
+                    (= 1 (count (operation-files spool)))))
+        (check "terminal operations obey the existing record-size cap"
+               (and (= 4 (:exit oversized))
+                    (str/includes? (:err oversized) "record bound")
+                    (empty? (operation-files size-spool))))
+        done)
+      (finally
+        (delete-tree! tmp)))))
+
+(when (= "terminal-offline" (first *command-line-args*))
+  (terminal-offline-probe subject-root)
+  (System/exit (if (zero? @fails) 0 1)))
+
 (defn private-mode [file]
   (java.nio.file.Files/getPosixFilePermissions
    (.toPath file)
@@ -240,6 +323,7 @@
   (if (zero? @fails) (System/exit 0) (System/exit 1)))
 
 (blackhole-probe subject-root)
+(terminal-offline-probe subject-root)
 
 ;; Parallel publishers share one bounded capacity turn. Every success must be a
 ;; separately valid immutable operation; no writer may observe a torn peer file.
@@ -545,8 +629,8 @@
 
 (if (zero? @fails)
   (do
-    (println "\nconcern offline spool Phase 1: ALL PASS")
+    (println "\nconcern offline spool: ALL PASS")
     (System/exit 0))
   (do
-    (println (str "\nconcern offline spool Phase 1: " @fails " FAIL"))
+    (println (str "\nconcern offline spool: " @fails " FAIL"))
     (System/exit 1)))

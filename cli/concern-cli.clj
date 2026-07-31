@@ -1073,6 +1073,11 @@
       :terminal-more terminal-more
       :notifications notifications})))
 
+(defn transition-state [before trigger-status]
+  (if (= "abandoned-stale" trigger-status)
+    (assoc before :abandoned true)
+    (assoc before :status trigger-status)))
+
 (defn terminal-state [before trigger-status]
   (case trigger-status
     "landed" (assoc before :status "landed")
@@ -1083,6 +1088,9 @@
     "landed" (= "landed" (:status state))
     "abandoned-stale" (:abandoned state)
     false))
+
+(defn transition-status-present? [port state trigger-status]
+  (contains? (set (many port (:id state) "reached")) trigger-status))
 
 (defn stale-building-concern? [port state]
   (let [reached (set (many port (:id state) "reached"))
@@ -1095,6 +1103,65 @@
      (not online)
      (integer? lapsed-ago-ms)
      (>= lapsed-ago-ms concern-stale-ms))))
+
+(defn concern-transition-plan!
+  "Rebuild one concern transition after a global base capture. Terminal
+   overlap-left warnings join the reached fact in the same canonical batch;
+   active-state warnings are recovered from the current concern projection."
+  [port operation snapshot]
+  (let [concern (:concern-id operation)
+        trigger-status (get-in operation [:facts 0 :object])]
+    (binding [*concern-metas* (concern-meta-index port)]
+      (let [before (concern-meta port concern)
+            observed-rows (or (:rows snapshot) [])]
+        (cond
+          (not= "concern" (:kind before))
+          (if snapshot
+            {:local-conflict true
+             :reason "concern-missing-or-invalid"
+             :observed-version (:base snapshot)
+             :rows observed-rows}
+            (usage-error! (str concern " is not an existing concern")))
+
+          (transition-status-present? port before trigger-status)
+          {:done :identical}
+
+          (not (active-concern? before))
+          {:local-conflict true
+           :reason "transition-overtaken"
+           :observed-version (:base snapshot)
+           :rows observed-rows}
+
+          (and (= "abandoned-stale" trigger-status)
+               (not (stale-building-concern? port before)))
+          {:local-conflict true
+           :reason "transition-ineligible"
+           :observed-version (:base snapshot)
+           :rows observed-rows}
+
+          :else
+          (let [after (transition-state before trigger-status)
+                attention-kind (transition-kind before after)
+                overlaps
+                (if attention-kind
+                  (binding [*throw-code-store-errors?* (boolean snapshot)]
+                    (:overlaps (overlaps-for port concern)))
+                  [])
+                events (attention-events-for-transition before after overlaps)
+                intents
+                (if (contains? terminal-attention-statuses trigger-status)
+                  (mapv
+                   #(attention-event-intent-value
+                     port concern trigger-status %)
+                   events)
+                  [])]
+            {:facts
+             (vec
+              (concat
+               (map (fn [intent]
+                      {:p attention-event-intent-predicate :r intent})
+                    intents)
+               [{:p "reached" :r trigger-status}]))}))))))
 
 (defn terminal-concern-transition!
   "Commit terminal overlap-left intents and the concern terminal fact in one
@@ -1263,6 +1330,22 @@
         :about about
         :files files})})))
 
+(defn build-concern-transition-operation [raw trigger-status]
+  (let [concern (norm-cid raw)]
+    (when-not (and (string? concern)
+                   (re-matches #"@concern-[0-9]{10,}-[0-9a-f]{4}" concern))
+      (usage-error! "a canonical concern id is required"))
+    (north.concern-spool/build-operation
+     {:operation-type north.concern-spool/transition-operation-type
+      :operation-id (str (java.util.UUID/randomUUID))
+      :concern-id concern
+      :target-log (north.coord/expected-log)
+      :created-at (str (java.time.Instant/now))
+      :facts
+      [{:predicate "reached"
+        :object trigger-status
+        :cardinality "multi"}]})))
+
 (defn bind-about-operation [operation binding-cid]
   (north.concern-spool/build-operation
    {:operation-id (:operation-id operation)
@@ -1355,6 +1438,41 @@
               (.getMessage error))))
       (System/exit 4))))
 
+(defn durable-local-transition! [operation]
+  (try
+    (let [receipt
+          (north.concern-spool/publish-operation!
+           operation
+           (north.coord/request-deadline-ns 400))]
+      (println
+       (str "✓ concern " (:concern-id operation)
+            " transition=" (get-in operation [:facts 0 :object])
+            " durable-local visibility=pending"))
+      (println
+       (str "  operation=" (:operation-id receipt)
+            " target_log=" (:target-log receipt)))
+      (println (str "  local_path=" (:path receipt)))
+      {:status :pending
+       :concern (:concern-id operation)
+       :trigger-status (get-in operation [:facts 0 :object])
+       :receipt receipt})
+    (catch Exception error
+      (binding [*out* *err*]
+        (println
+         (str "concern: durable-local transition publication failed: "
+              (.getMessage error))))
+      (System/exit 4))))
+
+(defn execute-concern-transition!
+  [raw trigger-status live-transition!]
+  (try
+    (live-transition!)
+    (catch Exception error
+      (if (transport-unknown? error)
+        (durable-local-transition!
+         (build-concern-transition-operation raw trigger-status))
+        (throw error)))))
+
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt ps)]
   (case verb
@@ -1430,8 +1548,7 @@
                       after (:mine after-data)]
                   (publish-transition! port nil after [] overlaps)
                   ;; A second desired-state pass closes ordinary attention
-                  ;; publication windows; terminal concern transitions remain
-                  ;; unchanged and are never spooled by Phase 1.
+                  ;; publication windows after the declaration commit.
                   (reconcile-attention! port id)
                   {:durability "coordinator"
                    :code-result code-result
@@ -1488,10 +1605,19 @@
     (do
       (when (seq args)
         (usage-error! "reconcile-local accepts no arguments"))
-      (let [{:keys [status selected processed bytes settled conflicts
+      (let [result
+            (binding
+             [north.concern-spool-reconcile/*transition-plan!*
+              concern-transition-plan!]
+              (north.concern-spool-reconcile/reconcile-pass! port))
+            {:keys [status selected processed bytes settled conflicts
                     already-settled already-conflict deferred remaining
                     elapsed-ms]}
-            (north.concern-spool-reconcile/reconcile-pass! port)]
+            result
+            attention
+            (when (and (not= :busy status)
+                       (pos? (+ settled already-settled)))
+              (reconcile-attention! port))]
         (if (= :busy status)
           (do
             (binding [*out* *err*]
@@ -1508,7 +1634,9 @@
                 " already_conflict=" already-conflict
                 " deferred=" deferred
                 " remaining=" remaining
-                " elapsed_ms=" elapsed-ms)))))
+                " elapsed_ms=" elapsed-ms
+                (when attention
+                  (str " attention=" (count (:notifications attention)))))))))
 
     "overlap"
     (let [[c & flags] args]
@@ -1574,11 +1702,14 @@
     (let [[raw] args]
       (when-not (= 1 (count args))
         (usage-error! "retire-stale requires exactly <concern-id>"))
-      (prn
-       (select-keys
-        (terminal-concern-transition!
-         port raw "abandoned-stale")
-        [:status :concern :trigger-status])))
+      (execute-concern-transition!
+       raw
+       "abandoned-stale"
+       #(prn
+         (select-keys
+          (terminal-concern-transition!
+           port raw "abandoned-stale")
+          [:status :concern :trigger-status]))))
 
     "status"
     (let [[raw st] args]
@@ -1587,45 +1718,51 @@
       (when-not (contains? maturity-idx st)
         (usage-error! (str "invalid maturity " (pr-str st) "; expected one of "
                            (str/join ", " maturity))))
-      (let [c (existing-concern! port raw)]
-        (if (= "landed" st)
-          (let [transition
-                (terminal-concern-transition! port c "landed")]
-            (when (= :ineligible (:status transition))
-              (throw
-               (ex-info "inactive concern cannot newly reach landed"
-                        {:type :ineligible-concern-terminal-transition
-                         :concern c})))
-            (println
-             (str "✓ " c " reached=landed (status=landed)")))
-          (let [before (meta-of port c)
-                before-overlaps (:overlaps (overlaps-for port c))]
-            (append! port c "reached" st)                  ; monotone ladder — append, never set
-            (let [after (meta-of port c)
-                  after-overlaps
-                  (if (active-concern? after)
-                    (:overlaps (overlaps-for port c))
-                    [])]
-              (publish-transition!
-               port before after before-overlaps after-overlaps)
-              (reconcile-attention! port c)
+      (execute-concern-transition!
+       raw
+       st
+       #(let [c (existing-concern! port raw)]
+          (if (= "landed" st)
+            (let [transition
+                  (terminal-concern-transition! port c "landed")]
+              (when (= :ineligible (:status transition))
+                (throw
+                 (ex-info "inactive concern cannot newly reach landed"
+                          {:type :ineligible-concern-terminal-transition
+                           :concern c})))
               (println
-               (str "✓ " c " reached=" st
-                    " (status=" (:status after) ")")))))))
+               (str "✓ " c " reached=landed (status=landed)")))
+            (let [before (meta-of port c)
+                  before-overlaps (:overlaps (overlaps-for port c))]
+              (append! port c "reached" st)
+              (let [after (meta-of port c)
+                    after-overlaps
+                    (if (active-concern? after)
+                      (:overlaps (overlaps-for port c))
+                      [])]
+                (publish-transition!
+                 port before after before-overlaps after-overlaps)
+                (reconcile-attention! port c)
+                (println
+                 (str "✓ " c " reached=" st
+                      " (status=" (:status after) ")"))))))))
 
     "done"
     (let [[raw] args]
       (when-not (= 1 (count args))
         (usage-error! "done requires exactly <concern-id>"))
-      (let [c (existing-concern! port raw)
-            transition
-            (terminal-concern-transition! port c "landed")]
-        (when (= :ineligible (:status transition))
-          (throw
-           (ex-info "inactive concern cannot newly land"
-                    {:type :ineligible-concern-terminal-transition
-                     :concern c})))
-        (println (str "✓ " c " landed"))))
+      (execute-concern-transition!
+       raw
+       "landed"
+       #(let [c (existing-concern! port raw)
+              transition
+              (terminal-concern-transition! port c "landed")]
+          (when (= :ineligible (:status transition))
+            (throw
+             (ex-info "inactive concern cannot newly land"
+                      {:type :ineligible-concern-terminal-transition
+                       :concern c})))
+          (println (str "✓ " c " landed")))))
 
     (do (println usage)
         (System/exit 2))))
