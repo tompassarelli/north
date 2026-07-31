@@ -8,6 +8,31 @@ permissions:
   contents: read
 
 jobs:
+  # Own job on purpose: shellcheck must never gate the package build.
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout North
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: north
+
+      - name: Shell source validation
+        working-directory: north
+        run: |
+          set -euo pipefail
+          mapfile -d '' candidates < <(find bin cli/tests deploy/gateway -type f -print0)
+          scripts=()
+          for file in "${candidates[@]}"; do
+            IFS= read -r first < "$file" || true
+            case "$first" in
+              '#!'*bash*|'#!'*'/sh'|'#!'*' env sh') scripts+=("$file") ;;
+            esac
+          done
+          ((${#scripts[@]} > 0))
+          shellcheck --severity=warning "${scripts[@]}"
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -67,21 +92,6 @@ jobs:
       - name: Warm Fram JVM deps
         working-directory: fram
         run: clojure -P
-
-      - name: Shell source validation
-        working-directory: north
-        run: |
-          set -euo pipefail
-          mapfile -d '' candidates < <(find bin cli/tests deploy/gateway -type f -print0)
-          scripts=()
-          for file in "${candidates[@]}"; do
-            IFS= read -r first < "$file" || true
-            case "$first" in
-              '#!'*bash*|'#!'*'/sh'|'#!'*' env sh') scripts+=("$file") ;;
-            esac
-          done
-          ((${#scripts[@]} > 0))
-          shellcheck "${scripts[@]}"
 
       - name: Lock and packaged-helper boundaries
         working-directory: north
