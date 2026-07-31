@@ -2,7 +2,8 @@
 // Assembles a stock-template lane's behavioral payload (the block stack
 // build-agents.mjs compiles into plugin agents) for custom dispatch surfaces:
 // compose-payload.mjs <role> --provider <name> [--model|--reasoning|--tier ...]
-// [--task <file|->] [--no-family]. Payload → stdout, resolution → stderr.
+// [--conformance advisory|preferred|required] [--task <file|->] [--no-family].
+// Payload → stdout, resolution → stderr.
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,13 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--no-family") { args.flags.noFamily = true; continue; }
+    if (a === "--conformance") {
+      const value = argv[++i];
+      if (!["advisory", "preferred", "required"].includes(value))
+        throw new Error("--conformance must be advisory, preferred, or required");
+      args.flags.conformance = value;
+      continue;
+    }
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const value = argv[++i];
@@ -96,6 +104,18 @@ function main() {
     "## Output norms",
     block(read("docs/comms.md"), "universal"),
   ];
+
+  // Conformance modulates binding register only; content is identical. The
+  // 2026-07-31 A/B held all three targeted safety behaviors under advisory
+  // and shortened output — see docs/openai-steering.md, retest results.
+  const CONFORMANCE_HEADERS = {
+    advisory: "CONFORMANCE: advisory — the blocks below are calibrated defaults distilled from observed failures; weigh them with your own judgment, and note each deviation in one logged line.",
+    preferred: "CONFORMANCE: preferred — the blocks below are the operating defaults; deviate only with a logged one-line reason.",
+    required: "",
+  };
+  const conformance = flags.conformance ?? "required";
+  const conformanceHeader = CONFORMANCE_HEADERS[conformance];
+  if (conformanceHeader) parts.push("", conformanceHeader);
 
   const familyPath = FAMILY_BLOCKS[provider];
   if (familyPath && !flags.noFamily) {
