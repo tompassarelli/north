@@ -99,7 +99,7 @@
 (def complete-view
   (with-redefs [north.coord/telemetry-partition-enabled? (constantly false)
                 north.coord/query-page-in-domain
-                (fn [_ domain _query _limit after]
+                (fn [_ domain _query _limit after & _]
                   (swap! complete-page-calls conj [domain after])
                   (if (nil? after)
                     {:ok (subvec cold-rows 0 2)
@@ -136,7 +136,7 @@
 (def aborted-view
   (with-redefs [north.coord/telemetry-partition-enabled? (constantly false)
                 north.coord/query-page-in-domain
-                (fn [_ domain _query _limit after]
+                (fn [_ domain _query _limit after & _]
                   (swap! aborted-page-calls conj [domain after])
                   (if (nil? after)
                     {:ok (subvec cold-rows 0 2)
