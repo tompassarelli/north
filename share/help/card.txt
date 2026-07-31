@@ -1,0 +1,29 @@
+north — coordinate work, agents, and time
+
+  NOW
+    north dashboard                   agents, concerns, board, health — one screen
+    north ready                       what you could start now, ranked by leverage
+    north inbox                       notifications waiting on you
+    north agenda                      dated and overdue work
+
+  WORK
+    north-author capture "<thought>"  one thought → one committed thread
+    north show <id>                   a thread's facts + body
+    north tell <id> <report> <val>    agent report; north-author tell = trusted
+    north threads                     active / ready / blocked overview
+    north clock in <owner>|out        the client billing session
+
+  AGENTS
+    north delegate "<task>"           hand work to a new lane
+    north agents                      who's live now
+    north watch <id>                  tail one agent's transcript
+    north steer <id> "<msg>"          nudge it mid-flight
+
+  SYSTEM
+    north config                      posture: dispatch surface, guards, routing
+    north doctor                      is everything healthy: daemons, skew, hooks
+
+  MORE
+    north help <topic>                work · agents · comms · routing · store · ops
+    north help --all                  the complete reference
+    north <verb> --help               most verbs print their own usage

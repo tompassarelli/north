@@ -1,0 +1,22 @@
+north help store — the fact corpus and its schema
+
+  north schema                               vocabulary census: subjects/facts by kind + predicate metadata
+  north predicate ls|show|define             inspect or extend executable predicate entities
+  north schema-seed [--execute]              derive predicate-metadata facts (--dry-run is the default)
+  north validate                             full integrity check: engine rules + north work rules
+  north audit                                corpus-health report
+  north history <id>                         a subject's full fact history from the log
+  north json <view>                          machine-readable projections (plate, ready, show, clock-report, …)
+  north tools                                the curated MCP tool surface + the fram engine core
+  north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
+  north boot                                 session orientation: safety verdict, hygiene, the entry-point note
+  north import                               fold threads/ file edits into the log (trusted writer)
+  north export <out-dir>                     regenerate threads/ from the log — never during concurrent work
+  north snapshot create|verify|restore-plan  immutable dual-log checkpoint and restore planning
+  north schema-migrate plan|audit            deterministic schema cutover; plan/audit stay read-only
+  north corpus-transaction check-boundaries  verify split-log append safety before maintenance
+  north set …                                legacy — direct log append — trusted single-writer/offline only
+
+  any other verb passes through to the fram engine (ask, watch, …)
+
+  north help --all — the complete reference · bare `north` — the daily card
