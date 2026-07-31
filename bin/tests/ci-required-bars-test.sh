@@ -20,6 +20,7 @@ clojure_bars=(
   cli/tests/agents-cli-test.clj
   cli/tests/dashboard-doctor-exit-test.clj
   cli/tests/rebuild-request-window-test.clj
+  cli/tests/rebuild-window-wake-test.clj
   cli/tests/coordinator-jvm-health-test.clj
   cli/tests/deployed-cli-test.clj
   cli/tests/wip-cli-test.clj
