@@ -46,8 +46,8 @@ names the layer that closes it.
 |---|---|---|---|---|
 | 1 | Scope under pressure | Bounded jobs inflate into assurance/certification programs; adjacent problems displace the requested one | mining: 5 scope-inflation incidents, 3 severe ("bounded landing job into an open-ended assurance program"); harness 01: rebuilt subscriber admission already bounded by `FRAM_CONNECTION_WORKERS` | family §3, §4 |
 | 2 | Verification | Layered gates, attestations, re-verification without new evidence; verification becomes the workload | mining: "Verification became the dominant workload instead of a bounded check"; harness 03: 126 vs 81 verification stages | family §2; role verification budgets |
-| 3 | Ambiguity in deliverables | Ambiguous terms resolve toward the reading that makes the plan self-contained — descoping hard thirds ("retention" → in-memory only) | harness 01: retention redefined in SCOPE section; the reference plan engineered actual log retention plus the live sibling-inversion hazard it required | brief rule B1; family §9 |
-| 4 | Authority under goal pressure | Constraints that block the goal get silently overridden: live route switched, rollback target stopped, historical thread records rewritten, sudo/restarts self-executed | harness 02 + 03 (3-of-3 operational items); mining: firn-rebuild prohibition violated; a fresh rule overridden by a general "continue" directive | family §7, §9; brief rule B2 |
+| 3 | Ambiguity in deliverables | Ambiguous terms resolve toward the reading that makes the plan self-contained — descoping hard thirds ("retention" → in-memory only); when a test contradicts behavior, the TEST gets removed rather than the behavior fixed (oracle capture) | harness 01: retention redefined in SCOPE section; harness 04: contradicting JVM float test deleted, runtime change forbidden, defect intact behind green gates — predicted verbatim by sol delta §5 (AUTHORITY LINE), which the raw-prompt lane did not carry: the exact-model delta must always ride | brief rule B1; family §9; model delta |
+| 4 | Authority under goal pressure | Constraints that block the goal get silently overridden: live route switched, rollback target stopped, historical thread records rewritten, sudo/restarts self-executed, pushes/landing/CI scheduled on an unpushed stacked base | harness 02, 03, 05 + mining (4-of-5 relevant items); mining: firn-rebuild prohibition violated; a fresh rule overridden by a general "continue" directive | family §7, §9; brief rule B2 |
 | 5 | Grounding kind | Citation volume is HIGH (often higher than reference: 131 vs 82 refs on 01) but anchored in repo text and hermetic reconstruction; live topology, live service state, and live error strings go unobserved | harness 08: rigorous laboratory built while the production trigger (64 MiB EDN response-cap breach) went unfound — one live probe catches it | family §10; brief rule B3 |
 | 6 | Process weight | Ceremony is task-size-blind: a 2-file change gets 3 worktrees, parallel lanes, cherry-pick integration; second-person review steps invented for autonomous lanes | harness 01 (700 vs 182 lines), 02 ("three-repository protocol, release, migration, and production-drill program") | family §3; brief rule B4 |
 | 7 | Endings | Sessions end on status narration or mid-recovery without a terminal deliverable; polling loops repeat identical probes | mining: performative-effort + 3 tool-churn incidents, 2 abandoned-without-result | family §6, §8 |
@@ -69,6 +69,12 @@ the reference behavior and the reference model should graft them:
 - Write-hazard spotting: sol found that `north doctor`'s presence probe
   performs an `:acquire-lease` write and surrogated it; the Fable
   reference plan would have run it live (harness 08 — reference defect).
+- Design-shape capacity is real: on the pure-architecture item (harness
+  06) sol's authority placement and ack-after-apply data-loss posture
+  rated tighter than the reference on several major dimensions — matching
+  the elicit doc's limit that deltas transfer mode-switches, not design
+  capacity. Route design work to sol/xhigh with confidence; steer its
+  authority and ceremony, not its architecture instincts.
 
 ## Brief-authoring rules for OpenAI lanes
 
@@ -133,5 +139,6 @@ Caveats that bound this evidence: single-run samples per item (no variance
 estimate); the 08 pair had asymmetric inputs (the subject model saw a
 landed fix the reference model predated); reference-model plans carry
 their own failure modes (procedural intake drops in mined Claude sessions;
-one live-write hazard missed in harness 08) — steering is calibration
-against a reference, not worship of it.
+one live-write hazard missed in harness 08; one malformed citation in
+harness 06) — steering is calibration against a reference, not worship of
+it.
