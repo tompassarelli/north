@@ -44,6 +44,36 @@ common_env=(
   TEST_BB_CALLS="$bb_calls"
 )
 
+process_is_in_agent_slice() {
+  local line path
+  while IFS= read -r line || [ -n "$line" ]; do
+    path="${line#*:}"
+    path="${path#*:}"
+    case "/${path#/}/" in
+      */agent.slice/*) return 0 ;;
+    esac
+  done </proc/self/cgroup
+  return 1
+}
+
+run_in_agent_slice() {
+  if process_is_in_agent_slice; then
+    "$@"
+  else
+    systemd-run --user --wait --collect --pipe --quiet --same-dir \
+      --slice=agent.slice "$@"
+  fi
+}
+
+run_outside_agent_slice() {
+  if process_is_in_agent_slice; then
+    systemd-run --user --wait --collect --pipe --quiet --same-dir \
+      --slice=session.slice "$@"
+  else
+    "$@"
+  fi
+}
+
 expect_denied() {
   local label="$1"
   shift
@@ -92,9 +122,30 @@ expect_denied "token without its private file cannot bypass authority" \
   NORTH_THREAD_WRITE_CAPABILITY="$forged_token" \
   "$root/bin/north" tell "$thread_a" progress forged
 
-env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+expect_denied "correctly shaped same-UID capability cannot escape agent.slice" \
+  run_in_agent_slice env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+  NORTH_UNDER_TEST="$root/bin/north" THREAD_UNDER_TEST="$thread_a" \
+  FORGED_TOKEN="$forged_token" \
+  bash -c '
+    set -euo pipefail
+    authority_dir="$XDG_RUNTIME_DIR/north-thread-write-authority"
+    mkdir -p "$authority_dir"
+    capability_file="$authority_dir/forged-$$"
+    trap "rm -f -- \"$capability_file\"" EXIT
+    printf "%s %s\n" "$$" "$FORGED_TOKEN" >"$capability_file"
+    chmod 600 "$capability_file"
+    NORTH_THREAD_WRITE_CAPABILITY="$FORGED_TOKEN" \
+    NORTH_THREAD_WRITE_CAPABILITY_FILE="$capability_file" \
+      "$NORTH_UNDER_TEST" tell "$THREAD_UNDER_TEST" progress forged
+  '
+
+expect_denied "north-author refuses an agent.slice caller before minting" \
+  run_in_agent_slice env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+  "$root/bin/north-author" tell "$thread_a" progress forged
+
+run_outside_agent_slice env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
   "$root/bin/north-author" tell "$thread_a" progress "trusted report" >/dev/null
-env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
+run_outside_agent_slice env -u AGENT_TOPOLOGY -u AGENT_ID "${common_env[@]}" \
   "$root/bin/north-author" capture "trusted thread" >/dev/null
 if find "$runtime/north-thread-write-authority" -type f -print -quit |
    grep -q .; then
