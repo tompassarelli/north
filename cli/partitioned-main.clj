@@ -67,13 +67,15 @@
        (contains? client-clock-authority-verbs
                   (or (second args) "current"))))
 
-(defn coordination-live-facts [_port _log]
+(defn coordination-snapshot [_port _log]
   ;; Stage A gives each origin its own writer, but the compatibility daemon's
   ;; warm store still contains the pre-partition union. Human clock authority
   ;; therefore comes from the exact physical coordination origin.
-  (:facts
-   (fold/fold
-    (rt/read-log (north.coord/expected-log)))))
+  (fold/fold
+   (rt/read-log (north.coord/expected-log))))
+
+(defn coordination-live-facts [port log]
+  (:facts (coordination-snapshot port log)))
 
 (defn triples-index [triples]
   (kernel/build-index
@@ -81,118 +83,200 @@
            (kernel/->Fact subject predicate value))
          triples)))
 
-(defn only-value [idx subject predicate]
-  (let [values (vec (distinct (kernel/many-i idx subject predicate)))]
-    (when (> (count values) 1)
-      (throw
-       (ex-info "legacy clock bridge found ambiguous single-valued facts"
-                {:subject subject :predicate predicate :values values})))
-    (first values)))
+(defn fact-values [idx subject predicate]
+  (vec (kernel/many-i idx subject predicate)))
 
-(defn bridge-rate [coordination-index telemetry-index session owner]
-  (let [direct (only-value telemetry-index session "rate")
-        thread (only-value telemetry-index session "session_of")
-        historical (when thread
-                     (only-value coordination-index thread "rate"))
-        authority (clock/client-rate-authority coordination-index owner)]
-    (or direct
-        (when (and historical (clock/positive-rate? historical)) historical)
-        (when (= "ok" (:status authority)) (:rate authority)))))
+(defn required-value [idx subject predicate]
+  (let [values (fact-values idx subject predicate)]
+    (when-not (= 1 (count values))
+      (throw
+       (ex-info "legacy clock bridge requires one exact value"
+                {:subject subject :predicate predicate :values values})))
+    (let [value (first values)]
+      (when (str/blank? value)
+        (throw
+         (ex-info "legacy clock bridge rejects blank values"
+                  {:subject subject :predicate predicate})))
+      value)))
+
+(def canonical-start-formatter
+  (.withResolverStyle
+   (java.time.format.DateTimeFormatter/ofPattern
+    "uuuu-MM-dd'T'HH:mm:ss")
+   java.time.format.ResolverStyle/STRICT))
+
+(defn canonical-start-instant? [value]
+  (boolean
+   (and (string? value)
+        (re-matches
+         #"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+         value)
+        (try
+          (java.time.LocalDateTime/parse value canonical-start-formatter)
+          true
+          (catch Exception _ false)))))
+
+(defn valid-session-locator? [value]
+  (boolean
+   (and (string? value)
+        (re-matches #"^@[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+
+(defn valid-positive-rate? [value]
+  (boolean
+   (and (string? value)
+        (clock/positive-rate? value)
+        (let [parsed (parse-double value)]
+          (and (some? parsed) (Double/isFinite parsed))))))
 
 (defn bridge-candidate [coordination-index telemetry-index session]
-  (let [thread (only-value telemetry-index session "session_of")
-        owner (or (only-value telemetry-index session "owner")
-                  (when thread
-                    (only-value coordination-index thread "owner")))
-        start (only-value telemetry-index session "start_time")
-        actor (or (only-value telemetry-index session "clocked_by") "user")
-        rate (when owner
-               (bridge-rate coordination-index telemetry-index session owner))]
-    (when-not (and (= actor "user")
-                   (not (str/blank? owner))
-                   (not (str/blank? start)))
+  (let [owner (required-value telemetry-index session "owner")
+        actor (required-value telemetry-index session "clocked_by")
+        start (required-value telemetry-index session "start_time")
+        thread (required-value telemetry-index session "session_of")
+        rate (required-value telemetry-index session "rate")
+        kind (required-value telemetry-index session "kind")]
+    (when-not (= actor "user")
       (throw
-       (ex-info "legacy open human clock is incomplete and cannot be bridged"
-                {:session session :owner owner :start start :actor actor})))
+       (ex-info "legacy clock bridge requires clocked_by=user"
+                {:session session :actor actor})))
+    (when-not (= kind "client_session")
+      (throw
+       (ex-info "legacy clock bridge requires kind=client_session"
+                {:session session :kind kind})))
+    (when-not (canonical-start-instant? start)
+      (throw
+       (ex-info "legacy clock bridge requires a canonical start instant"
+                {:session session :start start})))
+    (when-not (valid-session-locator? thread)
+      (throw
+       (ex-info "legacy clock bridge requires a valid session_of locator"
+                {:session session :session_of thread})))
+    (when-not (valid-positive-rate? rate)
+      (throw
+       (ex-info "legacy clock bridge requires a strictly positive rate"
+                {:session session :rate rate})))
+    (when (seq (fact-values telemetry-index session "end_time"))
+      (throw
+       (ex-info "closed legacy clocks cannot be bridged"
+                {:session session})))
+    (required-value coordination-index thread "title")
+    (let [thread-owner (required-value coordination-index thread "owner")]
+      (when-not (= owner thread-owner)
+        (throw
+         (ex-info "legacy clock owner conflicts with coordination thread"
+                  {:session session
+                   :owner owner
+                   :thread thread
+                   :thread-owner thread-owner}))))
     {:subject session
      :thread thread
      :owner owner
+     :actor actor
      :start start
-     :rate rate}))
+     :rate rate
+     :kind kind}))
+
+(defn bridge-facts [{:keys [thread owner actor start rate kind]}]
+  [{:p "owner" :r owner}
+   {:p "clocked_by" :r actor}
+   {:p "start_time" :r start}
+   {:p "session_of" :r thread}
+   {:p "rate" :r rate}
+   {:p "kind" :r kind}])
 
 (defn existing-value-compatible? [idx subject predicate expected]
-  (let [values (vec (distinct (kernel/many-i idx subject predicate)))]
+  (let [values (fact-values idx subject predicate)]
     (or (empty? values) (= values [expected]))))
 
-(defn exact-bridge? [idx {:keys [subject thread owner start rate]}]
-  (and (= "client_session" (only-value idx subject "kind"))
-       (= owner (only-value idx subject "owner"))
-       (= "user" (only-value idx subject "clocked_by"))
-       (= start (only-value idx subject "start_time"))
-       (or (nil? thread) (= thread (only-value idx subject "session_of")))
-       (or (nil? rate) (= rate (only-value idx subject "rate")))))
+(defn exact-bridge? [idx {:keys [subject] :as candidate}]
+  (every?
+   (fn [{:keys [p r]}]
+     (= [r] (fact-values idx subject p)))
+   (bridge-facts candidate)))
 
-(defn publish-bridge! [{:keys [subject thread owner start rate] :as candidate}]
+(defn publish-bridge! [telemetry-index session]
   (let [port (coordination-port)
-        log (north.coord/expected-log)
-        facts (cond-> [{:p "owner" :r owner}
-                       {:p "clocked_by" :r "user"}
-                       {:p "start_time" :r start}]
-                thread (conj {:p "session_of" :r thread})
-                rate (conj {:p "rate" :r rate})
-                true (conj {:p "kind" :r "client_session"}))]
+        log (north.coord/expected-log)]
     (loop [attempts 16]
       (let [base-response
             (north.coord/send-op-for-log port log {:op :version})
             base (:version base-response)
-            live (coordination-live-facts port log)
-            idx (kernel/build-index live)]
+            snapshot (coordination-snapshot port log)]
         (when-not (integer? base)
           (throw (ex-info "coordination clock authority is unavailable"
                           {:response base-response})))
-        (cond
-          (exact-bridge? idx candidate)
-          :already-bridged
-
-          (seq (clock/open-human-sessions idx))
-          (throw
-           (ex-info "legacy clock bridge found another coordination-authoritative open session"
-                    {:session subject
-                     :open (clock/open-human-sessions idx)}))
-
-          (not
-           (every?
-            (fn [{:keys [p r]}]
-              (existing-value-compatible? idx subject p r))
-            facts))
-          (throw
-           (ex-info "legacy clock bridge conflicts with coordination facts"
-                    {:session subject}))
-
-          :else
-          (let [response
-                (north.coord/send-op-for-log
-                 port log {:op :assert-batch-at-version
-                           :te subject
-                           :facts facts
-                           :base base})]
+        (if-not (= base (:version snapshot))
+          (if (> attempts 1)
+            (recur (dec attempts))
+            (throw
+             (ex-info "coordination clock snapshot did not reach the fenced version"
+                      {:daemon-version base
+                       :log-version (:version snapshot)})))
+          (let [idx (kernel/build-index (:facts snapshot))
+                candidate
+                (bridge-candidate idx telemetry-index session)
+                subject (:subject candidate)
+                facts (bridge-facts candidate)]
             (cond
-              (and (integer? (:ok response)) (:batch response))
-              :bridged
+              (exact-bridge? idx candidate)
+              :already-bridged
 
-              (and (= :conflict (:reject response)) (> attempts 1))
-              (recur (dec attempts))
+              (seq (clock/open-human-sessions idx))
+              (throw
+               (ex-info "legacy clock bridge found another coordination-authoritative open session"
+                        {:session subject
+                         :open (clock/open-human-sessions idx)}))
+
+              (not
+               (every?
+                (fn [{:keys [p r]}]
+                  (existing-value-compatible? idx subject p r))
+                facts))
+              (throw
+               (ex-info "legacy clock bridge conflicts with coordination facts"
+                        {:session subject}))
 
               :else
-              (throw
-               (ex-info "legacy clock bridge publication was rejected"
-                        {:session subject :response response})))))))))
+              (let [response
+                    (north.coord/send-op-for-log
+                     port log {:op :assert-batch-at-version
+                               :te subject
+                               :facts facts
+                               :base base})]
+                (cond
+                  (and (integer? (:ok response)) (:batch response))
+                  :bridged
+
+                  (and (= :conflict (:reject response)) (> attempts 1))
+                  (recur (dec attempts))
+
+                  :else
+                  (throw
+                   (ex-info "legacy clock bridge publication was rejected"
+                            {:session subject :response response})))))))))))
+
+(defn bridge-source? [telemetry-index session]
+  (and
+   (empty? (fact-values telemetry-index session "end_time"))
+   (or
+    (some #{"client_session"}
+          (fact-values telemetry-index session "kind"))
+    (and
+     (seq (fact-values telemetry-index session "session_of"))
+     (seq (fact-values telemetry-index session "start_time"))
+     (let [actors (fact-values telemetry-index session "clocked_by")]
+       (or (empty? actors) (some #{"user"} actors)))))))
+
+(defn bridge-sources [telemetry-index]
+  (filterv
+   (fn [session] (bridge-source? telemetry-index session))
+   (:subjects telemetry-index)))
 
 (defn maybe-bridge-legacy-clock! []
-  (let [coordination-facts
-        (coordination-live-facts
-         (coordination-port) (north.coord/expected-log))
-        coordination-index (kernel/build-index coordination-facts)]
+  (let [coordination-index
+        (kernel/build-index
+         (coordination-live-facts
+          (coordination-port) (north.coord/expected-log)))]
     (when (empty? (clock/open-human-sessions coordination-index))
       (let [view
             (binding [north.coord/*request-deadline-ns*
@@ -204,16 +288,16 @@
                 candidates
                 (filterv
                  (fn [session]
-                   (nil? (only-value coordination-index session "end_time")))
-                 (clock/open-human-sessions telemetry-index))]
+                   (empty?
+                    (fact-values
+                     coordination-index session "end_time")))
+                 (bridge-sources telemetry-index))]
             (when (> (count candidates) 1)
               (throw
                (ex-info "multiple legacy human clocks are open in telemetry"
                         {:sessions candidates})))
             (when (= 1 (count candidates))
-              (publish-bridge!
-               (bridge-candidate
-                coordination-index telemetry-index (first candidates))))))))))
+              (publish-bridge! telemetry-index (first candidates)))))))))
 
 (defn -main [& args]
   (let [authority? (client-clock-authority-command? args)

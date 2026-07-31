@@ -56,6 +56,10 @@ legacy_start="$(date -d '2 minutes ago' '+%Y-%m-%dT%H:%M:%S')"
   fact 3 '@legacy-closed' end_time '2026-07-30T10:00:00'
   fact 4 '@legacy-open' session_of '@msa-thread'
   fact 5 '@legacy-open' start_time "$legacy_start"
+  fact 6 '@legacy-open' owner msa
+  fact 7 '@legacy-open' clocked_by user
+  fact 8 '@legacy-open' rate 100
+  fact 9 '@legacy-open' kind client_session
 } >"$telemetry_log"
 
 ports="$(
@@ -147,12 +151,21 @@ domain_hash() {
 }
 
 telemetry_before="$(domain_hash "$telemetry_log")"
+telemetry_bytes_before="$(sha256sum "$telemetry_log" | cut -d' ' -f1)"
+telemetry_client_session_count_before="$(
+  grep -Ec ':p "kind",? :r "client_session"' "$telemetry_log"
+)"
 first_current="$(clock current)"
 grep -Fq 'clocked in for client msa' <<<"$first_current"
 grep -Fq '"@legacy-open"' "$coord_log"
 grep -Eq ':p "kind",? :r "client_session"' "$coord_log"
+grep -Eq ':p "owner",? :r "msa"' "$coord_log"
+grep -Eq ':p "clocked_by",? :r "user"' "$coord_log"
+grep -Eq ':p "session_of",? :r "@msa-thread"' "$coord_log"
+grep -Eq ':p "rate",? :r "100"' "$coord_log"
 grep -Eq ":p \"start_time\",? :r \"$legacy_start\"" "$coord_log"
 [[ "$telemetry_before" == "$(domain_hash "$telemetry_log")" ]]
+[[ "$telemetry_bytes_before" == "$(sha256sum "$telemetry_log" | cut -d' ' -f1)" ]]
 
 kind_count_before="$(
   grep -F '"@legacy-open"' "$coord_log" |
@@ -165,6 +178,7 @@ kind_count_after="$(
 )"
 grep -Fq 'clocked in for client msa' <<<"$second_current"
 [[ "$kind_count_before" == 1 && "$kind_count_after" == 1 ]]
+[[ "$telemetry_bytes_before" == "$(sha256sum "$telemetry_log" | cut -d' ' -f1)" ]]
 
 kill "$telemetry_pid"
 wait "$telemetry_pid" 2>/dev/null || true
@@ -221,8 +235,11 @@ client_session_count="$(
   grep -E ':p "kind",? :r "client_session"' "$coord_log" | wc -l
 )"
 [[ "$client_session_count" == 2 ]]
-if grep -Eq ':p "kind",? :r "client_session"' "$telemetry_log"; then
-  echo "client clock authority: new client_session marker reached telemetry" >&2
+telemetry_client_session_count_after="$(
+  grep -Ec ':p "kind",? :r "client_session"' "$telemetry_log"
+)"
+if [[ "$telemetry_client_session_count_after" != "$telemetry_client_session_count_before" ]]; then
+  echo "client clock authority: client_session marker count changed in telemetry" >&2
   exit 1
 fi
 
