@@ -606,8 +606,12 @@
   (try
     (loop [after nil expected-version nil triples []]
       (let [response
+            ;; Page 1 unpinned; later pages pin the first page's version so a
+            ;; never-quiescent store cannot drift the drain (daemon retains a
+            ;; bounded snapshot; expiry aborts typed, degrading to cold fold).
             (query-page-in-domain
-             port domain live-facts-page-query query-page-row-limit after)
+             port domain live-facts-page-query query-page-row-limit after
+             expected-version)
             version (:version response)
             rows (:ok response)
             more (:more response)
@@ -807,7 +811,9 @@
   "Run Fram's internal deterministic query-page verb under its tighter 1 MiB
    client cap. There is no compatibility fallback: managed replay depends on
    pagination and fails closed against an older or malformed coordinator."
-  [port query limit after]
+  ([port query limit after]
+   (query-page port query limit after nil))
+  ([port query limit after at-version]
   (when-not (and (integer? limit)
                  (<= 1 limit query-page-row-limit))
     (throw
@@ -819,13 +825,18 @@
     (throw
      (ex-info "query page cursor is outside the North/Fram contract"
               {:type :invalid-query-page-cursor})))
+  (when-not (or (nil? at-version) (and (integer? at-version) (not (neg? at-version))))
+    (throw
+     (ex-info "query page pin is outside the North/Fram contract"
+              {:type :invalid-query-page-pin :at-version at-version})))
   (binding [*response-byte-limit-override*
             query-page-response-byte-limit]
     (let [response
-          (send-op port {:op :query-page
-                         :query query
-                         :limit limit
-                         :after after})
+          (send-op port (cond-> {:op :query-page
+                                 :query query
+                                 :limit limit
+                                 :after after}
+                          at-version (assoc :at-version at-version)))
           error? (boolean (and (map? response) (vector? (:error response))))
           page?
           (boolean
@@ -843,6 +854,15 @@
         (throw
          (ex-info "coordinator lacks required query-page protocol"
                   {:type :query-page-unsupported})))
+      ;; A pinned snapshot the daemon no longer retains (or a daemon that
+      ;; predates :at-version) aborts the drain as a typed condition; the
+      ;; caller degrades to an incomplete domain, never a torn view.
+      (when (= :snapshot-expired (:code response))
+        (throw
+         (ex-info "coordinator no longer retains the pinned query snapshot"
+                  {:type :query-page-snapshot-expired
+                   :at-version (:at-version response)
+                   :version (:version response)})))
       (when-not (and (integer? (:version response))
                      (not (neg? (:version response)))
                      (= "scan" (:engine response))
@@ -850,21 +870,23 @@
         (throw
          (ex-info "coordinator returned a malformed query page"
                   {:type :malformed-query-page-response})))
-      response)))
+      response))))
 
 (defn query-page-in-domain
   "Run a deterministic query page against one named origin. See
    indexed-query-in-domain for why variable-subject telemetry reads declare
    their domain explicitly."
-  [port domain query limit after]
-  (when-not (#{:coordination :telemetry} domain)
-    (throw (ex-info "unknown coordinator query domain"
-                    {:type :invalid-query-domain :domain domain})))
-  (binding [*operation-domain*
-            (when (and (= :telemetry domain)
-                       (telemetry-partition-enabled?))
-              :telemetry)]
-    (query-page port query limit after)))
+  ([port domain query limit after]
+   (query-page-in-domain port domain query limit after nil))
+  ([port domain query limit after at-version]
+   (when-not (#{:coordination :telemetry} domain)
+     (throw (ex-info "unknown coordinator query domain"
+                     {:type :invalid-query-domain :domain domain})))
+   (binding [*operation-domain*
+             (when (and (= :telemetry domain)
+                        (telemetry-partition-enabled?))
+               :telemetry)]
+     (query-page port query limit after at-version))))
 
 (defn send-raw-op
   "Low-level compatibility/policy probe. Managed North operations must use

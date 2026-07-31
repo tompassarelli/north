@@ -62,6 +62,25 @@
                  (string? (second (first unavailable-detail)))
                  (seq (second (first unavailable-detail)))))))
 
+;; --- an expired pin degrades to an incomplete domain, never a torn view -----
+(with-redefs [telemetry-partition-enabled? (constantly false)
+              query-page-in-domain
+              (fn [& args]
+                (if (nil? (nth args 5 nil))
+                  {:version 7 :ok [["@a" "p" "v"]]
+                   :more true :next PAGE-CURSOR :engine "scan"}
+                  (throw (ex-info "coordinator no longer retains the pinned query snapshot"
+                                  {:type :query-page-snapshot-expired
+                                   :at-version 7 :version 9}))))]
+  (let [{:keys [facts unavailable-detail complete]} (live-facts-view 7977)]
+    (check! "an expired pin aborts the paged domain with its typed reason"
+            (some (fn [[domain reason]]
+                    (and (= "coordination" domain)
+                         (clojure.string/includes? reason "no longer retains")))
+                  unavailable-detail))
+    (check! "an expired pin exposes no partial warm facts"
+            (and (false? complete) (empty? facts)))))
+
 ;; --- one version witnesses the entire drain ---------------------------------
 (let [calls (atom 0)]
   (with-redefs [telemetry-partition-enabled? (constantly false)
