@@ -197,6 +197,7 @@
           root = ./.;
           fileset = lib.fileset.unions [
             ./out
+            ./share/help
             (lib.fileset.difference ./cli ./cli/tests)
             ./sdk/src
             ./contracts/agent-run-ledger-v1.json
@@ -417,8 +418,11 @@ EOF
           installPhase = ''
             runHook preInstall
             mkdir -p $out/bin $out/contracts $out/out $out/sdk \
-              $out/profiles/tom/hooks/lib
+              $out/profiles/tom/hooks/lib $out/share
             cp -r out/. $out/out/
+            # bin/north resolves its card + topic pages under $NORTH/share/help;
+            # unshipped, the packaged CLI exits 1 on every `north help`.
+            cp -r share/help $out/share/help
             cp contracts/agent-run-ledger-v1.json $out/contracts/
             cp profiles/tom/hooks/lib/harness-dial.sh \
               $out/profiles/tom/hooks/lib/
@@ -633,7 +637,7 @@ EOF
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= \
               $out/bin/north help > "$smoke/help.out"
-            grep -q 'north — your one card' "$smoke/help.out"
+            grep -q 'north — coordinate work, agents, and time' "$smoke/help.out"
             test -x "$out/bin/firn-rebuild-coordinated"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NORTH_DASHBOARD_LIB=1 \
