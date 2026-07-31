@@ -79,6 +79,28 @@ capture. Law 7 verifier siblings are separate composed lanes (typically
 senior/`gpt-5.6-sol` or a native verifier), never the same session. The
 orchestrator reconciles; a bare exit 0 is not evidence.
 
+## Environment hygiene (from the hermes-agent study, 2026-07-31)
+
+Findings adopted from the MIT-licensed hermes-agent codebase (study
+archived in north-data with file:line citations):
+
+- **Ambient codex config is load-bearing.** Even surfaces that compute a
+  permission profile may not transmit it (observed in hermes's app-server
+  transport); effective policy comes from `CODEX_HOME` config unless
+  overridden per invocation. Therefore: every flag that matters is pinned
+  on the command line, every time — never rely on ambient config.
+- **Sanitize the child environment.** Lanes inherit the launcher's
+  environment; infrastructure, daemon, and side-channel credentials do not
+  belong in a coding lane. Prefer allowlist inheritance and a per-lane
+  `CODEX_HOME` when lane trust matters.
+- **The full-access pattern hermes recommends under sandbox friction
+  (`danger-full-access` + convention-based review + deleting uncommitted
+  work) is REJECTED on this host** — it assumes a disposable environment.
+  This machine carries live daemons, canonical repos, and billing state.
+  Full access becomes acceptable only inside an ephemeral container/VM
+  with no host home, daemon sockets, or canonical repo mounts — that
+  disposable-lane environment is tracked as its own work item.
+
 ## Known failure modes
 
 - `Selected model is at capacity` — transient; retry with backoff, cap
