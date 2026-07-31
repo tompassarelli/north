@@ -884,7 +884,13 @@ async function runSpawn(
     catch (error) { queryCloseError = error; }
   }
   } catch (err) {
-    if (err instanceof ResourceEnvelopeExceededError) {
+    if (termination.hardCapStatus()) {
+      outcome = "session_hard_cap";
+      worktreeTerminalFailure = {
+        code: "session_hard_cap",
+        phase: "provider_execution",
+      };
+    } else if (err instanceof ResourceEnvelopeExceededError) {
       outcome = "resource_envelope_exceeded";
       worktreeTerminalFailure = {
         code: "resource_envelope_retry_refused",
@@ -942,8 +948,22 @@ async function runSpawn(
   // terminal (no result yet) also stays fail-closed via the branches below.
   const reachedProviderSuccessTerminal = outcome === "ran";
 
+  const sessionHardCap = termination.hardCapStatus();
   const hostSignal = termination.hostSignal();
-  if (hostSignal && !watchdogAbort) {
+  if (sessionHardCap && !watchdogAbort) {
+    outcome = "session_hard_cap";
+    providerErrorDetail = undefined;
+    worktreeTerminalFailure = {
+      code: "session_hard_cap",
+      phase: "provider_execution",
+    };
+    terminalSignal = {
+      subject: "SESSION CAP",
+      detail: `managed session reached ${sessionHardCap.hardCapMs}ms hard cap; `
+        + `handoff=${sessionHardCap.handoffPath ?? "unavailable"}; `
+        + `thread_index=${sessionHardCap.indexed ? "recorded" : "unavailable"}`,
+    };
+  } else if (hostSignal && !watchdogAbort) {
     outcome = "died";
     const error = new Error(`host terminated by ${hostSignal}`);
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
@@ -954,7 +974,7 @@ async function runSpawn(
     terminalSignal = { subject: "AGENT DEATH", detail: deathReason(error) };
   }
 
-  if (liveInputFreezeError && !watchdogAbort) {
+  if (liveInputFreezeError && !watchdogAbort && !sessionHardCap) {
     let retrySucceeded = false;
     try {
       await liveInputRoute.freezeAndUnbind();
@@ -1406,7 +1426,17 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       );
     }
   }
-  const termination = new ManagedQueryTermination(injected?.registerTermination);
+  const termination = new ManagedQueryTermination(
+    injected?.registerTermination,
+    {
+      agentId,
+      threadId: composed.thread,
+      goal: goalFromPrompt(composed.prompt),
+      repo: process.cwd(),
+      worktree: worktreeLease?.path,
+      branch: worktreeLease?.branch,
+    },
+  );
   let admission: EnvelopeAdmission | undefined;
   let result!: string;
   let failed = false;
