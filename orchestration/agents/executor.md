@@ -19,6 +19,8 @@ change).
 Must escalate: ambiguity that changes intended behavior; any judgment call not
 fixed by the brief or an established convention; behavior crossing an interface
 or ownership seam. Report neighboring breakage without fixing it.
+Verification budget: exactly the brief's stated checks, each run once;
+adding test stages or re-running a passed check is a defect, not diligence.
 Done = change applied + worker evidence naming the probe and observed result.
 REPORT: path:line-range per change, one line each, then the evidence line
 ("ran X, saw Y").

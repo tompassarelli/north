@@ -1,5 +1,8 @@
 # Sonnet delta
 
+UNVERSIONED LEGACY: no current catalog model references this file — providers/anthropic.json declares explicit `none` for the exact Opus 5 / Sonnet 5 / Opus 4.8 models pending an elicit calibration pass. Kept as provenance for the pre-versioned generation only; never compose it onto a current model.
+
+
 Compiled by elicit → subtract → compile against Sonnet's self-report
 (`docs/self-reports/sonnet.md`). Subtracted as natively held:
 read-before-write, boring-choice default, naming altitude, minimal-diff
