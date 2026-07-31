@@ -1,0 +1,127 @@
+north — coordinate work, agents, and time — the complete reference
+(`north help <topic>` is one section; bare `north` is the daily card)
+
+WORK — threads: thought → fact → outcome
+  north-author capture "<title>" [owner]    trusted thread creation (agent-session north capture is sealed)
+                                            agent sessions: north capture is refused — return the request to the user
+  north show <id|slug|substring>            one thread's facts + body; resolves id, slug, substring
+  north tell <id> <report> <value>          bounded agent report: started · checkpoint · blocked · landed · handoff
+                                            north-author tell <id> <pred> <val> — trusted fact authoring
+                                            one report per agent/thread per 600s
+  north retract <id> <pred> <value>         trusted-writer fact retraction — humans: north-author retract  (alias: untell)
+  north threads [--all]                     thread-kind overview: active drivers, top ready, counts  (aliases: board, plate)
+  north ready [--all]                       committed + unblocked work, ranked by leverage
+  north next                                the recommended next pull
+  north blocked                             threads waiting on a depends_on target
+  north leverage                            what unblocks the most downstream work
+  north agenda                              calendar projection over do_on: overdue / today / upcoming
+  north needs-review                        judgments whose inputs moved; unevidenced bars; promotable drafts
+  north resolve <ref>                       canonical thread id for a ref (id, slug, or substring)
+  north clock in <owner>|out                open/close the one human client billing session
+                                            north clock audit — commits-vs-clock coverage drift
+                                            north clock start|stop — legacy thread-session aliases
+  north evidence record "<bar>" "<result>"  bind done-bar evidence to this exact managed run
+                                            --thread <id> — no reservation in env: record unreserved thread evidence
+  north bars list|prune <thread>            groom a thread's done_when set; prune retires evidenced bars
+  north worktrees [repo] [--json]           every repo's wt-* trees: drift, dirt, age, owning lane/concern
+  north worktree lander [repo]              landing reconciliation: harvest lane refs already merged to main
+  north linear get|import|plan|sync         mechanical Linear bridge (sync is plan-only unless --apply)
+  north merge <from> <to>                   fold one node into another; refs follow (trusted writer)
+
+AGENTS — delegate work, drive and observe agents
+  north delegate "<task>"           hand work to a new lane; intake classifies atomic vs composite
+                                    --role <worker> — atomic: exactly one selected worker
+                                    --composite — 2+ independent pieces: hydrates an orchestrator
+                                    --thread <id> — bind an existing thread
+                                    in chat, /delegate does this with session context riding along
+  north agents [--json]             live agents now + the stable machine roster
+  north spawn <role> "<prompt>"     compose a worker from Orchestration's staffing catalog
+                                    --provider auto|anthropic|openai — select or auto-route the provider
+                                    --taskGrade/--domain — independently override stock staffing axes
+                                    --topology — bespoke compositions only; stock topology is fixed
+                                    --tier/--reasoning/--posture — capability, deliberation, posture
+                                    --assessment JSON|@file — selection sidecar (required for max)
+                                    --pin-evidence JSON|@file — typed reason + <=24h expiry for exact pins
+                                    --rationale "why" — required for a bespoke role
+                                    in-harness agents dispatch via MCP: mcp__north__dispatch / spawn
+  north templates                   Orchestration's reusable stock templates and routing defaults
+  north watch <id>                  tail an agent's transcript
+  north steer <id> "<msg>"          inject a message into a running agent
+  north retask <id> "<goal>"        redirect a running agent's goal
+  north trace <id>                  diagnose one agent's lifecycle; flags the first failing stage
+  north wip [--check]               live managed lanes vs floor (--check: exit 3 on shortfall)
+  north escalate needs-replan …     checkpoint scope overrun; route it up the live parent chain
+                                    --summary/--checkpoint/--seam/--propose — the structured payload
+  north listen <agent-id>           arm the real-time interrupt listener (background task; dormant)
+  north request|fork|req            legacy — legacy spawn aliases  (aliases: fork, req)
+  north delivery attest <agent-id>  unavailable — unavailable until verifier lanes have OS isolation
+
+COMMS — attention between people and agents
+  north inbox [--all] [--mark-read]         durable notifications waiting on you; acknowledge them  (alias: notifications)
+                                            --as <principal> — inspect another principal's inbox
+  north mention <recipient> "<body>"        durable sender-driven request; offline recipient allowed
+                                            --about <thread> — attach the request to a thread
+  north interrupt <recipient> "<body>"      urgent sender-driven request; live recipient required
+  north follow <thread> [--as <principal>]  subscribe to observer-driven thread attention
+  north unfollow <thread>                   drop a thread subscription
+  north following                           what you're subscribed to
+
+ROUTING — providers, accounts, dispatch posture
+  north config                      every posture setting + routing policy, one report
+                                    north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced
+                                    north config guards on|off — value-aware kill-switch for authoring guards
+                                    north config routing — provider order, pressure, reserves, envelopes
+  north providers [--json]          provider readiness and the auto-route decision
+  north account <sub>               isolated provider subscription accounts
+                                    add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts
+  north failover check|fire         classify active rungs; compose/launch a provider-recovery lead
+                                    fire --thread ID --brief PATH [--dry-run] — only fire may launch
+  north spend status|init|override  API-billing budget: cap, reserved, settled, headroom
+  north routing report <which>      managed-run evidence, joined to exact lane terminals
+                                    performance [--all] — current managed evidence (--all: legacy history)
+                                    usage — provider work usage (never dollars / API credits)
+                                    economics — bounded routing-cost signals + alert-only findings
+                                    promotions — bespoke patterns for stock-template review
+                                    calibration — run-local judgment/struggle detector cohorts
+  north canary run|report           production-path managed-lane reliability probe
+  north ccr prepare|retrieve        default-off structured-output CCR canary
+  north dials                       legacy — compatibility bridge to the evidence-aware routing report
+  north handoff                     legacy — renamed — use north failover
+
+STORE — the fact corpus and its schema
+  north schema                               vocabulary census: subjects/facts by kind + predicate metadata
+  north predicate ls|show|define             inspect or extend executable predicate entities
+  north schema-seed [--execute]              derive predicate-metadata facts (--dry-run is the default)
+  north validate                             full integrity check: engine rules + north work rules
+  north audit                                corpus-health report
+  north history <id>                         a subject's full fact history from the log
+  north json <view>                          machine-readable projections (plate, ready, show, clock-report, …)
+  north tools                                the curated MCP tool surface + the fram engine core
+  north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
+  north boot                                 session orientation: safety verdict, hygiene, the entry-point note
+  north import                               fold threads/ file edits into the log (trusted writer)
+  north export <out-dir>                     regenerate threads/ from the log — never during concurrent work
+  north snapshot create|verify|restore-plan  immutable dual-log checkpoint and restore planning
+  north schema-migrate plan|audit            deterministic schema cutover; plan/audit stay read-only
+  north corpus-transaction check-boundaries  verify split-log append safety before maintenance
+  north set …                                legacy — direct log append — trusted single-writer/offline only
+
+  any other verb passes through to the fram engine (ask, watch, …)
+
+OPS — daemons, health, deployment
+  north dashboard                     the cockpit: agents, concerns, board, daemons, health, profile
+  north doctor                        is everything healthy: fact server, daemons, rev skew, env, hooks
+  north health                        coordination rollup: lanes ran/died, stale concerns, zombies
+  north hotspots                      where time goes and what fails, ranked from live telemetry
+  north deployed                      committed vs built vs live, per component
+  north coord-doctor                  fact-server safety handshake: writes safe? daemon matches log?
+  north coord-ready                   cheap exact runtime identity for every active writer
+  north coord-safety                  runtime identity + strict log-fence round trip
+  north up [--restart|--stop]         start/revive the fact-server daemon(s) on the canonical logs
+  north reactor [port] [debounce-ms]  auto-export sidecar: re-projects touched threads (background)
+  north stream-sync                   cursor-based transcript log-shipping
+  north rebuild request --why "…"     queue a system-rebuild ask; returns at once, never builds
+                                      --urgent "<why>" — counted, never refused
+  north rebuild-intent start …        coordinate a held/batched firn rebuild window
+  north panic                         minimal recovery path; works with bb/fram/coordinator down
+  north help [<topic>|--all]          the card; a topic page; or the complete reference

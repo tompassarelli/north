@@ -420,113 +420,31 @@ coord_safety_ready() {
 
 case "${1:-}" in
   ""|help|-h|--help)
-    # THE CARD — one screen, grouped, "type this → do this". Bare `north` and
-    # `north help` are the same implementation (help IS the card verb, not an
-    # alias). Every line below is a command that actually works; verify before
-    # adding. Kept honest by hand, not generated.
-    cat <<'CARD'
-north — your one card. Type a command to do the thing next to it.
-
-  GET HELP
-    north                              this card
-    north <verb> --help                most verbs print their own usage
-
-  SEE WHAT'S GOING ON
-    north dashboard                    the cockpit: agents, concerns, board, health, profile
-    north threads                      thread-kind overview: active/ready/blocked  (--all = everything; aliases: board, plate)
-    north ready                        committed + unblocked work, start anytime, ranked by leverage
-    north wip                          live managed lanes vs coordinator floor  (--check = exit 3 on pullable shortfall)
-    north worktrees                    every repo's wt-* trees: drift, dirt, age, owning lane/concern  (--json)
-    north agenda                       what's dated / overdue today
-    north health                       coordination rollup: lanes ran/died, stale concerns
-    north trace <id>                   diagnose one agent's lifecycle
-    north templates                    Orchestration's reusable stock templates and routing defaults
-    north routing report performance  current managed evidence  (--all = legacy/incomplete history)
-    north routing report usage        provider work usage (never dollars / API credits)
-    north routing report economics    bounded routing-cost signals + alert-only policy findings
-    north routing report promotions   bespoke patterns for stock-template review
-    north routing report calibration  run-local judgment/struggle detector cohorts
-    north canary run --target ID|--matrix
-                                       production-path managed-lane reliability canary
-    north canary report --window N     rolling provider-vs-North canary failure rate
-    north ccr prepare|retrieve         default-off structured-output CCR canary
-    north schema                       the fact vocabulary in use
-    north predicate ls|show|define     inspect or extend executable predicate entities
-    north schema-migrate plan|audit    deterministic schema cutover and strict audit
-    north snapshot create|verify|restore-plan
-                                       immutable dual-log checkpoint and restore planning
-    north corpus-transaction check-boundaries
-                                       verify split-log append safety before maintenance
-
-  HAND OFF WORK   (starts a new lane — your own channel never blocks)
-    /delegate "<thing>" [--new]        chat: delegate; session context rides by
-                                       default · --new = empty-context lane
-    north delegate "<task>" (--role <worker> | --composite)
-                                       shell: intake must classify atomic vs composite
-
-  DRIVE AGENTS
-    north agents [--json]              who's live now + stable machine roster
-    north watch <id>                   tail an agent's transcript
-    north steer <id> "<msg>"           inject a message into a running agent
-    north mention <recipient> [--about <thread>] "<body>"
-                                       durable sender-driven request; offline is allowed
-    north interrupt <recipient> [--about <thread>] "<body>"
-                                       urgent sender-driven request; live recipient required
-    north follow <thread> [--as <principal>] [...]
-                                       subscribe to observer-driven thread attention
-    north unfollow <thread> [--as <principal>]
-    north following [--as <principal>]
-    north notifications [--as <principal>] [--all] [--mark-read]
-                                       inspect and acknowledge durable notifications
-    north retask <id> "<goal>"         redirect a running agent's goal
-    north escalate needs-replan ...    checkpoint scope overrun + route it up the live parent chain
-    north evidence record <bar> <result>
-                                       bind done-bar evidence to this exact managed run
-      --thread <id>                     no reservation in env: record UNRESERVED thread evidence
-    north bars list|prune <thread>     groom a thread's done_when set back under the reserve limit
-    north delivery attest <agent-id>   unavailable until verifier lanes have OS isolation
-    north spawn <role> "<prompt>"      compose from Orchestration's staffing catalog
-      --provider auto|anthropic|openai  select or auto-route the worker provider
-      --taskGrade/--domain              independently override stock staffing axes
-      --topology                        bespoke compositions only; stock topology is fixed
-      --tier/--reasoning/--posture      capability, deliberation, and posture
-      --assessment JSON|@file           canonical Orchestration selection sidecar (required for max)
-      --pin-evidence JSON|@file         typed reason + <=24h expiry for any exact pin
-      --rationale "why"                 required for a bespoke role
-    (agents dispatch via MCP)          in-harness agents call mcp__north__dispatch / spawn
-
-  LIFE   (capture thoughts, track work + time)
-    north-author capture "<thought>"   trusted human/internal thread creation
-    north show <id>                    read one thread's facts
-    north-author tell <id> <pred> <val>
-                                       trusted fact authoring   (retract … to remove)
-    north tell <id> <report> <value>   bounded agent report: started, checkpoint,
-                                       blocked, landed, or handoff
-    north clock in <owner>|out         open/close one human client billing session
-    north clock start|stop             compatibility aliases for legacy thread sessions
-    north clock audit                  commits-vs-clock coverage drift report
-    north rebuild request --why ...    queue a rebuild ask (returns at once; never builds)
-    north rebuild-intent start ...     coordinate a held/batched firn rebuild
-    north linear get|import|plan|sync  mechanical Linear bridge (sync is plan-only unless --apply)
-
-  SETTINGS & HEALTH
-    north config                       posture + routing policy in one report
-    north config routing               provider order, pressure, reserves, envelopes
-    north account add|login|status     manage provider subscription accounts
-    north account usage [id]           subscription windows, resets, and unknown reasons
-    north account availability         cached per-account availability verdicts
-    north account list [--verbose]    grouped accounts + live login state
-    north failover check              classify the active provider rungs and name a same-tier heir
-    north failover fire --thread ID --brief PATH [--dry-run]
-                                       compose or launch a provider-recovery team lead
-    north spend status [target]        API-billing budget: cap, reserved, settled, headroom
-    north spend init|override <target> create a guarded budget · add a time-boxed override
-    north providers                    provider readiness and auto-route decision
-    north coord-ready                  cheap exact runtime identity for every active writer
-    north coord-safety                 bounded identity + strict log-fence round trip
-    north doctor                       is everything healthy — daemons, rev skew, env, hooks
-CARD
-    exit 0 ;;
+    # THE CARD + topic pages — projections of cli/surface.edn (regenerate:
+    # bb cli/surface-gen.clj); cli/tests/surface-sync-test.clj welds registry,
+    # rendered pages, and these case arms together.
+    _north_help_dir="$NORTH/share/help"
+    case "${2:-}" in
+      "")        _north_help_file="$_north_help_dir/card.txt" ;;
+      --all|all) _north_help_file="$_north_help_dir/all.txt" ;;
+      *)         _north_help_file="$_north_help_dir/topic-${2}.txt" ;;
+    esac
+    if [ -f "$_north_help_file" ]; then
+      cat "$_north_help_file"
+      exit 0
+    fi
+    if [ ! -f "$_north_help_dir/card.txt" ]; then
+      echo "north: help pages missing from $_north_help_dir — regenerate: bb $NORTH/cli/surface-gen.clj" >&2
+      exit 1
+    fi
+    echo "north: no help topic '${2:-}'" >&2
+    _north_topics=""
+    for _north_topic_file in "$_north_help_dir"/topic-*.txt; do
+      _north_topic_file="${_north_topic_file##*/topic-}"
+      _north_topics="$_north_topics ${_north_topic_file%.txt}"
+    done
+    echo "north: topics:$_north_topics  (north help --all = everything)" >&2
+    exit 2 ;;
   clock)
     # `clock audit` is a standalone read-only report (commits-vs-sessions coverage,
     # bin/north-clock-audit); every other clock verb is engine-side in north.main.
@@ -692,6 +610,10 @@ CARD
     # Durable observer attention. attention-cli owns the complete argument
     # contract; this wrapper deliberately forwards the verb and tail unchanged.
     exec "$BB" "$NORTH/cli/attention-cli.clj" "${NORTH_PORT:-7977}" "$@" ;;
+  inbox)
+    # The user-facing name for the notifications destination; attention-cli
+    # keeps `notifications` as its own verb, so normalize here.
+    exec "$BB" "$NORTH/cli/attention-cli.clj" "${NORTH_PORT:-7977}" notifications "${@:2}" ;;
   mention|interrupt)
     # Sender-driven attention. Prefer the live harness identity, then North's
     # stable agent id, then the configured author identity. The shared comms

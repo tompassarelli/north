@@ -1,0 +1,29 @@
+north help work — threads: thought → fact → outcome
+
+  north-author capture "<title>" [owner]    trusted thread creation (agent-session north capture is sealed)
+                                            agent sessions: north capture is refused — return the request to the user
+  north show <id|slug|substring>            one thread's facts + body; resolves id, slug, substring
+  north tell <id> <report> <value>          bounded agent report: started · checkpoint · blocked · landed · handoff
+                                            north-author tell <id> <pred> <val> — trusted fact authoring
+                                            one report per agent/thread per 600s
+  north retract <id> <pred> <value>         trusted-writer fact retraction — humans: north-author retract  (alias: untell)
+  north threads [--all]                     thread-kind overview: active drivers, top ready, counts  (aliases: board, plate)
+  north ready [--all]                       committed + unblocked work, ranked by leverage
+  north next                                the recommended next pull
+  north blocked                             threads waiting on a depends_on target
+  north leverage                            what unblocks the most downstream work
+  north agenda                              calendar projection over do_on: overdue / today / upcoming
+  north needs-review                        judgments whose inputs moved; unevidenced bars; promotable drafts
+  north resolve <ref>                       canonical thread id for a ref (id, slug, or substring)
+  north clock in <owner>|out                open/close the one human client billing session
+                                            north clock audit — commits-vs-clock coverage drift
+                                            north clock start|stop — legacy thread-session aliases
+  north evidence record "<bar>" "<result>"  bind done-bar evidence to this exact managed run
+                                            --thread <id> — no reservation in env: record unreserved thread evidence
+  north bars list|prune <thread>            groom a thread's done_when set; prune retires evidenced bars
+  north worktrees [repo] [--json]           every repo's wt-* trees: drift, dirt, age, owning lane/concern
+  north worktree lander [repo]              landing reconciliation: harvest lane refs already merged to main
+  north linear get|import|plan|sync         mechanical Linear bridge (sync is plan-only unless --apply)
+  north merge <from> <to>                   fold one node into another; refs follow (trusted writer)
+
+  north help --all — the complete reference · bare `north` — the daily card

@@ -1,0 +1,258 @@
+;; Registry of the human CLI surface; share/help/* are projections of it — regenerate: bb cli/surface-gen.clj.
+;; cli/tests/surface-sync-test.clj welds :commands (+ :aliases) to bin/north's case arms both ways.
+;; Field semantics live in cli/surface-gen.clj's header.
+{:product "north — coordinate work, agents, and time"
+ :topics
+ [{:id :work    :title "WORK"    :subtitle "threads: thought → fact → outcome"}
+  {:id :agents  :title "AGENTS"  :subtitle "delegate work, drive and observe agents"}
+  {:id :comms   :title "COMMS"   :subtitle "attention between people and agents"}
+  {:id :routing :title "ROUTING" :subtitle "providers, accounts, dispatch posture"}
+  {:id :store   :title "STORE"   :subtitle "the fact corpus and its schema"}
+  {:id :ops     :title "OPS"     :subtitle "daemons, health, deployment"}]
+ :card-sections
+ [{:id :now    :title "NOW"}
+  {:id :work   :title "WORK"}
+  {:id :agents :title "AGENTS"}
+  {:id :system :title "SYSTEM"}]
+ :passthrough
+ "any other verb passes through to the fram engine (ask, watch, …)"
+ :commands
+ [;; ---------------------------------------------------------------- work
+  {:verb "capture" :form "north-author capture \"<title>\" [owner]" :topic :work
+   :summary "trusted thread creation (agent-session north capture is sealed)"
+   :details ["agent sessions: north capture is refused — return the request to the user"]
+   :card {:section :work :form "north-author capture \"<thought>\""
+          :text "one thought → one committed thread"}}
+  {:verb "show" :form "north show <id|slug|substring>" :topic :work
+   :summary "one thread's facts + body; resolves id, slug, substring"
+   :card {:section :work :form "north show <id>"
+          :text "a thread's facts + body"}}
+  {:verb "tell" :form "north tell <id> <report> <value>" :topic :work
+   :summary "bounded agent report: started · checkpoint · blocked · landed · handoff"
+   :details ["north-author tell <id> <pred> <val> — trusted fact authoring"
+             "one report per agent/thread per 600s"]
+   :card {:section :work :form "north tell <id> <report> <val>"
+          :text "agent report; north-author tell = trusted"}}
+  {:verb "retract" :form "north retract <id> <pred> <value>" :topic :work
+   :aliases ["untell"]
+   :summary "trusted-writer fact retraction — humans: north-author retract"}
+  {:verb "threads" :form "north threads [--all]" :topic :work
+   :aliases ["board" "plate"]
+   :summary "thread-kind overview: active drivers, top ready, counts"
+   :card {:section :work :form "north threads"
+          :text "active / ready / blocked overview"}}
+  {:verb "ready" :form "north ready [--all]" :topic :work
+   :summary "committed + unblocked work, ranked by leverage"
+   :card {:section :now :rank 2 :form "north ready"
+          :text "what you could start now, ranked by leverage"}}
+  {:verb "next" :form "north next" :topic :work
+   :summary "the recommended next pull"}
+  {:verb "blocked" :form "north blocked" :topic :work
+   :summary "threads waiting on a depends_on target"}
+  {:verb "leverage" :form "north leverage" :topic :work
+   :summary "what unblocks the most downstream work"}
+  {:verb "agenda" :form "north agenda" :topic :work
+   :summary "calendar projection over do_on: overdue / today / upcoming"
+   :card {:section :now :rank 4 :form "north agenda"
+          :text "dated and overdue work"}}
+  {:verb "needs-review" :form "north needs-review" :topic :work
+   :summary "judgments whose inputs moved; unevidenced bars; promotable drafts"}
+  {:verb "resolve" :form "north resolve <ref>" :topic :work
+   :summary "canonical thread id for a ref (id, slug, or substring)"}
+  {:verb "clock" :form "north clock in <owner>|out" :topic :work
+   :summary "open/close the one human client billing session"
+   :details ["north clock audit — commits-vs-clock coverage drift"
+             "north clock start|stop — legacy thread-session aliases"]
+   :card {:section :work :form "north clock in <owner>|out"
+          :text "the client billing session"}}
+  {:verb "evidence" :form "north evidence record \"<bar>\" \"<result>\"" :topic :work
+   :summary "bind done-bar evidence to this exact managed run"
+   :details ["--thread <id> — no reservation in env: record unreserved thread evidence"]}
+  {:verb "bars" :form "north bars list|prune <thread>" :topic :work
+   :summary "groom a thread's done_when set; prune retires evidenced bars"}
+  {:verb "worktrees" :form "north worktrees [repo] [--json]" :topic :work
+   :summary "every repo's wt-* trees: drift, dirt, age, owning lane/concern"}
+  {:verb "worktree" :form "north worktree lander [repo]" :topic :work
+   :summary "landing reconciliation: harvest lane refs already merged to main"}
+  {:verb "linear" :form "north linear get|import|plan|sync" :topic :work
+   :summary "mechanical Linear bridge (sync is plan-only unless --apply)"}
+  {:verb "merge" :form "north merge <from> <to>" :topic :work :dispatch :fram
+   :summary "fold one node into another; refs follow (trusted writer)"}
+
+  ;; -------------------------------------------------------------- agents
+  {:verb "delegate" :form "north delegate \"<task>\"" :topic :agents
+   :summary "hand work to a new lane; intake classifies atomic vs composite"
+   :details ["--role <worker> — atomic: exactly one selected worker"
+             "--composite — 2+ independent pieces: hydrates an orchestrator"
+             "--thread <id> — bind an existing thread"
+             "in chat, /delegate does this with session context riding along"]
+   :card {:section :agents :form "north delegate \"<task>\""
+          :text "hand work to a new lane"}}
+  {:verb "agents" :form "north agents [--json]" :topic :agents
+   :summary "live agents now + the stable machine roster"
+   :card {:section :agents :form "north agents"
+          :text "who's live now"}}
+  {:verb "spawn" :form "north spawn <role> \"<prompt>\"" :topic :agents
+   :summary "compose a worker from Orchestration's staffing catalog"
+   :details ["--provider auto|anthropic|openai — select or auto-route the provider"
+             "--taskGrade/--domain — independently override stock staffing axes"
+             "--topology — bespoke compositions only; stock topology is fixed"
+             "--tier/--reasoning/--posture — capability, deliberation, posture"
+             "--assessment JSON|@file — selection sidecar (required for max)"
+             "--pin-evidence JSON|@file — typed reason + <=24h expiry for exact pins"
+             "--rationale \"why\" — required for a bespoke role"
+             "in-harness agents dispatch via MCP: mcp__north__dispatch / spawn"]}
+  {:verb "templates" :form "north templates" :topic :agents
+   :summary "Orchestration's reusable stock templates and routing defaults"}
+  {:verb "watch" :form "north watch <id>" :topic :agents
+   :summary "tail an agent's transcript"
+   :card {:section :agents :form "north watch <id>"
+          :text "tail one agent's transcript"}}
+  {:verb "steer" :form "north steer <id> \"<msg>\"" :topic :agents
+   :summary "inject a message into a running agent"
+   :card {:section :agents :form "north steer <id> \"<msg>\""
+          :text "nudge it mid-flight"}}
+  {:verb "retask" :form "north retask <id> \"<goal>\"" :topic :agents
+   :summary "redirect a running agent's goal"}
+  {:verb "trace" :form "north trace <id>" :topic :agents
+   :summary "diagnose one agent's lifecycle; flags the first failing stage"}
+  {:verb "wip" :form "north wip [--check]" :topic :agents
+   :summary "live managed lanes vs floor (--check: exit 3 on shortfall)"}
+  {:verb "escalate" :form "north escalate needs-replan …" :topic :agents
+   :summary "checkpoint scope overrun; route it up the live parent chain"
+   :details ["--summary/--checkpoint/--seam/--propose — the structured payload"]}
+  {:verb "listen" :form "north listen <agent-id>" :topic :agents
+   :summary "arm the real-time interrupt listener (background task; dormant)"}
+  {:verb "request" :form "north request|fork|req" :topic :agents
+   :aliases ["fork" "req"] :status :legacy
+   :summary "legacy spawn aliases"}
+  {:verb "delivery" :form "north delivery attest <agent-id>" :topic :agents
+   :status :unavailable
+   :summary "unavailable until verifier lanes have OS isolation"}
+
+  ;; --------------------------------------------------------------- comms
+  {:verb "inbox" :form "north inbox [--all] [--mark-read]" :topic :comms
+   :aliases ["notifications"]
+   :summary "durable notifications waiting on you; acknowledge them"
+   :details ["--as <principal> — inspect another principal's inbox"]
+   :card {:section :now :rank 3 :form "north inbox"
+          :text "notifications waiting on you"}}
+  {:verb "mention" :form "north mention <recipient> \"<body>\"" :topic :comms
+   :summary "durable sender-driven request; offline recipient allowed"
+   :details ["--about <thread> — attach the request to a thread"]}
+  {:verb "interrupt" :form "north interrupt <recipient> \"<body>\"" :topic :comms
+   :summary "urgent sender-driven request; live recipient required"}
+  {:verb "follow" :form "north follow <thread> [--as <principal>]" :topic :comms
+   :summary "subscribe to observer-driven thread attention"}
+  {:verb "unfollow" :form "north unfollow <thread>" :topic :comms
+   :summary "drop a thread subscription"}
+  {:verb "following" :form "north following" :topic :comms
+   :summary "what you're subscribed to"}
+
+  ;; ------------------------------------------------------------- routing
+  {:verb "config" :form "north config" :topic :routing
+   :summary "every posture setting + routing policy, one report"
+   :details ["north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced"
+             "north config guards on|off — value-aware kill-switch for authoring guards"
+             "north config routing — provider order, pressure, reserves, envelopes"]
+   :card {:section :system :form "north config"
+          :text "posture: dispatch surface, guards, routing"}}
+  {:verb "providers" :form "north providers [--json]" :topic :routing
+   :summary "provider readiness and the auto-route decision"}
+  {:verb "account" :form "north account <sub>" :topic :routing
+   :summary "isolated provider subscription accounts"
+   :details ["add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts"]}
+  {:verb "failover" :form "north failover check|fire" :topic :routing
+   :summary "classify active rungs; compose/launch a provider-recovery lead"
+   :details ["fire --thread ID --brief PATH [--dry-run] — only fire may launch"]}
+  {:verb "spend" :form "north spend status|init|override" :topic :routing
+   :summary "API-billing budget: cap, reserved, settled, headroom"}
+  {:verb "routing" :form "north routing report <which>" :topic :routing
+   :summary "managed-run evidence, joined to exact lane terminals"
+   :details ["performance [--all] — current managed evidence (--all: legacy history)"
+             "usage — provider work usage (never dollars / API credits)"
+             "economics — bounded routing-cost signals + alert-only findings"
+             "promotions — bespoke patterns for stock-template review"
+             "calibration — run-local judgment/struggle detector cohorts"]}
+  {:verb "canary" :form "north canary run|report" :topic :routing
+   :summary "production-path managed-lane reliability probe"}
+  {:verb "ccr" :form "north ccr prepare|retrieve" :topic :routing
+   :summary "default-off structured-output CCR canary"}
+  {:verb "dials" :form "north dials" :topic :routing :status :legacy
+   :summary "compatibility bridge to the evidence-aware routing report"}
+  {:verb "handoff" :form "north handoff" :topic :routing :status :legacy
+   :summary "renamed — use north failover"}
+  {:verb "provider-observe" :form "north provider-observe" :topic :routing
+   :status :internal
+   :summary "machine-ingestion surface for provider telemetry"}
+
+  ;; --------------------------------------------------------------- store
+  {:verb "schema" :form "north schema" :topic :store
+   :summary "vocabulary census: subjects/facts by kind + predicate metadata"}
+  {:verb "predicate" :form "north predicate ls|show|define" :topic :store
+   :summary "inspect or extend executable predicate entities"}
+  {:verb "schema-seed" :form "north schema-seed [--execute]" :topic :store
+   :summary "derive predicate-metadata facts (--dry-run is the default)"}
+  {:verb "validate" :form "north validate" :topic :store
+   :summary "full integrity check: engine rules + north work rules"}
+  {:verb "audit" :form "north audit" :topic :store
+   :summary "corpus-health report"}
+  {:verb "history" :form "north history <id>" :topic :store
+   :summary "a subject's full fact history from the log"}
+  {:verb "json" :form "north json <view>" :topic :store
+   :summary "machine-readable projections (plate, ready, show, clock-report, …)"}
+  {:verb "tools" :form "north tools" :topic :store
+   :summary "the curated MCP tool surface + the fram engine core"}
+  {:verb "heal" :form "north heal [--adopt] [--resurrect]" :topic :store
+   :summary "reconcile threads/ files with the log; fails closed on hand edits"}
+  {:verb "boot" :form "north boot" :topic :store
+   :summary "session orientation: safety verdict, hygiene, the entry-point note"}
+  {:verb "import" :form "north import" :topic :store :dispatch :fram
+   :summary "fold threads/ file edits into the log (trusted writer)"}
+  {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :fram
+   :summary "regenerate threads/ from the log — never during concurrent work"}
+  {:verb "set" :form "north set …" :topic :store :dispatch :fram :status :legacy
+   :summary "direct log append — trusted single-writer/offline only"}
+  {:verb "snapshot" :form "north snapshot create|verify|restore-plan" :topic :store
+   :summary "immutable dual-log checkpoint and restore planning"}
+  {:verb "schema-migrate" :form "north schema-migrate plan|audit" :topic :store
+   :summary "deterministic schema cutover; plan/audit stay read-only"}
+  {:verb "corpus-transaction" :form "north corpus-transaction check-boundaries" :topic :store
+   :summary "verify split-log append safety before maintenance"}
+
+  ;; ----------------------------------------------------------------- ops
+  {:verb "dashboard" :form "north dashboard" :topic :ops
+   :summary "the cockpit: agents, concerns, board, daemons, health, profile"
+   :card {:section :now :rank 1 :form "north dashboard"
+          :text "agents, concerns, board, health — one screen"}}
+  {:verb "doctor" :form "north doctor" :topic :ops
+   :summary "is everything healthy: fact server, daemons, rev skew, env, hooks"
+   :card {:section :system :form "north doctor"
+          :text "is everything healthy: daemons, skew, hooks"}}
+  {:verb "health" :form "north health" :topic :ops
+   :summary "coordination rollup: lanes ran/died, stale concerns, zombies"}
+  {:verb "hotspots" :form "north hotspots" :topic :ops
+   :summary "where time goes and what fails, ranked from live telemetry"}
+  {:verb "deployed" :form "north deployed" :topic :ops
+   :summary "committed vs built vs live, per component"}
+  {:verb "coord-doctor" :form "north coord-doctor" :topic :ops
+   :summary "fact-server safety handshake: writes safe? daemon matches log?"}
+  {:verb "coord-ready" :form "north coord-ready" :topic :ops
+   :summary "cheap exact runtime identity for every active writer"}
+  {:verb "coord-safety" :form "north coord-safety" :topic :ops
+   :summary "runtime identity + strict log-fence round trip"}
+  {:verb "up" :form "north up [--restart|--stop]" :topic :ops
+   :summary "start/revive the fact-server daemon(s) on the canonical logs"}
+  {:verb "reactor" :form "north reactor [port] [debounce-ms]" :topic :ops
+   :summary "auto-export sidecar: re-projects touched threads (background)"}
+  {:verb "stream-sync" :form "north stream-sync" :topic :ops
+   :summary "cursor-based transcript log-shipping"}
+  {:verb "rebuild" :form "north rebuild request --why \"…\"" :topic :ops
+   :summary "queue a system-rebuild ask; returns at once, never builds"
+   :details ["--urgent \"<why>\" — counted, never refused"]}
+  {:verb "rebuild-intent" :form "north rebuild-intent start …" :topic :ops
+   :summary "coordinate a held/batched firn rebuild window"}
+  {:verb "panic" :form "north panic" :topic :ops :dispatch :pre-case
+   :summary "minimal recovery path; works with bb/fram/coordinator down"}
+  {:verb "help" :form "north help [<topic>|--all]" :topic :ops
+   :summary "the card; a topic page; or the complete reference"}]}

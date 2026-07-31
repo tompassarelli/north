@@ -1,0 +1,24 @@
+north help routing — providers, accounts, dispatch posture
+
+  north config                      every posture setting + routing policy, one report
+                                    north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced
+                                    north config guards on|off — value-aware kill-switch for authoring guards
+                                    north config routing — provider order, pressure, reserves, envelopes
+  north providers [--json]          provider readiness and the auto-route decision
+  north account <sub>               isolated provider subscription accounts
+                                    add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts
+  north failover check|fire         classify active rungs; compose/launch a provider-recovery lead
+                                    fire --thread ID --brief PATH [--dry-run] — only fire may launch
+  north spend status|init|override  API-billing budget: cap, reserved, settled, headroom
+  north routing report <which>      managed-run evidence, joined to exact lane terminals
+                                    performance [--all] — current managed evidence (--all: legacy history)
+                                    usage — provider work usage (never dollars / API credits)
+                                    economics — bounded routing-cost signals + alert-only findings
+                                    promotions — bespoke patterns for stock-template review
+                                    calibration — run-local judgment/struggle detector cohorts
+  north canary run|report           production-path managed-lane reliability probe
+  north ccr prepare|retrieve        default-off structured-output CCR canary
+  north dials                       legacy — compatibility bridge to the evidence-aware routing report
+  north handoff                     legacy — renamed — use north failover
+
+  north help --all — the complete reference · bare `north` — the daily card
