@@ -1094,7 +1094,7 @@
       :else (println (str "    " (grn "[ok]  ") " FRAM_LOG=" fl))))
   ;; guard hooks present
   (println (bold "  guard hooks"))
-  (let [hookdir (str NIXCFG "/dotfiles/claude/hooks")
+  (let [hookdir (str HOME "/.agents/hooks")
         settings (str HOME "/.claude/settings.json")
         stxt (when (.exists (io/file settings)) (slurp settings))]
     (doseq [h ["agent-spawn-guard.sh" "tripwire-guard.sh" "north-clock-guard.sh"]]
