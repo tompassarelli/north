@@ -545,7 +545,12 @@ EOF
             # This diagnostic compares committed/built/running code, so it must
             # inspect the switched system rather than its own immutable package.
             # Both exemptions are expression-exact and remain read-only.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)cli/canary-cli\.clj:[0-9]+:[[:space:]]*\(str \(System/getProperty "user\.home"\) "/code/north"\)\)\)\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/north-coord-runtime"\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*sys \(sh "readlink" "-f" "/run/current-system/sw/bin/north"\)\]$'
+            # (4) bin/{north,concern}'s fixed bb fallback. Packaged launchers
+            # receive NORTH_BB from their wrappers; promoted checkout launchers
+            # retain this root-managed entry hint for units with a minimal PATH.
+            # Only the three exact fallback expressions in each wrapped launcher
+            # are exempt.
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)cli/canary-cli\.clj:[0-9]+:[[:space:]]*\(str \(System/getProperty "user\.home"\) "/code/north"\)\)\)\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/north-coord-runtime"\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*sys \(sh "readlink" "-f" "/run/current-system/sw/bin/north"\)\]$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then

@@ -3,8 +3,9 @@
 #
 # The guard rejects any embedded checkout/home/cache path in the packaged
 # output, with narrow audited exceptions: the NixOS runtime entry-hint
-# pointers in sdk/src/trusted-runtime.ts and the two generation-observation
-# pointers in cli/deployed-cli.clj.
+# pointers in sdk/src/trusted-runtime.ts, the two generation-observation
+# pointers in cli/deployed-cli.clj, and the fixed bb fallback expressions in
+# the packaged north/concern launchers.
 # Those are root-managed symlinks that trustedStoreExecutable() still forces to
 # canonicalize into the immutable /nix/store, so they never widen trust; they
 # exist because managed spawns do not always inherit NORTH_GIT_BIN / NORTH_BB.
@@ -114,5 +115,31 @@ mkdir -p "$work/j/cli"
 printf '        sys (sh "readlink" "-f" "/run/current-system/sw/bin/evil")]\n' \
   > "$work/j/cli/deployed-cli.clj"
 expect_flagged "$work/j" "deployed-cli may not observe arbitrary system binaries"
+
+# K: only the packaged north/concern wrappers' exact fixed-bb fallback
+# expressions are exempted. Source launchers retain these entry hints for a
+# promoted checkout; package wrappers set NORTH_BB before they can be reached.
+mkdir -p "$work/k/bin"
+cat > "$work/k/bin/.north-wrapped" <<'EOF'
+elif [ -x /run/current-system/sw/bin/bb ]; then
+  BB="/run/current-system/sw/bin/bb"
+  echo "north: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
+EOF
+cat > "$work/k/bin/.concern-wrapped" <<'EOF'
+elif [ -x /run/current-system/sw/bin/bb ]; then
+  BB="/run/current-system/sw/bin/bb"
+  echo "concern: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
+EOF
+expect_clean "$work/k" "packaged launcher bb fallback expressions are exempted"
+
+# L: neither wrapper receives a blanket exemption for arbitrary uses.
+mkdir -p "$work/l/bin"
+printf 'exec "/run/current-system/sw/bin/bb"\n' > "$work/l/bin/.north-wrapped"
+expect_flagged "$work/l" "north wrapper may not use the bb hint outside its fallback"
+
+# M: the same fallback expression in any other packaged launcher stays fatal.
+mkdir -p "$work/m/bin"
+printf '  BB="/run/current-system/sw/bin/bb"\n' > "$work/m/bin/.other-wrapped"
+expect_flagged "$work/m" "bb fallback exemption does not apply to another launcher"
 
 echo "PASS: purity-guard allowlist is expression- and file-scoped"
