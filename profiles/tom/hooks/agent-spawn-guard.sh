@@ -395,6 +395,12 @@ def unwrap(command, args):
             args = args[1:] if args else []  # duration
         elif name == "stdbuf":
             args = drop_options(args, ("-i", "--input", "-o", "--output", "-e", "--error"))
+        elif name == "systemd-run":
+            args = drop_options(args, (
+                "-M", "--machine", "-p", "--property", "-u", "--unit",
+                "--description", "--gid", "--nice", "--setenv", "--slice",
+                "--uid", "--working-directory",
+            ))
         elif name == "direnv" and args[:1] == ["exec"]:
             args = args[2:]  # `direnv exec DIR COMMAND ...`
         else:

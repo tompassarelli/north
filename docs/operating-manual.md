@@ -796,13 +796,19 @@ that also carry a `title` no longer drown the work graph. Bare `ready` is the to
 **Writes:**
 
 ```sh
-north capture "<title>" [owner]              # mint a new thread (fact-first)
-north tell   <id> <pred> <value>             # add/replace a fact, via the coordinator
-north retract <id> <pred> <value>            # retract a fact, via the coordinator (untell = legacy alias)
-north merge  <from> <to>                     # fold one node into another
-north import                                 # fold file edits into the fact log
+north-author capture "<title>" [owner]       # trusted human/internal thread creation
+north-author tell <id> <pred> <value>        # trusted fact authoring
+north-author retract <id> <pred> <value>     # trusted fact retraction
+north tell <id> <report> <value>             # agent: started/checkpoint/blocked/landed/handoff
 north export <out-dir>                       # regenerate files from the log
 ```
+
+`north-author` is unavailable to a process in `agent.slice`, even when that
+process supplies a correctly shaped same-UID token and file. Agent reports
+share one agent/thread throttle of 600 seconds. The tool hook also rejects
+statically visible `systemd-run` attempts to rehome unrestricted authoring
+outside the slice. This is a governed CLI boundary, not a same-UID security
+claim: a peer can still invoke the loopback Fram protocol directly.
 
 **Coordination / daemon:**
 

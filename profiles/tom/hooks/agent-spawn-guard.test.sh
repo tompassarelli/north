@@ -186,6 +186,16 @@ run deny 'delegate in errexit-shell option cluster' worker Bash 'bash -ec "north
 run deny 'provider turn in trace-shell option cluster' worker Bash 'sh -xc "codex exec work"'
 run deny 'guard mutation in wrapped login shell' worker Bash 'env bash -lc "north config guards off"'
 run deny 'spawn in timeout-wrapped login shell' worker Bash 'timeout 5s bash -lc "north spawn implementer work"'
+run deny 'systemd scope cannot rehome trusted authoring' worker Bash \
+  'systemd-run --user --wait --collect --pipe --slice=session.slice bash -lc "north-author tell thread-1 progress done"'
+run deny 'systemd scope cannot rehome arbitrary tell' worker Bash \
+  'systemd-run --user --scope --slice session.slice north tell thread-1 progress done'
+run deny 'systemd scope cannot rehome capture' worker Bash \
+  'systemd-run --user --scope --slice=session.slice north capture "an idea"'
+run allow 'systemd scope preserves bounded reports' worker Bash \
+  'systemd-run --user --scope --slice=session.slice north tell thread-1 checkpoint report'
+run allow 'systemd scope safe command remains available' worker Bash \
+  'systemd-run --user --scope --slice=agent.slice printf ready'
 run deny 'provider turn in sudo-wrapped shell cluster' worker Bash 'sudo -u tom sh -ec "codex exec work"'
 run deny 'fish long command option' worker Bash 'fish --command "north spawn implementer work"'
 run deny 'fish init command cannot spawn' worker Bash 'fish -C "north spawn implementer work" -c "echo safe"'

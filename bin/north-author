@@ -5,6 +5,24 @@
 set -euo pipefail
 umask 077
 
+process_is_in_agent_slice() {
+  local line path
+  builtin test -r /proc/self/cgroup || return 1
+  while IFS= builtin read -r line || builtin test -n "$line"; do
+    path="${line#*:}"
+    path="${path#*:}"
+    case "/${path#/}/" in
+      */agent.slice/*) return 0 ;;
+    esac
+  done </proc/self/cgroup
+  return 1
+}
+
+if process_is_in_agent_slice; then
+  echo "north-author: REFUSED — unrestricted authoring is unavailable inside agent.slice" >&2
+  exit 1
+fi
+
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 authority_dir="${XDG_RUNTIME_DIR:-/tmp}/north-thread-write-authority"
 mkdir -p "$authority_dir"

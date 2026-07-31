@@ -167,9 +167,27 @@ north_slot_exec() {
 }
 
 # Unrestricted thread authoring is positive authority, never the absence of
-# managed topology. `north-author` issues one parent-bound token file for its
-# exact child process; ordinary and native/no-topology agent shells receive
-# neither half of the capability.
+# managed topology. The kernel-owned cgroup path is checked before the private
+# capability because a same-UID agent can manufacture both token inputs.
+process_is_in_agent_slice() {
+  local cgroup_file="${1:-/proc/self/cgroup}" line path
+  builtin test -r "$cgroup_file" || return 1
+  while IFS= builtin read -r line || builtin test -n "$line"; do
+    path="${line#*:}"
+    path="${path#*:}"
+    case "/${path#/}/" in
+      */agent.slice/*) return 0 ;;
+    esac
+  done <"$cgroup_file"
+  return 1
+}
+
+if process_is_in_agent_slice /proc/self/cgroup; then
+  north_agent_cgroup=1
+else
+  north_agent_cgroup=0
+fi
+
 north_trusted_thread_writer=0
 consume_trusted_thread_write_capability() {
   local supplied_token="${NORTH_THREAD_WRITE_CAPABILITY:-}"
@@ -178,6 +196,7 @@ consume_trusted_thread_write_capability() {
   local capability_parent stored_token extra
 
   unset NORTH_THREAD_WRITE_CAPABILITY NORTH_THREAD_WRITE_CAPABILITY_FILE
+  [ "$north_agent_cgroup" -eq 0 ] || return 0
   [ -n "$supplied_token" ] && [ -n "$capability_file" ] || return 0
   [[ "$supplied_token" =~ ^[0-9a-f]{64}$ ]] || return 0
 
