@@ -219,10 +219,9 @@
 ;; paying the per-process cold fold (read-log EDN parse + fold ≈ 700ms on the
 ;; 11k-line log; the warm fetch + JSON decode ≈ 75ms). The daemon serves the
 ;; view in fold emission order (the :facts wire-op contract (wire name frozen)), so every listing stays
-;; byte-identical to the cold path. [] from coord-live-facts is the capability
-;; handshake — daemon down, an older daemon without the op, or one serving a
-;; DIFFERENT log — and falls back to the cold fold, so every verb works
-;; daemon-less, just slower.
+;; byte-identical to the cold path. A validated coord-live-state is the
+;; completeness witness; nil or an explicitly incomplete composed state falls
+;; back to the cold fold, so every verb works daemon-less, just slower.
 ;; Deliberately NOT warm: doctor/heal/boot (doctor's whole job is checking the
 ;; daemon AGAINST an independent fold of the log — a daemon-served view would
 ;; have it vouch for itself; heal/boot classify through the same probe) and
@@ -261,10 +260,10 @@
           {} ops))
 
 (defn- live-facts [log :- String] :- (Vec k/Fact)
-  (let [warm (fram.rt/coord-live-facts (fram.rt/coord-port) log)]
-    (if (empty? warm)
-      (:facts (fold/fold (read-logs-merged log)))
-      warm)))
+  (let [warm-state (fram.rt/coord-live-state (fram.rt/coord-port) log)]
+    (if (and (some? warm-state) (not (= false (:complete warm-state))))
+      (:facts warm-state)
+      (:facts (fold/fold (read-logs-merged log))))))
 
 (defn- live-idx [log :- String] :- k/Index
   (k/build-index (live-facts log)))
@@ -272,7 +271,7 @@
 ;; :show rows keep the whole-corpus :facts projection's order (coord_daemon.clj
 ;; subject-wire-snapshot) — that contract is what makes a slice render byte-identical.
 ;; [] conflates daemon-down/no-:show/wrong-corpus with an absent subject, so every
-;; caller needs a whole-corpus fallback (the coord-live-facts convention).
+;; caller needs a whole-corpus fallback through the validated live-state path.
 (defn- coord-subject-facts [log :- String te :- String] :- (Vec k/Fact)
   (let [rows :- (Vec (Vec String))
         (try
