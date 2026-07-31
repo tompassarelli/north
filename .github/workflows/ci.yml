@@ -93,6 +93,10 @@ jobs:
         working-directory: fram
         run: clojure -P
 
+      # package-purity-check-test mirrors the in-sandbox guard, which scans with rg.
+      - name: Install ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+
       - name: Lock and packaged-helper boundaries
         working-directory: north
         run: |

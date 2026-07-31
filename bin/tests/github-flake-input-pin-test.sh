@@ -67,13 +67,12 @@ for invalid_root in missing follows-array missing-node unsafe-input; do
   [[ -s "$TMP/invalid-root.err" ]]
 done
 
-# Only inputs this flake declares at the root: beagle became transitive
-# (fram/beagle) when north stopped taking it directly.
-for input in fram; do
-  current_repository="$("$PIN" "$ROOT/flake.lock" "$input" repository)"
-  current_revision="$("$PIN" "$ROOT/flake.lock" "$input" revision)"
-  [[ "$current_repository" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked | .owner + "/" + .repo' "$ROOT/flake.lock")" ]]
-  [[ "$current_revision" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked.rev' "$ROOT/flake.lock")" ]]
-done
+# fram is the only repository this flake still takes as a root input; beagle
+# became transitive (fram/beagle) when north stopped declaring it directly.
+input=fram
+current_repository="$("$PIN" "$ROOT/flake.lock" "$input" repository)"
+current_revision="$("$PIN" "$ROOT/flake.lock" "$input" revision)"
+[[ "$current_repository" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked | .owner + "/" + .repo' "$ROOT/flake.lock")" ]]
+[[ "$current_revision" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked.rev' "$ROOT/flake.lock")" ]]
 
 echo "github flake input pin tests: PASS"
