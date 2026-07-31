@@ -321,16 +321,18 @@ prepare_agent_report_write() {
     *) return 0 ;;
   esac
 
-  local runtime_dir key now previous age wait
+  local runtime_dir key now previous age wait report_actor
   runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/north-agent-reports"
   umask 077
   mkdir -p "$runtime_dir" || {
     echo "north: report REFUSED — cannot open the agent report rate-limit state" >&2
     return 1
   }
+  # Native Codex sessions may expose only CODEX_THREAD_ID as stable writer identity.
+  report_actor="${AGENT_ID:-${NORTH_AGENT_ID:-${CODEX_THREAD_ID:-${NORTH_AUTHOR:-${AGENT_TOPOLOGY:-}}}}}"
   key="$(
     printf '%s\0%s' \
-      "${AGENT_ID:-${NORTH_AGENT_ID:-${NORTH_AUTHOR:-${AGENT_TOPOLOGY}}}}" \
+      "$report_actor" \
       "${2#@}" | sha256sum
   )"
   key="${key%% *}"
