@@ -50,7 +50,7 @@ export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
 # this compatibility set only until a verified two-corpus snapshot, canonical
 # schema-migrate execution, strict audit, and restart proof have all landed; its
 # removal is deliberately sequenced after that live-data cutover.
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade started blocked landed handoff}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -166,91 +166,9 @@ north_slot_exec() {
   exec "${NORTH_MAIN[@]}" "$@"
 }
 
-# Unrestricted thread authoring is positive authority, never the absence of
-# managed topology. The kernel-owned cgroup path is checked before the private
-# capability because a same-UID agent can manufacture both token inputs.
-process_is_in_agent_slice() {
-  local cgroup_file="${1:-/proc/self/cgroup}" line path
-  builtin test -r "$cgroup_file" || return 1
-  while IFS= builtin read -r line || builtin test -n "$line"; do
-    path="${line#*:}"
-    path="${path#*:}"
-    case "/${path#/}/" in
-      */agent.slice/*) return 0 ;;
-    esac
-  done <"$cgroup_file"
-  return 1
-}
-
-if process_is_in_agent_slice /proc/self/cgroup; then
-  north_agent_cgroup=1
-else
-  north_agent_cgroup=0
-fi
-
-north_trusted_thread_writer=0
-consume_trusted_thread_write_capability() {
-  local supplied_token="${NORTH_THREAD_WRITE_CAPABILITY:-}"
-  local capability_file="${NORTH_THREAD_WRITE_CAPABILITY_FILE:-}"
-  local authority_dir resolved_dir resolved_file owner mode
-  local capability_parent stored_token extra
-
-  unset NORTH_THREAD_WRITE_CAPABILITY NORTH_THREAD_WRITE_CAPABILITY_FILE
-  [ "$north_agent_cgroup" -eq 0 ] || return 0
-  [ -n "$supplied_token" ] && [ -n "$capability_file" ] || return 0
-  [[ "$supplied_token" =~ ^[0-9a-f]{64}$ ]] || return 0
-
-  authority_dir="${XDG_RUNTIME_DIR:-/tmp}/north-thread-write-authority"
-  resolved_dir="$(readlink -f -- "$authority_dir" 2>/dev/null)" || return 0
-  resolved_file="$(readlink -f -- "$capability_file" 2>/dev/null)" || return 0
-  case "$resolved_file" in "$resolved_dir"/*) ;; *) return 0 ;; esac
-  [ ! -L "$capability_file" ] && [ -f "$capability_file" ] || return 0
-  owner="$(stat -c %u -- "$capability_file" 2>/dev/null)" || return 0
-  mode="$(stat -c %a -- "$capability_file" 2>/dev/null)" || return 0
-  [ "$owner" = "$(id -u)" ] && [ "$mode" = 600 ] || return 0
-  IFS=' ' read -r capability_parent stored_token extra <"$capability_file" || return 0
-  [ -z "${extra:-}" ] || return 0
-  [ "$capability_parent" = "$PPID" ] || return 0
-  [ "$stored_token" = "$supplied_token" ] || return 0
-  north_trusted_thread_writer=1
-}
-
-consume_trusted_thread_write_capability
-
-# Agent thread reports are a bounded delivery protocol, not a general graph
-# editor. Evidence retains its separate capability-bound writer. Missing,
-# malformed, stale, or forged authority all select this bounded path.
-guard_agent_thread_write() {
-  [ "$north_trusted_thread_writer" -eq 0 ] || return 0
-  case "${1:-}" in
-    capture)
-      echo "north: capture REFUSED — unrestricted thread-write authority is absent; return the request to the user" >&2
-      return 1
-      ;;
-    tell)
-      if [ "$#" -ne 4 ]; then
-        echo "north: tell REFUSED — agent reports require exactly: <thread> <started|checkpoint|blocked|landed|handoff> <value>" >&2
-        return 1
-      fi
-      case "${3:-}" in
-        started|checkpoint|blocked|landed|handoff) return 0 ;;
-        *)
-          echo "north: tell REFUSED — agent sessions may report only started, checkpoint, blocked, landed, or handoff" >&2
-          return 1
-          ;;
-      esac
-      ;;
-    retract|untell|set|merge|import)
-      echo "north: $1 REFUSED — unrestricted thread-write authority is absent" >&2
-      return 1
-      ;;
-  esac
-}
-
-guard_agent_thread_write "$@" || exit 1
-
-# judgment_grade is dispatcher/orchestrator-owned calibration input, never an
-# agent delivery report. New values pass the one canonical parser;
+# judgment_grade is dispatcher/orchestrator-owned calibration input. Ordinary
+# worker thread writes remain available, but managed workers cannot tell,
+# retract, or cold-set this predicate. New values pass the one canonical parser;
 # malformed legacy values can still be retracted by an ambient human/orchestrator.
 # `set` is included because the generic engine passthrough would otherwise bypass
 # the coordinated tell policy (and remains discouraged under concurrency).
@@ -279,8 +197,8 @@ guard_judgment_grade_write() {
 
 guard_judgment_grade_write "$@" || exit 1
 
-# Agent identity/lifecycle is harness evidence, not agent-authored data:
-# generic fact verbs may not mutate
+# A worker still needs ordinary THREAD fact writes. Agent identity/lifecycle is
+# harness evidence, not agent-authored data: generic fact verbs may not mutate
 # any agent subject (self or peer). Trusted harness writes use a subprocess-only
 # private writer not routed by this CLI; peer control remains an orchestrator
 # operation. This is an application boundary, not same-UID hostile-code isolation.
@@ -312,70 +230,6 @@ deny_generic_run_mutation() {
 }
 
 deny_generic_run_mutation "$@" || exit 1
-
-prepare_agent_report_write() {
-  [ "$north_trusted_thread_writer" -eq 0 ] || return 0
-  [ "${1:-}" = tell ] || return 0
-  case "${3:-}" in
-    started|checkpoint|blocked|landed|handoff) ;;
-    *) return 0 ;;
-  esac
-
-  local runtime_dir key now previous age wait report_actor
-  runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/north-agent-reports"
-  umask 077
-  mkdir -p "$runtime_dir" || {
-    echo "north: report REFUSED — cannot open the agent report rate-limit state" >&2
-    return 1
-  }
-  # Native Codex sessions may expose only CODEX_THREAD_ID as stable writer identity.
-  report_actor="${AGENT_ID:-${NORTH_AGENT_ID:-${CODEX_THREAD_ID:-${NORTH_AUTHOR:-${AGENT_TOPOLOGY:-}}}}}"
-  key="$(
-    printf '%s\0%s' \
-      "$report_actor" \
-      "${2#@}" | sha256sum
-  )"
-  key="${key%% *}"
-  north_agent_report_marker="$runtime_dir/$key"
-  exec {north_agent_report_lock_fd}>>"$runtime_dir/$key.lock" || {
-    echo "north: report REFUSED — cannot lock the agent report rate limit" >&2
-    return 1
-  }
-  flock -w 5 "$north_agent_report_lock_fd" || {
-    echo "north: report REFUSED — agent report rate-limit lock is busy" >&2
-    return 1
-  }
-  now="$(date +%s)"
-  if [ -e "$north_agent_report_marker" ]; then
-    previous="$(stat -c %Y "$north_agent_report_marker" 2>/dev/null || printf '%s' "$now")"
-    age=$((now - previous))
-    if [ "$age" -lt 600 ]; then
-      wait=$((600 - age))
-      echo "north: report REFUSED — agent reports are rate-limited to one per agent/thread every 600s (retry in about ${wait}s)" >&2
-      return 1
-    fi
-  fi
-}
-
-exec_agent_report_write() {
-  if [ -z "${north_agent_report_marker:-}" ]; then
-    exec "$@"
-  fi
-  "$@"
-  local status=$?
-  if [ "$status" -eq 0 ]; then
-    record_agent_report_success || return $?
-  fi
-  return "$status"
-}
-
-record_agent_report_success() {
-  [ -n "${north_agent_report_marker:-}" ] || return 0
-  touch "$north_agent_report_marker" || {
-    echo "north: report committed but rate-limit state could not be recorded" >&2
-    return 74
-  }
-}
 
 # Cheap deployment-readiness boundary. Runtime identity comes from the selected
 # coordinator generation and the live listener process; unlike coord-doctor,
@@ -722,7 +576,6 @@ case "${1:-}" in
         *)      set -- "$1" "${canon#@}" "${@:3}" ;;
       esac
     fi
-    prepare_agent_report_write "$@" || exit 1
     framverb="$1"; [ "$framverb" = retract ] && framverb=untell
     # Done-bars echo (friction gradient): closing a barred thread SEES its bars
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
@@ -740,11 +593,10 @@ case "${1:-}" in
     case "${2#@}" in
       run:*|session:*|mine:*|guard_denial:*)
         if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-          exec_agent_report_write env -u FRAM_TELEMETRY_LOG \
+          exec env -u FRAM_TELEMETRY_LOG \
             FRAM_PORT="$NORTH_TELEMETRY_PORT" \
             FRAM_LOG="$FRAM_TELEMETRY_LOG" \
             "$FRAM_BIN/fram" "$framverb" "${@:2}"
-          exit $?
         fi ;;
     esac
     if [ "${north_exact_subject:-0}" = 1 ]; then
@@ -754,7 +606,6 @@ case "${1:-}" in
       existing_status=$?
       case "$existing_status" in
         0)
-          record_agent_report_success || exit $?
           printf '%s\n' "$existing_output"
           exit 0
           ;;
@@ -772,8 +623,7 @@ case "${1:-}" in
           ;;
       esac
     fi
-    exec_agent_report_write "$FRAM_BIN/fram" "$framverb" "${@:2}"
-    exit $? ;;
+    exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
   *)  # engine verbs: import/export/set/merge/watch
     exec "$FRAM_BIN/fram" "$@" ;;
 esac

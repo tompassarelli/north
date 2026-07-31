@@ -202,7 +202,6 @@
             ./contracts/agent-run-ledger-v1.json
             ./profiles/tom/hooks/lib/harness-dial.sh
             ./bin/north
-            ./bin/north-author
             ./bin/north-comms
             ./bin/north-mcp
             ./bin/north-actor-key
@@ -433,7 +432,7 @@ EOF
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
-            cp bin/north bin/north-author bin/north-comms bin/north-mcp bin/north-actor-key \
+            cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
               bin/north-on-tooluse bin/north-clock-audit bin/north-coord-sd-listen \
               bin/north-coord-up bin/firn-rebuild-coordinated \
@@ -635,7 +634,6 @@ EOF
               HOME="$smoke/home" PATH= \
               $out/bin/north help > "$smoke/help.out"
             grep -q 'north — your one card' "$smoke/help.out"
-            test -x "$out/bin/north-author"
             test -x "$out/bin/firn-rebuild-coordinated"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NORTH_DASHBOARD_LIB=1 \

@@ -54,9 +54,6 @@ run() {
   if [[ "$tool" =~ ^(Bash|shell|exec_command)$ ]]; then
     input="$(jq -nc --arg t "$tool" --arg c "$payload" --arg d "$REPO" \
       '{tool_name:$t,tool_input:{command:$c},cwd:$d}')"
-  elif [[ "$tool" == mcp__north__* ]]; then
-    input="$(jq -nc --arg t "$tool" --argjson i "$payload" \
-      '{tool_name:$t,tool_input:$i}')"
   else
     input="$(jq -nc --arg t "$tool" --arg p "$payload" \
       '{tool_name:$t,tool_input:{subagent_type:"general-purpose",prompt:$p}}')"
@@ -186,16 +183,6 @@ run deny 'delegate in errexit-shell option cluster' worker Bash 'bash -ec "north
 run deny 'provider turn in trace-shell option cluster' worker Bash 'sh -xc "codex exec work"'
 run deny 'guard mutation in wrapped login shell' worker Bash 'env bash -lc "north config guards off"'
 run deny 'spawn in timeout-wrapped login shell' worker Bash 'timeout 5s bash -lc "north spawn implementer work"'
-run deny 'systemd scope cannot rehome trusted authoring' worker Bash \
-  'systemd-run --user --wait --collect --pipe --slice=session.slice bash -lc "north-author tell thread-1 progress done"'
-run deny 'systemd scope cannot rehome arbitrary tell' worker Bash \
-  'systemd-run --user --scope --slice session.slice north tell thread-1 progress done'
-run deny 'systemd scope cannot rehome capture' worker Bash \
-  'systemd-run --user --scope --slice=session.slice north capture "an idea"'
-run allow 'systemd scope preserves bounded reports' worker Bash \
-  'systemd-run --user --scope --slice=session.slice north tell thread-1 checkpoint report'
-run allow 'systemd scope safe command remains available' worker Bash \
-  'systemd-run --user --scope --slice=agent.slice printf ready'
 run deny 'provider turn in sudo-wrapped shell cluster' worker Bash 'sudo -u tom sh -ec "codex exec work"'
 run deny 'fish long command option' worker Bash 'fish --command "north spawn implementer work"'
 run deny 'fish init command cannot spawn' worker Bash 'fish -C "north spawn implementer work" -c "echo safe"'
@@ -243,40 +230,17 @@ run allow 'rg pattern mention is prose' worker Bash "rg -n 'codex exec|claude -p
 run allow 'Python test literal is an argument' worker Bash 'python3 -c '\''assert "north spawn" == "north spawn"'\'''
 run allow 'test script path does not reveal its contents' worker Bash 'bash ./agent-spawn-guard.test.sh'
 run allow 'North show remains available' worker Bash 'north show thread-1'
-run deny 'arbitrary North tell is unavailable' worker Bash 'north tell thread-1 progress done'
-run deny 'North capture is unavailable' worker Bash 'north capture "an idea"'
-run deny 'command-local topology unset cannot expose capture' worker Bash 'env -u AGENT_TOPOLOGY north capture "an idea"'
-run deny 'nested shell cannot expose arbitrary tells' worker Bash 'bash -lc "north tell thread-1 outcome done"'
-for predicate in started checkpoint blocked landed handoff; do
-  run allow "North $predicate report remains available" worker Bash \
-    "north tell thread-1 $predicate report"
-done
-run deny 'North retract is unavailable' worker Bash 'north retract thread-1 checkpoint report'
-run deny 'MCP capture is unavailable' worker mcp__north__capture '{"title":"an idea"}'
-run deny 'arbitrary MCP tell is unavailable' worker mcp__north__tell \
-  '{"id":"thread-1","predicate":"progress","value":"done"}'
-run allow 'allowlisted MCP tell remains available' worker mcp__north__tell \
-  '{"id":"thread-1","predicate":"checkpoint","value":"report"}'
-run deny 'MCP retract is unavailable' worker mcp__north__retract \
-  '{"id":"thread-1","predicate":"checkpoint","value":"report"}'
+run allow 'North tell remains available' worker Bash 'north tell thread-1 progress done'
+run allow 'North capture remains available' worker Bash 'north capture "an idea"'
 run allow 'North clock remains available' worker Bash 'north clock status'
 run allow 'North status/help diagnostics remain available' worker Bash 'north agents && north providers && north --help'
 
 echo '== topology boundary and dispatch-mode independence =='
-run deny 'orchestrator cannot create threads' orchestrator Bash 'north capture "an idea"'
-run deny 'orchestrator cannot write arbitrary facts' orchestrator Bash 'north tell thread-1 outcome done'
-run allow 'orchestrator can report handoff' orchestrator Bash 'north tell thread-1 handoff report'
 run allow 'orchestrator may create North lane' orchestrator Bash 'north spawn implementer work'
 run allow 'orchestrator may run provider agent' orchestrator Bash 'codex exec work'
 run allow 'orchestrator may open provider session' orchestrator Bash 'claude'
 run allow 'native/unmanaged session has no topology restriction' unset Bash 'north delegate work'
 run allow 'native/unmanaged session may open provider session' unset Bash 'codex'
-run deny 'native/no-topology session cannot capture' unset Bash 'north capture "an idea"'
-run deny 'native/no-topology session cannot tell arbitrary facts' unset Bash 'north tell thread-1 progress done'
-run deny 'native/no-topology session cannot invoke trusted author wrapper' unset Bash \
-  'north-author tell thread-1 progress done'
-run allow 'native/no-topology session can report a checkpoint' unset Bash \
-  'north tell thread-1 checkpoint report'
 run allow 'non-Bash tool is not topology shell surface' worker Read 'north spawn implementer work'
 set_state native on
 run deny 'dispatch=native (legacy) does not waive worker topology' worker Bash 'north spawn implementer work'
