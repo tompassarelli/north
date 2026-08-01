@@ -21,6 +21,12 @@ import {
   readOpenAISessionActivity,
   type OpenAISessionActivity,
 } from "./openai-session-activity";
+import {
+  createCliStyle,
+  formatTokens,
+  percentageGauge,
+  type CliStyle,
+} from "./cli-style";
 
 const USAGE = `usage: north account <command>
 
@@ -134,18 +140,14 @@ function activityHours(hours: number): string {
   return Number.isInteger(hours) ? hours.toFixed(0) : String(hours);
 }
 
-async function printUsageReports(
+type UsageActivities = Map<string, OpenAISessionActivity>;
+
+function printPlainUsageReports(
   accounts: ProviderAccount[],
   reports: AccountUsageReport[],
-  hours: number,
-): Promise<void> {
-  const now = new Date();
-  const activities = new Map((await Promise.all(accounts
-    .filter(({ provider }) => provider === "openai")
-    .map(async (account) => [
-      account.id,
-      await readOpenAISessionActivity({ accountRoot: account.root, hours, now }),
-    ] as const))).map((entry) => entry));
+  activities: UsageActivities,
+  now: Date,
+): void {
   let firstGroup = true;
   for (const group of ACCOUNT_GROUPS) {
     const grouped = accounts.filter((account) => account.provider === group.provider);
@@ -182,6 +184,96 @@ async function printUsageReports(
       }
     }
   }
+}
+
+function headroomLabel(style: CliStyle, headroom: string): string {
+  switch (headroom) {
+    case "plenty": return style.ok(headroom);
+    case "normal": return style.accent(headroom);
+    case "low": return style.warn(headroom);
+    case "exhausted": return style.crit(headroom);
+    default: return style.dim(headroom);
+  }
+}
+
+function gaugeLabel(style: CliStyle, usedPercent: number): string {
+  const gauge = percentageGauge(usedPercent);
+  if (usedPercent >= 100) return style.crit(gauge);
+  if (usedPercent >= 80) return style.warn(gauge);
+  if (usedPercent >= 50) return style.accent(gauge);
+  return style.ok(gauge);
+}
+
+function printStyledUsageReports(
+  style: CliStyle,
+  accounts: ProviderAccount[],
+  reports: AccountUsageReport[],
+  activities: UsageActivities,
+  now: Date,
+): void {
+  let firstGroup = true;
+  for (const group of ACCOUNT_GROUPS) {
+    const grouped = accounts.filter((account) => account.provider === group.provider);
+    if (!grouped.length) continue;
+    if (!firstGroup) console.log();
+    firstGroup = false;
+    console.log(style.section(group.label));
+    for (const [accountIndex, account] of grouped.entries()) {
+      if (accountIndex) console.log();
+      const report = reports.find(({ accountId }) => accountId === account.id)!;
+      const headroom = automatedPressure(report.observation, new Date()) ?? "unknown";
+      console.log(`${style.accent(account.id)}  ${headroomLabel(style, headroom)}`);
+      console.log(style.pairs([
+        ["status", `${report.status}${report.cached ? " · cached" : ""}`],
+      ], "  "));
+      if (report.observation.windows?.length) {
+        console.log(style.dim("  windows"));
+        console.log(style.pairs(report.observation.windows.map((window) => [
+          window.limitId ?? "subscription",
+          `${gaugeLabel(style, window.usedPercent)} · resets ${window.resetsAt}`,
+        ]), "    "));
+      }
+      for (const component of report.unavailableComponents)
+        console.log(style.warn(`  component unavailable: ${component.limitId} (${component.reason})`));
+      if (report.reason)
+        console.log(style.crit(`  reason: ${usageReasonLabel(report.reason)} (${report.reason})`));
+      const activity = activities.get(account.id);
+      if (activity) {
+        console.log(style.dim(`  activity · live provider session records · last ${activityHours(activity.hours)}h`));
+        console.log(style.pairs([
+          ["sessions", String(activity.sessions)],
+          ["live now", String(activity.live)],
+          ["output tokens", formatTokens(activity.outputTokens)],
+          ["last activity", activityAge(activity, now)],
+        ], "    "));
+      }
+      const provenance: Array<readonly [string, string]> = [["source", report.source]];
+      if (report.lastSuccessfulObservedAt)
+        provenance.push(["evidence", `${report.lastSuccessfulObservedAt}${report.cached ? " · cached" : ""}`]);
+      if (report.collectionAttemptedAt) provenance.push(["collection tried", report.collectionAttemptedAt]);
+      console.log(style.dim(style.pairs(provenance, "  ")));
+    }
+  }
+}
+
+async function printUsageReports(
+  accounts: ProviderAccount[],
+  reports: AccountUsageReport[],
+  hours: number,
+): Promise<void> {
+  const now = new Date();
+  const activities = new Map((await Promise.all(accounts
+    .filter(({ provider }) => provider === "openai")
+    .map(async (account) => [
+      account.id,
+      await readOpenAISessionActivity({ accountRoot: account.root, hours, now }),
+    ] as const))).map((entry) => entry));
+  const style = createCliStyle();
+  if (!style.enabled) {
+    printPlainUsageReports(accounts, reports, activities, now);
+    return;
+  }
+  printStyledUsageReports(style, accounts, reports, activities, now);
 }
 
 function availabilityPct(pct: number): string {

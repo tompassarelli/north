@@ -116,8 +116,10 @@ process.exit(loggedIn ? 0 : 1);
     CLAUDE_PRIVATE_CREDENTIAL: "must-not-propagate",
     CODEX_PRIVATE_CREDENTIAL: "must-not-propagate",
   };
-  const run = (...args: string[]) => spawnSync("bun", ["run", cli, ...args], { env, encoding: "utf8" });
-  return { home, policy, run };
+  const runWithEnv = (extraEnv: NodeJS.ProcessEnv, ...args: string[]) =>
+    spawnSync("bun", ["run", cli, ...args], { env: { ...env, ...extraEnv }, encoding: "utf8" });
+  const run = (...args: string[]) => runWithEnv({}, ...args);
+  return { home, policy, run, runWithEnv };
 }
 
 test("add preserves routing fields, isolates roots, and links only allowlisted config", () => {
@@ -447,7 +449,7 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account usage groups cached per-account windows with source and reset metadata", () => {
-  const { home, run } = fixture();
+  const { home, run, runWithEnv } = fixture();
   expect(run("add", "claude-gmail", "anthropic").status).toBe(0);
   expect(run("add", "codex-proton", "openai").status).toBe(0);
   const observedAt = new Date().toISOString();
@@ -491,6 +493,44 @@ test("account usage groups cached per-account windows with source and reset meta
   const oneHour = run("usage", "codex-proton", "--hours", "1");
   expect(oneHour.status).toBe(0);
   expect(oneHour.stdout).toContain("activity: read live from provider session records (last 1h)");
+
+  const styled = runWithEnv({ FORCE_COLOR: "1" }, "usage");
+  expect(styled.status).toBe(0);
+  expect(styled.stdout).toContain("\u001b[");
+  const visible = styled.stdout.replace(/\u001b\[[0-9;]*m/g, "");
+  expect(visible).toContain("Claude / Anthropic\nclaude-gmail  plenty");
+  expect(visible).toContain("claude:seven_day: ▓▓▓▓░░░░░░ 40% · resets");
+  expect(visible).toContain("Codex / OpenAI\ncodex-proton  normal");
+  expect(visible).toContain("codex:primary: ▓▓▓▓▓▓░░░░ 55% · resets");
+  expect(visible).toContain("activity · live provider session records · last 24h");
+  expect(visible).toContain("output tokens: 1.23K");
+  expect(visible).toContain("source:   codex-app-server:account-rate-limits");
+  expect(visible).toContain(`evidence: ${observedAt} · cached`);
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
+test("account usage keeps piped and NO_COLOR output byte-identical to the legacy renderer", () => {
+  const { home, run, runWithEnv } = fixture();
+  expect(run("add", "claude-plain", "anthropic").status).toBe(0);
+  const observedAt = new Date().toISOString();
+  const resetsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  mkdirSync(join(home, ".local/state/north"), { recursive: true });
+  writeFileSync(join(home, ".local/state/north/provider-usage-observations.json"), `${JSON.stringify({
+    version: 1,
+    observations: [{
+      targetId: "claude-plain", provider: "anthropic", observedAt,
+      source: "claude-agent-sdk:usage-control-experimental",
+      windows: [{ limitId: "claude:seven_day", usedPercent: 40, resetsAt }],
+    }],
+  })}\n`);
+
+  const piped = run("usage");
+  const noColor = runWithEnv({ NO_COLOR: "1" }, "usage");
+  expect(piped.status).toBe(0);
+  expect(noColor.status).toBe(0);
+  expect(noColor.stdout).toBe(piped.stdout);
+  expect(piped.stdout).not.toContain("\u001b[");
+  expect(noColor.stdout).not.toContain("\u001b[");
+  expect(piped.stdout).toContain("Claude / Anthropic\n  claude-plain\n    headroom: plenty (observed, cached)");
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account usage keeps proven exhaustion visible while a failed refresh is negatively cached", () => {
