@@ -32,6 +32,22 @@
                    (or existing {}) facts)))
   {:ok (count facts) :written (mapv first facts) :idempotent [] :batch true})
 
+(let [request (atom nil)
+      facts
+      (with-redefs [north.coord/show-envelope
+                    (fn [port subject]
+                      (reset! request [port subject])
+                      {:version 7
+                       :rows [["kind" "run"]
+                              ["run_task" "indexed read"]
+                              ["run_task" "second value"]]})]
+        (north.lane-run/facts-of 7977 "@run:fixture"))]
+  (check! "exact run reads use the indexed show envelope"
+          (and (= [7977 "@run:fixture"] @request)
+               (= {"kind" #{"run"}
+                   "run_task" #{"indexed read" "second value"}}
+                  facts))))
+
 (with-redefs [north.lane-run/facts-of (fn [_port subject] (get @store subject {}))
               north.lane-run/estimates-of
               (fn [_port run]
