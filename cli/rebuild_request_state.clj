@@ -3,15 +3,9 @@
 
 (def protocol-version "north:rebuild-request:v1")
 
-;; One hour: long enough that a burst of agent asks coalesces into a single
-;; disruption, short enough that a queued request is never more than one working
-;; interruption away from landing. Overridable as `north config rebuild-window`.
+;; One hour is the default reporting horizon for rebuild telemetry. It is not
+;; an admission interval; an idle owner fires every nonempty queue immediately.
 (def default-window-seconds 3600)
-
-;; The window owner opens at most ONE coordinated rebuild per window, so a
-;; second is already an out-of-band firing; three inside one window means the
-;; queue is being bypassed or something is rebuilding in a loop.
-(def default-rebuilds-per-window-threshold 2)
 
 ;; A rebuild reason is one line of provenance, not an essay; the composed intent
 ;; why must stay readable in a broadcast.
@@ -80,15 +74,10 @@
          (when (pos? extra) (str "; +" extra " more")))))
 
 (defn window-plan
-  "What the window owner should do this sweep. Pure: `now-ms`, `last-window-ms`
-   (the last window that actually fired, or nil), `window-ms`, the decoded
-   `requests`, and whether the rebuild-coordination flip is on.
-
-   Cause order matters. Coordination-off is reported ahead of the window bound
-   because it is the dominant reason nothing fires, and an empty queue is idle
-   whatever the clock says. A window is consumed only by a firing, so a parked
-   queue never silently burns its own window."
-  [{:keys [now-ms last-window-ms window-ms requests coordination-on?]}]
+  "What the window owner should do this sweep. Pure over the decoded `requests`
+   and rebuild-coordination flip. Legacy callers may still supply clock/window
+   fields, but those values are telemetry and never affect admission."
+  [{:keys [requests coordination-on?]}]
   (let [open (open-requests requests)
         base {:open open :count (count open)}]
     (cond
@@ -99,32 +88,24 @@
       (assoc base :action :queued
              :reason :rebuild-coordination-off)
 
-      (and (not-any? :urgent open)
-           last-window-ms
-           (< (- now-ms last-window-ms) window-ms))
-      (assoc base :action :waiting
-             :reason :window-not-due
-             :next-due-ms (+ last-window-ms window-ms))
-
       :else
       (assoc base :action :fire
              :why (compose-why open)
              :requesters (requesters open)))))
 
 (defn rebuild-gauge
-  "Coordinated rebuilds observed inside the trailing window. `rebuild-times-ms`
-   are intent creation times; a rebuild fired while coordination is off leaves no
-   intent and is therefore invisible here — the renderer says so."
-  ([rebuild-times-ms now-ms window-ms]
-   (rebuild-gauge rebuild-times-ms now-ms window-ms default-rebuilds-per-window-threshold))
-  ([rebuild-times-ms now-ms window-ms threshold]
-   (let [n (count (filter #(and (some? %) (>= % (- now-ms window-ms)) (<= % now-ms))
-                          rebuild-times-ms))]
-     {:count n :threshold threshold :breached? (> n threshold)})))
+  "Coordinated rebuilds observed inside the trailing reporting horizon.
+   `rebuild-times-ms` are intent creation times; a rebuild fired while
+   coordination is off leaves no intent and is therefore invisible here."
+  [rebuild-times-ms now-ms window-ms]
+  {:count (count (filter #(and (some? %)
+                               (>= % (- now-ms window-ms))
+                               (<= % now-ms))
+                        rebuild-times-ms))})
 
 (defn urgent-rate
-  "Share of requests inside `period-ms` that bypassed the window with --urgent.
-   --urgent is never refused, so visibility is its only guard."
+  "Share of requests inside `period-ms` carrying urgent provenance. Urgency is
+   observable but does not change queue eligibility."
   [requests now-ms period-ms]
   (let [recent (filter #(>= (:created-at-ms %) (- now-ms period-ms)) requests)
         total (count recent)

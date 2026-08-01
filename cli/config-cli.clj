@@ -1561,19 +1561,19 @@
     :else
     (die "usage: north config rebuild-coordination [on|off]")))
 
-;; The reactor's window owner coalesces every open rebuild request into ONE
-;; coordinated rebuild per window, so this value is the estate's rebuild rate cap.
+;; This horizon bounds activation-health telemetry only. Admission is immediate
+;; whenever the serialized rebuild owner is idle.
 (defn cmd-rebuild-window [[sub]]
   (cond
     (nil? sub)
     (let [r (get' "rebuild-window" "3600s")]
       (println (str "rebuild-window = " r
-                    "   (default 3600s; north config rebuild-window <n>[s|m|h])")))
+                    "   (reporting horizon only; admission is immediate)")))
     (re-matches #"(?i)[1-9][0-9]*(s|m|h)?" (str sub))
     (do
       (put' "rebuild-window" sub)
       (println (str "rebuild-window → " sub
-                    "   (at most one coordinated rebuild per window)")))
+                    "   (reporting horizon only; admission is immediate)")))
     :else
     (die "usage: north config rebuild-window [<n>[s|m|h]]")))
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
 ;; Fixture time only — a window test that slept would be a flake generator.
-(require '[clojure.java.io :as io]
+(require '[babashka.process :as proc]
+         '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root (-> (or (System/getProperty "babashka.file") *file*)
@@ -39,7 +40,7 @@
                         overrides)))
 
 ;; ---- collection ------------------------------------------------------------
-(check "an empty queue is idle even with the window wide open"
+(check "an empty queue is idle regardless of legacy clock telemetry"
        (= :idle (:action (plan {:requests []}))))
 
 (check "satisfied requests are not re-collected"
@@ -59,28 +60,24 @@
                  (str/index-of (:why p) "guard change"))
               (str/includes? (:why p) "[urgent]"))))
 
-;; ---- the window bound ------------------------------------------------------
-(check "a window that fired 30m ago holds the next collection"
-       (let [p (plan {:last-window-ms (- now (* 30 60 1000))
-                      :requests [(first two-asks)]})]
-         (and (= :waiting (:action p))
-              (= :window-not-due (:reason p))
-              (= (+ (- now (* 30 60 1000)) hour) (:next-due-ms p)))))
-
-(check "an urgent request bypasses an active coalescing window"
+;; ---- immediate admission ---------------------------------------------------
+(check "a plain request fires even when the previous window fired 1ms ago"
        (= :fire
           (:action
-           (plan {:last-window-ms (- now (* 30 60 1000))
-                  :requests [(request {:id "urgent" :requester "agent-a"
-                                       :why "runtime stabilization" :at now
-                                       :urgent true})]}))))
+           (plan {:last-window-ms (dec now)
+                  :requests [(first two-asks)]}))))
 
-(check "a window that fired exactly one window ago is due again"
-       (= :fire (:action (plan {:last-window-ms (- now hour)}))))
-
-(check "a shorter configured window releases the same queue sooner"
-       (= :fire (:action (plan {:last-window-ms (- now (* 30 60 1000))
-                                :window-ms (* 15 60 1000)}))))
+(check "urgent provenance does not change queue eligibility"
+       (let [plain (request {:id "plain" :requester "agent-a"
+                             :why "runtime stabilization" :at now})
+             urgent (request {:id "urgent" :requester "agent-a"
+                              :why "runtime stabilization" :at now
+                              :urgent true})]
+         (= [:fire :fire]
+            (mapv (fn [queued]
+                    (:action (plan {:last-window-ms (dec now)
+                                    :requests [queued]})))
+                  [plain urgent]))))
 
 ;; ---- the flip --------------------------------------------------------------
 (check "coordination off queues and reports, never fires"
@@ -94,13 +91,13 @@
        ;; finds the queue intact rather than pre-burned.
        (= :queued (:action (plan {:coordination-on? false :last-window-ms nil}))))
 
-(check "only a fired window consumes the coalescing interval"
+(check "the legacy last-fired timestamp remains readable telemetry"
        (with-redefs
          [north.rebuild-request/queue-snapshot!
           (fn [_] {:snapshot {:last-fired-ms (- now 4000)}})]
          (= (- now 4000) (rq/last-fired-window-ms 7977))))
 
-(check "a queue with no fired window is immediately retryable"
+(check "a queue with no historical firing reports no timestamp"
        (with-redefs
          [north.rebuild-request/queue-snapshot!
           (fn [_] {:snapshot {:last-fired-ms nil}})]
@@ -278,14 +275,19 @@
                                       (- now (* 50 60 1000))
                                       (- now (* 3 hour))]
                                      now hour))))
-(check "the gauge is not breached at the threshold, only past it"
-       (let [at (q/rebuild-gauge [(- now 1) (- now 2)] now hour 2)
-             past (q/rebuild-gauge [(- now 1) (- now 2) (- now 3)] now hour 2)]
-         (and (false? (:breached? at)) (true? (:breached? past)))))
-(check "the default threshold is 2 per window"
-       (= 2 q/default-rebuilds-per-window-threshold))
-(check "the default window is one hour"
+(check "the default reporting horizon is one hour"
        (= 3600 q/default-window-seconds))
+
+(let [result @(proc/process ["env" (str "NORTH_HOME=" root)
+                             "bb" (str root "/cli/config-cli.clj")
+                             "rebuild-window"]
+                            {:out :string :err :string})
+      output (str (:out result) (:err result))]
+  (check "rebuild-window config describes observation, never hourly admission"
+         (and (zero? (:exit result))
+              (str/includes? output "reporting horizon only; admission is immediate")
+              (not (str/includes? output "rate cap"))
+              (not (str/includes? output "at most one coordinated rebuild per window")))))
 
 (check "the urgent rate covers only the reporting period"
        (let [r (q/urgent-rate [(request {:id "a" :requester "a" :why "w"

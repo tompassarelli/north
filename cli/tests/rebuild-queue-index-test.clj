@@ -211,14 +211,13 @@
                   (empty? (:requests (queue-state)))
                   (pos? (get-in plan [:queue-read :relevant-events])))))
 
-    (commit-record! (legacy-request-record legacy-b "wait after fired" (- fixed-now 500)))
+    (commit-record! (legacy-request-record legacy-b "fire after prior window" (- fixed-now 500)))
     (commit-record! {:op "assert"
                      :l "@rebuild-window:1999999999999-abcd0001"
                      :p "window_action" :r "fired"})
     (let [plan (rq/plan-window 7977)]
-      (check "a legacy fired-window tail preserves the coalescing timestamp"
-             (and (= :waiting (:action plan))
-                  (= :window-not-due (:reason plan))
+      (check "a legacy fired-window tail remains telemetry and does not block admission"
+             (and (= :fire (:action plan))
                   (= 1999999999999 (:last-fired-ms (queue-state)))
                   (= 2 (get-in plan [:queue-read :relevant-events])))))
 
@@ -245,7 +244,12 @@
       (let [ids (set (map :id (:requests (queue-state))))]
         (check "settlement racing admission preserves the new id exactly once"
                (and (not (contains? ids settled-id))
-                    (= 1 (count (filter #{(:id admitted)} ids)))))))
+                    (= 1 (count (filter #{(:id admitted)} ids))))))
+      (let [plan (rq/plan-window 7977)]
+        (check "an arrival retained through settlement is immediately follow-up eligible"
+               (and (= :fire (:action plan))
+                    (= 1 (count (filter #{(:id admitted)}
+                                        (map :id (:open plan)))))))))
 
     (let [left "2000000000101-bbbb0101"
           right "2000000000102-cccc0102"
