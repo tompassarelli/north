@@ -40,4 +40,3 @@ test("a failed assignment recorder aborts before provider selection or query", a
   expect(events).toEqual(["assignment"]);
   expect(providerCalls).toBe(0);
 });
-
