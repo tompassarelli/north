@@ -86,7 +86,7 @@ const MAX_DISABLED_PROJECT_CONFIG_DEPTH = 16;
 const MAX_DISABLED_PROJECT_CONFIG_NODES = 2_048;
 const MAX_SAFETY_BUFFERING_VALUES = 64;
 const MAX_SAFETY_BUFFERING_VALUE_BYTES = 4_096;
-const MANAGED_CODEX_VERSION = "0.144.4";
+export const MANAGED_CODEX_VERSION = "0.146.0";
 // The supervisor status channel now carries forwarded provider stderr, so its
 // reader is widened DELIBERATELY: one base64 diagnostic line (512 raw bytes)
 // plus the receipt prefix fits in 2 KiB, and the supervisor's own lifetime
@@ -122,10 +122,10 @@ const CODEX_SHELL_PREFLIGHT_COMMAND = Object.freeze([
   "bash", "--noprofile", "--norc", "-c", NORTH_BINARY_PROBE_SCRIPT,
 ]);
 
-// This is the complete non-removed feature registry in Codex 0.144.4.  The
-// initialize version attestation below makes a newly-added default fail closed
-// until this manifest is reviewed.  Only the execution primitives and North's
-// managed hooks remain enabled.
+// These classifications cover every non-removed feature in Codex 0.146.0.
+// Removed names may remain explicitly false while Codex still recognizes them.
+// The version attestation makes a new default fail closed until reviewed; only
+// the execution primitives and North's managed hooks remain enabled.
 export const MANAGED_CODEX_ENABLED_FEATURES = [
   "hooks",
   "shell_tool",
@@ -142,6 +142,7 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
   "browser_use_full_cdp_access",
   "chronicle",
   "code_mode",
+  "code_mode_buffered_exec",
   "code_mode_host",
   "code_mode_only",
   "computer_use",
@@ -149,17 +150,23 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
   "current_time_reminder",
   "default_mode_request_user_input",
   "deferred_executor",
+  "deferred_tool_world_state",
   "enable_request_compression",
   "enable_fanout",
   "enable_mcp_apps",
   "exec_permission_approvals",
+  "executor_capability_discovery",
+  "external_agent_memory_import",
   "fast_mode",
   "goals",
   "guardian_approval",
+  "guardianv2",
   "image_generation",
   "in_app_browser",
+  "in_app_updates",
   "item_ids",
   "local_thread_store_compression",
+  "mcp_2026_07_28",
   "memories",
   "mentions_v2",
   "multi_agent",
@@ -180,6 +187,7 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
   "shell_snapshot",
   "shell_zsh_fork",
   "skill_mcp_dependency_install",
+  "skill_search",
   "standalone_web_search",
   "terminal_visualization_instructions",
   "token_budget",
@@ -1007,7 +1015,16 @@ class AppServerRpc {
         });
         return;
       }
-      try { onlyKeys(message, ["method", "params"], "managed Codex notification"); }
+      try {
+        onlyKeys(message, ["method", "params",
+          ...(Object.hasOwn(message, "emittedAtMs") ? ["emittedAtMs"] : []),
+        ], "managed Codex notification");
+        if ("emittedAtMs" in message
+            && (typeof message.emittedAtMs !== "number"
+              || !Number.isSafeInteger(message.emittedAtMs)
+              || message.emittedAtMs < 0))
+          throw new Error("managed Codex notification emittedAtMs is invalid");
+      }
       catch (error) { this.fail(error as Error); return; }
       if (!SAFE_NOTIFICATIONS.has(message.method)) {
         // NARROWED TERMINAL (2026-07-26): an unrecognized NOTIFICATION carries no
