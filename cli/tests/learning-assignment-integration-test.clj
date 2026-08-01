@@ -5,7 +5,8 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram/main"))
+(def fram (or (System/getenv "FRAM_PATH")
+              (str (System/getProperty "user.home") "/code/fram/main")))
 (def assignment-writer (str root "/cli/learning-assignment-internal.clj"))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (load-file (str root "/cli/coord.clj"))
@@ -21,7 +22,7 @@
 (defn eventually [predicate]
   (loop [attempt 0]
     (cond (predicate) true
-          (>= attempt 200) false
+          (>= attempt 600) false
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
 (defn shell [log & args]
   (apply proc/shell {:out :string :err :string :continue true
@@ -82,9 +83,9 @@
                 {:dir fram :out :string :err :string
                  :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
                              "FRAM_LOG" log
-                             "FRAM_TELEMETRY_LOG" (.getPath (io/file temp "telemetry.log"))
                              "FRAM_THREADS" (.getPath (io/file temp "threads"))}}
-                "bb" "-cp" "out" "coord_daemon.clj"
+                "env" "-u" "FRAM_TELEMETRY_LOG"
+                "clojure" "-M" "coord_daemon.clj"
                 "serve-flat" (str port) log))
       run "@run:learning-assignment-fixture"
       omitted-run "@run:learning-assignment-omitted"

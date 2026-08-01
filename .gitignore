@@ -25,6 +25,7 @@ erl_crash.dump
 # Keep out of the public repo. Put private notes under docs/private/.
 docs/private/
 streams/raw/
+/REPORT.md
 
 # Graph-native code-authoring cache, corpus, and local coordinator state.
 .fram/
