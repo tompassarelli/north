@@ -1,9 +1,13 @@
 # Agent protocol — driving agents via north
 
 The live dispatch mode decides the spawn surface — read `north config dispatch`
-at task intake (the constitution's pre-edit gate defines the four modes).
-Whatever the mode, North remains the coordination substrate: threads, concerns,
-mail, and presence stay authoritative even when execution runs on the
+at task intake. `native` pins the provider-native surface, `north` pins the
+North-managed surface, and `auto` lets the system choose for each dispatch.
+Under `auto`, the orthogonal `north config learning` axis selects deterministic
+known-best assignment (`frozen`) or bounded experimental assignment
+(`learning`); account allocation policy remains routing detail, not a dispatch
+mode. Whatever the mode, North remains the coordination substrate: threads,
+concerns, mail, and presence stay authoritative even when execution runs on the
 provider-native surface. Enforcement is mechanical (`agent-spawn-guard.sh`
 reads the same config); a denial is a routing instruction, never a wall.
 Quick lookups → bash/grep/read inline. Real work → the protocol below.

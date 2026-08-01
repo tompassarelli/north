@@ -810,8 +810,8 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
     }, "dispatch id must be a safe North thread id (bare or single @ prefix)"],
     ["spawn", {}, "spawn prompt must be a non-empty string"],
     ["spawn", { prompt: "" }, "spawn prompt must be a non-empty string"],
-    ["spawn", { prompt: "probe" }, "managed spawn requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
-    ["dispatch", { id: "019f6c5e-61d0-7880-98a0-f8999eac7b03" }, "managed dispatch requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
+    ["spawn", { prompt: "probe" }, "North spawn requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
+    ["dispatch", { id: "019f6c5e-61d0-7880-98a0-f8999eac7b03" }, "North dispatch requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), model: 42 }, "model must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), coordinator: { raw: "value" } }, "coordinator must be a non-empty string"],
   ] as const) {

@@ -21,6 +21,14 @@ responsibility, deliverable, capability/authority boundary, done criteria, or
 report shape requires a bespoke composition. Machine payloads retain v2
 `kind:"preset"` and `nearestPreset` keys for compatibility.
 
+Dispatch-surface selection belongs to the harness, not the Orchestration
+request. `native` pins the provider-native surface, `north` pins the
+North-managed surface, and `auto` chooses a surface for each dispatch. Under
+`auto`, the orthogonal learning axis selects deterministic known-best assignment
+when `frozen` and bounded experimental assignment when `learning`. Account
+allocation strategies are routing detail within `auto`, never peer dispatch
+modes.
+
 <!-- orchestration:full-only -->
 ORTHOGONAL AXES — never smuggle one decision inside another:
 - FUNCTION/ROLE names the responsibility and deliverable: executor,

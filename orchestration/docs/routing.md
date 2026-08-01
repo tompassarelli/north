@@ -16,6 +16,14 @@ layers sit above that choice, and keeping them apart is the whole contract:
   pressure, fallback — is owned entirely by the harness. Orchestration never names an
   account or a model and does not define allocation's schema.
 
+Dispatch-surface selection is likewise harness-owned and has exactly three
+operator values: `native` pins the provider-native surface, `north` pins the
+North-managed surface, and `auto` chooses a surface for each dispatch. Under
+`auto`, the orthogonal learning axis uses deterministic known-best assignment
+when `frozen` and bounded experimental assignment when `learning`. Account
+allocation strategies such as `balanced`, `preferential`, and `reserved` remain
+routing detail within `auto`; they are never peer dispatch modes.
+
 ## Planner inputs (upstream — they derive the request, they are not it)
 
 These inform how the routing axes are chosen. Feeding one as a request field

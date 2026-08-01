@@ -71,6 +71,12 @@
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
 (defn- die [& xs] (apply eprintln xs) (System/exit 1))
 
+(defn- read-dispatch-selection []
+  (let [selection (north.harness-state/dispatch-selection home)]
+    (when-let [note (north.dispatch-mode/migration-note (:raw selection))]
+      (eprintln note))
+    selection))
+
 ;; --- state accessors (key=value lines; last wins) --------------------------
 (defn get' [k default]
   (north.harness-state/get-value home k default))
@@ -1289,7 +1295,7 @@
     (str executable "/" (count hooks) " executable")))
 
 (defn status []
-  (let [d  (north.harness-state/get-dispatch-mode home)
+  (let [d  (:canonical (read-dispatch-selection))
         c  (get' "coord" "north")
         comms-native (comms-resolution "native")
         comms-managed (comms-resolution "managed")
@@ -1297,7 +1303,7 @@
         ]
     (println (banner))
     (println (str "
- 1  DISPATCH   type × enforcement — who runs agents, how strictly  [guard: " (wired "agent-spawn-guard") "]
+ 1  DISPATCH   execution surface selection                 [guard: " (wired "agent-spawn-guard") "]
 " (dispatch-status-lines d) "
     flip → north config dispatch " (north.dispatch-mode/usage) "
 
@@ -1359,13 +1365,17 @@
 (defn help []
   (println (str "north config — every personal-stack posture setting, one entry point.
 
- 1 DISPATCH — TYPE (native vs managed, who executes) × ENFORCEMENT
-   (forced vs biased, how strictly) = four modes.
+ 1 DISPATCH — execution surface selection.
 " (dispatch-help-lines) "
-   Legacy values native/warn/north are still accepted and map to the
-   canonical name above (printed as a one-line note on use).
-   Advice: stay on managed-forced. Drop to managed-biased only when the
-   daemon is down.
+   Legacy values native-forced/native-biased/managed-biased/managed-forced
+   remain readable and map to native/auto/auto/north with a one-line
+   migration note; only canonical values are persisted.
+   Auto is governed by the orthogonal `north config learning` axis: frozen
+   uses deterministic known-best assignment; learning permits bounded
+   experimental assignment. Account allocation is a routing detail, not a
+   dispatch mode.
+   Advice: north pins North; native pins the provider surface; auto delegates
+   the choice to the system.
 
  2 COORD — source of truth for work coordination.
    north / linear / both (Linear as consolidation layer over north).
@@ -1493,35 +1503,33 @@
     (= sub "--canonical")
     (if (seq extra)
       (die "usage: north config dispatch --canonical")
-      (println (north.harness-state/get-dispatch-mode home)))
+      (println (:canonical (read-dispatch-selection))))
 
     (= sub "--guard-action")
     (if (seq extra)
       (die "usage: north config dispatch --guard-action")
       (println
        (north.dispatch-mode/guard-action
-        (north.harness-state/get-dispatch-mode home))))
+        (:canonical (read-dispatch-selection)))))
 
     (= sub "--managed-admission")
     (if (seq extra)
       (die "usage: north config dispatch --managed-admission")
       (println
        (north.dispatch-mode/managed-admission
-        (north.harness-state/get-dispatch-mode home))))
+        (:canonical (read-dispatch-selection)))))
 
     (north.dispatch-mode/recognized? sub)
     (let [canon (north.dispatch-mode/normalize sub)
           legacy? (north.dispatch-mode/legacy-alias? sub)
           summary (:summary (north.dispatch-mode/spec canon))]
       (put' "dispatch" canon)
-      (println
-       (if legacy?
-         (str "dispatch → " canon " (legacy alias '" sub
-              "' accepted; canonical name is '" canon "')")
-         (str "dispatch → " canon " (" summary ")"))))
+      (when legacy?
+        (eprintln (north.dispatch-mode/migration-note sub)))
+      (println (str "dispatch → " canon " (" summary ")")))
 
     (nil? sub)
-    (let [d (north.harness-state/get-dispatch-mode home)]
+    (let [d (:canonical (read-dispatch-selection))]
       (println (str "dispatch = " d "\n" (north.dispatch-mode/grid)
                     "\n   (north config dispatch " (north.dispatch-mode/usage) ")")))
 

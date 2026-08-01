@@ -56,33 +56,33 @@ afterAll(() => {
 });
 
 describe("managed dispatch authority", () => {
-  test("managed modes allow managed admission", () => {
-    expect(() => admitManagedDispatchAuthority(environment("managed-forced"))).not.toThrow();
-    expect(() => admitManagedDispatchAuthority(environment("managed-biased"))).not.toThrow();
+  test("north and auto allow North-managed admission", () => {
+    expect(() => admitManagedDispatchAuthority(environment("north"))).not.toThrow();
+    expect(() => admitManagedDispatchAuthority(environment("auto"))).not.toThrow();
   });
 
-  test("native-biased allows with an explicit warning", () => {
+  test("native denies North-managed admission", () => {
+    expect(() => admitManagedDispatchAuthority(environment("native")))
+      .toThrow("managed_dispatch_denied_by_native");
+  });
+
+  test("legacy stored values use their canonical authority decisions", () => {
     const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
+      expect(() => admitManagedDispatchAuthority(environment("managed-forced"))).not.toThrow();
       expect(() => admitManagedDispatchAuthority(environment("native-biased"))).not.toThrow();
-      expect(warning).toHaveBeenCalledWith(
-        "[dispatch] native-biased permits managed execution, but provider-native execution is preferred",
-      );
+      expect(() => admitManagedDispatchAuthority(environment("managed-biased"))).not.toThrow();
+      expect(() => admitManagedDispatchAuthority(environment("native-forced")))
+        .toThrow("managed_dispatch_denied_by_native");
+      expect(warning.mock.calls).toEqual([
+        ["dispatch migration: legacy 'managed-forced' → 'north'"],
+        ["dispatch migration: legacy 'native-biased' → 'auto'"],
+        ["dispatch migration: legacy 'managed-biased' → 'auto'"],
+        ["dispatch migration: legacy 'native-forced' → 'native'"],
+      ]);
     } finally {
       warning.mockRestore();
     }
-  });
-
-  test("native-forced denies managed admission", () => {
-    expect(() => admitManagedDispatchAuthority(environment("native-forced")))
-      .toThrow("managed_dispatch_denied_by_native_forced");
-  });
-
-  test("legacy aliases use the canonical authority decisions", () => {
-    expect(() => admitManagedDispatchAuthority(environment("north"))).not.toThrow();
-    expect(() => admitManagedDispatchAuthority(environment("warn"))).not.toThrow();
-    expect(() => admitManagedDispatchAuthority(environment("native")))
-      .toThrow("managed_dispatch_denied_by_native_forced");
   });
 
   test("unknown persisted values fail closed with the parser diagnostic", () => {
@@ -90,8 +90,8 @@ describe("managed dispatch authority", () => {
       .toThrow(/managed_dispatch_authority_unavailable: invalid dispatch mode "surprise"/);
   });
 
-  test("spawn and dispatch reject native-forced before request or provider admission", async () => {
-    writeMode("native-forced");
+  test("spawn and dispatch reject native before request or provider admission", async () => {
+    writeMode("native");
     await expect(spawn({} as any))
       .rejects.toBeInstanceOf(ManagedDispatchAuthorityError);
     await expect(dispatch("not-a-thread", {} as any))

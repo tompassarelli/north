@@ -230,17 +230,12 @@ export function admitManagedDispatchAuthority(
       result.error ? { cause: result.error } : undefined,
     );
   }
+  if (stderr) console.warn(stderr);
   const action = result.stdout.trim();
   if (action === "allow") return;
-  if (action === "warn-native") {
-    console.warn(
-      "[dispatch] native-biased permits managed execution, but provider-native execution is preferred",
-    );
-    return;
-  }
   if (action === "deny") {
     throw new ManagedDispatchAuthorityError(
-      "managed_dispatch_denied_by_native_forced",
+      "managed_dispatch_denied_by_native",
     );
   }
   throw new ManagedDispatchAuthorityError(

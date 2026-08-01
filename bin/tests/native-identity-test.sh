@@ -20,7 +20,7 @@ BB_LOG="$TMP/bb.log"
 REPO_DIR="$TMP/project"
 mkdir -p "$FAKE_HOME/code/north/bin" "$SHIM" "$XDG" "$REPO_DIR"
 mkdir -p "$FAKE_HOME/.local/state/north"
-printf 'dispatch=native-forced\n' >"$FAKE_HOME/.local/state/north/harness.conf"
+printf 'dispatch=native\n' >"$FAKE_HOME/.local/state/north/harness.conf"
 : > "$LOG"
 : > "$BB_LOG"
 
@@ -99,13 +99,27 @@ run_hook "$SPAWN" \
   CLAUDECODE=1 AGENT_MODEL=wrong-model CLAUDE_EFFORT=high AGENT_EFFORT=low
 has "records exact SessionStart model" "tell agent:$ID model claude-opus-4-8"
 has "records exact structured effort" "tell agent:$ID effort xhigh"
-has "records canonical native-forced dispatch mode at session start" \
-  "tell agent:$ID dispatch_mode_at_start native-forced"
+has "records canonical native dispatch mode at session start" \
+  "tell agent:$ID dispatch_mode_at_start native"
 lacks "does not degrade a canonical dispatch mode to unknown" \
   "tell agent:$ID dispatch_mode_at_start unknown"
 has "records the privacy-bounded provider session join key" \
   "tell agent:$ID provider_session_key $ID_KEY"
 lacks "does not record ambient model over exact input" "tell agent:$ID model wrong-model"
+
+echo "== legacy dispatch mode is normalized before identity publication =="
+LEGACY_SID="22223333-4444-4555-8666-777788889999"
+LEGACY_ID="native-$(key_of session "$LEGACY_SID")"
+printf 'dispatch=native-forced\n' >"$FAKE_HOME/.local/state/north/harness.conf"
+: > "$LOG"
+run_hook "$SPAWN" \
+  "{\"session_id\":\"$LEGACY_SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"claude-opus-4-8\"}" \
+  CLAUDECODE=1
+has "normalizes legacy native-forced identity evidence to native" \
+  "tell agent:$LEGACY_ID dispatch_mode_at_start native"
+lacks "does not publish the legacy dispatch token" \
+  "tell agent:$LEGACY_ID dispatch_mode_at_start native-forced"
+printf 'dispatch=native\n' >"$FAKE_HOME/.local/state/north/harness.conf"
 
 echo "== Codex SessionStart records exact provider/model and honest effort absence =="
 : > "$LOG"

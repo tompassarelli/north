@@ -4,24 +4,22 @@
 # Fires on subagent tool calls too, so nested native spawns are covered.
 #
 # Dispatch vocabulary, state selection, defaults, and legacy aliases are owned
-# by `north config dispatch --guard-action`. This hook consumes only its stable
-# action contract:
-#   deny             -> DENY native Agent/Task/Workflow; hand back the North recipe
-#   remind-managed   -> allow, inject a reminder toward managed dispatch
-#   remind-native    -> allow, inject a reminder toward native dispatch
-#   allow            -> allow silently
+# by `north config dispatch`. This hook consumes only its stable machine
+# contracts:
+#   --guard-action       deny|allow provider-native Agent/Task/Workflow
+#   --managed-admission  deny|allow North lane creation (legacy flag name)
 #
 # A separate topology invariant applies to Bash regardless of dispatch mode:
 #   AGENT_TOPOLOGY=worker -> DENY direct North/provider agent work + peer control
-#   orchestrator/unset    -> allow (native sessions have no managed topology)
+#   orchestrator/unset    -> no topology denial (surface admission still applies)
 # This is a static command-position policy guard, not a shell security boundary:
 # runtime-built commands (variables, functions, eval-generated text) are outside
 # what a PreToolUse string inspection can resolve. Provider tool exposure remains
 # the independent capability boundary.
 #
-# State:       read only through `${NORTH_HOME}/bin/north config dispatch
-#              --guard-action`; flip via `north config dispatch <mode>`
-# Escape:      `north config dispatch native-forced`. Agent topology is coordination
+# State:       read only through `${NORTH_HOME}/bin/north config dispatch` machine
+#              probes; flip via `north config dispatch <mode>`
+# Escape:      `north config dispatch native`. Agent topology is coordination
 #              policy, not an authoring guard, so the general guards=off switch
 #              and its session aliases do not disable this hook.
 # ============================================================================
@@ -64,14 +62,28 @@ if ! DISPATCH_ACTION="$("$NORTH_HOME/bin/north" config dispatch --guard-action)"
   exit 2
 fi
 case "$DISPATCH_ACTION" in
-  deny|remind-managed|remind-native|allow) ;;
+  deny|allow) ;;
   *)
     printf 'agent-spawn-guard: invalid north dispatch action: %s\n' \
       "$DISPATCH_ACTION" >&2
     exit 2
     ;;
 esac
+if ! NORTH_ADMISSION="$("$NORTH_HOME/bin/north" config dispatch --managed-admission)"; then
+  printf 'agent-spawn-guard: North dispatch admission lookup failed via %s\n' \
+    "$NORTH_HOME/bin/north" >&2
+  exit 2
+fi
+case "$NORTH_ADMISSION" in
+  deny|allow) ;;
+  *)
+    printf 'agent-spawn-guard: invalid North dispatch admission: %s\n' \
+      "$NORTH_ADMISSION" >&2
+    exit 2
+    ;;
+esac
 export AGENT_SPAWN_GUARD_ACTION="$DISPATCH_ACTION"
+export AGENT_SPAWN_GUARD_NORTH_ADMISSION="$NORTH_ADMISSION"
 
 read -r -d '' PY <<'PYEOF' || true
 import sys, json, os, re, shlex
@@ -83,6 +95,7 @@ except Exception:
 
 tool = data.get("tool_name", "")
 action = os.environ.get("AGENT_SPAWN_GUARD_ACTION", "deny")
+north_admission = os.environ.get("AGENT_SPAWN_GUARD_NORTH_ADMISSION", "deny")
 ti = data.get("tool_input", {}) or {}
 
 CONTROL = {";", "&&", "||", "|", "|&", "&", "\n", "(", ")"}
@@ -621,36 +634,81 @@ def is_direct_spawn(command, args, cwd):
             return "sdk/src/" + direct.group(1) + ".ts"
     return None
 
-def forbidden_shell(command, cwd):
+def forbidden_shell_matches(command, cwd):
     if not isinstance(command, str):
-        return None
+        return []
+    matches = []
     for nested in command_substitutions(command):
-        match = forbidden_shell(nested, cwd)
-        if match:
-            return match
+        matches.extend(forbidden_shell_matches(nested, cwd))
     for segment in command_segments(command):
         executable, args = initial_command(segment)
-        if executable:
-            match = is_direct_spawn(executable, args, cwd)
-            if match:
-                return match
-    return None
+        if not executable:
+            continue
+        unwrapped, unwrapped_args = unwrap(executable, args)
+        if unwrapped and basename(unwrapped) in SHELLS:
+            shell_name = basename(unwrapped)
+            for command_string in shell_command_strings(shell_name, unwrapped_args):
+                matches.extend(forbidden_shell_matches(command_string, cwd))
+            shell_args = drop_options(unwrapped_args)
+            if shell_args and basename(shell_args[0]) == "north":
+                match = is_direct_spawn(shell_args[0], shell_args[1:], cwd)
+                if match:
+                    matches.append(match)
+            continue
+        match = is_direct_spawn(executable, args, cwd)
+        if match:
+            matches.append(match)
+    return matches
+
+def forbidden_shell(command, cwd):
+    matches = forbidden_shell_matches(command, cwd)
+    return matches[0] if matches else None
+
+def north_lane_launch(match):
+    if not match:
+        return False
+    return (
+        match in ("mcp__north__spawn", "mcp__north__dispatch")
+        or match in ("north spawn", "north delegate")
+        or match in ("agents-cli.clj spawn", "agents-cli.clj delegate")
+        or match in ("sdk/src/spawn.ts", "sdk/src/dispatch.ts")
+    )
+
+def provider_native_turn(match):
+    return bool(match and match.startswith(("codex ", "claude ")))
 
 if tool in ("Bash", "shell", "exec_command"):
-    if os.environ.get("AGENT_TOPOLOGY", "").strip().lower() != "worker":
-        sys.exit(0)
     command = ti.get("command", "")
-    match = forbidden_shell(command, data.get("cwd", "") or "")
-    if not match:
+    matches = forbidden_shell_matches(command, data.get("cwd", "") or "")
+    if not matches:
         sys.exit(0)
-    reason = (
-        "DENIED by Orchestration worker topology: worker lanes cannot spawn, delegate, "
-        "dispatch, or command agents (matched " + match + "). Return the "
-        "subtask, steering request, or escalation to the orchestrator; only an "
-        "orchestrator owns fan-out and peer control. Emergency bypass is an "
-        "operator/orchestrator action outside this worker; return an escalation "
-        "instead of weakening your own guard."
-    )
+    if os.environ.get("AGENT_TOPOLOGY", "").strip().lower() == "worker":
+        match = matches[0]
+        reason = (
+            "DENIED by Orchestration worker topology: worker lanes cannot spawn, delegate, "
+            "dispatch, or command agents (matched " + match + "). Return the "
+            "subtask, steering request, or escalation to the orchestrator; only an "
+            "orchestrator owns fan-out and peer control. Emergency bypass is an "
+            "operator/orchestrator action outside this worker; return an escalation "
+            "instead of weakening your own guard."
+        )
+    elif north_admission == "deny" and any(north_lane_launch(item) for item in matches):
+        match = next(item for item in matches if north_lane_launch(item))
+        reason = (
+            "DENIED by north config dispatch: native pins the provider-native surface "
+            "and does not admit North lane creation (matched " + match + "). Re-issue "
+            "the same work through the provider-native Agent/Workflow surface; North "
+            "remains available for coordination, records, and observation."
+        )
+    elif action == "deny" and any(provider_native_turn(item) for item in matches):
+        match = next(item for item in matches if provider_native_turn(item))
+        reason = (
+            "DENIED by north config dispatch: north pins the North-managed surface "
+            "and does not admit provider-native agent turns (matched " + match + "). "
+            "Re-issue the same work through north spawn or mcp__north__spawn."
+        )
+    else:
+        sys.exit(0)
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
@@ -735,8 +793,8 @@ if routing:
         "read from canonical orchestration:" + role_key + " metadata — just paste your prompt in:\n"
         "  " + north_call(routing) + "\n"
         "Fan-out? fire one mcp__north__spawn per lane in the same turn. "
-        "Observe: north watch/agents/board. Deliberate bypass: north config dispatch "
-        "native-biased|native-forced."
+        "Observe: north watch/agents/board. Deliberate provider-native pin: "
+        "north config dispatch native."
     )
 else:
     where = subagent or tool
@@ -758,28 +816,11 @@ else:
         "  3. Fan-out: N x mcp__north__spawn in parallel; message workers via "
         "bb ~/code/north/main/cli/msg-cli.clj 7977 send; observe via north watch/agents/board.\n"
         "  Provider resolution and concrete model selection belong to North.\n"
-        "Bypass deliberately: north config dispatch native-biased|native-forced "
-        "(or /north-config)."
+        "Pin provider-native execution deliberately with north config dispatch "
+        "native (or /north-config)."
     )
 
-if action == "remind-native":
-    out = {"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "allow",
-        "additionalContext": (
-            "north config dispatch action = remind-native. "
-            "Provider-native Agent/Workflow dispatch is the configured preference; "
-            "proceed natively. North may coordinate and observe, but must not "
-            "independently launch this worker."
-        ),
-    }}
-elif action == "remind-managed":
-    out = {"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "allow",
-        "additionalContext": "north config dispatch action = " + action + ". " + recipe,
-    }}
-elif action == "deny":
+if action == "deny":
     out = {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",

@@ -838,6 +838,7 @@ north account list        # named account targets and their isolated CLI homes
 north account usage       # per-account subscription windows, resets, fixed failures
 north providers           # auth/headroom + approximate balanced routing shares
 north providers --json    # stable machine status; automation uses this, not prose
+north config dispatch     # native | north | auto dispatch-surface selection
 north config routing      # allocation mode, configured order, reserve, pressure, envelopes
 north config learning     # frozen consistency vs bounded ordinary-operation exploration
 north templates           # Orchestration's reusable stock templates and routing defaults
@@ -883,15 +884,18 @@ waste at the window's mean exact-run token weight (minimum one token), remain a
 separate unknown-coverage line, and prevent a non-failing verdict below 90%
 exact-run coverage.
 
-The **learning regime** is a separate operational axis. `frozen` consistently
-uses the best-known admitted route, prompt, authoring surface, and history
-strategy while retaining full measurement. `learning` permits deterministic,
-risk-bounded exploration during ordinary managed work and changes at most one
-explicitly eligible axis per episode. Assignment is committed before provider
-selection or execution. Discovery observations never become comparison
-evidence; evaluation observations enter cohorts only with exact task identity,
-prompt and environment receipts, a tied run envelope, and observed done-bar
-evidence. Unknown evidence remains unknown. See
+The dispatch surface has exactly three values. `native` pins the
+provider-native surface, `north` pins the North-managed surface, and `auto` lets
+the system choose a surface for each dispatch. The **learning regime** is a
+separate operational axis governing `auto`: `frozen` consistently uses the
+deterministic best-known admitted route, prompt, authoring surface, and history
+strategy while retaining full measurement; `learning` permits bounded
+experimental assignment during ordinary dispatch and changes at most
+one explicitly eligible axis per episode. Assignment is committed before
+provider selection or execution. Discovery observations never become
+comparison evidence; evaluation observations enter cohorts only with exact task
+identity, prompt and environment receipts, a tied run envelope, and observed
+done-bar evidence. Unknown evidence remains unknown. See
 [`docs/learning-regime.md`](learning-regime.md) for the policy, receipt, and
 offline-report contracts.
 
@@ -899,7 +903,8 @@ offline-report contracts.
 inside isolated homes under `~/.local/state/north/accounts`. `--target <id>` is
 an exact account pin with no fallback. `--provider <name>` permits only sibling
 accounts of that provider; the default auto route may use any eligible target.
-Preferential mode follows target priority. In balanced mode the report presents
+Allocation is routing detail within dispatch `auto`, not another dispatch-mode
+axis. Preferential mode follows target priority. In balanced mode the report presents
 the accounts as an **unordered configured candidate set**, because the policy file's
 shared `targetOrder` storage field is not selection priority in that mode.
 Balanced mode re-ranks both primary and retry targets per run key, applies

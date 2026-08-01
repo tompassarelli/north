@@ -14,12 +14,18 @@ mkdir -p "$SCRATCH/home/code/north/main/orchestration/agents"
 mkdir -p "$SCRATCH/north/bin"
 export NORTH_HOME="$SCRATCH/north"
 export NORTH_DISPATCH_TEST_ACTION_FILE="$SCRATCH/dispatch-action"
+export NORTH_DISPATCH_TEST_ADMISSION_FILE="$SCRATCH/dispatch-admission"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -uo pipefail' \
-  '[ "$#" -eq 3 ] && [ "$1" = config ] && [ "$2" = dispatch ] && [ "$3" = --guard-action ] || exit 64' \
-  'IFS= read -r action <"${NORTH_DISPATCH_TEST_ACTION_FILE:?}"' \
-  'case "$action" in deny|remind-managed|remind-native|allow) printf "%s\n" "$action" ;; *) exit 65 ;; esac' \
+  '[ "$#" -eq 3 ] && [ "$1" = config ] && [ "$2" = dispatch ] || exit 64' \
+  'case "$3" in' \
+  '  --guard-action) file="${NORTH_DISPATCH_TEST_ACTION_FILE:?}" ;;' \
+  '  --managed-admission) file="${NORTH_DISPATCH_TEST_ADMISSION_FILE:?}" ;;' \
+  '  *) exit 64 ;;' \
+  'esac' \
+  'IFS= read -r verdict <"$file"' \
+  'case "$verdict" in deny|allow) printf "%s\n" "$verdict" ;; *) exit 65 ;; esac' \
   >"$NORTH_HOME/bin/north"
 chmod +x "$NORTH_HOME/bin/north"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"preset","id":"integrator","overrides":[]}} -->' \
@@ -33,21 +39,21 @@ printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"researcher","taskGrade":"seni
 
 pass=0 fail=0
 set_state() {
-  local action
+  local action admission
   case "$1" in
-    managed-forced|north) action=deny ;;
-    managed-biased|warn) action=remind-managed ;;
-    native-biased) action=remind-native ;;
-    native-forced|native) action=allow ;;
-    *) action=invalid ;;
+    native|native-forced) action=allow; admission=deny ;;
+    north|managed-forced) action=deny; admission=allow ;;
+    auto|native-biased|managed-biased) action=allow; admission=allow ;;
+    *) action=invalid; admission=invalid ;;
   esac
   printf 'dispatch=%s\nguards=%s\n' "$1" "$2" >"$SCRATCH/home/.local/state/north/harness.conf"
   printf '%s\n' "$action" >"$NORTH_DISPATCH_TEST_ACTION_FILE"
+  printf '%s\n' "$admission" >"$NORTH_DISPATCH_TEST_ADMISSION_FILE"
 }
 set_state north on
 
 # run EXPECT DESCRIPTION TOPOLOGY TOOL PAYLOAD [ENV]
-# EXPECT: allow | deny | warn. TOPOLOGY: worker | orchestrator | unset.
+# EXPECT: allow | deny | silent. TOPOLOGY: worker | orchestrator | unset.
 run() {
   local expect="$1" desc="$2" topology="$3" tool="$4" payload="$5" extra="${6:-}"
   local input out decision context ok=0
@@ -69,14 +75,7 @@ run() {
   case "$expect" in
     deny)  [ "$decision" = deny ] && ok=1 ;;
     allow) [ "$decision" != deny ] && [ "$decision" != malformed ] && ok=1 ;;
-    warn)  [ "$decision" = allow ] && [[ "$context" == *'north config dispatch action = remind-managed'* ]] && ok=1 ;;
-    nudge)
-      [ "$decision" = allow ] &&
-        [[ "$context" == *'north config dispatch action = remind-native'* ]] &&
-        [[ "$context" == *'proceed natively'* ]] &&
-        [[ "$context" != *'Re-issue the SAME work on north'* ]] &&
-        [[ "$context" != *'Do the SAME work on north'* ]] && ok=1
-      ;;
+    silent) [ "$decision" = silent ] && ok=1 ;;
   esac
   if [ "$ok" = 1 ]; then
     pass=$((pass + 1)); printf 'PASS  %-5s  %s\n' "$expect" "$desc"
@@ -237,32 +236,48 @@ run allow 'North status/help diagnostics remain available' worker Bash 'north ag
 
 echo '== topology boundary and dispatch-mode independence =='
 run allow 'orchestrator may create North lane' orchestrator Bash 'north spawn implementer work'
-run allow 'orchestrator may run provider agent' orchestrator Bash 'codex exec work'
-run allow 'orchestrator may open provider session' orchestrator Bash 'claude'
-run allow 'native/unmanaged session has no topology restriction' unset Bash 'north delegate work'
-run allow 'native/unmanaged session may open provider session' unset Bash 'codex'
+run deny 'dispatch=north redirects provider agent turn' orchestrator Bash 'codex exec work'
+run deny 'dispatch=north redirects provider session' unset Bash 'claude'
+run allow 'untopologized session may create an admitted North lane' unset Bash 'north delegate work'
 run allow 'non-Bash tool is not topology shell surface' worker Read 'north spawn implementer work'
+
+echo '== canonical dispatch surfaces =='
 set_state native on
-run deny 'dispatch=native (legacy) does not waive worker topology' worker Bash 'north spawn implementer work'
-run allow 'dispatch=native (legacy) preserves native Agent allowance' unset Agent 'native work'
-set_state native-forced on
-run deny 'dispatch=native-forced does not waive worker topology' worker Bash 'north spawn implementer work'
-run allow 'dispatch=native-forced preserves native Agent allowance' unset Agent 'native work'
-set_state native-biased on
-run nudge 'dispatch=native-biased allows with reminder' unset Task 'native work'
-run deny 'dispatch=native-biased cannot waive managed worker topology' worker Bash 'north spawn implementer work'
-set_state warn on
-run warn 'dispatch=warn (legacy) preserves native Agent nudge' unset Task 'native work'
-run deny 'dispatch=warn (legacy) cannot waive managed worker topology' worker Bash 'north spawn implementer work'
-set_state managed-biased on
-run warn 'dispatch=managed-biased preserves native Agent nudge' unset Task 'native work'
-run deny 'dispatch=managed-biased cannot waive managed worker topology' worker Bash 'north spawn implementer work'
+run deny 'dispatch=native does not waive worker topology' worker Bash 'north spawn implementer work'
+run deny 'dispatch=native denies North lane creation' orchestrator Bash 'north spawn implementer work'
+run silent 'dispatch=native admits provider-native Agent' unset Agent 'native work'
+run allow 'dispatch=native admits provider-native shell turn' orchestrator Bash 'codex exec work'
+run deny 'dispatch=native catches North lane after provider turn' orchestrator Bash 'codex exec work && north spawn implementer work'
+run deny 'dispatch=native catches wrapped North lane after provider turn' orchestrator Bash 'bash -c "codex exec work && north spawn implementer work"'
 set_state north on
-run deny 'dispatch=north (legacy) preserves native Agent redirect' unset Agent 'native work'
+run deny 'dispatch=north does not waive worker topology' worker Bash 'north spawn implementer work'
+run allow 'dispatch=north admits North lane creation' orchestrator Bash 'north spawn implementer work'
+run deny 'dispatch=north redirects provider-native Agent' unset Agent 'native work'
+run deny 'dispatch=north redirects provider-native shell turn' orchestrator Bash 'codex exec work'
+run deny 'dispatch=north catches provider turn after North lane' orchestrator Bash 'north spawn implementer work && codex exec work'
+run deny 'dispatch=north catches wrapped provider turn after North lane' orchestrator Bash 'bash -c "north spawn implementer work && codex exec work"'
+set_state auto on
+run deny 'dispatch=auto does not waive worker topology' worker Bash 'north spawn implementer work'
+run allow 'dispatch=auto admits system-selected North lane creation' orchestrator Bash 'north spawn implementer work'
+run silent 'dispatch=auto admits system-selected provider-native Agent' unset Agent 'native work'
+run allow 'dispatch=auto admits system-selected provider-native shell turn' orchestrator Bash 'codex exec work'
+
+echo '== legacy dispatch reads map to canonical surface behavior =='
+set_state native-forced on
+run deny 'legacy native-forced maps to native North-lane denial' orchestrator Bash 'north spawn implementer work'
+run silent 'legacy native-forced maps to native Agent admission' unset Agent 'native work'
+set_state native-biased on
+run allow 'legacy native-biased maps to auto North-lane admission' orchestrator Bash 'north spawn implementer work'
+run silent 'legacy native-biased maps to auto Agent admission without nudge' unset Task 'native work'
+set_state managed-biased on
+run allow 'legacy managed-biased maps to auto North-lane admission' orchestrator Bash 'north spawn implementer work'
+run silent 'legacy managed-biased maps to auto Agent admission without nudge' unset Task 'native work'
 set_state managed-forced on
-run deny 'dispatch=managed-forced preserves native Agent redirect' unset Agent 'native work'
+run allow 'legacy managed-forced maps to north North-lane admission' orchestrator Bash 'north spawn implementer work'
+run deny 'legacy managed-forced maps to north Agent redirect' unset Agent 'native work'
 
 echo '== native Orchestration redirect preserves the complete routing contract =='
+set_state north on
 routing_input="$(jq -nc --arg d "$REPO" '{
   tool_name:"Agent",
   tool_input:{subagent_type:"orchestration:integrator",prompt:"integrate the seam"},
@@ -317,7 +332,7 @@ run deny 'persistent guards=off cannot defeat dispatch=north redirect' unset Age
 run deny 'AGENT_NO_AUTHORING_HOOKS=0 leaves topology live' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=0
 set_state native off
 run allow 'dispatch=native remains deliberate native-agent escape with guards=off' unset Agent 'native work'
-run deny 'dispatch=native still cannot waive managed worker topology' worker Bash 'north spawn implementer work'
+run deny 'dispatch=native still cannot waive North worker topology' worker Bash 'north spawn implementer work'
 set_state north on
 
 echo '== shared dispatch action contract fails loud =='
