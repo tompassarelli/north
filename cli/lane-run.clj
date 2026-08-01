@@ -96,19 +96,10 @@
     (if (zero? (bit-and 1 (aget digest 0))) "graph" "text")))
 
 (defn facts-of [port subject]
-  (let [response
-        (north.coord/send-op
-         port {:op :query
-               :query {:find "lane_run_fact"
-                       :rules [{:head {:rel "lane_run_fact"
-                                       :args [{:var "p"} {:var "r"}]}
-                                :body [{:rel "triple"
-                                        :args [subject {:var "p"} {:var "r"}]}]}]}})]
-    (when-not (vector? (:ok response))
-      (throw (ex-info "coordinator returned no fact rows" {:response response})))
+  (let [response (north.coord/show-envelope port subject)]
     (reduce (fn [facts [predicate object]]
               (update facts predicate (fnil conj #{}) object))
-            {} (:ok response))))
+            {} (:rows response))))
 
 (defn write-batch! [port subject facts]
   (let [response
