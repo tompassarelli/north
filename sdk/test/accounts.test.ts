@@ -437,11 +437,12 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
   const help = run("--help");
   expect(help.status).toBe(0);
   expect(help.stdout).toContain("north account list [--verbose]   grouped accounts + live login state");
-  expect(help.stdout).toContain("north account usage [id] [--refresh]  subscription windows + reset metadata");
+  expect(help.stdout).toContain("north account usage [id] [--refresh] [--hours N]  subscription windows + live session activity");
   expect(help.stdout).toContain("north account availability [--model M] [--json]  cached account headroom verdicts");
   expect(help.stdout).toContain("--model M  restrict usability to one cached model-scoped rung");
   expect(help.stdout).toContain("--json     emit the stable account availability row array");
   expect(help.stdout).toContain("--refresh  bypass the five-minute authoritative usage cache");
+  expect(help.stdout).toContain("--hours N  session activity lookback in hours (default: 24)");
   expect(help.stdout).toContain("--verbose  include provider, profile, and storage root diagnostics");
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
@@ -461,12 +462,19 @@ test("account usage groups cached per-account windows with source and reset meta
       source: "codex-app-server:account-rate-limits",
       windows: [{ limitId: "codex:primary", usedPercent: 55, resetsAt }] },
   ] })}\n`);
+  const rolloutDirectory = join(home, ".local/state/north/accounts/openai/codex-proton/sessions/2026/08/02");
+  mkdirSync(rolloutDirectory, { recursive: true });
+  writeFileSync(join(rolloutDirectory, "rollout-fixture.jsonl"), [
+    JSON.stringify({ payload: { info: { total_token_usage: { output_tokens: 100 } } } }),
+    JSON.stringify({ payload: { info: { total_token_usage: { output_tokens: 1234 } } } }),
+  ].join("\n"));
 
   const usage = run("usage");
   expect(usage.status).toBe(0);
   expect(usage.stdout).toContain("Claude / Anthropic\n  claude-gmail");
   expect(usage.stdout).toContain("headroom: plenty (observed, cached)");
   expect(usage.stdout).toContain("source:   claude-agent-sdk:usage-control-experimental");
+  expect(usage.stdout.split("Codex / OpenAI")[0]).not.toContain("activity: read live from provider session records");
   expect(usage.stdout).toContain(`usage evidence:  ${observedAt} (cached)`);
   expect(usage.stdout).not.toContain("    observed:");
   expect(usage.stdout).toContain(`claude:seven_day: 40% used · resets ${resetsAt}`);
@@ -474,6 +482,15 @@ test("account usage groups cached per-account windows with source and reset meta
   expect(usage.stdout).toContain("headroom: normal (observed, cached)");
   expect(usage.stdout).toContain("source:   codex-app-server:account-rate-limits");
   expect(usage.stdout).toContain(`codex:primary: 55% used · resets ${resetsAt}`);
+  expect(usage.stdout).toContain("activity: read live from provider session records (last 24h)");
+  expect(usage.stdout).toContain("sessions:      1");
+  expect(usage.stdout).toContain("live now:      1");
+  expect(usage.stdout).toContain("output tokens: 1,234");
+  expect(usage.stdout).toMatch(/last activity: \d+s ago/);
+
+  const oneHour = run("usage", "codex-proton", "--hours", "1");
+  expect(oneHour.status).toBe(0);
+  expect(oneHour.stdout).toContain("activity: read live from provider session records (last 1h)");
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account usage keeps proven exhaustion visible while a failed refresh is negatively cached", () => {
