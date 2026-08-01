@@ -16,13 +16,18 @@ import {
   type AccountAvailabilityRow,
 } from "./account-availability";
 import { automatedPressure } from "./resource-policy";
+import {
+  DEFAULT_SESSION_ACTIVITY_HOURS,
+  readOpenAISessionActivity,
+  type OpenAISessionActivity,
+} from "./openai-session-activity";
 
 const USAGE = `usage: north account <command>
 
   north account add <safe-id> <anthropic|openai>
   north account login <id>
   north account status [id]
-  north account usage [id] [--refresh]  subscription windows + reset metadata
+  north account usage [id] [--refresh] [--hours N]  subscription windows + live session activity
   north account availability [--model M] [--json]  cached account headroom verdicts
   north account list [--verbose]   grouped accounts + live login state
 
@@ -30,6 +35,7 @@ Options:
   --model M  restrict usability to one cached model-scoped rung
   --json     emit the stable account availability row array
   --refresh  bypass the five-minute authoritative usage cache
+  --hours N  session activity lookback in hours (default: 24)
   --verbose  include provider, profile, and storage root diagnostics`;
 
 const ACCOUNT_GROUPS = [
@@ -113,7 +119,33 @@ function usageReasonLabel(reason: AccountUsageReport["reason"]): string {
   }
 }
 
-function printUsageReports(accounts: ProviderAccount[], reports: AccountUsageReport[]): void {
+function activityAge(activity: OpenAISessionActivity, now: Date): string {
+  if (!activity.lastActivityAt) return "-";
+  const ageSeconds = Math.max(0, Math.floor((now.getTime() - activity.lastActivityAt.getTime()) / 1_000));
+  if (ageSeconds < 60) return `${ageSeconds}s ago`;
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  if (ageMinutes < 60) return `${ageMinutes}m ago`;
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) return `${ageHours}h ago`;
+  return `${Math.floor(ageHours / 24)}d ago`;
+}
+
+function activityHours(hours: number): string {
+  return Number.isInteger(hours) ? hours.toFixed(0) : String(hours);
+}
+
+async function printUsageReports(
+  accounts: ProviderAccount[],
+  reports: AccountUsageReport[],
+  hours: number,
+): Promise<void> {
+  const now = new Date();
+  const activities = new Map((await Promise.all(accounts
+    .filter(({ provider }) => provider === "openai")
+    .map(async (account) => [
+      account.id,
+      await readOpenAISessionActivity({ accountRoot: account.root, hours, now }),
+    ] as const))).map((entry) => entry));
   let firstGroup = true;
   for (const group of ACCOUNT_GROUPS) {
     const grouped = accounts.filter((account) => account.provider === group.provider);
@@ -140,6 +172,14 @@ function printUsageReports(accounts: ProviderAccount[], reports: AccountUsageRep
         console.log(`    component unavailable: ${component.limitId} (${component.reason})`);
       if (report.reason)
         console.log(`    reason: ${usageReasonLabel(report.reason)} (${report.reason})`);
+      const activity = activities.get(account.id);
+      if (activity) {
+        console.log(`    activity: read live from provider session records (last ${activityHours(activity.hours)}h)`);
+        console.log(`      sessions:      ${activity.sessions}`);
+        console.log(`      live now:      ${activity.live}`);
+        console.log(`      output tokens: ${activity.outputTokens.toLocaleString("en-US")}`);
+        console.log(`      last activity: ${activityAge(activity, now)}`);
+      }
     }
   }
 }
@@ -220,16 +260,29 @@ export async function runAccountCli(args: string[]): Promise<number> {
       }
       case "usage": {
         const refresh = rest.includes("--refresh");
-        const ids = rest.filter((entry) => entry !== "--refresh");
-        if (ids.length > 1 || rest.some((entry) => entry.startsWith("--") && entry !== "--refresh"))
-          throw new Error(USAGE);
+        let hours = DEFAULT_SESSION_ACTIVITY_HOURS;
+        const ids: string[] = [];
+        for (let index = 0; index < rest.length; index += 1) {
+          const entry = rest[index]!;
+          if (entry === "--refresh") continue;
+          if (entry === "--hours") {
+            const value = rest[index + 1];
+            hours = Number(value);
+            if (value === undefined || !Number.isFinite(hours) || hours <= 0) throw new Error(USAGE);
+            index += 1;
+            continue;
+          }
+          if (entry.startsWith("--")) throw new Error(USAGE);
+          ids.push(entry);
+        }
+        if (ids.length > 1) throw new Error(USAGE);
         const accounts = ids.length ? [requireProviderAccount(ids[0])] : listProviderAccounts();
         if (!accounts.length) {
           console.log("no isolated accounts configured");
           return 0;
         }
         const reports = await refreshAccountUsages({ accounts, force: refresh });
-        printUsageReports(accounts, reports);
+        await printUsageReports(accounts, reports, hours);
         return reports.every(({ status }) => status === "observed") ? 0 : 1;
       }
       case "availability": {
