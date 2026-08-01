@@ -8,6 +8,10 @@ import { sha256Bytes } from "../src/composition-receipt";
 const root = resolve(import.meta.dir, "../..");
 const previousLearningPolicy = process.env.NORTH_LEARNING_POLICY;
 
+if (process.env.NORTH_TEST_SANDBOX_HOME === "1" && !process.env.AGENT_HOOKS_DIR) {
+  throw new Error("NORTH-TEST-HOOKS-001: sandbox-home receipt tests require AGENT_HOOKS_DIR");
+}
+
 afterEach(() => {
   if (previousLearningPolicy === undefined) delete process.env.NORTH_LEARNING_POLICY;
   else process.env.NORTH_LEARNING_POLICY = previousLearningPolicy;

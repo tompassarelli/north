@@ -12,6 +12,7 @@ fi
 file_timeout_s="${NORTH_TEST_SDK_FILE_TIMEOUT_SECONDS:-180}"
 kill_after_s="${NORTH_TEST_SDK_KILL_AFTER_SECONDS:-5}"
 installed_smoke="${NORTH_RUN_INSTALLED_CODEX_SIGNAL_SMOKE:-0}"
+sandbox_home="${NORTH_TEST_SANDBOX_HOME:-0}"
 for setting in \
   "NORTH_TEST_SDK_FILE_TIMEOUT_SECONDS:$file_timeout_s" \
   "NORTH_TEST_SDK_KILL_AFTER_SECONDS:$kill_after_s"; do
@@ -24,6 +25,10 @@ for setting in \
 done
 if [[ "$installed_smoke" != 0 && "$installed_smoke" != 1 ]]; then
   echo "NORTH_RUN_INSTALLED_CODEX_SIGNAL_SMOKE must be 0 or 1" >&2
+  exit 2
+fi
+if [[ "$sandbox_home" != 0 && "$sandbox_home" != 1 ]]; then
+  echo "NORTH_TEST_SANDBOX_HOME must be 0 or 1" >&2
   exit 2
 fi
 if ! command -v timeout >/dev/null 2>&1; then
@@ -103,6 +108,28 @@ for file in "${files[@]}"; do
       "$file" "$pass" "$skip" "$fail" "$ran" >&2
     cat "$log" >&2
     exit 1
+  fi
+  if [[ "$sandbox_home" == 1 ]] && ((skip != 0)); then
+    if [[ "$installed_smoke" == 0 && "$file" == "./test/openai-installed-smoke.test.ts" && "$skip" == 1 ]]; then
+      printf 'SKIP NORTH-SDK-INSTALLED-CODEX-001 %s: requires NORTH_RUN_INSTALLED_CODEX_SIGNAL_SMOKE=1 and a packaged Codex executable\n' \
+        "$file"
+    elif [[ "$file" == "./test/readonly-shell.test.ts" ]]; then
+      mapfile -t coded_reasons < <(grep '^\[capability-gate\] SKIP ' "$normalized" || true)
+      if ((${#coded_reasons[@]} != skip)); then
+        printf 'FAILED %s: %d skip(s) but %d capability reason(s)\n' \
+          "$file" "$skip" "${#coded_reasons[@]}" >&2
+        cat "$log" >&2
+        exit 1
+      fi
+      for reason in "${coded_reasons[@]}"; do
+        printf 'SKIP NORTH-SDK-CAPABILITY-001 %s: %s\n' "$file" "$reason"
+      done
+    else
+      printf 'FAILED %s: sandbox-home mode rejects %d skip(s) without a coded reason\n' \
+        "$file" "$skip" >&2
+      cat "$log" >&2
+      exit 1
+    fi
   fi
 
   total_pass=$((total_pass + pass))

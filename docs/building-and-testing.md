@@ -58,6 +58,31 @@ $ bb -cp "$CP" staleness_test.clj
 $ FRAM_LOG="$FRAM_HOME/facts.log" bb -cp "$CP" lifecycle_test.clj
 ```
 
+CI runs every test command through [`bin/test-suite`](../bin/test-suite) with
+`--sandbox-home`. The mode creates a new empty `HOME`, removes ambient XDG and
+North/Fram state selectors, prints the scratch path, and deletes it after the
+command. Use the same boundary locally while keeping the Fram fixture explicit:
+
+```console
+$ FRAM_TEST_CHECKOUT="$FRAM_HOME" \
+    bin/test-suite --sandbox-home -- bb -cp "$CP" clock_test.clj
+```
+
+The SDK receipt suite also needs its repository-owned hook fixture:
+
+```console
+$ cd sdk
+$ FRAM_TEST_CHECKOUT="$FRAM_HOME" \
+    NORTH_TEST_AGENT_HOOKS_DIR="$PWD/../profiles/tom/hooks" \
+    ../bin/test-suite --sandbox-home -- bun run test
+```
+
+Omit `--sandbox-home` to run a command with the existing environment unchanged:
+
+```console
+$ bin/test-suite -- bb -cp "$CP" clock_test.clj
+```
+
 Other babashka suites at the repository root follow the same shape —
 `validate_test.clj`, `projections_test.clj`, `schema_test.clj`,
 `lifecycle_test.clj`, and the rest — as do the CLI suites under

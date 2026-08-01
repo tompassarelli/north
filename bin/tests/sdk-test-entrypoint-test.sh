@@ -47,6 +47,9 @@ printf '%s\n' \
   "    trap '' TERM" \
   '    while :; do sleep 30; done' \
   '    ;;' \
+  '  capability:*readonly-shell.test.ts)' \
+  '    printf "bun test v1.3.13\n\n%s:\n[capability-gate] SKIP fixture — capability unavailable\n\n 0 pass\n 1 skip\n 0 fail\nRan 1 test across 1 file. [1.00ms]\n" "$file"' \
+  '    ;;' \
   '  skip:*)' \
   '    printf "bun test v1.3.13\n\n%s:\n(skip) fixture\n\n 0 pass\n 1 skip\n 0 fail\nRan 1 test across 1 file. [1.00ms]\n" "$file"' \
   '    ;;' \
@@ -89,12 +92,41 @@ if kill -0 "$hang_pid" 2>/dev/null; then
 fi
 
 PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" NORTH_SDK_FAKE_MODE=skip \
+  NORTH_TEST_SANDBOX_HOME=0 \
   bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/local-skip.out"
 grep -Eq '^SDK tests: 2 files · 0 pass · 2 skip · 0 fail · 0 expects · [0-9]+s$' \
   "$tmp/local-skip.out"
 
 set +e
 PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" NORTH_SDK_FAKE_MODE=skip \
+  NORTH_TEST_SANDBOX_HOME=1 \
+  bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/hermetic-skip.out" 2>"$tmp/hermetic-skip.err"
+status=$?
+set -e
+((status != 0))
+grep -Fq 'sandbox-home mode rejects 1 skip(s) without a coded reason' \
+  "$tmp/hermetic-skip.err"
+
+rm "$tmp/sdk/test/a.test.ts" "$tmp/sdk/test/hang.test.ts"
+touch "$tmp/sdk/test/openai-installed-smoke.test.ts"
+PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" NORTH_SDK_FAKE_MODE=skip \
+  NORTH_TEST_SANDBOX_HOME=1 \
+  bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/coded-skip.out"
+grep -Fq 'SKIP NORTH-SDK-INSTALLED-CODEX-001 ./test/openai-installed-smoke.test.ts:' \
+  "$tmp/coded-skip.out"
+grep -Eq '^SDK tests: 1 files · 0 pass · 1 skip · 0 fail · 0 expects · [0-9]+s$' \
+  "$tmp/coded-skip.out"
+
+mv "$tmp/sdk/test/openai-installed-smoke.test.ts" "$tmp/sdk/test/readonly-shell.test.ts"
+PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" NORTH_SDK_FAKE_MODE=capability \
+  NORTH_TEST_SANDBOX_HOME=1 \
+  bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/capability-skip.out"
+grep -Fq 'SKIP NORTH-SDK-CAPABILITY-001 ./test/readonly-shell.test.ts:' \
+  "$tmp/capability-skip.out"
+
+set +e
+PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" NORTH_SDK_FAKE_MODE=skip \
+  NORTH_TEST_SANDBOX_HOME=0 \
   NORTH_RUN_INSTALLED_CODEX_SIGNAL_SMOKE=1 \
   bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/skip.out" 2>"$tmp/skip.err"
 status=$?

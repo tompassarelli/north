@@ -245,7 +245,10 @@
 
 (def integration-checks
   (let [root (.getCanonicalPath (.getParentFile (io/file *file*)))
-        fram (.getCanonicalPath (io/file root "../fram"))
+        fram (.getCanonicalPath
+              (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
+                           (System/getenv "FRAM_HOME")
+                           (str (System/getProperty "user.home") "/code/fram/main"))))
         temp (.toFile (java.nio.file.Files/createTempDirectory
                        "north-client-clock-rate-"
                        (make-array java.nio.file.attribute.FileAttribute 0)))
@@ -388,7 +391,10 @@
 ;; Synthetic acme-test owner + 123.45 rate only; never a real client rate.
 (def contention-checks
   (let [root (.getCanonicalPath (.getParentFile (io/file *file*)))
-        fram (.getCanonicalPath (io/file root "../fram"))
+        fram (.getCanonicalPath
+              (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
+                           (System/getenv "FRAM_HOME")
+                           (str (System/getProperty "user.home") "/code/fram/main"))))
         temp (.toFile (java.nio.file.Files/createTempDirectory
                        "north-clock-contention-"
                        (make-array java.nio.file.attribute.FileAttribute 0)))

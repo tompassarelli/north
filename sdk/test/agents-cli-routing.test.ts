@@ -792,10 +792,15 @@ test("agent roster facts fold coordination and telemetry logs together", () => {
     const telemetry = join(directory, "telemetry.log");
     writeFileSync(coordination, '{:tx 1 :op "assert" :l "@agent:coord" :p "display_name" :r "coord-name"}\n');
     writeFileSync(telemetry, '{:tx 2 :op "assert" :l "@agent:telemetry" :p "display_name" :r "telemetry-name"}\n');
+    const fram = process.env.FRAM_TEST_CHECKOUT ?? process.env.FRAM_HOME;
+    if (process.env.NORTH_TEST_SANDBOX_HOME === "1" && !fram) {
+      throw new Error("NORTH-TEST-FRAM-001: sandbox-home SDK tests require FRAM_TEST_CHECKOUT");
+    }
     const expression = `(load-file ${JSON.stringify(cli)}) (println (cheshire.core/generate-string (agent-facts)))`;
     const result = spawnSync("bb", ["-e", expression], {
       encoding: "utf8", cwd: north,
-      env: { ...process.env, NORTH_AGENTS_LIB: "1", FRAM_LOG: coordination,
+      env: { ...process.env, NORTH_AGENTS_LIB: "1",
+        ...(fram ? { FRAM_HOME: fram } : {}), FRAM_LOG: coordination,
         FRAM_TELEMETRY_LOG: telemetry, FRAM_PORT: "59998", NO_COLOR: "1" },
     });
     expect(result.status).toBe(0);

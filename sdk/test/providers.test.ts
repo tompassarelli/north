@@ -105,7 +105,10 @@ test("explicit disabled provider fails loudly", () => {
 
 test("auto order selects OpenAI when Anthropic is disabled", () => {
   process.env.NORTH_DISABLE_ANTHROPIC = "1";
-  const decision = selectProvider("auto");
+  const decision = selectProvider("auto", policy(), {}, {
+    probeAnthropic: () => ({ provider: "anthropic", available: false, reason: "disabled" }),
+    probeOpenAI: () => ({ provider: "openai", available: true, reason: "ready" }),
+  });
   expect(decision.provider).toBe("openai");
 });
 
