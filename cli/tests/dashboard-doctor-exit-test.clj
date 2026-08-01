@@ -44,7 +44,7 @@
    :unreadOlder 0
    :openCount 0
    :open []
-   :gauge {:count 0 :threshold 2 :breached false}
+   :gauge {:count 0}
    :urgent {:total 0 :urgent 0 :rate 0.0 :periodHours 24}
    :lastWindow nil
    :promote {:available false
@@ -253,7 +253,8 @@
          (and healthy
               (str/includes? output "activation health")
               (str/includes? output "no open rebuild requests")
-              (str/includes? output "0 coordinated rebuild(s) in the last 60m (threshold 2)")
+              (str/includes? output "immediate admission")
+              (str/includes? output "0 coordinated rebuild(s) observed in trailing 60m")
               (str/includes? output "urgent rate 0/0 request(s) (0%) in 24h")
               (str/includes? output "drift-without-promote: promote infra not yet deployed"))))
 
@@ -285,11 +286,12 @@
        {:activation
         (assoc healthy-activation-health
                :coordinationOn true
-               :gauge {:count 5 :threshold 2 :breached true})})]
-  (check "a breached rebuilds-per-window gauge fails doctor"
-         (and (false? healthy)
-              (str/includes? output "5 coordinated rebuild(s) in the last 60m (threshold 2)")
-              (str/includes? output "the queue is being bypassed"))))
+               :gauge {:count 5})})]
+  (check "rebuild volume remains observable without manufacturing a rate-cap failure"
+         (and healthy
+              (str/includes? output "5 coordinated rebuild(s) observed in trailing 60m")
+              (not (str/includes? output "threshold"))
+              (not (str/includes? output "the queue is being bypassed")))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
@@ -300,9 +302,10 @@
                :openCount 1
                :open [{:id "1-c" :requester "agent-c" :why "stale request"
                        :urgent false :ageMs (* 5 3600 1000) :age "5h"}])})]
-  (check "an undrained queue fails doctor once the owner is armed"
-         (and (false? healthy)
-              (str/includes? output "exceeds two 60m windows"))))
+  (check "an open armed queue reports pending immediate drain without an hourly claim"
+         (and healthy
+              (str/includes? output "pending immediate serialized drain")
+              (not (str/includes? output "exceeds two 60m windows")))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor

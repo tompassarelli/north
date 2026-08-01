@@ -79,8 +79,8 @@
   (= "on" (north.harness-state/get-value (home) "rebuild-coordination" "off")))
 
 (defn window-seconds
-  "Configured coalescing window, `north config rebuild-window`. A malformed
-   stored value falls back to the default rather than breaking the sweep."
+  "Configured telemetry horizon, `north config rebuild-window`. A malformed
+   stored value falls back to the default rather than breaking health output."
   []
   (let [raw (north.harness-state/get-value
              (home) "rebuild-window"
@@ -550,7 +550,7 @@
        :requests (get facts "window_request" [])})))
 
 (defn last-fired-window-ms
-  "When the owner last CONSUMED a window. A deferred launch never consumes one."
+  "Legacy-compatible telemetry for when the owner last completed a window."
   [port]
   (get-in (queue-snapshot! port) [:snapshot :last-fired-ms]))
 
@@ -773,7 +773,7 @@
                   open)
      "gauge" (let [g (north.rebuild-request-state/rebuild-gauge
                       (intent-creation-times port) now window-ms)]
-               {"count" (:count g) "threshold" (:threshold g) "breached" (:breached? g)})
+               {"count" (:count g)})
      "urgent" (let [u (north.rebuild-request-state/urgent-rate
                        requests now urgent-rate-period-ms)]
                 {"total" (:total u) "urgent" (:urgent u) "rate" (:rate u)
@@ -809,18 +809,18 @@
     (when-not (:why options) (fail! "--why is required"))
     (let [id (record-request! port (assoc options :requester (current-requester)))]
       (println id)
-      (println (str "queued: the reactor window owner coalesces open requests into one "
-                    "coordinated rebuild"
+      (println (str "queued: an idle reactor owner immediately coalesces open requests "
+                    "into one coordinated rebuild"
                     (when-not (coordination-on?)
                       " (rebuild-coordination is off — requests queue and report, nothing fires)")))
       (when (:urgent-reason options)
-        (println "urgent recorded (never refused; counted in north doctor)")))))
+        (println "urgent provenance recorded (eligibility unchanged; counted in north doctor)")))))
 
 (defn cmd-list [port]
   (let [now (now-ms)
         {:keys [requests unread-older]} (load-requests port)
         open (north.rebuild-request-state/open-requests requests)]
-    (println (str "rebuild queue — " (count open) " open request(s) · window "
+    (println (str "rebuild queue — " (count open) " open request(s) · reporting horizon "
                   (window-seconds) "s · coordination "
                   (if (coordination-on?) "on" "off")))
     (if (empty? open)
