@@ -11,15 +11,15 @@
 (defn check [label value] (swap! checks conj [label (boolean value)]))
 
 (def expected
-  [["native-forced" "allow" "deny"]
-   ["native-biased" "remind-native" "warn-native"]
-   ["managed-biased" "remind-managed" "allow"]
-   ["managed-forced" "deny" "allow"]])
+  [["native" "allow" "deny"]
+   ["north" "deny" "allow"]
+   ["auto" "allow" "allow"]])
 
 (def aliases
-  {"native" "native-forced"
-   "warn" "managed-biased"
-   "north" "managed-forced"})
+  {"native-forced" "native"
+   "managed-forced" "north"
+   "native-biased" "auto"
+   "managed-biased" "auto"})
 
 (def home (.toFile (java.nio.file.Files/createTempDirectory
                     "north-dispatch-mode-"
@@ -40,8 +40,12 @@
 (try
   (check "canonical vocabulary is complete and ordered"
          (= (mapv first expected) (north.dispatch-mode/canonical-names)))
-  (check "default is managed-forced"
-         (= "managed-forced" north.dispatch-mode/default-mode))
+  (check "usage exposes exactly the canonical triple"
+         (= "native|north|auto" (north.dispatch-mode/usage)))
+  (check "legacy vocabulary is exactly the former four modes"
+         (= aliases north.dispatch-mode/legacy-aliases))
+  (check "default migrates the former managed-forced posture to north"
+         (= "north" north.dispatch-mode/default-mode))
 
   (doseq [[mode guard admission] expected]
     (check (str mode " normalizes to itself")
@@ -50,15 +54,21 @@
            (= guard (north.dispatch-mode/guard-action mode)))
     (check (str mode " supplies the managed-admission action")
            (= admission (north.dispatch-mode/managed-admission mode)))
-    (io/make-parents state)
-    (spit state (str "dispatch=" mode "\n"))
-    (let [canonical (config "dispatch" "--canonical")
+    (let [set-result (config "dispatch" mode)
+          canonical (config "dispatch" "--canonical")
           guard-result (config "dispatch" "--guard-action")
           admission-result (config "dispatch" "--managed-admission")
           display (config "dispatch")]
+      (check (str mode " set succeeds without a migration note")
+             (and (zero? (:exit set-result))
+                  (str/includes? (:out set-result) (str "dispatch → " mode))
+                  (str/blank? (:err set-result))))
+      (check (str mode " round-trips through canonical persistence")
+             (= (str "dispatch=" mode "\n") (slurp state)))
       (check (str mode " is the config canonical selection")
              (and (zero? (:exit canonical))
-                  (= mode (str/trim (:out canonical)))))
+                  (= mode (str/trim (:out canonical)))
+                  (str/blank? (:err canonical))))
       (check (str mode " drives the config spawn-guard contract")
              (and (zero? (:exit guard-result))
                   (= guard (str/trim (:out guard-result)))))
@@ -71,19 +81,37 @@
 
   (doseq [[legacy canonical] aliases]
     (spit state (str "dispatch=" legacy "\n"))
-    (let [result (config "dispatch" "--canonical")]
-      (check (str "legacy " legacy " normalizes to " canonical)
-             (and (zero? (:exit result))
-                  (= canonical (str/trim (:out result)))))))
+    (let [read-result (config "dispatch" "--canonical")
+          note (north.dispatch-mode/migration-note legacy)]
+      (check (str "legacy read " legacy " normalizes to " canonical)
+             (and (zero? (:exit read-result))
+                  (= canonical (str/trim (:out read-result)))
+                  (= note (str/trim (:err read-result)))
+                  (= (str "dispatch=" legacy "\n") (slurp state))))
+      (let [set-result (config "dispatch" legacy)
+            reread-result (config "dispatch" "--canonical")]
+        (check (str "legacy set " legacy " persists only " canonical)
+               (and (zero? (:exit set-result))
+                    (str/includes? (:out set-result) (str "dispatch → " canonical))
+                    (= note (str/trim (:err set-result)))
+                    (= (str "dispatch=" canonical "\n") (slurp state))
+                    (= canonical (str/trim (:out reread-result)))
+                    (str/blank? (:err reread-result)))))))
 
   (io/delete-file state true)
   (let [canonical (config "dispatch" "--canonical")
         guard-result (config "dispatch" "--guard-action")
         admission-result (config "dispatch" "--managed-admission")]
-    (check "missing state uses the canonical managed-forced default"
-           (and (= "managed-forced" (str/trim (:out canonical)))
+    (check "missing state uses the canonical north default"
+           (and (= "north" (str/trim (:out canonical)))
                 (= "deny" (str/trim (:out guard-result)))
                 (= "allow" (str/trim (:out admission-result))))))
+
+  (let [removed-alias (config "dispatch" "warn")]
+    (check "the pre-ontology warn alias is no longer accepted"
+           (and (not (zero? (:exit removed-alias)))
+                (str/includes? (:err removed-alias)
+                               "usage: north config dispatch [native|north|auto]"))))
 
   (io/make-parents state)
   (spit state "dispatch=surprise\n")

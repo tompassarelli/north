@@ -753,7 +753,7 @@ test("a managed spawn must declare its thread attribution or explicit ad-hoc int
   // exactly this silent default.
   const bare = spawn("implementer", "probe", "--dry-run");
   expect(bare.status).toBe(2);
-  expect(`${bare.stdout}${bare.stderr}`).toContain("requires --thread");
+  expect(`${bare.stdout}${bare.stderr}`).toContain("North spawn requires --thread");
 
   // Naming BOTH is refused too — the intent is ambiguous, not additive.
   const both = spawn("implementer", "probe", "--thread", "019f0000-0000-7000-8000-000000000000",

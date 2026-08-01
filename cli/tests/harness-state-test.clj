@@ -47,26 +47,26 @@
     (check "guard help names dispatch as the independent topology axis"
            (str/includes? config-source "`north config\n   dispatch` owns that independent axis")))
   (io/make-parents legacy)
-  (spit legacy "dispatch=warn\nguards=off\n")
+  (spit legacy "dispatch=native-biased\nguards=off\n")
   (check "legacy state is a read-only fallback while canonical is absent"
          (and (= legacy (north.harness-state/source-path home-path))
-              (= "warn" (north.harness-state/get-value home-path "dispatch" "north"))
-              (= "managed-biased" (north.harness-state/get-dispatch-mode home-path))
+              (= "native-biased" (north.harness-state/get-value home-path "dispatch" "north"))
+              (= "auto" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" "on"))))
 
   (north.harness-state/put-value! home-path "guards" "off")
   (check "first unrelated write seeds canonical state and normalizes legacy dispatch"
          (and (= canonical (north.harness-state/source-path home-path))
-              (= "managed-biased" (north.harness-state/get-value home-path "dispatch" nil))
-              (= "managed-biased" (north.harness-state/get-dispatch-mode home-path))
+              (= "auto" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "auto" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
   (check "migration never mutates the Claude-era file"
-         (= "dispatch=warn\nguards=off\n" (slurp legacy)))
+         (= "dispatch=native-biased\nguards=off\n" (slurp legacy)))
 
-  (north.harness-state/put-value! home-path "dispatch" "north")
+  (north.harness-state/put-value! home-path "dispatch" "managed-forced")
   (check "dispatch writes persist the canonical value"
-         (and (= "managed-forced" (north.harness-state/get-value home-path "dispatch" nil))
-              (= "managed-forced" (north.harness-state/get-dispatch-mode home-path))))
+         (and (= "north" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "north" (north.harness-state/get-dispatch-mode home-path))))
 
   (check "canonical state, persistent lock, and state directory are owner-only"
          (and (= "rw-------" (permission-string canonical))
@@ -80,9 +80,9 @@
            (and (= lock-key-before (file-key lock-file))
                 (not= state-key-before (file-key canonical)))))
 
-  (spit legacy "dispatch=native\nguards=on\n")
+  (spit legacy "dispatch=native-forced\nguards=on\n")
   (check "legacy changes are ignored once canonical state exists"
-         (and (= "managed-forced" (north.harness-state/get-value home-path "dispatch" nil))
+         (and (= "north" (north.harness-state/get-value home-path "dispatch" nil))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
   (check "atomic writer leaves no temporary files"
          (empty? (filter #(str/starts-with? (.getName %) ".harness.")
@@ -93,7 +93,7 @@
                         "bb" (str root "/cli/config-cli.clj") "dispatch")]
     (check "config CLI reads the canonical state through the shared adapter"
            (and (zero? (:exit config))
-                (str/includes? (:out config) "dispatch = managed-forced"))))
+                (str/includes? (:out config) "dispatch = north"))))
 
   (let [dashboard (p/shell
                    {:out :string :err :string :continue true
@@ -103,7 +103,7 @@
                         "(println (dispatch-mode))"))]
     (check "dashboard reads the same canonical state adapter"
            (and (zero? (:exit dashboard))
-                (= "managed-forced" (str/trim (:out dashboard))))))
+                (= "north" (str/trim (:out dashboard))))))
 
   (spit canonical "dispatch=surprise\nguards=off\n")
   (let [bad-read (try (north.harness-state/get-dispatch-mode home-path) false
@@ -118,7 +118,8 @@
            (and bad-read unrelated-write)))
   (north.harness-state/put-value! home-path "dispatch" "native-forced")
   (check "a valid dispatch write recovers invalid persisted state"
-         (= "native-forced" (north.harness-state/get-dispatch-mode home-path)))
+         (and (= "native" (north.harness-state/get-dispatch-mode home-path))
+              (= "native" (north.harness-state/get-value home-path "dispatch" nil))))
 
   (let [bad-key (try (north.harness-state/put-value! home-path "bad\nkey" "x") false
                      (catch Exception _ true))

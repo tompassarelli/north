@@ -700,11 +700,11 @@
       "dispatch id must be a safe North thread id (bare or single @ prefix)"
       (and (= nm "spawn") (not (non-empty-string? prompt))) "spawn prompt must be a non-empty string"
       missing-routing
-      (str "managed " nm " requires the complete eight-field Orchestration request; missing: "
+      (str "North " nm " requires the complete eight-field Orchestration request; missing: "
            (str/join ", " missing-routing)
            " (recover the valid payload shape: north show @contract:dispatch)")
       (and (#{"dispatch" "spawn"} nm) (not (non-empty-string? role)))
-      (str "managed " nm " requires role selecting a canonical Orchestration preset or a complete bespoke composition")
+      (str "North " nm " requires role selecting a canonical Orchestration preset or a complete bespoke composition")
       (and (some? model) (not (non-empty-string? model))) "model must be a non-empty string"
       (and (some? coordinator) (not (non-empty-string? coordinator))) "coordinator must be a non-empty string"
       (and (some? caveman) (not (some #{caveman} ["off" "lite" "full"]))) "invalid caveman mode"

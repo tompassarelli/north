@@ -65,10 +65,10 @@ COMMS — attention between people and agents
 
 ROUTING — providers, accounts, dispatch posture
   north config                      every posture setting + routing policy, one report
-                                    north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced
+                                    north config dispatch <mode> — native · north · auto
                                     north config guards on|off — value-aware kill-switch for authoring guards
-                                    north config routing — provider order, pressure, reserves, envelopes
-                                    north config learning — frozen consistency or bounded ordinary-operation exploration
+                                    north config routing — allocation detail inside auto: provider order, pressure, reserves, envelopes
+                                    north config learning — frozen known-best or learning bounded experimental assignment
   north providers [--json]          provider readiness and the auto-route decision
   north account <sub>               isolated provider subscription accounts
                                     add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts

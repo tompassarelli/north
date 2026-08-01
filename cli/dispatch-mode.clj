@@ -6,42 +6,33 @@
    value fails closed."
   (:require [clojure.string :as str]))
 
-(def default-mode "managed-forced")
+(def default-mode "north")
 
 (def mode-specs
-  [{:name "native-forced"
-   :execution "native"
-    :enforcement "forced"
+  [{:name "native"
+    :selection "pinned"
     :guard-action "allow"
     :managed-admission "deny"
-    :summary "raw provider-native spawns, no interference"
-    :help "no interference. For A/B baselines against stock provider behavior."}
-   {:name "native-biased"
-    :execution "native"
-    :enforcement "biased"
-    :guard-action "remind-native"
-    :managed-admission "warn-native"
-    :summary "native allowed, soft reminder that managed dispatch exists"
-    :help "native spawns allowed; a soft reminder that managed dispatch exists."}
-   {:name "managed-biased"
-    :execution "managed"
-    :enforcement "biased"
-    :guard-action "remind-managed"
-    :managed-admission "allow"
-    :summary "native allowed, nudged toward the North SDK"
-    :help "native spawns allowed; remind the caller to prefer the North SDK."}
-   {:name "managed-forced"
-    :execution "managed"
-    :enforcement "forced"
+    :summary "provider-native surface pinned"
+    :help "pin every dispatch to the provider-native Agent/Task/Workflow surface."}
+   {:name "north"
+    :selection "pinned"
     :guard-action "deny"
     :managed-admission "allow"
-    :summary "native Agent/Workflow denied; use the North SDK"
-    :help "native Agent/Task/Workflow calls are denied and redirected to the North SDK."}])
+    :summary "North dispatch surface pinned"
+    :help "pin every dispatch to North; provider-native agent calls are denied."}
+   {:name "auto"
+    :selection "learning-regime"
+    :guard-action "allow"
+    :managed-admission "allow"
+    :summary "system chooses per dispatch via the learning regime"
+    :help "choose per dispatch: frozen is deterministic known-best; learning permits bounded experiments."}])
 
 (def legacy-aliases
-  {"native" "native-forced"
-   "warn" "managed-biased"
-   "north" "managed-forced"})
+  {"native-forced" "native"
+   "managed-forced" "north"
+   "native-biased" "auto"
+   "managed-biased" "auto"})
 
 (def ^:private specs-by-name
   (into {} (map (juxt :name identity) mode-specs)))
@@ -67,10 +58,14 @@
      (ex-info
       (str "invalid dispatch mode " (pr-str value)
            "; expected " (usage)
-           " (legacy aliases: native|warn|north)")
+           " (legacy aliases: " (str/join "|" (keys legacy-aliases)) ")")
       {:value value
        :canonical (canonical-names)
        :legacy (keys legacy-aliases)}))))
+
+(defn migration-note [value]
+  (when (legacy-alias? value)
+    (str "dispatch migration: legacy '" value "' → '" (normalize value) "'")))
 
 (defn spec [value]
   (get specs-by-name (normalize value)))
@@ -84,7 +79,6 @@
 (defn grid []
   (str/join
    "\n"
-   (map (fn [{:keys [name execution enforcement]}]
-          (format "  %-17s type=%-7s enforce=%s"
-                  name execution enforcement))
+   (map (fn [{:keys [name selection]}]
+          (format "  %-7s selection=%s" name selection))
         mode-specs)))

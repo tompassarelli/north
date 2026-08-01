@@ -1306,7 +1306,7 @@
         _ (when-not (or thread ad-hoc? *delegate-request*
                         (str/blank? (str invoked-role)) (str/blank? (str prompt)))
             (binding [*out* *err*]
-              (println (red "managed spawn requires --thread <id> so its effort is attributable"))
+              (println (red "North spawn requires --thread <id> so its effort is attributable"))
               (println (dim "  pass --thread <id> to bind this run to a workstream,"))
               (println (dim "  or --ad-hoc to deliberately run it unattributed.")))
             (System/exit 2))

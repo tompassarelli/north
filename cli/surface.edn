@@ -149,10 +149,10 @@
   ;; ------------------------------------------------------------- routing
   {:verb "config" :form "north config" :topic :routing
    :summary "every posture setting + routing policy, one report"
-   :details ["north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced"
+   :details ["north config dispatch <mode> — native · north · auto"
              "north config guards on|off — value-aware kill-switch for authoring guards"
-             "north config routing — provider order, pressure, reserves, envelopes"
-             "north config learning — frozen consistency or bounded ordinary-operation exploration"]
+             "north config routing — allocation detail inside auto: provider order, pressure, reserves, envelopes"
+             "north config learning — frozen known-best or learning bounded experimental assignment"]
    :card {:section :system :form "north config"
           :text "posture: dispatch surface, guards, routing"}}
   {:verb "providers" :form "north providers [--json]" :topic :routing

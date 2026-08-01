@@ -64,17 +64,18 @@ files or 2+ concerns. Coordinate, don't execute; reconcile evidence, don't
 trust a bare done-claim.
 **Dispatch authority is live configuration, not profile law.** At task intake,
 read `north config dispatch`; its current value decides which dispatch surface
-may or should create workers:
+creates workers:
 
-- `native-forced`: use provider-native Agent/Workflow dispatch. North may still
+- `native` pins the provider-native Agent/Workflow surface. North may still
   coordinate, record, and observe, but MUST NOT independently spawn or delegate
   workers.
-- `native-biased`: prefer native dispatch; a North-managed lane remains allowed
-  when the task or user specifically warrants it.
-- `managed-biased`: prefer North-managed lanes; native dispatch remains allowed
-  when the task or user specifically warrants it.
-- `managed-forced`: dispatch workers through North; provider-native
-  Agent/Workflow calls are denied.
+- `north` pins the North-managed surface; provider-native Agent/Workflow calls
+  are denied.
+- `auto` lets the system choose a surface for each dispatch. The orthogonal
+  `north config learning` axis governs that choice: `frozen` uses the
+  deterministic known-best assignment, while `learning` permits bounded
+  experimental assignment. Account allocation (`balanced`, `preferential`, or
+  `reserved`) is routing detail inside `auto`, never a peer dispatch mode.
 
 A live change takes effect at the next dispatch decision; profile prose never
 overrides the mode. The user talks to a listener, never a worker. Each dispatched job
@@ -84,10 +85,11 @@ Inline work is limited to answering from context, reading, consuming and
 reconciling delegated evidence, the one allowed suspicious spot-check, and
 coordination acts.
 
-When managed dispatch is selected, recursion is explicit: an orchestrator may
-create workers or child orchestrators only through North, and owns settlement
-of its direct children. Every child receives a fresh `part_of` thread, run,
-reservation, complete Orchestration route, resource envelope, and telemetry.
+When the North-managed surface is selected (`north`, or a North choice under
+`auto`), recursion is explicit: an orchestrator may create workers or child
+orchestrators only through North, and owns settlement of its direct children.
+Every child receives a fresh `part_of` thread, run, reservation, complete
+Orchestration route, resource envelope, and telemetry.
 Workers never spawn or gain authority in place. When scope overruns, new seams,
 budget pressure, or repeated no-progress invalidate the plan, emit a structured
 `north escalate needs-replan` checkpoint; the nearest live supervisor in the

@@ -6,7 +6,7 @@ Orchestration role, and delivery posture:
 - **frozen** uses the best-known admitted route, prompt, authoring surface, and
   history strategy consistently. It still records the same telemetry and
   construction receipts.
-- **learning** permits bounded exploration during ordinary managed work. A
+- **learning** permits bounded exploration during ordinary dispatch. A
   deterministic assignment may change at most one eligible axis for one
   episode. Risk, hard quality floors, explicit eligibility, and maximum tier
   distance narrow the candidate set before assignment.
@@ -34,9 +34,12 @@ The versioned policy is atomically replaced at
 isolated policy for a test or tool. A malformed document fails closed; North
 does not silently restore defaults over invalid state.
 
-Changing `mode` never changes the configured dispatch surface. Frozen versus
-learning says whether an admitted managed episode may explore; native versus
-managed says who executes it.
+Changing `mode` never changes a pinned dispatch surface. The dispatch setting is
+`native` (provider-native pinned), `north` (North-managed pinned), or `auto`
+(choose for each dispatch). Under `auto`, frozen versus learning says whether
+that assignment is deterministic known-best or bounded experimental. Account
+allocation policy remains a routing detail within `auto`, never a peer dispatch
+mode.
 
 ## Assignment contract
 
