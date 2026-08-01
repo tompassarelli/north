@@ -2,9 +2,9 @@
 // The pure salvage-gate + payload contract live in worktree.test.ts; THIS file drives the
 // impure spawn() seam end-to-end, hermetically (fake `north` on NORTH_BIN, unused NORTH_PORT,
 // injected queryFn that CAPTURES the SDK Options and returns a clean `ran`). Two guarantees:
-//   1. DEFAULT OFF => zero behavior change: no `cwd` in Options, no worktree payload appended
-//      to the system prompt, no worktree/branch fact written, no /tmp worktree created.
-//   2. OPT-IN (worktree:true) => a real worktree provisioned at /tmp/<repo>-lane-<id> on
+//   1. Mutation-capable compositions DEFAULT ON when no explicit worktree choice is made.
+//   2. Explicit opt-out (worktree:false) refuses mutation before provider execution.
+//   3. OPT-IN (worktree:true) => a real worktree provisioned at /tmp/<repo>-lane-<id> on
 //      branch lane-<id>; Options.cwd points INTO it; the isolation payload is appended; the
 //      worktree/branch facts route through NORTH_BIN; a clean `ran` removes the tree inline.
 import { test, expect, beforeAll, afterAll } from "bun:test";
@@ -158,7 +158,7 @@ afterAll(() => {
   try { rmSync(dir, { recursive: true, force: true }); } catch {}
 });
 
-test("managed authoring without a registered worktree fails closed before canonical mutation", async () => {
+test("explicit worktree:false refuses managed mutation before canonical mutation", async () => {
   const { spawn } = await import("./support/spawn");
   const sink: { options?: any } = {};
   const agentId = "wt-off-1";
@@ -174,8 +174,8 @@ test("managed authoring without a registered worktree fails closed before canoni
     feedSubscriber: () => readySubscription(),
   }); } catch (error) { thrown = error; }
 
-  expect(String(thrown)).toContain("managed mutation requires a registered worktree allocation");
-  expect(String(thrown)).toContain("set AGENT_WORKTREE=1 in the dispatching environment");
+  expect(String(thrown)).toContain("managed mutation cannot opt out of a registered worktree allocation");
+  expect(String(thrown)).toContain("remove worktree:false to use the default managed worktree lane");
   expect(String(thrown)).toContain("drop mutation capabilities for a read-only lane");
   expect(String(thrown)).toContain("canonical checkout mutation denied");
   expect(providerQueries).toBe(0);
@@ -186,6 +186,37 @@ test("managed authoring without a registered worktree fails closed before canoni
   expect(logged).not.toContain(`tell agent:${agentId} branch`);
   // No worktree directory materialized anywhere under /tmp for this id.
   expect(existsSync(`/tmp/${agentId}`)).toBe(false);
+});
+
+test("mutation-capable spawn composes worktree=true without AGENT_WORKTREE", async () => {
+  const { spawn } = await import("./support/spawn");
+  delete process.env.AGENT_WORKTREE;
+  process.chdir(repo);
+  const sink: { options?: any } = {};
+  const agentId = "wt-default-mutation-1";
+  const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
+  const registrations: WorktreeAllocationRegistration[] = [];
+  try {
+    await spawn({
+      prompt: "default mutation lane",
+      agentId,
+      routingMetadata: presetRequest("integrator"),
+      queryFn: capturingQuery(sink),
+      feedSubscriber: () => readySubscription(),
+      worktreeAllocationWriter: {
+        register: (registration: WorktreeAllocationRegistration) => registrations.push(registration),
+        event: () => {},
+      },
+    });
+  } finally {
+    process.chdir(origCwd);
+    if (existsSync(expectedPath)) rmSync(expectedPath, { recursive: true, force: true });
+  }
+
+  expect(registrations).toHaveLength(1);
+  expect(registrations[0].worktree).toBe(expectedPath);
+  expect(sink.options.cwd).toBe(expectedPath);
+  expect(sink.options.systemPrompt).toContain("Worktree isolation");
 });
 
 test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, facts written, clean ran removes it", async () => {
