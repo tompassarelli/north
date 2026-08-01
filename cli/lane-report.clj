@@ -6,7 +6,7 @@
   (:import [java.time Instant ZoneOffset]
            [java.time.temporal WeekFields]))
 
-(def canonical-arms ["graph" "text" "forced-graph" "forced-text" "na"])
+(def canonical-arms ["control" "graph" "text" "forced-graph" "forced-text" "na"])
 (def successful-outcomes #{"landed" "returned"})
 (def ^:dynamic *now* #(Instant/now))
 
@@ -118,6 +118,16 @@
 (defn arm-order [arm]
   [(or (first (keep-indexed #(when (= %2 arm) %1) canonical-arms)) 99) arm])
 
+(defn assigned-arm [run]
+  (let [axis (get run "learning_axis")
+        arm-id (get run "learning_arm_id")]
+    (cond
+      (and (= "authoring" axis) arm-id) arm-id
+      (and axis arm-id) (if (= "control" axis) "control" (str axis ":" arm-id))
+      ;; Compatibility-only input for experiments recorded before the unified
+      ;; ordinary-operation assignment vocabulary existed.
+      :else (get run "run_arm" "unknown"))))
+
 (defn family [arm]
   (case arm
     ("graph" "forced-graph") "graph"
@@ -199,7 +209,7 @@
                               (> worst factor)
                               (> (or wall-ratio 0.0) 1.0))]
              (when (and effective attention?)
-               {:run (get run "subject") :arm (get run "run_arm" "unknown")
+               {:run (get run "subject") :arm (assigned-arm run)
                 :status (if finished? "finished" "open")
                 :by (bare (get effective "estimate_by"))
                 :wall wall-ratio :tokens token-ratio :worst worst})))
@@ -222,7 +232,7 @@
          (keep (fn [run]
                  (when-let [estimate (:dispatch (estimate-projections
                                                  run (get by-run (get run "subject"))))]
-                   (merge {:week (week run) :arm (get run "run_arm" "unknown")
+                   (merge {:week (week run) :arm (assigned-arm run)
                            :bucket (size-bucket run)}
                           (calibration run estimate)))))
          (group-by (juxt :week :arm :bucket)))))
@@ -318,7 +328,7 @@
 
 (defn print-report [runs estimates now attention-factor]
   (let [complete (filterv complete? runs)
-        by-arm (group-by #(get % "run_arm" "unknown") complete)]
+        by-arm (group-by assigned-arm complete)]
     (print-attention runs estimates now attention-factor)
     (print-calibration-trend runs estimates)
     (print-estimator-calibration runs estimates)
@@ -334,7 +344,7 @@
             "week" "arm" "count" "median wall ms" "median tokens" "first-try pass" "landed")
     (doseq [[[week-value arm] arm-runs]
             (sort-by (fn [[[week-value arm]]] [week-value (arm-order arm)])
-                     (group-by (juxt week #(get % "run_arm" "unknown")) complete))]
+                     (group-by (juxt week assigned-arm) complete))]
       (let [summary (aggregate arm-runs)]
         (printf "%-10s " week-value)
         (print-summary-row arm summary)))
@@ -344,7 +354,7 @@
     (printf "%-8s %-5s %12s %-20s %-8s %12s %-20s%n"
             "bucket" "g-n" "g-wall-ms" "g-tokens" "t-n" "t-wall-ms" "t-tokens")
     (let [comparison (->> complete
-                          (keep #(when-let [arm-family (family (get % "run_arm"))]
+                          (keep #(when-let [arm-family (family (assigned-arm %))]
                                    (assoc % ::family arm-family ::bucket (size-bucket %))))
                           (group-by (juxt ::bucket ::family)))]
       (doseq [bucket ["small" "medium" "large" "unknown"]

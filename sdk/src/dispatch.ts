@@ -99,6 +99,13 @@ import {
   admitRoutingEconomics, type AdmittedRoutingEconomics,
   type RoutingAssessment, type RoutingPinEvidence,
 } from "./routing-economics";
+import { decideManagedLearning } from "./managed-learning";
+import type { LearningAssignment } from "./learning-regime";
+import {
+  publishLearningAssignment,
+  type LearningAssignmentPublicationStatus,
+} from "./learning-assignment-writer";
+import { buildRunEnvelope } from "./composition-receipt";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
@@ -148,6 +155,9 @@ interface DispatchRuntime {
   releaseDriver?: (
     driver: ReturnType<typeof claimDispatchDriver>,
   ) => boolean | Promise<boolean>;
+  publishLearningAssignment?: (
+    runId: string, assignment: LearningAssignment,
+  ) => Promise<LearningAssignmentPublicationStatus>;
 }
 
 const DISPATCH_DEPENDENCY_FIELDS = new Set([
@@ -214,7 +224,11 @@ async function runDispatch(
   childSettlementReader: (agentId: string) => ChildSettlement = settleChildren,
   feedSubscriber: typeof subscribeFeed = subscribeFeed,
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
-  preflightRuntime: Pick<DispatchRuntime, "refreshAccountUsages" | "threadFactsLoadOptions"> = {},
+  preflightRuntime: Pick<
+    DispatchRuntime,
+    "refreshAccountUsages" | "threadFactsLoadOptions" | "publishLearningAssignment"
+  > = {},
+  learningAssignment?: LearningAssignment,
 ): Promise<DispatchResult> {
   const runStartedAt = process.hrtime.bigint();
   const routingMetadata = hydratedMetadata;
@@ -270,6 +284,11 @@ async function runDispatch(
 
   const agentId = hydratedAgentId ?? createDispatchAgentId(threadId);
   let runId = newRunId(agentId);
+  if (!learningAssignment)
+    throw new Error("managed North dispatch execution requires a learning assignment");
+  const assignmentWriter = preflightRuntime.publishLearningAssignment
+    ?? (queryFn ? async () => "recorded" as const : publishLearningAssignment);
+  await assignmentWriter(runId, learningAssignment);
   const runContext = newDeliveryRunContext(runId, threadId, agentId);
   const runtime: DispatchRuntime["deliveryRuntime"] = deliveryRuntime ?? (queryFn ? undefined : {
     reserve: reserveDeliveryRun,
@@ -976,6 +995,20 @@ async function runDispatch(
   const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
   const providerJoin = collectProviderJoinEvidence(terminalMessages);
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const promptReceipt = promptComposition?.promptReceipt;
+  const environmentReceipt = promptComposition?.environmentReceipt;
+  const finalRoute = activeRoute();
+  const runEnvelopeReceipt = promptReceipt && environmentReceipt
+    ? buildRunEnvelope({
+      promptReceipt,
+      environmentReceipt,
+      assignmentSha256: learningAssignment.manifestSha256,
+      tier: routingMetadata.tier,
+      effort: finalRoute.effort ?? routingMetadata.reasoning,
+      ...(finalRoute.model ? { model: finalRoute.model } : {}),
+      providerAdapterVersion: "north-managed-adapter:v1",
+      providerRuntimeVersion: `bun-${Bun.version}`,
+    }) : undefined;
   const mcpActivity = activeExecutionQuery?.mcpActivity?.()
     ?? unknownMcpActivity("provider-activity-unavailable");
   const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.();
@@ -1034,6 +1067,10 @@ async function runDispatch(
               threadProvenance: "exact",
               turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
               promptComposition,
+              learningAssignment,
+              promptReceipt,
+              environmentReceipt,
+              runEnvelopeReceipt,
               promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,
               promptCompositionDigest: promptComposition?.promptEconomics?.compositionDigest,
               capabilityClass: promptComposition?.promptEconomics?.capabilityClass,
@@ -1089,10 +1126,10 @@ export async function dispatch(
   // Routing admission is the first request-dependent boundary. Even a
   // completed thread must not make an incomplete/hostile managed envelope look
   // accepted, and a preclaimed fast path must not touch driver state first.
-  const routingMetadata = admitRoutingRequest(
+  let routingMetadata = admitRoutingRequest(
     admitted.routingMetadata ?? {}, "managed North dispatch",
   );
-  const routingEconomics = admitRoutingEconomics({
+  let routingEconomics = admitRoutingEconomics({
     request: routingMetadata,
     routingAssessment: admitted.routingAssessment,
     pinEvidence: admitted.pinEvidence,
@@ -1134,6 +1171,34 @@ export async function dispatch(
   const agentId = selectDispatchAgentId(threadId, {
     agentId: admitted.agentId,
     driverOptions: injected.driverOptions,
+  });
+  const learning = decideManagedLearning({
+    episodeId: agentId,
+    taskSignature: {
+      surface: "dispatch",
+      threadFacts: facts.map(({ predicate, value }) => [predicate, value])
+        .sort(([leftPredicate, leftValue], [rightPredicate, rightValue]) =>
+          leftPredicate.localeCompare(rightPredicate) || leftValue.localeCompare(rightValue)),
+      role: routingMetadata.role,
+      taskGrade: routingMetadata.taskGrade,
+      topology: routingMetadata.topology,
+      domains: [...routingMetadata.domainRequirements].sort(),
+    },
+    taskSignatureCoverage: "exact",
+    routingMetadata,
+    routingAssessment: routingEconomics.assessment,
+    pinEvidence: routingEconomics.pinEvidence,
+  });
+  routingMetadata = learning.routingMetadata;
+  routingEconomics = admitRoutingEconomics({
+    request: routingMetadata,
+    routingAssessment: learning.routingAssessment,
+    pinEvidence: admitted.pinEvidence,
+    provider: process.env.AGENT_PROVIDER,
+    target: process.env.AGENT_TARGET,
+    model: process.env.AGENT_MODEL,
+    allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
+    surface: "managed North dispatch learning admission",
   });
   const termination = new ManagedQueryTermination(
     injected.registerTermination,
@@ -1178,6 +1243,7 @@ export async function dispatch(
       injected.feedSubscriber ?? subscribeFeed,
       termination,
       injected,
+      learning.assignment,
     );
   } catch (error) {
     failed = true;

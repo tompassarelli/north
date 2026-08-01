@@ -1,5 +1,10 @@
 # Text-arm protocol for graph-upstream files
 
+This document describes the earlier standalone authoring bake-off. New managed
+episodes use the unified learning assignment (`learning_axis=authoring`,
+`learning_arm_id=text`); `run_arm` below is retained compatibility vocabulary,
+not a second primitive. See [`docs/learning-regime.md`](learning-regime.md).
+
 A text-arm task keeps Fram's global adoption markers intact. Its de-adoption is
 task-local: a short-lived token tells the composed `code-upstream-guard` to
 allow text mutation only for the assigned thread and listed files. Physical

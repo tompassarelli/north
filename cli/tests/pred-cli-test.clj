@@ -180,10 +180,15 @@
 ;; Fixed SDK fact constructors are audited instead of their variable transport
 ;; loops. A variable p in recordRun is not permission to omit a runFacts tuple.
 (def telemetry-source (slurp-source "sdk/src/telemetry.ts"))
+(def learning-source (slurp-source "sdk/src/learning-regime.ts"))
 (def run-predicates
-  (pair-predicates (section telemetry-source
-                            "export function runFacts"
-                            "export function recordRun")))
+  (set/union
+   (pair-predicates (section telemetry-source
+                             "export function runFacts"
+                             "export function recordRun"))
+   (pair-predicates (section learning-source
+                             "export function learningAssignmentFacts"
+                             "}"))))
 (def run-event-source (slurp-source "sdk/src/run-ledger.ts"))
 (def run-event-predicates
   (pair-predicates (section run-event-source
@@ -228,6 +233,19 @@
     "prompt_stable_prefix_tokens" "prompt_unique_tail_tokens"
     "prompt_total_composition_tokens" "prompt_token_measurement_status"
     "prompt_token_measurement_source" "provider_context_window_tokens"
+    "learning_assignment_version" "learning_policy_version" "learning_policy_sha256"
+    "learning_mode" "learning_evidence_mode" "learning_experiment_id"
+    "learning_episode_id" "learning_task_signature_sha256"
+    "learning_task_signature_coverage" "learning_risk" "learning_arm"
+    "learning_axis" "learning_arm_id" "learning_propensity"
+    "learning_explore_propensity" "learning_narrowing_reason"
+    "learning_baseline_sha256" "learning_options_sha256"
+    "learning_assignment_sha256"
+    "prompt_receipt_version" "prompt_receipt_sha256" "prompt_wire_sha256"
+    "prompt_receipt_coverage" "environment_receipt_version"
+    "environment_receipt_sha256" "environment_receipt_coverage"
+    "available_skill_catalog_sha256" "activated_resource_closure_sha256"
+    "run_envelope_version" "run_envelope_sha256"
     "context_window_effective_from" "context_window_status" "context_window_source"
     "effective_context_budget_tokens" "context_budget_status" "context_budget_source"
     "provider" "provider_reason" "provider_target"

@@ -47,6 +47,10 @@ import {
   providerModelObservationPath,
   type ProviderModelAdmissionReceipt,
 } from "./provider-model-observation-store";
+import {
+  buildEnvironmentReceipt, buildPromptReceipt, sha256Bytes,
+  type EnvironmentArtifact, type EnvironmentReceipt, type PromptReceipt,
+} from "./composition-receipt";
 
 // sdk/src/harness.ts -> its relocatable runtime root.
 const REPO = resolve(import.meta.dir, "../..");
@@ -56,9 +60,9 @@ const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
 const northPort = () => process.env.NORTH_PORT ?? "7977";
 const peerBb = () => process.env.NORTH_PEER_BB ?? "bb";
 
-function currentPathExecutable(name: string): string {
+function currentPathExecutable(name: string, env: NodeJS.ProcessEnv = process.env): string {
   if (name.includes("/")) return name;
-  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+  for (const directory of (env.PATH ?? "").split(delimiter)) {
     if (!directory) continue;
     const candidate = resolve(directory, name);
     try {
@@ -352,6 +356,10 @@ export interface HarnessOpts {
   presenceRegistrar?: false | ((self: string, cwd: string) => void);
   /** Matching heartbeat seam. Omit with production registration for the real renewer. */
   presenceRenewer?: false | ((self: string) => void);
+  /** Explicit resource reads observed by the caller; absence remains unknown. */
+  activatedResources?: readonly EnvironmentArtifact[];
+  /** Explicit available-skill catalog observation; absence remains unknown. */
+  availableSkills?: readonly EnvironmentArtifact[];
 }
 
 // Auto-connect every SDK-spawned agent to north coordination — the SDK twin of
@@ -486,8 +494,8 @@ function coordinationBlock(
 
 // AGENT_ESO=on|off — appends dense-handoff instruction to every spawned agent.
 // When on, agents emit uniform arrays of ≥10 records as ESO instead of JSON/markdown.
-function esoAppendix(): string {
-  const mode = process.env.AGENT_ESO ?? "on";
+function esoAppendix(env: NodeJS.ProcessEnv = process.env): string {
+  const mode = env.AGENT_ESO ?? "on";
   if (mode !== "on") return "";
   return "\n\n" +
     "DENSE HANDOFF — when a final report contains a uniform array of ≥10 similar records " +
@@ -581,8 +589,8 @@ export function canonicalGlobalAgents(
   return { path, realpath: canonicalPath, ...source };
 }
 
-function globalLawsAppendix(): string {
-  const laws = canonicalGlobalAgents();
+function globalLawsAppendix(env: NodeJS.ProcessEnv = process.env): string {
+  const laws = canonicalGlobalAgents(env);
   if (!laws) return "";
   const trailingNewline = laws.text.endsWith("\n") ? "" : "\n";
   return `\n\n## Global laws — ${laws.path} (binds every provider and agent)\n\n`
@@ -711,10 +719,13 @@ function splitStandingGuards(section: ConstitutionSection, b: ConstitutionBucket
   }
 }
 
-function constitutionRepoClass(cwd: string): { client: boolean; nixos: boolean; beagle: boolean } {
+function constitutionRepoClass(
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { client: boolean; nixos: boolean; beagle: boolean } {
   let real = cwd;
   try { real = realpathSync(cwd); } catch { /* keep raw cwd */ }
-  const home = process.env.HOME ?? "";
+  const home = env.HOME ?? "";
   const under = (base: string) => real === base || real.startsWith(`${base}${sep}`);
   return {
     client: Boolean(home) && under(resolve(home, "code", "client")),
@@ -733,10 +744,11 @@ function constitutionRepoClass(cwd: string): { client: boolean; nixos: boolean; 
 export function constitutionTiers(
   capabilities: readonly OrchestrationCapability[] | undefined,
   cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): { core: string; cap: string; repo: string } {
-  const laws = canonicalGlobalAgents();
+  const laws = canonicalGlobalAgents(env);
   if (!laws) return { core: "", cap: "", repo: "" };
-  if (!capabilities) return { core: globalLawsAppendix(), cap: "", repo: "" };
+  if (!capabilities) return { core: globalLawsAppendix(env), cap: "", repo: "" };
 
   const { preamble, sections } = parseConstitution(laws.text);
   const b: ConstitutionBuckets = { core: [], write: [], shell: [], orch: [], client: [], nixos: [], beagle: [] };
@@ -749,7 +761,7 @@ export function constitutionTiers(
   b.core.push(API_KEYS_CORE_STUB);
 
   const caps = new Set(capabilities);
-  const repo = constitutionRepoClass(cwd);
+  const repo = constitutionRepoClass(cwd, env);
   const wrap = (label: string, parts: string[]) =>
     parts.length ? `\n\n## ${label}\n\n${parts.join("\n\n")}` : "";
   const capParts = [
@@ -828,8 +840,11 @@ function projectInstructionFile(directory: string): string | undefined {
  * sealed off. A discovered but unreadable/malformed/oversized instruction source
  * blocks the spawn instead of silently creating a provider-specific authority gap.
  */
-export function projectAgentsAppendix(cwd: string): string {
-  if (!agentLawsEnabled()) return "";
+export function projectAgentsAppendix(
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (!agentLawsEnabled(env)) return "";
   const project = gitRootForProject(cwd);
   const rel = relative(project.root, project.cwd);
   if (rel === ".." || rel.startsWith(`..${sep}`))
@@ -870,8 +885,11 @@ export function projectAgentsAppendix(cwd: string): string {
     : "";
 }
 
-function assertCanonicalGlobalAgentsExactlyOnce(prompt: string): void {
-  const canonical = canonicalGlobalAgents();
+function assertCanonicalGlobalAgentsExactlyOnce(
+  prompt: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const canonical = canonicalGlobalAgents(env);
   if (!canonical) return;
   // Tiered assembly splits the constitution across CORE/CAP/REPO, so the whole
   // text is no longer contiguous. The preamble (before the first `## `, always
@@ -888,11 +906,13 @@ function assertCanonicalGlobalAgentsExactlyOnce(prompt: string): void {
     throw new Error(`Anthropic global AGENTS bootstrap expected exactly once, observed ${count}`);
 }
 
-function orchestrationHome(): string {
-  return resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+function orchestrationHome(env: NodeJS.ProcessEnv = process.env): string {
+  return resolve(env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
 }
 
-function orchestrationDocs(): string { return resolve(orchestrationHome(), "docs"); }
+function orchestrationDocs(env: NodeJS.ProcessEnv = process.env): string {
+  return resolve(orchestrationHome(env), "docs");
+}
 
 function extractFenceFromSection(text: string, heading: string): string | null {
   const lines = text.split("\n");
@@ -976,22 +996,28 @@ export function domainSkillsDir(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env.HOME ?? "", ".agents", "skills");
 }
 
-function domainContextCandidates(cwd: string, requirement: string): string[] {
+function domainContextCandidates(
+  cwd: string,
+  requirement: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
   const slug = requirementSlug(requirement);
   const candidates = [
     resolve(cwd, "AGENTS.md"),
     resolve(cwd, "docs", `${slug}.md`),
     resolve(cwd, "docs", "domains", `${slug}.md`),
-    resolve(domainSkillsDir(), slug, "SKILL.md"),
-    resolve(orchestrationHome(), "docs", "domains", `${slug}.md`),
+    resolve(domainSkillsDir(env), slug, "SKILL.md"),
+    resolve(orchestrationHome(env), "docs", "domains", `${slug}.md`),
   ];
   return [...new Set(candidates.filter(existsSync))];
 }
 
-function domainContextGate(requirements: string[], cwd: string): string {
+function domainContextGate(
+  requirements: string[], cwd: string, env: NodeJS.ProcessEnv = process.env,
+): string {
   if (!requirements.length) return "";
   const entries = requirements.map((requirement) => {
-    const candidates = domainContextCandidates(cwd, requirement);
+    const candidates = domainContextCandidates(cwd, requirement, env);
     return [
       `### ${requirement}`,
       candidates.length
@@ -1037,6 +1063,8 @@ export interface HarnessCompositionEvidence {
   posture?: string;
   modelDelta?: ModelDeltaEvidence;
   promptEconomics?: PromptEconomicsEvidence;
+  promptReceipt?: PromptReceipt;
+  environmentReceipt?: EnvironmentReceipt;
 }
 
 export const PROMPT_COMPOSITION_VERSION = "north-harness-prompt:v1";
@@ -1094,6 +1122,8 @@ interface HarnessCompositionState {
   initialEffort?: Effort;
   omitModelDeltaReason?: string;
   exactModelPinned: boolean;
+  /** Immutable composer input; dynamic branches may not reread ambient env. */
+  environment: NodeJS.ProcessEnv;
 }
 
 // The single 4-tier assembler. CORE (byte-identical for every lane) then
@@ -1106,18 +1136,67 @@ function composeSystemPrompt(
   state: HarnessCompositionState,
   provider: ProviderId | undefined,
   model: string | undefined,
-): { prompt: string; deltaEvidence: ModelDeltaEvidence; economics: PromptEconomicsEvidence } {
+): {
+  prompt: string;
+  deltaEvidence: ModelDeltaEvidence;
+  economics: PromptEconomicsEvidence;
+  receipt: PromptReceipt;
+} {
   const includeConstitution = provider === undefined || provider === "anthropic";
   const constitution = includeConstitution
-    ? constitutionTiers(state.capabilities, state.cwd)
+    ? constitutionTiers(state.capabilities, state.cwd, state.environment)
     : { core: "", cap: "", repo: "" };
   const delta = modelDeltaAppendix(provider, model, state.omitModelDeltaReason);
   const core = state.basePrompt + constitution.core;
   const cap = state.orchestrationAppendix + constitution.cap;
-  const repo = projectAgentsAppendix(state.cwd) + constitution.repo;
-  const tail = coordinationBlock(state.self, state.cwd, provider, state.capabilities) + delta.appendix;
+  const project = projectAgentsAppendix(state.cwd, state.environment);
+  const repo = project + constitution.repo;
+  const coordination = coordinationBlock(state.self, state.cwd, provider, state.capabilities);
+  const tail = coordination + delta.appendix;
   const stablePrefix = core + cap + repo;
   const prompt = stablePrefix + tail;
+  const chunks = [
+    ["core-base", state.basePrompt],
+    ["constitution-core", constitution.core],
+    ["orchestration", state.orchestrationAppendix],
+    ["constitution-capability", constitution.cap],
+    ["project-instructions", project],
+    ["constitution-repository", constitution.repo],
+    ["coordination", coordination],
+    ["model-delta", delta.appendix],
+  ] as const;
+  const receipt = buildPromptReceipt({
+    coverage: "exact",
+    wirePrompt: prompt,
+    modules: chunks.map(([id, rendered], position) => ({
+      id, schemaVersion: "v1", position,
+      dependencies: position === 0 ? [] : [chunks[position - 1]![0]],
+      sourceSha256: sha256Bytes(rendered), rendered,
+      ...(id === "core-base" ? {
+        parameterDigests: {
+          esoMode: sha256Bytes(state.environment.AGENT_ESO ?? "on"),
+          lawsMode: sha256Bytes(state.environment.AGENT_LAWS ?? "on"),
+        },
+      } : {}),
+    })),
+    branches: [
+      {
+        ruleId: "constitution-provider", conditionId: "provider-kind",
+        inputDigest: sha256Bytes(provider ?? "unresolved"),
+        branch: includeConstitution ? "included" : "native-provider",
+      },
+      {
+        ruleId: "model-delta", conditionId: "resolved-model",
+        inputDigest: sha256Bytes(`${provider ?? "unresolved"}:${model ?? "unresolved"}`),
+        branch: delta.evidence.kind,
+      },
+      {
+        ruleId: "capability-class", conditionId: "capability-set",
+        inputDigest: sha256Bytes(JSON.stringify([...(state.capabilities ?? [])].sort())),
+        branch: capabilityClass(state.capabilities, state.evidence.topology),
+      },
+    ],
+  });
   let contextWindow: ReturnType<typeof observeProviderContextWindow>;
   try {
     contextWindow = provider && model ? observeProviderContextWindow(provider, model) : undefined;
@@ -1146,7 +1225,7 @@ function composeSystemPrompt(
     compactionPolicy: "native-auto-compact-enabled",
     compactionPolicyVersion: COMPACTION_POLICY_VERSION,
   };
-  return { prompt, deltaEvidence: delta.evidence, economics };
+  return { prompt, deltaEvidence: delta.evidence, economics, receipt };
 }
 
 const harnessComposition = new WeakMap<object, HarnessCompositionState>();
@@ -1354,10 +1433,11 @@ export function hasCanonicalAuthoringHooks(options: Options): boolean {
 }
 
 /** Compose Orchestration's authority contracts. Missing canonical artifacts are fatal. */
-export function orchestrationAppendix(metadata: RoutingDraft | undefined, cwd = process.cwd()): {
-  appendix: string;
-  evidence: HarnessCompositionEvidence;
-} {
+export function orchestrationAppendix(
+  metadata: RoutingDraft | undefined,
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): { appendix: string; evidence: HarnessCompositionEvidence } {
   if (!metadata || Object.keys(metadata).length === 0) return { appendix: "", evidence: {} };
   // Axis-only appendix composition remains useful for native/prompt tests, but
   // selecting a managed role is an execution-grade act and therefore admits
@@ -1373,7 +1453,7 @@ export function orchestrationAppendix(metadata: RoutingDraft | undefined, cwd = 
     if (composition.id !== admitted.role)
       throw new Error(`Orchestration composition ${composition.id} does not match role ${admitted.role}`);
     if (composition.kind === "preset") {
-      const role = exactSectionFence(resolve(orchestrationDocs(), "roles.md"), admitted.role, `role:${admitted.role}`);
+      const role = exactSectionFence(resolve(orchestrationDocs(env), "roles.md"), admitted.role, `role:${admitted.role}`);
       blocks.push(`## Orchestration role contract — preset:${admitted.role}\n${role}`);
       if (composition.overrides.length) {
         blocks.push([
@@ -1396,24 +1476,24 @@ export function orchestrationAppendix(metadata: RoutingDraft | undefined, cwd = 
     evidence.capabilities = composition.kind === "bespoke"
       ? canonicalOrchestrationCapabilities(composition.contract.capabilities)
       : orchestrationCapabilities(admitted);
-    const comms = exactSectionFence(resolve(orchestrationDocs(), "comms.md"), "universal", "comms:universal");
+    const comms = exactSectionFence(resolve(orchestrationDocs(env), "comms.md"), "universal", "comms:universal");
     blocks.push(`## Orchestration communication contract — universal\n${comms}`);
     evidence.commsContractHash = createHash("sha256").update(comms).digest("hex");
   }
   if (routing.taskGrade) {
     const block = exactSectionFence(
-      resolve(orchestrationDocs(), "task-grades.md"), routing.taskGrade, `task-grade:${routing.taskGrade}`,
+      resolve(orchestrationDocs(env), "task-grades.md"), routing.taskGrade, `task-grade:${routing.taskGrade}`,
     );
     blocks.push(`## Orchestration task grade — ${routing.taskGrade}\n${block}`);
     evidence.taskGrade = routing.taskGrade;
   }
   if (routing.domainRequirements?.length) {
-    blocks.push(domainContextGate(routing.domainRequirements, cwd));
+    blocks.push(domainContextGate(routing.domainRequirements, cwd, env));
     evidence.domainRequirements = [...routing.domainRequirements];
   }
   if (routing.topology) {
     const block = exactSectionFence(
-      resolve(orchestrationDocs(), "topologies.md"), routing.topology, `topology:${routing.topology}`,
+      resolve(orchestrationDocs(env), "topologies.md"), routing.topology, `topology:${routing.topology}`,
     );
     blocks.push(`## Orchestration topology — ${routing.topology}\n${block}`);
     evidence.topology = routing.topology;
@@ -1430,7 +1510,7 @@ export function orchestrationAppendix(metadata: RoutingDraft | undefined, cwd = 
   }
   if (routing.posture) {
     const block = exactSectionFence(
-      resolve(orchestrationDocs(), "postures.md"), routing.posture, `posture:${routing.posture}`,
+      resolve(orchestrationDocs(env), "postures.md"), routing.posture, `posture:${routing.posture}`,
     );
     blocks.push(`## Orchestration posture — ${routing.posture}\n${block}`);
     evidence.posture = routing.posture;
@@ -1484,7 +1564,8 @@ export function applyHarnessRoute(
   }
   const concreteModel = resolveModelAlias(provider, model);
   const composed = composeSystemPrompt(state, provider, concreteModel);
-  if (provider === "anthropic") assertCanonicalGlobalAgentsExactlyOnce(composed.prompt);
+  if (provider === "anthropic")
+    assertCanonicalGlobalAgentsExactlyOnce(composed.prompt, state.environment);
   let modelAvailabilityRequired = false;
   if (provider === "anthropic") {
     if (state.exactModelPinned) modelAvailabilityRequired = true;
@@ -1529,6 +1610,7 @@ export function applyHarnessRoute(
     ...state.evidence,
     modelDelta: composed.deltaEvidence,
     promptEconomics: composed.economics,
+    promptReceipt: composed.receipt,
   };
   appliedEvidence.set(next as object, deepFreeze(evidence));
   sealHarnessAuthority(next, provider);
@@ -1582,6 +1664,75 @@ const WORKER_BASH_GUARDS = resolveManagedGuardChain([
 ]);
 const REQUIRED_CLOCK_GUARD = resolve(HOOKS_DIR, "north-clock-guard.sh");
 
+function receiptFileArtifact(id: string, path: string): EnvironmentArtifact {
+  try {
+    const info = statSync(path);
+    if (!info.isFile()) return { id, coverage: "unknown" };
+    return { id, sha256: sha256Bytes(readFileSync(path)), coverage: "exact" };
+  } catch {
+    return { id, coverage: "unknown" };
+  }
+}
+
+function harnessEnvironmentReceipt(args: {
+  env: NodeJS.ProcessEnv;
+  cwd: string;
+  allowedTools: readonly string[];
+  disallowedTools: readonly string[];
+  routingMetadata?: RoutingRequest;
+  activatedResources?: readonly EnvironmentArtifact[];
+  availableSkills?: readonly EnvironmentArtifact[];
+}): EnvironmentReceipt {
+  const toolNames = [...args.allowedTools.map((name) => `allow:${name}`),
+    ...args.disallowedTools.map((name) => `deny:${name}`)].sort();
+  const tools = toolNames.map((name, index) => ({
+    id: `tool-${index}`, sha256: sha256Bytes(name), coverage: "exact" as const,
+  }));
+  const global = canonicalGlobalAgents(args.env);
+  const project = projectAgentsAppendix(args.cwd, args.env);
+  return buildEnvironmentReceipt({
+    availableSkills: args.availableSkills ?? [
+      { id: "available-skill-catalog-observation", coverage: "unknown" },
+    ],
+    activatedResources: args.activatedResources ?? [
+      { id: "activated-resource-observation", coverage: "unknown" },
+    ],
+    tools,
+    hooks: [...EDIT_GUARDS, ...WORKER_BASH_GUARDS]
+      .filter((path, index, values) => values.indexOf(path) === index)
+      .map((path, index) => receiptFileArtifact(`hook-${index}`, path)),
+    configs: [
+      {
+        id: "routing-request", coverage: "exact",
+        sha256: sha256Bytes(JSON.stringify(args.routingMetadata ?? {})),
+      },
+      receiptFileArtifact(
+        "learning-policy",
+        args.env.NORTH_LEARNING_POLICY
+          ?? resolve(args.env.HOME ?? "", ".config/north/learning-policy.json"),
+      ),
+    ],
+    executables: [
+      receiptFileArtifact("north-executable", ENGINE),
+      receiptFileArtifact("north-mcp-executable", MCP),
+      receiptFileArtifact(
+        "babashka-executable",
+        currentPathExecutable(args.env.NORTH_PEER_BB ?? "bb", args.env),
+      ),
+    ],
+    instructions: [
+      ...(global ? [{
+        id: "global-instructions", sha256: sha256Bytes(global.bytes), coverage: "exact" as const,
+      }] : []),
+      {
+        id: "project-instructions", sha256: sha256Bytes(project), coverage: "exact" as const,
+      },
+    ],
+    coverageReason: args.activatedResources
+      ? undefined : "activated-resource-observation-unavailable",
+  });
+}
+
 // One matcher's callback: run its guard chain (first deny wins) over the hook input,
 // translate to HookJSONOutput. A deny blocks THIS tool call (permissionDecision:deny)
 // but does NOT halt the agent (`continue` stays default-true) — the worker sees the
@@ -1623,6 +1774,9 @@ async function guardHook(self: string, scripts: string[], input: unknown, topolo
 
 export function harnessOptions(o: HarnessOpts): Options {
   const cwd = o.cwd ?? process.cwd();
+  // Freeze every composer-visible ambient input once. Prompt branches below
+  // consume this snapshot; mid-assembly env mutation cannot alter the wire.
+  const composerEnvironment = Object.freeze({ ...process.env }) as NodeJS.ProcessEnv;
   const metadata = o.routingMetadata
     ? admitRoutingRequest(o.routingMetadata, "managed North harness")
     : undefined;
@@ -1637,13 +1791,13 @@ export function harnessOptions(o: HarnessOpts): Options {
     ? resolveTier(o.provider, metadata.tier, o.model, effectiveEffort).model
     : o.model;
   const topology = metadata?.topology;
-  const orchestration = orchestrationAppendix(metadata, cwd);
+  const orchestration = orchestrationAppendix(metadata, cwd, composerEnvironment);
   const capabilities = orchestration.evidence.capabilities;
   // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
   // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
   const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
-    + esoAppendix();
+    + esoAppendix(composerEnvironment);
   // Orchestration is positive authority, never an ambient default. A lane with
   // no topology remains prompt-neutral but receives coordination-only tools.
   const orchestrationAllowed = topology === "orchestrator"
@@ -1745,6 +1899,15 @@ export function harnessOptions(o: HarnessOpts): Options {
   const sealedSettingSources = policy
     ? Object.freeze([]) as unknown as NonNullable<Options["settingSources"]>
     : undefined;
+  const environmentReceipt = harnessEnvironmentReceipt({
+    env: composerEnvironment,
+    cwd,
+    allowedTools,
+    disallowedTools,
+    routingMetadata: metadata,
+    activatedResources: o.activatedResources,
+    availableSkills: o.availableSkills,
+  });
   // Tier ingredients (P1+P2 prompt assembly): the composed 4-tier prompt is
   // rebuilt identically on every provider route from this seed; routeBase and
   // the sealed capability list attach after the options literal exists.
@@ -1754,7 +1917,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     orchestrationAppendix: orchestration.appendix,
     capabilities: capabilities ? [...capabilities] : undefined,
     cwd,
-    evidence: orchestration.evidence,
+    evidence: { ...orchestration.evidence, environmentReceipt },
     routingRequest: metadata,
     initialProvider: o.provider,
     initialModel: effectiveModel,
@@ -1763,13 +1926,15 @@ export function harnessOptions(o: HarnessOpts): Options {
     // A direct managed caller that supplies a model is conservatively an exact
     // pin. Production explicitly supplies false for a canonical tier default.
     exactModelPinned: o.modelAvailability?.exactModelPinned ?? o.model !== undefined,
+    environment: composerEnvironment,
   };
   const initialRouteModel = o.provider
     ? resolveModelAlias(o.provider, effectiveModel)
     : effectiveModel;
   const initialComposition = composeSystemPrompt(compositionSeed, o.provider, initialRouteModel);
   const initialSystemPrompt = initialComposition.prompt;
-  if (!o.provider) assertCanonicalGlobalAgentsExactlyOnce(initialSystemPrompt);
+  if (!o.provider)
+    assertCanonicalGlobalAgentsExactlyOnce(initialSystemPrompt, composerEnvironment);
   const options = {
     mcpServers,
     ...(policy ? {
@@ -1835,9 +2000,10 @@ export function harnessOptions(o: HarnessOpts): Options {
   if (presenceRenewer)
     harnessActivityRenewers.set(options as object, () => presenceRenewer(o.self));
   appliedEvidence.set(options as object, deepFreeze({
-    ...orchestration.evidence,
+    ...compositionSeed.evidence,
     modelDelta: initialComposition.deltaEvidence,
     promptEconomics: initialComposition.economics,
+    promptReceipt: initialComposition.receipt,
   }));
   sealAuthoringHooks(options);
   // Presence is an assertion that a runnable lane exists. Every synchronous

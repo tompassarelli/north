@@ -151,7 +151,8 @@
    :summary "every posture setting + routing policy, one report"
    :details ["north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced"
              "north config guards on|off — value-aware kill-switch for authoring guards"
-             "north config routing — provider order, pressure, reserves, envelopes"]
+             "north config routing — provider order, pressure, reserves, envelopes"
+             "north config learning — frozen consistency or bounded ordinary-operation exploration"]
    :card {:section :system :form "north config"
           :text "posture: dispatch surface, guards, routing"}}
   {:verb "providers" :form "north providers [--json]" :topic :routing
@@ -170,7 +171,8 @@
              "usage — provider work usage (never dollars / API credits)"
              "economics — bounded routing-cost signals + alert-only findings"
              "promotions — bespoke patterns for stock-template review"
-             "calibration — run-local judgment/struggle detector cohorts"]}
+             "calibration — run-local judgment/struggle detector cohorts"
+             "learning — exact evaluation cohorts plus explicit evidence exclusions"]}
   {:verb "canary" :form "north canary run|report" :topic :routing
    :summary "production-path managed-lane reliability probe"}
   {:verb "ccr" :form "north ccr prepare|retrieve" :topic :routing

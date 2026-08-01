@@ -109,6 +109,13 @@ import {
   managedFramLaneSourceConfiguration,
   prepareManagedFramCoordinator,
 } from "./fram-graph-authoring";
+import { decideManagedLearning } from "./managed-learning";
+import type { LearningAssignment } from "./learning-regime";
+import {
+  publishLearningAssignment,
+  type LearningAssignmentPublicationStatus,
+} from "./learning-assignment-writer";
+import { buildRunEnvelope, sha256Bytes } from "./composition-receipt";
 
 export interface SpawnOptions {
   prompt: string;
@@ -163,6 +170,9 @@ interface SpawnRuntime {
   admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
   worktreeAllocationWriter?: WorktreeAllocationWriter;
   prepareManagedFramCoordinator?: typeof prepareManagedFramCoordinator;
+  publishLearningAssignment?: (
+    runId: string, assignment: LearningAssignment,
+  ) => Promise<LearningAssignmentPublicationStatus>;
 }
 
 const SPAWN_OPTION_FIELDS = new Set([
@@ -313,6 +323,7 @@ async function runSpawn(
   providerReady?: Promise<void>,
   retryContext?: RetryContext,
   retryTarget?: string,
+  learningAssignment?: LearningAssignment,
 ): Promise<{
   result: string; outcome: string; runId: string; providerErrorDetail?: string;
   numTurns?: number; provider: ProviderPreference; siblingTarget?: string;
@@ -328,6 +339,14 @@ async function runSpawn(
   const repoRoot = worktreeLease?.repoRoot ?? process.cwd();
   const wt = worktreeLease;
   let runId = worktreeLease?.allocation.runId ?? newRunId(agentId);
+  if (!learningAssignment)
+    throw new Error("managed North spawn execution requires a learning assignment");
+  // The injected query boundary is hermetic and owns all external writers.
+  // Production must durably acknowledge the assignment before even selecting
+  // a provider, so a failed recorder cannot move the arm after side effects.
+  const assignmentWriter = injected.publishLearningAssignment
+    ?? (injected.queryFn ? async () => "recorded" as const : publishLearningAssignment);
+  await assignmentWriter(runId, learningAssignment);
   // ONE thread resolution, used by both the delivery reservation here and the
   // run ledger at terminal. They disagreed: the reservation read opts.thread
   // while the ledger also accepted AGENT_THREAD, and `north spawn --thread`
@@ -1170,6 +1189,19 @@ async function runSpawn(
   const providerJoin = collectProviderJoinEvidence(terminalMessages);
   const finalRoute = activeRoute();
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const promptReceipt = promptComposition?.promptReceipt;
+  const environmentReceipt = promptComposition?.environmentReceipt;
+  const runEnvelopeReceipt = promptReceipt && environmentReceipt
+    ? buildRunEnvelope({
+      promptReceipt,
+      environmentReceipt,
+      assignmentSha256: learningAssignment.manifestSha256,
+      tier: routingMetadata.tier,
+      effort: finalRoute.effort ?? routingMetadata.reasoning,
+      ...(finalRoute.model ? { model: finalRoute.model } : {}),
+      providerAdapterVersion: "north-managed-adapter:v1",
+      providerRuntimeVersion: `bun-${Bun.version}`,
+    }) : undefined;
   const mcpActivity = activeExecutionQuery?.mcpActivity?.()
     ?? unknownMcpActivity("provider-activity-unavailable");
   const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.();
@@ -1235,6 +1267,10 @@ async function runSpawn(
     threadProvenance,
     turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
     promptComposition,
+    learningAssignment,
+    promptReceipt,
+    environmentReceipt,
+    runEnvelopeReceipt,
     promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,
     promptCompositionDigest: promptComposition?.promptEconomics?.compositionDigest,
     capabilityClass: promptComposition?.promptEconomics?.capabilityClass,
@@ -1389,12 +1425,41 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     }
   }
   const context = envelopeContextFromEnv();
-  const requestedTier = composed.tier;
   const agentId = composed.agentId ?? createSpawnAgentId();
   // Pin the generated id so admission, telemetry, and the provider run name the
   // same lane. Admission completes before entitlement refresh or provider query.
   composed.agentId = agentId;
   composed.sessionId = composed.sessionId ?? context.sessionId;
+  const learning = decideManagedLearning({
+    episodeId: agentId,
+    taskSignature: {
+      surface: "spawn",
+      promptSha256: sha256Bytes(composed.prompt),
+      role: composed.routingMetadata.role,
+      taskGrade: composed.routingMetadata.taskGrade,
+      topology: composed.routingMetadata.topology,
+      domains: [...composed.routingMetadata.domainRequirements].sort(),
+    },
+    taskSignatureCoverage: "exact",
+    routingMetadata: composed.routingMetadata,
+    routingAssessment: composed.routingEconomics.assessment,
+    pinEvidence: composed.routingEconomics.pinEvidence,
+  });
+  composed.routingMetadata = learning.routingMetadata;
+  composed.routingAssessment = learning.routingAssessment;
+  composed.tier = learning.routingMetadata.tier;
+  composed.effort = learning.routingMetadata.reasoning;
+  composed.routingEconomics = admitRoutingEconomics({
+    request: learning.routingMetadata,
+    routingAssessment: learning.routingAssessment,
+    pinEvidence: composed.pinEvidence,
+    provider: composed.provider,
+    target: composed.target,
+    model: composed.model,
+    allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
+    surface: "managed North spawn learning admission",
+  });
+  const requestedTier = composed.tier;
   // Explicit isolation is an admission requirement, not a preference. Provision
   // before clocks, resource reservations, provider probes, stream/identity facts,
   // run reservations, or the provider query. A failure rejects this spawn and can
@@ -1471,6 +1536,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       const attemptPromise = runSpawn(
         { ...composed }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease, providerReady,
+        undefined, undefined, learning.assignment,
       );
       // Coordinator boot can outlive the caller's startup handshake. Retain the
       // attempt concurrently so identity publication happens first, while this
@@ -1510,6 +1576,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       attempt = await runSpawn(
         { ...composed }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease,
+        undefined, undefined, undefined, learning.assignment,
       );
     }
     let retries = 0;
@@ -1542,6 +1609,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease, undefined,
         { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
+        learning.assignment,
       );
       deadAgentId = retryAgentId;
     }

@@ -1,4 +1,10 @@
-# Graph-native versus text authoring experiment
+# Graph-native versus text authoring experiment (legacy recorder)
+
+This is the retained standalone bake-off protocol. New ordinary managed
+experiments use the unified learning regime in
+[`docs/learning-regime.md`](learning-regime.md): `learning_axis=authoring` and
+`learning_arm_id=graph|text`. `run_arm` is compatibility-only and must not
+become a second assignment vocabulary.
 
 The experiment measures authoring workflows for real tasks; it does not use the
 assignment result to decide whether a task enters the sample.
@@ -24,12 +30,12 @@ the same arm.
 
 ## Run-recorder contract
 
-Record one experiment row on the exact run entity. The task thread's `run_arm`
-fact joins the row to its assignment.
+The legacy recorder writes one experiment row on the exact run entity. The
+task thread's `run_arm` fact joins that historical row to its assignment.
 
 | Fact | Contract |
 | --- | --- |
-| `run_arm` | `graph`, `text`, `forced-graph`, or `forced-text` |
+| `run_arm` | compatibility-only: `graph`, `text`, `forced-graph`, or `forced-text` |
 | `run_outcome` | `success`, `failure`, or `blocked` |
 | `run_retries` | Failed authoring/acceptance cycles before the accepted result; nonnegative integer |
 | `run_tokens` | Exact provider token total, or `unknown`; unknown is never recorded as zero |
