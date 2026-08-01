@@ -34,16 +34,15 @@
 
 (let [request (atom nil)
       facts
-      (with-redefs [north.coord/show-envelope
-                    (fn [port subject]
-                      (reset! request [port subject])
-                      {:version 7
-                       :rows [["kind" "run"]
-                              ["run_task" "indexed read"]
-                              ["run_task" "second value"]]})]
+      (with-redefs [north.lane-run/scan-triples
+                    (fn [port subject predicate object]
+                      (reset! request [port subject predicate object])
+                      [(fram.types/triple subject "kind" "run")
+                       (fram.types/triple subject "run_task" "indexed read")
+                       (fram.types/triple subject "run_task" "second value")])]
         (north.lane-run/facts-of 7977 "@run:fixture"))]
-  (check! "exact run reads use the indexed show envelope"
-          (and (= [7977 "@run:fixture"] @request)
+  (check! "exact run reads use a subject-bounded FRAMRPC scan"
+          (and (= [7977 "@run:fixture" nil nil] @request)
                (= {"kind" #{"run"}
                    "run_task" #{"indexed read" "second value"}}
                   facts))))

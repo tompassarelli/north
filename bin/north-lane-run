@@ -2,4 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-exec bb "$ROOT/cli/lane-run.clj" "$@"
+FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
+FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
+BB="${NORTH_BB:-bb}"
+exec "$BB" -cp "$FRAM_OUT" "$ROOT/cli/lane-run.clj" "$@"

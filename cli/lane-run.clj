@@ -1,14 +1,14 @@
 #!/usr/bin/env bb
 (ns north.lane-run
   (:require [cheshire.core :as json]
-            [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [coord-daemon-wire :as rpc-wire]
+            [fram.rt :as fram]
+            [fram.types :as terms])
   (:import [java.time Duration Instant]
            [java.nio.charset StandardCharsets]
            [java.security MessageDigest]
            [java.util UUID]))
-
-(load-file (str (.getParent (io/file *file*)) "/coord.clj"))
 
 (def usage
   (str "usage:\n"
@@ -95,48 +95,79 @@
                         (.getBytes ^String run StandardCharsets/UTF_8))]
     (if (zero? (bit-and 1 (aget digest 0))) "graph" "text")))
 
+(defn scan-triples [port subject predicate object]
+  (let [response
+        (fram/require-native-success!
+         (fram/native-call!
+          port :rpc/scan
+          (rpc-wire/rpc-triple-pattern! subject predicate object)))
+        [values]
+        (fram/rpc-record-fields!
+         (fram/native-payload response) :rpc/triples 1)]
+    (fram/rpc-list-values! values)))
+
 (defn facts-of [port subject]
-  (let [response (north.coord/show-envelope port subject)]
+  (let [triples (scan-triples port subject nil nil)]
     (reduce (fn [facts [predicate object]]
               (update facts predicate (fnil conj #{}) object))
-            {} (:rows response))))
+            {}
+            (map (fn [triple]
+                   [(terms/triple-slot1 triple) (terms/triple-slot2 triple)])
+                 triples))))
+
+(defn coordinator-version [port]
+  (let [response
+        (fram/require-native-success!
+         (fram/native-call! port :rpc/version rpc-wire/rpc-unit))]
+    (terms/rpcresponse-served-version response)))
+
+(defn batch-response [port subject facts]
+  ;; Recorder writes are atomic FRAMRPC batches; the EDN-line coordinator wire is retired.
+  (let [actions
+        (mapv (fn [[predicate object]]
+                (rpc-wire/rpc-action!
+                 :rpc/assert
+                 (terms/triple subject predicate object)
+                 rpc-wire/rpc-subject-any))
+              facts)]
+    (loop [remaining 5]
+      (let [base (coordinator-version port)
+            response
+            (fram/native-call!
+             port (fram/rpc-space-id) :rpc/batch
+             (rpc-wire/rpc-batch! actions nil) base nil nil)]
+        (if (and (= :rpc/conflict (fram/native-error-code response))
+                 (pos? remaining))
+          (recur (dec remaining))
+          (fram/require-native-success! response))))))
 
 (defn write-batch! [port subject facts]
-  (let [response
-        (north.coord/send-op
-         port {:op :assert-batch :te subject
-               :facts (mapv (fn [[predicate object]] {:p predicate :r object}) facts)})
-        acknowledged?
-        (and (= #{:ok :written :idempotent :batch} (set (keys response)))
-             (integer? (:ok response))
-             (vector? (:written response))
-             (every? string? (:written response))
-             (vector? (:idempotent response))
-             (every? string? (:idempotent response))
-             (true? (:batch response)))]
-    (when-not acknowledged?
-      (throw (ex-info "coordinator rejected lane telemetry batch"
-                      {:subject subject :response response})))
-    response))
+  (let [response (batch-response port subject facts)
+        [results]
+        (fram/rpc-record-fields!
+         (fram/native-payload response) :rpc/mutation-result 1)
+        outcomes
+        (mapv #(fram/rpc-record-fields! % :rpc/action-result 3)
+              (fram/rpc-list-values! results))]
+    (when-not (and (= (count facts) (count outcomes))
+                   (= (range (count facts)) (map first outcomes))
+                   (every? boolean? (map second outcomes)))
+      (throw (ex-info "coordinator returned an invalid lane telemetry batch acknowledgement"
+                      {:subject subject})))
+    (let [settled (map vector facts (map second outcomes))]
+      {:ok (count outcomes)
+       :written (mapv (comp first first) (filter (comp true? second) settled))
+       :idempotent (mapv (comp first first) (filter (comp false? second) settled))
+       :batch true})))
 
 (defn estimates-of [port run]
-  (let [response
-        (binding [north.coord/*operation-domain* :telemetry]
-          (north.coord/send-op
-           port {:op :query
-                 :query {:find "lane_estimate_fact"
-                         :rules [{:head {:rel "lane_estimate_fact"
-                                         :args [{:var "e"} {:var "p"} {:var "r"}]}
-                                  :body [{:rel "triple"
-                                          :args [{:var "e"} "estimate_of" run]}
-                                         {:rel "triple"
-                                          :args [{:var "e"} {:var "p"} {:var "r"}]}]}]}}))]
-    (when-not (vector? (:ok response))
-      (throw (ex-info "coordinator returned no estimate rows" {:response response})))
-    (->> (:ok response)
-         (reduce (fn [entities [entity predicate object]]
-                   (assoc-in entities [entity predicate] object)) {})
-         vals
+  (let [entities
+        (map terms/triple-slot0
+             (scan-triples port nil "estimate_of" run))]
+    (->> entities
+         (map #(into {} (map (fn [[predicate values]]
+                              [predicate (first values)])
+                            (facts-of port %))))
          (filter #(= "estimate" (get % "kind")))
          vec)))
 
