@@ -1019,6 +1019,8 @@
     (println "  --composition JSON|@file is the advanced full payload form (machine kinds: preset|bespoke).")
     (println)
     (println "Routing and control:")
+    (println "  Mutation-capable compositions default to a managed worktree lane.")
+    (println "  SDK worktree=false is an explicit read-only opt-out; AGENT_WORKTREE=1 remains an explicit override.")
     (println "  --provider auto|anthropic|openai   provider preference (default auto)")
     (println "  --target ACCOUNT                  exact account pin; unavailable means no fallback")
     (println "  --model MODEL                     exact model pin")

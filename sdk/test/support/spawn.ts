@@ -44,7 +44,7 @@ export async function spawn(value: SpawnOptions & Record<string, unknown>): Prom
   }).trim();
   const path = worktreePath(agentId, repoRoot);
   try {
-    return await productionSpawn(prepared({ ...value, agentId, worktree: true }));
+    return await productionSpawn(prepared({ ...value, agentId }));
   } finally {
     // A managed writable lane is a SELF-CONTAINED clone (git-dir inside the workspace),
     // not a linked worktree — reclaim it with a plain directory delete, not `worktree remove`.

@@ -141,7 +141,7 @@ export interface SpawnOptions {
   pinEvidence?: RoutingPinEvidence;
   project?: string;
   sessionId?: string;
-  worktree?: boolean; // OPT-IN: provision an isolated per-lane git worktree (own index+tree); default OFF => zero behavior change
+  worktree?: boolean; // explicit lane isolation choice; mutation-capable compositions default ON
   setupCmd?: string; // optional repo-setup hook run in the fresh worktree (e.g. `bun install`); repo-specific, never baked into north
 }
 
@@ -296,6 +296,9 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
     allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
     surface: "managed North spawn routing economics",
   });
+  const worktree = opts.worktree
+    ?? (process.env.AGENT_WORKTREE === "1"
+      || hasAuthoringCapability(orchestrationCapabilities(routingMetadata)));
   return {
     ...opts,
     routingMetadata,
@@ -306,6 +309,7 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
     tier: routingMetadata.tier,
     effort: routingMetadata.reasoning as Effort | undefined,
     posture: routingMetadata.posture,
+    worktree,
   };
 }
 
@@ -1402,11 +1406,9 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   }
   const requestedCapabilities = orchestrationCapabilities(composed.routingMetadata);
   const requestsMutation = hasAuthoringCapability(requestedCapabilities);
-  const requestsRegisteredWorkspace = composed.worktree
-    ?? process.env.AGENT_WORKTREE === "1";
-  if (requestsMutation && !requestsRegisteredWorkspace) {
+  if (requestsMutation && composed.worktree === false) {
     throw new Error(
-      "managed mutation requires a registered worktree allocation: set AGENT_WORKTREE=1 in the dispatching environment for a managed worktree lane, or drop mutation capabilities for a read-only lane; canonical checkout mutation denied",
+      "managed mutation cannot opt out of a registered worktree allocation: remove worktree:false to use the default managed worktree lane, or drop mutation capabilities for a read-only lane; canonical checkout mutation denied",
     );
   }
   // Resolve the exact observer policy and immutable dispatcher grade before
@@ -1465,7 +1467,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   // run reservations, or the provider query. A failure rejects this spawn and can
   // never silently execute in the shared checkout.
   let worktreeLease: ManagedWorktreeLease | undefined;
-  if (composed.worktree ?? process.env.AGENT_WORKTREE === "1") {
+  if (composed.worktree) {
     const repoRoot = process.cwd();
     const allocationRunId = newRunId(agentId);
     try {
