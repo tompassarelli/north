@@ -273,14 +273,33 @@ is already committed to another language; a platform boundary demands one
 (nix module, CI config, browser-only); or a one-liner where shell/python is
 objectively the smaller move.
 
-**Layer gradient inside the bias.** System-layer code — fram engine/store/
-coord primitives, beagle machinery, any surface that is or is becoming a zig
-target — defaults to **bzig**: `#lang beagle/clj` inside the zig-lowerable
-subset, graph-upstream per the greenfield rule below. App-layer code (CLIs,
-projections, higher-level tooling) may stay Clojure where the repo is already
-committed to it. The brownfield rule below is unchanged: a bounded fix never
-switches language mid-task; deferred candidates go to the migration
-inventory and ride an explicit pick.
+**Native Core gradient inside the bias.** System-layer Fram engine/store/coord
+primitives and Beagle machinery target the target-neutral **Beagle Native
+Core** profile: target-independent typed/effect/region/layout/control/
+capability/ABI semantics. Their authoritative lowered program is an immutable
+**Native World**. Fram stays entirely Beagle; greenfield work stays
+graph-upstream per the rule below. Materializers are disposable projections:
+restricted C11 for bootstrap/reference/sanitizers, QBE as the first
+direct-native and anti-C-capture check, Wasm/WASI for capability sandboxing, and
+LLVM/Cranelift/direct codegen only when measurement justifies them. Coverage
+means 30/39 archived core modules lower into a validated Native World, never
+"30 modules that print Zig."
+
+The former system-layer **bzig** default is suspended; Zig is not a strategic
+native destination. This is an institutional-fit policy, not a technical-defect
+claim. Zig commits `0f5dcae`, `cf87612`, `2fcb72d`, and `9f37f7d` are frozen
+as compatibility implementation, rollback, and differential oracle at the
+closed 13-operation/12-oracle boundary; only narrowly justified
+oracle-maintenance fixes may touch them. No Rust rewrite, handwritten-C domain
+logic, or C3/Odin/Idris retarget. "Turtle" names only the turtles-all-the-way-down
+architectural thesis, never a code identifier, row/log type, or compiler-phase
+label. The amendment's provenance lives on North thread
+`019fbd6c-7e2b-7e21-aa2a-57b581004f37`.
+
+App-layer code (CLIs, projections, higher-level tooling) may stay Clojure
+where the repo is already committed to it. The brownfield rule below is
+unchanged: a bounded fix never switches language mid-task; deferred candidates
+go to the migration inventory and ride an explicit pick.
 
 **Greenfield vs brownfield stewardship.** A wholly new Beagle program/module
 (greenfield) **starts graph-native at inception**. Follow the seed-only
