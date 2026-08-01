@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
 (ns north.rebuild-window-watch
-  (:require [clojure.edn :as edn]
+  (:require [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
 (def ^:private cli-dir
@@ -21,6 +22,12 @@
 (def busy-retry-ms 100)
 (def active-wait-timeout-ms (* 10 60 1000))
 (def active-wait-ms 250)
+(def event-debounce-ms 1000)
+(def ^:private max-event-debounce-ms 2000)
+
+(def ^:private event-lock (Object.))
+(def ^:private event-state
+  (atom {:version -1 :semantic nil}))
 
 (defn subscription-request []
   {:op :subscribe
@@ -31,6 +38,76 @@
        (= :commit (:event event))
        (= north.rebuild-request/queue-subject (:l event))
        (= north.rebuild-request/queue-predicate (:p event))))
+
+(defn queue-semantic [raw]
+  (let [payload
+        (try
+          (json/parse-string (str raw))
+          (catch Throwable error
+            (throw (ex-info "rebuild queue event is not valid JSON"
+                            {:type :malformed-rebuild-queue-event}
+                            error))))
+        requests (get payload "requests")
+        last-fired-ms (get payload "lastFiredMs")
+        ids (when (vector? requests) (mapv #(get % "id") requests))]
+    (when-not (and (map? payload)
+                   (vector? requests)
+                   (every? string? ids)
+                   (= (count ids) (count (distinct ids)))
+                   (or (nil? last-fired-ms)
+                       (and (integer? last-fired-ms)
+                            (not (neg? last-fired-ms)))))
+      (throw (ex-info "rebuild queue event has invalid semantic fields"
+                      {:type :malformed-rebuild-queue-event})))
+    {:request-ids (vec (sort ids))
+     :last-fired-ms last-fired-ms}))
+
+(defn queue-observation [version raw]
+  (when-not (and (integer? version) (not (neg? version)))
+    (throw (ex-info "rebuild queue event requires a non-negative version"
+                    {:type :malformed-rebuild-queue-event-version
+                     :version version})))
+  {:version version :semantic (queue-semantic raw)})
+
+(defn current-queue-observation []
+  (let [{:keys [version rows]}
+        (north.coord/show-envelope port north.rebuild-request/queue-subject)
+        values (->> rows
+                    (keep (fn [[predicate value]]
+                            (when (= north.rebuild-request/queue-predicate
+                                     predicate)
+                              value)))
+                    vec)]
+    (when (> (count values) 1)
+      (throw (ex-info "rebuild queue singleton has multiple live values"
+                      {:type :malformed-rebuild-queue-event})))
+    (if-let [raw (first values)]
+      (queue-observation version raw)
+      {:version version
+       :semantic {:request-ids [] :last-fired-ms nil}})))
+
+(defn reset-event-state! []
+  (reset! event-state {:version -1 :semantic nil}))
+
+(defn- observe-current-queue []
+  (try
+    (current-queue-observation)
+    (catch Throwable _ nil)))
+
+(defn- advance-event-state! [observation]
+  (when observation
+    (swap! event-state
+           (fn [current]
+             (if (>= (:version observation) (:version current))
+               observation
+               current)))))
+
+(defn- bounded-event-debounce-ms []
+  (long (min max-event-debounce-ms
+             (max 0 event-debounce-ms))))
+
+(defn- debounce! []
+  (Thread/sleep (bounded-event-debounce-ms)))
 
 (defn wait-for-window-release! [deadline-ns]
   (loop []
@@ -49,7 +126,8 @@
         active-deadline
         (+ started (* 1000000 active-wait-timeout-ms))]
     (loop [attempt 0]
-      (let [result
+      (let [queue-observation (observe-current-queue)
+            result
             (north.rebuild-window-owner/collect! port false north-bin)]
         (cond
           (and (= "owner-busy" (:action result))
@@ -68,6 +146,7 @@
                             " elapsed_ms=" elapsed-ms))
               (flush)
               (assoc result :elapsed-ms elapsed-ms
+                     :queue-observation queue-observation
                      :reason "active window did not release before fallback")))
 
           :else
@@ -77,11 +156,31 @@
                           " action=" (:action result)
                           " elapsed_ms=" elapsed-ms))
             (flush)
-            (assoc result :elapsed-ms elapsed-ms)))))))
+            (assoc result
+                   :elapsed-ms elapsed-ms
+                   :queue-observation queue-observation)))))))
 
 (defn process-event! [event]
   (when (queue-commit? event)
-    (wake-owner! :queue-commit)))
+    (locking event-lock
+      (let [incoming (queue-observation (:version event) (:r event))
+            observed @event-state]
+        (when (> (:version incoming) (:version observed))
+          (if (= (:semantic incoming) (:semantic observed))
+            (advance-event-state! incoming)
+            (do
+              (advance-event-state! incoming)
+              (when (seq (get-in incoming [:semantic :request-ids]))
+                (debounce!)
+                (let [result (wake-owner! :queue-commit)]
+                  (advance-event-state! (:queue-observation result))
+                  result)))))))))
+
+(defn connected-catch-up! []
+  (locking event-lock
+    (let [result (wake-owner! :connected)]
+      (advance-event-state! (:queue-observation result))
+      result)))
 
 (defn subscribe-once []
   (with-open [socket (north.coord/connect-socket port)]
@@ -97,7 +196,7 @@
       (north.coord/validate-subscription!
        (north.coord/read-line-bounded! reader))
       (.setSoTimeout socket 0)
-      (wake-owner! :connected)
+      (connected-catch-up!)
       (loop []
         (when-let [line (north.coord/read-stream-line-bounded! reader)]
           (when-let [event
