@@ -844,6 +844,7 @@ north templates           # Orchestration's reusable stock templates and routing
 north routing report performance       # complete current managed-run evidence
 north routing report performance --all # include legacy/incomplete historical rows
 north routing report usage             # observed-token lower bounds + exact coverage
+north routing report waste             # trailing 1M-token machinery-waste gate
 north routing report learning          # exact evaluation cohorts + explicit exclusions
 ```
 
@@ -876,6 +877,11 @@ names and never imply independent verification.
 Usage totals are exact
 only when every included run has exact token evidence; otherwise the displayed
 sum is a lower bound with its exact-run coverage.
+The waste gate uses the newest whole terminal runs through the run that crosses
+1,000,000 tokens and requires at least 20 runs. Missing-token runs are gating
+waste at the window's mean exact-run token weight (minimum one token), remain a
+separate unknown-coverage line, and prevent a non-failing verdict below 90%
+exact-run coverage.
 
 The **learning regime** is a separate operational axis. `frozen` consistently
 uses the best-known admitted route, prompt, authoring surface, and history

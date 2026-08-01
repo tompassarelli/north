@@ -6,9 +6,9 @@ export const NORTH_LICENSE_SHA256 = {
   "LICENSE": "0b025817234cc10746750fb0cd907fc0038eeded05ef275abdc4a7b2ee672288",
   "LICENSE-MIT": "51adc9bf9e72be82d08c2a694bcca11a6ac1b9e520bb537e1100a158d7d0d06d",
   "LICENSE-APACHE": "481d039b296107335037f88f33e435b75f931cf3605f222d5c3c634a4b70ec5f",
-  "patches/codex-0.144.4/LICENSE.upstream":
+  "patches/codex-0.146.0/LICENSE.upstream":
     "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
-  "patches/codex-0.144.4/NOTICE.upstream":
+  "patches/codex-0.146.0/NOTICE.upstream":
     "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915",
 } as const;
 

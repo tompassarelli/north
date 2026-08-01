@@ -18,7 +18,8 @@
                    "applied_capability" "applied_domain_requirement"
                    "composition_override" "applied_preset_override" "struggle"
                    "routing_rule_code" "routing_pin" "routing_receipt_override"
-                   "mcp_actual_tool" "provider_turn_key" "canary_outcome"})
+                   "mcp_actual_tool" "provider_turn_key" "canary_outcome"
+                   "scope_escalation"})
 
 (def canonical-orchestration-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
@@ -693,6 +694,10 @@
        :deliveryAuthority (get delivery-attestation "authority")
        :deliveryReason delivery-reason
        :deliveryReasonObserved (boolean delivery-reason)
+       :preflightCause (normalized-token (one facts entity "preflight_cause"))
+       :retryOfRun (normalized-token (one facts entity "retry_of_run"))
+       :retryAttempt (maybe-long (one facts entity "retry_attempt"))
+       :reservedAt (normalized-token (one facts entity "run_reserved_at"))
        :tokens (maybe-long (get' "tokens" nil))
        ;; The learning assignment and construction receipts are immutable,
        ;; run-local evidence. Never borrow them from the lane identity: doing
@@ -1065,6 +1070,267 @@
 (defn parse-instant [value]
   (when value
     (try (java.time.Instant/parse value) (catch Exception _ nil))))
+
+(def waste-window-token-limit 1000000)
+(def waste-minimum-runs 20)
+(def waste-minimum-exact-coverage-percent 90.0)
+(def waste-bucket-order
+  ["blocked-preflight" "reservation-transport" "startup-ack-timeout"
+   "zero-delivery-provider-death" "died-unreported" "retry-duplicate"])
+
+(def reservation-transport-reasons
+  #{"delivery_reservation_publication_unverified"
+    "delivery_reservation_unavailable_at_finalize"
+    "delivery_reservation_load_failed_at_finalize"
+    "delivery_thread_load_failed_at_finalize"
+    "delivery_thread_unavailable_at_finalize"
+    "coordinator-transport-failure"
+    "transport-or-filesystem-failure"
+    "transport-or-local-failure"})
+
+(def checkpointed-escalation-outcomes
+  #{"provider_escalation_unsupported" "max_tier"
+    "orchestrator_children_incomplete" "orchestrator_child_obligation_unmet"
+    "child_reconciliation_unavailable" "orchestrator_reduction_incomplete"
+    "orchestrator_child_set_inconsistent"})
+
+(def checkpointed-escalation-reasons
+  #{"provider_escalation_unsupported" "escalation_ladder_exhausted"
+    "orchestrator_children_live_at_terminal"
+    "orchestrator_minimum_children_not_dispatched"
+    "orchestrator_child_reconciliation_unavailable"
+    "orchestrator_child_results_unreconciled"
+    "orchestrator_child_relation_regressed"
+    "scope_escalation_checkpointed"})
+
+(defn exact-run-tokens [row]
+  (let [tokens (:tokens row)]
+    (when (and (integer? tokens) (not (neg? tokens))) (long tokens))))
+
+(defn terminal-row? [row]
+  (and (:processOutcomeObserved row)
+       (:deliveryOutcomeObserved row)
+       (:deliveryReasonObserved row)))
+
+(defn scope-escalation-run-ref [value]
+  (when-let [run (normalized-token value)]
+    (if (str/starts-with? run "@") run (str "@" run))))
+
+(defn checkpointed-scope-escalation? [facts row]
+  (boolean
+   (some
+    (fn [raw]
+      (let [payload (json-map raw)]
+        (and (= "north.scope-escalation/v1" (get payload "schema"))
+             (= "scope-overrun" (get payload "kind"))
+             (= "needs-replan" (get payload "disposition"))
+             (= (:entity row) (scope-escalation-run-ref (get payload "run"))))))
+    (many facts (:thread row) "scope_escalation"))))
+
+(defn lane-terminal-row [facts entity]
+  (let [lane-facts (get facts entity {})
+        process (north.terminal-projection/terminal-process-outcome lane-facts)
+        delivery (north.terminal-projection/terminal-delivery-outcome lane-facts)
+        reason (when process
+                 (north.terminal-projection/singleton-value lane-facts "delivery_reason"))]
+    (when (and process delivery reason)
+      {:entity entity
+       :agent (subs entity (count "@agent:"))
+       :at (or (normalized-token (one facts entity "at"))
+               (normalized-token (one facts entity "spawned_at")))
+       :processOutcome process
+       :processOutcomeObserved true
+       :deliveryOutcome delivery
+       :deliveryOutcomeObserved true
+       :deliveryReason reason
+       :deliveryReasonObserved true
+       :preflightCause (normalized-token (one facts entity "preflight_cause"))
+       :retryOfRun (normalized-token (one facts entity "retry_of_run"))
+       :retryAttempt (maybe-long (one facts entity "retry_attempt"))
+       :tokens nil})))
+
+(defn waste-attempt-rows
+  "Complete terminal attempts for managed lanes. Committed run rows retain the
+  normal report projection. A digest-valid lane terminal fills the crash seam
+  where the run writer never reached its kind=run commit marker."
+  [facts rows]
+  (let [managed-runs
+        (->> rows
+             (filter (fn [row]
+                       (and (terminal-row? row)
+                            (= "lane" (one facts (str "@agent:" (:agent row)) "kind")))))
+             (mapv #(assoc % :checkpointedEscalation
+                           (checkpointed-scope-escalation? facts %)))
+             vec)
+        committed-agents (set (keep :agent managed-runs))
+        terminal-only
+        (->> facts
+             (keep (fn [[entity _]]
+                     (when (and (str/starts-with? entity "@agent:")
+                                (= "lane" (one facts entity "kind"))
+                                (not (contains? committed-agents
+                                                (subs entity (count "@agent:")))))
+                       (lane-terminal-row facts entity))))
+             vec)]
+    (into managed-runs terminal-only)))
+
+(defn checkpointed-escalation? [row]
+  (or (:checkpointedEscalation row)
+      (checkpointed-escalation-outcomes (:processOutcome row))
+      (checkpointed-escalation-reasons (:deliveryReason row))))
+
+(defn row-cause-text [row]
+  (->> [(:processOutcome row) (:deliveryReason row) (:preflightCause row)]
+       (keep normalized-token)
+       (str/join " ")
+       str/lower-case))
+
+(defn startup-ack-timeout? [row]
+  (let [cause (row-cause-text row)]
+    (or (str/includes? cause "startup_ack_timeout")
+        (str/includes? cause "startup-ack timeout")
+        (boolean
+         (re-find #"startup[-_ ]+(?:ack|acknowledg)[a-z_-]*[-_ ]+(?:timeout|timed[-_ ]*out)"
+                  cause)))))
+
+(defn reservation-transport-failure? [row]
+  (let [reason (:deliveryReason row)
+        cause (row-cause-text row)]
+    (or (reservation-transport-reasons reason)
+        (boolean
+         (re-find #"(?:reservation|transport).{0,80}(?:fail|unavailable|timeout|timed[-_ ]*out|unverified)"
+                  cause)))))
+
+(defn terminal-machinery-bucket [row]
+  (when-not (checkpointed-escalation? row)
+    (cond
+      (or (= "died-unreported" (:processOutcome row))
+          (= "presence_lapsed_without_committed_terminal" (:deliveryReason row)))
+      "died-unreported"
+
+      (and (= "blocked" (:deliveryOutcome row))
+           (or (= "died" (:processOutcome row))
+               (= "provider_process_died" (:deliveryReason row))))
+      "zero-delivery-provider-death"
+
+      (startup-ack-timeout? row) "startup-ack-timeout"
+      (reservation-transport-failure? row) "reservation-transport"
+
+      (or (= "blocked_preflight" (:processOutcome row))
+          (= "execution_preflight_blocked" (:deliveryReason row)))
+      "blocked-preflight"
+
+      :else nil)))
+
+(defn machinery-buckets [rows]
+  (let [terminal-by-run (into {} (map (juxt :entity terminal-machinery-bucket) rows))]
+    (into {}
+          (map (fn [row]
+                 [(:entity row)
+                  (or (terminal-machinery-bucket row)
+                      (when (some-> (:retryOfRun row) terminal-by-run)
+                        "retry-duplicate"))]))
+          rows)))
+
+(defn trailing-waste-window [rows]
+  (let [dated (->> rows
+                   (keep (fn [row]
+                           (when-let [instant (parse-instant (:at row))]
+                             (assoc row ::instant instant))))
+                   (sort (fn [left right]
+                           (let [time-order (compare (::instant right) (::instant left))]
+                             (if (zero? time-order)
+                               (compare (:entity right) (:entity left))
+                               time-order))))
+                   vec)]
+    {:undatedRuns (- (count rows) (count dated))
+     :rows
+     (loop [remaining dated selected [] exact-total 0]
+       (if (or (empty? remaining) (>= exact-total waste-window-token-limit))
+         (mapv #(dissoc % ::instant) selected)
+         (let [row (first remaining)]
+           (recur (rest remaining)
+                  (conj selected row)
+                  (+ exact-total (or (exact-run-tokens row) 0))))))}))
+
+(defn waste-verdict [runs coverage-percent ratio-percent]
+  (cond
+    (< runs waste-minimum-runs) "insufficient runs"
+    (< coverage-percent waste-minimum-exact-coverage-percent) "FAIL"
+    (<= ratio-percent 10.0) "PASS"
+    (<= ratio-percent 20.0) "PROBATION"
+    :else "FAIL"))
+
+(defn waste-report [rows]
+  (let [{window :rows undated-runs :undatedRuns} (trailing-waste-window rows)
+        bucket-by-run (machinery-buckets rows)
+        window (mapv #(assoc % :wasteBucket (get bucket-by-run (:entity %))) window)
+        exact-rows (filterv #(some? (exact-run-tokens %)) window)
+        unknown-rows (filterv #(nil? (exact-run-tokens %)) window)
+        exact-runs (count exact-rows)
+        unknown-runs (count unknown-rows)
+        run-count (count window)
+        exact-token-total (reduce + 0 (keep exact-run-tokens exact-rows))
+        mean-exact-tokens (if (pos? exact-runs)
+                            (/ (double exact-token-total) exact-runs)
+                            1.0)
+        unknown-token-weight (max 1.0 mean-exact-tokens)
+        unknown-gating-tokens (* unknown-runs unknown-token-weight)
+        window-token-total (+ exact-token-total unknown-gating-tokens)
+        exact-machinery-tokens
+        (reduce + 0 (keep (fn [row]
+                            (when (:wasteBucket row) (exact-run-tokens row)))
+                          exact-rows))
+        wasted-tokens (+ exact-machinery-tokens unknown-gating-tokens)
+        waste-runs (count (filter #(or (:wasteBucket %)
+                                       (nil? (exact-run-tokens %)))
+                                  window))
+        ratio-percent (cond
+                        (pos? window-token-total)
+                        (* 100.0 (/ wasted-tokens window-token-total))
+                        (pos? waste-runs) 100.0
+                        :else 0.0)
+        coverage-percent (if (pos? run-count)
+                           (* 100.0 (/ exact-runs run-count))
+                           0.0)
+        bucket-breakdown
+        (mapv (fn [bucket]
+                (let [bucket-rows (filterv #(= bucket (:wasteBucket %)) window)
+                      exact (vec (keep exact-run-tokens bucket-rows))
+                      unknown (- (count bucket-rows) (count exact))]
+                  {:bucket bucket
+                   :runs (count bucket-rows)
+                   :exactTokenRuns (count exact)
+                   :unknownTokenRuns unknown
+                   :exactTokens (reduce + 0 exact)
+                   :gatingWasteTokens (+ (reduce + 0 exact)
+                                         (* unknown unknown-token-weight))}))
+              waste-bucket-order)
+        verdict (waste-verdict run-count coverage-percent ratio-percent)]
+    {:report "waste"
+     :claim (str "machinery-wasted tokens / total managed-lane tokens over the trailing "
+                 "1,000,000-token whole-run window; unknown-token runs are gating waste "
+                 "at the window's mean exact run weight (minimum one token), and exact "
+                 "coverage must be at least 90%")
+     :windowTokenLimit waste-window-token-limit
+     :windowTokenTotal window-token-total
+     :exactObservedTokens exact-token-total
+     :runCount run-count
+     :availableTerminalRuns (count rows)
+     :excludedUndatedRuns undated-runs
+     :wasteRatioPercent ratio-percent
+     :machineryWastedTokens wasted-tokens
+     :wasteRuns waste-runs
+     :buckets bucket-breakdown
+     :unknownCoverage {:runs unknown-runs
+                       :gatingWasteTokens unknown-gating-tokens
+                       :exactRuns exact-runs
+                       :totalRuns run-count
+                       :exactCoveragePercent coverage-percent
+                       :requiredExactCoveragePercent
+                       waste-minimum-exact-coverage-percent}
+     :minimumRuns waste-minimum-runs
+     :verdict verdict}))
 
 (defn jsonl-files [root child]
   (let [dir (io/file root child)]
@@ -2400,12 +2666,13 @@
   (case kind
     "performance" (performance-report rows all?)
     "usage" (usage-report rows {:by-model? by-model? :by-effort? by-effort?})
+    "waste" (waste-report rows)
     "economics" (throw (ex-info "economics requires bounded window options" {}))
     "promotions" (promotions-report rows)
     "calibration" (calibration-report rows)
     "timing" (timing-report rows)
     "learning" (learning-report rows)
-    (throw (ex-info "usage: north routing report [performance|usage|economics|promotions|calibration|timing|learning] [--json] [--all]" {}))))
+    (throw (ex-info "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning] [--json] [--all]" {}))))
 
 (defn usage-table-line
   ([label row] (usage-table-line label row {}))
@@ -2543,6 +2810,29 @@
               (println (usage-table-line
                         (if (:effort row) (str (:model row) "/" (:effort row)) (:model row))
                         row {:label-width 24}))))))
+    "waste"
+    (do
+      (println "ROUTING WASTE — managed-dispatch machinery gate")
+      (println (format "WINDOW tokens=%.0f exact-observed=%d target=%d runs=%d"
+                       (double (:windowTokenTotal data)) (:exactObservedTokens data)
+                       (:windowTokenLimit data) (:runCount data)))
+      (println (format "WASTE ratio=%.2f%% tokens=%.0f runs=%d"
+                       (double (:wasteRatioPercent data))
+                       (double (:machineryWastedTokens data)) (:wasteRuns data)))
+      (println (format "%-34s %6s %8s %14s %14s"
+                       "BUCKET" "runs" "unknown" "exact-tokens" "gating-waste"))
+      (doseq [row (:buckets data)]
+        (println (format "%-34s %6d %8d %14d %14.0f"
+                         (:bucket row) (:runs row) (:unknownTokenRuns row)
+                         (:exactTokens row) (double (:gatingWasteTokens row)))))
+      (let [unknown (:unknownCoverage data)]
+        (println (format (str "unknown-coverage runs=%d/%d gating-waste-tokens=%.0f "
+                              "exact-coverage=%.2f%% required=%.2f%%")
+                         (:runs unknown) (:totalRuns unknown)
+                         (double (:gatingWasteTokens unknown))
+                         (double (:exactCoveragePercent unknown))
+                         (double (:requiredExactCoveragePercent unknown)))))
+      (println (str "VERDICT " (:verdict data))))
     "promotions"
     (do (println "BESPOKE PATTERNS — stock-template review candidates")
         (println "Variants use applied canonical hash + capabilities + effective axes; missing hashes are per-run legacy debt.")
@@ -2669,7 +2959,7 @@
             (println (format "  ALERT %-42s observed=%s threshold=%s"
                              code observed threshold))))))))
 
-(def usage-help "usage: north routing report [performance|usage|economics|promotions|calibration|timing|learning] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
+(def usage-help "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
 
 (defn parse-options [args]
   (loop [remaining args options {:flags #{}}]
@@ -2713,6 +3003,7 @@
       (System/exit 2))
     (let [facts (fold-facts (read-ops (default-paths)))
           rows (vec (run-rows facts))
+          report-rows (if (= kind "waste") (waste-attempt-rows facts rows) rows)
           sessions (native-session-rows facts)
           data (try
                  (if (or window? (= kind "economics"))
@@ -2721,7 +3012,7 @@
                     {:window-hours (parse-hours (or (:window parsed) "24h") "--window")
                      :slice-hours (parse-hours (or (:slice parsed) "12h") "--slice")
                      :now (:now parsed)})
-                   (report (or kind "performance") rows
+                   (report (or kind "performance") report-rows
                            {:all? all? :by-model? by-model? :by-effort? by-effort?}))
                  (catch Exception error
                    (binding [*out* *err*]
