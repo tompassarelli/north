@@ -83,6 +83,146 @@
             fi
             touch "$out"
           '';
+        codexAppServerContractSmoke = pkgs.runCommand
+          "north-codex-app-server-contract-smoke-${codexPkg.version}"
+          {
+            nativeBuildInputs = [ codexPkg pkgs.python3 ];
+            CODEX_ADAPTER = ./sdk/src/providers/codex-app-server.ts;
+            CODEX_BIN = "${codexPkg}/bin/codex";
+            CODEX_EXPECTED_VERSION = codexPkg.version;
+          }
+          ''
+            schema="$TMPDIR/codex-app-server-schema"
+            "$CODEX_BIN" app-server generate-json-schema \
+              --experimental --out "$schema"
+            CODEX_SCHEMA="$schema/codex_app_server_protocol.schemas.json" \
+              ${pkgs.python3}/bin/python3 <<'PY'
+import json
+import os
+import re
+import subprocess
+
+adapter = open(os.environ["CODEX_ADAPTER"], encoding="utf-8").read()
+
+version_match = re.search(
+    r'export const MANAGED_CODEX_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)";',
+    adapter,
+)
+if version_match is None:
+    raise SystemExit("managed Codex adapter version export is missing")
+if version_match.group(1) != os.environ["CODEX_EXPECTED_VERSION"]:
+    raise SystemExit(
+        "managed Codex adapter/package version mismatch: "
+        f"adapter={version_match.group(1)} package={os.environ['CODEX_EXPECTED_VERSION']}"
+    )
+
+def string_array(name):
+    match = re.search(
+        rf"export const {name} = \[(.*?)\]\s+as const;",
+        adapter,
+        re.DOTALL,
+    )
+    if match is None:
+        raise SystemExit(f"managed Codex {name} export is missing")
+    values = re.findall(r'"([a-z0-9_]+)"', match.group(1))
+    if len(values) != len(set(values)):
+        raise SystemExit(f"managed Codex {name} contains duplicates")
+    return set(values)
+
+enabled = string_array("MANAGED_CODEX_ENABLED_FEATURES")
+disabled = string_array("MANAGED_CODEX_DISABLED_FEATURES")
+if enabled & disabled:
+    raise SystemExit("managed Codex feature classifications overlap")
+
+feature_rows = subprocess.run(
+    [os.environ["CODEX_BIN"], "features", "list"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.splitlines()
+all_features = set()
+nonremoved = set()
+for row in feature_rows:
+    fields = row.split()
+    if len(fields) < 3:
+        raise SystemExit(f"malformed Codex feature row: {row!r}")
+    name = fields[0]
+    all_features.add(name)
+    if fields[1] != "removed":
+        nonremoved.add(name)
+
+classified = enabled | disabled | {"network_proxy"}
+unknown = classified - all_features
+missing = nonremoved - classified
+if unknown:
+    raise SystemExit(f"managed Codex classifies unknown features: {sorted(unknown)}")
+if missing:
+    raise SystemExit(f"managed Codex leaves nonremoved features unclassified: {sorted(missing)}")
+
+with open(os.environ["CODEX_SCHEMA"], encoding="utf-8") as stream:
+    definitions = json.load(stream)["definitions"]
+
+notification = definitions["ServerNotification"]
+emitted_at = notification.get("properties", {}).get("emittedAtMs")
+if emitted_at is None or emitted_at.get("type") != "integer" \
+        or emitted_at.get("format") != "int64" \
+        or "emittedAtMs" in notification.get("required", []):
+    raise SystemExit("Codex ServerNotification emittedAtMs contract drifted")
+
+expected_params = {
+    "initialize": {"$ref": "#/definitions/InitializeParams"},
+    "thread/start": {"$ref": "#/definitions/v2/ThreadStartParams"},
+    "hooks/list": {"$ref": "#/definitions/v2/HooksListParams"},
+    "turn/start": {"$ref": "#/definitions/v2/TurnStartParams"},
+    "turn/interrupt": {"$ref": "#/definitions/v2/TurnInterruptParams"},
+    "mcpServerStatus/list": {"$ref": "#/definitions/v2/ListMcpServerStatusParams"},
+    "command/exec": {"$ref": "#/definitions/v2/CommandExecParams"},
+    "config/read": {"$ref": "#/definitions/v2/ConfigReadParams"},
+    "configRequirements/read": {"type": "null"},
+    "account/read": {"$ref": "#/definitions/v2/GetAccountParams"},
+}
+observed_params = {}
+request_variants = {}
+for variant in definitions["ClientRequest"]["oneOf"]:
+    methods = variant.get("properties", {}).get("method", {}).get("enum", [])
+    if len(methods) != 1 or methods[0] not in expected_params:
+        continue
+    method = methods[0]
+    if method in observed_params:
+        raise SystemExit(f"duplicate Codex request schema for {method}")
+    observed_params[method] = variant.get("properties", {}).get("params")
+    request_variants[method] = variant
+if observed_params != expected_params:
+    raise SystemExit(
+        f"managed Codex request refs drifted: observed={observed_params!r}"
+    )
+requirements_read = request_variants["configRequirements/read"]
+if "params" in requirements_read.get("required", []):
+    raise SystemExit("configRequirements/read unexpectedly requires params")
+
+initialized = []
+for variant in definitions["ClientNotification"]["oneOf"]:
+    methods = variant.get("properties", {}).get("method", {}).get("enum", [])
+    if methods == ["initialized"]:
+        initialized.append(variant)
+if len(initialized) != 1 \
+        or initialized[0].get("required") != ["method"] \
+        or set(initialized[0].get("properties", {})) != {"method"}:
+    raise SystemExit("Codex initialized notification contract drifted")
+
+initialize_response = definitions["InitializeResponse"]
+expected_initialize_fields = {"userAgent", "codexHome", "platformFamily", "platformOs"}
+if set(initialize_response.get("required", [])) != expected_initialize_fields \
+        or set(initialize_response.get("properties", {})) != expected_initialize_fields \
+        or initialize_response["properties"]["codexHome"].get("allOf") \
+            != [{"$ref": "#/definitions/v2/AbsolutePathBuf"}]:
+    raise SystemExit("Codex InitializeResponse authority fields drifted")
+for field in ("userAgent", "platformFamily", "platformOs"):
+    if initialize_response["properties"][field].get("type") != "string":
+        raise SystemExit(f"Codex InitializeResponse {field} type drifted")
+PY
+            touch "$out"
+          '';
         codexManagedHookFailureSmoke = pkgs.runCommand
           "north-codex-managed-hook-failure-smoke-${codexPkg.version}"
           {
@@ -1283,6 +1423,7 @@ PY
         };
 
         checks = {
+          codex-app-server-contract = codexAppServerContractSmoke;
           codex-version = codexVersionSmoke;
         } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           schema-stage-runtime = schemaStageRuntimeSmoke;

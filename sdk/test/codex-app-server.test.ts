@@ -11,7 +11,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import {
-  MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
+  MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES, MANAGED_CODEX_VERSION,
   ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
   managedCodexAppServerLaunch,
 } from "../src/providers/codex-app-server";
@@ -373,7 +373,14 @@ function setup(mode = "ok") {
     const fail = (request: any) => send({
       id: request.id, error: { code: -32000, message: "fixture failure" },
     });
-    const notify = (method: string, params: unknown) => send({ method, params });
+    const notify = (method: string, params: unknown) => {
+      const envelope: any = { method, params };
+      if (mode !== "notification-emitted-at-omitted") envelope.emittedAtMs = 1;
+      if (mode === "notification-emitted-at-negative") envelope.emittedAtMs = -1;
+      if (mode === "notification-emitted-at-string") envelope.emittedAtMs = "1";
+      if (mode === "notification-envelope-extra") envelope.futureEnvelope = true;
+      send(envelope);
+    };
     const threadId = "019f7abc-0000-7000-8000-000000000001";
     const turnIds = [
       "019f7abc-0000-7000-8000-000000000002",
@@ -476,7 +483,7 @@ function setup(mode = "ok") {
         id: threadId, extra: null, sessionId: "019f7abc-0000-7000-8000-000000000000",
         forkedFromId: null, parentThreadId: null, preview: "", ephemeral: true,
         historyMode: "legacy", modelProvider: "openai", createdAt: 1, updatedAt: 1,
-        recencyAt: 1, status: { type: "idle" }, path: null, cwd, cliVersion: "0.144.4",
+        recencyAt: 1, status: { type: "idle" }, path: null, cwd, cliVersion: "0.146.0",
         source: "appServer", threadSource: null, agentNickname: null, agentRole: null,
         gitInfo: null, name: null, turns: [],
       };
@@ -738,9 +745,9 @@ function setup(mode = "ok") {
       if (request.method === "initialized") return;
       if (request.method === "initialize") {
         const userAgent = mode === "runtime-version" ? "north/0.145.0 (test)"
-          : mode === "runtime-version-prefix" ? "hostile/north/0.144.4 (test)"
-          : mode === "runtime-version-suffix" ? "north/0.144.4-hostile (test)"
-          : "north/0.144.4 (test)";
+          : mode === "runtime-version-prefix" ? "hostile/north/0.146.0 (test)"
+          : mode === "runtime-version-suffix" ? "north/0.146.0-hostile (test)"
+          : "north/0.146.0 (test)";
         result(request, {
           userAgent,
           codexHome, platformFamily: "unix", platformOs: "linux",
@@ -1787,6 +1794,8 @@ test("spooled supervisors build their control FIFO with a canonical store coreut
 test("pre-thread authority mutants fail before thread/start", async () => {
   const modes = [
     "runtime-version", "runtime-version-prefix", "runtime-version-suffix",
+    "notification-emitted-at-negative", "notification-emitted-at-string",
+    "notification-envelope-extra",
     "project-enabled", "hook-warning", "hook-failure-unattested",
     "hook-failure-continue", "hook-failure-unrecognized",
     "feature-default-enabled", "feature-omitted", "mcp-resource", "mcp-template", "mcp-auth",
@@ -1802,6 +1811,26 @@ test("pre-thread authority mutants fail before thread/start", async () => {
       .rejects.toBeInstanceOf(ManagedCodexPreThreadError);
     expect(requests.some(({ method }) => method === "thread/start")).toBe(false);
   }
+});
+
+test("the managed feature manifest covers the Codex 0.146 additions", () => {
+  expect(MANAGED_CODEX_VERSION).toBe("0.146.0");
+  expect(MANAGED_CODEX_DISABLED_FEATURES).toEqual(expect.arrayContaining([
+    "code_mode_buffered_exec",
+    "deferred_tool_world_state",
+    "executor_capability_discovery",
+    "external_agent_memory_import",
+    "guardianv2",
+    "in_app_updates",
+    "mcp_2026_07_28",
+    "skill_search",
+  ]));
+});
+
+test("a notification may omit its provider emission timestamp", async () => {
+  const { options, requests } = setup("notification-emitted-at-omitted");
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
+  expect(requests.some(({ method }) => method === "thread/start")).toBe(true);
 });
 
 test("the canonical untrusted-project config warning is accepted before thread/start", async () => {
