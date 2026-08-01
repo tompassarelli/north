@@ -6,6 +6,7 @@
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (load-file (str root "/cli/routing-report.clj"))
+(load-file (str root "/cli/tests/routing-waste-report-test.clj"))
 (def tmp (.toFile (java.nio.file.Files/createTempDirectory "north-routing-report" (make-array java.nio.file.attribute.FileAttribute 0))))
 (def coord (io/file tmp "coordination.log"))
 (def telem (io/file tmp "telemetry.log"))
