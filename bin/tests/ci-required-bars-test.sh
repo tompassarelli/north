@@ -3,6 +3,49 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/ci.yml"
+DEADMAN_WORKFLOW="$ROOT/.github/workflows/ci-deadman.yml"
+
+job_block() {
+  local job="$1"
+  awk -v job="$job" '
+    $0 == "  " job ":" { inside = 1; next }
+    inside && /^  [A-Za-z0-9_-]+:$/ { exit }
+    inside { print }
+  ' "$WORKFLOW"
+}
+
+lint_job="$(job_block lint)"
+test_job="$(job_block test)"
+package_job="$(job_block package-x86_64-linux)"
+
+[[ -n "$lint_job" ]]
+[[ -n "$test_job" ]]
+[[ -n "$package_job" ]]
+grep -Fq 'shellcheck --severity=warning' <<<"$lint_job"
+grep -Fq 'nix flake check --all-systems --no-build' <<<"$test_job"
+grep -Fq "'path:.#packages.x86_64-linux.default'" <<<"$test_job"
+if grep -Eq '^    needs:' <<<"$lint_job"; then
+  echo 'lint must remain an independent root job' >&2
+  exit 1
+fi
+if grep -Eq '^    needs:' <<<"$test_job"; then
+  echo 'test must remain an independent root job so lint cannot gate correctness' >&2
+  exit 1
+fi
+grep -Fxq '    needs: test' <<<"$package_job"
+if grep -Fq 'shellcheck' <<<"$test_job$package_job"; then
+  echo 'shellcheck must remain isolated from correctness and package jobs' >&2
+  exit 1
+fi
+
+[[ -f "$DEADMAN_WORKFLOW" ]]
+grep -Fq -- "- cron: '37 */6 * * *'" "$DEADMAN_WORKFLOW"
+grep -Fq 'actions: read' "$DEADMAN_WORKFLOW"
+grep -Fq 'issues: write' "$DEADMAN_WORKFLOW"
+grep -Fq "ALERT_AFTER_SECONDS: '172800'" "$DEADMAN_WORKFLOW"
+grep -Fq 'actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1' "$DEADMAN_WORKFLOW"
+grep -Fq '::error title=CI dead-man switch::' "$DEADMAN_WORKFLOW"
+grep -Fq "'{\"state\":\"closed\",\"state_reason\":\"completed\"}'" "$DEADMAN_WORKFLOW"
 
 shell_bars=(
   bin/tests/north-on-spawn-stress-test.sh

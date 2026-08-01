@@ -1,0 +1,112 @@
+name: ci dead-man
+
+on:
+  schedule:
+    # Avoid the top of the hour, when GitHub says scheduled runs are most likely to be delayed.
+    - cron: '37 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-deadman
+  cancel-in-progress: false
+
+jobs:
+  last-green:
+    name: Main pipeline freshness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Require a successful main push within two days
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          ALERT_AFTER_SECONDS: '172800'
+          ALERT_TITLE: '[CI dead-man] main pipeline has not been green for two days'
+        run: |
+          set -euo pipefail
+
+          github_api() {
+            curl --fail-with-body --silent --show-error --location \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer ${GH_TOKEN:?}" \
+              --header 'X-GitHub-Api-Version: 2026-03-10' \
+              "$@"
+          }
+
+          readonly repository_api="${GITHUB_API_URL:?}/repos/${GH_REPOSITORY:?}"
+          readonly workflow_url="https://github.com/$GH_REPOSITORY/actions/workflows/ci.yml"
+          runs="$(github_api \
+            "$repository_api/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1")"
+          last_green_at="$(jq -r '.workflow_runs[0].updated_at // empty' <<<"$runs")"
+          last_green_url="$(jq -r '.workflow_runs[0].html_url // empty' <<<"$runs")"
+          now_epoch="$(date -u +%s)"
+
+          if [[ -n "$last_green_at" ]]; then
+            last_green_epoch="$(date -u -d "$last_green_at" +%s)"
+            age_seconds=$((now_epoch - last_green_epoch))
+            if (( age_seconds < 0 )); then
+              echo "GitHub returned a future last-green timestamp: $last_green_at" >&2
+              exit 1
+            fi
+            age_days="$(awk -v seconds="$age_seconds" 'BEGIN { printf "%.2f", seconds / 86400 }')"
+            observation="Last successful main push: $last_green_at ($age_days days ago)."
+          else
+            age_seconds=$((ALERT_AFTER_SECONDS + 1))
+            age_days='unknown'
+            last_green_url="$workflow_url"
+            observation='No successful main push run is present in retrievable workflow history.'
+          fi
+
+          issues="$(github_api "$repository_api/issues?state=open&per_page=100")"
+          issue_number="$(jq -r --arg title "$ALERT_TITLE" \
+            '[.[] | select((has("pull_request") | not) and .title == $title)][0].number // empty' \
+            <<<"$issues")"
+
+          if (( age_seconds > ALERT_AFTER_SECONDS )); then
+            alert_body="$(printf '%s\n\nThreshold: 2 days. The scheduled dead-man check will remain red until CI recovers.\n\n[Open the main workflow](%s)' \
+              "$observation" "$workflow_url")"
+            alert_payload="$(jq -n --arg title "$ALERT_TITLE" --arg body "$alert_body" \
+              '{title: $title, body: $body}')"
+            if [[ -n "$issue_number" ]]; then
+              github_api --request PATCH --data "$alert_payload" \
+                "$repository_api/issues/$issue_number" >/dev/null
+            else
+              github_api --request POST --data "$alert_payload" \
+                "$repository_api/issues" >/dev/null
+            fi
+            {
+              echo '### CI dead-man: ALERT'
+              echo
+              echo "$observation"
+              echo
+              echo "Threshold: 2 days. [Main workflow]($workflow_url)"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=CI dead-man switch::$observation Threshold: 2 days."
+            exit 1
+          fi
+
+          if [[ -n "$issue_number" ]]; then
+            recovery_body="$(printf 'Recovered: %s\n\n[Successful run](%s)' \
+              "$observation" "$last_green_url")"
+            recovery_payload="$(jq -n --arg body "$recovery_body" '{body: $body}')"
+            github_api --request POST --data "$recovery_payload" \
+              "$repository_api/issues/$issue_number/comments" >/dev/null
+            github_api --request PATCH --data '{"state":"closed","state_reason":"completed"}' \
+              "$repository_api/issues/$issue_number" >/dev/null
+          fi
+
+          {
+            echo '### CI dead-man: healthy'
+            echo
+            echo "$observation"
+            echo
+            echo "[Successful run]($last_green_url)"
+          } >> "$GITHUB_STEP_SUMMARY"
