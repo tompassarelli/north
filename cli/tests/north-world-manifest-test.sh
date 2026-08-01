@@ -10,8 +10,8 @@ manifest="$fixture/manifest.env"
 selected="$fixture/selected-fram"
 explicit="$fixture/explicit-fram"
 explicit_bin="$fixture/explicit-bin"
-fallback="$home/code/fram/main"
-obsolete="$home/code/fram"
+explicit_out="$fixture/explicit-out"
+compat="$home/code/fram/wt-graph-authoring-repair-codex"
 
 make_bin() {
   local bin="$1" identity="$2"
@@ -32,42 +32,44 @@ make_fram() {
 
 make_fram "$selected" selected
 make_fram "$explicit" explicit-home
-make_fram "$fallback" compiled-fallback
-make_fram "$obsolete" obsolete-layout
 make_bin "$explicit_bin" explicit-bin
 
 printf 'WORLD_REPO_FRAM=%q\n' "$selected" >"$manifest"
 
-run_north() {
-  env -u FRAM_HOME -u FRAM_BIN -u FRAM_OUT \
+actual="$(
+  env -u FRAM_HOME -u FRAM_OUT \
     HOME="$home" \
     WORLD_MANIFEST_PATH="$manifest" \
+    FRAM_BIN="$explicit_bin" \
     FRAM_TEST_ENV_LOG="$fixture/resolved.env" \
     "$ROOT/bin/north" world-manifest-probe
-}
-
-actual="$(run_north)"
-if [ "$actual" != selected ]; then
-  printf 'FAIL manifest-selected Fram root\n  expected: selected\n  actual:   %s\n' "$actual" >&2
+)"
+if [ "$actual" != explicit-bin ]; then
+  printf 'FAIL temporary compatibility default probe\n  expected: explicit-bin\n  actual:   %s\n' "$actual" >&2
   exit 1
 fi
-expected_env="$selected|$selected/bin|$selected/out"
+expected_env="$compat|$explicit_bin|$compat/out"
 actual_env="$(<"$fixture/resolved.env")"
 if [ "$actual_env" != "$expected_env" ]; then
-  printf 'FAIL manifest-selected Fram environment export\n  expected: %s\n  actual:   %s\n' \
+  printf 'FAIL temporary compatibility defaults\n  expected: %s\n  actual:   %s\n' \
     "$expected_env" "$actual_env" >&2
   exit 1
 fi
 
 actual="$(
-  env -u FRAM_BIN -u FRAM_OUT \
+  env -u FRAM_OUT \
     HOME="$home" \
     WORLD_MANIFEST_PATH="$manifest" \
     FRAM_HOME="$explicit" \
+    FRAM_BIN="$explicit_bin" \
+    FRAM_TEST_ENV_LOG="$fixture/resolved.env" \
     "$ROOT/bin/north" world-manifest-probe
 )"
-if [ "$actual" != explicit-home ]; then
-  printf 'FAIL explicit FRAM_HOME precedence\n  expected: explicit-home\n  actual:   %s\n' "$actual" >&2
+expected_env="$explicit|$explicit_bin|$compat/out"
+actual_env="$(<"$fixture/resolved.env")"
+if [ "$actual" != explicit-bin ] || [ "$actual_env" != "$expected_env" ]; then
+  printf 'FAIL independent FRAM_HOME precedence\n  expected: %s\n  actual:   %s\n' \
+    "$expected_env" "$actual_env" >&2
   exit 1
 fi
 
@@ -76,22 +78,32 @@ actual="$(
     HOME="$home" \
     WORLD_MANIFEST_PATH="$manifest" \
     FRAM_BIN="$explicit_bin" \
+    FRAM_TEST_ENV_LOG="$fixture/resolved.env" \
     "$ROOT/bin/north" world-manifest-probe
 )"
-if [ "$actual" != explicit-bin ]; then
-  printf 'FAIL explicit FRAM_BIN precedence\n  expected: explicit-bin\n  actual:   %s\n' "$actual" >&2
+expected_env="$compat|$explicit_bin|$compat/out"
+actual_env="$(<"$fixture/resolved.env")"
+if [ "$actual" != explicit-bin ] || [ "$actual_env" != "$expected_env" ]; then
+  printf 'FAIL independent FRAM_BIN precedence\n  expected: %s\n  actual:   %s\n' \
+    "$expected_env" "$actual_env" >&2
   exit 1
 fi
 
 actual="$(
-  env -u FRAM_HOME -u FRAM_BIN -u FRAM_OUT \
+  env -u FRAM_HOME \
     HOME="$home" \
-    WORLD_MANIFEST_PATH="$fixture/missing.env" \
+    WORLD_MANIFEST_PATH="$manifest" \
+    FRAM_BIN="$explicit_bin" \
+    FRAM_OUT="$explicit_out" \
+    FRAM_TEST_ENV_LOG="$fixture/resolved.env" \
     "$ROOT/bin/north" world-manifest-probe
 )"
-if [ "$actual" != compiled-fallback ]; then
-  printf 'FAIL compiled Fram fallback\n  expected: compiled-fallback\n  actual:   %s\n' "$actual" >&2
+expected_env="$compat|$explicit_bin|$explicit_out"
+actual_env="$(<"$fixture/resolved.env")"
+if [ "$actual" != explicit-bin ] || [ "$actual_env" != "$expected_env" ]; then
+  printf 'FAIL independent FRAM_OUT precedence\n  expected: %s\n  actual:   %s\n' \
+    "$expected_env" "$actual_env" >&2
   exit 1
 fi
 
-echo "north world manifest: PASS"
+echo "north Fram compatibility defaults: PASS"
