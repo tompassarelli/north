@@ -320,6 +320,16 @@ Beagle — and wait for a pick before migrating. Deferred candidates go in a
 separate migration inventory, never a side-project expansion. Graph-native
 detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
 
+## Background shells — always accountable
+Every background shell or monitor maps to ONE named purpose (lane, production
+operation, armed monitor) in the orchestrator's live ledger; "what are my
+shells" must be answerable instantly from the ledger, never by archaeology.
+Audit cadence: age-check all shells every ~30 minutes or on any completion
+burst; a bounded task silent >60 minutes is presumed rotten -> kill and
+restaff tighter. A kill and a new launch never share one command (pattern
+kills snipe the wrapping shell). Consume-verify-reap in the same cycle:
+a finished lane's shell never lingers.
+
 ## Standing guards
 <!-- north-section: standing-guards · bucket: core -->
 
