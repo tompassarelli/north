@@ -37,6 +37,7 @@ jobs:
           ((${#scripts[@]} > 0))
           shellcheck --severity=warning "${scripts[@]}"
 
+  # Root job by omission of needs: correctness runs even when lint fails.
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
