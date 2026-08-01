@@ -108,6 +108,26 @@ beforeAll(() => {
   const fakeBb = join(dir, "bb");
   writeFileSync(fakeBb, `#!/usr/bin/env bash\nprintf 'bb %s\\n' "$*" >> "${log}"\nexit 0\n`);
   chmodSync(fakeBb, 0o755);
+  const fakeClaude = join(dir, "claude");
+  writeFileSync(fakeClaude, `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then printf '%s\n' '2.1.0-test'; exit 0; fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}'
+  exit 0
+fi
+exit 2
+`);
+  chmodSync(fakeClaude, 0o755);
+  const fakeCodex = join(dir, "codex");
+  writeFileSync(fakeCodex, `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then printf '%s\n' 'codex-test'; exit 0; fi
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  printf '%s\n' 'Logged in using ChatGPT'
+  exit 0
+fi
+exit 2
+`);
+  chmodSync(fakeCodex, 0o755);
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;

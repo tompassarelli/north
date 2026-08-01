@@ -143,6 +143,19 @@ fi
 exit 2
 `);
   chmodSync(fakeClaude, 0o755);
+  const fakeCodex = join(dir, "codex");
+  writeFileSync(fakeCodex, `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'codex-test'
+  exit 0
+fi
+if [ "$1" = "login" ] && [ "$2" = "status" ]; then
+  printf '%s\n' 'Logged in using ChatGPT'
+  exit 0
+fi
+exit 2
+`);
+  chmodSync(fakeCodex, 0o755);
 
   process.env.PATH = `${dir}:${process.env.PATH}`;
   process.env.NORTH_BIN = fake;

@@ -19,10 +19,12 @@ import { join } from "node:path";
 // routing surface (AGENT_WORKTREE included — it already matches
 // AGENT_*) BEFORE any test file's own module-load snapshot, so `bun run test`
 // is env-independent and no `env -u ...` prefix is ever required again.
+const explicitTestHooksDir = process.env.NORTH_TEST_AGENT_HOOKS_DIR;
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_"))
     delete process.env[key];
 }
+if (explicitTestHooksDir) process.env.AGENT_HOOKS_DIR = explicitTestHooksDir;
 
 // Same leak, orchestration side: an installed `north` wrapper (or a managed
 // lane launched from one) exports NORTH_ORCHESTRATION_HOME pinned at the

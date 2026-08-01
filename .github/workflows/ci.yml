@@ -18,8 +18,12 @@ jobs:
         with:
           path: north
 
+      - name: Expose hermetic test runner
+        run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
+
       - name: Shell source validation
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           mapfile -d '' candidates < <(find bin cli/tests deploy/gateway -type f -print0)
@@ -41,6 +45,9 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           path: north
+
+      - name: Expose hermetic test runner
+        run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
 
       # Resolve the exact source inputs used by North's Nix packages, CI, and
       # Docker image. There are no second hand-maintained source pointers.
@@ -99,22 +106,26 @@ jobs:
 
       - name: Lock and packaged-helper boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           bash bin/tests/github-flake-input-pin-test.sh
           bash bin/tests/package-purity-check-test.sh
           bash bin/tests/ci-required-bars-test.sh
           bash bin/tests/sdk-test-entrypoint-test.sh
+          bash bin/tests/test-suite-test.sh
           bash cli/tests/package-helper-smoke-test.sh
           bash bin/tests/north-on-stop-test.sh
           bash bin/tests/north-runtime-promote-test.sh  # runtime promote selector: exact commit, atomic swap, rollback
 
       - name: Docker context and runtime closure
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: CONTAINER_ENGINE=docker bash bin/tests/docker-context-test.sh
 
       - name: Domain tests (run on the committed out/, no Beagle build needed)
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
           FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
         run: |
@@ -143,6 +154,7 @@ jobs:
 
       - name: Coordinator policy and startup boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           bb cli/tests/concern-code-response-test.clj
@@ -168,6 +180,7 @@ jobs:
 
       - name: Coordinator strict-corpus integration
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           FRAM_PATH="$GITHUB_WORKSPACE/fram" \
@@ -179,6 +192,7 @@ jobs:
 
       - name: Hook, native, and managed identity boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           timeout --foreground 120s bash bin/tests/north-on-spawn-stress-test.sh
@@ -193,6 +207,7 @@ jobs:
 
       - name: Agent projection and routing report boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
           ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration
         run: |
@@ -207,6 +222,7 @@ jobs:
 
       - name: Warm/cold CLI output parity
         working-directory: fram
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           FRAM_HOME="$GITHUB_WORKSPACE/fram" \
@@ -215,6 +231,7 @@ jobs:
 
       - name: Durable coordination delivery boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
           FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
         run: |
@@ -230,6 +247,7 @@ jobs:
 
       - name: Spend-guard ledger, breaker, and reactor sweeps (real daemon)
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-cli-test.clj
@@ -237,6 +255,7 @@ jobs:
 
       - name: Gateway policy boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           bb -cp out cli/tests/gateway-policy-test.clj
@@ -244,18 +263,22 @@ jobs:
 
       - name: Gateway provision transaction boundaries
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: bash deploy/gateway/provision_test.sh
 
       - name: Gateway integration smoke test
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/smoke_test.sh
 
       - name: Gateway cross-host test (FRAM_BIND=0.0.0.0 + :coordinator-host)
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/crosshost_test.sh
 
       - name: Arena strict-corpus integration
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash bin/tests/arena-seed-test.sh
 
       - name: Install Bun
@@ -268,6 +291,7 @@ jobs:
 
       - name: Evaluate exact package identities on every supported system
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           nix flake check --all-systems --no-build
@@ -313,6 +337,10 @@ jobs:
 
       - name: SDK type, build, and coordination boundaries
         working-directory: north/sdk
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
+        env:
+          NORTH_TEST_AGENT_HOOKS_DIR: ${{ github.workspace }}/north/profiles/tom/hooks
+          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
         run: |
           set -euo pipefail
           test "$(bun --version)" = 1.3.13
@@ -322,6 +350,7 @@ jobs:
 
       - name: Build locked North Nix package
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           out="$(nix build --no-link --print-build-logs --print-out-paths \
@@ -339,6 +368,9 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           path: north
+
+      - name: Expose hermetic test runner
+        run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
 
       # The ephemeral public runner image carries SDKs this repository never
       # uses. Never mutate these system roots on a persistent self-hosted runner.
@@ -449,6 +481,7 @@ jobs:
       # >=32 GiB runner should set NORTH_PACKAGE_RUNNER to that runner label.
       - name: Build exact patched Codex and packaged North
         working-directory: north
+        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           codex_check="$(nix build --no-link -L --print-out-paths \
