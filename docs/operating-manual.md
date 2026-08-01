@@ -839,10 +839,12 @@ north account usage       # per-account subscription windows, resets, fixed fail
 north providers           # auth/headroom + approximate balanced routing shares
 north providers --json    # stable machine status; automation uses this, not prose
 north config routing      # allocation mode, configured order, reserve, pressure, envelopes
+north config learning     # frozen consistency vs bounded ordinary-operation exploration
 north templates           # Orchestration's reusable stock templates and routing defaults
 north routing report performance       # complete current managed-run evidence
 north routing report performance --all # include legacy/incomplete historical rows
 north routing report usage             # observed-token lower bounds + exact coverage
+north routing report learning          # exact evaluation cohorts + explicit exclusions
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
@@ -874,6 +876,18 @@ names and never imply independent verification.
 Usage totals are exact
 only when every included run has exact token evidence; otherwise the displayed
 sum is a lower bound with its exact-run coverage.
+
+The **learning regime** is a separate operational axis. `frozen` consistently
+uses the best-known admitted route, prompt, authoring surface, and history
+strategy while retaining full measurement. `learning` permits deterministic,
+risk-bounded exploration during ordinary managed work and changes at most one
+explicitly eligible axis per episode. Assignment is committed before provider
+selection or execution. Discovery observations never become comparison
+evidence; evaluation observations enter cohorts only with exact task identity,
+prompt and environment receipts, a tied run envelope, and observed done-bar
+evidence. Unknown evidence remains unknown. See
+[`docs/learning-regime.md`](learning-regime.md) for the policy, receipt, and
+offline-report contracts.
 
 `north account add|login|status|list|usage` manages provider-owned subscription login
 inside isolated homes under `~/.local/state/north/accounts`. `--target <id>` is

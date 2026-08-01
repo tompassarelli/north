@@ -37,6 +37,8 @@
 (def HOOK-REGISTRY   (north.harness-dial/registry-path home))
 (def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
                          (str home "/.config/north/routing-policy.json")))
+(def LEARNING-POLICY (or (System/getenv "NORTH_LEARNING_POLICY")
+                         (str home "/.config/north/learning-policy.json")))
 (def CONTEXT-SOURCE  (or (System/getenv "NORTH_CONTEXT_SOURCE")
                          (str home "/.agents/AGENTS.md")))
 (def CONTEXT-OUTPUT  (or (System/getenv "NORTH_CONTEXT_OUTPUT")
@@ -57,6 +59,13 @@
 (def CONTEXT-BUCKETS #{"core" "write" "shell" "orch" "client" "nixos" "beagle"})
 (def CONTEXT-TAG
   #"^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$")
+
+(def learning-axes ["model-tier" "effort" "prompt" "authoring" "history"])
+(def learning-axis-set (set learning-axes))
+(def default-learning-policy
+  {:version 1 :mode "frozen" :intensity 0.1 :axes learning-axes
+   :maxTierDelta 1 :riskCeiling "p1" :seed "north-default" :epoch "1"
+   :evidenceMode "discovery"})
 
 (defn- slurp' [f] (try (slurp f) (catch Exception _ nil)))
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
@@ -438,6 +447,137 @@
                                           (update p :envelopes dissoc scope))))
                      (die routing-usage)))
       (die routing-usage))))
+
+;; --- learning regime -----------------------------------------------------
+;; Orthogonal to dispatch/account/posture: frozen reuses the admitted control
+;; policy; learning admits bounded, deterministic one-axis exploration during
+;; ordinary managed work. The SDK fingerprints this whole document.
+(def learning-usage
+  "usage: north config learning [show|mode frozen|learning|intensity <0..1>|axes all|none|<model-tier effort prompt authoring history...>|max-tier-delta <0..3>|risk-ceiling <p0|p1|p2|p3>|seed <id>|epoch <id>|evidence-mode discovery|evaluation]")
+
+(defn- learning-id? [value]
+  (boolean (re-matches #"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}" (or value ""))))
+
+(defn- validate-learning [policy]
+  (let [expected #{:version :mode :intensity :axes :maxTierDelta
+                   :riskCeiling :seed :epoch :evidenceMode}
+        unknown (seq (remove expected (keys policy)))
+        intensity (:intensity policy)
+        axes (:axes policy)]
+    (when unknown (throw (ex-info (str "unknown learning policy field(s): "
+                                      (str/join ", " (map name unknown))) {})))
+    (when-not (= 1 (:version policy))
+      (throw (ex-info "learning policy version must be 1" {})))
+    (when-not (#{"frozen" "learning"} (:mode policy))
+      (throw (ex-info "learning mode must be frozen or learning" {})))
+    (when-not (and (number? intensity) (Double/isFinite (double intensity))
+                   (<= 0.0 (double intensity) 1.0))
+      (throw (ex-info "learning intensity must be between 0 and 1" {})))
+    (when-not (and (vector? axes) (= (count axes) (count (distinct axes)))
+                   (every? learning-axis-set axes))
+      (throw (ex-info (str "learning axes must contain only: "
+                           (str/join ", " learning-axes)) {})))
+    (when-not (and (integer? (:maxTierDelta policy))
+                   (<= 0 (:maxTierDelta policy) 3))
+      (throw (ex-info "learning maxTierDelta must be 0..3" {})))
+    (when-not (#{"p0" "p1" "p2" "p3"} (:riskCeiling policy))
+      (throw (ex-info "learning riskCeiling must be p0, p1, p2, or p3" {})))
+    (when-not (learning-id? (:seed policy))
+      (throw (ex-info "learning seed must be a portable identifier" {})))
+    (when-not (learning-id? (:epoch policy))
+      (throw (ex-info "learning epoch must be a portable identifier" {})))
+    (when-not (#{"discovery" "evaluation"} (:evidenceMode policy))
+      (throw (ex-info "learning evidenceMode must be discovery or evaluation" {})))
+    policy))
+
+(defn- learning-read []
+  (if (.exists (io/file LEARNING-POLICY))
+    (try
+      (validate-learning (json/parse-string (slurp LEARNING-POLICY) true))
+      (catch Exception error
+        (die (str "invalid learning policy " LEARNING-POLICY ": "
+                  (.getMessage error)))))
+    default-learning-policy))
+
+(defn- learning-write! [policy]
+  (let [validated (validate-learning policy)]
+    (io/make-parents LEARNING-POLICY)
+    (let [dest (.toPath (io/file LEARNING-POLICY))
+          dir (.getParent dest)
+          tmp (java.nio.file.Files/createTempFile
+               dir ".learning-policy." ".tmp"
+               (make-array java.nio.file.attribute.FileAttribute 0))]
+      (try
+        (spit (.toFile tmp)
+              (str (json/generate-string validated {:pretty true}) "\n"))
+        (java.nio.file.Files/move
+         tmp dest
+         (into-array java.nio.file.CopyOption
+                     [java.nio.file.StandardCopyOption/ATOMIC_MOVE
+                      java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
+        (finally (java.nio.file.Files/deleteIfExists tmp))))
+    validated))
+
+(defn- print-learning [policy]
+  (println (str "learning: " (:mode policy)
+                " · " (:evidenceMode policy)
+                " · intensity " (:intensity policy)))
+  (println (str "  axes: " (if (seq (:axes policy))
+                              (str/join " · " (:axes policy)) "none")))
+  (println (str "  max tier delta: " (:maxTierDelta policy)
+                " · risk ceiling: " (:riskCeiling policy)))
+  (println (str "  seed: " (:seed policy) " · epoch: " (:epoch policy)))
+  (println (str "  policy: " LEARNING-POLICY))
+  (println "  frozen remains fully measured; learning changes at most one eligible axis per episode."))
+
+(defn cmd-learning [args]
+  (let [policy (learning-read)
+        [verb & xs] args
+        save! #(print-learning (learning-write! %))]
+    (case (or verb "show")
+      "show" (do (when (seq xs) (die learning-usage)) (print-learning policy))
+      "mode" (let [[value & extra] xs]
+               (if (and (#{"frozen" "learning"} value) (empty? extra))
+                 (save! (assoc policy :mode value))
+                 (die learning-usage)))
+      "intensity" (let [[value & extra] xs
+                        parsed (try (Double/parseDouble (or value ""))
+                                    (catch Exception _ ##NaN))]
+                    (if (and (empty? extra) (Double/isFinite parsed)
+                             (<= 0.0 parsed 1.0))
+                      (save! (assoc policy :intensity parsed))
+                      (die learning-usage)))
+      "axes" (let [values (cond
+                            (= ["all"] xs) learning-axes
+                            (= ["none"] xs) []
+                            :else xs)]
+               (if (and (= (count values) (count (distinct values)))
+                        (every? learning-axis-set values))
+                 (save! (assoc policy :axes (vec values)))
+                 (die learning-usage)))
+      "max-tier-delta" (let [[value & extra] xs
+                             parsed (try (Long/parseLong (or value ""))
+                                         (catch Exception _ -1))]
+                         (if (and (empty? extra) (<= 0 parsed 3))
+                           (save! (assoc policy :maxTierDelta parsed))
+                           (die learning-usage)))
+      "risk-ceiling" (let [[value & extra] xs]
+                       (if (and (#{"p0" "p1" "p2" "p3"} value) (empty? extra))
+                         (save! (assoc policy :riskCeiling value))
+                         (die learning-usage)))
+      "seed" (let [[value & extra] xs]
+               (if (and (learning-id? value) (empty? extra))
+                 (save! (assoc policy :seed value))
+                 (die learning-usage)))
+      "epoch" (let [[value & extra] xs]
+                (if (and (learning-id? value) (empty? extra))
+                  (save! (assoc policy :epoch value))
+                  (die learning-usage)))
+      "evidence-mode" (let [[value & extra] xs]
+                        (if (and (#{"discovery" "evaluation"} value) (empty? extra))
+                          (save! (assoc policy :evidenceMode value))
+                          (die learning-usage)))
+      (die learning-usage))))
 
 ;; --- native context assembly ---------------------------------------------
 ;; The tagged source remains the authority. Older or malformed sources retain
@@ -1153,6 +1293,7 @@
         c  (get' "coord" "north")
         comms-native (comms-resolution "native")
         comms-managed (comms-resolution "managed")
+        learning (learning-read)
         ]
     (println (banner))
     (println (str "
@@ -1204,6 +1345,12 @@
     base: " (:base comms-native) " · native: " (:selected comms-native) " · managed: " (:selected comms-managed) " · enforcement: " (:enforcement comms-native) "
     default db preserves the fact-backed path; file is pure Bash/coreutils; both dedupes by @msg id
     configure → north config comms
+
+10  LEARNING   ordinary-operation exploration regime
+    mode: " (:mode learning) " · evidence: " (:evidenceMode learning) " · intensity: " (:intensity learning) "
+    axes: " (if (seq (:axes learning)) (str/join " · " (:axes learning)) "none") "
+    frozen uses the current best-known route/prompt/interface and still records receipts
+    configure → north config learning
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
@@ -1325,6 +1472,15 @@
    file uses an atomic scratch-to-new publication, new-to-cur acknowledgement,
    finite broadcast snapshots, and renewable .live presence. It deliberately
    has no durable audit trail; thread facts are unchanged.
+
+ 10 LEARNING — bounded experimentation during ordinary managed work.
+   frozen    use the current best-known control policy consistently; continue
+             telemetry and content-addressed prompt/environment receipts.
+   learning  deterministically explore at most one eligible axis per episode,
+             within the configured risk ceiling, hard quality floor, and tier
+             delta. Discovery observations are never evaluation comparisons.
+   Advice: frozen for critical/high-risk periods; learning for routine work.
+   Configure: north config learning
 
  Elsewhere (owned by other CLIs, not duplicated here):
    system/nix composition → firn tag status · firn enable <tag>
@@ -1578,8 +1734,9 @@
         "skills"   (cmd-skills rest)
         "comms"    (cmd-comms rest)
         "routing"  (cmd-routing rest)
+        "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|beagle|guards|hooks|context|skills|comms|routing|help]")))
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|beagle|guards|hooks|context|skills|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

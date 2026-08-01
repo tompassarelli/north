@@ -68,6 +68,7 @@ ROUTING — providers, accounts, dispatch posture
                                     north config dispatch <mode> — native-forced · native-biased · managed-biased · managed-forced
                                     north config guards on|off — value-aware kill-switch for authoring guards
                                     north config routing — provider order, pressure, reserves, envelopes
+                                    north config learning — frozen consistency or bounded ordinary-operation exploration
   north providers [--json]          provider readiness and the auto-route decision
   north account <sub>               isolated provider subscription accounts
                                     add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts
@@ -80,6 +81,7 @@ ROUTING — providers, accounts, dispatch posture
                                     economics — bounded routing-cost signals + alert-only findings
                                     promotions — bespoke patterns for stock-template review
                                     calibration — run-local judgment/struggle detector cohorts
+                                    learning — exact evaluation cohorts plus explicit evidence exclusions
   north canary run|report           production-path managed-lane reliability probe
   north ccr prepare|retrieve        default-off structured-output CCR canary
   north dials                       legacy — compatibility bridge to the evidence-aware routing report

@@ -41,7 +41,7 @@
     :arm "text" :files "1" :lines "20" :dispatcher "@agent:d3"
     :role "executor" :model "model-c"}
    {:id "run:10000000-0000-4000-8000-000000000005" :start "2026-07-30T10:00:00Z"
-    :arm "graph" :files "2" :lines "100" :dispatcher "@agent:d1"
+    :arm "text" :learning-arm "graph" :files "2" :lines "100" :dispatcher "@agent:d1"
     :role "implementer" :model "model-a" :wall "120000" :tokens "250"
     :outcome "landed" :retries "0"}])
 
@@ -66,12 +66,14 @@
 (def fixture-lines
   (concat
    (mapcat
-    (fn [index {:keys [id start arm files lines dispatcher role model wall tokens outcome retries]}]
+    (fn [index {:keys [id start arm learning-arm files lines dispatcher role model wall tokens outcome retries]}]
       (run-lines
        (* 30 (inc index)) id
        (cond-> [["run_start" start] ["run_arm" arm] ["run_size_files" files]
                 ["run_size_lines" lines] ["run_dispatcher" dispatcher]
                 ["run_role" role] ["run_model" model]]
+         learning-arm (conj ["learning_axis" "authoring"]
+                            ["learning_arm_id" learning-arm])
          wall (conj ["run_end" start] ["run_wall_ms" wall] ["run_outcome" outcome]
                     ["run_retries" retries] ["run_token_status" "exact"]
                     ["run_tokens_in" tokens] ["run_tokens_out" "0"])
@@ -116,6 +118,9 @@
   (check! "round-one per-arm aggregate remains present"
           (boolean (re-find #"(?m)^graph\s+3\s+120000\s+250 \(3/3 exact\)\s+66\.7%\s+66\.7%$"
                             output)))
+  (check! "unified authoring assignment wins over compatibility-only run_arm"
+          (and (re-find #"run:10000000-0000-4000-8000-000000000005\s+finished\s+graph" output)
+               (not (re-find #"run:10000000-0000-4000-8000-000000000005\s+finished\s+text" output))))
   (when (pos? @failures)
     (println "--- report output ---")
     (println output)

@@ -694,6 +694,63 @@
        :deliveryReason delivery-reason
        :deliveryReasonObserved (boolean delivery-reason)
        :tokens (maybe-long (get' "tokens" nil))
+       ;; The learning assignment and construction receipts are immutable,
+       ;; run-local evidence. Never borrow them from the lane identity: doing
+       ;; so would relabel old episodes after a policy or environment change.
+       :learningAssignmentVersion
+       (normalized-token (one facts entity "learning_assignment_version"))
+       :learningPolicyVersion
+       (normalized-token (one facts entity "learning_policy_version"))
+       :learningPolicySha256
+       (normalized-token (one facts entity "learning_policy_sha256"))
+       :learningMode (normalized-token (one facts entity "learning_mode"))
+       :learningEvidenceMode
+       (normalized-token (one facts entity "learning_evidence_mode"))
+       :learningExperimentId
+       (normalized-token (one facts entity "learning_experiment_id"))
+       :learningEpisodeId
+       (normalized-token (one facts entity "learning_episode_id"))
+       :learningTaskSignatureSha256
+       (normalized-token (one facts entity "learning_task_signature_sha256"))
+       :learningTaskSignatureCoverage
+       (normalized-token (one facts entity "learning_task_signature_coverage"))
+       :learningRisk (normalized-token (one facts entity "learning_risk"))
+       :learningArm (normalized-token (one facts entity "learning_arm"))
+       :learningAxis (normalized-token (one facts entity "learning_axis"))
+       :learningArmId (normalized-token (one facts entity "learning_arm_id"))
+       :learningPropensity (maybe-double (one facts entity "learning_propensity"))
+       :learningExplorePropensity
+       (maybe-double (one facts entity "learning_explore_propensity"))
+       :learningNarrowingReason
+       (normalized-token (one facts entity "learning_narrowing_reason"))
+       :learningBaselineSha256
+       (normalized-token (one facts entity "learning_baseline_sha256"))
+       :learningOptionsSha256
+       (normalized-token (one facts entity "learning_options_sha256"))
+       :learningAssignmentSha256
+       (normalized-token (one facts entity "learning_assignment_sha256"))
+       :promptReceiptVersion
+       (normalized-token (one facts entity "prompt_receipt_version"))
+       :promptReceiptSha256
+       (normalized-token (one facts entity "prompt_receipt_sha256"))
+       :promptWireSha256
+       (normalized-token (one facts entity "prompt_wire_sha256"))
+       :promptReceiptCoverage
+       (normalized-token (one facts entity "prompt_receipt_coverage"))
+       :environmentReceiptVersion
+       (normalized-token (one facts entity "environment_receipt_version"))
+       :environmentReceiptSha256
+       (normalized-token (one facts entity "environment_receipt_sha256"))
+       :environmentReceiptCoverage
+       (normalized-token (one facts entity "environment_receipt_coverage"))
+       :availableSkillCatalogSha256
+       (normalized-token (one facts entity "available_skill_catalog_sha256"))
+       :activatedResourceClosureSha256
+       (normalized-token (one facts entity "activated_resource_closure_sha256"))
+       :runEnvelopeVersion
+       (normalized-token (one facts entity "run_envelope_version"))
+       :runEnvelopeSha256
+       (normalized-token (one facts entity "run_envelope_sha256"))
        :promptCompositionVersion (normalized-token (one facts entity "prompt_composition_version"))
        :capabilityClass (normalized-token (one facts entity "capability_class"))
        :promptStablePrefixBytes (maybe-long (one facts entity "prompt_stable_prefix_bytes"))
@@ -2165,6 +2222,179 @@
                                         :estimateClassification])
                        eligible)}))
 
+(def learning-assignment-version "north-learning-assignment:v1")
+(def learning-policy-version "north-learning-policy:v1")
+(def learning-prompt-receipt-version "north-prompt-receipt:v1")
+(def learning-environment-receipt-version "north-environment-receipt:v1")
+(def learning-run-envelope-version "north-run-envelope:v1")
+(def learning-axes #{"control" "model-tier" "effort" "prompt" "authoring" "history"})
+
+(defn probability? [value]
+  (and (some? value) (Double/isFinite (double value)) (<= 0.0 value 1.0)))
+
+(defn learning-assignment-valid? [row]
+  (let [arm (:learningArm row)
+        axis (:learningAxis row)
+        arm-id (:learningArmId row)]
+    (and (= learning-assignment-version (:learningAssignmentVersion row))
+         (= learning-policy-version (:learningPolicyVersion row))
+         (re-matches sha256-pattern (or (:learningPolicySha256 row) ""))
+         (#{"frozen" "learning"} (:learningMode row))
+         (#{"discovery" "evaluation"} (:learningEvidenceMode row))
+         (attributed? (:learningExperimentId row))
+         (attributed? (:learningEpisodeId row))
+         (re-matches sha256-pattern (or (:learningTaskSignatureSha256 row) ""))
+         (#{"exact" "partial" "unknown"} (:learningTaskSignatureCoverage row))
+         (#{"control" "explore"} arm)
+         (or (and (= "control" arm) (= "control" axis) (= "control" arm-id))
+             (and (= "explore" arm)
+                  (and (learning-axes axis) (not= "control" axis))
+                  (attributed? arm-id)
+                  (not= "control" arm-id)))
+         (probability? (:learningPropensity row))
+         (probability? (:learningExplorePropensity row))
+         (attributed? (:learningNarrowingReason row))
+         (every? #(re-matches sha256-pattern (or (% row) ""))
+                 [:learningBaselineSha256 :learningOptionsSha256
+                  :learningAssignmentSha256]))))
+
+(defn learning-receipts-exact? [row]
+  (and (= learning-prompt-receipt-version (:promptReceiptVersion row))
+       (= "exact" (:promptReceiptCoverage row))
+       (re-matches sha256-pattern (or (:promptReceiptSha256 row) ""))
+       (re-matches sha256-pattern (or (:promptWireSha256 row) ""))
+       (= learning-environment-receipt-version (:environmentReceiptVersion row))
+       (= "exact" (:environmentReceiptCoverage row))
+       (every? #(re-matches sha256-pattern (or (% row) ""))
+               [:environmentReceiptSha256 :availableSkillCatalogSha256
+                :activatedResourceClosureSha256])
+       (= learning-run-envelope-version (:runEnvelopeVersion row))
+       (re-matches sha256-pattern (or (:runEnvelopeSha256 row) ""))))
+
+(defn learning-bar-exact? [row]
+  (let [{:keys [bars evidenced]} (:evidence row)]
+    (and (pos? (or bars 0)) (= bars evidenced))))
+
+(defn learning-exclusion-reasons [row]
+  (cond-> []
+    (not (learning-assignment-valid? row)) (conj "assignment-incomplete-or-invalid")
+    (not= "evaluation" (:learningEvidenceMode row)) (conj "not-evaluation")
+    (not= "exact" (:learningTaskSignatureCoverage row))
+    (conj "task-signature-not-exact")
+    (not= "exact" (:promptReceiptCoverage row)) (conj "prompt-receipt-not-exact")
+    (not= "exact" (:environmentReceiptCoverage row))
+    (conj "environment-receipt-not-exact")
+    (not (learning-receipts-exact? row)) (conj "receipt-envelope-incomplete-or-invalid")
+    (not (learning-bar-exact? row)) (conj "done-bar-not-evidenced")))
+
+(defn learning-observation [row]
+  (let [reasons (learning-exclusion-reasons row)]
+    {:entity (:entity row)
+     :thread (:thread row)
+     :at (:at row)
+     :eligible (empty? reasons)
+     :exclusionReasons reasons
+     :assignment {:experimentId (:learningExperimentId row)
+                  :episodeId (:learningEpisodeId row)
+                  :mode (:learningMode row)
+                  :evidenceMode (:learningEvidenceMode row)
+                  :taskSignatureSha256 (:learningTaskSignatureSha256 row)
+                  :taskSignatureCoverage (:learningTaskSignatureCoverage row)
+                  :risk (:learningRisk row)
+                  :axis (:learningAxis row)
+                  :arm (:learningArm row)
+                  :armId (:learningArmId row)
+                  :propensity (:learningPropensity row)
+                  :explorePropensity (:learningExplorePropensity row)
+                  :narrowingReason (:learningNarrowingReason row)
+                  :policySha256 (:learningPolicySha256 row)
+                  :assignmentSha256 (:learningAssignmentSha256 row)}
+     :receipts {:promptSha256 (:promptReceiptSha256 row)
+                :promptCoverage (:promptReceiptCoverage row)
+                :environmentSha256 (:environmentReceiptSha256 row)
+                :environmentCoverage (:environmentReceiptCoverage row)
+                :runEnvelopeSha256 (:runEnvelopeSha256 row)}
+     :metrics {:tokens (:tokens row)
+               :durationMs (:durationMs row)
+               :turns (:turns row)
+               :processOutcome (:processOutcome row)
+               :deliveryOutcome (:deliveryOutcome row)
+               :deliveryReason (:deliveryReason row)
+               :struggleTriggers (:struggleTriggers row)
+               :struggleErrorCount (:struggleErrorCount row)
+               :doneBars (get-in row [:evidence :bars])
+               :evidencedBars (get-in row [:evidence :evidenced])}}))
+
+(defn learning-arm-summary [[[_task-signature axis arm-id] rows]]
+  (let [usage (usage-stats rows)]
+    {:taskSignatureSha256 (:learningTaskSignatureSha256 (first rows))
+     :axis axis
+     :armId arm-id
+     :assignmentArm (:learningArm (first rows))
+     :runs (count rows)
+     :runIds (mapv :entity (sort-by :entity rows))
+     :tokens (:tokens usage)
+     :tokenEvidence (:tokenEvidence usage)
+     :tokenCoverage (:tokenCoverage usage)
+     :wallMilliseconds (:wallMilliseconds usage)
+     :durationEvidence (:durationEvidence usage)
+     :durationCoverage (:durationCoverage usage)
+     :turns (:turns usage)
+     :turnEvidence (:turnEvidence usage)
+     :turnCoverage (:turnCoverage usage)
+     :processOutcomes (into (sorted-map) (frequencies (map :processOutcome rows)))
+     :deliveryOutcomes (into (sorted-map) (frequencies (map :deliveryOutcome rows)))
+     :struggleRuns (count (filter #(seq (:struggleTriggers %)) rows))
+     ;; Quality evidence is surfaced only here, after exact done-bar admission.
+     :barEvidencedRuns (count rows)}))
+
+(defn learning-comparison-group [[[experiment-id task-signature] rows]]
+  (let [controls (filter #(= "control" (:learningArm %)) rows)
+        exploratory (filter #(= "explore" (:learningArm %)) rows)
+        axes (sort (distinct (map :learningAxis exploratory)))]
+    {:experimentId experiment-id
+     :taskSignatureSha256 task-signature
+     :controlRuns (count controls)
+     :exploratoryRuns (count exploratory)
+     :axes axes
+     :comparable (boolean (and (seq controls) (seq exploratory)))
+     :reason (cond
+               (empty? controls) "no-control-observation"
+               (empty? exploratory) "no-exploratory-observation"
+               :else "evaluation-ready")}))
+
+(defn learning-report [rows]
+  (let [observed (->> rows
+                      (filter #(some identity
+                                     ((juxt :learningAssignmentVersion
+                                            :learningPolicySha256
+                                            :learningMode :learningAxis
+                                            :learningArmId :learningAssignmentSha256) %)))
+                      vec)
+        observations (mapv learning-observation observed)
+        eligible-ids (set (map :entity (filter :eligible observations)))
+        eligible (filterv #(eligible-ids (:entity %)) observed)
+        exclusions (mapcat :exclusionReasons observations)]
+    {:report "learning"
+     :claim (str "ordinary-operation assignments are grouped only when evaluation mode, "
+                 "task identity, prompt/environment receipts, and done-bar evidence are exact; "
+                 "discovery and incomplete evidence remain visible but are never comparative evidence")
+     :runs (count observed)
+     :eligibleRuns (count eligible)
+     :excludedRuns (- (count observed) (count eligible))
+     :exclusions (into (sorted-map) (frequencies exclusions))
+     :cohorts (->> eligible
+                   (group-by (juxt :learningTaskSignatureSha256
+                                   :learningAxis :learningArmId))
+                   (map learning-arm-summary)
+                   (sort-by (juxt :taskSignatureSha256 :axis :armId)) vec)
+     :comparisonGroups (->> eligible
+                            (group-by (juxt :learningExperimentId
+                                            :learningTaskSignatureSha256))
+                            (map learning-comparison-group)
+                            (sort-by (juxt :experimentId :taskSignatureSha256)) vec)
+     :observations observations}))
+
 (defn report [kind rows & [{:keys [all? by-model? by-effort?]
                             :or {all? false by-model? false by-effort? false}}]]
   (case kind
@@ -2174,7 +2404,8 @@
     "promotions" (promotions-report rows)
     "calibration" (calibration-report rows)
     "timing" (timing-report rows)
-    (throw (ex-info "usage: north routing report [performance|usage|economics|promotions|calibration|timing] [--json] [--all]" {}))))
+    "learning" (learning-report rows)
+    (throw (ex-info "usage: north routing report [performance|usage|economics|promotions|calibration|timing|learning] [--json] [--all]" {}))))
 
 (defn usage-table-line
   ([label row] (usage-table-line label row {}))
@@ -2362,6 +2593,34 @@
                          (:entity row) (:thread row) (str (:estimateHours row))
                          (:durationMs row) (:estimateDeltaMs row)
                          (:estimateRatio row) (:estimateClassification row)))))
+    "learning"
+    (do
+      (println "LEARNING REGIME — bounded ordinary-operation evaluation")
+      (println "Discovery and incomplete construction evidence are visible below but never enter comparison cohorts.")
+      (println (format "runs=%d eligible=%d excluded=%d exclusions=%s"
+                       (:runs data) (:eligibleRuns data) (:excludedRuns data)
+                       (pr-str (:exclusions data))))
+      (println (format "%-12s %-12s %5s %14s %12s %14s %12s %9s"
+                       "AXIS" "ARM" "runs" "tokens" "tok exact"
+                       "wall-ms" "wall exact" "struggle"))
+      (doseq [row (:cohorts data)]
+        (println (format "%-12s %-12s %5d %14s %12s %14s %12s %9d"
+                         (:axis row) (:armId row) (:runs row)
+                         (observed-token-label (:tokens row))
+                         (str (get-in row [:tokenCoverage :exactRuns]) "/"
+                              (get-in row [:tokenCoverage :runs]))
+                         (observed-token-label (:wallMilliseconds row))
+                         (str (get-in row [:durationCoverage :exactRuns]) "/"
+                              (get-in row [:durationCoverage :runs]))
+                         (:struggleRuns row))))
+      (doseq [group (:comparisonGroups data)]
+        (println (format "  %s/%s control=%d explore=%d axes=%s status=%s"
+                         (:experimentId group)
+                         (subs (:taskSignatureSha256 group) 0 12)
+                         (:controlRuns group) (:exploratoryRuns group)
+                         (str/join "," (:axes group)) (:reason group))))
+      (when (empty? (:cohorts data))
+        (println "  (no evaluation-ready cohorts)")))
     "economics"
     (do
       (println "ROUTING ECONOMICS — bounded exact observations, alert-only policy")
@@ -2410,7 +2669,7 @@
             (println (format "  ALERT %-42s observed=%s threshold=%s"
                              code observed threshold))))))))
 
-(def usage-help "usage: north routing report [performance|usage|economics|promotions|calibration|timing] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
+(def usage-help "usage: north routing report [performance|usage|economics|promotions|calibration|timing|learning] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
 
 (defn parse-options [args]
   (loop [remaining args options {:flags #{}}]

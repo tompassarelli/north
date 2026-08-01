@@ -133,21 +133,53 @@
       delivery-preds (set north.terminal-projection/terminal-projection-predicates)
       delivery-facts (select-keys scalar delivery-preds)
       before (facts-of port subject)
+      learning-keys
+      #{"learning_assignment_version" "learning_policy_version"
+        "learning_policy_sha256" "learning_mode" "learning_evidence_mode"
+        "learning_experiment_id" "learning_episode_id"
+        "learning_task_signature_sha256" "learning_task_signature_coverage"
+        "learning_risk" "learning_arm" "learning_axis" "learning_arm_id"
+        "learning_propensity" "learning_explore_propensity"
+        "learning_narrowing_reason" "learning_baseline_sha256"
+        "learning_options_sha256" "learning_assignment_sha256"}
       reservation-keys
-      (conj (set north.terminal-projection/run-reservation-predicates)
+      (conj (into (set north.terminal-projection/run-reservation-predicates)
+                  learning-keys)
             "run_bar_evidence")
       unknown-before (seq (remove reservation-keys (keys before)))
+      learning-before (select-keys before learning-keys)
+      terminal-learning-keys (set (filter learning-keys (keys grouped)))
       reserved? (north.terminal-projection/run-reservation-valid? before)]
   (when-not (= [["kind" "run"]] kind-facts)
     (fail! "run telemetry requires exactly kind=run" {:kind-facts kind-facts}))
   (when unknown-before
     (fail! "run subject reuse or partial prior publication is forbidden"
            {:subject subject :predicates unknown-before}))
-  (when (and (seq before) (not reserved?))
+  (when (and (seq before) (not reserved?) (empty? learning-before))
     (fail! "run subject has a conflicting or incomplete reservation"
            {:subject subject}))
   (when (contains? before "kind")
     (fail! "run subject is already committed" {:subject subject}))
+  ;; Assignment is a pre-provider immutable projection. The terminal run may
+  ;; repeat it only byte-for-byte; omission or movement would break experiment
+  ;; identity after execution has already happened.
+  (when (and (seq terminal-learning-keys) (empty? learning-before))
+    (fail! "terminal run cannot introduce a learning assignment after execution"
+           {:subject subject}))
+  (when (seq learning-before)
+    (when-not (= learning-keys (set (keys learning-before)))
+      (fail! "pre-provider learning assignment is incomplete"
+             {:subject subject :predicates (keys learning-before)}))
+    (when-not (= learning-keys terminal-learning-keys)
+      (fail! "terminal run must repeat the complete pre-provider learning assignment"
+             {:subject subject :predicates terminal-learning-keys}))
+    (doseq [predicate learning-keys
+            :let [expected (set (map second (get grouped predicate [])))
+                  actual (get before predicate #{})]]
+      (when-not (= expected actual)
+        (fail! "terminal run learning assignment differs from pre-provider assignment"
+               {:subject subject :predicate predicate
+                :expected expected :actual actual}))))
   (when (and (= "reported" (get delivery-facts "delivery_outcome"))
              (not reserved?))
     (fail! "reported delivery requires a committed pre-execution run reservation"

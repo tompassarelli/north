@@ -43,6 +43,12 @@ import {
   type AgentRunLedgerSummary,
 } from "./run-ledger";
 import type { WatchdogAbortEvidence } from "./watchdog";
+import {
+  learningAssignmentFacts, type LearningAssignment,
+} from "./learning-regime";
+import type {
+  EnvironmentReceipt, PromptReceipt, RunEnvelopeReceipt,
+} from "./composition-receipt";
 
 const REPO = resolve(import.meta.dir, "../..");
 const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
@@ -127,6 +133,12 @@ export interface RunRecord {
   /** Privacy-bounded prompt construction identity; never prompt text. */
   promptCompositionVersion?: string;
   promptCompositionDigest?: string;
+  /** Deterministic episode assignment durably published before provider effects. */
+  learningAssignment?: LearningAssignment;
+  /** Content-addressed construction receipts; never raw prompt or secret values. */
+  promptReceipt?: PromptReceipt;
+  environmentReceipt?: EnvironmentReceipt;
+  runEnvelopeReceipt?: RunEnvelopeReceipt;
   capabilityClass?: string;
   /** Finalized append-only observation ledger summary. */
   runLedger?: AgentRunLedgerSummary;
@@ -336,6 +348,24 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     if (!/^[a-f0-9]{64}$/.test(rec.promptCompositionDigest))
       throw new Error("invalid prompt composition digest");
     facts.push(["prompt_composition_sha256", rec.promptCompositionDigest]);
+  }
+  if (rec.learningAssignment) facts.push(...learningAssignmentFacts(rec.learningAssignment));
+  if (rec.promptReceipt) {
+    facts.push(["prompt_receipt_version", rec.promptReceipt.version]);
+    facts.push(["prompt_receipt_sha256", rec.promptReceipt.manifestSha256]);
+    facts.push(["prompt_wire_sha256", rec.promptReceipt.wireBytesSha256]);
+    facts.push(["prompt_receipt_coverage", rec.promptReceipt.coverage]);
+  }
+  if (rec.environmentReceipt) {
+    facts.push(["environment_receipt_version", rec.environmentReceipt.version]);
+    facts.push(["environment_receipt_sha256", rec.environmentReceipt.manifestSha256]);
+    facts.push(["environment_receipt_coverage", rec.environmentReceipt.coverage]);
+    facts.push(["available_skill_catalog_sha256", rec.environmentReceipt.availableSkillCatalogSha256]);
+    facts.push(["activated_resource_closure_sha256", rec.environmentReceipt.activatedResourceClosureSha256]);
+  }
+  if (rec.runEnvelopeReceipt) {
+    facts.push(["run_envelope_version", rec.runEnvelopeReceipt.version]);
+    facts.push(["run_envelope_sha256", rec.runEnvelopeReceipt.manifestSha256]);
   }
   if (rec.capabilityClass && !rec.promptComposition?.promptEconomics) {
     if (!LEDGER_IDENTIFIER.test(rec.capabilityClass)) throw new Error("invalid capability class");
