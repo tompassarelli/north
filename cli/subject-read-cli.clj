@@ -39,18 +39,35 @@
     (catch Exception error
       (fail! command subject error))))
 
+(def ^:private implicit-provenance-predicates
+  #{"bar_evidence" "progress" "outcome"})
+
+(defn- canonical-render-required? [rows provenance?]
+  (or provenance?
+      (some (fn [[predicate _]]
+              (contains? implicit-provenance-predicates predicate))
+            rows)))
+
+(defn- render-exact-rows! [subject rows]
+  (if (seq rows)
+    (doseq [[predicate value] rows]
+      (println (str "  " predicate "  " value)))
+    (println (str "no facts for " subject))))
+
 (defn- show! [id provenance?]
   (let [subject (subject-of id)
         response (authoritative-show "show" subject)
-        facts (mapv (fn [[predicate value]]
-                      (kernel/->Fact subject predicate value))
-                    (:rows response))
-        telemetry-log (north.coord/telemetry-log-path)]
-    ;; Reuse Fram's canonical renderer (including explicit provenance) while
-    ;; replacing its cold-fallback handshake with the already validated,
-    ;; exact-subject telemetry projection.
-    (with-redefs [rt/coord-live-facts (fn [_port _log] facts)]
-      (fram-main/cmd-show telemetry-log (bare-subject subject) provenance?))))
+        rows (:rows response)]
+    (if (canonical-render-required? rows provenance?)
+      (let [facts (mapv (fn [[predicate value]]
+                          (kernel/->Fact subject predicate value))
+                        rows)
+            telemetry-log (north.coord/telemetry-log-path)]
+        ;; Provenance is log metadata, so only provenance-bearing output pays
+        ;; for Fram's canonical log-backed renderer.
+        (with-redefs [rt/coord-live-facts (fn [_port _log] facts)]
+          (fram-main/cmd-show telemetry-log (bare-subject subject) provenance?)))
+      (render-exact-rows! subject rows))))
 
 (defn- history! [id]
   (let [subject (subject-of id)]

@@ -25,6 +25,10 @@
     ["timeout" "--kill-after=1s" "5s"
      (str root "/bin/north") "json" "show" id]
 
+    :plain
+    ["timeout" "--kill-after=1s" "5s"
+     (str root "/bin/north") "show" id]
+
     :sdk
     ["timeout" "--kill-after=1s" "5s" "bun" "-e"
      (str "import { getThreadFacts } from "
@@ -125,10 +129,38 @@
                    :request {:op :show :te "@run:indexed"}}
                   request))))
 
+(let [directory
+      (.toFile
+       (java.nio.file.Files/createTempDirectory
+        "north-subject-read-"
+        (make-array java.nio.file.attribute.FileAttribute 0)))
+      telemetry-log (.getCanonicalPath (io/file directory "telemetry.fifo"))]
+  (try
+    (proc/shell "mkfifo" telemetry-log)
+    (let [{:keys [result request]}
+          (invoke-peer
+           :plain
+           "run:bounded"
+           {:version 20 :rows [["kind" "run"] ["run_task" "bounded read"]]}
+           {"NORTH_TELEMETRY_PARTITION" "1"
+            "NORTH_TELEMETRY_PORT" "$SERVER_PORT"
+            "FRAM_TELEMETRY_LOG" telemetry-log})]
+      (check! "plain telemetry show renders exact rows without opening the origin log"
+              (and (zero? (:exit result))
+                   (= "  kind  run\n  run_task  bounded read\n" (:out result))))
+      (check! "plain telemetry show retains the fenced exact-subject request"
+              (= {:op :for-log
+                  :expected-log telemetry-log
+                  :request {:op :show :te "@run:bounded"}}
+                 request)))
+    (finally
+      (io/delete-file telemetry-log true)
+      (io/delete-file directory true))))
+
 (let [{:keys [result]}
       (invoke-peer :cli
                    "019fb39e-94a9-7627-adc1-6b4dac07d836"
-                   {:version 20 :rows [["malformed"]]}
+                   {:version 21 :rows [["malformed"]]}
                    {})]
   (check! "malformed coordinator envelopes fail closed"
           (and (= 4 (:exit result))
@@ -137,7 +169,7 @@
 
 (let [id "019fb39e-94a9-7627-adc1-6b4dac07d837"
       rows [["kind" "thread"] ["title" "SDK admission"]]
-      {:keys [result request]} (invoke-peer :sdk id {:version 21 :rows rows} {})]
+      {:keys [result request]} (invoke-peer :sdk id {:version 22 :rows rows} {})]
   (check! "SDK getThreadFacts consumes the exact wrapper projection"
           (and (zero? (:exit result))
                (= [{:predicate "kind" :value "thread"}
@@ -152,7 +184,7 @@
             ["committed" "2026-07-30"]
             ["done_when" "probe exits 0"]]
       {:keys [result request]}
-      (invoke-peer :admission id {:version 22 :rows rows} {})
+      (invoke-peer :admission id {:version 23 :rows rows} {})
       parsed (when (zero? (:exit result))
                (edn/read-string (:out result)))]
   (check! "delegate intake accepts a title-bearing exact projection"
