@@ -5,7 +5,7 @@
 # configuration and capture provenance; executable predicate schema lives in
 # the fact graph itself.
 #
-#   engine: FRAM_HOME > world manifest > compiled checkout   data: XDG state
+#   engine: explicit env > temporary production-compatible checkout   data: XDG state
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
 _north_fram_log_explicit=0
 if [ -n "${FRAM_LOG:-}" ]; then _north_fram_log_explicit=1; fi
@@ -80,11 +80,15 @@ if [ -f "$_north_world_manifest" ]; then
   # shellcheck disable=SC1090
   source "$_north_world_manifest"
 fi
-FRAM="${FRAM_HOME:-${WORLD_REPO_FRAM:-$HOME/code/fram/main}}" # world:allow — compiled fallback
-FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
-FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
+# TEMPORARY: remove when production speaks FRAMRPC (v0.4 runtime cutover).
+# Production still requires the v0.3 EDN-line client; keep each selector
+# independently overrideable so explicit caller environment always wins.
+_north_v03_fram="$HOME/code/fram/wt-graph-authoring-repair-codex"
+FRAM="${FRAM_HOME:-$_north_v03_fram}"
+FRAM_BIN="${FRAM_BIN:-$_north_v03_fram/bin}"
+FRAM_OUT="${FRAM_OUT:-$_north_v03_fram/out}"
 export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT
-unset _north_world_manifest
+unset _north_v03_fram _north_world_manifest
 
 # A promoted deployment's exec unit may carry a PATH with neither bb nor
 # NORTH_BB: fall back through PATH, then the fixed NixOS system-profile path,
