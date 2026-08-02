@@ -533,6 +533,72 @@ test("account usage keeps piped and NO_COLOR output byte-identical to the legacy
   expect(piped.stdout).toContain("Claude / Anthropic\n  claude-plain\n    headroom: plenty (observed, cached)");
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
+test("account usage renders zero, elapsed, and unknown window evidence distinctly", () => {
+  const { home, run, runWithEnv } = fixture();
+  for (const account of ["claude-untouched", "claude-elapsed", "claude-unknown"])
+    expect(run("add", account, "anthropic").status).toBe(0);
+  const now = Date.now();
+  const observedAt = new Date(now - 2 * 60 * 60 * 1_000).toISOString();
+  const collectionAttemptedAt = new Date(now).toISOString();
+  const elapsedReset = new Date(now - 90 * 60 * 1_000).toISOString();
+  const futureReset = new Date(now + 24 * 60 * 60 * 1_000).toISOString();
+  mkdirSync(join(home, ".local/state/north"), { recursive: true });
+  writeFileSync(join(home, ".local/state/north/provider-usage-observations.json"), `${JSON.stringify({
+    version: 1,
+    observations: [
+      {
+        targetId: "claude-untouched", provider: "anthropic",
+        source: "claude-agent-sdk:usage-control-experimental", observedAt: collectionAttemptedAt,
+        windows: [
+          { limitId: "claude:five_hour", usedPercent: 0, resetState: "untouched" },
+          { limitId: "claude:seven_day", usedPercent: 20, resetsAt: futureReset },
+        ],
+      },
+      {
+        targetId: "claude-elapsed", provider: "anthropic",
+        source: "claude-agent-sdk:usage-control-experimental", observedAt,
+        windows: [{ limitId: "claude:five_hour", usedPercent: 100, resetsAt: elapsedReset }],
+        collectionFailure: {
+          observedAt: collectionAttemptedAt,
+          reason: "anthropic_usage_probe_timed_out",
+        },
+      },
+      {
+        targetId: "claude-unknown", provider: "anthropic",
+        source: "claude-agent-sdk:usage-control-experimental", observedAt,
+        state: "unknown",
+        unavailableComponents: [{ limitId: "claude:five_hour", reason: "component_unavailable" }],
+        collectionFailure: {
+          observedAt: collectionAttemptedAt,
+          reason: "anthropic_usage_probe_timed_out",
+        },
+      },
+    ],
+  })}\n`);
+
+  const plain = run("usage");
+  expect(plain.status).toBe(1);
+  expect(plain.stdout).toContain("claude:five_hour: 0% used · window untouched");
+  expect(plain.stdout).toContain(
+    "claude:five_hour: 100% used · stale — window elapsed 01:30 ago, awaiting recollection",
+  );
+  expect(plain.stdout).toContain("claude-elapsed\n    headroom: unknown (stale, cached)");
+  expect(plain.stdout).toContain(
+    "component unavailable: claude:five_hour (component_unavailable)",
+  );
+  expect(plain.stdout).not.toContain("claude:five_hour: 0% used · resets undefined");
+
+  const styled = runWithEnv({ FORCE_COLOR: "1" }, "usage");
+  expect(styled.status).toBe(1);
+  const visible = styled.stdout.replace(/\u001b\[[0-9;]*m/g, "");
+  expect(visible).toContain("claude:five_hour: ░░░░░░░░░░ 0% · window untouched");
+  expect(visible).toContain(
+    "claude:five_hour: ▓▓▓▓▓▓▓▓▓▓ 100% · stale — window elapsed 01:30 ago, awaiting recollection",
+  );
+  expect(visible).toContain("claude-elapsed  unknown\n  status: stale · cached");
+  expect(visible).toContain("component unavailable: claude:five_hour (component_unavailable)");
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
 test("account usage keeps proven exhaustion visible while a failed refresh is negatively cached", () => {
   const { home, run } = fixture();
   expect(run("add", "claude-gmail", "anthropic").status).toBe(0);

@@ -163,7 +163,8 @@ function isFreshAuthoritative(observation: ProviderUsageObservation | undefined,
   if (!observation?.windows?.length) return false;
   return !observation.collectionFailure
     && timestampIsCurrent(observation.observedAt, now, ACCOUNT_USAGE_TTL_MS)
-    && observation.windows.some(({ resetsAt }) => Date.parse(resetsAt) > now.getTime());
+    && observation.windows.some((window) =>
+      window.resetState === "untouched" || Date.parse(window.resetsAt) > now.getTime());
 }
 
 function hasFreshCollectionFailure(observation: ProviderUsageObservation | undefined, now: Date): boolean {
@@ -431,10 +432,11 @@ async function refreshOne(
         }
         const reason = unavailableReason(error, account.provider) as ProviderUsageCollectionFailureReason;
         const prior = afterWait ?? cached;
-        // A failed collection is absence of new knowledge. Preserve a still-live,
-        // proven exhaustion so telemetry loss cannot make an account routable.
-        const livePrior = prior?.windows?.some(({ resetsAt }) => Date.parse(resetsAt) > now.getTime());
-        const failedObservation: ProviderUsageObservation = livePrior
+        // A failed collection is absence of new knowledge. Preserve measured
+        // windows even after their reset boundary so the renderer can label the
+        // stale value while routing treats it as unknown.
+        const measuredPrior = Boolean(prior?.windows?.length);
+        const failedObservation: ProviderUsageObservation = measuredPrior
           ? {
               ...prior!,
               collectionFailure: { observedAt: now.toISOString(), reason },

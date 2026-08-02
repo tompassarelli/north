@@ -191,7 +191,8 @@ export function effectivePressure(observation: PressureObservation | undefined, 
 
 /** Provider-neutral utilization thresholds; the most constrained live window wins. */
 export function pressureFromUsageWindows(windows: ProviderUsageWindow[], now = new Date()): EntitlementPressure | undefined {
-  const relevant = windows.filter(({ resetsAt }) => Date.parse(resetsAt) > now.getTime());
+  const relevant = windows.filter((window) =>
+    window.resetState === "untouched" || Date.parse(window.resetsAt) > now.getTime());
   if (!relevant.length) return undefined;
   const worst = Math.max(...relevant.map(({ usedPercent }) => usedPercent));
   if (worst >= 100) return "exhausted";
@@ -216,7 +217,7 @@ export function sameProviderWindow(
 ): boolean {
   const leftId = canonicalProviderWindowId(provider, left.limitId);
   const rightId = canonicalProviderWindowId(provider, right.limitId);
-  if (!leftId || !rightId || leftId !== rightId || !right.resetsAt) return false;
+  if (!leftId || !rightId || leftId !== rightId || !left.resetsAt || !right.resetsAt) return false;
   return Math.abs(Date.parse(left.resetsAt) - Date.parse(right.resetsAt))
     <= PROVIDER_WINDOW_RESET_JITTER_MS;
 }
@@ -378,7 +379,7 @@ export function parseProviderUsageObservations(input: unknown, path = "<memory>"
         const windowLabel = `${label}.windows[${windowIndex}]`;
         if (!object(window)) failObservations(path, `${windowLabel} must be an object`);
         const unknownWindowFields = Object.keys(window).filter((key) =>
-          !["limitId", "usedPercent", "resetsAt", "measurementKind"].includes(key));
+          !["limitId", "usedPercent", "resetsAt", "resetState", "measurementKind"].includes(key));
         if (unknownWindowFields.length)
           failObservations(path, `${windowLabel} has unknown field(s): ${unknownWindowFields.join(", ")}`);
         if (window.limitId !== undefined && (typeof window.limitId !== "string" || !window.limitId.trim()))
@@ -387,10 +388,16 @@ export function parseProviderUsageObservations(input: unknown, path = "<memory>"
           failObservations(path, `${windowLabel}.usedPercent must be a non-negative number`);
         if (window.measurementKind !== undefined && window.measurementKind !== "provider-measured")
           failObservations(path, `${windowLabel}.measurementKind must be provider-measured`);
+        if (window.resetState !== undefined && window.resetState !== "untouched")
+          failObservations(path, `${windowLabel}.resetState must be untouched`);
+        if (window.resetState === "untouched" && (window.usedPercent !== 0 || window.resetsAt !== undefined))
+          failObservations(path, `${windowLabel}.untouched must have zero usage and no reset timestamp`);
         return {
           ...(window.limitId === undefined ? {} : { limitId: window.limitId }),
           usedPercent: window.usedPercent,
-          resetsAt: observationTimestamp(path, window.resetsAt, `${windowLabel}.resetsAt`),
+          ...(window.resetState === "untouched"
+            ? { resetState: "untouched" as const }
+            : { resetsAt: observationTimestamp(path, window.resetsAt, `${windowLabel}.resetsAt`) }),
           ...(window.measurementKind === undefined ? {} : { measurementKind: "provider-measured" as const }),
         } as ProviderUsageWindow;
       });
@@ -453,7 +460,7 @@ export function parseProviderUsageObservations(input: unknown, path = "<memory>"
           failObservations(path, `${componentLabel} has unknown field(s): ${unknownComponentFields.join(", ")}`);
         if (typeof component.limitId !== "string" || !component.limitId.trim())
           failObservations(path, `${componentLabel}.limitId must be a non-empty string`);
-        if (!["reset_unavailable", "utilization_unavailable", "component_schema_changed"].includes(component.reason as string))
+        if (!["component_unavailable", "reset_unavailable", "utilization_unavailable", "component_schema_changed"].includes(component.reason as string))
           failObservations(path, `${componentLabel}.reason is not recognized`);
         return { limitId: component.limitId, reason: component.reason } as ProviderUsageUnavailableComponent;
       });

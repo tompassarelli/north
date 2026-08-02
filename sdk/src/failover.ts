@@ -26,10 +26,14 @@ const REPO = resolve(import.meta.dir, "..", "..");
 const DEFAULT_THRESHOLD = 80;
 const PIN_LIFETIME_MS = 60 * 60 * 1_000;
 
-export interface AvailabilityRung {
+interface AvailabilityRungBase {
   pct: number;
-  resetsAt: string;
 }
+
+export type AvailabilityRung = AvailabilityRungBase & (
+  | { resetsAt: string; resetState?: never }
+  | { pct: 0; resetState: "untouched"; resetsAt?: never }
+);
 
 export type AvailabilityRow = AccountAvailabilityRow;
 
@@ -182,12 +186,23 @@ function availabilityVerdict(
 
 function parseRung(value: unknown, label: string, named = false): AvailabilityRung & { name?: string } {
   const raw = record(value, label);
-  exactFields(raw, named ? ["name", "pct", "resetsAt"] : ["pct", "resetsAt"], label);
+  const untouched = raw.resetState === "untouched";
+  exactFields(
+    raw,
+    named
+      ? ["name", "pct", untouched ? "resetState" : "resetsAt"]
+      : ["pct", untouched ? "resetState" : "resetsAt"],
+    label,
+  );
+  const pct = percent(raw.pct, `${label}.pct`);
+  if (untouched && pct !== 0) throw new Error(`${label}.untouched must have zero usage`);
   return {
     ...(named ? { name: text(raw.name, `${label}.name`) } : {}),
-    pct: percent(raw.pct, `${label}.pct`),
-    resetsAt: timestamp(raw.resetsAt, `${label}.resetsAt`),
-  };
+    pct,
+    ...(untouched
+      ? { resetState: "untouched" as const }
+      : { resetsAt: timestamp(raw.resetsAt, `${label}.resetsAt`) }),
+  } as AvailabilityRung & { name?: string };
 }
 
 function parseNullableRung(
@@ -306,13 +321,13 @@ export function availabilityForRoute(
 }
 
 function triggerFor(row: AvailabilityRow, model: string | undefined, threshold: number): RungTrigger | undefined {
-  if (row.rungs.week && row.rungs.week.pct >= threshold) {
+  if (row.rungs.week?.resetsAt && row.rungs.week.pct >= threshold) {
     return {
       rung: "week", name: "week", pct: row.rungs.week.pct,
       resetsAt: row.rungs.week.resetsAt,
     };
   }
-  if (row.rungs.window && row.rungs.window.pct >= threshold) {
+  if (row.rungs.window?.resetsAt && row.rungs.window.pct >= threshold) {
     return {
       rung: "window", name: row.rungs.window.name, pct: row.rungs.window.pct,
       resetsAt: row.rungs.window.resetsAt,
@@ -321,7 +336,7 @@ function triggerFor(row: AvailabilityRow, model: string | undefined, threshold: 
   if (!model) return undefined;
   const entry = Object.entries(row.rungs.models)
     .find(([candidate]) => modelMatches(row.provider, candidate, model));
-  if (!entry || entry[1].pct < threshold) return undefined;
+  if (!entry || !entry[1].resetsAt || entry[1].pct < threshold) return undefined;
   return {
     rung: "model", name: entry[0], model: entry[0], pct: entry[1].pct,
     resetsAt: entry[1].resetsAt,
@@ -438,18 +453,18 @@ export function thresholdCrossings(
 ): RungTrigger[] {
   const threshold = failoverThreshold(thresholdValue);
   return [
-    ...(row.rungs.week !== null && row.rungs.week.pct >= threshold ? [{
+    ...(row.rungs.week?.resetsAt && row.rungs.week.pct >= threshold ? [{
       rung: "week" as const, name: "week", pct: row.rungs.week.pct,
       resetsAt: row.rungs.week.resetsAt,
     }] : []),
-    ...(row.rungs.window !== null && row.rungs.window.pct >= threshold ? [{
+    ...(row.rungs.window?.resetsAt && row.rungs.window.pct >= threshold ? [{
       rung: "window" as const, name: row.rungs.window.name, pct: row.rungs.window.pct,
       resetsAt: row.rungs.window.resetsAt,
     }] : []),
     ...Object.entries(row.rungs.models)
-      .filter(([, rung]) => rung.pct >= threshold)
+      .filter(([, rung]) => Boolean(rung.resetsAt) && rung.pct >= threshold)
       .map(([model, rung]) => ({
-        rung: "model" as const, name: model, model, pct: rung.pct, resetsAt: rung.resetsAt,
+        rung: "model" as const, name: model, model, pct: rung.pct, resetsAt: rung.resetsAt!,
       })),
   ];
 }

@@ -50,15 +50,13 @@ test("allowlists documented Claude subscription windows and ignores credit/unkno
     source: "claude-agent-sdk:usage-control-experimental",
     observedAt: "2026-07-17T00:00:00.000Z",
     windows: [
+      { limitId: "claude:five_hour", usedPercent: 0, resetState: "untouched" },
       { limitId: "claude:seven_day", usedPercent: 40, resetsAt: "2026-07-18T12:00:00.000Z" },
       { limitId: "claude:seven_day_opus", usedPercent: 81, resetsAt: "2026-07-19T12:00:00.000Z" },
       { limitId: "claude:model:fable", usedPercent: 38, resetsAt: "2026-07-18T12:00:01.000Z" },
     ],
-    unavailableComponents: [{ limitId: "claude:five_hour", reason: "reset_unavailable" }],
   });
-  expect(result.unavailableComponents).toEqual([
-    { limitId: "claude:five_hour", reason: "reset_unavailable" },
-  ]);
+  expect(result.unavailableComponents).toEqual([]);
   expect(JSON.stringify(result)).not.toContain("credits");
   expect(JSON.stringify(result)).not.toContain("canary_secret");
   expect(JSON.stringify(result)).not.toContain("undocumented_window");
@@ -78,6 +76,22 @@ test("provider-controlled model labels and reset comments never persist", () => 
     limitId: "claude:model:opaque-1", usedPercent: 77, resetsAt: "2099-01-01T00:00:00.000Z",
   });
   expect(JSON.stringify(result)).not.toContain("secret-canary");
+});
+
+test("missing required components stay unknown while invalid resets never become untouched", () => {
+  const missing = usageResponse();
+  delete (missing.rate_limits as Partial<typeof missing.rate_limits>).five_hour;
+  const result = normalizeAnthropicUsage(missing, "claude-gmail", new Date("2026-07-17T00:00:00Z"));
+  expect(result.unavailableComponents).toContainEqual({
+    limitId: "claude:five_hour",
+    reason: "component_unavailable",
+  });
+
+  expect(() => normalizeAnthropicUsage({
+    subscription_type: "max",
+    rate_limits_available: true,
+    rate_limits: { five_hour: { utilization: 0, resets_at: "not-a-timestamp" } },
+  }, "claude-gmail")).toThrow("anthropic_usage_windows_unavailable");
 });
 
 test("experimental contract drift fails soft with a fixed reason", () => {
@@ -110,7 +124,7 @@ test("one transient experimental-envelope mismatch is retried within the same de
   });
   expect(calls).toBe(2);
   expect(result.observation.windows?.map(({ limitId }) => limitId)).toEqual([
-    "claude:seven_day", "claude:seven_day_opus", "claude:model:fable",
+    "claude:five_hour", "claude:seven_day", "claude:seven_day_opus", "claude:model:fable",
   ]);
 });
 

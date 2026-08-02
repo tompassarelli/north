@@ -23,12 +23,14 @@ export const DEFAULT_ACCOUNT_AVAILABILITY_THRESHOLDS: Readonly<AccountAvailabili
 export interface AccountAvailabilityWindowRung {
   name: string;
   pct: number;
-  resetsAt: string;
+  resetsAt?: string;
+  resetState?: "untouched";
 }
 
 export interface AccountAvailabilityRung {
   pct: number;
-  resetsAt: string;
+  resetsAt?: string;
+  resetState?: "untouched";
 }
 
 export interface AccountAvailabilityRow {
@@ -113,8 +115,17 @@ function windowById(
 
 function rung(window: ProviderUsageWindow | undefined): AccountAvailabilityRung | null {
   return window
-    ? { pct: window.usedPercent, resetsAt: window.resetsAt }
+    ? {
+        pct: window.usedPercent,
+        ...(window.resetState === "untouched"
+          ? { resetState: "untouched" as const }
+          : { resetsAt: window.resetsAt }),
+      }
     : null;
+}
+
+function windowHasElapsed(window: ProviderUsageWindow, now: Date): boolean {
+  return window.resetState !== "untouched" && Date.parse(window.resetsAt) <= now.getTime();
 }
 
 function observationIsStale(
@@ -130,7 +141,7 @@ function observationIsStale(
     const freshnessMs = window.limitId === "claude:five_hour"
       ? FIVE_HOURS_MS
       : SEVEN_DAYS_MS;
-    return ageMs > freshnessMs;
+    return ageMs > freshnessMs || windowHasElapsed(window, now);
   });
 }
 
@@ -166,18 +177,24 @@ export function normalizeAccountAvailability(
       .sort((left, right) => left.limitId!.localeCompare(right.limitId!));
     const models = Object.fromEntries(modelWindows.map((entry) => [
       modelName(entry.limitId!),
-      { pct: entry.usedPercent, resetsAt: entry.resetsAt },
+      rung(entry)!,
     ]));
     if (selectedModel !== undefined && models[selectedModel] === undefined) continue;
 
+    const currentModelNames = modelWindows
+      .filter((entry) => !windowHasElapsed(entry, now))
+      .map((entry) => modelName(entry.limitId!));
     const consideredModels = selectedModel === undefined
-      ? Object.keys(models)
-      : [selectedModel];
+      ? currentModelNames
+      : currentModelNames.includes(selectedModel) ? [selectedModel] : [];
     const cookedModels = consideredModels
       .filter((name) => models[name]!.pct >= limits.cooked)
       .sort();
     const generalEvidenceUnknown = window === undefined
-      || (observation.provider === "anthropic" && week === undefined);
+      || windowHasElapsed(window, now)
+      || (observation.provider === "anthropic"
+        && (week === undefined || windowHasElapsed(week, now)))
+      || (selectedModel !== undefined && !currentModelNames.includes(selectedModel));
     const generalCooked = !generalEvidenceUnknown && (
       (week !== undefined && week.usedPercent >= limits.cooked)
       || window.usedPercent >= limits.cooked
@@ -208,7 +225,9 @@ export function normalizeAccountAvailability(
           ? {
               name: window.limitId === "claude:five_hour" ? "five_hour" : "primary",
               pct: window.usedPercent,
-              resetsAt: window.resetsAt,
+              ...(window.resetState === "untouched"
+                ? { resetState: "untouched" as const }
+                : { resetsAt: window.resetsAt }),
             }
           : null,
         week: rung(week),

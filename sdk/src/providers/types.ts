@@ -29,13 +29,17 @@ export interface PressureObservation {
   until?: string;
 }
 
-export interface ProviderUsageWindow {
+interface ProviderUsageWindowBase {
   limitId?: string;
   usedPercent: number;
-  resetsAt: string;
   /** Explicit on ambiguous event sources when the number came from the provider. */
   measurementKind?: "provider-measured";
 }
+
+export type ProviderUsageWindow = ProviderUsageWindowBase & (
+  | { resetsAt: string; resetState?: never }
+  | { usedPercent: 0; resetState: "untouched"; resetsAt?: never }
+);
 
 /**
  * A provider's categorical rate-limit signal. Unlike a usage window, this is
@@ -55,7 +59,7 @@ export type ProviderUsageSource =
 
 export interface ProviderUsageUnavailableComponent {
   limitId: string;
-  reason: "reset_unavailable" | "utilization_unavailable" | "component_schema_changed";
+  reason: "component_unavailable" | "reset_unavailable" | "utilization_unavailable" | "component_schema_changed";
 }
 
 export type ProviderUsageCollectionFailureReason =
