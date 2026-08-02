@@ -47,11 +47,7 @@
 (defn title-slug [title]
   (-> title str/lower-case (str/replace #"[^a-z0-9]+" "-") (str/replace #"^-|-$" "") (clip 28)))
 (defn lane-title [{:keys [id title] :as lane}]
-  (let [fallback (lane-details lane)]
-    (cond
-      (and (seq title) (not= title id)) title
-      (seq fallback) fallback
-      :else id)))
+  (if (and (seq title) (not= title id)) title (dim "(untitled)")))
 (defn fleet-lines [lanes]
   (let [visible (->> lanes
                      (filter (fn [{:keys [status last-output-age pid]}]
@@ -62,13 +58,13 @@
         shown (take 12 visible)]
     (concat
       (if (seq shown)
-        (for [{:keys [id status last-output-age title] :as lane} shown
-              :let [has-title (and (seq title) (not= title id))
-                    slug (if has-title (title-slug title) "")]]
-          (str "  " (lane-details lane) " — " (if (seq slug) slug (clip id 28)) " — "
-               (status-label status)
-               " " (dim (age last-output-age))
-               " " (dim (clip id 8))))
+        (for [{:keys [id status last-output-age] :as lane} shown]
+          (str "  " (format "%-26s %-34s %-8s %-4s %s"
+                             (clip (lane-details lane) 26)
+                             (clip (lane-title lane) 34)
+                             (status-label status)
+                             (age last-output-age)
+                             (dim (clip id 8)))))
         ["  collecting…"])
       (when (> (count visible) 12) [(str "  (+" (- (count visible) 12) " older)")]))))
 (defn bytes [n]
@@ -141,10 +137,13 @@
 (defn account-lines [document]
   (let [targets (mapcat :targets (:providers document))]
     (if (seq targets)
-      (for [{:keys [id routing usage]} targets
-            :let [window (first (get usage :windows))]]
-        (str "  " id "  " (if (= routing "exhausted") (paint 31 routing) (if (= routing "eligible") (paint 32 routing) routing))
-             "  " (if window (str (:usedPercent window) "%") "usage —") "  " (reset-age (:resetsAt window))))
+      (for [{:keys [id routing usage]} targets]
+        (let [window (first (get usage :windows))]
+          (str "  " (format "%-38s %-10s %4s %s"
+                           (clip id 38)
+                           (if (= routing "exhausted") (paint 31 routing) (if (= routing "eligible") (paint 32 routing) routing))
+                           (if window (str (:usedPercent window) "%") "usage —")
+                           (reset-age (:resetsAt window))))))
       ["  collecting…"])))
 (defn render []
   (let [lanes (get-in (state/read-panel :lanes) [:last-good :data :lanes])
