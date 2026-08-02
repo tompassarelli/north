@@ -208,6 +208,28 @@ export interface RunRecord {
   retryAttempt?: number;
 }
 
+export type AuthoringAuthoritySurface = "graph" | "text" | "none" | "unknown";
+export type AuthoringAuthoritySurfaceCoverage = "exact" | "unknown";
+
+/**
+ * Classify admitted authoring authority, not observed authoring behavior. Graph
+ * authority wins because it is the task-specific surface for graph-upstream paths;
+ * ordinary file authority may still coexist for other repository files.
+ */
+export function authoringAuthoritySurfaceEvidence(
+  rec: Pick<RunRecord, "executionSource" | "effectiveAuthority">,
+): { surface: AuthoringAuthoritySurface; coverage: AuthoringAuthoritySurfaceCoverage } | undefined {
+  if (!rec.executionSource) return undefined;
+  if (rec.executionSource !== "north-managed" || !rec.effectiveAuthority)
+    return { surface: "unknown", coverage: "unknown" };
+  const capabilities = rec.effectiveAuthority.capabilities;
+  if (capabilities.includes("graph-authoring.fram"))
+    return { surface: "graph", coverage: "exact" };
+  if (capabilities.includes("filesystem.write") || capabilities.includes("shell"))
+    return { surface: "text", coverage: "exact" };
+  return { surface: "none", coverage: "exact" };
+}
+
 export type RunEstimateClassification = "under" | "on" | "over";
 
 export interface RunEstimateSnapshot {
@@ -355,6 +377,11 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
     facts.push(["prompt_composition_sha256", rec.promptCompositionDigest]);
   }
   if (rec.learningAssignment) facts.push(...learningAssignmentFacts(rec.learningAssignment));
+  const authoringSurface = authoringAuthoritySurfaceEvidence(rec);
+  if (authoringSurface) {
+    facts.push(["authoring_authority_surface", authoringSurface.surface]);
+    facts.push(["authoring_authority_surface_coverage", authoringSurface.coverage]);
+  }
   if (rec.promptReceipt) {
     facts.push(["prompt_receipt_version", rec.promptReceipt.version]);
     facts.push(["prompt_receipt_sha256", rec.promptReceipt.manifestSha256]);
