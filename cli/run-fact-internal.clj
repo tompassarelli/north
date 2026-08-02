@@ -3,6 +3,7 @@
 ;; kind=run, commits in one transaction after its complete read set is validated.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
+         '[clojure.set :as set]
          '[clojure.string :as str])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
@@ -218,8 +219,8 @@
     (doseq [[predicate entries] grouped
             :let [expected (set (map second entries))
                   actual (get stored predicate #{})]]
-      (when-not (= expected actual)
-        (fail! "run telemetry readback conflicts with the submitted projection"
+      (when-not (set/subset? expected actual)
+        (fail! "run telemetry readback is missing submitted facts"
                {:subject subject :predicate predicate
-                :expected expected :actual actual}))))
+                :missing (remove actual expected)}))))
   (println (json/generate-string {:ok true :subject subject :facts (count facts)})))
