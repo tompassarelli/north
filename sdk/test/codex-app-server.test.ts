@@ -741,6 +741,8 @@ function setup(mode = "ok") {
       const completedTurn: any = turn(turnId, "completed");
       if (mode === "driver-shape-tolerance")
         completedTurn.futureMetadata = { providerRevision: 2 };
+      if (mode === "turn-summary-items-view") completedTurn.itemsView = "summary";
+      if (mode === "turn-items-view-hostile") completedTurn.itemsView = "fullyLoaded";
       if (mode === "notification-terminal-error") completedTurn.error = { message: "hidden failure" };
       notify("turn/completed", { threadId, turn: completedTurn });
     };
@@ -1875,6 +1877,20 @@ test("provider-revision IDs and cosmetic fields are tolerated at all four driver
     const variant = setup(mode);
     await expect(new ManagedCodexAppServerRun(variant.options).execute()).resolves.toBeDefined();
   }
+});
+
+// 0.146 hydrates a completed turn's items as a summarized view. North admits
+// the observed vocabulary ("notLoaded", "summary") and any other view still
+// names the drift and fails closed.
+test("a summarized completed-turn items view is tolerated; other views fail closed", async () => {
+  const { options } = setup("turn-summary-items-view");
+  await expect(new ManagedCodexAppServerRun(options).execute()).resolves.toBeDefined();
+
+  const hostile = setup("turn-items-view-hostile");
+  const caught = await new ManagedCodexAppServerRun(hostile.options).execute()
+    .then(() => undefined, (error: Error) => error);
+  expect(caught).toBeDefined();
+  expect(causeChain(caught!)).toContain('itemsView "fullyLoaded"');
 });
 
 test("missing, malformed, and mismatched driver identities fail closed", async () => {
