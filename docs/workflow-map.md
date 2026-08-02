@@ -47,13 +47,14 @@ what could not be verified from source.
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |
 | **the reactor** | a long-lived sidecar (`north reactor`) that re-projects touched threads off the commit firehose; the intended home of specced auto-reaping |
 
-**The two ports** (simplified 2026-07-09 — `:7978`/`:7980` retired, modules deleted;
-`:7978` was the stranded split-brain source of §3 F7, `:7980`'s dark-room log held
-only a bootstrap tx):
+**The two writer origins.** Port `:7978` was once a stranded coordination
+writer, which caused the historical §3 F7 incident. It is now deliberately the
+telemetry origin; `:7980` remains retired.
 
 | port | role |
 |------|------|
-| `:7977` | **north coordinator** — the canonical fact log. Roster, concerns, board, mail, presence ALL read AND write here. |
+| `:7977` | **coordination** — threads, roster, concerns, board, mail, and presence |
+| `:7978` | **telemetry** — runs, sessions, measurements, and guard-denial events |
 
 ---
 
@@ -474,7 +475,7 @@ flowchart TD
     F4["F4 — zombie forks (/fork)"] --> SALL["stages 1–3, 6 — ALL ABSENT"]
     F2["F2 — lapsed-but-alive"] --> S3["stage 3 — PRESENCE"]
     F3["F3 — alive-then-dead, fresh TTL"] --> S3
-    F7["F7 — write-fork split-brain (:7978 vs :7977)"] --> SSUB["stages 3–6 — substrate"]
+    F7["F7 — wrong-origin write"] --> SSUB["stages 3–6 — substrate"]
     F1["F1 — API-death mid-lane"] --> S6["stage 6 — COMPLETION / DEATH"]
     F5["F5 — stale concerns misrouting"] --> S7["stage 7 — REAPING"]
 ```
@@ -501,7 +502,7 @@ flowchart TD
 | F4 | **zombie forks** | 1–3, 6 ALL ABSENT | A `/fork` (pattern F) does real work with no id mint, no identity, no presence, no death ping — invisible to every observation command. | §1 pattern F; brief |
 | F5 | **stale concerns misrouting** | 7 (REAPING absent) | A concern owned by a dead/lapsed agent stays `building`; `concern overlap` still counts it, so a live lane shapes its work around a footprint that will never land — or is routed off it. | thread census: "17 STALE-building from dead agents… stale concern misrouted lane X-E" |
 | F6 | **id-collision / aliasing** | 2 (ID MINT) | An inherited `NORTH_AGENT_ID` pin (a parent's env leaking into a subagent — SubagentSessionStart fires with the subagent's own `session_id` but the parent's env) makes two live actors share one `@agent:<id>`: mail answered by the wrong actor; roster phantom flood. Guarded now by the de-alias logic in `north-on-spawn` (only the *first* acquirer keeps a pin). | `north-on-spawn` comments: 2026-07-03 `cc-fram-*` had 3 workstreams + mail to wrong actor; 2026-07-02 **188 `cc-after-text-*` ghosts** |
-| F7 | **write-fork (split-brain)** | 3–6 substrate | Writes land on the stranded `:7978` daemon instead of the canonical `:7977` log; roster/board/concern all read `:7977`, so the facts are "written" yet invisible. | `north-on-spawn:53`, `harness.ts:122-123` ("presence on :7978 stranded"); `concern-cli.clj:54` ("split-brain that stranded `reached landed` facts invisibly, 2026-07-02"); brief cites a **2026-07-08 cutover incident** *(date per brief; the split-brain mechanism is in source, the specific 07-08 event is not a thread I read)* |
+| F7 | **wrong-origin write** | 3–6 substrate | A coordination fact written to the telemetry origin, or telemetry written to coordination, can be accepted by a writer yet remain absent from the projection that owns that subject kind. The historical incident used a then-stranded `:7978`; today that port is intentionally telemetry-only. | Historical comments in `north-on-spawn`, `harness.ts`, and `concern-cli.clj` record the 2026-07-02 split-brain; the current split-origin contract is defined by the coordination/telemetry routing code. |
 
 ---
 
@@ -575,15 +576,15 @@ below are its rule set.
   `session-<repo>-<sid8>`. If phantoms predate the guard, they age out at TTL.
   Never re-export a parent's `NORTH_AGENT_ID` into a child spawn.
 
-### F7 — write-fork (split-brain)
+### F7 — wrong-origin write
 - **Presents:** a lane reports "told" / "committed" but `north show` / `north
   board` never reflect it; facts seem to vanish.
-- **Confirm:** the write targeted `:7978` (or any non-`:7977` port) while
-  roster/board/concern read `:7977`. Check the port every tool used
-  (`TERN_PORT`, daemon-health in `north doctor` → `7978 agent`).
-- **Remedy:** force everything onto the canonical `:7977` log (the default in
-  `harness.ts`, `north-on-spawn`, `presence-cli`). Never point a writer at
-  `:7978`; it is stranded by design. `north doctor` surfaces daemon skew.
+- **Confirm:** compare the subject kind with the destination origin.
+  Coordination subjects belong on `:7977`; telemetry subjects belong on
+  `:7978`. A port mismatch is not itself a defect—an origin mismatch is.
+- **Remedy:** use North's typed write surface so its partition router selects
+  the origin. Do not point generic coordination writers at the telemetry port
+  or force telemetry into the coordination origin.
 
 ---
 

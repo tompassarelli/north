@@ -7,14 +7,15 @@ doc when its trigger fires, not preemptively.
 ## north — the coordination substrate
 <!-- north-section: north · bucket: core -->
 
-Read `north:docs/operating-manual.md` before nontrivial work; where
-anything contradicts it, the manual wins (trivial lookups exempt).
 **Session state lives on threads, not markdown dumps** — milestones → `tell
 <id> progress`, lessons → `learning`, done → `outcome`; the next session
 reads `north show <id>`, never a SESSION-DUMP file. SDK dispatch derives
 agent posture from thread facts.
-Thread format + concurrent write safety: → `~/.agents/docs/north.md`
+Thread operations + concurrent write safety: → `~/.agents/docs/north.md`
 Spawn/steer/observe/concurrency: → `~/.agents/docs/agent-protocol.md`
+Agent conduct is owned by this profile and its triggered profile documents;
+repository `AGENTS.md` files may add local constraints. Public `north:docs/`
+files explain the product but are never agent-policy authorities.
 
 ## Client time and agent time — two orthogonal clocks
 <!-- north-section: client-time · bucket: client -->
@@ -153,8 +154,8 @@ STOP only for: a flagged secret (FIX the leak, never push it), force-push or
 rewrite of published history, private→public exposure, or another agent's
 in-flight WIP. GitHub releases: version tag as the title, details in body.
 Branch hygiene: origin carries main only (plus tags). Worktree/lane branches
-are local and ephemeral — land by fetch + `safe-push --to main`. Landing's
-done-bar includes cleanup: remove your worktree and delete your branch
+are local and ephemeral — land by fetch + `safe-push --to main`. Landing is
+complete only after cleanup: remove your worktree and delete your branch
 (`wt-reap` sweeps every merged+clean sibling); a landed lane that leaves its
 worktree behind is not done. Never publish a feature branch name.
 
@@ -204,8 +205,8 @@ checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
 reactor, timers), sealed `north-enforcement-promote` (guards, deliberately
 slow). A rebuild whose purpose is adopting hot-loop code is a DEFECT: tag
 the ask `--why "code-adoption: …"`, capture a thread naming the coupling,
-and fix the channel instead. `north doctor` tracks code-adoption rebuild
-asks; the target is zero. Rebuilds are for system config only.
+and fix the channel instead. The target is zero code-adoption rebuild asks;
+rebuilds are for system config only.
 
 ## Paths — full and `~`-anchored, always
 <!-- north-section: paths · bucket: core -->
