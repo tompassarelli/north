@@ -29,15 +29,15 @@
 (defn header [name panel] (str (bold name) " " (dim (str "· " (panel-status panel)))))
 (defn terminal? [status] (#{"finished" "failed"} status))
 (defn lane-status [status]
-  (case status
-    ("advancing" "live quiet") "working"
-    "finished" "done"
-    "failed" "failed"
-    "lost"))
+  (cond
+    (or (= status "advancing") (= status "live quiet") (str/starts-with? status "working (quiet ")) "working"
+    (= status "finished") "done"
+    (= status "failed") "failed"
+    :else "lost"))
 (defn status-label [status]
-  (let [s (lane-status status)]
+  (let [s (lane-status status) label (if (= s "working") (if (str/starts-with? status "working (quiet ") status s) s)]
     (case s
-      "working" (paint 32 s)
+      "working" (paint 32 (if (str/starts-with? status "working (quiet ") (dim label) label))
       "failed" (paint 31 s)
       "lost" (paint 33 s)
       (dim s))))
