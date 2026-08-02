@@ -1,7 +1,7 @@
 north — coordinate work, agents, and time
 
   NOW
-    north dashboard               agents, concerns, board, health — one screen
+    north dashboard               fleet, health, board, accounts — one screen
     north ready                   what you could start now, ranked by leverage
     north inbox                   notifications waiting on you
     north agenda                  dated and overdue work

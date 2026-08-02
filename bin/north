@@ -525,6 +525,10 @@ case "${1:-}" in
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a north.main verb, so it execs directly.
     exec "$NORTH/bin/north-stream-sync" "${@:2}" ;;
+  bridge)
+    # Durable local execution host. It does not read or write the coordinator;
+    # replay remains available when Fram is down.
+    exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" "${@:2}" ;;
   listen)
     # Real-time interrupt listener — RUN AS A BACKGROUND TASK. Dormant (zero
     # tokens) until a peer addresses you, then prints the message and exits:

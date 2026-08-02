@@ -1,20 +1,21 @@
 north help ops — daemons, health, deployment
 
-  north dashboard                     the cockpit: agents, concerns, board, daemons, health, profile
-  north doctor                        is everything healthy: fact server, daemons, rev skew, env, hooks
-  north health                        coordination rollup: lanes ran/died, stale concerns, zombies
-  north hotspots                      where time goes and what fails, ranked from live telemetry
-  north deployed                      committed vs built vs live, per component
-  north coord-doctor                  fact-server safety handshake: writes safe? daemon matches log?
-  north coord-ready                   cheap exact runtime identity for every active writer
-  north coord-safety                  runtime identity + strict log-fence round trip
-  north up [--restart|--stop]         start/revive the fact-server daemon(s) on the canonical logs
-  north reactor [port] [debounce-ms]  auto-export sidecar: re-projects touched threads (background)
-  north stream-sync                   cursor-based transcript log-shipping
-  north rebuild request --why "…"     queue a system-rebuild ask; returns at once, never builds
-                                      --urgent "<why>" — counted, never refused
-  north rebuild-intent start …        coordinate a held/batched firn rebuild window
-  north panic                         minimal recovery path; works with bb/fram/coordinator down
-  north help [<topic>|--all]          the card; a topic page; or the complete reference
+  north dashboard [--once]                     live fleet, health, board, and accounts snapshots
+  north bridge <prompt>|attach <execution-id>  launch or attach to a journaled local Codex execution
+  north doctor                                 is everything healthy: fact server, daemons, rev skew, env, hooks
+  north health                                 coordination rollup: lanes ran/died, stale concerns, zombies
+  north hotspots                               where time goes and what fails, ranked from live telemetry
+  north deployed                               committed vs built vs live, per component
+  north coord-doctor                           fact-server safety handshake: writes safe? daemon matches log?
+  north coord-ready                            cheap exact runtime identity for every active writer
+  north coord-safety                           runtime identity + strict log-fence round trip
+  north up [--restart|--stop]                  start/revive the fact-server daemon(s) on the canonical logs
+  north reactor [port] [debounce-ms]           auto-export sidecar: re-projects touched threads (background)
+  north stream-sync                            cursor-based transcript log-shipping
+  north rebuild request --why "…"              queue a system-rebuild ask; returns at once, never builds
+                                               --urgent "<why>" — counted, never refused
+  north rebuild-intent start …                 coordinate a held/batched firn rebuild window
+  north panic                                  minimal recovery path; works with bb/fram/coordinator down
+  north help [<topic>|--all]                   the card; a topic page; or the complete reference
 
   north help --all — the complete reference · bare `north` — the daily card
