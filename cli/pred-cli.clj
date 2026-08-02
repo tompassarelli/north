@@ -22,11 +22,22 @@
 ;; shared coord substrate (Foundation Part B): the wire helpers live once in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def send-op  north.coord/send-op)
+(def send-op-for-log north.coord/send-op-for-log)
 (def append!  north.coord/append!)
 (def put!     north.coord/put!)
 (def retract! north.coord/retract!)
 (def resolved north.coord/resolved)
 (def many     north.coord/many)
+
+;; Predicate reads must stay on the caller-selected daemon.  The generic
+;; router classifies @agent-like query subjects as telemetry and can therefore
+;; send these registry queries to the other daemon after an epoch split.
+(defn pred-query [port query]
+  (let [log (if (= 7978 port)
+              (or (System/getenv "FRAM_TELEMETRY_LOG")
+                  (str (System/getenv "HOME") "/.local/state/north/telemetry.log"))
+              (north.coord/expected-log))]
+    (send-op-for-log port log {:op :query :query query})))
 
 (defn pred-ent [nm] (str "@" nm))
 (defn pred-name [ent]
@@ -34,20 +45,18 @@
 
 ;; Predicate subjects are not thread/name-resolvable. Query the exact subject.
 (defn exact-values [port subject predicate]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "v"
-                                   :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                            :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}}))
+  (->> (:ok (pred-query port {:find "v"
+                              :rules [{:head {:rel "v" :args [{:var "v"}]}
+                                       :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}))
        (map first)))
 
 (defn exact-one [port subject predicate]
   (first (exact-values port subject predicate)))
 
 (defn exact-facts [port subject]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "p,v"
-                                   :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
-                                            :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]}}))
+  (->> (:ok (pred-query port {:find "p,v"
+                              :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
+                                       :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]}))
        (map (fn [row] [(nth row 0) (nth row 1)]))
        (sort-by (juxt first second))))
 
@@ -707,10 +716,9 @@
 ;; Every executable @<name> carrying cardinality in the live graph.  Colon-bearing
 ;; subjects are entity namespaces (@agent:*, @entity-kind:*), not predicate names.
 (defn graph-pred-names [port]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "e"
-                                   :rules [{:head {:rel "e" :args [{:var "e"}]}
-                                            :body [{:rel "triple" :args [{:var "e"} "cardinality" {:var "_"}]}]}]}}))
+  (->> (:ok (pred-query port {:find "e"
+                              :rules [{:head {:rel "e" :args [{:var "e"}]}
+                                       :body [{:rel "triple" :args [{:var "e"} "cardinality" {:var "_"}]}]}]}))
        (map first)
        (filter #(and (str/starts-with? (str %) "@")
                      (not (str/includes? (str %) ":"))))
