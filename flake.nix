@@ -30,8 +30,6 @@
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
         codexPkgs = nixpkgs-master.legacyPackages.${system};
-        codexPatch = ./patches/codex-0.146.0/managed-hook-failure-mode.patch;
-        codexMovedCwdPatch = ./patches/codex-0.146.0/moved-cwd-hook-launch.patch;
         codexExpectedIdentity = {
           version = "0.146.0";
           owner = "openai";
@@ -40,8 +38,6 @@
           tag = "rust-v0.146.0";
           srcHash = "sha256-/kTIOX/klxm1nq2bJsBqS8f1jZZp2ilaTeULQFPJgDk=";
           cargoHash = "sha256-N9jbH/cgAyu2QxneSnpkdaF0MgV3ZtDmN9q6rr9u+hE=";
-          patchSha256 = "36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3";
-          movedCwdPatchSha256 = "8df9c1918ba50d256e1150b3d4b164327d468796d2788d5682f89085c8e07a55";
         };
         codexUpstreamPkg =
           codexPkgs.codex or
@@ -54,8 +50,6 @@
           tag = codexUpstreamPkg.src.tag or null;
           srcHash = codexUpstreamPkg.src.outputHash or null;
           cargoHash = codexUpstreamPkg.cargoHash or null;
-          patchSha256 = builtins.hashFile "sha256" codexPatch;
-          movedCwdPatchSha256 = builtins.hashFile "sha256" codexMovedCwdPatch;
         };
         codexPkg =
           assert lib.assertMsg
@@ -63,11 +57,6 @@
             ("North's managed Codex patch source identity drifted; expected "
               + builtins.toJSON codexExpectedIdentity + "; observed "
               + builtins.toJSON codexObservedIdentity);
-          # Stock cache-served build (2026-07-29): the managed-hook and moved-cwd
-          # patches are PARKED, not abandoned — behavioral hardening only; the
-          # requirements.toml keys are upstream features and still parse. Local
-          # source builds of codex cost ~10min per flake change; re-enable only
-          # with a cached-build strategy (see nixos-config task B5).
           codexUpstreamPkg;
         codexVersionSmoke = pkgs.runCommand
           "north-codex-version-smoke-${codexPkg.version}"
