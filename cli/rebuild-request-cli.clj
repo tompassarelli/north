@@ -470,6 +470,22 @@
              (reconcile-legacy-state state)]
          {:state next-state :snapshot next-state :bridge bridge})))))
 
+(defn repair-legacy-cursor!
+  "Reset the file-identity cursor after an authorized full-log replacement.
+   The replacement is already the folded current graph, so replay begins at EOF."
+  [port]
+  (let [{:keys [snapshot]}
+        (queue-update!
+         port
+         (fn [state _]
+           (let [metadata (north.rebuild-queue-legacy/log-metadata
+                           (north.coord/expected-log))
+                 repaired (assoc state :legacy
+                                 (north.rebuild-queue-legacy/cursor
+                                  metadata (:length metadata)))]
+             {:state repaired :snapshot repaired})))]
+    snapshot))
+
 (defn- enqueue-request! [port request]
   (queue-update!
    port
@@ -846,6 +862,7 @@
    "  north rebuild list\n"
    "  north rebuild satisfy <request-id> --generation <path> [--intent <id>]\n"
    "  north rebuild run-window <window-id>\n"
+   "  north rebuild repair-legacy-cursor\n"
    "  north rebuild health-json"))
 
 (when-not (= "1" (System/getProperty "north.rebuild-request-cli.lib"))
@@ -873,6 +890,15 @@
           "run-window"
           (if (= 1 (count args))
             (System/exit (run-window! port (first args)))
+            (fail! usage))
+          "repair-legacy-cursor"
+          (if (empty? args)
+            (let [state (repair-legacy-cursor! port)]
+              (println (json/generate-string
+                        {"repaired" true
+                         "path" (get-in state [:legacy :path])
+                         "fileKey" (get-in state [:legacy :file-key])
+                         "offset" (get-in state [:legacy :offset])})))
             (fail! usage))
           "health-json" (println (json/generate-string (activation-health port)))
           (do (println usage) (when command (System/exit 2)))))

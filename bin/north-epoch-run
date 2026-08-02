@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Offline cut runner. Python is the accepted platform-boundary escape for EDN logs.
+set -euo pipefail
+
+north_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/north"
+coordination_log="${FRAM_LOG:-$state_root/coordination.log}"
+telemetry_log="${FRAM_TELEMETRY_LOG:-$state_root/telemetry.log}"
+report_dir="$state_root/epoch-reports"
+policy="$north_root/policy/epoch-retention-v2.json"
+execute=0
+if [[ "${1:-}" == "--execute" ]]; then execute=1; shift; fi
+if (( $# != 0 )); then echo "usage: north-epoch-run [--execute]" >&2; exit 2; fi
+mkdir -p "$report_dir"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+report="$report_dir/$stamp.json"
+telemetry_bytes=0
+[[ -f "$telemetry_log" ]] && telemetry_bytes="$(stat -c %s "$telemetry_log")"
+
+if (( ! execute )); then
+  "$north_root/bin/north-epoch" --as-of "$(date -u +%FT%TZ)" --policy "$policy" --report "$report" "$coordination_log" "$telemetry_log"
+  echo "telemetry_bytes=$telemetry_bytes threshold_bytes=41943040 execute=false report=$report"
+  exit 0
+fi
+
+cut_root="$state_root/cold-epoch-$stamp"
+stage="$cut_root/stage"
+archive="$cut_root/cold"
+mkdir -p "$stage"
+cp -- "$coordination_log" "$stage/coordination.log"
+cp -- "$telemetry_log" "$stage/telemetry.log"
+rollback() {
+  if [[ -f "$archive/coordination.log" ]]; then cp -- "$archive/coordination.log" "$coordination_log"; fi
+  if [[ -f "$archive/telemetry.log" ]]; then cp -- "$archive/telemetry.log" "$telemetry_log"; fi
+  "$north_root/bin/north" up --restart || true
+}
+trap rollback ERR
+"$north_root/bin/north" up --stop
+"$north_root/bin/north-epoch" --execute --as-of "$(date -u +%FT%TZ)" --policy "$policy" --output-dir "$stage/epochs" --archive-dir "$archive" "$stage/coordination.log" "$stage/telemetry.log" >"$report"
+index="$archive/epoch-index.json"
+"$north_root/bin/north-epoch" --verify-index "$index"
+install -m 0600 "$stage/epochs/coordination.epoch.log" "$coordination_log"
+install -m 0600 "$stage/epochs/telemetry.epoch.log" "$telemetry_log"
+"$north_root/bin/north" up --restart
+"$north_root/bin/north" rebuild repair-legacy-cursor
+"$north_root/bin/north" rebuild health-json
+trap - ERR
+echo "execute=true archive=$archive report=$report"
