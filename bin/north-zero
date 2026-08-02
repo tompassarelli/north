@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Strict zero provider launcher.  This intentionally does not source North,
+# read its state, or use a provider-account wrapper.
+set -euo pipefail
+
+usage() {
+  echo "usage: north zero <claude|codex> [provider arguments...]" >&2
+  exit 2
+}
+
+provider="${1:-}"
+case "$provider" in
+  claude|codex) ;;
+  *) usage ;;
+esac
+shift
+
+provider_bin="$(command -v "$provider" || true)"
+if [ -z "$provider_bin" ]; then
+  echo "north zero: $provider is not on PATH" >&2
+  exit 127
+fi
+# The per-user command is North's account-selecting bootloader.  Use the
+# system provider binary when available so zero never enters that wrapper.
+if [[ "$provider_bin" = "$HOME/.local/bin/"* ]] && [ -x "/run/current-system/sw/bin/$provider" ]; then
+  provider_bin="/run/current-system/sw/bin/$provider"
+fi
+
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/north-zero.XXXXXX")"
+home="$scratch/home"
+work="$home/work"
+mkdir -p "$work" "$home/tmp" "$home/.claude" "$home/.codex"
+chmod 700 "$scratch" "$home" "$work" "$home/tmp" "$home/.claude" "$home/.codex"
+trap 'rm -rf "${scratch:?}"' EXIT HUP INT TERM
+
+# A deliberately small launch environment.  PATH is retained solely to let the
+# provider find normal host executables; no inherited North/agent variable is
+# retained.  The provider executable itself is resolved before this reset.
+clean_env=(
+  "PATH=${PATH:-/usr/bin:/bin}"
+  "HOME=$home"
+  "TMPDIR=$home/tmp"
+  "TERM=${TERM:-dumb}"
+)
+for locale_var in LANG LC_ALL LC_CTYPE COLORTERM NO_COLOR; do
+  if [ -n "${!locale_var:-}" ]; then clean_env+=("$locale_var=${!locale_var}"); fi
+done
+case "$provider" in
+  claude) clean_env+=("CLAUDE_CONFIG_DIR=$home/.claude") ;;
+  codex) clean_env+=("CODEX_HOME=$home/.codex") ;;
+esac
+
+echo "north zero: strict zero session ($provider)"
+echo "  disabled: inherited environment (including North/agent variables)"
+echo "  disabled: provider account home, AGENTS.md, hooks, skills, plugins, MCP"
+echo "  disabled: project instructions (empty working directory: $work)"
+echo "  home: $home"
+
+launch_plain() {
+  echo "  launching: $provider_bin" >&2
+  (
+    cd "$work"
+    exec env -i "${clean_env[@]}" "$provider_bin" "$@"
+  )
+}
+
+if [ "$provider" != codex ]; then
+  echo "  machine-wide surfaces not hidden: provider-managed /etc configuration, if any" >&2
+  launch_plain "$@"
+  exit $?
+fi
+
+bwrap_bin="$(command -v bwrap || true)"
+if [ -z "$bwrap_bin" ] || ! "$bwrap_bin" --unshare-user --unshare-pid --ro-bind / / --proc /proc --dev /dev --tmpfs /etc/codex /usr/bin/true >/dev/null 2>&1; then
+  echo "  machine-wide surfaces not hidden: /etc/codex/requirements.toml and /etc/codex/hooks (bubblewrap unavailable)" >&2
+  launch_plain "$@"
+  exit $?
+fi
+
+echo "  disabled: /etc/codex/requirements.toml and /etc/codex/hooks (bubblewrap namespace)"
+echo "  launching: $provider_bin (bubblewrap namespace)" >&2
+bwrap_env=()
+for item in "${clean_env[@]}"; do
+  bwrap_env+=(--setenv "${item%%=*}" "${item#*=}")
+done
+env -i "$bwrap_bin" \
+  --die-with-parent --unshare-user --unshare-pid \
+  --ro-bind / / --bind "$home" "$home" \
+  --proc /proc --dev /dev --tmpfs /etc/codex \
+  --chdir "$work" \
+  "${bwrap_env[@]}" \
+  "$provider_bin" "$@"

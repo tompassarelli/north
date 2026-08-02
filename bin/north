@@ -6,6 +6,13 @@
 # the fact graph itself.
 #
 #   engine: explicit env > temporary production-compatible checkout   data: XDG state
+# `zero` is deliberately before every export below: it is the escape hatch when
+# this wrapper or its state is the broken component.
+if [ "${1:-}" = "zero" ]; then
+  NORTH="$(cd "$(dirname "$0")/.." && pwd)"
+  exec "$NORTH/bin/north-zero" "${@:2}"
+fi
+
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
 _north_fram_log_explicit=0
 if [ -n "${FRAM_LOG:-}" ]; then _north_fram_log_explicit=1; fi
