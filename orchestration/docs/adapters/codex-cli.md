@@ -72,12 +72,12 @@ this: point `-C` anywhere readable.
   outputs are STRICT: every key in `properties` must appear in `required` at
   every nesting level, or the request 400s before the lane starts.
 
-## Verification
+## Delivery checks
 
-Worker lanes return evidence against their brief's done-bars in the `-o`
-capture. Law 7 verifier siblings are separate composed lanes (typically
-senior/`gpt-5.6-sol` or a native verifier), never the same session. The
-orchestrator reconciles; a bare exit 0 is not evidence.
+Worker lanes return the nearest existing relevant check and its observation in
+the `-o` capture. The orchestrator reconciles child results and may run one
+existing integrated aggregate check. It does not originate a verifier lane;
+that role requires the user's current request to explicitly ask for assurance.
 
 ## Environment hygiene (from the hermes-agent study, 2026-07-31)
 

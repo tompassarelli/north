@@ -17,7 +17,6 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(resolve(ROOT, p), "utf8");
 
 const FAMILY_BLOCKS = { openai: "docs/deltas/openai-common.md" };
-const STRONG_VERIFICATION_BLOCK = "docs/artifacts/verification-loop-strong.md";
 
 export const CONFORMANCE_HEADERS = {
   advisory: "CONFORMANCE: advisory — the blocks below are calibrated defaults distilled from observed failures; weigh them with your own judgment, and note each deviation in one logged line.",
@@ -143,9 +142,6 @@ function main() {
     else
       parts.push("", `<!-- model delta: explicit none for ${resolved.model} — ${delta.reason} -->`);
   }
-
-  if (steering === "strong")
-    parts.push("", "## Strong verification-loop protocol", firstFence(read(STRONG_VERIFICATION_BLOCK)));
 
   if (flags.task) {
     const task = flags.task === "-" ? readFileSync(0, "utf8") : readFileSync(resolve(process.cwd(), flags.task), "utf8");

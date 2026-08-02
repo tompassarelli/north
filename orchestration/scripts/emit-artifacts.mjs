@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renders the public agents repository from North-owned canonical sources.
 // emit-artifacts.mjs --out <directory> [--check]
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { block, firstFence } from "./blocks.mjs";
@@ -49,11 +49,11 @@ function readme() {
   return `# agents — behavioral protocols for AI coding agents
 
 Drop-in, evidence-backed policy blocks that make GPT-family coding agents
-reliable under autonomy: bounded scope, bounded verification, honest
+reliable under autonomy: bounded scope, decisive delivery, honest
 endings, and authority they don't exceed. Every rule traces to an observed
 failure in real agent transcripts — none of it is speculation.
 
-## The two artifacts, and what they are
+## The artifact
 
 **\`gpt-conduct-protocol/\`** — a *behavior standard*: the general operating
 contract for a GPT-family coding agent. It was calibrated by diffing
@@ -63,18 +63,6 @@ style target*. Rules correct observed defects (scope inflation, plan
 restructuring, silent authority overreach, status-update endings); where
 the GPT side beat the reference in calibration (test-first discipline,
 hermetic isolation hygiene, evidence custody), its behavior was kept.
-
-**\`gpt-verification-loop-protocol/\`** — a *focused behavior modifier* for
-one specific pathology: the verification loop. Endless re-checking,
-invented verification methods when a tool breaks, scope that grows
-mid-task, "one more pass" that never ships. The fix is not "verify less" — it
-is claim contracts declared at intake, terminal states per pass, and named
-tarpits.
-
-They compose: conduct is the general contract, verification-loop is the
-deep dive on one axis. The conduct protocol's verification-budget rule is
-the light version of the loop protocol; installing both is coherent and
-recommended for autonomous work.
 
 ## Steering and conformance
 
@@ -88,8 +76,6 @@ rides in the prompt:
 
 Dial steering up with autonomy, blast radius, and irreversibility; dial it
 down when a human reviews each step or when native behavior is the asset.
-At every steering level the verification protocol kills the *loop
-pathology*, never verification quality itself.
 
 **Conformance** selects only the binding register; it does not add or remove
 rules. The exact headers are:
@@ -107,8 +93,8 @@ and conformance independently and deliberately.
 
 - **Codex CLI / anything reading \`AGENTS.md\`:** paste the chosen files
   into your global or per-repo \`AGENTS.md\`. The repo-root \`AGENTS.md\` is
-  the ready-made default profile (\`gpt-conduct-protocol/moderate.md\` +
-  \`gpt-verification-loop-protocol/moderate.md\`, required conformance).
+  the ready-made default profile (\`gpt-conduct-protocol/moderate.md\`,
+  required conformance).
 - **API / agent frameworks:** paste them into the system or developer message.
 - **Spawning setups:** read the propagation section — children dispatched
   outside the repo root inherit nothing unless the protocol rides in
@@ -127,9 +113,6 @@ controlled retest in which the composed protocol moved 3 of 3 targeted
 safety behaviors on the exact prompts where drift was observed (silent
 constraint override → explicit conflict escalation; deliverable descoping
 → engagement with the hard reading; and 33–45% shorter output on 2 of 3).
-The verification-loop protocol was additionally adversarially consolidated
-between a Claude supervisor and an OpenAI supervisor agent — the OpenAI
-side's self-diagnosed failure modes are folded in.
 
 Written for GPT-family agents because that is where the calibration ran;
 most rules are provider-neutral. Refinement is ongoing from field data —
@@ -141,24 +124,17 @@ MIT licensed.
 
 function agents() {
   const conduct = canonicalArtifact("conduct-moderate");
-  const verification = canonicalArtifact("verification-loop-moderate");
   const conductAt = conduct.indexOf("## Family protocol");
-  const verificationAt = verification.indexOf("**Verification policy — overrides your defaults.**");
-  if (conductAt === -1 || verificationAt === -1)
-    throw new Error("default profile boundaries missing from moderate artifacts");
+  if (conductAt === -1)
+    throw new Error("default profile boundary missing from moderate artifact");
   return `# AGENTS.md — default profile for GPT-family coding agents
 
-The ready-made default: conduct protocol (moderate steering) +
-verification-loop protocol (moderate steering), at required conformance.
-Choose either axis per task using README.md. Keep the selected content
-complete; omitting rules re-opens the loops they close.
+The ready-made default: conduct protocol at moderate steering and required
+conformance. Choose steering per task using README.md.
 
 ${CONFORMANCE_HEADERS.required}
 
 ${conduct.slice(conductAt).trimEnd()}
-
-
-${verification.slice(verificationAt).trimEnd()}
 `;
 }
 
@@ -169,10 +145,12 @@ const ARTIFACTS = {
   "gpt-conduct-protocol/light.md": requiredArtifact("conduct-light"),
   "gpt-conduct-protocol/moderate.md": requiredArtifact("conduct-moderate"),
   "gpt-conduct-protocol/strong.md": requiredArtifact("conduct-strong"),
-  "gpt-verification-loop-protocol/light.md": requiredArtifact("verification-loop-light"),
-  "gpt-verification-loop-protocol/moderate.md": requiredArtifact("verification-loop-moderate"),
-  "gpt-verification-loop-protocol/strong.md": requiredArtifact("verification-loop-strong"),
 };
+const RETIRED_ARTIFACTS = [
+  "gpt-verification-loop-protocol/light.md",
+  "gpt-verification-loop-protocol/moderate.md",
+  "gpt-verification-loop-protocol/strong.md",
+];
 
 const { out, check } = parseArgs(process.argv.slice(2));
 let dirty = 0;
@@ -187,6 +165,17 @@ for (const [relative, rendered] of Object.entries(ARTIFACTS)) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, rendered);
     console.log(`wrote ${relative}`);
+  }
+}
+for (const relative of RETIRED_ARTIFACTS) {
+  const path = resolve(out, relative);
+  if (!existsSync(path)) continue;
+  if (check) {
+    console.error(`STALE retired artifact: ${relative}`);
+    dirty++;
+  } else {
+    unlinkSync(path);
+    console.log(`removed ${relative}`);
   }
 }
 

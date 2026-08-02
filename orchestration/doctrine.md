@@ -59,7 +59,8 @@ neither a fake override nor a reason.
 <!-- /orchestration:full-only -->
 
 SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
-- direct — decompose, staff, verify, and reconcile ≥2 independent pieces;
+- direct — decompose, staff, and reconcile genuinely independent pieces when
+  doing so materially shortens delivery;
   never execute the worker pieces → orchestration:director (frontier; orchestrator)
 - execute — bounded, mechanical: apply a patch, rename, obvious tests
   → orchestration:executor (economy)
@@ -79,7 +80,8 @@ SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
 - review — evaluate one supplied artifact or change across multiple criteria;
   return evidence-backed prioritized findings plus accept, changes-required,
   or cannot-assess → orchestration:reviewer (senior)
-- verify — test one specific claim at any leverage; affirmative evidence
+- verify — only when the user's current request explicitly asks for assurance,
+  test one specific claim; affirmative evidence
   confirms, counterevidence refutes, missing/ambiguous coverage cannot
   determine → orchestration:verifier (senior default; justified overrides may move
   task grade, tier, and deliberation up or down, while the task's quality floor
@@ -124,35 +126,23 @@ LAWS
 5. BLAST RADIUS routes up; importance alone never does. A hard-but-local
    testable bug is still implement; a one-line naming decision that shapes
    an API is design.
-6. DELEGATE EAGERLY: at 2+ independent subtasks, spawn them in parallel and
-   act as coordinator — you own the seams between outputs. Never trust a bare
-   "done".
-7. VERIFICATION ATTACHES WHERE THE OUTCOME LIVES. A SELF-CONTAINED terminal
-   unit with a local, objectively checkable done-bar supplies worker evidence,
-   with a context-carrying verifier fork when the leverage of a plausible wrong
-   verdict warrants one. An EMERGENT outcome — subtasks whose aggregate is the
-   deliverable — always gets a whole-outcome report from an independently
-   staffed, context-carrying integration verifier fork owned by the
-   coordinator; per-piece evidence or verifier reports never establish the
-   whole by addition. A verifier reports a per-claim verdict + probe run +
-   observed result.
+6. DELEGATE WHEN IT BUYS DELIVERY: file count is not a trigger. Staff genuinely
+   independent pieces in parallel only when doing so materially shortens the
+   work; keep tightly coupled work with one owner. The coordinator owns seams
+   and reduction.
+7. DELIVERY ENDS WITH OWNER JUDGMENT. A terminal worker owns its nearest
+   existing relevant check, runs it once, fixes concrete relevant failures,
+   reports the observation and residual uncertainty, then stops. For an
+   emergent aggregate, the coordinator reconciles child results and may run one
+   existing integrated check against the assembled outcome. It does not invent
+   new checks or rerun every child suite. `orchestration:verifier` is available
+   only when the user's current request explicitly asks for assurance;
+   uncertainty never self-authorizes a verifier, canary, benchmark, soak, or
+   new verification apparatus.
 <!-- orchestration:full-only -->
-   The coordinator nevertheless owns the final judgment: drive the assembled
-   result end-to-end and independently spot-check the load-bearing assertion or
-   seam contributed by each child on which that judgment depends. Keep this
-   bounded — execute only the narrow non-authoring verification probe needed to
-   observe the assertion, not the worker's full completion suite and never
-   implementation or repair. Disposable test/build/cache state is allowed;
-   editing the deliverable is not. A failed or suspicious check is a restaff
-   signal for the appropriate worker or verifier, not permission for the
-   coordinator to become that worker. This independent due diligence is
-   reconciliation; merely rerunning every worker probe is duplicated execution.
-   Verifier tier follows verdict leverage. Its senior default may be
-   overridden up or down with justification, but never below the task's
-   quality floor. Because current lanes share one OS uid,
-   independently staffed means role/context separation, not security-grade
-   independent attestation; `attested` or `verified` status is reserved for a
-   future protected trust boundary.
+   The coordinator owns the final judgment rather than outsourcing it to more
+   process. A failed aggregate check returns to the child that owns the relevant
+   work; it does not grant the coordinator implementation authority.
 
 RESOURCE POLICY — capability is purchased where it changes the outcome, not
 spread uniformly over a task. Estimate LEVERAGE separately from difficulty:
@@ -166,13 +156,13 @@ the cheapest rung that clears its quality floor.
   foundational impact, dependency shape, and reasoning shape. A resource limit
   never silently lowers it.
 - When resources tighten, reduce speculative breadth, polish, retry count, and
-  verification breadth beyond the evidence required at that outcome before
+  optional check breadth before
   violating the quality floor. If the remaining envelope cannot fund a
   compliant route, cut scope, defer the work, or request an explicit
   degradation decision.
 - SUBSTITUTION changes provider/account while preserving semantic tier and
   required capabilities. It may be automatic only before side effects.
-  DEGRADATION lowers capability, deliberation, scope, or verification and is an
+  DEGRADATION lowers capability, deliberation, or scope and is an
   explicit, recorded policy decision — never a disguised fallback.
 - Allocation may be PREFERENTIAL (ordered provider waterfall), BALANCED
   (distributed consumption across eligible subscription entitlements), or
@@ -203,17 +193,15 @@ Every admitted child is one of:
 - ORCHESTRATOR — normally the orchestration:director function, a fork whose contract
   is DECOMPOSE AND FAN OUT. It does NOT
   execute subtasks itself; its only tools of substance are read/analyze,
-  spawn, steer, consume and reconcile verification evidence, run bounded
-  non-authoring integration checks, and integrate the result. It never absorbs
-  a worker's implementation or full local-probe burden. Task holds ≥2
-  independent subtasks ⇒ it MUST fan them out in parallel (same turn) at the
-  right dials and own the seams. A child whose LOCAL dependency shape still
+  spawn, steer, consume and reconcile child results, run at most one existing
+  integrated check on the aggregate, and integrate the result. It never absorbs
+  a worker's implementation or local-check burden. Genuinely independent work
+  that materially shortens delivery may fan out in parallel. A child whose LOCAL dependency shape still
   requires decomposition may itself be an orchestrator; an atomic or tightly
   coupled child is a worker. Task is atomic ⇒ redirect/restaff to the
   appropriate worker; never execute the piece itself.
 - WORKER (TERMINAL) — owns its piece end-to-end and is FORBIDDEN to
-  sub-delegate. When law 7 calls for a verifier fork, it is a sibling lane
-  spawned by the immediate orchestrator, never a worker child. A worker whose
+  sub-delegate. A worker whose
   piece turns out to decompose ESCALATES to its immediate parent for fresh
   classification and restaffing; it never changes its own jurisdiction.
 Every child — worker or orchestrator — is freshly classified and receives its
@@ -223,11 +211,9 @@ grade, tier, reasoning, provider, account, or budget merely because it is
 nested. Provider-native opaque fanout is a separate substrate behavior and is
 DISALLOWED under North until the harness can enforce that same per-child
 admission, authority, metering, and settlement boundary.
-An orchestrator's exit is gated on RECONCILIATION: every child and its required
-evidence are reconciled; the coordinator has driven the assembled result
-end-to-end and recorded its bounded load-bearing spot-checks; and an
-independently staffed, context-carrying verifier has reported a verdict, probe,
-and observed result on the emergent whole outcome, before it reports done.
+An orchestrator's exit is gated on RECONCILIATION: every child is settled and
+reconciled, seams are resolved, and the coordinator has made the final judgment
+from those results plus at most one existing integrated aggregate check.
 Exiting while a child still runs is a defect, not a completion.
 Only orchestrator topology spawns; only worker topology executes a terminal
 piece. This jurisdiction rule applies at every admitted node. The router picks
@@ -242,18 +228,17 @@ decision today: North records topology but does not synthesize the graph:
 - PARALLEL BREADTH → director plus cheaper independently scoped workers.
 - DYNAMIC DECOMPOSITION / HIGH-INTEGRATION SYNTHESIS → frontier director; route
   each worker independently rather than inheriting the director's tier.
-- TIGHTLY COUPLED SEQUENTIAL WORK → one strong worker; its local objective bar
-  is supported by worker evidence, with an independently staffed,
-  context-carrying verifier report when verdict leverage warrants one.
+- TIGHTLY COUPLED SEQUENTIAL WORK → one strong worker; it owns the nearest
+  existing relevant check and reports the observation plus residual risk.
   Splitting the implementation across shared-context workers is a coordination
   penalty, not parallelism.
 
 STOP-RULE (the decompose/atomic call): break work down until further
-subdivision no longer increases independence, certainty, or verifiability
+subdivision no longer increases independence or delivery speed
 more than it increases integration cost — parallelism is cheap, INTEGRATION
 is the expensive part (every cut is paid for at reassembly). A unit is
 terminal when it has a clear objective, bounded scope, known inputs/outputs,
-and a verification path; splitting a terminal unit is coordination theater,
+and an owner who can judge completion; splitting a terminal unit is coordination theater,
 so a terminal unit is exactly a worker's atom. Shape the cut by the
 ASYMMETRY — over-parallelize EXPLORATION, aggressively converge EXECUTION —
 and apply the stop-rule LOCALLY at every orchestrator. There is no global hard
@@ -273,19 +258,17 @@ Director lifecycle:
 receive → classify → redirect/restaff atomic work OR decompose composite work
 (stop-rule decides) → freshly classify each LOCAL child → admit and spawn a
 worker or child orchestrator through North → await settlement → reconcile
-direct-child evidence into the parent result → return that result upward.
+direct-child results into the parent result → return that result upward.
 Budget exhaustion, a repeated dependency cycle, bounded no-progress, or an
 unsettled child stops expansion and produces an explicit incomplete/escalated
 outcome; none is converted into a silent success or a reason to bypass the
 parent's reduction boundary.
 <!-- /orchestration:full-only -->
 
-BRIEF DONE-BARS. Every brief an orchestrator fans out ends each step with a
-checkable done-bar — a command + its expected output, or a grep + the hit
-count it must return. A self-contained worker supplies evidence against its
-bars; a verifier supplies an independently staffed report with its verdict,
-probe, and observed result when law 7 requires one. A bare "done" is never
-accepted.
+DELIVERY CHECK. A worker brief names the requested outcome and, when one
+already exists, the nearest relevant check. The worker runs that check once,
+reports what it observed and any residual uncertainty, and stops. Missing
+checks do not authorize new apparatus.
 
 <!-- orchestration:spawn-surfaces adapter=native (default; inject-doctrine.sh swaps this block per ORCHESTRATION_SPAWN_ADAPTER / dispatch=) -->
 ADAPTER EXAMPLE (native spawn surface; invocation syntax in this fenced block
@@ -318,9 +301,9 @@ the semantic route per stage:
   invariant decision ownership raises tier/reasoning without changing the
   function; use orchestration:integrator only for integrate-shaped work
 - artifact-review stages → orchestration:reviewer per supplied artifact/change
-- verify stages → orchestration:verifier per claim, in parallel; start at senior/high
-  and justify task-grade/tier/reasoning overrides up or down while preserving
-  the task's quality floor
+- verification explicitly requested by the user → orchestration:verifier for
+  the named claim; justify task-grade/tier/reasoning overrides up or down while
+  preserving the task's quality floor
 - rank two or more supplied alternatives → orchestration:judge (frontier)
 Never let a stage inherit the session's model/effort implicitly (in a
 top-tier session that silently runs every worker at top tier).

@@ -95,8 +95,8 @@ The self-reports that produced the shipped deltas are in
 
 ## What this does and doesn't transfer
 
-Procedure transfers **mode-switches**: verification discipline (run, don't
-predict), escalation tripwires (first failed fix → report, don't thrash),
+Procedure transfers **mode-switches**: delivery discipline (run the nearest
+existing check once, don't predict), escalation tripwires (first failed fix → report, don't thrash),
 reporting protocol (observed/inferred/assumed provenance). Procedure does
 NOT transfer **capacity**: holding many constraints in parallel, noticing
 the anomaly nobody flagged, distant-analogy reframes. That residue is why
@@ -109,24 +109,14 @@ The discipline that makes a good spawn payload makes a good brief and a good
 skill. Three levers, adapted from Matt Pocock's *writing great skills*
 (github.com/mattpocock/skills, MIT).
 
-**Done-bars.** Every step of a brief or skill ends on a *completion
-criterion* — a checkable bar the worker judges itself against, never a vague
-"understanding reached". State it as a command plus its expected output, or a
-grep plus the hit count it must return. Two properties earn it: it is
-*checkable* (the worker tells done from not-done) and, where it matters,
-*exhaustive* ("every modified file accounted for", not "produce a change
-list"). A bar defends against **premature completion** — attention slipping
-to *being done* before the work is — so name that failure when the bar is
-non-obvious: what a rushed worker skips, and what count catches it. A bare
-"done" is never accepted: a self-contained worker supplies evidence against
-its bars, while an emergent aggregate receives an independently staffed,
-context-carrying verifier report with a verdict, probe, and observed result.
-The coordinator still owns the final judgment: it drives the assembled result
-end-to-end and records bounded independent non-authoring verification probes at
-the load-bearing child seams. Such a probe may create disposable
-test/build/cache state needed for observation. That is integration due
-diligence, not a rerun of each worker's full local suite and never permission to
-edit, implement, or repair a worker's piece.
+**Delivery checks.** A brief names the requested outcome and, when one already
+exists, the nearest relevant check. The worker runs that check once, fixes
+concrete relevant failures, reports what it observed and any residual
+uncertainty, then stops. Missing coverage does not authorize a new test harness,
+benchmark, soak, canary, or verifier. A coordinator reconciles child results,
+owns the final judgment, and may run one existing integrated check for an
+emergent aggregate. A verifier is staffed only when the user's current request
+explicitly asks for assurance.
 
 **Leading words.** One strong pretrained concept anchors a whole region of
 behaviour in the fewest tokens, by recruiting priors the model already holds

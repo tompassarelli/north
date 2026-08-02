@@ -41,7 +41,7 @@
       "name": "director", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "orchestrator", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination"],
       "tagline": "independent work reconciled into one evidence-backed result",
-      "description": "Director-shaped work — two or more genuinely independent pieces whose seams must be designed, staffed, and evidence-reconciled. Coordinates only: freshly admits each child, consumes evidence, independently spot-checks materially load-bearing seams, drives the aggregate end-to-end, and returns one result; never executes worker subtasks. Atomic or tightly coupled work → a worker role."
+      "description": "Director-shaped work — genuinely independent pieces whose parallel execution materially shortens delivery and whose seams must be designed, staffed, and reconciled. Coordinates only: freshly admits each child, consumes results, may run one existing integrated aggregate check, makes the final judgment, and returns one result; never executes worker subtasks. Atomic or tightly coupled work → a worker role."
     },
     {
       "name": "team-lead", "taskGrade": "staff", "tier": "senior", "deliberation": "high", "topology": "orchestrator", "posture": "deliver",
@@ -77,13 +77,13 @@
       "name": "reviewer", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "one supplied artifact reviewed across multiple criteria, with prioritized findings and a disposition",
-      "description": "Artifact review — one supplied artifact or change in; evidence-backed prioritized findings plus accept, changes-required, or cannot-assess out. Read-only; never fixes or redesigns. One claim → verifier; ranking alternatives → judge; mechanism explanation → analyst."
+      "description": "Artifact review — one supplied artifact or change in; evidence-backed prioritized findings plus accept, changes-required, or cannot-assess out. Read-only; never fixes or redesigns. Explicit assurance of one claim → verifier; ranking alternatives → judge; mechanism explanation → analyst."
     },
     {
       "name": "verifier", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "one claim in, one adversarial verdict out",
-      "description": "Adversarial verification of one specific claim at any leverage — \"is this bug real\", \"does this fix actually hold\", \"try to refute this\". The standard fan-out unit for verify stages. Ranking alternatives → judge; multi-criterion review of one artifact → reviewer."
+      "description": "Explicit-user-request-only adversarial verification of one specific claim — \"is this bug real\", \"does this fix actually hold\", \"try to refute this\". Ordinary uncertainty never authorizes this role. Ranking alternatives → judge; multi-criterion review of one artifact → reviewer."
     },
     {
       "name": "judge", "taskGrade": "staff", "tier": "frontier", "deliberation": "xhigh", "topology": "worker", "posture": "evaluate",

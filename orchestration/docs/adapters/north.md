@@ -89,16 +89,16 @@ LOCAL dependency shape: atomic or tightly coupled → worker; independently
 decomposable → child orchestrator. Every child is a fresh mcp__north__spawn or
 dispatch with its own complete Orchestration request, North admission, provider/account
 resolution, resource envelope, telemetry, and settlement; no route or budget is
-inherited by nesting. Verification is a sibling lane owned by the immediate
-orchestrator. The parent consumes worker evidence or a child orchestrator's
-reconciled outcome, runs bounded independent non-authoring probes at materially
-load-bearing direct-child seams, and OWNS REDUCTION of those direct children. A
-probe may create disposable test/build/cache state needed for observation, but
-never edits, implements, or repairs the deliverable or absorbs a worker's full
-local-probe burden. Never bypass a child orchestrator with flat fan-in.
-STOP-RULE: subdivide only while it buys more independence, certainty, or
-verifiability than integration cost. A clear objective with bounded scope,
-known I/O, and a verification path is terminal. Recursion stops through this
+inherited by nesting. Each worker runs the nearest existing relevant check once
+and returns its observation plus residual uncertainty. The parent consumes
+worker results or a child orchestrator's reconciled outcome, OWNS REDUCTION of
+those direct children, and may run one existing integrated aggregate check.
+Verifier lanes, canaries, benchmarks, soaks, and new verification apparatus
+require the user's current request to explicitly ask for assurance. Never
+bypass a child orchestrator with flat fan-in.
+STOP-RULE: subdivide only while it buys more independence or delivery speed
+than integration cost. A clear objective with bounded scope, known I/O, and a
+nearest existing relevant check is terminal. Recursion stops through this
 local rule, explicit budgets, cycle detection, bounded no-progress/retry
 controls, and settlement gates — never a global depth cap. Deliverables return
 UP to the immediate parent, never sideways. Provider-native opaque fanout is
