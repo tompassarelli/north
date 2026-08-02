@@ -31,8 +31,10 @@
         (check (and (= "standard" (get-in by-id ["test1" :role])) (= "openai" (get-in by-id ["test1" :provider]))) "spawn metadata missing"))
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
-      (let [many (vec (for [n (range 14)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n}))
-            board "THREADS — 12 open threads · 7 active · 2 ready\n\nACTIVE\n  one very active thread\n  two very active thread\n  three very active thread\n  four very active thread\n  five very active thread\n  six hidden thread\n\nREADY\n raw details that must not appear"
+      (let [many (vec (concat [{:id "work-lane" :title "Working fixture title" :status "advancing" :last-output-age 0}
+                               {:id "failed-lane" :title "Failed fixture title" :status "failed" :last-output-age 0}]
+                              (for [n (range 12)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n})))
+            board "THREADS — 12 open threads · 7 active · 2 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Fixture board title\n native-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 019fc335-5c17-77d5-a8e2-38001f8c97f9 Second board title\n\nREADY\n raw details that must not appear"
             providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 42 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
         (north.dashboard.state/record! :health {:status :ok :data {:services {"north-coord.service" {:active true :socket true :memory {"memory.current" "2254857830" "memory.max" "19327352832"}}}}})
@@ -41,8 +43,15 @@
         (let [out (north.dashboard.render/render) lines (str/split-lines out)]
           (check (some #(.contains % "(+2 older)") lines) "fleet row cap summary missing")
           (check (every? #(<= (count %) 100) lines) "line width was not truncated")
-          (check (and (.contains out "THREADS — 12 open") (.contains out "five very active") (not (.contains out "six hidden")) (not (.contains out "raw details"))) "board was not summarized")
-          (check (.contains out "openai-main  eligible  42%  reset 2026-08-04T10:00:00Z") "providers were not rendered as one line")))
+          (check (and (.contains out "7 active · 2 ready · 1 blocked") (.contains out "Fixture board title") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out)) (not (.contains out "raw details"))) "board was not summarized safely")
+          (check (and (.contains out "openai-main  eligible  42%") (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
+          (check (.contains out "working = producing output · done/failed = finished · stale = no recent signal") "footer legend missing")
+          (check (not (re-find #"(?i)suspect|advancing|live quiet" out)) "internal status vocabulary leaked")
+          (check (not (.contains out "\u001b")) "NO_COLOR render contained ANSI escape bytes")
+          (with-redefs [north.dashboard.render/color? (constantly true)]
+            (let [colored (north.dashboard.render/render)]
+              (check (.contains colored "\u001b[32mworking\u001b[0m") "working row was not green")
+              (check (.contains colored "\u001b[31mfailed\u001b[0m") "failed row was not red")))))
       (let [calls (atom 0)]
         (with-redefs [north.dashboard.state/record! (fn [& _] nil)]
           (north.dashboard.collectors/collect! :board #(swap! calls inc))
