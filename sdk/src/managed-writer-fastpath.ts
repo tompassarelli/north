@@ -167,6 +167,18 @@ const ATOMIC_GUARD_PREDICATES = [
   ...PROJECTION_PREDICATES, TERMINAL_MARKER_PREDICATE, ...TERMINAL_PREDICATES,
 ];
 
+/** Carries the coordinator's own reject code out; the subprocess fallback can
+ * only report its recovery classification, never why the atomic op refused. */
+export type AtomicPublishDiagnostic = (detail: string) => void;
+
+function rejectDetail(r: EdnMap): string {
+  const code = r[":code"] ?? r[":reject"];
+  const rendered = typeof code === "string" ? code
+    : Array.isArray(code) ? code.map(String).join("; ")
+    : code === undefined || code === null ? "no reject code" : String(code);
+  return `coordinator :managed-agent-publish refused (${rendered})`;
+}
+
 /**
  * Attempt the ONE atomic :managed-agent-publish op. Returns:
  *   - true         → committed (fresh publish or byte-identical idempotent replay)
@@ -181,6 +193,7 @@ async function atomicPublish(
   port: number,
   log: string,
   deadline: number,
+  note?: AtomicPublishDiagnostic,
 ): Promise<boolean | "unsupported"> {
   const marker = identityMarker(projection);
   try {
@@ -199,9 +212,12 @@ async function atomicPublish(
     // and normalized subject; every reject (:held, :publish-conflict,
     // :manifest-mismatch, …) and any surprising shape fails closed to the
     // subprocess so recover-identity-write! owns the reused/partial case.
-    return Boolean(r[":ok"]) && r[":fenced-publish"] === true
+    const committed = Boolean(r[":ok"]) && r[":fenced-publish"] === true
       && r[":te"] === entity && r[":marker"] === marker;
-  } catch {
+    if (!committed) note?.(rejectDetail(r));
+    return committed;
+  } catch (cause) {
+    note?.(`coordinator :managed-agent-publish unreachable (${String(cause)})`);
     return false;
   }
 }
@@ -218,6 +234,7 @@ export async function fastPublish(
   holder: string,
   operationId: string,
   timeoutMs: number,
+  note?: AtomicPublishDiagnostic,
 ): Promise<ManagedWriteResult | null> {
   if (process.env.NORTH_MANAGED_WRITER_FASTPATH === "0") return null;
   if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") return null;
@@ -231,7 +248,7 @@ export async function fastPublish(
 
   // Preferred: one atomic server-side fenced publish. Fall back to the legacy
   // per-predicate wire sequence only when the coordinator lacks the op.
-  const atomic = await atomicPublish(entity, projection, holder, port, log, deadline);
+  const atomic = await atomicPublish(entity, projection, holder, port, log, deadline, note);
   if (atomic === "unsupported") {
     return legacyWirePublish(entity, projection, holder, operationId, port, log, deadline);
   }
