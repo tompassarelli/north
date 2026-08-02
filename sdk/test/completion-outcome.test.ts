@@ -2263,11 +2263,16 @@ test("reservation refusal or repeated transport failure constructs no provider",
     let reserveCalls = 0;
     let constructions = 0;
     const reservations: DeliveryRunContext[] = [];
+    const assignmentRuns: string[] = [];
     await spawn({
       prompt: "must not reach provider without a reservation",
       agentId: `test-spawn-reservation-${scenario.label}`,
       role: "integrator", routingMetadata: presetRequest("integrator"),
       thread: "thread-spawn-reservation-refusal",
+      publishLearningAssignment: async (runId: string) => {
+        assignmentRuns.push(runId);
+        return "recorded" as const;
+      },
       deliveryRuntime: {
         reserve(context) {
           reserveCalls++;
@@ -2292,6 +2297,9 @@ test("reservation refusal or repeated transport failure constructs no provider",
     for (const attempted of reservations) {
       expect(subjects.has(attempted.runId)).toBe(false);
     }
+    expect(assignmentRuns).toHaveLength(2);
+    expect(assignmentRuns[0]).toBe(reservations[0]!.runId);
+    expect(subjects).toEqual(new Set([assignmentRuns[1]!]));
     expect(lines.some((line) =>
       line.endsWith(" process_outcome blocked_preflight"),
     )).toBe(true);

@@ -30,6 +30,9 @@
    "learning_options_sha256"
    "learning_assignment_sha256"])
 
+;; Must outlive one bounded fleet terminal-write convoy (global-version CAS).
+(def assignment-publication-deadline-ms 60000)
+
 (def assignment-predicate-set (set assignment-predicates))
 (def sha256? #(boolean (re-matches #"[a-f0-9]{64}" (or % ""))))
 (def identifier? #(boolean (re-matches #"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}" (or % ""))))
@@ -161,7 +164,7 @@
              :else
              {:facts (mapv (fn [[predicate value]] {:p predicate :r value}) facts)})))
        Integer/MAX_VALUE
-       (north.coord/retry-deadline-ns))]
+       (north.coord/retry-deadline-ns assignment-publication-deadline-ms))]
   (checked! outcome [:assert-batch-at-version subject])
   (when-not (= expected (select-keys (facts-of port subject) assignment-predicate-set))
     (fail! "learning assignment readback differs from submitted projection"

@@ -22,8 +22,8 @@ const WRITER = resolve(REPO, "cli", "delivery-evidence-internal.clj");
 export const RUN_RESERVATION_VERSION = "north:run-reservation:v1";
 // Must exceed the writer's inner coordinator windows with margin, or it kills a
 // healthy writer instead of letting it report its own typed refusal: read-retry
-// budget 15s, per-read socket deadline 30s, publication deadline 30s, readback.
-export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 180_000;
+// budget 15s, per-read socket deadline 30s, publication deadline 60s, readback.
+export const DELIVERY_RESERVATION_WRITER_TIMEOUT_MS = 240_000;
 // Same shape one hop later: read-retry budget 15s, lease-wait budget 15s, and
 // up to three fenced round-trips each bounded by the 30s per-read deadline.
 export const DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS = 180_000;

@@ -367,6 +367,8 @@ async function runSpawn(
   const assignmentWriter = injected.publishLearningAssignment
     ?? (injected.queryFn ? async () => "recorded" as const : publishLearningAssignment);
   await assignmentWriter(runId, learningAssignment);
+  let publishedLearningAssignment: LearningAssignment | undefined
+    = learningAssignment;
   // ONE thread resolution, used by both the delivery reservation here and the
   // run ledger at terminal. They disagreed: the reservation read opts.thread
   // while the ledger also accepted AGENT_THREAD, and `north spawn --thread`
@@ -634,12 +636,15 @@ async function runSpawn(
       if (!deliveryReservationReady) {
         const attemptedRunId = runId;
         runId = newRunId(agentId);
+        publishedLearningAssignment = undefined;
         if (wt) recordWorktreeRunRotation(wt.allocation, runId);
         console.error(
           `[delivery] @${attemptedRunId} reservation unavailable; rotating blocked telemetry `
           + `to fresh non-reservation @${runId}: `
           + `${(error as Error)?.message ?? String(error)}`,
         );
+        await assignmentWriter(runId, learningAssignment);
+        publishedLearningAssignment = learningAssignment;
         throw error;
       }
     }
@@ -1127,6 +1132,7 @@ async function runSpawn(
         : resolution.state;
       if (!runState?.reservationValid) {
         runId = newRunId(agentId);
+        publishedLearningAssignment = undefined;
         if (wt) {
           try { recordWorktreeRunRotation(wt.allocation, runId); }
           catch (error) {
@@ -1211,11 +1217,11 @@ async function runSpawn(
   const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
   const promptReceipt = promptComposition?.promptReceipt;
   const environmentReceipt = promptComposition?.environmentReceipt;
-  const runEnvelopeReceipt = promptReceipt && environmentReceipt
+  const runEnvelopeReceipt = promptReceipt && environmentReceipt && publishedLearningAssignment
     ? buildRunEnvelope({
       promptReceipt,
       environmentReceipt,
-      assignmentSha256: learningAssignment.manifestSha256,
+      assignmentSha256: publishedLearningAssignment.manifestSha256,
       tier: routingMetadata.tier,
       effort: finalRoute.effort ?? routingMetadata.reasoning,
       ...(finalRoute.model ? { model: finalRoute.model } : {}),
@@ -1287,7 +1293,7 @@ async function runSpawn(
     threadProvenance,
     turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
     promptComposition,
-    learningAssignment,
+    learningAssignment: publishedLearningAssignment,
     promptReceipt,
     environmentReceipt,
     runEnvelopeReceipt,

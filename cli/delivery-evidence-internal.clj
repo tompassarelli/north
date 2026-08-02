@@ -229,6 +229,9 @@
        (= capability-digest (north.terminal-projection/singleton-value
                              facts "run_capability_sha256"))))
 
+;; Pre-provider gate: must outlive one bounded fleet convoy (global-version CAS).
+(def reservation-publication-deadline-ms 60000)
+
 (defn reserve! [port request]
   (exact-request! request #{"run" "thread" "reporter" "capabilitySha256"})
   (let [run (run-entity (get request "run"))
@@ -300,7 +303,8 @@
                                    :r marker})})))))
           outcome
           (north.coord/assert-batch-after-read!
-           port run plan! Integer/MAX_VALUE (north.coord/retry-deadline-ns))
+           port run plan! Integer/MAX_VALUE
+           (north.coord/retry-deadline-ns reservation-publication-deadline-ms))
           replay (:done outcome)]
       (checked! outcome [:assert-batch-at-version run])
       ;; Post-success readback: the runner legitimately writes allocation and
