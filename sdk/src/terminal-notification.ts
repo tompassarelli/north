@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import type { ExecutionTerminal } from "./execution-outcome";
 import type { TerminalPublicationStatus } from "./identity";
 import type { RunPublicationStatus } from "./telemetry";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -100,7 +105,7 @@ export function terminalNotificationCommand(
   ].filter(Boolean).join(" — ");
   return {
     cmd: peerBb(),
-    args: [
+    args: framBabashkaArguments([
       MSG_CLI,
       port(),
       "send",
@@ -108,7 +113,7 @@ export function terminalNotificationCommand(
       coordinator,
       notification.subject ?? defaultSubject(notification.outcome, notification.terminal),
       body,
-    ],
+    ]),
   };
 }
 
@@ -123,7 +128,8 @@ export function notifyTerminalSettlement(
   try {
     execFileSync(command.cmd, command.args, {
       encoding: "utf8",
-      timeout: Math.max(1, Math.floor(timeoutMs)),
+      env: framEngineEnvironment(),
+      timeout: framCoordinatorChildTimeout(timeoutMs),
       stdio: ["ignore", "ignore", "ignore"],
     });
   } catch {

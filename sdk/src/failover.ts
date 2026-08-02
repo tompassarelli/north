@@ -16,6 +16,11 @@ import {
 } from "./routing-economics";
 import type { AccountAvailabilityRow } from "./account-availability";
 import type { ProviderId } from "./providers/types";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const DEFAULT_THRESHOLD = 80;
@@ -563,7 +568,7 @@ export function composeFailoverSpawn(
     },
     notification: {
       executable: runtime.peerBb ?? env.NORTH_PEER_BB ?? "bb",
-      args: [
+      args: framBabashkaArguments([
         runtime.msgCli ?? `${REPO}/cli/msg-cli.clj`,
         port,
         "send",
@@ -571,7 +576,7 @@ export function composeFailoverSpawn(
         notifyTarget,
         subject,
         body,
-      ],
+      ], env),
       target: notifyTarget,
       subject,
       body,
@@ -593,11 +598,18 @@ function runChecked(
 }
 
 export function fireFailover(spawn: FailoverSpawn, runtime: FailoverRuntime = {}): void {
-  const run = runtime.run ?? ((executable: string, args: string[]) =>
+  const runSpawn = runtime.run ?? ((executable: string, args: string[]) =>
     spawnSync(executable, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
-  runChecked(run, spawn.command.executable, spawn.command.args, "heir spawn");
+  runChecked(runSpawn, spawn.command.executable, spawn.command.args, "heir spawn");
   try {
-    run(spawn.notification.executable, spawn.notification.args);
+    const runNotification = runtime.run ?? ((executable: string, args: string[]) =>
+      spawnSync(executable, args, {
+        encoding: "utf8",
+        env: framEngineEnvironment(runtime.env ?? process.env),
+        timeout: framCoordinatorChildTimeout(),
+        stdio: ["ignore", "pipe", "pipe"],
+      }));
+    runNotification(spawn.notification.executable, spawn.notification.args);
   } catch {
     // The spawn is authoritative once it succeeds. Notification is advisory.
   }
@@ -675,7 +687,7 @@ export function failoverWarningCommands(
     ].filter(Boolean).join("/");
     commands.push({
       executable: runtime.peerBb ?? env.NORTH_PEER_BB ?? "bb",
-      args: [
+      args: framBabashkaArguments([
         runtime.msgCli ?? `${REPO}/cli/msg-cli.clj`,
         env.NORTH_PORT ?? "7977",
         "send",
@@ -685,7 +697,7 @@ export function failoverWarningCommands(
         `${route} ${warning.crossing.rung}:${warning.crossing.name}=${warning.crossing.pct}% `
           + `threshold=${warning.threshold} resets=${warning.crossing.resetsAt}; `
           + `automatic-fire=${warning.automaticFire ? "enabled" : "off"}`,
-      ],
+      ], env),
     });
   }
   return commands;
@@ -700,7 +712,8 @@ function runBestEffort(
     const run = runtime.run ?? ((command: string, commandArgs: string[]) =>
       spawnSync(command, commandArgs, {
         encoding: "utf8",
-        timeout: 10_000,
+        env: framEngineEnvironment(runtime.env ?? process.env),
+        timeout: framCoordinatorChildTimeout(10_000),
         stdio: ["ignore", "ignore", "ignore"],
       }));
     run(executable, args);

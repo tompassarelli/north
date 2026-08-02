@@ -1,6 +1,11 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
+import {
   learningAssignmentFacts, type LearningAssignment,
 } from "./learning-regime";
 
@@ -24,12 +29,15 @@ export function publishLearningAssignment(
   const facts = learningAssignmentFacts(assignment);
   return new Promise((resolvePublication, rejectPublication) => {
     try {
-      execFile("bb", [
+      execFile("bb", framBabashkaArguments([
         WRITER,
         process.env.NORTH_PORT ?? "7977",
         runId,
         JSON.stringify(facts),
-      ], { timeout: Math.max(1, Math.floor(timeoutMs)) }, (error, _stdout, stderr) => {
+      ]), {
+        env: framEngineEnvironment(),
+        timeout: framCoordinatorChildTimeout(timeoutMs),
+      }, (error, _stdout, stderr) => {
         if (!error) {
           resolvePublication("recorded");
           return;

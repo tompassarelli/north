@@ -14,6 +14,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 /**
  * Dual-read seam for the Orchestration -> North Orchestration migration
@@ -52,10 +57,11 @@ function port(): string {
 function project(args: string[]): unknown {
   let out: string;
   try {
-    out = execFileSync(bb(), [projectorCli, port(), ...args], {
+    out = execFileSync(bb(), framBabashkaArguments([projectorCli, port(), ...args]), {
       encoding: "utf8",
+      env: framEngineEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 30_000,
+      timeout: framCoordinatorChildTimeout(30_000),
     });
   } catch (error) {
     // The projector fails LOUD on a timed-out query or a malformed graph row,

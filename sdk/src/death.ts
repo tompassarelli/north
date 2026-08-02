@@ -13,6 +13,11 @@
 // step is wrapped + swallowed). Best-effort by construction.
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -25,6 +30,12 @@ const port = () => process.env.NORTH_PORT ?? "7977";
 export interface DeathContext {
   thread?: string; // the driven thread (dispatch) — gets its own agent_death fact
   coordinator?: string; // spawning coordinator handle — gets a direct peer ping
+}
+
+interface DeathCommand {
+  cmd: string;
+  args: string[];
+  framChild?: true;
 }
 
 // Normalize any thrown value to a short, single-line reason. The SDK's exitError messages
@@ -74,10 +85,10 @@ export function deathCommands(
   ctx: DeathContext = {},
   ts: string = new Date().toISOString(),
   detail: string = reason,
-): Array<{ cmd: string; args: string[] }> {
+): DeathCommand[] {
   const line = `${agentId} | ${reason} | ${ts}`;
   const north = northBin();
-  const cmds: Array<{ cmd: string; args: string[] }> = [
+  const cmds: DeathCommand[] = [
     { cmd: north, args: ["tell", "@swarm", "agent_death", line] },
   ];
   if (ctx.thread) {
@@ -86,7 +97,8 @@ export function deathCommands(
   if (ctx.coordinator) {
     cmds.push({
       cmd: "bb",
-      args: [MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT DEATH", `${detail} (${ts})`],
+      args: framBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT DEATH", `${detail} (${ts})`]),
+      framChild: true,
     });
   }
   return cmds;
@@ -109,7 +121,7 @@ export function notifyDeath(
   // the short reason.
   const chain = causeChain(err, 8, 1200);
   const startedAt = performance.now();
-  for (const { cmd, args } of deathCommands(agentId, reason, ctx, undefined, chain)) {
+  for (const { cmd, args, framChild } of deathCommands(agentId, reason, ctx, undefined, chain)) {
     try {
       const remaining = Math.max(
         1,
@@ -117,7 +129,8 @@ export function notifyDeath(
       );
       execFileSync(cmd, args, {
         encoding: "utf8",
-        timeout: remaining,
+        ...(framChild ? { env: framEngineEnvironment() } : {}),
+        timeout: framChild ? framCoordinatorChildTimeout(remaining) : remaining,
         stdio: ["ignore", "ignore", "ignore"],
       });
     } catch {

@@ -101,6 +101,7 @@ describe("deathCommands", () => {
     expect(cmds[0].args[1]).toBe("@swarm");
     expect(cmds[1].args[1]).toBe("T");
     expect(cmds[2].cmd).toBe("bb");
-    expect(cmds[2].args[0]).toContain("msg-cli"); // the peer ping is last
+    expect(cmds[2].args[0]).toBe("-cp");
+    expect(cmds[2].args[2]).toContain("msg-cli"); // the peer ping is last
   });
 });

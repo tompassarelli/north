@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, connect } from "node:net";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import {
@@ -15,6 +15,11 @@ import {
   type AgentRunEvent,
 } from "../src/run-ledger";
 import { runFacts } from "../src/telemetry";
+import {
+  framBabashkaArguments,
+  framEngineEnvironment,
+  framEngineSelection,
+} from "../src/fram-engine";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const repo = resolve(import.meta.dir, "../..");
@@ -239,26 +244,19 @@ async function waitForPort(port: number): Promise<void> {
 }
 
 test("one real writer process commits seven ordered events inside the production timeout", async () => {
-  const framCandidates = [
-    process.env.FRAM_TEST_CHECKOUT,
-    process.env.FRAM_HOME,
-    resolve(repo, "../fram"),
-    resolve(repo, "../fram/main"),
-    resolve(homedir(), "code/fram/main"),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  const fram = framCandidates.find((candidate) =>
-    existsSync(resolve(candidate, "coord_daemon.clj"))
-  );
-  if (!fram) throw new Error("Fram checkout unavailable for run-event writer integration test");
+  const fram = framEngineSelection(process.env).home;
   const scratch = mkdtempSync(join(tmpdir(), "north-run-event-batch-"));
   const log = join(scratch, "facts.log");
   writeFileSync(log, "");
   const port = await unusedPort();
-  const daemon = Bun.spawn([
-    "bb", "-cp", "out", "coord_daemon.clj", "serve-flat", String(port), log,
-  ], {
+  const daemon = Bun.spawn(["bb", ...framBabashkaArguments([
+    "coord_daemon.clj", "serve-flat", String(port), log,
+  ])], {
     cwd: fram,
-    env: { ...process.env, FRAM_REQUIRE_LOG_FENCE: "1" },
+    env: framEngineEnvironment({
+      ...process.env,
+      FRAM_REQUIRE_LOG_FENCE: "1",
+    }),
     stdout: "pipe",
     stderr: "pipe",
   });

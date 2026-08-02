@@ -1,6 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 import type { Fact } from "./north-client";
 import {
   boundedDoneBars, canonicalDoneBars, MAX_DELIVERY_BARS,
@@ -366,13 +371,14 @@ function invokeWriter(
 ): string {
   const invocation = deliveryWriterInvocation(operation, request, port);
   try {
-    return execFileSync("bb", invocation.argv, {
+    return execFileSync("bb", framBabashkaArguments(invocation.argv), {
       encoding: "utf8",
+      env: framEngineEnvironment(),
       input: invocation.stdin,
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: operation === "reserve"
+      timeout: framCoordinatorChildTimeout(operation === "reserve"
         ? DELIVERY_RESERVATION_WRITER_TIMEOUT_MS
-        : DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS,
+        : DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS),
     }).trim();
   } catch (error) {
     // Preserve only the writer's bounded semantic Message line. Even though the

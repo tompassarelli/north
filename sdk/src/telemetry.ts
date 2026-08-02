@@ -9,6 +9,11 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 import type { RoutingRequest } from "./routing-metadata";
 import type { NormalizedTokenUsage } from "./usage";
 import type { AllocationEvidence, RoutingFallbackReason } from "./providers/types";
@@ -950,12 +955,15 @@ export function recordRun(
       return;
     }
     try {
-      execFile("bb", [
+      execFile("bb", framBabashkaArguments([
         internalWriter,
         process.env.NORTH_PORT ?? "7977",
         id,
         JSON.stringify(facts),
-      ], { timeout: Math.max(1, Math.floor(timeoutMs)) }, (error, _stdout, stderr) => {
+      ]), {
+        env: framEngineEnvironment(),
+        timeout: framCoordinatorChildTimeout(timeoutMs),
+      }, (error, _stdout, stderr) => {
         // Bounded and non-throwing, but NOT silent: a swallowed writer rejection
         // hid a 3-day telemetry outage (2026-07-17). A failed terminal write
         // leaves the run's tokens/outcome/duration unrecorded, so leave a loud

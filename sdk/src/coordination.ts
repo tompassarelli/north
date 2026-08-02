@@ -9,6 +9,7 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { resolve } from "node:path";
 import { parseStrictJson } from "./strict-json";
 import { trustedNorthBabashkaExecutable } from "./trusted-runtime";
+import { framBabashkaArguments, framEngineEnvironment } from "./fram-engine";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const LIVE_FEED = `${REPO}/cli/north-live-feed.clj`;
@@ -657,14 +658,16 @@ function subscribeFeedMode(
     const startedAt = now();
     let child: ChildProcess;
     try {
-      child = spawn(bbExecutable, [
+      const childEnv = framEngineEnvironment();
+      child = spawn(bbExecutable, framBabashkaArguments([
         LIVE_FEED,
         feedPort,
         self,
         "--ack-timeout-ms",
         String(LIVE_FEED_ACK_TIMEOUT_MS),
         ...(settlementOnly ? ["--settlement-only", "true"] : []),
-      ], {
+      ], childEnv), {
+        env: childEnv,
         stdio: ["pipe", "pipe", "ignore"],
       });
     } catch {

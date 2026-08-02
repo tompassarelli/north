@@ -9,6 +9,8 @@ import {
   subscribeFeed,
   subscribeSettlementFeed,
 } from "../src/coordination";
+import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
+import { join } from "node:path";
 
 const protocol = "north-live-feed-v1";
 const frozenEpoch = "00000000-0000-4000-8000-000000000042";
@@ -81,15 +83,26 @@ function harness(options: {
   const runtime = {
     spawn: ((command: string, args: string[], spawnOptions: unknown) => {
       expect(command).toBe(trustedBb);
-      expect(args[0]).toEndWith("/cli/north-live-feed.clj");
-      expect(args.slice(1)).toEqual([
+      expect(args.slice(0, 3)).toEqual([
+        "-cp",
+        join(FRAM_RUNTIME_HOME, "out"),
+        expect.stringMatching(/\/cli\/north-live-feed\.clj$/),
+      ]);
+      expect(args.slice(3)).toEqual([
         "7977",
         "agent-test",
         "--ack-timeout-ms",
         "10000",
         ...(options.settlementOnly ? ["--settlement-only", "true"] : []),
       ]);
-      expect(spawnOptions).toEqual({ stdio: ["pipe", "pipe", "ignore"] });
+      expect(spawnOptions).toMatchObject({
+        env: {
+          FRAM_HOME: FRAM_RUNTIME_HOME,
+          FRAM_BIN: join(FRAM_RUNTIME_HOME, "bin"),
+          FRAM_OUT: join(FRAM_RUNTIME_HOME, "out"),
+        },
+        stdio: ["pipe", "pipe", "ignore"],
+      });
       const child = new FakeChild();
       children.push(child);
       return child;
