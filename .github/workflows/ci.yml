@@ -166,6 +166,8 @@ jobs:
           bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/json-show-indexed-test.clj
           bb cli/tests/dashboard-doctor-exit-test.clj
+          bb tests/dashboard_cache_test.clj
+          bb cli/tests/dashboard-live-test.clj
           bb cli/tests/dashboard-promoted-runtime-test.clj  # promoted-runtime selector reading + code-adoption gauge
           bb cli/tests/rebuild-request-window-test.clj  # window owner decides on fixture time, never wall-clock
           bb cli/tests/rebuild-window-wake-test.clj  # one scoped wake, one owner claim, durable fallback

@@ -221,10 +221,10 @@
    :summary "verify split-log append safety before maintenance"}
 
   ;; ----------------------------------------------------------------- ops
-  {:verb "dashboard" :form "north dashboard" :topic :ops
-   :summary "the cockpit: agents, concerns, board, daemons, health, profile"
+  {:verb "dashboard" :form "north dashboard [--once]" :topic :ops
+   :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
-          :text "agents, concerns, board, health — one screen"}}
+          :text "fleet, health, board, accounts — one screen"}}
   {:verb "doctor" :form "north doctor" :topic :ops
    :summary "is everything healthy: fact server, daemons, rev skew, env, hooks"
    :card {:section :system :form "north doctor"

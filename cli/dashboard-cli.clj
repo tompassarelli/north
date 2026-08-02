@@ -31,6 +31,9 @@
 (load-file (str NORTH "/cli/message-routing.clj"))
 ;; Shared reader for the reactor's durable last-sweep heartbeat (reactor writes it).
 (load-file (str NORTH "/cli/reactor-heartbeat.clj"))
+(load-file (str NORTH "/cli/dashboard-state.clj"))
+(load-file (str NORTH "/cli/dashboard-collectors.clj"))
+(load-file (str NORTH "/cli/dashboard-render.clj"))
 (def CACHE-DIR (str HOME "/.cache/north"))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def CACHE-SCOPE (str (hash (str (or (System/getenv "FRAM_LOG") "default") "|"
@@ -511,7 +514,7 @@
 ;; COMMANDS
 ;; ============================================================================
 
-(defn cmd-dashboard [_]
+(defn old-cmd-dashboard [_]
   ;; Two probe classes, sized to where the work actually happens:
   ;;   NON-coordinator probes parallelize freely — listener health, a log-file
   ;;   read (agent-facts), fram-code-status (profile). None touches :7977, so futures
@@ -606,6 +609,22 @@
                     (dim (str "  " (if on2 "code authored as graph facts"
                                           "code edited as text"))))))
     (println (dim "  north doctor  ·  north  (the card)"))))
+
+(defn cmd-dashboard [args]
+  (let [once? (some #{"--once"} args)
+        tty? (and (not once?) (some? (System/console)))]
+    (north.dashboard.collectors/refresh!)
+    (if-not tty?
+      (print (north.dashboard.render/render))
+      (let [key (atom nil)
+            reader (future (try (reset! key (char (.read *in*))) (catch Exception _ nil)))]
+        (loop []
+        (print "\033[H\033[2J") (print (north.dashboard.render/render)) (flush)
+        (Thread/sleep 1000)
+        (when (= @key \r) (north.dashboard.collectors/refresh!))
+        (when-not (#{\q \u001b} @key)
+          (north.dashboard.collectors/refresh!)
+          (recur)))))))
 
 (defn reactor-doctor-line
   "One-line reactor-sweep verdict from the durable last-sweep heartbeat for `port`.
