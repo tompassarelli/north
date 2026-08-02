@@ -18,6 +18,8 @@
     (spit (io/file agents "lane-test4.log") "AGENT_THREAD=thread-fixture\n[spawn] complete (process=ran, delivery=ok)\n")
     (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"effort\":\"high\",\"provider\":\"openai\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
     (spit (io/file agents "lane-test5.log") "[spawn] complete (process=provider_error, delivery=no)\n")
+    (spit (io/file agents "lane-mutation.log") "worktree provisioned\n[spawn] starting provider=anthropic tier=senior (route=senior/high)\n")
+    (spit (io/file agents "lane-mutation.lane.pid") (str pid))
     (spit (io/file threads "thread-fixture-slug.md") "# Joined thread title\n")
     (with-redefs [north.dashboard.collectors/state-dir (.getPath state-root)
                   north.dashboard.state/cache-dir (constantly (.getPath root))]
@@ -31,14 +33,16 @@
         (check (= "Joined thread title" (get-in by-id ["test4" :title])) "joined thread title was not extracted")
         (check (= "executor" (get-in by-id ["test4" :role])) "meta role was not extracted")
         (check (= "high" (get-in by-id ["test4" :effort])) "meta effort was not extracted")
-        (check (and (= "standard" (get-in by-id ["test1" :role])) (= "medium" (get-in by-id ["test1" :effort])) (= "openai" (get-in by-id ["test1" :provider]))) "legacy spawn metadata missing"))
+        (check (and (= "standard" (get-in by-id ["test1" :role])) (= "medium" (get-in by-id ["test1" :effort])) (= "openai" (get-in by-id ["test1" :provider]))) "legacy spawn metadata missing")
+        (check (and (= "senior" (get-in by-id ["mutation" :role])) (= "high" (get-in by-id ["mutation" :effort]))) "mutation spawn metadata was not found on line two"))
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
-      (let [many (vec (concat [{:id "work-lane" :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :status "advancing" :last-output-age 0}
+      (let [started (.toString (java.time.Instant/ofEpochMilli (- (System/currentTimeMillis) 720000)))
+            many (vec (concat [{:id "work-lane" :thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :startedAt started :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :status "advancing" :last-output-age 0}
                                {:id "legacy-lane" :role "senior" :effort "high" :provider "anthropic" :status "advancing" :last-output-age 0}
                                {:id "failed-lane" :title "Failed fixture title" :status "failed" :last-output-age 0}]
                               (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n})))
-            board "THREADS — 12 open threads · 7 active · 2 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Fixture board title\n native-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 019fc335-5c17-77d5-a8e2-38001f8c97f9 Second board title\n\nREADY\n raw details that must not appear"
+            board "THREADS — 12 open threads · 7 active · 3 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Active fixture title\n\nREADY — top 3\n unblocks 2  019fc335-5c17-77d5-a8e2-38001f8c97f9 Low leverage ready\n unblocks 34  019fc336-5c17-77d5-a8e2-38001f8c97f9 High leverage ready\n unblocks 8  019fc337-5c17-77d5-a8e2-38001f8c97f9 Middle leverage ready"
             providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 42 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
         (north.dashboard.state/record! :health {:status :ok :data {:services {"north-coord.service" {:active true :socket true :memory {"memory.current" "2254857830" "memory.max" "19327352832"}}}}})
@@ -50,11 +54,17 @@
           (check (.contains out "Working fixture title                           integrator/high · openai  working") "meta fleet row did not render title and effort")
           (check (.contains out "senior/high · anthropic") "legacy fleet row did not render route effort")
           (check (.contains out "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…") "fleet title was not truncated at 46 columns")
-          (check (and (.contains out "7 active · 2 ready · 1 blocked") (.contains out "Fixture board title") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out)) (not (.contains out "raw details"))) "board was not summarized safely")
+          (check (.contains out "QUEUE") "board header was not renamed")
+          (check (re-find #"● 1[12]m  Active fixture title" out) (str "meta-bound live lane did not render active stint: " out))
+          (check (and (.contains out "○  High leverage ready") (.contains out "unblocks 34")) "unbound ready row did not render marker and leverage")
+          (check (< (.indexOf out "Active fixture title") (.indexOf out "High leverage ready") (.indexOf out "Middle leverage ready") (.indexOf out "Low leverage ready")) "queue ordering was not active then leverage descending")
+          (check (and (.contains out "7 active · 3 ready · 1 blocked") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out))) "queue was not summarized safely")
           (check (and (.contains out "openai-main  eligible  42%") (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
           (check (.contains out "working = producing output · done/failed = finished · stale = no recent signal") "footer legend missing")
           (check (not (re-find #"(?i)suspect|advancing|live quiet" out)) "internal status vocabulary leaked")
           (check (not (.contains out "\u001b")) "NO_COLOR render contained ANSI escape bytes")
+          (with-redefs [north.dashboard.render/color? (constantly false)]
+            (check (not (re-find #"\u001b" (north.dashboard.render/render))) "NO_COLOR purity failed"))
           (with-redefs [north.dashboard.render/color? (constantly true)]
             (let [colored (north.dashboard.render/render)]
               (check (.contains colored "\u001b[32mworking\u001b[0m") "working row was not green")

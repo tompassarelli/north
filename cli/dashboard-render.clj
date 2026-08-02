@@ -92,20 +92,43 @@
          (or (n "ready") "0") " ready · "
          (or (n "blocked") "0") " blocked")))
 (defn board-entry [line]
-  (when-let [[_ id title] (re-find #"(?i)\b([0-9a-f]{8}-[0-9a-f-]{27,})\b\s+(.+)" line)]
-    {:id id :title title}))
-(defn board-lines [text]
+  (when-let [[_ leverage id title] (re-find #"(?i)^\s*(?:unblocks\s+(\d+)\s+)?(?:\S+\s+)?([0-9a-f]{8}-[0-9a-f-]{27,})\s+(.+)" line)]
+    {:id id :title title :leverage (if leverage (Long/parseLong leverage) 0)}))
+(defn board-section [lines label]
+  (let [after (drop-while #(not (re-find (re-pattern (str "^" label "(?:\\s|$)|" label "\\s+—")) (str/trim %))) lines)]
+    (->> (rest after)
+         (take-while #(not (or (str/blank? %) (re-find #"^[A-Z][A-Z _-]+$" (str/trim %)))))
+         (keep board-entry))))
+(defn started-at [lane]
+  (try (.toEpochMilli (java.time.Instant/parse (:startedAt lane)))
+       (catch Exception _ (:started-at lane))))
+(defn active-lanes [lanes]
+  (into {} (for [lane lanes
+                 :when (#{"advancing" "live quiet"} (:status lane))]
+             [(:thread lane) lane])))
+(defn queue-lines [text lanes]
   (if-not (seq text) ["  collecting…"]
     (let [ls (str/split-lines text)
-          after-active (drop-while #(not (re-find #"(^ACTIVE(?:\s|$)|ACTIVE\s+—)" (str/trim %))) ls)
-          entries (->> (rest after-active)
-                       (take-while #(not (or (str/blank? %) (re-find #"^[A-Z][A-Z _-]+$" (str/trim %)))))
-                       (keep board-entry) (take 5))]
+          live (active-lanes lanes)
+          active (->> (board-section ls "(?:🔵\\s+)?ACTIVE")
+                      (keep #(when-let [lane (get live (:id %))]
+                               (assoc % :lane lane)))
+                      (sort-by #(or (started-at (:lane %)) Long/MAX_VALUE)))
+          ready (sort-by (comp - :leverage) (board-section ls "(?:🟢\\s+)?READY"))
+          visible (take 8 (concat active ready))
+          shown-ready (count (filter #(nil? (:lane %)) visible))]
       (concat [(str "  " (board-counts text))]
-              (if (seq entries)
-                (map (fn [{:keys [id title]}]
-                       (str "  " (clip title 60) " " (dim (subs id 0 (min 8 (count id)))))) entries)
-                ["  no active entries"])))))
+              (if (seq visible)
+                (map (fn [{:keys [id title leverage lane]}]
+                       (let [stint (when lane (age (max 0 (- (state/now) (or (started-at lane) 0)))))]
+                         (str "  " (if lane (paint 32 "●") (dim "○"))
+                              (when stint (str " " stint)) "  " (clip title 56)
+                              "  " (dim (subs id 0 (min 8 (count id))))
+                              (when-not lane (str "  unblocks " leverage)))))
+                     visible)
+                ["  no queued entries"])
+              (when (< shown-ready (count ready))
+                [(str "  (+" (- (count ready) shown-ready) " more ready)")])))))
 (defn reset-age [at]
   (try
     (let [ms (- (.toEpochMilli (java.time.Instant/parse at)) (state/now))]
@@ -129,7 +152,7 @@
         providers (get-in (state/read-panel :providers) [:last-good :data])
         lines (concat ["north dashboard" "" (header "FLEET" :lanes)] (fleet-lines lanes)
                       ["" (header "HEALTH" :health)] (health-lines health)
-                      ["" (header "BOARD" :board)] (board-lines board)
+                      ["" (header "QUEUE" :board)] (queue-lines board lanes)
                       ["" (header "ACCOUNTS" :providers)] (account-lines providers)
                       ["" (dim "working = producing output · done/failed = finished · stale = no recent signal")])]
     (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n")))
