@@ -89,6 +89,10 @@
    :summary "live agents now + the stable machine roster"
    :card {:section :agents :form "north agents"
           :text "who's live now"}}
+  {:verb "lanes" :form "north lanes" :topic :agents
+   :summary "last 24h lane receipts: done, failed, working, killed, or never acknowledged"
+   :card {:section :agents :form "north lanes"
+          :text "postmortem lane liveness from durable receipts"}}
   {:verb "spawn" :form "north spawn <role> \"<prompt>\"" :topic :agents
    :summary "compose a worker from Orchestration's staffing catalog"
    :details ["--provider auto|anthropic|openai — select or auto-route the provider"

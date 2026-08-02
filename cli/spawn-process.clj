@@ -27,6 +27,9 @@
 (def default-exit-grace-ms 300)
 (def detached-pid-suffix ".lane.pid")
 (def detached-exit-suffix ".lane.exit")
+(def detached-heartbeat-suffix ".lane.heartbeat")
+(def startup-diagnostic-prefix "[north startup] NEVER-ACKNOWLEDGED")
+(def ^:dynamic *heartbeat-interval-seconds* 30)
 
 (defn create-agent-id
   "Mint an opaque process identity with sortable time plus the complete UUID.
@@ -115,26 +118,39 @@
   (let [log (io/file log-file)
         pid-file (io/file (str log-file detached-pid-suffix))
         exit-file (io/file (str log-file detached-exit-suffix))
+        heartbeat-file (io/file (str log-file detached-heartbeat-suffix))
         resolved-command (assoc (vec command) 0
                                 (executable-path command extra-env))
         launcher-script
-        (str "umask 077; pid_file=\"$1\"; exit_file=\"$2\"; shift 2; "
+        (str "umask 077; pid_file=\"$1\"; exit_file=\"$2\"; heartbeat_file=\"$3\"; "
+             "heartbeat_interval=\"$4\"; shift 4; "
              "printf '%s\\n' \"$$\" > \"$pid_file\"; "
+             "touch \"$heartbeat_file\"; lane_pid=$$; "
+             "(while kill -0 \"$lane_pid\" 2>/dev/null; do sleep \"$heartbeat_interval\"; "
+             "touch \"$heartbeat_file\"; done) & "
+             "heartbeat_pid=$!; "
+             "cleanup_heartbeat() { kill \"$heartbeat_pid\" 2>/dev/null || true; "
+             "wait \"$heartbeat_pid\" 2>/dev/null || true; }; "
+             "trap cleanup_heartbeat EXIT; "
              "\"$@\"; status=$?; printf '%s\\n' \"$status\" > \"$exit_file\"; "
              "exit \"$status\"")]
     (.mkdirs (.getParentFile log))
     (io/delete-file pid-file true)
     (io/delete-file exit-file true)
+    (io/delete-file heartbeat-file true)
     (let [process (p/process (into ["setsid" "--fork" "sh" "-c"
                                     launcher-script "north-lane"
-                                    (.getPath pid-file) (.getPath exit-file)]
+                                    (.getPath pid-file) (.getPath exit-file)
+                                    (.getPath heartbeat-file)
+                                    (str *heartbeat-interval-seconds*)]
                                    resolved-command)
                              ;; Exact environment, not a merge. Managed callers
                              ;; pass a parent copy with every staffing/routing key
                              ;; scrubbed; :extra-env would silently reintroduce the
                              ;; invoking director's omitted axes.
                              {:env (assoc extra-env
-                                          "NORTH_LANE_PID_FILE" (.getPath pid-file))
+                                          "NORTH_LANE_PID_FILE" (.getPath pid-file)
+                                          "NORTH_LANE_HEARTBEAT_FILE" (.getPath heartbeat-file))
                               :out :write :out-file log
                               :err :out
                               ;; The daemon is deliberately reparented. A caller
@@ -144,7 +160,8 @@
       ;; prevents a detached lane from retaining the invoking CLI's input edge.
       (when-let [input (:in process)]
         (try (.close input) (catch Exception _ nil)))
-      (assoc process ::pid-file pid-file ::exit-file exit-file))))
+      (assoc process ::pid-file pid-file ::exit-file exit-file
+             ::heartbeat-file heartbeat-file))))
 
 (defn- detached-pid [process]
   (when-let [pid-file (::pid-file process)]
@@ -243,6 +260,28 @@
           merged
           (do (Thread/sleep poll-ms) (recur merged)))))))
 
+(defn startup-diagnostic
+  [{:keys [status agent-id exit missing timeout-ms]}]
+  (let [why (case status
+              :timeout (str "startup acknowledgement timed out after " timeout-ms "ms")
+              :failed (str "child exited before startup acknowledgement"
+                           (when (some? exit) (str " (exit " exit ")")))
+              "startup acknowledgement failed")]
+    (str startup-diagnostic-prefix " agent " agent-id " " why
+         (when (seq missing)
+           (str "; missing identity: " (str/join "," missing))))))
+
+(defn append-startup-diagnostic!
+  "Make a failed acknowledgement self-explanatory even when the dispatcher's
+  stdout is discarded. Best effort because the original startup failure must
+  still be returned when the durable-log filesystem is itself unavailable."
+  [result]
+  (when-let [log (:log result)]
+    (try
+      (spit (io/file log) (str (startup-diagnostic result) "\n") :append true)
+      (catch Exception _ nil)))
+  result)
+
 (defn await-startup
   "Wait for three durable startup proofs: complete structured lane identity,
   effective route authority, and an online presence lease. `probe-identity`
@@ -283,16 +322,18 @@
               {:status :completed :agent-id agent-id
                :handle (get final-facts "display_handle")
                :outcome final-outcome :facts final-facts :log (str log-file)}
-              {:status :failed :agent-id agent-id :exit exit :facts final-facts
-               :missing (startup-defects final-facts)
-               :log (str log-file)}))
+              (append-startup-diagnostic!
+               {:status :failed :agent-id agent-id :exit exit :facts final-facts
+                :missing (startup-defects final-facts)
+                :log (str log-file)})))
 
           (>= (System/currentTimeMillis) deadline)
           (do
             (stop-process! process)
-            {:status :timeout :agent-id agent-id :facts facts
-             :missing (startup-defects facts)
-             :log (str log-file) :timeout-ms timeout-ms})
+            (append-startup-diagnostic!
+             {:status :timeout :agent-id agent-id :facts facts
+              :missing (startup-defects facts)
+              :log (str log-file) :timeout-ms timeout-ms}))
 
           :else
           (do (Thread/sleep poll-ms) (recur facts)))))))

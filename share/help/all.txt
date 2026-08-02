@@ -32,6 +32,7 @@ AGENTS — delegate work, drive and observe agents
                                     --thread <id> — bind an existing thread
                                     in chat, /delegate does this with session context riding along
   north agents [--json]             live agents now + the stable machine roster
+  north lanes                       last 24h lane receipts: done, failed, working, killed, or never acknowledged
   north spawn <role> "<prompt>"     compose a worker from Orchestration's staffing catalog
                                     --provider auto|anthropic|openai — select or auto-route the provider
                                     --taskGrade/--domain — independently override stock staffing axes
