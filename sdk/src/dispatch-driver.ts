@@ -1,12 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 import { normalizeNorthEntityId, northEntitySubject } from "./north-client";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const ACQUIRE_CLI = resolve(REPO_ROOT, "cli/acquire-cli.clj");
 
 /** Named so the failure report can cite the budget it actually blew. */
-const DRIVER_TIMEOUT_MS = 8_000;
+const DRIVER_TIMEOUT_MS = 30_000;
 
 export class DispatchAlreadyActiveError extends Error {
   readonly preSideEffect = true;
@@ -115,8 +120,13 @@ function reportDriverFailure(
 
 function commandAt(port: string): DispatchDriverCommand {
   return (verb, threadId, agentId) => spawnSync(
-    "bb", [ACQUIRE_CLI, port, verb, threadId, agentId],
-    { encoding: "utf8", stdio: "pipe", timeout: DRIVER_TIMEOUT_MS },
+    "bb", framBabashkaArguments([ACQUIRE_CLI, port, verb, threadId, agentId]),
+    {
+      encoding: "utf8",
+      env: framEngineEnvironment(),
+      stdio: "pipe",
+      timeout: framCoordinatorChildTimeout(DRIVER_TIMEOUT_MS),
+    },
   );
 }
 

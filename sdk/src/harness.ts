@@ -51,6 +51,11 @@ import {
   buildEnvironmentReceipt, buildPromptReceipt, sha256Bytes,
   type EnvironmentArtifact, type EnvironmentReceipt, type PromptReceipt,
 } from "./composition-receipt";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 // sdk/src/harness.ts -> its relocatable runtime root.
 const REPO = resolve(import.meta.dir, "../..");
@@ -148,8 +153,12 @@ export function sendPeerCommand(
   }
   validatePeerCommandArgs(op, args);
   const commandArgs = { ...args };
-  return execFileSync(peerBb(), [MSG_CLI, northPort(), "send-cmd", self, to, op, ednArgs(commandArgs)], {
+  return execFileSync(peerBb(), framBabashkaArguments([
+    MSG_CLI, northPort(), "send-cmd", self, to, op, ednArgs(commandArgs),
+  ]), {
     encoding: "utf8",
+    env: framEngineEnvironment(),
+    timeout: framCoordinatorChildTimeout(),
   });
 }
 
@@ -373,10 +382,12 @@ function registerPresence(self: string, cwd: string): void {
   // Registration is a bounded synchronous admission edge. A detached child can
   // otherwise land its lease after a fast provider-preflight terminal has
   // already withdrawn presence, resurrecting a 30-minute ghost roster row.
-  execFileSync(presenceBb(), [`${REPO}/cli/presence-cli.clj`, northPort(), "register", self, cwd, self], {
-    env: { ...process.env },
+  execFileSync(presenceBb(), framBabashkaArguments([
+    `${REPO}/cli/presence-cli.clj`, northPort(), "register", self, cwd, self,
+  ]), {
+    env: framEngineEnvironment(),
     stdio: "ignore",
-    timeout: 5_000,
+    timeout: framCoordinatorChildTimeout(5_000),
   });
 }
 
@@ -402,10 +413,12 @@ function renewPresence(self: string): void {
   // returns so no detached renew can recreate presence after terminal cleanup.
   // On failure, roll the stamp back so the next tool call retries.
   try {
-    execFileSync(presenceBb(), [`${REPO}/cli/presence-cli.clj`, northPort(), "renew", self], {
-      env: { ...process.env },
+    execFileSync(presenceBb(), framBabashkaArguments([
+      `${REPO}/cli/presence-cli.clj`, northPort(), "renew", self,
+    ]), {
+      env: framEngineEnvironment(),
       stdio: ["ignore", "ignore", "pipe"],
-      timeout: 5_000,
+      timeout: framCoordinatorChildTimeout(5_000),
     });
     // Throttle observability: a dispatched renewal is otherwise indistinguishable
     // from a throttled no-op, so the ≥60s rule has no field evidence. Off by default.

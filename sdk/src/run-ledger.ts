@@ -2,6 +2,11 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 import type { PromptEconomicsEvidence } from "./harness";
 import type { NormalizedTokenUsage } from "./usage";
 import type { McpActivityObservation } from "./tool-activity";
@@ -272,12 +277,15 @@ export function recordRunEvent(
   try { facts = eventFacts(event); } catch { return Promise.resolve("unavailable"); }
   return new Promise((resolvePublication) => {
     try {
-      execFile("bb", [
+      execFile("bb", framBabashkaArguments([
         internalWriter,
         process.env.NORTH_PORT ?? "7977",
         event.subject,
         JSON.stringify(facts),
-      ], { timeout: Math.max(1, Math.floor(timeoutMs)) }, (error) => {
+      ]), {
+        env: framEngineEnvironment(),
+        timeout: framCoordinatorChildTimeout(timeoutMs),
+      }, (error) => {
         resolvePublication(error ? "unavailable" : "recorded");
       });
     } catch { resolvePublication("unavailable"); }
@@ -303,11 +311,14 @@ export function recordRunEvents(
   }
   return new Promise((resolvePublication) => {
     try {
-      execFile("bb", [
+      execFile("bb", framBabashkaArguments([
         internalWriter,
         process.env.NORTH_PORT ?? "7977",
         JSON.stringify(batch),
-      ], { timeout: Math.max(1, Math.floor(timeoutMs)) }, (error) => {
+      ]), {
+        env: framEngineEnvironment(),
+        timeout: framCoordinatorChildTimeout(timeoutMs),
+      }, (error) => {
         resolvePublication(error ? "unavailable" : "recorded");
       });
     } catch {

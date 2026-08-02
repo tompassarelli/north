@@ -13,8 +13,9 @@ import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
 import type {
   WorktreeAllocationEvent,
   WorktreeAllocationRegistration,
@@ -35,7 +36,7 @@ const MANAGED_ENV = [
   "AGENT_TOPOLOGY", "AGENT_TASK_GRADE", "AGENT_REASONING", "AGENT_POSTURE",
   "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_TIER", "AGENT_IDENTITY_ROLE",
   "AGENT_DOMAIN_REQUIREMENTS", "AGENT_COMPOSITION",
-  "NORTH_STALL_MS",
+  "NORTH_STALL_MS", "FRAM_HOME", "FRAM_BIN", "FRAM_OUT",
 ] as const;
 const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
@@ -157,6 +158,9 @@ exit 2
   delete process.env.AGENT_DOMAIN_REQUIREMENTS;
   delete process.env.AGENT_COMPOSITION;
   process.env.AGENT_COORDINATOR = TEST_COORDINATOR;
+  delete process.env.FRAM_HOME;
+  delete process.env.FRAM_BIN;
+  delete process.env.FRAM_OUT;
 
   // Scratch git repo the opt-in lane cuts its worktree from. basename must be unique so the
   // /tmp/<basename>-lane-<id> path can't collide with a real repo's worktree.
@@ -438,11 +442,13 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
   const afterLog = existsSync(log) ? readFileSync(log, "utf8") : "";
   const delta = afterLog.slice(beforeLog.length).trim().split("\n");
   expect(delta).toHaveLength(3);
-  expect(delta[0]).toContain("worktree-allocation-internal.clj 59999 register");
+  const allocationWriter = resolve(import.meta.dir, "../../cli/worktree-allocation-internal.clj");
+  const allocationPrefix = `bb -cp ${join(FRAM_RUNTIME_HOME, "out")} ${allocationWriter} 59999`;
+  expect(delta[0]).toStartWith(`${allocationPrefix} register `);
   expect(delta[1]).toContain('"type":"quarantined"');
   expect(delta[1]).toContain('"code":"durable_ref_collision"');
   expect(delta[1]).toContain('"resourceState":"quarantined"');
-  expect(delta.slice(0, 2).every((line) => line.startsWith("bb "))).toBe(true);
+  expect(delta[1]).toStartWith(`${allocationPrefix} event `);
   expect(delta[2]).toBe(
     `tell agent:${agentId} worktree_orphaned ${expectedPath} | worktree provisioning failed after physical identity appeared — inspect; never auto-delete`,
   );

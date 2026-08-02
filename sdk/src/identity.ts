@@ -21,6 +21,11 @@ import { classifyExecutionTerminal } from "./execution-outcome";
 import type { LiveInputCapability, ProviderId } from "./providers/types";
 import { canonicalWriteModel } from "./providers/catalog";
 import { fastPublish } from "./managed-writer-fastpath";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 export { bespokeContractFingerprint } from "./bespoke-contract";
 
 export type LiveInputState = "pending" | "armed" | "frozen";
@@ -33,7 +38,7 @@ export type LiveInputState = "pending" | "armed" | "frozen";
 const REPO = resolve(import.meta.dir, "..", "..");
 const northBin = () => process.env.NORTH_BIN ?? `${REPO}/bin/north`;
 const internalWriter = resolve(REPO, "cli/agent-fact-internal.clj");
-const INTERNAL_WRITER_TIMEOUT_MS = 10_000;
+const INTERNAL_WRITER_TIMEOUT_MS = 30_000;
 
 // The writer's per-subject lease must OUTLIVE the process timeout we declare to
 // it, or a writer we killed could wake past lease expiry and race a successor.
@@ -91,12 +96,19 @@ export interface ManagedWriterRuntime {
 
 const defaultManagedWriterRuntime: ManagedWriterRuntime = {
   now: () => performance.now(),
-  execute: (args, timeoutMs, env) => execFileSync("bb", args, {
-    encoding: "utf8",
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: Math.max(1, Math.floor(timeoutMs)),
-  }),
+  execute: (args, timeoutMs, env) => {
+    const childTimeoutMs = framCoordinatorChildTimeout(timeoutMs);
+    return execFileSync("bb", framBabashkaArguments(args, env), {
+      encoding: "utf8",
+      env: framEngineEnvironment({
+        ...env,
+        NORTH_IDENTITY_WRITER_TIMEOUT_MS: String(childTimeoutMs),
+        NORTH_IDENTITY_WRITE_LEASE_TTL_MS: String(internalWriteLeaseTtlMs(childTimeoutMs)),
+      }),
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: childTimeoutMs,
+    });
+  },
 };
 
 /** Read-side projection. `none` is accepted only for historical native rows. */
@@ -323,16 +335,22 @@ function writeHarnessAgentOperation(
         });
       }
       const agentId = subject.replace(/^agent:/, "");
-      execFileSync(lifecycleBb(), [resolve(REPO, "cli/presence-cli.clj"),
+      execFileSync(lifecycleBb(), framBabashkaArguments([resolve(REPO, "cli/presence-cli.clj"),
         process.env.NORTH_PORT ?? "7977", "forget", agentId], {
-        env: { ...process.env },
-        stdio: "ignore", timeout: Math.max(1, Math.floor(timeoutMs - (performance.now() - startedAt))),
+        ...process.env,
+      }), {
+        env: framEngineEnvironment(),
+        stdio: "ignore",
+        timeout: framCoordinatorChildTimeout(timeoutMs - (performance.now() - startedAt)),
       });
       if (recovery.terminalThreadId) {
-        execFileSync(lifecycleBb(), [resolve(REPO, "cli/acquire-cli.clj"),
+        execFileSync(lifecycleBb(), framBabashkaArguments([resolve(REPO, "cli/acquire-cli.clj"),
           process.env.NORTH_PORT ?? "7977", "release", recovery.terminalThreadId, agentId], {
-          env: { ...process.env },
-          stdio: "ignore", timeout: Math.max(1, Math.floor(timeoutMs - (performance.now() - startedAt))),
+          ...process.env,
+        }), {
+          env: framEngineEnvironment(),
+          stdio: "ignore",
+          timeout: framCoordinatorChildTimeout(timeoutMs - (performance.now() - startedAt)),
         });
       }
       return { status: "committed", operationId: recovery.operationId };

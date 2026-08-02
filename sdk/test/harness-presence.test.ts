@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { harnessOptions } from "../src/harness";
+import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
 
 async function capturedLines(path: string, count: number): Promise<string[]> {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -49,9 +50,10 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
 
     const registrations = await capturedLines(log, 2);
     expect(registrations).toHaveLength(2);
+    const framPrefix = `-cp ${join(FRAM_RUNTIME_HOME, "out")} `;
     for (const expected of [
-      `${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${self} ${process.cwd()} ${self}`,
-      `${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${repoSelf} ${repoCwd} ${repoSelf}`,
+      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${self} ${process.cwd()} ${self}`,
+      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${repoSelf} ${repoCwd} ${repoSelf}`,
     ]) expect(registrations).toContain(expected);
     expect(repoOptions.cwd).toBe(repoCwd);
     expect(repoOptions.systemPrompt).toContain(`in "orchestration"`);
@@ -60,7 +62,7 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
     const renew = (options.hooks as any).PostToolUse[0].hooks[0];
     expect(await renew()).toEqual({ continue: true });
     expect(await capturedLines(log, 3)).toContain(
-      `${join(import.meta.dir, "../../cli/presence-cli.clj")} 64124 renew ${self}`,
+      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64124 renew ${self}`,
     );
   } finally {
     for (const [key, value] of Object.entries(saved)) {

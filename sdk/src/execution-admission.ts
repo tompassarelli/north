@@ -18,6 +18,11 @@ import {
 import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
@@ -69,6 +74,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "NORTH_PEER_BB",
   "FRAM_BIN",
   "FRAM_HOME",
+  "FRAM_OUT",
   "FRAM_LOG",
   "FRAM_PORT",
   "FRAM_SINGLE_VALUED",
@@ -375,7 +381,7 @@ export function validateManagedExecutionEnvelope(
 async function requireCoordinator(
   portValue: unknown,
   logValue: unknown,
-  timeoutMs = 2_000,
+  timeoutMs = 30_000,
 ): Promise<void> {
   if (typeof portValue !== "string" || !portValue.trim())
     throw new ExecutionAdmissionError("north_coordination_port_missing");
@@ -386,24 +392,25 @@ async function requireCoordinator(
     throw new ExecutionAdmissionError("north_coordination_log_missing");
   if (!isAbsolute(logValue) || resolve(logValue) !== logValue)
     throw new ExecutionAdmissionError("north_coordination_log_identity_invalid");
-  const boundedTimeout = Number.isFinite(timeoutMs)
-    ? Math.max(1, Math.min(999_999, Math.trunc(timeoutMs)))
-    : 2_000;
+  const boundedTimeout = Math.min(999_999, framCoordinatorChildTimeout(timeoutMs));
   const bb = process.env.NORTH_MCP_BB ?? process.env.NORTH_BB ?? "bb";
+  const childEnv = framEngineEnvironment({
+    ...process.env,
+    FRAM_LOG: logValue,
+    NORTH_COORD_CONNECT_TIMEOUT_MS: String(boundedTimeout),
+    NORTH_COORD_READ_TIMEOUT_MS: String(boundedTimeout),
+    NORTH_COORD_MAX_RESPONSE_BYTES: "4096",
+  });
   let child;
   try {
     // Keep the wire contract in one place. `strict-probe` proves the fenced
     // version response, raw-request rejection, canonical served corpus, fatal
     // UTF-8 decoding, an exact terminal frame, and bounded response bytes.
-    child = procSpawn(bb, [COORD, "strict-probe", String(port), logValue], {
+    child = procSpawn(bb, framBabashkaArguments([
+      COORD, "strict-probe", String(port), logValue,
+    ], childEnv), {
       cwd: REPO,
-      env: {
-        ...process.env,
-        FRAM_LOG: logValue,
-        NORTH_COORD_CONNECT_TIMEOUT_MS: String(boundedTimeout),
-        NORTH_COORD_READ_TIMEOUT_MS: String(boundedTimeout),
-        NORTH_COORD_MAX_RESPONSE_BYTES: "4096",
-      },
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (cause) {

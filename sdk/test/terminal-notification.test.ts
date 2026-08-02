@@ -9,6 +9,7 @@ import {
   terminalPublicationBudgetMs,
   TerminalPublicationBudget,
 } from "../src/terminal-notification";
+import { framBabashkaArguments } from "../src/fram-engine";
 
 test("success completes while a preflight refusal reports an honest blocked terminal", () => {
   for (const [processOutcome, subject] of [
@@ -26,7 +27,11 @@ test("success completes while a preflight refusal reports an honest blocked term
         runPublication: "recorded",
       },
     );
-    expect(command?.args.slice(2)).toEqual([
+    expect(command?.args.slice(0, 4)).toEqual(framBabashkaArguments([
+      expect.stringMatching(/\/cli\/msg-cli\.clj$/),
+      expect.any(String),
+    ]));
+    expect(command?.args.slice(4)).toEqual([
       "send",
       "child",
       "coordinator",

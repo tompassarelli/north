@@ -11,6 +11,12 @@ import {
 import { assertWellFormedUnicode, parseStrictJson } from "../../strict-json";
 import { createLinearSyncBaseline, validateLinearSyncBaseline } from "./reconcile";
 import { parseManagedLinearDescription } from "./projection";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+  framExecutable,
+} from "../../fram-engine";
 import type {
   LinearIssueIdentity, LinearIssueSnapshot, LinearRemoteComment, LinearSyncBaseline,
   LinearSyncFields, NorthCommentKind, NorthLifecycleCategory, NorthThreadSyncSource,
@@ -134,9 +140,7 @@ export function parseBootstrapElection(value: string): LinearBootstrapElection {
 }
 
 function defaultFramExecutable(): string {
-  const binDirectory = process.env.FRAM_BIN
-    ?? resolve(process.env.FRAM_HOME ?? resolve(NORTH_ROOT, "../fram"), "bin");
-  return resolve(binDirectory, "fram");
+  return framExecutable();
 }
 
 export interface GraphFact { predicate: string; value: string }
@@ -196,26 +200,47 @@ export interface SyncLeaseManager { acquire(resource: string): Promise<SyncLease
 
 export const LINEAR_SYNC_LEASE_TTL_MS = 300_000;
 
-async function command(file: string, args: readonly string[], options: { timeout?: number } = {}): Promise<string> {
+async function command(
+  file: string,
+  args: readonly string[],
+  options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<string> {
   const result = await execFileAsync(file, [...args], {
     encoding: "utf8",
     timeout: options.timeout ?? 10_000,
+    env: options.env,
     maxBuffer: 4 * 1024 * 1024,
   });
   return result.stdout.trim();
+}
+
+async function framCommand(
+  file: string,
+  args: readonly string[],
+  options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<string> {
+  const env = framEngineEnvironment(options.env ?? process.env);
+  return command(file, framBabashkaArguments(args, env), {
+    ...options,
+    env,
+    timeout: framCoordinatorChildTimeout(options.timeout),
+  });
 }
 
 async function commandWithPrivateStdin(
   file: string,
   args: readonly string[],
   value: string,
-  options: { timeout?: number } = {},
+  options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string> {
   const input = Buffer.from(value, "utf8");
   if (input.byteLength > LINEAR_GRAPH_VALUE_MAX_BYTES)
     throw new Error(`Linear fenced graph value exceeds ${LINEAR_GRAPH_VALUE_MAX_BYTES} bytes`);
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(file, [...args], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(file, [...args], {
+      env: options.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     const stdout: Buffer[] = [];
     let stdoutBytes = 0;
     let settled = false;
@@ -298,6 +323,20 @@ async function commandWithPrivateStdin(
   });
 }
 
+async function framCommandWithPrivateStdin(
+  file: string,
+  args: readonly string[],
+  value: string,
+  options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<string> {
+  const env = framEngineEnvironment(options.env ?? process.env);
+  return commandWithPrivateStdin(file, framBabashkaArguments(args, env), value, {
+    ...options,
+    env,
+    timeout: framCoordinatorChildTimeout(options.timeout),
+  });
+}
+
 function coordinatorObject(output: string): Record<string, unknown> | undefined {
   try {
     const parsed = parseStrictJson(output, "coordinator response", {
@@ -374,6 +413,7 @@ export interface NorthGraphStoreOptions {
 export class NorthGraphStore implements GraphStore {
   private leaseInvokeOverride?: (args: readonly string[], stdin?: string) => Promise<string>;
   private leaseHelperCommand: string;
+  private leaseHelperUsesFramSelection: boolean;
   private reservationCli: string;
   private reservationInvokeOverride?: (args: readonly string[]) => Promise<string>;
   private bootstrapFinderCli: string;
@@ -393,6 +433,7 @@ export class NorthGraphStore implements GraphStore {
   ) {
     this.leaseInvokeOverride = options.leaseInvokeOverride;
     this.leaseHelperCommand = options.leaseHelperCommand ?? "bb";
+    this.leaseHelperUsesFramSelection = options.leaseHelperCommand === undefined;
     this.reservationCli = options.reservationCli ?? resolve(import.meta.dir, "reserve-link.clj");
     this.reservationInvokeOverride = options.reservationInvokeOverride;
     this.bootstrapFinderCli = options.bootstrapFinderCli ?? resolve(import.meta.dir, "find-bootstrap-links.clj");
@@ -443,7 +484,7 @@ export class NorthGraphStore implements GraphStore {
       const args = [this.port, connector, createdAt];
       output = this.bootstrapFinderInvokeOverride
         ? await this.bootstrapFinderInvokeOverride(args)
-        : await command("bb", [this.bootstrapFinderCli, ...args]);
+        : await framCommand("bb", [this.bootstrapFinderCli, ...args]);
     } catch {
       throw new Error("Linear bootstrap evidence lookup failed");
     }
@@ -482,7 +523,7 @@ export class NorthGraphStore implements GraphStore {
     ];
     const output = this.schemaReservationInvokeOverride
       ? await this.schemaReservationInvokeOverride(args)
-      : await command("bb", [this.schemaReservationCli, ...args]);
+      : await framCommand("bb", [this.schemaReservationCli, ...args]);
     const response = coordinatorObject(output);
     if (response && hasExactKeys(response, ["ok"]) && positiveSafeInteger(response.ok)) return;
     if (response && hasExactKeys(response, ["reject"])
@@ -517,7 +558,7 @@ export class NorthGraphStore implements GraphStore {
     ];
     const output = this.reservationInvokeOverride
       ? await this.reservationInvokeOverride(args)
-      : await command("bb", [this.reservationCli, ...args]);
+      : await framCommand("bb", [this.reservationCli, ...args]);
     const response = coordinatorObject(output);
     if (response && hasExactKeys(response, ["ok"]) && positiveSafeInteger(response.ok)) return;
     if (response && hasExactKeys(response, ["reject"]) && typeof response.reject === "string" && response.reject)
@@ -538,11 +579,17 @@ export class NorthGraphStore implements GraphStore {
     try {
       output = this.leaseInvokeOverride
         ? await this.leaseInvokeOverride(args, value)
-        : await commandWithPrivateStdin(
-          this.leaseHelperCommand,
-          [this.leaseCli, this.port, "--json", ...args],
-          value,
-        );
+        : await (this.leaseHelperUsesFramSelection
+          ? framCommandWithPrivateStdin(
+            this.leaseHelperCommand,
+            [this.leaseCli, this.port, "--json", ...args],
+            value,
+          )
+          : commandWithPrivateStdin(
+            this.leaseHelperCommand,
+            [this.leaseCli, this.port, "--json", ...args],
+            value,
+          ));
     } catch {
       throw new Error(`Linear fenced graph helper failed for @${bare} ${predicate}`);
     }
@@ -574,7 +621,7 @@ export class CoordinatorSyncLeaseManager implements SyncLeaseManager {
   private invoke(args: readonly string[]): Promise<string> {
     return this.invokeOverride
       ? this.invokeOverride(args)
-      : command("bb", [this.leaseCli, this.port, "--json", ...args]);
+      : framCommand("bb", [this.leaseCli, this.port, "--json", ...args]);
   }
 
   async acquire(resource: string): Promise<SyncLease> {

@@ -8,9 +8,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer, connect } from "node:net";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  framBabashkaArguments,
+  framEngineEnvironment,
+  framEngineSelection,
+} from "../src/fram-engine";
 import { presetRequest } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
@@ -50,8 +55,7 @@ async function waitForPort(port: number): Promise<void> {
 function framCheckout(): string {
   const candidates = [
     process.env.FRAM_TEST_CHECKOUT,
-    resolve(north, "../fram/main"),
-    resolve(homedir(), "code/fram/main"),
+    framEngineSelection(process.env).home,
   ].filter((candidate): candidate is string => Boolean(candidate));
   const found = candidates.find((candidate) =>
     existsSync(resolve(candidate, "coord_daemon.clj"))
@@ -74,16 +78,16 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
   const port = await unusedPort();
   writeFileSync(log, "");
 
-  const daemon = Bun.spawn([
-    "bb", "-cp", "out", "coord_daemon.clj", "serve-flat", String(port), log,
-  ], {
+  const daemon = Bun.spawn(["bb", ...framBabashkaArguments([
+    "coord_daemon.clj", "serve-flat", String(port), log,
+  ])], {
     cwd: framCheckout(),
-    env: {
+    env: framEngineEnvironment({
       ...process.env,
       FRAM_LOG: log,
       FRAM_REQUIRE_LOG_FENCE: "1",
       FRAM_SINGLE_VALUED: "title driver",
-    },
+    }),
     stdout: "pipe",
     stderr: "pipe",
   });

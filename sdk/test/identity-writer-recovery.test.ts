@@ -73,6 +73,9 @@ test("real writer subprocess parses one typed acknowledgement under a measured s
 if [ "\${1-}" = "--startup-probe" ]; then
   exit 0
 fi
+if [ "\${1-}" = "-cp" ]; then
+  shift 2
+fi
 printf '%s %s\n' "$6" "$7" >> "${calls}"
 printf '{"ok":true,"result":{"status":"committed","operation_id":"%s","reason":"exact_replay"}}\n' "$7"
 `);

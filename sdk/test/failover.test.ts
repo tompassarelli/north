@@ -11,6 +11,7 @@ import {
   type AvailabilityRow,
 } from "../src/failover";
 import { runFailoverCli } from "../src/failover-cli";
+import { framBabashkaArguments } from "../src/fram-engine";
 
 const reset = "2026-07-29T00:00:00.000Z";
 const observedAt = "2026-07-28T05:00:00.000Z";
@@ -311,11 +312,11 @@ test("dry-run composition is complete and execution remains injectable", () => {
   expect(spawn.context.brief.content).toBe("succession context");
   expect(spawn.context.threadMap.map(({ id }) => id)).toEqual(["root", "child"]);
   expect(spawn.prompt).toContain("THREAD MAP");
-  expect(spawn.notification.args).toEqual([
+  expect(spawn.notification.args).toEqual(framBabashkaArguments([
     "/fixture/msg-cli.clj", "9000", "send", "coordinator", "human",
     "PROVIDER FAILOVER FIRED",
     "@root -> openai/codex-heir/gpt-5.6-sol (senior); reason=provider-recovery",
-  ]);
+  ], { AGENT_ID: "coordinator", NORTH_PORT: "9000" }));
 
   const commands: Array<[string, string[]]> = [];
   fireFailover(spawn, {
@@ -430,7 +431,7 @@ describe("failover CLI", () => {
   });
 
   test("fire executes spawn then notification through injected commands", () => {
-    const commands: string[] = [];
+    const commands: Array<[string, string[]]> = [];
     expect(runFailoverCli([
       "fire", "--thread", "root", "--brief", "/fixture/succession.md",
     ], {
@@ -444,14 +445,15 @@ describe("failover CLI", () => {
       peerBb: "/fixture/bb",
       msgCli: "/fixture/msg-cli.clj",
       run: (executable, args) => {
-        commands.push(`${executable} ${args.slice(0, 2).join(" ")}`);
+        commands.push([executable, args]);
         return { status: 0 };
       },
     })).toBe(0);
-    expect(commands).toEqual([
-      "/fixture/north spawn team-lead",
-      "/fixture/bb /fixture/msg-cli.clj 9000",
-    ]);
+    expect(commands[0]).toEqual(["/fixture/north", expect.arrayContaining(["spawn", "team-lead"])]);
+    expect(commands[1]?.[0]).toBe("/fixture/bb");
+    expect(commands[1]?.[1].slice(0, 4)).toEqual(
+      framBabashkaArguments(["/fixture/msg-cli.clj", "9000"], env),
+    );
   });
 
   test("notification failure does not obscure a successful heir spawn", () => {

@@ -29,6 +29,11 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 import type { ProviderPreference, RoutingDecision } from "./providers/types";
 
 const SOURCE_ROOT = resolve(import.meta.dir, "..", "..");
@@ -150,21 +155,31 @@ function allocationBb(): string {
 
 export const defaultWorktreeAllocationWriter: WorktreeAllocationWriter = {
   register(registration) {
-    execFileSync(allocationBb(), [
+    execFileSync(allocationBb(), framBabashkaArguments([
       ALLOCATION_WRITER,
       process.env.NORTH_PORT ?? "7977",
       "register",
       JSON.stringify(registration),
-    ], { encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"] });
+    ]), {
+      encoding: "utf8",
+      env: framEngineEnvironment(),
+      timeout: framCoordinatorChildTimeout(15_000),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   },
   event(subject, event) {
-    execFileSync(allocationBb(), [
+    execFileSync(allocationBb(), framBabashkaArguments([
       ALLOCATION_WRITER,
       process.env.NORTH_PORT ?? "7977",
       "event",
       subject,
       JSON.stringify(event),
-    ], { encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "pipe"] });
+    ]), {
+      encoding: "utf8",
+      env: framEngineEnvironment(),
+      timeout: framCoordinatorChildTimeout(15_000),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
   },
 };
 

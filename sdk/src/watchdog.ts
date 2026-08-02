@@ -25,6 +25,11 @@ import { resolve } from "node:path";
 import type {
   ExecutionActivityEvidence, ExecutionActivitySnapshot, ExecutionActivitySource,
 } from "./execution-activity";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -163,7 +168,7 @@ export interface CoordCtx {
   coordinator?: string; // handle that gets the peer ping
 }
 
-type Cmd = { cmd: string; args: string[] };
+type Cmd = { cmd: string; args: string[]; framChild?: true };
 
 // PURE: the command specs a stall emits — a durable `stalled` fact on @agent:<id>
 // (queryable off the graph, like agent_death) + an "AGENT STALLED" peer ping. Pure so
@@ -179,7 +184,7 @@ export function stallCommands(
     { cmd: northBin(), args: ["tell", `agent:${agentId}`, "stalled", line] },
   ];
   if (ctx.coordinator) {
-    cmds.push({ cmd: peerBb(), args: [MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT STALLED", `${mins}min — no output (${ts})`] });
+    cmds.push({ cmd: peerBb(), args: framBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT STALLED", `${mins}min — no output (${ts})`]), framChild: true });
   }
   return cmds;
 }
@@ -197,7 +202,7 @@ export function turnCapCommands(
     { cmd: northBin(), args: ["tell", `agent:${agentId}`, "turn_capped", `${agentId} | ${ts}`] },
   ];
   if (ctx.coordinator) {
-    cmds.push({ cmd: peerBb(), args: [MSG_CLI, port(), "send", agentId, ctx.coordinator, "TURN CAP", `${note} (${ts})`] });
+    cmds.push({ cmd: peerBb(), args: framBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "TURN CAP", `${note} (${ts})`]), framChild: true });
   }
   return cmds;
 }
@@ -206,7 +211,7 @@ export function turnCapCommands(
 // throw out of a dying/stalling agent nor mask the original condition (like death.ts).
 function emit(cmds: Cmd[], timeoutMs = 10_000): void {
   const startedAt = performance.now();
-  for (const { cmd, args } of cmds) {
+  for (const { cmd, args, framChild } of cmds) {
     try {
       const remaining = Math.max(
         1,
@@ -214,7 +219,8 @@ function emit(cmds: Cmd[], timeoutMs = 10_000): void {
       );
       execFileSync(cmd, args, {
         encoding: "utf8",
-        timeout: remaining,
+        ...(framChild ? { env: framEngineEnvironment() } : {}),
+        timeout: framChild ? framCoordinatorChildTimeout(remaining) : remaining,
         stdio: ["ignore", "ignore", "ignore"],
       });
     } catch { /* best-effort: telemetry outcome still records the condition */ }

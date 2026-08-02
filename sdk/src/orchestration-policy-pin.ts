@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import {
+  framBabashkaArguments,
+  framCoordinatorChildTimeout,
+  framEngineEnvironment,
+} from "./fram-engine";
 
 /**
  * §3.2 digest pin (thread 019f8f5c, Phase 2). When routing reads from the graph
@@ -50,10 +55,11 @@ function digestField(value: unknown, label: string): string {
 export function readPolicyDigestPin(): PolicyDigestPin {
   let out: string;
   try {
-    out = execFileSync(bb(), [projectorCli, port(), "policy-pin"], {
+    out = execFileSync(bb(), framBabashkaArguments([projectorCli, port(), "policy-pin"]), {
       encoding: "utf8",
+      env: framEngineEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 30_000,
+      timeout: framCoordinatorChildTimeout(30_000),
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
