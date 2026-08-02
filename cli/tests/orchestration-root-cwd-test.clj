@@ -17,14 +17,8 @@
 ;; NORTH_ORCHESTRATION_HOME stripped from its env, then asserts the printed
 ;; orchestration-root() still resolves inside THIS checkout.
 ;;
-;; Scoped to orchestration-project-cli.clj (the file the delegate admission
-;; path actually shells out to via sdk/src/orchestration-policy-pin.ts, and
-;; the exact reproduction in this thread's progress note) because it alone is
-;; main-guarded (dormant when load-file'd as a library, coord.clj precedent) —
-;; orchestration-import-cli.clj and north-map.clj execute their verb dispatch
-;; unconditionally at load time and require a live coordinator to probe
-;; safely, so their identical-pattern fixes are covered by direct code review
-;; (see commit) rather than an automated daemon-free probe here.
+;; Scoped to the main-guarded CLI libraries that are safe to load without a
+;; coordinator. Other entry points execute their verb dispatch at load time.
 ;;
 ;;   bb cli/tests/orchestration-root-cwd-test.clj
 (require '[clojure.java.io :as io]
@@ -48,9 +42,9 @@
 ;; user.dir fallback would resolve to a nonexistent <tmp>/orchestration.
 (def unrelated-cwd (str (fs/create-temp-dir {:prefix "north-cwd-test-"})))
 
-(defn probe [target-file]
+(defn probe [target-file root-form]
   (let [script (str "(load-file \"" target-file "\")"
-                     "(println (orchestration-root))")
+                     "(println (" root-form "))")
         env (-> (into {} (System/getenv))
                 (dissoc "NORTH_HOME" "NORTH_ORCHESTRATION_HOME"))
         {:keys [exit out err]}
@@ -59,10 +53,20 @@
     {:exit exit :out (str/trim out) :err err}))
 
 ;; --- orchestration-project-cli.clj ---
-(let [{:keys [exit out err]} (probe (str (io/file cli-dir "orchestration-project-cli.clj")))]
+(let [{:keys [exit out err]} (probe (str (io/file cli-dir "orchestration-project-cli.clj"))
+                                    "orchestration-root")]
   (check (str "orchestration-project-cli.clj: exits 0 from unrelated cwd (stderr: " err ")")
          (zero? exit))
   (check (str "orchestration-project-cli.clj: resolves inside the checkout, not " unrelated-cwd
+              " (got " out ")")
+         (= expected-orchestration out)))
+
+;; --- routing-report.clj ---
+(let [{:keys [exit out err]} (probe (str (io/file cli-dir "routing-report.clj"))
+                                    "orchestration-catalog-root")]
+  (check (str "routing-report.clj: exits 0 from unrelated cwd (stderr: " err ")")
+         (zero? exit))
+  (check (str "routing-report.clj: resolves inside the checkout, not " unrelated-cwd
               " (got " out ")")
          (= expected-orchestration out)))
 
