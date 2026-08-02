@@ -104,6 +104,15 @@
               {:predicate "title" :value "managed \"admission\""}]
              parsed)))
 
+(let [id "019fb39e-94a9-7627-adc1-6b4dac07d839"
+      {:keys [result request]}
+      (invoke-peer :plain id {:version 17 :rows [["title" "Fast human show"]]} {})]
+  (check! "human UUID show renders the indexed exact-subject result"
+          (and (zero? (:exit result))
+               (= "  title  Fast human show\n" (:out result))))
+  (check! "human UUID show avoids a whole-corpus request"
+          (= :show (get-in request [:request :op]))))
+
 (let [{:keys [result]} (invoke-peer
                         :cli
                         "019fb39e-94a9-7627-adc1-6b4dac07d835"

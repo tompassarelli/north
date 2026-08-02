@@ -314,8 +314,12 @@ case "${1:-}" in
     # not threads). Same projection the kanban-metaphor aliases render: active
     # drivers + top-ready by leverage + counts. `board`/`plate` = legacy aliases.
     # Future kinds follow the pattern (`north people` when a person registry lands).
-    north_slot_exec board "${@:2}" ;;
-  ready|blocked|leverage|next|agenda|board|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
+    if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec board "${@:2}"; fi
+    exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" board "${@:2}" ;;
+  ready|next|board)
+    if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec "$@"; fi
+    exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" "$@" ;;
+  blocked|leverage|agenda|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
@@ -549,6 +553,9 @@ case "${1:-}" in
     # subject into a false "no facts" result. Exact namespace-qualified reads
     # follow the same subject router as writes and fail closed when that writer
     # is unavailable; partition-off (A1/rollback) keeps the prior Fram surface.
+    if [ "$1" = show ] && [[ "${2:-}" =~ ^@?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+      exec "$BB" "$NORTH/cli/exact-show-cli.clj" "$2"
+    fi
     if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
       case "${2#@}" in
         run:*|session:*|mine:*|guard_denial:*)
