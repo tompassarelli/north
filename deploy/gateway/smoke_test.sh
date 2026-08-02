@@ -4,7 +4,7 @@
 #   ./smoke_test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-FRAM="${FRAM_HOME:-$HOME/code/fram}"
+FRAM="${FRAM_HOME:-$HOME/code/fram/main}"
 CPORT=7891          # test coordinator port
 GPORT=8891          # test gateway port
 TMP="$(mktemp -d)"

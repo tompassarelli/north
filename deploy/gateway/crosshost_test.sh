@@ -5,7 +5,7 @@
 #   ./crosshost_test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-FRAM="${FRAM_HOME:-$HOME/code/fram}"
+FRAM="${FRAM_HOME:-$HOME/code/fram/main}"
 CPORT=7893; GPORT=8893
 TMP="$(mktemp -d)"; LOG="$TMP/facts.log"; : > "$LOG"; REG="$TMP/tenants.edn"
 TOKEN="xh-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"

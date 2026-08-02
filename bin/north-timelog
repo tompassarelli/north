@@ -5,7 +5,7 @@
 #   north-timelog [owner] [invoice_id]
 set -euo pipefail
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
-FRAM="${FRAM_HOME:-$HOME/code/fram}"
+FRAM="${FRAM_HOME:-$HOME/code/fram/main}"
 if [ -z "${FRAM_LOG:-}" ]; then
   if [ -f "$HOME/.local/state/north/coordination.log" ]; then
     export FRAM_LOG="$HOME/.local/state/north/coordination.log"
