@@ -599,6 +599,8 @@ function setup(mode = "ok") {
           command: probeCommand, cwd, processId: "process-1", source: "unifiedExecStartup",
           status: "inProgress", commandActions: [action],
           aggregatedOutput: null, exitCode: null, durationMs: null,
+          pluginId: mode === "command-plugin-attributed" ? "first-party" : null,
+          scriptPath: mode === "command-plugin-attributed" ? "bin/run.sh" : null,
         });
         lifecycle("started", startedCommand, 10);
         notify("item/commandExecution/outputDelta", {
@@ -668,6 +670,7 @@ function setup(mode = "ok") {
           command: "bun --version", cwd: workdir, processId: null, source: "agent",
           status: "inProgress", commandActions: [{ type: "unknown", command: "bun --version" }],
           aggregatedOutput: null, exitCode: null, durationMs: null,
+          pluginId: null, scriptPath: null,
         });
         lifecycle("started", started, 20);
         lifecycle("completed", {
@@ -1212,6 +1215,18 @@ test("native command lifecycle and completion schema fail closed", async () => {
     await expect(new ManagedCodexAppServerRun(options).execute())
       .rejects.toThrow("openai_provider_execution_failed");
   }
+});
+
+// 0.146 attributes a command to a first-party plugin script. North's contract
+// closes `plugins`, so any attribution names an execution path North never sealed.
+test("a plugin-attributed native command fails closed and names the attribution", async () => {
+  const { options } = setup("command-plugin-attributed");
+  const caught = await new ManagedCodexAppServerRun(options).execute()
+    .then(() => undefined, (error: Error) => error);
+  expect(caught).toBeDefined();
+  const text = causeChain(caught!);
+  expect(text).toContain("Codex started command execution was attributed to a plugin script");
+  expect(text).toContain("first-party");
 });
 
 test("launch seals the exact package shell environment policy", () => {
