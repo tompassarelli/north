@@ -48,26 +48,25 @@ Billing is derived, never invented: worklog = `north-timelog`, invoices =
 `north-invoice` (uninvoiced → invoice-sent → invoice-paid). Bypass only
 deliberately: `north config guards off` or `AGENT_NO_AUTHORING_HOOKS=1`.
 
-## Pre-edit gate — MANDATORY at task intake
+## Delivery first — default posture
 <!-- north-section: pre-edit-gate · bucket: orch -->
 
-Run it the moment the work's shape is clear (not when the first Edit looms):
-**decompose** into independent subtasks → **graph** true dependencies only →
-**dispatch** independent subtasks to agents IN PARALLEL, tier per SUBTASK
-(never inherited from the session) → **coordinate** only the cross-cutting
-seams (self-contained subtask ⇒ delegate it) → **attach verification where the
-outcome lives** (doctrine Law 7: local bar evidence; verifier sibling on
-verdict leverage; whole-outcome attestation for emergent aggregates) →
-**consume and reconcile** that evidence, with at most one suspicious
-load-bearing claim spot-checked on smell. Skip at ONE subtask; fires at 2+
-files or 2+ concerns. Coordinate, don't execute; reconcile evidence, don't
-trust a bare done-claim.
-Verifier/canary intake must name one primary claim/probe/expected observation,
-total wall budget, setup budget ≤25%, retry budget, and optional metrics;
-missing fields ⇒ do not dispatch or probe.
-**Dispatch authority is live configuration, not profile law.** At task intake,
-read `north config dispatch`; its current value decides which dispatch surface
-creates workers:
+For reversible work, make the best supported decision and act. Run the nearest
+existing relevant check once, fix concrete relevant failures, report residual
+uncertainty, and stop when the requested outcome exists. File count is never a
+delegation trigger. Delegate only genuinely independent work that materially
+shortens delivery; tightly coupled work stays with one owner.
+
+Agents may execute existing checks. Agents may not originate verifier agents,
+canaries, benchmarks, soak tests, new verification apparatus, or incident-driven
+policy edits unless the user's current request explicitly asks for assurance.
+Uncertainty is reportable; it does not manufacture assurance scope. Destructive
+operations, secrets, durable production data, billing, client confidentiality,
+and published-history rewriting retain their standing safety boundaries.
+
+**Dispatch authority is live configuration, not profile law.** When delegation
+is actually warranted, read `north config dispatch`; its current value decides
+which dispatch surface creates workers:
 
 - `native` pins the provider-native Agent/Workflow surface. North may still
   coordinate, record, and observe, but MUST NOT independently spawn or delegate
@@ -84,9 +83,6 @@ A live change takes effect at the next dispatch decision; profile prose never
 overrides the mode. The user talks to a listener, never a worker. Each dispatched job
 becomes a lane through the selected surface, with one binary context decision:
 fork this session's context along (the default) or send a clean-room brief.
-Inline work is limited to answering from context, reading, consuming and
-reconciling delegated evidence, the one allowed suspicious spot-check, and
-coordination acts.
 
 When the North-managed surface is selected (`north`, or a North choice under
 `auto`), recursion is explicit: an orchestrator may create workers or child
@@ -108,35 +104,16 @@ Verify a blocker's load-bearing assertion before accepting OR overriding it. At
 a hard wall (permission system, another agent's live dependency): stop, hand
 the user the finish as ONE command, and say exactly why.
 
-## Done-claims carry a bar — probe + observed result
+## Delivery claims — observed check + residual risk
 <!-- north-section: done-claims · bucket: core -->
 
-"Done"/"verified"/"fixed" is a JUDGMENT and must cite its evidence: state the
-probe run and the result observed ("north validate → exit 0", "firn build +
-validate → green"), never the bare adjective.
-Graph-side: threads SHOULD carry `done_when` facts (probe +
-expected result, one per fact) by commit time; `north dispatch` warns when a
-committed thread lacks them and workers define their own bar as a first act;
-outcomes on barred threads echo the bars, and needs-review surfaces
-unevidenced ones (`bar_evidence` facts hold observed results). Capture stays
-zero-ceremony — the bar attaches when work is ACCEPTED, not when a thought
-is jotted.
-
-Where evidence attaches, who attests, and the coordinator's one-spot-check
-consumption budget are doctrine, not restated here: `north:orchestration/doctrine.md`
-Law 7 and the verification doctrine own them.
-Consumed evidence carries provenance: name the run that produced a fact
-before drawing a verdict from it. A derived metric is a claim made by code —
-read the producing line before reasoning from it, and never compare a
-same-named metric across systems without reading both producers. When a
-hypothesis is load-bearing enough to act on, run the cheapest experiment
-that could FALSIFY it — move the input, watch the metric.
-
-Full verification doctrine — claim contracts, paranoia tiers P0–P3, the
-one-sentence stop rule, anti-tarpit laws: →
-`~/.agents/docs/verification-doctrine.md`
-Read when setting a bar/tier at intake, briefing a verifier, or a lane won't
-converge on done.
+Report the nearest existing relevant check and what it observed. If no such
+check exists, say so and use judgment; do not create one merely to make the
+report look stronger. Existing North `done_when` and `bar_evidence` facts may
+record an accepted contract, but ordinary delivery does not require inventing
+new bars, verifier reports, or independent attestation. A derived metric is a
+claim made by code: read its producer before using it, and report uncertainty
+instead of launching another pass.
 
 Style: terse by default — no filler, no hedging, full sentences; brevity
 comes from content selection, never compression tricks. Per clause: keep the

@@ -54,7 +54,7 @@ Install it and your sessions gain:
    | `orchestration:scout` | economy / low | locate, map, gather sources (breadth, fan-out) |
    | `orchestration:analyst` | senior / high | deep-dive: how/why it works, root-cause, design-grounding (read-only) |
    | `orchestration:reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
-   | `orchestration:verifier` | senior / high | adversarial verification of one claim (justified overrides may move up or down; quality floor binds) |
+   | `orchestration:verifier` | senior / high | explicit-user-requested adversarial verification of one claim |
    | `orchestration:judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
    | `orchestration:scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
 
@@ -71,13 +71,12 @@ Install it and your sessions gain:
    inheriting a top-tier session's model; concrete invocation syntax belongs
    to the selected adapter's fenced example.
 
-   Verification remains evidence-backed: workers report evidence, the
-   coordinator drives the assembled result end-to-end and independently
-   spot-checks materially load-bearing seams, and an independently staffed
-   verifier returns a verdict with the probe and observed result where the
-   outcome calls for one. Current lanes share one OS uid, so Orchestration does not
-   treat that staffing separation as security-grade attestation; `attested` or
-   `verified` status is reserved for a future protected trust boundary.
+   Delivery stays bounded: workers run the nearest existing relevant check
+   once, report its observation and residual uncertainty, and stop. The
+   coordinator reconciles child results, owns the final judgment, and may run
+   one existing integrated check on an emergent aggregate. Verifiers, canaries,
+   benchmarks, soaks, and new verification apparatus require the user's current
+   request to explicitly ask for assurance.
 
 3. **Skills**:
    - `compose` — assemble a bespoke (custom) composition for spawns the
@@ -187,16 +186,16 @@ remains unavailable under North until the same per-child boundary is enforceable
 Orchestration also separates task economics from provider state. The seven
 minimum-sufficient signals capture where better judgment changes outcomes and
 how work composes; dependency shape argues for one worker, a fixed workflow, a
-director with parallel workers, or a strong sequential worker plus a verifier
-when verdict leverage warrants one. These are **planner inputs** in a sidecar,
+director with parallel workers, or a strong sequential worker. These are
+**planner inputs** in a sidecar,
 not fields on the request. The routing request carries
 only role, task grade, domain requirements, topology (`worker`/`orchestrator`),
 tier, reasoning, posture, and composition; the composer validates the semantic
 pair and North resolves its provider/account/model. Allocation strategy,
 candidate waterfalls, resolved model, account identity, and resource pressure
 are North's runtime facts, never Orchestration request fields. Same-tier substitution
-may happen automatically before side effects; lowering capability or
-verification is explicit degradation.
+may happen automatically before side effects; lowering capability is explicit
+degradation.
 
 New selections can carry a separate
 [`minimum-sufficient-v1`](contracts/selection-assessment.schema.json) assessment.

@@ -39,9 +39,9 @@ ambiguous ownership, and irreversible choices return to the task owner.
 TOPOLOGY: WORKER. Your jurisdiction is one terminal piece; own it end-to-end
 and do NOT delegate. If the piece reveals independent decomposition, report
 that signal to your immediate parent for fresh classification and restaffing —
-never change your own topology (a warranted verifier is staffed by the parent
-as your sibling, never as your child). Return the deliverable and its evidence
-UP to the immediate parent that owns reduction, never sideways.
+never change your own topology. Run the nearest existing relevant check once,
+then return the deliverable, observed result, and residual uncertainty UP to
+the immediate parent that owns reduction, never sideways.
 
 ## Posture: explore
 POSTURE: EXPLORE — the question is "what should exist / does this work at all".

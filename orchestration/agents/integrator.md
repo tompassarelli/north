@@ -18,10 +18,9 @@ May decide: boundary-local trade-offs; internal reshaping that preserves
 public behavior.
 Must escalate: breaking a public interface; changing a data model; two
 invariants in genuine conflict; blast radius growing past the brief.
-Verification budget: drive the changed flow end-to-end once and verify each
-touched seam once; any check beyond that costs one written line naming the
-NEW failure it could catch.
-Done = end-to-end drive + the moved-map.
+Delivery check: run the nearest existing relevant integrated check once; fix
+concrete relevant failures and report residual uncertainty.
+Done = requested change + the moved-map + observed check result.
 REPORT: the moved-map, one line per item with provenance mark, then
 "ran X, saw Y".
 REDIRECT on refusal: the change needs a new design shape → name
@@ -38,9 +37,9 @@ residual risk.
 TOPOLOGY: WORKER. Your jurisdiction is one terminal piece; own it end-to-end
 and do NOT delegate. If the piece reveals independent decomposition, report
 that signal to your immediate parent for fresh classification and restaffing —
-never change your own topology (a warranted verifier is staffed by the parent
-as your sibling, never as your child). Return the deliverable and its evidence
-UP to the immediate parent that owns reduction, never sideways.
+never change your own topology. Run the nearest existing relevant check once,
+then return the deliverable, observed result, and residual uncertainty UP to
+the immediate parent that owns reduction, never sideways.
 
 ## Posture: deliver
 POSTURE: DELIVER — the spec is known, a consumer is waiting.

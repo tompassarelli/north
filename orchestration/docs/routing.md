@@ -145,7 +145,7 @@ functions on worker topology, not topologies: `topology` is only `worker` or
 | scout | scout | economy | worker | explore |
 | analyze | analyst | senior | worker | explore |
 | review | reviewer | senior | worker | evaluate |
-| verify | verifier | senior | worker | evaluate |
+| verify (explicit user request only) | verifier | senior | worker | evaluate |
 | judge | judge | frontier | worker | evaluate |
 | research-science | scientist | frontier | worker | explore |
 
@@ -164,21 +164,21 @@ Reviewer is the multi-criterion evaluation of one supplied artifact or change:
 prioritized evidence-backed findings plus `accept`, `changes-required`, or
 `cannot-assess`. Analyst explains a mechanism, verifier decides one claim,
 judge ranks multiple supplied alternatives, designer chooses or redesigns a
-shape, and integrator applies a change. Verifier's senior/high default may be
+shape, and integrator applies a change. The verifier role is selected only when
+the user's current request explicitly asks for assurance; uncertainty never
+self-authorizes it. Verifier's senior/high default may be
 justifiably overridden up or down, but the task's quality floor remains
 binding.
 
 Orchestrator topology grants coordination and reconciliation authority, not
-worker implementation authority. A coordinator consumes worker evidence,
-drives the assembled result end-to-end, and performs bounded independent
-non-authoring verification probes at the materially load-bearing child seams.
-A probe may execute a narrow test/build and create disposable cache or
-temporary state needed to observe the assertion; it may not edit, implement, or
-repair the deliverable or inherit a worker's full local-probe burden.
-Self-contained units add a verifier sibling when verdict leverage warrants one.
-An emergent aggregate always receives an independently staffed,
-context-carrying whole-outcome verifier report. These obligations affect how
-the topology is staffed and prompted; they do not add a ninth routing field.
+worker implementation authority. A worker owns its nearest existing relevant
+check, runs it once, and returns the observation plus residual uncertainty. A
+coordinator consumes child results, resolves seams, makes the final judgment,
+and may run one existing integrated check on an emergent aggregate. It does not
+originate verifier siblings, canaries, benchmarks, soaks, or new verification
+apparatus unless the user's current request explicitly asks for assurance.
+These obligations affect how the topology is staffed and prompted; they do not
+add a ninth routing field.
 An orchestrator may create a child orchestrator only through the same North
 execution boundary used for any child: a fresh eight-field Orchestration request plus
 independent admission, provider/account resolution, resource envelope,

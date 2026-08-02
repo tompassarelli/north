@@ -55,9 +55,9 @@ provider/account/model only before side effects and only while preserving
 tier, reasoning, and authority; any degradation is explicit and recorded.
 Never route through API keys or API-credit balances.
 
-Verification attachment (worker evidence, verifier siblings, whole-outcome
-attestation, the coordinator's spot-check budget) is doctrine Law 7 — not
-restated here.
+Delivery checks follow doctrine Law 7: each worker runs the nearest existing
+relevant check once; a coordinator may run one existing integrated aggregate
+check. Verifier staffing requires an explicit assurance request from the user.
 
 ## Personal defaults — domain bootstrap
 

@@ -32,7 +32,7 @@ Lifecycle anatomy + failure debugging (patterns A–F, zombie forks, split-brain
   created only through North admission — a fresh `part_of` thread, run,
   reservation, complete Orchestration route, resource envelope, and telemetry —
   and settle to their immediate parent. Jurisdiction law (worker vs
-  orchestrator, verifier siblings, reduction) is doctrine, not restated here.
+  orchestrator and reduction) is doctrine, not restated here.
   Scope overrun, new seams, budget pressure, or repeated no-progress →
   `north escalate needs-replan`; with no live parent, checkpoint and stop
   rather than silently broadening.

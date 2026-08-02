@@ -10,11 +10,6 @@ parallelize.
 - **Timing-sensitive trials → ISOLATE + MONITOR, never serialize the machine:**
   pin with `taskset -c`, record loadavg at trial start, discard/rerun contended
   trials. Confounds are answered by measure-and-discard, not by refusing to work.
-- **Claim-shape the apparatus.** Use timing isolation or benchmark
-  instrumentation only for a declared performance claim. A functional canary
-  records its primary behavior before optional JVM/load metrics; timing
-  contamination can invalidate timing evidence, never erase a functional
-  observation, and optional instrumentation failure remains non-gating.
 - **The reflex also fires at DESIGN time — catch it there.** Never write
   "sequential runs / no other work on the machine during trials" into an
   experiment protocol or pre-registration without a MEASUREMENT justifying it.
