@@ -15,6 +15,7 @@
 (def last-started (atom {}))
 (def last-finished (atom {}))
 (def failures (atom {}))
+(def titles (atom {}))
 (defn now [] (state/now))
 (defn run [argv timeout]
   (try (let [x (p/process argv {:out :string :err :string}) r (deref x timeout ::timeout)]
@@ -24,7 +25,12 @@
 (defn alive? [pid]
   ;; /proc is available on the Linux hosts that own North's lane receipts.
   (try (.exists (io/file "/proc" (str pid))) (catch Exception _ false)))
-(defn title [id] (try (some->> (slurp (io/file state-dir "threads" (str id ".md"))) (re-find #"(?m)^#\s+(.+)$") second) (catch Exception _ nil)))
+(defn title [id thread-id]
+  (or (get @titles id)
+      (let [value (try (some->> (->> (.listFiles (io/file state-dir "threads")) (filter #(str/starts-with? (.getName %) (str thread-id "-"))) first slurp) (re-find #"(?m)^#\s+(.+)$") second) (catch Exception _ nil))]
+        (swap! titles assoc id value) value)))
+(defn log-head [log] (with-open [r (io/reader log)] (let [b (char-array 4096) n (.read r b)] (String. b 0 (max 0 n)))))
+(defn log-tail [log] (with-open [r (java.io.RandomAccessFile. log "r")] (let [n (.length r) s (max 0 (- n 2048))] (.seek r s) (let [b (byte-array (- n s))] (.readFully r b) (String. b "UTF-8")))))
 (defn spawn-details [log]
   (try
     (let [header (some #(when (str/starts-with? % "[spawn]") %)
@@ -41,10 +47,13 @@
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str "lane-" id ".lane.pid")) exitf (io/file dir (str "lane-" id ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
                         prior-size (get @log-sizes id) grew (and (some? prior-size) (> (.length log) (long prior-size))) _ (swap! log-sizes assoc id (.length log))
+                        completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-tail log)) second)
+                        thread-id (some-> (re-find #"(?m)AGENT_THREAD=([^\s]+)" (log-head log)) second)
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
+                                     completion (if (= completion "ran") "finished" "failed")
                                      grew "advancing"
                                      (and pid (alive? pid)) "live quiet" :else "suspect")]]
-              (merge {:id id :title (or (title id) id) :status status :pid (when (and pid (alive? pid)) pid)
+              (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (when (and pid (alive? pid)) pid)
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)))}))
