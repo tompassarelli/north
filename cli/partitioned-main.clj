@@ -70,6 +70,16 @@
        (contains? client-clock-authority-verbs
                   (or (second args) "current"))))
 
+(defn coordination-only-projection-command? [args]
+  ;; The curated lifecycle views consume only thread, concern, driver, and lease
+  ;; facts; their --all forms retain the historical cross-domain census.
+  (and (contains? #{"ready" "board" "plate"} (first args))
+       (not (some #{"--all"} args))))
+
+(defn coordination-daemon-live-state [port log]
+  (when-let [state (original-live-state port log)]
+    (assoc state :complete true)))
+
 (defn coordination-snapshot [_port _log]
   ;; Stage A gives each origin its own writer, but the compatibility daemon's
   ;; warm store still contains the pre-partition union. Human clock authority
@@ -312,7 +322,11 @@
         telemetry-write? (telemetry-clock-command? args)
         writer-port (if telemetry-write? (telemetry-port) (original-coord-port))
         writer-log (if telemetry-write? (telemetry-log) (rt/log-path))
-        live-reader (if authority? coordination-live-state composed-live-facts)]
+        live-reader (cond
+                      authority? coordination-live-state
+                      (coordination-only-projection-command? args)
+                      coordination-daemon-live-state
+                      :else composed-live-facts)]
     (with-redefs
      [rt/coord-live-state live-reader
       main/compose-telemetry-log? (fn [] (not authority?))
