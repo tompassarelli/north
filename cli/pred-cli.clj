@@ -143,6 +143,10 @@
    ["all_clear" "single" "literal" "marker that the rebuild intent response window reached all-clear"]
    ["rebuild_started" "single" "literal" "marker that the coordinated rebuild began"]
    ["rebuild_outcome" "single" "literal" "terminal deployment-verified or failed report for a coordinated rebuild"]
+   ["rebuild_request_satisfied" "single" "literal" "terminal satisfaction projection for one rebuild request"]
+   ["window_action" "single" "literal" "current lifecycle action of one coordinated rebuild window"]
+   ["window_intent" "single" "literal" "rebuild intent fulfilled by one coordinated rebuild window"]
+   ["window_generation" "single" "literal" "Nix generation produced by one fired coordinated rebuild window"]
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]

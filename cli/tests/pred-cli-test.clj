@@ -98,6 +98,9 @@
   (->> (file-seq (path "cli"))
        (filter #(str/ends-with? (.getName %) ".clj"))
        (remove #(some #{"tests"} (str/split (.getPath %) #"[/\\]")))
+       ;; This is a generic FRAMRPC transport: its assert!/retract! accept a
+       ;; whole proposition, not a North predicate position.
+       (remove #(= "framrpc-client.clj" (.getName %)))
        (sort-by #(.getPath %))))
 
 (def engine-schema-predicates #{"acyclic" "cardinality" "value_kind"})
@@ -166,8 +169,8 @@
     ["cli/pred-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
-    ["cli/run-event-internal.clj" "put!" "predicate"]
-    ["cli/run-fact-internal.clj" "put!" "predicate"]
+    ;; Terminal writers now publish their validated payloads through atomic
+    ;; assert-batch-after-read!, so predicate is no longer a per-fact put! site.
     ["cli/schema-migrate.clj" "put!" "predicate"]
     ["cli/schema-migrate.clj" "retract!" "predicate"]
     ["cli/spend-breaker.clj" "retract!" "p"]
@@ -175,7 +178,11 @@
     ["cli/spend-cli.clj" "put!" "p"]
     ["cli/worktree-allocation-internal.clj" "append!" "marker-predicate"]
     ["cli/worktree-allocation-internal.clj" "append!" "predicate"]
-    ["cli/worktree-allocation-internal.clj" "retract!" "predicate"]})
+    ["cli/worktree-allocation-internal.clj" "retract!" "predicate"]
+    ;; Listener route replacement is fenced, but its predicate remains an
+    ;; explicit runtime input to the coordinator write.
+    ["cli/north-listen.clj" "put-with-fence!" "predicate"]
+    ["cli/north-listen.clj" "retract-with-fence!" "predicate"]})
 
 ;; Fixed SDK fact constructors are audited instead of their variable transport
 ;; loops. A variable p in recordRun is not permission to omit a runFacts tuple.
@@ -552,7 +559,7 @@
                  dynamic-surfaces))
   (let [evidence
         {"cli-tell" (str/includes? (slurp-source "bin/north")
-                                    "north tell <id> <pred> <val>")
+                                    "tell|untell|retract)")
          "mcp-tell" (and (str/includes? (slurp-source "bin/north-mcp")
                                          "(get a \"predicate\")")
                          (str/includes? (slurp-source "bin/north-mcp")
