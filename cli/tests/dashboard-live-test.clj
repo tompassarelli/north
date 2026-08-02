@@ -16,7 +16,7 @@
     (spit (io/file agents "lane-test3.log") "[spawn] starting provider=anthropic tier=senior\n")
     (spit (io/file agents "lane-test3.lane.exit") "0")
     (spit (io/file agents "lane-test4.log") "AGENT_THREAD=thread-fixture\n[spawn] complete (process=ran, delivery=ok)\n")
-    (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"effort\":\"high\",\"provider\":\"openai\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
+    (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"effort\":\"high\",\"provider\":\"openai\",\"model\":\"gpt-5.6-sol\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
     (spit (io/file agents "lane-test5.log") "[spawn] complete (process=provider_error, delivery=no)\n")
     (spit (io/file agents "lane-mutation.log") "worktree provisioned\n[spawn] starting provider=anthropic tier=senior (route=senior/high)\n")
     (spit (io/file agents "lane-mutation.lane.pid") (str pid))
@@ -38,7 +38,7 @@
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
       (let [started (.toString (java.time.Instant/ofEpochMilli (- (System/currentTimeMillis) 720000)))
-            many (vec (concat [{:id "work-lane" :thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :startedAt started :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :status "advancing" :last-output-age 0}
+            many (vec (concat [{:id "work-lane" :thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :startedAt started :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :model "gpt-5.6-sol" :status "advancing" :last-output-age 0}
                                {:id "legacy-lane" :role "senior" :effort "high" :provider "anthropic" :status "advancing" :last-output-age 0}
                                {:id "failed-lane" :title "Failed fixture title" :status "failed" :last-output-age 0}]
                               (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n})))
@@ -51,16 +51,18 @@
         (let [out (north.dashboard.render/render) lines (str/split-lines out)]
           (check (some #(.contains % "(+2 older)") lines) "fleet row cap summary missing")
           (check (every? #(<= (count %) 100) lines) "line width was not truncated")
-          (check (.contains out "Working fixture title                           integrator/high · openai  working") "meta fleet row did not render title and effort")
-          (check (.contains out "senior/high · anthropic") "legacy fleet row did not render route effort")
-          (check (.contains out "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…") "fleet title was not truncated at 46 columns")
+          (check (.contains out "integrator/high · gpt-5.6-sol — working-fixture-title — working") "meta fleet row did not render full format")
+          (check (.contains out "senior/high · anthropic — legacy-lane — working") "legacy fleet row did not fall back to provider")
+          (check (.contains out "xxxxxxxxxxxxxxxxxxxxxxxxxxx…") "fleet slug was not truncated at 28 columns")
           (check (.contains out "QUEUE") "board header was not renamed")
           (check (re-find #"● 1[12]m  Active fixture title" out) (str "meta-bound live lane did not render active stint: " out))
           (check (and (.contains out "○  High leverage ready") (.contains out "unblocks 34")) "unbound ready row did not render marker and leverage")
           (check (< (.indexOf out "Active fixture title") (.indexOf out "High leverage ready") (.indexOf out "Middle leverage ready") (.indexOf out "Low leverage ready")) "queue ordering was not active then leverage descending")
           (check (and (.contains out "7 active · 3 ready · 1 blocked") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out))) "queue was not summarized safely")
           (check (and (.contains out "openai-main  eligible  42%") (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
-          (check (.contains out "working = producing output · done/failed = finished · stale = no recent signal") "footer legend missing")
+          (check (.contains out "working = producing output · done/failed = finished · lost = died without reporting") "footer legend missing")
+          (check (not (re-find #"stale" (first (str/split out #"HEALTH")))) "stale leaked into fleet rows")
+          (check (re-find #"· data [0-9]+s old" out) "header did not render snapshot age")
           (check (not (re-find #"(?i)suspect|advancing|live quiet" out)) "internal status vocabulary leaked")
           (check (not (.contains out "\u001b")) "NO_COLOR render contained ANSI escape bytes")
           (with-redefs [north.dashboard.render/color? (constantly false)]
