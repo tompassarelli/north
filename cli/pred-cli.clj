@@ -445,6 +445,8 @@
    ["routing_pin_evidence_status" "single" "literal" "whether route pin evidence was valid or unavailable"]
    ["routing_pin_evidence_sha256" "single" "literal" "SHA-256 of canonical route pin evidence"]
    ["effective_authority_provider" "single" "literal" "provider whose exact executable authority surface was admitted for the final run route"]
+   ["authoring_authority_surface" "single" "literal" "run-local managed authoring authority derived from the final executable surface: graph, text, none, or unknown"]
+   ["authoring_authority_surface_coverage" "single" "literal" "whether the run-local authoring authority classification is exact or unknown"]
    ["effective_native_multi_agent" "single" "literal" "native provider subagent authority admitted for the run"]
    ["effective_authoring_hooks" "single" "literal" "authoring-hook authority boundary admitted for the final run route"]
    ["effective_live_input" "single" "literal" "live-input capability admitted for the final run route"]

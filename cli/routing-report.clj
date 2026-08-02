@@ -19,7 +19,9 @@
                    "composition_override" "applied_preset_override" "struggle"
                    "routing_rule_code" "routing_pin" "routing_receipt_override"
                    "mcp_actual_tool" "provider_turn_key" "canary_outcome"
-                   "scope_escalation"})
+                   "scope_escalation" "effective_authority_capability"
+                   "effective_north_enabled_tool" "effective_builtin"
+                   "effective_mcp_tool"})
 
 (def canonical-orchestration-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
@@ -131,16 +133,43 @@
                           :root (io/file (accounts-root) provider profile)}))))
              vec)))))
 
-(defn read-ops [paths]
-  (mapcat (fn [path]
-            (if (and path (.exists (io/file path)))
-              (with-open [reader (io/reader path)]
-                (doall
-                 (keep (fn [line]
-                         (try (edn/read-string line) (catch Exception _ nil)))
-                       (line-seq reader))))
-              []))
-          (distinct (remove nil? paths))))
+(def log-predicate-pattern #":p \"([^\"]+)\"")
+
+(defn read-ops
+  ([paths] (read-ops paths nil))
+  ([paths predicate-filter]
+   (mapcat (fn [path]
+             (if (and path (.exists (io/file path)))
+               (with-open [reader (io/reader path)]
+                 (doall
+                  (keep (fn [line]
+                          (let [predicate (some-> (re-find log-predicate-pattern line) second)]
+                            (when (or (nil? predicate-filter)
+                                      (and predicate (predicate-filter predicate)))
+                              (try (edn/read-string line) (catch Exception _ nil)))))
+                        (line-seq reader))))
+               []))
+           (distinct (remove nil? paths)))))
+
+(def learning-fast-predicates
+  #{"kind" "agent" "thread" "at" "outcome" "process_outcome"
+    "delivery_outcome" "delivery_reason" "delivery_evidence"
+    "delivery_evidence_sha256" "delivery_attestation"
+    "delivery_attestation_sha256" "tokens" "duration_ms" "num_turns"
+    "struggle" "error_count" "done_when" "bar_evidence"
+    "mcp_activity_source" "mcp_activity_coverage" "mcp_actual_calls"
+    "mcp_actual_tool" "execution_source" "effective_authority_provider"
+    "effective_authority_capability" "authoring_authority_surface"
+    "authoring_authority_surface_coverage" "prompt_receipt_version"
+    "prompt_receipt_sha256" "prompt_wire_sha256" "prompt_receipt_coverage"
+    "environment_receipt_version" "environment_receipt_sha256"
+    "environment_receipt_coverage" "available_skill_catalog_sha256"
+    "activated_resource_closure_sha256" "run_envelope_version"
+    "run_envelope_sha256"})
+
+(defn learning-fast-predicate? [predicate]
+  (or (contains? learning-fast-predicates predicate)
+      (str/starts-with? predicate "learning_")))
 
 (defn fold-facts [ops]
   (reduce
@@ -453,6 +482,39 @@
                                 :else "mismatch")
           capability-evidence (capability-summary (many facts entity "applied_capability"))
           applied-capabilities (:canonical capability-evidence)
+          execution-source (normalized-token (one facts entity "execution_source"))
+          authority-provider (normalized-token
+                              (one facts entity "effective_authority_provider"))
+          authority-capability-evidence
+          (capability-summary (many facts entity "effective_authority_capability"))
+          authority-capabilities (:canonical authority-capability-evidence)
+          explicit-authoring-authority
+          (normalized-token (one facts entity "authoring_authority_surface"))
+          explicit-authoring-authority-coverage
+          (normalized-token (one facts entity "authoring_authority_surface_coverage"))
+          derived-authoring-authority
+          (when (and (= "north-managed" execution-source)
+                     authority-provider
+                     (empty? (:unknown authority-capability-evidence)))
+            (cond
+              (some #{"graph-authoring.fram"} authority-capabilities) "graph"
+              (some #{"filesystem.write" "shell"} authority-capabilities) "text"
+              :else "none"))
+          authoring-authority
+          (if (#{"graph" "text" "none" "unknown"} explicit-authoring-authority)
+            explicit-authoring-authority
+            (or derived-authoring-authority "unknown"))
+          authoring-authority-coverage
+          (if (and (#{"graph" "text" "none" "unknown"} explicit-authoring-authority)
+                   (#{"exact" "unknown"} explicit-authoring-authority-coverage))
+            explicit-authoring-authority-coverage
+            (if derived-authoring-authority "exact" "unknown"))
+          authoring-authority-evidence-source
+          (cond
+            (and explicit-authoring-authority explicit-authoring-authority-coverage)
+            "run-fact"
+            derived-authoring-authority "effective-authority"
+            :else "unobserved")
           composition-overrides (many facts entity "composition_override")
           composition-override-reason
           (normalized-token (one facts entity "composition_override_reason"))
@@ -602,7 +664,7 @@
        :requestedTarget (normalized-token (one facts entity "requested_target"))
        :requestedModel (normalized-token (one facts entity "requested_model"))
        :requestedEffort (normalized-token (one facts entity "requested_effort"))
-       :executionSource (normalized-token (one facts entity "execution_source"))
+       :executionSource execution-source
        :executionTransport (normalized-token (one facts entity "execution_transport"))
        :providerSessionPersistence
        (normalized-token (one facts entity "provider_session_persistence"))
@@ -805,6 +867,11 @@
        :requestedFingerprintVersion requested-version
        :requestedFingerprintDomain requested-domain
        :appliedCapabilities applied-capabilities
+       :effectiveAuthorityProvider authority-provider
+       :effectiveAuthorityCapabilities authority-capabilities
+       :authoringAuthoritySurface authoring-authority
+       :authoringAuthoritySurfaceCoverage authoring-authority-coverage
+       :authoringAuthorityEvidenceSource authoring-authority-evidence-source
        :compositionOverrides composition-overrides
        :appliedPresetOverrides applied-preset-overrides
        :appliedPresetOverrideReasonSha256 applied-preset-override-reason-hash
@@ -2629,6 +2696,113 @@
                (empty? exploratory) "no-exploratory-observation"
                :else "evaluation-ready")}))
 
+(def fram-authoring-mutation-tools
+  #{"tell" "retract" "add-def" "set-body" "rename-def" "insert-before" "insert-after"
+    "replace-in-body" "edit-transaction"})
+
+(defn graph-mutation-invocations [row]
+  (reduce +
+          (map :count
+               (filter #(and (= "fram" (:server %))
+                             (fram-authoring-mutation-tools (:tool %)))
+                       (:mcpActualTools row)))))
+
+(defn authoring-authority-exclusions [row]
+  (cond-> []
+    (not= "exact" (:authoringAuthoritySurfaceCoverage row))
+    (conj "authoring-authority-not-exact")
+    (not (#{"graph" "text" "none"} (:authoringAuthoritySurface row)))
+    (conj "authoring-authority-unknown")
+    (and (= "provider-native" (:executionSource row))
+         (not= "exact" (:authoringAuthoritySurfaceCoverage row)))
+    (conj "provider-native-authoring-unattested")
+    (not (#{"north-managed" "provider-native"} (:executionSource row)))
+    (conj "execution-source-unattributed")
+    (not (:processOutcomeObserved row))
+    (conj "terminal-process-outcome-unobserved")
+    (not (:deliveryOutcomeObserved row))
+    (conj "terminal-delivery-outcome-unobserved")))
+
+(defn median-observation [values]
+  (let [ordered (vec (sort values))
+        n (count ordered)]
+    (when (pos? n)
+      (if (odd? n)
+        (nth ordered (quot n 2))
+        (/ (+ (nth ordered (dec (quot n 2)))
+              (nth ordered (quot n 2)))
+           2.0)))))
+
+(defn authoring-authority-summary [[surface rows]]
+  (let [usage (usage-stats rows)]
+    {:surface surface
+     :runs (count rows)
+     :runIds (mapv :entity (sort-by :entity rows))
+     :tokens (:tokens usage)
+     :tokenEvidence (:tokenEvidence usage)
+     :tokenCoverage (:tokenCoverage usage)
+     :wallMilliseconds (:wallMilliseconds usage)
+     :medianDurationMs (median-observation (keep :durationMs rows))
+     :durationEvidence (:durationEvidence usage)
+     :durationCoverage (:durationCoverage usage)
+     :processOutcomes (into (sorted-map) (frequencies (map :processOutcome rows)))
+     :deliveryOutcomes (into (sorted-map) (frequencies (map :deliveryOutcome rows)))
+     :struggleRuns (count (filter #(seq (:struggleTriggers %)) rows))
+     :struggleTriggers (into (sorted-map)
+                             (frequencies (mapcat :struggleTriggers rows)))
+     ;; Invocation evidence is activation, unlike the authority grouping above.
+     ;; It does not claim the tool result committed a mutation.
+     :graphMutationInvocations (reduce + (map graph-mutation-invocations rows))
+     :mcpActivityCoverage
+     (into (sorted-map) (frequencies (map #(or (:mcpActivityCoverage %) "unknown") rows)))}))
+
+(defn authoring-observability-report [rows]
+  (let [authority-observations
+        (mapv (fn [row]
+                (let [reasons (authoring-authority-exclusions row)]
+                  {:entity (:entity row)
+                   :surface (:authoringAuthoritySurface row)
+                   :coverage (:authoringAuthoritySurfaceCoverage row)
+                   :evidenceSource (:authoringAuthorityEvidenceSource row)
+                   :eligible (empty? reasons)
+                   :exclusionReasons reasons}))
+              rows)
+        exact-authority-ids (set (map :entity (filter :eligible authority-observations)))
+        exact-authority (filterv #(exact-authority-ids (:entity %)) rows)
+        exclusions (mapcat :exclusionReasons authority-observations)
+        graph-invocation-rows
+        (filterv #(and (:processOutcomeObserved %)
+                       (:deliveryOutcomeObserved %)
+                       (pos? (graph-mutation-invocations %)))
+                 rows)]
+    {:claim (str "authoring authority and observed activation are separate: exact executable "
+                 "authority is availability, mutating Fram MCP calls are invocation evidence, "
+                 "and neither is a causal graph-versus-text comparison")
+     :runs (count rows)
+     :exactAuthorityRuns (count exact-authority)
+     :authorityExcludedRuns (- (count rows) (count exact-authority))
+     :exclusions (into (sorted-map) (frequencies exclusions))
+     :exploration {:status "blocked"
+                   :reason "task-scoped-text-authority-unavailable"
+                   :detail (str "managed dispatch has no safe task-scoped text arm for "
+                                "graph-upstream files; global guard bypass is ineligible")}
+     :activation {:graphInvocationRuns (count graph-invocation-rows)
+                  :graphMutationInvocations
+                  (reduce + (map graph-mutation-invocations graph-invocation-rows))
+                  :graphMcpCoverage
+                  (into (sorted-map)
+                        (frequencies
+                         (map #(or (:mcpActivityCoverage %) "unknown")
+                              graph-invocation-rows)))
+                  :textInvocationRuns nil
+                  :textInvocationCoverage "unknown-provider-ledger-does-not-attest-file-mutations"
+                  :claim "invocation counts do not prove accepted mutation or successful delivery"}
+     :authoritySurfaces (->> exact-authority
+                    (group-by :authoringAuthoritySurface)
+                    (map authoring-authority-summary)
+                    (sort-by (comp {"graph" 0 "text" 1 "none" 2} :surface))
+                    vec)}))
+
 (defn learning-report [rows]
   (let [observed (->> rows
                       (filter #(some identity
@@ -2649,6 +2823,7 @@
      :eligibleRuns (count eligible)
      :excludedRuns (- (count observed) (count eligible))
      :exclusions (into (sorted-map) (frequencies exclusions))
+     :authoringObservability (authoring-observability-report rows)
      :cohorts (->> eligible
                    (group-by (juxt :learningTaskSignatureSha256
                                    :learningAxis :learningArmId))
@@ -2886,6 +3061,32 @@
     "learning"
     (do
       (println "LEARNING REGIME — bounded ordinary-operation evaluation")
+      (let [authoring (:authoringObservability data)]
+        (println "AUTHORING — authority availability and observed activation (observational only)")
+        (println (format "runs=%d exact-authority=%d excluded=%d exclusions=%s"
+                         (:runs authoring) (:exactAuthorityRuns authoring)
+                         (:authorityExcludedRuns authoring)
+                         (pr-str (:exclusions authoring))))
+        (println (format "exploration=%s reason=%s"
+                         (get-in authoring [:exploration :status])
+                         (get-in authoring [:exploration :reason])))
+        (println (format "graph-invocation-runs=%d graph-mutation-invocations=%d text-invocation-coverage=%s"
+                         (get-in authoring [:activation :graphInvocationRuns])
+                         (get-in authoring [:activation :graphMutationInvocations])
+                         (get-in authoring [:activation :textInvocationCoverage])))
+        (println (format "%-10s %5s %14s %12s %14s %12s %9s %10s"
+                         "AUTHORITY" "runs" "tokens" "tok exact"
+                         "median-ms" "wall exact" "struggle" "fram calls"))
+        (doseq [row (:authoritySurfaces authoring)]
+          (println (format "%-10s %5d %14s %12s %14s %12s %9d %10d"
+                           (:surface row) (:runs row)
+                           (observed-token-label (:tokens row))
+                           (str (get-in row [:tokenCoverage :exactRuns]) "/"
+                                (get-in row [:tokenCoverage :runs]))
+                           (observed-token-label (:medianDurationMs row))
+                           (str (get-in row [:durationCoverage :exactRuns]) "/"
+                                (get-in row [:durationCoverage :runs]))
+                           (:struggleRuns row) (:graphMutationInvocations row)))))
       (println "Discovery and incomplete construction evidence are visible below but never enter comparison cohorts.")
       (println (format "runs=%d eligible=%d excluded=%d exclusions=%s"
                        (:runs data) (:eligibleRuns data) (:excludedRuns data)
@@ -3001,7 +3202,9 @@
     (when (and window? (not (#{"usage" "economics"} (or kind "performance"))))
       (binding [*out* *err*] (println "--window/--slice/--now apply only to usage/economics reports"))
       (System/exit 2))
-    (let [facts (fold-facts (read-ops (default-paths)))
+    (let [facts (fold-facts (read-ops (default-paths)
+                                      (when (= kind "learning")
+                                        learning-fast-predicate?)))
           rows (vec (run-rows facts))
           report-rows (if (= kind "waste") (waste-attempt-rows facts rows) rows)
           sessions (native-session-rows facts)

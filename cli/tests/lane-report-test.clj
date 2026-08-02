@@ -43,6 +43,10 @@
    {:id "run:10000000-0000-4000-8000-000000000005" :start "2026-07-30T10:00:00Z"
     :arm "text" :learning-arm "graph" :files "2" :lines "100" :dispatcher "@agent:d1"
     :role "implementer" :model "model-a" :wall "120000" :tokens "250"
+    :outcome "landed" :retries "0"}
+   {:id "run:10000000-0000-4000-8000-000000000006" :start "2026-07-30T11:00:00Z"
+    :arm "forced-text" :files "2" :lines "100" :dispatcher "@agent:d4"
+    :role "implementer" :model "model-a" :wall "130000" :tokens "260"
     :outcome "landed" :retries "0"}])
 
 (def estimates
@@ -121,6 +125,8 @@
   (check! "unified authoring assignment wins over compatibility-only run_arm"
           (and (re-find #"run:10000000-0000-4000-8000-000000000005\s+finished\s+graph" output)
                (not (re-find #"run:10000000-0000-4000-8000-000000000005\s+finished\s+text" output))))
+  (check! "forced authoring runs remain audit rows but never enter graph/text comparison"
+          (boolean (re-find #"(?m)^small\s+3\s+120000\s+250 \(3/3 exact\)\s+0" output)))
   (when (pos? @failures)
     (println "--- report output ---")
     (println output)

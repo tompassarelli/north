@@ -130,8 +130,8 @@
 
 (defn family [arm]
   (case arm
-    ("graph" "forced-graph") "graph"
-    ("text" "forced-text") "text"
+    "graph" "graph"
+    "text" "text"
     nil))
 
 (defn size-bucket [run]

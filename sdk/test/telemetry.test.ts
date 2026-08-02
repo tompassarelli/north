@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   classifyTurnProvenance, codexTurnActivityFromResult, newRunId,
-  runEstimateFromThreadFacts, runFacts,
+  authoringAuthoritySurfaceEvidence, runEstimateFromThreadFacts, runFacts,
 } from "../src/telemetry";
 import {
   assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
@@ -58,6 +58,46 @@ test("a completed run carries every mandatory terminal predicate", () => {
   }
   expect(facts).toContainEqual(["tokens", "10308025"]);
   expect(facts).toContainEqual(["outcome", "ran"]);
+});
+
+test("managed runs record the exact effective authoring surface and native runs stay unknown", () => {
+  const authority = (capabilities: any[]) => ({
+    provider: "openai" as const,
+    capabilities,
+    nativeMultiAgent: "disabled" as const,
+    liveInput: "unsupported" as const,
+    northEnabledTools: [],
+    authoringHooks: "managed-only" as const,
+    sandbox: capabilities.includes("filesystem.write")
+      ? "workspace-write" as const : "read-only" as const,
+    web: "disabled" as const,
+    managedTools: [],
+  });
+  expect(authoringAuthoritySurfaceEvidence({
+    executionSource: "north-managed",
+    effectiveAuthority: authority(["filesystem.read", "filesystem.search",
+      "filesystem.write", "shell", "graph-authoring.fram"]),
+  })).toEqual({ surface: "graph", coverage: "exact" });
+  expect(authoringAuthoritySurfaceEvidence({
+    executionSource: "north-managed",
+    effectiveAuthority: authority(["filesystem.read", "filesystem.search",
+      "filesystem.write", "shell"]),
+  })).toEqual({ surface: "text", coverage: "exact" });
+  expect(authoringAuthoritySurfaceEvidence({
+    executionSource: "north-managed",
+    effectiveAuthority: authority(["filesystem.read", "filesystem.search", "shell.readonly"]),
+  })).toEqual({ surface: "none", coverage: "exact" });
+  expect(authoringAuthoritySurfaceEvidence({ executionSource: "provider-native" }))
+    .toEqual({ surface: "unknown", coverage: "unknown" });
+
+  const facts = runFacts({
+    thread: "thread-authoring", agent: "lane-authoring", durationMs: 1,
+    posture: "spawn", outcome: "ran", executionSource: "north-managed",
+    effectiveAuthority: authority(["filesystem.read", "filesystem.search",
+      "filesystem.write", "shell", "graph-authoring.fram"]),
+  });
+  expect(facts).toContainEqual(["authoring_authority_surface", "graph"]);
+  expect(facts).toContainEqual(["authoring_authority_surface_coverage", "exact"]);
 });
 
 test("run wall-time comparison varies for under/on/over and preserves no-estimate runs", () => {

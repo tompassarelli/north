@@ -123,7 +123,23 @@ parameters. Secret-shaped parameters and raw credentials are rejected.
 
 New managed authoring experiments use `learning_axis=authoring` and
 `learning_arm_id=graph|text` in the same assignment vocabulary as every other
-axis. `north-lane-report` reads those facts first.
+axis. North does not currently assign those arms: the graph-upstream guard has
+no task-scoped text authority, and disabling authoring guards globally is not an
+eligible treatment. `north routing report learning` reports this as
+`task-scoped-text-authority-unavailable`; frozen/discovery operation continues.
+
+Every new managed terminal separately records `authoring_authority_surface` as
+`graph`, `text`, `none`, or `unknown`, plus exact/unknown coverage. This is
+derived from the final executable authority, so it proves availability, not
+use. The report keeps activation separate: mutating Fram MCP invocations are
+counted when provider activity evidence exists, while text mutation activation
+remains unknown until a provider ledger attests accepted file-authoring events.
+Provider-native authoring stays unknown without an exact run-local authority
+attestation. These observational groups expose outcomes, wall time, tokens, and
+struggle signals, but never enter causal comparison cohorts by themselves.
+
+`north-lane-report` reads unified assignment facts first. Forced legacy arms
+remain visible as audit rows and are excluded from its graph/text comparison.
 
 `run_arm` belongs to the earlier standalone graph/text bake-off. It remains a
 read-only compatibility input for historical reports and the retained legacy

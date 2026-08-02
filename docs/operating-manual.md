@@ -734,7 +734,7 @@ north routing report performance       # complete current managed-run evidence
 north routing report performance --all # include legacy/incomplete historical rows
 north routing report usage             # observed-token lower bounds + exact coverage
 north routing report waste             # trailing 1M-token machinery-waste gate
-north routing report learning          # exact evaluation cohorts + explicit exclusions
+north routing report learning          # authoring observations + exact evaluation cohorts/exclusions
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
