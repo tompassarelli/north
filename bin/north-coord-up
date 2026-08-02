@@ -41,7 +41,7 @@ if [[ "$runtime_selector" == checkout ]]; then
     echo "north up: refusing inherited Nix-store Fram in checkout mode; set NORTH_FRAM_RUNTIME=package to select it explicitly" >&2
     exit 2
   fi
-  FRAM_HOME="${fram_home_input:-$HOME/code/fram}"
+  FRAM_HOME="${fram_home_input:-$HOME/code/fram/main}"
   FRAM_BIN="${fram_bin_input:-$FRAM_HOME/bin}"
 
   # These variables are implementation details of the packaged Fram wrapper.

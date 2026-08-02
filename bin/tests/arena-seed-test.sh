@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FRAM="${FRAM_HOME:-$HOME/code/fram}"
+FRAM="${FRAM_HOME:-$HOME/code/fram/main}"
 TMP="$(mktemp -d)"
 LOG="$TMP/facts.log"
 DAEMON_LOG="$TMP/coordinator.log"

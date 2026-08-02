@@ -10,7 +10,7 @@
 # caller also configures FRAM_TELEMETRY_LOG).
 set -euo pipefail
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
-FRAM_HOME="${FRAM_HOME:-$HOME/code/fram}"
+FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
 FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
 BB="${NORTH_BB:-bb}"
 if [ -z "${FRAM_LOG:-}" ]; then

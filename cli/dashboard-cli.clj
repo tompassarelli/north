@@ -21,8 +21,8 @@
 ;; this file lives in north/cli — NORTH is its repo root.
 (def SCRIPT (or (System/getProperty "babashka.file") *file*))
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def FRAM (or (System/getenv "FRAM_HOME") (str HOME "/code/fram")))
-(def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle")))
+(def FRAM (or (System/getenv "FRAM_HOME") (str HOME "/code/fram/main")))
+(def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle/main")))
 (def FRAM-BIN (or (System/getenv "FRAM_BIN") (str FRAM "/bin")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
