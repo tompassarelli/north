@@ -518,6 +518,28 @@ function exactDiagnosable(value: unknown, expected: unknown, label: string): voi
   });
 }
 
+// `exact`, but the {cause} names the drifted top-level KEYS only — safe for
+// shapes whose values may carry environment content or a token.
+function exactNamingKeys(value: unknown, expected: unknown, label: string): void {
+  const observed = canonical(value);
+  const wanted = canonical(expected);
+  if (JSON.stringify(observed) === JSON.stringify(wanted)) return;
+  const asRecord = (input: unknown): JsonObject | undefined =>
+    input && typeof input === "object" && !Array.isArray(input) ? input as JsonObject : undefined;
+  const left = asRecord(observed);
+  const right = asRecord(wanted);
+  const drift = left && right
+    ? [...new Set([...Object.keys(left), ...Object.keys(right)])].sort().flatMap((key) => {
+      if (!(key in right)) return [`unexpected ${key}`];
+      if (!(key in left)) return [`missing ${key}`];
+      return JSON.stringify(left[key]) === JSON.stringify(right[key]) ? [] : [`changed ${key}`];
+    })
+    : [`not the expected shape`];
+  throw new Error(`${label} does not match North's exact managed Codex contract`, {
+    cause: new Error(`drifted: ${drift.join(", ") || "ordering"}`),
+  });
+}
+
 // A config layer North requires to be EMPTY. `exact(layer, {})` reported only
 // that it differed, which is the least useful thing to say about a layer whose
 // whole contract is "has nothing in it" — the one fact a reader needs is what
@@ -538,8 +560,18 @@ function validateShellPreflight(response: unknown): void {
     throw new Error("Codex command/exec did not preserve North's managed shell identity");
 }
 
+// Field names are diagnostic and never a token, so the drift is always named.
 function onlyKeys(value: JsonObject, expected: readonly string[], label: string): void {
-  exact(Object.keys(value).sort(), [...expected].sort(), `${label} fields`);
+  const present = new Set(Object.keys(value));
+  const wanted = new Set(expected);
+  const drift = [
+    ...[...present].filter((key) => !wanted.has(key)).sort().map((key) => `unexpected ${key}`),
+    ...[...wanted].filter((key) => !present.has(key)).sort().map((key) => `missing ${key}`),
+  ];
+  if (drift.length)
+    throw new Error(`${label} fields do not match North's exact managed Codex contract`, {
+      cause: new Error(`drifted: ${drift.join(", ")}`),
+    });
 }
 
 function optionalBoundedString(value: unknown, label: string, maxBytes = MAX_ID_BYTES): string | null {
@@ -1218,7 +1250,10 @@ function validateConfig(
         record(contract.expectedSessionConfig.features, "Codex expected session authority feature set").network_proxy,
         "Codex session network proxy policy",
       );
-      exact(layerConfig, contract.expectedSessionConfig, "Codex session authority layer");
+      // Keys-only diagnosis: this layer embeds MCP server env, so its VALUES
+      // may carry a token and must never reach the message.
+      exactNamingKeys(layerConfig, contract.expectedSessionConfig,
+        "Codex session authority layer");
     } else if (type === "project") {
       onlyKeys(layer, layer.disabledReason === undefined
         ? ["name", "version", "config"]
@@ -1266,7 +1301,7 @@ function validateConfig(
     expectedFeatures.network_proxy,
     "Codex effective network proxy policy",
   );
-  exact(config.features, expectedFeatures, "Codex effective feature set");
+  exactNamingKeys(config.features, expectedFeatures, "Codex effective feature set");
   const sessionMcp = record(
     contract.expectedSessionConfig.mcp_servers, "Codex expected MCP session set",
   );
@@ -1277,19 +1312,23 @@ function validateConfig(
       tool_timeout_sec: null,
     }],
   ));
-  exact(config.mcp_servers, expectedEffectiveMcp, "Codex effective MCP set");
-  exact(config.projects, contract.expectedSessionConfig.projects, "Codex project trust set");
+  exactNamingKeys(config.mcp_servers, expectedEffectiveMcp, "Codex effective MCP set");
+  exactNamingKeys(config.projects, contract.expectedSessionConfig.projects,
+    "Codex project trust set");
   const sessionShellEnvironmentPolicy = record(
     contract.expectedSessionConfig.shell_environment_policy,
     "Codex expected shell environment policy",
   );
-  exact(
+  exactNamingKeys(
     config.shell_environment_policy,
     {
       ...sessionShellEnvironmentPolicy,
       ignore_default_excludes: null,
       exclude: null,
       include_only: null,
+      // 0.146 supersedes the legacy exclude/include_only pair; unset must stay
+      // unset, so an inherited filter set still fails closed.
+      filters: null,
       experimental_use_profile: null,
     },
     "Codex effective shell environment policy",
