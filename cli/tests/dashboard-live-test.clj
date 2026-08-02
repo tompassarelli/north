@@ -40,6 +40,7 @@
         (check (= "Joined thread title" (get-in by-id ["test4" :title])) "joined thread title was not extracted")
         (check (= "executor" (get-in by-id ["test4" :role])) "meta role was not extracted")
         (check (= "high" (get-in by-id ["test4" :effort])) "meta effort was not extracted")
+        (check (= "gpt-5.6-sol" (get-in by-id ["test4" :model])) "meta model was not extracted")
         (check (and (= "standard" (get-in by-id ["test1" :role])) (= "medium" (get-in by-id ["test1" :effort])) (= "openai" (get-in by-id ["test1" :provider]))) "legacy spawn metadata missing")
         (check (and (= "senior" (get-in by-id ["mutation" :role])) (= "high" (get-in by-id ["mutation" :effort]))) "mutation spawn metadata was not found on line two"))
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
@@ -56,6 +57,9 @@
         (north.dashboard.state/record! :board {:status :ok :data {:text board}})
         (north.dashboard.state/record! :providers {:status :ok :data providers})
         (let [out (north.dashboard.render/render) lines (str/split-lines out)]
+          (check (.contains out "integrator/high · GPT 5.6 Sol") "resolved model name was not rendered")
+          (check (not (.contains out "GPT 5.6 Sol · openai")) "provider suffix remained with resolved model")
+          (check (.contains out "senior/high · anthropic") "legacy provider fallback was not rendered")
           (check (some #(.contains % "(+2 older)") lines) "fleet row cap summary missing")
           (check (every? #(<= (count %) 100) lines) "line width was not truncated")
           (check (.contains out "Working fixture title") "meta fleet title did not render")
