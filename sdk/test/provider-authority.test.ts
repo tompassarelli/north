@@ -620,7 +620,7 @@ test("native Codex loads global AGENTS exactly once while managed project discov
   expect(probe.stdout.match(/NATIVE_TASK_CANARY_41729/g)).toHaveLength(1);
 });
 
-test("project AGENTS composition is bounded, root-to-cwd, override-aware, and provider-neutral", () => {
+test("project AGENTS composition includes ancestor policy, stays bounded, and is provider-neutral", () => {
   const home = mkdtempSync(join(tmpdir(), "north-project-agents-"));
   temporary.push(home);
   const project = join(home, "project");
@@ -629,6 +629,7 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
   mkdirSync(nested, { recursive: true });
   mkdirSync(join(home, ".agents"), { recursive: true });
   writeFileSync(join(home, ".agents", "AGENTS.md"), "GLOBAL_AUTHORITY_CANARY\n");
+  writeFileSync(join(home, "AGENTS.md"), "ANCESTOR_POLICY_CANARY\n");
   writeFileSync(join(project, "AGENTS.md"), "ROOT_PROJECT_CANARY\n");
   writeFileSync(join(project, "src", "AGENTS.md"), "SRC_PROJECT_CANARY\n");
   writeFileSync(join(nested, "AGENTS.md"), "SHADOWED_PROJECT_CANARY\n");
@@ -639,6 +640,7 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
   process.env.NORTH_ORCHESTRATION_HOME = inheritedEnv.NORTH_ORCHESTRATION_HOME ?? join(north, "orchestration");
 
   const appendix = projectAgentsAppendix(nested);
+  expect(appendix.indexOf("ANCESTOR_POLICY_CANARY")).toBeLessThan(appendix.indexOf("ROOT_PROJECT_CANARY"));
   expect(appendix.indexOf("ROOT_PROJECT_CANARY")).toBeLessThan(appendix.indexOf("SRC_PROJECT_CANARY"));
   expect(appendix.indexOf("SRC_PROJECT_CANARY")).toBeLessThan(appendix.indexOf("OVERRIDE_PROJECT_CANARY"));
   expect(appendix).not.toContain("SHADOWED_PROJECT_CANARY");
@@ -650,6 +652,7 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
     self: "openai-project-bootstrap", provider: "openai", cwd: nested, presenceRegistrar: false,
   }) as any;
   for (const options of [anthropic, openai]) {
+    expect(options.systemPrompt).toContain("ANCESTOR_POLICY_CANARY");
     expect(options.systemPrompt).toContain("ROOT_PROJECT_CANARY");
     expect(options.systemPrompt).toContain("SRC_PROJECT_CANARY");
     expect(options.systemPrompt).toContain("OVERRIDE_PROJECT_CANARY");
@@ -664,6 +667,10 @@ test("project AGENTS composition is bounded, root-to-cwd, override-aware, and pr
     routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
   }) as any;
   expect(codexHarnessArguments(managedOpenAI)).not.toContain("project_doc_max_bytes=0");
+
+  writeFileSync(join(home, "AGENTS.md"), "GLOBAL_AUTHORITY_CANARY\n");
+  const deduplicated = projectAgentsAppendix(nested);
+  expect(deduplicated.match(/GLOBAL_AUTHORITY_CANARY/g)).toBeNull();
 
   writeFileSync(join(project, "AGENTS.md"), "x".repeat(PROJECT_AGENTS_MAX_BYTES));
   expect(() => projectAgentsAppendix(nested)).toThrow(
