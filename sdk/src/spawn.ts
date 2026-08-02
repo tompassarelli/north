@@ -214,6 +214,22 @@ interface ManagedWorktreeLease extends ProvisionedWorktree {
 // retryOfRun/retryAttempt provenance below).
 const PROVIDER_PROCESS_DEATH_MAX_RETRIES = 1;
 
+export function applyCodexTurnDeadlineFromReasoning(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.NORTH_CODEX_TURN_DEADLINE_MS !== undefined) return;
+  let deadlineMs: number | undefined;
+  switch (env.AGENT_REASONING) {
+    case "low": deadlineMs = 600_000; break;
+    case "medium": deadlineMs = 900_000; break;
+    case "high": deadlineMs = 1_500_000; break;
+    case "xhigh":
+    case "max": deadlineMs = 2_400_000; break;
+  }
+  if (deadlineMs !== undefined)
+    env.NORTH_CODEX_TURN_DEADLINE_MS = String(deadlineMs);
+}
+
 /** A start-of-stream overload is safe to re-route before any provider turn ran. */
 export function eligibleForLaneStartProviderRetry(
   outcome: string,
@@ -1673,6 +1689,9 @@ if (import.meta.main) {
     console.error("usage: bun run src/spawn.ts <prompt>");
     process.exit(1);
   }
+  // Each CLI/MCP launch owns one lane process. Default here because spawnParallel
+  // may mix reasoning tiers inside one process.
+  applyCodexTurnDeadlineFromReasoning();
   const rawDelegateThread = process.env.NORTH_DELEGATE_THREAD_ID;
   delete process.env.NORTH_DELEGATE_THREAD_ID;
   let delegateThread: string | undefined;

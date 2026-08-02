@@ -50,6 +50,29 @@ test("Orchestration composition survives North validation into complete run tele
   ]) expect(facts).toContainEqual(fact);
 });
 
+test("spawn bootstrap derives the Codex turn deadline without replacing caller authority", async () => {
+  const { applyCodexTurnDeadlineFromReasoning } = await import("../src/spawn");
+
+  for (const [reasoning, deadline] of [
+    ["low", "600000"],
+    ["medium", "900000"],
+    ["high", "1500000"],
+    ["xhigh", "2400000"],
+    ["max", "2400000"],
+  ] as const) {
+    const env: NodeJS.ProcessEnv = { AGENT_REASONING: reasoning };
+    applyCodexTurnDeadlineFromReasoning(env);
+    expect(env.NORTH_CODEX_TURN_DEADLINE_MS).toBe(deadline);
+  }
+
+  const explicit: NodeJS.ProcessEnv = {
+    AGENT_REASONING: "xhigh",
+    NORTH_CODEX_TURN_DEADLINE_MS: "1234567",
+  };
+  applyCodexTurnDeadlineFromReasoning(explicit);
+  expect(explicit.NORTH_CODEX_TURN_DEADLINE_MS).toBe("1234567");
+});
+
 test("SDK presets inherit catalog axes while declared compatible overrides win independently", () => {
   const catalog = loadOrchestrationStaffing(resolve(orchestration, "staffing/catalog.json"));
   expect(() => applyOrchestrationStaffing({ role: "integrator", tier: "frontier" }, catalog))
