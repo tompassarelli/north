@@ -4,7 +4,7 @@
 ;; noise — especially that estimate-staleness ignores bulk-import tx-ordering
 ;; (serialization, not causality) yet fires on a genuine later edit.
 ;;
-;;   bb -cp out staleness_test.clj      (run from the repo root)
+;;   bb -cp out tests/staleness_test.clj      (run from the repo root)
 (require '[fram.kernel :as k]
          '[fram.fold :as fold]
          '[north.staleness :as stale])

@@ -6,7 +6,7 @@
 ;; additive `model_provenance` fact. Never deletes evidence, never rewrites a
 ;; run's other facts.
 ;;
-;; Precedent studied: offline-migrate.clj rewrites facts.log OFFLINE (daemon
+;; Precedent studied: scripts/migrations/offline-migrate.clj rewrites facts.log OFFLINE (daemon
 ;; down, raw retract/assert lines appended to the log file directly, daemon
 ;; restarted to reload). That path does not fit telemetry.log: it is LIVE —
 ;; other agents' managed lanes are appending run telemetry through the shared
@@ -40,15 +40,20 @@
 ;;     executed -> model_provenance=routed_intent_not_executed
 ;;
 ;; Usage:
-;;   bb telemetry-alias-migrate.clj              (dry-run; prints the plan, writes nothing)
-;;   bb telemetry-alias-migrate.clj --execute     (backs up, applies via the live coordinator, verifies)
+;;   bb scripts/migrations/telemetry-alias-migrate.clj              (dry-run; prints the plan, writes nothing)
+;;   bb scripts/migrations/telemetry-alias-migrate.clj --execute     (backs up, applies via the live coordinator, verifies)
 
 (require '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.java.shell :as shell]
          '[clojure.string :as str])
 
-(def north-home (str (.getParent (io/file (System/getProperty "babashka.file")))))
+(def north-home
+  (-> (io/file (System/getProperty "babashka.file"))
+      .getCanonicalFile
+      .getParentFile
+      .getParentFile
+      .getParent))
 (load-file (str north-home "/cli/coord.clj"))
 
 (def port (Integer/parseInt (or (System/getenv "NORTH_PORT") (System/getenv "FRAM_PORT") "7977")))

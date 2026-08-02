@@ -37,7 +37,7 @@
 ;; owner death by the SAME lease rule presence-cli/concern-cli use, and writes its
 ;; verdict through the coordinator (auditable facts, never a mutated cell).
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-;; PURE reap decisions (verdict off in-memory facts) — split out so reap_test.clj can
+;; PURE reap decisions (verdict off in-memory facts) — split out so tests/reap_test.clj can
 ;; drive the join/lapse/verdict logic with no live daemon. Sibling of coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/reap.clj"))
 ;; Shared Git-derived worktree read model. `north worktrees` renders it; the

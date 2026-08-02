@@ -1,5 +1,5 @@
 ;; reap.clj — PURE liveness-reap decisions, split from north-reactor.clj's I/O so the
-;; verdict is unit-testable off in-memory facts (../reap_test.clj) with no live daemon.
+;; verdict is unit-testable off in-memory facts (../tests/reap_test.clj) with no live daemon.
 ;; The reactor GATHERS facts through the coordinator, then calls these; the test feeds
 ;; the same shapes directly. No coordinator, no clock, no atoms here — inputs in, verdict
 ;; out. Loaded (not required) the same way north-reactor.clj loads coord.clj.

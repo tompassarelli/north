@@ -3,7 +3,7 @@
 ;; only after its publication marker: terminal_manifest_sha256 for a modern lane
 ;; and kind=run for a run. These cases pin both markers, the legacy lane boundary,
 ;; and the genuinely silent lane that should be reaped.
-;;   bb reap_test.clj      (run from the repo root; no daemon, no classpath needed)
+;;   bb tests/reap_test.clj      (run from the repo root; no daemon, no classpath needed)
 (load-file "cli/reap.clj")
 
 ;; Fixed "now" (epoch ms) so lease/spawned deltas are exact and clock-free.

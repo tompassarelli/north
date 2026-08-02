@@ -4,7 +4,7 @@
 ;;   (2) asserts an explicit full-ISO `created_at` fact (now-iso) at birth, while
 ;;   (3) `resolve-ref` maps a @handle (or @id) ref to the canonical @id, latest
 ;;       created_at winning ties — the boundary fram never sees a handle through.
-;;   bb -cp out:../fram/out capture_test.clj      (run from the repo root)
+;;   bb -cp out:../fram/out tests/capture_test.clj      (run from the repo root)
 (require '[fram.kernel :as k] '[fram.rt :as rt] '[north.main :as m]
          '[clojure.string :as str] '[cheshire.core :as json])
 

@@ -6,7 +6,7 @@
 ;; surfaces both. North also owns the stronger thread-only target shape for
 ;; part_of/depends_on/relates_to; generic refs may target any fact-bearing
 ;; entity. (The generic half is covered in fram/tests/kernel_violations_test.clj.)
-;;   bb -cp out:$FRAM/out validate_test.clj      (run from the repo root)
+;;   bb -cp out:$FRAM/out tests/validate_test.clj      (run from the repo root)
 (require '[fram.kernel :as k] '[north.validate :as val])
 
 (defn idx-of [facts] (k/build-index facts))
