@@ -247,16 +247,10 @@ async function runDispatch(
     facts, hasChildren, routingMetadata.topology,
   );
 
-  // Done-bars: a committed thread with no done_when has no machine-checkable exit criterion —
-  // the worker will define its own as first act (see buildPrompt). Warn so the gap is visible.
-  if (posture.committed && posture.doneWhen.length === 0) {
-    console.log(`[dispatch] ⚠ @${threadId} committed but has NO done_when — worker will define its own done bar as first act`);
-  }
-
   // Judgment grade is the dispatcher's immutable S/M/L estimate of judgment
   // saturation, not the worker's. It feeds aggregate calibration. Warn (teach,
-  // never block or inject) when a committed thread lacks it, mirroring the
-  // done_when warning above. Bands live in docs/provider-architecture.md.
+  // never block or inject) when a committed thread lacks it. Bands live in
+  // docs/provider-architecture.md.
   if (posture.committed && judgmentGrade.status === "unavailable") {
     console.log(`[dispatch] ⚠ @${threadId} committed but has NO judgment_grade — set s|m|l (S≤3 / M 4-11 / L≥12 expected decision points) so the detector can calibrate`);
   } else if (judgmentGrade.status === "invalid") {

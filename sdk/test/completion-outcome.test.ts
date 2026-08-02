@@ -1092,7 +1092,7 @@ test("a blocked auxiliary terminal writer cannot stack beyond the shared publica
 });
 
 
-test("dispatch warns a committed thread that lacks BOTH done_when and judgment_grade", async () => {
+test("dispatch leaves a committed barless thread alone and still warns on missing judgment_grade", async () => {
   const { dispatch } = await import("./support/dispatch");
   writeFileSync(log, "");
   const captured: string[] = [];
@@ -1117,9 +1117,8 @@ test("dispatch warns a committed thread that lacks BOTH done_when and judgment_g
   }
   const doneWhenWarn = captured.find((l) => l.includes("has NO done_when"));
   const gradeWarn = captured.find((l) => l.includes("has NO judgment_grade"));
-  expect(doneWhenWarn).toBeDefined();
+  expect(doneWhenWarn).toBeUndefined();
   expect(gradeWarn).toBeDefined();
-  originalLog(`[bar-evidence] ${doneWhenWarn}`);
   originalLog(`[bar-evidence] ${gradeWarn}`);
 });
 
