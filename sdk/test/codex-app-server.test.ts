@@ -269,6 +269,7 @@ function setup(mode = "ok") {
     ignore_default_excludes: null,
     exclude: null,
     include_only: null,
+    filters: null,
     experimental_use_profile: null,
   };
   // The workspace-write sandbox grants the checkout's Git metadata roots + North state root
@@ -854,6 +855,8 @@ function setup(mode = "ok") {
           current.config.shell_environment_policy.set.PATH = "/run/current-system/sw/bin";
         if (mode === "shell-policy-extra-key")
           current.config.shell_environment_policy.future_authority = true;
+        if (mode === "shell-policy-filters-set")
+          current.config.shell_environment_policy.filters = [{ shell: "bash", exclude: ["*"] }];
         if (mode === "login-shell-enabled") current.config.allow_login_shell = true;
         if (mode === "fingerprint-mutation" && configReads > 1)
           current.layers[0].version = `sha256:${"f".repeat(64)}`;
@@ -1800,7 +1803,7 @@ test("pre-thread authority mutants fail before thread/start", async () => {
     "hook-failure-continue", "hook-failure-unrecognized",
     "feature-default-enabled", "feature-omitted", "mcp-resource", "mcp-template", "mcp-auth",
     "shell-policy-missing", "shell-policy-wrong-inherit", "shell-policy-drift",
-    "shell-policy-extra-key", "login-shell-enabled",
+    "shell-policy-extra-key", "shell-policy-filters-set", "login-shell-enabled",
     "mcp-server-info", "remote-enabled", "remote-extra-field", "remote-missing-installation",
     "deprecation-extra-field", "server-request-prethread",
     "config-warning-wrong-identifiers",
@@ -1966,6 +1969,25 @@ test("a non-empty system layer is refused and NAMES what it carries", async () =
   expect(text).toContain("Codex system layer must be empty but carries");
   expect(text).toContain("sandbox_mode");
   expect(text).not.toContain("danger-full-access");
+});
+
+test("a drifted shell environment policy NAMES the field, never its value", async () => {
+  for (const [mode, field] of [
+    ["shell-policy-extra-key", "future_authority"],
+    ["shell-policy-filters-set", "filters"],
+    ["shell-policy-wrong-inherit", "inherit"],
+  ] as const) {
+    const { options } = setup(mode);
+    const caught = await new ManagedCodexAppServerRun(options).execute()
+      .then(() => undefined, (error: Error) => error);
+    expect(caught).toBeInstanceOf(ManagedCodexPreThreadError);
+    const text = causeChain(caught!);
+    expect(text)
+      .toContain("Codex effective shell environment policy does not match North's exact managed");
+    expect(text).toContain(field);
+    // Keys only: the environment map's contents never reach the message.
+    expect(text).not.toContain("/run/current-system/sw/bin");
+  }
 });
 
 test("every security-relevant thread/start response field is attested independently", async () => {
