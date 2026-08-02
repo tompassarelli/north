@@ -1,10 +1,6 @@
 # Verification Doctrine — Definition of Done, Explicit
 
 **Status:** canonical. Provenance: `verification-doctrine-provenance.md`.
-**Public mirror:** the portable, provider-neutral form is published at
-https://github.com/tompassarelli/stop-the-loop (checkout:
-`~/code/stop-the-loop`, policy = `README.md`). When a refinement here changes
-the portable rules, mirror it there and safe-push.
 
 ---
 
@@ -55,6 +51,17 @@ it — never personally retire it past the pre-declared bar.**
    one claim: one probe, one observation. Evidence carries exact-commit/run
    provenance plus the observed result. Time, effort, confidence prose, and
    repeated confirmations are not evidence.
+   **Verifier/canary economy gate:** before dispatch or the first probe, each
+   verifier or canary intake names one primary claim, its primary probe and
+   expected observation, a total wall-clock budget, a setup budget capped at
+   25% of that total, a retry budget, and optional metrics (`none` when
+   absent; a gating observable belongs in the expected observation). Missing
+   any field means do not dispatch or probe. Setup that exhausts its budget
+   exits cannot-determine; it does not borrow from execution. Benchmark
+   apparatus is admissible only when the primary claim is performance. Record
+   the primary observation before optional instrumentation. Primary evidence
+   is monotonic within the run: optional instrumentation may add a separate
+   finding, but its failure cannot erase or downgrade the primary disposition.
 3. **Falsify, don't accumulate.** Run the cheapest experiment that could
    falsify the claim; when the falsifier fails to fire, stop. **Validity
    clause:** a falsifier that could not execute, or could not have failed
@@ -203,6 +210,7 @@ Cross-cutting rules:
 | File-and-pass | Refuting fact filed as "future work" while the old bar passes | Law 5: the refuted claim FAILS now |
 | Policy churn | Re-deriving the verification funnel each cycle | The funnel is fixed (this doc); execute the next probe |
 | Coverage theater | "One more check," sampling worries in anxiety order | Coverage comes from the intake enumeration tiling the change surface; verify against the contract |
+| Apparatus capture | Setup consumes the canary window, or an optional reader overwrites the primary result | Enforce the 25% setup cap; record primary evidence first; report optional failure separately |
 | Scope self-expansion | Verifier absorbs newly found risks into its pass | Law 5 classification: fail-now or new thread |
 | Dispositionless verification | Pass ends with "continuing to investigate" | Forbidden state; emit pass/fail/cannot-determine now |
 | Authority laundering | Escalating for permission the contract already grants ("may I run the declared probe?") | Name the decision type outside the contract or execute; deference is not diligence |

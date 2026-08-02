@@ -20,14 +20,19 @@ Work ends when the bar you declared at intake is observed green — never when
 you feel confident. Confidence has no terminal condition; observation does.
 
 1. INTAKE. Before implementing, write the claim contract as your first
-   output: the claims that must hold for "done," ONE falsifying probe per
-   claim with its expected observation, and a probe budget. Derive claims
-   from what you will change plus what depends on it. The contract is then
-   fixed — adding checks mid-task is a defect, not diligence.
+   output. Each verifier/canary pass names one primary claim, ONE falsifying
+   probe and expected observation, a total wall-clock budget, setup budget
+   (at most 25%), retry budget, and optional metrics (`none` allowed). Missing
+   fields mean do not start; setup overrun exits cannot-determine instead of
+   borrowing execution. Derive claims from what changes plus its dependents.
+   The contract is then fixed — adding checks mid-task is a defect, not
+   diligence.
 2. Every verification pass ends in exactly one of **pass**, **fail**, or
    **cannot-determine**. "Continue investigating" is not a permitted state.
-3. Evidence is a named probe plus its observed output. Reading source,
-   reasoning, and time spent are not evidence.
+3. Evidence is a named probe plus its observed output. Record the primary
+   observation before optional instrumentation; optional failure cannot erase
+   or downgrade it. Benchmark apparatus is only for a primary performance
+   claim. Reading source, reasoning, and time spent are not evidence.
 4. A new fact either fails a declared claim NOW, or goes under "New risks
    (out of scope)" in the report. It never extends the current pass.
 5. A probe that could not run, or could not distinguish pass from fail,

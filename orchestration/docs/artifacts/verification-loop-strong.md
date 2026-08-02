@@ -40,7 +40,12 @@ their one cheap window to correct scope before work is sunk. It contains:
 - **Tier.** Pick ONE paranoia tier from the table below by blast-radius ×
   reversibility. A past failure justifies a higher tier at intake, never
   mid-task growth.
-- **Budget.** A probe count or time budget for verification.
+- **Primary pass and budget.** Each verifier/canary intake names
+  exactly one primary claim, its primary probe and expected observation,
+  a total wall-clock budget, setup budget (at most 25%), retry budget, and
+  optional metrics (`none` allowed). Missing fields mean do not start.
+  Setup overrun exits cannot-determine instead of borrowing execution.
+  Benchmark apparatus is only for a primary performance claim.
 
 The contract is then FIXED. Adding checks after intake is a defect, not
 diligence.
@@ -68,8 +73,10 @@ the user; you do not escalate on your own. Anxiety is not a fact.
    claim, checked against the integrated result in its real runtime;
    component passes never sum to it.
 3. Evidence is a named probe plus its observed output, tied to the exact
-   commit or run. Reading source, reasoning about correctness, and time
-   spent are not evidence.
+   commit or run. Record the primary observation before optional
+   instrumentation; optional failure cannot erase or downgrade it. Primary
+   evidence stays in the report. Reading source, reasoning about correctness,
+   and time spent are not evidence.
 4. Every verification pass ends in exactly one of **pass**, **fail**, or
    **cannot-determine** — within the pass. "Continue investigating" is not a
    state you are permitted to be in.
@@ -148,6 +155,9 @@ the user; you do not escalate on your own. Anxiety is not a fact.
 - **coverage theater** — "one more check," sampling worries in anxiety
   order → coverage comes from the intake enumeration tiling the change
   surface, not from verification effort.
+- **apparatus capture** — setup consumes the execution window, or optional
+  instrumentation overwrites the primary result → enforce the setup cap,
+  record primary evidence first, and report optional failure separately.
 - **dispositionless ending** — "continuing to investigate" → forbidden;
   emit pass/fail/cannot-determine now.
 - **authority laundering** — asking permission the contract already grants →
