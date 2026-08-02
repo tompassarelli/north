@@ -1,7 +1,7 @@
 {
   "version": "retention-v2",
   "ttl_days": 14,
-  "retain_kinds": ["thread", "topic", "predicate", "schema", "template", "tier_row", "model", "provider_catalog", "doctrine_block", "staffing_catalog", "estimate", "subscription"],
+  "retain_kinds": ["thread", "topic", "predicate", "predicate_example", "schema", "template", "tier_row", "model", "provider_catalog", "doctrine_block", "staffing_catalog", "estimate", "subscription"],
   "retain_kind_prefixes": ["selection_", "client_"],
   "ephemeral_kinds": ["run", "run_event", "notification", "session", "lane", "message", "worktree_allocation", "worktree_reservation", "guard_denial", "clock_audit_run"],
   "ephemeral_kind_prefixes": ["rebuild-"],

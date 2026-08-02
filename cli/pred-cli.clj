@@ -84,6 +84,19 @@
   (doseq [old (exact-values port te p)] (retract! port te p old))
   (put! port te p (str v)))
 
+(defn ensure-1! [port te p v]
+  (let [wanted (str v)
+        existing (set (exact-values port te p))]
+    (when (not= existing #{wanted})
+      (doseq [old existing] (retract! port te p old))
+      (put! port te p wanted))))
+
+(defn ensure-many! [port te p values]
+  (let [wanted (set (map str values))
+        existing (set (exact-values port te p))]
+    (doseq [old (remove wanted existing)] (retract! port te p old))
+    (doseq [value (remove existing wanted)] (put! port te p value))))
+
 ;; ============================================================================
 ;; VOCAB — bootstrap + offline lint inventory. [name card kind doc]
 ;; Drawn from the cross-language writer inventory: Clojure coordination CLIs,
@@ -103,6 +116,10 @@
    ["pred_cardinality" "single" "literal" "single|multi — is this predicate single-valued?"]
    ["pred_value_kind"  "single" "literal" "literal|ref — interned value vs @-ref object"]
    ["doc"         "single" "literal" "human description of a predicate"]
+   ["predicate_example" "multi" "ref" "connected teaching example entity for a predicate"]
+   ["example_slot0" "single" "ref" "subject slot of a connected predicate teaching example"]
+   ["example_slot2" "single" "literal" "object slot of a connected predicate teaching example"]
+   ["see_also" "multi" "ref" "directed related-predicate teaching edge"]
    ["minted_by"   "single" "literal" "who registered this predicate"]
    ["minted_at"   "single" "literal" "instant the predicate was registered"]
    ["same_as"     "multi"  "ref"     "historical descriptive-alias edge; executable predicate identity never follows it"]
@@ -716,6 +733,52 @@
 
 (def VOCAB-CARD (into {} (map (fn [[n c k d]] [n {:card c :kind k :doc d}]) VOCAB)))
 
+;; Bootstrap input only. `seed` materializes this into connected graph facts;
+;; every reader below then uses only those facts. The predicate is implicit in
+;; the owning `predicate_example` edge, so an example node stores slots 0 and 2
+;; rather than serializing a triple into one atom.
+(def TEACHING
+  [{:predicate "title" :examples [["@thread:teaching-example" "A task title"]]
+    :see-also ["kind" "outcome"]}
+   {:predicate "kind" :examples [["@thread:teaching-example" "thread"]]
+    :see-also ["title"]}
+   {:predicate "outcome" :examples [["@thread:teaching-example" "done"]]
+    :see-also ["kind"]}
+   {:predicate "part_of" :examples [["@thread:child-example" "@thread:parent-example"]]
+    :see-also ["depends_on"]}
+   {:predicate "depends_on" :examples [["@thread:blocked-example" "@thread:prerequisite-example"]]
+    :see-also ["part_of"]}])
+
+(defn teaching-example-entity [predicate n]
+  (str "@predicate-example:" predicate ":" n))
+
+(defn valid-teaching? [{:keys [predicate examples see-also]}]
+  (and (contains? VOCAB-CARD predicate)
+       (vector? examples) (seq examples)
+       (every? (fn [example]
+                 (and (vector? example) (= 2 (count example))
+                      (string? (first example))
+                      (str/starts-with? (first example) "@")
+                      (string? (second example))))
+               examples)
+       (vector? see-also)
+       (every? #(contains? VOCAB-CARD %) see-also)))
+
+(defn validate-teaching! [teaching]
+  (when-not (every? valid-teaching? teaching)
+    (throw (ex-info "malformed teaching bootstrap shape" {:teaching teaching}))))
+
+(defn seed-teaching! [port]
+  (doseq [{:keys [predicate examples see-also]} TEACHING]
+    (let [entity (pred-ent predicate)]
+      (ensure-many! port entity "see_also" (map pred-ent see-also))
+      (doseq [[n [slot0 slot2]] (map-indexed vector examples)]
+        (let [example (teaching-example-entity predicate n)]
+          (ensure-many! port entity "predicate_example" [example])
+          (ensure-1! port example "entity_kind" "predicate_example")
+          (ensure-1! port example "example_slot0" slot0)
+          (ensure-1! port example "example_slot2" slot2))))))
+
 ;; ---- registry reads ----
 (defn register! [port nm card kind doc minter]
   (let [e (pred-ent nm)]
@@ -725,6 +788,22 @@
     (set-1! port e "entity_kind" "predicate")
     (set-1! port e "minted_by" (or minter "pred-cli"))
     (set-1! port e "minted_at" (str (java.time.Instant/now)))
+    e))
+
+;; Seed only fills absent bootstrap facts. An existing graph declaration is the
+;; authority, even when this historical bootstrap input disagrees with it.
+(defn seed-one! [port te p v]
+  (when (empty? (exact-values port te p))
+    (put! port te p (str v))))
+
+(defn seed-register! [port nm card kind doc]
+  (let [e (pred-ent nm)]
+    (seed-one! port e "cardinality" card)
+    (seed-one! port e "value_kind" kind)
+    (when (seq (str doc)) (seed-one! port e "doc" doc))
+    (seed-one! port e "entity_kind" "predicate")
+    (seed-one! port e "minted_by" "seed")
+    (seed-one! port e "minted_at" "bootstrap")
     e))
 
 ;; Executable predicate identity is exact.  A same_as edge cannot make Fram use
@@ -837,8 +916,12 @@
       port (Integer/parseInt (or ps "7977"))]
   (case verb
     "seed"
-    (do (doseq [[n c k d] VOCAB] (register! port n c k d "seed"))
-        (println (str "✓ seeded " (count VOCAB) " executable predicate entities on :" port)))
+    (do (validate-teaching! TEACHING)
+        (doseq [[n c k d] VOCAB] (seed-register! port n c k d))
+        (seed-teaching! port)
+        (println (str "✓ seeded " (count VOCAB) " executable predicate entities and "
+                      (reduce + (map #(count (:examples %)) TEACHING))
+                      " connected teaching examples on :" port)))
 
     "define"
     (let [[nm card kind doc minter] args]

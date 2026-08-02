@@ -82,6 +82,12 @@
           :extra-env {"FRAM_LOG" log "FRAM_TELEMETRY_LOG" telemetry}}
          "bb" (str root "/cli/pred-cli.clj") (str port) args))
 
+(defn run-pred-script [script port log telemetry & args]
+  (apply proc/shell
+         {:dir root :out :string :err :string :continue true
+          :extra-env {"FRAM_LOG" log "FRAM_TELEMETRY_LOG" telemetry}}
+         "bb" script (str port) args))
+
 (defn fram-git-value [expression]
   (let [result (proc/shell {:out :string :err :string :continue true}
                            "git" "-C" fram "rev-parse" "--verify" expression)]
@@ -737,6 +743,46 @@
       (check! "post-candidate plan is a zero-delta idempotence proof"
               (and (zero? (:exit second)) (str/includes? (:out second) "0 action(s)"))
               (str "exit=" (:exit second) " out=" (:out second))))
+
+    (let [seed-first (run-pred port @active-log @active-telemetry "seed")
+          teaching-lines-before (count (re-seq #"predicate-example:"
+                                               (slurp @active-log)))
+          seed-second (run-pred port @active-log @active-telemetry "seed")
+          teaching-lines-after (count (re-seq #"predicate-example:"
+                                              (slurp @active-log)))
+          generic-show (run-pred port @active-log @active-telemetry "show" "title")]
+      (check! "seed adds connected teaching facts without overriding graph authority"
+              (and (zero? (:exit seed-first))
+                   (= #{"multi"} (values (live-facts @active-log @active-telemetry)
+                                          "@title" "cardinality"))
+              (str "exit=" (:exit seed-first) " out=" (:out seed-first)))
+      (check! "teaching seed is write-idempotent"
+              (and (zero? (:exit seed-second))
+                   (= teaching-lines-before teaching-lines-after))
+              (str "before=" teaching-lines-before " after=" teaching-lines-after
+                   " out=" (:out seed-second)))
+      (check! "generic predicate readback exposes connected teaching facts"
+              (and (zero? (:exit generic-show))
+                   (str/includes? (:out generic-show) "predicate_example")
+                   (str/includes? (:out generic-show) "@predicate-example:title:0"))
+              (str "exit=" (:exit generic-show) " out=" (:out generic-show))))
+
+    (let [bad-script (.getCanonicalPath (io/file temp "bad-pred-cli.clj"))
+          bad-coord (.getCanonicalPath (io/file temp "coord.clj"))
+          _ (spit bad-coord (slurp (str root "/cli/coord.clj")))
+          _ (spit bad-script
+                  (str/replace (slurp (str root "/cli/pred-cli.clj"))
+                               "[\"@thread:teaching-example\" \"A task title\"]"
+                               "[\"not-a-ref\" \"A task title\"]"))
+          before (slurp @active-log)
+          malformed (run-pred-script bad-script port @active-log @active-telemetry "seed")]
+      (check! "malformed teaching bootstrap shape rejects before graph writes"
+              (and (not (zero? (:exit malformed)))
+                   (str/includes? (str (:out malformed) (:err malformed))
+                                  "malformed teaching bootstrap shape")
+                   (= before (slurp @active-log)))
+              (str "exit=" (:exit malformed) " out=" (:out malformed)
+                   " err=" (:err malformed))))
 
     (let [defined (run-pred port @active-log @active-telemetry
                             "define" "extension/example" "single" "literal"

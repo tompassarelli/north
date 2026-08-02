@@ -103,7 +103,7 @@
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "needs-review"])}
    {:name "validate"     :desc "Integrity check over the whole graph."
     :schema {:type "object" :properties {}} :argv (fn [_] ["validate"])}
-   {:name "show"         :desc "Show one thread's facts. Returns JSON [{predicate,value}]."
+   {:name "show"         :desc "Show one graph subject's facts, including connected predicate teaching facts. Returns JSON [{predicate,value}]."
     :schema {:type "object" :properties {:id {:type "string"}} :required ["id"]}
     :argv (fn [a] ["json" "show" (get a "id")])}
    {:name "capture"      :desc "Create a new thread from a title (a thought or unit of work)."
