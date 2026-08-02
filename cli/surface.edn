@@ -225,6 +225,8 @@
    :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
           :text "fleet, health, board, accounts — one screen"}}
+  {:verb "bridge" :form "north bridge <prompt>|attach <execution-id>" :topic :ops
+   :summary "launch or attach to a journaled local Codex execution"}
   {:verb "doctor" :form "north doctor" :topic :ops
    :summary "is everything healthy: fact server, daemons, rev skew, env, hooks"
    :card {:section :system :form "north doctor"
