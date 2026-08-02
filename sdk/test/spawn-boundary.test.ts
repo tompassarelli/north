@@ -57,7 +57,7 @@ function pinEvidence(provider: "anthropic" | "openai") {
 // sweep (~50s). We scrub identity and pin a SYNTHETIC coordinator so any fact/ping the
 // harness emits routes nowhere real, even if a future edit lets a write escape the fake.
 const MANAGED_ENV = [
-  "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
+  "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "NORTH_AGENT_LOGS_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
   "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_TOPOLOGY", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_AUTH_STATE_CACHE",
@@ -108,6 +108,7 @@ exit 2
   process.env.NORTH_IDENTITY_TEST_REDIRECT = "1";
   process.env.NORTH_PORT = "59999"; // unused -> presence/any bb write silently no-ops
   process.env.NORTH_STREAM_DIR = dir; // keep stream jsonl out of ~/code/agent-data
+  process.env.NORTH_AGENT_LOGS_DIR = dir;
   process.env.AGENT_LAWS = "off"; // trim system-prompt file reads; irrelevant to the boundary
   process.env.AGENT_PRAXIS = "off";
   process.env.NORTH_ROUTING_POLICY = join(dir, "absent-routing-policy.json");
@@ -223,6 +224,9 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
   expect(subscribedAgent).toBe("test-spawn-live-feed");
   expect(received).toContain("child lane settled");
   expect(stopCalls).toBe(1);
+  const meta = JSON.parse(readFileSync(join(dir, "lane-test-spawn-live-feed.meta.json"), "utf8"));
+  expect(meta).toMatchObject({ thread: null, role: "executor", tier: "standard", provider: "anthropic" });
+  expect(typeof meta.startedAt).toBe("string");
 });
 
 test("OpenAI exec lanes never arm a live-input subscription", async () => {
