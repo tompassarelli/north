@@ -229,7 +229,10 @@ export class ManagedLiveInputRoute {
    * candidates are published only after the feed proves ready.
    */
   async activate(route: ManagedRouteAxes): Promise<void> {
-    if (route.liveInput === "unsupported") {
+    // Turn-framed control is owned by a persistent interactive-session host.
+    // A one-shot lane has no post-terminal session to receive another frame,
+    // so publishing the capability must not arm its streaming feed.
+    if (route.liveInput !== "streaming") {
       this.publish(route, "frozen", true);
       return;
     }

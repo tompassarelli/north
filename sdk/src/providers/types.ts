@@ -4,7 +4,7 @@ import type { ProviderModelAdmissionReceipt } from "../provider-model-observatio
 
 export type ProviderId = "anthropic" | "openai";
 export type ProviderPreference = ProviderId | "auto";
-export type LiveInputCapability = "streaming" | "unsupported";
+export type LiveInputCapability = "streaming" | "turn-framed" | "unsupported";
 export interface RoutingRequest {
   provider?: ProviderPreference;
   /** Exact target pin. Exact pins never fall back to another target. */
@@ -187,6 +187,8 @@ export interface AgentQuery {
    * validation; status and lease traffic never reaches this boundary.
    */
   readonly executionActivity?: import("../execution-activity").ExecutionActivitySource;
+  /** Interrupt only the active provider turn while retaining its session/thread. */
+  interruptTurn?(): Promise<void>;
   interrupt?(): Promise<void>;
   /** Idempotently dispose the provider query and await its owned process boundary. */
   close?(): Promise<void>;

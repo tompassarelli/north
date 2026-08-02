@@ -111,7 +111,7 @@ const surface = {
   provider: "openai",
   capabilities: ["read", "search", "write", "shell"],
   nativeMultiAgent: "disabled",
-  liveInput: "unsupported",
+  liveInput: "turn-framed",
   authoringHooks: "managed-only",
   northEnabledTools: tools,
   sandbox: "workspace-write",
@@ -569,7 +569,8 @@ function setup(mode = "ok") {
       }
       // Accepted, then never another word: only the overall turn deadline can
       // end this one.
-      if (mode === "turn-silent-before-tool" || mode === "turn-interrupt-refused") return;
+      if (mode === "turn-silent-before-tool" || mode === "turn-interrupt-refused"
+          || (mode === "external-turn-interrupt" && turnStarts === 1)) return;
       if (mode.startsWith("safety-buffering")) {
         const safetyBuffering: any = {
           threadId, turnId, model: "gpt-fixture-exact",
@@ -977,6 +978,13 @@ function setup(mode = "ok") {
         // A wedged-but-reachable provider still answers its control plane.
         if (mode === "turn-interrupt-refused") { fail(request); return; }
         result(request, {});
+        if (mode === "external-turn-interrupt") {
+          notify("thread/tokenUsage/updated", { threadId, turnId, tokenUsage: { total: {
+            totalTokens: 1, inputTokens: 1, cachedInputTokens: 0,
+            outputTokens: 0, reasoningOutputTokens: 0,
+          } } });
+          notify("turn/completed", { threadId, turn: turn(turnId, "completed") });
+        }
         return;
       }
       fail(request);
@@ -1475,6 +1483,32 @@ test("a later North frame drives a same-thread continuation turn under re-proven
   expect(requests.filter(({ method }) => method === "config/read")).toHaveLength(5);
   expect(requests.filter(({ method }) => method === "hooks/list")).toHaveLength(3);
   expect(requests.filter(({ method }) => method === "mcpServerStatus/list")).toHaveLength(6);
+});
+
+test("public turn interruption retains the provider thread for a later turn", async () => {
+  const { options, requests } = setup("external-turn-interrupt");
+  const later: Array<string | undefined> = ["continue after interrupt"];
+  const run = new ManagedCodexAppServerRun(options);
+  const session = run.session(async () => later.shift());
+  const first = session.next();
+  const deadline = Date.now() + 2_000;
+  while (!requests.some(({ method }) => method === "turn/start") && Date.now() < deadline)
+    await Bun.sleep(5);
+  expect(requests.some(({ method }) => method === "turn/start")).toBe(true);
+
+  await run.interruptTurn();
+  expect((await first).done).toBe(false);
+  expect((await session.next()).done).toBe(false);
+  expect((await session.next()).done).toBe(true);
+
+  expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(1);
+  expect(requests.filter(({ method }) => method === "thread/start")).toHaveLength(1);
+  const starts = requests.filter(({ method }) => method === "turn/start");
+  expect(starts).toHaveLength(2);
+  expect(starts.map(({ params }) => params.threadId)).toEqual([
+    "019f7abc-0000-7000-8000-000000000001",
+    "019f7abc-0000-7000-8000-000000000001",
+  ]);
 });
 
 test("an admitted continuation makes MCP coverage unknown until its terminal succeeds", async () => {

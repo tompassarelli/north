@@ -136,7 +136,7 @@
    ["model"          "single" "literal" "model id an agent runs"]
    ["effort"         "single" "literal" "reasoning-effort knob"]
    ["provider_target" "single" "literal" "exact provider account/target active for an agent or run"]
-   ["live_input" "single" "literal" "resolved adapter live-input capability (streaming|unsupported)"]
+   ["live_input" "single" "literal" "resolved adapter live-input capability (streaming|turn-framed|unsupported)"]
    ["live_input_state" "single" "literal" "current managed live-input route state (pending|armed|frozen)"]
    ["live_input_epoch" "single" "literal" "opaque UUIDv4 generation for one exact managed route publication"]
    ["target_identity_manifest_sha256" "single" "literal" "exact committed managed-route manifest against which a steer was admitted"]

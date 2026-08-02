@@ -3,7 +3,10 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { ExecutionJournal, type JournalRecord, type JournalScan } from "./journal";
-import { codexBridgeProvider, type BridgeProviderExecution } from "./provider";
+import {
+  codexBridgeProvider, type BridgeProviderExecution, type BridgeProviderSession,
+  type NormalizedProviderEvent,
+} from "./provider";
 import {
   bridgeJournalRoot, bridgeSocketPath, parseBridgeRequest, type BridgeRequest,
 } from "./protocol";
@@ -13,6 +16,7 @@ const TERMINAL_KINDS = new Set(["execution.completed", "execution.failed"]);
 
 type BridgeMessage =
   | { type: "launched"; executionId: string }
+  | { type: "controlled"; executionId: string; control: string; delivery: string }
   | { type: "event"; record: JournalRecord }
   | { type: "barrier"; executionId: string; cursor: number; tornTail?: JournalScan["tornTail"] }
   | { type: "error"; message: string };
@@ -23,11 +27,21 @@ export interface NorthdOptions {
   provider?: BridgeProviderExecution;
 }
 
+interface QueuedInput {
+  input: string;
+  delivery: "queued-next-turn" | "interrupt-and-redirect";
+  commandSeq: number;
+}
+
 interface ExecutionRuntime {
   executionId: string;
   journal: ExecutionJournal;
   subscribers: Set<Socket>;
   abort: AbortController;
+  pendingInputs: QueuedInput[];
+  session?: BridgeProviderSession;
+  activeTurn: boolean;
+  terminating: boolean;
   terminal: boolean;
 }
 
@@ -90,9 +104,15 @@ export class Northd {
   }
 
   async close(): Promise<void> {
-    for (const runtime of this.runtimes.values()) runtime.abort.abort();
+    const terminations: Promise<void>[] = [];
+    for (const runtime of this.runtimes.values()) {
+      runtime.terminating = true;
+      runtime.abort.abort();
+      if (runtime.session) terminations.push(runtime.session.terminateSession());
+    }
     for (const socket of this.sockets) socket.destroy();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
+    await Promise.allSettled(terminations);
     await Promise.allSettled([...this.drives]);
     for (const runtime of this.runtimes.values()) runtime.journal.close();
     if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
@@ -106,8 +126,15 @@ export class Northd {
     const journal = new ExecutionJournal(this.journalRoot, executionId);
     const scan = journal.scan();
     const terminal = scan.records.some((record) => TERMINAL_KINDS.has(record.kind));
-    const runtime = {
-      executionId, journal, subscribers: new Set<Socket>(), abort: new AbortController(), terminal,
+    const runtime: ExecutionRuntime = {
+      executionId,
+      journal,
+      subscribers: new Set<Socket>(),
+      abort: new AbortController(),
+      pendingInputs: [],
+      activeTurn: false,
+      terminating: false,
+      terminal,
     };
     this.runtimes.set(executionId, runtime);
     return runtime;
@@ -137,21 +164,63 @@ export class Northd {
     socket.once("close", () => runtime.subscribers.delete(socket));
   }
 
+  private finish(runtime: ExecutionRuntime, kind: "execution.completed" | "execution.failed", data: Record<string, unknown>): void {
+    if (runtime.terminal) return;
+    this.append(runtime, kind, data);
+    runtime.terminal = true;
+    runtime.activeTurn = false;
+    if (this.activeExecutionId === runtime.executionId) this.activeExecutionId = undefined;
+    for (const subscriber of runtime.subscribers) subscriber.end();
+    runtime.subscribers.clear();
+  }
+
+  private async dispatchNext(runtime: ExecutionRuntime): Promise<void> {
+    if (runtime.terminal || runtime.terminating || runtime.activeTurn || !runtime.session) return;
+    const next = runtime.pendingInputs.shift();
+    if (!next) return;
+    runtime.activeTurn = true;
+    try {
+      await runtime.session.submitInput(next.input);
+      this.append(runtime, "control.input_delivered", {
+        commandSeq: next.commandSeq,
+        delivery: next.delivery,
+      });
+    } catch (error) {
+      this.finish(runtime, "execution.failed", { message: errorMessage(error) });
+    }
+  }
+
+  private providerEvent(runtime: ExecutionRuntime, event: NormalizedProviderEvent): void {
+    this.append(runtime, `provider.${event.kind}`, event.data);
+    if (!event.turnTerminal || runtime.terminal) return;
+    runtime.activeTurn = false;
+    this.append(runtime, "session.idle", {
+      armed: true,
+      pendingInputs: runtime.pendingInputs.length,
+    });
+    void this.dispatchNext(runtime);
+  }
+
   private async drive(runtime: ExecutionRuntime, prompt: string, cwd: string): Promise<void> {
     try {
       this.append(runtime, "provider.starting", { adapter: "codex-app-server" });
-      await this.provider.execute(
-        { executionId: runtime.executionId, prompt, cwd, signal: runtime.abort.signal },
-        (event) => this.append(runtime, `provider.${event.kind}`, event.data),
-      );
-      this.append(runtime, "execution.completed", {});
+      const session = await this.provider.open({
+        executionId: runtime.executionId,
+        prompt,
+        cwd,
+        signal: runtime.abort.signal,
+      });
+      runtime.session = session;
+      if (runtime.terminating || runtime.terminal) {
+        await session.terminateSession();
+        return;
+      }
+      for await (const event of session.events()) this.providerEvent(runtime, event);
+      if (!runtime.terminating && !runtime.terminal)
+        this.finish(runtime, "execution.failed", { message: "provider session closed before termination" });
     } catch (error) {
-      this.append(runtime, "execution.failed", { message: errorMessage(error) });
-    } finally {
-      runtime.terminal = true;
-      if (this.activeExecutionId === runtime.executionId) this.activeExecutionId = undefined;
-      for (const subscriber of runtime.subscribers) subscriber.end();
-      runtime.subscribers.clear();
+      if (!runtime.terminating)
+        this.finish(runtime, "execution.failed", { message: errorMessage(error) });
     }
   }
 
@@ -163,6 +232,9 @@ export class Northd {
       journal: new ExecutionJournal(this.journalRoot, executionId),
       subscribers: new Set(),
       abort: new AbortController(),
+      pendingInputs: [],
+      activeTurn: true,
+      terminating: false,
       terminal: false,
     };
     this.runtimes.set(executionId, runtime);
@@ -172,15 +244,85 @@ export class Northd {
     this.attach(socket, runtime, 0);
     const drive = this.drive(runtime, request.prompt, request.cwd);
     this.drives.add(drive);
-    void drive.then(
-      () => this.drives.delete(drive),
-      () => this.drives.delete(drive),
-    );
+    void drive.finally(() => this.drives.delete(drive));
   }
 
-  private dispatch(socket: Socket, request: BridgeRequest): void {
+  private async control(
+    socket: Socket,
+    runtime: ExecutionRuntime,
+    request: Exclude<BridgeRequest, { op: "launch" | "attach" }>,
+  ): Promise<void> {
+    if (runtime.terminal) throw new Error(`bridge execution ${runtime.executionId} is terminal`);
+    if (request.op === "submitInput") {
+      const command = this.append(runtime, "control.submit_input", {
+        input: request.input,
+        delivery: "queued-next-turn",
+      });
+      runtime.pendingInputs.push({
+        input: request.input,
+        delivery: "queued-next-turn",
+        commandSeq: command.seq,
+      });
+      await this.dispatchNext(runtime);
+      wire(socket, {
+        type: "controlled", executionId: runtime.executionId,
+        control: request.op, delivery: "queued-next-turn",
+      });
+    } else if (request.op === "interruptTurn") {
+      this.append(runtime, "control.interrupt_turn", { delivery: "active-turn" });
+      if (!runtime.activeTurn || !runtime.session)
+        throw new Error(`bridge execution ${runtime.executionId} has no active turn`);
+      await runtime.session.interruptTurn();
+      wire(socket, {
+        type: "controlled", executionId: runtime.executionId,
+        control: request.op, delivery: "active-turn",
+      });
+    } else if (request.op === "redirectNow") {
+      const command = this.append(runtime, "control.redirect_now", {
+        input: request.input,
+        delivery: "interrupt-and-redirect",
+      });
+      runtime.pendingInputs.unshift({
+        input: request.input,
+        delivery: "interrupt-and-redirect",
+        commandSeq: command.seq,
+      });
+      if (runtime.activeTurn) {
+        if (!runtime.session) {
+          runtime.pendingInputs.shift();
+          throw new Error(`bridge execution ${runtime.executionId} provider is still starting`);
+        }
+        try { await runtime.session.interruptTurn(); }
+        catch (error) {
+          runtime.pendingInputs = runtime.pendingInputs
+            .filter((pending) => pending.commandSeq !== command.seq);
+          throw error;
+        }
+      } else {
+        await this.dispatchNext(runtime);
+      }
+      wire(socket, {
+        type: "controlled", executionId: runtime.executionId,
+        control: request.op, delivery: "interrupt-and-redirect",
+      });
+    } else {
+      this.append(runtime, "control.terminate_session", {});
+      runtime.terminating = true;
+      runtime.abort.abort();
+      await runtime.session?.terminateSession();
+      this.finish(runtime, "execution.completed", {});
+      wire(socket, {
+        type: "controlled", executionId: runtime.executionId,
+        control: request.op, delivery: "session-terminated",
+      });
+    }
+    socket.end();
+  }
+
+  private async dispatch(socket: Socket, request: BridgeRequest): Promise<void> {
     if (request.op === "launch") this.launch(socket, request);
-    else this.attach(socket, this.runtime(request.executionId), request.cursor);
+    else if (request.op === "attach") this.attach(socket, this.runtime(request.executionId), request.cursor);
+    else await this.control(socket, this.runtime(request.executionId), request);
   }
 
   private accept(socket: Socket): void {
@@ -201,12 +343,17 @@ export class Northd {
       const newline = buffer.indexOf("\n");
       if (newline < 0) return;
       handled = true;
-      try {
-        this.dispatch(socket, parseBridgeRequest(JSON.parse(buffer.slice(0, newline))));
-      } catch (error) {
+      let request: BridgeRequest;
+      try { request = parseBridgeRequest(JSON.parse(buffer.slice(0, newline))); }
+      catch (error) {
         wire(socket, { type: "error", message: errorMessage(error) });
         socket.end();
+        return;
       }
+      void this.dispatch(socket, request).catch((error) => {
+        wire(socket, { type: "error", message: errorMessage(error) });
+        socket.end();
+      });
     });
   }
 }

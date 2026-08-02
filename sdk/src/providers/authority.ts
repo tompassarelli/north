@@ -78,7 +78,7 @@ export function compileProviderAuthoritySurface(
       provider,
       capabilities,
       nativeMultiAgent,
-      liveInput: "unsupported",
+      liveInput: "turn-framed",
       authoringHooks: "managed-only",
       sandbox: capabilities.includes("shell.readonly") ? "read-only" : "workspace-write",
       web: capabilities.includes("web") ? "cached" : "disabled",

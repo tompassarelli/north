@@ -225,8 +225,10 @@
    :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
           :text "fleet, health, board, accounts — one screen"}}
-  {:verb "bridge" :form "north bridge <prompt>|attach <execution-id>" :topic :ops
-   :summary "launch or attach to a journaled local Codex execution"}
+  {:verb "bridge" :form "north bridge <prompt>|attach|steer|interrupt <execution-id>" :topic :ops
+   :summary "launch, attach, or control a journaled local Codex session"
+   :details ["steer <id> <text> — queue input for the next turn on the same provider thread"
+             "interrupt <id> — interrupt the active turn without terminating its session"]}
   {:verb "doctor" :form "north doctor" :topic :ops
    :summary "is everything healthy: fact server, daemons, rev skew, env, hooks"
    :card {:section :system :form "north doctor"
