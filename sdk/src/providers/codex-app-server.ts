@@ -1888,7 +1888,10 @@ function validateNotifiedTurn(
     turn.status !== expectedStatus
       && `status ${JSON.stringify(turn.status)} is not ${JSON.stringify(expectedStatus)}`,
     !Array.isArray(turn.items) && "items is not an array",
-    turn.itemsView !== "notLoaded" && `itemsView ${JSON.stringify(turn.itemsView)}`,
+    // 0.146 hydrates some turns with a summarized items view; neither admitted
+    // view's items are consumed, so both stay sealed to lifecycle-only reads.
+    turn.itemsView !== "notLoaded" && turn.itemsView !== "summary"
+      && `itemsView ${JSON.stringify(turn.itemsView)}`,
     (!Number.isSafeInteger(turn.startedAt) || (turn.startedAt as number) < 0)
       && `startedAt ${JSON.stringify(turn.startedAt)}`,
   ]);
