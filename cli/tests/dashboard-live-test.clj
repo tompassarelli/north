@@ -16,7 +16,7 @@
     (spit (io/file agents "lane-test3.log") "[spawn] starting provider=anthropic tier=senior\n")
     (spit (io/file agents "lane-test3.lane.exit") "0")
     (spit (io/file agents "lane-test4.log") "AGENT_THREAD=thread-fixture\n[spawn] complete (process=ran, delivery=ok)\n")
-    (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"provider\":\"openai\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
+    (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"effort\":\"high\",\"provider\":\"openai\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
     (spit (io/file agents "lane-test5.log") "[spawn] complete (process=provider_error, delivery=no)\n")
     (spit (io/file threads "thread-fixture-slug.md") "# Joined thread title\n")
     (with-redefs [north.dashboard.collectors/state-dir (.getPath state-root)
@@ -30,12 +30,14 @@
         (check (= "failed" (get-in by-id ["test5" :status])) "managed provider failure was not failed")
         (check (= "Joined thread title" (get-in by-id ["test4" :title])) "joined thread title was not extracted")
         (check (= "executor" (get-in by-id ["test4" :role])) "meta role was not extracted")
-        (check (and (= "standard" (get-in by-id ["test1" :role])) (= "openai" (get-in by-id ["test1" :provider]))) "spawn metadata missing"))
+        (check (= "high" (get-in by-id ["test4" :effort])) "meta effort was not extracted")
+        (check (and (= "standard" (get-in by-id ["test1" :role])) (= "medium" (get-in by-id ["test1" :effort])) (= "openai" (get-in by-id ["test1" :provider]))) "legacy spawn metadata missing"))
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
-      (let [many (vec (concat [{:id "work-lane" :title "Working fixture title" :status "advancing" :last-output-age 0}
+      (let [many (vec (concat [{:id "work-lane" :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :status "advancing" :last-output-age 0}
+                               {:id "legacy-lane" :role "senior" :effort "high" :provider "anthropic" :status "advancing" :last-output-age 0}
                                {:id "failed-lane" :title "Failed fixture title" :status "failed" :last-output-age 0}]
-                              (for [n (range 12)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n})))
+                              (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n})))
             board "THREADS — 12 open threads · 7 active · 2 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Fixture board title\n native-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 019fc335-5c17-77d5-a8e2-38001f8c97f9 Second board title\n\nREADY\n raw details that must not appear"
             providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 42 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
@@ -45,6 +47,9 @@
         (let [out (north.dashboard.render/render) lines (str/split-lines out)]
           (check (some #(.contains % "(+2 older)") lines) "fleet row cap summary missing")
           (check (every? #(<= (count %) 100) lines) "line width was not truncated")
+          (check (.contains out "Working fixture title                           integrator/high · openai  working") "meta fleet row did not render title and effort")
+          (check (.contains out "senior/high · anthropic") "legacy fleet row did not render route effort")
+          (check (.contains out "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…") "fleet title was not truncated at 46 columns")
           (check (and (.contains out "7 active · 2 ready · 1 blocked") (.contains out "Fixture board title") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out)) (not (.contains out "raw details"))) "board was not summarized safely")
           (check (and (.contains out "openai-main  eligible  42%") (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
           (check (.contains out "working = producing output · done/failed = finished · stale = no recent signal") "footer legend missing")

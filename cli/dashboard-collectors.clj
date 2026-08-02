@@ -39,7 +39,9 @@
         (some->> header (re-find #"\bprovider=([^\s;()]+)") second)
         (assoc :provider (some->> header (re-find #"\bprovider=([^\s;()]+)") second))
         (some->> header (re-find #"\btier=([^\s;()]+)") second)
-        (assoc :role (some->> header (re-find #"\btier=([^\s;()]+)") second))))
+        (assoc :role (some->> header (re-find #"\btier=([^\s;()]+)") second))
+        (some->> header (re-find #"\broute=[^/\s;()]+/([^\s;()]+)") second)
+        (assoc :effort (some->> header (re-find #"\broute=[^/\s;()]+/([^\s;()]+)") second))))
     (catch Exception _ {})))
 (defn lane-meta [dir id]
   (try (json/parse-string (slurp (io/file dir (str "lane-" id ".meta.json"))) true)
@@ -61,7 +63,7 @@
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)
-                     (select-keys meta [:role :provider])))}))
+                     (select-keys meta [:role :effort :provider])))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]

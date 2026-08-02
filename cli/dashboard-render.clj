@@ -42,8 +42,11 @@
       "failed" (paint 31 s)
       "stale" (paint 33 s)
       (dim s))))
-(defn lane-title [{:keys [id title role provider]}]
-  (let [fallback (str/join " · " (remove str/blank? [role provider]))]
+(defn lane-details [{:keys [role effort provider]}]
+  (let [role-effort (str/join "/" (remove str/blank? [role effort]))]
+    (str/join " · " (remove str/blank? [role-effort provider]))))
+(defn lane-title [{:keys [id title] :as lane}]
+  (let [fallback (lane-details lane)]
     (cond
       (and (seq title) (not= title id)) title
       (seq fallback) fallback
@@ -58,9 +61,11 @@
         shown (take 12 visible)]
     (concat
       (if (seq shown)
-        (for [{:keys [id status last-output-age] :as lane} shown]
-          (str "  " (format "%-44s" (clip (lane-title lane) 44))
-               " " (status-label status)
+        (for [{:keys [id status last-output-age title] :as lane} shown
+              :let [has-title (and (seq title) (not= title id))]]
+          (str "  " (format "%-46s" (clip (lane-title lane) 46))
+               (when has-title (str "  " (lane-details lane)))
+               "  " (status-label status)
                " " (dim (age last-output-age))
                " " (dim (clip id 8))))
         ["  collecting…"])
