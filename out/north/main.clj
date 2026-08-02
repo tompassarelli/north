@@ -1156,15 +1156,15 @@
   (do
   (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
   (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
-  (println "  vocabulary : schema (census by kind) · predicate (executable metadata) · schema-migrate (cutover/audit)")
+  (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage · schema-migrate (cutover/audit)")
   (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
   (println "  time       : clock rate <owner> [rate] · in <owner>|out|status|report  (start/stop remain compatible)")
   (println "  agents     : dispatch · spawn")
   (println "  view       : presentation")
   (println "")
   (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
-  (println "Vocabulary is DATA, not tools: `north show <pred>` reveals a predicate's metadata")
-  (println "(cardinality/value_kind/acyclic facts). Govern it with `north predicate` and `north schema-migrate`.")))
+  (println "Vocabulary is DATA, not tools: `north show <pred>` reveals metadata and connected teaching facts")
+  (println "(cardinality/value_kind/acyclic/predicate_example facts). Govern it with `north predicate` and `north schema-migrate`.")))
 
 (defrecord PredCount [pred n])
 
@@ -1302,6 +1302,17 @@
   (println (str "  " (padr "total on-disk" 20) " " (+ coord-n telem-n) " fact-ops boot-merged by :tx"))))))
   (println "→ north schema <kind> for the field spec — required vs optional preds, coverage %, who writes it")))))
 
+(defn cmd-teaching-coverage [^String log]
+  (let [facts (live-facts log)
+   idx (k/build-index facts)
+   predicates (filterv (fn [s] (= (k/one-i idx s "entity_kind") "predicate")) (:subjects idx))
+   taught (filterv (fn [s] (not (empty? (k/many-i idx s "predicate_example")))) predicates)
+   missing (sort (map (fn [s] (if (str/starts-with? s "@") (subs s 1) s)) (remove (set taught) predicates)))]
+  (println (str "TEACHING COVERAGE — " (count taught) " / " (count predicates) " predicate entities have connected examples"))
+  (if (empty? missing) (println "  ✓ every executable predicate has a connected example") (do
+  (println (str "  missing examples — " (str/join ", " missing)))
+  (println "  add predicate_example graph facts; bootstrap tables are not authority")))))
+
 (defn- ^Boolean has-flag? [args ^String f]
   (not (empty? (filterv (fn [a] (= a f)) args))))
 
@@ -1317,6 +1328,7 @@
   (= cmd "board") (cmd-board log (has-flag? args "--all"))
   (= cmd "plate") (cmd-board log (has-flag? args "--all"))
   (= cmd "schema") (cmd-schema log (if (>= (count args) 2) (nth args 1) ""))
+  (= cmd "teaching-coverage") (cmd-teaching-coverage log)
   (= cmd "needs-review") (cmd-needs-review log)
   (= cmd "audit") (cmd-audit log)
   (= cmd "resolve") (if (>= (count args) 2) (cmd-resolve log (nth args 1)) (println "usage: resolve <@handle|@id>"))
@@ -1347,7 +1359,7 @@
   (= sub "projects") (cf/cmd-projects)
   (= sub "workspaces") (cf/cmd-workspaces)
   :else (println "usage: clock rate <owner> [rate] | in <owner> | current | out | start <id> | stop | orphan <agent-id> | status | report | today | week | sync | map <owner> <project-id> | projects | workspaces")))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <rate|in|current|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...> | clock <rate|in|current|out|start|stop|orphan|status|report|today|week|sync|map|projects|workspaces>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond

@@ -175,6 +175,35 @@ class PolicyTests(unittest.TestCase):
             self.assertIn("@agent", plan.fully_retained_subjects)
             self.assertIn(north_epoch.Triple("@agent", "value_kind", "literal"), plan.selected_by_log[0])
 
+    def test_predicate_teaching_examples_are_retained_complete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "coordination.log"
+            examples = ["@predicate-example:title:0", "@predicate-example:part_of:0"]
+            events = [
+                line(1, "assert", "@title", "entity_kind", "predicate"),
+                line(2, "assert", "@title", "predicate_example", examples[0]),
+                line(3, "assert", examples[0], "entity_kind", "predicate_example"),
+                line(4, "assert", examples[0], "example_slot0", "@thread:example"),
+                line(5, "assert", examples[0], "example_slot2", "A task title"),
+                line(6, "assert", "@part_of", "entity_kind", "predicate"),
+                line(7, "assert", "@part_of", "predicate_example", examples[1]),
+                line(8, "assert", examples[1], "entity_kind", "predicate_example"),
+                line(9, "assert", examples[1], "example_slot0", "@thread:child"),
+                line(10, "assert", examples[1], "example_slot2", "@thread:parent"),
+            ]
+            write_log(path, events)
+            plan = north_epoch.build_plan([path], self.policy, self.as_of)
+            for example in examples:
+                self.assertIn(example, plan.fully_retained_subjects)
+                self.assertEqual(
+                    {
+                        triple
+                        for triple in north_epoch.fold_log(path).live
+                        if triple.subject == example
+                    },
+                    {triple for triple in plan.selected_by_log[0] if triple.subject == example},
+                )
+
     def test_cursor_repair_enumerates_replaced_coordination_log(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "coordination.log"
