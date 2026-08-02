@@ -110,8 +110,9 @@ STORE — the fact corpus and its schema
 
 OPS — daemons, health, deployment
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots
-  north bridge <prompt>|attach|steer|interrupt <execution-id>
+  north bridge <prompt>|accept|attach|steer|interrupt <execution-id>
                                                 launch, attach, or control a journaled local Codex session
+                                                accept — run the two-session reconnect/control/journal acceptance demo
                                                 steer <id> <text> — queue input for the next turn on the same provider thread
                                                 interrupt <id> — interrupt the active turn without terminating its session
   north doctor                                  is everything healthy: fact server, daemons, rev skew, env, hooks
