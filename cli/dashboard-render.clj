@@ -76,6 +76,15 @@
         (and (= state "lost") (< age lost-retention-ms)))))
 (defn fixed-column [value width]
   (format (str "%-" width "s") (clip value width)))
+(defn fleet-header []
+  (dim (str "  " (fixed-column "agent · model" details-width) " "
+            (fixed-column "task" 34) " " (fixed-column "status" 8) " "
+            (fixed-column "wall" 4) " started")))
+(defn queue-header []
+  (dim (str "  " (fixed-column "task" 56) "  " (fixed-column "id" 8) "  unblocks")))
+(defn account-header []
+  (dim (str "  " (fixed-column "account" 38) " " (fixed-column "status" 10) " "
+            (fixed-column "used" 4) " resets")))
 (defn fleet-lines [lanes ids?]
   (let [visible (->> lanes
                      (filter retained?)
@@ -181,9 +190,9 @@
         health (get-in (state/read-panel :health) [:last-good :data :services])
         board (get-in (state/read-panel :board) [:last-good :data :text])
         providers (get-in (state/read-panel :providers) [:last-good :data])
-        lines (concat ["north dashboard" "" (header "FLEET" :lanes)] (fleet-lines lanes ids?)
+        lines (concat ["north dashboard" "" (header "FLEET" :lanes) (fleet-header)] (fleet-lines lanes ids?)
                       ["" (header "HEALTH" :health)] (health-lines health)
-                      ["" (header "QUEUE" :board)] (queue-lines board lanes)
-                      ["" (header "ACCOUNTS" :providers)] (account-lines providers)
+                      ["" (header "QUEUE" :board) (queue-header)] (queue-lines board lanes)
+                      ["" (header "ACCOUNTS" :providers) (account-header)] (account-lines providers)
                       ["" (dim "working = producing output · done/failed = finished · lost = died without reporting")])]
     (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n"))))
