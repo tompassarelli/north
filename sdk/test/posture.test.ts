@@ -38,7 +38,7 @@ test("managed workers reject composite threads before execution", () => {
     .toThrow("managed worker dispatch requires a leaf thread without children");
 });
 
-test("delivery instructions use managed MCP tools instead of ambient North CLI", () => {
+test("accepted delivery bars use managed evidence while barless work executes directly", () => {
   const barred = buildPrompt(
     "child-a", deriveManagedDispatchPosture(acceptedLeaf, false, "worker"), acceptedLeaf,
   );
@@ -49,6 +49,8 @@ test("delivery instructions use managed MCP tools instead of ambient North CLI",
   const unbarred = buildPrompt(
     "child-a", deriveManagedDispatchPosture(withoutBar, false, "worker"), withoutBar,
   );
-  expect(unbarred).toContain("mcp__north__tell");
-  expect(unbarred).not.toContain("`tell child-a");
+  expect(unbarred).toContain("Execute it directly");
+  expect(unbarred).not.toContain("done-bar");
+  expect(unbarred).not.toContain("done_when");
+  expect(unbarred).not.toContain("mcp__north__tell");
 });

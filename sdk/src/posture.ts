@@ -76,7 +76,7 @@ export function buildPrompt(
 
   // Done-bars: completion is gated on observed evidence, not the agent's say-so. Injected
   // into EVERY posture so a barred thread carries its exit criteria regardless of shape.
-  const bars = doneBars(threadId, posture);
+  const bars = doneBars(posture);
 
   if (!posture.planned) {
     return [
@@ -116,10 +116,9 @@ export function buildPrompt(
   ].join("\n");
 }
 
-// Done-bars block appended to every posture prompt. A barred thread lists its exit criteria
-// (probe + expected result) numbered verbatim; a committed thread with no bar is told to
-// define one before executing. Returns "" when neither applies (no trailing noise).
-function doneBars(threadId: string, posture: Posture): string {
+// Accepted done-bars are injected verbatim. A barless thread executes without
+// manufacturing a verification contract and remains honestly unverified.
+function doneBars(posture: Posture): string {
   if (posture.doneWhen.length) {
     return [
       "",
@@ -128,14 +127,6 @@ function doneBars(threadId: string, posture: Posture): string {
         "`evidence_record` tool (`mcp__north__evidence_record`) using the exact bar and observed result. " +
         "The tool invocation binds evidence to this exact managed run; a plain thread bar_evidence fact is review text, not delivery proof:",
       ...posture.doneWhen.map((bar, i) => `${i + 1}. ${bar}`),
-    ].join("\n");
-  }
-  if (posture.committed) {
-    return [
-      "",
-      "This thread has NO done-bar. FIRST ACT: define your own — " +
-        "use the managed North MCP `tell` tool (`mcp__north__tell`) with " +
-        `id \`${threadId}\`, predicate \`done_when\`, and value \`<probe + expected result>\` — before executing.`,
     ].join("\n");
   }
   return "";
