@@ -33,13 +33,13 @@
     (or (= status "advancing") (= status "live quiet") (str/starts-with? status "working (quiet ")) "working"
     (= status "finished") "done"
     (= status "failed") "failed"
-    :else "lost"))
+    :else "vanished"))
 (defn status-label [status]
   (let [s (lane-status status) label (if (= s "working") (if (str/starts-with? status "working (quiet ") status s) s)]
     (case s
       "working" (paint 32 (if (str/starts-with? status "working (quiet ") (dim label) label))
       "failed" (paint 31 s)
-      "lost" (paint 33 s)
+      "vanished" (paint 33 s)
       (dim s))))
 (def model-labels
   {"sol" "GPT 5.6 Sol" "gpt-5.6-sol" "GPT 5.6 Sol"
@@ -66,14 +66,14 @@
         (.format (java.time.format.DateTimeFormatter/ofPattern pattern) (.atZone instant zone)))
       (catch Exception _ "—"))))
 (def terminal-retention-ms 600000)
-(def lost-retention-ms 1800000)
+(def vanished-retention-ms 1800000)
 (def details-width 34)
 (defn retained? [{:keys [status last-output-age]}]
   (let [age (or last-output-age Long/MAX_VALUE)
         state (lane-status status)]
     (or (= state "working")
         (and ((set ["done" "failed"]) state) (< age terminal-retention-ms))
-        (and (= state "lost") (< age lost-retention-ms)))))
+        (and (= state "vanished") (< age vanished-retention-ms)))))
 (defn fixed-column [value width]
   (format (str "%-" width "s") (clip value width)))
 (defn fleet-header []
@@ -194,5 +194,6 @@
                       ["" (header "HEALTH" :health)] (health-lines health)
                       ["" (header "QUEUE" :board) (queue-header)] (queue-lines board lanes)
                       ["" (header "ACCOUNTS" :providers) (account-header)] (account-lines providers)
-                      ["" (dim "working = producing output · done/failed = finished · lost = died without reporting")])]
+                      ["" (dim "working = running now · done/failed = finished and reported")
+                       (dim "vanished = process gone, never reported")])]
     (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n"))))

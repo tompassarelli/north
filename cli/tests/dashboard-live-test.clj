@@ -11,10 +11,10 @@
   (try
     (.mkdirs agents) (.mkdirs threads)
     (spit (io/file agents "lane-test1.log") "[spawn] starting provider=openai tier=standard (route=standard/medium)\n")
-    (spit (io/file agents "lane-test1.lane.pid") (str pid))
+    (spit (io/file agents "lane-test1.log.lane.pid") (str pid))
     (spit (io/file agents "lane-test2.log") "dead\n")
     (spit (io/file agents "lane-test3.log") "[spawn] starting provider=anthropic tier=senior\n")
-    (spit (io/file agents "lane-test3.lane.exit") "0")
+    (spit (io/file agents "lane-test3.log.lane.exit") "0")
     (spit (io/file agents "lane-test4.log") "AGENT_THREAD=thread-fixture\n[spawn] complete (process=ran, delivery=ok)\n")
     (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"effort\":\"high\",\"provider\":\"openai\",\"model\":\"gpt-5.6-sol\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
     (spit (io/file agents "lane-test5.log") "[spawn] complete (process=provider_error, delivery=no)\n")
@@ -23,7 +23,7 @@
     (spit (io/file agents "lane-stale.log") "[spawn] starting provider=openai tier=standard\n")
     (.setLastModified (io/file agents "lane-stale.log") (- (System/currentTimeMillis) 180000))
     (spit (io/file agents "lane-mutation.log") "worktree provisioned\n[spawn] starting provider=anthropic tier=senior (route=senior/high)\n")
-    (spit (io/file agents "lane-mutation.lane.pid") (str pid))
+    (spit (io/file agents "lane-mutation.log.lane.pid") (str pid))
     (spit (io/file threads "thread-fixture-slug.md") "# Joined thread title\n")
     (with-redefs [north.dashboard.collectors/state-dir (.getPath state-root)
                   north.dashboard.state/cache-dir (constantly (.getPath root))]
@@ -36,7 +36,7 @@
         (check (= "failed" (get-in by-id ["test5" :status])) "managed provider failure was not failed")
         (check (= "advancing" (get-in by-id ["fresh" :status])) "fresh no-pid lane was not working")
         (check (= "finished" (get-in by-id ["long" :status])) "completion beyond tail window was not found")
-        (check (= "suspect" (get-in by-id ["stale" :status])) "stale no-terminal lane was not lost")
+        (check (= "vanished" (get-in by-id ["stale" :status])) "stale no-terminal lane was not vanished")
         (check (= "Joined thread title" (get-in by-id ["test4" :title])) "joined thread title was not extracted")
         (check (= "executor" (get-in by-id ["test4" :role])) "meta role was not extracted")
         (check (= "high" (get-in by-id ["test4" :effort])) "meta effort was not extracted")
@@ -49,7 +49,7 @@
             many (vec (concat [{:id "work-lane" :thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :startedAt started :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :model "gpt-5.6-sol" :status "advancing" :last-output-age 0}
                                {:id "legacy-lane" :role "senior" :effort "high" :provider "anthropic" :status "advancing" :last-output-age 0}
                                {:id "failed-lane" :title "Failed fixture title" :status "failed" :last-output-age 0}]
-                              (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "suspect" :last-output-age n})))
+                              (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "vanished" :last-output-age n})))
             board "THREADS — 12 open threads · 7 active · 3 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Active fixture title\n\nREADY — top 3\n unblocks 2  019fc335-5c17-77d5-a8e2-38001f8c97f9 Low leverage ready\n unblocks 34  019fc336-5c17-77d5-a8e2-38001f8c97f9 High leverage ready\n unblocks 8  019fc337-5c17-77d5-a8e2-38001f8c97f9 Middle leverage ready"
             providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 42 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
@@ -78,10 +78,10 @@
           (check (< (.indexOf out "Active fixture title") (.indexOf out "High leverage ready") (.indexOf out "Middle leverage ready") (.indexOf out "Low leverage ready")) "queue ordering was not active then leverage descending")
           (check (and (.contains out "7 active · 3 ready · 1 blocked") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out))) "queue was not summarized safely")
           (check (and (re-find #"openai-main +eligible +42%" out) (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
-          (check (.contains out "working = producing output · done/failed = finished · lost = died without reporting") "footer legend missing")
+          (check (and (.contains out "working = running now") (.contains out "vanished = process gone, never reported")) "footer legend missing")
           (check (not (re-find #"stale" (first (str/split out #"HEALTH")))) "stale leaked into fleet rows")
           (check (re-find #"· data [0-9]+s old" out) "header did not render snapshot age")
-          (check (not (re-find #"(?i)suspect|advancing|live quiet" out)) "internal status vocabulary leaked")
+          (check (not (re-find #"(?i)suspect|advancing|live quiet|lost" out)) "internal status vocabulary leaked")
           (check (not (.contains out "\u001b")) "NO_COLOR render contained ANSI escape bytes")
           (with-redefs [north.dashboard.render/color? (constantly false)]
             (check (not (re-find #"\u001b" (north.dashboard.render/render))) "NO_COLOR purity failed"))

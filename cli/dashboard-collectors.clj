@@ -66,7 +66,7 @@
 (defn lanes []
   (let [dir (io/file state-dir "agents") processes (agent-processes)]
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
-                  :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str "lane-" id ".lane.pid")) exitf (io/file dir (str "lane-" id ".lane.exit"))
+                  :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str (.getName log) ".lane.pid")) exitf (io/file dir (str (.getName log) ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
                         prior-size (get @log-sizes id) grew (and (some? prior-size) (> (.length log) (long prior-size))) _ (swap! log-sizes assoc id (.length log))
                         completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-text log)) second)
@@ -77,7 +77,7 @@
                                      completion (if (= completion "ran") "finished" "failed")
                                      (< (- (now) (.lastModified log)) 120000) "advancing"
                                      discovered-pid (str "working (quiet " (quot (- (now) (.lastModified log)) 60000) "m)")
-                                     :else "suspect")]]
+                                     :else "vanished")]]
               (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (or discovered-pid (when (and pid (alive? pid)) pid))
                       :started-at (.lastModified log)
                       :elapsed (max 0 (- (now) (.lastModified log)))
