@@ -25,8 +25,7 @@
       (nil? (get e :last-good)) "collecting"
       (and attempt (not= "ok" (:status attempt)))
       (str "failed " (age (max 0 (- (state/now) (:at attempt)))) " ago")
-      (> (or ms 0) 60000) (str (age ms) " stale")
-      :else "fresh")))
+      :else (str "data " (age ms) " old"))))
 (defn header [name panel] (str (bold name) " " (dim (str "· " (panel-status panel)))))
 (defn terminal? [status] (#{"finished" "failed"} status))
 (defn lane-status [status]
@@ -34,17 +33,19 @@
     ("advancing" "live quiet") "working"
     "finished" "done"
     "failed" "failed"
-    "stale"))
+    "lost"))
 (defn status-label [status]
   (let [s (lane-status status)]
     (case s
       "working" (paint 32 s)
       "failed" (paint 31 s)
-      "stale" (paint 33 s)
+      "lost" (paint 33 s)
       (dim s))))
-(defn lane-details [{:keys [role effort provider]}]
+(defn lane-details [{:keys [role effort provider model]}]
   (let [role-effort (str/join "/" (remove str/blank? [role effort]))]
-    (str/join " · " (remove str/blank? [role-effort provider]))))
+    (str/join " · " (remove str/blank? [role-effort (or model provider)]))))
+(defn title-slug [title]
+  (-> title str/lower-case (str/replace #"[^a-z0-9]+" "-") (str/replace #"^-|-$" "") (clip 28)))
 (defn lane-title [{:keys [id title] :as lane}]
   (let [fallback (lane-details lane)]
     (cond
@@ -62,10 +63,10 @@
     (concat
       (if (seq shown)
         (for [{:keys [id status last-output-age title] :as lane} shown
-              :let [has-title (and (seq title) (not= title id))]]
-          (str "  " (format "%-46s" (clip (lane-title lane) 46))
-               (when has-title (str "  " (lane-details lane)))
-               "  " (status-label status)
+              :let [has-title (and (seq title) (not= title id))
+                    slug (if has-title (title-slug title) "")]]
+          (str "  " (lane-details lane) " — " (if (seq slug) slug (clip id 28)) " — "
+               (status-label status)
                " " (dim (age last-output-age))
                " " (dim (clip id 8))))
         ["  collecting…"])
@@ -154,5 +155,5 @@
                       ["" (header "HEALTH" :health)] (health-lines health)
                       ["" (header "QUEUE" :board)] (queue-lines board lanes)
                       ["" (header "ACCOUNTS" :providers)] (account-lines providers)
-                      ["" (dim "working = producing output · done/failed = finished · stale = no recent signal")])]
+                      ["" (dim "working = producing output · done/failed = finished · lost = died without reporting")])]
     (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n")))

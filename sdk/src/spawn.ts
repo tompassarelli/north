@@ -459,6 +459,7 @@ async function runSpawn(
     role: identityRole,
     tier: resolved.tier,
     effort: routing.resolvedEffort ?? resolved.effort ?? routingMetadata.reasoning,
+    model: resolved.model,
     provider: routing.provider,
     startedAt: new Date().toISOString(),
   });
