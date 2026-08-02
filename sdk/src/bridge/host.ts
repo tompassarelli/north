@@ -25,6 +25,7 @@ export interface NorthdOptions {
   socketPath?: string;
   journalRoot?: string;
   provider?: BridgeProviderExecution;
+  providerAdapter?: string;
 }
 
 interface QueuedInput {
@@ -69,16 +70,17 @@ export class Northd {
   readonly socketPath: string;
   readonly journalRoot: string;
   private readonly provider: BridgeProviderExecution;
+  private readonly providerAdapter: string;
   private readonly server: Server;
   private readonly runtimes = new Map<string, ExecutionRuntime>();
   private readonly sockets = new Set<Socket>();
   private readonly drives = new Set<Promise<void>>();
-  private activeExecutionId?: string;
 
   constructor(options: NorthdOptions = {}) {
     this.socketPath = options.socketPath ?? bridgeSocketPath();
     this.journalRoot = options.journalRoot ?? bridgeJournalRoot();
     this.provider = options.provider ?? codexBridgeProvider;
+    this.providerAdapter = options.providerAdapter ?? "codex-app-server";
     this.server = createServer((socket) => this.accept(socket));
   }
 
@@ -169,7 +171,6 @@ export class Northd {
     this.append(runtime, kind, data);
     runtime.terminal = true;
     runtime.activeTurn = false;
-    if (this.activeExecutionId === runtime.executionId) this.activeExecutionId = undefined;
     for (const subscriber of runtime.subscribers) subscriber.end();
     runtime.subscribers.clear();
   }
@@ -203,7 +204,7 @@ export class Northd {
 
   private async drive(runtime: ExecutionRuntime, prompt: string, cwd: string): Promise<void> {
     try {
-      this.append(runtime, "provider.starting", { adapter: "codex-app-server" });
+      this.append(runtime, "provider.starting", { adapter: this.providerAdapter });
       const session = await this.provider.open({
         executionId: runtime.executionId,
         prompt,
@@ -225,7 +226,6 @@ export class Northd {
   }
 
   private launch(socket: Socket, request: Extract<BridgeRequest, { op: "launch" }>): void {
-    if (this.activeExecutionId) throw new Error(`bridge execution ${this.activeExecutionId} is still active`);
     const executionId = randomUUID();
     const runtime: ExecutionRuntime = {
       executionId,
@@ -238,7 +238,6 @@ export class Northd {
       terminal: false,
     };
     this.runtimes.set(executionId, runtime);
-    this.activeExecutionId = executionId;
     this.append(runtime, "execution.accepted", { prompt: request.prompt, cwd: request.cwd });
     wire(socket, { type: "launched", executionId });
     this.attach(socket, runtime, 0);

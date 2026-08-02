@@ -13,7 +13,8 @@ type ServerMessage =
 
 function usage(): never {
   console.error(
-    "usage: north bridge <prompt> | north bridge attach <execution-id> [--cursor N]"
+    "usage: north bridge <prompt> | north bridge accept"
+    + " | north bridge attach <execution-id> [--cursor N]"
     + " | north bridge steer <execution-id> <text> | north bridge interrupt <execution-id>",
   );
   process.exit(2);
@@ -98,6 +99,12 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 }
 
 async function main(args: string[]): Promise<number> {
+  if (args[0] === "accept") {
+    if (args.length !== 1) usage();
+    const { runBridgeAcceptance } = await import("./accept");
+    try { await runBridgeAcceptance(); return 0; }
+    catch { return 1; }
+  }
   let request: BridgeRequest;
   if (args[0] === "attach") {
     const executionId = args[1];
