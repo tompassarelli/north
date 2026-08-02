@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
+         '[clojure.edn :as edn]
          '[clojure.java.io :as io])
 
 (def root (.getCanonicalPath
@@ -39,6 +40,13 @@
     (reduce (fn [facts [predicate value]]
               (update facts predicate (fnil conj #{}) value))
             {} rows)))
+
+(defn learning-occurrences [log subject predicates]
+  (with-open [reader (io/reader log)]
+    (->> (line-seq reader)
+         (map edn/read-string)
+         (filter #(and (= subject (:l %)) (predicates (:p %))))
+         count)))
 
 (defn assignment [arm]
   [["learning_assignment_version" "north-learning-assignment:v1"]
@@ -109,10 +117,17 @@
                                                 (true? (get (json/parse-string (:out replay)) "replay"))))
       (check "changed assignment is refused without mutation"
              (and (not (zero? (:exit changed))) (= stored (facts-of port run))))
-      (let [terminal (shell log "bb" run-writer (str port) run
-                            (json/generate-string (terminal-payload control)))]
+      (let [learning-predicates (set (map first control))
+            occurrences-before
+            (learning-occurrences log run learning-predicates)
+            terminal (shell log "bb" run-writer (str port) run
+                            (json/generate-string (terminal-payload control)))
+            occurrences-after
+            (learning-occurrences log run learning-predicates)]
         (check "terminal publication repeats the exact pre-provider assignment"
-               (and (zero? (:exit terminal)) (= #{"run"} (get (facts-of port run) "kind"))))))
+               (and (zero? (:exit terminal)) (= #{"run"} (get (facts-of port run) "kind"))))
+        (check "terminal publication adds no learning assignment occurrences"
+               (= occurrences-before occurrences-after))))
     (let [published (shell log "bb" assignment-writer (str port) omitted-run
                            (json/generate-string control))
           terminal (shell log "bb" run-writer (str port) omitted-run
