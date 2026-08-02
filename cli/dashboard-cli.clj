@@ -514,106 +514,12 @@
 ;; COMMANDS
 ;; ============================================================================
 
-(defn old-cmd-dashboard [_]
-  ;; Two probe classes, sized to where the work actually happens:
-  ;;   NON-coordinator probes parallelize freely — listener health, a log-file
-  ;;   read (agent-facts), fram-code-status (profile). None touches :7977, so futures
-  ;;   genuinely run at once.
-  ;;   COORDINATOR-bound probes (board, presence, concern, health) all hit the SINGLE-
-  ;;   THREADED daemon, which serializes them regardless. Firing them as concurrent
-  ;;   futures therefore parallelizes NOTHING — it only randomizes queue order and
-  ;;   inflates the tail (measured 2026-07-16: presence 3s alone -> 32s when fanned
-  ;;   out behind concern+health). Run them ONE AT A TIME: identical wall-time under
-  ;;   serialization, but each runs alone so its latency is bounded and fits a tight
-  ;;   timeout instead of timing out. concern (90s) and health (300s) are cached, so
-  ;;   steady-state this group is just board+presence (~4s); only a cold cache pays
-  ;;   the one-time seed cost, and the seed no longer strangles presence.
-  (let [f-daemon  (future (daemon-health))
-        f-profile (future (profile-status))
-        f-agfacts (future (agent-facts-from-log))
-        bc     (board-counts)     ; ~1s, cheap coordinator header fetch
-        pr     (presence-rows)    ; cached 20s; cold seed runs alone, no inflation
-        cr     (concern-rows)     ; cached 90s; cold seed alone, not behind presence
-        health (dashboard-health) ; cached 300s; cold seed alone
-        dh @f-daemon, pf @f-profile
-        agfacts (or @f-agfacts {})]
-    (println (bold "north dashboard") (dim "— the cockpit over fram · north · orchestration"))
-    (println)
-    ;; agents (lead with active work)
-    (let [live (filter :online (:agents pr))]
-      (println (bold "agents") (dim (str "(" (count live) " live)")))
-      (if (:err pr)
-        (println "  " (ylw (:err pr)))
-        (doseq [a (take 8 live)]
-          (let [dn    (lookup-display agfacts (:id a))
-                label (or dn (:id a))]
-            (println (str "  " (grn "●") " " label
-                          ;; display_name already ends with "(id)" — only append when absent
-                          (when (and dn (not (str/includes? dn (:id a)))) (dim (str " (" (:id a) ")")))
-                          (dim (str "  ttl " (:expires a)))
-                          (when (:focus a) (str "  " (:focus a)))))))))
-    (println)
-    ;; concerns by repo
-    (println (bold "concerns") (dim "(active, by repo)"))
-    (if (:err cr)
-      (println "  " (ylw (:err cr)))
-      (let [by-repo (->> (:concerns cr) (group-by :repo)
-                         (map (fn [[r cs]] [r (count cs)])) (sort-by (comp - second)))]
-        (if (empty? by-repo)
-          (println "  " (dim "none"))
-          (doseq [[repo n] (take 8 by-repo)]
-            (println (str "  " (cyn (format "%-10s" repo)) " " n))))))
-    (println)
-    ;; board summary
-    (println (bold "board") (dim "» north threads"))
-    (if (:err bc)
-      (println "  " (ylw (:err bc)))
-      (println (str "  " (or (:open bc) "?") " open"
-                    "   " (or (:active bc) "?") " active"
-                    "   " (or (:ready bc) "?") " ready")))
-    (println)
-    ;; daemons
-    (println (bold "daemons"))
-    (println (str "  " PORT " facts " (ok-x (:north dh))))
-    (println)
-    ;; health — lanes ran/died from north health; concern counts from the SAME
-    ;; structured projection the by-repo pane consumes (never scraped from render).
-    ;; The two halves fail independently: a north-health timeout still shows concerns.
-    (println (bold "health") (dim "» north health · concern projection"))
-    (let [cs          (concern-summary cr)
-          concerns-part (if (:err cs)
-                          (str "     concerns  " (dim "(unavailable)"))
-                          (let [stale (:stale cs)]
-                            (str "     concerns  " (:active cs) " active"
-                                 (when (pos? stale) (str " · " (ylw (str stale " STALE")))))))]
-      (if (:err health)
-        (println (str "  " (dim (str "lanes (north health "
-                                     (if (= (:err health) "timed out") "timed out" "unavailable") ")"))
-                      concerns-part))
-        (let [{:keys [lanes-ran-24h lanes-died-24h]} health
-              died-part (when lanes-died-24h (str " · " (if (pos? lanes-died-24h) (ylw (str lanes-died-24h " died")) (str lanes-died-24h " died"))))]
-          (println (str "  lanes   24h  " (or lanes-ran-24h "?") " ran" died-part concerns-part)))))
-    (println)
-    ;; profile — how much of the stack is active in this directory
-    (println (bold "profile"))
-    (let [pad #(format "%-15s" %)
-          on1 (:p1 pf)
-          on2 (:p2 pf)]
-      (println (str "  " (pad "coordination")
-                    (if on1 (grn "on ") (dim "off"))
-                    (dim (str "  " (if on1 "agents coordinate through facts"
-                                          "stock harness, agents run solo")
-                              "  (dispatch=" (:mode pf) ")"))))
-      (println (str "  " (pad "code-as-facts")
-                    (if on2 (grn "on ") (dim "off"))
-                    (dim (str "  " (if on2 "code authored as graph facts"
-                                          "code edited as text"))))))
-    (println (dim "  north doctor  ·  north  (the card)"))))
-
 (defn cmd-dashboard [args]
   (let [once? (some #{"--once"} args)
         tty? (and (not once?) (some? (System/console)))]
-    (north.dashboard.collectors/refresh!)
+    (if once?
+      (north.dashboard.state/record! :lanes {:status :ok :data (north.dashboard.collectors/lanes)})
+      (north.dashboard.collectors/refresh!))
     (if-not tty?
       (print (north.dashboard.render/render))
       (let [key (atom nil)

@@ -24,17 +24,30 @@
 (defn alive? [pid]
   ;; /proc is available on the Linux hosts that own North's lane receipts.
   (try (.exists (io/file "/proc" (str pid))) (catch Exception _ false)))
-(defn title [id] (try (some->> (slurp (io/file state-dir "threads" (str id ".md"))) (re-find #"(?m)^#\\s+(.+)$") second) (catch Exception _ nil)))
+(defn title [id] (try (some->> (slurp (io/file state-dir "threads" (str id ".md"))) (re-find #"(?m)^#\s+(.+)$") second) (catch Exception _ nil)))
+(defn spawn-details [log]
+  (try
+    (let [header (some #(when (str/starts-with? % "[spawn]") %)
+                       (str/split-lines (slurp log)))]
+      (cond-> {}
+        (some->> header (re-find #"\bprovider=([^\s;()]+)") second)
+        (assoc :provider (some->> header (re-find #"\bprovider=([^\s;()]+)") second))
+        (some->> header (re-find #"\btier=([^\s;()]+)") second)
+        (assoc :role (some->> header (re-find #"\btier=([^\s;()]+)") second))))
+    (catch Exception _ {})))
 (defn lanes []
   (let [dir (io/file state-dir "agents")]
-    {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\\.log" (.getName log))
+    {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str "lane-" id ".lane.pid")) exitf (io/file dir (str "lane-" id ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
                         grew (> (.length log) (long (get @log-sizes id -1))) _ (swap! log-sizes assoc id (.length log))
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
                                      grew "advancing"
                                      (and pid (alive? pid)) "live quiet" :else "suspect")]]
-              {:id id :title (or (title id) id) :status status :elapsed "?" :last-output-age (max 0 (- (now) (.lastModified log)))})}))
+              (merge {:id id :title (or (title id) id) :status status
+                      :elapsed (max 0 (- (now) (.lastModified log)))
+                      :last-output-age (max 0 (- (now) (.lastModified log)))}
+                     (spawn-details log)))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]
