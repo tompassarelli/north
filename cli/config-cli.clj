@@ -111,6 +111,46 @@
   (let [c (slurp' (str home "/.claude.json"))]
     (if (and c (str/includes? c "linear")) "configured" "absent")))
 
+(def CLAUDE-MCP-CONFIG (or (System/getenv "NORTH_CLAUDE_MCP_CONFIG")
+                           (str home "/.claude.json")))
+(def CLAUDE-SETTINGS (or (System/getenv "NORTH_CLAUDE_SETTINGS")
+                         (str home "/.claude/settings.json")))
+(def CODEX-CONFIG (or (System/getenv "NORTH_CODEX_CONFIG")
+                      (str (or (System/getenv "CODEX_HOME") (str home "/.codex"))
+                           "/config.toml")))
+
+(defn- json-at [path]
+  (when-let [text (slurp' path)]
+    (try (json/parse-string text false) (catch Exception _ nil))))
+
+(defn- map-names [value]
+  (sort (if (map? value) (map str (keys value)) [])))
+
+(defn- toml-section-names [path section]
+  (if-let [text (slurp' path)]
+    (->> (str/split-lines text)
+         (keep #(second (re-matches (re-pattern (str "^\\[" section "\\.([^]]+)\\]$")) %)))
+         sort)
+    []))
+
+(defn- print-provider-readouts []
+  (let [claude-mcp (map-names (get (json-at CLAUDE-MCP-CONFIG) "mcpServers"))
+        codex-mcp (toml-section-names CODEX-CONFIG "mcp_servers")
+        claude-plugins (map-names (get (json-at CLAUDE-SETTINGS) "enabledPlugins"))
+        codex-plugins (toml-section-names CODEX-CONFIG "plugins")
+        render (fn [provider kind names command path]
+                 (println (str "    " provider " " kind ": " path))
+                 (if (seq names)
+                   (doseq [name names]
+                     (println (str "      " name " → " (format command name))))
+                   (println "      (none declared)")))]
+    (println "\n11 PROVIDER MCP  provider-owned declarations")
+    (render "Claude" "MCP" claude-mcp "claude mcp remove %s" CLAUDE-MCP-CONFIG)
+    (render "Codex" "MCP" codex-mcp "codex mcp remove %s" CODEX-CONFIG)
+    (println "\n12 PROVIDER PLUGINS  provider-owned installations")
+    (render "Claude" "plugin" claude-plugins "claude plugin uninstall %s" CLAUDE-SETTINGS)
+    (render "Codex" "plugin" codex-plugins "codex plugin uninstall %s" CODEX-CONFIG)))
+
 (defn hook-registry []
   (north.harness-dial/read-registry HOOK-REGISTRY))
 
@@ -1049,12 +1089,35 @@
 (defn- print-skills [inventory]
   (println (str "skills source: " SKILLS-PROFILE))
   (println (str "skills farm:   " SKILLS-FARM))
+  (let [farm (absolute-path SKILLS-FARM)
+        generations (absolute-path SKILLS-GENERATIONS)
+        target (when (java.nio.file.Files/isSymbolicLink farm)
+                 (.toAbsolutePath (.normalize (.resolve (.getParent farm)
+                                                          (java.nio.file.Files/readSymbolicLink farm)))))
+        published? (and target
+                        (.startsWith target generations)
+                        (nofollow-directory? target))]
+    (println (str "published target: " (or (some-> target str) "MISSING")))
+    (println (str "published generation: "
+                  (if published? (.getFileName target) "MISSING")))
+    (println (str "published farm: " (if published? "READY" "NOT PUBLISHED"))))
   (doseq [{:keys [id category verdict decided-by]}
           (skill-resolutions inventory)]
     (println
      (format "%-24s %-16s %-3s %s"
              id category verdict decided-by)))
   (println "provider/plugin-contributed skills live outside this farm and are not controlled here"))
+
+(defn- skills-publication-summary []
+  (let [farm (absolute-path SKILLS-FARM)
+        generations (absolute-path SKILLS-GENERATIONS)
+        target (when (java.nio.file.Files/isSymbolicLink farm)
+                 (.toAbsolutePath (.normalize (.resolve (.getParent farm)
+                                                          (java.nio.file.Files/readSymbolicLink farm)))))
+        published? (and target (.startsWith target generations) (nofollow-directory? target))]
+    (if published?
+      (str "READY · target: " target " · generation: " (.getFileName target))
+      "NOT PUBLISHED")))
 
 (defn- skills-summary []
   (let [resolutions (skill-resolutions (skill-inventory))]
@@ -1241,13 +1304,19 @@
       (#{"off" "db" "file" "both"} verb)
       (let [{:keys [surface enforcement]} (parse-comms-flags! xs)
             protocol-key (if surface (str "comms." surface) "comms")]
+        ;; Base off must not leave a provider-specific override masking it.
+        (when (and (= verb "off") (nil? surface))
+          (put' "comms.native" "inherit")
+          (put' "comms.managed" "inherit"))
         (put' protocol-key verb)
         (when enforcement
           (put' "comms.enforcement" enforcement))
         (println
          (str protocol-key " → " verb
               (when enforcement
-                (str " · comms.enforcement → " enforcement)))))
+                (str " · comms.enforcement → " enforcement))))
+        (when (and (= verb "off") (nil? surface))
+          (print-comms)))
 
       (= "set" verb)
       (let [[sub-key value & extra] xs]
@@ -1344,6 +1413,7 @@
  8  SKILLS     shared provider-neutral discovery projection
     " (skills-summary) " · source: " SKILLS-PROFILE "
     farm: " SKILLS-FARM "
+    published: " (skills-publication-summary) "
     precedence: item > category > all > default(on)
     configure → north config skills
 
@@ -1360,7 +1430,8 @@
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
- state: ~/.local/state/north/harness.conf · legacy read fallback: ~/.claude/my-config.state · descriptions + advice: north config help"))))
+ state: ~/.local/state/north/harness.conf · legacy read fallback: ~/.claude/my-config.state · descriptions + advice: north config help"))
+    (print-provider-readouts)))
 
 (defn help []
   (println (str "north config — every personal-stack posture setting, one entry point.
@@ -1469,6 +1540,9 @@
    ~/.local/state/north/skills; ~/.agents/skills and provider adapters follow
    that stable farm. Provider/plugin-contributed skills remain outside it.
 
+   The readout also proves the published farm symlink, its resolved immutable
+   generation, and whether that generation is ready for provider discovery.
+
  9 COMMS — select the peer-mail transport independently for native and managed
    execution. The default is db + forced, exactly the pre-dial behavior:
      north config comms
@@ -1482,6 +1556,10 @@
    file uses an atomic scratch-to-new publication, new-to-cur acknowledgement,
    finite broadcast snapshots, and renewable .live presence. It deliberately
    has no durable audit trail; thread facts are unchanged.
+
+ 11 PROVIDER MCP / 12 PROVIDER PLUGINS — status prints each declaration it
+   can read and its exact provider inverse command. These are provider-owned,
+   not North dials; run `north config` again after changing them.
 
  10 LEARNING — bounded experimentation during ordinary managed work.
    frozen    use the current best-known control policy consistently; continue
