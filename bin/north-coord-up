@@ -70,13 +70,6 @@ export FRAM_PORT FRAM_LOG FRAM_REQUIRE_LOG_FENCE
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 runtime_identity_file="${NORTH_COORD_RUNTIME_FILE:-$state_home/north/fram-daemon-$FRAM_PORT.runtime}"
 systemd_unit="${NORTH_COORD_SYSTEMD_UNIT:-north-coord.service}"
-proxy_bootstrap_marker="${NORTH_COORD_BOOTSTRAP_MARKER:-/var/lib/north-coord-cutover/bootstrap-complete}"
-proxy_selector_socket="${NORTH_COORD_SELECTOR_SOCKET:-/run/north-coord-proxy/admin.sock}"
-proxy_selector_map="${NORTH_COORD_SELECTOR_MAP:-/var/lib/north-coord-cutover/route.map}"
-proxy_selector_transaction="${NORTH_COORD_SELECTOR_TRANSACTION:-${proxy_selector_map}.transaction}"
-proxy_selector_lock="${NORTH_COORD_SELECTOR_LOCK:-${proxy_selector_map%/*}/selector.lock}"
-proxy_route_reader="${NORTH_PROXY_ROUTE_READER:-}"
-proxy_route_python="${NORTH_PROXY_ROUTE_PYTHON:-python3}"
 
 fram="$FRAM_BIN/fram"
 daemon="$FRAM_BIN/fram-daemon"
@@ -282,9 +275,6 @@ coord_promotion_revision=
 coord_promotion_tree=
 coord_promotion_origin=
 coord_promotion_daemon=
-proxy_mode=0
-proxy_active_slot=
-proxy_backend_port=
 
 process_env_value() {
   local pid="$1" name="$2"
@@ -295,128 +285,6 @@ process_env_value() {
     return
   fi
   return 1
-}
-
-proxy_listener_set() {
-  local pids="$1" pid count=0 proxy_count=0
-  local config marker first_marker='' marker_contents marker_bytes expected_marker
-  while IFS= read -r pid; do
-    [[ -n "$pid" ]] || continue
-    count=$((count + 1))
-    config="$(process_env_value "$pid" NORTH_COORD_HAPROXY_CONFIG || true)"
-    marker="$(process_env_value "$pid" NORTH_COORD_BOOTSTRAP_MARKER || true)"
-    if [[ -n "$config" || -n "$marker" ]]; then
-      proxy_count=$((proxy_count + 1))
-      if [[ -z "$config" || -z "$marker" ]]; then
-        listener_identity_error="public listener PID $pid exposes an incomplete HAProxy identity"
-        return 2
-      fi
-      if [[ -z "$first_marker" ]]; then
-        first_marker="$marker"
-      elif [[ "$marker" != "$first_marker" ]]; then
-        listener_identity_error="public HAProxy listener processes disagree on the bootstrap marker"
-        return 2
-      fi
-    fi
-  done <<<"$pids"
-
-  [[ "$proxy_count" -gt 0 ]] || return 1
-  if [[ "$proxy_count" -ne "$count" ]]; then
-    listener_identity_error="public listener set mixes HAProxy and direct Fram processes"
-    return 2
-  fi
-  if [[ "$first_marker" != "$proxy_bootstrap_marker" ||
-        "$proxy_bootstrap_marker" != /* ||
-        ! -f "$proxy_bootstrap_marker" ||
-        -L "$proxy_bootstrap_marker" ]]; then
-    listener_identity_error="HAProxy bootstrap marker is missing, unsafe, or disagrees with its listener identity"
-    return 2
-  fi
-  marker_contents="$(<"$proxy_bootstrap_marker")" || {
-    listener_identity_error="HAProxy bootstrap marker cannot be read"
-    return 2
-  }
-  marker_bytes="$(wc -c <"$proxy_bootstrap_marker")" || {
-    listener_identity_error="HAProxy bootstrap marker size cannot be read"
-    return 2
-  }
-  local marker_version marker_key marker_slot marker_extra
-  read -r marker_version marker_key marker_slot marker_extra <<<"$marker_contents"
-  if [[ "$marker_version" != fram-coordinator-cutover/v1 ||
-        "$marker_key" != active ||
-        ( "$marker_slot" != blue && "$marker_slot" != green ) ||
-        -n "${marker_extra:-}" ]]; then
-    listener_identity_error="HAProxy bootstrap marker is malformed"
-    return 2
-  fi
-  expected_marker="fram-coordinator-cutover/v1 active $marker_slot"
-  if [[ "$marker_contents" != "$expected_marker" ||
-        "$marker_bytes" -ne $(( ${#expected_marker} + 1 )) ]]; then
-    listener_identity_error="HAProxy bootstrap marker is not one canonical LF-terminated line"
-    return 2
-  fi
-  return 0
-}
-
-read_proxy_route() {
-  local output rc=0
-  if [[ -n "$proxy_route_reader" ]]; then
-    output="$("$proxy_route_reader" "$proxy_selector_socket" "$proxy_selector_map" \
-      "$proxy_selector_transaction" "$proxy_selector_lock" 2>&1)" || rc=$?
-  else
-    output="$("$proxy_route_python" "$NORTH_HOME/cli/proxy-route.py" \
-      "$proxy_selector_socket" "$proxy_selector_map" \
-      "$proxy_selector_transaction" "$proxy_selector_lock" 2>&1)" || rc=$?
-  fi
-  if [[ "$rc" -ne 0 ]]; then
-    printf 'HAProxy active selector is unavailable: %s\n' \
-      "${output:-reader exited $rc}" >&2
-    return 1
-  fi
-  if [[ "$output" != blue && "$output" != green ]]; then
-    printf 'HAProxy active selector is malformed: %s\n' "${output:-blank}" >&2
-    return 1
-  fi
-  printf '%s\n' "$output"
-}
-
-resolve_proxy_backend_listeners() {
-  local slot="$1" all_pids pid candidate_port candidate_log candidate_slot
-  local bound_pids bound_pid candidates='' count=0
-  all_pids="$(all_listener_pids)" || {
-    echo "cannot enumerate private HAProxy backend listeners" >&2
-    return 1
-  }
-  while IFS= read -r pid; do
-    [[ -n "$pid" ]] || continue
-    candidate_slot="$(process_env_value "$pid" NORTH_COORD_SLOT || true)"
-    [[ "$candidate_slot" == "$slot" ]] || continue
-    candidate_log="$(process_env_value "$pid" FRAM_LOG || true)"
-    [[ -n "$candidate_log" &&
-       "$(canonical_path "$candidate_log")" == "$(canonical_path "$FRAM_LOG")" ]] ||
-      continue
-    candidate_port="$(process_env_value "$pid" FRAM_PORT || true)"
-    if [[ ! "$candidate_port" =~ ^[0-9]+$ ]] ||
-       (( 10#$candidate_port < 1 || 10#$candidate_port > 65535 )) ||
-       [[ "$((10#$candidate_port))" == "$FRAM_PORT" ]]; then
-      continue
-    fi
-    candidate_port="$((10#$candidate_port))"
-    bound_pids="$(listener_pids "$candidate_port")" || continue
-    while IFS= read -r bound_pid; do
-      if [[ "$bound_pid" == "$pid" ]]; then
-        count=$((count + 1))
-        candidates+="${candidates:+$'\n'}$pid"
-        proxy_backend_port="$candidate_port"
-        break
-      fi
-    done <<<"$bound_pids"
-  done <<<"$all_pids"
-  if [[ "$count" -ne 1 ]]; then
-    echo "HAProxy route selects $slot but exactly one private backend for $(canonical_path "$FRAM_LOG") was not found (observed $count)" >&2
-    return 1
-  fi
-  printf '%s %s\n' "$candidates" "$proxy_backend_port"
 }
 
 runtime_record_value() {
@@ -708,49 +576,7 @@ fi
 
 identity_pids="$before_pids"
 if [[ "$check_runtime" -eq 1 && -n "$before_pids" ]]; then
-  proxy_probe_rc=0
-  proxy_listener_set "$before_pids" || proxy_probe_rc=$?
-  if [[ "$proxy_probe_rc" -eq 0 ]]; then
-    proxy_mode=1
-    proxy_route_result="$(read_proxy_route 2>&1)" || {
-      listener_identity_error="$proxy_route_result"
-      proxy_route_result=
-    }
-    proxy_active_slot="$proxy_route_result"
-    if [[ -z "$proxy_active_slot" ]]; then
-      identity_pids=
-    else
-      runtime_state_base="${NORTH_COORD_RUNTIME_STATE:-$state_home/north/fram-runtime}"
-      proxy_runtime_state="${runtime_state_base}-${proxy_active_slot}"
-      if load_coord_runtime_selection "$proxy_runtime_state"; then
-        coord_promotion_active=1
-        runtime_selector="$coord_promotion_mode"
-        runtime_source="$coord_promotion_source"
-        runtime_rev="$coord_promotion_revision"
-        runtime_tree="$coord_promotion_tree"
-        runtime_daemon="$coord_promotion_daemon"
-        proxy_backend_result="$(resolve_proxy_backend_listeners "$proxy_active_slot" 2>&1)" || {
-          listener_identity_error="$proxy_backend_result"
-          proxy_backend_result=
-        }
-        if [[ -n "$proxy_backend_result" ]]; then
-          read -r identity_pids proxy_backend_port proxy_backend_extra <<<"$proxy_backend_result"
-          if [[ -z "$identity_pids" || -z "$proxy_backend_port" ||
-                -n "${proxy_backend_extra:-}" ]]; then
-            listener_identity_error="HAProxy backend resolver returned a malformed result"
-            identity_pids=
-          fi
-        else
-          identity_pids=
-        fi
-      else
-        listener_identity_error="HAProxy $proxy_active_slot backend runtime selector is missing or malformed: $proxy_runtime_state/active/current.identity"
-        identity_pids=
-      fi
-    fi
-  elif [[ "$proxy_probe_rc" -eq 2 ]]; then
-    identity_pids=
-  elif load_coord_runtime_selection; then
+  if load_coord_runtime_selection; then
     # Legacy direct mode: a systemd-managed deployment is judged against its
     # durable running selector, not a newly built package that has not been
     # adopted yet.
@@ -767,28 +593,13 @@ identity_matches=0
 if [[ -n "$identity_pids" ]] && runtime_identity_matches_listeners "$identity_pids"; then
   identity_matches=1
 fi
-if [[ "$identity_matches" -eq 1 && "$proxy_mode" -eq 1 ]]; then
-  proxy_route_after="$(read_proxy_route 2>&1)" || {
-    listener_identity_error="$proxy_route_after"
-    proxy_route_after=
-  }
-  if [[ "$proxy_route_after" != "$proxy_active_slot" ]]; then
-    identity_matches=0
-    listener_identity_error="HAProxy route changed or disagreed while attesting the $proxy_active_slot backend"
-  fi
-fi
-
 if [[ "$check_runtime" -eq 1 ]]; then
   if [[ "$identity_matches" -eq 1 ]]; then
     if [[ "$coord_promotion_active" -eq 1 ]]; then
       if [[ "$coord_promotion_mode" == checkout ]]; then
         echo "coordinator runtime identity OK on :$FRAM_PORT (identity: promoted $coord_promotion_revision)"
       else
-        if [[ "$proxy_mode" -eq 1 ]]; then
-          echo "coordinator runtime identity OK on :$FRAM_PORT (identity: selected package $coord_promotion_revision via $proxy_active_slot backend :$proxy_backend_port)"
-        else
-          echo "coordinator runtime identity OK on :$FRAM_PORT (identity: selected package $coord_promotion_revision)"
-        fi
+        echo "coordinator runtime identity OK on :$FRAM_PORT (identity: selected package $coord_promotion_revision)"
       fi
     else
       echo "coordinator runtime identity OK on :$FRAM_PORT (source: $runtime_source, rev: $runtime_rev)"
