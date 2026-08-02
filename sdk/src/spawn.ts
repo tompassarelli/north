@@ -1,6 +1,6 @@
 import { resolve as pathResolve } from "node:path";
 import { join as pathJoin } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
 
@@ -10,7 +10,10 @@ function writeLaneMeta(agentId: string, meta: Record<string, unknown>): void {
       ?? pathJoin(process.env.HOME ?? "", ".local/state/north/agents");
     mkdirSync(dir, { recursive: true });
     const file = agentId.startsWith("lane-") ? agentId : `lane-${agentId}`;
-    writeFileSync(pathJoin(dir, `${file}.meta.json`), `${JSON.stringify(meta)}\n`, "utf8");
+    const target = pathJoin(dir, `${file}.meta.json`);
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(meta)}\n`, "utf8");
+    renameSync(temporary, target);
   } catch {
     // Lane discovery metadata is advisory and must never make spawning fatal.
   }
@@ -511,6 +514,17 @@ async function runSpawn(
     liveInput: initialLiveInput,
     ...liveInputRoute.initialProjection(),
     effort: opts.effort,
+  });
+  // The injected route may resolve its concrete model after the initial sidecar
+  // write; enrich discovery metadata at the identity publication boundary.
+  writeLaneMeta(agentId, {
+    thread: boundThreadId ?? null,
+    role: identityRole,
+    tier: resolved.tier,
+    effort: routing.resolvedEffort ?? opts.effort,
+    model: routing.resolvedModel ?? opts.model,
+    provider: routing.provider,
+    startedAt: new Date().toISOString(),
   });
   const activeRoute = () => ({
     provider: routing.provider,
