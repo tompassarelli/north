@@ -76,7 +76,10 @@
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
                                      completion (if (= completion "ran") "finished" "failed")
                                      (< (- (now) (.lastModified log)) 120000) "advancing"
-                                     discovered-pid (str "working (quiet " (quot (- (now) (.lastModified log)) 60000) "m)")
+                                     ;; The receipt pid is authoritative; the /proc scan is a
+                                     ;; best-effort supplement that sees nothing in some sandboxes.
+                                     (or discovered-pid (and pid (alive? pid)))
+                                     (str "working (quiet " (quot (- (now) (.lastModified log)) 60000) "m)")
                                      :else "vanished")]]
               (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (or discovered-pid (when (and pid (alive? pid)) pid))
                       :started-at (.lastModified log)
