@@ -65,11 +65,20 @@
             pattern (if (= date now-date) "HH:mm" "EEE HH:mm")]
         (.format (java.time.format.DateTimeFormatter/ofPattern pattern) (.atZone instant zone)))
       (catch Exception _ "—"))))
+(def terminal-retention-ms 600000)
+(def lost-retention-ms 1800000)
+(def details-width 34)
+(defn retained? [{:keys [status last-output-age]}]
+  (let [age (or last-output-age Long/MAX_VALUE)
+        state (lane-status status)]
+    (or (= state "working")
+        (and ((set ["done" "failed"]) state) (< age terminal-retention-ms))
+        (and (= state "lost") (< age lost-retention-ms)))))
+(defn fixed-column [value width]
+  (format (str "%-" width "s") (clip value width)))
 (defn fleet-lines [lanes ids?]
   (let [visible (->> lanes
-                     (filter (fn [{:keys [status last-output-age pid]}]
-                               (and (or (not (terminal? status)) (< (or last-output-age Long/MAX_VALUE) 600000))
-                                    (or pid (< (or last-output-age Long/MAX_VALUE) 86400000)))))
+                     (filter retained?)
                      (sort-by :last-output-age)
                      vec)
         shown (take 12 visible)]
@@ -79,9 +88,9 @@
           (let [details (lane-details lane)
                 details (if (and (str/blank? details) (or (str/blank? title) (= title id)))
                           (dim (subs id 0 (min 8 (count id)))) details)]
-            (str "  " (format (if ids? "%-34s %-34s %-8s %-4s %-12s %s"
-                                  "%-34s %-34s %-8s %-4s %s")
-                               (clip details 34)
+            (str "  " (format (if ids? "%s %-34s %-8s %-4s %-12s %s"
+                                  "%s %-34s %-8s %-4s %s")
+                               (fixed-column details details-width)
                              (clip (lane-title lane) 34)
                              (status-label status)
                              (age last-output-age)
