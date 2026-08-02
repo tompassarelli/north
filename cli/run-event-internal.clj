@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
-;; Append-only AgentRun event publication. Body facts are acknowledged first;
-;; kind=run_event is the last commit marker, matching run header publication.
+;; Append-only AgentRun event publication. Each event commits atomically after
+;; its subject and predecessor are validated against one coordinator version.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
@@ -86,36 +86,38 @@
 
 (defn publish-event! [port {:keys [subject facts body-facts event] :as entry}]
   (let [sequence (get event "sequence")
-      previous-subject (when (pos? sequence)
-                         (previous-subject entry))
-      previous (when previous-subject (facts-of port previous-subject))]
-    (when (seq (facts-of port subject))
-      (fail! "run event subject reuse or partial prior publication is forbidden"
-             {:subject subject}))
-    (when (and previous-subject (not= #{"run_event"} (get previous "kind")))
-      (fail! "run event publication requires its committed predecessor"
-             {:subject subject :previous previous-subject}))
-    (when (= #{"terminal_cleanup"} (get previous "run_event_type"))
-      (fail! "run event publication cannot append after terminal_cleanup"
-             {:subject subject :previous previous-subject}))
-    (doseq [[predicate value] body-facts]
-      (checked! (north.coord/put! port subject predicate value)
-                [:put subject predicate value]))
+        previous-subject (when (pos? sequence) (previous-subject entry))]
     (checked!
-     (north.coord/assert-after-read!
-      port subject "kind" "run_event"
+     (north.coord/assert-batch-after-read!
+      port subject
       (fn []
-        (let [stored (facts-of port subject)]
-          (when (contains? stored "kind")
-            (fail! "run event became committed during publication" {}))
-          (doseq [[predicate value] body-facts]
-            (when-not (= #{value} (get stored predicate))
-              (fail! "run event readback conflicts with submitted projection"
-                     {:predicate predicate})))
-          (north.run-ledger/validate-event-facts! subject facts))))
-     [:assert-after-read subject "kind" "run_event"])
-    (when-not (= #{"run_event"} (get (facts-of port subject) "kind"))
-      (fail! "run event commit marker lost singleton race" {:subject subject}))
+        (let [stored (facts-of port subject)
+              previous (when previous-subject (facts-of port previous-subject))]
+          (when (seq stored)
+            (fail! "run event subject reuse or partial prior publication is forbidden"
+                   {:subject subject}))
+          (when (and previous-subject
+                     (not= #{"run_event"} (get previous "kind")))
+            (fail! "run event publication requires its committed predecessor"
+                   {:subject subject :previous previous-subject}))
+          (when (= #{"terminal_cleanup"} (get previous "run_event_type"))
+            (fail! "run event publication cannot append after terminal_cleanup"
+                   {:subject subject :previous previous-subject}))
+          (north.run-ledger/validate-event-facts! subject facts)
+          {:facts (conj (mapv (fn [[predicate value]]
+                                {:p predicate :r value})
+                              body-facts)
+                        {:p "kind" :r "run_event"})})))
+     [:assert-batch-after-read subject])
+    (let [stored (facts-of port subject)
+          grouped (group-by first facts)]
+      (doseq [[predicate entries] grouped
+              :let [expected (set (map second entries))
+                    actual (get stored predicate #{})]]
+        (when-not (= expected actual)
+          (fail! "run event readback conflicts with submitted projection"
+                 {:subject subject :predicate predicate
+                  :expected expected :actual actual}))))
     {:subject subject :sequence sequence}))
 
 (defn publish-events! [port entries]

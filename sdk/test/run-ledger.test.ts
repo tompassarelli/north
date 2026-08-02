@@ -289,11 +289,18 @@ test("one real writer process commits seven ordered events inside the production
 
     const lines = readFileSync(log, "utf8").trim().split("\n");
     let predecessorKind = -1;
+    const eventTransactions = new Set<string>();
     for (const event of events) {
       const subjectNeedle = `:l "${event.subject}"`;
-      const subjectIndexes = lines
-        .map((line, index) => line.includes(subjectNeedle) ? index : -1)
-        .filter((index) => index >= 0);
+      const subjectRows = lines
+        .map((line, index) => ({ line, index }))
+        .filter(({ line }) => line.includes(subjectNeedle));
+      const subjectIndexes = subjectRows.map(({ index }) => index);
+      const transactions = new Set(subjectRows.map(({ line }) => {
+        const match = line.match(/:tx\s+(\d+)/);
+        expect(match).not.toBeNull();
+        return match![1];
+      }));
       const digestIndex = lines.findIndex((line) =>
         line.includes(subjectNeedle)
         && line.includes(':p "run_event_sha256"')
@@ -310,12 +317,18 @@ test("one real writer process commits seven ordered events inside the production
         && line.includes(':r "run_event"')
       );
       expect(subjectIndexes.length).toBeGreaterThan(0);
+      expect(subjectIndexes.length).toBe(eventFacts(event).length);
+      expect(transactions.size).toBe(1);
+      const transaction = [...transactions][0];
+      expect(eventTransactions.has(transaction)).toBe(false);
+      eventTransactions.add(transaction);
       expect(subjectIndexes[0]).toBeGreaterThan(predecessorKind);
       expect(sequenceIndex).toBeGreaterThan(predecessorKind);
       expect(digestIndex).toBeGreaterThan(predecessorKind);
       expect(kindIndex).toBeGreaterThan(digestIndex);
       predecessorKind = kindIndex;
     }
+    expect(eventTransactions.size).toBe(events.length);
   } finally {
     if (priorPort === undefined) delete process.env.NORTH_PORT;
     else process.env.NORTH_PORT = priorPort;

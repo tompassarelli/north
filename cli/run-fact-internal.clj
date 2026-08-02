@@ -1,8 +1,6 @@
 #!/usr/bin/env bb
-;; Harness-owned run telemetry publication. A fresh @run subject is invisible to
-;; every run consumer until `kind=run` lands LAST. All preceding fact writes are
-;; acknowledged durable coordinator operations in one writer process; a crash or
-;; rejection leaves an undiscoverable partial subject instead of a false run row.
+;; Harness-owned run telemetry publication. Every terminal fact, including
+;; kind=run, commits in one transaction after its complete read set is validated.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
@@ -61,10 +59,9 @@
 (defn canonical-record [record]
   (json/generate-string (into (sorted-map) record)))
 
-(defn validate-reported-run! [port subject scalar delivery-facts]
+(defn validate-reported-run! [port subject scalar delivery-facts run-facts]
   (when (= "reported" (get delivery-facts "delivery_outcome"))
-    (let [run-facts (facts-of port subject)
-          evidence (json/parse-string (get delivery-facts "delivery_evidence"))
+    (let [evidence (json/parse-string (get delivery-facts "delivery_evidence"))
           expected-reporter (str "@agent:" (get scalar "agent"))
           expected-thread (thread-entity (get scalar "thread"))
           reservation-origin
@@ -132,7 +129,6 @@
                    grouped)
       delivery-preds (set north.terminal-projection/terminal-projection-predicates)
       delivery-facts (select-keys scalar delivery-preds)
-      before (facts-of port subject)
       learning-keys
       #{"learning_assignment_version" "learning_policy_version"
         "learning_policy_sha256" "learning_mode" "learning_evidence_mode"
@@ -146,89 +142,84 @@
       (conj (into (set north.terminal-projection/run-reservation-predicates)
                   learning-keys)
             "run_bar_evidence")
-      unknown-before (seq (remove reservation-keys (keys before)))
-      learning-before (select-keys before learning-keys)
       terminal-learning-keys (set (filter learning-keys (keys grouped)))
-      reserved? (north.terminal-projection/run-reservation-valid? before)]
+      terminal-body-facts (filterv #(not (learning-keys (first %))) body-facts)]
   (when-not (= [["kind" "run"]] kind-facts)
     (fail! "run telemetry requires exactly kind=run" {:kind-facts kind-facts}))
-  (when unknown-before
-    (fail! "run subject reuse or partial prior publication is forbidden"
-           {:subject subject :predicates unknown-before}))
-  (when (and (seq before) (not reserved?) (empty? learning-before))
-    (fail! "run subject has a conflicting or incomplete reservation"
-           {:subject subject}))
-  (when (contains? before "kind")
-    (fail! "run subject is already committed" {:subject subject}))
-  ;; Assignment is a pre-provider immutable projection. The terminal run may
-  ;; repeat it only byte-for-byte; omission or movement would break experiment
-  ;; identity after execution has already happened.
-  (when (and (seq terminal-learning-keys) (empty? learning-before))
-    (fail! "terminal run cannot introduce a learning assignment after execution"
-           {:subject subject}))
-  (when (seq learning-before)
-    (when-not (= learning-keys (set (keys learning-before)))
-      (fail! "pre-provider learning assignment is incomplete"
-             {:subject subject :predicates (keys learning-before)}))
-    (when-not (= learning-keys terminal-learning-keys)
-      (fail! "terminal run must repeat the complete pre-provider learning assignment"
-             {:subject subject :predicates terminal-learning-keys}))
-    (doseq [predicate learning-keys
-            :let [expected (set (map second (get grouped predicate [])))
-                  actual (get before predicate #{})]]
+  (checked!
+   (north.coord/assert-batch-after-read!
+    port subject
+    (fn []
+      (let [before (facts-of port subject)
+            unknown-before (seq (remove reservation-keys (keys before)))
+            learning-before (select-keys before learning-keys)
+            reserved? (north.terminal-projection/run-reservation-valid? before)]
+        (when unknown-before
+          (fail! "run subject reuse or partial prior publication is forbidden"
+                 {:subject subject :predicates unknown-before}))
+        (when (and (seq before) (not reserved?) (empty? learning-before))
+          (fail! "run subject has a conflicting or incomplete reservation"
+                 {:subject subject}))
+        (when (contains? before "kind")
+          (fail! "run subject is already committed" {:subject subject}))
+        ;; The terminal payload proves the immutable pre-provider assignment but
+        ;; does not publish a second occurrence of those facts.
+        (when (and (seq terminal-learning-keys) (empty? learning-before))
+          (fail! "terminal run cannot introduce a learning assignment after execution"
+                 {:subject subject}))
+        (when (seq learning-before)
+          (when-not (= learning-keys (set (keys learning-before)))
+            (fail! "pre-provider learning assignment is incomplete"
+                   {:subject subject :predicates (keys learning-before)}))
+          (when-not (= learning-keys terminal-learning-keys)
+            (fail! "terminal run must repeat the complete pre-provider learning assignment"
+                   {:subject subject :predicates terminal-learning-keys}))
+          (doseq [predicate learning-keys
+                  :let [expected (set (map second (get grouped predicate [])))
+                        actual (get before predicate #{})]]
+            (when-not (= expected actual)
+              (fail! "terminal run learning assignment differs from pre-provider assignment"
+                     {:subject subject :predicate predicate
+                      :expected expected :actual actual}))))
+        (when (and (= "reported" (get delivery-facts "delivery_outcome"))
+                   (not reserved?))
+          (fail! "reported delivery requires a committed pre-execution run reservation"
+                 {:subject subject}))
+        (when reserved?
+          (let [expected-agent (str "@agent:" (get scalar "agent"))
+                expected-thread (thread-entity (get scalar "thread"))]
+            (when-not (= #{expected-agent} (get before "run_reservation_agent"))
+              (fail! "run telemetry agent does not match its reservation"
+                     {:expected expected-agent :subject subject}))
+            (when-not (= #{expected-thread} (get before "run_reservation_thread"))
+              (fail! "run telemetry thread does not match its reservation"
+                     {:expected expected-thread :subject subject}))))
+        (doseq [predicate delivery-preds
+                :let [entries (get grouped predicate [])]
+                :when (> (count entries) 1)]
+          (fail! "run telemetry delivery predicates must be singleton"
+                 {:predicate predicate :values (mapv second entries)}))
+        (when (seq delivery-facts)
+          (when-not (= (get delivery-facts "outcome")
+                       (get delivery-facts "process_outcome"))
+            (fail! "run legacy outcome must equal process_outcome" {}))
+          (when-not (north.terminal-projection/delivery-projection-valid? delivery-facts)
+            (fail! "run delivery outcome lacks a valid proof projection"
+                   {:delivery-outcome (get delivery-facts "delivery_outcome")}))
+          (validate-reported-run! port subject scalar delivery-facts before))
+        {:facts (conj (mapv (fn [[predicate value]]
+                              {:p predicate :r value})
+                            terminal-body-facts)
+                      {:p "kind" :r "run"})})))
+   [:assert-batch-after-read subject])
+  (let [stored (facts-of port subject)]
+    (when-not (= #{"run"} (get stored "kind"))
+      (fail! "run commit marker lost singleton race" {:subject subject}))
+    (doseq [[predicate entries] grouped
+            :let [expected (set (map second entries))
+                  actual (get stored predicate #{})]]
       (when-not (= expected actual)
-        (fail! "terminal run learning assignment differs from pre-provider assignment"
+        (fail! "run telemetry readback conflicts with the submitted projection"
                {:subject subject :predicate predicate
                 :expected expected :actual actual}))))
-  (when (and (= "reported" (get delivery-facts "delivery_outcome"))
-             (not reserved?))
-    (fail! "reported delivery requires a committed pre-execution run reservation"
-           {:subject subject}))
-  (when reserved?
-    (let [expected-agent (str "@agent:" (get scalar "agent"))
-          expected-thread (thread-entity (get scalar "thread"))]
-      (when-not (= #{expected-agent} (get before "run_reservation_agent"))
-        (fail! "run telemetry agent does not match its reservation"
-               {:expected expected-agent :subject subject}))
-      (when-not (= #{expected-thread} (get before "run_reservation_thread"))
-        (fail! "run telemetry thread does not match its reservation"
-               {:expected expected-thread :subject subject}))))
-  (doseq [predicate delivery-preds
-          :let [entries (get grouped predicate [])]
-          :when (> (count entries) 1)]
-    (fail! "run telemetry delivery predicates must be singleton"
-           {:predicate predicate :values (mapv second entries)}))
-  (when (seq delivery-facts)
-    (when-not (= (get delivery-facts "outcome")
-                 (get delivery-facts "process_outcome"))
-      (fail! "run legacy outcome must equal process_outcome" {}))
-    (when-not (north.terminal-projection/delivery-projection-valid? delivery-facts)
-      (fail! "run delivery outcome lacks a valid proof projection"
-             {:delivery-outcome (get delivery-facts "delivery_outcome")}))
-    (validate-reported-run! port subject scalar delivery-facts))
-  (doseq [[predicate value] body-facts]
-    (checked! (north.coord/put! port subject predicate value)
-              [:put subject predicate value]))
-  ;; `kind` is the publication/commit marker. Capture the coordinator version
-  ;; before all load-bearing reads; if any graph write races those reads, the
-  ;; marker rejects and the whole validation callback runs again.
-  (checked!
-   (north.coord/assert-after-read!
-    port subject "kind" "run"
-    (fn []
-      (let [stored (facts-of port subject)]
-        (when (contains? stored "kind")
-          (fail! "run subject became committed during publication"
-                 {:subject subject}))
-        (doseq [[predicate entries] grouped
-                :let [expected (set (map second entries))
-                      actual (get stored predicate #{})]]
-          (when-not (= expected actual)
-            (fail! "run telemetry readback conflicts with the submitted projection"
-                   {:subject subject :predicate predicate
-                    :expected expected :actual actual}))))
-      (validate-reported-run! port subject scalar delivery-facts)))
-   [:assert-after-read subject "kind" "run"])
-  (when-not (= #{"run"} (get (facts-of port subject) "kind"))
-    (fail! "run commit marker lost singleton race" {:subject subject}))
   (println (json/generate-string {:ok true :subject subject :facts (count facts)})))

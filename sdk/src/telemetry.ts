@@ -1007,7 +1007,7 @@ export function recordRun(
           const cause = killed
             ? `writer exceeded ${Math.floor(timeoutMs)}ms budget and was killed`
               + (signal ? ` (${signal})` : "")
-              + `; ${facts.length} facts = ${facts.length} coordinator writes`
+              + `; ${facts.length} payload facts via one atomic-batch publication`
             : (stderr && String(stderr).trim())
               || `${error.message}${code === null ? "" : ` (exit ${code})`}`;
           process.stderr.write(

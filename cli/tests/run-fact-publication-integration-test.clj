@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
+         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -779,16 +780,29 @@
                (and (not (zero? (:exit changed)))
                     (nil? (get (facts-of port run) "kind")))))
       (north.coord/retract! port thread "done_when" "late weaker bar")
-      (let [published
+      (let [terminal-facts
+            (run-payload (subs thread 1)
+                         (subs reporter (count "@agent:"))
+                         snapshot)
+            published
             (shell "bb" run-writer (str port) run
-                   (json/generate-string
-                    (run-payload (subs thread 1)
-                                 (subs reporter (count "@agent:"))
-                                 snapshot)))
-            stored (facts-of port run)]
+                   (json/generate-string terminal-facts))
+            stored (facts-of port run)
+            terminal-pairs (set terminal-facts)
+            terminal-rows
+            (->> (str/split-lines (slurp @test-log))
+                 (map edn/read-string)
+                 (filter #(and (= run (:l %))
+                               (terminal-pairs [(:p %) (:r %)]))))
+            terminal-transactions (set (map :tx terminal-rows))]
       (when-not (zero? (:exit published)) (binding [*out* *err*] (println (:err published))))
       (check "writer-scoped run evidence records" (zero? (:exit recorded)))
       (check "v2 reported run commits with exact stored evidence" (zero? (:exit published)))
+      (check "every terminal run fact including kind shares one transaction"
+             (and (= (count terminal-facts) (count terminal-rows))
+                  (= 1 (count terminal-transactions))
+                  (some #(and (= "kind" (:p %)) (= "run" (:r %)))
+                        terminal-rows)))
       (check "kind is the final discoverability marker"
              (= "ran"
                 (north.terminal-projection/committed-run-process-outcome stored)))
