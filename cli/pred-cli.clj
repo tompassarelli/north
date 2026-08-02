@@ -39,6 +39,24 @@
               (north.coord/expected-log))]
     (send-op-for-log port log {:op :query :query query})))
 
+(defn- pred-write-log [port]
+  (if (= 7978 port)
+    (or (System/getenv "FRAM_TELEMETRY_LOG")
+        (str (System/getenv "HOME") "/.local/state/north/telemetry.log"))
+    (north.coord/expected-log)))
+
+(defn- pred-write! [port op]
+  (let [reply (send-op-for-log port (pred-write-log port) op)]
+    (when-not (:ok reply)
+      (throw (ex-info "predicate write failed" {:port port :op op :reply reply})))
+    reply))
+
+(defn put! [port te p r]
+  (pred-write! port {:op :assert :te te :p p :r (north.coord/write-value! te p r)}))
+
+(defn retract! [port te p r]
+  (pred-write! port {:op :retract :te te :p p :r (north.coord/write-value! te p r)}))
+
 (defn pred-ent [nm] (str "@" nm))
 (defn pred-name [ent]
   (let [s (str ent)] (if (str/starts-with? s "@") (subs s 1) s)))
