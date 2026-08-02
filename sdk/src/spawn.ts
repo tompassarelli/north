@@ -1,6 +1,19 @@
 import { resolve as pathResolve } from "node:path";
+import { join as pathJoin } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
+
+function writeLaneMeta(agentId: string, meta: Record<string, unknown>): void {
+  try {
+    const dir = process.env.NORTH_AGENT_LOGS_DIR
+      ?? pathJoin(process.env.HOME ?? "", ".local/state/north/agents");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(pathJoin(dir, `lane-${agentId}.meta.json`), `${JSON.stringify(meta)}\n`, "utf8");
+  } catch {
+    // Lane discovery metadata is advisory and must never make spawning fatal.
+  }
+}
 import { StreamWriter } from "./stream-writer";
 import {
   DEFAULT_SYSTEM_PROMPT, harnessCompositionEvidence, harnessOptions, renewHarnessPresence,
@@ -440,6 +453,13 @@ async function runSpawn(
   // The hydrated Orchestration selection is canonical. Never let an inherited parent
   // env relabel this child as an alias or a different role.
   const identityRole = routingMetadata.role!;
+  writeLaneMeta(agentId, {
+    thread: boundThreadId ?? null,
+    role: identityRole,
+    tier: resolved.tier,
+    provider: routing.provider,
+    startedAt: new Date().toISOString(),
+  });
   const composition = routingMetadata.composition!;
   const identityBase = {
     kind: "lane" as const,

@@ -41,6 +41,9 @@
         (some->> header (re-find #"\btier=([^\s;()]+)") second)
         (assoc :role (some->> header (re-find #"\btier=([^\s;()]+)") second))))
     (catch Exception _ {})))
+(defn lane-meta [dir id]
+  (try (json/parse-string (slurp (io/file dir (str "lane-" id ".meta.json"))) true)
+       (catch Exception _ {})))
 (defn lanes []
   (let [dir (io/file state-dir "agents")]
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
@@ -48,7 +51,8 @@
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
                         prior-size (get @log-sizes id) grew (and (some? prior-size) (> (.length log) (long prior-size))) _ (swap! log-sizes assoc id (.length log))
                         completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-tail log)) second)
-                        thread-id (some-> (re-find #"(?m)AGENT_THREAD=([^\s]+)" (log-head log)) second)
+                        meta (lane-meta dir id)
+                        thread-id (or (:thread meta) (some-> (re-find #"(?m)AGENT_THREAD=([^\s]+)" (log-head log)) second))
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
                                      completion (if (= completion "ran") "finished" "failed")
                                      grew "advancing"
@@ -56,7 +60,8 @@
               (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (when (and pid (alive? pid)) pid)
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
-                     (spawn-details log)))}))
+                     (spawn-details log)
+                     (select-keys meta [:role :provider])))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]
