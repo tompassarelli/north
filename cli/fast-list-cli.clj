@@ -10,7 +10,9 @@
 (load-file (str root "/cli/dashboard-state.clj"))
 
 (defn panel-for [verb args]
-  (keyword (str verb (when (some #{"--all"} args) "-all"))))
+  (keyword (str verb (when (some #{"--all"} args) "-all")
+                (when-let [since (second (drop-while #(not= % "--since") args))]
+                  (str "-" since)))))
 
 (defn dim [s]
   (if (or (= "1" (System/getenv "NO_COLOR")) (= "true" (System/getenv "NO_COLOR"))) s
