@@ -85,6 +85,8 @@ function normalizedWindow(
     unavailable.push({ limitId, reason: "utilization_unavailable" });
     return undefined;
   }
+  if ((value.resets_at === null || value.resets_at === undefined) && value.utilization === 0)
+    return { limitId, usedPercent: 0, resetState: "untouched" };
   if (typeof value.resets_at !== "string" || !Number.isFinite(Date.parse(value.resets_at))) {
     unavailable.push({ limitId, reason: "reset_unavailable" });
     return undefined;
@@ -132,7 +134,13 @@ export function normalizeAnthropicUsage(
   const unavailableComponents: UnavailableUsageComponent[] = [];
   const windows: ProviderUsageWindow[] = [];
   for (const field of ["five_hour", "seven_day", "seven_day_oauth_apps", "seven_day_opus", "seven_day_sonnet"] as const) {
-    const window = normalizedWindow(`claude:${field}`, value.rate_limits[field], unavailableComponents);
+    const component = value.rate_limits[field];
+    if ((field === "five_hour" || field === "seven_day")
+        && (component === null || component === undefined)) {
+      unavailableComponents.push({ limitId: `claude:${field}`, reason: "component_unavailable" });
+      continue;
+    }
+    const window = normalizedWindow(`claude:${field}`, component, unavailableComponents);
     if (window) windows.push(window);
   }
   if (value.rate_limits.model_scoped !== undefined && value.rate_limits.model_scoped !== null) {

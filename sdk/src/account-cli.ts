@@ -21,6 +21,7 @@ import {
   readOpenAISessionActivity,
   type OpenAISessionActivity,
 } from "./openai-session-activity";
+import type { ProviderUsageWindow } from "./providers/types";
 import {
   createCliStyle,
   formatTokens,
@@ -142,6 +143,24 @@ function activityHours(hours: number): string {
 
 type UsageActivities = Map<string, OpenAISessionActivity>;
 
+function usageWindowTiming(window: ProviderUsageWindow, now: Date): string {
+  if (window.resetState === "untouched") return "window untouched";
+  const elapsedMs = now.getTime() - Date.parse(window.resetsAt);
+  if (elapsedMs <= 0) return `resets ${window.resetsAt}`;
+  const elapsedMinutes = Math.floor(elapsedMs / (60 * 1_000));
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  return `stale — window elapsed ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")} ago, awaiting recollection`;
+}
+
+function usageReportStatus(report: AccountUsageReport, now: Date): AccountUsageReport["status"] | "stale" {
+  const windows = report.observation.windows;
+  return windows?.length && windows.every((window) =>
+    window.resetState !== "untouched" && Date.parse(window.resetsAt) <= now.getTime())
+    ? "stale"
+    : report.status;
+}
+
 function printPlainUsageReports(
   accounts: ProviderAccount[],
   reports: AccountUsageReport[],
@@ -158,8 +177,8 @@ function printPlainUsageReports(
     for (const account of grouped) {
       const report = reports.find(({ accountId }) => accountId === account.id)!;
       console.log(`  ${account.id}`);
-      const headroom = automatedPressure(report.observation, new Date()) ?? "unknown";
-      console.log(`    headroom: ${headroom} (${report.status}${report.cached ? ", cached" : ""})`);
+      const headroom = automatedPressure(report.observation, now) ?? "unknown";
+      console.log(`    headroom: ${headroom} (${usageReportStatus(report, now)}${report.cached ? ", cached" : ""})`);
       console.log(`    source:   ${report.source}`);
       if (report.lastSuccessfulObservedAt)
         console.log(`    usage evidence:  ${report.lastSuccessfulObservedAt}${report.cached ? " (cached)" : ""}`);
@@ -168,7 +187,7 @@ function printPlainUsageReports(
       if (report.observation.windows?.length) {
         console.log("    windows:");
         for (const window of report.observation.windows)
-          console.log(`      ${window.limitId ?? "subscription"}: ${window.usedPercent}% used · resets ${window.resetsAt}`);
+          console.log(`      ${window.limitId ?? "subscription"}: ${window.usedPercent}% used · ${usageWindowTiming(window, now)}`);
       }
       for (const component of report.unavailableComponents)
         console.log(`    component unavailable: ${component.limitId} (${component.reason})`);
@@ -221,16 +240,16 @@ function printStyledUsageReports(
     for (const [accountIndex, account] of grouped.entries()) {
       if (accountIndex) console.log();
       const report = reports.find(({ accountId }) => accountId === account.id)!;
-      const headroom = automatedPressure(report.observation, new Date()) ?? "unknown";
+      const headroom = automatedPressure(report.observation, now) ?? "unknown";
       console.log(`${style.accent(account.id)}  ${headroomLabel(style, headroom)}`);
       console.log(style.pairs([
-        ["status", `${report.status}${report.cached ? " · cached" : ""}`],
+        ["status", `${usageReportStatus(report, now)}${report.cached ? " · cached" : ""}`],
       ], "  "));
       if (report.observation.windows?.length) {
         console.log(style.dim("  windows"));
         console.log(style.pairs(report.observation.windows.map((window) => [
           window.limitId ?? "subscription",
-          `${gaugeLabel(style, window.usedPercent)} · resets ${window.resetsAt}`,
+          `${gaugeLabel(style, window.usedPercent)} · ${usageWindowTiming(window, now)}`,
         ]), "    "));
       }
       for (const component of report.unavailableComponents)
@@ -281,6 +300,10 @@ function availabilityPct(pct: number): string {
   return `${pct}%${band === "available" ? "" : ` (${band})`}`;
 }
 
+function availabilityTiming(rung: { resetsAt?: string; resetState?: "untouched" }): string {
+  return rung.resetState === "untouched" ? "window untouched" : `resets ${rung.resetsAt}`;
+}
+
 function printAvailabilityRows(rows: AccountAvailabilityRow[]): void {
   if (!rows.length) {
     console.log("no cached account availability");
@@ -290,11 +313,11 @@ function printAvailabilityRows(rows: AccountAvailabilityRow[]): void {
     console.log(`${row.account} (${row.provider})  ${row.verdict}${row.stale ? " · stale" : ""}`);
     console.log(`  observed: ${row.observedAt}`);
     if (row.rungs.window)
-      console.log(`  window ${row.rungs.window.name}: ${availabilityPct(row.rungs.window.pct)} · resets ${row.rungs.window.resetsAt}`);
+      console.log(`  window ${row.rungs.window.name}: ${availabilityPct(row.rungs.window.pct)} · ${availabilityTiming(row.rungs.window)}`);
     if (row.rungs.week)
-      console.log(`  week: ${availabilityPct(row.rungs.week.pct)} · resets ${row.rungs.week.resetsAt}`);
+      console.log(`  week: ${availabilityPct(row.rungs.week.pct)} · ${availabilityTiming(row.rungs.week)}`);
     for (const [model, rung] of Object.entries(row.rungs.models))
-      console.log(`  model ${model}: ${availabilityPct(rung.pct)} · resets ${rung.resetsAt}`);
+      console.log(`  model ${model}: ${availabilityPct(rung.pct)} · ${availabilityTiming(rung)}`);
     console.log(`  usable models: ${row.usableModels.length ? row.usableModels.join(", ") : "none observed"}`);
   }
 }

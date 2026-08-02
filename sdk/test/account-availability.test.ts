@@ -124,6 +124,25 @@ test("missing provider-required general rungs are explicit unknown capacity", ()
   expect(rows.every((row) => accountAvailabilityRowIsUsable(row) === false)).toBe(true);
 });
 
+test("an elapsed cached window stays visible but cannot cook current availability", () => {
+  const elapsed = fixture.cases.find(({ name }) => name === "elapsed-window")!;
+  const [row] = normalizeAccountAvailability(
+    { version: 1, observations: [elapsed.observation] },
+    { now: new Date(fixture.now) },
+  );
+
+  expect(row).toMatchObject({
+    account: "claude-elapsed",
+    stale: true,
+    rungs: {
+      window: { name: "five_hour", pct: 100, resetsAt: "2026-07-28T10:30:00.000Z" },
+    },
+    verdict: "unknown",
+    usableModels: [],
+  });
+  expect(accountAvailabilityRowIsUsable(row!)).toBe(false);
+});
+
 test("model selection makes a cooked requested model unusable without cooking the account", () => {
   const model = fixture.cases.find(({ name }) => name === "model-cooked")!;
   const store = { version: 1 as const, observations: [model.observation] };
@@ -199,7 +218,16 @@ test("account availability JSON reads only the cached fixture and uses usability
   })}\n`);
   const model = fixture.cases.find(({ name }) => name === "model-cooked")!;
   const observedAt = new Date().toISOString();
-  const observation = { ...model.observation, observedAt };
+  const windowResetAt = new Date(Date.now() + 5 * 60 * 60 * 1_000).toISOString();
+  const weekResetAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString();
+  const observation = {
+    ...model.observation,
+    observedAt,
+    windows: model.observation.windows?.map((window) => ({
+      ...window,
+      resetsAt: window.limitId === "claude:five_hour" ? windowResetAt : weekResetAt,
+    })),
+  };
   writeFileSync(observations, `${JSON.stringify({
     version: 1,
     observations: [observation],
@@ -233,11 +261,11 @@ test("account availability JSON reads only the cached fixture and uses usability
     observedAt,
     stale: false,
     rungs: {
-      window: { name: "five_hour", pct: 20, resetsAt: "2026-07-28T15:00:00.000Z" },
-      week: { pct: 20, resetsAt: "2026-08-02T00:00:00.000Z" },
+      window: { name: "five_hour", pct: 20, resetsAt: windowResetAt },
+      week: { pct: 20, resetsAt: weekResetAt },
       models: {
-        fable: { pct: 99, resetsAt: "2026-08-02T00:00:00.000Z" },
-        opus: { pct: 30, resetsAt: "2026-08-02T00:00:00.000Z" },
+        fable: { pct: 99, resetsAt: weekResetAt },
+        opus: { pct: 30, resetsAt: weekResetAt },
       },
     },
     verdict: "model-cooked[fable]",

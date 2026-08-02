@@ -500,7 +500,8 @@ function numericHeadroomEvidence(
     .filter(({ observation }) => collectionFailureIsFresh(observation, now)
       || pressureObservationIsFresh(observation, now))
     .flatMap(({ observation, windows }) => (windows ?? [])
-      .filter(({ resetsAt }) => Date.parse(resetsAt) > now.getTime())
+      .filter((window) =>
+        window.resetState === "untouched" || Date.parse(window.resetsAt) > now.getTime())
       .map((window) => ({ observation, window })));
   const candidates: Array<{
     headroom: number;
@@ -520,7 +521,7 @@ function numericHeadroomEvidence(
       observedAt: observation.observedAt,
       ...(window.limitId ? { limitId: window.limitId } : {}),
       usedPercent: window.usedPercent,
-      resetsAt: window.resetsAt,
+      ...(window.resetsAt ? { resetsAt: window.resetsAt } : {}),
       ...(observation.collectionFailure
         ? { collectionFailure: observation.collectionFailure }
         : {}),
@@ -618,7 +619,8 @@ function decisiveAllocationEvidence(
     if (floor?.evidence.kind === "conservative-floor") return floor.evidence;
   }
   const liveWindow = driving.pressureKind === "state" ? undefined : [...(driving.windows ?? [])]
-    .filter(({ resetsAt }) => Date.parse(resetsAt) > now.getTime())
+    .filter((window) =>
+      window.resetState === "untouched" || Date.parse(window.resetsAt) > now.getTime())
     .sort((left, right) => right.usedPercent - left.usedPercent)[0];
   return {
     kind: liveWindow ? "numeric-headroom" : "categorical-pressure",
@@ -627,7 +629,7 @@ function decisiveAllocationEvidence(
     ...(liveWindow?.limitId ? { limitId: liveWindow.limitId } : {}),
     ...(liveWindow ? {
       usedPercent: liveWindow.usedPercent,
-      resetsAt: liveWindow.resetsAt,
+      ...(liveWindow.resetsAt ? { resetsAt: liveWindow.resetsAt } : {}),
     } : {}),
     ...(driving.observation.collectionFailure
       ? { collectionFailure: driving.observation.collectionFailure }

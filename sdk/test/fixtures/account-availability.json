@@ -77,6 +77,20 @@
       "expected": { "verdict": "available", "stale": true, "usableModels": [] }
     },
     {
+      "name": "elapsed-window",
+      "observation": {
+        "targetId": "claude-elapsed",
+        "provider": "anthropic",
+        "source": "claude-agent-sdk:usage-control-experimental",
+        "observedAt": "2026-07-28T11:00:00.000Z",
+        "windows": [
+          { "limitId": "claude:five_hour", "usedPercent": 100, "resetsAt": "2026-07-28T10:30:00.000Z" },
+          { "limitId": "claude:seven_day", "usedPercent": 20, "resetsAt": "2026-08-02T00:00:00.000Z" }
+        ]
+      },
+      "expected": { "verdict": "unknown", "stale": true, "usableModels": [] }
+    },
+    {
       "name": "available-codex",
       "observation": {
         "targetId": "codex-available",

@@ -371,7 +371,9 @@ function cachedCodexObservation(storePath: string | undefined, targetId: string)
 function observationFresh(cached: ProviderUsageObservation | undefined, now: Date): boolean {
   if (collectionFailureIsFresh(cached, now)) return true;
   const freshByAge = cached && now.getTime() - Date.parse(cached.observedAt) <= CODEX_OBSERVATION_TTL_MS;
-  const hasLiveWindow = cached?.windows?.some(({ resetsAt }) => Date.parse(resetsAt) > now.getTime()) ?? cached?.state !== undefined;
+  const hasLiveWindow = cached?.windows?.some((window) =>
+    window.resetState !== "untouched" && Date.parse(window.resetsAt) > now.getTime())
+    ?? cached?.state !== undefined;
   return Boolean(freshByAge && hasLiveWindow);
 }
 
