@@ -28,19 +28,33 @@
       :else (str "data " (age ms) " old"))))
 (defn header [name panel] (str (bold name) " " (dim (str "· " (panel-status panel)))))
 (defn terminal? [status] (#{"finished" "failed"} status))
-(defn lane-status [status]
+(defn agent-status [status]
   (cond
-    (or (= status "advancing") (= status "live quiet") (str/starts-with? status "working (quiet ")) "working"
+    (= status "advancing") "running"
+    (or (= status "live quiet") (str/starts-with? status "working (quiet "))
+    (or (some-> (re-find #"quiet [0-9]+m" status) first) "quiet")
     (= status "finished") "done"
-    (= status "failed") "failed"
+    (= status "failed") "crashed"
     :else "vanished"))
-(defn status-label [status]
-  (let [s (lane-status status) label (if (= s "working") (if (str/starts-with? status "working (quiet ") status s) s)]
-    (case s
-      "working" (paint 32 (if (str/starts-with? status "working (quiet ") (dim label) label))
-      "failed" (paint 31 s)
-      "vanished" (paint 33 s)
-      (dim s))))
+(defn agent-label [status]
+  (let [agent (agent-status status)]
+    (cond
+      (= agent "running") (paint 32 agent)
+      (str/starts-with? agent "quiet") (paint 32 (dim agent))
+      (= agent "crashed") (paint 31 agent)
+      (= agent "vanished") (paint 33 agent)
+      :else (dim agent))))
+(defn work-label [lane]
+  (let [work (or (:work lane)
+                 (case (agent-status (:status lane))
+                   "vanished" "unknown"
+                   ("done" "crashed") "none"
+                   "unknown"))]
+    (case work
+      "delivered" (paint 32 work)
+      "none" (paint 31 work)
+      "unknown" (paint 33 work)
+      work)))
 (def model-labels
   {"sol" "GPT 5.6 Sol" "gpt-5.6-sol" "GPT 5.6 Sol"
    "terra" "GPT 5.6 Terra" "gpt-5.6-terra" "GPT 5.6 Terra"
@@ -70,16 +84,16 @@
 (def details-width 34)
 (defn retained? [{:keys [status last-output-age]}]
   (let [age (or last-output-age Long/MAX_VALUE)
-        state (lane-status status)]
-    (or (= state "working")
-        (and ((set ["done" "failed"]) state) (< age terminal-retention-ms))
-        (and (= state "vanished") (< age vanished-retention-ms)))))
+        agent (agent-status status)]
+    (or (or (= agent "running") (str/starts-with? agent "quiet"))
+        (and ((set ["done" "crashed"]) agent) (< age terminal-retention-ms))
+        (and (= agent "vanished") (< age vanished-retention-ms)))))
 (defn fixed-column [value width]
   (format (str "%-" width "s") (clip value width)))
 (defn fleet-header []
   (dim (str "  " (fixed-column "agent · model" details-width) " "
-            (fixed-column "task" 34) " " (fixed-column "status" 8) " "
-            (fixed-column "wall" 4) " started")))
+            (fixed-column "task" 26) " " (fixed-column "agent" 9) " "
+            (fixed-column "work" 9) " " (fixed-column "wall" 4) " started")))
 (defn queue-header []
   (dim (str "  " (fixed-column "task" 56) "  " (fixed-column "id" 8) "  unblocks")))
 (defn account-header []
@@ -97,11 +111,12 @@
           (let [details (lane-details lane)
                 details (if (and (str/blank? details) (or (str/blank? title) (= title id)))
                           (dim (subs id 0 (min 8 (count id)))) details)]
-            (str "  " (format (if ids? "%s %-34s %-8s %-4s %-12s %s"
-                                  "%s %-34s %-8s %-4s %s")
+            (str "  " (format (if ids? "%s %-26s %-9s %-9s %-4s %-12s %s"
+                                  "%s %-26s %-9s %-9s %-4s %s")
                                (fixed-column details details-width)
-                             (clip (lane-title lane) 34)
-                             (status-label status)
+                             (clip (lane-title lane) 26)
+                             (agent-label status)
+                             (work-label lane)
                              (age last-output-age)
                              (spawn-time lane)
                              (when ids? (dim (subs id 0 (min 8 (count id)))))))))
@@ -194,6 +209,6 @@
                       ["" (header "HEALTH" :health)] (health-lines health)
                       ["" (header "QUEUE" :board) (queue-header)] (queue-lines board lanes)
                       ["" (header "ACCOUNTS" :providers) (account-header)] (account-lines providers)
-                      ["" (dim "working = running now · done/failed = finished and reported")
-                       (dim "vanished = process gone, never reported")])]
+                      ["" (dim "agent: running/quiet = live · done/crashed = ended · vanished = gone")
+                       (dim "work: delivered = result or commit · none = ended empty · unknown = vanished")])]
     (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n"))))

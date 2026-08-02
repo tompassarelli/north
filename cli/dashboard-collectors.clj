@@ -63,13 +63,22 @@
 (defn lane-meta [dir id]
   (try (json/parse-string (slurp (io/file dir (str "lane-" id ".meta.json"))) true)
        (catch Exception _ {})))
+(defn work-status [agent completion harvested?]
+  ;; A clean receipt alone records agent exit, not a task result.
+  (cond
+    (= agent "vanished") "unknown"
+    (and (= agent "done") (or (= completion "ran") harvested?)) "delivered"
+    (#{"done" "crashed"} agent) "none"
+    :else "unknown"))
 (defn lanes []
   (let [dir (io/file state-dir "agents") processes (agent-processes)]
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str (.getName log) ".lane.pid")) exitf (io/file dir (str (.getName log) ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
                         prior-size (get @log-sizes id) grew (and (some? prior-size) (> (.length log) (long prior-size))) _ (swap! log-sizes assoc id (.length log))
-                        completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-text log)) second)
+                        text (log-text log)
+                        completion (some-> (re-find #"complete \(process=([^,\)]+)" text) second)
+                        harvested? (boolean (re-find #"(?m)\bharvested\s+[1-9][0-9]*\s+commit\(s\)" text))
                         meta (lane-meta dir id)
                         thread-id (or (:thread meta) (some-> (re-find #"(?m)AGENT_THREAD=([^\s]+)" (log-head log)) second))
                         discovered-pid (get processes id)
@@ -81,12 +90,19 @@
                                      (or discovered-pid (and pid (alive? pid)))
                                      (str "working (quiet " (quot (- (now) (.lastModified log)) 60000) "m)")
                                      :else "vanished")]]
-              (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (or discovered-pid (when (and pid (alive? pid)) pid))
+              (let [agent (case status
+                            "advancing" "running"
+                            "finished" "done"
+                            "failed" "crashed"
+                            "vanished")]
+                (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status
+                        :agent agent :work (work-status agent completion harvested?)
+                        :pid (or discovered-pid (when (and pid (alive? pid)) pid))
                       :started-at (.lastModified log)
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)
-                     (select-keys meta [:role :effort :provider :model :thread :startedAt])))}))
+                     (select-keys meta [:role :effort :provider :model :thread :startedAt]))))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]

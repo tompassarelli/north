@@ -15,7 +15,7 @@
     (spit (io/file agents "lane-test2.log") "dead\n")
     (spit (io/file agents "lane-test3.log") "[spawn] starting provider=anthropic tier=senior\n")
     (spit (io/file agents "lane-test3.log.lane.exit") "0")
-    (spit (io/file agents "lane-test4.log") "AGENT_THREAD=thread-fixture\n[spawn] complete (process=ran, delivery=ok)\n")
+    (spit (io/file agents "lane-test4.log") "AGENT_THREAD=thread-fixture\n[spawn] complete (process=ran, delivery=ok)\n[harvest] harvested 1 commit(s)\n")
     (spit (io/file agents "lane-test4.meta.json") "{\"thread\":\"thread-fixture\",\"role\":\"executor\",\"tier\":\"standard\",\"effort\":\"high\",\"provider\":\"openai\",\"model\":\"gpt-5.6-sol\",\"startedAt\":\"2026-08-03T00:00:00.000Z\"}\n")
     (spit (io/file agents "lane-test5.log") "[spawn] complete (process=provider_error, delivery=no)\n")
     (spit (io/file agents "lane-fresh.log") "[spawn] starting provider=openai tier=standard\n")
@@ -37,6 +37,9 @@
         (check (= "advancing" (get-in by-id ["fresh" :status])) "fresh no-pid lane was not working")
         (check (= "finished" (get-in by-id ["long" :status])) "completion beyond tail window was not found")
         (check (= "vanished" (get-in by-id ["stale" :status])) "stale no-terminal lane was not vanished")
+        (check (= "unknown" (get-in by-id ["stale" :work])) "vanished lane work was not unknown")
+        (check (= "delivered" (get-in by-id ["test4" :work])) "harvested completion was not delivered")
+        (check (= "none" (get-in by-id ["test3" :work])) "empty completed lane was not none")
         (check (= "Joined thread title" (get-in by-id ["test4" :title])) "joined thread title was not extracted")
         (check (= "executor" (get-in by-id ["test4" :role])) "meta role was not extracted")
         (check (= "high" (get-in by-id ["test4" :effort])) "meta effort was not extracted")
@@ -46,10 +49,11 @@
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
       (let [started (.toString (java.time.Instant/ofEpochMilli (- (System/currentTimeMillis) 720000)))
-            many (vec (concat [{:id "work-lane" :thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :startedAt started :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :model "gpt-5.6-sol" :status "advancing" :last-output-age 0}
+            many (vec (concat [{:id "work-lane" :thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :startedAt started :title "Working fixture title" :role "integrator" :effort "high" :provider "openai" :model "gpt-5.6-sol" :status "advancing" :work "unknown" :last-output-age 0}
                                {:id "legacy-lane" :role "senior" :effort "high" :provider "anthropic" :status "advancing" :last-output-age 0}
-                               {:id "failed-lane" :title "Failed fixture title" :status "failed" :last-output-age 0}]
-                              (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "vanished" :last-output-age n})))
+                               {:id "done-empty" :title "Done without a result" :status "finished" :work "none" :last-output-age 0}
+                               {:id "delivered-lane" :title "Delivered fixture title" :status "finished" :work "delivered" :last-output-age 0}]
+                              (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "vanished" :work "unknown" :last-output-age n})))
             board "THREADS — 12 open threads · 7 active · 3 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Active fixture title\n\nREADY — top 3\n unblocks 2  019fc335-5c17-77d5-a8e2-38001f8c97f9 Low leverage ready\n unblocks 34  019fc336-5c17-77d5-a8e2-38001f8c97f9 High leverage ready\n unblocks 8  019fc337-5c17-77d5-a8e2-38001f8c97f9 Middle leverage ready"
             providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 42 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
@@ -60,15 +64,19 @@
           (check (.contains out "integrator/high · GPT 5.6 Sol") "resolved model name was not rendered")
           (check (not (.contains out "GPT 5.6 Sol · openai")) "provider suffix remained with resolved model")
           (check (.contains out "senior/high · anthropic") "legacy provider fallback was not rendered")
-          (check (some #(.contains % "(+2 older)") lines) "fleet row cap summary missing")
+          (check (some #(.contains % "(+3 older)") lines) "fleet row cap summary missing")
           (check (every? #(<= (count %) 100) lines) "line width was not truncated")
           (check (.contains out "Working fixture title") "meta fleet title did not render")
           (check (.contains out "(untitled)") "untitled fleet row did not render")
           (check (re-find #"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) [0-9]{2}:[0-9]{2}|\b[0-9]{2}:[0-9]{2}\b" out) "startedAt timestamp did not render")
           (let [fleet (take-while #(not (.startsWith % "HEALTH")) (drop-while #(not (.startsWith % "FLEET")) lines))
-                rows (filter #(.contains % "working") fleet)]
-            (check (= 1 (count (set (map #(.indexOf % "working") rows)))) "fleet status column drifted")
+                rows (filter #(.contains % "running") fleet)]
+            (check (= 1 (count (set (map #(.indexOf % "running") rows)))) "fleet agent column drifted")
             (check (not-any? #(re-find #"[0-9a-f]{32,}" %) rows) "fleet task column rendered a lane hash"))
+          (check (re-find #"agent +work" out) "fleet did not render separate agent and work headers")
+          (check (re-find #"Done without a result +done +none" out) "done/none fixture did not prove independent axes")
+          (check (re-find #"Delivered fixture title +done +delivered" out) "done/delivered fixture did not render")
+          (check (re-find #"vanished +unknown" out) "vanished/unknown fixture did not render")
           (let [ids-out (with-redefs [north.dashboard.render/width (constantly 110)]
                           (north.dashboard.render/render true))]
             (check (re-find #"(?:work-lan|legacy-lan|failed-lan)" ids-out) "--ids did not append short lane ids"))
@@ -78,7 +86,7 @@
           (check (< (.indexOf out "Active fixture title") (.indexOf out "High leverage ready") (.indexOf out "Middle leverage ready") (.indexOf out "Low leverage ready")) "queue ordering was not active then leverage descending")
           (check (and (.contains out "7 active · 3 ready · 1 blocked") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out))) "queue was not summarized safely")
           (check (and (re-find #"openai-main +eligible +42%" out) (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
-          (check (and (.contains out "working = running now") (.contains out "vanished = process gone, never reported")) "footer legend missing")
+          (check (and (.contains out "agent: running/quiet") (.contains out "work: delivered = result or commit")) "footer legend missing")
           (check (not (re-find #"stale" (first (str/split out #"HEALTH")))) "stale leaked into fleet rows")
           (check (re-find #"· data [0-9]+s old" out) "header did not render snapshot age")
           (check (not (re-find #"(?i)suspect|advancing|live quiet|lost" out)) "internal status vocabulary leaked")
@@ -87,8 +95,8 @@
             (check (not (re-find #"\u001b" (north.dashboard.render/render))) "NO_COLOR purity failed"))
           (with-redefs [north.dashboard.render/color? (constantly true)]
             (let [colored (north.dashboard.render/render)]
-              (check (.contains colored "\u001b[32mworking\u001b[0m") "working row was not green")
-              (check (.contains colored "\u001b[31mfailed\u001b[0m") "failed row was not red")))))
+              (check (.contains colored "\u001b[32mrunning\u001b[0m") "running row was not green")
+              (check (.contains colored "\u001b[31mnone\u001b[0m") "none work was not red")))))
       (let [calls (atom 0)]
         (with-redefs [north.dashboard.state/record! (fn [& _] nil)]
           (north.dashboard.collectors/collect! :board #(swap! calls inc))
