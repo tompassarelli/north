@@ -1710,6 +1710,16 @@ function validateCommandAction(value: unknown): void {
   throw new Error("Codex command action type is invalid");
 }
 
+/** 0.146 attributes a command to a first-party plugin script; North closes
+ * `plugins`, so any attribution at all means an unsealed execution path. */
+function assertNoPluginProvenance(item: JsonObject, label: string): void {
+  if (item.pluginId !== null || item.scriptPath !== null)
+    throw new Error(`${label} was attributed to a plugin script`, {
+      cause: new Error(`pluginId=${JSON.stringify(item.pluginId)?.slice(0, 200)} `
+        + `scriptPath=${JSON.stringify(item.scriptPath)?.slice(0, 200)}`),
+    });
+}
+
 function completedNativeCommand(
   item: JsonObject,
   state: RuntimeNotificationState,
@@ -1717,7 +1727,9 @@ function completedNativeCommand(
   onlyKeys(item, [
     "id", "type", "command", "cwd", "processId", "source", "status",
     "commandActions", "aggregatedOutput", "exitCode", "durationMs",
+    "pluginId", "scriptPath",
   ], "Codex completed command execution");
+  assertNoPluginProvenance(item, "Codex completed command execution");
   const id = protocolId(item.id, "Codex completed command execution id");
   if (item.type !== "commandExecution")
     throw new Error("Codex completed command execution changed authority");
@@ -1760,7 +1772,9 @@ function startedNativeCommand(item: JsonObject, state: RuntimeNotificationState)
   onlyKeys(item, [
     "id", "type", "command", "cwd", "processId", "source", "status",
     "commandActions", "aggregatedOutput", "exitCode", "durationMs",
+    "pluginId", "scriptPath",
   ], "Codex started command execution");
+  assertNoPluginProvenance(item, "Codex started command execution");
   const id = protocolId(item.id, "Codex started command execution id");
   nativeCommandCwd(item.cwd, "Codex started command execution");
   if (item.type !== "commandExecution"
@@ -1861,18 +1875,38 @@ function validateNotifiedTurn(
         `provider turn error: ${JSON.stringify(canonical(turn.error)).slice(0, 600)}`,
       ),
     });
-  if (!expectedId || turnId !== expectedId || turn.status !== expectedStatus
-      || !Array.isArray(turn.items) || turn.itemsView !== "notLoaded"
-      || !Number.isSafeInteger(turn.startedAt) || (turn.startedAt as number) < 0)
-    throw new Error(`${label} is invalid`);
+  // Names the failing predicate: a bare "is invalid" over seven conditions is
+  // the same unnameable-drift class a Codex version bump keeps producing.
+  const invalid = (reasons: readonly (string | false)[]): void => {
+    const named = reasons.filter((reason): reason is string => reason !== false);
+    if (!named.length) return;
+    throw new Error(`${label} is invalid`, { cause: new Error(named.join(", ")) });
+  };
+  invalid([
+    !expectedId && "no expected turn id",
+    expectedId !== undefined && turnId !== expectedId && "turn id is not the started turn",
+    turn.status !== expectedStatus
+      && `status ${JSON.stringify(turn.status)} is not ${JSON.stringify(expectedStatus)}`,
+    !Array.isArray(turn.items) && "items is not an array",
+    turn.itemsView !== "notLoaded" && `itemsView ${JSON.stringify(turn.itemsView)}`,
+    (!Number.isSafeInteger(turn.startedAt) || (turn.startedAt as number) < 0)
+      && `startedAt ${JSON.stringify(turn.startedAt)}`,
+  ]);
   if (expectedStatus === "inProgress") {
-    if (turn.completedAt !== null || turn.durationMs !== null || turn.items.length !== 0)
-      throw new Error(`${label} is invalid`);
+    invalid([
+      turn.completedAt !== null && `completedAt ${JSON.stringify(turn.completedAt)}`,
+      turn.durationMs !== null && `durationMs ${JSON.stringify(turn.durationMs)}`,
+      (turn.items as unknown[]).length !== 0
+        && `items carries ${(turn.items as unknown[]).length}`,
+    ]);
     return;
   }
-  if (!Number.isSafeInteger(turn.completedAt) || (turn.completedAt as number) < 0
-      || !Number.isSafeInteger(turn.durationMs) || (turn.durationMs as number) < 0)
-    throw new Error(`${label} is invalid`);
+  invalid([
+    (!Number.isSafeInteger(turn.completedAt) || (turn.completedAt as number) < 0)
+      && `completedAt ${JSON.stringify(turn.completedAt)}`,
+    (!Number.isSafeInteger(turn.durationMs) || (turn.durationMs as number) < 0)
+      && `durationMs ${JSON.stringify(turn.durationMs)}`,
+  ]);
 }
 
 function exactRuntimeIds(
