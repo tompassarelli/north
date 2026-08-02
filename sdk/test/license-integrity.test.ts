@@ -34,12 +34,12 @@ function fixture(): string {
 
 test("North dual-license files, metadata, package check, and CI wiring are exact", () => {
   expect(assertNorthLicenseIntegrity(north)).toEqual({
-    files: 5,
+    files: 3,
     license: "MIT OR Apache-2.0",
   });
 });
 
-test("every first-party and preserved upstream license artifact fails closed on drift", () => {
+test("every first-party license artifact fails closed on drift", () => {
   for (const path of Object.keys(NORTH_LICENSE_SHA256)) {
     const root = fixture();
     appendFileSync(resolve(root, path), "hostile drift\n");

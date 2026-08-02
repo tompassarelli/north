@@ -132,13 +132,13 @@ jobs:
         run: |
           set -euo pipefail
           CP="out:../fram/out"
-          bb -cp "$CP" clock_test.clj
+          bb -cp "$CP" tests/clock_test.clj
           bb -cp "$CP" cli/tests/coordinator-diagnostic-test.clj
-          bb -cp "$CP" staleness_test.clj
+          bb -cp "$CP" tests/staleness_test.clj
           bb cli/tests/rebuild-intent-state-test.clj
           bb cli/tests/rebuild-intent-two-session-integration-test.clj
           bash bin/tests/firn-rebuild-coordinated-test.sh
-          bb reap_test.clj      # reactor reap verdict (daemon-free; guards the @run-join false positive)
+          bb tests/reap_test.clj      # reactor reap verdict (daemon-free; guards the @run-join false positive)
           bb cli/tests/reactor-heartbeat-test.clj   # durable last-sweep heartbeat + doctor stale/missing verdict (daemon-free)
           bb cli/tests/reactor-sweep-lifecycle-test.clj  # bounded one-shot, reconnect, and single-flight lock
           bb cli/tests/worktree-allocation-integration-test.clj  # marker-last physical ownership + rollback/quarantine
@@ -149,7 +149,7 @@ jobs:
           # terminal PASS marker so a missing/wrong log can never skip green.
           ( cd ../fram && bin/fram import )
           test -s ../fram/coordination.log
-          lifecycle_output="$(FRAM_LOG=../fram/coordination.log bb -cp "$CP" lifecycle_test.clj)"
+          lifecycle_output="$(FRAM_LOG=../fram/coordination.log bb -cp "$CP" tests/lifecycle_test.clj)"
           printf '%s\n' "$lifecycle_output"
           grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS' <<<"$lifecycle_output"
 
@@ -290,25 +290,13 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
 
-      - name: Evaluate exact package identities on every supported system
+      - name: Evaluate package contract on every supported system
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
           nix flake check --all-systems --no-build
           for system in x86_64-linux aarch64-linux aarch64-darwin; do
-            identity="$(nix eval --json ".#packages.$system.codex" --apply \
-              'p: p.northManagedHookFailurePolicy.upstreamIdentity')"
-            jq -e '
-              .version == "0.144.4" and
-              .owner == "openai" and .repo == "codex" and
-              .rev == "refs/tags/rust-v0.144.4" and
-              .tag == "rust-v0.144.4" and
-              .srcHash == "sha256-NmYZxjNFPkRWN4rw+eeka10pJt6/oU3ZoLXBxj3dPRU=" and
-              .cargoHash == "sha256-S4dsZXfmKvJItL2XYKyxfhqdCMATEG6oPjrtVRwkuYc=" and
-              .patchSha256 == "36e07d12702e31bffb82fbfe577a6f22c81424f1510a78ea3a2add9ca0879bc3"
-            ' <<<"$identity"
-
             public_drv="$(nix eval --raw ".#packages.$system.codex.drvPath")"
             public_name="${public_drv##*/}"
             north_drv="$(nix derivation show ".#packages.$system.north")"

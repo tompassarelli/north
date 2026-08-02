@@ -11,12 +11,10 @@ allow text mutation only for the assigned thread and listed files. Physical
 removal from `~/.config/fram/graph-upstream-files` would affect concurrent work
 and is not part of this protocol.
 
-The scoped token is a proposed guard seam, not deployed behavior. Until the
-proposal in `~/code/north/main/patches/code-upstream-text-arm-token.proposal.patch`
-lands through the sealed enforcement channel, the current guard has no
-task-scoped exception. The existing global kill switch is too broad for a
-comparable A/B run, so text-arm execution is blocked rather than silently run
-with all authoring guards disabled.
+The scoped token is not deployed behavior. The current guard has no task-scoped
+exception. The existing global kill switch is too broad for a comparable A/B
+run, so text-arm execution is blocked rather than silently run with all
+authoring guards disabled.
 
 ## Run the arm
 
