@@ -21,6 +21,9 @@
 (def world-profile (str world-root "/agent-profile/skills"))
 (def farm (str scratch-home "/.local/state/north/skills"))
 (def generations (str farm ".d"))
+(def claude-mcp (str tmp-dir "/claude.json"))
+(def claude-settings (str tmp-dir "/settings.json"))
+(def codex-config (str tmp-dir "/config.toml"))
 (def checks (atom []))
 
 (def skill-specs
@@ -75,6 +78,15 @@
                           "WORLD_REPO_NORTH" world-root
                           "NORTH_SKILLS_FARM" farm))}
          (into ["bb" cli "skills"] args)))
+
+(defn run-status []
+  (p/shell
+   {:out :string :err :string :continue true
+    :extra-env {"HOME" scratch-home "NORTH_HOME" root
+                "NORTH_HARNESS_STATE" state "NORTH_SKILLS_PROFILE" profile
+                "NORTH_SKILLS_FARM" farm "NORTH_CLAUDE_MCP_CONFIG" claude-mcp
+                "NORTH_CLAUDE_SETTINGS" claude-settings "NORTH_CODEX_CONFIG" codex-config}}
+   "bb" cli "status"))
 
 (defn stored [key]
   (let [prefix (str key "=")]
@@ -206,6 +218,28 @@
       (check "agents, Claude, and account projections all follow the new farm atomically"
              (every? #(= expected (farm-entries %)) [agents claude account])))))
 
+(defn readout-case []
+  (spit claude-mcp "{\"mcpServers\":{\"north\":{}}}")
+  (spit claude-settings "{\"enabledPlugins\":{\"orchestration@orchestration\":true}}")
+  (spit codex-config "[mcp_servers.fram]\n[plugins.example]\n")
+  (let [before (run-cli "list")
+        synced (run-cli "sync")
+        after (run-cli "list")
+        status (run-status)]
+    (check "unpublished farm is explicitly reported"
+           (str/includes? (:out before) "published farm: NOT PUBLISHED"))
+    (check "published farm reports its target and generation"
+           (and (zero? (:exit synced))
+                (re-find #"published target: .*/skills\.d/gen-" (:out after))
+                (re-find #"published generation: gen-" (:out after))
+                (str/includes? (:out after) "published farm: READY")))
+    (check "status prints provider MCP and plugin inverse commands"
+           (every? #(str/includes? (:out status) %)
+                   ["claude mcp remove north" "codex mcp remove fram"
+                    "claude plugin uninstall orchestration@orchestration"
+                    "codex plugin uninstall example"
+                    "published: READY · target:" "generation: gen-"]))))
+
 (def requested (or (first *command-line-args*) "projection"))
 
 (try
@@ -216,9 +250,10 @@
     "atomic" (atomic-case)
     "precedence" (precedence-case)
     "aggregate" (aggregate-case)
+    "readout" (readout-case)
     (do
       (binding [*out* *err*]
-        (println "usage: bb cli/tests/config-skills-test.clj [projection|default-source|atomic|precedence|aggregate]"))
+        (println "usage: bb cli/tests/config-skills-test.clj [projection|default-source|atomic|precedence|aggregate|readout]"))
       (System/exit 2)))
   (finally
     (doseq [file (reverse (file-seq tmp-dir))]

@@ -10,7 +10,7 @@
 # doctrine.md remains the single source; the digest is a mechanical extract,
 # never a hand-maintained copy.
 #
-#   adapter resolution:  $ORCHESTRATION_SPAWN_ADAPTER  >  ~/.claude/my-config.state
+#   adapter resolution:  $ORCHESTRATION_SPAWN_ADAPTER  >  ~/.local/state/north/harness.conf
 #                        (dispatch=)            >  native (default)
 #   adapter blocks:      docs/adapters/<adapter>.md   (generated from PRESETS by
 #                        scripts/build-agents.mjs — do not hand-edit)
@@ -31,7 +31,7 @@ DOCTRINE="$ROOT/doctrine.md"
 # else native.
 adapter="${ORCHESTRATION_SPAWN_ADAPTER:-}"
 if [ -z "$adapter" ]; then
-  disp="$(grep -E '^dispatch=' "$HOME/.claude/my-config.state" 2>/dev/null | tail -1 | cut -d= -f2-)"
+  disp="$(grep -E '^dispatch=' "$HOME/.local/state/north/harness.conf" 2>/dev/null | tail -1 | cut -d= -f2-)"
   case "$disp" in
     north) adapter="north" ;;
     *)    adapter="native" ;;

@@ -186,7 +186,7 @@ A fresh session can receive context from:
 - the orchestration plugin, which emits an orchestration doctrine digest.
 - other provider plugins.
 
-[Observed defect] The orchestration plugin injector reads `~/.claude/my-config.state`, not canonical `~/.local/state/north/harness.conf`. On the current machine this sees `dispatch=warn` instead of `dispatch=auto`.
+[Observed] The orchestration plugin injector reads canonical `~/.local/state/north/harness.conf`, so its adapter selection follows the same dispatch state as North enforcement.
 
 [Observed drift] The installed plugin registry names an orchestration cache path that is absent. The source plugin remains enabled in settings. Whether Claude successfully loads it in a fresh session was not runtime-verified.
 
@@ -316,7 +316,7 @@ Nonempty values other than `0` and `false` mean off. `0` and `false` mean live.
 
 These variables do not disable dispatch, billing, context, coordination, MCP, skills, plugins, or Codex’s root requirement that the hook feature be enabled.
 
-[Observed documentation defect] Current Firn documentation says the authoring escape disables the Beagle SessionStart hook. The registry categorizes that hook as `context`, and the hook resolver clears the authoring escape for non-authoring registered callers. The documentation claim is therefore inconsistent with the implementation.
+[Observed] The authoring escape does not disable the Beagle SessionStart hook. The registry categorizes that hook as `context`, and the hook resolver clears the authoring escape for non-authoring registered callers.
 
 ## What “fresh session” does not mean
 
@@ -341,7 +341,6 @@ As of this snapshot:
 - The shared North skills farm is absent even though the source inventory contains four skills.
 - The orchestration plugin registry points at a missing installed-cache path.
 - Claude context state has no freshness or checksum proof against the materialized `~/.claude/CLAUDE.md`.
-- The authoring escape’s documented Beagle behavior contradicts the hook registry and resolver.
 - Direct Codex account configs and the global `~/.codex/config.toml` expose different MCP surfaces.
 - A worker-topology guard treats several semantically read-only `north config` subcommands as mutations.
 
@@ -375,4 +374,3 @@ Included:
 A zero session must not require the North binary, socket, daemon, state parser, or account-selection service.
 
 ---
-

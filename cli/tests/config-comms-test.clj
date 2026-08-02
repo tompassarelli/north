@@ -17,6 +17,7 @@
 (def state (str tmp-dir "/harness.conf"))
 (def mail-root (str tmp-dir "/mail"))
 (def doctor (str tmp-dir "/doctor"))
+(def skills-profile (str tmp-dir "/skills"))
 (def checks (atom []))
 
 (defn check [label value]
@@ -41,7 +42,7 @@
     :extra-env {"HOME" scratch-home
                 "NORTH_HOME" root
                 "NORTH_HARNESS_STATE" state
-                "NORTH_SKILLS_PROFILE" (str root "/profiles/tom/skills")}}
+                "NORTH_SKILLS_PROFILE" skills-profile}}
    "bb" cli "status"))
 
 (defn stored [key]
@@ -54,6 +55,9 @@
 
 (try
   (.mkdirs (io/file scratch-home))
+  (io/make-parents (str skills-profile "/fixture/SKILL.md"))
+  (spit (str skills-profile "/fixture/SKILL.md")
+        "---\nname: fixture\ndescription: fixture\n---\n")
   (spit doctor "#!/usr/bin/env bash\nprintf 'doctor scratch round-trip: PASS\\n'\n")
   (.setExecutable (io/file doctor) true)
 
@@ -72,6 +76,18 @@
            (and (zero? (:exit off))
                 (zero? (:exit shown))
                 (re-find #"(?m)^\s+native\s+off\b" (:out shown)))))
+
+  (let [native (run-config "db" "--native")
+        managed (run-config "file" "--managed")
+        off (run-config "off")]
+    (check "base off normalizes provider overrides to inherit"
+           (and (every? zero? (map :exit [native managed off]))
+                (= "inherit" (stored "comms.native"))
+                (= "inherit" (stored "comms.managed"))))
+    (check "base off prints all effective communication surfaces"
+           (every? #(str/includes? (:out off) %)
+                   ["base         off" "native       off"
+                    "managed      off" "enforcement  forced"])))
 
   (let [base (run-config "file" "--biased")
         native (run-config "db" "--native" "--forced")
