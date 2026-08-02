@@ -516,16 +516,17 @@
 
 (defn cmd-dashboard [args]
   (let [once? (some #{"--once"} args)
+        ids? (some #{"--ids"} args)
         tty? (and (not once?) (some? (System/console)))]
     (if once?
       (north.dashboard.state/record! :lanes {:status :ok :data (north.dashboard.collectors/lanes)})
       (north.dashboard.collectors/refresh!))
     (if-not tty?
-      (print (north.dashboard.render/render))
+      (print (north.dashboard.render/render ids?))
       (let [key (atom nil)
             reader (future (try (reset! key (char (.read *in*))) (catch Exception _ nil)))]
         (loop []
-        (print "\033[H\033[2J") (print (north.dashboard.render/render)) (flush)
+        (print "\033[H\033[2J") (print (north.dashboard.render/render ids?)) (flush)
         (Thread/sleep 1000)
         (when (= @key \r) (north.dashboard.collectors/refresh!))
         (when-not (#{\q \u001b} @key)

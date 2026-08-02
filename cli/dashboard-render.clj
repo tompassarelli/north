@@ -48,7 +48,18 @@
   (-> title str/lower-case (str/replace #"[^a-z0-9]+" "-") (str/replace #"^-|-$" "") (clip 28)))
 (defn lane-title [{:keys [id title] :as lane}]
   (if (and (seq title) (not= title id)) title (dim "(untitled)")))
-(defn fleet-lines [lanes]
+(declare started-at)
+(defn spawn-time [lane]
+  (when-let [ms (started-at lane)]
+    (try
+      (let [instant (java.time.Instant/ofEpochMilli (long ms))
+            zone (java.time.ZoneId/systemDefault)
+            date (.toLocalDate (.atZone instant zone))
+            now-date (.toLocalDate (.atZone (java.time.Instant/ofEpochMilli (state/now)) zone))
+            pattern (if (= date now-date) "HH:mm" "EEE HH:mm")]
+        (.format (java.time.format.DateTimeFormatter/ofPattern pattern) (.atZone instant zone)))
+      (catch Exception _ "—"))))
+(defn fleet-lines [lanes ids?]
   (let [visible (->> lanes
                      (filter (fn [{:keys [status last-output-age pid]}]
                                (and (or (not (terminal? status)) (< (or last-output-age Long/MAX_VALUE) 600000))
@@ -58,13 +69,18 @@
         shown (take 12 visible)]
     (concat
       (if (seq shown)
-        (for [{:keys [id status last-output-age] :as lane} shown]
-          (str "  " (format "%-26s %-34s %-8s %-4s %s"
-                             (clip (lane-details lane) 26)
+        (for [{:keys [id status last-output-age title] :as lane} shown]
+          (let [details (lane-details lane)
+                details (if (and (str/blank? details) (or (str/blank? title) (= title id)))
+                          (dim (subs id 0 (min 8 (count id)))) details)]
+            (str "  " (format (if ids? "%-26s %-34s %-8s %-4s %-12s %s"
+                                  "%-26s %-34s %-8s %-4s %s")
+                               (clip details 26)
                              (clip (lane-title lane) 34)
                              (status-label status)
                              (age last-output-age)
-                             (dim (clip id 8)))))
+                             (spawn-time lane)
+                             (when ids? (dim (subs id 0 (min 8 (count id)))))))))
         ["  collecting…"])
       (when (> (count visible) 12) [(str "  (+" (- (count visible) 12) " older)")]))))
 (defn bytes [n]
@@ -145,14 +161,14 @@
                            (if window (str (:usedPercent window) "%") "usage —")
                            (reset-age (:resetsAt window))))))
       ["  collecting…"])))
-(defn render []
+(defn render ([] (render false)) ([ids?]
   (let [lanes (get-in (state/read-panel :lanes) [:last-good :data :lanes])
         health (get-in (state/read-panel :health) [:last-good :data :services])
         board (get-in (state/read-panel :board) [:last-good :data :text])
         providers (get-in (state/read-panel :providers) [:last-good :data])
-        lines (concat ["north dashboard" "" (header "FLEET" :lanes)] (fleet-lines lanes)
+        lines (concat ["north dashboard" "" (header "FLEET" :lanes)] (fleet-lines lanes ids?)
                       ["" (header "HEALTH" :health)] (health-lines health)
                       ["" (header "QUEUE" :board)] (queue-lines board lanes)
                       ["" (header "ACCOUNTS" :providers)] (account-lines providers)
                       ["" (dim "working = producing output · done/failed = finished · lost = died without reporting")])]
-    (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n")))
+    (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n"))))

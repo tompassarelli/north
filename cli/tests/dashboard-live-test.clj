@@ -60,10 +60,14 @@
           (check (every? #(<= (count %) 100) lines) "line width was not truncated")
           (check (.contains out "Working fixture title") "meta fleet title did not render")
           (check (.contains out "(untitled)") "untitled fleet row did not render")
+          (check (re-find #"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) [0-9]{2}:[0-9]{2}|\b[0-9]{2}:[0-9]{2}\b" out) "startedAt timestamp did not render")
           (let [fleet (take-while #(not (.startsWith % "HEALTH")) (drop-while #(not (.startsWith % "FLEET")) lines))
                 rows (filter #(.contains % "working") fleet)]
             (check (= 1 (count (set (map #(.indexOf % "working") rows)))) "fleet status column drifted")
             (check (not-any? #(re-find #"[0-9a-f]{32,}" %) rows) "fleet task column rendered a lane hash"))
+          (let [ids-out (with-redefs [north.dashboard.render/width (constantly 110)]
+                          (north.dashboard.render/render true))]
+            (check (re-find #"(?:work-lan|legacy-lan|failed-lan)" ids-out) "--ids did not append short lane ids"))
           (check (.contains out "QUEUE") "board header was not renamed")
           (check (re-find #"● 1[12]m  Active fixture title" out) (str "meta-bound live lane did not render active stint: " out))
           (check (and (.contains out "○  High leverage ready") (.contains out "unblocks 34")) "unbound ready row did not render marker and leverage")
