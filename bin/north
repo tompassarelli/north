@@ -316,7 +316,10 @@ case "${1:-}" in
     # Future kinds follow the pattern (`north people` when a person registry lands).
     if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec board "${@:2}"; fi
     exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" board "${@:2}" ;;
-  ready|next|board)
+  ready|next|board|report)
+    if [ "$1" = report ] && [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then
+      exec "$BB" "$NORTH/cli/shipped-report.clj" "${@:2}"
+    fi
     if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec "$@"; fi
     exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" "$@" ;;
   blocked|leverage|agenda|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
