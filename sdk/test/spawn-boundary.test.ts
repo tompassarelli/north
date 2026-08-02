@@ -193,7 +193,7 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
 
   const result = await spawn({
     prompt: "coordinate one child",
-    agentId: "test-spawn-live-feed",
+    agentId: "lane-test-spawn-live-feed",
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
     routingMetadata: presetRequest("integrator"),
@@ -221,11 +221,11 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
   });
 
   expect(result).toBe("reduced child result");
-  expect(subscribedAgent).toBe("test-spawn-live-feed");
+  expect(subscribedAgent).toBe("lane-test-spawn-live-feed");
   expect(received).toContain("child lane settled");
   expect(stopCalls).toBe(1);
   const meta = JSON.parse(readFileSync(join(dir, "lane-test-spawn-live-feed.meta.json"), "utf8"));
-  expect(meta).toMatchObject({ thread: null, role: "executor", tier: "standard", provider: "anthropic" });
+  expect(meta).toMatchObject({ thread: null, role: "executor", tier: "standard", effort: "medium", provider: "anthropic" });
   expect(typeof meta.startedAt).toBe("string");
 });
 

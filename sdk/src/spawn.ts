@@ -9,7 +9,8 @@ function writeLaneMeta(agentId: string, meta: Record<string, unknown>): void {
     const dir = process.env.NORTH_AGENT_LOGS_DIR
       ?? pathJoin(process.env.HOME ?? "", ".local/state/north/agents");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(pathJoin(dir, `lane-${agentId}.meta.json`), `${JSON.stringify(meta)}\n`, "utf8");
+    const file = agentId.startsWith("lane-") ? agentId : `lane-${agentId}`;
+    writeFileSync(pathJoin(dir, `${file}.meta.json`), `${JSON.stringify(meta)}\n`, "utf8");
   } catch {
     // Lane discovery metadata is advisory and must never make spawning fatal.
   }
@@ -457,6 +458,7 @@ async function runSpawn(
     thread: boundThreadId ?? null,
     role: identityRole,
     tier: resolved.tier,
+    effort: routing.resolvedEffort ?? resolved.effort ?? routingMetadata.reasoning,
     provider: routing.provider,
     startedAt: new Date().toISOString(),
   });
