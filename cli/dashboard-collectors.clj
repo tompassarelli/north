@@ -30,7 +30,7 @@
       (let [value (try (some->> (->> (.listFiles (io/file state-dir "threads")) (filter #(str/starts-with? (.getName %) (str thread-id "-"))) first slurp) (re-find #"(?m)^#\s+(.+)$") second) (catch Exception _ nil))]
         (swap! titles assoc id value) value)))
 (defn log-head [log] (with-open [r (io/reader log)] (let [b (char-array 4096) n (.read r b)] (String. b 0 (max 0 n)))))
-(defn log-tail [log] (with-open [r (java.io.RandomAccessFile. log "r")] (let [n (.length r) s (max 0 (- n 2048))] (.seek r s) (let [b (byte-array (- n s))] (.readFully r b) (String. b "UTF-8")))))
+(defn log-text [log] (slurp log))
 (defn spawn-details [log]
   (try
     ;; Mutation lanes provision their worktree before emitting the spawn line.
@@ -53,12 +53,12 @@
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str "lane-" id ".lane.pid")) exitf (io/file dir (str "lane-" id ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
                         prior-size (get @log-sizes id) grew (and (some? prior-size) (> (.length log) (long prior-size))) _ (swap! log-sizes assoc id (.length log))
-                        completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-tail log)) second)
+                        completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-text log)) second)
                         meta (lane-meta dir id)
                         thread-id (or (:thread meta) (some-> (re-find #"(?m)AGENT_THREAD=([^\s]+)" (log-head log)) second))
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
                                      completion (if (= completion "ran") "finished" "failed")
-                                     grew "advancing"
+                                     (< (- (now) (.lastModified log)) 120000) "advancing"
                                      (and pid (alive? pid)) "live quiet" :else "suspect")]]
               (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (when (and pid (alive? pid)) pid)
                       :started-at (.lastModified log)
