@@ -1956,6 +1956,7 @@ function validateHookNotification(
       || !Number.isSafeInteger(run.startedAt) || (run.startedAt as number) < 0
       || !Array.isArray(run.entries) || run.entries.length > 64)
     throw new Error("Codex hook run provenance is invalid");
+  let hasNonemptyFeedback = false;
   for (const raw of run.entries) {
     const entry = record(raw, "Codex hook output entry");
     onlyKeys(entry, ["kind", "text"], "Codex hook output entry");
@@ -1963,6 +1964,8 @@ function validateHookNotification(
       throw new Error("Codex hook output kind is invalid");
     if (typeof entry.text !== "string" || Buffer.byteLength(entry.text, "utf8") > 64 * 1024)
       throw new Error("Codex hook output is invalid");
+    if (entry.kind === "feedback" && String(entry.text).trim())
+      hasNonemptyFeedback = true;
   }
   if (method === "hook/started") {
     if (run.status !== "running" || run.statusMessage !== null || run.completedAt !== null
@@ -1977,7 +1980,11 @@ function validateHookNotification(
   if (!state.hookRuns.has(id))
     throw new Error("Codex hook completion is missing its start");
   state.hookRuns.delete(id);
-  if (run.status !== "completed" || run.completedAt === null || run.durationMs === null
+  // A PreToolUse "blocked" with feedback is the guard SUCCEEDING at policy:
+  // the command is denied, the model reads the denial, the turn continues.
+  const validCompletion = run.status === "completed"
+    || (eventName === "preToolUse" && run.status === "blocked" && hasNonemptyFeedback);
+  if (!validCompletion || run.completedAt === null || run.durationMs === null
       || !Number.isSafeInteger(run.completedAt) || !Number.isSafeInteger(run.durationMs)
       || (run.completedAt as number) < (run.startedAt as number)
       || (run.durationMs as number) < 0 || run.statusMessage !== null)
