@@ -750,6 +750,27 @@
 (defn unresolved-result [status operation-id reason]
   {:status status :operation_id operation-id :reason reason})
 
+(defn identity-generation-divergence
+  "Name why a marked generation is invalid: which publish predicates diverge from
+  desired, and whether the marker is the digest of its own durable body."
+  [snapshot desired]
+  (let [divergent (sort (for [predicate publish-predicates
+                              :let [durable (get snapshot predicate #{})
+                                    wanted (get desired predicate)]
+                              :when (not= durable (if wanted #{wanted} #{}))]
+                          predicate))
+        durable-marker (first (get snapshot marker-predicate #{}))
+        body-marker (try (identity-marker (singleton-facts snapshot publish-predicates))
+                         (catch Throwable _ nil))]
+    (str/join
+     "; "
+     (cond-> []
+       (seq divergent)
+       (conj (str "durable " (str/join "," (take 8 divergent)) " differ from desired"))
+       (and durable-marker body-marker (not= durable-marker body-marker))
+       (conj (str "marker " durable-marker
+                  " is not the digest of its own durable body " body-marker))))))
+
 (defn recover-identity-write!
   "Apply or recover one caller-owned publish/route transition. `expected` and
   `desired` are complete projections. A replay may repair only an exact prior
@@ -861,7 +882,11 @@
       (unresolved-result "not_committed" operation-id "conflicting_generation")
 
       (seq (get before marker-predicate #{}))
-      (unresolved-result "indeterminate" operation-id "invalid_identity_generation")
+      (unresolved-result
+       "indeterminate" operation-id
+       (let [detail (identity-generation-divergence before desired)]
+         (cond-> "invalid_identity_generation"
+           (seq detail) (str " (" detail ")"))))
 
       :else
       (unresolved-result "indeterminate" operation-id "unrecognized_partial_generation"))))
