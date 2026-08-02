@@ -846,7 +846,7 @@ function projectInstructionFile(directory: string): string | undefined {
 }
 
 /**
- * Deterministic, bounded root-to-cwd project instruction composition.
+ * Deterministic, bounded policy-root-to-cwd project instruction composition.
  *
  * Managed Codex disables native project-doc loading and consumes this same block,
  * while Anthropic receives it directly because the SDK's settings sources are
@@ -859,33 +859,53 @@ export function projectAgentsAppendix(
 ): string {
   if (!agentLawsEnabled(env)) return "";
   const project = gitRootForProject(cwd);
-  const rel = relative(project.root, project.cwd);
+  let policyRoot = project.root;
+  const home = env.HOME?.trim();
+  if (home) {
+    try {
+      const canonicalHome = realpathSync(home);
+      const fromHome = relative(canonicalHome, project.cwd);
+      if (fromHome !== ".." && !fromHome.startsWith(`..${sep}`) && !fromHome.startsWith(sep))
+        policyRoot = canonicalHome;
+    } catch { /* a missing HOME cannot widen authority beyond the Git root */ }
+  }
+  const rel = relative(policyRoot, project.cwd);
   if (rel === ".." || rel.startsWith(`..${sep}`))
-    throw new Error(`project AGENTS bootstrap cwd escapes Git root: ${project.cwd}`);
-  const directories = [project.root];
-  let cursor = project.root;
+    throw new Error(`project AGENTS bootstrap cwd escapes policy root: ${project.cwd}`);
+  const directories = [policyRoot];
+  let cursor = policyRoot;
   for (const segment of rel.split(sep).filter(Boolean)) {
     cursor = resolve(cursor, segment);
     directories.push(cursor);
   }
 
+  const global = canonicalGlobalAgents(env);
+  const seenRealpaths = new Set<string>();
   const sections: string[] = [];
   for (const directory of directories) {
     const path = projectInstructionFile(directory);
     if (!path) continue;
+    let sourceRealpath: string;
+    try { sourceRealpath = realpathSync(path); }
+    catch (cause) {
+      throw new Error(`project AGENTS bootstrap cannot resolve: ${path}`, { cause });
+    }
+    if (sourceRealpath === global?.realpath || seenRealpaths.has(sourceRealpath)) continue;
     let source: Buffer;
     try { source = readFileSync(path); }
     catch (cause) {
       throw new Error(`project AGENTS bootstrap cannot read: ${path}`, { cause });
     }
+    if (global?.bytes.equals(source)) continue;
     let text: string;
     try { text = new TextDecoder("utf-8", { fatal: true }).decode(source).trim(); }
     catch (cause) {
       throw new Error(`project AGENTS bootstrap is not valid UTF-8: ${path}`, { cause });
     }
     if (!text) continue;
+    seenRealpaths.add(sourceRealpath);
     const next = [...sections, `### ${path}\n\n${text}`];
-    const appendix = `\n\n## Project instructions — Git root to cwd\n\n${next.join("\n\n")}`;
+    const appendix = `\n\n## Project instructions — policy root to cwd\n\n${next.join("\n\n")}`;
     if (Buffer.byteLength(appendix, "utf8") > PROJECT_AGENTS_MAX_BYTES) {
       throw new Error(
         `project AGENTS bootstrap exceeds ${PROJECT_AGENTS_MAX_BYTES} bytes at: ${path}`,
@@ -894,7 +914,7 @@ export function projectAgentsAppendix(
     sections.push(next.at(-1)!);
   }
   return sections.length
-    ? `\n\n## Project instructions — Git root to cwd\n\n${sections.join("\n\n")}`
+    ? `\n\n## Project instructions — policy root to cwd\n\n${sections.join("\n\n")}`
     : "";
 }
 
