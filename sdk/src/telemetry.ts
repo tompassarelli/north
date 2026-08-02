@@ -64,6 +64,15 @@ const LEDGER_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,127}$/;
 const LEDGER_ENTITY = /^@?[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
 const LEDGER_COVERAGE: ReadonlySet<string> = new Set(["exact", "partial", "unknown"]);
 const RECURRING_CANARY_PIN_DETAIL_PREFIX = "recurring-cross-provider-canary:@";
+const TERMINAL_COORDINATOR_READ_TIMEOUT_MS = 70_000;
+
+/** Keep an explicit caller deadline authoritative for terminal publication. */
+export function applyTerminalCoordinatorReadTimeout(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.NORTH_COORD_READ_TIMEOUT_MS === undefined)
+    env.NORTH_COORD_READ_TIMEOUT_MS = String(TERMINAL_COORDINATOR_READ_TIMEOUT_MS);
+}
 
 // A recurring canary is a reliability sample, not a forensic replay. Keep the
 // identity, terminal result, and pin that makes it queryable, while avoiding
@@ -988,7 +997,11 @@ export function recordRun(
         id,
         JSON.stringify(facts),
       ]), {
-        env: framEngineEnvironment(),
+        env: framEngineEnvironment((() => {
+          const env = { ...process.env };
+          applyTerminalCoordinatorReadTimeout(env);
+          return env;
+        })()),
         timeout: framCoordinatorChildTimeout(timeoutMs),
       }, (error, _stdout, stderr) => {
         // Bounded and non-throwing, but NOT silent: a swallowed writer rejection
