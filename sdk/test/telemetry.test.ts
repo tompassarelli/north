@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import {
   classifyTurnProvenance, codexTurnActivityFromResult, newRunId,
-  authoringAuthoritySurfaceEvidence, runEstimateFromThreadFacts, runFacts,
+  authoringAuthoritySurfaceEvidence, applyTerminalCoordinatorReadTimeout,
+  runEstimateFromThreadFacts, runFacts,
 } from "../src/telemetry";
 import {
   assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
@@ -20,6 +21,17 @@ import {
 // undefined → its body facts misroute to coordination.log (the 2026-07-17
 // regression). This guards the id format so that never recurs.
 const TELEMETRY_KINDS = new Set(["run", "session", "mine", "guard_denial"]);
+
+test("terminal publication derives the coordinator read timeout without overriding callers", () => {
+  const derived: NodeJS.ProcessEnv = {};
+  applyTerminalCoordinatorReadTimeout(derived);
+  expect(derived.NORTH_COORD_READ_TIMEOUT_MS).toBe("70000");
+
+  const explicit: NodeJS.ProcessEnv = { NORTH_COORD_READ_TIMEOUT_MS: "45000" };
+  applyTerminalCoordinatorReadTimeout(explicit);
+  expect(explicit.NORTH_COORD_READ_TIMEOUT_MS).toBe("45000");
+});
+
 function subjectToken(subject: string): string | undefined {
   const s = subject.startsWith("@") ? subject : `@${subject}`;
   const colon = s.indexOf(":");
