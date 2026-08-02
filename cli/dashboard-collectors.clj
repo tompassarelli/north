@@ -33,8 +33,9 @@
 (defn log-tail [log] (with-open [r (java.io.RandomAccessFile. log "r")] (let [n (.length r) s (max 0 (- n 2048))] (.seek r s) (let [b (byte-array (- n s))] (.readFully r b) (String. b "UTF-8")))))
 (defn spawn-details [log]
   (try
+    ;; Mutation lanes provision their worktree before emitting the spawn line.
     (let [header (some #(when (str/starts-with? % "[spawn]") %)
-                       (str/split-lines (slurp log)))]
+                       (str/split-lines (log-head log)))]
       (cond-> {}
         (some->> header (re-find #"\bprovider=([^\s;()]+)") second)
         (assoc :provider (some->> header (re-find #"\bprovider=([^\s;()]+)") second))
@@ -60,10 +61,11 @@
                                      grew "advancing"
                                      (and pid (alive? pid)) "live quiet" :else "suspect")]]
               (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (when (and pid (alive? pid)) pid)
+                      :started-at (.lastModified log)
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)
-                     (select-keys meta [:role :effort :provider])))}))
+                     (select-keys meta [:role :effort :provider :thread :startedAt])))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]
