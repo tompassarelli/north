@@ -4,7 +4,7 @@
 ;; roll up to per-thread actual seconds, the open session is detected, and the
 ;; estimate-vs-actual calibration % is computed over DONE threads only.
 ;;
-;;   bb -cp "out:$FRAM_HOME/out" clock_test.clj    (run from the repo root with
+;;   bb -cp "out:$FRAM_HOME/out" tests/clock_test.clj    (run from the repo root with
 ;;   inherited FRAM_LOG / FRAM_TELEMETRY_LOG / FRAM_SINGLE_VALUED unset — the
 ;;   isolated daemons here must never see the live split-log selectors, and the
 ;;   pure folds declare their own cardinality via each fixture's env)
@@ -244,7 +244,11 @@
   (k/build-index (:facts (fold/fold (rt/read-log log)))))
 
 (def integration-checks
-  (let [root (.getCanonicalPath (.getParentFile (io/file *file*)))
+  (let [root (-> (io/file *file*)
+                 .getCanonicalFile
+                 .getParentFile
+                 .getParentFile
+                 .getCanonicalPath)
         fram (.getCanonicalPath
               (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                            (System/getenv "FRAM_HOME")
@@ -390,7 +394,11 @@
 ;;       kind-less prefix never blocks a live clock-in.
 ;; Synthetic acme-test owner + 123.45 rate only; never a real client rate.
 (def contention-checks
-  (let [root (.getCanonicalPath (.getParentFile (io/file *file*)))
+  (let [root (-> (io/file *file*)
+                 .getCanonicalFile
+                 .getParentFile
+                 .getParentFile
+                 .getCanonicalPath)
         fram (.getCanonicalPath
               (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                            (System/getenv "FRAM_HOME")

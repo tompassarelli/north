@@ -8,7 +8,7 @@
 ;; Asserts: fresh lease => live; expired lease falls through to recency; a human
 ;; (no lease) rides recency; stale on both axes => parked; no driver => not-active;
 ;; a garbage updated_at never crashes.
-;;   bb -cp out:../fram/out board_active_test.clj      (run from the repo root)
+;;   bb -cp out:../fram/out tests/board_active_test.clj      (run from the repo root)
 (require '[fram.kernel :as k] '[north.main :as m] '[fram.rt :as rt])
 
 ;; A fixed "now" pinned to a real ISO datetime so the runtime date helpers agree.

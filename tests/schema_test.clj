@@ -5,7 +5,7 @@
 ;;       preserved exactly instead of collapsing into presentation buckets.
 ;;   (2) census: per-kind subject + fact counts, sorted by fact count desc.
 ;;   (3) predicate metadata (cardinality/value_kind) is surfaced from the graph.
-;;   bb -cp out:../fram/out schema_test.clj      (run from the repo root)
+;;   bb -cp out:../fram/out tests/schema_test.clj      (run from the repo root)
 (require '[fram.kernel :as k] '[north.main :as m])
 
 ;; one subject per kind: authoritative, legacy-compatible, and inferred rows.

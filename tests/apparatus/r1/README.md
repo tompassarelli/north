@@ -2,10 +2,9 @@
 
 North-side companion to Reification R-1 (thread `019f79eb-f6a4`), against the B2
 contract (`019f79eb-e8e0`, §4 attribution + cross-runtime identity). **Test-only**:
-touches no production/runtime/package source. This top-level `apparatus_r1/` dir
-is referenced by no package install phase (North's flake copies only named paths),
-so it is excluded from every North closure. No daemon, no port, no live North/FRAM
-state.
+touches no production/runtime/package source. It lives under
+`tests/apparatus/r1/` and is excluded from every North closure. No daemon, no
+port, no live North/FRAM state.
 
 ## Cells
 
@@ -31,7 +30,7 @@ verdict.
 ## Run
 
 ```sh
-apparatus_r1/run.sh      # identity golden diff + §4 model + negative control; exit 0 = green
+tests/apparatus/r1/run.sh      # identity golden diff + §4 model + negative control; exit 0 = green
 ```
 
 ## Limitations

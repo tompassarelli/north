@@ -53,9 +53,9 @@ from it.
 ```console
 $ export FRAM_HOME="$HOME/code/fram/main"
 $ CP="out:$FRAM_HOME/out"
-$ bb -cp "$CP" clock_test.clj
-$ bb -cp "$CP" staleness_test.clj
-$ FRAM_LOG="$FRAM_HOME/facts.log" bb -cp "$CP" lifecycle_test.clj
+$ bb -cp "$CP" tests/clock_test.clj
+$ bb -cp "$CP" tests/staleness_test.clj
+$ FRAM_LOG="$FRAM_HOME/facts.log" bb -cp "$CP" tests/lifecycle_test.clj
 ```
 
 CI runs every test command through [`bin/test-suite`](../bin/test-suite) with
@@ -65,7 +65,7 @@ command. Use the same boundary locally while keeping the Fram fixture explicit:
 
 ```console
 $ FRAM_TEST_CHECKOUT="$FRAM_HOME" \
-    bin/test-suite --sandbox-home -- bb -cp "$CP" clock_test.clj
+    bin/test-suite --sandbox-home -- bb -cp "$CP" tests/clock_test.clj
 ```
 
 The SDK receipt suite also needs its repository-owned hook fixture:
@@ -80,12 +80,12 @@ $ FRAM_TEST_CHECKOUT="$FRAM_HOME" \
 Omit `--sandbox-home` to run a command with the existing environment unchanged:
 
 ```console
-$ bin/test-suite -- bb -cp "$CP" clock_test.clj
+$ bin/test-suite -- bb -cp "$CP" tests/clock_test.clj
 ```
 
-Other babashka suites at the repository root follow the same shape —
-`validate_test.clj`, `projections_test.clj`, `schema_test.clj`,
-`lifecycle_test.clj`, and the rest — as do the CLI suites under
+Other Babashka suites under [`tests/`](../tests) follow the same shape —
+`tests/validate_test.clj`, `tests/projections_test.clj`,
+`tests/schema_test.clj`, `tests/lifecycle_test.clj`, and the rest — as do the CLI suites under
 [`cli/tests/`](../cli/tests).
 
 The gateway has its own smoke test covering auth and tenant routing:

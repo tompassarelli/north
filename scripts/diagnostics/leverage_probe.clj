@@ -5,7 +5,7 @@
 ;;   (B) Datalog: a recursive `reaches` rule over the reified store (the codegraph-proven closure)
 ;; Honest accounting (printed below): (B)'s RULE is tiny, but it cannot run without the
 ;; reified-store loader + the hand-listed predicate schema — a cost north does NOT pay today.
-;;   FRAM_LOG=~/.local/state/north/facts.log bb -cp out leverage_probe.clj
+;;   FRAM_LOG=~/.local/state/north/facts.log bb -cp out scripts/diagnostics/leverage_probe.clj
 (require '[fram.store :as c] '[fram.schema :as s] '[fram.datalog :as d]
          '[fram.kernel :as k] '[north.projections :as proj] '[fram.fold :as fold]
          '[fram.rt] '[clojure.string :as str] '[clojure.set :as set] '[clojure.java.io :as io])

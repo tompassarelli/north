@@ -63,7 +63,8 @@
         ;;    encoding provider, account, model, effort, role and hash. A second
         ;;    human alias adds nothing.
         ;; 2. The requirement induced FALSE DATA. To silence it, seed scripts
-        ;;    (realize-the-model.sh, offline-migrate.clj) fabricated person
+        ;;    (scripts/migrations/realize-the-model.sh and
+        ;;    scripts/migrations/offline-migrate.clj) fabricated person
         ;;    entities named after products — `@claude-code`, `@codex`,
         ;;    `@claude` — putting a product name in an actor slot.
         ;; 3. Swapping in a real existence check did not help either: 1,455 refs

@@ -3,7 +3,7 @@
 ;; future scheduling are explicit runtime inputs, so this equivalence fixes them to
 ;; no-live / no-future and checks the remaining terminal, work, blocked, committed,
 ;; and ready semantics.
-;;   FRAM_LOG=/path bb -cp out lifecycle_test.clj
+;;   FRAM_LOG=/path bb -cp out tests/lifecycle_test.clj
 (require '[fram.store :as c] '[fram.schema :as s] '[fram.datalog :as d]
          '[fram.kernel :as k] '[north.projections :as proj] '[fram.fold :as fold]
          '[fram.rt] '[clojure.string :as str] '[clojure.set :as set] '[clojure.java.io :as io])

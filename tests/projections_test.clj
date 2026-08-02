@@ -1,7 +1,7 @@
 ;; projections_test.clj — deterministic contract for the one lifecycle
 ;; classifier and every pull-eligibility view derived from it.
 ;;
-;;   bb -cp out:$FRAM/out projections_test.clj      (run from the repo root)
+;;   bb -cp out:$FRAM/out tests/projections_test.clj      (run from the repo root)
 (require '[fram.kernel :as k]
          '[fram.fold :as fold]
          '[fram.rt]
