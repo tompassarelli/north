@@ -12,7 +12,7 @@ import {
 const REPO = resolve(import.meta.dir, "../..");
 const WRITER = resolve(REPO, "cli/learning-assignment-internal.clj");
 
-export const LEARNING_ASSIGNMENT_WRITE_TIMEOUT_MS = 30_000;
+export const LEARNING_ASSIGNMENT_WRITE_TIMEOUT_MS = 600_000;
 
 export type LearningAssignmentPublicationStatus = "recorded";
 
