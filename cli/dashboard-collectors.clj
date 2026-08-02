@@ -66,7 +66,7 @@
   {:services (into {} (for [[unit port] [["north-coord.service" 7977] ["north-telemetry-coord.service" 7978]]]
                         [unit {:active (= "active" (str/trim (or (:data (run ["systemctl" "is-active" unit] 1500)) "")))
                                :socket (socket-up? port) :memory (cgroup unit)}]))})
-(defn board [] (let [r (run [(str north-root "/bin/north") "board"] 120000)] (if (= :ok (:status r)) (assoc r :data {:text (:data r)}) r)))
+(defn board [] (let [r (run [(str north-root "/bin/north") "board" "--fresh"] 120000)] (if (= :ok (:status r)) (assoc r :data {:text (:data r)}) r)))
 (defn providers [] (let [r (run [(str north-root "/bin/north") "providers" "--json"] 45000)] (if (= :ok (:status r)) (try (assoc r :data (json/parse-string (:data r) true)) (catch Exception e {:status :error :detail (.getMessage e)})) r)))
 (defn collect! [panel f]
   (when-not (contains? @running panel)

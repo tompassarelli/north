@@ -3,7 +3,7 @@
             [clojure.java.io :as io]))
 
 (def schema "north.dashboard/panel-v1")
-(def panel-names #{"lanes" "health" "board" "providers"})
+(def panel-names #{"lanes" "health" "board" "board-all" "ready" "ready-all" "next" "providers"})
 
 (defn cache-dir []
   (str (or (System/getenv "XDG_CACHE_HOME")
