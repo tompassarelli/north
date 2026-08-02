@@ -40,11 +40,11 @@
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str "lane-" id ".lane.pid")) exitf (io/file dir (str "lane-" id ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
-                        grew (> (.length log) (long (get @log-sizes id -1))) _ (swap! log-sizes assoc id (.length log))
+                        prior-size (get @log-sizes id) grew (and (some? prior-size) (> (.length log) (long prior-size))) _ (swap! log-sizes assoc id (.length log))
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
                                      grew "advancing"
                                      (and pid (alive? pid)) "live quiet" :else "suspect")]]
-              (merge {:id id :title (or (title id) id) :status status
+              (merge {:id id :title (or (title id) id) :status status :pid (when (and pid (alive? pid)) pid)
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)))}))
