@@ -27,7 +27,11 @@
   (try (.exists (io/file "/proc" (str pid))) (catch Exception _ false)))
 (defn title [id thread-id]
   (or (get @titles id)
-      (let [value (try (some->> (->> (.listFiles (io/file state-dir "threads")) (filter #(str/starts-with? (.getName %) (str thread-id "-"))) first slurp) (re-find #"(?m)^#\s+(.+)$") second) (catch Exception _ nil))]
+      (let [value (try (let [text (some->> (.listFiles (io/file state-dir "threads"))
+                                           (filter #(str/starts-with? (.getName %) (str thread-id "-"))) first slurp)]
+                         (or (some-> (re-find #"(?m)^#\s+(.+)$" text) second)
+                             (some-> (re-find #"(?m)^title\s+\"([^\"]+)\"" text) second)))
+                       (catch Exception _ nil))]
         (swap! titles assoc id value) value)))
 (defn log-head [log] (with-open [r (io/reader log)] (let [b (char-array 4096) n (.read r b)] (String. b 0 (max 0 n)))))
 (defn log-text [log] (slurp log))
