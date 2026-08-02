@@ -37,7 +37,7 @@
       (if (seq shown)
         (for [{:keys [title status role provider last-output-age]} shown]
           (str "  " (format "%-11s" status) (format "%-30s" (clip title 30))
-               (clip (str/join "/" (remove nil? [role provider])) 22)
+               " " (clip (str/join "/" (remove nil? [role provider])) 22)
                " " (age last-output-age)))
         ["  collecting…"])
       (when (> (count visible) 12) [(str "  (+" (- (count visible) 12) " older)")]))))
