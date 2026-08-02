@@ -554,15 +554,31 @@ def north_config_mutation(args):
     """Identify state-changing `north config` calls while preserving reports."""
     if args[:1] != ["config"]:
         return None
-    rest = args[1:]
-    if not rest or rest[0] in ("status", "help", "-h", "--help"):
-        return None
+    form = tuple(args[1:])
     read_only = {
-        ("guards",), ("dispatch",), ("coord",),
+        (),
+        ("status",), ("help",), ("-h",), ("--help",),
+        ("dispatch",),
+        ("dispatch", "--canonical"),
+        ("dispatch", "--guard-action"),
+        ("dispatch", "--managed-admission"),
+        ("coord",),
+        ("rebuild-coordination",),
+        ("rebuild-window",),
         ("beagle",), ("beagle", "list"),
+        ("guards",),
+        ("hooks",), ("hooks", "list"),
+        ("context",), ("context", "show"),
+        ("skills",), ("skills", "list"),
+        ("comms",), ("comms", "show"), ("comms", "doctor"),
         ("routing",), ("routing", "show"),
+        ("learning",), ("learning", "show"),
     }
-    return None if tuple(rest) in read_only else "north config mutation"
+    if form in read_only:
+        return None
+    if len(form) == 3 and form[:2] == ("hooks", "explain"):
+        return None
+    return "north config mutation"
 
 def is_direct_spawn(command, args, cwd):
     command, args = unwrap(command, args)

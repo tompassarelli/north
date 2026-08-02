@@ -206,13 +206,17 @@ function hookRun(
   overrides: Record<string, unknown> = {},
 ) {
   const completed = status !== "running";
+  const policyBlocked = status === "blocked";
+  const failed = completed && status !== "completed" && !policyBlocked;
   return {
     id, eventName, handlerType: "command", executionMode: "sync",
     scope: eventName === "sessionStart" ? "thread" : "turn",
     sourcePath: "/etc/codex/hooks", source: "system", displayOrder: 0,
-    status, statusMessage: completed && status !== "completed" ? "fixture failure" : null,
+    status, statusMessage: failed ? "fixture failure" : null,
     startedAt: 1, completedAt: completed ? 2 : null, durationMs: completed ? 1 : null,
-    entries: completed && status !== "completed" ? [{ kind: "error", text: "fixture failure" }] : [],
+    entries: policyBlocked
+      ? [{ kind: "feedback", text: "fixture policy denial" }]
+      : failed ? [{ kind: "error", text: "fixture failure" }] : [],
     ...overrides,
   };
 }
@@ -2078,11 +2082,17 @@ test("a provider-side failure names its payload on the cause, not just the class
   }
 });
 
+test("a PreToolUse policy block is not a managed-lane failure", async () => {
+  const { options } = setup("hook-pretool-blocked");
+  await expect(new ManagedCodexAppServerRun(options).execute())
+    .resolves.toMatchObject({ text: "managed answer" });
+});
+
 test("post-thread drift, rejection, malformed traffic, and hook failures are never retry-safe", async () => {
   const modes = [
     "fingerprint-mutation", "thread-failure", "notification-wrong-thread", "notification-malformed",
     "notification-thread-cwd", "notification-terminal-error",
-    "hook-session-failed", "hook-session-stopped", "hook-pretool-failed", "hook-pretool-blocked",
+    "hook-session-failed", "hook-session-stopped", "hook-pretool-failed",
     "hook-pretool-stopped", "hook-posttool-stopped", "hook-posttool-failed",
     "hook-missing-completion", "hook-duplicate-completion", "hook-session-invalid-turn",
     "hook-session-scope", "hook-tool-null-turn", "hook-tool-thread-scope",
