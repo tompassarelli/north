@@ -83,7 +83,7 @@ fi
 # TEMPORARY: remove when production speaks FRAMRPC (v0.4 runtime cutover).
 # Production still requires the v0.3 EDN-line client; keep each selector
 # independently overrideable so explicit caller environment always wins.
-_north_v03_fram="$HOME/code/fram/wt-graph-authoring-repair-codex"
+_north_v03_fram="$HOME/.local/state/north/fram-runtime/active/current"
 FRAM="${FRAM_HOME:-$_north_v03_fram}"
 FRAM_BIN="${FRAM_BIN:-$_north_v03_fram/bin}"
 FRAM_OUT="${FRAM_OUT:-$_north_v03_fram/out}"
