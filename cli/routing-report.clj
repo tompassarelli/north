@@ -185,7 +185,7 @@
 
 (defn- orchestration-catalog-root []
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
+      (str (or (System/getenv "NORTH_HOME") NORTH) "/orchestration")))
 
 (defn- load-provider-catalog [provider]
   (try
