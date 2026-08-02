@@ -894,6 +894,45 @@
               :source (absolute-path entry)})))
        (sort-by #(.getName %) entries)))))
 
+;; Readouts must remain useful while an individual profile item is malformed;
+;; publication commands intentionally continue to use the strict inventory.
+(defn- skill-readout-inventory []
+  (let [root (io/file SKILLS-PROFILE)]
+    (if-not (.isDirectory root)
+      {:inventory [] :warnings [(str "skills source: not a directory: " SKILLS-PROFILE)]}
+      (let [entries (.listFiles root)]
+        (if (nil? entries)
+          {:inventory [] :warnings [(str "skills source: cannot read: " SKILLS-PROFILE)]}
+          (reduce
+           (fn [{:keys [inventory warnings]} entry]
+             (try
+               (let [id (.getName entry)]
+                 (if-not (.isDirectory entry)
+                   {:inventory inventory
+                    :warnings (conj warnings (str id ": not a skill directory"))}
+                   (let [skill-file (io/file entry "SKILL.md")
+                         metadata (do
+                                    (when-not (.isFile skill-file)
+                                      (throw (ex-info "missing SKILL.md" {})))
+                                    (skill-metadata skill-file))
+                         declared-name (get metadata "name")
+                         category (get metadata "category" "uncategorized")]
+                     (when-not (= id declared-name)
+                       (throw (ex-info (str "frontmatter name " (pr-str declared-name)
+                                            " does not match directory") {})))
+                     (when-not (re-matches skill-slug category)
+                       (throw (ex-info (str "invalid category " (pr-str category)) {})))
+                     {:inventory (conj inventory {:id id :category category
+                                                  :source (absolute-path entry)})
+                      :warnings warnings})))
+               (catch Exception error
+                 {:inventory inventory
+                  :warnings (conj warnings
+                                  (str (.getName entry) ": "
+                                       (or (.getMessage error) "invalid skill")))})))
+           {:inventory [] :warnings []}
+           (sort-by #(.getName %) entries)))))))
+
 (defn- state-with-overlay [overlay key]
   (if (contains? overlay key)
     (get overlay key)
@@ -1123,6 +1162,12 @@
   (let [resolutions (skill-resolutions (skill-inventory))]
     (str (count (filter #(= "on" (:verdict %)) resolutions))
          "/" (count resolutions) " enabled")))
+
+(defn- skills-readout-summary [{:keys [inventory warnings]}]
+  {:summary (str (count (filter #(= "on" (:verdict %))
+                                (skill-resolutions inventory)))
+                 "/" (count inventory) " enabled")
+   :warnings warnings})
 
 (def skills-usage
   "usage: north config skills [list|on|off <skill-id>|category on|off <category>|all on|off|sync]")
@@ -1369,6 +1414,7 @@
         comms-native (comms-resolution "native")
         comms-managed (comms-resolution "managed")
         learning (learning-read)
+        skills-readout (skills-readout-summary (skill-readout-inventory))
         ]
     (println (banner))
     (println (str "
@@ -1411,7 +1457,9 @@
     configure → north config context · north config context apply
 
  8  SKILLS     shared provider-neutral discovery projection
-    " (skills-summary) " · source: " SKILLS-PROFILE "
+    " (:summary skills-readout) " · source: " SKILLS-PROFILE "
+    warnings: " (if (seq (:warnings skills-readout))
+                    (str/join " · " (:warnings skills-readout)) "none") "
     farm: " SKILLS-FARM "
     published: " (skills-publication-summary) "
     precedence: item > category > all > default(on)
