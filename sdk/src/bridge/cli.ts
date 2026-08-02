@@ -6,12 +6,16 @@ import type { JournalRecord, TornTail } from "./journal";
 
 type ServerMessage =
   | { type: "launched"; executionId: string }
+  | { type: "controlled"; executionId: string; control: string; delivery: string }
   | { type: "event"; record: JournalRecord }
   | { type: "barrier"; executionId: string; cursor: number; tornTail?: TornTail }
   | { type: "error"; message: string };
 
 function usage(): never {
-  console.error("usage: north bridge <prompt> | north bridge attach <execution-id> [--cursor N]");
+  console.error(
+    "usage: north bridge <prompt> | north bridge attach <execution-id> [--cursor N]"
+    + " | north bridge steer <execution-id> <text> | north bridge interrupt <execution-id>",
+  );
   process.exit(2);
 }
 
@@ -66,6 +70,8 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
         if (!line) continue;
         const message = JSON.parse(line) as ServerMessage;
         if (message.type === "launched") console.log(`execution ${message.executionId}`);
+        else if (message.type === "controlled")
+          console.log(`${message.executionId} ${message.delivery}`);
         else if (message.type === "event") console.log(renderRecord(message.record));
         else if (message.type === "barrier") {
           console.log(`attached ${message.executionId} at ${message.cursor}`);
@@ -103,6 +109,15 @@ async function main(args: string[]): Promise<number> {
       if (!Number.isSafeInteger(cursor)) usage();
     }
     request = { op: "attach", executionId, cursor };
+  } else if (args[0] === "steer") {
+    const executionId = args[1];
+    const input = args.slice(2).join(" ").trim();
+    if (!executionId || !input) usage();
+    request = { op: "submitInput", executionId, input };
+  } else if (args[0] === "interrupt") {
+    const executionId = args[1];
+    if (!executionId || args.length !== 2) usage();
+    request = { op: "interruptTurn", executionId };
   } else {
     let prompt = args.join(" ").trim();
     if (!prompt && !process.stdin.isTTY) prompt = (await Bun.stdin.text()).trim();

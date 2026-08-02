@@ -185,8 +185,8 @@
                     ["composition_id(matches role)"])
                   (when (and (some? role) (not (safe-role-id? role))) ["role(safe Orchestration id)"])
                   (when (and live-input
-                             (not (contains? #{"streaming" "unsupported"} live-input)))
-                    ["live_input(streaming|unsupported)"])
+                             (not (contains? #{"streaming" "turn-framed" "unsupported"} live-input)))
+                    ["live_input(streaming|turn-framed|unsupported)"])
                   (when (and live-input-state
                              (not (contains? #{"pending" "armed" "frozen"} live-input-state)))
                     ["live_input_state(pending|armed|frozen)"])

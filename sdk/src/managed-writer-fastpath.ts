@@ -128,7 +128,7 @@ export function validPublishProjection(projection: Record<string, string>): bool
     if (v === undefined || v === "") return false;
   }
   if (projection.kind !== "lane") return false;
-  if (projection.live_input !== "streaming" && projection.live_input !== "unsupported") return false;
+  if (!["streaming", "turn-framed", "unsupported"].includes(projection.live_input)) return false;
   if (!["pending", "armed", "frozen"].includes(projection.live_input_state)) return false;
   if (!UUID_V4.test(projection.live_input_epoch)) return false;
   if (projection.live_input === "unsupported" && projection.live_input_state !== "frozen") return false;

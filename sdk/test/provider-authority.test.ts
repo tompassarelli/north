@@ -100,6 +100,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
 
   const openaiWorker = designer("openai", "openai-exact-worker-surface");
   const workerSurface = compileProviderAuthoritySurface("openai", openaiWorker);
+  expect(workerSurface.liveInput).toBe("turn-framed");
   expect(workerSurface.northEnabledTools).toEqual([
     "capture", "tell", "evidence_record", "show", "ready", "next", "board", "plate",
   ]);
@@ -109,6 +110,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
     ...managedCodexNetworkArguments(workerSurface),
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
+  expect(formatProviderAuthoritySurface(workerSurface)).toContain("live-input=turn-framed");
   expect(formatProviderAuthoritySurface(workerSurface)).toContain("network=disabled");
 
   const director = harnessOptions({

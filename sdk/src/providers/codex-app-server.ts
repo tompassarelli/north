@@ -2489,6 +2489,7 @@ export class ManagedCodexAppServerRun {
   /** The exact failure object that attempt threw — identity, not shape, gates a respawn. */
   private attemptFailure?: Error;
   private interrupted = false;
+  private activeTurnInterrupt?: () => Promise<void>;
 
   constructor(private options: ManagedCodexAppServerOptions) {}
 
@@ -2560,6 +2561,13 @@ export class ManagedCodexAppServerRun {
     // provider sessions must not get a third one started behind its back.
     this.interrupted = true;
     if (this.child) await closeProcess(this.child, this.rpc, this.control);
+  }
+
+  /** Interrupt the active turn without closing its app-server session. */
+  async interruptTurn(): Promise<void> {
+    const interrupt = this.activeTurnInterrupt;
+    if (!interrupt) throw new Error("Codex has no active turn to interrupt");
+    await interrupt();
   }
 
   // Single-turn entry point: run exactly one turn on a fresh thread and tear the
@@ -2766,22 +2774,17 @@ export class ManagedCodexAppServerRun {
     };
     // Best-effort and bounded: a provider wedged enough to trip a watchdog may
     // also ignore the interrupt, and settling this turn must not wait on that.
-    const interruptTurn = async (): Promise<string> => {
-      if (!threadId || !turnId) return "no live turn to interrupt";
-      try {
-        record(await Promise.race([
-          rpc.request("turn/interrupt", { threadId, turnId }),
-          new Promise((_resolve, reject) => {
-            const timer = setTimeout(
-              () => reject(new Error("turn/interrupt timed out")), TURN_INTERRUPT_MS,
-            );
-            timer.unref?.();
-          }),
-        ]), "Codex turn/interrupt response");
-        return "turn/interrupt accepted";
-      } catch (error) {
-        return `turn/interrupt refused: ${error instanceof Error ? error.message : String(error)}`;
-      }
+    const interruptTurn = async (): Promise<void> => {
+      if (!threadId || !turnId) throw new Error("Codex has no active turn to interrupt");
+      record(await Promise.race([
+        rpc.request("turn/interrupt", { threadId, turnId }),
+        new Promise((_resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("turn/interrupt timed out")), TURN_INTERRUPT_MS,
+          );
+          timer.unref?.();
+        }),
+      ]), "Codex turn/interrupt response");
     };
     const expireTurn = (bound: string) => {
       if (watchdogReason) return;
@@ -2798,7 +2801,13 @@ export class ManagedCodexAppServerRun {
       watchdogReason = new Error("openai_codex_turn_interrupted", { cause });
       const settle = terminalReject;
       void (async () => {
-        const outcome = liveness.alive ? await interruptTurn() : "provider already gone";
+        let outcome = "provider already gone";
+        if (liveness.alive) {
+          try { await interruptTurn(); outcome = "turn/interrupt accepted"; }
+          catch (error) {
+            outcome = `turn/interrupt refused: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
         cause.message = `${cause.message}; ${outcome}`;
         // A watchdog settles the TURN. The process is never killed from here —
         // ordinary graceful teardown owns that.
@@ -3091,6 +3100,7 @@ export class ManagedCodexAppServerRun {
         }), "Codex turn/start response");
         turnId = validateStartedTurn(turnStart);
         runtimeState.turnId = turnId;
+        this.activeTurnInterrupt = interruptTurn;
         armTurnDeadline();
         drainQueued(true);
         try { await terminal; }
@@ -3098,6 +3108,8 @@ export class ManagedCodexAppServerRun {
           // Once a watchdog has fired, ITS reason is the reason: an RPC-level
           // failure observed while interrupting is downstream of it.
           throw watchdogReason ?? error;
+        } finally {
+          if (this.activeTurnInterrupt === interruptTurn) this.activeTurnInterrupt = undefined;
         }
         clearWatchdogs();
         if (!runtimeState.terminalSeen || !runtimeState.usage || runtimeState.hookRuns.size
@@ -3217,6 +3229,7 @@ export class ManagedCodexAppServerRun {
       this.child = undefined;
       this.rpc = undefined;
       this.control = undefined;
+      this.activeTurnInterrupt = undefined;
     }
   }
 }

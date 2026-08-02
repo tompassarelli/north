@@ -968,6 +968,12 @@ class CodexQuery implements AgentQuery {
         ? "codex-cli:structured-command-unavailable" : "codex-app-server:unsettled");
   }
 
+  async interruptTurn(): Promise<void> {
+    const managedRun = this.managedRun;
+    if (!managedRun) throw new Error("Codex has no active managed session");
+    await managedRun.interruptTurn();
+  }
+
   async interrupt(): Promise<void> {
     if (this.interruptPromise) return this.interruptPromise;
     const managedRun = this.managedRun;
@@ -1074,9 +1080,9 @@ class CodexQuery implements AgentQuery {
           yield {
             type: "result", subtype: "success", result: completed.text,
             // Deliberately no num_turns. `turns` here counts resolved North
-            // input frames, not assistant turns; openai liveInput is
-            // "unsupported" so it is structurally always 1 regardless of how
-            // much tool activity happened inside that turn (thread 019f9c36).
+            // input frames, not assistant turns; one-shot callers still close
+            // after one result while interactive callers may supply later
+            // turn-framed input on this same provider thread (thread 019f9c36).
             // `toolItems` is the count that DOES vary with the tool loop:
             // completed work items observed on this session so far, summed
             // across the turns yielded up to here (thread 019f9cc2).
@@ -1281,7 +1287,7 @@ export function internalOpenAIProviderWithManagedHooksProbeForTest(
   const resolveCommand = runtime.resolveManagedCommand ?? trustedManagedCodexExecutable;
   return {
     id: "openai",
-    liveInput: "unsupported",
+    liveInput: "turn-framed",
     probe: probeCodex,
     admit: ({ options, target }) =>
       admitOpenAIWithManagedHooksProbe(options, target, assertManagedHooks, resolveCommand),

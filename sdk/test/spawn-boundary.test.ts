@@ -229,7 +229,7 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
   expect(typeof meta.startedAt).toBe("string");
 });
 
-test("OpenAI exec lanes never arm a live-input subscription", async () => {
+test("one-shot OpenAI lanes publish turn-framed capability without arming a feed", async () => {
   const { spawn } = await import("./support/spawn");
   let subscriptions = 0;
   const result = await spawn({
@@ -251,7 +251,7 @@ test("OpenAI exec lanes never arm a live-input subscription", async () => {
   expect(result).toBe("done");
   expect(subscriptions).toBe(0);
   expect(readFileSync(log, "utf8"))
-    .toContain("tell agent:test-openai-no-live-feed live_input unsupported");
+    .toContain("tell agent:test-openai-no-live-feed live_input turn-framed");
 });
 
 // Reproduces + fixes: a lane whose provider turn already completed (a real

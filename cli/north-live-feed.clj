@@ -404,7 +404,7 @@
         (or (not (map? facts))
             (not (and (string? observed)
                       (re-matches #"^[0-9a-f]{64}$" observed)))
-            (not (contains? #{"streaming" "unsupported"} live-input))
+            (not (contains? #{"streaming" "turn-framed" "unsupported"} live-input))
             (not (contains? #{"pending" "armed" "frozen"}
                             live-input-state))
             (not (safe-route-epoch? live-input-epoch)))
