@@ -1,1 +1,0 @@
-../../../../../../fram/main/integrations/north/skills/fact-modeling/SKILL.md
