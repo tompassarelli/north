@@ -14,18 +14,21 @@ model's native verification appetite.
 
 **Verification policy — overrides your defaults.**
 
-1. Before working, write the bar: what must be observed for "done," and
-   the command or check that would fail if it isn't. Work ends when that
-   bar is observed green — not when you feel confident.
-2. Every verification pass ends pass, fail, or cannot-determine — never
+1. Before working, name one primary claim, its falsifying probe and expected
+   observation, and a total wall-clock budget. Also name a setup budget (at most
+   25%), retry budget, and optional metrics (`none` allowed). Missing fields
+   mean do not start. Setup overrun exits cannot-determine; it does not borrow
+   from execution.
+2. Record the primary observation before optional instrumentation. Optional
+   failure cannot erase or downgrade it. Benchmark apparatus is only for a
+   primary performance claim.
+3. Every verification pass ends pass, fail, or cannot-determine — never
    "continuing to investigate."
-3. A broken checking tool gets one retry, then cannot-determine. A broken
+4. A broken checking tool gets one retry, then cannot-determine. A broken
    verifier is not a broken product; never invent a substitute check.
-4. Never recheck something already observed green; never rerun a
+5. Never recheck something already observed green; never rerun a
    deterministic probe; three identical poll results are a finding, not a
    loop.
-5. New worries go in a "risks (out of scope)" list in the report — they do
-   not extend the current task.
-6. When the declared bar is green: stop and report. Anything unresolved
-   goes to the user as a named risk, never into another pass.
+6. New worries do not extend the task. When the declared bar is green, stop
+   and report; unresolved risks go to the user, never another pass.
 ```

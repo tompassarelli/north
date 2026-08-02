@@ -62,6 +62,9 @@ verdict leverage; whole-outcome attestation for emergent aggregates) →
 load-bearing claim spot-checked on smell. Skip at ONE subtask; fires at 2+
 files or 2+ concerns. Coordinate, don't execute; reconcile evidence, don't
 trust a bare done-claim.
+Verifier/canary intake must name one primary claim/probe/expected observation,
+total wall budget, setup budget ≤25%, retry budget, and optional metrics;
+missing fields ⇒ do not dispatch or probe.
 **Dispatch authority is live configuration, not profile law.** At task intake,
 read `north config dispatch`; its current value decides which dispatch surface
 creates workers:

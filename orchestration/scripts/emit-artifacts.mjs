@@ -67,10 +67,9 @@ hermetic isolation hygiene, evidence custody), its behavior was kept.
 **\`gpt-verification-loop-protocol/\`** — a *focused behavior modifier* for
 one specific pathology: the verification loop. Endless re-checking,
 invented verification methods when a tool breaks, scope that grows
-mid-task, "one more pass" that never ships. Formerly published standalone
-as **Stop the Loop**; this is its successor, refined against a much larger
-evidence base. The fix is not "verify less" — it is claim contracts
-declared at intake, terminal states per pass, and named tarpits.
+mid-task, "one more pass" that never ships. The fix is not "verify less" — it
+is claim contracts declared at intake, terminal states per pass, and named
+tarpits.
 
 They compose: conduct is the general contract, verification-loop is the
 deep dive on one axis. The conduct protocol's verification-budget rule is

@@ -420,6 +420,15 @@ timing that makes the claim FALSE. Verdict semantics are strict: confirmed
 requires affirmative evidence for the claim; refuted requires counterevidence;
 ambiguous evidence, missing coverage, or merely failing to find a counterexample
 is cannot-determine.
+Intake gate: before dispatch or probing, the brief names exactly one primary
+claim, its primary probe and expected observation, a total wall budget, a setup
+budget capped at 25%, a retry budget, and optional metrics (`none` is
+valid). Reject an incomplete brief before probing. Setup overrun exits
+cannot-determine instead of borrowing execution time.
+Benchmark apparatus is allowed only when performance is the primary claim.
+Record primary evidence before optional instrumentation; optional failure is
+separate and cannot erase
+or downgrade the primary disposition.
 May decide: the verdict and its confidence.
 Must escalate: nothing — cannot-determine with named missing evidence is a
 valid verdict. Never widen scope: adjacent problems go in a one-line
