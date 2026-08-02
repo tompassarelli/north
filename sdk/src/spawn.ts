@@ -1,8 +1,48 @@
 import { resolve as pathResolve } from "node:path";
 import { join as pathJoin } from "node:path";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 const REPO_ROOT = pathResolve(import.meta.dir, "..", "..");
+
+let spawnTerminalLineWritten = false;
+
+function terminalCause(value: unknown): string {
+  const detail = value instanceof Error
+    ? `${value.name}: ${value.message}`
+    : String(value);
+  return detail.replace(/\s+/g, " ").trim() || "unknown";
+}
+
+export function appendSpawnTerminalLine(kind: string, cause?: unknown): void {
+  if (spawnTerminalLineWritten) return;
+  spawnTerminalLineWritten = true;
+  const detail = cause === undefined ? kind : `${kind}: ${terminalCause(cause)}`;
+  try {
+    writeSync(2, `[spawn] terminal ${detail}\n`);
+  } catch {
+    // The wrapper heartbeat remains the hard-kill proof if stderr itself is gone.
+  }
+}
+
+export function installSpawnTerminalHandlers(): void {
+  const signals = [
+    ["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143],
+  ] as const;
+  for (const [signal, exitCode] of signals) {
+    process.once(signal, () => {
+      appendSpawnTerminalLine(`signal=${signal}`);
+      process.exit(exitCode);
+    });
+  }
+  process.once("uncaughtException", (error) => {
+    appendSpawnTerminalLine("uncaughtException", error);
+    process.exit(1);
+  });
+  process.once("unhandledRejection", (reason) => {
+    appendSpawnTerminalLine("unhandledRejection", reason);
+    process.exit(1);
+  });
+}
 
 function writeLaneMeta(agentId: string, meta: Record<string, unknown>): void {
   try {
@@ -1723,6 +1763,7 @@ export async function spawnParallel(
 }
 
 if (import.meta.main) {
+  installSpawnTerminalHandlers();
   // Caller authority was enforced by the invoking adapter before it composed
   // this process's env with the child identity — see bootstrapAuthorityGranted.
   bootstrapAuthorityGranted = true;
@@ -1765,6 +1806,7 @@ if (import.meta.main) {
   })
     .then((result) => console.log(result))
     .catch((err) => {
+      appendSpawnTerminalLine("rejected", err);
       console.error(err);
       process.exit(1);
     });

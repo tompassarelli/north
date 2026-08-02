@@ -16,6 +16,7 @@ north — coordinate work, agents, and time
   AGENTS
     north delegate "<task>"       hand work to a new lane
     north agents                  who's live now
+    north lanes                   postmortem lane liveness from durable receipts
     north watch <id>              tail one agent's transcript
     north steer <id> "<msg>"      nudge it mid-flight
 
