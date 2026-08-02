@@ -41,9 +41,15 @@
       "failed" (paint 31 s)
       "lost" (paint 33 s)
       (dim s))))
+(def model-labels
+  {"sol" "GPT 5.6 Sol" "gpt-5.6-sol" "GPT 5.6 Sol"
+   "terra" "GPT 5.6 Terra" "gpt-5.6-terra" "GPT 5.6 Terra"
+   "luna" "GPT 5.6 Luna" "gpt-5.6-luna" "GPT 5.6 Luna"})
+(defn model-label [model] (or (get model-labels model) model))
 (defn lane-details [{:keys [role effort provider model]}]
-  (let [role-effort (str/join "/" (remove str/blank? [role effort]))]
-    (str/join " · " (remove str/blank? [role-effort (or model provider)]))))
+  (let [role-effort (str/join "/" (remove str/blank? [role effort]))
+        identity (if (str/blank? model) provider (model-label model))]
+    (str/join " · " (remove str/blank? [role-effort identity]))))
 (defn title-slug [title]
   (-> title str/lower-case (str/replace #"[^a-z0-9]+" "-") (str/replace #"^-|-$" "") (clip 28)))
 (defn lane-title [{:keys [id title] :as lane}]
@@ -73,9 +79,9 @@
           (let [details (lane-details lane)
                 details (if (and (str/blank? details) (or (str/blank? title) (= title id)))
                           (dim (subs id 0 (min 8 (count id)))) details)]
-            (str "  " (format (if ids? "%-26s %-34s %-8s %-4s %-12s %s"
-                                  "%-26s %-34s %-8s %-4s %s")
-                               (clip details 26)
+            (str "  " (format (if ids? "%-34s %-34s %-8s %-4s %-12s %s"
+                                  "%-34s %-34s %-8s %-4s %s")
+                               (clip details 34)
                              (clip (lane-title lane) 34)
                              (status-label status)
                              (age last-output-age)

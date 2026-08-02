@@ -83,7 +83,7 @@
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)
-                     (select-keys meta [:role :effort :provider :thread :startedAt])))}))
+                     (select-keys meta [:role :effort :provider :model :thread :startedAt])))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]
