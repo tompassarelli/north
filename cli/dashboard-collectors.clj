@@ -25,6 +25,18 @@
 (defn alive? [pid]
   ;; /proc is available on the Linux hosts that own North's lane receipts.
   (try (.exists (io/file "/proc" (str pid))) (catch Exception _ false)))
+(defn agent-processes []
+  ;; A single sweep keeps fleet collection bounded independently of lane count.
+  (into {}
+        (keep (fn [proc]
+                (try
+                  (let [pid (.getName proc)
+                        env (slurp (io/file proc "environ"))]
+                    (when-let [id (some #(when (str/starts-with? % "AGENT_ID=") (subs % 9))
+                                        (str/split env #"\u0000"))]
+                      [id (Long/parseLong pid)]))
+                  (catch Exception _ nil))))
+        (filter #(.isDirectory %) (or (seq (.listFiles (io/file "/proc"))) []))))
 (defn title [id thread-id]
   (or (get @titles id)
       (let [value (try (let [text (some->> (.listFiles (io/file state-dir "threads"))
@@ -52,7 +64,7 @@
   (try (json/parse-string (slurp (io/file dir (str "lane-" id ".meta.json"))) true)
        (catch Exception _ {})))
 (defn lanes []
-  (let [dir (io/file state-dir "agents")]
+  (let [dir (io/file state-dir "agents") processes (agent-processes)]
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str "lane-" id ".lane.pid")) exitf (io/file dir (str "lane-" id ".lane.exit"))
                         pid (try (Long/parseLong (str/trim (slurp pidf))) (catch Exception _ nil)) terminal (.exists exitf)
@@ -60,11 +72,13 @@
                         completion (some-> (re-find #"complete \(process=([^,\)]+)" (log-text log)) second)
                         meta (lane-meta dir id)
                         thread-id (or (:thread meta) (some-> (re-find #"(?m)AGENT_THREAD=([^\s]+)" (log-head log)) second))
+                        discovered-pid (get processes id)
                         status (cond terminal (if (zero? (try (Long/parseLong (str/trim (slurp exitf))) (catch Exception _ 1))) "finished" "failed")
                                      completion (if (= completion "ran") "finished" "failed")
                                      (< (- (now) (.lastModified log)) 120000) "advancing"
-                                     (and pid (alive? pid)) "live quiet" :else "suspect")]]
-              (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (when (and pid (alive? pid)) pid)
+                                     discovered-pid (str "working (quiet " (quot (- (now) (.lastModified log)) 60000) "m)")
+                                     :else "suspect")]]
+              (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status :pid (or discovered-pid (when (and pid (alive? pid)) pid))
                       :started-at (.lastModified log)
                       :elapsed (max 0 (- (now) (.lastModified log)))
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
