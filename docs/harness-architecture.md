@@ -373,4 +373,11 @@ Included:
 
 A zero session must not require the North binary, socket, daemon, state parser, or account-selection service.
 
+`north zero claude` and `north zero codex` launch this boundary. The command
+branches before the normal `north` wrapper initializes, starts in an empty
+temporary directory, and prints its disablement manifest before provider start.
+For Codex it hides `/etc/codex` in a Bubblewrap namespace when available; if
+that namespace cannot be created, the manifest names the still-visible
+machine-wide requirements and hooks rather than calling the session zero.
+
 ---
