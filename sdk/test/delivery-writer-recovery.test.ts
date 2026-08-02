@@ -51,7 +51,7 @@ test("a typed pre-reservation writer process failure is relaunched once", () => 
 test("the reservation subprocess boundary outlasts the writer's inner windows", () => {
   const readRetryBudgetMs = 15_000; // delivery-evidence-internal read-retry-budget-ms
   const coordinatorReadMs = 30_000; // coord.clj NORTH_COORD_READ_TIMEOUT_MS
-  const publicationDeadlineMs = 30_000; // coord.clj assert-after-read-deadline-ms
+  const publicationDeadlineMs = 60_000; // reserve! reservation-publication-deadline-ms
   const readbackSleepMs = 2_000; // reserve! post-commit readback backoff
   const innerWindows = readRetryBudgetMs + coordinatorReadMs
     + publicationDeadlineMs + readbackSleepMs;

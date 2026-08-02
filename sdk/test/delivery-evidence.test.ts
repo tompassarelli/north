@@ -219,10 +219,10 @@ test("reservation failure diagnostics expose only bounded semantic causes", () =
     + " reason=writer-refusal detail=run subject is not fresh",
   );
   // The outer boundary must lose the race against the writer's inner windows
-  // (15s read budget + 30s socket read + 30s publication + readback).
-  expect(DELIVERY_RESERVATION_WRITER_TIMEOUT_MS).toBe(180_000);
+  // (15s read budget + 30s socket read + 60s publication + readback).
+  expect(DELIVERY_RESERVATION_WRITER_TIMEOUT_MS).toBe(240_000);
   expect(DELIVERY_RESERVATION_WRITER_TIMEOUT_MS).toBeGreaterThan(
-    2 * (15_000 + 30_000 + 30_000 + 2_000),
+    2 * (15_000 + 30_000 + 60_000 + 2_000),
   );
 });
 
