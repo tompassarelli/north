@@ -4,7 +4,12 @@
 (defn render []
   (let [lanes (get-in (state/read-panel :lanes) [:last-good :data :lanes]) health (get-in (state/read-panel :health) [:last-good :data :services])]
     (str "north dashboard\n\nFLEET  " (line :lanes) "\n"
-         (if (seq lanes) (str/join "\n" (for [{:keys [id title status last-output-age]} lanes] (format "  %-28s %-12s %s  output %ss" title status (subs id 0 (min 12 (count id))) (quot last-output-age 1000)))) "  collecting…")
+         (if (seq lanes) (str/join "\n" (for [{:keys [id title status elapsed role provider last-output-age]} lanes]
+                                            (str (format "  %-28s %-12s %s" title status (subs id 0 (min 12 (count id))))
+                                                 (when elapsed (str "  elapsed " (quot elapsed 1000) "s"))
+                                                 (when role (str "  role " role))
+                                                 (when provider (str "  provider " provider))
+                                                 (when last-output-age (str "  output " (quot last-output-age 1000) "s"))))) "  collecting…")
          "\n\nHEALTH  " (line :health) "\n"
          (if (seq health) (str/join "\n" (for [[unit {:keys [active socket memory]}] health] (str "  " unit " process " (if active "up" "down") " socket " (if socket "up" "down") " memory " (pr-str memory)))) "  collecting…")
          "\n\nBOARD  " (line :board) "\n  " (or (get-in (state/read-panel :board) [:last-good :data :text]) "collecting…")
