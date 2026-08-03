@@ -256,7 +256,7 @@ function validateOpenAIHarness(options: any): OrchestrationCapability[] | undefi
       throw new ProviderRetrySafeError("openai_write_workspace_identity_unavailable", { cause });
     }
     // Codex's unified-exec hook intentionally omits a per-call workdir. The
-    // clock invariant therefore relies on the other half of the executable
+    // authoring invariants therefore rely on the other half of the executable
     // boundary too: workspace-write has no --add-dir, and the admitted cwd is
     // the canonical project root. A client project root appears in common hook
     // cwd; a non-client root cannot sandbox-write a client checkout.

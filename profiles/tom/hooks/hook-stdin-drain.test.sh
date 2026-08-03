@@ -22,7 +22,6 @@ hooks=(
   launch-critical-worktree-guard.sh
   git-blind-stage-guard.sh
   tripwire-guard.sh
-  north-clock-guard.sh
   beagle-session-start.sh
   racket-build-guard.sh
   logcompress-hook.js
@@ -91,12 +90,6 @@ envelopes = {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "true"},
-        "cwd": plain,
-    },
-    "north-clock-guard.sh": {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Edit",
-        "tool_input": {"file_path": target},
         "cwd": plain,
     },
     "beagle-session-start.sh": {

@@ -15,9 +15,6 @@ WORK — threads: thought → fact → outcome
   north agenda                              calendar projection over do_on: overdue / today / upcoming
   north needs-review                        judgments whose inputs moved; unevidenced bars; promotable drafts
   north resolve <ref>                       canonical thread id for a ref (id, slug, or substring)
-  north clock in <owner>|out                open/close the one human client billing session
-                                            north clock audit — commits-vs-clock coverage drift
-                                            north clock start|stop — legacy thread-session aliases
   north evidence record "<bar>" "<result>"  bind done-bar evidence to this exact managed run
                                             --thread <id> — no reservation in env: record unreserved thread evidence
   north bars list|prune <thread>            groom a thread's done_when set; prune retires evidenced bars
@@ -101,7 +98,7 @@ STORE — the fact corpus and its schema
   north validate                             full integrity check: engine rules + north work rules
   north audit                                corpus-health report
   north history <id>                         a subject's full fact history from the log
-  north json <view>                          machine-readable projections (plate, ready, show, clock-report, …)
+  north json <view>                          machine-readable projections (plate, ready, show, …)
   north tools                                the curated MCP tool surface + the fram engine core
   north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
   north boot                                 session orientation: safety verdict, hygiene, the entry-point note

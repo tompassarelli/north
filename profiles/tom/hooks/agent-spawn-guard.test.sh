@@ -239,7 +239,6 @@ run allow 'test script path does not reveal its contents' worker Bash 'bash ./ag
 run allow 'North show remains available' worker Bash 'north show thread-1'
 run allow 'North tell remains available' worker Bash 'north tell thread-1 progress done'
 run allow 'North capture remains available' worker Bash 'north capture "an idea"'
-run allow 'North clock remains available' worker Bash 'north clock status'
 run allow 'North status/help diagnostics remain available' worker Bash 'north agents && north providers && north --help'
 
 echo '== topology boundary and dispatch-mode independence =='

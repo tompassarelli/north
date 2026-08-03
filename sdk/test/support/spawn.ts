@@ -13,7 +13,7 @@ const RUNTIME_FIELDS = new Set([
   "queryFn", "deliveryRuntime", "loadThreadFacts", "threadFactsLoadOptions",
   "childSettlementReader", "feedSubscriber",
   "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
-  "admitResourceEnvelope", "completeResourceEnvelope", "admitBillableClock",
+  "admitResourceEnvelope", "completeResourceEnvelope",
   "admitDispatchAuthority",
   "worktreeAllocationWriter", "prepareManagedFramCoordinator",
   "publishLearningAssignment",

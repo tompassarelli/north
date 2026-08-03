@@ -646,8 +646,6 @@
     (cond
       (str/includes? h "done-claims") ["done-claims" "core"]
       (str/includes? h "standing guards") ["standing-guards" "core"]
-      (or (str/includes? h "billable")
-          (str/includes? h "client time and agent time")) ["client-time" "client"]
       (str/includes? h "pre-edit gate") ["pre-edit-gate" "orch"]
       (str/includes? h "model +") ["model-routing" "orch"]
       (str/includes? h "push freely") ["push" "write"]

@@ -21,7 +21,6 @@
    ;; Explicit structure wins even when stale legacy classification disagrees.
    (k/->Fact "@run-9" "entity_kind" "run") (k/->Fact "@run-9" "kind" "session")
    (k/->Fact "@run-9" "started_at" "t")
-   (k/->Fact "@client-clock" "kind" "client_session") (k/->Fact "@client-clock" "owner" "acme")
    (k/->Fact "@session:s1" "started_at" "t")   (k/->Fact "@session:s1" "agent" "cc")
    (k/->Fact "@denial:g1" "reason" "guarded")
    (k/->Fact "@person:p1" "display_name" "Person P")
@@ -73,7 +72,6 @@
    ["prefix topic-  => topic"                       (= "topic" (kof "@topic-perf"))]
    ["legacy mine becomes namespaced extension"      (= "north/mine" (kof "@mine:1"))]
    ["explicit entity_kind wins over legacy kind"    (= "run" (kof "@run-9"))]
-   ["legacy client_session maps to core kind"        (= "client_session" (kof "@client-clock"))]
    ["prefix session: maps to agent"                  (= "agent" (kof "@session:s1"))]
    ["prefix denial: maps to guard_denial"            (= "guard_denial" (kof "@denial:g1"))]
    ["display_name shape maps to person"              (= "person" (kof "@person:p1"))]
@@ -85,7 +83,6 @@
    ["census: 2 thread subjects"                     (= 2 (subj-of "thread"))]
    ["census: 2 concern subjects"                    (= 2 (subj-of "concern"))]
    ["census: run remains its own core kind"          (= 1 (subj-of "run"))]
-   ["census: client_session remains core kind"       (= 1 (subj-of "client_session"))]
    ["census preserves namespaced extension"          (= 1 (subj-of "vendor/widget"))]
    ["census: 2 other subjects"                      (= 2 (subj-of "other"))]
    ["census sorted by fact count desc"              facts-desc?]

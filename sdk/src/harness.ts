@@ -260,7 +260,6 @@ export const NORTH_MCP_TOOL_NAMES = [
   "retract",
   "clock_start",
   "clock_stop",
-  "clock_status",
   "clock_report",
   "presentation",
   "linear_get",
@@ -665,8 +664,6 @@ function fallbackSectionMetadata(
   const h = heading.toLowerCase();
   if (h.includes("done-claims")) return { id: "done-claims", bucket: "core" };
   if (h.includes("standing guards")) return { id: "standing-guards", bucket: "core" };
-  if (h.includes("billable") || h.includes("client time and agent time"))
-    return { id: "client-time", bucket: "client" };
   if (h.includes("pre-edit gate")) return { id: "pre-edit-gate", bucket: "orch" };
   if (h.includes("model +")) return { id: "model-routing", bucket: "orch" };
   if (h.includes("push freely")) return { id: "push", bucket: "write" };
@@ -1709,22 +1706,18 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // never loads ~/.claude/settings.json, so we re-run the SAME PreToolUse guard scripts
 // the interactive matchers run and translate their output into HookJSONOutput.
 // PARITY SOURCE: ~/code/nixos-config/dotfiles/claude/settings.json (PreToolUse). These
-// lists are the POST-parity target — a parallel lane is adding north-clock-guard to
-// the interactive Bash matcher; keep both in lockstep with settings.json.
-//   Edit|Write|MultiEdit -> code-upstream, firn, north-clock
-//   Bash                 -> tripwire, firn, north-clock
-// Optional advisory guards are existence-checked once. The clock path is
-// retained unconditionally: missing/unexecutable is unavailable and denies.
+// lists are the POST-parity target; keep both in lockstep with settings.json.
+//   Edit|Write|MultiEdit -> code-upstream, firn
+//   Bash                 -> tripwire, firn
 const EDIT_GUARDS = resolveManagedGuardChain([
-  "code-upstream-guard.sh", "firn-guard.sh", "north-clock-guard.sh",
+  "code-upstream-guard.sh", "firn-guard.sh",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
-  "tripwire-guard.sh", "firn-guard.sh", "north-clock-guard.sh",
+  "tripwire-guard.sh", "firn-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
-  "agent-spawn-guard.sh", "tripwire-guard.sh", "firn-guard.sh", "north-clock-guard.sh",
+  "agent-spawn-guard.sh", "tripwire-guard.sh", "firn-guard.sh",
 ]);
-const REQUIRED_CLOCK_GUARD = resolve(HOOKS_DIR, "north-clock-guard.sh");
 
 function receiptFileArtifact(id: string, path: string): EnvironmentArtifact {
   try {
@@ -1798,11 +1791,7 @@ function harnessEnvironmentReceipt(args: {
 // One matcher's callback: run its guard chain (first deny wins) over the hook input,
 // translate to HookJSONOutput. A deny blocks THIS tool call (permissionDecision:deny)
 // but does NOT halt the agent (`continue` stays default-true) — the worker sees the
-// reason and can clock in + retry, exactly like the interactive deny. The canonical
-// clock guard must positively classify every matched tool envelope: a live clock
-// yields "allow", a proven nonbillable envelope yields "not-applicable", and every
-// missing/empty/error/timeout/unknown result denies unavailable. This keeps shell
-// semantics in one guard instead of duplicating an inevitably incomplete classifier.
+// reason and can correct the command, exactly like the interactive deny.
 async function guardHook(self: string, scripts: string[], input: unknown, topology?: Topology) {
   const env = topology ? { ...process.env, AGENT_TOPOLOGY: topology } : process.env;
   if (authoringGuardsOff(env)) return { continue: true };
@@ -1817,20 +1806,14 @@ async function guardHook(self: string, scripts: string[], input: unknown, topolo
     };
   };
   try {
-    const d = await evaluateGuards(
-      scripts,
-      input,
-      10000,
-      env,
-      new Set([REQUIRED_CLOCK_GUARD]),
-    );
+    const d = await evaluateGuards(scripts, input, 10000, env);
     if (d.decision === "deny") {
       // Durable trail: record the denial as a `kind guard_denial` fact so a worker
       // block is learnable after the fact (which agent, which guard, what target).
       // Fire-and-forget — never delay or break the tool call the guard decided.
       return deny(d.reason);
     }
-  } catch { return deny("billable_clock_guard_unavailable"); }
+  } catch { return deny("authoring_guard_unavailable"); }
   return { continue: true };
 }
 
@@ -2045,7 +2028,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     settings: { autoCompactEnabled: true },
     hooks: {
       // PreToolUse authoring-guard parity — the fix for worker edits running with
-      // ZERO guards (north-clock-guard never fired for a worker edit). Matchers +
+      // ZERO guards. Matchers +
       // guard chains mirror settings.json; first deny in a chain blocks the tool.
       PreToolUse: [
         { matcher: "Edit|Write|MultiEdit", hooks: [async (input: unknown) => guardHook(o.self, EDIT_GUARDS, input)] },

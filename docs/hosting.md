@@ -14,7 +14,7 @@ threads/*.md ──import──▶ facts.log (append-only) ──fold──▶ i
                               coordinator daemon  ◀── clients query + assert
                               (sole writer, 127.0.0.1)        │
                                                    consumer (North) derives
-                                                   ready / blocked / leverage / clock
+                                                   ready / blocked / leverage
 ```
 
 - **Truth** is an append-only `facts.log` of `(subject, predicate, object)` triples.
@@ -22,7 +22,7 @@ threads/*.md ──import──▶ facts.log (append-only) ──fold──▶ i
   in-memory graph and serves `query`/`assert`/`retract` over a **loopback** socket
   with optimistic concurrency and commit-time rule checks. It binds `127.0.0.1`
   and is **unauthenticated by design**.
-- **North** is the life domain on top (lifecycle projections, clock, billing).
+- **North** is the life domain on top (lifecycle and agent-run projections).
 - **Runtime dependency is just [babashka](https://babashka.org)** — the compiled
   Clojure is committed in both repos (`out/`); Beagle is only needed to rebuild.
 
@@ -148,7 +148,7 @@ it to its own mount namespace.
 | Capability | State |
 |---|---|
 | Fact log, fold, Datalog derivation, single-writer coordinator | **built** (Fram, tested) |
-| Lifecycle/clock/billing projections | **built** (North, tested) |
+| Lifecycle and agent-run projections | **built** (North, tested) |
 | Runs on bare babashka, no build step | **built** (`out/` committed) |
 | Single-machine + SSH-tunnel remote | **built** |
 | Authenticated gateway (bearer → tenant → coordinator), per-tenant isolation | **built** (`deploy/gateway`, smoke-tested in CI) |

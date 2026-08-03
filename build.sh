@@ -15,7 +15,7 @@ FRAM="${FRAM_HOME:-$HOME/code/fram}"
 ln -sfn "$FRAM/src/fram" "$SRC/fram"
 
 mkdir -p "$OUT/north"
-for m in projections validate staleness clock clockify audit gatepolicy main; do
+for m in projections validate staleness audit gatepolicy main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$BEAGLE" "$BEAGLE/bin/beagle-build" \
     "$SRC/north/$m.bclj" "$OUT/north/$m.clj" >/dev/null
   echo "  built north/$m"

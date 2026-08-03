@@ -45,7 +45,7 @@ const M = {
   fleet: "Banned vocabulary",
   apiStub: "subscription entitlements only, never API credits",
   donePara1: "Done-claims carry a bar",
-  billing: "Human/client presence is the billing clock",
+  agentTime: "Agent time is run telemetry",
   preEdit: "Pre-edit gate — MANDATORY",
   routing: "Model + payload routing",
   donePara2: "Evidence attaches where the done-claim lives",
@@ -161,7 +161,7 @@ test("the owned profile has one unique valid tag directly below every section he
 test("CORE laws ride with every capability class, byte-identical", () => {
   const cores = Object.values(CLASS).map((caps) => constitutionTiers(caps, north).core);
   for (const core of cores) {
-    for (const marker of [M.preamble, M.blocked, M.paths, M.fleet, M.apiStub, M.donePara1]) {
+    for (const marker of [M.preamble, M.blocked, M.paths, M.fleet, M.apiStub, M.donePara1, M.agentTime]) {
       expect(core).toContain(marker);
     }
   }
@@ -172,11 +172,11 @@ test("CORE laws ride with every capability class, byte-identical", () => {
   expect(uniqueCores.size).toBe(1);
 });
 
-test("read-only lanes drop billing / pre-edit-gate / routing / push / write / shell / orch laws", () => {
+test("read-only lanes drop pre-edit-gate / routing / push / write / shell / orch laws", () => {
   for (const caps of [CLASS.roEval, CLASS.roExplore]) {
     const text = whole(caps);
     for (const marker of [
-      M.billing, M.preEdit, M.routing, M.donePara2, M.push, M.external,
+      M.preEdit, M.routing, M.donePara2, M.push, M.external,
       M.docsPrivate, M.newCode, M.serialize, M.rm, M.nixos, M.beagle,
     ]) {
       expect(text).not.toContain(marker);
@@ -193,7 +193,7 @@ test("writer lanes keep the write + shell blocks, not the orchestrator-only laws
     expect(text).not.toContain(marker); // orchestrator-only
   }
   // Generic (non-client/non-nixos) repo: repo-gated laws stay out.
-  for (const marker of [M.billing, M.nixos, M.beagle]) {
+  for (const marker of [M.nixos, M.beagle]) {
     expect(text).not.toContain(marker);
   }
 });
@@ -237,7 +237,7 @@ test("metadata-less lanes keep the whole constitution unchanged (tiering only ac
   const t = constitutionTiers(undefined, north);
   expect(t.cap).toBe("");
   expect(t.repo).toBe("");
-  for (const marker of [M.billing, M.routing, M.push, M.serialize, M.nixos]) {
+  for (const marker of [M.agentTime, M.routing, M.push, M.serialize, M.nixos]) {
     expect(t.core).toContain(marker); // nothing gated away without a capability set
   }
 });

@@ -288,7 +288,7 @@ test("a lane that dies mid-stream records outcome=died ON the lane entity (repor
   expect(logged).toContain("tell @swarm agent_death"); // death path still fires
 });
 
-test("a synchronous provider-construction failure records run telemetry without billing mutation", async () => {
+test("a synchronous provider-construction failure records run telemetry", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
 
@@ -302,12 +302,10 @@ test("a synchronous provider-construction failure records run telemetry without 
 
   expect(result).toBe("");
   const logged = readFileSync(log, "utf8");
-  expect(logged).not.toContain("clock start thread-sync-construction");
   expect(logged).toContain("tell @swarm agent_death");
   expect(logged).toContain("tell agent:test-sync-construction-failure outcome died");
   expect(logged).toContain(" thread thread-sync-construction");
   expect(logged).toContain(" duration_ms ");
-  expect(logged).not.toContain("clock orphan test-sync-construction-failure");
 });
 
 test("a Orchestration prompt-composition failure is blocked preflight before query construction", async () => {
@@ -758,11 +756,6 @@ test("SIGTERM during provider preflight waits for envelope and driver cleanup", 
     ],
     loadChildren: () => [],
     claimDriver: (() => ({ release: () => true })) as any,
-    admitBillableClock: (() => ({
-      kind: "verified",
-      client: "msa",
-      threadId: "test-signal-preflight-cleanup",
-    })) as any,
     admitResourceEnvelope: (async () => undefined) as any,
     refreshAccountUsages: (async ({ signal }: { signal?: AbortSignal }) => {
       order.push("preflight");
@@ -825,11 +818,6 @@ test("an outer cleanup exception still closes query and releases termination own
       async *[Symbol.asyncIterator]() {},
     }),
     childSettlementReader: () => ({ kind: "settled", children: [] }),
-    admitBillableClock: (() => ({
-      kind: "verified",
-      client: "msa",
-      threadId: "test-pre-publication-throw-thread",
-    })) as any,
     completeResourceEnvelope: (async () => {
       order.push("envelope:error");
       throw new Error("envelope cleanup failure");
@@ -1267,7 +1255,7 @@ test("an MCP-preclaimed terminal thread verifies and safely releases before retu
   });
 });
 
-test("dispatch rejects a worker composite before clocks, claims, envelopes, or query construction", async () => {
+test("dispatch rejects a worker composite before claims, envelopes, or query construction", async () => {
   const { dispatch } = await import("./support/dispatch");
   const sideEffects: string[] = [];
 
@@ -1280,7 +1268,6 @@ test("dispatch rejects a worker composite before clocks, claims, envelopes, or q
       { predicate: "done_when", value: "dispatch rejects before execution" },
     ],
     loadChildren: () => ["test-worker-composite-child"],
-    admitBillableClock: (() => { sideEffects.push("clock"); }) as any,
     claimDriver: (() => {
       sideEffects.push("claim");
       return { release: () => true };

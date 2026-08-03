@@ -9,9 +9,7 @@
 > `docs/fact-native-redesign.md`):
 > - **One project/CLI/engine: `north`.** `los thread`/`los validate` are
 >   **retired** — use `north` (ready/blocked/next/agenda/board/show/leverage/
->   validate/capture/tell/retract/import/export/audit). Time tracking is
->   **`north clock`** (fact-native sessions; `los time` and the JSON clock-in
->   are gone — Clockify is just a sync target now).
+>   validate/capture/tell/retract/import/export/audit).
 > - **Thread files are FACT TRIPLES, not YAML.** `@<id>` subject + `predicate
 >   object` lines + `---` + prose body. Refs are `@id`; literals are EDN.
 > - **No `state` enum.** Lifecycle is *derived* from facts: `committed`,
@@ -382,8 +380,8 @@ reporter.
 Three independent dimensions:
 
 - **`owner`** — the *entity* the thread serves, a **literal**: `personal` (Tom's
-  own work, the default catchall), a client owner like `acme` (billable
-  contract work), and others as they arise. Threads that used to live in
+  own work, the default catchall), a client owner like `acme`, and others as
+  they arise. Threads that used to live in
   `space: system` are
   `owner personal` with a `relates_to @topic-system` edge.
 - **`lead`** — the person accountable for the thread landing, a **person ref**
@@ -638,8 +636,7 @@ when no log is pinned and the seeded coordination log already exists. Stage-A
 independent writers additionally require `NORTH_TELEMETRY_PARTITION=1` and
 `NORTH_TELEMETRY_PORT`; disabling that one flag is the documented rollback.
 
-`los` is **gone entirely** — `los thread`/`los validate` retired (use `north`),
-and time tracking is now **`north clock`** (fact-native; see Clock management).
+`los` is **gone entirely** — `los thread`/`los validate` retired (use `north`).
 One CLI.
 
 Run `~/code/north/main/bin/north` with no args for the authoritative usage line;
@@ -1146,97 +1143,12 @@ actual work session — what an AI does when Tom starts *doing* something.
 
 ---
 
-## Clock management
+## Agent run telemetry
 
-Time has two orthogonal axes. Do not make either axis impersonate the other:
-
-1. **Human client billing** is one loose, owner-scoped session for Tom's working
-   context (`kind client_session` / `owner` / `clocked_by user` / `rate` /
-   `start_time` / `end_time`). It normally spans many tickets and many managed
-   lanes. Start it when client work begins; stop it only when the client context
-   actually changes.
-2. **Managed task timing** is one `kind run` telemetry entity per agent run,
-   carrying exact `thread`, `agent`, and `duration_ms`. Runs overlap freely and
-   preserve per-task estimation evidence. Managed lanes never start, stop, or
-   adopt the human billing clock; before client writes they only verify that the
-   matching human owner session is open.
-
-Both are fact-native and live in the graph, but only the human axis feeds
-invoices. Historical human `session_of @thread` rows remain readable and
-billable; an explicit non-user `clocked_by` is legacy agent timing and is
-audit-only. `los time` and the old JSON clock-in are gone.
-
-```sh
-north clock in <owner>          # open the one human client session (e.g. msa)
-north clock out                 # close it and report the duration
-north clock status              # current client owner/session + elapsed
-north clock report              # est vs actual per thread + calibration %
-north clock today | week        # logged time per thread over a date window
-
-# Compatibility for historical/manual per-thread human calibration:
-north clock start <thread-id>
-north clock stop
-```
-
-`actual` is *derived* (summed from sessions, never stored). `clock report`'s
-calibration % across completed threads is the honest-estimate signal (>100% ⇒
-you under-estimate) — exactly what `needs-review`'s `estimate_hours` flag points
-at: re-estimate using what the work *actually* took.
-
-### Clockify is a projection, not a second store
-
-Billing flows *out of* the sessions — Clockify is a derived sync target, not a
-parallel ledger:
-
-```sh
-north clock map <owner> <project-id>   # owner -> Clockify project (config)
-north clock sync                        # push closed, billable sessions
-north clock projects | workspaces       # list Clockify projects/workspaces
-```
-
-A session is **billable** iff it is a human owner-scoped client session, or a
-compatible legacy human thread session, and that owner is mapped to a Clockify
-project (so `owner personal` is never billed). `sync` pushes closed, unsynced,
-billable sessions and writes the returned id back as a `clockify_id` fact, so
-it's idempotent. Mapping lives in `~/code/north/main/time/projects.json`; the API key
-comes from `$CLOCKIFY_SECRET_FILE` (wired by the wrapper). **Sync is on-demand
-only — never automatic** (it touches real client billing).
-
-This section is when an AI should act on the human clock (`clock in`/`out`).
-
-1. **Clock is required for non-`personal` owners.** Whenever work is detected
-   against a client, a human session for that owner must be open (`clock in
-   <owner>`). If none is running and Tom starts client work, prompt before
-   continuing. Billing is settled later via `clock sync`.
-2. **One human client clock at a time; many run clocks.** The human session
-   represents client context, not a ticket or agent. Do not stop/start it as Tom
-   moves among tickets for the same client. Every managed run independently
-   records its exact task duration, and those run records may overlap.
-3. **`owner personal` is clock-optional.** Tom may track personal threads (a
-   Beagle session, a writing block) for calibration but isn't required to. Offer
-   once at the start of substantive personal work, then drop it.
-4. **Shift detection on signal, not on timer.** Re-evaluate the active session
-   when a different client becomes the focal context, the conversation clearly
-   leaves client work, or Tom states a switch. Going off-topic may warrant a
-   warning, but ticket changes inside the same client do not. High-confidence
-   client shifts switch with a notification; ambiguous shifts ask.
-5. **Wall-clock counts while context is preserved.** AI generation waits, long
-   compiles, reading docs, and work across several tickets all count while the
-   client context remains active. A full client-context switch is a `clock out`
-   moment.
-6. **Clockify sync is on-demand.** `clock sync` runs when Tom asks. Never automatic.
-
-Human clock-in is fail-closed and race-atomic. North writes owner, actor,
-captured rate, and start first — a failed prefix is inert and never opens a
-session — then publishes `kind=client_session` as the visibility marker through
-the coordinator's global-version CAS (`:assert-at-version`): the open-session
-re-check and the marker publication commit against one coordinator version, so
-of two racing interactive clock-ins exactly one publishes; the loser retracts
-its own inert prefix and refuses. Pre-existing duplicate/corrupt open state
-remains fail-closed: `north clock status` reports it and managed client
-admission refuses to run; resolve it explicitly before continuing.
-
----
+Each managed lane records one `kind=run` entity with its thread, agent,
+`duration_ms`, outcome, and estimate comparison. Runs overlap freely. This
+telemetry supports grounding and estimation; it never gates edits or represents
+a human/client work session.
 
 ## What lives elsewhere
 

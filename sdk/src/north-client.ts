@@ -68,7 +68,7 @@ function invokeNorth(
       encoding: "utf-8",
       // Default rides above the coordinator's own query budget (30s) so the
       // coordinator stays the authoritative limiter; a 5s client ceiling was
-      // failing billable admission on legitimate 4-6.5s reads (2026-07-28).
+      // failing admission on legitimate 4-6.5s reads.
       timeout: options.timeoutMs ?? 45_000,
       stdio: ["ignore", "pipe", "pipe"],
     });

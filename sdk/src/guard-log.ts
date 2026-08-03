@@ -1,6 +1,6 @@
 // Guard-denial telemetry — the missing trail. A PreToolUse authoring guard that
-// DENIES a worker's Edit/Write/Bash leaves NO durable record: north-clock-guard and
-// code-upstream-guard emit only the deny JSON (no log), stream-writer.ts drops the
+// DENIES a worker's Edit/Write/Bash leaves NO durable record: authoring guards
+// emit only the deny JSON (no log), stream-writer.ts drops the
 // hook output (it forwards only assistant/result/system), and north-mine.clj mines
 // denials from INTERACTIVE Claude Code transcripts (~/.claude/projects) — which SDK
 // workers never write. So the exact population the guard bridge exists for (worker
@@ -18,7 +18,6 @@ import { execFile } from "node:child_process";
 // Classify a deny reason to the guard that produced it, so analytics can group by
 // guard without threading the guard name through the hook protocol (the guards emit
 // only a reason string). Substrings are matched against the REAL guard outputs:
-//   north-clock-guard.sh -> "Billable client edit blocked …"
 //   code-upstream-guard  -> "… GRAPH-OWNED …"
 //   firn-guard           -> "BLOCKED: …"
 //   tripwire-guard       -> exit-2 stderr (reason carries "tripwire" or the policy line)
@@ -26,8 +25,6 @@ import { execFile } from "node:child_process";
 // still a deny worth counting, and a new "other" mass is the signal to add a label.
 export function classifyGuard(reason: string): string {
   const r = reason.toLowerCase();
-  if (r.includes("billable client edit blocked") || (r.includes("clock") && r.includes("client")))
-    return "north-clock-guard";
   if (r.includes("graph-owned") || r.includes("code-upstream")) return "code-upstream-guard";
   if (r.includes("blocked:") || r.includes("firn")) return "firn-guard";
   if (r.includes("tripwire") || r.includes("safe-push") || r.includes("allowlist")) return "tripwire-guard";

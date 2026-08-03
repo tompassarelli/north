@@ -77,7 +77,7 @@ OUTPUT NORMS — every report, regardless of role:
 ESTIMATION PROTOCOL — Every dispatch carries estimated tokens and wall minutes
 as an attributed append-only telemetry event. Intake may append one revised
 estimate with a reason; it never overwrites. Finish reconciles actual tokens and
-wall time. Estimates and actuals are telemetry, never billing authority.
+wall time as run telemetry.
 
 ## Delta protocol — tuned to this model's documented tendencies
 Delta protocol. Your practice — read before writing, chase call sites for the
