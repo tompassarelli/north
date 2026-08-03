@@ -320,10 +320,15 @@
 (defn status! [client]
   (let [{:keys [payload] :as result}
         (result-map (request! client :rpc/status wire/rpc-unit {}))
-        [state live-count engine] (record-fields! payload :rpc/status 3)]
+        [state live-count engine encoded-cache]
+        (record-fields! payload :rpc/status 4)
+        [hits misses bytes evictions]
+        (record-fields! encoded-cache :rpc/result-cache 4)]
     (assoc (dissoc result :payload :page)
            :space-id (:space-id client)
-           :state state :live-count live-count :engine engine)))
+           :state state :live-count live-count :engine engine
+           :cache {:hits hits :misses misses :bytes bytes
+                   :evictions evictions})))
 
 (declare connect)
 
