@@ -11,6 +11,24 @@ NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export NORTH_HOME
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
+# additionalContext is emitted into a long-lived prompt: resolve a store NORTH_HOME to
+# a rebuild-stable alias there. Verified present in /run/current-system/sw/bin; else bare name.
+stable_bin() {
+  case "$NORTH_HOME" in
+    /nix/store/*)
+      case "$1" in
+        north|concern) printf '%s/%s' /run/current-system/sw/bin "$1" ;;
+        *) printf '%s' "$1" ;;
+      esac
+      ;;
+    *) printf '%s/bin/%s' "$NORTH_HOME" "$1" ;;
+  esac
+}
+NORTH_BIN="$(stable_bin north)"
+CONCERN_BIN="$(stable_bin concern)"
+ENSURE_PRIVATE_DOCS_BIN="$(stable_bin ensure-private-docs)"
+NORTH_COMMS_BIN="$(stable_bin north-comms)"
+
 # The provider allows 15s, but startup must never approach that deadline. Buffer
 # one complete envelope behind a much smaller circuit breaker; malformed input,
 # a wedged filesystem, or an unexpected crash becomes an empty successful hook
@@ -373,7 +391,7 @@ schedule_spawn_maintenance() {
 CTX="$(cat <<EOF
 [north coordination active — you are agent "$ID" in repo "$RN"]
 FIRST ACT: arm your real-time interrupt listener as a BACKGROUND task now:
-  $NORTH_HOME/bin/north listen $ID
+  $NORTH_BIN listen $ID
 Eight deliveries sat unlanded when coordinators were unarmed. Dormant (no tokens) until a peer
 addresses you; when it returns you have mail — read it, act, re-arm. Watchers match invariants,
 never cohort names; a hand-rolled poller never substitutes for the designed channel.
@@ -381,15 +399,15 @@ never cohort names; a hand-rolled poller never substitutes for the designed chan
 Other agents may be working here concurrently. You coordinate through CONCERNS, not locks —
 work coexists; declaring never blocks. See who else is in your footprint, and shape your
 feature against what is likely to land before it is in main.
-  $NORTH_HOME/bin/concern declare $ID $RN "<what you're building>" <file1,file2,...>
-  $NORTH_HOME/bin/concern overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
-  $NORTH_HOME/bin/concern status <id> likely-to-land · done <id> · ls [repo]
+  $CONCERN_BIN declare $ID $RN "<what you're building>" <file1,file2,...>
+  $CONCERN_BIN overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
+  $CONCERN_BIN status <id> likely-to-land · done <id> · ls [repo]
 Declare a concern before editing code for a feature, so others can see + shape around your work.
 
 Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.
-Run \`$NORTH_HOME/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.
+Run \`$ENSURE_PRIVATE_DOCS_BIN\` to set up the ignore in a repo before writing there.
 Need a system rebuild? QUEUE the ask and keep working — you never fire one yourself:
-  $NORTH_HOME/bin/north rebuild request --why "<reason>"        # returns at once; never builds
+  $NORTH_BIN rebuild request --why "<reason>"        # returns at once; never builds
   ... --urgent "<why it cannot wait>"                            # counted, never refused
 The reactor's window owner coalesces every open ask into ONE coordinated rebuild and closes
 your request against the generation that landed. Direct \`firn rebuild\` / \`firn-rebuild-coordinated\`
@@ -401,7 +419,7 @@ session-scoped and should be used only when that exact current session is intend
 \`north-comms send\` resolves aliases at send time and FAILS LOUDLY when the concrete recipient
 has neither a live lease nor an armed listener; do not guess or retry another session hash.
 \`--dead-drop\` is only for a deliberate send to an absent identity.
-Ping a peer:  $NORTH_HOME/bin/north-comms send $ID <peer-role-alias> "URGENT" "<message>"
+Ping a peer:  $NORTH_COMMS_BIN send $ID <peer-role-alias> "URGENT" "<message>"
 EOF
 )"
 
