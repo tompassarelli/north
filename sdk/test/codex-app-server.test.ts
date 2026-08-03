@@ -608,12 +608,6 @@ function setup(mode = "ok") {
           scriptPath: mode === "command-plugin-attributed" ? "bin/run.sh" : null,
         });
         lifecycle("started", startedCommand, 10);
-        notify("item/commandExecution/outputDelta", {
-          threadId, turnId, itemId: startedCommand.id, delta: "ok\n",
-        });
-        notify("item/commandExecution/terminalInteraction", {
-          threadId, turnId, itemId: startedCommand.id, processId: "process-1", stdin: "",
-        });
         const completedCommand: any = {
           ...startedCommand,
           status: mode === "command-failed" ? "failed" : "completed",
@@ -625,6 +619,20 @@ function setup(mode = "ok") {
           durationMs: 1,
         };
         if (mode === "command-schema-extra") completedCommand.futureAuthority = true;
+        if (mode === "turn-silent-open-item") return;
+        if (mode === "turn-silent-open-item-completes") {
+          setTimeout(() => {
+            lifecycle("completed", completedCommand, 11);
+            finishRuntime();
+          }, 250);
+          return;
+        }
+        notify("item/commandExecution/outputDelta", {
+          threadId, turnId, itemId: startedCommand.id, delta: "ok\n",
+        });
+        notify("item/commandExecution/terminalInteraction", {
+          threadId, turnId, itemId: startedCommand.id, processId: "process-1", stdin: "",
+        });
         if (mode !== "command-missing-completion") lifecycle("completed", completedCommand, 11);
       }
       // Codex dies mid-turn after landing real work, with its own account of
@@ -651,6 +659,21 @@ function setup(mode = "ok") {
             threadId, turnId, itemId: slow.id, delta: "chunk",
           });
           lifecycle("completed", slow, 31 + tick);
+          setTimeout(beat, 50);
+        };
+        setTimeout(beat, 50);
+        return;
+      }
+      // Reasoning deltas are provider execution activity even without an item
+      // lifecycle envelope; they keep the ordinary inactivity gate open.
+      if (mode === "turn-slow-reasoning") {
+        let tick = 0;
+        const beat = () => {
+          if (tick >= 5) { finishRuntime(); return; }
+          tick += 1;
+          notify("item/reasoning/textDelta", {
+            threadId, turnId, itemId: "reasoning-slow", delta: "thinking", contentIndex: 0,
+          });
           setTimeout(beat, 50);
         };
         setTimeout(beat, 50);
@@ -2618,7 +2641,46 @@ test("a tool completion followed by silence settles the turn as interrupted", as
   expect(harvest.toolItems).toBe(1);
   expect(harvest.interrupt).toMatchObject({
     reason: "post_tool_silence", deadlineMs: 150, inactivityThresholdMs: 150,
+    openItemCount: 0, openItem: null,
   });
+});
+
+test("a silent open item suspends inactivity expiry until it completes", async () => {
+  const { options, requests } = setup("turn-silent-open-item-completes");
+  const result = await new ManagedCodexAppServerRun({
+    ...options, turnDeadlineMs: 100, turnDeadlineInactivityMs: 100,
+    inFlightItemCeilingMs: 1_000, postToolQuietMs: 30_000,
+  }).execute();
+  expect(result.text).toBe("managed answer");
+  expect(result.toolItems).toBe(1);
+  expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(0);
+});
+
+test("a silent open item expires at its own ceiling with item evidence", async () => {
+  const { options } = setup("turn-silent-open-item");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({
+      ...options, turnDeadlineMs: 100, turnDeadlineInactivityMs: 100,
+      inFlightItemCeilingMs: 200, postToolQuietMs: 30_000,
+    }).execute();
+  } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  expect(causeChain(caught as Error, 8, 4_000)).toContain(
+    "codex in-flight commandExecution item command-1 exceeded its 200ms ceiling",
+  );
+  const interrupt = (caught as ManagedCodexHarvestError).harvest.interrupt;
+  expect(interrupt).toMatchObject({
+    reason: "in_flight_item_ceiling", deadlineMs: 200, inactivityThresholdMs: 100,
+    openItemCount: 1,
+    openItem: { id: "command-1", kind: "commandExecution" },
+  });
+  expect(interrupt!.openItem!.ageMs).toBeGreaterThanOrEqual(150);
+  expect(managedCodexHarvestMessages(caught as ManagedCodexHarvestError).at(-1)!._north_interrupt)
+    .toMatchObject({
+      reason: "in_flight_item_ceiling", openItemCount: 1,
+      openItem: { id: "command-1", kind: "commandExecution" },
+    });
 });
 
 test("a slow but active turn is not killed after crossing its wall deadline", async () => {
@@ -2630,6 +2692,16 @@ test("a slow but active turn is not killed after crossing its wall deadline", as
   expect(result.text).toBe("managed answer");
   // 5 interposed fileChange items + the launch command item.
   expect(result.toolItems).toBe(6);
+  expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(0);
+});
+
+test("reasoning deltas alone keep a turn alive after its wall deadline", async () => {
+  const { options, requests } = setup("turn-slow-reasoning");
+  const result = await new ManagedCodexAppServerRun({
+    ...options, turnDeadlineMs: 100, turnDeadlineInactivityMs: 100,
+    postToolQuietMs: 30_000,
+  }).execute();
+  expect(result.text).toBe("managed answer");
   expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(0);
 });
 
@@ -2649,13 +2721,14 @@ test("a turn silent past both deadline and inactivity threshold carries structur
   const harvest = (caught as ManagedCodexHarvestError).harvest;
   expect(harvest.interrupt).toMatchObject({
     reason: "turn_deadline", deadlineMs: 150, inactivityThresholdMs: 150,
-    eventCount: 1,
+    openItemCount: 0, openItem: null, eventCount: 1,
   });
   expect(harvest.interrupt!.lastActivityAgeMs).toBeGreaterThanOrEqual(100);
   const terminal = managedCodexHarvestMessages(caught as ManagedCodexHarvestError).at(-1)!;
   expect(terminal._north_interrupt).toMatchObject({
     reason: "turn_deadline", deadlineMs: 150, inactivityThresholdMs: 150,
-    eventCount: 1, eventCounts: { "provider.codex.turn.started": 1 },
+    openItemCount: 0, openItem: null, eventCount: 1,
+    eventCounts: { "provider.codex.turn.started": 1 },
     stderrTail: [],
   });
 });

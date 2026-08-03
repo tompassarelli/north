@@ -100,6 +100,10 @@ const SUPERVISOR_STATUS_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 // then stops speaking hung the lane forever.
 const TURN_DEADLINE_MS = 600_000;
 const TURN_DEADLINE_INACTIVITY_MS = 5 * 60_000;
+// We cannot decide whether an in-flight item will finish. We use observable
+// progress as the ordinary liveness proxy, one generous ceiling as the final
+// bound, and make every forced interruption state the evidence behind it.
+const IN_FLIGHT_ITEM_CEILING_MS = 45 * 60_000;
 const POST_TOOL_QUIET_MS = 5 * 60_000;
 // turn/interrupt is a courtesy, not a contract: bound it so a wedged provider
 // cannot also wedge the settlement of the turn it wedged.
@@ -259,6 +263,8 @@ export interface ManagedCodexAppServerOptions {
   turnDeadlineMs?: number;
   /** Minimum inactivity required after the wall deadline; test seam only. */
   turnDeadlineInactivityMs?: number;
+  /** Absolute age bound for an open item; NORTH_CODEX_IN_FLIGHT_ITEM_CEILING_MS. */
+  inFlightItemCeilingMs?: number;
   /** Silence bound armed by a completed tool item; NORTH_CODEX_POST_TOOL_QUIET_MS. */
   postToolQuietMs?: number;
   /** Provider-death respawns this lane may spend; NORTH_CODEX_MAX_RESPAWNS. 0 disables. */
@@ -388,10 +394,12 @@ export interface ManagedCodexHarvest {
 }
 
 export interface ManagedCodexInterruptEvidence {
-  reason: "turn_deadline" | "post_tool_silence";
+  reason: "turn_deadline" | "post_tool_silence" | "in_flight_item_ceiling";
   deadlineMs: number;
   inactivityThresholdMs: number;
   lastActivityAgeMs: number;
+  openItemCount: number;
+  openItem: { id: string; kind: string; ageMs: number } | null;
   eventCount: number;
   eventCounts: Record<string, number>;
 }
@@ -1628,6 +1636,8 @@ interface RuntimeNotificationState {
   terminalSeen: boolean;
   /** Completed non-message, non-reasoning items observed in the LIVE turn. */
   toolItems: number;
+  /** Provider items observed started but not yet completed, by lifecycle id. */
+  openItems: Map<string, { kind: string; observedAtMs: number }>;
   mcpActivity: McpActivityAccumulator;
   nativeCommands: NativeCommandActivityAccumulator;
   /** Names of the MCP servers this session's sealed authority actually grants. */
@@ -2047,8 +2057,13 @@ function validateProgressNotification(
     if (!Number.isSafeInteger(timestamp) || (timestamp as number) < 0)
       throw new Error(`Codex ${method} timestamp is invalid`);
     const item = record(params.item, `Codex ${method} item`);
-    protocolId(item.id, `Codex ${method} item id`);
+    const itemId = protocolId(item.id, `Codex ${method} item id`);
     const itemType = boundedString(item.type, `Codex ${method} item type`, 128);
+    if (method === "item/started") {
+      state.openItems.set(itemId, { kind: itemType, observedAtMs: Date.now() });
+    } else {
+      state.openItems.delete(itemId);
+    }
     if (method === "item/completed" && countsAsToolItem(itemType)) state.toolItems += 1;
     if (method === "item/started" && item.type === "commandExecution")
       startedNativeCommand(item, state);
@@ -2757,6 +2772,10 @@ export class ManagedCodexAppServerRun {
       "NORTH_CODEX_TURN_DEADLINE_INACTIVITY_MS", TURN_DEADLINE_INACTIVITY_MS,
       this.options.turnDeadlineInactivityMs,
     );
+    const inFlightItemCeilingMs = boundedMs(
+      "NORTH_CODEX_IN_FLIGHT_ITEM_CEILING_MS", IN_FLIGHT_ITEM_CEILING_MS,
+      this.options.inFlightItemCeilingMs,
+    );
     const postToolQuietMs = boundedMs(
       "NORTH_CODEX_POST_TOOL_QUIET_MS", POST_TOOL_QUIET_MS, this.options.postToolQuietMs,
     );
@@ -2779,7 +2798,8 @@ export class ManagedCodexAppServerRun {
     };
     const armQuietWatchdog = () => {
       clearQuietWatchdog();
-      if (watchdogReason || !runtimeState?.turnId || runtimeState.terminalSeen) return;
+      if (watchdogReason || !runtimeState?.turnId || runtimeState.terminalSeen
+          || runtimeState.openItems.size) return;
       quietTimer = setTimeout(
         () => expireTurn(
           "post_tool_silence",
@@ -2791,16 +2811,44 @@ export class ManagedCodexAppServerRun {
       );
       quietTimer.unref?.();
     };
+    const oldestOpenItem = () => {
+      let oldest: { id: string; kind: string; observedAtMs: number } | undefined;
+      for (const [id, item] of runtimeState?.openItems ?? []) {
+        if (!oldest || item.observedAtMs < oldest.observedAtMs)
+          oldest = { id, ...item };
+      }
+      return oldest;
+    };
     const armTurnDeadline = () => {
       if (deadlineTimer) clearTimeout(deadlineTimer);
       const now = Date.now();
+      const openItem = oldestOpenItem();
       const wallRemaining = Math.max(0, turnStartedAt + turnDeadlineMs - now);
       const inactivityRemaining = Math.max(
         0, lastTurnActivityAt + turnDeadlineInactivityMs - now,
       );
+      const remaining = openItem
+        ? Math.max(0, openItem.observedAtMs + inFlightItemCeilingMs - now)
+        : Math.max(wallRemaining, inactivityRemaining);
       deadlineTimer = setTimeout(
         () => {
           const checkedAt = Date.now();
+          const liveOpenItem = oldestOpenItem();
+          if (liveOpenItem) {
+            const openAgeMs = checkedAt - liveOpenItem.observedAtMs;
+            if (openAgeMs < inFlightItemCeilingMs) {
+              armTurnDeadline();
+              return;
+            }
+            expireTurn(
+              "in_flight_item_ceiling",
+              `codex in-flight ${liveOpenItem.kind} item ${liveOpenItem.id} exceeded its `
+                + `${inFlightItemCeilingMs}ms ceiling`,
+              inFlightItemCeilingMs,
+              turnDeadlineInactivityMs,
+            );
+            return;
+          }
           if (checkedAt - turnStartedAt < turnDeadlineMs
               || checkedAt - lastTurnActivityAt < turnDeadlineInactivityMs) {
             armTurnDeadline();
@@ -2813,7 +2861,7 @@ export class ManagedCodexAppServerRun {
             turnDeadlineInactivityMs,
           );
         },
-        Math.max(1, wallRemaining, inactivityRemaining),
+        Math.max(1, remaining),
       );
       deadlineTimer.unref?.();
     };
@@ -2845,11 +2893,17 @@ export class ManagedCodexAppServerRun {
     ) => {
       if (watchdogReason) return;
       clearWatchdogs();
+      const now = Date.now();
+      const openItem = oldestOpenItem();
       interruptEvidence = {
         reason,
         deadlineMs,
         inactivityThresholdMs,
-        lastActivityAgeMs: Math.max(0, Date.now() - lastTurnActivityAt),
+        lastActivityAgeMs: Math.max(0, now - lastTurnActivityAt),
+        openItemCount: runtimeState?.openItems.size ?? 0,
+        openItem: openItem
+          ? { id: openItem.id, kind: openItem.kind, ageMs: Math.max(0, now - openItem.observedAtMs) }
+          : null,
         eventCount: turnEventCount,
         eventCounts: { ...turnEventCounts },
       };
@@ -3122,6 +3176,7 @@ export class ManagedCodexAppServerRun {
         text: "",
         terminalSeen: false,
         toolItems: 0,
+        openItems: new Map(),
         mcpActivity: this.mcp,
         nativeCommands: this.nativeCommands,
         mcpServerNames,
@@ -3154,6 +3209,7 @@ export class ManagedCodexAppServerRun {
         runtimeState.turnId = undefined;
         runtimeState.terminalSeen = false;
         runtimeState.toolItems = 0;
+        runtimeState.openItems.clear();
         interruptEvidence = undefined;
         turnStartedAt = 0;
         lastTurnActivityAt = 0;
