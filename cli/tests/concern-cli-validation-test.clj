@@ -2,12 +2,13 @@
 ;; Malformed concern maturity commands must be usage errors and must not publish
 ;; even a partial fact to the coordinator.
 (require '[clojure.edn :as edn] '[clojure.java.io :as io]
+         '[clojure.java.shell :as shell] '[clojure.string :as str]
          '[cheshire.core :as json]
          '[babashka.process :as p])
 
 (def root (-> (io/file (System/getProperty "babashka.file"))
               .getParentFile .getParentFile .getParentFile .getPath))
-(def fram "/home/tom/code/fram/main")
+(def fram (or (System/getenv "FRAM_PATH") "/home/tom/code/fram/main"))
 (defn port-free? [port]
   (try
     (with-open [s (java.net.Socket.)]
@@ -23,8 +24,17 @@
     (make-array java.nio.file.attribute.FileAttribute 0))))
 (def log (.getCanonicalPath (io/file tmp "facts.log")))
 (def telemetry-log (.getCanonicalPath (io/file tmp "telemetry.log")))
+(def candidate-repo (.getCanonicalPath (io/file tmp "candidate-repo")))
 (spit log "")
 (spit telemetry-log "")
+(doseq [result
+        [(shell/sh "git" "init" "-q" "-b" "feature" candidate-repo)
+         (shell/sh "git" "-C" candidate-repo
+                   "-c" "user.name=North Test"
+                   "-c" "user.email=north-test@example.invalid"
+                   "commit" "-q" "--allow-empty" "-m" "candidate fixture")]]
+  (when-not (zero? (:exit result))
+    (throw (ex-info "candidate Git fixture failed" {:result result}))))
 (def isolated-env
   {"FRAM_LOG" log
    "FRAM_TELEMETRY_LOG" telemetry-log
@@ -67,10 +77,12 @@
                     "\n")))
       (.flush w)
       (edn/read-string (.readLine r)))))
-(defn run-concern [& args]
-  @(apply p/process {:dir root :out :string :err :string
+(defn run-concern-in [directory & args]
+  @(apply p/process {:dir directory :out :string :err :string
                      :extra-env isolated-env}
-          "bb" "cli/concern-cli.clj" (str port) args))
+          "bb" (str root "/cli/concern-cli.clj") (str port) args))
+(defn run-concern [& args]
+  (apply run-concern-in root args))
 (defn reached-rows []
   (:ok (op {:op :query
             :query {:find "row"
@@ -111,15 +123,38 @@
         [["status without arguments" ["status"]]
          ["status without maturity" ["status" cid]]
          ["status with unknown maturity" ["status" cid "almost-done"]]
+         ["candidate without id" ["candidate"]]
+         ["candidate with unknown revision" ["candidate" cid "not-a-real-revision"]]
          ["done without id" ["done"]]
          ["done for unknown concern" ["done" "concern-9999999999999-dead"]]]]
   (let [result (apply run-concern argv)]
     (check (str label " exits 2") (= 2 (:exit result)))))
 (check "malformed commands publish no reached facts" (= before (set (reached-rows))))
-(def valid (run-concern "status" cid "likely-to-land"))
+(def valid (run-concern-in candidate-repo "status" cid "likely-to-land"))
+(def expected-candidate
+  (str/trim (:out (shell/sh "git" "-C" candidate-repo "rev-parse" "HEAD"))))
+(def expected-git-dir
+  (str/trim
+   (:out
+    (shell/sh "git" "-C" candidate-repo "rev-parse"
+              "--path-format=absolute" "--git-common-dir"))))
 (check "valid status still succeeds" (zero? (:exit valid)))
 (check "valid status publishes its maturity"
        (contains? (set (reached-rows)) [(str "@" cid) "likely-to-land"]))
+(check "likely-to-land records the exact current commit"
+       (= #{expected-candidate}
+          (values-of (str "@" cid) "candidate_rev")))
+(check "candidate stores the durable Git identity used for landing derivation"
+       (= #{expected-git-dir}
+          (values-of (str "@" cid) "candidate_git_dir")))
+(check "status output names the exact candidate commit"
+       (str/includes? (:out valid) expected-candidate))
+(let [explicit (run-concern-in candidate-repo "candidate" cid expected-candidate)]
+  (check "explicit candidate command is idempotent and actionable"
+         (and (zero? (:exit explicit))
+              (= #{expected-candidate}
+                 (values-of (str "@" cid) "candidate_rev"))
+              (str/includes? (:out explicit) expected-candidate))))
 
 ;; Listing cost is bounded by predicate count, not historical concern count.
 ;; Seed enough rows that the former seven-reads-per-concern implementation
@@ -236,6 +271,17 @@
               (false? (:retired cid-row))))
   (check "list-json emits no HANDOFF label"
          (not (re-find #"(?i)handoff" (:out proj)))))
+
+(let [landed (shell/sh "git" "-C" candidate-repo
+                       "branch" "main" expected-candidate)
+      projection (run-concern "list-json")
+      rows (:concerns (json/parse-string (:out projection) true))]
+  (check "candidate landing is derived from Git main without a done fact"
+         (and (zero? (:exit landed))
+              (zero? (:exit projection))
+              (not-any? #(= (str "@" cid) (:id %)) rows)
+              (not (contains? (set (reached-rows))
+                              [(str "@" cid) "landed"])))))
 
 (cleanup)
 (if (zero? @fails)
