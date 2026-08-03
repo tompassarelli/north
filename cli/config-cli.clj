@@ -1509,15 +1509,16 @@
    Advice: north.
 
  3 BEAGLE — how Beagle source is authored, per file.
-   text          ordinary Edit/Write; the beagle-authoring repair loop.
+   text          default; ordinary Edit/Write with the Beagle authoring loop.
    fact-native  file is a regenerable view of the fram triple graph; text
                  edits DENIED (code-upstream-guard); author via
                  mcp__fram__* graph tools. Adoption is PER-FILE: the
                  registry (~/.config/fram/graph-upstream-files) or a
                  first-line `;; @upstream:graph` sentinel. The cascade
-                 (skill, guard, repair loop vs recompile gate) keys off
+                 (skill, guard, authoring loop vs recompile gate) keys off
                  adoption automatically.
-   Advice: don't flip the default until the M1.5-vs-M2 bake-off verdict.
+   Advice: keep text as the default; adopt graph authoring only by explicit
+   per-file choice.
 
  4 GUARDS — the PreToolUse/SessionStart authoring guards.
    Individually wired in ~/code/nixos-config/main/dotfiles/claude/settings.json.
