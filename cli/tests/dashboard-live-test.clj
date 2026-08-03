@@ -5,6 +5,13 @@
 (load-file "cli/dashboard-render.clj")
 (defn fail! [s] (binding [*out* *err*] (println "FAIL" s)) (System/exit 1))
 (defn check [p s] (when-not p (fail! s)))
+(defn write-journal! [file records]
+  (.mkdirs (.getParentFile file))
+  (with-open [out (java.io.DataOutputStream. (java.io.FileOutputStream. file))]
+    (doseq [record records
+            :let [body (.getBytes (cheshire.core/generate-string record) "UTF-8")]]
+      (.writeInt out (alength body))
+      (.write out body))))
 (let [root (.toFile (java.nio.file.Files/createTempDirectory "north-dashboard-live" (make-array java.nio.file.attribute.FileAttribute 0)))
       state-root (io/file root "state") agents (io/file state-root "agents") threads (io/file state-root "threads")
       pid (str/trim (:out (p/sh "bash" "-c" "echo $PPID")))]
@@ -24,7 +31,19 @@
     (.setLastModified (io/file agents "lane-stale.log") (- (System/currentTimeMillis) 180000))
     (spit (io/file agents "lane-mutation.log") "worktree provisioned\n[spawn] starting provider=anthropic tier=senior (route=senior/high)\n")
     (spit (io/file agents "lane-mutation.log.lane.pid") (str pid))
+    (spit (io/file agents "lane-journal-fixture.log") "[spawn] starting provider=openai tier=senior\n")
     (spit (io/file threads "thread-fixture-slug.md") "# Joined thread title\n")
+    (let [at (.toString (java.time.Instant/now))]
+      (write-journal!
+        (io/file state-root "bridge" "journal" "journal-fixture" "events.log")
+        [{:version 1 :executionId "journal-fixture" :seq 1 :at at
+          :kind "execution.accepted" :data {:prompt "Journal fixture title" :cwd (.getPath root)}}
+         {:version 1 :executionId "journal-fixture" :seq 2 :at at
+          :kind "provider.starting" :data {:adapter "mock-provider"}}
+         {:version 1 :executionId "journal-fixture" :seq 3 :at at
+          :kind "provider.result" :data {:result "delivered"}}
+         {:version 1 :executionId "journal-fixture" :seq 4 :at at
+          :kind "execution.completed" :data {}}]))
     (with-redefs [north.dashboard.collectors/state-dir (.getPath state-root)
                   north.dashboard.state/cache-dir (constantly (.getPath root))]
       (reset! north.dashboard.collectors/log-sizes {})
@@ -45,7 +64,10 @@
         (check (= "high" (get-in by-id ["test4" :effort])) "meta effort was not extracted")
         (check (= "gpt-5.6-sol" (get-in by-id ["test4" :model])) "meta model was not extracted")
         (check (and (= "standard" (get-in by-id ["test1" :role])) (= "medium" (get-in by-id ["test1" :effort])) (= "openai" (get-in by-id ["test1" :provider]))) "legacy spawn metadata missing")
-        (check (and (= "senior" (get-in by-id ["mutation" :role])) (= "high" (get-in by-id ["mutation" :effort]))) "mutation spawn metadata was not found on line two"))
+        (check (and (= "senior" (get-in by-id ["mutation" :role])) (= "high" (get-in by-id ["mutation" :effort]))) "mutation spawn metadata was not found on line two")
+        (check (= "finished" (get-in by-id ["journal-fixture" :status])) "journal terminal state was not authoritative")
+        (check (= "delivered" (get-in by-id ["journal-fixture" :work])) "journal result was not delivered work")
+        (check (= "mock-provider" (get-in by-id ["journal-fixture" :provider])) "journal provider was not projected"))
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
       (let [started (.toString (java.time.Instant/ofEpochMilli (- (System/currentTimeMillis) 720000)))
