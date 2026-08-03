@@ -11,9 +11,12 @@
 
 (def max-body-bytes 1048576)
 (def effective-page-limit 200)
+;; Must stay equal to the daemon's own retryable set (fram coord_daemon.clj);
+;; a code the server marks retryable but the client omits fails a caller that
+;; the server expected to ask again.
 (def retryable-error-codes
   #{:rpc/conflict :rpc/cancelled :query-cancelled :query-time-limit
-    :query-work-limit :durability-ambiguous})
+    :query-work-limit :query/archive-unavailable :durability-ambiguous})
 (def subscription-operation :rpc/subscribe)
 
 (def ^:private mutation-operations
@@ -541,6 +544,99 @@
      :triples (:rows result)
      :values (mapv t/triple-slot2 (:rows result))}))
 
+;; --- North projection semantics over the append-only head wire ---------------
+;; The head wire is occurrence-shaped (assert appends unconditionally, retract
+;; withdraws only the latest equal occurrence); North's contract is set-shaped
+;; over the exact projection. Every North write reconciles: read the projection,
+;; multiset-diff it, land the difference as ONE batch — an already-satisfied
+;; projection issues no write, which is what makes a repeated assert idempotent.
+
+(defn- reconcile-once!
+  [client subject predicate desired-fn options]
+  (let [{:keys [served-version values]} (projection! client subject predicate)
+        desired (vec (desired-fn values))
+        before-frequencies (frequencies values)
+        desired-frequencies (frequencies desired)
+        retract-values
+        (mapcat (fn [[value count-value]]
+                  (repeat (max 0 (- count-value
+                                    (get desired-frequencies value 0)))
+                          value))
+                before-frequencies)
+        assert-values
+        (mapcat (fn [[value count-value]]
+                  (repeat (max 0 (- count-value
+                                    (get before-frequencies value 0)))
+                          value))
+                desired-frequencies)
+        actions
+        (vec
+         (concat
+          (map (fn [value]
+                 {:op :rpc/retract
+                  :proposition (t/triple subject predicate value)})
+               retract-values)
+          (map (fn [value]
+                 {:op :rpc/assert
+                  :proposition (t/triple subject predicate value)})
+               assert-values)))]
+    (if (empty? actions)
+      {:changed? false :served-version served-version
+       :values desired :results [] :attempts 0}
+      (let [base-version (get options :expected-version served-version)
+            resolver
+            (fn [resolver-client _ _]
+              (let [{after-version :served-version after-values :values}
+                    (projection! resolver-client subject predicate)
+                    after-frequencies (frequencies after-values)]
+                (cond
+                  (= desired-frequencies after-frequencies)
+                  {:resolution :committed
+                   :served-version after-version :values desired}
+
+                  (and (= before-frequencies after-frequencies)
+                       (= base-version after-version))
+                  {:resolution :retry}
+
+                  :else
+                  {:resolution :indeterminate
+                   :served-version after-version
+                   :before values :after after-values
+                   :desired desired})))
+            result
+            (batch! client actions
+                    (assoc options
+                           :expected-version base-version
+                           :ambiguity-resolver resolver))]
+        (if-let [resolved (:resolved result)]
+          {:changed? true
+           :served-version (:served-version resolved)
+           :values (:values resolved)
+           :resolved-ambiguity? true
+           :results [] :attempts (:attempts result)}
+          (assoc result :changed? true :values desired))))))
+
+(defn- reconcile-projection!
+  "Drive one subject/predicate projection to (DESIRED-FN current-values) as one
+   atomic batch. The read and the write are fenced by the read's own served
+   version, so a losing race is a typed :rpc/conflict and never a silent clobber;
+   the re-ask re-reads the projection. A caller that PINS :expected-version owns
+   its own base, so its conflict is an answer and is never retried here."
+  [client subject predicate desired-fn options]
+  (let [limit (if (contains? options :expected-version) 1 (:max-attempts client))]
+    (loop [attempt 1]
+      (let [outcome
+            (try
+              {:value (reconcile-once! client subject predicate desired-fn options)}
+              (catch clojure.lang.ExceptionInfo error
+                (if (and (= :rpc/conflict (:type (ex-data error)))
+                         (< attempt limit))
+                  {:conflict error}
+                  (throw error))))]
+        (if (:conflict outcome)
+          (do (retry-pause! client attempt) (recur (inc attempt)))
+          (:value outcome))))))
+
 (defn profile-write!
   "Set one subject/predicate projection with North set semantics. CARDINALITY is
    :one or :many. OCC and ambiguity resolution use the same exact projection."
@@ -557,67 +653,92 @@
        (throw (ex-info "single-valued profile accepts at most one value"
                        {:type :rpc/cardinality-violation
                         :subject subject :predicate predicate})))
-     (let [{:keys [served-version values]} (projection! client subject predicate)
-           before-frequencies (frequencies values)
-           desired-frequencies (frequencies desired)
-           retract-values
-           (mapcat (fn [[value count-value]]
-                     (repeat (max 0 (- count-value
-                                       (get desired-frequencies value 0)))
-                             value))
-                   before-frequencies)
-           assert-values
-           (mapcat (fn [[value count-value]]
-                     (repeat (max 0 (- count-value
-                                       (get before-frequencies value 0)))
-                             value))
-                   desired-frequencies)
-           actions
-           (vec
-            (concat
-             (map (fn [value]
-                    {:op :rpc/retract
-                     :proposition (t/triple subject predicate value)})
-                  retract-values)
-             (map (fn [value]
-                    {:op :rpc/assert
-                     :proposition (t/triple subject predicate value)})
-                  assert-values)))]
-       (if (empty? actions)
-         {:changed? false :served-version served-version
-          :values desired :results [] :attempts 0}
-         (let [base-version (get options :expected-version served-version)
-               resolver
-               (fn [resolver-client _ _]
-                 (let [{after-version :served-version after-values :values}
-                       (projection! resolver-client subject predicate)
-                       after-frequencies (frequencies after-values)]
-                   (cond
-                     (= desired-frequencies after-frequencies)
-                     {:resolution :committed
-                      :served-version after-version :values desired}
+     (reconcile-projection! client subject predicate (constantly desired)
+                            options))))
 
-                     (and (= before-frequencies after-frequencies)
-                          (= base-version after-version))
-                     {:resolution :retry}
+;; --- predicate cardinality: which assertion supersedes -----------------------
+;; Authority order is graph (`@<name> cardinality`, written by pred-cli) then
+;; bin/north's FRAM_SINGLE_VALUED mirror, then Fram's own default of multi.
 
-                     :else
-                     {:resolution :indeterminate
-                      :served-version after-version
-                      :before values :after after-values
-                      :desired desired})))
-               result
-               (batch! client actions
-                       (assoc options
-                              :expected-version base-version
-                              :ambiguity-resolver resolver))]
-           (if-let [resolved (:resolved result)]
-             {:changed? true
-              :served-version (:served-version resolved)
-              :values (:values resolved)
-              :resolved-ambiguity? true
-              :results [] :attempts (:attempts result)}
-             (assoc result :changed? true :values desired))))))))
+(def ^:dynamic *env* #(System/getenv %))
+
+(def ^:private cardinality-cache (atom {}))
+
+(defn reset-cardinality-cache!
+  "Cardinality is cached for the life of the process. Tests and any caller that
+   changes a declaration in-process must drop the cache explicitly."
+  []
+  (reset! cardinality-cache {})
+  nil)
+
+(defn- predicate-name [predicate]
+  (if (keyword? predicate) (name predicate) (str predicate)))
+
+(defn- env-single-valued []
+  (into #{}
+        (remove str/blank?)
+        (str/split (or (*env* "FRAM_SINGLE_VALUED") "") #"\s+")))
+
+(defn- declared-cardinality [client predicate]
+  (let [rows (:rows (scan-all! client (str "@" (predicate-name predicate))
+                               "cardinality" nil))
+        values (into #{} (map (comp str t/triple-slot2)) rows)]
+    (cond (contains? values "single") :one
+          (contains? values "multi") :many
+          :else nil)))
+
+(defn cardinality-of
+  "North cardinality of PREDICATE — :one (declared single: an assertion
+   supersedes the live value) or :many (values coexist)."
+  [client predicate]
+  (let [cache-key [(:host client) (:port client) (:space-id client)
+                   (predicate-name predicate)]]
+    (or (get @cardinality-cache cache-key)
+        (let [resolved (or (declared-cardinality client predicate)
+                           (when (contains? (env-single-valued)
+                                            (predicate-name predicate))
+                             :one)
+                           :many)]
+          (swap! cardinality-cache assoc cache-key resolved)
+          resolved))))
+
+(defn assert-projected!
+  "North assert semantics. A repeated identical assertion is idempotent, and a
+   declared-single predicate's assertion supersedes its live value as one batch.
+   This is the write verb a North caller uses; assert! is the raw
+   occurrence-appending primitive underneath it."
+  ([client proposition] (assert-projected! client proposition {}))
+  ([client proposition options]
+   (let [subject (t/triple-slot0 proposition)
+         predicate (t/triple-slot1 proposition)
+         value (t/triple-slot2 proposition)
+         cardinality (or (:cardinality options)
+                         (cardinality-of client predicate))
+         desired-fn (if (= :one cardinality)
+                      (constantly [value])
+                      ;; Multi keeps every rival value AND any pre-existing
+                      ;; duplicate: an assert deduplicates itself, never the
+                      ;; projection around it.
+                      (fn [current]
+                        (if (some #(= value %) current)
+                          (vec current)
+                          (conj (vec current) value))))]
+     (assoc (reconcile-projection! client subject predicate desired-fn
+                                   (dissoc options :cardinality))
+            :cardinality cardinality))))
+
+(defn retract-projected!
+  "North retract semantics: the value LEAVES the exact projection, every equal
+   occurrence with it. retract! withdraws only the latest equal occurrence, so a
+   value appended twice would otherwise survive its own retraction."
+  ([client proposition] (retract-projected! client proposition {}))
+  ([client proposition options]
+   (let [subject (t/triple-slot0 proposition)
+         predicate (t/triple-slot1 proposition)
+         value (t/triple-slot2 proposition)]
+     (reconcile-projection! client subject predicate
+                            (fn [current] (vec (remove #(= value %) current)))
+                            (dissoc options :cardinality)))))
 
 (defn subscribe! [& _]
   (throw (ex-info "FRAMRPC subscription is reserved for the daemon-side v2 operation"

@@ -20,10 +20,12 @@
 ;;   bb bars-cli.clj echo  <thread>                      (outcome friction echo)
 (ns north.bars-cli
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [fram.types :as t]))
 
-(load-file (str (.getParent (io/file *file*)) "/coord.clj"))
+(load-file (str (.getParent (io/file *file*)) "/framrpc-client.clj"))
 (load-file (str (.getParent (io/file *file*)) "/terminal-projection.clj"))
+(require '[north.framrpc-client :as rpc])
 
 (def ^:private usage
   (str "usage:\n"
@@ -36,8 +38,19 @@
   (binding [*out* *err*] (println (str "north bars: " message)))
   (System/exit 1))
 
-(defn- port []
-  (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
+;; SpaceId is the whole fence: connect validates the served space before any
+;; read, so a coordinator serving another corpus is refused rather than answered.
+;; The v0.3 :for-log envelope has no native analogue and needs none.
+(defn- connect! []
+  (let [host (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
+        port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
+        space (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination")]
+    (try
+      (rpc/connect host port space
+                   {:connect-timeout-ms 2000 :read-timeout-ms 30000})
+      (catch Exception error
+        (die! (str "coordinator at " host ":" port " did not answer for space "
+                   space " (" (.getMessage error) ")"))))))
 
 (defn- thread-entity [raw]
   (let [value (str raw)
@@ -46,23 +59,29 @@
       (die! (str "invalid thread id " (pr-str raw))))
     canonical))
 
-(defn- facts-of [port subject]
-  ;; Exact-subject bar grooming must stay on the coordinator's indexed :show
-  ;; path. A Datalog query for this already-ground shape paid whole-query
-  ;; planning/materialization on every outcome write as the corpus grew.
+(defn- facts-of [client subject]
+  ;; Exact-subject bar grooming stays on the indexed scan pattern. A Datalog
+  ;; query for this already-ground shape paid whole-query planning on every
+  ;; outcome write as the corpus grew.
   (let [rows
         (try
-          (:rows (north.coord/show-envelope port subject))
+          (:rows (rpc/scan-all! client subject nil nil))
           (catch Exception error
             (die! (str "coordinator did not answer a read for " subject
                        " (" (.getMessage error) ")"))))]
-    (reduce (fn [acc [predicate value]]
-              (update acc predicate (fnil conj #{}) value))
+    (reduce (fn [acc triple]
+              (let [predicate (t/triple-slot1 triple)
+                    value (t/triple-slot2 triple)]
+                ;; The v0.3 :show envelope was string-typed; a non-string Term
+                ;; carries no groomable bar fact.
+                (if (and (string? predicate) (string? value))
+                  (update acc predicate (fnil conj #{}) value)
+                  acc)))
             {}
             rows)))
 
-(defn- thread-facts! [port thread]
-  (let [facts (facts-of port thread)
+(defn- thread-facts! [client thread]
+  (let [facts (facts-of client thread)
         titles (get facts "title" #{})]
     (when-not (and (= 1 (count titles))
                    (string? (first titles))
@@ -103,7 +122,9 @@
    display can never block a human's outcome write."
   [thread]
   (let [entity (thread-entity thread)
-        rows (bar-rows (facts-of (port) entity))]
+        client (connect!)
+        rows (try (bar-rows (facts-of client entity))
+                  (finally (rpc/close! client)))]
     (when (seq rows)
       (println
        (str "DONE BARS on " entity
@@ -140,10 +161,10 @@
       (println "  reserve OK"))))
 
 (defn cmd-list [thread]
-  (let [port (port)
-        entity (thread-entity thread)
-        facts (thread-facts! port entity)
-        rows (bar-rows facts)]
+  (let [entity (thread-entity thread)
+        client (connect!)
+        rows (try (bar-rows (thread-facts! client entity))
+                  (finally (rpc/close! client)))]
     (println (str "DONE BARS on " entity
                   " — ✓ evidenced · ~ unreserved observation only · ○ open"))
     (doseq [row rows]
@@ -151,9 +172,9 @@
     (print-summary entity rows)))
 
 (defn cmd-prune [thread options]
-  (let [port (port)
-        entity (thread-entity thread)
-        facts (thread-facts! port entity)
+  (let [entity (thread-entity thread)
+        client (connect!)
+        facts (thread-facts! client entity)
         rows (bar-rows facts)
         named (:bars options)
         stored (set (map :bar rows))
@@ -174,13 +195,19 @@
       (println (str (if (:dry-run options) "would retire " "retired ")
                     (mark row) " " (:bar row)))
       (when-not (:dry-run options)
-        (let [result (north.coord/retract! port entity "done_when" (:bar row))]
-          (when (:reject result)
+        ;; Retiring a bar means it LEAVES the projection; the raw wire retract
+        ;; would withdraw one occurrence and leave an accumulated duplicate live.
+        (try
+          (rpc/retract-projected!
+           client (t/triple entity "done_when" (:bar row)))
+          (catch Exception error
             (die! (str "coordinator rejected retracting " (pr-str (:bar row))
-                       " (" (pr-str (:reject result)) ")"))))))
+                       " (" (pr-str (or (:type (ex-data error))
+                                        (.getMessage error))) ")"))))))
     (let [remaining (if (:dry-run options)
                       rows
-                      (bar-rows (facts-of port entity)))]
+                      (bar-rows (facts-of client entity)))]
+      (rpc/close! client)
       (println (format "%s %d bar(s) on %s"
                        (if (:dry-run options) "would retire" "retired")
                        (count targets) entity))
@@ -193,9 +220,10 @@
    than when a lane's reservation fails hours later."
   [thread candidate]
   (try
-    (let [port (port)
-          entity (thread-entity thread)
-          facts (facts-of port entity)
+    (let [entity (thread-entity thread)
+          client (connect!)
+          facts (try (facts-of client entity)
+                     (finally (rpc/close! client)))
           values (set (north.terminal-projection/done-bar-values facts))
           canonical (north.terminal-projection/canonical-evidence-text candidate)
           new? (not (contains? values candidate))

@@ -120,6 +120,9 @@ else
   exit 127
 fi
 BUN="${NORTH_BUN:-bun}"
+# bars-cli speaks the binary FRAMRPC wire, so it needs Fram's out/ tree on
+# the classpath the way NORTH_MAIN does.
+NORTH_BARS=("$BB" -cp "$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}" "$NORTH/cli/bars-cli.clj")
 
 if [ "${NORTH_COORD_PROTOCOL:-v03}" = framrpc ]; then
   if [ ! -d "${NORTH_FRAMRPC_OUT:-}" ]; then
@@ -446,7 +449,7 @@ case "${1:-}" in
   bars)
     # Coordinator-facing done_when grooming: the one-step recovery the delivery
     # reserve error points at when a thread accumulates past the bar limit.
-    exec "$BB" "$NORTH/cli/bars-cli.clj" "${@:2}" ;;
+    exec "${NORTH_BARS[@]}" "${@:2}" ;;
   rebuild-intent)
     # Rebuild coordination is a fact + finite live-roster broadcast protocol.
     # The Clojure module owns its CAS-closed hold/response/all-clear state.
@@ -662,14 +665,14 @@ case "${1:-}" in
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
     # silent for bar-less threads; failures never block the write.
     if [ "$framverb" = tell ] && [ "${3:-}" = outcome ]; then
-      "$BB" "$NORTH/cli/bars-cli.clj" echo "$2" 2>/dev/null || true
+      "${NORTH_BARS[@]}" echo "$2" 2>/dev/null || true
     fi
     # Reserve-limit echo: bars accumulate across runs, so the Nth done_when is
     # what silently makes future managed runs unable to reserve delivery
     # evidence. Warn at write time (advisory, never a reject) and name the
     # one-step recovery. Runs only for done_when tells.
     if [ "$framverb" = tell ] && [ "${3:-}" = done_when ] && [ -n "${4:-}" ]; then
-      "$BB" "$NORTH/cli/bars-cli.clj" check "$2" "$4" || true
+      "${NORTH_BARS[@]}" check "$2" "$4" || true
     fi
     case "${2#@}" in
       run:*|session:*|mine:*|guard_denial:*)
