@@ -165,6 +165,7 @@ jobs:
           bb cli/tests/mine-verbosity-test.clj
           bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/json-show-indexed-test.clj
+          bb cli/tests/json-children-indexed-test.clj  # both managed turn-end reads stay indexed
           bb cli/tests/dashboard-doctor-exit-test.clj
           bb tests/dashboard_cache_test.clj
           bb cli/tests/dashboard-live-test.clj
