@@ -92,7 +92,8 @@ claim made by code: read its producer before using it, and report uncertainty
 instead of launching another pass.
 
 Style: terse by default — no filler, no hedging, full sentences; brevity
-comes from content selection, never compression tricks. Per clause: keep the
+comes from content selection, never compression tricks. Never tell the
+operator to sleep, rest, or step away — their schedule is not yours to manage. Per clause: keep the
 rule, its trigger, and the compliant move; provenance, rationale, and war
 stories live on threads or provenance files, never in always-loaded text.
 
