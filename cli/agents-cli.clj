@@ -1033,7 +1033,8 @@
     (println "  --notify PEER                     completion/stall notifications")
     (println "  --dry-run                         validate pinned-provider capability authority; show identity only when supported")
     (println "  --doctor [--deep] [--json]        test every dispatch invariant at once; one PASS/FAIL row + fix per wall")
-    (println "  --doctor --canary                 spawn one tiny read-only managed lane end to end and report its lifecycle")))
+    (println "  --doctor --canary                 spawn one tiny read-only managed lane end to end and report its lifecycle")
+    (println "  --doctor --repair-registry        relocate graph-upstream registry rows to the current checkout layout")))
 
 (defn- parse-spawn-args [args]
   (loop [xs args positionals [] opts {:domains [] :seen #{}}]

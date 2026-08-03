@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   closeSync, copyFileSync, mkdirSync, openSync, readdirSync, readFileSync,
-  readlinkSync, writeFileSync,
+  readSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
-import { createServer, connect } from "node:net";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { expectedLog } from "./coord-wire";
@@ -75,9 +76,16 @@ export interface PrepareManagedFramCoordinatorOptions {
       codePort: string;
       codeLog: string;
       daemonLog: string;
+      spaceId: string;
     }): ChildProcess;
-    ready(child: ChildProcess, port: number, log: string, timeoutMs: number): Promise<void>;
+    ready(
+      child: ChildProcess, port: number, log: string, timeoutMs: number, daemonLog: string,
+    ): Promise<void>;
     waitForExit(child: ChildProcess, milliseconds: number): Promise<boolean>;
+    /** One-shot legacy-flat -> FRAMLOG conversion; fram refuses to serve the old shape. */
+    migrate?(input: {
+      framHome: string; source: string; spaceId: string; target: string;
+    }): Promise<void>;
     pidAlive?(pid: number): boolean;
     pidOwnsPort?(pid: number, port: number): boolean;
     portListening?(port: number): boolean;
@@ -90,9 +98,44 @@ export interface PrepareManagedFramCoordinatorOptions {
 // CLI. Every path below derives lazily from these two roots, so composing
 // the capability without them fails closed with a named error while every
 // non-capability spawn never touches this resolution at all.
+export type GraphAuthoringRootName = "NORTH_FRAM_HOME" | "NORTH_BEAGLE_HOME";
+
+// Standard layout fallback; the marker keeps a same-named bare directory from
+// composing a lane that cannot serve.
+const DEFAULT_ROOTS: Readonly<Record<GraphAuthoringRootName, {
+  readonly relative: string; readonly marker: string;
+}>> = Object.freeze({
+  NORTH_FRAM_HOME: {
+    relative: join("code", "fram", "main"), marker: join("bin", "fram-mcp"),
+  },
+  NORTH_BEAGLE_HOME: {
+    relative: join("code", "beagle", "main"), marker: join("bin", "beagle"),
+  },
+});
+
+function pathExists(path: string): boolean {
+  try { statSync(path); return true; } catch { return false; }
+}
+
+/**
+ * The single resolution seam for a graph-authoring root. An explicit env value
+ * always wins and is never shape-checked, so an operator pointing at a scratch
+ * checkout keeps today's explicit downstream failure.
+ */
+export function graphAuthoringRoot(name: GraphAuthoringRootName): string | undefined {
+  const explicit = process.env[name];
+  if (explicit) return resolve(explicit);
+  const { relative: layout, marker } = DEFAULT_ROOTS[name];
+  // $HOME first: homedir() resolves the passwd entry, which a lane running as
+  // another principal's environment must not silently reinterpret.
+  const candidate = join(process.env.HOME || homedir(), layout);
+  const shaped = pathExists(join(candidate, ".git")) && pathExists(join(candidate, marker));
+  return shaped ? candidate : undefined;
+}
+
 export function framGraphAuthoringRoots(): { framHome: string; beagleHome: string } {
-  const framHome = process.env.NORTH_FRAM_HOME;
-  const beagleHome = process.env.NORTH_BEAGLE_HOME;
+  const framHome = graphAuthoringRoot("NORTH_FRAM_HOME");
+  const beagleHome = graphAuthoringRoot("NORTH_BEAGLE_HOME");
   if (!framHome || !beagleHome) {
     const missing = [
       !framHome && "NORTH_FRAM_HOME",
@@ -101,10 +144,11 @@ export function framGraphAuthoringRoots(): { framHome: string; beagleHome: strin
     throw new Error(
       "graph_authoring_fram_roots_unset: the graph-authoring.fram capability "
       + `requires NORTH_FRAM_HOME and NORTH_BEAGLE_HOME in the dispatching `
-      + `environment (missing: ${missing})`,
+      + `environment, or the standard ~/code/<repo>/main checkout `
+      + `(missing: ${missing})`,
     );
   }
-  return { framHome: resolve(framHome), beagleHome: resolve(beagleHome) };
+  return { framHome, beagleHome };
 }
 
 export function framMcpCommand(): string {
@@ -248,6 +292,100 @@ export function seedReboundFramCodeLog(options: {
   return { reboundTrackedPaths };
 }
 
+// coord.clj's parse-triple-log-bytes admits exactly this prefix; anything else
+// on disk is a legacy generation the runtime refuses to boot.
+const FRAMLOG_MAGIC = Buffer.from("FRAMLOG\0", "utf8");
+
+export type FramLaneStoreGeneration = "absent" | "framlog" | "legacy";
+
+/** Classify a lane store the way fram does — by header bytes, never by name. */
+export function framLaneStoreGeneration(path: string): FramLaneStoreGeneration {
+  let descriptor: number;
+  try { descriptor = openSync(path, "r"); }
+  catch { return "absent"; }
+  try {
+    const head = Buffer.alloc(FRAMLOG_MAGIC.length);
+    const read = readSync(descriptor, head, 0, head.length, 0);
+    if (read === 0) return "absent";
+    return read === head.length && head.equals(FRAMLOG_MAGIC) ? "framlog" : "legacy";
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/**
+ * A lane's SpaceId must be stable across reboots of the same store (the
+ * FRAMLOG header records it and boot compares) and distinct per lane, so it is
+ * derived from the store path rather than carried in mutable state.
+ */
+export function framLaneSpaceId(codeLog: string): string {
+  return `north-graph-lane-${
+    createHash("sha256").update(resolve(codeLog)).digest("hex").slice(0, 16)}`;
+}
+
+function runFramMigration(input: {
+  framHome: string; source: string; spaceId: string; target: string;
+}): Promise<void> {
+  return new Promise<void>((resolveMigration, reject) => {
+    const child = spawn(
+      join(input.framHome, "bin", "fram-migrate-triple-log"),
+      [input.source, input.spaceId, input.target],
+      { cwd: input.framHome, stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => { stderr += String(chunk).slice(0, 4096); });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolveMigration();
+      else reject(new Error(
+        `graph_authoring_fram_lane_migration_failed: exit=${code ?? "none"} `
+        + `signal=${signal ?? "none"} ${stderr.trim().split(/\r?\n/).at(-1) ?? ""}`.trim(),
+      ));
+    });
+  });
+}
+
+/**
+ * Bring a seeded lane store to the one generation `fram-daemon serve` accepts.
+ * The sealed migrator refuses to overwrite a target or its manifest, so the
+ * legacy bytes move aside first and the converted log lands back on the
+ * descriptor's fixed `.fram/code.log` path.
+ */
+export async function prepareFramLaneStore(options: {
+  framHome: string;
+  codeLog: string;
+  spaceId: string;
+  migrate?: (input: {
+    framHome: string; source: string; spaceId: string; target: string;
+  }) => Promise<void>;
+}): Promise<{ generation: FramLaneStoreGeneration; migrated: boolean }> {
+  const generation = framLaneStoreGeneration(options.codeLog);
+  if (generation === "framlog") return { generation, migrated: false };
+  if (generation === "absent") {
+    // A zero-byte file is not a fresh store to fram: boot would try to parse it.
+    rmSync(options.codeLog, { force: true });
+    return { generation, migrated: false };
+  }
+  const legacy = `${options.codeLog}.legacy-flat`;
+  rmSync(legacy, { force: true });
+  renameSync(options.codeLog, legacy);
+  rmSync(`${options.codeLog}.migration.edn`, { force: true });
+  await (options.migrate ?? runFramMigration)({
+    framHome: options.framHome,
+    source: legacy,
+    spaceId: options.spaceId,
+    target: options.codeLog,
+  });
+  if (framLaneStoreGeneration(options.codeLog) !== "framlog") {
+    throw new Error(
+      "graph_authoring_fram_lane_migration_incomplete: the migrator left no "
+      + `FRAMLOG generation at ${options.codeLog}`,
+    );
+  }
+  rmSync(legacy, { force: true });
+  return { generation, migrated: true };
+}
+
 async function ephemeralPort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolveListen, reject) => {
@@ -263,45 +401,29 @@ async function ephemeralPort(): Promise<number> {
   return address.port;
 }
 
-function ednString(value: string): string {
-  return JSON.stringify(value);
-}
-
-async function fencedVersion(port: number, log: string): Promise<boolean> {
-  return new Promise<boolean>((resolveProbe) => {
-    const socket = connect({ host: "127.0.0.1", port });
-    let settled = false;
-    let response = "";
-    const settle = (value: boolean) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolveProbe(value);
-    };
-    socket.setTimeout(1_000, () => settle(false));
-    socket.once("error", () => settle(false));
-    socket.on("data", (chunk) => {
-      response += chunk.toString("utf8");
-      if (response.includes("\n")) settle(/:version\s+[0-9]+/.test(response));
-    });
-    socket.once("connect", () => {
-      socket.write(
-        `{:op :for-log :expected-log ${ednString(log)} :request {:op :version}}\n`,
-      );
-    });
-    socket.once("end", () => settle(/:version\s+[0-9]+/.test(response)));
-  });
-}
-
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
+function announcedListening(daemonLog: string, port: number): boolean {
+  let text: string;
+  try { text = readFileSync(daemonLog, "utf8"); }
+  catch { return false; }
+  return new RegExp(`listening on \\S+:${port}\\s`).test(text);
+}
+
+/**
+ * Readiness is the coordinator's own boot announcement on the stdout WE opened
+ * for this child, the same signal fram's bin/fram-code-on waits on. The old
+ * `{:op :for-log ...}` fence is unusable: the daemon speaks binary FRAMRPC v1
+ * frames and answers a line of EDN with silence, so probing it can only time out.
+ */
 async function waitForCoordinator(
   child: ChildProcess,
   port: number,
   log: string,
   timeoutMs: number,
+  daemonLog: string,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let backoff = 25;
@@ -309,15 +431,16 @@ async function waitForCoordinator(
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(
         `graph_authoring_fram_lane_coordinator_exited: exit=${child.exitCode ?? "none"} `
-        + `signal=${child.signalCode ?? "none"}`,
+        + `signal=${child.signalCode ?? "none"} log=${daemonLog}`,
       );
     }
-    if (await fencedVersion(port, log)) return;
+    if (announcedListening(daemonLog, port) && portListening(port)) return;
     await delay(Math.min(backoff, Math.max(1, deadline - Date.now())));
     backoff = Math.min(500, backoff * 2);
   }
   throw new Error(
-    `graph_authoring_fram_lane_coordinator_timeout: no fenced response on 127.0.0.1:${port}`,
+    `graph_authoring_fram_lane_coordinator_timeout: no listener announcement for `
+    + `${log} on 127.0.0.1:${port} in ${daemonLog}`,
   );
 }
 
@@ -413,14 +536,15 @@ export async function prepareManagedFramCoordinator(
   });
   const runtime = options.runtime ?? {
     allocatePort: ephemeralPort,
-    launch({ framHome, codePort, codeLog, daemonLog }: {
-      framHome: string; codePort: string; codeLog: string; daemonLog: string;
+    // `serve` is fram's only boot verb; serve-flat was removed and exits 2.
+    launch({ framHome, codePort, codeLog, daemonLog, spaceId }: {
+      framHome: string; codePort: string; codeLog: string; daemonLog: string; spaceId: string;
     }): ChildProcess {
       const logFd = openSync(daemonLog, "a", 0o600);
       try {
         return spawn(
           join(framHome, "bin", "fram-daemon"),
-          ["serve-flat", codePort, codeLog],
+          ["serve", codePort, codeLog, spaceId],
           {
             cwd: framHome,
             env: { ...process.env, FRAM_REQUIRE_LOG_FENCE: "1" },
@@ -435,9 +559,11 @@ export async function prepareManagedFramCoordinator(
     ready: waitForCoordinator,
     waitForExit,
   };
+  const spaceId = framLaneSpaceId(codeLog);
+  await prepareFramLaneStore({ framHome, codeLog, spaceId, migrate: runtime.migrate });
   const codePort = String(await runtime.allocatePort());
   const daemonLog = join(localFram, `coord-${codePort}.log`);
-  const child = runtime.launch({ framHome, codePort, codeLog, daemonLog });
+  const child = runtime.launch({ framHome, codePort, codeLog, daemonLog, spaceId });
   // The lane runner owns terminal reaping by the recorded PID+port. Keeping a
   // Node child reference must not make an admitted coordinator depend on the
   // dispatcher's process tree.
@@ -468,6 +594,7 @@ export async function prepareManagedFramCoordinator(
         Number(codePort),
         codeLog,
         options.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS,
+        daemonLog,
       ),
       new Promise<never>((_resolve, reject) => {
         child.once("error", reject);
