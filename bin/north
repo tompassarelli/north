@@ -356,9 +356,16 @@ case "${1:-}" in
     # everything but one subject away. Managed admission uses this read before
     # identity publication, so corpus growth can consume the complete startup
     # acknowledgement budget before a provider is even constructed.
+    #
+    # `json children` is the same shape from the other direction — one indexed
+    # `part_of` reverse lookup — and it is the read every managed orchestrator
+    # turn-end reconciles against, under the SDK's 45s budget.
     if [ "${NORTH_COORD_PROTOCOL:-v03}" != framrpc ] &&
-       [ "$1" = json ] && [ "${2:-}" = show ] && [ "$#" -eq 3 ]; then
-      exec "$BB" "$NORTH/cli/json-show-cli.clj" "$3"
+       [ "$1" = json ] && [ "$#" -eq 3 ]; then
+      case "${2:-}" in
+        show) exec "$BB" "$NORTH/cli/json-show-cli.clj" "$3" ;;
+        children) exec "$BB" "$NORTH/cli/json-children-cli.clj" "$3" ;;
+      esac
     fi
     north_slot_exec "$@" ;;
   coord-ready)
