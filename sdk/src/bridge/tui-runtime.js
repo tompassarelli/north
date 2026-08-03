@@ -136,7 +136,7 @@ function boardIds(board) {
 export async function snapshotNorth(callbacks = {}, selectedThreadId) {
   try {
     const [agents, board] = await Promise.all([
-      northJson(["agents", "--json"]), northJson(["json", "board", "--all"]),
+      northJson(["agents", "--json"]), northJson(["json", "board"]),
     ]);
     const ids = boardIds(board);
     const facts = ids.length ? await northJson(["json", "show-many", ids.join(",")]) : {};
