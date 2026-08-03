@@ -933,7 +933,8 @@
         (route-for-operation port {:op :resolved :te subject :p "kind"})]
     (:version (send-op-for-log target-port target-log {:op :version}))))
 
-;; A Fact is a string subject/predicate/object triple. Blank literal objects are
+;; A coordination row crosses this wire as three string slots (te/p/r); subject/predicate/
+;; object is North's reading of them, not kernel law. Blank literal objects are
 ;; intentional in a few contracts (empty message bodies and DONE payloads), so
 ;; preserve explicit ""; nil is different — `(str nil)` used to turn an omitted
 ;; CLI argument into a blank fact. Reject malformed shapes before any socket write.

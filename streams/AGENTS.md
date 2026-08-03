@@ -12,7 +12,7 @@ The stream layer the operating manual describes. Two directories:
   appending; the durable byte cursor advances on the next sweep.
 - `streams/distillations/` — **committed tiered compressions** of raw streams.
   Tier 1 = one session → decisions, principles, spawned threads, artifacts,
-  with `@thread-id` links so the fact graph and the narrative cross-reference.
+  with `@thread-id` links so the coordination graph and the narrative cross-reference.
   Files: `YYYY-MM-DD-<slug>.tier1.md`.
 
 Provenance contract: every distillation names its raw source(s) and the north

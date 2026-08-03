@@ -3,7 +3,7 @@
 North is the provider-neutral coordination substrate. This file contains the
 North-repository constraints that supplement the global agent profile. Product
 documentation under `docs/` is reference material, not agent policy, and never
-overrides either authority. The fact graph is canonical; `threads/` is a
+overrides either authority. The coordination graph is canonical; `threads/` is a
 projection.
 
 ## Runtime boundaries
