@@ -175,6 +175,7 @@ test("observes rate-limit messages without extra turns and preserves the stream"
   expect(observed.mcpActivity?.()).toEqual({
     source: "anthropic-agent-sdk:assistant-tool-use", coverage: "exact", totalCalls: 1,
     tools: [{ server: "north", tool: "tell", count: 1 }],
+    operationReceipts: [], operationAggregates: [],
   });
   expect(JSON.stringify(observed.mcpActivity?.())).not.toContain("CANARY");
 });

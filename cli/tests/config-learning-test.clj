@@ -32,6 +32,12 @@
                  (str/includes? (:out shown) "learning: frozen · discovery")
                  (str/includes? (:out shown) "at most one eligible axis"))))
 
+  (let [armed (run! "graph-text" "armed")]
+    (check! "one explicit write arms graph/text while generic learning stays frozen"
+            (and (zero? (:exit armed))
+                 (= "frozen" (:mode (policy-data)))
+                 (= "armed" (:graphTextExperiment (policy-data))))))
+
   (doseq [args [["mode" "learning"]
                 ["intensity" "0.25"]
                 ["axes" "model-tier" "effort" "prompt"]
@@ -49,7 +55,8 @@
             (= {:version 1 :mode "learning" :intensity 0.25
                 :axes ["model-tier" "effort" "prompt"]
                 :maxTierDelta 2 :riskCeiling "p2" :seed "ordinary-ops"
-                :epoch "2026-08" :evidenceMode "evaluation"}
+                :epoch "2026-08" :evidenceMode "evaluation"
+                :graphTextExperiment "armed"}
                value)))
 
   (let [script (str "import { loadLearningPolicy } from '" root
@@ -57,7 +64,8 @@
                     "const p=loadLearningPolicy();"
                     "if(p.mode!=='learning'||p.intensity!==0.25||p.maxTierDelta!==2"
                     "||p.axes.join(',')!=='model-tier,effort,prompt'"
-                    "||p.riskCeiling!=='p2'||p.evidenceMode!=='evaluation')process.exit(9);")
+                    "||p.riskCeiling!=='p2'||p.evidenceMode!=='evaluation'"
+                    "||p.graphTextExperiment!=='armed')process.exit(9);")
         result (process/shell
                 {:out :string :err :string :continue true
                  :extra-env {"NORTH_LEARNING_POLICY" policy}}

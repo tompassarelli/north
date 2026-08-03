@@ -1,4 +1,5 @@
 import type { ProviderId } from "./providers/types";
+import type { GraphTextExperimentAssignment } from "./learning-regime";
 
 export const ORCHESTRATION_PRESET_CAPABILITIES = [
   "filesystem.read",
@@ -19,6 +20,20 @@ export function hasAuthoringCapability(capabilities: readonly string[]): boolean
   return capabilities.includes("filesystem.write")
     || capabilities.includes("shell")
     || capabilities.includes("graph-authoring.fram");
+}
+
+/** Apply the armed graph treatment without changing the operator's semantic route. */
+export function graphTextExperimentCapabilities(
+  capabilities: readonly OrchestrationCapability[],
+  assignment: GraphTextExperimentAssignment | undefined,
+): OrchestrationCapability[] {
+  if (assignment?.status !== "assigned" || assignment.arm !== "graph")
+    return [...capabilities];
+  if (!capabilities.includes("filesystem.write") || !capabilities.includes("shell"))
+    throw new Error("graph-text experiment graph arm requires a stock authoring worker surface");
+  return requireOrchestrationCapabilities(
+    [...capabilities, "graph-authoring.fram"], "graph-text experiment capabilities",
+  );
 }
 
 export function requireOrchestrationCapabilities(value: unknown, label = "capabilities"): OrchestrationCapability[] {

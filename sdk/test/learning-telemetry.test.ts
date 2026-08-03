@@ -41,6 +41,18 @@ test("terminal telemetry carries immutable assignment and receipt identities, ne
     thread: "@telemetry-learning", agent: "learning-lane", durationMs: 1,
     posture: "spawn", outcome: "ran", processOutcome: "ran",
     learningAssignment: assignment, promptReceipt, environmentReceipt, runEnvelopeReceipt,
+    mcpActivity: {
+      source: "fixture", coverage: "exact", tools: [],
+      operationReceipts: [
+        { tool: "fram/show", operation: "reasoning.inspect", durationMs: 2, resultSize: 1, outcome: "ok" },
+        { tool: "fram/show", operation: "reasoning.inspect", durationMs: 3, resultSize: 1, outcome: "ok" },
+        { tool: "fram/show", operation: "reasoning.inspect", durationMs: 4, resultSize: 1, outcome: "typed_failure" },
+      ],
+      operationAggregates: [{
+        operation: "reasoning.inspect", count: 3, totalDurationMs: 9,
+        meanDurationMs: 3, failureCount: 1,
+      }],
+    },
   });
 
   expect(facts).toContainEqual(["learning_assignment_sha256", assignment.manifestSha256]);
@@ -50,5 +62,13 @@ test("terminal telemetry carries immutable assignment and receipt identities, ne
     "activated_resource_closure_sha256", environmentReceipt.activatedResourceClosureSha256,
   ]);
   expect(facts).toContainEqual(["run_envelope_sha256", runEnvelopeReceipt.manifestSha256]);
+  expect(facts).toContainEqual(["graph_text_experiment_arm", "none"]);
+  expect(facts).toContainEqual([
+    "mcp_operation_aggregate",
+    JSON.stringify({
+      operation: "reasoning.inspect", count: 3, totalDurationMs: 9,
+      meanDurationMs: 3, failureCount: 1,
+    }),
+  ]);
   expect(JSON.stringify(facts)).not.toContain("PRIVATE RAW PROMPT SENTINEL");
 });

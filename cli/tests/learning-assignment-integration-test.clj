@@ -69,7 +69,13 @@
    ["learning_options_sha256" (apply str (repeat 64 "d"))]
    ["learning_assignment_sha256" (if (= arm "control")
                                     (apply str (repeat 64 "e"))
-                                    (apply str (repeat 64 "f")))]])
+                                    (apply str (repeat 64 "f")))]
+   ["graph_text_experiment_version" "north-graph-text-assignment:v1"]
+   ["graph_text_experiment_status" "off"]
+   ["graph_text_experiment_arm" "none"]
+   ["graph_text_experiment_applied" "false"]
+   ["graph_text_experiment_reason" "config:off"]
+   ["graph_text_experiment_assignment_sha256" (apply str (repeat 64 "9"))]])
 
 (defn terminal-payload [assignment-facts]
   (vec (concat

@@ -1,6 +1,6 @@
 import {
   assignLearningEpisode, loadLearningPolicy, type LearningAssignment,
-  type LearningAxis, type LearningRisk,
+  LEARNING_AXES, type LearningAxis, type LearningRisk,
 } from "./learning-regime";
 import {
   REASONING_LEVELS, SEMANTIC_TIERS,
@@ -9,6 +9,7 @@ import {
 import type { RoutingAssessment, RoutingPinEvidence } from "./routing-economics";
 import { requireProviderNeutralRoute } from "./provider-neutral-route";
 import { sha256Manifest, type ReceiptCoverage } from "./composition-receipt";
+import { orchestrationCapabilities } from "./orchestration-staffing";
 
 export interface ManagedLearningInput {
   episodeId: string;
@@ -20,6 +21,8 @@ export interface ManagedLearningInput {
   promptArms?: readonly string[];
   authoringArms?: readonly string[];
   historyArms?: readonly string[];
+  /** Only the managed spawn surface can prepare the graph-authoring session. */
+  graphTextExperimentEligible?: boolean;
 }
 
 export interface ManagedLearningDecision {
@@ -121,6 +124,19 @@ export function decideManagedLearning(input: ManagedLearningInput): ManagedLearn
   if (input.promptArms?.length) arms.prompt = input.promptArms;
   if (input.authoringArms?.length) arms.authoring = input.authoringArms;
   if (input.historyArms?.length) arms.history = input.historyArms;
+  const graphTextActive = input.graphTextExperimentEligible
+    && policy.graphTextExperiment === "armed";
+  const capabilities = graphTextActive
+    ? orchestrationCapabilities(input.routingMetadata) : [];
+  const graphTextEligibility = !graphTextActive
+    ? "ineligible" as const
+    : input.routingMetadata.composition.kind === "bespoke"
+      ? capabilities.includes("graph-authoring.fram")
+        ? "pinned-graph" as const : "pinned-text" as const
+      : input.routingMetadata.topology === "worker"
+          && capabilities.includes("filesystem.write")
+          && capabilities.includes("shell")
+        ? "eligible" as const : "ineligible" as const;
   const assignment = assignLearningEpisode(policy, {
     episodeId: input.episodeId,
     taskSignatureSha256: sha256Manifest(input.taskSignature),
@@ -138,7 +154,11 @@ export function decideManagedLearning(input: ManagedLearningInput): ManagedLearn
       effort: assessment?.derived.minimumReasoning ?? input.routingMetadata.reasoning,
     },
     eligibleArms: arms,
-    pinnedAxes: pinnedAxes(assessment, input.pinEvidence),
-  });
+    pinnedAxes: [
+      ...pinnedAxes(assessment, input.pinEvidence),
+      ...(policy.graphTextExperiment === "armed"
+          && graphTextEligibility === "eligible" ? LEARNING_AXES : []),
+    ],
+  }, graphTextEligibility);
   return { assignment, ...applyRouteAssignment(input.routingMetadata, assessment, assignment) };
 }

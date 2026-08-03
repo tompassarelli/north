@@ -10,7 +10,7 @@ const probe = `/bin/bash -c '${NORTH_BINARY_PROBE_SCRIPT}'`;
 function completion(id: string, command = probe, output = `${north}\n${north}\n`) {
   return {
     id, command, cwd, source: "agent" as const, status: "completed" as const,
-    aggregatedOutput: output, exitCode: 0,
+    aggregatedOutput: output, exitCode: 0, durationMs: 5,
   };
 }
 

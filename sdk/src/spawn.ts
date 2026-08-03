@@ -123,7 +123,9 @@ import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission"
 import {
   orchestrationCapabilities,
 } from "./orchestration-staffing";
-import { hasAuthoringCapability } from "./orchestration-capabilities";
+import {
+  graphTextExperimentCapabilities, hasAuthoringCapability,
+} from "./orchestration-capabilities";
 import { refreshAccountUsages } from "./account-usage";
 import {
   admitResourceEnvelope, completeResourceEnvelope, envelopeContextFromEnv,
@@ -410,7 +412,9 @@ async function runSpawn(
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
   const routingMetadata = opts.routingMetadata;
-  const capabilities = orchestrationCapabilities(routingMetadata);
+  const capabilities = graphTextExperimentCapabilities(
+    orchestrationCapabilities(routingMetadata), learningAssignment?.graphTextExperiment,
+  );
   const requested = { provider: opts.provider, target: opts.target,
     tier: opts.tier, model: opts.model, effort: opts.effort };
   const agentId = opts.agentId ?? createSpawnAgentId();
@@ -751,6 +755,7 @@ async function runSpawn(
     role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
     managedWorktree: wt !== undefined,
+    graphTextExperiment: learningAssignment.graphTextExperiment,
     deliveryRun: deliveryReservationReady ? runContext : undefined,
   });
   injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
@@ -1557,6 +1562,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     routingMetadata: composed.routingMetadata,
     routingAssessment: composed.routingEconomics.assessment,
     pinEvidence: composed.routingEconomics.pinEvidence,
+    graphTextExperimentEligible: true,
   });
   composed.routingMetadata = learning.routingMetadata;
   composed.routingAssessment = learning.routingAssessment;

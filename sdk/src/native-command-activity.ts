@@ -20,6 +20,7 @@ export interface NativeCommandCompletionEvidence {
   status: NativeCommandStatus;
   exitCode: number;
   shape: NativeCommandShape;
+  durationMs: number;
 }
 
 export interface NativeCommandActivityObservation {
@@ -46,6 +47,7 @@ export interface NativeCommandCompletion {
   status: NativeCommandStatus;
   aggregatedOutput: string;
   exitCode: number;
+  durationMs: number;
 }
 
 function sha256(value: string): string {
@@ -109,7 +111,8 @@ export class NativeCommandActivityAccumulator {
 
   observe(completion: NativeCommandCompletion): boolean {
     if (!completion.id || completion.id.length > 256 || this.calls.has(completion.id)
-        || !this.open.delete(completion.id)) {
+        || !this.open.delete(completion.id)
+        || !Number.isSafeInteger(completion.durationMs) || completion.durationMs < 0) {
       this.identityLoss = true;
       return false;
     }
@@ -124,6 +127,7 @@ export class NativeCommandActivityAccumulator {
       status: completion.status,
       exitCode: completion.exitCode,
       shape: nativeCommandShape(completion.command),
+      durationMs: completion.durationMs,
     });
     if (evidence.shape === "read") this.read++;
     if (evidence.shape === "edit") this.edit++;

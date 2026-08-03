@@ -1,6 +1,7 @@
 import { ProviderRetrySafeError, type ProviderId } from "./types";
 import type { LiveInputCapability } from "./types";
 import type { OrchestrationCapability } from "../orchestration-capabilities";
+import { graphTextExperimentCapabilities } from "../orchestration-capabilities";
 import { orchestrationCapabilities } from "../orchestration-staffing";
 import { admitPinnedProvider } from "../execution-admission";
 import { admitRoutingRequest } from "../routing-admission";
@@ -64,7 +65,13 @@ export function compileProviderAuthoritySurface(
   const request = admitRoutingRequest(
     options.northRoutingRequest, `${provider} authority compiler`,
   );
-  const capabilities = Object.freeze(orchestrationCapabilities(request));
+  const expectedCapabilities = graphTextExperimentCapabilities(
+    orchestrationCapabilities(request), options.northGraphTextExperiment,
+  );
+  const suppliedCapabilities = options.northCapabilities as readonly OrchestrationCapability[];
+  if (JSON.stringify(expectedCapabilities) !== JSON.stringify(suppliedCapabilities))
+    throw new ProviderRetrySafeError(`${provider}_graph_text_experiment_authority_mismatch`);
+  const capabilities = Object.freeze([...suppliedCapabilities]);
   // A surface is evidence of executable authority, not a requested wish list.
   // Reject provider-inexpressible shapes before any caller can log or persist
   // a fictitious "effective" boundary.

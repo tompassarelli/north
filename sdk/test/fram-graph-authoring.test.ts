@@ -709,3 +709,35 @@ test("unselected preset compositions are byte-identical and require no Fram root
   };
   expect(descriptor(withoutRoots)).toBe(descriptor(withRoots));
 });
+
+test("graph/text experiment mounts Fram only for the graph session arm", () => {
+  process.env.AGENT_LAWS = "off";
+  const route = presetRequest("integrator");
+  const assignment = (arm: "graph" | "text") => ({
+    version: "north-graph-text-assignment:v1" as const,
+    status: "assigned" as const,
+    arm,
+    applied: true,
+    reason: "deterministic-balanced-assignment",
+    manifestSha256: "a".repeat(64),
+  });
+  const compose = (arm: "graph" | "text") => harnessOptions({
+    self: `experiment-${arm}`,
+    provider: "anthropic",
+    cwd: north,
+    presenceRegistrar: false,
+    routingMetadata: route,
+    graphTextExperiment: assignment(arm),
+  }) as any;
+
+  const graph = compose("graph");
+  const text = compose("text");
+  expect(Object.keys(graph.mcpServers)).toContain("fram");
+  expect(graph.northCapabilities).toContain("graph-authoring.fram");
+  expect(compileProviderAuthoritySurface("anthropic", graph).managedTools)
+    .toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
+  expect(Object.keys(text.mcpServers)).not.toContain("fram");
+  expect(text.northCapabilities).not.toContain("graph-authoring.fram");
+  expect(compileProviderAuthoritySurface("anthropic", text).managedTools)
+    .not.toEqual(expect.arrayContaining([...FRAM_MCP_TOOLS]));
+});

@@ -28,7 +28,10 @@ import {
 } from "./routing-metadata";
 import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
-import { hasAuthoringCapability, type OrchestrationCapability } from "./orchestration-capabilities";
+import {
+  graphTextExperimentCapabilities, hasAuthoringCapability, type OrchestrationCapability,
+} from "./orchestration-capabilities";
+import type { GraphTextExperimentAssignment } from "./learning-regime";
 import {
   FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOLS, framMcpServer,
 } from "./fram-graph-authoring";
@@ -355,6 +358,8 @@ export interface HarnessOpts {
   cwd?: string; // provider working directory; dispatch resolves this from thread repo facts, spawn from opt-in worktree provisioning
   /** Spawn-provisioned worktree: graph authoring must use its prepared local coordinator. */
   managedWorktree?: boolean;
+  /** Pre-provider deterministic graph/text assignment, already fenced on @run. */
+  graphTextExperiment?: GraphTextExperimentAssignment;
   /** Capability-bound delivery context reserved before provider execution. */
   deliveryRun?: {
     runId: string;
@@ -1825,7 +1830,16 @@ export function harnessOptions(o: HarnessOpts): Options {
     : o.model;
   const topology = metadata?.topology;
   const orchestration = orchestrationAppendix(metadata, cwd, composerEnvironment);
-  const capabilities = orchestration.evidence.capabilities;
+  const capabilities = orchestration.evidence.capabilities
+    ? graphTextExperimentCapabilities(
+      orchestration.evidence.capabilities, o.graphTextExperiment,
+    ) : undefined;
+  const experimentAppendix = o.graphTextExperiment?.status === "assigned"
+    ? `\n\n## Graph/text experiment arm\nSession arm: ${o.graphTextExperiment.arm}. `
+      + (o.graphTextExperiment.arm === "graph"
+        ? "Use the mounted Fram reasoning and authoring verbs where the task fits."
+        : "No Fram graph session verbs are mounted; use the ordinary text surface.")
+    : "";
   // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
   // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
@@ -1947,10 +1961,10 @@ export function harnessOptions(o: HarnessOpts): Options {
   const compositionSeed: HarnessCompositionState = {
     self: o.self,
     basePrompt,
-    orchestrationAppendix: orchestration.appendix,
+    orchestrationAppendix: orchestration.appendix + experimentAppendix,
     capabilities: capabilities ? [...capabilities] : undefined,
     cwd,
-    evidence: { ...orchestration.evidence, environmentReceipt },
+    evidence: { ...orchestration.evidence, capabilities, environmentReceipt },
     routingRequest: metadata,
     initialProvider: o.provider,
     initialModel: effectiveModel,
@@ -1985,6 +1999,9 @@ export function harnessOptions(o: HarnessOpts): Options {
       northCapabilities: Object.freeze([...capabilities]) as unknown as OrchestrationCapability[],
     } : {}),
     ...(metadata ? { northRoutingRequest: metadata } : {}),
+    ...(o.graphTextExperiment ? {
+      northGraphTextExperiment: deepFreeze({ ...o.graphTextExperiment }),
+    } : {}),
     cwd,
     systemPrompt: initialSystemPrompt,
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),
