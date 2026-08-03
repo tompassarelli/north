@@ -42,6 +42,7 @@ import {
 } from "./providers/provider-join";
 import type { McpActivityObservation } from "./tool-activity";
 import type { NativeCommandActivityObservation } from "./native-command-activity";
+import { NATIVE_COMMAND_SHAPES } from "./native-command-activity";
 import type {
   RoutingAdmissionReceipt, RoutingAssessment, RoutingPinEvidence,
 } from "./routing-economics";
@@ -439,11 +440,33 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   }
   if (rec.mcpActivity) {
     const activity = rec.mcpActivity;
+    if (activity.operationReceipts.length > 512 || activity.operationAggregates.length > 512
+        || activity.operationReceipts.some((receipt) => !/^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,255}$/.test(receipt.tool)
+          || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(receipt.operation)
+          || !Number.isSafeInteger(receipt.durationMs) || receipt.durationMs < 0
+          || !Number.isSafeInteger(receipt.resultSize) || receipt.resultSize < 0
+          || (receipt.batchSize !== undefined && (!Number.isSafeInteger(receipt.batchSize) || receipt.batchSize < 0))
+          || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(receipt.outcome)))
+      throw new Error("invalid MCP operation receipt");
+    const derived = new Map<string, { count: number; totalDurationMs: number; failureCount: number }>();
+    for (const receipt of activity.operationReceipts) {
+      const entry = derived.get(receipt.operation) ?? { count: 0, totalDurationMs: 0, failureCount: 0 };
+      entry.count++; entry.totalDurationMs += receipt.durationMs;
+      if (receipt.outcome !== "ok") entry.failureCount++;
+      derived.set(receipt.operation, entry);
+    }
+    if (activity.operationAggregates.length !== derived.size || activity.operationAggregates.some((aggregate) => {
+      const expected = derived.get(aggregate.operation);
+      return !expected || aggregate.count !== expected.count || aggregate.totalDurationMs !== expected.totalDurationMs
+        || aggregate.failureCount !== expected.failureCount || aggregate.meanDurationMs !== expected.totalDurationMs / expected.count;
+    })) throw new Error("MCP operation aggregates do not reconcile");
     facts.push(["mcp_activity_source", activity.source]);
     facts.push(["mcp_activity_coverage", activity.coverage]);
     if (activity.totalCalls !== undefined)
       facts.push(["mcp_actual_calls", String(activity.totalCalls)]);
     for (const tool of activity.tools) facts.push(["mcp_actual_tool", JSON.stringify(tool)]);
+    for (const receipt of activity.operationReceipts) facts.push(["mcp_operation_receipt", JSON.stringify(receipt)]);
+    for (const aggregate of activity.operationAggregates) facts.push(["mcp_operation_aggregate", JSON.stringify(aggregate)]);
   }
   if (rec.nativeCommandActivity) {
     const activity = rec.nativeCommandActivity;
@@ -454,7 +477,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       throw new Error("invalid native command activity observation");
     const counts = [
       activity.totalCommands, activity.successfulCommands, activity.failedCommands,
-      activity.declinedCommands, activity.truncatedCommands,
+      activity.declinedCommands, activity.truncatedCommands, activity.readCommands, activity.editCommands,
     ];
     if (counts.some((value) => value !== undefined
       && (!Number.isSafeInteger(value) || (value as number) < 0)))
@@ -476,11 +499,14 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       ["native_command_failed", activity.failedCommands],
       ["native_command_declined", activity.declinedCommands],
       ["native_command_truncated", activity.truncatedCommands],
+      ["native_command_read", activity.readCommands],
+      ["native_command_edit", activity.editCommands],
     ] as const) if (value !== undefined) facts.push([predicate, String(value)]);
     for (const completion of activity.completions) {
       if (!/^[a-f0-9]{64}$/.test(completion.commandSha256)
           || !/^[a-f0-9]{64}$/.test(completion.outputSha256)
           || !["completed", "failed", "declined"].includes(completion.status)
+          || !NATIVE_COMMAND_SHAPES.includes(completion.shape)
           || !Number.isSafeInteger(completion.exitCode)
           || completion.exitCode < -2_147_483_648 || completion.exitCode > 2_147_483_647)
         throw new Error("invalid native command completion evidence");

@@ -40,7 +40,7 @@ import {
 } from "../trusted-runtime";
 import type { TerminalTokenUsage } from "../usage";
 import {
-  McpActivityAccumulator, normalizeCodexMcpIdentity, type McpActivityObservation,
+  McpActivityAccumulator, mcpReceiptMetadata, normalizeCodexMcpIdentity, type McpActivityObservation,
 } from "../tool-activity";
 import {
   FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_SERVER, FRAM_MCP_TOOL_NAMES,
@@ -1637,7 +1637,7 @@ interface RuntimeNotificationState {
   /** Completed non-message, non-reasoning items observed in the LIVE turn. */
   toolItems: number;
   /** Provider items observed started but not yet completed, by lifecycle id. */
-  openItems: Map<string, { kind: string; observedAtMs: number }>;
+  openItems: Map<string, { kind: string; observedAtMs: number; startedAtMs: number }>;
   mcpActivity: McpActivityAccumulator;
   nativeCommands: NativeCommandActivityAccumulator;
   /** Names of the MCP servers this session's sealed authority actually grants. */
@@ -2059,11 +2059,10 @@ function validateProgressNotification(
     const item = record(params.item, `Codex ${method} item`);
     const itemId = protocolId(item.id, `Codex ${method} item id`);
     const itemType = boundedString(item.type, `Codex ${method} item type`, 128);
-    if (method === "item/started") {
-      state.openItems.set(itemId, { kind: itemType, observedAtMs: Date.now() });
-    } else {
-      state.openItems.delete(itemId);
-    }
+    const started = method === "item/started" ? undefined : state.openItems.get(itemId);
+    if (method === "item/started")
+      state.openItems.set(itemId, { kind: itemType, observedAtMs: Date.now(), startedAtMs: timestamp as number });
+    else state.openItems.delete(itemId);
     if (method === "item/completed" && countsAsToolItem(itemType)) state.toolItems += 1;
     if (method === "item/started" && item.type === "commandExecution")
       startedNativeCommand(item, state);
@@ -2075,6 +2074,8 @@ function validateProgressNotification(
       state.mcpActivity.observe(
         `${state.turnId}:${String(item.id)}`,
         normalizeCodexMcpIdentity(item.server, item.tool),
+        mcpReceiptMetadata(item.arguments, item.result,
+          started && started.kind === "mcpToolCall" ? (timestamp as number) - started.startedAtMs : undefined),
       );
     }
     if (method === "item/completed" && item.type === "commandExecution")

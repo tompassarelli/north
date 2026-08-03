@@ -1132,6 +1132,8 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(run.mcpActivity()).toEqual({
     source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 1,
     tools: [{ server: "north", tool: "tell", count: 1 }],
+    operationReceipts: [{ tool: "north/tell", operation: "tell", durationMs: 1, resultSize: 23, outcome: "ok" }],
+    operationAggregates: [{ operation: "tell", count: 1, totalDurationMs: 1, meanDurationMs: 1, failureCount: 0 }],
   });
   expect(run.nativeCommandActivity()).toMatchObject({
     source: "codex-app-server:item-completed",
@@ -1383,6 +1385,8 @@ test("a first-result consumer sees exact MCP activity without resuming the sessi
   expect(run.mcpActivity()).toEqual({
     source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 1,
     tools: [{ server: "north", tool: "tell", count: 1 }],
+    operationReceipts: [{ tool: "north/tell", operation: "tell", durationMs: 1, resultSize: 23, outcome: "ok" }],
+    operationAggregates: [{ operation: "tell", count: 1, totalDurationMs: 1, meanDurationMs: 1, failureCount: 0 }],
   });
   await session.return(first.value!);
   expect(run.mcpActivity().coverage).toBe("exact");
@@ -1394,7 +1398,7 @@ test("a clean terminal with MCP identity loss settles as partial", async () => {
   await expect(run.execute()).resolves.toMatchObject({ text: "managed answer" });
   expect(run.mcpActivity()).toEqual({
     source: "codex-app-server:item-completed", coverage: "partial", totalCalls: 1,
-    tools: [],
+    tools: [], operationReceipts: [], operationAggregates: [],
   });
 });
 
@@ -1544,7 +1548,7 @@ test("an admitted continuation makes MCP coverage unknown until its terminal suc
 
   await expect(session.next()).rejects.toThrow("openai_provider_execution_failed");
   expect(run.mcpActivity()).toEqual({
-    source: "codex-app-server:item-completed", coverage: "unknown", tools: [],
+    source: "codex-app-server:item-completed", coverage: "unknown", tools: [], operationReceipts: [], operationAggregates: [],
   });
 });
 
@@ -2461,7 +2465,7 @@ test("a failure after landed work carries a harvest instead of erasing the turn"
 
   const unobserved = new ManagedCodexHarvestError({
     turnIds: [], completedTurns: 0, text: "partial answer", landedWork: true,
-    mcp: { source: "fixture", coverage: "unknown", tools: [] },
+    mcp: { source: "fixture", coverage: "unknown", tools: [], operationReceipts: [], operationAggregates: [] },
     nativeCommands: {
       source: "fixture", coverage: "unknown", northBinaryProbe: "not_observed", completions: [],
     },
