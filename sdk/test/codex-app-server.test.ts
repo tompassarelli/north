@@ -125,6 +125,7 @@ function populatedPersonalCodexConfig(projectRoot: string) {
   // authority-widening: the regression proves the layer is accepted only
   // because Codex reports it disabled and every effective surface stays sealed.
   return {
+    agents: { max_concurrent_threads_per_session: 999 },
     project_doc_fallback_filenames: ["CLAUDE.md"],
     default_permissions: ":danger-full-access",
     approval_policy: "on-request",

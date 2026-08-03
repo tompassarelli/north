@@ -214,6 +214,7 @@ export const MANAGED_CODEX_DISABLED_FEATURES = [
 // remote-control state are independently attested. Unknown keys stay denied so
 // a newly introduced surface must be reviewed before managed lanes accept it.
 const REVIEWED_DISABLED_PROJECT_CONFIG_KEYS = [
+  "agents",
   "approval_policy",
   "approvals_reviewer",
   "default_permissions",
