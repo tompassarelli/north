@@ -1,11 +1,12 @@
 #!/usr/bin/env bb
 (ns north.lanes-cli
   (:require [cheshire.core :as json]
-            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.io RandomAccessFile]
            [java.time Instant]))
+
+(load-file (str (.getParent (io/file *file*)) "/coord.clj"))
 
 (def window-ms (* 24 60 60 1000))
 (def heartbeat-stale-ms (* 90 1000))
@@ -16,11 +17,8 @@
   (io/file (or (System/getenv "NORTH_AGENT_LOGS_DIR")
                (str (System/getenv "HOME") "/.local/state/north/agents"))))
 
-(defn coordination-log []
-  (io/file (or (System/getenv "FRAM_LOG")
-               (str (System/getenv "HOME") "/.local/state/north/coordination.log"))))
-
-(defn bare [value] (str/replace (str value) #"^@" ""))
+(defn port []
+  (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
 
 (defn read-json [file]
   (try
@@ -52,24 +50,22 @@
            last)
       "(empty log)"))
 
-(defn title-index [file]
-  (if-not (.isFile file)
-    {}
-    (with-open [reader (io/reader file)]
-      (reduce
-       (fn [titles line]
-         (let [fact (try (edn/read-string line) (catch Exception _ nil))
-               id (some-> (:l fact) bare)
-               value (:r fact)]
-           (if (and (map? fact) id (= "title" (str (:p fact))))
-             (case (str (:op fact))
-               "assert" (assoc titles id (str value))
-               "retract" (if (= (get titles id) (str value))
-                           (dissoc titles id)
-                           titles)
-               titles)
-             titles)))
-       {} (line-seq reader)))))
+;; Same :resolved "title" projection attention.clj/bars-cli.clj use for thread
+;; titles — an indexed single-subject read, not a corpus scan.
+(defn resolve-titles
+  "{thread title} for the given THREADS, read live off PORT. A coordinator
+   that is unreachable or answers malformed degrades that thread to absent
+   from the map — never crashes — exactly like the old index missing a file."
+  [port threads]
+  (reduce
+   (fn [titles thread]
+     ;; meta.json carries the bare thread id; the wire subject needs its @ prefix.
+     (let [entity (if (str/starts-with? (str thread) "@") thread (str "@" thread))
+           title (try (north.coord/resolved port entity "title")
+                      (catch Exception _ nil))]
+       (cond-> titles
+         (and (string? title) (not (str/blank? title))) (assoc thread title))))
+   {} (distinct (remove str/blank? threads))))
 
 (defn parse-exit [file]
   (when (.isFile file)
@@ -120,6 +116,21 @@
     (apply max (or (instant-ms (get meta "startedAt")) 0)
            (map #(if (.exists %) (.lastModified %) 0) files))))
 
+;; Same window filter lane-rows applies, factored out so title resolution is
+;; bounded to lanes actually rendered rather than every artifact on disk.
+(defn windowed-threads
+  ([dir now-ms] (windowed-threads dir now-ms window-ms))
+  ([dir now-ms period-ms]
+   (->> (lane-files dir)
+        (keep
+         (fn [log]
+           (let [id (str/replace (.getName log) #"\.log$" "")
+                 meta (read-json (io/file dir (str id ".meta.json")))
+                 observed-at (artifact-time log meta)]
+             (when (>= observed-at (- now-ms period-ms))
+               (get meta "thread")))))
+        distinct)))
+
 (defn lane-rows
   ([dir titles now-ms] (lane-rows dir titles now-ms window-ms))
   ([dir titles now-ms period-ms]
@@ -168,8 +179,10 @@
     (binding [*out* *err*]
       (println "usage: north lanes"))
     (System/exit 2))
-  (let [now-ms (*now-ms*)]
-    (render (lane-rows (agents-dir) (title-index (coordination-log)) now-ms))))
+  (let [now-ms (*now-ms*)
+        dir (agents-dir)
+        titles (resolve-titles (port) (windowed-threads dir now-ms))]
+    (render (lane-rows dir titles now-ms))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))

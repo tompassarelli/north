@@ -71,6 +71,19 @@
            (and (str/includes? rendered "!!! KILLED !!!")
                 (str/includes? rendered "!!! NEVER-ACKNOWLEDGED !!!"))))
 
+  (check "resolve-titles reads the live :resolved title projection"
+         (with-redefs [north.coord/resolved
+                       (fn [port entity predicate]
+                         (when (and (= 7977 port) (= "title" predicate))
+                           (get {"@thread-a" "Thread A" "@thread-b" ""} entity)))]
+           (= {"thread-a" "Thread A"}
+              (north.lanes-cli/resolve-titles 7977 ["thread-a" "thread-b" "thread-c"]))))
+
+  (check "resolve-titles degrades to no titles when the coordinator is unreachable"
+         (with-redefs [north.coord/resolved
+                       (fn [& _] (throw (ex-info "coordinator unreachable" {})))]
+           (= {} (north.lanes-cli/resolve-titles 7977 ["thread-a" "thread-b"]))))
+
   (finally
     (doseq [file (reverse (file-seq temp-dir))]
       (io/delete-file file true))))
