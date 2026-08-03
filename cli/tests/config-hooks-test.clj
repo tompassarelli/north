@@ -53,7 +53,7 @@
            (every? #(str/includes? (:out listed) %)
                    ["code-upstream-guard" "firn-guard"
                     "launch-critical-worktree-guard" "git-blind-stage-guard"
-                    "tripwire-guard" "agent-spawn-guard" "north-clock-guard"
+                    "tripwire-guard" "agent-spawn-guard"
                     "racket-build-guard" "logcompress-hook"
                     "beagle-session-start" "north-session-end" "hook-detach"]))
     (check "list reports executable paths and decision provenance"
@@ -127,9 +127,6 @@
            (= "off:until=2099-01-01T00:00:00Z" (stored "hooks"))))
 
   (let [listed (run-cli)]
-    (check "global sweep disables an ordinary hook"
-           (boolean (re-find #"(?m)^north-clock-guard\s+billing\s+deny\s+off\s+all\b"
-                             (:out listed))))
     (check "global sweep excludes coordination hooks"
            (boolean (re-find #"(?m)^north-session-end\s+coordination\s+identity\s+on\s+default\b"
                              (:out listed)))))

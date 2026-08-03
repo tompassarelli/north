@@ -155,7 +155,7 @@ north_hook_enabled() {
   north_dial_hook_category __cat "$__id"
   north_dial_authoring_env __env
   # The env kill-switch speaks only for authoring guards; it must not reach
-  # across and silence billing, dispatch, or coordination.
+  # across and silence dispatch or coordination.
   [[ $__cat == authoring ]] || __env=''
   north_dial_raw __all hooks
   # coordination is never swept by `all` — it must be named.

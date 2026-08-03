@@ -1012,7 +1012,7 @@
   (let [hookdir (str HOME "/.agents/hooks")
         settings (str HOME "/.claude/settings.json")
         stxt (when (.exists (io/file settings)) (slurp settings))]
-    (doseq [h ["agent-spawn-guard.sh" "tripwire-guard.sh" "north-clock-guard.sh"]]
+    (doseq [h ["agent-spawn-guard.sh" "tripwire-guard.sh"]]
       (let [present (or (.exists (io/file hookdir h))
                         (some #(.exists (io/file hookdir %)) [(str h ".sh") h]))
             wired (and stxt (str/includes? stxt (str/replace h #"\.sh$" "")))]

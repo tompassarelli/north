@@ -393,7 +393,6 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
   const sharedBytes = readFileSync(join(repo, "a.txt"), "utf8");
   const sink: { options?: any } = {};
   let providerQueries = 0;
-  let clockAdmissions = 0;
   let envelopeAdmissions = 0;
 
   // Plant a real `git worktree add -b` failure: the exact derived branch
@@ -412,10 +411,6 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
         return capturingQuery(sink)(args);
       },
       feedSubscriber: () => readySubscription(),
-      admitBillableClock: () => {
-        clockAdmissions++;
-        throw new Error("clock admission must be unreachable");
-      },
       admitResourceEnvelope: async () => {
         envelopeAdmissions++;
         throw new Error("envelope admission must be unreachable");
@@ -430,7 +425,6 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
   expect(String(thrown)).toContain("explicit worktree provisioning failed");
   expect(String(thrown)).toContain("spawn aborted before provider execution");
   expect(providerQueries).toBe(0);
-  expect(clockAdmissions).toBe(0);
   expect(envelopeAdmissions).toBe(0);
   expect(sink.options).toBeUndefined();
   expect(existsSync(expectedPath)).toBe(false);
@@ -455,51 +449,6 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
   expect(delta.join("\n")).not.toContain("must never reach provider execution");
 
   execFileSync("git", ["-C", repo, "branch", "-d", "--", branch]);
-});
-
-test("pre-provider admission failure preserves the physical resource in quarantine", async () => {
-  const { spawn } = await import("./support/spawn");
-  const agentId = "wt-admission-fail-1";
-  const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
-  const registrations: WorktreeAllocationRegistration[] = [];
-  const events: WorktreeAllocationEvent[] = [];
-  let providerQueries = 0;
-  process.chdir(repo);
-  let thrown: unknown;
-  try {
-    await spawn({
-      prompt: "admission must roll back before provider",
-      agentId,
-      worktree: true,
-      routingMetadata: presetRequest("integrator"),
-      queryFn: () => {
-        providerQueries++;
-        return capturingQuery({})({ options: {} });
-      },
-      feedSubscriber: () => readySubscription(),
-      worktreeAllocationWriter: {
-        register: (registration: WorktreeAllocationRegistration) => registrations.push(registration),
-        event: (_subject: string, event: WorktreeAllocationEvent) => events.push(event),
-      },
-      admitBillableClock: () => { throw new Error("injected_clock_admission_failure"); },
-      completeResourceEnvelope: async () => {},
-    });
-  } catch (error) {
-    thrown = error;
-  } finally {
-    process.chdir(origCwd);
-  }
-
-  expect(String(thrown)).toContain("injected_clock_admission_failure");
-  expect(providerQueries).toBe(0);
-  expect(registrations).toHaveLength(1);
-  expect(events.map(({ type }) => type)).toEqual(["provisioned", "quarantined"]);
-  expect(events.at(-1)).toMatchObject({ type: "quarantined", resourceState: "quarantined" });
-  expect(existsSync(expectedPath)).toBe(true);
-  expect(execFileSync(
-    "git", ["-C", expectedPath, "branch", "--list", `lane-${agentId}`], { encoding: "utf8" },
-  )).toContain(`lane-${agentId}`);
-  rmSync(expectedPath, { recursive: true, force: true });
 });
 
 test("typed provider preflight refusal preserves a queryable quarantine with exact recovery", async () => {

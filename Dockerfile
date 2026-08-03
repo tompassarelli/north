@@ -97,8 +97,7 @@ ENV FRAM_HOME=/opt/fram \
     FRAM_PORT=7977 \
     FRAM_LOG=/data/facts.log \
     FRAM_REQUIRE_LOG_FENCE=1 \
-    FRAM_THREADS=/data/threads \
-    FRAM_TIME_DIR=/data/time
+    FRAM_THREADS=/data/threads
 
 RUN mkdir -p /data
 VOLUME ["/data"]

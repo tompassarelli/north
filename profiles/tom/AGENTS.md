@@ -17,37 +17,12 @@ Agent conduct is owned by this profile and its triggered profile documents;
 repository `AGENTS.md` files may add local constraints. Public `north:docs/`
 files explain the product but are never agent-policy authorities.
 
-## Client time and agent time — two orthogonal clocks
-<!-- north-section: client-time · bucket: client -->
+## Agent time is run telemetry
+<!-- north-section: agent-time · bucket: core -->
 
-**Human/client presence is the billing clock.** Before any edit under
-`~/code/client/<owner>/**`, exactly one open North row must identify
-`kind client_session`, `clocked_by user`, and that `owner`. `north clock in
-<owner>` once when the client block starts; `north clock out` only when the
-human context clearly leaves that client. Ticket switches within a client
-never restart the clock; ambiguous drift gets one warning; explicit departure
-clocks out. Generation waits, builds, and delegated work stay inside the
-block while the client remains the focal human context.
-
-**Agent/task duration is telemetry, never billing authority.** Every managed
-lane records its own concurrent `kind run` timing against its thread. Run
-clocks may overlap, start and stop with the lane, never appear on invoices,
-and never satisfy the client-edit guard. Do not serialize workers or churn
-the client clock to fit telemetry. Closed legacy `session_of` rows stay in
-sent-invoice history (compat projection — never a live session, never edit
-authority).
-
-The axes join only for traceability: at intake, derive the Linear ticket from
-the branch (`msa-NNN` → `MSA-NNN`) and find-or-`capture` exactly one thread
-with `owner msa` + `linear MSA-NNN`. `north-clock-guard` requires that exact
-branch/thread identity plus the matching human `client_session` — not that
-the session point at the ticket. Coordination and clock commands always
-remain available; unrelated repos and proved read-only operations inherit no
-deny from a client cwd; ambiguous client mutations fail closed.
-
-Billing is derived, never invented: worklog = `north-timelog`, invoices =
-`north-invoice` (uninvoiced → invoice-sent → invoice-paid). Bypass only
-deliberately: `north config guards off` or `AGENT_NO_AUTHORING_HOOKS=1`.
+Every managed lane records its own concurrent `kind run` timing against its
+thread. Run clocks may overlap and start and stop with the lane. They exist for
+telemetry, grounding, and estimates; they never gate edits or dispatch.
 
 ## Delivery first — default posture
 <!-- north-section: pre-edit-gate · bucket: orch -->

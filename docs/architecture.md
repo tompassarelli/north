@@ -21,7 +21,6 @@ and derivations that turn a domain-neutral triple store into a work ledger:
 | module | owns |
 |---|---|
 | `projections.bclj` | the derived lifecycle — ready, blocked, terminal, driver liveness |
-| `clock.bclj` · `clockify.bclj` | client sessions, worklog projection, Clockify sync |
 | `staleness.bclj` | needs-review and the staleness classifiers |
 | `validate.bclj` | North's work rules on top of the engine's integrity rules |
 | `gatepolicy.bclj` | gate policy evaluation |
@@ -33,7 +32,7 @@ to Clojure under [`out/`](../out), which is committed — see
 
 **CLI** → [`bin/north`](../bin/north). It aims the Fram engine at your data,
 sets capture provenance, and dispatches: life and coordination verbs
-(`ready`/`threads`/`capture`/`clock`/`agents`/`spawn`/`delegate`/`watch`/
+(`ready`/`threads`/`capture`/`agents`/`spawn`/`delegate`/`watch`/
 `trace`/`config`) route to `north.main` or a [`cli/`](../cli) handler; engine
 verbs (`import`/`show`/`validate`/`tell`) pass through to Fram. Any verb the
 registry does not claim passes through to the engine.

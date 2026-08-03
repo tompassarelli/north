@@ -93,9 +93,6 @@
               (emit! run "at" "2026-01-01T00:01:00Z")
               (emit! run "outcome" "ran")
               (emit! run "kind" "run")))))
-      ;; Keep the unrelated once-daily subprocess gate idle.
-      (emit! "@clock-audit-large-corpus" "kind" "clock_audit_run")
-      (emit! "@clock-audit-large-corpus" "run_at" (str (java.time.Instant/now)))
       {:live-facts @tx :control-subjects control-subject-count})))
 
 (def tmp (.toFile

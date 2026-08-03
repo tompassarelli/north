@@ -49,7 +49,6 @@ north — coordinate work, agents, and time
     north show <id>               a thread's facts + body
     north tell <id> <pred> <val>  assert a fact (retract removes)
     north threads                 active / ready / blocked overview
-    north clock in <owner>|out    the client billing session
 
   AGENTS
     north delegate "<task>"       hand work to a new lane
@@ -98,11 +97,9 @@ checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
 - **One serialized write path.** Every write goes through a coordinator daemon
   on `127.0.0.1:7977` (`NORTH_PORT`) that serializes and rule-checks it;
   `north up` starts one ([`bin/north-coord-up`](bin/north-coord-up)).
-- **Time and billing are projections, not a second system.** `north clock`
-  opens one human client session, and worklogs and invoices derive from those
-  same facts ([`src/north/clock.bclj`](src/north/clock.bclj),
-  [`cli/north-timelog.clj`](cli/north-timelog.clj),
-  [`cli/north-invoice.clj`](cli/north-invoice.clj)).
+- **Agent duration is run telemetry.** Every managed lane records `kind=run`
+  with its agent, thread, observed duration, outcome, and estimate comparison
+  ([`sdk/src/telemetry.ts`](sdk/src/telemetry.ts)).
 
 ## Status
 

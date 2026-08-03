@@ -137,7 +137,6 @@ export function expectedManagedCodexHooks(
         hooks: [
           command("code-upstream-guard.sh", 10, managedDir),
           command("firn-guard.sh", 10, managedDir),
-          command("north-clock-guard-codex", 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
         ],
       },
@@ -147,7 +146,6 @@ export function expectedManagedCodexHooks(
           command("agent-spawn-guard.sh", 10, managedDir),
           command("tripwire-guard.sh", 10, managedDir),
           command("firn-guard.sh", 10, managedDir),
-          command("north-clock-guard-codex", 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
         ],
       },

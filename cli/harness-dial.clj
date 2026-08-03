@@ -127,7 +127,7 @@
   [get-state registry id]
   (let [category (category-of registry id)
         ;; The env kill-switch speaks only for authoring guards; it must not
-        ;; reach across and silence billing, dispatch, or coordination.
+        ;; reach across and silence dispatch or coordination.
         env (when (= category "authoring") (authoring-env))
         ;; coordination is never swept by `all` — it must be named.
         all (when-not (= category "coordination") (get-state "hooks"))

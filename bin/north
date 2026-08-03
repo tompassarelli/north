@@ -52,18 +52,16 @@ if [ "$_north_fram_log_explicit" -eq 0 ]; then
   unset _north_log_dir
 fi
 unset _north_fram_log_explicit
-export FRAM_TIME_DIR="${FRAM_TIME_DIR:-$HOME/.local/state/north/time}"
 # TRANSITIONAL_SCHEMA_BOOTSTRAP: graph declarations win whenever present. Keep
 # this compatibility set only until a verified two-corpus snapshot, canonical
 # schema-migrate execution, strict audit, and restart proof have all landed; its
 # removal is deliberately sequenced after that live-data cutover.
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into session_of start_time end_time clocked_by clock_orphaned clockify_id rate invoice_id invoice_state linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
 export FRAM_TERMINAL_PREDS="${FRAM_TERMINAL_PREDS:-outcome abandoned superseded_by}"
 export FRAM_WITHDRAWN_PREDS="${FRAM_WITHDRAWN_PREDS:-abandoned}"
-export CLOCKIFY_SECRET_FILE="${CLOCKIFY_SECRET_FILE:-/run/secrets/clockify-api-key}"
 export NORTH_SOURCE="${NORTH_SOURCE:-tom}"
 export NORTH_AUTHOR="${NORTH_AUTHOR:-tom_passarelli}"
 export NORTH_LEAD="${NORTH_LEAD:-tom_passarelli}"
@@ -120,6 +118,9 @@ else
   exit 127
 fi
 BUN="${NORTH_BUN:-bun}"
+# bars-cli speaks the binary FRAMRPC wire, so it needs Fram's out/ tree on
+# the classpath the way NORTH_MAIN does.
+NORTH_BARS=("$BB" -cp "$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}" "$NORTH/cli/bars-cli.clj")
 
 if [ "${NORTH_COORD_PROTOCOL:-v03}" = framrpc ]; then
   if [ ! -d "${NORTH_FRAMRPC_OUT:-}" ]; then
@@ -327,11 +328,6 @@ case "${1:-}" in
     done
     echo "north: topics:$_north_topics  (north help --all = everything)" >&2
     exit 2 ;;
-  clock)
-    # `clock audit` is a standalone read-only report (commits-vs-sessions coverage,
-    # bin/north-clock-audit); every other clock verb is engine-side in north.main.
-    if [ "${2:-}" = "audit" ]; then exec "$NORTH/bin/north-clock-audit" "${@:3}"; fi
-    north_slot_exec "$@" ;;
   threads)
     # Kind-scoped noun command: the THREAD-kind overview (threads are one kind
     # among several in the store — see `north schema`; people/concerns/runs are
@@ -446,7 +442,7 @@ case "${1:-}" in
   bars)
     # Coordinator-facing done_when grooming: the one-step recovery the delivery
     # reserve error points at when a thread accumulates past the bar limit.
-    exec "$BB" "$NORTH/cli/bars-cli.clj" "${@:2}" ;;
+    exec "${NORTH_BARS[@]}" "${@:2}" ;;
   rebuild-intent)
     # Rebuild coordination is a fact + finite live-roster broadcast protocol.
     # The Clojure module owns its CAS-closed hold/response/all-clear state.
@@ -516,7 +512,9 @@ case "${1:-}" in
       "$NORTH/bin/north-coord-up" "${@:2}" ;;
   lanes)
     # Durable local lifecycle receipts remain readable during coordinator faults.
-    exec "$BB" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;
+    # Title resolution speaks both wires (NORTH_COORD_PROTOCOL), so it needs
+    # the same Fram classpath NORTH_BARS carries for the FRAMRPC branch.
+    exec "$BB" -cp "$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;
   agents|templates|spawn|delegate|request|fork|req|watch|steer|retask|escalate)
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
@@ -662,14 +660,14 @@ case "${1:-}" in
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
     # silent for bar-less threads; failures never block the write.
     if [ "$framverb" = tell ] && [ "${3:-}" = outcome ]; then
-      "$BB" "$NORTH/cli/bars-cli.clj" echo "$2" 2>/dev/null || true
+      "${NORTH_BARS[@]}" echo "$2" 2>/dev/null || true
     fi
     # Reserve-limit echo: bars accumulate across runs, so the Nth done_when is
     # what silently makes future managed runs unable to reserve delivery
     # evidence. Warn at write time (advisory, never a reject) and name the
     # one-step recovery. Runs only for done_when tells.
     if [ "$framverb" = tell ] && [ "${3:-}" = done_when ] && [ -n "${4:-}" ]; then
-      "$BB" "$NORTH/cli/bars-cli.clj" check "$2" "$4" || true
+      "${NORTH_BARS[@]}" check "$2" "$4" || true
     fi
     case "${2#@}" in
       run:*|session:*|mine:*|guard_denial:*)

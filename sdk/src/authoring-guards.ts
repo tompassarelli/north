@@ -2,9 +2,7 @@
 // ============================================================================
 // THE SMOKING GUN: harness.ts builds worker Options with a programmatic `hooks`
 // object and settingSources:[], so the SDK never loads ~/.claude/settings.json —
-// every north-dispatched worker ran with ZERO authoring guards. north-clock-guard
-// never fired for a single worker edit, and nearly all edit volume IS worker
-// edits: ~30% of billable client wall-time shipped unclocked in one week.
+// every north-dispatched worker ran with ZERO authoring guards.
 //
 // We deliberately keep settingSources empty (enabling one would drag the user-settings surface —
 // permissions, MCP, statusline, plugins — into workers). Instead we RE-EXECUTE the
@@ -15,14 +13,10 @@
 // Guard-script result protocol:
 //   - stdout JSON with hookSpecificOutput.permissionDecision === "deny"
 //       -> DENY, reason = permissionDecisionReason
-//       (code-upstream-guard, firn-guard, north-clock-guard)
+//       (code-upstream-guard, firn-guard)
 //   - process exit code 2 -> DENY, reason = stderr
 //       (tripwire-guard)
-//   - with NORTH_CLOCK_GUARD_ATTEST=1, north-clock-guard must positively emit:
-//       {"northClockGuard":"allow"}          matching live clock proven
-//       {"northClockGuard":"not-applicable"} valid envelope proven nonbillable
-//     Missing/empty/unknown/error/timeout is unavailable and the harness denies.
-//   - other guards remain advisory on unavailable; their explicit denials still win.
+//   - unavailable guards remain advisory; their explicit denials still win.
 // ============================================================================
 import {
   spawn, type ChildProcess,
@@ -36,8 +30,7 @@ import { parseStrictJson } from "./strict-json";
 
 // Guard scripts default to the portable ~/.agents/hooks, overridable by an exact
 // AGENT_HOOKS_DIR. No provider checkout fallback: a host without the directory
-// simply finds no scripts and every advisory guard is skipped (fail-open); the
-// canonical clock guard's absence denies unavailable instead.
+// simply finds no scripts and every unavailable guard is skipped.
 export function authoringHooksDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.AGENT_HOOKS_DIR?.trim();
   if (override) return resolve(override);
@@ -48,14 +41,10 @@ export const HOOKS_DIR = authoringHooksDir();
 
 export type GuardDecision =
   | { decision: "deny"; reason: string }
-  | {
-      decision: "allow";
-      northClockGuard?: "allow" | "not-applicable";
-    }
+  | { decision: "allow" }
   | { decision: "unavailable"; reason: string };
 
 const ALLOW: GuardDecision = { decision: "allow" };
-export const BILLABLE_CLOCK_GUARD_UNAVAILABLE = "billable_clock_guard_unavailable";
 const GUARD_OUTPUT_MAX_BYTES = 64 * 1024;
 const GUARD_TERM_GRACE_MS = 100;
 const GUARD_KILL_GRACE_MS = 100;
@@ -131,19 +120,13 @@ export function resolveGuard(name: string): string | null {
   return existsSync(p) ? p : null;
 }
 
-/**
- * Resolve one managed guard chain while retaining the canonical clock path
- * unconditionally. Optional advisory guards may be absent on portable hosts;
- * the clock guard never disappears at import time—spawn failure is the stable
- * unavailable denial required by the billing invariant.
- */
 export function resolveManagedGuardChain(
   names: readonly string[],
   hooksDir = HOOKS_DIR,
 ): string[] {
   return names.flatMap((name) => {
     const path = resolve(hooksDir, name);
-    return name === "north-clock-guard.sh" || existsSync(path) ? [path] : [];
+    return existsSync(path) ? [path] : [];
   });
 }
 
@@ -161,22 +144,18 @@ export function runGuardScript(
   return new Promise((resolveP) => {
     let child: ChildProcess;
     let input: ReturnType<typeof preparedGuardInput> | undefined;
-    const clockAttestation = scriptPath.endsWith("/north-clock-guard.sh");
     try {
       input = preparedGuardInput(hookInput);
       // Execute the script directly so its shebang picks the interpreter. Callers
       // may add per-lane topology without mutating shared process.env; otherwise
       // Node inherits the parent environment unchanged.
-      const childEnv = clockAttestation
-        ? { ...(env ?? process.env), NORTH_CLOCK_GUARD_ATTEST: "1" }
-        : env;
       child = spawn(scriptPath, [], {
         // Bun can lose nested child-pipe stdin. A prewritten private descriptor
         // makes exact hook bytes available before process construction and EOF
         // deterministic without exposing them through argv or environment.
         stdio: [input.fd, "pipe", "pipe"],
         detached: GUARD_POSIX_PROCESS_GROUP,
-        ...(childEnv ? { env: childEnv } : {}),
+        ...(env ? { env } : {}),
       });
     } catch {
       input?.dispose();
@@ -252,7 +231,7 @@ export function runGuardScript(
         });
       }
       // stdout-JSON deny (the majority of guards) takes precedence, then exit-2 deny.
-      const jsonDecision = parseJsonDecision(stdout, clockAttestation);
+      const jsonDecision = parseJsonDecision(stdout);
       if (jsonDecision?.decision === "deny") return finish(jsonDecision);
       if (code === 2) {
         const reason = stderr.trim() || "blocked by authoring guard (exit 2)";
@@ -260,13 +239,6 @@ export function runGuardScript(
       }
       if (code !== 0)
         return finish({ decision: "unavailable", reason: `guard process exited ${code}` });
-      if (clockAttestation
-          && (jsonDecision?.decision !== "allow"
-              || jsonDecision.northClockGuard === undefined))
-        return finish({
-          decision: "unavailable",
-          reason: "clock guard attestation was not exact",
-        });
       finish(jsonDecision ?? ALLOW);
     });
   });
@@ -274,10 +246,7 @@ export function runGuardScript(
 
 // Extract a deny reason from a guard's stdout JSON, or null if it isn't a deny.
 // A guard may print non-JSON (nothing, additionalContext-only, log noise) — all null.
-function parseJsonDecision(
-  stdout: string,
-  clockAttestation: boolean,
-): GuardDecision | null {
+function parseJsonDecision(stdout: string): GuardDecision | null {
   const s = stdout.trim();
   if (!s) return null;
   let obj: any;
@@ -299,16 +268,7 @@ function parseJsonDecision(
         : "blocked by authoring guard",
     };
   }
-  const exactClockEnvelope = clockAttestation
-    && typeof obj === "object"
-    && obj !== null
-    && !Array.isArray(obj)
-    && Object.keys(obj).length === 1
-    && Object.keys(obj)[0] === "northClockGuard";
-  return exactClockEnvelope
-      && (obj.northClockGuard === "allow" || obj.northClockGuard === "not-applicable")
-    ? { decision: "allow", northClockGuard: obj.northClockGuard }
-    : null;
+  return null;
 }
 
 // Run a chain of guards in order; FIRST DENY WINS and short-circuits the rest
@@ -318,15 +278,10 @@ export async function evaluateGuards(
   hookInput: unknown,
   timeoutMs = 10000,
   env?: NodeJS.ProcessEnv,
-  requiredAttestationPaths: ReadonlySet<string> = new Set(),
 ): Promise<GuardDecision> {
   for (const p of scriptPaths) {
     const d = await runGuardScript(p, hookInput, timeoutMs, env);
     if (d.decision === "deny") return d;
-    if (requiredAttestationPaths.has(p)
-        && (d.decision !== "allow" || d.northClockGuard === undefined)) {
-      return { decision: "deny", reason: BILLABLE_CLOCK_GUARD_UNAVAILABLE };
-    }
   }
   return ALLOW;
 }

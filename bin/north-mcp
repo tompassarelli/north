@@ -133,16 +133,6 @@
                                          :value {:type "string"}}
              :required ["id" "predicate" "value"]}
     :argv (fn [a] ["retract" (get a "id") (get a "predicate") (get a "value")])}
-   {:name "clock_start"  :desc "Start logging time against a thread (one session at a time)."
-    :schema {:type "object" :properties {:id {:type "string"}} :required ["id"]}
-    :argv (fn [a] ["clock" "start" (get a "id")])}
-   {:name "clock_stop"   :desc "Stop the running time session."
-    :schema {:type "object" :properties {}} :argv (fn [_] ["clock" "stop"])}
-   {:name "clock_status" :desc "Show the running session + elapsed."
-    :schema {:type "object" :properties {}} :argv (fn [_] ["clock" "status"])}
-   {:name "clock_report" :desc "Estimate vs actual per thread + calibration %. Default: summary + top rows by logged time (rows with no logged time omitted). Pass full=true for every thread. Returns JSON {summary,calibration,rows[]} or, with full, {calibration,rows[]}."
-    :schema {:type "object" :properties {:full {:type "boolean" :description "return every thread (default false: summary + top-N logged)"}}}
-    :argv (fn [_] ["json" "clock-report"])}
    {:name "presentation" :desc "The effective emoji map (condition -> glyph), engine defaults + user overrides. Returns JSON {active,ready,blocked,draft}."
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "presentation"])}
    {:name "linear_get"
@@ -989,33 +979,6 @@
 
 ;; Result diet — the MCP is the AI-facing edge, so we slim results for the model
 ;; without touching engine output the CLI/humans rely on. Cuts BYTES, never facts.
-(def clock-report-top-n 15)
-
-(defn slim-clock-report
-  "Default clock_report: calibration + a compact summary + the top-N threads by
-   logged time (threads with zero logged time are omitted — they carry no signal).
-   full=true short-circuits this and returns every row. Fails open to raw text."
-  [text full?]
-  (if full?
-    text
-    (try
-      (let [d (json/parse-string text)
-            rows (get d "rows")
-            logged (->> rows (filter #(pos? (or (get % "actual_sec") 0)))
-                        (sort-by #(- (get % "actual_sec"))))
-            total-sec (reduce + 0 (map #(get % "actual_sec") rows))
-            top (vec (take clock-report-top-n logged))]
-        (json/generate-string
-         {:summary {:threads (count rows)
-                    :with_logged_time (count logged)
-                    :total_logged_h (Double/parseDouble (format "%.1f" (/ total-sec 3600.0)))
-                    :shown (count top)
-                    :omitted (- (count logged) (count top))
-                    :note "top threads by logged time; pass full=true for every thread"}
-          :calibration (get d "calibration")
-          :rows top}))
-      (catch Exception _ text))))
-
 (defn slim-capture
   "capture ack keeps the id+title line; drops the local file path and the
    `Next:` hint (the AI drives via tell, not the .md projection)."
@@ -1024,7 +987,6 @@
 
 (defn slim-output [nm args text]
   (case nm
-    "clock_report" (slim-clock-report text (boolean (get args "full")))
     "capture"      (slim-capture text)
     text))
 

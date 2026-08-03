@@ -275,25 +275,27 @@
             "export NORTH_FRAM_HOME=<fram checkout>")]
       :else
       ;; The exact argv sdk/src/fram-graph-authoring.ts launches for a lane's
-      ;; own coordinator; a scratch log keeps the smoke off every real corpus.
+      ;; own coordinator; a scratch log keeps the smoke off every real corpus,
+      ;; and an absent one proves a fresh store boots with no migration step.
       (let [dir (java.nio.file.Files/createTempDirectory
                  "north-spawn-doctor" (into-array java.nio.file.attribute.FileAttribute []))
             log (str dir "/code.log")
             port (str (+ 41000 (rand-int 4000)))
-            result (shell [framDaemonCommand "serve-flat" port log]
+            space "north-spawn-doctor-probe"
+            result (shell [framDaemonCommand "serve" port log space]
                           :timeout deep-coordinator-timeout-ms
                           :env (assoc (into {} (System/getenv)) "FRAM_REQUIRE_LOG_FENCE" "1"))]
-        (io/delete-file (io/file log) true)
-        (io/delete-file (io/file (str dir)) true)
+        (doseq [leftover [log (str log ".writer-authority.lock") (str dir)]]
+          (io/delete-file (io/file leftover) true))
         [(if (:timeout result)
            (row "deep" "deep.lane-coordinator" :pass
-                (str framDaemonCommand " serve-flat stayed up for the smoke budget"))
+                (str framDaemonCommand " serve stayed up for the smoke budget on a fresh store"))
            (row "deep" "deep.lane-coordinator" :fail
-                (str framDaemonCommand " serve-flat exited " (:exit result)
+                (str framDaemonCommand " serve exited " (:exit result)
                      ": " (truncate 160 (or (not-empty (first-line (:err result)))
                                             (first-line (:out result))))
                      " — every graph-authoring lane dies at coordinator boot")
-                (str framDaemonCommand " serve-flat " port " <log>")))]))))
+                (str framDaemonCommand " serve " port " <log> <space-id>")))]))))
 
 ;; ---- (6) sandbox expectations ---------------------------------------------------
 
@@ -328,6 +330,111 @@
            (remove #(or (str/blank? %) (str/starts-with? % "#")))
            (map #(str/replace-first % #"^~" (str HOME)))
            vec))))
+
+;; ---- graph-upstream registry repair ---------------------------------------------
+;; Rows are bare absolute paths, so a checkout that moved cannot be matched by
+;; provenance either: the guard's git probe needs the row's PARENT DIRECTORY to
+;; still exist. Repair therefore rewrites the rows.
+
+(def ^:private sentinel-markers
+  ["@upstream:graph" "@upstream-is-graph" "@claim-canonical"])
+
+(defn- sentinel-directive? [line]
+  (boolean (re-find (re-pattern (str ";+\\s*(?:"
+                                     (str/join "|" (map #(java.util.regex.Pattern/quote %)
+                                                        sentinel-markers))
+                                     ")(?:\\s|$)"))
+                    line)))
+
+(defn- carries-sentinel?
+  "Mirror of code-upstream-guard.sh's in-band check: only a leading `;;` comment
+   before the first real form counts. Kept in sync with that guard by hand."
+  [path]
+  (let [file (io/file path)]
+    (and (.isFile file)
+         (with-open [reader (io/reader file)]
+           (loop [scanned 0]
+             (if (>= scanned 65536)
+               false
+               (if-let [line (.readLine ^java.io.BufferedReader reader)]
+                 (let [s (str/trim line)]
+                   (cond
+                     (or (str/blank? s)
+                         (re-matches #"(?:#lang\s+\S+|\(define-target\s+\S+\))" s))
+                     (recur (+ scanned (count line) 1))
+
+                     (str/starts-with? s ";;")
+                     (if (sentinel-directive? s) true (recur (+ scanned (count line) 1)))
+
+                     :else false))
+                 false)))))))
+
+(defn- relocations
+  "~/code/<project>/… and ~/code/client/<owner>/<project>/… both gained a `main/`
+   checkout segment when the container layout landed."
+  [path]
+  (let [code (str HOME "/code/")
+        client (str code "client/")]
+    (cond
+      (str/starts-with? path client)
+      (let [[owner project & rest] (str/split (subs path (count client)) #"/")]
+        (when (seq rest)
+          [(str client owner "/" project "/main/" (str/join "/" rest))]))
+
+      (str/starts-with? path code)
+      (let [[project & rest] (str/split (subs path (count code)) #"/")]
+        (when (seq rest)
+          [(str code project "/main/" (str/join "/" rest))]))
+
+      :else nil)))
+
+(defn registry-repair-plan
+  "Classify every row: a resolving row is left alone, a stale row is revived only
+   when its relocated file still carries the graph-upstream sentinel, and every
+   other stale row is retired rather than re-adopted."
+  [paths]
+  (mapv (fn [path]
+          (cond
+            (.exists (io/file path)) {:row path :action :keep}
+            :else
+            (if-let [moved (first (filter #(.isFile (io/file %)) (relocations path)))]
+              (if (carries-sentinel? moved)
+                {:row path :action :rewrite :to moved}
+                {:row path :action :retire
+                 :reason (str "moved to " moved ", which no longer carries the sentinel")})
+              {:row path :action :retire :reason "no file at this path or the current layout"})))
+        paths))
+
+(defn repair-registry!
+  "One-shot: rewrite GRAPH-UPSTREAM-REGISTRY from the repair plan, keeping a .bak."
+  []
+  (let [paths (registry-paths)]
+    (cond
+      (nil? paths)
+      (do (println (c "33" "no registry") (str "nothing to repair at " GRAPH-UPSTREAM-REGISTRY)) 0)
+
+      :else
+      (let [plan (registry-repair-plan paths)
+            kept (->> plan (remove #(= :retire (:action %))) (mapv #(or (:to %) (:row %))))
+            changed (filter #(not= :keep (:action %)) plan)]
+        (println (bold "north spawn --doctor --repair-registry") (dim GRAPH-UPSTREAM-REGISTRY))
+        (doseq [{:keys [row action to reason]} plan]
+          (println (format "%-8s %s%s"
+                           (name action) row
+                           (case action
+                             :rewrite (str "\n         -> " to)
+                             :retire (str "\n         retired: " reason)
+                             ""))))
+        (if (empty? changed)
+          (do (println (c "32" (str "all " (count paths) " rows already resolve; nothing rewritten"))) 0)
+          (do
+            (spit (str GRAPH-UPSTREAM-REGISTRY ".bak") (slurp GRAPH-UPSTREAM-REGISTRY))
+            (spit GRAPH-UPSTREAM-REGISTRY (str (str/join "\n" kept) "\n"))
+            (println (c "32" (str (count (filter #(= :rewrite (:action %)) plan)) " rewritten, "
+                                  (count (filter #(= :retire (:action %)) plan)) " retired, "
+                                  (count kept) " rows remain"))
+                     (dim (str "backup: " GRAPH-UPSTREAM-REGISTRY ".bak")))
+            0))))))
 
 (defn- nearest-existing-dir [path]
   (loop [file (some-> path io/file .getParentFile)]
@@ -421,7 +528,7 @@
             (str (count stale) " of " (count paths) " registry rows name files that no longer exist"
                  " — realpath and git-provenance matching both miss, so their adoption has"
                  " silently lapsed (e.g. " (first stale) ")")
-            (str "edit " GRAPH-UPSTREAM-REGISTRY))
+            (str NORTH-CLI " spawn --doctor --repair-registry"))
        :else
        (row "guard" "guard.graph-upstream-registry" :pass
             (str "all " (count paths) " registry rows resolve to real files")))
@@ -542,19 +649,23 @@
 
 (def usage
   (str "usage: north spawn --doctor [--deep] [--json]\n"
-       "       north spawn --doctor --canary\n\n"
+       "       north spawn --doctor --canary\n"
+       "       north spawn --doctor --repair-registry\n\n"
        "  --deep    also run the lane-local coordinator launch smoke\n"
        "  --canary  actually spawn one tiny read-only managed lane end to end\n"
-       "  --json    emit the versioned north:spawn-doctor:v1 row contract"))
+       "  --json    emit the versioned north:spawn-doctor:v1 row contract\n"
+       "  --repair-registry  relocate graph-upstream rows to the current checkout\n"
+       "                     layout and retire the ones no sentinel still backs"))
 
 (defn run! [args]
   (let [flags (set args)
-        unknown (remove #{"--doctor" "--deep" "--json" "--canary"} args)]
+        unknown (remove #{"--doctor" "--deep" "--json" "--canary" "--repair-registry"} args)]
     (cond
       (seq unknown)
       (do (binding [*out* *err*] (println (c "31" (str "unknown doctor option: " (first unknown)))))
           (println usage)
           2)
+      (flags "--repair-registry") (repair-registry!)
       (flags "--canary") (canary!)
       :else
       ;; The three subprocess-heavy probes are independent; running them serially

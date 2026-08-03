@@ -92,51 +92,14 @@
 (def legacy-triples
   (vec
    (concat
-    ;; 329 historical sessions: 51 human, 178 managed, 100 actor-absent.
-    (mapcat (fn [index]
-              [[(str "@2026-human-" index) "clocked_by" "user"]
-               [(str "@2026-human-" index) "end_time" "end"]
-               [(str "@2026-human-" index) "session_of" "thread"]
-               [(str "@2026-human-" index) "start_time" "start"]])
-            (range 51))
-    (mapcat (fn [index]
-              [[(str "@2026-agent-" index) "clocked_by" (str "lane-" index)]
-               [(str "@2026-agent-" index) "end_time" "end"]
-               [(str "@2026-agent-" index) "session_of" "thread"]
-               [(str "@2026-agent-" index) "start_time" "start"]])
-            (range 146))
-    (repeat-subjects "2026-unknown-" 100 #{"end_time" "session_of" "start_time"})
-    (mapcat (fn [index]
-              [[(str "@2026-orphan-" index) "clock_orphaned" "true"]
-               [(str "@2026-orphan-" index) "clocked_by" (str "lane-orphan-" index)]
-               [(str "@2026-orphan-" index) "end_time" "end"]
-               [(str "@2026-orphan-" index) "session_of" "thread"]
-               [(str "@2026-orphan-" index) "start_time" "start"]])
-            (range 24))
-    (mapcat (fn [index]
-              [[(str "@2026-open-" index) "clocked_by" (str "lane-open-" index)]
-               [(str "@2026-open-" index) "session_of" "thread"]
-               [(str "@2026-open-" index) "start_time" "start"]])
-            (range 8))
     ;; 234 aggregate residues.
     (repeat-subjects "aggtest:done-" 130 #{"agg_done_batch" "agg_done_worker"})
     (repeat-subjects "aggtest:run-" 96 #{"agg_run_batch" "agg_run_tokens"})
     (repeat-subjects "aggtest:charge-" 8 #{"agg_charge_tokens" "agg_charged_to"})
     ;; 57 deprecated @pred:* projections.
     (repeat-subjects "pred:legacy-" 57 LEGACY-SCHEMA-PROJECTION-SIGNATURE)
-    ;; Six explicit extension kinds.
-    (mapcat (fn [index]
-              [[(str "@clock-audit-" index) "kind" "clock_audit_run"]
-               [(str "@clock-audit-" index) "repo_summary" "repo"]
-               [(str "@clock-audit-" index) "run_at" "at"]
-               [(str "@clock-audit-" index) "uncovered_count" "0"]
-               [(str "@clock-audit-" index) "window" "week"]])
-            (range 4))
     [["@integration-link" "kind" "integration_link"]
      ["@linear-reservation" "kind" "linear_bootstrap_reservation"]]
-    ;; Two scratch fixtures.
-    (facts-for "@scratch-sess-000001" #{"end_time" "start_time"})
-    (facts-for "@scratch2-sess-a" #{"end_time" "start_time"})
     ;; Three intentionally unresolved quarantine decisions.
     [["@swarm" "agent_death" "dead"]
      ["019f6ec8-60b4-7d14-a199-1bdcb044a857" "merged_into" "bare-target"]
@@ -146,13 +109,9 @@
       schema (desired-schema (:facts corpus))
       classes (entity-classifications (:facts corpus) schema)
       counts (frequencies (map (comp :kind val) classes))]
-  (check! "all 628 deterministic legacy/test/extension subjects receive explicit kinds"
-          (and (= 51 (get counts "north/legacy_human_session"))
-               (= 178 (get counts "north/legacy_agent_session"))
-               (= 100 (get counts "north/legacy_session"))
-               (= 236 (get counts "north/test_fixture"))
+  (check! "all deterministic legacy/test/extension subjects receive explicit kinds"
+          (and (= 234 (get counts "north/test_fixture"))
                (= 57 (get counts "north/legacy_schema_projection"))
-               (= 4 (get counts "north/clock_audit_run"))
                (= 1 (get counts "north/integration_link"))
                (= 1 (get counts "north/linear_bootstrap_reservation")))
           (pr-str counts))

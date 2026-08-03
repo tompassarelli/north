@@ -20,7 +20,7 @@
       #"\n\(if sweep-verb\?\n  \(System/exit \(sweep-once-exit-code\)\)\n  \(-main\)\)\s*$"
       "\n")))
 
-(defn stage-stubs [calls concern-fn audit]
+(defn stage-stubs [calls concern-fn]
   {#'maybe-rebuild-window!
    (fn [_]
      (swap! calls conj :rebuild-window)
@@ -44,20 +44,20 @@
    (fn [& _] (swap! calls conj :spend-burn) {:tripped false})
    #'north.spend-breaker/sweep-kill!
    (fn [& _] (swap! calls conj :spend-kill) 0)
-   #'maybe-clock-audit!
-   (fn [_] (swap! calls conj :clock-audit) audit)})
+   #'reconcile-attention-bounded!
+   (fn [_] (swap! calls conj :attention-reconcile) {:status :completed})})
 
 (let [calls (atom [])
       summary
       (with-redefs-fn
-        (stage-stubs calls (constantly 0) {:status :deferred :reason :timeout})
+        (stage-stubs calls (constantly 0))
         #(sweep! true))]
   (check "rebuild collection precedes every maintenance stage"
          (= :rebuild-window (first @calls))
          @calls)
-  (check "later audit deferral cannot erase an already collected rebuild window"
+  (check "maintenance preserves an already collected rebuild window"
          (and (= "fired" (get-in summary [:rebuild-window :action]))
-              (= :deferred (:terminal-status summary)))
+              (= :completed (:terminal-status summary)))
          summary))
 
 (let [calls (atom [])
@@ -71,14 +71,13 @@
              (assoc
               (stage-stubs
                calls
-               #(throw (ex-info "fixture stale transition failed" {}))
-               {:status :skipped})
+               #(throw (ex-info "fixture stale transition failed" {})))
               #'with-sweep-lock (fn [f] (f)))
              #(sweep-once-exit-code)))))]
   (check "a failed stale-concern stage is contained and starves no later stage"
          (and (= :rebuild-window (first @calls))
               (= :concerns (second @calls))
-              (some #{:clock-audit} @calls)
+              (some #{:attention-reconcile} @calls)
               (zero? @exit)
               (str/includes? output "terminal=completed")
               (str/includes? output "rebuild-window=fired")
@@ -95,7 +94,7 @@
            exit
            (with-redefs-fn
              (assoc
-              (stage-stubs calls (constantly 0) {:status :skipped})
+              (stage-stubs calls (constantly 0))
               #'with-sweep-lock (fn [f] (f))
               #'sweep-lanes!
               (fn [_]
@@ -120,7 +119,7 @@
            exit
            (with-redefs-fn
              (assoc
-              (stage-stubs calls (constantly 0) {:status :skipped})
+              (stage-stubs calls (constantly 0))
               #'with-sweep-lock (fn [f] (f))
               #'maybe-rebuild-window!
               (fn [_]

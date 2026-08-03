@@ -36,7 +36,6 @@
   (= "1" (env-value "NORTH_TELEMETRY_PARTITION" "0")))
 
 (def ^:dynamic *selected-stores* nil)
-(def ^:dynamic *writer-store* nil)
 
 (defn stores []
   (or *selected-stores*
@@ -74,14 +73,13 @@
     {:rows (mapv (fn [[_ predicate value]] [predicate value]) rows)}))
 
 (defn store-for [port log]
-  (or *writer-store*
-      (if (or (= port (:port telemetry))
-              (and (telemetry-enabled?)
-                   (= (.getCanonicalPath (io/file log))
-                      (.getCanonicalPath
-                       (io/file (env-value "FRAM_TELEMETRY_LOG" "/nonexistent"))))))
-        telemetry
-        coordination)))
+  (if (or (= port (:port telemetry))
+          (and (telemetry-enabled?)
+               (= (.getCanonicalPath (io/file log))
+                  (.getCanonicalPath
+                   (io/file (env-value "FRAM_TELEMETRY_LOG" "/nonexistent"))))))
+    telemetry
+    coordination))
 
 (defn version-for-log [port log]
   (try
@@ -108,24 +106,14 @@
   (throw (ex-info "legacy coordinator request has no FRAMRPC compatibility mapping"
                   {:operation (:op request)})))
 
-(def telemetry-clock-verbs #{"start" "orphan" "sync"})
-(def client-clock-authority-verbs #{"in" "current" "status" "out" "stop"})
-
-(defn clock-command? [verbs args]
-  (and (telemetry-enabled?) (= "clock" (first args))
-       (contains? verbs (or (second args) "current"))))
-
 (defn coordination-projection? [args]
   (let [command (if (= "json" (first args)) (second args) (first args))]
     (and (contains? #{"ready" "board" "plate"} command)
          (not (some #{"--all"} args)))))
 
 (defn -main [& args]
-  (let [authority? (clock-command? client-clock-authority-verbs args)
-        telemetry-write? (clock-command? telemetry-clock-verbs args)]
-    (binding [*selected-stores* (when (or authority? (coordination-projection? args))
-                                 [coordination])
-              *writer-store* (when telemetry-write? telemetry)]
+  (binding [*selected-stores* (when (coordination-projection? args)
+                               [coordination])]
       (with-redefs [rt/coord-live-state live-state
                     rt/coord-live-facts live-facts
                     rt/coord-show-for-log show-for-log
@@ -138,7 +126,7 @@
                     (fn [port log subject predicate value expected]
                       (write-for-log "retract" port log subject predicate value expected))
                     rt/coord-request-for-log unsupported-request]
-        (apply main/-main args)))))
+        (apply main/-main args))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))

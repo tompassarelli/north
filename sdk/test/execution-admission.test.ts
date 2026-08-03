@@ -14,8 +14,28 @@ const directorCapabilities = [
   "filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination",
 ] as const;
 
-test("a pinned OpenAI orchestrator is admitted to the managed North surface", () => {
-  expect(() => admitPinnedProvider("openai", directorCapabilities)).not.toThrow();
+// The Codex sandbox blocks :7977, so admitting this pin would hand the lane a
+// coordinator it can never reach — the refusal must land before any side effect.
+test("a pinned OpenAI orchestrator is refused before the managed North surface", () => {
+  expect(() => admitPinnedProvider("openai", directorCapabilities))
+    .toThrow("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
+  expect(() => admitPinnedProvider("anthropic", directorCapabilities)).not.toThrow();
+  expect(() => admitPinnedProvider("auto", directorCapabilities)).not.toThrow();
+});
+
+test("the pinned-OpenAI coordination refusal is a typed pre-acceptance block", () => {
+  try {
+    admitPinnedProvider("openai", directorCapabilities);
+    throw new Error("expected a coordination capability refusal");
+  } catch (error) {
+    expect(error).toMatchObject({
+      name: "ExecutionAdmissionError",
+      code: "blocked_preflight",
+      processOutcome: "blocked_preflight",
+      retrySafeBeforeAcceptance: true,
+      message: "openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability",
+    });
+  }
 });
 
 test("OpenAI cached web authority is admitted for pinned and automatic routes", () => {

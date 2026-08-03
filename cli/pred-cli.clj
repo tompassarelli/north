@@ -628,8 +628,6 @@
    ["verdict" "single" "literal" "advisory verdict (insufficient-evidence|within-norms|verbose-tendency)"]
    ["run_at" "single" "literal" "instant an operational audit ran"]
    ["window" "single" "literal" "date window covered by an operational audit"]
-   ["uncovered_count" "single" "literal" "uncovered commit count from a clock audit"]
-   ["repo_summary" "multi" "literal" "per-repository summary emitted by an operational audit"]
    ;; --- resource-budget breaker lifecycle ---
    ["spend_override" "multi" "literal" "operator-authored resource-budget override event"]
    ["tripped" "single" "literal" "instant the resource-budget breaker entered its tripped state"]
@@ -640,23 +638,9 @@
    ["reset_at" "single" "literal" "instant a resource-budget breaker reset was recorded"]
    ["reset_by" "single" "literal" "actor that reset the resource-budget breaker"]
    ["reset_reason" "single" "literal" "operator-supplied reason for a resource-budget breaker reset"]
-   ;; --- clock / billing (north-timelog, north-invoice, clock-audit; cardinality
-   ;;     mirrors bin/north FRAM_SINGLE_VALUED for the executable fallback) ---
-   ["clocked_by"    "single" "literal" "clock actor; user is human billing, managed handles are legacy audit-only"]
-   ["start_time"    "single" "literal" "clock session start instant"]
-   ["end_time"      "single" "literal" "clock session end instant (absent ⇒ session still open)"]
-   ["clock_orphaned" "single" "literal" "flag: a clock session was orphaned before a clean stop"]
    ["estimate_hours" "single" "literal" "estimated hours of work for a thread"]
    ["wip_floor"      "single" "literal" "minimum live managed-lane count expected by a coordinator"]
-   ["actual_hours"  "single" "literal" "reconciled actual billable hours for a thread"]
-   ["rate"          "single" "literal" "hourly billing rate on a thread or snapshotted client session"]
-   ["invoice_id"    "single" "literal" "invoice a billable thread/session is stamped onto"]
-   ["invoice_state" "single" "literal" "billing state: uninvoiced | invoice-sent | invoice-paid"]
-   ["billing_note"  "multi"  "literal" "manual billing-reconciliation note attached to a thread"]
-   ["clock_note"    "multi"  "literal" "clock-correction note attached to a thread"]
-   ["time_note"     "multi"  "literal" "billable-window note recorded for invoice reconstruction"]
-   ["time_evidence" "multi"  "literal" "observed evidence of a clock anomaly for time reconstruction"]
-   ;; --- thread lifecycle (dispatch, posture, north-invoice, merge) ---
+   ;; --- thread lifecycle (dispatch, posture, merge) ---
    ["abandoned"     "single" "literal" "date/marker a thread was abandoned (derived canceled lifecycle)"]
    ["canceled"      "single" "literal" "reason/marker a thread was canceled"]
    ["merged_into"   "single" "ref"     "the thread/topic this thread was merged into"]

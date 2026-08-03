@@ -58,12 +58,6 @@
    :summary "judgments whose inputs moved; unevidenced bars; promotable drafts"}
   {:verb "resolve" :form "north resolve <ref>" :topic :work
    :summary "canonical thread id for a ref (id, slug, or substring)"}
-  {:verb "clock" :form "north clock in <owner>|out" :topic :work
-   :summary "open/close the one human client billing session"
-   :details ["north clock audit — commits-vs-clock coverage drift"
-             "north clock start|stop — legacy thread-session aliases"]
-   :card {:section :work :form "north clock in <owner>|out"
-          :text "the client billing session"}}
   {:verb "evidence" :form "north evidence record \"<bar>\" \"<result>\"" :topic :work
    :summary "bind done-bar evidence to this exact managed run"
    :details ["--thread <id> — no reservation in env: record unreserved thread evidence"]}
@@ -211,7 +205,7 @@
   {:verb "history" :form "north history <id>" :topic :store
    :summary "a subject's full fact history from the log"}
   {:verb "json" :form "north json <view>" :topic :store
-   :summary "machine-readable projections (plate, ready, show, clock-report, …)"}
+   :summary "machine-readable projections (plate, ready, show, …)"}
   {:verb "tools" :form "north tools" :topic :store
    :summary "the curated MCP tool surface + the fram engine core"}
   {:verb "heal" :form "north heal [--adopt] [--resurrect]" :topic :store

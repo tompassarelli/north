@@ -8,7 +8,7 @@ projection.
 
 ## Runtime boundaries
 
-- Coordination, posture, clocks, telemetry, concerns, and supervision belong to North.
+- Coordination, posture, telemetry, concerns, and supervision belong to North.
 - Provider SDK/CLI code belongs only under `sdk/src/providers/`.
 - Orchestration owns semantic task routing; provider adapters resolve semantic tiers to models.
 - MCP is the shared data/tool boundary for interactive Claude Code and Codex sessions.

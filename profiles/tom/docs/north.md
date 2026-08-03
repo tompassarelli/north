@@ -6,8 +6,7 @@ A thread file is `@<id>` + `predicate  object` triple lines + `---` + prose
 body; refs are `@id`, literals EDN. Lifecycle is DERIVED from facts
 (committed/outcome/abandoned/driver/depends_on) — no state enum; a fresh
 capture is committed. Relatedness is `relates_to @<thread>` (no string tags —
-former tags are `@topic-*` threads). ids: `2026-06-15-150040`. Time: `north clock`
-(fact-native sessions; Clockify is an on-demand projection via `clock sync`).
+former tags are `@topic-*` threads). ids: `2026-06-15-150040`.
 For the product's file format and data model, see
 `north:docs/fact-native-redesign.md` as non-authoritative reference material.
 Agent conduct remains owned by the profile that linked this document.

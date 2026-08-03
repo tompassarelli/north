@@ -71,7 +71,6 @@ expect_hook hook-detach             on  "all-never-sweeps-coordination-2"
 printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
 expect_hook tripwire-guard          off "guards-is-authoring-category"
 expect_hook agent-spawn-guard       on  "guards-does-not-reach-dispatch"
-expect_hook north-clock-guard       on  "guards-does-not-reach-billing"
 
 printf 'guards=off\nhooks.hook.tripwire-guard=on\n' >"$NORTH_HARNESS_STATE"
 expect_hook tripwire-guard          on  "item-on-beats-guards-off"
@@ -80,17 +79,11 @@ expect_hook firn-guard              off "sibling-verdict-unchanged"
 printf 'hooks.cat.coordination=off\n' >"$NORTH_HARNESS_STATE"
 expect_hook north-session-end       off "coordination-off-when-named"
 
-printf 'hooks.hook.north-clock-guard=off:until=2099-01-01T00:00:00Z\n' >"$NORTH_HARNESS_STATE"
-expect_hook north-clock-guard       off "future-ttl-holds"
-printf 'hooks.hook.north-clock-guard=off:until=2020-01-01T00:00:00Z\n' >"$NORTH_HARNESS_STATE"
-expect_hook north-clock-guard       on  "lapsed-ttl-restores-guard"
-
 # --- the env var must not reach across categories --------------------------
 printf '' >"$NORTH_HARNESS_STATE"
 export AGENT_NO_AUTHORING_HOOKS=1
 expect_hook tripwire-guard          off "env-kills-authoring"
 expect_hook agent-spawn-guard       on  "env-does-not-kill-dispatch"
-expect_hook north-clock-guard       on  "env-does-not-kill-billing"
 unset AGENT_NO_AUTHORING_HOOKS
 
 # --- compatibility entrypoint identifies registered callers ----------------
@@ -101,15 +94,6 @@ if authoring_guards_off; then pass=$((pass + 1)); else fail_case "registered-aut
 printf 'guards=off\nhooks.hook.tripwire-guard=on\n' >"$NORTH_HARNESS_STATE"
 reload
 if authoring_guards_off; then fail_case "registered-item-on" "expected live"; else pass=$((pass + 1)); fi
-
-export NORTH_HOOK_ID=north-clock-guard
-printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then fail_case "registered-category-isolation" "billing hook followed guards"; else pass=$((pass + 1)); fi
-printf 'hooks.cat.billing=off\n' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then pass=$((pass + 1)); else fail_case "registered-billing-category" "expected off"; fi
-unset NORTH_HOOK_ID
 
 # Unknown external callers keep the pre-dial authoring-only behavior.
 printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
