@@ -1,3 +1,175 @@
 #lang beagle/js
+
 (ns north.bridge.model)
-;; @upstream:graph
+
+(define-mode strict)
+
+(defrecord Agent
+  [id: String
+   name: String
+   status: String
+   task: String])
+
+(defrecord WorkItem
+  [id: String
+   title: String
+   condition: String
+   driver: String
+   text: String
+   kanban-text: String])
+
+(defrecord BridgeModel
+  [agents: (Vec Agent)
+   transcript: (Vec String)
+   graph: (Vec WorkItem)
+   kanban: (Vec WorkItem)
+   layout: String
+   active-view-id: String
+   selected-agent: String
+   selected-thread: String
+   filter-text: String
+   notice: String])
+
+(defn make-agent [id: String name: String status: String task: String] -> Agent
+  (->Agent id name status task))
+
+(defn make-work
+  [id: String title: String condition: String driver: String text: String kanban-text: String]
+  -> WorkItem
+  (->WorkItem id title condition driver text kanban-text))
+
+(defn make-model [view-id: String] -> BridgeModel
+  (->BridgeModel [] [] [] [] "vertical"
+                 (if (identical? view-id "kanban") "kanban" "graph")
+                 "" "" "" (str "view " view-id)))
+
+(defn replace-projection
+  [model: BridgeModel agents: (Vec Agent) graph: (Vec WorkItem) kanban: (Vec WorkItem)]
+  -> BridgeModel
+  (->BridgeModel agents
+                 (bridgemodel-transcript model)
+                 graph
+                 kanban
+                 (bridgemodel-layout model)
+                 (bridgemodel-active-view-id model)
+                 (bridgemodel-selected-agent model)
+                 (bridgemodel-selected-thread model)
+                 (bridgemodel-filter-text model)
+                 (bridgemodel-notice model)))
+
+(defn upsert-agent [model: BridgeModel agent: Agent] -> BridgeModel
+  (let [agents (.filter (bridgemodel-agents model)
+                        (fn [existing: Agent] -> Bool
+                          (not (identical? (agent-id existing) (agent-id agent)))))]
+    (->BridgeModel (.concat agents agent)
+                   (bridgemodel-transcript model)
+                   (bridgemodel-graph model)
+                   (bridgemodel-kanban model)
+                   (bridgemodel-layout model)
+                   (bridgemodel-active-view-id model)
+                   (bridgemodel-selected-agent model)
+                   (bridgemodel-selected-thread model)
+                   (bridgemodel-filter-text model)
+                   (bridgemodel-notice model))))
+
+(defn append-transcript [model: BridgeModel line: String] -> BridgeModel
+  (->BridgeModel (bridgemodel-agents model)
+                 (.slice (.concat (bridgemodel-transcript model) line) -500)
+                 (bridgemodel-graph model)
+                 (bridgemodel-kanban model)
+                 (bridgemodel-layout model)
+                 (bridgemodel-active-view-id model)
+                 (bridgemodel-selected-agent model)
+                 (bridgemodel-selected-thread model)
+                 (bridgemodel-filter-text model)
+                 line))
+
+(defn focus-view [model: BridgeModel view-id: String] -> BridgeModel
+  (->BridgeModel (bridgemodel-agents model)
+                 (bridgemodel-transcript model)
+                 (bridgemodel-graph model)
+                 (bridgemodel-kanban model)
+                 (bridgemodel-layout model)
+                 (if (identical? view-id "kanban") "kanban" "graph")
+                 (bridgemodel-selected-agent model)
+                 (bridgemodel-selected-thread model)
+                 (bridgemodel-filter-text model)
+                 (bridgemodel-notice model)))
+
+(defn set-layout [model: BridgeModel layout: String] -> BridgeModel
+  (->BridgeModel (bridgemodel-agents model)
+                 (bridgemodel-transcript model)
+                 (bridgemodel-graph model)
+                 (bridgemodel-kanban model)
+                 (if (identical? layout "horizontal") "horizontal" "vertical")
+                 (bridgemodel-active-view-id model)
+                 (bridgemodel-selected-agent model)
+                 (bridgemodel-selected-thread model)
+                 (bridgemodel-filter-text model)
+                 (bridgemodel-notice model)))
+
+(defn select-agent [model: BridgeModel agent-id: String] -> BridgeModel
+  (->BridgeModel (bridgemodel-agents model)
+                 (bridgemodel-transcript model)
+                 (bridgemodel-graph model)
+                 (bridgemodel-kanban model)
+                 (bridgemodel-layout model)
+                 (bridgemodel-active-view-id model)
+                 agent-id
+                 (bridgemodel-selected-thread model)
+                 (bridgemodel-filter-text model)
+                 (if (identical? agent-id "") "showing all work" (str "work assigned to " agent-id))))
+
+(defn select-thread [model: BridgeModel thread-id: String] -> BridgeModel
+  (->BridgeModel (bridgemodel-agents model)
+                 (bridgemodel-transcript model)
+                 (bridgemodel-graph model)
+                 (bridgemodel-kanban model)
+                 (bridgemodel-layout model)
+                 (bridgemodel-active-view-id model)
+                 (bridgemodel-selected-agent model)
+                 thread-id
+                 (bridgemodel-filter-text model)
+                 (if (identical? thread-id "") "no thread selected" (str "selected @" thread-id))))
+
+(defn set-filter [model: BridgeModel filter-text: String] -> BridgeModel
+  (->BridgeModel (bridgemodel-agents model)
+                 (bridgemodel-transcript model)
+                 (bridgemodel-graph model)
+                 (bridgemodel-kanban model)
+                 (bridgemodel-layout model)
+                 (bridgemodel-active-view-id model)
+                 (bridgemodel-selected-agent model)
+                 (bridgemodel-selected-thread model)
+                 (.toLowerCase (.trim filter-text))
+                 (if (identical? (.trim filter-text) "") "filter cleared" (str "filter: " filter-text))))
+
+(defn visible-work [model: BridgeModel source: (Vec WorkItem)] -> (Vec WorkItem)
+  (let [agent-id (bridgemodel-selected-agent model)
+        needle (bridgemodel-filter-text model)]
+    (.filter source
+             (fn [item: WorkItem] -> Bool
+               (and (or (identical? agent-id "") (identical? (workitem-driver item) agent-id))
+                    (or (identical? needle "")
+                        (.includes
+                         (.toLowerCase
+                          (str (workitem-id item) " "
+                               (workitem-title item) " "
+                               (workitem-condition item) " "
+                               (workitem-driver item)))
+                         needle)))))))
+
+(defn snapshot [model: BridgeModel] -> Any
+  (let [graph (visible-work model (bridgemodel-graph model))
+        kanban (visible-work model (bridgemodel-kanban model))]
+    {:agents (bridgemodel-agents model)
+     :transcript (bridgemodel-transcript model)
+     :graph graph
+     :kanban kanban
+     :views [{:id "graph" :title "Threads DAG" :items graph}
+             {:id "kanban" :title "Kanban" :items kanban}]
+     :layout (bridgemodel-layout model)
+     :activeViewId (bridgemodel-active-view-id model)
+     :selectedAgent (bridgemodel-selected-agent model)
+     :selectedThread (bridgemodel-selected-thread model)
+     :notice (bridgemodel-notice model)}))

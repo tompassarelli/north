@@ -14,12 +14,28 @@ type ServerMessage =
 
 function usage(): never {
   console.error(
-    "usage: north bridge <prompt> | north bridge dashboard [--once] [--ids] | north bridge accept"
+    "usage: north bridge <prompt> | north bridge app|tui [--view-id ID]"
+    + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
     + " | north bridge steer <execution-id> <text> | north bridge interrupt <execution-id>",
   );
   process.exit(2);
+}
+
+async function runApp(args: string[]): Promise<number> {
+  let viewId: string | undefined;
+  if (args.length) {
+    if (args.length !== 2 || args[0] !== "--view-id" || !args[1]) usage();
+    viewId = args[1];
+  }
+  process.env.NORTH_BIN ??= resolve(import.meta.dir, "../../../bin/north");
+  const appModule = new URL("./generated/north/bridge/app.js", import.meta.url).href;
+  const { run_northbridge_app_bang } = await import(appModule) as {
+    run_northbridge_app_bang(options: { viewId?: string }): Promise<unknown>;
+  };
+  await run_northbridge_app_bang({ viewId });
+  return 0;
 }
 
 function pendingValue(record: JournalRecord | undefined, key: string): string | undefined {
@@ -149,6 +165,7 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 }
 
 async function main(args: string[]): Promise<number> {
+  if (args[0] === "app" || args[0] === "tui") return runApp(args.slice(1));
   if (args[0] === "dashboard") return runDashboard(args.slice(1));
   if (args[0] === "pending") return runPending(args.slice(1));
   if (args[0] === "accept") {
