@@ -1,11 +1,18 @@
 #!/usr/bin/env bb
+;; bb -cp <fram-out> cli/tests/lanes-cli-test.clj — lanes-cli.clj loads
+;; framrpc-client.clj unconditionally, so fram.types must be on the classpath.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
-         '[clojure.string :as str])
+         '[clojure.string :as str]
+         '[fram.types :as t])
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (load-file (str root "/cli/lanes-cli.clj"))
+;; lanes-cli.clj loads framrpc-client.clj lazily (only when the native path
+;; actually runs); the framrpc-path checks below need the alias up front.
+(load-file (str root "/cli/framrpc-client.clj"))
+(require '[north.framrpc-client :as rpc])
 
 (def failures (atom 0))
 (def checks (atom 0))
@@ -71,18 +78,60 @@
            (and (str/includes? rendered "!!! KILLED !!!")
                 (str/includes? rendered "!!! NEVER-ACKNOWLEDGED !!!"))))
 
-  (check "resolve-titles reads the live :resolved title projection"
+  (check "v03 path reads the live :resolved title projection"
          (with-redefs [north.coord/resolved
                        (fn [port entity predicate]
                          (when (and (= 7977 port) (= "title" predicate))
                            (get {"@thread-a" "Thread A" "@thread-b" ""} entity)))]
            (= {"thread-a" "Thread A"}
-              (north.lanes-cli/resolve-titles 7977 ["thread-a" "thread-b" "thread-c"]))))
+              (north.lanes-cli/v03-resolve-titles 7977 ["thread-a" "thread-b" "thread-c"]))))
 
-  (check "resolve-titles degrades to no titles when the coordinator is unreachable"
+  (check "v03 path degrades to no titles when the coordinator is unreachable"
          (with-redefs [north.coord/resolved
                        (fn [& _] (throw (ex-info "coordinator unreachable" {})))]
-           (= {} (north.lanes-cli/resolve-titles 7977 ["thread-a" "thread-b"]))))
+           (= {} (north.lanes-cli/v03-resolve-titles 7977 ["thread-a" "thread-b"]))))
+
+  (let [stub-client (fn [_host port space _options] {:host "127.0.0.1" :port port :space-id space})]
+    (check "framrpc path reads the native scan title projection"
+           (with-redefs [rpc/connect stub-client
+                         rpc/close! (fn [_] nil)
+                         rpc/scan-all! (fn [client entity predicate _]
+                                         {:rows (case entity
+                                                  "@thread-a" [(t/triple entity predicate "Thread A")]
+                                                  "@thread-b" [(t/triple entity predicate :not-a-string)]
+                                                  [])})]
+             (= {"thread-a" "Thread A"}
+                (north.lanes-cli/native-resolve-titles 7977 ["thread-a" "thread-b" "thread-c"]))))
+
+    (check "framrpc path degrades to no titles when connect fails"
+           (with-redefs [rpc/connect (fn [& _] (throw (ex-info "coordinator unreachable" {})))]
+             (= {} (north.lanes-cli/native-resolve-titles 7977 ["thread-a" "thread-b"]))))
+
+    (check "framrpc path degrades a single failing thread without losing the rest"
+           (with-redefs [rpc/connect stub-client
+                         rpc/close! (fn [_] nil)
+                         rpc/scan-all! (fn [_ entity _ _]
+                                         (if (= entity "@thread-b")
+                                           (throw (ex-info "read failed" {}))
+                                           {:rows [(t/triple entity "title" "Thread A")]}))]
+             (= {"thread-a" "Thread A"}
+                (north.lanes-cli/native-resolve-titles 7977 ["thread-a" "thread-b"]))))
+
+    (check "resolve-titles routes to the native path when framrpc-protocol? is true"
+           (with-redefs [north.lanes-cli/framrpc-protocol? (fn [] true)
+                         rpc/connect stub-client
+                         rpc/close! (fn [_] nil)
+                         rpc/scan-all! (fn [client entity _ _] {:rows [(t/triple entity "title" "Native title")]})
+                         north.coord/resolved (fn [& _] (throw (ex-info "v03 path must not be called" {})))]
+             (= {"thread-a" "Native title"}
+                (north.lanes-cli/resolve-titles 7977 ["thread-a"]))))
+
+    (check "resolve-titles routes to the v03 path when framrpc-protocol? is false"
+           (with-redefs [north.lanes-cli/framrpc-protocol? (fn [] false)
+                         north.coord/resolved (fn [_ _ _] "V03 title")
+                         rpc/connect (fn [& _] (throw (ex-info "framrpc path must not be called" {})))]
+             (= {"thread-a" "V03 title"}
+                (north.lanes-cli/resolve-titles 7977 ["thread-a"])))))
 
   (finally
     (doseq [file (reverse (file-seq temp-dir))]

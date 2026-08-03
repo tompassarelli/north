@@ -50,22 +50,86 @@
            last)
       "(empty log)"))
 
-;; Same :resolved "title" projection attention.clj/bars-cli.clj use for thread
-;; titles — an indexed single-subject read, not a corpus scan.
-(defn resolve-titles
-  "{thread title} for the given THREADS, read live off PORT. A coordinator
-   that is unreachable or answers malformed degrades that thread to absent
-   from the map — never crashes — exactly like the old index missing a file."
+(defn framrpc-protocol?
+  "Same selector bin/north reads to route between the v0.3 EDN wire and the
+   binary FRAMRPC wire (dies-at-cutover for north.coord/resolved)."
+  []
+  (= "framrpc" (System/getenv "NORTH_COORD_PROTOCOL")))
+
+(defn- normalize-entity [thread]
+  ;; meta.json carries the bare thread id; the wire subject needs its @ prefix.
+  (let [value (str thread)]
+    (if (str/starts-with? value "@") value (str "@" value))))
+
+(defn- v03-title [port entity]
+  (try (north.coord/resolved port entity "title")
+       (catch Exception _ nil)))
+
+;; framrpc-client.clj (and the fram.types it requires) is loaded lazily, only
+;; when the native path actually runs — the v03 default path must keep
+;; working on a classpath that carries no Fram native-wire tree at all.
+(defn- ensure-native-client! []
+  (when-not (find-ns 'north.framrpc-client)
+    (load-file (str (.getParent (io/file *file*)) "/framrpc-client.clj"))))
+
+;; Mirrors bars-cli.clj's connect!/facts-of: SpaceId-fenced connect + bounded scan.
+(defn- native-connect! [port]
+  (ensure-native-client!)
+  (let [connect (ns-resolve 'north.framrpc-client 'connect)
+        host (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
+        space (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination")]
+    (connect host port space {:connect-timeout-ms 2000 :read-timeout-ms 30000})))
+
+(defn- native-close! [client]
+  ((ns-resolve 'north.framrpc-client 'close!) client))
+
+(defn- native-title [client entity]
+  (let [scan-all! (ns-resolve 'north.framrpc-client 'scan-all!)
+        triple-slot1 (ns-resolve 'fram.types 'triple-slot1)
+        triple-slot2 (ns-resolve 'fram.types 'triple-slot2)
+        rows (:rows (scan-all! client entity "title" nil))]
+    (some (fn [row]
+            (let [predicate (triple-slot1 row) value (triple-slot2 row)]
+              (when (and (string? predicate) (string? value) (= predicate "title"))
+                value)))
+          rows)))
+
+;; Same :resolved "title" projection attention.clj/bars-cli.clj use for titles.
+(defn v03-resolve-titles
+  "{thread title} for THREADS, read live off PORT via the v0.3 EDN wire. A
+   coordinator that is unreachable or answers malformed degrades that thread
+   to absent from the map — never crashes — exactly like the old index
+   missing a file."
   [port threads]
   (reduce
    (fn [titles thread]
-     ;; meta.json carries the bare thread id; the wire subject needs its @ prefix.
-     (let [entity (if (str/starts-with? (str thread) "@") thread (str "@" thread))
-           title (try (north.coord/resolved port entity "title")
-                      (catch Exception _ nil))]
+     (let [title (v03-title port (normalize-entity thread))]
        (cond-> titles
          (and (string? title) (not (str/blank? title))) (assoc thread title))))
    {} (distinct (remove str/blank? threads))))
+
+(defn native-resolve-titles
+  "{thread title} for THREADS, read live off PORT via the binary FRAMRPC
+   wire. A connect failure or a per-thread read failure both degrade to
+   absent from the map — never crashes."
+  [port threads]
+  (try
+    (let [client (native-connect! port)]
+      (try
+        (reduce
+         (fn [titles thread]
+           (let [title (try (native-title client (normalize-entity thread))
+                             (catch Exception _ nil))]
+             (cond-> titles
+               (and (string? title) (not (str/blank? title))) (assoc thread title))))
+         {} (distinct (remove str/blank? threads)))
+        (finally (native-close! client))))
+    (catch Exception _ {})))
+
+(defn resolve-titles [port threads]
+  (if (framrpc-protocol?)
+    (native-resolve-titles port threads)
+    (v03-resolve-titles port threads)))
 
 (defn parse-exit [file]
   (when (.isFile file)
