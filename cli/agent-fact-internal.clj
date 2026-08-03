@@ -7,10 +7,11 @@
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
+(def writer-root (.getParent (io/file (or *file* (System/getProperty "babashka.file")))))
+(load-file (str writer-root "/coord.clj"))
+(load-file (str writer-root "/agent-provenance.clj"))
+(load-file (str writer-root "/terminal-projection.clj"))
+(load-file (str writer-root "/lifecycle-projection.clj"))
 
 (def marker-predicate "identity_manifest_sha256")
 (def terminal-marker-predicate "terminal_manifest_sha256")
@@ -1112,6 +1113,309 @@
 (defn optional-payload [raw]
   (when-not (str/blank? raw) (payload raw)))
 
+(defn framrpc-protocol? []
+  (= "framrpc" (System/getenv "NORTH_COORD_PROTOCOL")))
+
+;; The deployed FRAM_OUT may predate the binary wire. Loading the client at
+;; analysis time would therefore break the v0.3 default before the selector can
+;; choose it; resolve every native symbol only after the native branch is live.
+(defn ensure-native-client! []
+  (when-not (find-ns 'north.framrpc-client)
+    (load-file (str writer-root "/framrpc-client.clj"))))
+
+(defn native-rpc! [operation & args]
+  (ensure-native-client!)
+  (apply (or (ns-resolve 'north.framrpc-client operation)
+             (fail! "native writer primitive is unavailable"
+                    {:operation operation}))
+         args))
+
+(defn native-triple-predicate [triple]
+  ((or (ns-resolve 'fram.types 'triple-slot1)
+       (fail! "native triple accessor is unavailable" {}))
+   triple))
+
+(defn native-connect! [port]
+  (native-rpc! 'connect
+               (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
+               port
+               (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination")
+               {:connect-timeout-ms 2000
+                :read-timeout-ms writer-timeout-bound-ms
+                :max-attempts 1}))
+
+(defn occurrence-snapshot [occurrences]
+  (into {}
+        (keep (fn [[predicate values]]
+                (when (seq values) [predicate (set (keys values))])))
+        occurrences))
+
+(defn identity-occurrences [facts]
+  (let [identity (into (sorted-map) (select-keys facts publish-predicates))]
+    (reduce (fn [projection [predicate value]]
+              (assoc projection predicate {value 1}))
+            (into {} (map (fn [predicate] [predicate {}])
+                          managed-projection-predicates))
+            (assoc identity marker-predicate (identity-marker identity)))))
+
+(defn exact-native-identity? [occurrences identity]
+  (= (into {} (remove (comp empty? val)) (identity-occurrences identity))
+     (into {}
+           (keep (fn [predicate]
+                   (when (seq (get occurrences predicate))
+                     [predicate (get occurrences predicate)])))
+           managed-projection-predicates)))
+
+(defn validate-native-recovery! [operation operation-id delta desired expected]
+  (when-not desired
+    (fail! "managed identity recovery requires a complete desired projection"
+           {:operation-id operation-id}))
+  (validate-publish! desired)
+  (when expected (validate-publish! expected))
+  (case operation
+    "publish"
+    (when-not (= desired delta)
+      (fail! "managed publish payload must equal its complete desired projection"
+             {:operation-id operation-id}))
+
+    "route"
+    (do
+      (when-not expected
+        (fail! "managed route recovery requires a complete expected projection"
+               {:operation-id operation-id}))
+      (when-not (= route-predicates (set (keys delta)))
+        (fail! "managed route operation requires the exact route predicate set"
+               {:operation-id operation-id :predicates (set (keys delta))}))
+      (when-not (= delta (select-keys desired route-predicates))
+        (fail! "managed route delta disagrees with desired projection"
+               {:operation-id operation-id}))
+      (when-not (= (apply dissoc expected route-predicates)
+                   (apply dissoc desired route-predicates))
+        (fail! "managed route operation changed non-route identity authority"
+               {:operation-id operation-id})))
+
+    (fail! "unsupported recoverable managed identity operation"
+           {:operation operation})))
+
+(defn native-classify-identity
+  "Pure expected->desired classifier over one native subject occurrence snapshot."
+  [subject operation operation-id delta desired expected occurrences]
+  (validate-native-recovery! operation operation-id delta desired expected)
+  (let [before (occurrence-snapshot occurrences)
+        current (committed-identity before)
+        desired-committed?
+        (if (= "route" operation)
+          (and current
+               (identity-matches-except?
+                current desired retask-overlay-predicates)
+               (exact-native-identity? occurrences current))
+          (exact-native-identity? occurrences desired))]
+    (cond
+      desired-committed?
+      {:result (committed-result operation-id "exact_replay")}
+
+      (terminal-projection-present? before)
+      {:result
+       (if (valid-committed-terminal? subject before)
+         (unresolved-result "not_committed" operation-id "terminal_committed")
+         (unresolved-result "indeterminate" operation-id
+                            "partial_or_invalid_terminal"))}
+
+      (and (= "publish" operation)
+           expected (exact-committed-identity? before expected))
+      {:desired desired :reason nil}
+
+      (and (= "route" operation)
+           current
+           (identity-matches-except?
+            current expected retask-overlay-predicates))
+      {:desired (effective-route-desired current expected desired)
+       :reason (when (retask-drift? current expected) "rebased_retask_overlay")}
+
+      (and (= "publish" operation)
+           (nil? expected) (empty? (managed-projection before)))
+      {:desired desired :reason nil}
+
+      (and (= "route" operation)
+           (route-prefix-compatible? before expected desired))
+      (let [actual (singleton-facts before publish-predicates)]
+        {:desired (effective-route-desired actual expected desired)
+         :reason "recovered_killed_prefix"})
+
+      (and (= "publish" operation)
+           (empty? (get before marker-predicate #{}))
+           (empty? (exact-projection
+                    before (conj terminal-predicates terminal-marker-predicate)))
+           (values-compatible-with-transition?
+            before expected desired publish-predicates))
+      {:desired desired :reason "recovered_killed_prefix"}
+
+      current
+      {:result (unresolved-result "not_committed" operation-id
+                                  "conflicting_generation")}
+
+      (seq (get before marker-predicate #{}))
+      {:result
+       (unresolved-result
+        "indeterminate" operation-id
+        (let [detail (identity-generation-divergence before desired)]
+          (cond-> "invalid_identity_generation"
+            (seq detail) (str " (" detail ")"))))}
+
+      :else
+      {:result (unresolved-result "indeterminate" operation-id
+                                  "unrecognized_partial_generation")})))
+
+(defn native-plan [subject before desired]
+  (native-rpc!
+   'plan-subject-actions subject before (identity-occurrences desired)
+   {:rank (fn [action]
+            (if (= marker-predicate
+                   (native-triple-predicate (:proposition action)))
+              1 0))}))
+
+(defn native-readback! [client subject before desired]
+  (native-rpc! 'subject-readback! client subject
+               (identity-occurrences desired) {:before before}))
+
+(defn native-result-after-readback [operation-id reason readback]
+  (case (:state readback)
+    :committed (committed-result operation-id reason)
+    :absent (unresolved-result "not_committed" operation-id "batch_absent")
+    :foreign-writer (unresolved-result "indeterminate" operation-id
+                                       "foreign_writer_after_batch")
+    (unresolved-result "indeterminate" operation-id "readback_mismatch")))
+
+(defn native-acquire-lease! [client subject holder]
+  (let [deadline (+ (System/nanoTime) (* writer-timeout-bound-ms 1000000))
+        resource (write-lease-resource subject)]
+    (loop []
+      (let [version (:served-version (native-rpc! 'version! client))
+            outcome (native-rpc! 'lease-acquire-at-version!
+                                 client resource holder write-lease-ttl-ms version)]
+        (case (:outcome outcome)
+          :applied outcome
+          :conflict (if (< (System/nanoTime) deadline)
+                      (recur)
+                      {:result (unresolved-result "not_committed" nil
+                                                  "lease_conflict_retry_exhausted")})
+          :sent-ambiguous
+          (let [check (try
+                        (native-rpc! 'lease-check! client (:candidate-fence outcome))
+                        (catch Throwable _ nil))]
+            (if (:valid? check)
+              (assoc outcome :outcome :applied :fence (:candidate-fence outcome))
+              (if (< (System/nanoTime) deadline)
+                (recur)
+                {:result (unresolved-result "indeterminate" nil
+                                            "lease_acquire_ambiguous")})))
+          :durability-ambiguous
+          {:result (unresolved-result "indeterminate" nil
+                                      "restart_required_durability_ambiguous")}
+          :lease-held
+          {:result (unresolved-result "not_committed" nil "write_lease_held")}
+          {:result (unresolved-result "indeterminate" nil
+                                      (str "lease_acquire_" (name (:outcome outcome))))})))))
+
+(defn with-operation-id [result operation-id]
+  (assoc result :operation_id operation-id))
+
+(defn native-publish-identity!
+  [client subject operation operation-id delta desired expected holder]
+  (let [deadline (+ (System/nanoTime) (* writer-timeout-bound-ms 1000000))
+        acquire (native-acquire-lease! client subject holder)]
+    (if-let [result (:result acquire)]
+      (with-operation-id result operation-id)
+      (let [fence (:fence acquire)]
+        (try
+          (loop [conflicts 0]
+            (let [{:keys [served-version occurrences]}
+                  (native-rpc! 'subject-projection! client subject)
+                  classification
+                  (native-classify-identity subject operation operation-id
+                                            delta desired expected occurrences)]
+              (if-let [result (:result classification)]
+                result
+                (let [target (:desired classification)
+                      actions (native-plan subject occurrences target)
+                      outcome (native-rpc! 'fenced-batch! client actions
+                                           {:fence fence
+                                            :expected-version served-version})]
+                  (case (:outcome outcome)
+                    :durability-ambiguous
+                    (unresolved-result "indeterminate" operation-id
+                                       "restart_required_durability_ambiguous")
+
+                    :conflict
+                    (if (and (< conflicts 32)
+                             (< (System/nanoTime) deadline))
+                      (recur (inc conflicts))
+                      (unresolved-result "not_committed" operation-id
+                                         "conflict_retry_exhausted"))
+
+                    :fence-mismatch
+                    (let [final-projection
+                          (native-rpc! 'subject-projection! client subject)
+                          final-classification
+                          (native-classify-identity
+                           subject operation operation-id delta desired expected
+                           (:occurrences final-projection))]
+                      (or (:result final-classification)
+                          (unresolved-result "not_committed" operation-id
+                                             "lease_fence_mismatch")))
+
+                    :sent-ambiguous
+                    (native-result-after-readback
+                     operation-id (:reason classification)
+                     (native-readback! client subject occurrences target))
+
+                    :applied
+                    (native-result-after-readback
+                     operation-id (:reason classification)
+                     (native-readback! client subject occurrences target))
+
+                    :no-op
+                    (native-result-after-readback
+                     operation-id (:reason classification)
+                     (native-readback! client subject occurrences target))
+
+                    :not-sent
+                    (unresolved-result "not_committed" operation-id
+                                       "batch_not_sent")
+
+                    (unresolved-result "indeterminate" operation-id
+                                       (str "batch_" (name (:outcome outcome)))))))))
+          (finally
+            (try (native-rpc! 'lease-release! client fence)
+                 (catch Throwable _ nil))))))))
+
+(defn native-main! [args]
+  (let [[port-s operation raw-subject raw supplied-holder supplied-operation-id
+         desired-raw expected-raw _terminal-thread-raw] args
+        port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
+        subject (entity raw-subject)
+        operation-id (or supplied-operation-id (str (java.util.UUID/randomUUID)))
+        _ (when-not (re-matches uuid-v4-pattern operation-id)
+            (fail! "invalid managed agent logical operation id"
+                   {:operation-id operation-id}))
+        managed-recovery? (not (str/blank? supplied-operation-id))
+        delta (payload raw)
+        desired (if managed-recovery? (optional-payload desired-raw) delta)
+        expected (optional-payload expected-raw)]
+    (when-not (contains? #{"publish" "route"} operation)
+      (fail! "native agent writer currently supports publish and route"
+             {:operation operation}))
+    (require-write-lease-policy!)
+    (let [holder (validated-writer-holder supplied-holder)
+          client (native-connect! port)]
+      (try
+        (println
+         (json/generate-string
+          {:ok true
+           :result (native-publish-identity!
+                    client subject operation operation-id delta desired expected holder)}))
+        (finally (try (native-rpc! 'close! client) (catch Throwable _ nil)))))))
+
 ;; Guard predicates for the atomic op's clean-fresh gate. identity-predicates
 ;; already feed the manifest (the server verifies each present/absent), the facts
 ;; carry the projection predicates, so these are the terminal bodies + terminal
@@ -1157,8 +1461,9 @@
                (= marker (:marker response)))
       (committed-result operation-id (when (:idempotent response) "exact_replay")))))
 
-(let [[port-s operation subject raw supplied-holder supplied-operation-id
-       desired-raw expected-raw terminal-thread-raw] *command-line-args*
+(defn legacy-main! [args]
+ (let [[port-s operation subject raw supplied-holder supplied-operation-id
+       desired-raw expected-raw terminal-thread-raw] args
       port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
       subject (entity subject)
       terminal-thread (terminal-thread terminal-thread-raw)
@@ -1209,4 +1514,9 @@
                atomic-result atomic-result
                :else
                (with-write-lease port subject operation supplied-holder operation!))]
-  (println (json/generate-string {:ok true :result result})))
+  (println (json/generate-string {:ok true :result result}))))
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (if (framrpc-protocol?)
+    (native-main! *command-line-args*)
+    (legacy-main! *command-line-args*)))
