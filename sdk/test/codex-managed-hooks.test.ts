@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   assertInstalledManagedCodexHooks, expectedManagedCodexHooks,
-  type ManagedCodexHookInstallation, validateManagedCodexHookInstallation,
-  validateManagedCodexRequirements,
+  type ManagedCodexHookInstallation, reportManagedCodexHookInstallation,
+  validateManagedCodexHookInstallation, validateManagedCodexRequirements,
 } from "../src/providers/codex-managed-hooks";
 
 const roots: string[] = [];
@@ -364,4 +364,41 @@ test("managed Codex hook installation rejects a hook reached through selector dr
 
 test("installed managed Codex hook assertion completes before any thread or provider turn", () => {
   expect(() => assertInstalledManagedCodexHooks()).not.toThrow();
+});
+
+test("managed Codex hook report resolves every path the preflight verifies", () => {
+  const fixture = setupHookFixture();
+  const report = reportManagedCodexHookInstallation(fixture.installation);
+  expect(report.requirements.ok).toBe(true);
+  expect(report.runtime.map(({ hook }) => hook).sort())
+    .toEqual(["runtime/bash", "runtime/env", "runtime/node"]);
+  expect(report.hooks.every(({ supply }) => supply === "nix" || supply === "sealed")).toBe(true);
+  expect(report.hooks.some(({ hook }) => hook === "beagle-session-start.sh")).toBe(true);
+});
+
+// The Aug-3 failure class: one hook outside the closure kills every OpenAI lane
+// at preflight, and the preflight's short-circuit names only the first one.
+test("managed Codex hook report names every hook outside the closure, not just the first", () => {
+  const fixture = setupHookFixture();
+  for (const hook of ["beagle-session-start.sh", "tripwire-guard.sh"])
+    unlinkSync(join(fixture.managedDir, hook));
+  const report = reportManagedCodexHookInstallation(fixture.installation);
+  const unavailable = report.hooks
+    .filter(({ supply }) => supply === "unavailable").map(({ hook }) => hook);
+  expect(unavailable.sort()).toEqual(["beagle-session-start.sh", "tripwire-guard.sh"]);
+  const detail = report.hooks.find(({ hook }) => hook === "beagle-session-start.sh")?.detail;
+  expect(detail).toContain("beagle-session-start.sh");
+  expect(() => validateManagedCodexHookInstallation(fixture.installation)).toThrow();
+});
+
+test("managed Codex hook report survives invalid requirements and still checks hooks", () => {
+  const fixture = setupHookFixture();
+  const { requirementsPath } = fixture.installation;
+  chmodSync(requirementsPath, 0o644);
+  writeFileSync(requirementsPath, requirements((document) => {
+    document.allow_managed_hooks_only = false;
+  }, fixture.managedDir));
+  const report = reportManagedCodexHookInstallation(fixture.installation);
+  expect(report.requirements.ok).toBe(false);
+  expect(report.hooks.every(({ supply }) => supply !== "unavailable")).toBe(true);
 });

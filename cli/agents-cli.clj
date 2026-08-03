@@ -1031,7 +1031,9 @@
     (println "  --domain D[,D...]                 repeatable domain requirement")
     (println "  --reasoning low|medium|high|xhigh|max  (--deliberation is an alias)")
     (println "  --notify PEER                     completion/stall notifications")
-    (println "  --dry-run                         validate pinned-provider capability authority; show identity only when supported")))
+    (println "  --dry-run                         validate pinned-provider capability authority; show identity only when supported")
+    (println "  --doctor [--deep] [--json]        test every dispatch invariant at once; one PASS/FAIL row + fix per wall")
+    (println "  --doctor --canary                 spawn one tiny read-only managed lane end to end and report its lifecycle")))
 
 (defn- parse-spawn-args [args]
   (loop [xs args positionals [] opts {:domains [] :seen #{}}]
@@ -2325,9 +2327,18 @@
       (case cmd
         "agents"  (cmd-agents args)
         "templates" (cmd-templates args)
-        "spawn"   (if (and (= 1 (count args)) (contains? #{"--help" "-h" "help"} (first args)))
+        ;; --doctor is diagnosis, not dispatch: it must run BEFORE the spawn
+        ;; authority gate, or a worker can never see why its spawn is refused.
+        "spawn"   (cond
+                    (some #{"--doctor"} args)
+                    (do (load-file (str NORTH "/cli/spawn-doctor.clj"))
+                        (let [status ((resolve 'north.spawn-doctor/run!) args)]
+                          (when (pos? status) (System/exit status))))
+
+                    (and (= 1 (count args)) (contains? #{"--help" "-h" "help"} (first args)))
                     (cmd-spawn-help)
-                    (cmd-spawn args))
+
+                    :else (cmd-spawn args))
         "delegate" (cmd-delegate args)
         "bind-child-thread" (cmd-bind-child-thread args)
         ;; delegation unified to ONE verb; request/fork/req teach, don't alias.
