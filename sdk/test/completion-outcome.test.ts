@@ -462,6 +462,54 @@ test("a managed Codex provider error lands its cause chain on the run and the la
     line.includes("[provider_error]") && line.includes("stream disconnected"))).toBe(true);
 });
 
+test("a managed Codex deadline interrupt is deadline_exceeded, never provider_error", async () => {
+  const { spawn } = await import("./support/spawn");
+  const { managedCodexHarvestMessages } = await import("../src/providers/openai");
+  const { ManagedCodexHarvestError } = await import("../src/providers/codex-app-server");
+  writeFileSync(log, "");
+
+  const error = new ManagedCodexHarvestError({
+    threadId: "th_deadline", turnIds: ["turn_deadline"], completedTurns: 0,
+    text: "", landedWork: false,
+    mcp: { source: "codex-app-server:item-completed", totalCalls: 0 } as any,
+    nativeCommands: { source: "codex-app-server:item-completed", totalCommands: 0 } as any,
+    unsupportedNotifications: {},
+    stderrTail: ["codex diagnostic tail"],
+    interrupt: {
+      reason: "turn_deadline", deadlineMs: 1_500_000,
+      inactivityThresholdMs: 300_000, lastActivityAgeMs: 300_012,
+      eventCount: 57,
+      eventCounts: { "provider.codex.item.completed": 57 },
+    },
+  }, { cause: new Error("openai_codex_turn_interrupted") });
+  const frames = managedCodexHarvestMessages(error);
+  expect(frames).toHaveLength(1);
+
+  const stderr: string[] = [];
+  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderr.push(args.map(String).join(" "));
+  });
+  try {
+    await spawn({
+      prompt: "managed codex deadline", agentId: "test-codex-deadline",
+      role: "integrator", routingMetadata: presetRequest("integrator"), provider: "openai",
+      pinEvidence: pinEvidence("openai"),
+      queryFn: (() => (async function* () { for (const frame of frames) yield frame; })()) as any,
+    });
+  } finally { errorSpy.mockRestore(); }
+
+  const lines = await settledRunLines("test-codex-deadline");
+  expect(lines.some((line) => line.endsWith(" process_outcome deadline_exceeded"))).toBe(true);
+  expect(lines.some((line) => line.includes(" provider_error_detail "))).toBe(false);
+  const detail = lines.find((line) => line.includes(" deadline_exceeded_detail "))!;
+  expect(detail).toContain('"deadlineMs":1500000');
+  expect(detail).toContain('"lastActivityAgeMs":300012');
+  expect(detail).toContain('"eventCount":57');
+  expect(detail).toContain('"stderrTail":["codex diagnostic tail"]');
+  expect(stderr.some((line) => line.includes("[deadline_exceeded]")
+    && line.includes('"eventCount":57'))).toBe(true);
+});
+
 test("an empty spawn provider stream is a blocked provider error, never ran", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");

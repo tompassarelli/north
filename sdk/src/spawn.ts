@@ -134,7 +134,8 @@ import {
   admitManagedDispatchAuthority, admitPinnedProvider,
 } from "./execution-admission";
 import {
-  classifyExecutionTerminal, describeProviderErrorTerminal, EMPTY_RESULT_OUTCOME,
+  classifyExecutionTerminal, describeDeadlineExceededTerminal, describeProviderErrorTerminal,
+  EMPTY_RESULT_OUTCOME,
   isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, PROVIDER_PROCESS_DEATH_OUTCOME,
 } from "./execution-outcome";
 import { ManagedLiveInputRoute } from "./live-input-route";
@@ -586,6 +587,7 @@ async function runSpawn(
   // Same discipline for a provider_error terminal: the error payload the frame
   // carried, rendered once and carried onto @run (thread 019f9cec).
   let providerErrorDetail: string | undefined;
+  let deadlineExceededDetail: string | undefined;
   let worktreeTerminalFailure: WorktreeTerminalFailure | undefined;
   const terminalMessages: any[] = [];
   const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
@@ -825,6 +827,15 @@ async function runSpawn(
         terminalAuxiliaryWrites.push((timeoutMs) =>
           notifyTurnCap(agentId, detail, {}, timeoutMs)
         );
+        break;
+      }
+      deadlineExceededDetail = describeDeadlineExceededTerminal(msg);
+      if (deadlineExceededDetail) {
+        end("deadline_exceeded");
+        console.error(
+          `[deadline_exceeded] @agent:${agentId} process=deadline_exceeded detail=${deadlineExceededDetail}`,
+        );
+        terminalSignal = { subject: "DEADLINE EXCEEDED", detail: deadlineExceededDetail };
         break;
       }
       const providerError = msg.subtype !== "success"
@@ -1392,6 +1403,7 @@ async function runSpawn(
     struggleObservation: struggle.snapshot(),
     preflightCause,
     providerErrorDetail,
+    deadlineExceededDetail,
     watchdogAbort,
     retryOfRun: retryContext?.retryOfRun,
     retryAttempt: retryContext?.retryAttempt,

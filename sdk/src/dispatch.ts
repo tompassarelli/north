@@ -67,7 +67,8 @@ import {
   admitManagedDispatchAuthority, admitPinnedProvider,
 } from "./execution-admission";
 import {
-  classifyExecutionTerminal, describeProviderErrorTerminal, EMPTY_RESULT_OUTCOME,
+  classifyExecutionTerminal, describeDeadlineExceededTerminal, describeProviderErrorTerminal,
+  EMPTY_RESULT_OUTCOME,
   isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL,
 } from "./execution-outcome";
 import {
@@ -390,6 +391,7 @@ async function runDispatch(
   // Same discipline for a provider_error terminal: the error payload the frame
   // carried, rendered once and carried onto @run (thread 019f9cec).
   let providerErrorDetail: string | undefined;
+  let deadlineExceededDetail: string | undefined;
 
   // Real-time coordination: run the prompt in streaming-input mode so peers can inject
   // pings only when the admitted provider can consume turns after its initial prompt.
@@ -596,6 +598,15 @@ async function runDispatch(
           terminalAuxiliaryWrites.push((timeoutMs) =>
             notifyTurnCap(agentId, detail, {}, timeoutMs)
           );
+          break;
+        }
+        deadlineExceededDetail = describeDeadlineExceededTerminal(msg);
+        if (deadlineExceededDetail) {
+          outcome = "deadline_exceeded";
+          console.error(
+            `[deadline_exceeded] @agent:${agentId} process=deadline_exceeded detail=${deadlineExceededDetail}`,
+          );
+          terminalSignal = { subject: "DEADLINE EXCEEDED", detail: deadlineExceededDetail };
           break;
         }
         const providerError = msg.subtype !== "success"
@@ -1085,6 +1096,7 @@ async function runDispatch(
               struggleObservation: struggle.snapshot(),
               preflightCause,
               providerErrorDetail,
+              deadlineExceededDetail,
               watchdogAbort,
               }, runId, publicationBudget.publicationTimeout(1));
   notifyTerminalSettlement(

@@ -99,7 +99,8 @@ const SUPERVISOR_STATUS_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 // only covers an OUTSTANDING request, so a provider that accepts turn/start and
 // then stops speaking hung the lane forever.
 const TURN_DEADLINE_MS = 600_000;
-const POST_TOOL_QUIET_MS = 90_000;
+const TURN_DEADLINE_INACTIVITY_MS = 5 * 60_000;
+const POST_TOOL_QUIET_MS = 5 * 60_000;
 // turn/interrupt is a courtesy, not a contract: bound it so a wedged provider
 // cannot also wedge the settlement of the turn it wedged.
 const TURN_INTERRUPT_MS = 5_000;
@@ -256,6 +257,8 @@ export interface ManagedCodexAppServerOptions {
   timeoutMs?: number;
   /** Overall bound on one turn; defaults to NORTH_CODEX_TURN_DEADLINE_MS. */
   turnDeadlineMs?: number;
+  /** Minimum inactivity required after the wall deadline; test seam only. */
+  turnDeadlineInactivityMs?: number;
   /** Silence bound armed by a completed tool item; NORTH_CODEX_POST_TOOL_QUIET_MS. */
   postToolQuietMs?: number;
   /** Provider-death respawns this lane may spend; NORTH_CODEX_MAX_RESPAWNS. 0 disables. */
@@ -380,6 +383,17 @@ export interface ManagedCodexHarvest {
   respawnCount?: number;
   /** Per-attempt post-mortem for each retired session; see the record type. */
   respawns?: ManagedCodexRespawnAttempt[];
+  /** North-owned turn interruption; never a provider-side failure. */
+  interrupt?: ManagedCodexInterruptEvidence;
+}
+
+export interface ManagedCodexInterruptEvidence {
+  reason: "turn_deadline" | "post_tool_silence";
+  deadlineMs: number;
+  inactivityThresholdMs: number;
+  lastActivityAgeMs: number;
+  eventCount: number;
+  eventCounts: Record<string, number>;
 }
 
 /**
@@ -2732,13 +2746,16 @@ export class ManagedCodexAppServerRun {
     // handler immediately so that the same error is observed by the main flow,
     // never as a detached unhandled rejection.
     void terminal.catch(() => {});
-    // Turn-level watchdogs (hermes' run_turn loop, adapted). Two bounds, both
-    // env-overridable, both armed per turn: an overall deadline, and a quiet
-    // timer armed by a completed tool item and cleared by any other projected
-    // activity. Neither existed before: `await terminal` was unbounded, and
-    // RPC_TIMEOUT_MS only ever covered an outstanding request.
+    // Turn-level watchdogs (hermes' run_turn loop, adapted). The wall deadline
+    // may interrupt only after authenticated provider activity has also been
+    // silent for the inactivity threshold. A long-running turn that keeps
+    // emitting work therefore remains live; wall time alone is not a hang.
     const turnDeadlineMs = boundedMs(
       "NORTH_CODEX_TURN_DEADLINE_MS", TURN_DEADLINE_MS, this.options.turnDeadlineMs,
+    );
+    const turnDeadlineInactivityMs = boundedMs(
+      "NORTH_CODEX_TURN_DEADLINE_INACTIVITY_MS", TURN_DEADLINE_INACTIVITY_MS,
+      this.options.turnDeadlineInactivityMs,
     );
     const postToolQuietMs = boundedMs(
       "NORTH_CODEX_POST_TOOL_QUIET_MS", POST_TOOL_QUIET_MS, this.options.postToolQuietMs,
@@ -2746,6 +2763,11 @@ export class ManagedCodexAppServerRun {
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let quietTimer: ReturnType<typeof setTimeout> | undefined;
     let watchdogReason: Error | undefined;
+    let interruptEvidence: ManagedCodexInterruptEvidence | undefined;
+    let turnStartedAt = 0;
+    let lastTurnActivityAt = 0;
+    let turnEventCount = 0;
+    let turnEventCounts: Record<string, number> = {};
     const clearQuietWatchdog = () => {
       if (quietTimer) clearTimeout(quietTimer);
       quietTimer = undefined;
@@ -2759,18 +2781,47 @@ export class ManagedCodexAppServerRun {
       clearQuietWatchdog();
       if (watchdogReason || !runtimeState?.turnId || runtimeState.terminalSeen) return;
       quietTimer = setTimeout(
-        () => expireTurn(`codex went silent for ${postToolQuietMs}ms after a completed tool item`),
+        () => expireTurn(
+          "post_tool_silence",
+          `codex went silent for ${postToolQuietMs}ms after a completed tool item`,
+          postToolQuietMs,
+          postToolQuietMs,
+        ),
         postToolQuietMs,
       );
       quietTimer.unref?.();
     };
     const armTurnDeadline = () => {
       if (deadlineTimer) clearTimeout(deadlineTimer);
+      const now = Date.now();
+      const wallRemaining = Math.max(0, turnStartedAt + turnDeadlineMs - now);
+      const inactivityRemaining = Math.max(
+        0, lastTurnActivityAt + turnDeadlineInactivityMs - now,
+      );
       deadlineTimer = setTimeout(
-        () => expireTurn(`codex turn exceeded its ${turnDeadlineMs}ms deadline`),
-        turnDeadlineMs,
+        () => {
+          const checkedAt = Date.now();
+          if (checkedAt - turnStartedAt < turnDeadlineMs
+              || checkedAt - lastTurnActivityAt < turnDeadlineInactivityMs) {
+            armTurnDeadline();
+            return;
+          }
+          expireTurn(
+            "turn_deadline",
+            `codex turn exceeded its ${turnDeadlineMs}ms deadline`,
+            turnDeadlineMs,
+            turnDeadlineInactivityMs,
+          );
+        },
+        Math.max(1, wallRemaining, inactivityRemaining),
       );
       deadlineTimer.unref?.();
+    };
+    const recordTurnActivity = (kind: string) => {
+      lastTurnActivityAt = Date.now();
+      turnEventCount += 1;
+      turnEventCounts[kind] = (turnEventCounts[kind] ?? 0) + 1;
+      if (turnStartedAt > 0) armTurnDeadline();
     };
     // Best-effort and bounded: a provider wedged enough to trip a watchdog may
     // also ignore the interrupt, and settling this turn must not wait on that.
@@ -2786,9 +2837,22 @@ export class ManagedCodexAppServerRun {
         }),
       ]), "Codex turn/interrupt response");
     };
-    const expireTurn = (bound: string) => {
+    const expireTurn = (
+      reason: ManagedCodexInterruptEvidence["reason"],
+      bound: string,
+      deadlineMs: number,
+      inactivityThresholdMs: number,
+    ) => {
       if (watchdogReason) return;
       clearWatchdogs();
+      interruptEvidence = {
+        reason,
+        deadlineMs,
+        inactivityThresholdMs,
+        lastActivityAgeMs: Math.max(0, Date.now() - lastTurnActivityAt),
+        eventCount: turnEventCount,
+        eventCounts: { ...turnEventCounts },
+      };
       // Silent-but-alive and silent-and-dead are different failures; say which.
       const liveness = providerLiveness(child, supervised ? supervisor.exitCode() : undefined);
       const cause = new Error(
@@ -2896,7 +2960,10 @@ export class ManagedCodexAppServerRun {
       const toolItemsBefore = runtimeState.toolItems;
       validateProgressNotification(entry.method, entry.value, runtimeState);
       const activity = providerExecutionActivityKind(entry.method, entry.value);
-      if (activity) this.options.onActivity?.(activity);
+      if (activity) {
+        recordTurnActivity(activity);
+        this.options.onActivity?.(activity);
+      }
       // Post-tool quiet watchdog, hermes' arm/clear rule: a completed tool item
       // arms it, ANY other projected activity means codex is still producing
       // and clears it.
@@ -2955,6 +3022,7 @@ export class ManagedCodexAppServerRun {
         { label: "Allow for this session", description: "Run the tool and remember this choice for this session." },
         { label: "Cancel", description: "Cancel this tool call." },
       ], "Codex managed MCP approval options");
+      recordTurnActivity("provider.codex.mcp.request");
       this.options.onActivity?.("provider.codex.mcp.request");
       approvedServerRequests.add(id);
       return { answers: { [questionId]: { answers: ["Allow"] } } };
@@ -3086,6 +3154,11 @@ export class ManagedCodexAppServerRun {
         runtimeState.turnId = undefined;
         runtimeState.terminalSeen = false;
         runtimeState.toolItems = 0;
+        interruptEvidence = undefined;
+        turnStartedAt = 0;
+        lastTurnActivityAt = 0;
+        turnEventCount = 0;
+        turnEventCounts = {};
         terminal = new Promise<void>((resolveTerminal, rejectTerminal) => {
           terminalResolve = resolveTerminal;
           terminalReject = rejectTerminal;
@@ -3101,6 +3174,8 @@ export class ManagedCodexAppServerRun {
         turnId = validateStartedTurn(turnStart);
         runtimeState.turnId = turnId;
         this.activeTurnInterrupt = interruptTurn;
+        turnStartedAt = Date.now();
+        lastTurnActivityAt = turnStartedAt;
         armTurnDeadline();
         drainQueued(true);
         try { await terminal; }
@@ -3180,6 +3255,7 @@ export class ManagedCodexAppServerRun {
           ...(runtimeState ? { toolItems: runtimeState.toolItems } : {}),
           usage: runtimeState?.usage,
           unsupportedNotifications: rpc.unsupportedNotifications(),
+          ...(interruptEvidence ? { interrupt: interruptEvidence } : {}),
         }), { cause: error })
         : new ManagedCodexPreThreadError("openai_codex_authority_preflight_failed", { cause: error });
       // Liveness has to be sampled HERE — teardown below is about to change it.

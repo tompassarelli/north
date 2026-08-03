@@ -51,6 +51,48 @@ export const NO_PROVIDER_TERMINAL_DETAIL =
 export const EMPTY_PROVIDER_ERROR_DETAIL =
   "provider error terminal carried no error payload";
 
+export const DEADLINE_EXCEEDED_DETAIL_MAX_LEN = 4_096;
+
+/**
+ * Render the app-server's structured North-owned interrupt evidence. The
+ * presence of this envelope, not provider prose or exit status from teardown,
+ * is the authority for `process=deadline_exceeded`.
+ */
+export function describeDeadlineExceededTerminal(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const evidence = (message as Record<string, unknown>)._north_interrupt;
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return undefined;
+  const value = evidence as Record<string, unknown>;
+  const eventEntries = value.eventCounts && typeof value.eventCounts === "object"
+      && !Array.isArray(value.eventCounts)
+    ? Object.entries(value.eventCounts as Record<string, unknown>)
+    : [];
+  if ((value.reason !== "turn_deadline" && value.reason !== "post_tool_silence")
+      || !Number.isSafeInteger(value.deadlineMs) || (value.deadlineMs as number) <= 0
+      || !Number.isSafeInteger(value.inactivityThresholdMs)
+      || (value.inactivityThresholdMs as number) <= 0
+      || !Number.isSafeInteger(value.lastActivityAgeMs)
+      || (value.lastActivityAgeMs as number) < 0
+      || !Number.isSafeInteger(value.eventCount) || (value.eventCount as number) < 0
+      || eventEntries.length > 64
+      || eventEntries.some(([kind, count]) => !/^[a-z][a-z0-9._/-]{0,127}$/.test(kind)
+        || !Number.isSafeInteger(count) || (count as number) < 0)
+      || eventEntries.reduce((total, [, count]) => total + Number(count), 0) !== value.eventCount
+      || !Array.isArray(value.stderrTail)
+      || !(value.stderrTail as unknown[]).every((line) => typeof line === "string")) return undefined;
+  const normalized = {
+    reason: value.reason,
+    deadlineMs: value.deadlineMs,
+    inactivityThresholdMs: value.inactivityThresholdMs,
+    lastActivityAgeMs: value.lastActivityAgeMs,
+    eventCount: value.eventCount,
+    eventCounts: Object.fromEntries(eventEntries),
+    stderrTail: (value.stderrTail as string[]).slice(-8).map((line) => oneLine(line, 256)),
+  };
+  const rendered = JSON.stringify(normalized);
+  return rendered.length <= DEADLINE_EXCEEDED_DETAIL_MAX_LEN ? rendered : undefined;
+}
+
 function oneLine(value: unknown, maxLen: number): string {
   const raw = typeof value === "string"
     ? value
@@ -116,6 +158,7 @@ const BLOCKED_REASON: Record<string, string> = {
   blocked_spend_guard: "spend_guard_budget_incomplete",
   ran_empty: "provider_terminal_empty_result",
   provider_error: "provider_terminal_error",
+  deadline_exceeded: "north_turn_deadline_exceeded_after_inactivity",
   died: "provider_process_died",
   stalled: "provider_process_stalled",
   watchdog_aborted: "north_watchdog_execution_inactivity",

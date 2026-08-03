@@ -2614,13 +2614,18 @@ test("a tool completion followed by silence settles the turn as interrupted", as
   // Settled inside the quiet window, not the (30s) overall deadline.
   expect(elapsed).toBeLessThan(5_000);
   // The tool work that landed before the wedge is still harvested.
-  expect((caught as ManagedCodexHarvestError).harvest.toolItems).toBe(1);
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.toolItems).toBe(1);
+  expect(harvest.interrupt).toMatchObject({
+    reason: "post_tool_silence", deadlineMs: 150, inactivityThresholdMs: 150,
+  });
 });
 
-test("a slow but active turn never trips the post-tool quiet watchdog", async () => {
+test("a slow but active turn is not killed after crossing its wall deadline", async () => {
   const { options, requests } = setup("turn-slow-active");
   const result = await new ManagedCodexAppServerRun({
-    ...options, postToolQuietMs: 150, turnDeadlineMs: 30_000, timeoutMs: 5_000,
+    ...options, postToolQuietMs: 150, turnDeadlineMs: 100,
+    turnDeadlineInactivityMs: 100, timeoutMs: 5_000,
   }).execute();
   expect(result.text).toBe("managed answer");
   // 5 interposed fileChange items + the launch command item.
@@ -2628,18 +2633,31 @@ test("a slow but active turn never trips the post-tool quiet watchdog", async ()
   expect(requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(0);
 });
 
-test("a turn that never speaks again is bounded by the overall turn deadline", async () => {
+test("a turn silent past both deadline and inactivity threshold carries structured evidence", async () => {
   const { options } = setup("turn-silent-before-tool");
   let caught: unknown;
   try {
     await new ManagedCodexAppServerRun({
-      ...options, turnDeadlineMs: 150, postToolQuietMs: 30_000,
+      ...options, turnDeadlineMs: 150, turnDeadlineInactivityMs: 150,
+      postToolQuietMs: 30_000,
     }).execute();
   } catch (error) { caught = error; }
   expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
   const chain = causeChain(caught as Error, 8, 4_000);
   expect(chain).toContain("codex turn exceeded its 150ms deadline");
   expect(chain).toContain("turn/interrupt accepted");
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.interrupt).toMatchObject({
+    reason: "turn_deadline", deadlineMs: 150, inactivityThresholdMs: 150,
+    eventCount: 1,
+  });
+  expect(harvest.interrupt!.lastActivityAgeMs).toBeGreaterThanOrEqual(100);
+  const terminal = managedCodexHarvestMessages(caught as ManagedCodexHarvestError).at(-1)!;
+  expect(terminal._north_interrupt).toMatchObject({
+    reason: "turn_deadline", deadlineMs: 150, inactivityThresholdMs: 150,
+    eventCount: 1, eventCounts: { "provider.codex.turn.started": 1 },
+    stderrTail: [],
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2722,6 +2740,13 @@ test("an exhausted respawn budget fails exactly as before, with every attempt's 
   expect(disabled.attempts()).toBe(1);
   expect(bare).toBeInstanceOf(ManagedCodexHarvestError);
   expect((bare as ManagedCodexHarvestError).harvest.respawnCount).toBeUndefined();
+  expect((bare as ManagedCodexHarvestError).harvest.landedWork).toBe(false);
+  const providerExit = managedCodexHarvestMessages(bare as ManagedCodexHarvestError);
+  expect(providerExit).toHaveLength(1);
+  expect(providerExit[0]).toMatchObject({
+    type: "result", subtype: "error_during_execution", is_error: true,
+  });
+  expect(providerExit[0]).not.toHaveProperty("_north_interrupt");
 });
 
 test("a respawn whose preflight fails is a harvest, never a retry-safe pre-thread failure", async () => {
@@ -2760,6 +2785,7 @@ test("a refused interrupt is named in the reason instead of replacing it", async
   try {
     await new ManagedCodexAppServerRun({
       ...options, postToolQuietMs: 30_000, turnDeadlineMs: 150,
+      turnDeadlineInactivityMs: 150,
     }).execute();
   } catch (error) { caught = error; }
   expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
