@@ -207,8 +207,8 @@
     "effective_authority_capability" "effective_builtin" "effective_mcp_tool"
     "effective_north_enabled_tool" "envelope_advisory" "envelope_scope"
     "fallback_reason" "routing_pin" "routing_receipt_override" "routing_rule_code"
-    "run_observation_coverage" "struggle" "mcp_actual_tool" "provider_turn_key"
-    "native_command_completion"})
+    "run_observation_coverage" "struggle" "mcp_actual_tool" "mcp_operation_receipt"
+    "mcp_operation_aggregate" "provider_turn_key" "native_command_completion"})
 (def audited-run-ref #{"parent_run" "parent_thread" "retry_of_run"})
 (def audited-run-single
   #{"agent" "agent_run_ledger_version" "allocation_mode" "applied_bespoke_contract_sha256"
@@ -233,7 +233,7 @@
     "model_availability_target"
     "model_delta_kind" "model_delta_model" "model_delta_path"
     "model_delta_provider" "model_delta_reason" "nearest_preset" "num_turns"
-    "outcome" "preflight_cause" "process_outcome" "output_tokens" "posture" "promotion_candidate"
+    "outcome" "preflight_cause" "deadline_exceeded_detail" "process_outcome" "output_tokens" "posture" "promotion_candidate"
     "prompt_composition_applied" "prompt_composition_version" "prompt_composition_sha256"
     "capability_class" "prompt_capability_count" "prompt_stable_prefix_bytes"
     "prompt_unique_tail_bytes" "prompt_total_bytes" "prompt_byte_measurement_source"
@@ -290,6 +290,7 @@
     "run_event_terminal_sequence" "spend_target" "task_grade" "thread" "tokens"
     "mcp_activity_source" "mcp_activity_coverage"
     "mcp_actual_calls"
+    "native_command_read" "native_command_edit"
     "native_command_activity_source" "native_command_activity_coverage"
     "native_north_binary_probe" "native_command_total" "native_command_successful"
     "native_command_failed" "native_command_declined" "native_command_truncated"

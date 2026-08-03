@@ -10,6 +10,8 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const SHELL = /^\/[A-Za-z0-9_+./-]+\/(?:bash|dash|sh|zsh)$/;
 
 export type NativeCommandStatus = "completed" | "failed" | "declined";
+export type NativeCommandShape = "read" | "edit" | "other";
+export const NATIVE_COMMAND_SHAPES: readonly NativeCommandShape[] = ["read", "edit", "other"];
 export type NorthBinaryProbeStatus = "passed" | "failed" | "not_observed";
 
 export interface NativeCommandCompletionEvidence {
@@ -17,6 +19,7 @@ export interface NativeCommandCompletionEvidence {
   outputSha256: string;
   status: NativeCommandStatus;
   exitCode: number;
+  shape: NativeCommandShape;
 }
 
 export interface NativeCommandActivityObservation {
@@ -27,6 +30,8 @@ export interface NativeCommandActivityObservation {
   failedCommands?: number;
   declinedCommands?: number;
   truncatedCommands?: number;
+  readCommands?: number;
+  editCommands?: number;
   /** Commands still in flight when a failed turn was harvested. */
   openCommands?: number;
   northBinaryProbe: NorthBinaryProbeStatus;
@@ -66,6 +71,14 @@ function isProbeCandidate(command: string, output: string, expectedOutput: strin
     && /^\/(?:[^\0\r\n/]+\/)*north$/.test(lines[0]!);
 }
 
+export function nativeCommandShape(command: string): NativeCommandShape {
+  const head = command.trim();
+  if (/^(?:rg|grep|find|ls|git\s+(?:status|diff|log|show)|sed(?!\s+-i\b)|head|tail|pwd)\b/.test(head)) return "read";
+  if (/^(?:apply_patch|tee|touch|mkdir|cp|mv|sed\s+-i\b|perl\s+-[A-Za-z]*i)\b/.test(head)
+      || /(?:^|\s)(?:>|>>)(?:\s|$)/.test(head)) return "edit";
+  return "other";
+}
+
 export class NativeCommandActivityAccumulator {
   private readonly calls = new Set<string>();
   private readonly open = new Set<string>();
@@ -77,6 +90,8 @@ export class NativeCommandActivityAccumulator {
   private declined = 0;
   private truncated = 0;
   private probe: NorthBinaryProbeStatus = "not_observed";
+  private read = 0;
+  private edit = 0;
 
   constructor(
     private readonly expectedCwd: string,
@@ -108,7 +123,10 @@ export class NativeCommandActivityAccumulator {
       outputSha256: sha256(completion.aggregatedOutput),
       status: completion.status,
       exitCode: completion.exitCode,
+      shape: nativeCommandShape(completion.command),
     });
+    if (evidence.shape === "read") this.read++;
+    if (evidence.shape === "edit") this.edit++;
     if (this.completions.length < MAX_COMPLETION_EVIDENCE) this.completions.push(evidence);
     else this.truncated++;
 
@@ -152,6 +170,8 @@ export class NativeCommandActivityAccumulator {
       failedCommands: this.failed,
       declinedCommands: this.declined,
       ...(this.truncated ? { truncatedCommands: this.truncated } : {}),
+      ...(this.read ? { readCommands: this.read } : {}),
+      ...(this.edit ? { editCommands: this.edit } : {}),
       ...(this.open.size ? { openCommands: this.open.size } : {}),
       northBinaryProbe: "not_observed" as const,
       completions,
@@ -181,6 +201,8 @@ export class NativeCommandActivityAccumulator {
       failedCommands: this.failed,
       declinedCommands: this.declined,
       ...(this.truncated ? { truncatedCommands: this.truncated } : {}),
+      ...(this.read ? { readCommands: this.read } : {}),
+      ...(this.edit ? { editCommands: this.edit } : {}),
       northBinaryProbe: coverage === "exact" ? this.probe : "failed",
       completions,
     });

@@ -109,6 +109,7 @@ export function routedQueryWithRegistry(
     executionActivity: activity.source,
     mcpActivity: () => active?.mcpActivity?.() ?? {
       source: "provider-route-unavailable", coverage: "unknown", tools: [],
+      operationReceipts: [], operationAggregates: [],
     },
     nativeCommandActivity: () => active?.nativeCommandActivity?.() ?? {
       source: "provider-route-unavailable", coverage: "unknown",

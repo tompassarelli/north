@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  NativeCommandActivityAccumulator, NORTH_BINARY_PROBE_SCRIPT,
+  NativeCommandActivityAccumulator, nativeCommandShape, NORTH_BINARY_PROBE_SCRIPT,
 } from "../src/native-command-activity";
 
 const cwd = "/repo";
@@ -29,6 +29,12 @@ test("native command evidence is unknown until exact turn settlement", () => {
     coverage: "exact", totalCommands: 1, successfulCommands: 1,
     northBinaryProbe: "passed",
   });
+});
+
+test("native command shapes retain the text comparison denominator", () => {
+  expect(nativeCommandShape("rg --files")).toBe("read");
+  expect(nativeCommandShape("apply_patch < change.diff")).toBe("edit");
+  expect(nativeCommandShape("bun test")).toBe("other");
 });
 
 test("unfinished continuation cannot preserve an earlier passing probe", () => {

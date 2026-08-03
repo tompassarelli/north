@@ -450,7 +450,7 @@ test("run telemetry carries bounded native command evidence without raw command 
       northBinaryProbe: "passed",
       completions: [{
         commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
-        status: "completed", exitCode: 0,
+        status: "completed", exitCode: 0, shape: "read",
       }],
     },
   });
@@ -466,6 +466,26 @@ test("run telemetry carries bounded native command evidence without raw command 
   expect(serialized).not.toContain("/nix/store/");
   expect(facts.filter(([predicate]) => predicate === "native_command_completion"))
     .toHaveLength(1);
+});
+
+test("run telemetry publishes reconciled MCP operation receipts and aggregates", () => {
+  const facts = runFacts({
+    thread: "thread-mcp-operation", agent: "lane-mcp-operation", durationMs: 1,
+    posture: "spawn", outcome: "ran", provider: "openai",
+    mcpActivity: {
+      source: "fixture", coverage: "exact", totalCalls: 2,
+      tools: [{ server: "fram", tool: "set-body", count: 2 }],
+      operationReceipts: [
+        { tool: "fram/set-body", operation: "authoring.write", durationMs: 2, resultSize: 4, outcome: "ok" },
+        { tool: "fram/set-body", operation: "authoring.write", durationMs: 6, resultSize: 4, outcome: "typed_failure" },
+      ],
+      operationAggregates: [{ operation: "authoring.write", count: 2, totalDurationMs: 8, meanDurationMs: 4, failureCount: 1 }],
+    },
+  });
+  expect(facts.filter(([predicate]) => predicate === "mcp_operation_receipt")).toHaveLength(2);
+  expect(facts).toContainEqual(["mcp_operation_aggregate", JSON.stringify({
+    operation: "authoring.write", count: 2, totalDurationMs: 8, meanDurationMs: 4, failureCount: 1,
+  })]);
 });
 
 test("run telemetry rejects incomplete or unbounded native command evidence", () => {
