@@ -5,7 +5,9 @@
             [clojure.string :as str]
             [cheshire.core :as json]
             [north.dashboard.state :as state])
-  (:import [java.net Socket InetSocketAddress]))
+  (:import [java.io RandomAccessFile]
+           [java.net Socket InetSocketAddress]
+           [java.nio.charset StandardCharsets]))
 
 (def home (System/getenv "HOME"))
 (def state-dir (str home "/.local/state/north"))
@@ -71,7 +73,7 @@
     (#{"done" "crashed"} agent) "none"
     ;; Live agents have no outcome yet; unknown is reserved for vanished.
     :else "pending"))
-(defn lanes []
+(defn receipt-lanes []
   (let [dir (io/file state-dir "agents") processes (agent-processes)]
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
                   :let [id (subs (.getName log) 5 (- (count (.getName log)) 4)) pidf (io/file dir (str (.getName log) ".lane.pid")) exitf (io/file dir (str (.getName log) ".lane.exit"))
@@ -108,6 +110,87 @@
                       :last-output-age (max 0 (- (now) (.lastModified log)))}
                      (spawn-details log)
                      (select-keys meta [:role :effort :provider :model :thread :startedAt]))))}))
+(def max-journal-record-bytes (* 8 1024 1024))
+(defn journal-records [file execution-id]
+  (with-open [input (RandomAccessFile. file "r")]
+    (loop [records [] expected-seq 1]
+      (let [remaining (- (.length input) (.getFilePointer input))]
+        (cond
+          (zero? remaining) records
+          ;; A partial frame is a torn tail. The committed prefix remains truth.
+          (< remaining 4) records
+          :else
+          (let [size (.readInt input)
+                body-remaining (- (.length input) (.getFilePointer input))]
+            (cond
+              (or (<= size 0) (> size max-journal-record-bytes))
+              (throw (ex-info "bridge journal record has an invalid length"
+                              {:execution execution-id :size size}))
+              (< body-remaining size) records
+              :else
+              (let [body (byte-array size)
+                    _ (.readFully input body)
+                    record (json/parse-string (String. body StandardCharsets/UTF_8) true)]
+                (when-not (and (= 1 (:version record))
+                               (= execution-id (:executionId record))
+                               (= expected-seq (:seq record))
+                               (string? (:at record))
+                               (string? (:kind record))
+                               (map? (:data record)))
+                  (throw (ex-info "bridge journal record has an invalid v1 shape"
+                                  {:execution execution-id :sequence expected-seq})))
+                (recur (conj records record) (inc expected-seq))))))))))
+(defn instant-ms [value]
+  (try (.toEpochMilli (java.time.Instant/parse value)) (catch Exception _ nil)))
+(defn journal-row [events-file execution-id]
+  (let [records (journal-records events-file execution-id)
+        accepted (first (filter #(= "execution.accepted" (:kind %)) records))
+        latest (last records)]
+    (when (and accepted latest)
+      (let [failed? (some #(= "execution.failed" (:kind %)) records)
+            completed? (some #(= "execution.completed" (:kind %)) records)
+            delivered? (some #(= "provider.result" (:kind %)) records)
+            started-at (or (instant-ms (:at accepted)) (.lastModified events-file))
+            last-at (or (instant-ms (:at latest)) (.lastModified events-file))
+            provider (some #(when (= "provider.starting" (:kind %))
+                              (get-in % [:data :adapter])) records)]
+        (cond-> {:id execution-id
+                 :title (or (get-in accepted [:data :prompt]) execution-id)
+                 :status (cond failed? "failed"
+                               completed? "finished"
+                               (= "session.idle" (:kind latest)) "live quiet"
+                               :else "advancing")
+                 :agent (cond failed? "crashed"
+                              completed? "done"
+                              (= "session.idle" (:kind latest)) "quiet"
+                              :else "running")
+                 :work (cond delivered? "delivered"
+                             (or failed? completed?) "none"
+                             :else "pending")
+                 :started-at started-at
+                 :startedAt (:at accepted)
+                 :elapsed (max 0 (- (now) started-at))
+                 :last-output-age (max 0 (- (now) last-at))
+                 :source "journal"}
+          provider (assoc :provider provider))))))
+(defn journal-lanes []
+  (let [root (io/file (or (some-> (System/getenv "NORTH_BRIDGE_STATE_DIR") io/file .getCanonicalPath)
+                          (str state-dir "/bridge"))
+                      "journal")]
+    {:lanes (keep (fn [execution]
+                    (when (.isDirectory execution)
+                      (let [events (io/file execution "events.log")]
+                        (when (.isFile events)
+                          (journal-row events (.getName execution))))))
+                  (or (seq (.listFiles root)) []))}))
+(defn lanes []
+  (let [receipts (:lanes (receipt-lanes))
+        journals (:lanes (journal-lanes))]
+    {:lanes (vals (reduce (fn [by-id journal]
+                            ;; Journal state is authoritative; receipts fill legacy metadata.
+                            (update by-id (:id journal) #(merge % journal)))
+                          (into {} (map (juxt :id identity) receipts))
+                          journals))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
   (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]

@@ -354,11 +354,14 @@ case "${1:-}" in
     # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
     coord_runtime_ready || exit $?
     north_slot_exec doctor "${@:2}" ;;
-  dashboard|doctor)
+  dashboard)
+    # Compatibility alias: Bridge owns the operator cockpit command surface.
+    exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" dashboard "${@:2}" ;;
+  doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =
     # what is happening (agents/concerns/board/daemons/health/profile); `doctor` =
     # is everything healthy (coordinator handshake + daemons/health/rev-skew/env/
-    # guard-hooks). Both teach the primitive they wrap. cli/dashboard-cli.clj.
+    # guard-hooks). Dashboard is mounted under Bridge above; doctor remains here.
     exec "$BB" "$NORTH/cli/dashboard-cli.clj" "$@" ;;
   hotspots)
     # Where is the time going and what is failing, ranked (north hotspots is

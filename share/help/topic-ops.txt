@@ -1,8 +1,9 @@
 north help ops — daemons, health, deployment
 
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots
-  north bridge <prompt>|accept|attach|steer|interrupt <execution-id>
-                                                launch, attach, or control a journaled local Codex session
+  north bridge <prompt>|dashboard|accept|attach|steer|interrupt <execution-id>
+                                                dashboard, launch, attach, or control a journaled local Codex session
+                                                dashboard — render the Bridge operator cockpit (north dashboard remains an alias)
                                                 accept — run the two-session reconnect/control/journal acceptance demo
                                                 steer <id> <text> — queue input for the next turn on the same provider thread
                                                 interrupt <id> — interrupt the active turn without terminating its session

@@ -13,11 +13,23 @@ type ServerMessage =
 
 function usage(): never {
   console.error(
-    "usage: north bridge <prompt> | north bridge accept"
+    "usage: north bridge <prompt> | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge attach <execution-id> [--cursor N]"
     + " | north bridge steer <execution-id> <text> | north bridge interrupt <execution-id>",
   );
   process.exit(2);
+}
+
+function runDashboard(args: string[]): Promise<number> {
+  const dashboard = resolve(import.meta.dir, "../../../cli/dashboard-cli.clj");
+  const child = spawn(process.env.NORTH_BB ?? "bb", [dashboard, "dashboard", ...args], {
+    stdio: "inherit",
+    env: process.env,
+  });
+  return new Promise((resolveExit, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => resolveExit(code ?? 1));
+  });
 }
 
 function openSocket(path: string): Promise<Socket> {
@@ -99,6 +111,7 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 }
 
 async function main(args: string[]): Promise<number> {
+  if (args[0] === "dashboard") return runDashboard(args.slice(1));
   if (args[0] === "accept") {
     if (args.length !== 1) usage();
     const { runBridgeAcceptance } = await import("./accept");
