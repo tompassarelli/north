@@ -400,7 +400,13 @@
     (StyledText. chunks)))
 
 (defn render-status [runtime: Any state: Any] -> Any
-  (if (.-showHelp runtime)
+  (cond
+    (.-windowChord runtime)
+    (StyledText.
+     [(brightGreen "Ctrl-w")
+      (brightBlack "  h left · j down · k up · l right · w cycle · Esc cancel")])
+
+    (.-showHelp runtime)
     (StyledText.
      [(brightYellow "Northbridge keys\n")
       (brightWhite "F1") (brightBlack " close help · ")
@@ -410,8 +416,11 @@
       (brightWhite "F5") (brightBlack " refresh · ")
       (brightWhite "F6") (brightBlack " pop out\n")
       (brightWhite "Tab") (brightBlack " switch pane · ")
+      (brightWhite "Ctrl-w h/j/k/l/w") (brightBlack " navigate panes\n")
       (brightWhite "Esc") (brightBlack " interrupt active turn · ")
       (brightWhite "/help") (brightBlack " commands")])
+
+    :else
     (StyledText.
      [(brightBlack (str (text (.-notice state)) "\n"))
       (brightCyan "F1") (brightBlack " help · ")
@@ -486,15 +495,12 @@
     (set! (.-content (.-workPalette ui))
           (if (> (.-length work-options) 0)
             (render-command-palette! work-options (.-paletteIndex runtime)) ""))
-    (set! (.-title (.-agentsPane ui))
-          (if (identical? (.-pane runtime) "agents") "Agents · active" "Agents"))
-    (set! (.-title (.-workPane ui))
-          (str "Work" (if (identical? (.-pane runtime) "work") " · active · " " · ")
-               (text (.-id current))))
+    (set! (.-title (.-agentsPane ui)) "Agents")
+    (set! (.-title (.-workPane ui)) (str "Work · " (text (.-id current))))
     (set! (.-borderColor (.-agentsPane ui))
           (if (identical? (.-pane runtime) "agents") "#4ade80" "#64748b"))
     (set! (.-borderColor (.-workPane ui))
-          (if (identical? (.-pane runtime) "work") "#d97706" "#64748b"))
+          (if (identical? (.-pane runtime) "work") "#4ade80" "#64748b"))
     (set! (.-activeView runtime) (text (.-id current)))
     views))
 
@@ -875,6 +881,17 @@
         input (active-input runtime ui)]
     (palette-options pane (text (.-value input)))))
 
+(defn pane-for-direction [runtime: Any state: Any direction: String] -> String
+  (let [pane (text (.-pane runtime))
+        layout (text (.-layout state))]
+    (cond
+      (identical? direction "w") (if (identical? pane "agents") "work" "agents")
+      (and (identical? layout "vertical") (identical? direction "h")) "agents"
+      (and (identical? layout "vertical") (identical? direction "l")) "work"
+      (and (identical? layout "horizontal") (identical? direction "k")) "agents"
+      (and (identical? layout "horizontal") (identical? direction "j")) "work"
+      :else pane)))
+
 (defn complete-palette! [runtime: Any ui: Any commands: (Vec SlashCommand)] -> Any
   (when (> (.-length commands) 0)
     (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length commands) 1)))
@@ -933,6 +950,23 @@
                palette (active-palette-options runtime ui)
                palette-open (> (.-length palette) 0)]
            (cond
+             (.-windowChord runtime)
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (set! (.-windowChord runtime) false)
+                 (if (or (identical? name "h")
+                         (identical? name "j")
+                         (identical? name "k")
+                         (identical? name "l")
+                         (identical? name "w"))
+                   (focus-pane! runtime ui (pane-for-direction runtime state name))
+                   (.render runtime)))
+
+             (and (.-ctrl key) (identical? name "w"))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (set! (.-windowChord runtime) true))
+
              (and palette-open (or (identical? name "up") (identical? name "down")))
              (do (.preventDefault key)
                  (.stopPropagation key)
@@ -1056,6 +1090,7 @@
                  :spinnerTimer nil
                  :showHelp false
                  :paletteIndex 0
+                 :windowChord false
                  :render (fn [] -> Any nil)}
         root (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height "100%" :gap 1 :padding 1})
         agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%" :border true :title "Agents"})
