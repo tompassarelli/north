@@ -79,6 +79,11 @@ export function validateTopologyCapabilities(
   requireClosure("shell.readonly", ["filesystem.read", "filesystem.search"]);
 }
 
+/** Typed refusal naming the sandbox/coordinator-port incompatibility. */
+export function coordinationCapabilityRejectionCode(provider: ProviderId): string {
+  return `${provider}_sandbox_cannot_reach_north_coordinator_for_coordination_capability`;
+}
+
 /** Exact pre-acceptance reason when an adapter cannot realize the authority. */
 export function providerCapabilityRejectionCode(
   provider: ProviderId,
@@ -98,6 +103,11 @@ export function providerCapabilityRejectionCode(
   if ((shell || readonlyShell) && (!fileRead || !fileSearch)) return generic;
   if (shell && !fileWrite) return generic;
   if (provider === "anthropic") return undefined;
+  // Codex's managed sandbox blocks the loopback coordinator port, so a lane
+  // holding `coordination` cannot claim, publish, or settle children: it stalls
+  // to timeout instead of failing. Refuse the authority shape before dispatch.
+  if (capabilities.includes("coordination"))
+    return coordinationCapabilityRejectionCode(provider);
   // Codex app-server receives an exact North MCP enabled-tools allowlist and a
   // strict web_search mode in its admitted session config. Native multi-agent
   // remains disabled; managed coordination crosses North's child boundary.

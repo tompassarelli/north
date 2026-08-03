@@ -677,16 +677,24 @@ test("provider selection filters unenforceable capability shapes before side eff
   const orchestratorCapabilities = [
     "filesystem.read", "filesystem.search", "shell.readonly", "web", "coordination",
   ] as const;
+  // Codex's sandbox blocks the coordinator port, so `coordination` leaves the
+  // OpenAI candidate set even when policy order prefers it.
   const orchestrator = selectProviderFromAvailability(
     "auto", available, policy({ providerOrder: ["openai", "anthropic"] }),
     "senior", "coordination-route", "high", undefined, orchestratorCapabilities,
   );
-  expect(orchestrator.provider).toBe("openai");
-  expect(selectProviderFromAvailability(
+  expect(orchestrator.provider).toBe("anthropic");
+  expect(orchestrator.capabilityExcludedTargets).toEqual({
+    openai: "openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability",
+  });
+  expect(orchestrator.selectionReason).toContain(
+    "capability-excluded=openai:openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability",
+  );
+  expect(() => selectProviderFromAvailability(
     "openai", available, policy(), "senior", "coordination-pin", "high", undefined,
     orchestratorCapabilities,
-  ).provider).toBe("openai");
-  const pinnedTarget = selectProviderFromAvailability(
+  )).toThrow("cannot enforce the requested Orchestration capabilities");
+  expect(() => selectProviderFromAvailability(
     { provider: "auto", target: "codex-personal" },
     accountAvailability,
     accountPolicy(),
@@ -695,9 +703,18 @@ test("provider selection filters unenforceable capability shapes before side eff
     "high",
     undefined,
     orchestratorCapabilities,
+  )).toThrow("cannot enforce the requested Orchestration capabilities");
+  const anthropicOrchestrator = selectProviderFromAvailability(
+    { provider: "auto", target: "claude-personal" },
+    accountAvailability,
+    accountPolicy(),
+    "senior",
+    "coordination-anthropic-target",
+    "high",
+    undefined,
+    orchestratorCapabilities,
   );
-  expect(pinnedTarget.provider).toBe("openai");
-  expect(pinnedTarget.target).toBe("codex-personal");
+  expect(anthropicOrchestrator.provider).toBe("anthropic");
 });
 
 test("provider effective-authority closure defense remains exact", () => {
@@ -721,6 +738,19 @@ test("provider effective-authority closure defense remains exact", () => {
       provider, ["filesystem.read", "filesystem.search", "shell.readonly"],
     )).toBeUndefined();
   }
+});
+
+test("the coordination capability is refused on every non-Anthropic adapter", () => {
+  const orchestrator = ["filesystem.read", "filesystem.search", "shell.readonly", "coordination"] as const;
+  expect(providerCapabilityRejectionCode("openai", orchestrator))
+    .toBe("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
+  expect(providerCapabilityRejectionCode("anthropic", orchestrator)).toBeUndefined();
+  // Bespoke shapes are covered by the capability, never by a role name.
+  expect(providerCapabilityRejectionCode("openai", ["filesystem.read", "coordination"]))
+    .toBe("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
+  expect(providerCapabilityRejectionCode(
+    "openai", ["filesystem.read", "filesystem.search", "shell.readonly"],
+  )).toBeUndefined();
 });
 
 test("Anthropic frontier follows Orchestration's static route without a hidden time swap", () => {
