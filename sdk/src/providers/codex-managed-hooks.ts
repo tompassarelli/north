@@ -468,6 +468,104 @@ export function validateManagedCodexHookInstallation(
   }
 }
 
+export interface ManagedCodexHookSupply {
+  /** Managed-dir-relative name; the identity an operator reads in a failure. */
+  hook: string;
+  path: string;
+  supply: "nix" | "sealed" | "unavailable";
+  detail?: string;
+}
+
+export interface ManagedCodexHookReport {
+  requirements: { path: string; ok: boolean; detail?: string };
+  runtime: ManagedCodexHookSupply[];
+  hooks: ManagedCodexHookSupply[];
+}
+
+function describe(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as { cause?: unknown }).cause;
+  return cause instanceof Error ? `${error.message}: ${cause.message}` : error.message;
+}
+
+/** The preflight's exact predicates, resolved per path so one bad hook cannot hide the rest. */
+export function reportManagedCodexHookInstallation(
+  installation: ManagedCodexHookInstallation,
+): ManagedCodexHookReport {
+  const requirements: ManagedCodexHookReport["requirements"] = (() => {
+    try {
+      assertNixManagedFile(installation.requirementsPath, false, installation.nixStoreRoot);
+      const bytes = readFileSync(installation.requirementsPath);
+      if (bytes.byteLength > MAX_REQUIREMENTS_BYTES)
+        throw new Error("managed Codex requirements exceed the bounded size");
+      validateManagedCodexRequirements(
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes), installation.managedDir,
+      );
+      return { path: installation.requirementsPath, ok: true };
+    } catch (error) {
+      return { path: installation.requirementsPath, ok: false, detail: describe(error) };
+    }
+  })();
+
+  const runtime = new Map<string, ManagedCodexHookSupply>();
+  const hooks = new Map<string, ManagedCodexHookSupply>();
+  // Captured at most once: resolving `active` twice can straddle a promotion swap.
+  let promotion: CapturedPromotion | undefined;
+  const record = (into: Map<string, ManagedCodexHookSupply>, path: string, executable: boolean) => {
+    if (into.has(path)) return;
+    const hook = relative(resolve(installation.managedDir), resolve(path)) || path;
+    try {
+      assertNixManagedFile(path, executable, installation.nixStoreRoot);
+      into.set(path, { hook, path, supply: "nix" });
+      return;
+    } catch (nixCause) {
+      if (executable) {
+        into.set(path, { hook, path, supply: "unavailable", detail: describe(nixCause) });
+        return;
+      }
+      try {
+        promotion ??= captureActivePromotion(
+          installation.enforcementRoot, installation.expectedOwnerUid,
+        );
+        assertSealedPromotedHook(path, installation.managedDir, promotion);
+        into.set(path, { hook, path, supply: "sealed" });
+      } catch (sealedCause) {
+        into.set(path, {
+          hook,
+          path,
+          supply: "unavailable",
+          detail: `${describe(nixCause)}; ${describe(sealedCause)}`,
+        });
+      }
+    }
+  };
+
+  const expected = expectedManagedCodexHooks(installation.managedDir);
+  const commands = new Set(Object.values(expected)
+    .flatMap((entries) => entries.flatMap((entry) => entry.hooks.map((hook) => hook.command))));
+  for (const commandLine of commands) {
+    let paths: ReturnType<typeof managedCommandPaths>;
+    try {
+      paths = managedCommandPaths(commandLine, installation.managedDir);
+    } catch (error) {
+      hooks.set(commandLine, {
+        hook: commandLine, path: commandLine, supply: "unavailable", detail: describe(error),
+      });
+      continue;
+    }
+    record(runtime, paths.env, true);
+    record(runtime, paths.interpreter, true);
+    record(hooks, paths.script, false);
+  }
+  const bySupply = (entries: Iterable<ManagedCodexHookSupply>) =>
+    [...entries].sort((left, right) => left.hook.localeCompare(right.hook));
+  return {
+    requirements,
+    runtime: bySupply(runtime.values()),
+    hooks: bySupply(hooks.values()),
+  };
+}
+
 /**
  * Repeated immediately before process spawn to close the admission / execution
  * filesystem race. Failure remains a proved-unsent provider preaccept error.

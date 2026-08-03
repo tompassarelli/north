@@ -15,6 +15,7 @@ north help agents — delegate work, drive and observe agents
                                     --assessment JSON|@file — selection sidecar (required for max)
                                     --pin-evidence JSON|@file — typed reason + <=24h expiry for exact pins
                                     --rationale "why" — required for a bespoke role
+                                    --doctor [--deep|--canary|--json] — test every dispatch invariant at once
                                     in-harness agents dispatch via MCP: mcp__north__dispatch / spawn
   north templates                   Orchestration's reusable stock templates and routing defaults
   north watch <id>                  tail an agent's transcript
