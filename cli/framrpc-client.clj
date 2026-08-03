@@ -544,6 +544,71 @@
      :triples (:rows result)
      :values (mapv t/triple-slot2 (:rows result))}))
 
+;; --- multi-predicate subject projection --------------------------------------
+
+(defn occurrence-map
+  "Canonical occurrence map of TRIPLES: predicate -> value -> occurrence count.
+   The count is data on an occurrence-shaped wire, never noise: two equal
+   assertions are two occurrences, and an exact publication must reproduce the
+   frequency, not merely the value set."
+  [triples]
+  (reduce (fn [acc triple]
+            (update-in acc [(t/triple-slot1 triple) (t/triple-slot2 triple)]
+                       (fnil inc 0)))
+          {}
+          triples))
+
+(defn subject-projection!
+  "ONE paged scan of the whole SUBJECT, producing its canonical occurrence map
+   at ONE served version. A multi-predicate write plans from this, never from a
+   scan per predicate: independent reads share no version to fence a batch with."
+  ([client subject] (subject-projection! client subject {}))
+  ([client subject options]
+   (let [{:keys [rows served-version pages attempts]}
+         (scan-all! client subject nil nil options)]
+     {:subject subject
+      :served-version served-version
+      :triples rows
+      :occurrences (occurrence-map rows)
+      :pages pages
+      :attempts attempts})))
+
+(defn- multiset-excess
+  "Values FROM holds beyond OTHER, one entry per surplus occurrence."
+  [from other]
+  (mapcat (fn [[value count-value]]
+            (repeat (max 0 (- count-value (get other value 0))) value))
+          from))
+
+(def ^:private action-phase {:rpc/retract 0 :rpc/assert 1})
+
+(defn plan-subject-actions
+  "Action vector driving SUBJECT's occurrence map BEFORE to DESIRED. Both are
+   predicate -> value -> count; a predicate DESIRED does not name is left
+   untouched, and one mapped to {} is emptied. Retracts precede asserts because
+   a retract withdraws the LATEST equal occurrence and would otherwise eat the
+   assert beside it. Inside a phase the order is (:rank action) then a canonical
+   key, so a caller needing one assert last supplies a rank and stays
+   deterministic; the plan never depends on map iteration order."
+  ([subject before desired] (plan-subject-actions subject before desired {}))
+  ([subject before desired {:keys [rank]}]
+   (let [rank-fn (or rank (constantly 0))
+         actions
+         (for [predicate (keys desired)
+               :let [current (get before predicate {})
+                     target (get desired predicate {})]
+               [operation values] [[:rpc/retract (multiset-excess current target)]
+                                   [:rpc/assert (multiset-excess target current)]]
+               value values]
+           {:op operation :proposition (t/triple subject predicate value)})]
+     (vec (sort-by (fn [action]
+                     (let [proposition (:proposition action)]
+                       [(action-phase (:op action))
+                        (rank-fn action)
+                        (pr-str [(t/triple-slot1 proposition)
+                                 (t/triple-slot2 proposition)])]))
+                   actions)))))
+
 ;; --- North projection semantics over the append-only head wire ---------------
 ;; The head wire is occurrence-shaped (assert appends unconditionally, retract
 ;; withdraws only the latest equal occurrence); North's contract is set-shaped
@@ -557,29 +622,9 @@
         desired (vec (desired-fn values))
         before-frequencies (frequencies values)
         desired-frequencies (frequencies desired)
-        retract-values
-        (mapcat (fn [[value count-value]]
-                  (repeat (max 0 (- count-value
-                                    (get desired-frequencies value 0)))
-                          value))
-                before-frequencies)
-        assert-values
-        (mapcat (fn [[value count-value]]
-                  (repeat (max 0 (- count-value
-                                    (get before-frequencies value 0)))
-                          value))
-                desired-frequencies)
-        actions
-        (vec
-         (concat
-          (map (fn [value]
-                 {:op :rpc/retract
-                  :proposition (t/triple subject predicate value)})
-               retract-values)
-          (map (fn [value]
-                 {:op :rpc/assert
-                  :proposition (t/triple subject predicate value)})
-               assert-values)))]
+        actions (plan-subject-actions subject
+                                      {predicate before-frequencies}
+                                      {predicate desired-frequencies})]
     (if (empty? actions)
       {:changed? false :served-version served-version
        :values desired :results [] :attempts 0}
@@ -739,6 +784,211 @@
      (reconcile-projection! client subject predicate
                             (fn [current] (vec (remove #(= value %) current)))
                             (dissoc options :cardinality)))))
+
+;; --- fenced batch submission: classify the outcome, never guess it -----------
+;; A batch applies whole or not at all: no outcome below is a partial prefix,
+;; and none is retried here — the replan policy belongs to the caller.
+
+(def batch-outcomes
+  "Every outcome fenced-batch! can report, with the three facts a caller decides
+   on. :applied? nil is genuinely unknown and only an exact readback resolves it.
+   :replan-safe? false means a fresh scan CANNOT be read as truth yet."
+  {:no-op                {:applied? false :zero-applied? true
+                          :retry-identical-safe? true :replan-safe? true}
+   :applied              {:applied? true :zero-applied? false
+                          :retry-identical-safe? false :replan-safe? true}
+   :conflict             {:applied? false :zero-applied? true
+                          :retry-identical-safe? false :replan-safe? true}
+   :fence-mismatch       {:applied? false :zero-applied? true
+                          :retry-identical-safe? false :replan-safe? true}
+   :lease-held           {:applied? false :zero-applied? true
+                          :retry-identical-safe? false :replan-safe? true}
+   :rejected             {:applied? false :zero-applied? true
+                          :retry-identical-safe? false :replan-safe? true}
+   :not-sent             {:applied? false :zero-applied? true
+                          :retry-identical-safe? true :replan-safe? true}
+   :sent-ambiguous       {:applied? nil :zero-applied? false
+                          :retry-identical-safe? true :replan-safe? true}
+   :durability-ambiguous {:applied? nil :zero-applied? false
+                          :retry-identical-safe? false :replan-safe? false
+                          :restart-required? true}})
+
+(defn- outcome-result [outcome extra]
+  (merge {:outcome outcome} (get batch-outcomes outcome) extra))
+
+(def ^:private mutation-failure-outcomes
+  {:rpc/conflict :conflict
+   :rpc/lease-fence-mismatch :fence-mismatch
+   :rpc/lease-held :lease-held
+   :durability-ambiguous :durability-ambiguous})
+
+(defn- classify-mutation-failure
+  "Classify ERROR as a mutation outcome, or rethrow it. A daemon answer carries
+   :code, a transport failure carries :request-sent?, and anything with neither
+   is a local/protocol fault that must not be dressed up as a write outcome."
+  [error]
+  (let [data (or (ex-data error) {})]
+    (cond
+      ;; invoke! reaches :rpc/ambiguous-write only for a mutation whose request
+      ;; was sent, so the ack — not the write — is what was lost.
+      (= :rpc/ambiguous-write (:type data))
+      (let [cause (ex-cause error)
+            code (:code (or (ex-data cause) {}))]
+        (outcome-result (if (= :durability-ambiguous code)
+                          :durability-ambiguous
+                          :sent-ambiguous)
+                        {:code (or code :rpc/ambiguous-write) :error error}))
+
+      (contains? data :code)
+      (outcome-result (get mutation-failure-outcomes (:code data) :rejected)
+                      {:code (:code data)
+                       :error error
+                       :served-version (:served-version data)})
+
+      (contains? data :request-sent?)
+      (outcome-result (if (false? (:request-sent? data)) :not-sent :sent-ambiguous)
+                      {:code (:type data) :error error})
+
+      :else (throw error))))
+
+(defn- require-action-results! [actions result]
+  (let [results (:results result)]
+    (when-not (and (= (count results) (count actions))
+                   (= (map :input-index results) (range (count actions))))
+      (throw (ex-info "FRAMRPC batch acknowledged an action-result shape that does not match its actions"
+                      {:type :rpc/unexpected-action-results
+                       :actions (count actions)
+                       :results (mapv :input-index results)}))))
+  result)
+
+(defn fenced-batch!
+  "Submit ACTIONS as ONE fenced, expected-version transaction and classify its
+   outcome instead of retrying it. Pass :fence and :expected-version from the
+   same read that produced the plan. Returns an entry of batch-outcomes plus
+   :results/:changed?/:served-version on an acknowledged commit; an acknowledged
+   commit whose action results do not match its actions throws, because that is
+   a protocol disagreement and not a publication outcome."
+  ([client actions] (fenced-batch! client actions {}))
+  ([client actions options]
+   (open! client)
+   (if (empty? actions)
+     (outcome-result :no-op {:results [] :changed? false :attempts 0})
+     ;; One attempt: every retry here is a caller decision (replan, identical
+     ;; retry, or stop), and the generic client owns none of those policies.
+     (let [single (assoc client :max-attempts 1)
+           request-options (dissoc options :ambiguity-resolver)
+           outcome (try
+                     {:ok (batch! single actions request-options)}
+                     (catch Throwable error {:error error}))]
+       (if-let [result (:ok outcome)]
+         (let [{:keys [results] :as acked} (require-action-results! actions result)]
+           (outcome-result :applied
+                           {:results results
+                            :changed? (boolean (some :changed? results))
+                            :served-version (:served-version acked)
+                            :attempts (:attempts acked)}))
+         (classify-mutation-failure (:error outcome)))))))
+
+;; --- exact subject readback: what the graph actually holds now ----------------
+
+(defn- occurrence-excess
+  "Occurrences FROM holds beyond OTHER, as an occurrence map."
+  [from other]
+  (into {}
+        (keep (fn [[predicate values]]
+                (let [surplus
+                      (into {}
+                            (keep (fn [[value count-value]]
+                                    (let [delta (- count-value
+                                                   (get-in other [predicate value] 0))]
+                                      (when (pos? delta) [value delta]))))
+                            values)]
+                  (when (seq surplus) [predicate surplus]))))
+        from))
+
+(defn subject-readback!
+  "Re-scan SUBJECT and decide what a fenced write actually did. DESIRED is an
+   occurrence map and the comparison is exact in BOTH directions — value set AND
+   occurrence frequency. Options: :before, the pre-write occurrence map, which is
+   what lets an unchanged projection be reported as proven-absent rather than
+   merely not-committed; :guard-predicates, predicates required to be absent;
+   :scope :subject to compare the WHOLE subject instead of only the predicates
+   DESIRED and the guards name.
+
+   States: :committed (exact), :absent (identical to :before, so the batch never
+   landed and a replan is safe), :foreign-writer (equal to neither, which this
+   atomic batch cannot have produced — another writer or corruption intervened),
+   :indeterminate (a mismatch with no baseline to attribute it to)."
+  ([client subject desired] (subject-readback! client subject desired {}))
+  ([client subject desired options]
+   (let [{:keys [before scope guard-predicates]} options
+         projection (subject-projection!
+                     client subject
+                     (dissoc options :before :scope :guard-predicates))
+         actual (:occurrences projection)
+         compared (if (= :subject scope)
+                    (into (set (keys actual)) (keys desired))
+                    (into (set (keys desired)) guard-predicates))
+         restrict (fn [occurrences]
+                    (into {}
+                          (keep (fn [predicate]
+                                  (let [values (get occurrences predicate)]
+                                    (when (seq values) [predicate values]))))
+                          compared))
+         actual-view (restrict actual)
+         desired-view (restrict desired)
+         state (cond
+                 (= actual-view desired-view) :committed
+                 (and before (= actual-view (restrict before))) :absent
+                 before :foreign-writer
+                 :else :indeterminate)]
+     {:state state
+      :committed? (= state :committed)
+      :indeterminate? (contains? #{:foreign-writer :indeterminate} state)
+      :served-version (:served-version projection)
+      :occurrences actual
+      :missing (occurrence-excess desired-view actual-view)
+      :unexpected (occurrence-excess actual-view desired-view)})))
+
+;; --- lease acquisition at an expected version --------------------------------
+
+(defn fence-parts
+  "[resource holder epoch] of a typed lease fence."
+  [fence]
+  (record-fields! fence :rpc/fence 3))
+
+(defn lease-acquire-at-version!
+  "Acquire RESOURCE for HOLDER as the transaction immediately after
+   EXPECTED-VERSION. A commit's epoch is EXPECTED-VERSION+1, which is what makes
+   the fence RECONSTRUCTABLE when the acknowledgement is lost: :candidate-fence
+   names the lease this call would have taken, and lease-check! decides. OCC
+   admits at most one committing acquire, so an identical retry at the same
+   expected version is safe. On :conflict and :lease-held nothing committed."
+  ([client resource holder ttl-ms expected-version]
+   (lease-acquire-at-version! client resource holder ttl-ms expected-version {}))
+  ([client resource holder ttl-ms expected-version options]
+   (open! client)
+   (let [candidate (wire/rpc-fence! resource holder (inc expected-version))
+         outcome (try
+                   {:ok (lease-acquire! (assoc client :max-attempts 1)
+                                        resource holder ttl-ms
+                                        (assoc options
+                                               :expected-version expected-version))}
+                   (catch Throwable error {:error error}))]
+     (if-let [grant (:ok outcome)]
+       (let [[_ _ epoch] (fence-parts (:fence grant))]
+         (outcome-result :applied
+                         {:acquired? true
+                          :fence (:fence grant)
+                          :epoch epoch
+                          :expected-epoch (inc expected-version)
+                          :expires (:expires grant)
+                          :served-version (:served-version grant)
+                          :attempts (:attempts grant)}))
+       (let [classified (classify-mutation-failure (:error outcome))]
+         (assoc classified
+                :acquired? (:applied? classified)
+                :candidate-fence candidate))))))
 
 (defn subscribe! [& _]
   (throw (ex-info "FRAMRPC subscription is reserved for the daemon-side v2 operation"
