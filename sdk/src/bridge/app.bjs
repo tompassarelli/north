@@ -1,0 +1,517 @@
+#lang beagle/js
+
+(ns north.bridge.app
+  (:require [|@opentui/core| :refer [BoxRenderable createCliRenderer InputRenderable InputRenderableEvents TextRenderable]]
+            [north.bridge.model :refer [append-transcript focus-view make-agent make-model make-work replace-projection select-agent select-thread set-filter set-layout snapshot upsert-agent]]))
+
+(define-mode strict)
+
+(declare-extern [process Bun Response TextDecoder Promise JSON console Error Math String Array Set] Any)
+
+(def NORTH-BIN: String
+  (or (.-NORTH_BIN (.-env process)) "north"))
+
+(defn text [value: Any] -> String
+  (if (identical? (js/typeof value) "string") value ""))
+
+(defn bare [value: Any] -> String
+  (let [value-text (text value)]
+    (if (.startsWith value-text "@") (.slice value-text 1) value-text)))
+
+(defn error-message [error: Any] -> String
+  (if (and error (identical? (js/typeof error) "object") (.-message error))
+    (text (.-message error))
+    (String error)))
+
+(defn command [input: String] -> Any
+  (let [trimmed (.trim input)
+        normalized (if (.startsWith trimmed "/") (.slice trimmed 1) trimmed)
+        split-at (.indexOf normalized " ")]
+    (if (< split-at 0)
+      {:name (.toLowerCase normalized) :rest ""}
+      {:name (.toLowerCase (.slice normalized 0 split-at))
+       :rest (.trim (.slice normalized (+ split-at 1)))})))
+
+(defn run-command [argv: Any] -> (Promise Any)
+  (let [child (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
+        results (js/await
+                 (Promise/all [(.text (Response. (.-stdout child)))
+                               (.text (Response. (.-stderr child)))
+                               (.-exited child)]))
+        stdout (text (aget results 0))
+        stderr (text (aget results 1))
+        exit-code (aget results 2)]
+    (if (identical? exit-code 0)
+      stdout
+      (throw (Error. (str (.join argv " ") " failed (" exit-code "): "
+                          (or (.trim stderr) (.trim stdout))))))))
+
+(defn run-json [argv: Any] -> (Promise Any)
+  (let [output (js/await (run-command argv))]
+    (JSON/parse output)))
+
+(defn read-stream [stream: Any on-chunk: Any] -> (Promise Any)
+  (let [reader (.getReader stream)
+        decoder (TextDecoder.)]
+    (loop []
+      (let [result (js/await (.read reader))]
+        (when (not (.-done result))
+          (on-chunk (.decode decoder (.-value result) {:stream true}))
+          (recur))))))
+
+(defn stream-command [argv: Any on-chunk: Any] -> (Promise Any)
+  (let [child (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
+        results (js/await
+                 (Promise/all [(read-stream (.-stdout child) on-chunk)
+                               (read-stream (.-stderr child) on-chunk)
+                               (.-exited child)]))]
+    (aget results 2)))
+
+(defn normalize-agents [payload: Any] -> Any
+  (let [rows (if (and payload (Array/isArray (.-agents payload))) (.-agents payload) [])]
+    (.map rows
+          (fn [row: Any] -> Any
+            (let [id (bare (or (.-control_id row) (.-uuid row) (.-id row)))
+                  name (text (or (.-display_handle row) (.-display_name row) id))
+                  status (text (or (.-state_label row) (.-state row) "unknown"))
+                  task (text (or (.-task row) (.-thread_title row) ""))]
+              (make-agent id name status task))))))
+
+(defn board-ids [board: Any] -> (Vec String)
+  (if (Array/isArray board)
+    (.filter
+     (.map board (fn [row: Any] -> String (bare (.-id row))))
+     (fn [id: String] -> Bool (not (identical? id ""))))
+    []))
+
+(defn driver-of [facts: Any id: String] -> String
+  (if (not (Array/isArray facts))
+    ""
+    (let [row (.find facts
+                     (fn [fact: Any] -> Bool
+                       (and (identical? (text (.-predicate fact)) "driver")
+                            (identical? (bare (.-subject fact)) id))))]
+      (if row (bare (.-value row)) ""))))
+
+(defn normalize-work [board: Any facts: Any] -> Any
+  (if (not (Array/isArray board))
+    []
+    (.map board
+          (fn [row: Any] -> Any
+            (let [id (bare (.-id row))
+                  title (text (or (.-title row) id))
+                  condition (text (or (.-condition row) "open"))
+                  emoji (text (.-emoji row))
+                  driver (driver-of facts id)
+                  prefix (if (identical? emoji "") "" (str emoji " "))]
+              (make-work id title condition driver
+                               (.trim (str prefix "@" id " " title))
+                               (.trim (str condition " · " prefix "@" id " " title))))))))
+
+(defn publish-line! [runtime: Any line: String] -> Any
+  (when (and (not (.-disposed runtime))
+             (not (identical? (.trim line) "")))
+    (set! (.-model runtime)
+          (append-transcript (.-model runtime) (.trim line)))
+    (.render runtime)))
+
+(defn destroy! [runtime: Any] -> Any
+  (when (not (.-disposed runtime))
+    (set! (.-disposed runtime) true)
+    (.destroy (.-renderer runtime))
+    (.exit process 0)))
+
+(defn install-global-exit! [runtime: Any] -> Any
+  (.on (.-keyInput (.-renderer runtime)) "keypress"
+       (fn [key: Any] -> Any
+         (let [name (text (.-name key))]
+           (when (and (.-ctrl key)
+                      (or (identical? name "c") (identical? name "q")))
+             (.preventDefault key)
+             (.stopPropagation key)
+             (destroy! runtime))))))
+
+(defn refresh! [runtime: Any] -> (Promise Any)
+  (try
+    (let [payloads (js/await
+                    (Promise/all [(run-json [NORTH-BIN "agents" "--json"])
+                                  (run-json [NORTH-BIN "json" "board"])]))
+          agent-payload (aget payloads 0)
+          board (aget payloads 1)
+          ids (board-ids board)
+          facts (if (> (.-length ids) 0)
+                  (js/await (run-json [NORTH-BIN "json" "show-many" (.join ids ",")]))
+                  [])
+          agents (normalize-agents agent-payload)
+          work (normalize-work board facts)
+          kanban (.sort (.slice work)
+                        (fn [left: Any right: Any] -> Int
+                          (.localeCompare
+                           (str (.-condition left) ":" (.-title left))
+                           (str (.-condition right) ":" (.-title right)))))]
+      (set! (.-model runtime)
+            (replace-projection (.-model runtime) agents work kanban))
+      (publish-line! runtime
+                     (str "refreshed " (.-length agents) " agents · "
+                          (.-length work) " threads")))
+    (catch Error error
+      (publish-line! runtime (str "refresh failed: " (error-message error))))))
+
+(defn item-line [item: Any] -> String
+  (if (identical? (js/typeof item) "string") item (text (.-text item))))
+
+(defn view-list [state: Any] -> Any
+  (if (and (Array/isArray (.-views state)) (> (.-length (.-views state)) 0))
+    (.-views state)
+    [{:id "graph" :title "Threads DAG" :items (or (.-graph state) [])}
+     {:id "kanban" :title "Kanban" :items (or (.-kanban state) [])}]))
+
+(defn selected-view [state: Any view-id: String] -> Any
+  (let [views (view-list state)
+        selected (.find views (fn [view: Any] -> Bool (identical? (text (.-id view)) view-id)))]
+    (or selected (aget views 0))))
+
+(defn roster-text [state: Any selected: Int] -> String
+  (let [agents (or (.-agents state) [])]
+    (if (identical? (.-length agents) 0)
+      "No agents attached"
+      (.join
+       (.map agents
+             (fn [agent: Any index: Int] -> String
+               (str (if (identical? index selected) "› " "  ")
+                    (or (text (.-name agent)) (text (.-id agent)))
+                    (if (identical? (text (.-status agent)) "") ""
+                      (str " (" (text (.-status agent)) ")"))
+                    (if (identical? (text (.-task agent)) "") ""
+                      (str " — " (text (.-task agent)))))))
+       "\n"))))
+
+(defn transcript-text [state: Any] -> String
+  (let [lines (or (.-transcript state) [])]
+    (if (identical? (.-length lines) 0) "Waiting for agent output…" (.join lines "\n"))))
+
+(defn tabs-text [state: Any view-id: String] -> String
+  (.join
+   (.map (view-list state)
+         (fn [view: Any] -> String
+           (let [selected (identical? (text (.-id view)) view-id)]
+             (str (if selected "[" " ")
+                  (or (text (.-title view)) (text (.-id view)))
+                  (if selected "]" " ")))))
+   " "))
+
+(defn work-text [view: Any selected: Int] -> String
+  (let [items (or (.-items view) [])]
+    (if (identical? (.-length items) 0)
+      (str "No " (or (text (.-title view)) "work") " projection")
+      (.join
+       (.map items
+             (fn [item: Any index: Int] -> String
+               (str (if (identical? index selected) "› " "  ") (item-line item))))
+       "\n"))))
+
+(defn render-ui! [runtime: Any ui: Any] -> Any
+  (let [state (snapshot (.-model runtime))
+        agents (or (.-agents state) [])
+        views (view-list state)
+        requested (text (.-activeViewId state))
+        current (selected-view state requested)
+        items (or (.-items current) [])
+        agent-max (Math/max 0 (- (.-length agents) 1))
+        work-max (Math/max 0 (- (.-length items) 1))]
+    (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
+    (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
+    (set! (.-flexDirection (.-root ui))
+          (if (identical? (text (.-layout state)) "horizontal") "column" "row"))
+    (set! (.-content (.-agentsText ui))
+          (roster-text state (.-agentIndex runtime)))
+    (set! (.-content (.-transcriptText ui)) (transcript-text state))
+    (set! (.-content (.-tabsText ui)) (tabs-text state (text (.-id current))))
+    (set! (.-content (.-workText ui)) (work-text current (.-workIndex runtime)))
+    (set! (.-content (.-statusText ui))
+          (str (text (.-notice state))
+               "\nTab pane · Ctrl+←/→ view · Ctrl+↑/↓ select · Ctrl+h/v split · Ctrl+o pop out · Ctrl+r refresh"))
+    (set! (.-title (.-agentsPane ui))
+          (if (identical? (.-pane runtime) "agents") "Agents · active" "Agents"))
+    (set! (.-title (.-workPane ui))
+          (str "Work" (if (identical? (.-pane runtime) "work") " · active · " " · ")
+               (text (.-id current))))
+    (set! (.-activeView runtime) (text (.-id current)))
+    views))
+
+(defn parse-execution! [runtime: Any chunk: String] -> Any
+  (let [lines (.split (str (.-streamBuffer runtime) chunk) "\n")
+        remainder (.pop lines)]
+    (set! (.-streamBuffer runtime) remainder)
+    (.forEach
+     lines
+     (fn [raw-line: String] -> Any
+       (let [line (.trim raw-line)]
+         (when (.startsWith line "execution ")
+           (let [execution-id (.trim (.slice line 10))]
+             (.add (.-bridgeExecutions runtime) execution-id)
+             (set! (.-model runtime)
+                   (upsert-agent (.-model runtime)
+                                 (make-agent execution-id
+                                             (str "bridge " (.slice execution-id 0 8))
+                                             "active"
+                                             "Bridge execution"))))))))))
+
+(defn launch-agent! [runtime: Any prompt: String] -> (Promise Any)
+  (when (identical? (.trim prompt) "")
+    (throw (Error. "launch requires a prompt")))
+  (publish-line! runtime (str "launching: " prompt))
+  (let [exit-code
+        (js/await
+         (stream-command
+          [NORTH-BIN "bridge" prompt]
+          (fn [chunk: String] -> Any
+            (parse-execution! runtime chunk)
+            (publish-line! runtime chunk))))]
+    (when (not (identical? exit-code 0))
+      (publish-line! runtime (str "bridge exited " exit-code)))
+    (js/await (refresh! runtime))))
+
+(defn popout! [runtime: Any view-id: String] -> Any
+  (let [ghostty (.which Bun "ghostty")
+        kitty (.which Bun "kitty")
+        wezterm (.which Bun "wezterm")
+        foot (.which Bun "foot")
+        xterm (.which Bun "xterm")
+        argv (cond
+               ghostty [ghostty "-e" NORTH-BIN "bridge" "app" "--view-id" view-id]
+               kitty [kitty "--detach" NORTH-BIN "bridge" "app" "--view-id" view-id]
+               wezterm [wezterm "start" "--always-new-process" "--" NORTH-BIN "bridge" "app" "--view-id" view-id]
+               foot [foot NORTH-BIN "bridge" "app" "--view-id" view-id]
+               xterm [xterm "-e" NORTH-BIN "bridge" "app" "--view-id" view-id]
+               :else nil)]
+    (when (nil? argv)
+      (throw (Error. "no supported terminal found for pop-out")))
+    (let [child (.spawn Bun {:cmd argv :stdin "ignore" :stdout "ignore" :stderr "ignore"})]
+      (.unref child)
+      (publish-line! runtime (str "opened " view-id " in a separate terminal")))))
+
+(defn selected-work [runtime: Any selection: Any] -> Any
+  (let [state (snapshot (.-model runtime))
+        view-id (text (or (.-view selection) (.-activeView runtime)))
+        view (selected-view state view-id)
+        items (or (.-items view) [])
+        index (if (nil? (.-index selection)) -1 (.-index selection))]
+    (if (and (>= index 0) (< index (.-length items))) (aget items index) nil)))
+
+(defn submit-agent! [runtime: Any input: String selection: Any] -> (Promise Any)
+  (let [parsed (command input)
+        name (text (.-name parsed))
+        rest (text (.-rest parsed))
+        target (text selection)]
+    (cond
+      (identical? name "launch") (js/await (launch-agent! runtime rest))
+      (identical? name "refresh") (js/await (refresh! runtime))
+      (identical? name "popout") (popout! runtime (or rest (.-activeView runtime)))
+      (identical? name "help") (publish-line! runtime "agent commands: /launch <prompt>, /interrupt, /refresh, /popout; plain text steers the selected agent")
+      :else
+      (do
+        (when (identical? target "")
+          (throw (Error. "select an agent before steering or interrupting")))
+        (if (identical? name "interrupt")
+          (do
+            (when (not (.has (.-bridgeExecutions runtime) target))
+              (throw (Error. "interrupt is available for Bridge-launched executions")))
+            (js/await (run-command [NORTH-BIN "bridge" "interrupt" target]))
+            (publish-line! runtime (str "interrupted " target)))
+          (let [message (if (identical? name "steer") rest (.trim input))]
+            (when (identical? message "") (throw (Error. "steer requires input")))
+            (if (.has (.-bridgeExecutions runtime) target)
+              (js/await (run-command [NORTH-BIN "bridge" "steer" target message]))
+              (js/await (run-command [NORTH-BIN "steer" target message])))
+            (publish-line! runtime (str "steered " target))))))))
+
+(defn submit-work! [runtime: Any input: String selection: Any] -> (Promise Any)
+  (let [parsed (command input)
+        name (text (.-name parsed))
+        rest (text (.-rest parsed))]
+    (cond
+      (identical? name "filter")
+      (do (set! (.-model runtime) (set-filter (.-model runtime) rest)) (.render runtime))
+
+      (identical? name "view")
+      (do (set! (.-model runtime) (focus-view (.-model runtime) rest)) (.render runtime))
+
+      (identical? name "split")
+      (do (set! (.-model runtime)
+                (set-layout (.-model runtime)
+                                  (if (or (identical? rest "h") (identical? rest "horizontal"))
+                                    "horizontal" "vertical")))
+          (.render runtime))
+
+      (identical? name "refresh") (js/await (refresh! runtime))
+      (identical? name "popout") (popout! runtime (if (identical? rest "") (.-activeView runtime) rest))
+
+      (identical? name "capture")
+      (do
+        (when (identical? rest "") (throw (Error. "capture requires a title")))
+        (let [output (js/await (run-command [NORTH-BIN "capture" rest]))]
+          (publish-line! runtime (.trim (text output))))
+        (js/await (refresh! runtime)))
+
+      (identical? name "assign")
+      (let [item (selected-work runtime selection)
+            words (.filter (.split rest " ") (fn [word: String] -> Bool (not (identical? (.trim word) ""))))
+            current (if item (text (.-driver item)) "")
+            prior (if (> (.-length words) 1) (aget words 0) current)
+            next-driver (if (> (.-length words) 1) (aget words 1) (or (aget words 0) ""))
+            thread-id (if item (bare (.-id item)) "")]
+        (when (identical? thread-id "") (throw (Error. "select work before assigning")))
+        (when (identical? prior "") (throw (Error. "unassigned work requires: /assign <prior-driver> <next-driver>")))
+        (when (identical? next-driver "") (throw (Error. "assign requires a new driver")))
+        (publish-line! runtime "driver reassignment is a retract-then-tell operation")
+        (js/await (run-command [NORTH-BIN "retract" thread-id "driver" prior]))
+        (js/await (run-command [NORTH-BIN "tell" thread-id "driver" next-driver]))
+        (publish-line! runtime (str "assigned @" thread-id " to " next-driver))
+        (js/await (refresh! runtime)))
+
+      (identical? name "help")
+      (publish-line! runtime "work commands: /capture <title>, /filter <text>, /assign <driver>, /view graph|kanban, /split h|v, /refresh, /popout")
+
+      :else
+      (throw (Error. "unknown work command; use /help")))))
+
+(defn report-promise! [runtime: Any promise: Any] -> Any
+  (.catch promise
+          (fn [error: Any] -> Any
+            (publish-line! runtime (str "error: " (error-message error))))))
+
+(defn install-input! [runtime: Any ui: Any] -> Any
+  (.on (.-agentInput ui) (.-ENTER InputRenderableEvents)
+       (fn [] -> Any
+         (let [input (.trim (text (.-value (.-agentInput ui))))
+               state (snapshot (.-model runtime))
+               agents (or (.-agents state) [])
+               selected (if (> (.-length agents) 0)
+                          (text (.-id (aget agents (.-agentIndex runtime)))) "")]
+           (when (not (identical? input ""))
+             (set! (.-value (.-agentInput ui)) "")
+             (report-promise! runtime (submit-agent! runtime input selected))))))
+  (.on (.-workInput ui) (.-ENTER InputRenderableEvents)
+       (fn [] -> Any
+         (let [input (.trim (text (.-value (.-workInput ui))))]
+           (when (not (identical? input ""))
+             (set! (.-value (.-workInput ui)) "")
+             (report-promise! runtime
+                              (submit-work! runtime input
+                                            {:view (.-activeView runtime)
+                                             :index (.-workIndex runtime)})))))))
+
+(defn install-keys! [runtime: Any ui: Any] -> Any
+  (set! (.-onKeyDown (.-root ui))
+        (fn [key: Any] -> Any
+          (let [name (text (.-name key))
+                ctrl (.-ctrl key)
+                state (snapshot (.-model runtime))]
+            (cond
+              (identical? name "tab")
+              (do (.preventDefault key)
+                  (set! (.-pane runtime) (if (identical? (.-pane runtime) "agents") "work" "agents"))
+                  (.focus (if (identical? (.-pane runtime) "agents") (.-agentInput ui) (.-workInput ui))))
+
+              (and ctrl (or (identical? name "left") (identical? name "right")))
+              (let [views (view-list state)
+                    current (selected-view state (.-activeView runtime))
+                    index (.findIndex views (fn [view: Any] -> Bool (identical? (.-id view) (.-id current))))
+                    delta (if (identical? name "left") -1 1)
+                    next-index (mod (+ index delta (.-length views)) (.-length views))
+                    next-id (text (.-id (aget views next-index)))]
+                (.preventDefault key)
+                (set! (.-model runtime) (focus-view (.-model runtime) next-id))
+                (set! (.-workIndex runtime) 0))
+
+              (and ctrl (or (identical? name "up") (identical? name "down")))
+              (let [delta (if (identical? name "up") -1 1)]
+                (.preventDefault key)
+                (if (identical? (.-pane runtime) "agents")
+                  (let [agents (or (.-agents state) [])
+                        max-index (Math/max 0 (- (.-length agents) 1))
+                        next-index (Math/max 0 (Math/min max-index (+ (.-agentIndex runtime) delta)))
+                        agent-id (if (> (.-length agents) 0) (text (.-id (aget agents next-index))) "")]
+                    (set! (.-agentIndex runtime) next-index)
+                    (set! (.-model runtime) (select-agent (.-model runtime) agent-id)))
+                  (let [view (selected-view state (.-activeView runtime))
+                        items (or (.-items view) [])
+                        max-index (Math/max 0 (- (.-length items) 1))
+                        next-index (Math/max 0 (Math/min max-index (+ (.-workIndex runtime) delta)))
+                        thread-id (if (> (.-length items) 0) (bare (.-id (aget items next-index))) "")]
+                    (set! (.-workIndex runtime) next-index)
+                    (set! (.-model runtime) (select-thread (.-model runtime) thread-id)))))
+
+              (and ctrl (identical? name "a"))
+              (do (.preventDefault key)
+                  (set! (.-model runtime) (select-agent (.-model runtime) "")))
+
+              (and ctrl (or (identical? name "h") (identical? name "v")))
+              (do (.preventDefault key)
+                  (set! (.-model runtime)
+                        (set-layout (.-model runtime)
+                                          (if (identical? name "h") "horizontal" "vertical"))))
+
+              (and ctrl (identical? name "o"))
+              (do (.preventDefault key) (popout! runtime (.-activeView runtime)))
+
+              (and ctrl (identical? name "r"))
+              (do (.preventDefault key) (report-promise! runtime (refresh! runtime)))
+
+              (and ctrl (or (identical? name "c") (identical? name "q")))
+              (do (.preventDefault key) (destroy! runtime))
+
+              :else nil)
+            (when (not (.-disposed runtime))
+              (.render runtime))))))
+
+(defn open-app! [view-id: String] -> (Promise Any)
+  (let [renderer (js/await (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true}))
+        runtime {:model (make-model view-id)
+                 :renderer renderer
+                 :disposed false
+                 :pane "agents"
+                 :activeView (if (identical? view-id "kanban") "kanban" "graph")
+                 :agentIndex 0
+                 :workIndex 0
+                 :bridgeExecutions (Set.)
+                 :streamBuffer ""
+                 :render (fn [] -> Any nil)}
+        root (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height "100%" :gap 1 :padding 1})
+        agents-pane (BoxRenderable. renderer {:flexDirection "column" :flexGrow 1 :border true :title "Agents"})
+        work-pane (BoxRenderable. renderer {:flexDirection "column" :flexGrow 1 :border true :title "Work · graph"})
+        agents-text (TextRenderable. renderer {:flexGrow 1 :wrapMode "word"})
+        transcript-text-view (TextRenderable. renderer {:flexGrow 3 :wrapMode "word"})
+        tabs-text-view (TextRenderable. renderer {:wrapMode "word"})
+        work-text-view (TextRenderable. renderer {:flexGrow 1 :wrapMode "word"})
+        status-text (TextRenderable. renderer {:wrapMode "word"})
+        agent-input (InputRenderable. renderer {:placeholder "/launch <prompt> or steer selected agent"})
+        work-input (InputRenderable. renderer {:placeholder "/capture, /filter, /assign, /view, /split, /popout"})
+        ui {:root root :agentsPane agents-pane :workPane work-pane
+            :agentsText agents-text :transcriptText transcript-text-view
+            :tabsText tabs-text-view :workText work-text-view :statusText status-text
+            :agentInput agent-input :workInput work-input}]
+    (.add agents-pane agents-text)
+    (.add agents-pane transcript-text-view)
+    (.add agents-pane agent-input)
+    (.add work-pane tabs-text-view)
+    (.add work-pane work-text-view)
+    (.add work-pane status-text)
+    (.add work-pane work-input)
+    (.add root agents-pane)
+    (.add root work-pane)
+    (.add (.-root renderer) root)
+    (set! (.-render runtime) (fn [] -> Any (render-ui! runtime ui)))
+    (install-input! runtime ui)
+    (install-global-exit! runtime)
+    (install-keys! runtime ui)
+    (.render runtime)
+    (.focus agent-input)
+    (.start renderer)
+    (report-promise! runtime (refresh! runtime))
+    runtime))
+
+(js/export
+ (defn run-northbridge-app! [options: Any] -> (Promise Any)
+   (open-app! (text (or (.-viewId options) "graph")))))
