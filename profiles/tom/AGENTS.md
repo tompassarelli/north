@@ -302,6 +302,8 @@ separate migration inventory, never a side-project expansion. Graph-native
 detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
 
 ## Background shells — always accountable
+<!-- north-section: background-shells · bucket: shell -->
+
 Every background shell or monitor maps to ONE named purpose (lane, production
 operation, armed monitor) in the orchestrator's live ledger; "what are my
 shells" must be answerable instantly from the ledger, never by archaeology.
