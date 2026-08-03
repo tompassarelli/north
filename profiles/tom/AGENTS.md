@@ -72,7 +72,7 @@ which dispatch surface creates workers:
 - `native` pins the provider-native Agent/Workflow surface. North may still
   coordinate, record, and observe, but MUST NOT independently spawn or delegate
   workers.
-- `north` pins the North-managed surface; provider-native Agent/Workflow calls
+- `managed` pins the North-managed surface; provider-native Agent/Workflow calls
   are denied.
 - `auto` lets the system choose a surface for each dispatch. The orthogonal
   `north config learning` axis governs that choice: `frozen` uses the
@@ -85,7 +85,7 @@ overrides the mode. The user talks to a listener, never a worker. Each dispatche
 becomes a lane through the selected surface, with one binary context decision:
 fork this session's context along (the default) or send a clean-room brief.
 
-When the North-managed surface is selected (`north`, or a North choice under
+When the North-managed surface is selected (`managed`, or a North choice under
 `auto`), recursion is explicit: an orchestrator may create workers or child
 orchestrators only through North, and owns settlement of its direct children.
 Every child receives a fresh `part_of` thread, run, reservation, complete

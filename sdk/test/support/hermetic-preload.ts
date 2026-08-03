@@ -289,7 +289,7 @@ if (!process.env.AGENT_LAWS_PATH) {
 // source-path falls back to ~/.claude/my-config.state when canonical is absent.
 if (!process.env.NORTH_HARNESS_STATE && !process.env.AUTHORING_KILLSWITCH_STATE) {
   const state = join(tmpdir(), `north-sdk-harness-state-${process.pid}.conf`);
-  writeFileSync(state, "dispatch=north\n");
+  writeFileSync(state, "dispatch=managed\n");
   process.env.NORTH_HARNESS_STATE = state;
 }
 if (!process.env.NORTH_LEGACY_HARNESS_STATE) {

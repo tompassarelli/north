@@ -50,7 +50,7 @@
   (spit legacy "dispatch=native-biased\nguards=off\n")
   (check "legacy state is a read-only fallback while canonical is absent"
          (and (= legacy (north.harness-state/source-path home-path))
-              (= "native-biased" (north.harness-state/get-value home-path "dispatch" "north"))
+              (= "native-biased" (north.harness-state/get-value home-path "dispatch" "managed"))
               (= "auto" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" "on"))))
 
@@ -65,8 +65,8 @@
 
   (north.harness-state/put-value! home-path "dispatch" "managed-forced")
   (check "dispatch writes persist the canonical value"
-         (and (= "north" (north.harness-state/get-value home-path "dispatch" nil))
-              (= "north" (north.harness-state/get-dispatch-mode home-path))))
+         (and (= "managed" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "managed" (north.harness-state/get-dispatch-mode home-path))))
 
   (check "canonical state, persistent lock, and state directory are owner-only"
          (and (= "rw-------" (permission-string canonical))
@@ -82,7 +82,7 @@
 
   (spit legacy "dispatch=native-forced\nguards=on\n")
   (check "legacy changes are ignored once canonical state exists"
-         (and (= "north" (north.harness-state/get-value home-path "dispatch" nil))
+         (and (= "managed" (north.harness-state/get-value home-path "dispatch" nil))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
   (check "atomic writer leaves no temporary files"
          (empty? (filter #(str/starts-with? (.getName %) ".harness.")
@@ -93,7 +93,7 @@
                         "bb" (str root "/cli/config-cli.clj") "dispatch")]
     (check "config CLI reads the canonical state through the shared adapter"
            (and (zero? (:exit config))
-                (str/includes? (:out config) "dispatch = north"))))
+                (str/includes? (:out config) "dispatch = managed"))))
 
   (let [dashboard (p/shell
                    {:out :string :err :string :continue true
@@ -103,7 +103,7 @@
                         "(println (dispatch-mode))"))]
     (check "dashboard reads the same canonical state adapter"
            (and (zero? (:exit dashboard))
-                (= "north" (str/trim (:out dashboard))))))
+                (= "managed" (str/trim (:out dashboard))))))
 
   (spit canonical "dispatch=surprise\nguards=off\n")
   (let [bad-read (try (north.harness-state/get-dispatch-mode home-path) false

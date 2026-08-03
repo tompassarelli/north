@@ -6,7 +6,7 @@
    value fails closed."
   (:require [clojure.string :as str]))
 
-(def default-mode "north")
+(def default-mode "managed")
 
 (def mode-specs
   [{:name "native"
@@ -15,11 +15,11 @@
     :managed-admission "deny"
     :summary "provider-native surface pinned"
     :help "pin every dispatch to the provider-native Agent/Task/Workflow surface."}
-   {:name "north"
+   {:name "managed"
     :selection "pinned"
     :guard-action "deny"
     :managed-admission "allow"
-    :summary "North dispatch surface pinned"
+    :summary "North-managed dispatch surface pinned"
     :help "pin every dispatch to North; provider-native agent calls are denied."}
    {:name "auto"
     :selection "learning-regime"
@@ -29,8 +29,9 @@
     :help "choose per dispatch: frozen is deterministic known-best; learning permits bounded experiments."}])
 
 (def legacy-aliases
-  {"native-forced" "native"
-   "managed-forced" "north"
+  {"north" "managed"
+   "native-forced" "native"
+   "managed-forced" "managed"
    "native-biased" "auto"
    "managed-biased" "auto"})
 

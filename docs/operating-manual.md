@@ -726,7 +726,7 @@ north account list        # named account targets and their isolated CLI homes
 north account usage       # per-account subscription windows, resets, fixed failures
 north providers           # auth/headroom + approximate balanced routing shares
 north providers --json    # stable machine status; automation uses this, not prose
-north config dispatch     # native | north | auto dispatch-surface selection
+north config dispatch     # native | managed | auto dispatch-surface selection
 north config routing      # allocation mode, configured order, reserve, pressure, envelopes
 north config learning     # frozen consistency vs bounded ordinary-operation exploration
 north templates           # Orchestration's reusable stock templates and routing defaults

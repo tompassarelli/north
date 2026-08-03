@@ -237,7 +237,7 @@ else
 fi
 
 # Keep representative decision paths pinned while transport mechanics change.
-printf '%s\n' 'dispatch=north' 'guards=on' >"$STATE"
+printf '%s\n' 'dispatch=managed' 'guards=on' >"$STATE"
 agent_out="$(
   python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","prompt":"work"}}))' |
     env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" AGENT_NO_AUTHORING_HOOKS=0 \

@@ -33,7 +33,7 @@ adapter="${ORCHESTRATION_SPAWN_ADAPTER:-}"
 if [ -z "$adapter" ]; then
   disp="$(grep -E '^dispatch=' "$HOME/.local/state/north/harness.conf" 2>/dev/null | tail -1 | cut -d= -f2-)"
   case "$disp" in
-    north) adapter="north" ;;
+    managed|north) adapter="north" ;;
     *)    adapter="native" ;;
   esac
 fi

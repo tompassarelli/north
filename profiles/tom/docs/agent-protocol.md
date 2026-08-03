@@ -1,7 +1,7 @@
 # Agent protocol — driving agents via north
 
 The live dispatch mode decides the spawn surface — read `north config dispatch`
-at task intake. `native` pins the provider-native surface, `north` pins the
+at task intake. `native` pins the provider-native surface, `managed` pins the
 North-managed surface, and `auto` lets the system choose for each dispatch.
 Under `auto`, the orthogonal `north config learning` axis selects deterministic
 known-best assignment (`frozen`) or bounded experimental assignment
