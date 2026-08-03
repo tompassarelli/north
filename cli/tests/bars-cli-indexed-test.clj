@@ -1,6 +1,8 @@
 #!/usr/bin/env bb
 ;; bb -cp <fram-out> cli/tests/bars-cli-indexed-test.clj
-(require '[clojure.java.io :as io]
+(require '[babashka.classpath :as classpath]
+         '[babashka.process :as proc]
+         '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[fram.types :as t])
 
@@ -9,6 +11,9 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 
 (load-file (str root "/cli/bars-cli.clj"))
+;; bars-cli.clj loads framrpc-client.clj lazily (only when a connect actually
+;; runs); the test harness needs it loaded up front so with-redefs can stub it.
+(load-file (str root "/cli/framrpc-client.clj"))
 (require '[north.framrpc-client :as rpc])
 
 (def checks (atom []))
@@ -119,6 +124,25 @@
   (check "the bars entrypoint carries the Fram classpath the native wire needs"
          (str/includes? entrypoint
                         "NORTH_BARS=(\"$BB\" -cp \"$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}\" \"$NORTH/cli/bars-cli.clj\")")))
+
+;; A stale FRAM_OUT's native-client load failure must degrade to the same
+;; clean connect refusal as an unreachable coordinator, not a raw stack trace.
+(let [snippet
+      (str "(load-file \"" root "/cli/bars-cli.clj\")"
+           "(with-redefs [north.bars-cli/ensure-native-client!"
+           " (fn [] (throw (ex-info \"Unable to resolve symbol: wire/rpc-v1-magic\" {})))]"
+           " (north.bars-cli/cmd-list \"" (subs subject 1) "\"))")
+      {:keys [exit out err]}
+      (proc/shell {:continue true :out :string :err :string}
+                  "bb" "-cp" (classpath/get-classpath) "-e" snippet)
+      combined (str out err)]
+  (check "native-client load failure degrades to the clean connect refusal"
+         (str/includes? combined "north bars: coordinator at"))
+  (check "native-client load failure surfaces no stack trace"
+         (not (or (str/includes? combined "at clojure.lang")
+                  (str/includes? combined "Exception in thread"))))
+  (check "native-client load failure exits nonzero"
+         (not (zero? exit))))
 
 (doseq [[label ok?] @checks]
   (println (str (if ok? "PASS " "FAIL ") label)))
