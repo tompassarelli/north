@@ -20,7 +20,9 @@ import type { AllocationEvidence, RoutingFallbackReason } from "./providers/type
 import type { HarnessCompositionEvidence } from "./harness";
 import { ORCHESTRATION_CAPABILITIES } from "./orchestration-capabilities";
 import type { DeliveryProof } from "./delivery-verification";
-import { PROVIDER_ERROR_DETAIL_MAX_LEN } from "./execution-outcome";
+import {
+  DEADLINE_EXCEEDED_DETAIL_MAX_LEN, PROVIDER_ERROR_DETAIL_MAX_LEN,
+} from "./execution-outcome";
 import type { ProviderAuthoritySurface } from "./providers";
 import { providerBilling, settleSpend } from "./spend-guard";
 import {
@@ -178,6 +180,8 @@ export interface RunRecord {
   /** Bounded, credential-free provider error payload behind a `provider_error`
    * terminal — the classification alone names nothing (thread 019f9cec). */
   providerErrorDetail?: string;
+  /** Structured North-owned deadline interrupt evidence. */
+  deadlineExceededDetail?: string;
   /** North-owned abort cause and last authenticated execution evidence. */
   watchdogAbort?: WatchdogAbortEvidence;
   deliveryOutcome?: string;
@@ -518,6 +522,10 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
   if (rec.providerErrorDetail)
     facts.push(["provider_error_detail",
       rec.providerErrorDetail.replace(/\s+/g, " ").trim().slice(0, PROVIDER_ERROR_DETAIL_MAX_LEN)]);
+  if (rec.deadlineExceededDetail)
+    facts.push(["deadline_exceeded_detail",
+      rec.deadlineExceededDetail.replace(/\s+/g, " ").trim()
+        .slice(0, DEADLINE_EXCEEDED_DETAIL_MAX_LEN)]);
   if (rec.watchdogAbort) {
     const watchdog = rec.watchdogAbort;
     if (watchdog.reason !== "north_watchdog_execution_inactivity"

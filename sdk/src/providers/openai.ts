@@ -886,13 +886,13 @@ function codexUsage(usage: ExactCodexUsage): {
  * The frames are an ERROR terminal (`subtype: "error_during_execution"`,
  * `is_error: true`) — never a success — so the run stays a loud failure while
  * the text, token usage, and tool-activity survive into the record. A failure
- * with nothing landed emits nothing: the bare throw is what the
- * provider-process-death retry gate expects, and inventing a terminal there
- * would suppress a legitimate retry.
+ * Post-thread failures always emit a terminal. Provider-process recovery is
+ * owned inside the app-server adapter; once that budget is exhausted, hiding
+ * the terminal behind a bare cleanup throw misclassifies a genuine provider
+ * exit as an untyped process death.
  */
 export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): any[] {
   const harvest = error.harvest;
-  if (!harvest.landedWork) return [];
   const messages: any[] = [];
   if (harvest.text) messages.push({
     type: "assistant",
@@ -925,6 +925,12 @@ export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): an
       // provider payload underneath.
       failure: causeChain(error.cause ?? error, 8, 900),
     },
+    ...(harvest.interrupt ? {
+      _north_interrupt: {
+        ...harvest.interrupt,
+        stderrTail: harvest.stderrTail ?? [],
+      },
+    } : {}),
   });
   return messages;
 }
@@ -1110,7 +1116,7 @@ class CodexQuery implements AgentQuery {
           if (harvested.length) {
             const harvest = error.harvest;
             console.error(
-              `[openai] managed Codex failed after landing work — harvesting `
+              `[openai] managed Codex failed after thread start — preserving terminal evidence: `
               + `${harvest.completedTurns} completed turn(s), `
               + `${harvest.mcp.totalCalls ?? 0} MCP call(s), `
               + `${harvest.nativeCommands.totalCommands ?? 0} native command(s)`,
