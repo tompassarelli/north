@@ -20,9 +20,10 @@ import {
   validateManagedExecutionEnvelope,
 } from "../src/execution-admission";
 import {
-  FRAM_MCP_TOOL_NAMES, FRAM_MCP_TOOLS, framMcpCommand, framMcpEnvironment,
-  managedFramLaneSourceConfiguration, prepareManagedFramCoordinator,
-  seedReboundFramCodeLog,
+  FRAM_MCP_TOOL_NAMES, FRAM_MCP_TOOLS, framLaneSpaceId, framLaneStoreGeneration,
+  framMcpCommand, framMcpEnvironment, graphAuthoringRoot,
+  managedFramLaneSourceConfiguration, prepareFramLaneStore,
+  prepareManagedFramCoordinator, seedReboundFramCodeLog,
 } from "../src/fram-graph-authoring";
 import { expectedLog } from "../src/coord-wire";
 import {
@@ -55,7 +56,18 @@ process.env.NORTH_FRAM_HOME = framHome;
 process.env.NORTH_BEAGLE_HOME = beagleHome;
 process.env.FRAM_THREADS = join(framHome, "threads");
 
+// Hermetic stand-in for fram's sealed bin/fram-migrate-triple-log: the seam only
+// has to leave the one generation `fram-daemon serve` accepts.
+const migrations: Array<{ source: string; spaceId: string; target: string }> = [];
+const migrateFixture = async (input: {
+  framHome: string; source: string; spaceId: string; target: string;
+}) => {
+  migrations.push({ source: input.source, spaceId: input.spaceId, target: input.target });
+  writeFileSync(input.target, `FRAMLOG\u0000${readFileSync(input.source, "utf8")}`);
+};
+
 afterEach(() => {
+  migrations.length = 0;
   if (originalAgentLaws === undefined) delete process.env.AGENT_LAWS;
   else process.env.AGENT_LAWS = originalAgentLaws;
   process.env.NORTH_FRAM_HOME = framHome;
@@ -165,19 +177,29 @@ test("managed worktree preparation wires local env and reaps its coordinator", a
           launchInput = input;
           return child;
         },
-        ready: async (_child, port, log) => {
+        ready: async (_child, port, log, _timeoutMs, daemonLog) => {
           expect(port).toBe(45678);
           expect(log).toBe(join(lane, ".fram", "code.log"));
+          expect(daemonLog).toBe(join(lane, ".fram", "coord-45678.log"));
         },
         waitForExit: async (proc) =>
           proc.exitCode !== null || proc.signalCode !== null,
+        migrate: migrateFixture,
       },
     });
     expect(launchInput).toMatchObject({
       framHome: localFramHome,
       codePort: "45678",
       codeLog: join(lane, ".fram", "code.log"),
+      spaceId: framLaneSpaceId(join(lane, ".fram", "code.log")),
     });
+    // The seeded flat log is converted once, in place, before the daemon boots.
+    expect(migrations).toEqual([{
+      source: join(lane, ".fram", "code.log.legacy-flat"),
+      spaceId: framLaneSpaceId(join(lane, ".fram", "code.log")),
+      target: join(lane, ".fram", "code.log"),
+    }]);
+    expect(framLaneStoreGeneration(join(lane, ".fram", "code.log"))).toBe("framlog");
     expect(unrefCalls).toBe(1);
     expect(readFileSync(join(lane, ".git", "info", "exclude"), "utf8"))
       .toContain("/.fram/");
@@ -247,6 +269,7 @@ test("death-path reap kills only the descriptor PID that owns its recorded port"
         launch: () => child,
         ready: async () => {},
         waitForExit: async () => !alive,
+        migrate: migrateFixture,
         pidAlive: () => alive,
         portListening: () => listening,
         pidOwnsPort: (pid, port) => pid === ownerPid && port === 45680,
@@ -304,6 +327,7 @@ test("reap accepts a coordinator exit between its final poll and ownership check
         launch: () => child,
         ready: async () => {},
         waitForExit: async () => !alive,
+        migrate: migrateFixture,
         pidAlive: () => alive,
         portListening: () => listening,
         pidOwnsPort: () => alive && listening,
@@ -356,6 +380,7 @@ test("reap grants checkpoint grace to a coordinator that released its port but l
         launch: () => child,
         ready: async () => {},
         waitForExit: async () => !alive,
+        migrate: migrateFixture,
         pidAlive: () => alive,
         portListening: () => listening,
         pidOwnsPort: () => alive && listening,
@@ -414,6 +439,7 @@ test("host abort force-reaps a detached coordinator that has not finished bootin
         ready: () => new Promise<void>(() => {}),
         waitForExit: async (proc) =>
           proc.exitCode !== null || proc.signalCode !== null,
+        migrate: migrateFixture,
       },
     });
     await Promise.resolve();
@@ -479,6 +505,7 @@ test("Beagle worktrees seed their repository log and rebind the self-host source
         ready: async () => {},
         waitForExit: async (proc) =>
           proc.exitCode !== null || proc.signalCode !== null,
+        migrate: migrateFixture,
       },
     });
     expect(framMcpEnvironment(lane, true)).toMatchObject({
@@ -512,12 +539,105 @@ test("managed graph composition fails closed without a prepared lane coordinator
 });
 
 test("composing the capability without deployment roots fails closed by name", () => {
-  delete process.env.NORTH_FRAM_HOME;
-  delete process.env.NORTH_BEAGLE_HOME;
-  expect(() => framMcpCommand()).toThrow(/graph_authoring_fram_roots_unset/);
-  expect(() => framMcpCommand()).toThrow(/NORTH_FRAM_HOME, NORTH_BEAGLE_HOME/);
-  process.env.NORTH_FRAM_HOME = framHome;
-  expect(() => framMcpCommand()).toThrow(/NORTH_BEAGLE_HOME/);
+  const priorHome = process.env.HOME;
+  // homedir() reads $HOME, so an empty layout proves the default cannot invent a root.
+  const bareHome = mkdtempSync(join(tmpdir(), "fram-bare-home-"));
+  process.env.HOME = bareHome;
+  try {
+    delete process.env.NORTH_FRAM_HOME;
+    delete process.env.NORTH_BEAGLE_HOME;
+    expect(() => framMcpCommand()).toThrow(/graph_authoring_fram_roots_unset/);
+    expect(() => framMcpCommand()).toThrow(/NORTH_FRAM_HOME, NORTH_BEAGLE_HOME/);
+    process.env.NORTH_FRAM_HOME = framHome;
+    expect(() => framMcpCommand()).toThrow(/NORTH_BEAGLE_HOME/);
+  } finally {
+    if (priorHome === undefined) delete process.env.HOME;
+    else process.env.HOME = priorHome;
+    rmSync(bareHome, { recursive: true, force: true });
+  }
+});
+
+test("an unset root defaults to the standard ~/code/<repo>/main checkout", () => {
+  const priorHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "fram-layout-home-"));
+  const framMain = join(home, "code", "fram", "main");
+  const beagleMain = join(home, "code", "beagle", "main");
+  mkdirSync(join(framMain, ".git"), { recursive: true });
+  mkdirSync(join(framMain, "bin"), { recursive: true });
+  writeFileSync(join(framMain, "bin", "fram-mcp"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  mkdirSync(join(beagleMain, ".git"), { recursive: true });
+  process.env.HOME = home;
+  try {
+    delete process.env.NORTH_FRAM_HOME;
+    delete process.env.NORTH_BEAGLE_HOME;
+    expect(graphAuthoringRoot("NORTH_FRAM_HOME")).toBe(framMain);
+    // A checkout missing the repo's own marker is not a root; the wall stays up.
+    expect(graphAuthoringRoot("NORTH_BEAGLE_HOME")).toBeUndefined();
+    mkdirSync(join(beagleMain, "bin"), { recursive: true });
+    writeFileSync(join(beagleMain, "bin", "beagle"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(graphAuthoringRoot("NORTH_BEAGLE_HOME")).toBe(beagleMain);
+    expect(framMcpCommand()).toBe(join(framMain, "bin", "fram-mcp"));
+    // An explicit export still wins over the layout default.
+    process.env.NORTH_FRAM_HOME = framHome;
+    expect(graphAuthoringRoot("NORTH_FRAM_HOME")).toBe(framHome);
+  } finally {
+    if (priorHome === undefined) delete process.env.HOME;
+    else process.env.HOME = priorHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a seeded legacy-flat lane store is migrated exactly once before serve", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-lane-store-"));
+  const codeLog = join(root, "code.log");
+  writeFileSync(codeLog, '{:tx 1, :op "assert"}\n');
+  const spaceId = framLaneSpaceId(codeLog);
+  try {
+    expect(framLaneStoreGeneration(codeLog)).toBe("legacy");
+    expect(await prepareFramLaneStore({
+      framHome: "/unused", codeLog, spaceId, migrate: migrateFixture,
+    })).toEqual({ generation: "legacy", migrated: true });
+    expect(migrations).toEqual([
+      { source: `${codeLog}.legacy-flat`, spaceId, target: codeLog },
+    ]);
+    expect(framLaneStoreGeneration(codeLog)).toBe("framlog");
+
+    // Re-preparing an already-converted store must not migrate a second time.
+    expect(await prepareFramLaneStore({
+      framHome: "/unused", codeLog, spaceId, migrate: migrateFixture,
+    })).toEqual({ generation: "framlog", migrated: false });
+    expect(migrations).toHaveLength(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a fresh lane store boots with no migration step at all", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fram-lane-fresh-"));
+  const absent = join(root, "code.log");
+  const empty = join(root, "empty.log");
+  writeFileSync(empty, "");
+  try {
+    expect(framLaneStoreGeneration(absent)).toBe("absent");
+    expect(framLaneStoreGeneration(empty)).toBe("absent");
+    for (const codeLog of [absent, empty]) {
+      expect(await prepareFramLaneStore({
+        framHome: "/unused", codeLog, spaceId: framLaneSpaceId(codeLog),
+        migrate: migrateFixture,
+      })).toEqual({ generation: "absent", migrated: false });
+    }
+    expect(migrations).toEqual([]);
+    // fram's boot parses any file that exists, so a zero-byte store is removed.
+    expect(framLaneStoreGeneration(empty)).toBe("absent");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a lane SpaceId is stable per store and distinct across lanes", () => {
+  expect(framLaneSpaceId("/a/.fram/code.log")).toBe(framLaneSpaceId("/a/.fram/code.log"));
+  expect(framLaneSpaceId("/a/.fram/code.log")).not.toBe(framLaneSpaceId("/b/.fram/code.log"));
+  expect(framLaneSpaceId("/a/.fram/code.log")).toMatch(/^north-graph-lane-[0-9a-f]{16}$/);
 });
 
 test("composing the environment without a flipped code coordinator fails closed by name", () => {

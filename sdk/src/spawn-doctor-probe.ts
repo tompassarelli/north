@@ -6,6 +6,7 @@ import {
 } from "./providers/codex-managed-hooks";
 import {
   FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOL_NAMES, FRAM_MCP_SERVER,
+  graphAuthoringRoot,
 } from "./fram-graph-authoring";
 import { loadOrchestrationStaffing } from "./orchestration-staffing";
 import { providerCapabilityRejectionCode } from "./orchestration-capabilities";
@@ -86,8 +87,10 @@ function graphAuthoringProbe(): GraphAuthoringProbe {
     capability: FRAM_GRAPH_AUTHORING_CAPABILITY,
     server: FRAM_MCP_SERVER,
     declaredTools: [...FRAM_MCP_TOOL_NAMES],
-    framHome: process.env.NORTH_FRAM_HOME ?? null,
-    beagleHome: process.env.NORTH_BEAGLE_HOME ?? null,
+    // Same resolver the real spawn path uses, so a bare env reports the
+    // standard-layout default rather than a wall the lane would not hit.
+    framHome: graphAuthoringRoot("NORTH_FRAM_HOME") ?? null,
+    beagleHome: graphAuthoringRoot("NORTH_BEAGLE_HOME") ?? null,
     checkouts: [],
   };
   if (!base.framHome || !base.beagleHome) {
