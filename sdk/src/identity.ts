@@ -523,6 +523,8 @@ export async function writeAgentFacts(agentId: string, f: ManagedLaneIdentity): 
       (detail) => { fastPathRefusal = detail; },
     );
     if (fast) {
+      if (fast.status !== "committed")
+        throw new ManagedAgentWriteError("publish", fast);
       session.identity = projection;
       session.terminalCommitted = false;
       return;
