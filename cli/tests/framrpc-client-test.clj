@@ -228,6 +228,91 @@
     (check! "profile-aware single write atomically replaces the old value"
             (= ["red"] values)))
 
+  ;; --- North projection semantics over the append-only head wire -------------
+  (let [proposition (t/triple "@projected" "note" "one")
+        first-write (rpc/assert-projected! @client proposition)
+        repeat-write (rpc/assert-projected! @client proposition)
+        values (mapv t/triple-slot2
+                     (:rows (rpc/scan-all! @client "@projected" "note" nil)))]
+    (check! "an undeclared predicate reconciles with multi cardinality"
+            (= :many (:cardinality first-write)))
+    (check! "a repeated identical assertion writes nothing"
+            (and (true? (:changed? first-write))
+                 (false? (:changed? repeat-write))))
+    (check! "a repeated identical assertion leaves one live occurrence"
+            (= ["one"] values)))
+
+  (let [rival (rpc/assert-projected! @client (t/triple "@projected" "note" "two"))
+        values (set (mapv t/triple-slot2
+                          (:rows (rpc/scan-all! @client "@projected" "note" nil))))]
+    (check! "multi-valued rivals coexist under the projection layer"
+            (and (true? (:changed? rival)) (= #{"one" "two"} values))))
+
+  (rpc/assert! @client (t/triple "@projected" "note" "one"))
+  (let [retracted (rpc/retract-projected!
+                   @client (t/triple "@projected" "note" "one"))
+        values (mapv t/triple-slot2
+                     (:rows (rpc/scan-all! @client "@projected" "note" nil)))
+        absent (rpc/retract-projected!
+                @client (t/triple "@projected" "note" "one"))]
+    (check! "projected retract withdraws EVERY equal occurrence"
+            (and (true? (:changed? retracted)) (= ["two"] values)))
+    (check! "projected retract of an absent value writes nothing"
+            (false? (:changed? absent))))
+
+  (rpc/assert! @client (t/triple "@title" "cardinality" "single"))
+  (rpc/assert! @client (t/triple "@note" "cardinality" "multi"))
+  (rpc/reset-cardinality-cache!)
+  (rpc/assert-projected! @client (t/triple "@declared" "title" "first"))
+  (let [operations (atom [])
+        superseded
+        (binding [rpc/*round-trip!*
+                  (fn [logical-client request]
+                    (swap! operations conj (t/rpcrequest-op request))
+                    (rpc/transport-round-trip! logical-client request))]
+          (rpc/assert-projected! @client (t/triple "@declared" "title" "second")))
+        values (mapv t/triple-slot2
+                     (:rows (rpc/scan-all! @client "@declared" "title" nil)))]
+    (check! "graph cardinality declares the predicate single-valued"
+            (= :one (:cardinality superseded)))
+    (check! "a declared-single assertion supersedes the live value"
+            (= ["second"] values))
+    (check! "supersession lands as ONE batch, never a retract then an assert"
+            (and (= 1 (count (filter #{:rpc/batch} @operations)))
+                 (empty? (filter #{:rpc/assert :rpc/retract} @operations)))))
+
+  (rpc/reset-cardinality-cache!)
+  (let [graph-silent
+        (binding [rpc/*env* {"FRAM_SINGLE_VALUED" "owner lead driver"}]
+          (rpc/cardinality-of @client "lead"))
+        graph-wins
+        (binding [rpc/*env* {"FRAM_SINGLE_VALUED" "note"}]
+          (rpc/reset-cardinality-cache!)
+          (rpc/cardinality-of @client "note"))]
+    (check! "FRAM_SINGLE_VALUED decides cardinality while the graph is silent"
+            (= :one graph-silent))
+    (check! "a graph multi declaration outranks the launcher export"
+            (= :many graph-wins)))
+  (rpc/reset-cardinality-cache!)
+
+  (let [attempts (atom 0)
+        response
+        (binding [rpc/*round-trip!*
+                  (fn [logical-client request]
+                    (if (= 1 (swap! attempts inc))
+                      (wire/rpc-response!
+                       (t/rpcrequest-space request) (t/rpcrequest-op request) 0
+                       nil
+                       (wire/rpc-error! :query/archive-unavailable true
+                                        "archive segment is not resident" nil)
+                       nil)
+                      (rpc/transport-round-trip! logical-client request)))]
+          (rpc/version! @client))]
+    (check! "the retry allowlist matches the daemon's own retryable set"
+            (contains? rpc/retryable-error-codes :query/archive-unavailable))
+    (check! "an archive-unavailable answer is retried, never surfaced"
+            (= 2 (:attempts response))))
+
   (let [fence (:fence (rpc/lease-acquire! @client "resource" "holder" 30000))
         checked (rpc/lease-check! @client fence)
         next-fence (:fence (rpc/lease-renew! @client fence 30000))
