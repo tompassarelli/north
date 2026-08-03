@@ -87,6 +87,15 @@ if [ -f "$_north_world_manifest" ]; then
   # shellcheck disable=SC1090
   source "$_north_world_manifest"
 fi
+_north_framrpc_env="${NORTH_FRAMRPC_ENV:-${XDG_STATE_HOME:-$HOME/.local/state}/north/framrpc.env}"
+if [ -f "$_north_framrpc_env" ]; then
+  if ! bash -n "$_north_framrpc_env"; then
+    echo "north: invalid FRAMRPC environment: $_north_framrpc_env" >&2
+    exit 2
+  fi
+  # shellcheck disable=SC1090
+  source "$_north_framrpc_env"
+fi
 # TEMPORARY: remove when production speaks FRAMRPC (v0.4 runtime cutover).
 # Production still requires the v0.3 EDN-line client; keep each selector
 # independently overrideable so explicit caller environment always wins.
@@ -95,7 +104,7 @@ FRAM="${FRAM_HOME:-$_north_v03_fram}"
 FRAM_BIN="${FRAM_BIN:-$_north_v03_fram/bin}"
 FRAM_OUT="${FRAM_OUT:-$_north_v03_fram/out}"
 export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT
-unset _north_v03_fram _north_world_manifest
+unset _north_v03_fram _north_world_manifest _north_framrpc_env
 
 # A promoted deployment's exec unit may carry a PATH with neither bb nor
 # NORTH_BB: fall back through PATH, then the fixed NixOS system-profile path,
@@ -112,7 +121,15 @@ else
 fi
 BUN="${NORTH_BUN:-bun}"
 
-if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
+if [ "${NORTH_COORD_PROTOCOL:-v03}" = framrpc ]; then
+  if [ ! -d "${NORTH_FRAMRPC_OUT:-}" ]; then
+    echo "north: NORTH_COORD_PROTOCOL=framrpc requires NORTH_FRAMRPC_OUT" >&2
+    exit 2
+  fi
+  export FRAM_SPACE_ID="${FRAM_SPACE_ID:-north-coordination}"
+  export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
+  NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/framrpc-main.clj")
+elif [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
   if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
     echo "north: NORTH_TELEMETRY_PARTITION=1 requires FRAM_TELEMETRY_LOG" >&2
     exit 2
@@ -339,7 +356,8 @@ case "${1:-}" in
     # everything but one subject away. Managed admission uses this read before
     # identity publication, so corpus growth can consume the complete startup
     # acknowledgement budget before a provider is even constructed.
-    if [ "$1" = json ] && [ "${2:-}" = show ] && [ "$#" -eq 3 ]; then
+    if [ "${NORTH_COORD_PROTOCOL:-v03}" != framrpc ] &&
+       [ "$1" = json ] && [ "${2:-}" = show ] && [ "$#" -eq 3 ]; then
       exec "$BB" "$NORTH/cli/json-show-cli.clj" "$3"
     fi
     north_slot_exec "$@" ;;
@@ -580,12 +598,18 @@ case "${1:-}" in
     # subject into a false "no facts" result. Exact namespace-qualified reads
     # follow the same subject router as writes and fail closed when that writer
     # is unavailable; partition-off (A1/rollback) keeps the prior Fram surface.
-    if [ "$1" = show ] && [[ "${2:-}" =~ ^@?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+    if [ "${NORTH_COORD_PROTOCOL:-v03}" != framrpc ] &&
+       [ "$1" = show ] && [[ "${2:-}" =~ ^@?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
       exec "$BB" "$NORTH/cli/exact-show-cli.clj" "$2"
     fi
     if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
       case "${2#@}" in
         run:*|session:*|mine:*|guard_denial:*)
+          if [ "${NORTH_COORD_PROTOCOL:-v03}" = framrpc ]; then
+            exec env FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
+              FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+              "$FRAM_BIN/fram" "$@"
+          fi
           exec "$BB" -cp "$NORTH/out:$FRAM_OUT" \
             "$NORTH/cli/subject-read-cli.clj" "$@"
           ;;
@@ -641,6 +665,7 @@ case "${1:-}" in
       run:*|session:*|mine:*|guard_denial:*)
         if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
           exec env -u FRAM_TELEMETRY_LOG \
+            FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
             FRAM_PORT="$NORTH_TELEMETRY_PORT" \
             FRAM_LOG="$FRAM_TELEMETRY_LOG" \
             "$FRAM_BIN/fram" "$framverb" "${@:2}"
