@@ -180,7 +180,7 @@
          (and (= 1 @attempts)
               (= :malformed-show-response (:type (ex-data error))))))
 
-(let [shell-args (atom nil)
+(let [shell-calls (atom [])
       settled (atom nil)
       satisfied (atom [])
       writes (atom [])
@@ -191,7 +191,7 @@
          rq/decode-request (fn [_ _] decoded-request)
          babashka.process/shell
          (fn [_ & args]
-           (reset! shell-args (vec args))
+           (swap! shell-calls conj (vec args))
            {:exit 0 :out "" :err ""})
          rq/current-generation (fn [] "/nix/store/test-generation")
          north.rebuild-request/settle-window-queue!
@@ -204,13 +204,18 @@
         (rq/run-window! 7977 window-id))]
   (check "the window owner uses automatic mode without a second human intent ceremony"
          (and (zero? rc)
-              (= "--automatic" (nth @shell-args 1))
-              (= "--why" (nth @shell-args 2))
+              (= "--automatic" (nth (first @shell-calls) 1))
+              (= "--why" (nth (first @shell-calls) 2))
               (= [window-id [request-id]] @settled)
               (= [[request-id {:intent nil :generation "/nix/store/test-generation"}]]
                  @satisfied)
               (= [window-id "fired"] @action)
-              (= "window_generation" (nth (first @writes) 2)))))
+              (= "window_generation" (nth (first @writes) 2))))
+  (check "a fired window immediately probes the landed generation via the canary matrix"
+         (and (= 2 (count @shell-calls))
+              (= ["canary" "run" "--matrix"] (vec (rest (second @shell-calls))))
+              (= "window_canary" (nth (second @writes) 2))
+              (str/includes? (nth (second @writes) 3) "\"status\":\"full-green\""))))
 
 (let [satisfied (atom [])
       writes (atom [])
