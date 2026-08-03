@@ -43,7 +43,8 @@ import type {
 } from "./providers/types";
 import { codexConfigArguments, isClaudeSubscriptionStatus, observeEnvironmentForTarget } from "./accounts";
 import {
-  providerSupportsCapabilities, type OrchestrationCapability,
+  providerCapabilityRejectionCode, providerSupportsCapabilities,
+  type OrchestrationCapability,
 } from "./orchestration-capabilities";
 import { spendGuardEligible } from "./spend-guard";
 import {
@@ -817,6 +818,12 @@ export function selectProviderFromAvailability(
   const targets = orderedTargets(policy);
   const capabilityCompatible = (target: RoutingTarget) =>
     providerSupportsCapabilities(target.provider, capabilities);
+  // Receipt evidence: every target the requested authority shape removed from
+  // the candidate set, named with the adapter's exact refusal code.
+  const capabilityExclusions = Object.fromEntries(targets.flatMap((target) => {
+    const code = providerCapabilityRejectionCode(target.provider, capabilities);
+    return code === undefined ? [] : [[target.id, code] as const];
+  }));
   const staticRouteCompatible = (target: RoutingTarget) => providerSupportsRoute(target.provider, tier, reasoning, model)
     && providerSupportsModel(target.provider, model)
     && capabilityCompatible(target);
@@ -980,7 +987,11 @@ export function selectProviderFromAvailability(
   const modelReceipt = modelReceipts[chosen.id];
   const modelEvidenceReason = modelReceipt
     ? `model-evidence=${modelReceipt.source}@${modelReceipt.observedAt}; ` : "";
-  const selectionReason = `${requestedProvider === "auto" ? "" : `explicit provider=${requestedProvider}; `}${routeReason}${modelEvidenceReason}mode=${policy.mode}; target=${chosen.id}; pressure=${targetPressures[chosen.id]}; ${detail}`;
+  const excludedIds = Object.keys(capabilityExclusions);
+  const capabilityExclusionReason = excludedIds.length
+    ? `capability-excluded=${excludedIds.map((id) => `${id}:${capabilityExclusions[id]}`).join(",")}; `
+    : "";
+  const selectionReason = `${requestedProvider === "auto" ? "" : `explicit provider=${requestedProvider}; `}${routeReason}${modelEvidenceReason}${capabilityExclusionReason}mode=${policy.mode}; target=${chosen.id}; pressure=${targetPressures[chosen.id]}; ${detail}`;
   const allocationEvidenceByTarget = policy.mode === "balanced"
     ? Object.fromEntries(balancedAllocationEstimates(
       availability, policy, tier, reasoning, model,
@@ -990,6 +1001,7 @@ export function selectProviderFromAvailability(
   const routingTargets = Object.freeze(Object.fromEntries(
     targets.map((target) => [target.id, Object.freeze({ ...target })]),
   ));
+  const frozenCapabilityExclusions = Object.freeze({ ...capabilityExclusions });
   const frozenModelReceipts = Object.freeze({ ...modelReceipts });
   const frozenRequiredModelTargets = Object.freeze([...requiredModelTargets]);
   const decision: RoutingDecision = {
@@ -1013,6 +1025,7 @@ export function selectProviderFromAvailability(
     targetEntitlementPressures: targetPressures,
     entitlementPressures: policy.pressures,
     ...(allocationEvidenceByTarget ? { allocationEvidenceByTarget } : {}),
+    ...(excludedIds.length ? { capabilityExcludedTargets: frozenCapabilityExclusions } : {}),
     ...(Object.keys(modelReceipts).length
       ? { modelAvailabilityReceipts: frozenModelReceipts }
       : {}),
@@ -1027,6 +1040,11 @@ export function selectProviderFromAvailability(
     selectionReason: { value: selectionReason, enumerable: true, writable: false, configurable: false },
     reason: { value: selectionReason, enumerable: true, writable: false, configurable: false },
     routingTargets: { value: routingTargets, enumerable: true, writable: false, configurable: false },
+    ...(excludedIds.length ? {
+      capabilityExcludedTargets: {
+        value: frozenCapabilityExclusions, enumerable: true, writable: false, configurable: false,
+      },
+    } : {}),
     ...(Object.keys(modelReceipts).length ? {
       modelAvailabilityReceipts: {
         value: frozenModelReceipts, enumerable: true, writable: false, configurable: false,
