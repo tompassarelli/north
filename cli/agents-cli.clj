@@ -40,6 +40,7 @@
 
 (load-file (str NORTH "/cli/spawn-process.clj"))
 (load-file (str NORTH "/cli/coord.clj"))
+(load-file (str NORTH "/cli/message-routing.clj"))
 (load-file (str NORTH "/cli/topology-authority.clj"))
 (load-file (str NORTH "/cli/managed-child-env.clj"))
 (load-file (str NORTH "/cli/orchestration-staffing.clj"))
@@ -1285,6 +1286,17 @@
 (defn title-bearing-thread? [id]
   (= :titled (thread-title-verdict id)))
 
+(defn warn-unarmed-notify! [notify]
+  (when notify
+    (let [route (north.message-routing/require-live-address
+                 (Integer/parseInt PORT) notify)]
+      (when (false? (:live route))
+        (println
+         (ylw
+          (str "NOTIFY TARGET " notify
+               " HAS NO ARMED LISTENER — completions will not wake it; arm: north listen "
+               notify)))))))
+
 (defn cmd-spawn [args]
   (north.topology-authority/require-coordination! "spawn")
   (let [{:keys [dry? notify provider target model taskGrade domains topology tier reasoning posture composition
@@ -1539,6 +1551,7 @@
       :else
       (let [canonical-contract (when bespoke?
                                  (canonical-bespoke-contract (:contract selected-composition)))
+            _notify-warning (warn-unarmed-notify! notify)
             contract-sha256 (when canonical-contract
                               (bespoke-contract-sha256 (:contract selected-composition)))
             spawn-composition (if bespoke?

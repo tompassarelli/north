@@ -29,6 +29,10 @@ when `frozen` and bounded experimental assignment when `learning`. Account
 allocation strategies are routing detail within `auto`, never peer dispatch
 modes.
 
+REAL-TIME REACHABILITY: first arm `north listen <agent-id>`; eight deliveries
+sat unlanded when coordinators were unarmed. Watchers match invariants, never
+cohort names; a hand-rolled poller never substitutes for the designed channel.
+
 <!-- orchestration:full-only -->
 ORTHOGONAL AXES — never smuggle one decision inside another:
 - FUNCTION/ROLE names the responsibility and deliverable: executor,

@@ -372,6 +372,12 @@ schedule_spawn_maintenance() {
 
 CTX="$(cat <<EOF
 [north coordination active — you are agent "$ID" in repo "$RN"]
+FIRST ACT: arm your real-time interrupt listener as a BACKGROUND task now:
+  $NORTH_HOME/bin/north listen $ID
+Eight deliveries sat unlanded when coordinators were unarmed. Dormant (no tokens) until a peer
+addresses you; when it returns you have mail — read it, act, re-arm. Watchers match invariants,
+never cohort names; a hand-rolled poller never substitutes for the designed channel.
+
 Other agents may be working here concurrently. You coordinate through CONCERNS, not locks —
 work coexists; declaring never blocks. See who else is in your footprint, and shape your
 feature against what is likely to land before it is in main.
@@ -389,9 +395,6 @@ The reactor's window owner coalesces every open ask into ONE coordinated rebuild
 your request against the generation that landed. Direct \`firn rebuild\` / \`firn-rebuild-coordinated\`
 are DENIED for agents.
 
-To be reachable in REAL TIME, arm your interrupt listener as a BACKGROUND task now:
-  $NORTH_HOME/bin/north listen $ID
-Dormant (no tokens) until a peer addresses you; when it returns you have mail — read it, act, re-arm.
 $ROLE_ALIAS_CONTEXT
 Address peers ALIAS-FIRST using their stable <repo>-<role> name. Direct agent ids are
 session-scoped and should be used only when that exact current session is intended.
