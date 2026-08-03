@@ -69,7 +69,8 @@
     (= agent "vanished") "unknown"
     (and (= agent "done") (or (= completion "ran") harvested?)) "delivered"
     (#{"done" "crashed"} agent) "none"
-    :else "unknown"))
+    ;; Live agents have no outcome yet; unknown is reserved for vanished.
+    :else "pending"))
 (defn lanes []
   (let [dir (io/file state-dir "agents") processes (agent-processes)]
     {:lanes (for [log (or (seq (.listFiles dir)) []) :when (re-matches #"lane-.+\.log" (.getName log))
@@ -90,11 +91,15 @@
                                      (or discovered-pid (and pid (alive? pid)))
                                      (str "working (quiet " (quot (- (now) (.lastModified log)) 60000) "m)")
                                      :else "vanished")]]
-              (let [agent (case status
-                            "advancing" "running"
-                            "finished" "done"
-                            "failed" "crashed"
-                            "vanished")]
+              (let [agent (cond
+                            (= status "advancing") "running"
+                            ;; status carries the quiet minutes; case cannot match a
+                            ;; dynamic string, which silently classed live lanes vanished.
+                            (str/starts-with? status "working (quiet ")
+                            (or (re-find #"quiet \d+m" status) "quiet")
+                            (= status "finished") "done"
+                            (= status "failed") "crashed"
+                            :else "vanished")]
                 (merge {:id id :title (or (and thread-id (title id thread-id)) id) :status status
                         :agent agent :work (work-status agent completion harvested?)
                         :pid (or discovered-pid (when (and pid (alive? pid)) pid))

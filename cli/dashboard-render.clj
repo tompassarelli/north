@@ -32,8 +32,10 @@
 (defn agent-status [status]
   (cond
     (= status "advancing") "running"
+    ;; re-find on a groupless regex returns the match string itself; taking
+    ;; first of it yields a character and broke retention for every live lane.
     (or (= status "live quiet") (str/starts-with? status "working (quiet "))
-    (or (some-> (re-find #"quiet [0-9]+m" status) first) "quiet")
+    (or (re-find #"quiet [0-9]+m" status) "quiet")
     (= status "finished") "done"
     (= status "failed") "crashed"
     :else "vanished"))
@@ -121,7 +123,9 @@
                              (age last-output-age)
                              (spawn-time lane)
                              (when ids? (dim (subs id 0 (min 8 (count id)))))))))
-        ["  collecting…"])
+        ;; Data present but every lane filtered by retention is a real, calm
+        ;; state — never wear the same face as a collector that has no data.
+        [(if (seq lanes) "  no recent lane activity" "  collecting…")])
       (when (> (count visible) 12) [(str "  (+" (- (count visible) 12) " older)")]))))
 (defn bytes [n]
   (try (let [n (Double/parseDouble (str n))]
@@ -211,5 +215,5 @@
                       ["" (header "QUEUE" :board) (queue-header)] (queue-lines board lanes)
                       ["" (header "ACCOUNTS" :providers) (account-header)] (account-lines providers)
                       ["" (dim "agent: running/quiet = live · done/crashed = ended · vanished = gone")
-                       (dim "work: delivered = result or commit · none = ended empty · unknown = vanished")])]
+                       (dim "work: delivered = result or commit · none = ended empty · pending = still working · unknown = vanished")])]
     (str (str/join "\n" (map #(clip % (width)) (take 40 lines))) "\n"))))
