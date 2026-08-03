@@ -271,6 +271,8 @@ export interface ManagedCodexAppServerOptions {
   /** Provider-death respawns this lane may spend; NORTH_CODEX_MAX_RESPAWNS. 0 disables. */
   maxRespawns?: number;
   onActivity?: (kind: string) => void;
+  /** Presentation-only stream emitted after each runtime notification validates. */
+  onEvent?: (method: string, params: unknown) => void;
 }
 
 export interface ManagedCodexResult {
@@ -3016,6 +3018,7 @@ export class ManagedCodexAppServerRun {
       const wasTerminal = runtimeState.terminalSeen;
       const toolItemsBefore = runtimeState.toolItems;
       validateProgressNotification(entry.method, entry.value, runtimeState);
+      this.options.onEvent?.(entry.method, entry.value);
       const activity = providerExecutionActivityKind(entry.method, entry.value);
       if (activity) {
         recordTurnActivity(activity);

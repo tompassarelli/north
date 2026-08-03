@@ -128,13 +128,17 @@ export const codexBridgeProvider: BridgeProviderExecution = {
     const query = openaiProvider.query({ prompt: input, options });
     const events = new EventChannel();
     let activitySequence = query.executionActivity?.snapshot().sequence ?? 0;
-    const unsubscribe = query.executionActivity?.subscribe(() => {
-      const snapshot = query.executionActivity!.snapshot();
-      if (snapshot.sequence === activitySequence) return;
-      activitySequence = snapshot.sequence;
-      const activity = snapshot.lastProvider ?? snapshot.lastOuter;
-      if (activity) events.push({ kind: "activity", data: jsonData(activity) });
-    });
+    const unsubscribe = query.subscribeProviderEvents
+      ? query.subscribeProviderEvents((event) => {
+          events.push({ kind: "codex.event", data: jsonData(event) });
+        })
+      : query.executionActivity?.subscribe(() => {
+          const snapshot = query.executionActivity!.snapshot();
+          if (snapshot.sequence === activitySequence) return;
+          activitySequence = snapshot.sequence;
+          const activity = snapshot.lastProvider ?? snapshot.lastOuter;
+          if (activity) events.push({ kind: "activity", data: jsonData(activity) });
+        });
     let terminating = false;
     const terminate = () => { void terminateSession().catch(() => {}); };
 

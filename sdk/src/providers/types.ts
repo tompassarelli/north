@@ -174,6 +174,12 @@ export interface ProviderAvailability {
   detail?: string;
 }
 
+export interface ProviderExecutionEvent {
+  method: string;
+  params: unknown;
+  observedAt: string;
+}
+
 // Deliberately query-shaped while North migrates its mature supervision loop to
 // normalized events. Both adapters satisfy this boundary; provider SDK imports do
 // not escape their adapter directory.
@@ -187,6 +193,10 @@ export interface AgentQuery {
    * validation; status and lease traffic never reaches this boundary.
    */
   readonly executionActivity?: import("../execution-activity").ExecutionActivitySource;
+  /** Validated provider-native lifecycle events for semantic clients such as Northbridge. */
+  subscribeProviderEvents?(
+    listener: (event: ProviderExecutionEvent) => void,
+  ): () => void;
   /** Interrupt only the active provider turn while retaining its session/thread. */
   interruptTurn?(): Promise<void>;
   interrupt?(): Promise<void>;
