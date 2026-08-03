@@ -360,11 +360,14 @@ case "${1:-}" in
     # `json children` is the same shape from the other direction — one indexed
     # `part_of` reverse lookup — and it is the read every managed orchestrator
     # turn-end reconciles against, under the SDK's 45s budget.
+    # `json child-settlement` is that same turn-end's other half, under the
+    # tighter 5s settlement deadline.
     if [ "${NORTH_COORD_PROTOCOL:-v03}" != framrpc ] &&
        [ "$1" = json ] && [ "$#" -eq 3 ]; then
       case "${2:-}" in
         show) exec "$BB" "$NORTH/cli/json-show-cli.clj" "$3" ;;
         children) exec "$BB" "$NORTH/cli/json-children-cli.clj" "$3" ;;
+        child-settlement) exec "$BB" "$NORTH/cli/json-child-settlement-cli.clj" "$3" ;;
       esac
     fi
     north_slot_exec "$@" ;;
