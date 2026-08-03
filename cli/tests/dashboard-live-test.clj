@@ -77,7 +77,8 @@
                                {:id "delivered-lane" :title "Delivered fixture title" :status "finished" :work "delivered" :last-output-age 0}]
                               (for [n (range 11)] {:id (str n) :title (apply str (repeat 50 "x")) :status "vanished" :work "unknown" :last-output-age n})))
             board "THREADS — 12 open threads · 7 active · 3 ready · 1 blocked\n\nACTIVE\n native-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 019fc335-5c17-77d5-a8e2-38001f8c97f9 Active fixture title\n\nREADY — top 3\n unblocks 2  019fc335-5c17-77d5-a8e2-38001f8c97f9 Low leverage ready\n unblocks 34  019fc336-5c17-77d5-a8e2-38001f8c97f9 High leverage ready\n unblocks 8  019fc337-5c17-77d5-a8e2-38001f8c97f9 Middle leverage ready"
-            providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 42 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
+            providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 5 :resetsAt "2026-08-04T10:00:00Z"}]}}
+                                             {:id "openai-backup" :routing "exhausted" :usage {:windows [{:usedPercent 35 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
         (north.dashboard.state/record! :health {:status :ok :data {:services {"north-coord.service" {:active true :socket true :memory {"memory.current" "2254857830" "memory.max" "19327352832"}}}}})
         (north.dashboard.state/record! :board {:status :ok :data {:text board}})
@@ -95,6 +96,10 @@
                 rows (filter #(.contains % "running") fleet)]
             (check (= 1 (count (set (map #(.indexOf % "running") rows)))) "fleet agent column drifted")
             (check (not-any? #(re-find #"[0-9a-f]{32,}" %) rows) "fleet task column rendered a lane hash"))
+          (let [fleet (take-while #(not (.startsWith % "HEALTH")) (drop-while #(not (.startsWith % "FLEET")) lines))
+                rows (filter #(re-find #"(?:running|done|vanished)" %) fleet)]
+            (check (= 1 (count (set (map #(count (north.dashboard.render/strip-ansi %)) rows))))
+                   "fleet rows with different colors had unequal visible widths"))
           (check (re-find #"agent +work" out) "fleet did not render separate agent and work headers")
           (check (re-find #"Done without a result +done +none" out) "done/none fixture did not prove independent axes")
           (check (re-find #"Delivered fixture title +done +delivered" out) "done/delivered fixture did not render")
@@ -103,11 +108,29 @@
                           (north.dashboard.render/render true))]
             (check (re-find #"(?:work-lan|legacy-lan|failed-lan)" ids-out) "--ids did not append short lane ids"))
           (check (.contains out "QUEUE") "board header was not renamed")
-          (check (re-find #"● 1[12]m  Active fixture title" out) (str "meta-bound live lane did not render active stint: " out))
-          (check (and (.contains out "○  High leverage ready") (.contains out "unblocks 34")) "unbound ready row did not render marker and leverage")
+          (check (re-find #"● 1[12]m Active fixture title" out) (str "meta-bound live lane did not render active stint: " out))
+          (check (and (.contains out "○     High leverage ready") (re-find #"High leverage ready +019fc336 +34" out)) "unbound ready row did not align leverage")
           (check (< (.indexOf out "Active fixture title") (.indexOf out "High leverage ready") (.indexOf out "Middle leverage ready") (.indexOf out "Low leverage ready")) "queue ordering was not active then leverage descending")
           (check (and (.contains out "7 active · 3 ready · 1 blocked") (not (.contains out "native-")) (not (re-find #"[0-9a-f]{40,}" out))) "queue was not summarized safely")
-          (check (and (re-find #"openai-main +eligible +42%" out) (re-find #"resets (?:[0-9]+[mhd]|now|—)" out)) "providers were not humanized")
+          (check (= ["  1 active · 1 ready · 0 blocked"
+                     "  ● 12m Active title                                              019fc335          "
+                     "  ○     Ready title                                               019fc336         7"]
+                    (with-redefs [north.dashboard.state/now (constantly 720000)]
+                      (vec (north.dashboard.render/queue-lines
+                            "THREADS — 1 active · 1 ready · 0 blocked\n\nACTIVE\n native 019fc335-5c17-77d5-a8e2-38001f8c97f9 Active title\n\nREADY\n unblocks 7  019fc336-5c17-77d5-a8e2-38001f8c97f9 Ready title"
+                            [{:thread "019fc335-5c17-77d5-a8e2-38001f8c97f9" :status "advancing" :started-at 0}]))))
+                 "QUEUE golden changed")
+          (let [account-lines (filter #(or (.contains % "openai-main") (.contains % "openai-backup")) lines)]
+            (check (and (= 2 (count account-lines))
+                        (= 1 (count (set (map #(.indexOf % "%") account-lines)))))
+                   "accounts used percentages did not align"))
+          (check (= ["  one                                    eligible    5% 10m     "
+                     "  two                                    exhausted  35% 20h     "]
+                    (with-redefs [north.dashboard.state/now (constantly 0)]
+                      (vec (north.dashboard.render/account-lines
+                            {:providers [{:targets [{:id "one" :routing "eligible" :usage {:windows [{:usedPercent 5 :resetsAt "1970-01-01T00:10:00Z"}]}}
+                                                    {:id "two" :routing "exhausted" :usage {:windows [{:usedPercent 35 :resetsAt "1970-01-01T20:00:00Z"}]}}]}]}))))
+                 "ACCOUNTS golden changed")
           (check (and (.contains out "agent: running/quiet") (.contains out "work: delivered = result or commit")) "footer legend missing")
           (check (not (re-find #"stale" (first (str/split out #"HEALTH")))) "stale leaked into fleet rows")
           (check (re-find #"· data [0-9]+s old" out) "header did not render snapshot age")
@@ -115,10 +138,15 @@
           (check (not (.contains out "\u001b")) "NO_COLOR render contained ANSI escape bytes")
           (with-redefs [north.dashboard.render/color? (constantly false)]
             (check (not (re-find #"\u001b" (north.dashboard.render/render))) "NO_COLOR purity failed"))
-          (with-redefs [north.dashboard.render/color? (constantly true)]
+          (with-redefs [north.dashboard.state/now (constantly 0)
+                        north.dashboard.render/color? (constantly true)]
             (let [colored (north.dashboard.render/render)]
-              (check (.contains colored "\u001b[32mrunning\u001b[0m") "running row was not green")
-              (check (.contains colored "\u001b[31mnone\u001b[0m") "none work was not red")))))
+              (check (.contains colored "\u001b[32mrunning  \u001b[0m") "running row was not green")
+              (check (.contains colored "\u001b[31mnone") "none work was not red")
+              (with-redefs [north.dashboard.render/color? (constantly false)]
+                (let [plain (north.dashboard.render/render)]
+                  (check (= (north.dashboard.render/strip-ansi colored) plain)
+                       "colored and NO_COLOR renders differ after ANSI stripping")))))))
       (let [calls (atom 0)]
         (with-redefs [north.dashboard.state/record! (fn [& _] nil)]
           (north.dashboard.collectors/collect! :board #(swap! calls inc))
