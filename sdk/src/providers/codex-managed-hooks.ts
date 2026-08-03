@@ -223,26 +223,8 @@ export function validateManagedCodexRequirements(
   const expectedKeys = [...Object.keys(expected), "managed_dir"].sort();
   if (Object.keys(parsed.hooks ?? {}).sort().join(",") !== expectedKeys.join(","))
     throw new Error("managed Codex hook event surface is not exact");
-  try {
-    for (const [event, entries] of Object.entries(expected))
-      exact(parsed.hooks?.[event], entries, `managed Codex ${event}`);
-  } catch (current) {
-    // Pre-removal /etc generations still carry north-clock-guard-codex; delete
-    // this alternate once a post-removal generation is live.
-    const legacy = expectedManagedCodexHooks(managedDir);
-    for (const matcher of legacy.PreToolUse) {
-      if (matcher.matcher === "^(Edit|Write|MultiEdit|apply_patch)$")
-        matcher.hooks.splice(2, 0, command("north-clock-guard-codex", 10, managedDir));
-      if (matcher.matcher === "^Bash$")
-        matcher.hooks.splice(3, 0, command("north-clock-guard-codex", 10, managedDir));
-    }
-    try {
-      for (const [event, entries] of Object.entries(legacy))
-        exact(parsed.hooks?.[event], entries, `managed Codex ${event} (legacy)`);
-    } catch {
-      throw current;
-    }
-  }
+  for (const [event, entries] of Object.entries(expected))
+    exact(parsed.hooks?.[event], entries, `managed Codex ${event}`);
 }
 
 function assertNixManagedFile(
