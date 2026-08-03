@@ -719,7 +719,7 @@ if tool in ("Bash", "shell", "exec_command"):
     elif action == "deny" and any(provider_native_turn(item) for item in matches):
         match = next(item for item in matches if provider_native_turn(item))
         reason = (
-            "DENIED by north config dispatch: north pins the North-managed surface "
+            "DENIED by north config dispatch: managed pins the North-managed surface "
             "and does not admit provider-native agent turns (matched " + match + "). "
             "Re-issue the same work through north spawn or mcp__north__spawn."
         )

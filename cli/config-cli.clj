@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; north config — every personal-stack posture setting, one entry point.
 ;;
-;;   dispatch : who runs agents        north SDK  vs  native Agent/Workflow
+;;   dispatch : who runs agents        managed North SDK  vs  native Agent/Workflow
 ;;   coord    : coordination protocol  north / linear / both
 ;;   beagle   : code representation    text      vs  fact-native (per-file)
 ;;   guards   : authoring-guard hooks  + the kill-switch
@@ -1486,14 +1486,14 @@
 
  1 DISPATCH — execution surface selection.
 " (dispatch-help-lines) "
-   Legacy values native-forced/native-biased/managed-biased/managed-forced
-   remain readable and map to native/auto/auto/north with a one-line
+   Legacy values north/native-forced/native-biased/managed-biased/managed-forced
+   remain readable and map to managed/native/auto/auto/managed with a one-line
    migration note; only canonical values are persisted.
    Auto is governed by the orthogonal `north config learning` axis: frozen
    uses deterministic known-best assignment; learning permits bounded
    experimental assignment. Account allocation is a routing detail, not a
    dispatch mode.
-   Advice: north pins North; native pins the provider surface; auto delegates
+   Advice: managed pins North; native pins the provider surface; auto delegates
    the choice to the system.
 
  2 COORD — source of truth for work coordination.

@@ -22,7 +22,7 @@ report shape requires a bespoke composition. Machine payloads retain v2
 `kind:"preset"` and `nearestPreset` keys for compatibility.
 
 Dispatch-surface selection belongs to the harness, not the Orchestration
-request. `native` pins the provider-native surface, `north` pins the
+request. `native` pins the provider-native surface, `managed` pins the
 North-managed surface, and `auto` chooses a surface for each dispatch. Under
 `auto`, the orthogonal learning axis selects deterministic known-best assignment
 when `frozen` and bounded experimental assignment when `learning`. Account

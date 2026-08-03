@@ -293,7 +293,7 @@ sequenceDiagram
 ```
 
 Notes: this is the surface orchestration's doctrine actually routes to under
-`dispatch=north`. Template resolution consumes Orchestration's canonical provider-neutral
+`dispatch=managed`. Template resolution consumes Orchestration's canonical provider-neutral
 contract in `north:orchestration/docs/routing.md`; this workflow map does not redefine
 the axes or infer one from another. `north templates` renders the stock catalog
 and its resolved routing defaults. Source gathering uses the `scout` template;

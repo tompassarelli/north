@@ -12,12 +12,13 @@
 
 (def expected
   [["native" "allow" "deny"]
-   ["north" "deny" "allow"]
+   ["managed" "deny" "allow"]
    ["auto" "allow" "allow"]])
 
 (def aliases
-  {"native-forced" "native"
-   "managed-forced" "north"
+  {"north" "managed"
+   "native-forced" "native"
+   "managed-forced" "managed"
    "native-biased" "auto"
    "managed-biased" "auto"})
 
@@ -41,11 +42,11 @@
   (check "canonical vocabulary is complete and ordered"
          (= (mapv first expected) (north.dispatch-mode/canonical-names)))
   (check "usage exposes exactly the canonical triple"
-         (= "native|north|auto" (north.dispatch-mode/usage)))
-  (check "legacy vocabulary is exactly the former four modes"
+         (= "native|managed|auto" (north.dispatch-mode/usage)))
+  (check "legacy vocabulary covers the old name and former four modes"
          (= aliases north.dispatch-mode/legacy-aliases))
-  (check "default migrates the former managed-forced posture to north"
-         (= "north" north.dispatch-mode/default-mode))
+  (check "default is the managed surface"
+         (= "managed" north.dispatch-mode/default-mode))
 
   (doseq [[mode guard admission] expected]
     (check (str mode " normalizes to itself")
@@ -102,8 +103,8 @@
   (let [canonical (config "dispatch" "--canonical")
         guard-result (config "dispatch" "--guard-action")
         admission-result (config "dispatch" "--managed-admission")]
-    (check "missing state uses the canonical north default"
-           (and (= "north" (str/trim (:out canonical)))
+    (check "missing state uses the canonical managed default"
+           (and (= "managed" (str/trim (:out canonical)))
                 (= "deny" (str/trim (:out guard-result)))
                 (= "allow" (str/trim (:out admission-result))))))
 
@@ -111,7 +112,7 @@
     (check "the pre-ontology warn alias is no longer accepted"
            (and (not (zero? (:exit removed-alias)))
                 (str/includes? (:err removed-alias)
-                               "usage: north config dispatch [native|north|auto]"))))
+                               "usage: north config dispatch [native|managed|auto]"))))
 
   (io/make-parents state)
   (spit state "dispatch=surprise\n")

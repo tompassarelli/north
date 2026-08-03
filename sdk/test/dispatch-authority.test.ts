@@ -56,8 +56,8 @@ afterAll(() => {
 });
 
 describe("managed dispatch authority", () => {
-  test("north and auto allow North-managed admission", () => {
-    expect(() => admitManagedDispatchAuthority(environment("north"))).not.toThrow();
+  test("managed and auto allow North-managed admission", () => {
+    expect(() => admitManagedDispatchAuthority(environment("managed"))).not.toThrow();
     expect(() => admitManagedDispatchAuthority(environment("auto"))).not.toThrow();
   });
 
@@ -69,13 +69,15 @@ describe("managed dispatch authority", () => {
   test("legacy stored values use their canonical authority decisions", () => {
     const warning = spyOn(console, "warn").mockImplementation(() => {});
     try {
+      expect(() => admitManagedDispatchAuthority(environment("north"))).not.toThrow();
       expect(() => admitManagedDispatchAuthority(environment("managed-forced"))).not.toThrow();
       expect(() => admitManagedDispatchAuthority(environment("native-biased"))).not.toThrow();
       expect(() => admitManagedDispatchAuthority(environment("managed-biased"))).not.toThrow();
       expect(() => admitManagedDispatchAuthority(environment("native-forced")))
         .toThrow("managed_dispatch_denied_by_native");
       expect(warning.mock.calls).toEqual([
-        ["dispatch migration: legacy 'managed-forced' → 'north'"],
+        ["dispatch migration: legacy 'north' → 'managed'"],
+        ["dispatch migration: legacy 'managed-forced' → 'managed'"],
         ["dispatch migration: legacy 'native-biased' → 'auto'"],
         ["dispatch migration: legacy 'managed-biased' → 'auto'"],
         ["dispatch migration: legacy 'native-forced' → 'native'"],

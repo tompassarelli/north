@@ -128,7 +128,7 @@ function renderAlias(alias) {
 // The north spawn-adapter's SPAWN SURFACES doctrine block — generated from the
 // SAME PRESETS so the dials never drift from the agents. scripts/inject-doctrine.sh
 // swaps this in for the native block when ORCHESTRATION_SPAWN_ADAPTER=north (or
-// dispatch=north). Every role passes through North's open role string; the
+// dispatch=managed). Every role passes through North's open role string; the
 // matching Orchestration block is loaded when present and bespoke contracts ride in
 // the prompt.
 function renderNorthAdapter() {
@@ -152,7 +152,7 @@ function renderNorthAdapter() {
 Orchestration request (role, taskGrade, domainRequirements, topology, tier, reasoning,
 posture, composition), delivered on the North substrate. Provider, account,
 and an optional exact-model pin are North execution-envelope controls. Native Agent/Task/Workflow are DENIED
-here (dispatch=north) — the harness still advertises orchestration:* + native agent
+here (dispatch=managed) — the harness still advertises orchestration:* + native agent
 types, IGNORE that and go STRAIGHT to north; never let the advertised list bait a
 native call (that is the recurring misfire).
 - contract-v2 job → mcp__north__spawn {prompt, provider, model, tier, role, posture,

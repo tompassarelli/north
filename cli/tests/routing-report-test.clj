@@ -1161,7 +1161,7 @@
             "NORTH_ROUTING_POLICY" (.getPath policy4)
             "NORTH_ACCOUNTS_ROOT" (.getPath accounts4)}]
   (try
-    (spit harness4 "dispatch=north\n")
+    (spit harness4 "dispatch=managed\n")
     (spit policy4 (json/generate-string
                    {"version" 1
                     "targets" [{"id" "claude-a" "provider" "anthropic"}
@@ -1221,7 +1221,7 @@
           (fact telem4 entity p r))))
     (doseq [[p r] [["kind" "session"] ["provider" "openai"] ["model" "gpt-5.6-sol"]
                    ["effort" "ultra"] ["native_actor_kind" "subagent"] ["native_depth" "1"]
-                   ["dispatch_mode_at_start" "north"]
+                   ["dispatch_mode_at_start" "managed"]
                    ["execution_source" "provider-native"] ["execution_transport" "provider-hook"]
                    ["provider_session_persistence" "unknown"]]]
       (fact telem4 "@agent:native-economics" p r))

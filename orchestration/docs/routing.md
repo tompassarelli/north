@@ -17,7 +17,7 @@ layers sit above that choice, and keeping them apart is the whole contract:
   account or a model and does not define allocation's schema.
 
 Dispatch-surface selection is likewise harness-owned and has exactly three
-operator values: `native` pins the provider-native surface, `north` pins the
+operator values: `native` pins the provider-native surface, `managed` pins the
 North-managed surface, and `auto` chooses a surface for each dispatch. Under
 `auto`, the orthogonal learning axis uses deterministic known-best assignment
 when `frozen` and bounded experimental assignment when `learning`. Account

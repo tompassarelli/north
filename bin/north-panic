@@ -46,5 +46,5 @@ printf 'north panic: updated %s\n' "$state_file"
 printf '  dispatch: %s -> native\n' "$old_dispatch"
 printf '  guards: %s -> off\n' "$old_guards"
 printf '\nRestore stock North coordination and guards:\n'
-printf '  north config dispatch north\n'
+printf '  north config dispatch managed\n'
 printf '  north config guards on\n'
