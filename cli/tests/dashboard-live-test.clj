@@ -102,6 +102,25 @@
           (north.dashboard.collectors/collect! :board #(swap! calls inc))
           (north.dashboard.collectors/collect! :board #(swap! calls inc))
           (Thread/sleep 100)
-          (check (= 1 @calls) "board collector overlapped"))))
+          (check (= 1 @calls) "board collector overlapped")))
+      (spit (io/file agents "lane-poison.log") "[spawn] starting provider=openai tier=standard\n")
+      (spit (io/file agents "lane-poison.meta.json") "{\"bad\": NaN}\n")
+      (with-redefs [north.dashboard.collectors/state-dir (.getPath state-root)
+                    north.dashboard.state/record! (fn [& _] (throw (Error. "poisoned snapshot")))]
+        (reset! north.dashboard.collectors/running {})
+        (reset! north.dashboard.state/fallback-panels {})
+        (north.dashboard.collectors/collect! :lanes north.dashboard.collectors/lanes)
+        (Thread/sleep 100)
+        (check (not (contains? @north.dashboard.collectors/running :lanes)) "record failure left fleet marked running")
+        (let [out (with-redefs [north.dashboard.render/width (constantly 500)]
+                    (north.dashboard.render/render))]
+          (check (.contains out "panel error:") "snapshot failure looked like collecting")
+          (check (.contains out "poisoned snapshot") "snapshot failure detail was missing")))
+      (with-redefs [north.dashboard.collectors/now (constantly 61001)]
+        (reset! north.dashboard.collectors/running {:lanes 0})
+        (reset! north.dashboard.state/fallback-panels {})
+        (north.dashboard.collectors/clear-stuck!)
+        (check (not (contains? @north.dashboard.collectors/running :lanes)) "watchdog did not clear stuck collector")
+        (check (= "error" (get-in (north.dashboard.state/read-panel :lanes) [:last-attempt :status])) "watchdog did not record an error")))
     (println "dashboard-live: passed")
     (finally (doseq [f (reverse (file-seq root))] (io/delete-file f true)))))

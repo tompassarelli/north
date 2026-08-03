@@ -4,6 +4,7 @@
 
 (def schema "north.dashboard/panel-v1")
 (def panel-names #{"lanes" "health" "board" "board-all" "ready" "ready-all" "next" "providers"})
+(def fallback-panels (atom {}))
 
 (defn cache-dir []
   (str (or (System/getenv "XDG_CACHE_HOME")
@@ -18,10 +19,11 @@
   f)
 
 (defn read-panel [panel]
-  (try
-    (let [v (edn/read-string (slurp (panel-file panel)))]
-      (when (= schema (:schema v)) v))
-    (catch Exception _ nil)))
+  (or (get @fallback-panels panel)
+      (try
+        (let [v (edn/read-string (slurp (panel-file panel)))]
+          (when (= schema (:schema v)) v))
+        (catch Exception _ nil))))
 
 (defn write-panel! [panel envelope]
   (let [dir (io/file (cache-dir)) f (panel-file panel)
@@ -39,9 +41,19 @@
 (defn record! [panel result]
   (let [old (or (read-panel panel) {:schema schema}) at (now)
         attempt {:at at :status (name (:status result)) :detail (:detail result)}]
-    (write-panel! panel
-      (cond-> (assoc old :last-attempt attempt)
-        (= :ok (:status result)) (assoc :last-good {:at at :data (:data result)})))))
+    (let [saved (write-panel! panel
+                  (cond-> (assoc old :last-attempt attempt)
+                    (= :ok (:status result)) (assoc :last-good {:at at :data (:data result)})))]
+      (swap! fallback-panels dissoc panel)
+      saved)))
+
+(defn record-error-fallback!
+  "Keep an error visible when the durable snapshot itself cannot be written."
+  [panel detail]
+  (swap! fallback-panels assoc panel
+         {:schema schema
+          :last-attempt {:at (now) :status "error" :detail (str detail)}
+          :last-good (some-> (read-panel panel) :last-good)}))
 
 (declare age-ms)
 (defn evidence [envelope]

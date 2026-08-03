@@ -22,6 +22,7 @@
 (defn panel-status [panel]
   (let [e (state/read-panel panel) attempt (:last-attempt e) ms (state/age-ms e)]
     (cond
+      (= "error" (:status attempt)) (str "panel error: " (:detail attempt) " (retrying)")
       (nil? (get e :last-good)) "collecting"
       (and attempt (not= "ok" (:status attempt)))
       (str "failed " (age (max 0 (- (state/now) (:at attempt)))) " ago")

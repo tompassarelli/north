@@ -10,7 +10,7 @@
 (def home (System/getenv "HOME"))
 (def state-dir (str home "/.local/state/north"))
 (def north-root (some-> (or (System/getProperty "babashka.file") *file*) io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def running (atom #{}))
+(def running (atom {}))
 (def log-sizes (atom {}))
 (def last-started (atom {}))
 (def last-finished (atom {}))
@@ -114,19 +114,38 @@
                                :socket (socket-up? port) :memory (cgroup unit)}]))})
 (defn board [] (let [r (run [(str north-root "/bin/north") "board" "--fresh"] 120000)] (if (= :ok (:status r)) (assoc r :data {:text (:data r)}) r)))
 (defn providers [] (let [r (run [(str north-root "/bin/north") "providers" "--json"] 45000)] (if (= :ok (:status r)) (try (assoc r :data (json/parse-string (:data r) true)) (catch Exception e {:status :error :detail (.getMessage e)})) r)))
+(defn failure-detail [t]
+  (str (class t) ": " (.getMessage t)))
+(defn record-failure! [panel t]
+  (try
+    (state/record-error-fallback! panel (failure-detail t))
+    (catch Throwable _ nil)))
 (defn collect! [panel f]
   (when-not (contains? @running panel)
-    (swap! running conj panel)
-    (future (try
-              (let [result (try {:status :ok :data (f)} (catch Exception e {:status :error :detail (.getMessage e)}))]
-                (state/record! panel result)
-                (swap! failures assoc panel (if (= :ok (:status result)) 0 (inc (get @failures panel 0)))))
-              (finally (swap! last-finished assoc panel (now)) (swap! running disj panel))))))
+    (let [started (now)]
+      (swap! running assoc panel started)
+      (swap! last-started assoc panel started)
+      (future (try
+                (let [result {:status :ok :data (f)}]
+                  (state/record! panel result)
+                  (swap! failures assoc panel 0))
+                (catch Throwable t
+                  (record-failure! panel t)
+                  (swap! failures update panel (fnil inc 0)))
+                (finally (swap! last-finished assoc panel (now))
+                         (swap! running #(if (= (get % panel) started) (dissoc % panel) %))))))))
+(defn clear-stuck! []
+  (doseq [[panel started] @running
+          :when (> (- (now) started) 60000)]
+    (swap! running dissoc panel)
+    (record-failure! panel (ex-info "collector exceeded 60s" {}))
+    (swap! failures update panel (fnil inc 0))))
 (defn due? [panel interval]
   (let [at (get @last-finished panel 0)]
     (>= (- (now) at) interval)))
 (defn board-interval [] (nth [60000 120000 300000] (min 2 (get @failures :board 0))))
 (defn refresh! []
+  (clear-stuck!)
   (when (due? :lanes 1000) (collect! :lanes lanes))
   (when (due? :health 5000) (collect! :health health))
   ;; Completion timestamps make cadence and backoff start after a bounded attempt.
