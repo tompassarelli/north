@@ -35,6 +35,13 @@
 import { createHash } from "node:crypto";
 import type { EdnMap, OpPairs } from "./coord-wire";
 import { coordPort, expectedLog, kw, sendManagedAgentPublish, sendOp } from "./coord-wire";
+import {
+  FramRpcClient, FramRpcServerError, FramRpcTransportError,
+} from "./framrpc-client";
+import type { BatchAction, Term } from "./framrpc-codec";
+import {
+  FramTriple, RPC_SUBJECT_ANY, rpcFence, termEquals, triple,
+} from "./framrpc-codec";
 import type { ManagedWriteResult } from "./identity";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +165,18 @@ function rejected(m: EdnMap): boolean {
 
 interface Lease { resource: string; holder: string; epoch: number; }
 
+export interface NativeFastPublishOptions {
+  /** Hermetic transport seam. Production constructs the client from env. */
+  client?: FramRpcClient;
+}
+
+type NativeProjectionClass = "blank" | "exact_replay" | "decline";
+
+interface NativeSnapshot {
+  classification: NativeProjectionClass;
+  servedVersion: number;
+}
+
 // Guard predicates for the atomic op's clean-fresh gate. IDENTITY_PREDICATES
 // already feed the manifest (so the server verifies each present/absent), and
 // the projection facts carry display_handle/display_name; these are the terminal
@@ -222,12 +241,282 @@ async function atomicPublish(
   }
 }
 
-/**
- * Attempt a fresh managed publish over the wire. Returns a committed result, or
- * null to signal the caller should use the subprocess path. NEVER returns a
- * non-committed result and NEVER throws: on any failure it fails closed to the
- * fallback.
- */
+function nativeIndeterminate(operationId: string, reason: string): ManagedWriteResult {
+  return { status: "indeterminate", operationId, reason };
+}
+
+function desiredNativeOccurrences(
+  projection: Record<string, string>, marker: string,
+): Map<string, Map<string, number>> {
+  const desired = new Map<string, Map<string, number>>();
+  for (const [predicate, value] of Object.entries(projection))
+    desired.set(predicate, new Map([[value, 1]]));
+  desired.set(MARKER_PREDICATE, new Map([[marker, 1]]));
+  return desired;
+}
+
+function classifyNativeProjection(
+  rows: readonly Term[], projection: Record<string, string>, marker: string,
+): NativeProjectionClass {
+  const checked = new Set<string>([
+    ...IDENTITY_PREDICATES, ...Object.keys(projection), MARKER_PREDICATE,
+    TERMINAL_MARKER_PREDICATE, ...TERMINAL_PREDICATES,
+  ]);
+  const actual = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    if (!(row instanceof FramTriple) || typeof row.slot1 !== "string") continue;
+    if (!checked.has(row.slot1)) continue;
+    if (typeof row.slot2 !== "string") return "decline";
+    const values = actual.get(row.slot1) ?? new Map<string, number>();
+    values.set(row.slot2, (values.get(row.slot2) ?? 0) + 1);
+    actual.set(row.slot1, values);
+  }
+  if (actual.size === 0) return "blank";
+  const desired = desiredNativeOccurrences(projection, marker);
+  if (actual.size !== desired.size) return "decline";
+  for (const [predicate, wanted] of desired) {
+    const found = actual.get(predicate);
+    if (found === undefined || found.size !== wanted.size) return "decline";
+    for (const [value, count] of wanted) {
+      if (found.get(value) !== count) return "decline";
+    }
+  }
+  return "exact_replay";
+}
+
+async function nativeSnapshot(
+  client: FramRpcClient, entity: string, projection: Record<string, string>, marker: string,
+): Promise<NativeSnapshot> {
+  const scanned = await client.scanAll(entity, null, null);
+  return {
+    classification: classifyNativeProjection(scanned.rows, projection, marker),
+    servedVersion: scanned.servedVersion,
+  };
+}
+
+function nativeFreshActions(
+  entity: string, projection: Record<string, string>, marker: string,
+): BatchAction[] {
+  const body = Object.entries(projection).sort(([leftPredicate, leftValue], [rightPredicate, rightValue]) => {
+    if (leftPredicate !== rightPredicate) return leftPredicate < rightPredicate ? -1 : 1;
+    if (leftValue === rightValue) return 0;
+    return leftValue < rightValue ? -1 : 1;
+  });
+  return [
+    ...body.map(([predicate, value]) => ({
+      op: "assert" as const,
+      proposition: triple(entity, predicate, value),
+      policy: RPC_SUBJECT_ANY,
+    })),
+    {
+      op: "assert" as const,
+      proposition: triple(entity, MARKER_PREDICATE, marker),
+      policy: RPC_SUBJECT_ANY,
+    },
+  ];
+}
+
+function expectedActionResults(actions: readonly BatchAction[], results: readonly { inputIndex: number }[]): boolean {
+  return results.length === actions.length
+    && results.every((result, index) => result.inputIndex === index);
+}
+
+function durabilityAmbiguous(error: unknown): boolean {
+  return error instanceof FramRpcServerError && error.code === "durability-ambiguous";
+}
+
+async function checkedCandidateFence(
+  client: FramRpcClient, candidate: Term,
+): Promise<boolean> {
+  try {
+    return (await client.leaseCheck(candidate)).valid;
+  } catch {
+    return false;
+  }
+}
+
+type NativeLeaseAttempt =
+  | { kind: "acquired"; fence: Term }
+  | { kind: "replan" }
+  | { kind: "decline" }
+  | { kind: "indeterminate"; result: ManagedWriteResult };
+
+async function nativeLeaseAtVersion(
+  client: FramRpcClient,
+  resource: string,
+  holder: string,
+  expectedVersion: number,
+  operationId: string,
+): Promise<NativeLeaseAttempt> {
+  const candidate = rpcFence(resource, holder, expectedVersion + 1);
+  const acquire = async () => client.leaseAcquire(
+    resource, holder, 60_000, { expectedVersion },
+  );
+  for (let identicalAttempt = 0; identicalAttempt < 2; identicalAttempt += 1) {
+    try {
+      const grant = await acquire();
+      if (!termEquals(grant.fence, candidate)) return { kind: "decline" };
+      return { kind: "acquired", fence: grant.fence };
+    } catch (error) {
+      if (durabilityAmbiguous(error)) {
+        return {
+          kind: "indeterminate",
+          result: nativeIndeterminate(operationId, "durability_ambiguous_restart_required"),
+        };
+      }
+      if (error instanceof FramRpcServerError) {
+        if (error.code === "rpc/conflict") return { kind: "replan" };
+        if (error.code === "rpc/lease-held") return { kind: "decline" };
+        return { kind: "decline" };
+      }
+      if (error instanceof FramRpcTransportError && !error.requestSent)
+        return { kind: "decline" };
+      if (await checkedCandidateFence(client, candidate))
+        return { kind: "acquired", fence: candidate };
+      if (!(error instanceof FramRpcTransportError) || !error.requestSent)
+        return { kind: "decline" };
+    }
+  }
+  return { kind: "decline" };
+}
+
+async function nativeReadbackResult(
+  client: FramRpcClient,
+  entity: string,
+  projection: Record<string, string>,
+  marker: string,
+  operationId: string,
+  mismatchReason: string,
+): Promise<ManagedWriteResult> {
+  try {
+    const readback = await nativeSnapshot(client, entity, projection, marker);
+    if (readback.classification === "exact_replay")
+      return { status: "committed", operationId };
+  } catch {
+    // A read failure after a sent/acknowledged mutation cannot prove absence.
+  }
+  return nativeIndeterminate(operationId, mismatchReason);
+}
+
+async function nativeFastPublish(
+  entity: string,
+  projection: Record<string, string>,
+  holder: string,
+  operationId: string,
+  timeoutMs: number,
+  options: NativeFastPublishOptions,
+): Promise<ManagedWriteResult | null> {
+  const deadline = Date.now() + Math.max(1, Math.floor(timeoutMs));
+  const client = options.client ?? FramRpcClient.create({
+    connectTimeoutMs: Math.min(2_000, Math.max(1, Math.floor(timeoutMs))),
+    readTimeoutMs: Math.max(1, Math.floor(timeoutMs)),
+    maxAttempts: 1,
+    retryDelayMs: 0,
+    jitterMs: 0,
+  });
+  const ownsClient = options.client === undefined;
+  const marker = identityMarker(projection);
+  const resource = writeLeaseResource(entity);
+  let lease: Term | null = null;
+  let releaseAllowed = true;
+  try {
+    while (Date.now() < deadline && lease === null) {
+      let version: number;
+      try {
+        version = (await client.version()).servedVersion;
+      } catch {
+        return null;
+      }
+      const attempt = await nativeLeaseAtVersion(
+        client, resource, holder, version, operationId,
+      );
+      if (attempt.kind === "acquired") lease = attempt.fence;
+      else if (attempt.kind === "replan") continue;
+      else if (attempt.kind === "indeterminate") {
+        releaseAllowed = false;
+        return attempt.result;
+      } else return null;
+    }
+    if (lease === null) return null;
+
+    const actions = nativeFreshActions(entity, projection, marker);
+    while (Date.now() < deadline) {
+      let snapshot: NativeSnapshot;
+      try {
+        snapshot = await nativeSnapshot(client, entity, projection, marker);
+      } catch {
+        return null;
+      }
+      if (snapshot.classification === "exact_replay")
+        return { status: "committed", operationId, reason: "exact_replay" };
+      if (snapshot.classification !== "blank") return null;
+
+      try {
+        const applied = await client.batch(actions, {
+          expectedVersion: snapshot.servedVersion,
+          fence: lease,
+        });
+        if (!expectedActionResults(actions, applied.results)) {
+          return nativeIndeterminate(operationId, "unexpected_native_batch_result");
+        }
+        return nativeReadbackResult(
+          client, entity, projection, marker, operationId,
+          "native_batch_readback_mismatch",
+        );
+      } catch (error) {
+        if (durabilityAmbiguous(error)) {
+          releaseAllowed = false;
+          return nativeIndeterminate(operationId, "durability_ambiguous_restart_required");
+        }
+        if (error instanceof FramRpcServerError && error.code === "rpc/conflict")
+          continue;
+        if (error instanceof FramRpcServerError
+            && error.code === "rpc/lease-fence-mismatch") {
+          try {
+            const final = await nativeSnapshot(client, entity, projection, marker);
+            return final.classification === "exact_replay"
+              ? { status: "committed", operationId, reason: "exact_replay" }
+              : null;
+          } catch {
+            return null;
+          }
+        }
+        if (error instanceof FramRpcTransportError && error.requestSent) {
+          try {
+            const retried = await client.batch(actions, {
+              expectedVersion: snapshot.servedVersion,
+              fence: lease,
+            });
+            if (!expectedActionResults(actions, retried.results)) {
+              return nativeIndeterminate(operationId, "unexpected_native_batch_result");
+            }
+          } catch (retryError) {
+            if (durabilityAmbiguous(retryError)) {
+              releaseAllowed = false;
+              return nativeIndeterminate(
+                operationId, "durability_ambiguous_restart_required",
+              );
+            }
+          }
+          return nativeReadbackResult(
+            client, entity, projection, marker, operationId,
+            "native_batch_ambiguous_readback",
+          );
+        }
+        return null;
+      }
+    }
+    return null;
+  } finally {
+    if (lease !== null && releaseAllowed) {
+      try { await client.leaseRelease(lease); } catch { /* expiry recovers the lease */ }
+    }
+    if (ownsClient) client.close();
+  }
+}
+
+/** Attempt the selected managed publish protocol. v03 returns committed/null;
+ * framrpc also returns indeterminate when recovery cannot safely infer absence. */
 export async function fastPublish(
   subject: string,
   projection: Record<string, string>,
@@ -235,12 +524,19 @@ export async function fastPublish(
   operationId: string,
   timeoutMs: number,
   note?: AtomicPublishDiagnostic,
+  nativeOptions: NativeFastPublishOptions = {},
 ): Promise<ManagedWriteResult | null> {
   if (process.env.NORTH_MANAGED_WRITER_FASTPATH === "0") return null;
   if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") return null;
   if (!validPublishProjection(projection)) return null;
   const entity = normalizeAgentEntity(subject);
   if (entity === null) return null;
+
+  if (process.env.NORTH_COORD_PROTOCOL === "framrpc") {
+    return nativeFastPublish(
+      entity, projection, holder, operationId, timeoutMs, nativeOptions,
+    );
+  }
 
   const port = coordPort();
   const log = expectedLog();

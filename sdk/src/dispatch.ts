@@ -40,7 +40,6 @@ import {
   userAnchoredPath,
 } from "./identity";
 import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
-import { admitBillableClock } from "./clock";
 import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
   selectProviderForExecution, ProviderRetrySafeError,
@@ -149,7 +148,6 @@ interface DispatchRuntime {
   refreshAccountUsages?: typeof refreshAccountUsages;
   admitResourceEnvelope?: typeof admitResourceEnvelope;
   completeResourceEnvelope?: typeof completeResourceEnvelope;
-  admitBillableClock?: typeof admitBillableClock;
   /** Subprocess to `bin/north`, which resolves babashka off PATH — and a hermetic
    * fixture owns PATH. Production never injects. */
   admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
@@ -1221,12 +1219,6 @@ export async function dispatch(
   let failed = false;
   let primaryError: unknown;
   try {
-    (injected.admitBillableClock ?? admitBillableClock)({
-      agentId,
-      capabilities: orchestrationCapabilities(routingMetadata),
-      cwd: workingDirectory,
-      threadId,
-    });
     termination.throwIfTerminated();
     driver = (injected.claimDriver ?? claimDispatchDriver)(
       threadId, agentId, injected.driverOptions,

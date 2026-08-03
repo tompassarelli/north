@@ -178,9 +178,6 @@ test("raw recursive SDK spawn requires an exact fresh child thread binding befor
     const request = {
       prompt: "recursive probe",
       routingMetadata: presetRequest("verifier"),
-      admitBillableClock: () => {
-        throw new Error("admission must not run");
-      },
     };
     await expect(spawn(request)).rejects.toMatchObject({
       code: "NORTH_RECURSIVE_CHILD_BINDING_REQUIRED",

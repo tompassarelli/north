@@ -17,8 +17,7 @@ trap cleanup EXIT
 
 mkdir -p "$CHECKOUT/bin" "$CHECKOUT/out" "$CHECKOUT/cli" \
   "$SHIM" "$HOME_DIR" "$TMP/fram classpath"
-cp "$ROOT/bin/north-clock-audit" "$ROOT/bin/north-stream-sync" \
-  "$ROOT/bin/north-stream-sync-all" "$CHECKOUT/bin/"
+cp "$ROOT/bin/north-stream-sync" "$ROOT/bin/north-stream-sync-all" "$CHECKOUT/bin/"
 
 cat >"$SHIM/bb" <<'EOF'
 #!/usr/bin/env bash
@@ -30,18 +29,6 @@ echo "GNU/BSD stat must not be required" >&2
 exit 99
 EOF
 chmod +x "$SHIM/bb" "$SHIM/stat"
-
-env -i HOME="$HOME_DIR" PATH="$SHIM:$HOST_PATH" \
-  BB_ARGS="$TMP/bb.args" FRAM_HOME="$TMP/absent Fram home" \
-  FRAM_OUT="$TMP/fram classpath" \
-  "$CHECKOUT/bin/north-clock-audit" --since 2026-01-01
-
-mapfile -t bb_args <"$TMP/bb.args"
-[[ "${bb_args[0]}" == -cp ]]
-[[ "${bb_args[1]}" == "$CHECKOUT/out:$TMP/fram classpath" ]]
-[[ "${bb_args[2]}" == "$CHECKOUT/cli/clock-audit.clj" ]]
-[[ "${bb_args[3]}" == --since ]]
-[[ "${bb_args[4]}" == 2026-01-01 ]]
 
 SRC="$TMP/source root/project slug"
 mkdir -p "$SRC"

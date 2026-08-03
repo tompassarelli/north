@@ -160,6 +160,26 @@ export function telemetryPort(): number {
   return value;
 }
 
+/** The SpaceId the native FRAMRPC wire carries. It REPLACES the legacy
+ * expected-log envelope: a coordinator serving another space refuses at connect
+ * with a typed :rpc/space-mismatch. Default mirrors bin/north. */
+export function framSpaceId(): string {
+  return process.env.FRAM_SPACE_ID || "north-coordination";
+}
+
+/** SpaceId of the partitioned telemetry coordinator (bin/north). */
+export function telemetrySpaceId(): string {
+  return process.env.NORTH_TELEMETRY_SPACE_ID || "north-telemetry";
+}
+
+/** Native-wire twin of routeForSubject: the port + SpaceId a subject's writes go to. */
+export function nativeRouteForSubject(subject: string): { port: number; spaceId: string } {
+  if (telemetryPartitionEnabled() && isTelemetrySubject(subject)) {
+    return { port: telemetryPort(), spaceId: telemetrySpaceId() };
+  }
+  return { port: coordPort(), spaceId: framSpaceId() };
+}
+
 export function telemetryLog(): string {
   const value = process.env.FRAM_TELEMETRY_LOG;
   if (!value) {

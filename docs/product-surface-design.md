@@ -2,7 +2,7 @@
 
 > **STATUS: DESIGN — not built.** This is design/analysis for how the hosted
 > North product should expose its real "life verbs" (`ready`, `plate`,
-> `capture`, `clock`, …) to remote clients. Nothing here is implemented yet.
+> `capture`, `needs-review`, …) to remote clients. Nothing here is implemented yet.
 > It is also deliberately **sequenced behind Fram's current churn** — see
 > §5. Treat the recommendation as the intended path, not a shipped capability.
 > Companion to [`hosting.md`](hosting.md) (transport/tenancy + the engine↔app
@@ -23,28 +23,28 @@ Walk the seam as it actually is:
   `:validate`. That's the whole `POST /v1/rpc` contract. It runs **no North
   projections** — it relays bytes to Fram and relays the reply back.
 - But the real life verbs — `ready`, `blocked`, `next`, `plate`, `agenda`,
-  `leverage`, `show`, `needs-review`, `capture`, `clock in/out/status/report`,
+  `leverage`, `show`, `needs-review`, `capture`,
   `presentation` — live in `north.main` (and the MCP server that wraps it),
   **not in the engine.** Reads *fold the tenant's `facts.log` locally* and
   derive lifecycle (`cmd-ready`, `cmd-plate`, etc. all do
-  `(fold/fold (fram.rt/read-log log))` then project); writes (`capture`, `clock`)
+  `(fold/fold (fram.rt/read-log log))` then project); writes (`capture`, `tell`)
   go through the coordinator via `coord-assert`/`coord-retract`.
 
 **The gap:** a remote client hitting the gateway can do raw engine asserts and
-reads, but **cannot get `ready` / `plate` / `capture` / `clock`.** Those require
+reads, but **cannot get `ready` / `plate` / `capture`.** Those require
 running North's projections over the tenant's folded log, and nothing on the
 hosted path does that.
 
 What a real remote client actually needs:
 
 - **A chat AI** wants the MCP tool surface that already exists (`bin/north-mcp`):
-  `capture`, `tell`, `plate`, `next`, `clock_*`, with the cheatsheet/presentation
+  `capture`, `tell`, `plate`, `next`, with the cheatsheet/presentation
   contract — over a *remote* transport, authenticated, per tenant. Today that MCP
   server is **stdio-only and local** (its own header says "HTTP/SSE + auth is the
   next layer").
 - **A web app** wants stable HTTP endpoints returning the structured JSON the CLI
-  already emits (`json plate|ready|blocked|needs-review|clock-report|show|presentation`
-  → the `JThread`/`JClockReport`/… records in `main.bclj`).
+  already emits (`json plate|ready|blocked|needs-review|show|presentation`
+  → the structured records in `main.bclj`).
 
 Both need the **app domain**, hosted and authenticated. The engine RPC the
 gateway forwards is necessary plumbing but is not the product.
@@ -145,7 +145,7 @@ What it composes with:
   the identical verb path. Either way it's the same projection code.
 - **Writes** in all cases still funnel to the coordinator (sole writer) — the
   gateway's existing `:assert`/`:retract` path is reused unchanged; `capture` and
-  `clock` already drive it. We are adding a **read/derivation edge**, not a second
+  `tell` already drive it. We are adding a **read/derivation edge**, not a second
   write path.
 - The gateway stays the **one auth point.** The MCP/HTTP edge authenticates by
   reusing the gateway's token→tenant registry (one auth system, not two).
@@ -164,16 +164,16 @@ owns the life domain.** MCP-wise:
 | | **Engine MCP (Fram)** | **App / life MCP (North)** |
 |---|---|---|
 | Mental model | "query/assert triples" | "run my work + life" |
-| Audience | tools reasoning about the *triple graph* generically | a chat AI / app reasoning about *threads, plates, time* |
-| Surface | neutral query (datalog/structured), `assert`, `retract`, `validate`, `version`, `status` | `ready`, `next`, `plate`, `blocked`, `agenda`, `leverage`, `show`, `needs_review`, `capture`, `tell`, `untell`, `clock_*`, `presentation` |
-| Semantics | knows triples; **no lifecycle, no clock, no presentation** | derives lifecycle (committed/outcome/abandoned/driver/depends_on), clock roll-up, emoji contract |
+| Audience | tools reasoning about the *triple graph* generically | a chat AI / app reasoning about *threads, plates, and agents* |
+| Surface | neutral query (datalog/structured), `assert`, `retract`, `validate`, `version`, `status` | `ready`, `next`, `plate`, `blocked`, `agenda`, `leverage`, `show`, `needs_review`, `capture`, `tell`, `untell`, `presentation` |
+| Semantics | knows triples; **no lifecycle or presentation** | derives lifecycle (committed/outcome/abandoned/driver/depends_on) and the emoji contract |
 | Where it folds | the coordinator's in-memory graph | folds the tenant's `facts.log` (today via the CLI verbs) |
-| Vocabulary | engine-generic (three neutral slots; subject/predicate/object is a domain reading, not kernel law) | life vocab (`@topic-*`, `do_on`, `estimate_hours`, `session_of`, …) |
+| Vocabulary | engine-generic (three neutral slots; subject/predicate/object is a domain reading, not kernel law) | life vocab (`@topic-*`, `do_on`, `estimate_hours`, …) |
 | Owns | Fram repo | North repo |
 
 Boundary rules:
 
-1. **No life verbs in the engine MCP.** `ready`/`plate`/`clock` are derivations
+1. **No life verbs in the engine MCP.** `ready` and `plate` are derivations
    over the *life* vocabulary; they stay in North. Fram exposing them would
    pull domain code into the engine — the exact complecting the engine↔app
    seam forbids.
@@ -201,7 +201,7 @@ altitudes.
 **What is Fram-coupled (build *after* the churn settles, against a pinned Fram):**
 
 - Anything that **runs projections** is coupled to Fram's **library** API
-  (`fram.kernel` / `fold` / `import` / `export` / `clock` / `json` / `rt`) —
+  (`fram.kernel` / `fold` / `import` / `export` / `json` / `rt`) —
   `main.bclj` `require`s all of them and `declare-extern`s the `fram.rt/coord-*`
   bridge. So:
   - Option **(a)** shell-out: coupled only indirectly (it spawns the CLI, which is
@@ -258,7 +258,7 @@ untouched in every mode.
 |---|---|
 | Gateway: auth, token→tenant route, raw engine RPC (`:assert`/`:retract`/`:version`/`:status`/`:validate`) | **built** (`deploy/gateway`) |
 | Local MCP tool surface (life verbs over stdio) | **built** (`bin/north-mcp`) |
-| Remote life verbs for a hosted client (`ready`/`plate`/`capture`/`clock` over HTTP) | **planned — this doc** |
+| Remote life verbs for a hosted client (`ready`/`plate`/`capture` over HTTP) | **planned — this doc** |
 | MCP-over-HTTP + gateway auth integration (Phase 1) | **planned** (not Fram-coupled) |
 | Warm per-tenant North head (Phase 2) | **planned** (Fram-coupled — after churn, pinned Fram) |
 | Engine-MCP vs life-MCP seam (§4) | **design agreed here; coordinate with Fram before building** |

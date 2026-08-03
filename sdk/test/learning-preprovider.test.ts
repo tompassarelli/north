@@ -28,7 +28,6 @@ test("a failed assignment recorder aborts before provider selection or query", a
     worktree: false,
     routingMetadata: presetRequest("scout"),
     queryFn,
-    admitBillableClock: () => {},
     admitResourceEnvelope: async () => undefined,
     completeResourceEnvelope: async () => {},
     publishLearningAssignment: async () => {

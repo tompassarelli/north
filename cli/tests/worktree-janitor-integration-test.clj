@@ -329,11 +329,6 @@
         (assert-fact! port run "agent" (:handle torn))
         (assert-fact! port run "outcome" "ran"))
 
-      ;; Keep unrelated daily clock telemetry mechanically idle across both runs.
-      (assert-fact! port "@clock-audit-fixture" "kind" "clock_audit_run")
-      (assert-fact! port "@clock-audit-fixture" "run_at"
-                    (str (java.time.Instant/now)))
-
       (let [dirty-file (io/file (:path dirty) "uncommitted sentinel.txt")]
         (spit dirty-file "dirty bytes must survive\n"))
       (commit-file! (:path clone-clean) "harvested.txt" "durable clone commit\n" "harvest clone")

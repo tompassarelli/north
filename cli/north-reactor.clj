@@ -492,18 +492,6 @@
                 :rules [{:head {:rel "row" :args [{:var "e"} {:var "driver"}]}
                          :body [{:rel "triple" :args [{:var "e"} "driver" {:var "driver"}]}]}]}})))
 
-;; Historical compatibility: a pre-run-telemetry lane may have left a legacy
-;; agent clock open. Close only that exact actor's legacy session. Current SDK
-;; lanes never open billing clocks; their elapsed time is kind=run telemetry.
-;; Idempotent and best-effort. north-bin is computed inline (its def is later).
-(defn orphan-clock! [h]
-  (try
-    (proc/shell {:out :string :err :string :continue true}
-                (-> (io/file (System/getProperty "babashka.file"))
-                    .getParentFile .getParentFile (io/file "bin" "north") .getPath)
-                "clock" "orphan" h)
-    (catch Throwable _ nil)))
-
 (defn release-orphaned-drivers! [h]
   ;; A hard-killed dispatch cannot run its finally/release. Once the SAME lane
   ;; crosses the 30-minute reap bar, retract only exact @<handle> driver refs.
@@ -546,7 +534,6 @@
     (doseq [{:keys [e h lapse]} hits]
       (when-not dry?
         (publish-reaped-terminal! e)
-        (orphan-clock! h)                                                  ; close any orphan clock session the dead lane left open
         (release-orphaned-drivers! h)                                      ; unblock threads held by the hard-killed lane
         ;; The reaper is the ONLY terminal for dead-lane spend: settle any open
         ;; spend reservation at FULL (status unknown) — idempotent (settled_at guard).
@@ -563,88 +550,6 @@
                     "  lapsed " (long (/ lapse 60000))
                     "min -> process=died-unreported delivery=blocked")))
     (count hits)))
-
-;; ---- DAILY CLOCK-AUDIT TICK (drift telemetry) -------------------------------
-;; The clock-audit output evaporates; a drift TREND is exactly the telemetry the
-;; billing failure mode needs. Piggyback the 5-min sweep with a once-per-day gate:
-;; state is the LAST clock_audit_run's run_at (a fact, never a loose state file), so
-;; the gate is self-describing and survives a reactor restart. --dry-run reports WOULD
-;; without writing, keeping sweep-once --dry-run clean.
-(def CLOCK-AUDIT-INTERVAL-MS (* 24 60 60 1000))         ; once per day
-(def DEFAULT-CLOCK-AUDIT-TIMEOUT-MS 45000)
-(def MAX-CLOCK-AUDIT-TIMEOUT-MS 120000)
-(def clock-audit-bin
-  (or (System/getenv "NORTH_REACTOR_CLOCK_AUDIT_BIN")
-      (-> (io/file (System/getProperty "babashka.file"))
-          .getParentFile .getParentFile (io/file "bin" "north-clock-audit") .getPath)))
-
-(defn clock-audit-timeout-ms []
-  (let [raw (System/getenv "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS")
-        value (try
-                (Long/parseLong (or raw (str DEFAULT-CLOCK-AUDIT-TIMEOUT-MS)))
-                (catch Throwable _ -1))]
-    (when-not (<= 1 value MAX-CLOCK-AUDIT-TIMEOUT-MS)
-      (throw
-       (ex-info
-        (str "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS must be between 1 and "
-             MAX-CLOCK-AUDIT-TIMEOUT-MS " milliseconds")
-        {:type :invalid-sweep-lifecycle-setting
-         :name "NORTH_REACTOR_CLOCK_AUDIT_TIMEOUT_MS"
-         :value raw
-         :maximum MAX-CLOCK-AUDIT-TIMEOUT-MS})))
-    value))
-
-(defn last-clock-audit-ms
-  "Newest kind=clock_audit_run run_at as epoch-ms, or nil if none exists yet."
-  []
-  (let [runs (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "clock_audit_run"]}]))
-        ms   (->> runs
-                  (keep #(north.coord/resolved port % "run_at"))
-                  (keep (fn [ts] (try (.toEpochMilli (java.time.Instant/parse ts))
-                                      (catch Throwable _ nil)))))]
-    (when (seq ms) (reduce max ms))))
-
-(defn maybe-clock-audit!
-  "Run clock-audit --persist at most once per day in an owned, bounded child.
-   Exit 1 means uncovered commits and is still a completed audit. Timeout or
-   launch failure is an explicit deferral, never a lost heartbeat."
-  [dry?]
-  (let [last (last-clock-audit-ms)
-        due? (or (nil? last) (>= (- (System/currentTimeMillis) last) CLOCK-AUDIT-INTERVAL-MS))]
-    (cond
-      (not due?) {:status :skipped :reason :not-due}
-      dry?       (do (println (str "[sweep] WOULD run clock-audit --persist"
-                                   (when last (str " (last " (long (/ (- (System/currentTimeMillis) last) 3600000)) "h ago)"))))
-                     {:status :would-run})
-      :else
-      (let [timeout-ms (clock-audit-timeout-ms)]
-        (try
-          (let [child (start-sweep-child!
-                       :clock-audit
-                       {:out :string :err :string}
-                       clock-audit-bin "--persist")
-                awaited (await-sweep-child! child timeout-ms)]
-            (if (= :timeout (:status awaited))
-              (do
-                (println (str "[sweep] clock-audit deferred reason=timeout"
-                              " timeout_ms=" timeout-ms))
-                (flush)
-                {:status :deferred :reason :timeout :timeout-ms timeout-ms
-                 :cleanup (:cleanup awaited)})
-              (let [result (:result awaited)]
-                (println (str "[sweep] clock-audit --persist exit=" (:exit result)))
-                (when (seq (str/trim (str (:err result))))
-                  (println (str "[sweep] clock-audit stderr: "
-                                (str/trim (str (:err result))))))
-                (flush)
-                {:status :completed :exit (:exit result)})))
-          (catch InterruptedException interrupted
-            (throw interrupted))
-          (catch Throwable error
-            (println (str "[sweep] clock-audit deferred reason=error error="
-                          (pr-str (.getMessage error))))
-            (flush)
-            {:status :deferred :reason :error :error error}))))))
 
 ;; ---- REBUILD WINDOW PERIODIC FALLBACK --------------------------------------
 (defn maybe-rebuild-window!
@@ -828,31 +733,24 @@
                (catch Throwable t
                  (println (str "[sweep] sweep-kill error: " (.getMessage t)))
                  0)))
-        ;; The liveness work is complete at this boundary. Stamp it before
-        ;; optional maintenance so a deferred audit cannot make a healthy core
-        ;; sweep look dead.
+        ;; The liveness work is complete at this boundary.
         _ (run-sweep-stage!
            :core-heartbeat
            #(when-not dry?
               (north.reactor-heartbeat/write-heartbeat!
                port {:worktrees wt :unregistered-worktrees uw})))
-        ca (run-sweep-stage! :clock-audit #(maybe-clock-audit! dry?))
-        audit-deferred? (= :deferred (:status ca))
-        attention (if audit-deferred?
-                    {:status :skipped :reason :clock-audit-deferred}
-                    (run-sweep-stage!
-                     :attention-reconcile
-                     #(if dry?
-                        {:status :skipped}
-                        (reconcile-attention-bounded! "post-sweep"))))
+        attention (run-sweep-stage!
+                   :attention-reconcile
+                   #(if dry?
+                      {:status :skipped}
+                      (reconcile-attention-bounded! "post-sweep")))
         summary {:concerns nc :lanes nl :unpublished-drivers nd
                  :worktrees wt :unregistered-worktrees uw
                  :agent-logs al :breaker burn
-                 :lanes-killed nk :clock-audit ca
+                 :lanes-killed nk
                  :rebuild-window rw
                  :attention-reconcile attention
-                 :terminal-status (if audit-deferred? :deferred :completed)
-                 :deferred-reason (when audit-deferred? :clock-audit)}]
+                 :terminal-status :completed}]
     (println (str "[sweep] " (when dry? "(dry-run) ") "concerns abandoned=" nc
                   " lanes reaped=" nl " unpublished drivers released=" nd
                   " worktrees removed=" (:removed wt)
@@ -872,8 +770,6 @@
                   " errors=" (get uw :errors 0)
                   " logs deleted=" (:deleted al) " capped=" (:capped al)
                   " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
-                  " clock-audit=" (name (:status ca))
-                  (when-let [reason (:reason ca)] (str ":" (name reason)))
                   " rebuild-window=" (:action rw) ":" (:count rw)
                   " attention-reconcile=" (name (:status attention))))
     (flush)
@@ -1207,13 +1103,9 @@
             0)
 
         (= :deferred (:status result))
-        (let [audit (get-in result [:summary :clock-audit])]
+        (do
           (println (str "[sweep] terminal=deferred reason="
                         (name (or (:reason result) :maintenance))
-                        (when-let [audit-reason (:reason audit)]
-                          (str " audit_reason=" (name audit-reason)))
-                        (when-let [timeout (:timeout-ms audit)]
-                          (str " timeout_ms=" timeout))
                         " attempts=" (:attempts result)
                         " action=retry-on-next-scheduled-run"))
           (flush)

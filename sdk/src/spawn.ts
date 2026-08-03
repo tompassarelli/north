@@ -109,7 +109,6 @@ import {
   requiredDirectChildCount, settleChildren,
   type ChildSettlement, type OrchestratorContinuationKind,
 } from "./children";
-import { admitBillableClock } from "./clock";
 import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
   selectProviderForExecution,
@@ -190,7 +189,7 @@ export interface SpawnOptions {
   /** Equality-only compatibility alias; routingMetadata remains authoritative. */
   role?: string;
   posture?: string;
-  thread?: string; // exact work/evidence thread; managed runs verify the human client session separately.
+  thread?: string; // exact work/evidence thread.
   concern?: string; // exact physical-allocation concern owner; absent is explicitly unattributed.
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   provider?: ProviderPreference;
@@ -226,7 +225,6 @@ interface SpawnRuntime {
   refreshAccountUsages?: typeof refreshAccountUsages;
   admitResourceEnvelope?: typeof admitResourceEnvelope;
   completeResourceEnvelope?: typeof completeResourceEnvelope;
-  admitBillableClock?: typeof admitBillableClock;
   /** Subprocess to `bin/north`, which resolves babashka off PATH — and a hermetic
    * fixture owns PATH. Production never injects. */
   admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
@@ -1695,12 +1693,6 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   let failed = false;
   let primaryError: unknown;
   try {
-    (injected?.admitBillableClock ?? admitBillableClock)({
-      agentId,
-      capabilities: orchestrationCapabilities(composed.routingMetadata),
-      cwd: process.cwd(),
-      threadId: composed.thread,
-    });
     termination.throwIfTerminated();
     admission = await (injected?.admitResourceEnvelope ?? admitResourceEnvelope)({
       agentId, tier: requestedTier, project: composed.project ?? context.project,

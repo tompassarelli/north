@@ -494,6 +494,8 @@ export interface RoutingDecision {
   entitlementPressures: Partial<Record<ProviderId, EntitlementPressure>>;
   /** Immutable allocator inputs captured at decision time for later replay/audit. */
   allocationEvidenceByTarget?: Record<string, AllocationEvidence>;
+  /** Targets the requested capabilities removed pre-allocation → exact refusal code. */
+  readonly capabilityExcludedTargets?: Readonly<Record<string, string>>;
   /** Fresh target/model observations admitted before provider execution. */
   readonly modelAvailabilityReceipts?: Readonly<Record<string, ProviderModelAdmissionReceipt>>;
   /** Targets whose concrete route is forbidden without such a receipt. */

@@ -113,22 +113,31 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(formatProviderAuthoritySurface(workerSurface)).toContain("live-input=turn-framed");
   expect(formatProviderAuthoritySurface(workerSurface)).toContain("network=disabled");
 
-  const director = harnessOptions({
+  // An orchestrator authority is inexpressible on Codex: its sandbox blocks the
+  // coordinator port the coordination tools require.
+  const openaiDirector = harnessOptions({
     self: "openai-exact-orchestrator-surface",
     provider: "openai",
     cwd: north,
     presenceRegistrar: false,
     routingMetadata: applyOrchestrationStaffing({ role: "director" }),
   }) as any;
-  const directorSurface = compileProviderAuthoritySurface("openai", director);
+  expect(() => compileProviderAuthoritySurface("openai", openaiDirector))
+    .toThrow("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
+  expect(() => codexHarnessArguments(openaiDirector))
+    .toThrow("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
+
+  const director = harnessOptions({
+    self: "anthropic-exact-orchestrator-surface",
+    provider: "anthropic",
+    cwd: north,
+    presenceRegistrar: false,
+    routingMetadata: applyOrchestrationStaffing({ role: "director" }),
+  }) as any;
+  const directorSurface = compileProviderAuthoritySurface("anthropic", director);
   expect(directorSurface.northEnabledTools).toEqual(expect.arrayContaining(["dispatch", "spawn"]));
-  expect(directorSurface.web).toBe("cached");
-  expect(codexHarnessArguments(director)).toEqual([
-    ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-    ...managedCodexNetworkArguments(directorSurface),
-    ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
-  ]);
-  expect(formatProviderAuthoritySurface(directorSurface)).toContain("network=disabled");
+  expect(directorSurface.web).toBe("enabled");
+  expect(formatProviderAuthoritySurface(directorSurface)).toContain("web=enabled");
 });
 
 test("Codex network argv preserves the structured Gitiles policy without a boolean overwrite", () => {

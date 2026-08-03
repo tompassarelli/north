@@ -381,16 +381,10 @@
    (set (map second (re-seq #"graph\.put\([^,\n]+,\s*\"([a-z][a-z0-9_]*)\""
                             (slurp-source "sdk/src/integrations/linear/cli.ts"))))))
 
-(def clock-predicates
-  (pair-predicates (section (slurp-source "cli/clock-audit.clj")
-                            "(defn- persist-run!"
-                            ";; ---- main")))
-
 (def emitted-predicates
   (reduce set/union #{}
           [clj-fixed run-predicates run-event-predicates identity-predicates guard-predicates
-           lifecycle-predicates native-predicates linear-fixed-predicates
-           clock-predicates]))
+           lifecycle-predicates native-predicates linear-fixed-predicates]))
 
 (check "registry names are unique"
        (= (count vocab) (count registry))

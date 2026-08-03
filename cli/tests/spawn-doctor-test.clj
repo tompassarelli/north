@@ -97,6 +97,20 @@
               (str/includes? (:why row) "exited 2")
               (str/includes? (:why row) "serve-flat was removed"))))
 
+;; The smoke must launch the verb the SDK launches; serve-flat exits 2 on every
+;; current fram, so a doctor still probing it can only report a dead lane.
+(let [argv (atom nil)
+      rows (with-redefs [doctor/shell (fn [a & _] (reset! argv a) {:timeout true :ok false})]
+             (doctor/deep-rows {:graphAuthoring {:framDaemonCommand "/f/bin/fram-daemon"
+                                                 :framDaemonExecutable true}}))
+      row (find-row rows "deep.lane-coordinator")]
+  (check "the coordinator smoke launches fram's supported serve verb, never serve-flat"
+         (= "serve" (second @argv)))
+  (check "the coordinator smoke passes a SpaceId so a fresh store boots with no migration"
+         (and (= 5 (count @argv)) (seq (last @argv))))
+  (check "a coordinator that stays up for the smoke budget passes"
+         (and (= :pass (:status row)) (str/includes? (:why row) "fresh store"))))
+
 ;; ---- (7) guard consistency: the impossible constraint --------------------------
 
 (defn- guard-rows-with [{:keys [registry adopted advertised fram-home]}]
@@ -153,7 +167,54 @@
              :advertised {:tools ["add-def" "set-body" "rename-def"]}})
       row (find-row rows "guard.graph-upstream-registry")]
   (check "a stale registry row is reported as lapsed adoption"
-         (and (= :warn (:status row)) (str/includes? (:why row) "silently lapsed"))))
+         (and (= :warn (:status row)) (str/includes? (:why row) "silently lapsed")))
+  (check "the stale-registry row hands back the one-shot repair verb"
+         (str/includes? (str (:fix row)) "--repair-registry")))
+
+(let [rows (guard-rows-with
+            {:registry ["/etc/hostname"]
+             :adopted ["/etc/hostname"] :fram-home "/fixture/fram"
+             :advertised {:tools ["add-def" "set-body" "rename-def"]}})
+      row (find-row rows "guard.graph-upstream-registry")]
+  (check "a registry whose every row resolves passes"
+         (= :pass (:status row))))
+
+;; ---- (7) registry repair: relocate what still holds the sentinel ----------------
+
+(let [home (str (java.nio.file.Files/createTempDirectory
+                 "doctor-registry" (into-array java.nio.file.attribute.FileAttribute [])))
+      write! (fn [path body]
+               (io/make-parents path)
+               (spit path body)
+               path)
+      adopted (write! (str home "/code/fram/main/src/pull.bclj")
+                      "#lang beagle/clj\n\n;; @upstream:graph\n(ns pull)\n")
+      de-adopted (write! (str home "/code/beagle/main/self-host/src/parse.bclj")
+                         "#lang beagle/clj\n\n;; ordinary leading comment\n(ns parse)\n")
+      client (write! (str home "/code/client/acme/thing/main/src/model.bclj")
+                     ";; @upstream:graph\n(ns model)\n")
+      plan (with-redefs [doctor/HOME home]
+             (doctor/registry-repair-plan
+              [adopted
+               (str home "/code/fram/src/pull.bclj")
+               (str home "/code/beagle/self-host/src/parse.bclj")
+               (str home "/code/client/acme/thing/src/model.bclj")
+               (str home "/code/gone/src/vanished.bclj")]))
+      by-action (group-by :action plan)]
+  (check "a row that still resolves is left exactly as it is"
+         (= [{:row adopted :action :keep}] (:keep by-action)))
+  (check "a stale row whose moved file still carries the sentinel is relocated"
+         (= adopted (:to (first (filter #(str/includes? (:row %) "/code/fram/src/") plan)))))
+  (check "the client layout's owner segment survives relocation"
+         (= client (:to (first (filter #(str/includes? (:row %) "/client/") plan)))))
+  (check "a moved file that lost its sentinel is RETIRED, never revived"
+         (let [row (first (filter #(str/includes? (:row %) "/beagle/") plan))]
+           (and (= :retire (:action row))
+                (str/includes? (:reason row) de-adopted))))
+  (check "a row with no file under any layout is retired"
+         (= :retire (:action (first (filter #(str/includes? (:row %) "vanished") plan)))))
+  (check "repair rewrites or retires every stale row and keeps nothing dead"
+         (= 4 (count (remove #(= :keep (:action %)) plan)))))
 
 ;; ---- (2) provider accounts -----------------------------------------------------
 

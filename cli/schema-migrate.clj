@@ -71,14 +71,11 @@
 (def LEGACY-KERNEL-SINGLE
   #{"title" "owner" "lead" "driver" "source" "part_of" "do_on" "valid_until"
     "estimate_hours" "created_at" "updated_at" "name" "body" "created_by"
-    "committed" "outcome" "abandoned" "superseded_by" "merged_into"
-    "session_of" "start_time" "end_time" "clockify_id"})
+    "committed" "outcome" "abandoned" "superseded_by" "merged_into"})
 
 (def CORE-ENTITY-KINDS
   (sorted-map
    "agent" "A human-facing or managed execution identity."
-   "client_rate_config" "A per-owner client billing rate configuration read by clock rate lookups; never a session interval."
-   "client_session" "One human/client billing-clock interval; never a managed run."
    "concern" "A concurrent implementation footprint and intent declaration."
    "guard_denial" "An admission-guard refusal with its diagnostic evidence."
    "message" "A durable coordination message or peer command envelope."
@@ -115,12 +112,8 @@
 
 (def LEGACY-ENTITY-KINDS
   (sorted-map
-   "north/clock_audit_run" "One historical clock-coverage audit execution."
    "north/integration_link" "A deterministic external-integration identity link."
-   "north/legacy_agent_session" "A pre-run-model managed-agent timing session; audit-only and never billable."
-   "north/legacy_human_session" "A pre-client-session human billing interval retained for historical billing."
    "north/legacy_schema_projection" "A deprecated @pred:* catalog projection; never executable schema authority."
-   "north/legacy_session" "A historical session whose actor was not recorded."
    "north/linear_bootstrap_reservation" "A deterministic Linear bootstrap reservation."
    "north/test_fixture" "A historical test or scratch entity retained outside domain authority."))
 
@@ -131,8 +124,6 @@
 
 (def LEGACY-KIND->ENTITY-KIND
   {"agent" "agent" "lane" "agent" "managed" "agent" "session" "agent"
-   "client_rate_config" "client_rate_config"
-   "client_session" "client_session"
    "concern" "concern"
    "guard_denial" "guard_denial"
    "message" "message" "msg" "message" "command" "message"
@@ -144,7 +135,6 @@
    "subscription" "subscription"
    "thread" "thread"
    "topic" "topic"
-   "clock_audit_run" "north/clock_audit_run"
    "integration_link" "north/integration_link"
    "linear_bootstrap_reservation" "north/linear_bootstrap_reservation"})
 
@@ -176,17 +166,10 @@
    "part_of" {:card "single" :kind "ref" :acyclic "true"
               :doc "Containment edge from a child entity to its single parent."}})
 
-(def LEGACY-SESSION-SIGNATURES
-  #{#{"clocked_by" "end_time" "session_of" "start_time"}
-    #{"end_time" "session_of" "start_time"}
-    #{"clock_orphaned" "clocked_by" "end_time" "session_of" "start_time"}
-    #{"clocked_by" "session_of" "start_time"}})
-
 (def TEST-FIXTURE-SIGNATURES
   #{#{"agg_done_batch" "agg_done_worker"}
     #{"agg_run_batch" "agg_run_tokens"}
-    #{"agg_charge_tokens" "agg_charged_to"}
-    #{"end_time" "start_time"}})
+    #{"agg_charge_tokens" "agg_charged_to"}})
 
 (def LEGACY-SCHEMA-PROJECTION-SIGNATURE
   #{"doc" "minted_at" "minted_by" "pred_cardinality" "pred_value_kind"})
@@ -654,23 +637,10 @@
     (first values)))
 
 (defn deterministic-legacy-kind [by-lp subject predicates]
-  (let [clocked-by (values-at by-lp subject "clocked_by")
-        bare (subject-bare subject)]
+  (let [bare (subject-bare subject)]
     (cond
-      (contains? LEGACY-SESSION-SIGNATURES predicates)
-      (cond
-        (empty? clocked-by) "north/legacy_session"
-        (= #{"user"} clocked-by) "north/legacy_human_session"
-        (contains? clocked-by "user") nil
-        :else "north/legacy_agent_session")
-
       (and (or (str/starts-with? bare "aggtest:")
                (str/starts-with? bare "aggtest-"))
-           (contains? TEST-FIXTURE-SIGNATURES predicates))
-      "north/test_fixture"
-
-      (and (or (str/starts-with? bare "scratch-sess-")
-               (str/starts-with? bare "scratch2-sess-"))
            (contains? TEST-FIXTURE-SIGNATURES predicates))
       "north/test_fixture"
 
