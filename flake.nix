@@ -248,6 +248,15 @@ PY
               exact
             else
               throw "North requires an exact or caret-prefixed Zod version, got ${declared}";
+        opentuiVersion =
+          let
+            declared = (builtins.fromJSON (builtins.readFile ./sdk/package.json))
+              .dependencies."@opentui/core";
+          in
+            if builtins.match "[0-9]+\\.[0-9]+\\.[0-9]+" declared != null then
+              declared
+            else
+              throw "North requires an exact OpenTUI version, got ${declared}";
         # Runtime PATH for the bb-backed CLIs. util-linux supplies `setsid` for
         # managed lanes on every supported host. iproute2 supplies Linux's `ss`
         # for daemon-health probes and procps supplies lifecycle-hook `pgrep`;
@@ -318,6 +327,104 @@ PY
         sdkPlatformSource = pkgs.fetchurl {
           inherit (sdkPlatform) url hash;
         };
+        opentuiPlatform =
+          if pkgs.stdenv.hostPlatform.isLinux then
+            if pkgs.stdenv.hostPlatform.isx86_64 then
+              if pkgs.stdenv.hostPlatform.isMusl then {
+                packageName = "@opentui/core-linux-x64-musl";
+                tarballName = "core-linux-x64-musl";
+                hash = "sha512-SEg+/lG2ToswziX/ICMRy2QTHmZcb2wfQftQsbmejjL8zI3vGIhT+YlgVHz4jYlGm9zj/gLl2hAHj7mGKPZFzA==";
+              } else {
+                packageName = "@opentui/core-linux-x64";
+                tarballName = "core-linux-x64";
+                hash = "sha512-GwPW6tXCamEUdg3ykabzYW9ayGCOR18yiHKbuY8GB5EgbcA2rkwczE7KQs08RGuSNSWIGEEwHZE2cqhXjYogCQ==";
+              }
+            else if pkgs.stdenv.hostPlatform.isAarch64 then
+              if pkgs.stdenv.hostPlatform.isMusl then {
+                packageName = "@opentui/core-linux-arm64-musl";
+                tarballName = "core-linux-arm64-musl";
+                hash = "sha512-fIS0eDs9m6SDgVVG0Aaqn6Co39K8J436Vp0xMD3FjPc41mpsoFjyHquhIkpAX9bh8Qr225uGG5zRm7A+88FlKw==";
+              } else {
+                packageName = "@opentui/core-linux-arm64";
+                tarballName = "core-linux-arm64";
+                hash = "sha512-BidyUBbI6n9WGPZpmJ1X457FUCMhbj7G2kcPnUln8w2zuaXGb9AN8QfOTtD9JGuujkx0Xsz8yhfC3cCWLQyz5w==";
+              }
+            else throw "North's OpenTUI package does not support ${system}"
+          else if pkgs.stdenv.hostPlatform.isDarwin then
+            if pkgs.stdenv.hostPlatform.isAarch64 then {
+              packageName = "@opentui/core-darwin-arm64";
+              tarballName = "core-darwin-arm64";
+              hash = "sha512-FcLH4Rs2/xnBOudMzuHimEK8aNuJ3QpOde+xjz+7hf/0cmurnDJLs+VJ85qYYdBdcnuBonFbjZfB19OLd2RwIA==";
+            } else throw "North's OpenTUI package does not support ${system}"
+          else throw "North's OpenTUI package does not support ${system}";
+        opentuiSource = pkgs.fetchurl {
+          url = "https://registry.npmjs.org/@opentui/core/-/core-${opentuiVersion}.tgz";
+          hash = "sha512-LCHPiwB8zjvJ1KTTayQoq5nygdRwLI1ApsvWiCF06PtMPr0yP/zU+L3xk9KiFoTbAabtgA7PoBf16M2hPZR+tg==";
+        };
+        opentuiPlatformSource = pkgs.fetchurl {
+          url = "https://registry.npmjs.org/${opentuiPlatform.packageName}/-/${opentuiPlatform.tarballName}-${opentuiVersion}.tgz";
+          inherit (opentuiPlatform) hash;
+        };
+        opentuiRuntimeSources = [
+          { packageName = "@opentui/core"; source = opentuiSource; }
+          { inherit (opentuiPlatform) packageName; source = opentuiPlatformSource; }
+          {
+            packageName = "bun-ffi-structs";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/bun-ffi-structs/-/bun-ffi-structs-0.3.1.tgz";
+              hash = "sha512-3gM7PpVWLyrwxWjcilSiGuhWanhZivvo6l0u573NziPH6f/gwk6McbaYgn7oJWov6pKGRTDbrg94W5DcJsKTtQ==";
+            };
+          }
+          {
+            packageName = "diff";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/diff/-/diff-9.0.0.tgz";
+              hash = "sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==";
+            };
+          }
+          {
+            packageName = "marked";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/marked/-/marked-17.0.1.tgz";
+              hash = "sha512-boeBdiS0ghpWcSwoNm/jJBwdpFaMnZWRzjA6SkUMYb40SVaN1x7mmfGKp0jvexGcx+7y2La5zRZsYFZI6Qpypg==";
+            };
+          }
+          {
+            packageName = "string-width";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/string-width/-/string-width-7.2.0.tgz";
+              hash = "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ==";
+            };
+          }
+          {
+            packageName = "strip-ansi";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.1.2.tgz";
+              hash = "sha512-gmBGslpoQJtgnMAvOVqGZpEz9dyoKTCzy2nfz/n8aIFhN/jCE/rCmcxabB6jOOHV+0WNnylOxaxBQPSvcWklhA==";
+            };
+          }
+          {
+            packageName = "emoji-regex";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/emoji-regex/-/emoji-regex-10.6.0.tgz";
+              hash = "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==";
+            };
+          }
+          {
+            packageName = "get-east-asian-width";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/get-east-asian-width/-/get-east-asian-width-1.6.0.tgz";
+              hash = "sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==";
+            };
+          }
+          {
+            packageName = "ansi-regex";
+            source = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.2.2.tgz";
+              hash = "sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==";
+            };
+          }
+        ];
         zodSource = pkgs.fetchurl {
           url = "https://registry.npmjs.org/zod/-/zod-${zodVersion}.tgz";
           hash = "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==";
@@ -442,7 +549,7 @@ PY
         };
 
         # The packaged TypeScript runtime needs the public SDK, North's direct
-        # Zod dependency, and the exact native Claude binary for this host.
+        # Zod dependency, and host-matched native packages for its UI/runtime.
         # Fetching those tarballs directly keeps each system's closure bounded
         # instead of prefetching every 200+ MB optional OS/architecture package
         # in npm's universal lockfile.
@@ -463,6 +570,11 @@ PY
               -C $out/node_modules/${sdkPlatform.packageName}
             tar -xzf ${zodSource} --strip-components=1 \
               -C $out/node_modules/zod
+            ${lib.concatMapStringsSep "\n" (pkg: ''
+              mkdir -p "$out/node_modules/${pkg.packageName}"
+              tar -xzf ${pkg.source} --strip-components=1 \
+                -C "$out/node_modules/${pkg.packageName}"
+            '') opentuiRuntimeSources}
             chmod +x $out/node_modules/${sdkPlatform.packageName}/claude
             runHook postInstall
           '';
