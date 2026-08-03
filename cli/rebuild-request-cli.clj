@@ -723,6 +723,54 @@
            :count (count requests)})]
     (assoc plan :unread-older 0 :queue-read bridge)))
 
+;; ---- post-window canary probe ------------------------------------------------
+;; Gate D: probes the landed generation right after window close instead of
+;; waiting on the next scheduled canary sweep. Never gates the fired result.
+
+(def canary-alert-subject "north-rebuild-window-owner")
+
+(defn canary-alert-recipient []
+  (or (System/getenv "NORTH_REBUILD_CANARY_OWNER")
+      (System/getenv "NORTH_AUTHOR")
+      "tom_passarelli"))
+
+(defn send-urgent-alert! [body]
+  (try
+    (proc/shell {:out :string :err :string :continue true}
+               "bb" (str cli-dir "/msg-cli.clj") (str (or (System/getenv "NORTH_PORT") "7977"))
+               "send" canary-alert-subject (canary-alert-recipient) "URGENT" body)
+    (catch Throwable _ nil)))
+
+(defn run-post-window-canary!
+  [port window-id generation]
+  (try
+    (let [result (proc/shell {:out :string :err :string :continue true}
+                             (str repo-root "/bin/north") "canary" "run" "--matrix")
+          ok? (zero? (:exit result))
+          out (str (:out result) (:err result))
+          at (now-ms)]
+      (north.coord/put! port (window-subject window-id) "window_canary"
+                        (json/generate-string
+                         (sorted-map "atMs" at "at" (instant at)
+                                     "generation" (str generation)
+                                     "status" (if ok? "full-green" "failure")
+                                     "exit" (:exit result))))
+      (when-not ok?
+        (binding [*out* *err*]
+          (println (str "north rebuild: post-window canary FAILED for generation "
+                        generation " (window " window-id "); alerting")))
+        (send-urgent-alert!
+         (str "canary failed after rebuild window " window-id
+              " (generation " generation ", exit " (:exit result) "):\n"
+              (subs out 0 (min (count out) 4000))))))
+    (catch Throwable error
+      (binding [*out* *err*]
+        (println (str "north rebuild: post-window canary errored for window "
+                      window-id ": " (.getMessage error))))
+      (send-urgent-alert!
+       (str "canary probe itself errored after rebuild window " window-id
+            " (generation " generation "): " (.getMessage error))))))
+
 (defn run-window!
   "Execute one claimed window through the mutexed rebuild/readiness path, then
    close every request the window claimed against the landed generation. Runs
@@ -755,6 +803,7 @@
         (write-window-action-projection! port window-id "fired")
         (println (str "rebuild window " window-id " fired · " (count requests)
                       " request(s) satisfied · generation " generation))
+        (run-post-window-canary! port window-id generation)
         0)
       (do
         (set-window-action! port window-id "failed")
