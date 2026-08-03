@@ -1789,6 +1789,7 @@ function completedNativeCommand(
     status,
     aggregatedOutput,
     exitCode: item.exitCode as number,
+    durationMs: item.durationMs as number,
   })) throw new Error("Codex command completion is missing its exact start");
 }
 

@@ -450,7 +450,7 @@ test("run telemetry carries bounded native command evidence without raw command 
       northBinaryProbe: "passed",
       completions: [{
         commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
-        status: "completed", exitCode: 0, shape: "read",
+        status: "completed", exitCode: 0, shape: "read", durationMs: 5,
       }],
     },
   });

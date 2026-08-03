@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   assignLearningEpisode, DEFAULT_LEARNING_POLICY, learningAssignmentFacts,
-  validateLearningPolicy, type LearningAssignmentInput,
+  graphTextExperimentAssignment, validateLearningPolicy, type LearningAssignmentInput,
 } from "../src/learning-regime";
 import {
   buildEnvironmentReceipt, buildPromptReceipt, buildRunEnvelope, sha256Bytes,
@@ -63,6 +63,24 @@ describe("learning regime assignment", () => {
       .toBe("risk:unknown");
     expect(assignLearningEpisode(policy, { ...assignmentInput(), risk: "p3" }).narrowingReason)
       .toBe("risk:above-ceiling");
+  });
+
+  test("armed graph/text assignment is deterministic and balanced independently of generic axes", () => {
+    const policy = validateLearningPolicy({
+      ...DEFAULT_LEARNING_POLICY, graphTextExperiment: "armed",
+    });
+    const left = assignLearningEpisode(policy, assignmentInput("fleet-episode"), "eligible");
+    const right = assignLearningEpisode(policy, assignmentInput("fleet-episode"), "eligible");
+    expect(left.graphTextExperiment).toEqual(right.graphTextExperiment);
+    expect(["graph", "text"]).toContain(left.graphTextExperiment.arm);
+    expect(left.graphTextExperiment.status).toBe("assigned");
+    expect(left.graphTextExperiment.applied).toBe(true);
+    expect(learningAssignmentFacts(left)).toContainEqual([
+      "graph_text_experiment_arm", left.graphTextExperiment.arm,
+    ]);
+    expect(graphTextExperimentAssignment(policy, "pinned", "pinned-graph"))
+      .toMatchObject({ status: "pinned", arm: "graph", applied: false,
+        reason: "operator-pinned-authoring-surface" });
   });
 });
 

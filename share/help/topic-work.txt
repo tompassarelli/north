@@ -7,6 +7,7 @@ north help work — threads: thought → fact → outcome
   north threads [--all]                     thread-kind overview: active drivers, top ready, counts  (aliases: board, plate)
   north ready [--all]                       committed + unblocked work, ranked by leverage
   north next                                the recommended next pull
+  north report                              recent shipped outcomes
   north blocked                             threads waiting on a depends_on target
   north leverage                            what unblocks the most downstream work
   north agenda                              calendar projection over do_on: overdue / today / upcoming

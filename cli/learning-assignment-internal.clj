@@ -28,7 +28,13 @@
    "learning_narrowing_reason"
    "learning_baseline_sha256"
    "learning_options_sha256"
-   "learning_assignment_sha256"])
+   "learning_assignment_sha256"
+   "graph_text_experiment_version"
+   "graph_text_experiment_status"
+   "graph_text_experiment_arm"
+   "graph_text_experiment_applied"
+   "graph_text_experiment_reason"
+   "graph_text_experiment_assignment_sha256"])
 
 ;; Must outlive one bounded fleet terminal-write convoy (global-version CAS).
 (def assignment-publication-deadline-ms 60000)
@@ -95,12 +101,15 @@
                {:predicate predicate :values (mapv second entries)})))
     (doseq [predicate ["learning_policy_sha256" "learning_task_signature_sha256"
                        "learning_baseline_sha256" "learning_options_sha256"
-                       "learning_assignment_sha256"]]
+                       "learning_assignment_sha256"
+                       "graph_text_experiment_assignment_sha256"]]
       (when-not (sha256? (get scalar predicate))
         (fail! "learning assignment contains an invalid digest" {:predicate predicate})))
     (doseq [predicate ["learning_assignment_version" "learning_policy_version"
                        "learning_experiment_id" "learning_episode_id"
-                       "learning_arm_id" "learning_narrowing_reason"]]
+                       "learning_arm_id" "learning_narrowing_reason"
+                       "graph_text_experiment_version"
+                       "graph_text_experiment_reason"]]
       (when-not (identifier? (get scalar predicate))
         (fail! "learning assignment contains an invalid identifier" {:predicate predicate})))
     (when-not (= "north-learning-assignment:v1"
@@ -120,6 +129,27 @@
       (fail! "learning assignment has invalid axis" {}))
     (when-not (#{"p0" "p1" "p2" "p3" "unknown"} (get scalar "learning_risk"))
       (fail! "learning assignment has invalid risk" {}))
+    (when-not (= "north-graph-text-assignment:v1"
+                 (get scalar "graph_text_experiment_version"))
+      (fail! "learning assignment has unsupported graph-text version" {}))
+    (when-not (#{"off" "ineligible" "pinned" "assigned"}
+                (get scalar "graph_text_experiment_status"))
+      (fail! "learning assignment has invalid graph-text status" {}))
+    (when-not (#{"none" "graph" "text"}
+                (get scalar "graph_text_experiment_arm"))
+      (fail! "learning assignment has invalid graph-text arm" {}))
+    (when-not (#{"true" "false"}
+                (get scalar "graph_text_experiment_applied"))
+      (fail! "learning assignment has invalid graph-text application flag" {}))
+    (let [status (get scalar "graph_text_experiment_status")
+          arm (get scalar "graph_text_experiment_arm")
+          applied (get scalar "graph_text_experiment_applied")]
+      (when-not (or (and (= "assigned" status) (#{"graph" "text"} arm)
+                         (= "true" applied))
+                    (and (not= "assigned" status) (= "false" applied)
+                         (if (= "pinned" status) (#{"graph" "text"} arm)
+                             (= "none" arm))))
+        (fail! "learning assignment graph-text fields are inconsistent" {})))
     (let [arm (get scalar "learning_arm")
           axis (get scalar "learning_axis")
           arm-id (get scalar "learning_arm_id")]

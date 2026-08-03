@@ -507,6 +507,7 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
           || !/^[a-f0-9]{64}$/.test(completion.outputSha256)
           || !["completed", "failed", "declined"].includes(completion.status)
           || !NATIVE_COMMAND_SHAPES.includes(completion.shape)
+          || !Number.isSafeInteger(completion.durationMs) || completion.durationMs < 0
           || !Number.isSafeInteger(completion.exitCode)
           || completion.exitCode < -2_147_483_648 || completion.exitCode > 2_147_483_647)
         throw new Error("invalid native command completion evidence");

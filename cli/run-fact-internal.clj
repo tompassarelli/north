@@ -60,6 +60,87 @@
 (defn canonical-record [record]
   (json/generate-string (into (sorted-map) record)))
 
+(def operation-tool-pattern #"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}")
+(def operation-component-pattern #"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
+
+(defn parse-operation-json! [label raw]
+  (try (json/parse-string raw)
+       (catch Exception error
+         (fail! (str "invalid " label " JSON") {:cause (.getMessage error)}))))
+
+(defn validate-operation-evidence! [receipt-entries aggregate-entries]
+  (when (or (> (count receipt-entries) 512) (> (count aggregate-entries) 512))
+    (fail! "MCP operation evidence exceeds the bounded receipt limit" {}))
+  (let [receipts
+        (mapv (fn [[_ raw]]
+                (let [record (parse-operation-json! "MCP operation receipt" raw)
+                      keys' (set (keys record))]
+                  (when-not (or (= #{"tool" "operation" "durationMs" "outcome" "resultSize"} keys')
+                                (= #{"tool" "operation" "durationMs" "batchSize" "outcome" "resultSize"} keys'))
+                    (fail! "MCP operation receipt requires the exact v1 field set" {}))
+                  (when-not (and (string? (get record "tool"))
+                                 (re-matches operation-tool-pattern (get record "tool"))
+                                 (every? #(and (string? %) (re-matches operation-component-pattern %))
+                                         ((juxt #(get % "operation") #(get % "outcome")) record))
+                                 (every? #(and (integer? %) (<= 0 %))
+                                         (cond-> [(get record "durationMs") (get record "resultSize")]
+                                           (contains? record "batchSize") (conj (get record "batchSize")))))
+                    (fail! "MCP operation receipt contains invalid values" {:record record}))
+                  record)) receipt-entries)
+        aggregates
+        (mapv (fn [[_ raw]]
+                (let [record (parse-operation-json! "MCP operation aggregate" raw)
+                      count' (get record "count")
+                      total (get record "totalDurationMs")
+                      mean (get record "meanDurationMs")
+                      failures (get record "failureCount")]
+                  (when-not (= #{"operation" "count" "totalDurationMs" "meanDurationMs" "failureCount"}
+                               (set (keys record)))
+                    (fail! "MCP operation aggregate requires the exact v1 field set" {}))
+                  (when-not (and (string? (get record "operation"))
+                                 (re-matches operation-component-pattern (get record "operation"))
+                                 (integer? count') (pos? count')
+                                 (integer? total) (<= 0 total)
+                                 (number? mean) (= (double mean) (/ (double total) count'))
+                                 (integer? failures) (<= 0 failures count'))
+                    (fail! "MCP operation aggregate contains invalid values" {:record record}))
+                  record)) aggregate-entries)
+        derived (reduce (fn [result receipt]
+                          (update result (get receipt "operation")
+                                  (fnil (fn [entry]
+                                          (-> entry
+                                              (update "count" inc)
+                                              (update "totalDurationMs" + (get receipt "durationMs"))
+                                              (update "failureCount" + (if (= "ok" (get receipt "outcome")) 0 1))))
+                                        {"count" 0 "totalDurationMs" 0 "failureCount" 0})))
+                        {} receipts)]
+    (when-not (= (set (keys derived)) (set (map #(get % "operation") aggregates)))
+      (fail! "MCP operation aggregates do not cover the exact receipt operations" {}))
+    (when-not (= (count derived) (count aggregates))
+      (fail! "MCP operation aggregates must be unique by operation" {}))
+    (doseq [aggregate aggregates
+            :let [expected (get derived (get aggregate "operation"))]]
+      (when-not (= expected (select-keys aggregate ["count" "totalDurationMs" "failureCount"]))
+        (fail! "MCP operation aggregate does not reconcile with receipts"
+               {:operation (get aggregate "operation")})))))
+
+(defn validate-native-operation-evidence! [entries]
+  (when (> (count entries) 32)
+    (fail! "native command completion evidence exceeds the bounded receipt limit" {}))
+  (doseq [[_ raw] entries
+          :let [record (parse-operation-json! "native command completion" raw)]]
+    (when-not (= #{"commandSha256" "outputSha256" "status" "exitCode" "shape" "durationMs"}
+                 (set (keys record)))
+      (fail! "native command completion requires the exact duration-bearing field set" {}))
+    (when-not (and (every? #(boolean (re-matches #"[a-f0-9]{64}" (or % "")))
+                           ((juxt #(get % "commandSha256") #(get % "outputSha256")) record))
+                   (#{"completed" "failed" "declined"} (get record "status"))
+                   (#{"read" "edit" "other"} (get record "shape"))
+                   (integer? (get record "exitCode"))
+                   (integer? (get record "durationMs"))
+                   (<= 0 (get record "durationMs")))
+      (fail! "native command completion contains invalid operation evidence" {}))))
+
 (defn validate-reported-run! [port subject scalar delivery-facts run-facts]
   (when (= "reported" (get delivery-facts "delivery_outcome"))
     (let [evidence (json/parse-string (get delivery-facts "delivery_evidence"))
@@ -138,13 +219,20 @@
         "learning_risk" "learning_arm" "learning_axis" "learning_arm_id"
         "learning_propensity" "learning_explore_propensity"
         "learning_narrowing_reason" "learning_baseline_sha256"
-        "learning_options_sha256" "learning_assignment_sha256"}
+        "learning_options_sha256" "learning_assignment_sha256"
+        "graph_text_experiment_version" "graph_text_experiment_status"
+        "graph_text_experiment_arm" "graph_text_experiment_applied"
+        "graph_text_experiment_reason"
+        "graph_text_experiment_assignment_sha256"}
       reservation-keys
       (conj (into (set north.terminal-projection/run-reservation-predicates)
                   learning-keys)
             "run_bar_evidence")
       terminal-learning-keys (set (filter learning-keys (keys grouped)))
       terminal-body-facts (filterv #(not (learning-keys (first %))) body-facts)]
+  (validate-operation-evidence! (get grouped "mcp_operation_receipt" [])
+                                (get grouped "mcp_operation_aggregate" []))
+  (validate-native-operation-evidence! (get grouped "native_command_completion" []))
   (when-not (= [["kind" "run"]] kind-facts)
     (fail! "run telemetry requires exactly kind=run" {:kind-facts kind-facts}))
   (checked!

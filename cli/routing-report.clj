@@ -165,11 +165,13 @@
     "environment_receipt_version" "environment_receipt_sha256"
     "environment_receipt_coverage" "available_skill_catalog_sha256"
     "activated_resource_closure_sha256" "run_envelope_version"
-    "run_envelope_sha256"})
+    "run_envelope_sha256" "mcp_operation_aggregate"
+    "native_command_activity_coverage" "native_command_completion"})
 
 (defn learning-fast-predicate? [predicate]
   (or (contains? learning-fast-predicates predicate)
-      (str/starts-with? predicate "learning_")))
+      (str/starts-with? predicate "learning_")
+      (str/starts-with? predicate "graph_text_experiment_")))
 
 (defn fold-facts [ops]
   (reduce
@@ -660,6 +662,32 @@
                       (when (and server tool count')
                         {:server server :tool tool :count count'})))
                   (many facts entity "mcp_actual_tool")))
+       :operationAggregates
+       (vec (keep (fn [raw]
+                    (let [parsed (json-map raw)
+                          operation-type (normalized-token (get parsed "operation"))
+                          count' (maybe-positive-long (get parsed "count"))
+                          total-duration (maybe-long (get parsed "totalDurationMs"))
+                          mean-duration (maybe-double (get parsed "meanDurationMs"))
+                          failures (maybe-long (get parsed "failureCount"))]
+                      (when (and operation-type count' total-duration mean-duration failures
+                                 (<= 0 failures count') (<= 0 total-duration)
+                                 (= mean-duration (/ total-duration (double count'))))
+                        {:operationType operation-type
+                         :count count' :totalDurationMs total-duration
+                         :meanDurationMs mean-duration :failureCount failures})))
+                  (many facts entity "mcp_operation_aggregate")))
+       :nativeCommandActivityCoverage
+       (normalized-token (one facts entity "native_command_activity_coverage"))
+       :nativeCommandOperations
+       (vec (keep (fn [raw]
+                    (let [parsed (json-map raw)
+                          shape (normalized-token (get parsed "shape"))
+                          duration (maybe-long (get parsed "durationMs"))
+                          status (normalized-token (get parsed "status"))]
+                      (when (and (#{"read" "edit"} shape) duration status)
+                        {:shape shape :durationMs duration :status status})))
+                  (many facts entity "native_command_completion")))
        :requestedProvider (normalized-token (one facts entity "requested_provider"))
        :requestedTarget (normalized-token (one facts entity "requested_target"))
        :requestedModel (normalized-token (one facts entity "requested_model"))
@@ -796,6 +824,18 @@
        (normalized-token (one facts entity "learning_options_sha256"))
        :learningAssignmentSha256
        (normalized-token (one facts entity "learning_assignment_sha256"))
+       :graphTextExperimentVersion
+       (normalized-token (one facts entity "graph_text_experiment_version"))
+       :graphTextExperimentStatus
+       (normalized-token (one facts entity "graph_text_experiment_status"))
+       :graphTextExperimentArm
+       (normalized-token (one facts entity "graph_text_experiment_arm"))
+       :graphTextExperimentApplied
+       (normalized-token (one facts entity "graph_text_experiment_applied"))
+       :graphTextExperimentReason
+       (normalized-token (one facts entity "graph_text_experiment_reason"))
+       :graphTextExperimentAssignmentSha256
+       (normalized-token (one facts entity "graph_text_experiment_assignment_sha256"))
        :promptReceiptVersion
        (normalized-token (one facts entity "prompt_receipt_version"))
        :promptReceiptSha256
@@ -2836,6 +2876,111 @@
                             (sort-by (juxt :experimentId :taskSignatureSha256)) vec)
      :observations observations}))
 
+(def graph-text-minimum-pairs 20)
+
+(defn experiment-operation-types [row]
+  (let [arm (:graphTextExperimentArm row)]
+    (cond
+      (= "graph" arm)
+      (->> (:operationAggregates row)
+           (keep (fn [{:keys [operationType]}]
+                   (let [family (first (str/split operationType #"\." 2))]
+                     (when (#{"reasoning" "authoring"} family) family))))
+           distinct vec)
+
+      (= "text" arm)
+      (->> (:nativeCommandOperations row)
+           (map (comp {"read" "reasoning" "edit" "authoring"} :shape))
+           (remove nil?) distinct vec)
+
+      :else [])))
+
+(defn experiment-run-eligible? [row]
+  (and (= "north-graph-text-assignment:v1" (:graphTextExperimentVersion row))
+       (= "assigned" (:graphTextExperimentStatus row))
+       (= "true" (:graphTextExperimentApplied row))
+       (#{"graph" "text"} (:graphTextExperimentArm row))
+       (re-matches sha256-pattern (or (:graphTextExperimentAssignmentSha256 row) ""))
+       (number? (:durationMs row))
+       (:processOutcomeObserved row)
+       (case (:graphTextExperimentArm row)
+         "graph" (= "exact" (:mcpActivityCoverage row))
+         "text" (= "exact" (:nativeCommandActivityCoverage row))
+         false)
+       (seq (experiment-operation-types row))))
+
+(defn experiment-failed? [row]
+  (not= "ran" (:processOutcome row)))
+
+(defn experiment-failure-label [rate]
+  (if (number? rate) (format "%.4f" (double rate)) "n/a"))
+
+(defn pair-arm-rows [rows]
+  (let [by-arm (group-by :graphTextExperimentArm rows)
+        graph (vec (sort-by (juxt :at :entity) (get by-arm "graph" [])))
+        text (vec (sort-by (juxt :at :entity) (get by-arm "text" [])))
+        n (min (count graph) (count text))]
+    (mapv (fn [index] {:graph (nth graph index) :text (nth text index)}) (range n))))
+
+(defn experiment-operation-summary [[operation-type rows]]
+  (let [pairs (->> rows
+                   (group-by :thread)
+                   (mapcat (comp pair-arm-rows val))
+                   vec)
+        green-pairs (remove #(or (experiment-failed? (:graph %))
+                                 (experiment-failed? (:text %)))
+                            pairs)
+        graph (map :graph pairs)
+        text (map :text pairs)
+        graph-wall (median-observation (map (comp :durationMs :graph) green-pairs))
+        text-wall (median-observation (map (comp :durationMs :text) green-pairs))
+        graph-failure (when (seq pairs)
+                        (/ (count (filter experiment-failed? graph)) (double (count pairs))))
+        text-failure (when (seq pairs)
+                       (/ (count (filter experiment-failed? text)) (double (count pairs))))
+        enough? (>= (count pairs) graph-text-minimum-pairs)
+        graph-wins? (and (number? graph-wall)
+                         (number? text-wall)
+                         (< graph-wall text-wall)
+                         (< graph-failure text-failure))]
+    {:operationType operation-type
+     :pairs (count pairs)
+     :pairedGreenWallSamples (count green-pairs)
+     :sampleCounts (frequencies (map (comp keyword :graphTextExperimentArm) rows))
+     :graph {:medianWallMs graph-wall :failureRate graph-failure}
+     :text {:medianWallMs text-wall :failureRate text-failure}
+     :verdict (cond
+                (not enough?) "insufficient data"
+                graph-wins? "flip-to-graph"
+                :else "retain-text")
+     :recommendationReason
+     (cond
+       (not enough?) (str "requires at least " graph-text-minimum-pairs " paired runs")
+       graph-wins? "graph wins both median wall time and terminal failure rate"
+       :else "graph does not win both median wall time and terminal failure rate")}))
+
+(defn graph-text-experiment-report [rows]
+  (let [eligible (filterv experiment-run-eligible? rows)
+        exploded (mapcat (fn [row]
+                           (map #(assoc row :experimentOperationType %)
+                                (experiment-operation-types row)))
+                         eligible)
+        operation-groups (group-by :experimentOperationType exploded)]
+    {:report "graph-text-experiment"
+     :minimumPairs graph-text-minimum-pairs
+     :eligibleRuns (count eligible)
+     :excludedRuns (- (count rows) (count eligible))
+     :priors [{:arc "raw-EDN lost"
+               :transferability "non-transferable"
+               :role "historical context only"}
+              {:arc "adapter won N=1"
+               :transferability "non-transferable"
+               :role "historical context only"}]
+     :operations (->> operation-groups
+                      (map experiment-operation-summary)
+                      (sort-by :operationType)
+                      vec)}))
+
 (defn report [kind rows & [{:keys [all? by-model? by-effort?]
                             :or {all? false by-model? false by-effort? false}}]]
   (case kind
@@ -2847,7 +2992,8 @@
     "calibration" (calibration-report rows)
     "timing" (timing-report rows)
     "learning" (learning-report rows)
-    (throw (ex-info "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning] [--json] [--all]" {}))))
+    "experiment" (graph-text-experiment-report rows)
+    (throw (ex-info "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning|experiment] [--json] [--all]" {}))))
 
 (defn usage-table-line
   ([label row] (usage-table-line label row {}))
@@ -3112,6 +3258,24 @@
                          (str/join "," (:axes group)) (:reason group))))
       (when (empty? (:cohorts data))
         (println "  (no evaluation-ready cohorts)")))
+    "graph-text-experiment"
+    (do
+      (println "GRAPH/TEXT EXPERIMENT — paired real-fleet outcomes")
+      (println "PRIORS (non-transferable): raw-EDN lost; adapter won N=1")
+      (println (format "eligible=%d excluded=%d minimum-pairs=%d"
+                       (:eligibleRuns data) (:excludedRuns data) (:minimumPairs data)))
+      (doseq [row (:operations data)]
+        (println (format "%s pairs=%d paired-green-wall=%d graph[n=%d median-green-ms=%s failure=%s] text[n=%d median-green-ms=%s failure=%s] VERDICT %s"
+                         (:operationType row) (:pairs row) (:pairedGreenWallSamples row)
+                         (get-in row [:sampleCounts :graph] 0)
+                         (get-in row [:graph :medianWallMs])
+                         (experiment-failure-label (get-in row [:graph :failureRate]))
+                         (get-in row [:sampleCounts :text] 0)
+                         (get-in row [:text :medianWallMs])
+                         (experiment-failure-label (get-in row [:text :failureRate]))
+                         (:verdict row))))
+      (when (empty? (:operations data))
+        (println "insufficient data — no paired operation observations")))
     "economics"
     (do
       (println "ROUTING ECONOMICS — bounded exact observations, alert-only policy")
@@ -3160,7 +3324,7 @@
             (println (format "  ALERT %-42s observed=%s threshold=%s"
                              code observed threshold))))))))
 
-(def usage-help "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
+(def usage-help "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning|experiment] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
 
 (defn parse-options [args]
   (loop [remaining args options {:flags #{}}]
@@ -3203,7 +3367,7 @@
       (binding [*out* *err*] (println "--window/--slice/--now apply only to usage/economics reports"))
       (System/exit 2))
     (let [facts (fold-facts (read-ops (default-paths)
-                                      (when (= kind "learning")
+                                      (when (#{"learning" "experiment"} kind)
                                         learning-fast-predicate?)))
           rows (vec (run-rows facts))
           report-rows (if (= kind "waste") (waste-attempt-rows facts rows) rows)

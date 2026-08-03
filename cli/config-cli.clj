@@ -65,7 +65,7 @@
 (def default-learning-policy
   {:version 1 :mode "frozen" :intensity 0.1 :axes learning-axes
    :maxTierDelta 1 :riskCeiling "p1" :seed "north-default" :epoch "1"
-   :evidenceMode "discovery"})
+   :evidenceMode "discovery" :graphTextExperiment "off"})
 
 (defn- slurp' [f] (try (slurp f) (catch Exception _ nil)))
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
@@ -499,14 +499,15 @@
 ;; policy; learning admits bounded, deterministic one-axis exploration during
 ;; ordinary managed work. The SDK fingerprints this whole document.
 (def learning-usage
-  "usage: north config learning [show|mode frozen|learning|intensity <0..1>|axes all|none|<model-tier effort prompt authoring history...>|max-tier-delta <0..3>|risk-ceiling <p0|p1|p2|p3>|seed <id>|epoch <id>|evidence-mode discovery|evaluation]")
+  "usage: north config learning [show|mode frozen|learning|graph-text off|armed|intensity <0..1>|axes all|none|<model-tier effort prompt authoring history...>|max-tier-delta <0..3>|risk-ceiling <p0|p1|p2|p3>|seed <id>|epoch <id>|evidence-mode discovery|evaluation]")
 
 (defn- learning-id? [value]
   (boolean (re-matches #"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}" (or value ""))))
 
 (defn- validate-learning [policy]
-  (let [expected #{:version :mode :intensity :axes :maxTierDelta
-                   :riskCeiling :seed :epoch :evidenceMode}
+  (let [policy (merge {:graphTextExperiment "off"} policy)
+        expected #{:version :mode :intensity :axes :maxTierDelta
+                   :riskCeiling :seed :epoch :evidenceMode :graphTextExperiment}
         unknown (seq (remove expected (keys policy)))
         intensity (:intensity policy)
         axes (:axes policy)]
@@ -534,6 +535,8 @@
       (throw (ex-info "learning epoch must be a portable identifier" {})))
     (when-not (#{"discovery" "evaluation"} (:evidenceMode policy))
       (throw (ex-info "learning evidenceMode must be discovery or evaluation" {})))
+    (when-not (#{"off" "armed"} (:graphTextExperiment policy))
+      (throw (ex-info "learning graphTextExperiment must be off or armed" {})))
     policy))
 
 (defn- learning-read []
@@ -573,6 +576,7 @@
   (println (str "  max tier delta: " (:maxTierDelta policy)
                 " · risk ceiling: " (:riskCeiling policy)))
   (println (str "  seed: " (:seed policy) " · epoch: " (:epoch policy)))
+  (println (str "  graph/text experiment: " (:graphTextExperiment policy)))
   (println (str "  policy: " LEARNING-POLICY))
   (println "  frozen remains fully measured; learning changes at most one eligible axis per episode."))
 
@@ -586,6 +590,10 @@
                (if (and (#{"frozen" "learning"} value) (empty? extra))
                  (save! (assoc policy :mode value))
                  (die learning-usage)))
+      "graph-text" (let [[value & extra] xs]
+                     (if (and (#{"off" "armed"} value) (empty? extra))
+                       (save! (assoc policy :graphTextExperiment value))
+                       (die learning-usage)))
       "intensity" (let [[value & extra] xs
                         parsed (try (Double/parseDouble (or value ""))
                                     (catch Exception _ ##NaN))]
