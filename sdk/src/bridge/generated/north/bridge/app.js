@@ -316,7 +316,7 @@ return push_chunk_bang(chunks, white("\n\n")); })(); });
 }
 
 function render_status(runtime, state) {
-  return (runtime.showHelp ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("F1"), brightBlack(" close help · "), brightWhite("F2"), brightBlack(" switch pane · "), brightWhite("F3"), brightBlack(" switch work view\n"), brightWhite("F4"), brightBlack(" toggle split · "), brightWhite("F5"), brightBlack(" refresh · "), brightWhite("F6"), brightBlack(" pop out\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands")]) : new StyledText([brightBlack(("".concat(text(state.notice), "\n"))), brightCyan("F1"), brightBlack(" help · "), brightCyan("F2"), brightBlack(" pane · "), brightCyan("F3"), brightBlack(" view · "), brightCyan("F4"), brightBlack(" split · "), brightCyan("F5"), brightBlack(" refresh · "), brightCyan("F6"), brightBlack(" pop out")]));
+  return (runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightBlack("  h left · j down · k up · l right · w cycle · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("F1"), brightBlack(" close help · "), brightWhite("F2"), brightBlack(" switch pane · "), brightWhite("F3"), brightBlack(" switch work view\n"), brightWhite("F4"), brightBlack(" toggle split · "), brightWhite("F5"), brightBlack(" refresh · "), brightWhite("F6"), brightBlack(" pop out\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("Ctrl-w h/j/k/l/w"), brightBlack(" navigate panes\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands")]) : new StyledText([brightBlack(("".concat(text(state.notice), "\n"))), brightCyan("F1"), brightBlack(" help · "), brightCyan("F2"), brightBlack(" pane · "), brightCyan("F3"), brightBlack(" view · "), brightCyan("F4"), brightBlack(" split · "), brightCyan("F5"), brightBlack(" refresh · "), brightCyan("F6"), brightBlack(" pop out")]);
 }
 
 function tabs_text(state, view_id) {
@@ -368,10 +368,10 @@ function render_ui_bang(runtime, ui) {
   (ui.workPalette.visible = (work_options.length > 0));
   (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
   (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
-  (ui.agentsPane.title = ((runtime.pane === "agents") ? "Agents · active" : "Agents"));
-  (ui.workPane.title = ("".concat("Work", ((runtime.pane === "work") ? " · active · " : " · "), text(current.id))));
+  (ui.agentsPane.title = "Agents");
+  (ui.workPane.title = ("".concat("Work · ", text(current.id))));
   (ui.agentsPane.borderColor = ((runtime.pane === "agents") ? "#4ade80" : "#64748b"));
-  (ui.workPane.borderColor = ((runtime.pane === "work") ? "#d97706" : "#64748b"));
+  (ui.workPane.borderColor = ((runtime.pane === "work") ? "#4ade80" : "#64748b"));
   (runtime.activeView = text(current.id));
   return views;
 }
@@ -579,6 +579,12 @@ function active_palette_options(runtime, ui) {
   return palette_options(pane, text(input.value));
 }
 
+function pane_for_direction(runtime, state, direction) {
+  const pane = text(runtime.pane);
+  const layout = text(state.layout);
+  return ((direction === "w")) ? ((pane === "agents") ? "work" : "agents") : (((layout === "vertical") && (direction === "h"))) ? "agents" : (((layout === "vertical") && (direction === "l"))) ? "work" : (((layout === "horizontal") && (direction === "k"))) ? "agents" : (((layout === "horizontal") && (direction === "j"))) ? "work" : pane;
+}
+
 function complete_palette_bang(runtime, ui, commands) {
   if ((commands.length > 0)) {
     const index = Math.max(0, Math.min(runtime.paletteIndex, (commands.length - 1)));
@@ -626,7 +632,20 @@ const state = snapshot(runtime.model);
 const meta = (key.meta || key.option);
 const palette = active_palette_options(runtime, ui);
 const palette_open = (palette.length > 0);
-if ((palette_open && ((name === "up") || (name === "down")))) {
+if (runtime.windowChord) {
+  key.preventDefault();
+  key.stopPropagation();
+  (runtime.windowChord = false);
+  if (((name === "h") || (name === "j") || (name === "k") || (name === "l") || (name === "w"))) {
+    focus_pane_bang(runtime, ui, pane_for_direction(runtime, state, name));
+  } else {
+    runtime.render();
+  }
+} else if ((key.ctrl && (name === "w"))) {
+  key.preventDefault();
+  key.stopPropagation();
+  (runtime.windowChord = true);
+} else if ((palette_open && ((name === "up") || (name === "down")))) {
   key.preventDefault();
   key.stopPropagation();
   (runtime.paletteIndex = ((runtime.paletteIndex + ((name === "up") ? -1 : 1) + palette.length) % palette.length));
@@ -713,7 +732,7 @@ if ((!runtime.disposed)) {
 
 async function open_app_bang(view_id) {
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view_id), renderer: renderer, disposed: false, pane: "agents", activeView: ((view_id === "kanban") ? "kanban" : "graph"), agentIndex: 0, workIndex: 0, bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, render: () => null};
+  const runtime = {model: make_model(view_id), renderer: renderer, disposed: false, pane: "agents", activeView: ((view_id === "kanban") ? "kanban" : "graph"), agentIndex: 0, workIndex: 0, bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, windowChord: false, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: "100%", gap: 1, padding: 1});
   const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: true, title: "Agents"});
   const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: true, title: "Work · graph"});
