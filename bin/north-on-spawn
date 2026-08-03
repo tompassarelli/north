@@ -401,7 +401,7 @@ work coexists; declaring never blocks. See who else is in your footprint, and sh
 feature against what is likely to land before it is in main.
   $CONCERN_BIN declare $ID $RN "<what you're building>" <file1,file2,...>
   $CONCERN_BIN overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
-  $CONCERN_BIN status <id> likely-to-land · done <id> · ls [repo]
+  $CONCERN_BIN candidate <id> [git-rev] · done <id> · ls [repo]
 Declare a concern before editing code for a feature, so others can see + shape around your work.
 
 Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.

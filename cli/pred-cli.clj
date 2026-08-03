@@ -351,6 +351,8 @@
    ["repo"    "multi"  "literal" "repository associated with an entity; threads may span repositories"]
    ["status"  "single" "literal" "DERIVED concern status (max `reached` level); legacy single-write retained for lint only"]
    ["reached" "multi"  "literal" "monotone maturity level a concern has reached (exploring|building|likely-to-land|landed); status = max level (decision 8: status is derived, never set)"]
+   ["candidate_rev" "single" "literal" "exact Git commit advertised by a likely-to-land concern"]
+   ["candidate_git_dir" "single" "literal" "durable local Git common directory used to derive candidate landing"]
    ["driver"  "single" "ref"     "the @handle currently driving a thread/concern (presence ⇒ active)"]
    ["touches" "multi"  "literal" "file paths a concern touches (display label + the path-string footprint fallback for non-flipped repos)"]
    ["footprint" "multi" "ref"    "code NODE (@mod#n) in a concern's footprint — the cross-frame bridge (thread 019f1010-2705); asserted on the repo's warm CODE port, joined via the daemon's calls_defn blast closure (calls_defn itself is a fram daemon-internal derived edge, not a :7977 fact)"]

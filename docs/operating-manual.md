@@ -913,6 +913,15 @@ from the owner's presence lease** — the same renewable-lease rule the presence
 roster uses — never a stored status. Three mechanisms keep the board honest when
 an owner dies without running `concern done`:
 
+Before integration, run `concern candidate <id> [<git-rev>]`. It resolves the
+revision to an exact commit, stores it as `candidate_rev`, and advances the
+concern to `likely-to-land`; omitting the revision means `HEAD`. The older
+`concern status <id> likely-to-land` spelling is a compatibility alias for the
+same operation. An old `likely-to-land` concern without `candidate_rev` is not an
+actionable integration target and is rendered as such. Once that commit becomes
+an ancestor of local or remote `main`, Git derives the concern as landed and it
+leaves active overlap views; no separate `concern done` ceremony is required.
+
 1. **Read-time decay (no write).** `concern ls` / `concern overlap` judge each
    concern's owner live-or-lapsed at render time:
    - owner **online** → rendered normally.
