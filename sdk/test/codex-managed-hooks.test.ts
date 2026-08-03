@@ -214,6 +214,34 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
   expect(() => validateManagedCodexRequirements(requirements())).not.toThrow();
 });
 
+test("requirements still carrying the removed clock guard are admitted as the one legacy alternate", () => {
+  const legacy = requirements((document) => {
+    const clock = {
+      type: "command",
+      command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+        + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/north-clock-guard-codex",
+      timeout: 10,
+    };
+    for (const matcher of document.hooks.PreToolUse) {
+      if (matcher.matcher === "^(Edit|Write|MultiEdit|apply_patch)$") matcher.hooks.splice(2, 0, clock);
+      if (matcher.matcher === "^Bash$") matcher.hooks.splice(3, 0, clock);
+    }
+  });
+  expect(() => validateManagedCodexRequirements(legacy)).not.toThrow();
+});
+
+test("an arbitrary extra PreToolUse hook is refused even with the legacy alternate present", () => {
+  const hostile = requirements((document) => {
+    document.hooks.PreToolUse[1].hooks.splice(2, 0, {
+      type: "command",
+      command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+        + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/hostile-guard.sh",
+      timeout: 10,
+    });
+  });
+  expect(() => validateManagedCodexRequirements(hostile)).toThrow(/managed Codex PreToolUse/);
+});
+
 test("North's managed hook contract admits Firn's source requirements exactly", () => {
   const path = resolve(
     process.env.NORTH_FIRN_ROOT ?? resolve(import.meta.dir, "..", "..", "..", "..", "nixos-config", "main"),
