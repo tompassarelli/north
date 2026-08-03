@@ -72,7 +72,7 @@ export function upsert_agent(model, agent) {
   return BridgeModel(agents.concat(agent), bridgemodel_transcript(model), bridgemodel_graph(model), bridgemodel_kanban(model), bridgemodel_layout(model), bridgemodel_active_view_id(model), bridgemodel_selected_agent(model), bridgemodel_selected_thread(model), bridgemodel_filter_text(model), bridgemodel_notice(model));
 }
 
-export function append_transcript(model, line) {
+function append_transcript(model, line) {
   return BridgeModel(bridgemodel_agents(model), bridgemodel_transcript(model).concat(line).slice(-500), bridgemodel_graph(model), bridgemodel_kanban(model), bridgemodel_layout(model), bridgemodel_active_view_id(model), bridgemodel_selected_agent(model), bridgemodel_selected_thread(model), bridgemodel_filter_text(model), line);
 }
 

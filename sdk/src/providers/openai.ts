@@ -6,7 +6,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ProviderRetrySafeError, type AgentProvider, type AgentQuery, type ProviderAvailability } from "./types";
+import {
+  ProviderRetrySafeError, type AgentProvider, type AgentQuery, type ProviderAvailability,
+  type ProviderExecutionEvent,
+} from "./types";
 import type { RoutingTarget } from "./types";
 import { probeOpenAI } from "../provider-routing";
 import type { AdapterUsageMetadata, TerminalTokenUsage } from "../usage";
@@ -937,6 +940,7 @@ export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): an
 
 class CodexQuery implements AgentQuery {
   private readonly activity = createExecutionActivityEmitter();
+  private readonly providerEventListeners = new Set<(event: ProviderExecutionEvent) => void>();
   private child?: ChildProcessWithoutNullStreams;
   private managedRun?: ManagedCodexAppServerRun;
   private interruptPromise?: Promise<void>;
@@ -958,6 +962,23 @@ class CodexQuery implements AgentQuery {
 
   get executionActivity() {
     return this.activity.source;
+  }
+
+  subscribeProviderEvents(listener: (event: ProviderExecutionEvent) => void): () => void {
+    this.providerEventListeners.add(listener);
+    return () => { this.providerEventListeners.delete(listener); };
+  }
+
+  private publishProviderEvent(method: string, params: unknown): void {
+    const event: ProviderExecutionEvent = {
+      method,
+      params: JSON.parse(JSON.stringify(params)) as unknown,
+      observedAt: new Date().toISOString(),
+    };
+    for (const listener of this.providerEventListeners) {
+      try { listener(event); }
+      catch { /* Presentation observers cannot change provider execution. */ }
+    }
   }
 
   supportsInFlightEscalation(): boolean { return false; }
@@ -1068,6 +1089,7 @@ class CodexQuery implements AgentQuery {
             this.activity.record("provider", kind);
             renewHarnessPresence(this.options);
           },
+          onEvent: (method, params) => this.publishProviderEvent(method, params),
         });
         this.managedRun = run;
         let turns = 0;
