@@ -65,6 +65,30 @@ const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
 const MCP = `${REPO}/bin/north-mcp`;
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
+
+// Prompt-EMITTED paths (unlike this process's own ENGINE/MCP) must survive a
+// rebuild that outlives the session, so they resolve store REPOs to a stable alias.
+const isStoreRepo = (repo: string): boolean => repo.startsWith("/nix/store/");
+const STABLE_SYSTEM_BIN = "/run/current-system/sw/bin";
+// Verified present in /run/current-system/sw/bin; others fall back to a bare name.
+const STABLE_SYSTEM_BINARIES = new Set(["north", "concern"]);
+
+function stableBinPath(name: string, repo: string = REPO): string {
+  if (!isStoreRepo(repo)) return `${repo}/bin/${name}`;
+  return STABLE_SYSTEM_BINARIES.has(name) ? `${STABLE_SYSTEM_BIN}/${name}` : name;
+}
+
+// No stable system alias exists for docs; prefer the live checkout over the store copy.
+function esoSpecPath(env: NodeJS.ProcessEnv = process.env, repo: string = REPO): string {
+  const relative = "sdk/src/vendor/eso/SPEC.md";
+  if (!isStoreRepo(repo)) return `${repo}/${relative}`;
+  const checkout = env.NORTH_HOME;
+  if (checkout && !isStoreRepo(checkout)) {
+    const candidate = resolve(checkout, relative);
+    if (existsSync(candidate)) return candidate;
+  }
+  return `${repo}/${relative}`;
+}
 const northPort = () => process.env.NORTH_PORT ?? "7977";
 const peerBb = () => process.env.NORTH_PEER_BB ?? "bb";
 
@@ -500,12 +524,12 @@ function coordinationBlock(
     `You are agent "${self}" in "${repo}". Other agents may work here concurrently.`,
     `Coordinate through CONCERNS, not locks — work coexists; declaring never blocks. Before`,
     `editing code for a feature, declare it so others can see + shape around your work:`,
-    `  ${REPO}/bin/concern declare ${self} ${repo} "<what you're building>" <file1,file2,...>`,
-    `  ${REPO}/bin/concern overlap <id>   # who's in your footprint; likely-to-land marked — build against it`,
-    `  ${REPO}/bin/concern status <id> likely-to-land · done <id> · ls [repo]`,
+    `  ${stableBinPath("concern")} declare ${self} ${repo} "<what you're building>" <file1,file2,...>`,
+    `  ${stableBinPath("concern")} overlap <id>   # who's in your footprint; likely-to-land marked — build against it`,
+    `  ${stableBinPath("concern")} status <id> likely-to-land · done <id> · ls [repo]`,
     ``,
     `Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.`,
-    `Run \`${REPO}/bin/ensure-private-docs\` to set up the ignore in a repo before writing there.`,
+    `Run \`${stableBinPath("ensure-private-docs")}\` to set up the ignore in a repo before writing there.`,
   ].join("\n");
   return provider === "openai" ? proto + managedCodexShellBoundary(capabilities) : proto;
 }
@@ -518,7 +542,7 @@ function esoAppendix(env: NodeJS.ProcessEnv = process.env): string {
   return "\n\n" +
     "DENSE HANDOFF — when a final report contains a uniform array of ≥10 similar records " +
     "(grep hits, findings, file lists), emit it in ESO format instead of JSON or markdown table.\n" +
-    `Mini-syntax (full spec: ${REPO}/sdk/src/vendor/eso/SPEC.md):\n` +
+    `Mini-syntax (full spec: ${esoSpecPath()}):\n` +
     "  !eso/1              ← required header\n" +
     "  name=value          ← scalar field\n" +
     "  items[N]{a,b,c}     ← N records, schema declared once; N is a checksum\n" +
