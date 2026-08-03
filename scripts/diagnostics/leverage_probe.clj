@@ -26,9 +26,9 @@
 (def single-preds #{"title" "owner" "lead" "driver" "assignee" "source" "part_of"
                     "do_on" "valid_until" "estimate_hours" "created_at" "updated_at"
                     "body" "created_by" "committed" "outcome" "abandoned"
-                    "superseded_by" "merged_into" "session_of" "start_time" "end_time" "clockify_id"})
+                    "superseded_by" "merged_into"})
 (def ref-preds #{"depends_on" "part_of" "relates_to" "clarifies" "amends" "created_by"
-                 "lead" "driver" "assignee" "proposed_by" "session_of" "superseded_by" "merged_into"})
+                 "lead" "driver" "assignee" "proposed_by" "superseded_by" "merged_into"})
 (def ctx (c/new-store))
 (def tx (c/begin-tx! ctx "leverage"))
 (s/setup! ctx tx)

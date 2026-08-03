@@ -339,7 +339,6 @@ PY
             ./bin/north-on-spawn
             ./bin/north-on-stop
             ./bin/north-on-tooluse
-            ./bin/north-clock-audit
             ./bin/north-coord-sd-listen
             ./bin/north-succession
             ./bin/north-coord-up
@@ -567,7 +566,7 @@ EOF
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
             cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
-              bin/north-on-tooluse bin/north-clock-audit bin/north-coord-sd-listen \
+              bin/north-on-tooluse bin/north-coord-sd-listen \
               bin/north-coord-up bin/firn-rebuild-coordinated \
               bin/north-stream-sync bin/north-stream-sync-all bin/north-pinned bin/north-effort \
               bin/north-succession \
@@ -620,13 +619,6 @@ EOF
                 --prefix PATH : ${runtimePath} \
                 --set NORTH_HOME $out
             done
-
-            wrapProgram $out/bin/north-clock-audit \
-              --prefix PATH : ${runtimePath} \
-              --set FRAM_HOME ${framRuntimeRoot} \
-              --set FRAM_OUT ${framBabashkaClasspath} \
-              --set NORTH_HOME $out \
-              --set NORTH_BB ${pkgs.babashka}/bin/bb
 
             wrapProgram $out/bin/north-stream-sync \
               --prefix PATH : ${runtimePath} \
@@ -756,12 +748,6 @@ EOF
             client_repo="$smoke/home/code/client/smoke/widget"
             mkdir -p "$client_repo"
             ${pkgs.git}/bin/git -C "$client_repo" init -q
-            printf 'package clock audit\n' > "$client_repo/probe.txt"
-            ${pkgs.git}/bin/git -C "$client_repo" add probe.txt
-            ${pkgs.git}/bin/git -C "$client_repo" \
-              -c user.name='North Package Smoke' \
-              -c user.email='north-package-smoke@example.invalid' \
-              commit -qm 'exercise packaged clock audit'
             # Every public executable must work with no ambient PATH or checkout.
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= \
@@ -854,19 +840,6 @@ EOF
               sed -n '1,120p' "$client_repo/.gitignore" >&2
               exit 1
             fi
-            # Empty PATH proves the packaged wrapper supplies bb + git itself.
-            if ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= \
-              $out/bin/north clock audit > "$smoke/clock-audit.out"; then
-              echo "north package smoke: uncovered commit unexpectedly passed clock audit" >&2
-              exit 1
-            fi
-            if ! grep -q '1 uncovered' "$smoke/clock-audit.out"; then
-              echo "north package smoke: clock audit did not report the uncovered commit" >&2
-              sed -n '1,160p' "$smoke/clock-audit.out" >&2
-              exit 1
-            fi
-
             stream_src="$smoke/source with spaces/project"
             mkdir -p "$stream_src" "$smoke/xdg"
             printf '{"type":"package-stream-probe"}\n' \
@@ -914,11 +887,6 @@ EOF
             HOME="$smoke/home" PATH="$smoke" NORTH_GIT_BIN="$smoke/forged-git" FRAM_PORT=39123 \
               $out/bin/north validate > "$smoke/validate.out"
             grep -q 'no violations' "$smoke/validate.out"
-            HOME="$smoke/home" PATH="$smoke" NORTH_GIT_BIN="${pkgs.git}/bin/git" \
-              ${pkgs.bun}/bin/bun -e \
-              'import { trustedGitExecutable } from "'$out'/sdk/src/clock.ts";
-               if (trustedGitExecutable() !== "${pkgs.git}/bin/git")
-                 throw new Error("north package smoke: clock did not consume packaged Git");'
             # Exercise the composed lifecycle seam, not merely namespace
             # loading: North's public revive command must start Fram's packaged
             # daemon through its public wrapper and verify the exact temp log.

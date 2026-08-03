@@ -190,8 +190,8 @@ needs-review).
 - `name` → **materialize the ~10 real person/agent nodes** so `lead`/`driver`/
   attribution refs resolve, then turn the integrity check on. Today 0 nodes have a
   name, so every person-ref dangles and `validate` falsely passes.
-- `owner` → make `personal` the *implicit default* (store `owner` only when it's a
-  billable/client owner). Today it's 98.8% the constant `personal`; it earns its
+- `owner` → make `personal` the *implicit default* (store `owner` only when it
+  differs). Today it's 98.8% the constant `personal`; it earns its
   function only on the ~5 exceptions.
 - `source` → keep `{tom, ai, bug}` (`ai` triggers extra scrutiny — a real function);
   drop the `migrated` value (it's history, not a fact about the thread) and the 4

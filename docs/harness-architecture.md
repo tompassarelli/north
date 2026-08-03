@@ -163,7 +163,6 @@ The profile registry currently contains these classes:
 
 - Authoring deny hooks: code-upstream, Firn, launch-critical, blind staging, and tripwire guards.
 - Dispatch deny hook: agent-spawn guard.
-- Billing deny hook: North clock guard.
 - Advisory hooks: comment bloat, Racket build, and log compression.
 - Context hook: Beagle SessionStart.
 - Coordination hooks: North session end and hook detachment.
@@ -255,7 +254,7 @@ It also points Codex at the managed hook closure under `/etc/codex/hooks`.
 
 This policy is root-managed and remains effective when `CODEX_HOME` changes. Redirecting `CODEX_HOME`, setting `AGENT_NO_AUTHORING_HOOKS`, or using the existing `codex-native` profile does not remove it.
 
-The intended managed lifecycle includes Beagle and North SessionStart hooks, authoring/dispatch/billing guards, post-tool hooks, and North stop handling.
+The intended managed lifecycle includes Beagle and North SessionStart hooks, authoring and dispatch guards, post-tool hooks, and North stop handling.
 
 [Unverified] The provider’s treatment of the separate user `~/.codex/hooks.json` was not runtime-observed. The Nix and SDK contract says the root-managed requirements surface is authoritative.
 
@@ -314,7 +313,7 @@ Compatibility alias for the same authoring-only escape.
 
 Nonempty values other than `0` and `false` mean off. `0` and `false` mean live.
 
-These variables do not disable dispatch, billing, context, coordination, MCP, skills, plugins, or Codex’s root requirement that the hook feature be enabled.
+These variables do not disable dispatch, context, coordination, MCP, skills, plugins, or Codex’s root requirement that the hook feature be enabled.
 
 [Observed] The authoring escape does not disable the Beagle SessionStart hook. The registry categorizes that hook as `context`, and the hook resolver clears the authoring escape for non-authoring registered callers.
 

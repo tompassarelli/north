@@ -247,10 +247,10 @@ tree; public docs stay end-user-facing only.
 Ladder down for incidental glue and stop at the first sufficient rung; hand-roll
 the core deliberately. Correctness and security are never laddered away.
 
-## Client time and agent time — two orthogonal clocks
+## Agent time is run telemetry
 
-Human/client presence is the billing clock. Agent/task duration remains
-telemetry, not billing authority, and never satisfies the client-edit guard.
+Every managed lane records its own concurrent run timing against its thread.
+Run timing exists for telemetry, grounding, and estimates; it never gates edits.
 
 ## Global agent config goes through nixos-config
 

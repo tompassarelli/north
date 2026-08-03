@@ -43,9 +43,9 @@ mkdir -p "$state"
 # Report the resolved env without executing any north verb: source the wrapper
 # with a sentinel arg it does not handle, after neutering the exec at the end.
 resolved() { # resolved <env assignments...> -> "FRAM_LOG|FRAM_TELEMETRY_LOG"
-  env "$@" bash -c '
+  env -u FRAM_LOG -u FRAM_TELEMETRY_LOG "$@" bash -c '
     # Stop before dispatch: only the env-resolution prologue matters here.
-    eval "$(sed -n "1,/^export FRAM_TIME_DIR/p" "$1" | grep -v "^#")"
+    eval "$(sed -n "1,/^# TRANSITIONAL_SCHEMA_BOOTSTRAP/p" "$1" | grep -v "^#")"
     printf "%s|%s\n" "$FRAM_LOG" "$FRAM_TELEMETRY_LOG"
   ' _ "$NORTH_BIN" 2>/dev/null
 }

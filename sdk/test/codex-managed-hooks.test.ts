@@ -236,7 +236,7 @@ test("managed Codex requirements reject every authority-bearing drift", () => {
     (document) => { document.hooks.managed_dir = "/tmp/hooks"; },
     (document) => { document.hooks.PreToolUse[1].matcher = "^apply_patch$"; },
     (document) => {
-      document.hooks.PreToolUse[1].hooks[2].command = "/etc/codex/hooks/north-clock-guard.sh";
+      document.hooks.PreToolUse[1].hooks[1].command = "/etc/codex/hooks/unsealed-authoring-guard";
     },
     (document) => { document.hooks.PreToolUse[1].hooks.pop(); },
     (document) => {

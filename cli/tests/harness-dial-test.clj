@@ -59,17 +59,12 @@
          (verdict {"guards" "off"} "tripwire-guard"))
   (check "guards-does-not-reach-dispatch" "on"
          (verdict {"guards" "off"} "agent-spawn-guard"))
-  (check "guards-does-not-reach-billing" "on"
-         (verdict {"guards" "off"} "north-clock-guard"))
   (check "item-on-beats-guards-off" "on"
          (verdict {"guards" "off" "hooks.hook.tripwire-guard" "on"} "tripwire-guard"))
   (check "sibling-verdict-unchanged" "off"
          (verdict {"guards" "off" "hooks.hook.tripwire-guard" "on"} "firn-guard"))
   (check "coordination-off-when-named" "off"
          (verdict {"hooks.cat.coordination" "off"} "north-session-end"))
-  (check "lapsed-ttl-restores-guard" "on"
-         (verdict {"hooks.hook.north-clock-guard" "off:until=2020-01-01T00:00:00Z"}
-                  "north-clock-guard"))
 
   ;; every deny-capable hook must demand a TTL, or a silent permanent disable
   ;; of a launch-critical guard is one keystroke away

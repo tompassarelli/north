@@ -6,7 +6,7 @@ north help store — the fact corpus and its schema
   north validate                             full integrity check: engine rules + north work rules
   north audit                                corpus-health report
   north history <id>                         a subject's full fact history from the log
-  north json <view>                          machine-readable projections (plate, ready, show, clock-report, …)
+  north json <view>                          machine-readable projections (plate, ready, show, …)
   north tools                                the curated MCP tool surface + the fram engine core
   north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
   north boot                                 session orientation: safety verdict, hygiene, the entry-point note

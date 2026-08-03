@@ -11,7 +11,6 @@ north — coordinate work, agents, and time
     north show <id>               a thread's facts + body
     north tell <id> <pred> <val>  assert a fact (retract removes)
     north threads                 active / ready / blocked overview
-    north clock in <owner>|out    the client billing session
 
   AGENTS
     north delegate "<task>"       hand work to a new lane

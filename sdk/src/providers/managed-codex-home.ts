@@ -5,7 +5,6 @@ import {
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { canonicalGlobalAgents } from "../harness";
-import { scrubManagedNonclientReceiptEnvironment } from "./managed-nonclient-receipt";
 
 const MANAGED_HOME_PREFIX = "north-managed-codex-";
 const STREAM_MIRROR_ACK = "north-stream-mirrored";
@@ -198,7 +197,6 @@ export function prepareManagedCodexHome(
       CODEX_SQLITE_HOME: join(home, "sqlite"),
       CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED: "1",
     };
-    scrubManagedNonclientReceiptEnvironment(env);
     return {
       env,
       home,

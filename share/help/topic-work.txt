@@ -13,9 +13,6 @@ north help work — threads: thought → fact → outcome
   north agenda                              calendar projection over do_on: overdue / today / upcoming
   north needs-review                        judgments whose inputs moved; unevidenced bars; promotable drafts
   north resolve <ref>                       canonical thread id for a ref (id, slug, or substring)
-  north clock in <owner>|out                open/close the one human client billing session
-                                            north clock audit — commits-vs-clock coverage drift
-                                            north clock start|stop — legacy thread-session aliases
   north evidence record "<bar>" "<result>"  bind done-bar evidence to this exact managed run
                                             --thread <id> — no reservation in env: record unreserved thread evidence
   north bars list|prune <thread>            groom a thread's done_when set; prune retires evidenced bars
