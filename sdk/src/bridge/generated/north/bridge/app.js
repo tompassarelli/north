@@ -1,11 +1,25 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { focus_view, make_agent, make_model, make_work, replace_projection, select_agent, select_thread, set_filter, set_layout, snapshot, upsert_agent } from './model.js';
 
+function SlashCommand(name, description, arguments$) {
+  return Object.freeze({_tag: "SlashCommand", name, description, arguments: arguments$});
+}
+
+function slashcommand_name(r) { return r.name; }
+
+function slashcommand_description(r) { return r.description; }
+
+function slashcommand_arguments(r) { return r.arguments; }
+
 const NORTH_BIN = (process.env.NORTH_BIN || "north");
 
 const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only READY, then wait for operator input.";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true), SlashCommand("/steer", "steer the selected agent", true), SlashCommand("/interrupt", "interrupt the active agent turn", false), SlashCommand("/refresh", "refresh agents and work", false), SlashCommand("/popout", "open the current view in another terminal", true), SlashCommand("/help", "show Northbridge controls", false)];
+
+const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true), SlashCommand("/filter", "filter visible work", true), SlashCommand("/assign", "reassign the selected work", true), SlashCommand("/view", "switch graph or Kanban view", true), SlashCommand("/split", "switch horizontal or vertical layout", true), SlashCommand("/refresh", "refresh agents and work", false), SlashCommand("/popout", "open the current view in another terminal", true), SlashCommand("/help", "show work commands", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -112,6 +126,16 @@ function command(input) {
   const normalized = (trimmed.startsWith("/") ? trimmed.slice(1) : trimmed);
   const split_at = normalized.indexOf(" ");
   return ((split_at < 0) ? {name: normalized.toLowerCase(), rest: ""} : {name: normalized.slice(0, split_at).toLowerCase(), rest: normalized.slice((split_at + 1)).trim()});
+}
+
+function palette_options(pane, input) {
+  const query = input.trim().toLowerCase();
+  const commands = ((pane === "agents") ? AGENT_COMMANDS : WORK_COMMANDS);
+  return (((!query.startsWith("/")) || (query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)));
+}
+
+function submit_key_p(name) {
+  return ((name === "return") || (name === "enter") || (name === "kpenter") || (name === "linefeed"));
 }
 
 async function run_command(argv) {
@@ -241,7 +265,18 @@ function push_chunk_bang(chunks, chunk) {
   return chunks.push(chunk);
 }
 
-function render_conversation(runtime) {
+function render_command_palette_bang(commands, selected) {
+  const chunks = [];
+  commands.forEach((candidate, index) => { push_chunk_bang(chunks, ((index === selected) ? brightCyan("› ") : brightBlack("  ")));
+push_chunk_bang(chunks, (((index === selected) ? brightGreen : brightWhite))(slashcommand_name(candidate).padEnd(13, " ")));
+push_chunk_bang(chunks, brightBlack(slashcommand_description(candidate)));
+if ((index < (commands.length - 1))) {
+  return push_chunk_bang(chunks, white("\n"));
+} });
+  return new StyledText(chunks);
+}
+
+function render_conversation_bang(runtime) {
   const chunks = [];
   const items = runtime.conversation;
   items.forEach((item) => { const kind = text(item.kind);
@@ -303,8 +338,13 @@ function render_ui_bang(runtime, ui) {
   const items = (current.items || []);
   const agent_max = Math.max(0, (agents.length - 1));
   const work_max = Math.max(0, (items.length - 1));
+  const agent_options = ((runtime.pane === "agents") ? palette_options("agents", text(ui.agentInput.value)) : []);
+  const work_options = ((runtime.pane === "work") ? palette_options("work", text(ui.workInput.value)) : []);
+  const active_options = ((runtime.pane === "agents") ? agent_options : work_options);
+  const palette_max = Math.max(0, (active_options.length - 1));
   (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
   (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
+  (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
   (ui.root.flexDirection = ((text(state.layout) === "horizontal") ? "column" : "row"));
   if ((text(state.layout) === "horizontal")) {
     (ui.agentsPane.width = "100%");
@@ -312,16 +352,22 @@ function render_ui_bang(runtime, ui) {
     (ui.agentsPane.height = "50%");
     (ui.workPane.height = "50%");
   } else {
-    (ui.agentsPane.width = "38%");
-    (ui.workPane.width = "62%");
+    (ui.agentsPane.width = "50%");
+    (ui.workPane.width = "50%");
     (ui.agentsPane.height = "100%");
     (ui.workPane.height = "100%");
   }
   (ui.agentsText.content = roster_text(state, runtime.agentIndex));
-  (ui.transcriptText.content = render_conversation(runtime));
+  (ui.transcriptText.content = render_conversation_bang(runtime));
   (ui.tabsText.content = tabs_text(state, text(current.id)));
   (ui.workText.content = work_text(current, runtime.workIndex));
   (ui.statusText.content = render_status(runtime, state));
+  (ui.agentPalette.visible = (agent_options.length > 0));
+  (ui.agentPalette.height = Math.max(1, Math.min(8, agent_options.length)));
+  (ui.agentPalette.content = ((agent_options.length > 0) ? render_command_palette_bang(agent_options, runtime.paletteIndex) : ""));
+  (ui.workPalette.visible = (work_options.length > 0));
+  (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
+  (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
   (ui.agentsPane.title = ((runtime.pane === "agents") ? "Agents · active" : "Agents"));
   (ui.workPane.title = ("".concat("Work", ((runtime.pane === "work") ? " · active · " : " · "), text(current.id))));
   (ui.agentsPane.borderColor = ((runtime.pane === "agents") ? "#4ade80" : "#64748b"));
@@ -516,7 +562,40 @@ function report_promise_bang(runtime, promise) {
   return promise.catch((error) => publish_line_bang(runtime, ("".concat("error: ", error_message(error)))));
 }
 
+function focus_pane_bang(runtime, ui, pane) {
+  (runtime.pane = pane);
+  (runtime.paletteIndex = 0);
+  ((pane === "agents") ? ui.agentInput : ui.workInput).focus();
+  return runtime.render();
+}
+
+function active_input(runtime, ui) {
+  return ((runtime.pane === "agents") ? ui.agentInput : ui.workInput);
+}
+
+function active_palette_options(runtime, ui) {
+  const pane = text(runtime.pane);
+  const input = active_input(runtime, ui);
+  return palette_options(pane, text(input.value));
+}
+
+function complete_palette_bang(runtime, ui, commands) {
+  if ((commands.length > 0)) {
+    const index = Math.max(0, Math.min(runtime.paletteIndex, (commands.length - 1)));
+    const candidate = commands[index];
+    const suffix = (slashcommand_arguments(candidate) ? " " : "");
+    const input = active_input(runtime, ui);
+    (input.value = ("".concat(slashcommand_name(candidate), suffix)));
+    input.focus();
+    return runtime.render();
+  }
+}
+
 function install_input_bang(runtime, ui) {
+  ui.agentInput.on(InputRenderableEvents.INPUT, (__value) => { (runtime.paletteIndex = 0);
+return runtime.render(); });
+  ui.workInput.on(InputRenderableEvents.INPUT, (__value) => { (runtime.paletteIndex = 0);
+return runtime.render(); });
   ui.agentInput.on(InputRenderableEvents.ENTER, () => { const input = text(ui.agentInput.value).trim();
 const state = snapshot(runtime.model);
 const agents = (state.agents || []);
@@ -532,15 +611,44 @@ if ((!(input === ""))) {
 } });
 }
 
+function install_mouse_bang(runtime, ui) {
+  (ui.agentsPane.onMouseDown = (event) => { if ((event.button === 0)) {
+  return focus_pane_bang(runtime, ui, "agents");
+} });
+  return (ui.workPane.onMouseDown = (event) => { if ((event.button === 0)) {
+  return focus_pane_bang(runtime, ui, "work");
+} });
+}
+
 function install_keys_bang(runtime, ui) {
   return runtime.renderer.keyInput.on("keypress", (key) => { const name = text(key.name).toLowerCase();
 const state = snapshot(runtime.model);
 const meta = (key.meta || key.option);
-if (((name === "tab") || (name === "f2"))) {
+const palette = active_palette_options(runtime, ui);
+const palette_open = (palette.length > 0);
+if ((palette_open && ((name === "up") || (name === "down")))) {
   key.preventDefault();
   key.stopPropagation();
-  (runtime.pane = ((runtime.pane === "agents") ? "work" : "agents"));
-  ((runtime.pane === "agents") ? ui.agentInput : ui.workInput).focus();
+  (runtime.paletteIndex = ((runtime.paletteIndex + ((name === "up") ? -1 : 1) + palette.length) % palette.length));
+} else if ((palette_open && ((name === "tab") || submit_key_p(name)))) {
+  const index = Math.max(0, Math.min(runtime.paletteIndex, (palette.length - 1)));
+  const candidate = palette[index];
+  const current = text(active_input(runtime, ui).value).trim();
+  const exact = (current === slashcommand_name(candidate));
+  if (((name === "tab") || (!exact) || slashcommand_arguments(candidate))) {
+    key.preventDefault();
+    key.stopPropagation();
+    complete_palette_bang(runtime, ui, palette);
+  }
+} else if ((palette_open && ((name === "escape") || (name === "esc")))) {
+  key.preventDefault();
+  key.stopPropagation();
+  (active_input(runtime, ui).value = "");
+  runtime.render();
+} else if (((name === "tab") || (name === "f2"))) {
+  key.preventDefault();
+  key.stopPropagation();
+  focus_pane_bang(runtime, ui, ((runtime.pane === "agents") ? "work" : "agents"));
 } else if ((name === "f1")) {
   key.preventDefault();
   key.stopPropagation();
@@ -605,32 +713,37 @@ if ((!runtime.disposed)) {
 
 async function open_app_bang(view_id) {
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view_id), renderer: renderer, disposed: false, pane: "agents", activeView: ((view_id === "kanban") ? "kanban" : "graph"), agentIndex: 0, workIndex: 0, bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, render: () => null};
+  const runtime = {model: make_model(view_id), renderer: renderer, disposed: false, pane: "agents", activeView: ((view_id === "kanban") ? "kanban" : "graph"), agentIndex: 0, workIndex: 0, bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: "100%", gap: 1, padding: 1});
-  const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "38%", border: true, title: "Agents"});
-  const work_pane = new BoxRenderable(renderer, {flexDirection: "column", flexGrow: 1, border: true, title: "Work · graph"});
+  const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: true, title: "Agents"});
+  const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: true, title: "Work · graph"});
   const agents_text = new TextRenderable(renderer, {height: 4, flexShrink: 0, wrapMode: "word"});
   const transcript_scroll = new ScrollBoxRenderable(renderer, {flexGrow: 1, scrollY: true, stickyScroll: true, stickyStart: "bottom", viewportCulling: true});
   const transcript_text_view = new TextRenderable(renderer, {width: "100%", flexShrink: 0, wrapMode: "word"});
   const tabs_text_view = new TextRenderable(renderer, {wrapMode: "word"});
   const work_text_view = new TextRenderable(renderer, {flexGrow: 1, wrapMode: "word"});
   const status_text = new TextRenderable(renderer, {wrapMode: "word"});
+  const agent_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
+  const work_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
   const agent_input = new InputRenderable(renderer, {placeholder: "Message Codex supervisor…"});
   const work_input = new InputRenderable(renderer, {placeholder: "/capture, /filter, /assign, /view, /split, /popout"});
-  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workText: work_text_view, statusText: status_text, agentInput: agent_input, workInput: work_input};
+  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workText: work_text_view, statusText: status_text, agentPalette: agent_palette, workPalette: work_palette, agentInput: agent_input, workInput: work_input};
   agents_pane.add(agents_text);
   transcript_scroll.add(transcript_text_view);
   agents_pane.add(transcript_scroll);
+  agents_pane.add(agent_palette);
   agents_pane.add(agent_input);
   work_pane.add(tabs_text_view);
   work_pane.add(work_text_view);
   work_pane.add(status_text);
+  work_pane.add(work_palette);
   work_pane.add(work_input);
   root.add(agents_pane);
   root.add(work_pane);
   renderer.root.add(root);
   (runtime.render = () => render_ui_bang(runtime, ui));
   install_input_bang(runtime, ui);
+  install_mouse_bang(runtime, ui);
   install_global_exit_bang(runtime);
   install_keys_bang(runtime, ui);
   runtime.render();

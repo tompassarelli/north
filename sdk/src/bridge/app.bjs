@@ -12,6 +12,11 @@
 (declare-extern [process Bun Response TextDecoder Promise JSON console Error Math String Array Set Date
                  setInterval clearInterval] Any)
 
+(defrecord SlashCommand
+  [name: String
+   description: String
+   arguments: Bool])
+
 (def NORTH-BIN: String
   (or (.-NORTH_BIN (.-env process)) "north"))
 
@@ -19,6 +24,24 @@
   "You are the Northbridge supervisor. Reply only READY, then wait for operator input.")
 
 (def SPINNER-FRAMES: Any ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"])
+
+(def AGENT-COMMANDS: (Vec SlashCommand)
+  [(->SlashCommand "/launch" "start another Codex worker" true)
+   (->SlashCommand "/steer" "steer the selected agent" true)
+   (->SlashCommand "/interrupt" "interrupt the active agent turn" false)
+   (->SlashCommand "/refresh" "refresh agents and work" false)
+   (->SlashCommand "/popout" "open the current view in another terminal" true)
+   (->SlashCommand "/help" "show Northbridge controls" false)])
+
+(def WORK-COMMANDS: (Vec SlashCommand)
+  [(->SlashCommand "/capture" "capture a new work thread" true)
+   (->SlashCommand "/filter" "filter visible work" true)
+   (->SlashCommand "/assign" "reassign the selected work" true)
+   (->SlashCommand "/view" "switch graph or Kanban view" true)
+   (->SlashCommand "/split" "switch horizontal or vertical layout" true)
+   (->SlashCommand "/refresh" "refresh agents and work" false)
+   (->SlashCommand "/popout" "open the current view in another terminal" true)
+   (->SlashCommand "/help" "show work commands" false)])
 
 (defn text [value: Any] -> String
   (if (identical? (js/typeof value) "string") value ""))
@@ -115,6 +138,21 @@
       {:name (.toLowerCase normalized) :rest ""}
       {:name (.toLowerCase (.slice normalized 0 split-at))
        :rest (.trim (.slice normalized (+ split-at 1)))})))
+
+(defn palette-options [pane: String input: String] -> (Vec SlashCommand)
+  (let [query (.toLowerCase (.trim input))
+        commands (if (identical? pane "agents") AGENT-COMMANDS WORK-COMMANDS)]
+    (if (or (not (.startsWith query "/")) (>= (.indexOf query " ") 0))
+      []
+      (.filter commands
+               (fn [candidate: SlashCommand] -> Bool
+                 (.startsWith (slashcommand-name candidate) query))))))
+
+(defn submit-key? [name: String] -> Bool
+  (or (identical? name "return")
+      (identical? name "enter")
+      (identical? name "kpenter")
+      (identical? name "linefeed")))
 
 (defn run-command [argv: Any] -> (Promise Any)
   (let [child (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
@@ -284,7 +322,22 @@
 (defn push-chunk! [chunks: Any chunk: Any] -> Any
   (.push chunks chunk))
 
-(defn render-conversation [runtime: Any] -> Any
+(defn render-command-palette! [commands: (Vec SlashCommand) selected: Int] -> Any
+  (let [chunks []]
+    (.forEach
+     commands
+     (fn [candidate: SlashCommand index: Int] -> Any
+       (push-chunk! chunks
+                    (if (identical? index selected) (brightCyan "› ") (brightBlack "  ")))
+       (push-chunk! chunks
+                    ((if (identical? index selected) brightGreen brightWhite)
+                     (.padEnd (slashcommand-name candidate) 13 " ")))
+       (push-chunk! chunks (brightBlack (slashcommand-description candidate)))
+       (when (< index (- (.-length commands) 1))
+         (push-chunk! chunks (white "\n")))))
+    (StyledText. chunks)))
+
+(defn render-conversation! [runtime: Any] -> Any
   (let [chunks []
         items (.-conversation runtime)]
     (.forEach
@@ -396,9 +449,16 @@
         current (selected-view state requested)
         items (or (.-items current) [])
         agent-max (Math/max 0 (- (.-length agents) 1))
-        work-max (Math/max 0 (- (.-length items) 1))]
+        work-max (Math/max 0 (- (.-length items) 1))
+        agent-options (if (identical? (.-pane runtime) "agents")
+                        (palette-options "agents" (text (.-value (.-agentInput ui)))) [])
+        work-options (if (identical? (.-pane runtime) "work")
+                       (palette-options "work" (text (.-value (.-workInput ui)))) [])
+        active-options (if (identical? (.-pane runtime) "agents") agent-options work-options)
+        palette-max (Math/max 0 (- (.-length active-options) 1))]
     (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
+    (set! (.-paletteIndex runtime) (Math/max 0 (Math/min (.-paletteIndex runtime) palette-max)))
     (set! (.-flexDirection (.-root ui))
           (if (identical? (text (.-layout state)) "horizontal") "column" "row"))
     (if (identical? (text (.-layout state)) "horizontal")
@@ -406,16 +466,26 @@
           (set! (.-width (.-workPane ui)) "100%")
           (set! (.-height (.-agentsPane ui)) "50%")
           (set! (.-height (.-workPane ui)) "50%"))
-      (do (set! (.-width (.-agentsPane ui)) "38%")
-          (set! (.-width (.-workPane ui)) "62%")
+      (do (set! (.-width (.-agentsPane ui)) "50%")
+          (set! (.-width (.-workPane ui)) "50%")
           (set! (.-height (.-agentsPane ui)) "100%")
           (set! (.-height (.-workPane ui)) "100%")))
     (set! (.-content (.-agentsText ui))
           (roster-text state (.-agentIndex runtime)))
-    (set! (.-content (.-transcriptText ui)) (render-conversation runtime))
+    (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
     (set! (.-content (.-tabsText ui)) (tabs-text state (text (.-id current))))
     (set! (.-content (.-workText ui)) (work-text current (.-workIndex runtime)))
     (set! (.-content (.-statusText ui)) (render-status runtime state))
+    (set! (.-visible (.-agentPalette ui)) (> (.-length agent-options) 0))
+    (set! (.-height (.-agentPalette ui)) (Math/max 1 (Math/min 8 (.-length agent-options))))
+    (set! (.-content (.-agentPalette ui))
+          (if (> (.-length agent-options) 0)
+            (render-command-palette! agent-options (.-paletteIndex runtime)) ""))
+    (set! (.-visible (.-workPalette ui)) (> (.-length work-options) 0))
+    (set! (.-height (.-workPalette ui)) (Math/max 1 (Math/min 8 (.-length work-options))))
+    (set! (.-content (.-workPalette ui))
+          (if (> (.-length work-options) 0)
+            (render-command-palette! work-options (.-paletteIndex runtime)) ""))
     (set! (.-title (.-agentsPane ui))
           (if (identical? (.-pane runtime) "agents") "Agents · active" "Agents"))
     (set! (.-title (.-workPane ui))
@@ -791,7 +861,39 @@
           (fn [error: Any] -> Any
             (publish-line! runtime (str "error: " (error-message error))))))
 
+(defn focus-pane! [runtime: Any ui: Any pane: String] -> Any
+  (set! (.-pane runtime) pane)
+  (set! (.-paletteIndex runtime) 0)
+  (.focus (if (identical? pane "agents") (.-agentInput ui) (.-workInput ui)))
+  (.render runtime))
+
+(defn active-input [runtime: Any ui: Any] -> Any
+  (if (identical? (.-pane runtime) "agents") (.-agentInput ui) (.-workInput ui)))
+
+(defn active-palette-options [runtime: Any ui: Any] -> (Vec SlashCommand)
+  (let [pane (text (.-pane runtime))
+        input (active-input runtime ui)]
+    (palette-options pane (text (.-value input)))))
+
+(defn complete-palette! [runtime: Any ui: Any commands: (Vec SlashCommand)] -> Any
+  (when (> (.-length commands) 0)
+    (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length commands) 1)))
+          candidate (aget commands index)
+          suffix (if (slashcommand-arguments candidate) " " "")
+          input (active-input runtime ui)]
+      (set! (.-value input) (str (slashcommand-name candidate) suffix))
+      (.focus input)
+      (.render runtime))))
+
 (defn install-input! [runtime: Any ui: Any] -> Any
+  (.on (.-agentInput ui) (.-INPUT InputRenderableEvents)
+       (fn [_value: Any] -> Any
+         (set! (.-paletteIndex runtime) 0)
+         (.render runtime)))
+  (.on (.-workInput ui) (.-INPUT InputRenderableEvents)
+       (fn [_value: Any] -> Any
+         (set! (.-paletteIndex runtime) 0)
+         (.render runtime)))
   (.on (.-agentInput ui) (.-ENTER InputRenderableEvents)
        (fn [] -> Any
          (let [input (.trim (text (.-value (.-agentInput ui))))
@@ -812,20 +914,57 @@
                                             {:view (.-activeView runtime)
                                              :index (.-workIndex runtime)})))))))
 
+(defn install-mouse! [runtime: Any ui: Any] -> Any
+  (set! (.-onMouseDown (.-agentsPane ui))
+        (fn [event: Any] -> Any
+          (when (identical? (.-button event) 0)
+            (focus-pane! runtime ui "agents"))))
+  (set! (.-onMouseDown (.-workPane ui))
+        (fn [event: Any] -> Any
+          (when (identical? (.-button event) 0)
+            (focus-pane! runtime ui "work")))))
+
 (defn install-keys! [runtime: Any ui: Any] -> Any
   (.on (.-keyInput (.-renderer runtime)) "keypress"
        (fn [key: Any] -> Any
          (let [name (.toLowerCase (text (.-name key)))
                state (snapshot (.-model runtime))
-               meta (or (.-meta key) (.-option key))]
+               meta (or (.-meta key) (.-option key))
+               palette (active-palette-options runtime ui)
+               palette-open (> (.-length palette) 0)]
            (cond
+             (and palette-open (or (identical? name "up") (identical? name "down")))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (set! (.-paletteIndex runtime)
+                       (mod (+ (.-paletteIndex runtime)
+                               (if (identical? name "up") -1 1)
+                               (.-length palette))
+                            (.-length palette))))
+
+             (and palette-open (or (identical? name "tab") (submit-key? name)))
+             (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length palette) 1)))
+                   candidate (aget palette index)
+                   current (.trim (text (.-value (active-input runtime ui))))
+                   exact (identical? current (slashcommand-name candidate))]
+               (when (or (identical? name "tab")
+                         (not exact)
+                         (slashcommand-arguments candidate))
+                 (.preventDefault key)
+                 (.stopPropagation key)
+                 (complete-palette! runtime ui palette)))
+
+             (and palette-open (or (identical? name "escape") (identical? name "esc")))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (set! (.-value (active-input runtime ui)) "")
+                 (.render runtime))
+
              (or (identical? name "tab") (identical? name "f2"))
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (set! (.-pane runtime)
-                       (if (identical? (.-pane runtime) "agents") "work" "agents"))
-                 (.focus (if (identical? (.-pane runtime) "agents")
-                           (.-agentInput ui) (.-workInput ui))))
+                 (focus-pane! runtime ui
+                              (if (identical? (.-pane runtime) "agents") "work" "agents")))
 
              (identical? name "f1")
              (do (.preventDefault key)
@@ -916,10 +1055,11 @@
                  :spinnerIndex 0
                  :spinnerTimer nil
                  :showHelp false
+                 :paletteIndex 0
                  :render (fn [] -> Any nil)}
         root (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height "100%" :gap 1 :padding 1})
-        agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "38%" :border true :title "Agents"})
-        work-pane (BoxRenderable. renderer {:flexDirection "column" :flexGrow 1 :border true :title "Work · graph"})
+        agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%" :border true :title "Agents"})
+        work-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%" :border true :title "Work · graph"})
         agents-text (TextRenderable. renderer {:height 4 :flexShrink 0 :wrapMode "word"})
         transcript-scroll (ScrollBoxRenderable. renderer {:flexGrow 1 :scrollY true
                                                            :stickyScroll true :stickyStart "bottom"
@@ -928,25 +1068,33 @@
         tabs-text-view (TextRenderable. renderer {:wrapMode "word"})
         work-text-view (TextRenderable. renderer {:flexGrow 1 :wrapMode "word"})
         status-text (TextRenderable. renderer {:wrapMode "word"})
+        agent-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
+                                                  :wrapMode "none" :truncate true :bg "#25272d"})
+        work-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
+                                                 :wrapMode "none" :truncate true :bg "#25272d"})
         agent-input (InputRenderable. renderer {:placeholder "Message Codex supervisor…"})
         work-input (InputRenderable. renderer {:placeholder "/capture, /filter, /assign, /view, /split, /popout"})
         ui {:root root :agentsPane agents-pane :workPane work-pane
             :agentsText agents-text :transcriptText transcript-text-view
             :tabsText tabs-text-view :workText work-text-view :statusText status-text
+            :agentPalette agent-palette :workPalette work-palette
             :agentInput agent-input :workInput work-input}]
     (.add agents-pane agents-text)
     (.add transcript-scroll transcript-text-view)
     (.add agents-pane transcript-scroll)
+    (.add agents-pane agent-palette)
     (.add agents-pane agent-input)
     (.add work-pane tabs-text-view)
     (.add work-pane work-text-view)
     (.add work-pane status-text)
+    (.add work-pane work-palette)
     (.add work-pane work-input)
     (.add root agents-pane)
     (.add root work-pane)
     (.add (.-root renderer) root)
     (set! (.-render runtime) (fn [] -> Any (render-ui! runtime ui)))
     (install-input! runtime ui)
+    (install-mouse! runtime ui)
     (install-global-exit! runtime)
     (install-keys! runtime ui)
     (.render runtime)
