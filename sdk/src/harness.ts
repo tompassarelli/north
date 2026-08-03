@@ -4,7 +4,7 @@
 // stay identical across dispatch.ts and spawn.ts.
 //
 // The two things that make a North-orchestrated agent more than a generic run:
-//   1. north MCP — native fact-graph verbs (capture/tell/ready/next/...),
+//   1. north MCP — native coordination-graph verbs (capture/tell/ready/next/...),
 //      so agents act on facts, not by Edit-ing text files.
 //   2. explicit orchestrator topology — and only that topology — may dispatch or
 //      command peers through North. Workers remain without coordination authority.
@@ -2073,7 +2073,8 @@ export function harnessOptions(o: HarnessOpts): Options {
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
-  "You are a north agent on a shared fact graph. Prefer native north coordination " +
+  "You are a north agent on a shared coordination graph — recursive Triples with " +
+  "assertion history. Prefer native north coordination " +
   "tools over editing coordination state: capture/tell to record work and ready/next " +
   "to find it. Your Orchestration topology contract, when present, is the sole source of " +
   "delegation authority. Acquire before editing shared code. Report concisely.";

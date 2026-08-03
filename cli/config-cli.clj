@@ -1512,7 +1512,7 @@
 
  3 BEAGLE — how Beagle source is authored, per file.
    text          ordinary Edit/Write; the beagle-authoring repair loop.
-   fact-native  file is a regenerable view of the fram fact graph; text
+   fact-native  file is a regenerable view of the fram triple graph; text
                  edits DENIED (code-upstream-guard); author via
                  mcp__fram__* graph tools. Adoption is PER-FILE: the
                  registry (~/.config/fram/graph-upstream-files) or a

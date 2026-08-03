@@ -14,7 +14,7 @@ doubling as the pipeline-debug spec.*
 
 > **Naming.** The stack as a whole has no settled name yet; a naming pass is
 > pending. Today the parts carry their own names and this doc uses them as
-> found in source: **fram** (fact engine), **north** (coordination substrate),
+> found in source: **fram** (triple engine), **north** (coordination substrate),
 > **orchestration** (staffing doctrine). The cockpit/dashboard folded into north
 > (2026-07-10): `north dashboard` / `north doctor` / bare `north` (the card). Any of
 > these names may change. Where this doc says "the stack" it means the whole;
@@ -32,7 +32,7 @@ what could not be verified from source.
 
 | term | one-line definition |
 |------|---------------------|
-| **fact** | a triple `(subject predicate object)`; the only unit of state in fram/north |
+| **fact** | a *status* North's domain confers, never the name of the stored thing. North's coordination rows are performative — writing "this lease is held" constitutes the state it describes — so fact-hood is honest here. The stored unit is fram's recursive Triple (three neutral slots, any of which may hold another Triple) plus the occurrence that asserted or retracted it; subject/predicate/object is a domain reading, never kernel law (`fram:docs/ontology.md`) |
 | **thread** | any `@id` that has a `title` fact — a unit of work or thought |
 | **lane / agent / worker** | one spawned unit of execution (never "fleet") |
 | **coordinator** | the agent that spawned a lane and receives its completion/death pings |

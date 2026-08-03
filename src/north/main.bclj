@@ -1969,7 +1969,7 @@
     (vec (sort-by (fn [ks :- KindStat] :- Int (- 0 (:facts ks))) stats))))
 
 ;; --- per-kind field spec (`north schema <kind>`) ----------------------------
-;; A schema here is a shape DERIVED from the live facts, not a declared record:
+;; A schema here is a shape DERIVED from the live propositions, not a declared record:
 ;; for one kind, split its predicates into REQUIRED (carried by ≥98% of that
 ;; kind's subjects — effectively "always present") vs OPTIONAL (show coverage %),
 ;; and annotate declared cardinality/value_kind where the predicate carries it.

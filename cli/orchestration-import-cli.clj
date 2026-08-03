@@ -6,7 +6,7 @@
 ;; path-hygiene lint, so the Orchestration source root is resolved at runtime from
 ;; $NORTH_ORCHESTRATION_HOME / $HOME, never a literal).
 ;;
-;; Lifts the machine catalog into the fact graph as DRAFT subjects under a
+;; Lifts the machine catalog into the coordination graph as DRAFT subjects under a
 ;; version namespace (@catalog:v<N>:*), then flips the @catalog:current
 ;; pointer in one serialized coordinator write — the atomic pointer flip of
 ;; design R3. Consumers read the pointer, so a torn/partial import is never

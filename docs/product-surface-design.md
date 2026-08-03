@@ -158,17 +158,17 @@ and no second auth or second writer.
 
 Fram has added its **own engine-level MCP + structured-query surface**; North
 already has an MCP server. They must not duplicate or fight. The rule mirrors the
-repo seam (see `hosting.md` → "The engine ↔ app seam"): **Fram owns the neutral fact engine; North
+repo seam (see `hosting.md` → "The engine ↔ app seam"): **Fram owns the neutral triple engine; North
 owns the life domain.** MCP-wise:
 
 | | **Engine MCP (Fram)** | **App / life MCP (North)** |
 |---|---|---|
-| Mental model | "query/assert facts" | "run my work + life" |
-| Audience | tools reasoning about the *fact graph* generically | a chat AI / app reasoning about *threads, plates, time* |
+| Mental model | "query/assert triples" | "run my work + life" |
+| Audience | tools reasoning about the *triple graph* generically | a chat AI / app reasoning about *threads, plates, time* |
 | Surface | neutral query (datalog/structured), `assert`, `retract`, `validate`, `version`, `status` | `ready`, `next`, `plate`, `blocked`, `agenda`, `leverage`, `show`, `needs_review`, `capture`, `tell`, `untell`, `clock_*`, `presentation` |
 | Semantics | knows triples; **no lifecycle, no clock, no presentation** | derives lifecycle (committed/outcome/abandoned/driver/depends_on), clock roll-up, emoji contract |
 | Where it folds | the coordinator's in-memory graph | folds the tenant's `facts.log` (today via the CLI verbs) |
-| Vocabulary | engine-generic (subject/predicate/object) | life vocab (`@topic-*`, `do_on`, `estimate_hours`, `session_of`, …) |
+| Vocabulary | engine-generic (three neutral slots; subject/predicate/object is a domain reading, not kernel law) | life vocab (`@topic-*`, `do_on`, `estimate_hours`, `session_of`, …) |
 | Owns | Fram repo | North repo |
 
 Boundary rules:

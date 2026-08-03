@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # North — the life app. Routes LIFE verbs to the North CLI (north.main,
 # run against the Fram engine on the classpath) and ENGINE verbs to the Fram CLI.
-# Both operate on the same private XDG fact data. Supplies North's lifecycle
+# Both operate on the same private XDG coordination data. Supplies North's lifecycle
 # configuration and capture provenance; executable predicate schema lives in
-# the fact graph itself.
+# the coordination graph itself.
 #
 #   engine: explicit env > temporary production-compatible checkout   data: XDG state
 # `zero` is deliberately before every export below: it is the escape hatch when

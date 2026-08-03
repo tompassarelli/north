@@ -1,5 +1,5 @@
 // P4 — self-organized discovery. An IDLE agent finds its own work with no human
-// and no command: pull ready threads off the fact graph and dispatch them through
+// and no command: pull ready threads off the coordination graph and dispatch them through
 // the canonical harness boundary. Dispatch itself atomically owns the single
 // driver claim, so discovery cannot drift into a second acquisition protocol.
 // Jittered exponential backoff
@@ -21,7 +21,7 @@ export interface ReadyThread {
   condition: string;
 }
 
-// Unblocked, committed, undriven work off the fact graph.
+// Unblocked, committed, undriven work off the coordination graph.
 function readyThreads(): ReadyThread[] {
   try {
     // --all: discovery needs the FULL ready set to pick from, not the curated
