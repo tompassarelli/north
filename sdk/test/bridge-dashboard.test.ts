@@ -5,7 +5,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ExecutionJournal } from "../src/bridge/journal";
+import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "../src/bridge/journal";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -29,6 +29,22 @@ test("bridge dashboard renders fleet from journal and receipt plus queue from wo
     `${JSON.stringify({ thread: "receipt-thread", role: "senior", provider: "openai" })}\n`,
   );
   writeFileSync(join(threads, "receipt-thread-fixture.md"), "# Receipt fixture title\n");
+
+  const laneJournal = new ExecutionJournal(join(state, "bridge/journal"), "receipt-fixture");
+  laneJournal.append(LANE_LIFECYCLE_KINDS.spawnStart, {
+    prompt: "Journal lane fixture title", cwd: home,
+  });
+  laneJournal.append(LANE_LIFECYCLE_KINDS.identityAdmitted, {
+    provider: "journal-provider", role: "integrator", effort: "high", model: "fixture-model",
+  });
+  laneJournal.append(LANE_LIFECYCLE_KINDS.turnBoundary, { numTurns: 1 });
+  laneJournal.append(LANE_LIFECYCLE_KINDS.terminal, {
+    processOutcome: "died", deliveryOutcome: "blocked", resultBytes: 0,
+  });
+  laneJournal.append(LANE_LIFECYCLE_KINDS.harvest, {
+    status: "nothing-committed", branch: "lane-receipt-fixture", sha: "abc123",
+  });
+  laneJournal.close();
 
   const journal = new ExecutionJournal(join(state, "bridge/journal"), "journal-fixture");
   journal.append("execution.accepted", { prompt: "Journal fixture title", cwd: home });
@@ -61,15 +77,16 @@ test("bridge dashboard renders fleet from journal and receipt plus queue from wo
   });
   const result = run("bridge", "dashboard", "--once");
 
-  expect(result.status).toBe(0);
   expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
   expect(result.stdout).toContain("FLEET");
   expect(result.stdout).toContain("Journal fixture title");
   expect(result.stdout).toContain("done");
   expect(result.stdout).toContain("delivered");
-  expect(result.stdout).toContain("Receipt fixture title");
-  expect(result.stdout).toContain("running");
-  expect(result.stdout).toContain("pending");
+  expect(result.stdout).toContain("Journal lane fixture title");
+  expect(result.stdout).toContain("fixture-model");
+  expect(result.stdout).toContain("crashed");
+  expect(result.stdout).not.toContain("Receipt fixture title");
   expect(result.stdout).toContain("QUEUE");
   expect(result.stdout).toContain("Queue fixture title");
   expect(result.stdout).not.toContain("\u001b");

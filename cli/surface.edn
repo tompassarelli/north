@@ -235,9 +235,10 @@
    :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
           :text "fleet, health, board, accounts — one screen"}}
-  {:verb "bridge" :form "north bridge <prompt>|dashboard|accept|attach|steer|interrupt <execution-id>" :topic :ops
+  {:verb "bridge" :form "north bridge <prompt>|dashboard|pending|accept|attach|steer|interrupt <execution-id>" :topic :ops
    :summary "dashboard, launch, attach, or control a journaled local Codex session"
    :details ["dashboard — render the Bridge operator cockpit (north dashboard remains an alias)"
+             "pending [--consume <id>] — list or consume durable terminal lane completions"
              "accept — run the two-session reconnect/control/journal acceptance demo"
              "steer <id> <text> — queue input for the next turn on the same provider thread"
              "interrupt <id> — interrupt the active turn without terminating its session"]}

@@ -24,6 +24,7 @@ import { presetRequest } from "./routing-fixtures";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
 import { createExecutionActivityEmitter } from "../src/execution-activity";
+import { LANE_LIFECYCLE_KINDS, scanJournalFile } from "../src/bridge/journal";
 
 let dir: string;
 let log: string;
@@ -208,6 +209,7 @@ afterAll(() => {
 test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>)", async () => {
   const { spawn } = await import("./support/spawn");
   let interrupts = 0;
+  const journalRoot = join(dir, "lane-journal");
 
   // Fake SDK query: one assistant turn, then a terminal `result` (subtype success) — the
   // clean-finish shape. spawn finalizes outcome=ran and must stamp it on @agent:<id>.
@@ -220,10 +222,30 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   });
 
   const result = await spawn({
-    prompt: "do a bounded task", agentId: "test-done-ok", role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: cleanQuery,
+    prompt: "do a bounded task", agentId: "test-done-ok", role: "integrator",
+    coordinator: TEST_COORDINATOR,
+    routingMetadata: presetRequest("integrator"), queryFn: cleanQuery, journalRoot,
   });
   expect(result).toBe("task done");
   expect(interrupts).toBe(1);
+
+  const lifecycle = scanJournalFile(
+    join(journalRoot, "test-done-ok", "events.log"), "test-done-ok",
+  ).records;
+  expect(lifecycle.map(({ kind }) => kind)).toEqual([
+    LANE_LIFECYCLE_KINDS.spawnStart,
+    LANE_LIFECYCLE_KINDS.identityAdmitted,
+    LANE_LIFECYCLE_KINDS.turnBoundary,
+    LANE_LIFECYCLE_KINDS.terminal,
+    LANE_LIFECYCLE_KINDS.harvest,
+  ]);
+  expect(lifecycle.at(-2)?.data).toMatchObject({
+    outcome: "ran", processOutcome: "ran", resultBytes: 9,
+  });
+  expect(lifecycle.at(-1)?.data).toMatchObject({
+    status: "nothing-committed", branch: "lane-test-done-ok",
+    sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+  });
 
   expect(existsSync(log)).toBe(true);
   const logged = readFileSync(log, "utf8");
@@ -232,6 +254,7 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   expect(logged).toContain("tell agent:test-done-ok outcome ran");
   expect(logged).toContain("tell agent:test-done-ok process_outcome ran");
   expect(logged).toContain("tell agent:test-done-ok delivery_outcome unverified");
+  expect(logged).toContain(`send test-done-ok ${TEST_COORDINATOR} AGENT COMPLETE`);
   expect(logged).toContain(
     "tell agent:test-done-ok delivery_reason provider_terminal_success_without_external_verification",
   );

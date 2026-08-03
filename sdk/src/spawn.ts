@@ -70,7 +70,7 @@ import {
   provisionWorktree, recordWorktreeAuthorityProfile, recordWorktreeRunRotation,
   resolvedWorktreeAuthorityProfile, rollbackProvisionedWorktree,
   worktreeFinalize, worktreePayload,
-  type ProvisionedWorktree, type WorktreeAllocationWriter,
+  type ProvisionedWorktree, type WorktreeAllocationWriter, type WorktreeHarvest,
   type WorktreeTerminalFailure,
 } from "./worktree";
 import { normalizeUsage } from "./usage";
@@ -176,6 +176,8 @@ import {
   type LearningAssignmentPublicationStatus,
 } from "./learning-assignment-writer";
 import { buildRunEnvelope, sha256Bytes } from "./composition-receipt";
+import { bridgeJournalRoot } from "./bridge/protocol";
+import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "./bridge/journal";
 
 export interface SpawnOptions {
   prompt: string;
@@ -233,6 +235,8 @@ interface SpawnRuntime {
   publishLearningAssignment?: (
     runId: string, assignment: LearningAssignment,
   ) => Promise<LearningAssignmentPublicationStatus>;
+  /** Hermetic lifecycle journal root. Injected providers perform no journal writes unless set. */
+  journalRoot?: string;
 }
 
 const SPAWN_OPTION_FIELDS = new Set([
@@ -404,6 +408,7 @@ async function runSpawn(
   retryContext?: RetryContext,
   retryTarget?: string,
   learningAssignment?: LearningAssignment,
+  lifecycleJournal?: ExecutionJournal,
 ): Promise<{
   result: string; outcome: string; runId: string; providerErrorDetail?: string;
   numTurns?: number; provider: ProviderPreference; siblingTarget?: string;
@@ -559,6 +564,17 @@ async function runSpawn(
     liveInput: initialLiveInput,
     ...liveInputRoute.initialProjection(),
     effort: opts.effort,
+  });
+  lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.identityAdmitted, {
+    thread: boundThreadId ?? null,
+    role: identityRole,
+    provider: routing.provider,
+    target: routing.target,
+    tier: resolved.tier,
+    effort: routing.resolvedEffort ?? opts.effort ?? null,
+    model: routing.resolvedModel ?? opts.model ?? null,
+    worktree: wt?.path ?? null,
+    branch: wt?.branch ?? null,
   });
   // The injected route may resolve its concrete model after the initial sidecar
   // write; enrich discovery metadata at the identity publication boundary.
@@ -821,6 +837,12 @@ async function runSpawn(
       terminalMessages.push(msg);
       if (typeof msg.result === "string") result = msg.result;
       resultMsg = msg;
+      lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.turnBoundary, {
+        subtype: typeof msg.subtype === "string" ? msg.subtype : null,
+        isError: msg.is_error === true,
+        numTurns: typeof msg.num_turns === "number" ? msg.num_turns : null,
+        resultBytes: typeof msg.result === "string" ? Buffer.byteLength(msg.result) : 0,
+      });
       const cap = typeof msg.subtype === "string" && msg.subtype.startsWith("error_max")
         ? msg.subtype
         : null;
@@ -1193,8 +1215,9 @@ async function runSpawn(
   // Salvage-gated worktree cleanup (only if this spawn provisioned one): remove
   // on a clean ran, KEEP + surface a worktree_orphaned fact on any
   // crash/cap/dirty tail. Fail-open.
+  let worktreeHarvest: WorktreeHarvest | undefined;
   if (wt) {
-    worktreeFinalize(agentId, outcome, wt, worktreeTerminalFailure);
+    worktreeHarvest = worktreeFinalize(agentId, outcome, wt, worktreeTerminalFailure);
     wt.finalized = true;
   }
 
@@ -1288,9 +1311,39 @@ async function runSpawn(
     }
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
+  const numTurns = typeof resultMsg?.num_turns === "number"
+    ? resultMsg.num_turns
+    // A retry-safe preflight block proves the provider accepted no turn. This
+    // zero is North-observed; every other missing provider value stays absent.
+    : terminal.processOutcome === "blocked_preflight"
+      || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
+  let terminalJournalError: unknown;
+  try {
+    lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.terminal, {
+      outcome,
+      processOutcome: terminal.processOutcome,
+      deliveryOutcome: terminal.deliveryOutcome,
+      deliveryReason: terminal.deliveryReason,
+      deliveryProof: terminal.deliveryProof ?? null,
+      numTurns: numTurns ?? null,
+      resultBytes: Buffer.byteLength(result),
+    });
+    lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.harvest, worktreeHarvest
+      ? {
+          status: worktreeHarvest.status,
+          branch: wt!.branch,
+          sha: worktreeHarvest.headOid ?? null,
+          ref: worktreeHarvest.ref,
+          commits: worktreeHarvest.commits ?? null,
+          reason: worktreeHarvest.reason ?? null,
+        }
+      : { status: "not-applicable", branch: null, sha: null });
+  } catch (error) {
+    terminalJournalError = error;
+  }
   const publicationBudget = new TerminalPublicationBudget();
-  // The terminal marker is the lane's authoritative lifecycle boundary. It
-  // must never queue behind diagnostic writes or lose their shared budget.
+  // The graph terminal is the authoritative identity boundary and retains the
+  // first publication slice; the journal above independently owns execution history.
   const terminalPublication = writeAgentTerminal(
     agentId,
     terminal,
@@ -1346,12 +1399,6 @@ async function runSpawn(
     outcome,
     mcpActivity,
   }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
-  const numTurns = typeof resultMsg?.num_turns === "number"
-    ? resultMsg.num_turns
-    // A retry-safe preflight block proves the provider accepted no turn. This
-    // zero is North-observed; every other missing provider value stays absent.
-    : terminal.processOutcome === "blocked_preflight"
-      || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
   const codexTurnActivity = codexTurnActivityFromResult(resultMsg);
   const runPublication = await recordRun({
     thread: boundThread, agent: agentId, posture: "spawn",
@@ -1425,6 +1472,7 @@ async function runSpawn(
     },
     publicationBudget.notificationTimeout(),
   );
+  if (terminalJournalError) throw terminalJournalError;
   const struggleSnapshot = struggle.snapshot();
   // Include turns + result size on the completion line. The banner-only stdout
   // .log is the artifact operators skim; without a work signal here a lane that
@@ -1621,6 +1669,27 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       branch: worktreeLease?.branch,
     },
   );
+  const lifecycleRoot = injected.journalRoot
+    ?? (injected.queryFn ? undefined : bridgeJournalRoot());
+  const openLifecycleJournal = (
+    id: string,
+    retryOfAgent?: string,
+  ): ExecutionJournal | undefined => {
+    if (!lifecycleRoot) return undefined;
+    const journal = new ExecutionJournal(lifecycleRoot, id);
+    journal.append(LANE_LIFECYCLE_KINDS.spawnStart, {
+      prompt: composed.prompt,
+      cwd: process.cwd(),
+      thread: composed.thread ?? null,
+      role: composed.routingMetadata.role,
+      topology: composed.routingMetadata.topology,
+      worktree: worktreeLease?.path ?? null,
+      branch: worktreeLease?.branch ?? null,
+      retryOfAgent: retryOfAgent ?? null,
+    });
+    return journal;
+  };
+  let lifecycleJournal = openLifecycleJournal(agentId);
   let admission: EnvelopeAdmission | undefined;
   let result!: string;
   let failed = false;
@@ -1655,7 +1724,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       const attemptPromise = runSpawn(
         { ...composed }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease, providerReady,
-        undefined, undefined, learning.assignment,
+        undefined, undefined, learning.assignment, lifecycleJournal,
       );
       // Coordinator boot can outlive the caller's startup handshake. Retain the
       // attempt concurrently so identity publication happens first, while this
@@ -1695,7 +1764,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       attempt = await runSpawn(
         { ...composed }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease,
-        undefined, undefined, undefined, learning.assignment,
+        undefined, undefined, undefined, learning.assignment, lifecycleJournal,
       );
     }
     let retries = 0;
@@ -1724,11 +1793,13 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
         + `@agent:${retryAgentId} (attempt ${retries})`,
       );
       termination.throwIfTerminated();
+      lifecycleJournal?.close();
+      lifecycleJournal = openLifecycleJournal(retryAgentId, deadAgentId);
       attempt = await runSpawn(
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease, undefined,
         { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
-        learning.assignment,
+        learning.assignment, lifecycleJournal,
       );
       deadAgentId = retryAgentId;
     }
@@ -1765,6 +1836,28 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     catch (error) { cleanupErrors.push(error); }
     finally { worktreeLease.finalized = true; }
   }
+  if (failed && lifecycleJournal) {
+    try {
+      if (!lifecycleJournal.scan().records.some(
+        (record) => record.kind === LANE_LIFECYCLE_KINDS.terminal,
+      )) {
+        lifecycleJournal.append(LANE_LIFECYCLE_KINDS.terminal, {
+          outcome: "rejected",
+          processOutcome: "blocked_preflight",
+          deliveryOutcome: "blocked",
+          deliveryReason: "spawn_rejected_before_terminal_publication",
+          detail: terminalCause(primaryError),
+        });
+        lifecycleJournal.append(LANE_LIFECYCLE_KINDS.harvest, {
+          status: "unavailable",
+          branch: worktreeLease?.branch ?? null,
+          sha: null,
+          reason: "spawn rejected before terminal harvest",
+        });
+      }
+    } catch { /* The primary spawn error remains authoritative. */ }
+  }
+  lifecycleJournal?.close();
   const errors = failed ? [primaryError, ...cleanupErrors] : cleanupErrors;
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1)

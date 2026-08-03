@@ -144,16 +144,27 @@
   (try (.toEpochMilli (java.time.Instant/parse value)) (catch Exception _ nil)))
 (defn journal-row [events-file execution-id]
   (let [records (journal-records events-file execution-id)
-        accepted (first (filter #(= "execution.accepted" (:kind %)) records))
+        accepted (first (filter #(contains? #{"execution.accepted" "lane.spawn-start"}
+                                             (:kind %)) records))
         latest (last records)]
     (when (and accepted latest)
-      (let [failed? (some #(= "execution.failed" (:kind %)) records)
-            completed? (some #(= "execution.completed" (:kind %)) records)
-            delivered? (some #(= "provider.result" (:kind %)) records)
+      (let [identity (last (filter #(= "lane.identity-admitted" (:kind %)) records))
+            terminal (last (filter #(= "lane.terminal" (:kind %)) records))
+            harvest (last (filter #(= "lane.harvest" (:kind %)) records))
+            process-outcome (get-in terminal [:data :processOutcome])
+            result-bytes (get-in terminal [:data :resultBytes])
+            failed? (or (some #(= "execution.failed" (:kind %)) records)
+                        (and terminal (not= "ran" process-outcome)))
+            completed? (or terminal (some #(= "execution.completed" (:kind %)) records))
+            delivered? (or (some #(= "provider.result" (:kind %)) records)
+                           (= "delivered" (get-in terminal [:data :deliveryOutcome]))
+                           (and (number? result-bytes) (pos? result-bytes))
+                           (= "harvested" (get-in harvest [:data :status])))
             started-at (or (instant-ms (:at accepted)) (.lastModified events-file))
             last-at (or (instant-ms (:at latest)) (.lastModified events-file))
-            provider (some #(when (= "provider.starting" (:kind %))
-                              (get-in % [:data :adapter])) records)]
+            provider (or (get-in identity [:data :provider])
+                         (some #(when (= "provider.starting" (:kind %))
+                                  (get-in % [:data :adapter])) records))]
         (cond-> {:id execution-id
                  :title (or (get-in accepted [:data :prompt]) execution-id)
                  :status (cond failed? "failed"
@@ -172,7 +183,11 @@
                  :elapsed (max 0 (- (now) started-at))
                  :last-output-age (max 0 (- (now) last-at))
                  :source "journal"}
-          provider (assoc :provider provider))))))
+          provider (assoc :provider provider)
+          (get-in identity [:data :role]) (assoc :role (get-in identity [:data :role]))
+          (get-in identity [:data :effort]) (assoc :effort (get-in identity [:data :effort]))
+          (get-in identity [:data :model]) (assoc :model (get-in identity [:data :model]))
+          (get-in identity [:data :thread]) (assoc :thread (get-in identity [:data :thread])))))))
 (defn journal-lanes []
   (let [root (io/file (or (some-> (System/getenv "NORTH_BRIDGE_STATE_DIR") io/file .getCanonicalPath)
                           (str state-dir "/bridge"))
@@ -187,8 +202,7 @@
   (let [receipts (:lanes (receipt-lanes))
         journals (:lanes (journal-lanes))]
     {:lanes (vals (reduce (fn [by-id journal]
-                            ;; Journal state is authoritative; receipts fill legacy metadata.
-                            (update by-id (:id journal) #(merge % journal)))
+                            (assoc by-id (:id journal) journal))
                           (into {} (map (juxt :id identity) receipts))
                           journals))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))

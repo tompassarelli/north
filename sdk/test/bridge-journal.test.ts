@@ -3,8 +3,9 @@ import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  ExecutionJournal, JournalTornTailError, scanJournalFile,
+  ExecutionJournal, JournalTornTailError, LANE_LIFECYCLE_KINDS, scanJournalFile,
 } from "../src/bridge/journal";
+import { markLaneConsumed, pendingLanes } from "../src/bridge/pending";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -72,4 +73,28 @@ test("execution journal reports a partial length prefix as a torn tail", () => {
     availableBytes: 2,
     requiredBytes: 4,
   });
+});
+
+test("pending lane consumption survives restart and repeated marking is idempotent", () => {
+  const journalRoot = root();
+  const journal = new ExecutionJournal(journalRoot, "lane-finished");
+  journal.append(LANE_LIFECYCLE_KINDS.spawnStart, { prompt: "land this lane" });
+  journal.append(LANE_LIFECYCLE_KINDS.identityAdmitted, { provider: "mock" });
+  journal.append(LANE_LIFECYCLE_KINDS.turnBoundary, { numTurns: 1 });
+  journal.append(LANE_LIFECYCLE_KINDS.terminal, {
+    processOutcome: "ran", deliveryOutcome: "delivered",
+  });
+  journal.append(LANE_LIFECYCLE_KINDS.harvest, {
+    status: "harvested", branch: "lane-finished", sha: "abc123",
+  });
+  journal.close();
+
+  expect(pendingLanes(journalRoot).map(({ executionId }) => executionId))
+    .toEqual(["lane-finished"]);
+  expect(markLaneConsumed("lane-finished", journalRoot)).toBe(true);
+  expect(pendingLanes(journalRoot)).toEqual([]);
+
+  // A fresh reader sees the durable marker, and repeating the consume is a no-op.
+  expect(pendingLanes(journalRoot)).toEqual([]);
+  expect(markLaneConsumed("lane-finished", journalRoot)).toBe(false);
 });
