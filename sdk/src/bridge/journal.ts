@@ -6,6 +6,14 @@ import { join } from "node:path";
 const LENGTH_BYTES = 4;
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 
+export const LANE_LIFECYCLE_KINDS = {
+  spawnStart: "lane.spawn-start",
+  identityAdmitted: "lane.identity-admitted",
+  turnBoundary: "lane.turn-boundary",
+  terminal: "lane.terminal",
+  harvest: "lane.harvest",
+} as const;
+
 export interface JournalRecord {
   version: 1;
   executionId: string;

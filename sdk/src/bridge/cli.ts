@@ -3,6 +3,7 @@ import { connect, type Socket } from "node:net";
 import { resolve } from "node:path";
 import { bridgeSocketPath, type BridgeRequest } from "./protocol";
 import type { JournalRecord, TornTail } from "./journal";
+import { markLaneConsumed, pendingLanes, type PendingLane } from "./pending";
 
 type ServerMessage =
   | { type: "launched"; executionId: string }
@@ -14,10 +15,47 @@ type ServerMessage =
 function usage(): never {
   console.error(
     "usage: north bridge <prompt> | north bridge dashboard [--once] [--ids] | north bridge accept"
+    + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
     + " | north bridge steer <execution-id> <text> | north bridge interrupt <execution-id>",
   );
   process.exit(2);
+}
+
+function pendingValue(record: JournalRecord | undefined, key: string): string | undefined {
+  const value = record?.data[key];
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function renderPendingLane(lane: PendingLane): string {
+  const processOutcome = pendingValue(lane.terminal, "processOutcome") ?? "unknown";
+  const deliveryOutcome = pendingValue(lane.terminal, "deliveryOutcome") ?? "unknown";
+  const branch = pendingValue(lane.harvest, "branch");
+  const sha = pendingValue(lane.harvest, "sha");
+  return [
+    lane.executionId,
+    `process=${processOutcome}`,
+    `delivery=${deliveryOutcome}`,
+    ...(branch ? [`branch=${branch}`] : []),
+    ...(sha ? [`sha=${sha}`] : []),
+  ].join(" ");
+}
+
+function runPending(args: string[]): number {
+  if (args.length === 0) {
+    for (const lane of pendingLanes()) console.log(renderPendingLane(lane));
+    return 0;
+  }
+  if (args.length === 1 && args[0] === "--json") {
+    console.log(JSON.stringify(pendingLanes()));
+    return 0;
+  }
+  if (args.length === 2 && (args[0] === "--consume" || args[0] === "consume")) {
+    const created = markLaneConsumed(args[1]!);
+    console.log(`${created ? "consumed" : "already consumed"} ${args[1]}`);
+    return 0;
+  }
+  usage();
 }
 
 function runDashboard(args: string[]): Promise<number> {
@@ -112,6 +150,7 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 
 async function main(args: string[]): Promise<number> {
   if (args[0] === "dashboard") return runDashboard(args.slice(1));
+  if (args[0] === "pending") return runPending(args.slice(1));
   if (args[0] === "accept") {
     if (args.length !== 1) usage();
     const { runBridgeAcceptance } = await import("./accept");

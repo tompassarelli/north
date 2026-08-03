@@ -697,7 +697,7 @@ export function worktreeFinalize(
   outcome: string,
   loc: ProvisionedWorktree,
   terminalFailure?: WorktreeTerminalFailure,
-): void {
+): WorktreeHarvest {
   // Harvest FIRST: a lane's committed work must become reachable from the canonical
   // repository before any cleanliness judgement, so even an indeterminate tail publishes
   // where the commits are.
@@ -719,7 +719,7 @@ export function worktreeFinalize(
       });
       tellOrphaned(agentId, loc.path,
         `git status unavailable at finalize — inspect allocation ledger; ${harvestDetail(harvest)}`);
-      return;
+      return harvest;
     }
     // Lifecycle events carry the exact final commit even though the immutable
     // registration's base/head pair remains the provisioning snapshot.
@@ -748,4 +748,5 @@ export function worktreeFinalize(
     try { tellOrphaned(agentId, loc.path, "allocation finalization indeterminate — manual check"); }
     catch { /* fail-open: a finalize must never be bricked by cleanup */ }
   }
+  return harvest;
 }

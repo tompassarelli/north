@@ -17,6 +17,7 @@ const RUNTIME_FIELDS = new Set([
   "admitDispatchAuthority",
   "worktreeAllocationWriter", "prepareManagedFramCoordinator",
   "publishLearningAssignment",
+  "journalRoot",
 ]);
 
 // Dispatch admission shells `bin/north`, which resolves babashka off PATH — where
