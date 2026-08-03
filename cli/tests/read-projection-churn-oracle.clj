@@ -25,7 +25,7 @@
 (def baseline-message "@msg:oracle-inbox-baseline")
 (def baseline-concern "@concern-oracle-baseline")
 (def single-valued
-  "title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log judgment_grade")
+  "title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log candidate_rev candidate_git_dir judgment_grade")
 (def terminal-predicates "outcome abandoned superseded_by")
 (def withdrawn-predicates "abandoned")
 

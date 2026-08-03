@@ -525,7 +525,7 @@ function coordinationBlock(
     `editing code for a feature, declare it so others can see + shape around your work:`,
     `  ${stableBinPath("concern")} declare ${self} ${repo} "<what you're building>" <file1,file2,...>`,
     `  ${stableBinPath("concern")} overlap <id>   # who's in your footprint; likely-to-land marked — build against it`,
-    `  ${stableBinPath("concern")} status <id> likely-to-land · done <id> · ls [repo]`,
+    `  ${stableBinPath("concern")} candidate <id> [git-rev] · done <id> · ls [repo]`,
     ``,
     `Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.`,
     `Run \`${stableBinPath("ensure-private-docs")}\` to set up the ignore in a repo before writing there.`,
