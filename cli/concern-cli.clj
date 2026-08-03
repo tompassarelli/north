@@ -29,10 +29,13 @@
 ;;       blast join, or path); likely-to-land entries are MARKED — build against them.
 ;;       --landing filters to likely-to-land only. (`shape <id>` = hidden alias for that.)
 ;;   ls [<repo>]              active concerns
-;;   status  <concern-id> <exploring|building|likely-to-land|landed>   append a maturity level
+;;   candidate <concern-id> [<git-rev>] record an exact commit and reach likely-to-land
+;;   status  <concern-id> <exploring|building|likely-to-land|landed>   append a maturity level;
+;;       likely-to-land is a compatibility alias for `candidate <id> HEAD`
 ;;   done    <concern-id>     reach `landed`
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
-         '[clojure.set :as set] '[cheshire.core :as json])
+         '[clojure.set :as set] '[clojure.java.shell :as shell]
+         '[cheshire.core :as json])
 
 ;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
@@ -254,7 +257,7 @@
 (def attention-event-reconcile-limit 64)
 (def terminal-attention-statuses #{"landed" "abandoned-stale"})
 (def usage
-  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> [--about <@thread>] | reconcile-local | overlap <id> [--landing] | ls [repo] | list-json [repo] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
+  "usage: concern-cli.clj <port> {declare <agent> <repo> \"<intent>\" <foot,> [--about <@thread>] | reconcile-local | overlap <id> [--landing] | ls [repo] | list-json [repo] | candidate <id> [git-rev] | status <id> <exploring|building|likely-to-land|landed> | done <id>}")
 (defn usage-error! [message]
   (binding [*out* *err*]
     (println (str "concern: " message))
@@ -324,6 +327,45 @@
      :files files
      :about-raw about-raw
      :about (norm-ref about-raw)}))
+(defn resolve-candidate! [raw]
+  (let [requested (or raw "HEAD")
+        revision-result
+        (shell/sh "git" "rev-parse" "--verify" "--end-of-options"
+                  (str requested "^{commit}"))
+        git-dir-result
+        (shell/sh "git" "rev-parse" "--path-format=absolute" "--git-common-dir")
+        revision (str/trim (:out revision-result))
+        git-dir (str/trim (:out git-dir-result))]
+    (when-not (zero? (:exit revision-result))
+      (usage-error!
+       (str "candidate revision " (pr-str requested)
+            " is not a commit in the current repository")))
+    (when-not (re-matches #"(?:[0-9a-f]{40}|[0-9a-f]{64})" revision)
+      (usage-error! "git did not resolve the candidate to one exact commit id"))
+    (when-not (and (zero? (:exit git-dir-result))
+                   (.isAbsolute (io/file git-dir))
+                   (.isDirectory (io/file git-dir)))
+      (usage-error! "git did not resolve one durable common repository directory"))
+    {:revision revision :git-dir git-dir}))
+
+(defn candidate-landed? [{:keys [candidate-rev candidate-git-dir]}]
+  (and
+   (re-matches #"(?:[0-9a-f]{40}|[0-9a-f]{64})" (or candidate-rev ""))
+   (.isAbsolute (io/file (or candidate-git-dir "")))
+   (.isDirectory (io/file (or candidate-git-dir "")))
+   (some
+    (fn [target]
+      (zero?
+       (:exit
+        (shell/sh "git" (str "--git-dir=" candidate-git-dir)
+                  "merge-base" "--is-ancestor" candidate-rev target))))
+    ["refs/remotes/origin/main" "refs/heads/main"])))
+
+(defn with-derived-landing [concern]
+  (if (and (= "likely-to-land" (:status concern))
+           (candidate-landed? concern))
+    (assoc concern :status "landed" :derived-landed true)
+    concern))
 (defn status-of [port c]
   (let [reached (many port c "reached")]
     (if (seq reached)
@@ -358,19 +400,22 @@
   (set (q-col port [{:rel "triple" :args [c "touches" {:var "e"}]}])))
 
 (defn meta-of [port c]
-  {:id c
-   :kind (resolved port c "kind")
-   ;; canonical ref: the board is agent-writable, so a hand-seeded concern can
-   ;; carry a bare handle where `declare` would have written "@" <agent>.
-   :agent (norm-cid (resolved port c "agent"))
-   :about (resolved port c "about")
-   :repo (resolved port c "repo")
-   :intent (resolved port c "intent")
-   :status (status-of port c)
-   :abandoned (abandoned? port c)
-   :code-port (resolved port c "code_port")
-   :code-log (resolved port c "code_log")
-   :touches (touches-of port c)})
+  (with-derived-landing
+   {:id c
+    :kind (resolved port c "kind")
+    ;; canonical ref: the board is agent-writable, so a hand-seeded concern can
+    ;; carry a bare handle where `declare` would have written "@" <agent>.
+    :agent (norm-cid (resolved port c "agent"))
+    :about (resolved port c "about")
+    :repo (resolved port c "repo")
+    :intent (resolved port c "intent")
+    :candidate-rev (resolved port c "candidate_rev")
+    :candidate-git-dir (resolved port c "candidate_git_dir")
+    :status (status-of port c)
+    :abandoned (abandoned? port c)
+    :code-port (resolved port c "code_port")
+    :code-log (resolved port c "code_log")
+    :touches (touches-of port c)}))
 
 ;; Bound to a bulk index for the duration of one CAS read phase; every other
 ;; caller keeps the per-subject round-trip read.
@@ -651,7 +696,7 @@
 ;; each required predicate once from LIVE coordinator state instead. This keeps
 ;; declared-single supersession exact and preserves all live multi values.
 (def concern-list-predicates
-  ["kind" "agent" "repo" "intent" "reached" "code_port" "code_log"
+  ["kind" "agent" "repo" "intent" "candidate_rev" "candidate_git_dir" "reached" "code_port" "code_log"
    "touches" "lease"])
 
 ;; meta-of's exact field set: `about` reaches attention events, and owner leases
@@ -662,7 +707,7 @@
 ;; Cardinality-single on the board: the bulk projection equals meta-of's
 ;; resolved read only while each of these has at most one live value.
 (def concern-single-predicates
-  ["kind" "agent" "about" "repo" "intent" "code_port" "code_log"])
+  ["kind" "agent" "about" "repo" "intent" "candidate_rev" "candidate_git_dir" "code_port" "code_log"])
 
 (defn add-live-rows [facts predicate rows]
   (reduce (fn [current [entity value]]
@@ -703,20 +748,23 @@
 (defn meta-from-live [facts concern now]
   (let [agent (singleton-live facts concern "agent")
         reached (get-in facts [concern "reached"] #{})]
-    (merge
-     {:id concern
-      :kind (singleton-live facts concern "kind")
-      :about (singleton-live facts concern "about")
-      :reached reached
-      :agent agent
-      :repo (singleton-live facts concern "repo")
-      :intent (singleton-live facts concern "intent")
-      :status (status-from-live facts concern)
-      :abandoned (contains? reached "abandoned-stale")
-      :code-port (singleton-live facts concern "code_port")
-      :code-log (singleton-live facts concern "code_log")
-      :touches (get-in facts [concern "touches"] #{})}
-     (liveness-from-live facts concern agent now))))
+    (with-derived-landing
+     (merge
+      {:id concern
+       :kind (singleton-live facts concern "kind")
+       :about (singleton-live facts concern "about")
+       :reached reached
+       :agent agent
+       :repo (singleton-live facts concern "repo")
+       :intent (singleton-live facts concern "intent")
+       :candidate-rev (singleton-live facts concern "candidate_rev")
+       :candidate-git-dir (singleton-live facts concern "candidate_git_dir")
+       :status (status-from-live facts concern)
+       :abandoned (contains? reached "abandoned-stale")
+       :code-port (singleton-live facts concern "code_port")
+       :code-log (singleton-live facts concern "code_log")
+       :touches (get-in facts [concern "touches"] #{})}
+      (liveness-from-live facts concern agent now)))))
 
 (defn concerns-from-live [facts]
   (->> facts
@@ -790,9 +838,13 @@
     {:version concern-projection-version :concerns rows}))
 
 (defn fmt [m]
-  (format "  %-12s %-14s %-10s {%s}\n     ↳ %s  (%s)"
-          (or (:agent m) "?") (or (:status m) "?") (or (:repo m) "?")
-          (str/join " " (sort (:touches m))) (or (:intent m) "") (:id m)))
+  (str
+   (format "  %-12s %-14s %-10s {%s}\n     ↳ %s  (%s)"
+           (or (:agent m) "?") (or (:status m) "?") (or (:repo m) "?")
+           (str/join " " (sort (:touches m))) (or (:intent m) "") (:id m))
+   (when (= "likely-to-land" (:status m))
+     (str "\n       candidate "
+          (or (:candidate-rev m) "<missing — legacy signal is not actionable>")))))
 
 ;; Render one concern with liveness DECAY applied. m must carry :online/:lapsed-ago-ms
 ;; (via with-liveness) + :abandoned. Live -> plain; lapsed building -> STALE (dim);
@@ -864,7 +916,9 @@
         (let [m (with-liveness spine (other-concern overlap (:id mine)))]
           (println (decorate m))
           (when (and (:online m) (= (:status m) "likely-to-land"))
-            (println "       [likely-to-land] — build against this"))
+            (if-let [revision (:candidate-rev m)]
+              (println (str "       [candidate " revision "] — build against this exact commit"))
+              (println "       [legacy likely-to-land] — no candidate commit; do not integrate blind")))
           (println
            (str "       SHARES"
                 (when (= "code-graph" (:evidence overlap)) " (blast-closure)")
@@ -1473,6 +1527,49 @@
          (build-concern-transition-operation raw trigger-status))
         (throw error)))))
 
+(defn ensure-candidate! [port raw revision git-dir]
+  (let [concern (existing-concern! port raw)
+        git-dir-response (put! port concern "candidate_git_dir" git-dir)
+        revision-response (put! port concern "candidate_rev" revision)]
+    (when (or (contains? git-dir-response :reject)
+              (contains? git-dir-response :error)
+              (contains? revision-response :reject)
+              (contains? revision-response :error))
+      (throw
+       (ex-info "coordinator rejected the concern candidate identity"
+                {:type :concern-candidate-rejected
+                 :concern concern
+                 :revision revision
+                 :git-dir git-dir})))
+    (when-not (and (= revision (resolved port concern "candidate_rev"))
+                   (= git-dir (resolved port concern "candidate_git_dir")))
+      (throw
+       (ex-info "concern candidate identity read-back mismatch"
+                {:type :concern-candidate-readback-mismatch
+                 :concern concern
+                 :revision revision
+                 :git-dir git-dir})))
+    concern))
+
+(defn advance-active-maturity! [port raw maturity-level]
+  (let [concern (existing-concern! port raw)
+        before (meta-of port concern)
+        before-overlaps (:overlaps (overlaps-for port concern))]
+    (append! port concern "reached" maturity-level)
+    (let [after (meta-of port concern)
+          after-overlaps
+          (if (active-concern? after)
+            (:overlaps (overlaps-for port concern))
+            [])]
+      (publish-transition!
+       port before after before-overlaps after-overlaps)
+      (reconcile-attention! port concern)
+      (println
+       (str "✓ " concern " reached=" maturity-level
+            " (status=" (:status after) ")"
+            (when-let [revision (:candidate-rev after)]
+              (str " candidate=" revision)))))))
+
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt ps)]
   (case verb
@@ -1709,7 +1806,18 @@
          (select-keys
           (terminal-concern-transition!
            port raw "abandoned-stale")
-          [:status :concern :trigger-status]))))
+           [:status :concern :trigger-status]))))
+
+    "candidate"
+    (let [[raw requested & extra] args]
+      (when (or (nil? raw) (seq extra))
+        (usage-error! "candidate requires <concern-id> and optional <git-rev>"))
+      (let [{:keys [revision git-dir]} (resolve-candidate! requested)]
+        (ensure-candidate! port raw revision git-dir)
+        (execute-concern-transition!
+         raw
+         "likely-to-land"
+         #(advance-active-maturity! port raw "likely-to-land"))))
 
     "status"
     (let [[raw st] args]
@@ -1718,6 +1826,9 @@
       (when-not (contains? maturity-idx st)
         (usage-error! (str "invalid maturity " (pr-str st) "; expected one of "
                            (str/join ", " maturity))))
+      (when (= "likely-to-land" st)
+        (let [{:keys [revision git-dir]} (resolve-candidate! nil)]
+          (ensure-candidate! port raw revision git-dir)))
       (execute-concern-transition!
        raw
        st
@@ -1732,20 +1843,7 @@
                            :concern c})))
               (println
                (str "✓ " c " reached=landed (status=landed)")))
-            (let [before (meta-of port c)
-                  before-overlaps (:overlaps (overlaps-for port c))]
-              (append! port c "reached" st)
-              (let [after (meta-of port c)
-                    after-overlaps
-                    (if (active-concern? after)
-                      (:overlaps (overlaps-for port c))
-                      [])]
-                (publish-transition!
-                 port before after before-overlaps after-overlaps)
-                (reconcile-attention! port c)
-                (println
-                 (str "✓ " c " reached=" st
-                      " (status=" (:status after) ")"))))))))
+            (advance-active-maturity! port c st)))))
 
     "done"
     (let [[raw] args]

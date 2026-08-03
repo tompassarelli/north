@@ -4,6 +4,7 @@
 (require '[babashka.process :as p]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
+         '[clojure.java.shell :as shell]
          '[clojure.string :as str])
 
 (def test-script (or (System/getProperty "babashka.file") *file*))
@@ -53,8 +54,17 @@
     (make-array java.nio.file.attribute.FileAttribute 0))))
 (def log (io/file tmp "facts.log"))
 (def telemetry (io/file tmp "telemetry.log"))
+(def candidate-repo (.getCanonicalPath (io/file tmp "candidate-repo")))
 (spit log "")
 (spit telemetry "")
+(doseq [result
+        [(shell/sh "git" "init" "-q" "-b" "feature" candidate-repo)
+         (shell/sh "git" "-C" candidate-repo
+                   "-c" "user.name=North Test"
+                   "-c" "user.email=north-test@example.invalid"
+                   "commit" "-q" "--allow-empty" "-m" "candidate fixture")]]
+  (when-not (zero? (:exit result))
+    (throw (ex-info "candidate Git fixture failed" {:result result}))))
 (def canonical-log (.getCanonicalPath log))
 (def canonical-telemetry-log (.getCanonicalPath telemetry))
 (def isolated-env
@@ -114,13 +124,16 @@
       (throw (ex-info "fixture fact write failed" result)))
     result))
 
-(defn run-concern [& args]
+(defn run-concern-in [directory & args]
   @(apply p/process
-          {:dir root
+          {:dir directory
            :out :string
            :err :string
            :extra-env isolated-env}
-          "bb" "cli/concern-cli.clj" (str port) args))
+          "bb" source-path (str port) args))
+
+(defn run-concern [& args]
+  (apply run-concern-in root args))
 
 (defn start-concern [& args]
   (apply p/process
@@ -347,9 +360,9 @@
                   (zero? (:exit second-result))
                   (= 2 (count (notification-rows))))))
 
-    (let [likely (run-concern "status" anchored-id "likely-to-land")
+    (let [likely (run-concern-in candidate-repo "status" anchored-id "likely-to-land")
           after-likely (notification-rows)
-          repeated (run-concern "status" anchored-id "likely-to-land")
+          repeated (run-concern-in candidate-repo "status" anchored-id "likely-to-land")
           after-repeat (notification-rows)
           likely-rows (filter #(= "likely-to-land" (:attention-kind %))
                               after-repeat)]
