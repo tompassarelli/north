@@ -26,17 +26,24 @@
       (vec (str/split env #"\s+"))
       ["abandoned"])))
 
-(defn- any-of-i? [idx :- k/Index te :- String preds :- (Vec String)] :- Bool
+(defn- any-of-i?
+  [idx :- k/Index
+   te :- String
+   preds :- (Vec String)] :- Bool
   (loop [ps preds]
     (if (empty? ps) false
       (if (some? (k/one-i idx te (first ps))) true (recur (rest ps))))))
 
 ;; terminal = resolved: any of terminal-preds present (default outcome/abandoned/superseded_by).
-(defn terminal-i? [idx :- k/Index te :- String] :- Bool
+(defn terminal-i?
+  [idx :- k/Index
+   te :- String] :- Bool
   (any-of-i? idx te terminal-preds))
 
 ;; withdrawn = canceled: any of withdrawn-preds present (default abandoned).
-(defn withdrawn-i? [idx :- k/Index te :- String] :- Bool
+(defn withdrawn-i?
+  [idx :- k/Index
+   te :- String] :- Bool
   (any-of-i? idx te withdrawn-preds))
 
 ;; --- work-thread set (moved out of the fram kernel) --------------------------
@@ -47,7 +54,9 @@
 ;; exclude it. The discriminator is STRUCTURAL: a titled, committed node carrying
 ;; NO work axis at all (no completion / activity / blocked / schedule /
 ;; composition / planning / accountability / chronology / navigation predicate).
-(defn anchor-i? [idx :- k/Index te :- String] :- Bool
+(defn anchor-i?
+  [idx :- k/Index
+   te :- String] :- Bool
   (and (some? (k/one-i idx te "title"))
        (and (some? (k/one-i idx te "committed"))
             (and (not (terminal-i? idx te))
@@ -77,12 +86,16 @@
 ;; store is amortized across the whole layer), never for these flat filters.
 
 ;; Direct deps of te that are known threads and not yet terminal.
-(defn incomplete-deps [idx :- k/Index te :- String] :- (Vec String)
+(defn incomplete-deps
+  [idx :- k/Index
+   te :- String] :- (Vec String)
   (filterv (fn [d :- String] :- Bool
              (and (some? (k/one-i idx d "title")) (not (terminal-i? idx d))))
            (k/many-i idx te "depends_on")))
 
-(defn blocked? [idx :- k/Index te :- String] :- Bool
+(defn blocked?
+  [idx :- k/Index
+   te :- String] :- Bool
   (not (empty? (incomplete-deps idx te))))
 
 ;; Schedule axis (the-model §3/§7): a thread is DORMANT iff it carries a future
@@ -90,7 +103,11 @@
 ;; its date. A past/equal do_on is NOT dormant (it's live/overdue). today/before?
 ;; are threaded through callers exactly as staleness.bclj does (before? =
 ;; fram.rt/str-lt?); projections has no clock access of its own.
-(defn dormant? [idx :- k/Index te :- String today :- String before? :- [String String -> Bool]] :- Bool
+(defn dormant?
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]] :- Bool
   (let [d (k/one-i idx te "do_on")]
     (and (some? d) (before? today d))))
 
@@ -102,7 +119,9 @@
 ;; supply one lease+recency predicate for the entire command; tests inject a
 ;; deterministic predicate. `assigned?` remains orthogonal so grooming can show
 ;; stale assignments without inventing a second lifecycle.
-(defn assigned? [idx :- k/Index te :- String] :- Bool
+(defn assigned?
+  [idx :- k/Index
+   te :- String] :- Bool
   (some? (k/one-i idx te "driver")))
 
 ;; The ONE shared precedence classifier (the-model §3): every single-bucket view
@@ -114,7 +133,12 @@
 ;; later is NOT pull-able now, so it drops out of ready/next EVERYWHERE (schedule
 ;; is an eligibility gate, not a display hint — the prior "committed dominates the
 ;; schedule" split let board call it ready while the work queue hid it).
-(defn classify [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- String
+(defn classify
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- String
   (cond
     [(terminal-i? idx te) "terminal"]
     [(blocked? idx te) "blocked"]
@@ -127,10 +151,19 @@
 ;; thread is pull-able now iff it classifies `ready` (committed + unblocked + no
 ;; live driver + not scheduled-later). ready/next/board's READY bucket all reduce
 ;; to this predicate, so their eligibility sets are identical by construction.
-(defn eligible? [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- Bool
+(defn eligible?
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- Bool
   (= (classify idx te today before? live?) "ready"))
 
-(defn ready [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- (Vec String)
+(defn ready
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- (Vec String)
   (filterv (fn [te :- String] :- Bool (eligible? idx te today before? live?))
            (work-thread-ids-i idx)))
 
@@ -138,9 +171,17 @@
 ;; plus its load-bearing reason. Shared by next (per-recommendation eligibility)
 ;; and grooming so the answer to "why isn't this in my queue?" is derived from the
 ;; same classifier, never re-explained ad hoc.
-(defrecord Eligibility [state :- String eligible :- Bool reason :- String])
+(defrecord Eligibility
+  [state :- String
+   eligible :- Bool
+   reason :- String])
 
-(defn explain [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- Eligibility
+(defn explain
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- Eligibility
   (let [st (classify idx te today before? live?)]
     (->Eligibility
      st
@@ -161,7 +202,12 @@
 ;; Derived condition of a work thread — delegates to the ONE precedence classifier
 ;; so plate text + json + the blocked command all agree. live? is threaded through
 ;; exactly as today/before? are (the caller owns the liveness notion).
-(defn condition-i [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- String
+(defn condition-i
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- String
   (classify idx te today before? live?))
 
 ;; Presentation: a deterministic, user-configurable emoji per condition. Engine
@@ -177,13 +223,17 @@
     [(= c "draft") "⚪"]
     [:else "•"]))
 
-(defn condition-emoji [idx :- k/Index c :- String] :- String
+(defn condition-emoji
+  [idx :- k/Index
+   c :- String] :- String
   (let [o (k/one-i idx "@ui" (str "emoji_" c))]
     (if (some? o) o (default-emoji c))))
 
 ;; --- leverage: transitive reverse-dep walk over the prebuilt revdep index ----
 
-(defn transitive-dependents [idx :- k/Index te :- String] :- (Vec String)
+(defn transitive-dependents
+  [idx :- k/Index
+   te :- String] :- (Vec String)
   (loop [frontier (k/dependents-i idx te)
          seen []]
     (if (empty? frontier)
@@ -195,7 +245,9 @@
           (recur (vec (concat rest-f (k/dependents-i idx x)))
                  (conj seen x)))))))
 
-(defn leverage-score [idx :- k/Index te :- String] :- Int
+(defn leverage-score
+  [idx :- k/Index
+   te :- String] :- Int
   (count (filterv (fn [d :- String] :- Bool
                     (and (not (= d te)) (not (terminal-i? idx d))))
                   (transitive-dependents idx te))))

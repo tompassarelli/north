@@ -63,30 +63,43 @@
 (defn clean-text [value: Any] -> String
   (stripAnsiSequences (text value)))
 
-(defn clipped [value: Any limit: Int] -> String
+(defn clipped
+  [value: Any
+   limit: Int] -> String
   (let [clean (clean-text value)]
     (if (> (.-length clean) limit)
       (str "…" (.slice clean (- (.-length clean) limit)))
       clean)))
 
-(defn next-item-id! [runtime: Any prefix: String] -> String
+(defn next-item-id!
+  [runtime: Any
+   prefix: String] -> String
   (set! (.-itemSequence runtime) (+ (.-itemSequence runtime) 1))
   (str prefix ":" (.-itemSequence runtime)))
 
 (defn conversation-item
-  [id: String kind: String title: String body: String status: String]
-  -> Any
+  [id: String
+   kind: String
+   title: String
+   body: String
+   status: String] -> Any
   {:id id :kind kind :title title :body body :status status})
 
-(defn conversation-index [runtime: Any id: String] -> Int
+(defn conversation-index
+  [runtime: Any
+   id: String] -> Int
   (.findIndex (.-conversation runtime)
               (fn [item: Any] -> Bool (identical? (text (.-id item)) id))))
 
-(defn conversation-item-by-id [runtime: Any id: String] -> Any
+(defn conversation-item-by-id
+  [runtime: Any
+   id: String] -> Any
   (let [index (conversation-index runtime id)]
     (if (>= index 0) (aget (.-conversation runtime) index) nil)))
 
-(defn upsert-conversation! [runtime: Any item: Any] -> Any
+(defn upsert-conversation!
+  [runtime: Any
+   item: Any] -> Any
   (let [index (conversation-index runtime (text (.-id item)))]
     (if (>= index 0)
       (aset (.-conversation runtime) index item)
@@ -95,19 +108,26 @@
       (set! (.-conversation runtime) (.slice (.-conversation runtime) -240)))
     (.render runtime)))
 
-(defn append-system! [runtime: Any body: String] -> Any
+(defn append-system!
+  [runtime: Any
+   body: String] -> Any
   (when (not (identical? (.trim body) ""))
     (upsert-conversation!
      runtime
      (conversation-item (next-item-id! runtime "system") "system" "" (.trim body) "done"))))
 
-(defn append-error! [runtime: Any body: String] -> Any
+(defn append-error!
+  [runtime: Any
+   body: String] -> Any
   (when (not (identical? (.trim body) ""))
     (upsert-conversation!
      runtime
      (conversation-item (next-item-id! runtime "error") "error" "Error" (.trim body) "failed"))))
 
-(defn set-working! [runtime: Any working: Bool label: String] -> Any
+(defn set-working!
+  [runtime: Any
+   working: Bool
+   label: String] -> Any
   (set! (.-working runtime) working)
   (set! (.-workingLabel runtime) label)
   (if working
@@ -139,7 +159,9 @@
       {:name (.toLowerCase (.slice normalized 0 split-at))
        :rest (.trim (.slice normalized (+ split-at 1)))})))
 
-(defn palette-options [pane: String input: String] -> (Vec SlashCommand)
+(defn palette-options
+  [pane: String
+   input: String] -> (Vec SlashCommand)
   (let [query (.toLowerCase (.trim input))
         commands (if (identical? pane "agents") AGENT-COMMANDS WORK-COMMANDS)]
     (if (or (not (.startsWith query "/")) (>= (.indexOf query " ") 0))
@@ -172,7 +194,9 @@
   (let [output (js/await (run-command argv))]
     (JSON/parse output)))
 
-(defn read-stream [stream: Any on-chunk: Any] -> (Promise Any)
+(defn read-stream
+  [stream: Any
+   on-chunk: Any] -> (Promise Any)
   (let [reader (.getReader stream)
         decoder (TextDecoder.)]
     (loop []
@@ -181,7 +205,10 @@
           (on-chunk (.decode decoder (.-value result) {:stream true}))
           (recur))))))
 
-(defn stream-command [argv: Any on-stdout: Any on-stderr: Any] -> (Promise Any)
+(defn stream-command
+  [argv: Any
+   on-stdout: Any
+   on-stderr: Any] -> (Promise Any)
   (let [child (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
         results (js/await
                  (Promise/all [(read-stream (.-stdout child) on-stdout)
@@ -206,7 +233,9 @@
      (fn [id: String] -> Bool (not (identical? id ""))))
     []))
 
-(defn driver-of [facts: Any id: String] -> String
+(defn driver-of
+  [facts: Any
+   id: String] -> String
   (if (not (Array/isArray facts))
     ""
     (let [row (.find facts
@@ -215,7 +244,9 @@
                             (identical? (bare (.-subject fact)) id))))]
       (if row (bare (.-value row)) ""))))
 
-(defn normalize-work [board: Any facts: Any] -> Any
+(defn normalize-work
+  [board: Any
+   facts: Any] -> Any
   (if (not (Array/isArray board))
     []
     (.map board
@@ -230,7 +261,9 @@
                                (.trim (str prefix "@" id " " title))
                                (.trim (str condition " · " prefix "@" id " " title))))))))
 
-(defn publish-line! [runtime: Any line: String] -> Any
+(defn publish-line!
+  [runtime: Any
+   line: String] -> Any
   (when (and (not (.-disposed runtime))
              (not (identical? (.trim line) "")))
     (append-system! runtime line)))
@@ -281,7 +314,9 @@
         work (if board (normalize-work board facts) (or (.-graph state) []))
         kanban (if board
                  (.sort (.slice work)
-                        (fn [left: Any right: Any] -> Int
+                        (fn
+                          [left: Any
+                           right: Any] -> Int
                           (.localeCompare
                            (str (.-condition left) ":" (.-title left))
                            (str (.-condition right) ":" (.-title right)))))
@@ -299,18 +334,24 @@
     [{:id "graph" :title "Threads DAG" :items (or (.-graph state) [])}
      {:id "kanban" :title "Kanban" :items (or (.-kanban state) [])}]))
 
-(defn selected-view [state: Any view-id: String] -> Any
+(defn selected-view
+  [state: Any
+   view-id: String] -> Any
   (let [views (view-list state)
         selected (.find views (fn [view: Any] -> Bool (identical? (text (.-id view)) view-id)))]
     (or selected (aget views 0))))
 
-(defn roster-text [state: Any selected: Int] -> String
+(defn roster-text
+  [state: Any
+   selected: Int] -> String
   (let [agents (or (.-agents state) [])]
     (if (identical? (.-length agents) 0)
       "No agents attached"
       (.join
        (.map agents
-             (fn [agent: Any index: Int] -> String
+             (fn
+               [agent: Any
+                index: Int] -> String
                (str (if (identical? index selected) "› " "  ")
                     (or (text (.-name agent)) (text (.-id agent)))
                     (if (identical? (text (.-status agent)) "") ""
@@ -319,14 +360,20 @@
                       (str " — " (text (.-task agent)))))))
        "\n"))))
 
-(defn push-chunk! [chunks: Any chunk: Any] -> Any
+(defn push-chunk!
+  [chunks: Any
+   chunk: Any] -> Any
   (.push chunks chunk))
 
-(defn render-command-palette! [commands: (Vec SlashCommand) selected: Int] -> Any
+(defn render-command-palette!
+  [commands: (Vec SlashCommand)
+   selected: Int] -> Any
   (let [chunks []]
     (.forEach
      commands
-     (fn [candidate: SlashCommand index: Int] -> Any
+     (fn
+       [candidate: SlashCommand
+        index: Int] -> Any
        (push-chunk! chunks
                     (if (identical? index selected) (brightCyan "› ") (brightBlack "  ")))
        (push-chunk! chunks
@@ -399,7 +446,9 @@
       (push-chunk! chunks (brightBlack "Starting Codex supervisor…")))
     (StyledText. chunks)))
 
-(defn render-status [runtime: Any state: Any] -> Any
+(defn render-status
+  [runtime: Any
+   state: Any] -> Any
   (cond
     (.-windowChord runtime)
     (StyledText.
@@ -430,7 +479,9 @@
       (brightCyan "F5") (brightBlack " refresh · ")
       (brightCyan "F6") (brightBlack " pop out")])))
 
-(defn tabs-text [state: Any view-id: String] -> String
+(defn tabs-text
+  [state: Any
+   view-id: String] -> String
   (.join
    (.map (view-list state)
          (fn [view: Any] -> String
@@ -440,17 +491,23 @@
                   (if selected "]" " ")))))
    " "))
 
-(defn work-text [view: Any selected: Int] -> String
+(defn work-text
+  [view: Any
+   selected: Int] -> String
   (let [items (or (.-items view) [])]
     (if (identical? (.-length items) 0)
       (str "No " (or (text (.-title view)) "work") " projection")
       (.join
        (.map items
-             (fn [item: Any index: Int] -> String
+             (fn
+               [item: Any
+                index: Int] -> String
                (str (if (identical? index selected) "› " "  ") (item-line item))))
        "\n"))))
 
-(defn render-ui! [runtime: Any ui: Any] -> Any
+(defn render-ui!
+  [runtime: Any
+   ui: Any] -> Any
   (let [state (snapshot (.-model runtime))
         agents (or (.-agents state) [])
         views (view-list state)
@@ -504,7 +561,11 @@
     (set! (.-activeView runtime) (text (.-id current)))
     views))
 
-(defn bridge-agent! [runtime: Any execution-id: String role: String status: String] -> Any
+(defn bridge-agent!
+  [runtime: Any
+   execution-id: String
+   role: String
+   status: String] -> Any
   (.add (.-bridgeExecutions runtime) execution-id)
   (when (identical? role "supervisor")
     (set! (.-supervisorId runtime) execution-id)
@@ -533,12 +594,18 @@
           {:kind kind :data (if (identical? payload "") {} (JSON/parse payload))}
           (catch Error _ nil))))))
 
-(defn event-item-id [execution-id: String item-id: Any] -> String
+(defn event-item-id
+  [execution-id: String
+   item-id: Any] -> String
   (str execution-id ":" (text item-id)))
 
 (defn append-item-delta!
-  [runtime: Any id: String kind: String title: String delta: String status: String]
-  -> Any
+  [runtime: Any
+   id: String
+   kind: String
+   title: String
+   delta: String
+   status: String] -> Any
   (let [existing (conversation-item-by-id runtime id)
         prior (if existing (text (.-body existing)) "")]
     (upsert-conversation!
@@ -557,8 +624,9 @@
       (text (or (.-text data) (.-result data))))))
 
 (defn handle-codex-event!
-  [runtime: Any stream-state: Any data: Any]
-  -> Any
+  [runtime: Any
+   stream-state: Any
+   data: Any] -> Any
   (let [method (text (.-method data))
         params (or (.-params data) {})
         execution-id (text (.-executionId stream-state))]
@@ -666,7 +734,10 @@
 
       :else nil)))
 
-(defn handle-record! [runtime: Any stream-state: Any record: Any] -> Any
+(defn handle-record!
+  [runtime: Any
+   stream-state: Any
+   record: Any] -> Any
   (let [kind (text (.-kind record))
         data (or (.-data record) {})
         execution-id (text (.-executionId stream-state))]
@@ -703,7 +774,10 @@
 
       :else nil)))
 
-(defn parse-bridge-stream! [runtime: Any stream-state: Any chunk: String] -> Any
+(defn parse-bridge-stream!
+  [runtime: Any
+   stream-state: Any
+   chunk: String] -> Any
   (let [lines (.split (str (.-buffer stream-state) chunk) "\n")
         remainder (.pop lines)]
     (set! (.-buffer stream-state) remainder)
@@ -726,7 +800,10 @@
 
            :else nil))))))
 
-(defn launch-agent! [runtime: Any prompt: String role: String] -> (Promise Any)
+(defn launch-agent!
+  [runtime: Any
+   prompt: String
+   role: String] -> (Promise Any)
   (when (identical? (.trim prompt) "")
     (throw (Error. "launch requires a prompt")))
   (when (not (identical? role "supervisor"))
@@ -752,7 +829,9 @@
                           (if (identical? (.trim (text (.-stderr stream-state))) "") ""
                             (str "\n" (.trim (text (.-stderr stream-state))))))))))
 
-(defn popout! [runtime: Any view-id: String] -> Any
+(defn popout!
+  [runtime: Any
+   view-id: String] -> Any
   (let [ghostty (.which Bun "ghostty")
         kitty (.which Bun "kitty")
         wezterm (.which Bun "wezterm")
@@ -771,7 +850,9 @@
       (.unref child)
       (publish-line! runtime (str "opened " view-id " in a separate terminal")))))
 
-(defn selected-work [runtime: Any selection: Any] -> Any
+(defn selected-work
+  [runtime: Any
+   selection: Any] -> Any
   (let [state (snapshot (.-model runtime))
         view-id (text (or (.-view selection) (.-activeView runtime)))
         view (selected-view state view-id)
@@ -779,7 +860,10 @@
         index (if (nil? (.-index selection)) -1 (.-index selection))]
     (if (and (>= index 0) (< index (.-length items))) (aget items index) nil)))
 
-(defn submit-agent! [runtime: Any input: String selection: Any] -> (Promise Any)
+(defn submit-agent!
+  [runtime: Any
+   input: String
+   selection: Any] -> (Promise Any)
   (let [parsed (command input)
         name (text (.-name parsed))
         rest (text (.-rest parsed))
@@ -812,7 +896,10 @@
               (js/await (run-command [NORTH-BIN "steer" target message])))
             (.render runtime)))))))
 
-(defn submit-work! [runtime: Any input: String selection: Any] -> (Promise Any)
+(defn submit-work!
+  [runtime: Any
+   input: String
+   selection: Any] -> (Promise Any)
   (let [parsed (command input)
         name (text (.-name parsed))
         rest (text (.-rest parsed))]
@@ -862,26 +949,38 @@
       :else
       (throw (Error. "unknown work command; use /help")))))
 
-(defn report-promise! [runtime: Any promise: Any] -> Any
+(defn report-promise!
+  [runtime: Any
+   promise: Any] -> Any
   (.catch promise
           (fn [error: Any] -> Any
             (publish-line! runtime (str "error: " (error-message error))))))
 
-(defn focus-pane! [runtime: Any ui: Any pane: String] -> Any
+(defn focus-pane!
+  [runtime: Any
+   ui: Any
+   pane: String] -> Any
   (set! (.-pane runtime) pane)
   (set! (.-paletteIndex runtime) 0)
   (.focus (if (identical? pane "agents") (.-agentInput ui) (.-workInput ui)))
   (.render runtime))
 
-(defn active-input [runtime: Any ui: Any] -> Any
+(defn active-input
+  [runtime: Any
+   ui: Any] -> Any
   (if (identical? (.-pane runtime) "agents") (.-agentInput ui) (.-workInput ui)))
 
-(defn active-palette-options [runtime: Any ui: Any] -> (Vec SlashCommand)
+(defn active-palette-options
+  [runtime: Any
+   ui: Any] -> (Vec SlashCommand)
   (let [pane (text (.-pane runtime))
         input (active-input runtime ui)]
     (palette-options pane (text (.-value input)))))
 
-(defn pane-for-direction [runtime: Any state: Any direction: String] -> String
+(defn pane-for-direction
+  [runtime: Any
+   state: Any
+   direction: String] -> String
   (let [pane (text (.-pane runtime))
         layout (text (.-layout state))]
     (cond
@@ -892,7 +991,10 @@
       (and (identical? layout "horizontal") (identical? direction "j")) "work"
       :else pane)))
 
-(defn complete-palette! [runtime: Any ui: Any commands: (Vec SlashCommand)] -> Any
+(defn complete-palette!
+  [runtime: Any
+   ui: Any
+   commands: (Vec SlashCommand)] -> Any
   (when (> (.-length commands) 0)
     (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length commands) 1)))
           candidate (aget commands index)
@@ -902,7 +1004,9 @@
       (.focus input)
       (.render runtime))))
 
-(defn install-input! [runtime: Any ui: Any] -> Any
+(defn install-input!
+  [runtime: Any
+   ui: Any] -> Any
   (.on (.-agentInput ui) (.-INPUT InputRenderableEvents)
        (fn [_value: Any] -> Any
          (set! (.-paletteIndex runtime) 0)
@@ -931,7 +1035,9 @@
                                             {:view (.-activeView runtime)
                                              :index (.-workIndex runtime)})))))))
 
-(defn install-mouse! [runtime: Any ui: Any] -> Any
+(defn install-mouse!
+  [runtime: Any
+   ui: Any] -> Any
   (set! (.-onMouseDown (.-agentsPane ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
@@ -941,7 +1047,9 @@
           (when (identical? (.-button event) 0)
             (focus-pane! runtime ui "work")))))
 
-(defn install-keys! [runtime: Any ui: Any] -> Any
+(defn install-keys!
+  [runtime: Any
+   ui: Any] -> Any
   (.on (.-keyInput (.-renderer runtime)) "keypress"
        (fn [key: Any] -> Any
          (let [name (.toLowerCase (text (.-name key)))

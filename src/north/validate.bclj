@@ -19,7 +19,9 @@
 ;; engine does not know.
 (def thread-ref-preds :- (Vec String) ["part_of" "depends_on" "relates_to"])
 
-(defn work-violations-i [idx :- k/Index te :- String] :- (Vec String)
+(defn work-violations-i
+  [idx :- k/Index
+   te :- String] :- (Vec String)
   (let [term? (proj/terminal-i? idx te)
         ;; These three predicates are North thread relationships, not arbitrary
         ;; entity refs. Fram verifies generic subject existence; North adds the
@@ -28,9 +30,13 @@
         ;; from Fram; otherwise this domain rule must still reject the missing
         ;; thread (partial schema metadata cannot disable North integrity).
         v-thread (reduce
-                  (fn [acc :- (Vec String) p :- String] :- (Vec String)
+                  (fn
+                    [acc :- (Vec String)
+                     p :- String] :- (Vec String)
                     (reduce
-                     (fn [a :- (Vec String) rt :- String] :- (Vec String)
+                     (fn
+                       [a :- (Vec String)
+                        rt :- String] :- (Vec String)
                        (cond
                          [(and (k/entity-i? idx rt)
                                (nil? (k/one-i idx rt "title")))
@@ -46,7 +52,9 @@
         ;; a depends_on edge to a withdrawn (abandoned) target — only suspect for
         ;; a still-open thread (a resolved thread's stale deps don't matter).
         v-ab (reduce
-              (fn [acc :- (Vec String) d :- String] :- (Vec String)
+              (fn
+                [acc :- (Vec String)
+                 d :- String] :- (Vec String)
                 (if (and (not term?) (proj/withdrawn-i? idx d))
                   (conj acc (str "depends_on points at abandoned " d))
                   acc))
@@ -91,5 +99,7 @@
     v-ab))
 
 ;; Full north validate over one thread = engine-generic ++ north-work.
-(defn violations-i [idx :- k/Index te :- String] :- (Vec String)
+(defn violations-i
+  [idx :- k/Index
+   te :- String] :- (Vec String)
   (vec (concat (k/violations-i idx te) (work-violations-i idx te))))
