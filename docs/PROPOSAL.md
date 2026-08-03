@@ -1,5 +1,11 @@
 # Proposal: Fact-Native Coordination System
 
+*Preserved 2026-06-14 design record, superseded by `docs/operating-manual.md`.
+Current substrate vocabulary is defined in fram's `docs/ontology.md`
+(recursive Triples; "fact" is a view-level status, honest for North's
+performative coordination rows). Left verbatim below — read "fact graph" /
+"fact store" as this proposal's pre-Triples terms.*
+
 **Working codename:** North *(placeholder — rename at review)*
 **Status:** Draft for internal review
 **Author:** Tom + Claude
