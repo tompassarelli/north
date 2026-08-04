@@ -59,6 +59,13 @@ set +e
 status=$?
 set -e
 
+# codex's workspace-write sandbox mounts .git read-only, so a lane cannot
+# commit its own work; the launcher commits on its behalf after a clean exit.
+if [ "$status" -eq 0 ] && [ -n "$(git -C "$wt" status --porcelain)" ]; then
+  git -C "$wt" add -A
+  git -C "$wt" commit -q -m "$slug: lane work committed by north-exec (sandbox mounts .git read-only)"
+fi
+
 commits=$(git -C "$wt" rev-list --count "$base..HEAD")
 echo "north-exec: exit $status, $commits commit(s)"
 git -C "$wt" log --oneline "$base..HEAD" | sed 's/^/  /'
