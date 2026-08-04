@@ -141,6 +141,30 @@
 (def parked-reviews (grooming-fn grooming-idx [] grooming-idx today before? never-live?))
 (def active-reviews (grooming-fn grooming-idx [] grooming-idx today before? always-live?))
 
+(def queue-asserts
+  [(asrt 1 "@qa" "title" "Queue A" "test")
+   (asrt 2 "@qa" "kind" "thread" "test")
+   (asrt 3 "@qa" "committed" "2026-01-01" "test")
+   (asrt 4 "@qb" "title" "Queue B" "test")
+   (asrt 5 "@qb" "kind" "thread" "test")
+   (asrt 6 "@qb" "committed" "2026-01-01" "test")
+   (asrt 7 "@qb" "queue_rank" "v1|10|first|_" "test")
+   (asrt 8 "@qc" "title" "Queue C" "test")
+   (asrt 9 "@qc" "kind" "thread" "test")
+   (asrt 10 "@qc" "committed" "2026-01-01" "test")
+   (asrt 11 "@qc" "queue_rank" "v1|20|before|@qa" "test")
+   (asrt 12 "@done-old" "title" "Done old" "test")
+   (asrt 13 "@done-old" "kind" "thread" "test")
+   (asrt 14 "@done-old" "outcome" "done" "test")
+   (asrt 15 "@done-old" "updated_at" "2026-01-01" "test")
+   (asrt 16 "@done-new" "title" "Done new" "test")
+   (asrt 17 "@done-new" "kind" "thread" "test")
+   (asrt 18 "@done-new" "outcome" "done" "test")
+   (asrt 19 "@done-new" "updated_at" "2026-02-01" "test")])
+(def queue-idx (k/build-index (:facts (fold/fold queue-asserts))))
+(def recent-terminal-fn (ns-resolve 'north.main 'recent-terminal-tes))
+(def queue-order-result (north.main/queue-order queue-idx ["@qa" "@qb" "@qc"]))
+
 (def checks
   [["terminal beats a live assignment" (= "terminal" (cls "@a"))]
    ["blocked beats a live assignment" (= "blocked" (cls "@b"))]
@@ -196,7 +220,13 @@
    ["grooming turns a stale pickup into a parked-assignment review"
     (= ["driver"] (mapv :pred parked-reviews))]
    ["grooming keeps the done-bar review for a genuinely live pickup"
-    (= ["done_when"] (mapv :pred active-reviews))]])
+    (= ["done_when"] (mapv :pred active-reviews))]
+   ["manual queue moves replay in coordinator-version order over fallback"
+    (= ["@qb" "@qc" "@qa"] queue-order-result)]
+   ["queue rank receipt grammar is stable"
+    (= "v1|42|after|@qa" (north.main/queue-rank-value 42 "after" "@qa"))]
+   ["recent terminal projection is newest first"
+    (= ["@done-new" "@done-old"] (recent-terminal-fn queue-idx))]])
 
 (let [fails (remove second checks)]
   (doseq [[nm ok] checks] (println (if ok "  [PASS] " "  [FAIL] ") nm))

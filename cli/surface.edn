@@ -39,9 +39,11 @@
    :card {:section :work :form "north threads"
           :text "active / ready / blocked overview"}}
   {:verb "ready" :form "north ready [--all]" :topic :work
-   :summary "committed + unblocked work, ranked by leverage"
+   :summary "committed + unblocked work; manual queue order, leverage fallback"
    :card {:section :now :rank 2 :form "north ready"
-          :text "what you could start now, ranked by leverage"}}
+          :text "what you could start now; queue order, leverage fallback"}}
+  {:verb "queue" :form "north queue move <thread> <before|after|first|last> [anchor]" :topic :work
+   :summary "durably reorder the derived ready lane without mutating status"}
   {:verb "next" :form "north next" :topic :work
    :summary "the recommended next pull"}
   {:verb "report" :form "north report" :topic :work

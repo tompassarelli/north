@@ -212,9 +212,105 @@
    priority :- String
    sequencing :- Int
    basis :- String])
+(defrecord QueueDirective
+  [te: String
+   version: Int
+   position: String
+   anchor: String])
 (defrecord AgendaItem
   [te :- String
    do_on :- String])
+
+;; queue_rank is an imperative ordering receipt, not lifecycle state. Replaying
+;; each thread's latest move over the leverage order lets one atomic fact move a
+;; card without rewriting every sibling rank.
+(defn queue-rank-value
+  [version: Int
+   position: String
+   anchor: String] -> String
+  (str "v1|" version "|" position "|" (if (str/blank? anchor) "_" anchor)))
+
+(defn- queue-directive
+  [idx: k/Index
+   te: String] -> QueueDirective?
+  (let [raw (k/one-i idx te "queue_rank")
+        parts (if (some? raw) (vec (str/split raw #"\|")) [])
+        version (if (= (count parts) 4) (fram.rt/parse-int (nth parts 1)) -1)
+        position (if (= (count parts) 4) (nth parts 2) "")
+        anchor-token (if (= (count parts) 4) (nth parts 3) "")
+        anchor (if (= anchor-token "_") "" anchor-token)
+        relative? (or (= position "before") (= position "after"))
+        edge? (or (= position "first") (= position "last"))]
+    (if (and (= (if (some? raw) (nth parts 0) "") "v1")
+             (and (>= version 0)
+                  (or (and edge? (str/blank? anchor))
+                      (and relative? (str/starts-with? anchor "@")))))
+      (->QueueDirective te version position anchor)
+      nil)))
+
+(defn- queue-index
+  [items: (Vec String)
+   target: String] -> Int
+  (loop [i 0]
+    (cond
+      [(>= i (count items)) -1]
+      [(= (nth items i) target) i]
+      [:else (recur (+ i 1))])))
+
+(defn- queue-insert
+  [items: (Vec String)
+   target: String
+   at: Int] -> (Vec String)
+  (loop [i 0
+         result []]
+    (if (>= i (count items))
+      (if (= at i) (conj result target) result)
+      (let [with-target (if (= at i) (conj result target) result)]
+        (recur (+ i 1) (conj with-target (nth items i)))))))
+
+(defn- apply-queue-directive
+  [items: (Vec String)
+   directive: QueueDirective] -> (Vec String)
+  (let [te (:te directive)
+        old-index (queue-index items te)
+        remaining (filterv (fn [item :- String] :- Bool (not (= item te))) items)
+        anchor-index (queue-index remaining (:anchor directive))
+        fallback-index (if (< old-index 0) (count remaining)
+                           (if (> old-index (count remaining)) (count remaining) old-index))
+        insert-index
+        (cond
+          [(= (:position directive) "first") 0]
+          [(= (:position directive) "last") (count remaining)]
+          [(and (= (:position directive) "before") (>= anchor-index 0)) anchor-index]
+          [(and (= (:position directive) "after") (>= anchor-index 0)) (+ anchor-index 1)]
+          [:else fallback-index])]
+    (queue-insert remaining te insert-index)))
+
+(defn- queue-order-from-base
+  [idx: k/Index
+   base: (Vec String)] -> (Vec String)
+  (let [directives
+        (reduce
+         (fn
+           [found: (Vec QueueDirective)
+            te: String] -> (Vec QueueDirective)
+           (let [directive (queue-directive idx te)]
+             (if (some? directive) (conj found directive) found)))
+         [] base)]
+    (reduce
+     (fn
+       [ordered: (Vec String)
+        directive: QueueDirective] -> (Vec String)
+       (apply-queue-directive ordered directive))
+     base
+     (vec (sort-by (fn [directive: QueueDirective] -> Int (:version directive)) directives)))))
+
+(defn queue-order
+  [idx: k/Index
+   tes: (Vec String)] -> (Vec String)
+  (queue-order-from-base
+   idx
+   (vec (sort-by (fn [te: String] -> Int (- 0 (proj/leverage-score idx te))) tes))))
 
 ;; --- fact-set signatures (for capture's import guard) ----------------------
 (defn- fact-sig [c :- k/Fact] :- String (str (:l c) "|" (:p c) "|" (:r c)))
@@ -757,13 +853,14 @@
         ;; --all keeps the old unscoped full list unchanged.
         rs (if all raw
              (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
-        ;; rank by leverage so the top-15 default is the HIGH-SIGNAL slice, not an
-        ;; arbitrary prefix of subject order. --all prints the whole ranked list.
-        ranked (vec (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te))) rs))
+        ;; Manual queue moves replay over leverage, so the default stays
+        ;; high-signal until an operator explicitly orders it.
+        ranked (queue-order idx rs)
         shown (if all ranked (vec (take 15 ranked)))]
     (if all
       (println (str "READY NOW — " (count rs)))
-      (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
+      (println (str "READY NOW — top " (count shown) " of " (count rs)
+                    " by queue order (leverage fallback)")))
     (println "  ready = committed + unblocked + no live driver + not future-scheduled (vs open = merely nonterminal)")
     (doseq [te shown]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
@@ -828,10 +925,13 @@
         ;; the set `ready` and the board's READY bucket render — they cannot diverge.
         items (mapv (fn [te :- String] :- NextItem (next-item idx te today before? live?))
                     (proj/ready idx today before? live?))
-        ranked (vec (take 12 (sort-by (fn [it :- NextItem] :- Int (- 0 (:score it))) items)))]
+        score-order (mapv (fn [it :- NextItem] :- String (:te it))
+                          (vec (sort-by (fn [it :- NextItem] :- Int (- 0 (:score it))) items)))
+        ranked (mapv (fn [te :- String] :- NextItem (next-item idx te today before? live?))
+                     (vec (take 12 (queue-order-from-base idx score-order))))]
     (println (str "WHAT TO WORK ON — top picks (" today ")"))
     (println "  eligible = ready (committed + unblocked + no live driver + not scheduled-later)")
-    (println "  dependency sequencing gates eligibility · score = 3·graph-leverage + do_on urgency + parked-assignment momentum")
+    (println "  manual queue order is primary · fallback score = 3·graph-leverage + do_on urgency + parked-assignment momentum")
     (println "  stored priority is orthogonal human intent (shown, never silently scored)")
     (doseq [it ranked]
       (println (str "  [" (:score it) "] " (short-id (:te it)) "  "
@@ -897,7 +997,7 @@
                     (trunc (title-of idx te) 42))))))
 
 ;; board (kanban prior; `plate` kept as a hidden alias — vocabulary pass, thread 019f2032)
-;; DEFAULT = SIGNAL: active drivers (who's on what) + top-15 ready by leverage +
+;; DEFAULT = SIGNAL: active drivers (who's on what) + top-15 ready by queue order +
 ;; a counts line. The full per-condition kanban dump moved behind `--all` (chaos
 ;; was the census diagnosis: the flat dump drowned the ~15 threads that matter).
 (defn- board-full
@@ -909,7 +1009,7 @@
   (do
     (println (str "THREADS — " (count nonterm) " open"))
     (board-group idx "active" (in-condition idx nonterm today before? live? "active"))
-    (board-group idx "ready" (in-condition idx nonterm today before? live? "ready"))
+    (board-group idx "ready" (queue-order idx (in-condition idx nonterm today before? live? "ready")))
     (board-group idx "blocked" (in-condition idx nonterm today before? live? "blocked"))
     (board-group idx "dormant" (in-condition idx nonterm today before? live? "dormant"))
     (board-group idx "draft" (in-condition idx nonterm today before? live? "draft"))
@@ -938,8 +1038,8 @@
         nconcern (count (filterv (fn [s :- String] :- Bool (= (kind-of idx s) "concern"))
                                  (:subjects idx)))
         ashow (vec (take 20 active))
-        ritems (mapv (fn [te :- String] :- LevItem (->LevItem te (proj/leverage-score idx te))) readyl)
-        rranked (vec (take 15 (sort-by (fn [it :- LevItem] :- Int (- 0 (:score it))) ritems)))]
+        rranked (mapv (fn [te :- String] :- LevItem (->LevItem te (proj/leverage-score idx te)))
+                      (vec (take 15 (queue-order idx readyl))))]
     (println (str "THREADS — " (count threads) " open threads · " (count active) " active · "
                   (count readyl) " ready · " (count blockedl) " blocked · "
                   nconcern " concerns   (north threads --all for the full kanban)"))
@@ -963,7 +1063,7 @@
         (when (> nparked (count pshow))
           (println (str "  … +" (- nparked (count pshow)) " more · north needs-review")))))
     (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked)
-                  " of " (count readyl) " by leverage"))
+                  " of " (count readyl) " by queue order (leverage fallback)"))
     (doseq [it rranked]
       (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
     (when (> (count readyl) (count rranked))
@@ -1028,7 +1128,7 @@
 
 ;; CURATED JSON = the SAME slice the human board/ready render, so the AI-facing
 ;; MCP edge gets parity with the CLI instead of the raw 700+-item dump (149KB).
-;; The curation the CLI applies (kind=thread scope + leverage rank + top-slice)
+;; The curation the CLI applies (kind=thread scope + queue order + top-slice)
 ;; lived ONLY in cmd-board/cmd-ready; the JSON path bypassed it. These helpers
 ;; move it into the JSON path too, gated on all? — --all restores the full,
 ;; unscoped dump that discover.ts/analysis consumers still want.
@@ -1040,7 +1140,7 @@
    all? :- Bool] :- (Vec String)
   (let [raw (proj/ready idx today before? live?)
         rs (if all? raw (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
-        ranked (vec (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te))) rs))]
+        ranked (queue-order idx rs)]
     (if all? ranked (vec (take 15 ranked)))))
 
 (defn- board-curated-tes
@@ -1054,13 +1154,30 @@
     (if all?
       nonterm
       ;; kind=thread scope (drop concern-* / unkinded ephemera), then the curated
-      ;; kanban content: live-driven ACTIVE ++ top-15 READY by leverage. Blocked
+      ;; kanban content: live-driven ACTIVE ++ top-15 READY by queue order. Blocked
       ;; is a count-only bucket on the human board, so it stays out of the slice.
       (let [threads (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) nonterm)
             active (in-condition idx threads today before? live? "active")
-            ready (vec (take 15 (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te)))
-                                         (in-condition idx threads today before? live? "ready"))))]
+            ready (vec (take 15 (queue-order idx
+                                             (in-condition idx threads today before? live? "ready"))))]
         (vec (concat active ready))))))
+
+(defn- recent-terminal-tes [idx: k/Index] -> (Vec String)
+  (let [terminal
+        (filterv
+         (fn [te: String] -> Bool
+           (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te)))
+         (proj/work-thread-ids-i idx))]
+    (vec
+     (take 15
+           (reverse
+            (sort-by
+             (fn [te: String] -> String
+               (let [updated (k/one-i idx te "updated_at")
+                     created (k/one-i idx te "created_at")]
+                 (str (if (some? updated) updated "") "|"
+                      (if (some? created) created "") "|" te)))
+             terminal))))))
 
 (defn- matching-subjects
   [facts :- (Vec k/Fact)
@@ -1198,6 +1315,10 @@
        (println (fram.rt/to-json (mapv (fn [te :- String] :- JThread (jthread idx te today before? live?))
                                        (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before? live?) "blocked"))
                                                 (proj/work-thread-ids-i idx)))))]
+      [(= what "done")
+       (println (fram.rt/to-json
+                 (mapv (fn [te :- String] :- JThread (jthread idx te today before? live?))
+                       (recent-terminal-tes idx))))]
       [(= what "needs-review")
        ;; COLD on purpose (see live-facts): fold-latest needs per-assertion
        ;; tx/frame provenance. idx is re-derived from the SAME read so the
@@ -1267,7 +1388,7 @@
        (println (fram.rt/to-json
                  (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready")
                                   (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))]
-      [:else (println "usage: json board|ready|blocked|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation")])))
+      [:else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation")])))
 
 (defn cmd-json
   [log :- String
