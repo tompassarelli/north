@@ -135,6 +135,22 @@ complete only after cleanup: remove your worktree and delete your branch
 (`wt-reap` sweeps every merged+clean sibling); a landed lane that leaves its
 worktree behind is not done. Never publish a feature branch name.
 
+## Removal means absence — no tombstones
+<!-- north-section: removal · bucket: write -->
+
+When the human asks to remove a feature, target, command, alias, or integration,
+delete its entire live-tree surface. That includes implementation, registration,
+readers and extensions, recognition and rejection branches, bespoke diagnostics,
+compatibility shims, fixtures, goldens, tests, generated output, documentation,
+policy rows, archive notices, and name-only remnants. Do not keep tombstones,
+deprecation paths, dormant code, or "removed" errors unless the human explicitly
+asks for a time-bounded compatibility window. Git history and tags are the
+recovery mechanism. Never replace deleted code with attestation, provenance,
+rationale, recovery-coordinate, or "used to be here" comments; deletion removes
+the commentary too. Downstream consumers do not block an explicit removal; they
+fail clearly or migrate separately. Finish with a tracked-tree, case-insensitive
+token search for the removed name and delete every real match.
+
 ## External code — license first
 <!-- north-section: external-code · bucket: write -->
 
@@ -242,18 +258,7 @@ restricted C11 for bootstrap/reference/sanitizers, QBE as the first
 direct-native and anti-C-capture check, Wasm/WASI for capability sandboxing, and
 LLVM/Cranelift/direct codegen only when measurement justifies them. Coverage
 means 30/39 archived core modules lower into a validated Native World, never
-"30 modules that print Zig."
-
-The former system-layer **bzig** default is suspended; Zig is not a strategic
-native destination. This is an institutional-fit policy, not a technical-defect
-claim. Zig commits `0f5dcae`, `cf87612`, `2fcb72d`, and `9f37f7d` are frozen
-as compatibility implementation, rollback, and differential oracle at the
-closed 13-operation/12-oracle boundary; only narrowly justified
-oracle-maintenance fixes may touch them. No Rust rewrite, handwritten-C domain
-logic, or C3/Odin/Idris retarget. "Turtle" names only the turtles-all-the-way-down
-architectural thesis, never a code identifier, row/log type, or compiler-phase
-label. The amendment's provenance lives on North thread
-`019fbd6c-7e2b-7e21-aa2a-57b581004f37`.
+"30 modules that print a backend language."
 
 App-layer code (CLIs, projections, higher-level tooling) may stay Clojure
 where the repo is already committed to it.
