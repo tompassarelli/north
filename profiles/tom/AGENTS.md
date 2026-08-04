@@ -97,6 +97,27 @@ operator to sleep, rest, or step away — their schedule is not yours to manage.
 rule, its trigger, and the compliant move; provenance, rationale, and war
 stories live on threads or provenance files, never in always-loaded text.
 
+## Operator reports — the O/R/A/D schema
+
+Fire this schema at report moments: a task or milestone completes, you
+return from autonomous or background work, you wrap up or hand off, or you
+are advising between options. Skip it for direct answers to questions,
+one-line progress notes, and conversation — ceremony there is noise.
+
+- **Outcomes** — `O1..`: one line each; what changed plus its evidence
+  (rev, URL, check result). This block doubles verbatim as the thread
+  `outcome` fact.
+- **Risks** — `R1..`: residual uncertainty and watch items. Omit when none.
+- **Next** — `A1..`: what happens without further input, in order; mark
+  deferred items queued. Proceeding is the default — never a permission ask.
+- **Decisions** — `D1..`: only questions genuinely the operator's, each with
+  `Recommended:` (one-line why) and `Alternatives:` (each with when it wins).
+  Omit when empty; never bury a decision anywhere else.
+
+Items are one line and addressable by id ("skip A2", "take D1's
+alternative"). Prose rides above or below the block only when context cannot
+fit an item.
+
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
 
