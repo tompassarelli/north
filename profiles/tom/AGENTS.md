@@ -252,8 +252,8 @@ objectively the smaller move.
 primitives and Beagle machinery target the target-neutral **Beagle Native
 Core** profile: target-independent typed/effect/region/layout/control/
 capability/ABI semantics. Their authoritative lowered program is an immutable
-**Native World**. Fram stays entirely Beagle; greenfield work stays
-text-upstream per the rule below. Materializers are disposable projections:
+**Native World**. Fram stays entirely Beagle; Beagle source remains
+text-authoritative per the rule below. Materializers are disposable projections:
 restricted C11 for bootstrap/reference/sanitizers, QBE as the first
 direct-native and anti-C-capture check, Wasm/WASI for capability sandboxing, and
 LLVM/Cranelift/direct codegen only when measurement justifies them. Coverage
@@ -263,15 +263,12 @@ means 30/39 archived core modules lower into a validated Native World, never
 App-layer code (CLIs, projections, higher-level tooling) may stay Clojure
 where the repo is already committed to it.
 
-**Source stewardship.** New and existing Beagle source defaults to ordinary
-text authoring through the beagle-authoring skill and compiler-driven authoring
-loop. Graph-upstream authoring is an explicit per-file opt-in only when the
-human asks for it; then
-`~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md` applies.
-Never make graph activation, coordinator health, or a migration-choice prompt a
-prerequisite for bounded work. Preserve the current language and upstream unless
-the human requests a migration; deferred candidates belong in a separate
-migration inventory.
+**Source stewardship.** Beagle source is text-authoritative. If a legacy
+`;; @upstream:graph` marker or registry adoption is encountered, remove it and
+edit the source normally. Graph projection and query may be used read-only when
+useful, but can never gate delivery. Preserve the current language unless the
+human requests a migration; deferred candidates belong in a separate migration
+inventory.
 
 ## Background shells — always accountable
 <!-- north-section: background-shells · bucket: shell -->
