@@ -17,9 +17,11 @@ const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only R
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+const KANBAN_CONDITIONS = ["active", "ready", "blocked"];
+
 const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true), SlashCommand("/steer", "steer the selected agent", true), SlashCommand("/interrupt", "interrupt the active agent turn", false), SlashCommand("/refresh", "refresh agents and work", false), SlashCommand("/popout", "open the current view in another terminal", true), SlashCommand("/help", "show Northbridge controls", false)];
 
-const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true), SlashCommand("/filter", "filter visible work", true), SlashCommand("/assign", "reassign the selected work", true), SlashCommand("/view", "switch graph or Kanban view", true), SlashCommand("/split", "switch horizontal or vertical layout", true), SlashCommand("/refresh", "refresh agents and work", false), SlashCommand("/popout", "open the current view in another terminal", true), SlashCommand("/help", "show work commands", false)];
+const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true), SlashCommand("/filter", "filter visible work", true), SlashCommand("/assign", "reassign the selected work", true), SlashCommand("/view", "switch List, DAG, or Kanban view", true), SlashCommand("/split", "switch horizontal or vertical layout", true), SlashCommand("/refresh", "refresh agents and work", false), SlashCommand("/popout", "open the current view in another terminal", true), SlashCommand("/help", "show work commands", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -188,14 +190,17 @@ function driver_of(facts, id) {
   }
 }
 
+function dependencies_of(facts, id) {
+  return ((!Array.isArray(facts)) ? [] : facts.filter((fact) => ((text(fact.predicate) === "depends_on") && (bare(fact.subject) === id))).map((fact) => bare(fact.value)));
+}
+
 function normalize_work(board, facts) {
   return ((!Array.isArray(board)) ? [] : board.map((row) => { const id = bare(row.id);
 const title = text((row.title || id));
 const condition = text((row.condition || "open"));
-const emoji = text(row.emoji);
 const driver = driver_of(facts, id);
-const prefix = ((emoji === "") ? "" : ("".concat(emoji, " ")));
-return make_work(id, title, condition, driver, ("".concat(prefix, "@", id, " ", title)).trim(), ("".concat(condition, " · ", prefix, "@", id, " ", title)).trim()); }));
+const dependencies = dependencies_of(facts, id);
+return make_work(id, title, condition, driver, dependencies); }));
 }
 
 function publish_line_bang(runtime, line) {
@@ -236,18 +241,14 @@ async function refresh_bang(runtime) {
   const agents = (agent_payload ? bridge_agents.concat(distinct_remote) : current_agents);
   const ids = (board ? board_ids(board) : []);
   const facts = ((ids.length > 0) ? await run_json([NORTH_BIN, "json", "show-many", ids.join(",")]).catch((__) => []) : []);
-  const work = (board ? normalize_work(board, facts) : (state.graph || []));
+  const work = (board ? normalize_work(board, facts) : (state.list || []));
   const kanban = (board ? work.slice().sort((left, right) => ("".concat(left.condition, ":", left.title)).localeCompare(("".concat(right.condition, ":", right.title)))) : (state.kanban || []));
   (runtime.model = replace_projection(runtime.model, agents, work, kanban));
   return runtime.render();
 }
 
-function item_line(item) {
-  return ((typeof item === "string") ? item : text(item.text));
-}
-
 function view_list(state) {
-  return ((Array.isArray(state.views) && (state.views.length > 0)) ? state.views : [{id: "graph", title: "Threads DAG", items: (state.graph || [])}, {id: "kanban", title: "Kanban", items: (state.kanban || [])}]);
+  return ((Array.isArray(state.views) && (state.views.length > 0)) ? state.views : [{id: "list", title: "List", items: (state.list || [])}, {id: "dag", title: "DAG", items: (state.list || [])}, {id: "kanban", title: "Kanban", items: (state.kanban || [])}]);
 }
 
 function selected_view(state, view_id) {
@@ -319,14 +320,149 @@ function render_status(runtime, state) {
   return (runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightBlack("  h left · j down · k up · l right · w cycle · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("F1"), brightBlack(" close help · "), brightWhite("F2"), brightBlack(" switch pane · "), brightWhite("F3"), brightBlack(" switch work view\n"), brightWhite("F4"), brightBlack(" toggle split · "), brightWhite("F5"), brightBlack(" refresh · "), brightWhite("F6"), brightBlack(" pop out\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("Ctrl-w h/j/k/l/w"), brightBlack(" navigate panes\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands")]) : new StyledText([brightBlack(("".concat(text(state.notice), "\n"))), brightCyan("F1"), brightBlack(" help · "), brightCyan("F2"), brightBlack(" pane · "), brightCyan("F3"), brightBlack(" view · "), brightCyan("F4"), brightBlack(" split · "), brightCyan("F5"), brightBlack(" refresh · "), brightCyan("F6"), brightBlack(" pop out")]);
 }
 
-function tabs_text(state, view_id) {
-  return view_list(state).map((view) => { const selected = (text(view.id) === view_id);
-return ("".concat((selected ? "[" : " "), (text(view.title) || text(view.id)), (selected ? "]" : " "))); }).join(" ");
+function render_pane_header(title, focused_p) {
+  return new StyledText([brightGreen(title)]);
 }
 
-function work_text(view, selected) {
+function render_work_tabs_bang(state, view_id, focused_p) {
+  const chunks = [];
+  const views = view_list(state);
+  push_chunk_bang(chunks, brightGreen("Work  "));
+  views.forEach((view, index) => { const selected_p = (text(view.id) === view_id);
+const title = (text(view.title) || text(view.id));
+push_chunk_bang(chunks, ((selected_p ? brightCyan : brightBlack))(("".concat((selected_p ? "[" : " "), title, (selected_p ? "]" : " ")))));
+if ((index < (views.length - 1))) {
+  return push_chunk_bang(chunks, white("  "));
+} });
+  return new StyledText(chunks);
+}
+
+function compact_text(value, width) {
+  const source = text(value);
+  const limit = Math.max(1, width);
+  return ((source.length > limit) ? ("".concat(source.slice(0, Math.max(0, (limit - 1))), "…")) : source);
+}
+
+function cell_text(value, width) {
+  return compact_text(value, width).padEnd(width, " ");
+}
+
+function short_thread_id(item) {
+  return bare(item.id).slice(0, 8);
+}
+
+function push_condition_bang(chunks, condition, label) {
+  return push_chunk_bang(chunks, (((condition === "active")) ? brightCyan : ((condition === "ready")) ? brightGreen : ((condition === "blocked")) ? brightRed : brightYellow)(label));
+}
+
+function available_work_width(state) {
+  const stdout = process.stdout;
+  const raw_columns = (stdout ? stdout.columns : null);
+  const columns = ((typeof raw_columns === "number") ? raw_columns : 120);
+  return Math.max(24, ((text(state.layout) === "horizontal") ? (columns - 6) : Math.floor(((columns - 9) / 2))));
+}
+
+function render_list_view_bang(items, selected, width) {
+  const chunks = [];
+  items.forEach((item, index) => { const condition = text((item.condition || "open"));
+const title_width = Math.max(10, (width - 23));
+const title = compact_text(item.title, title_width);
+const selected_p = (index === selected);
+push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
+push_condition_bang(chunks, condition, cell_text(condition.toUpperCase(), 9));
+push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(title));
+push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item)))));
+if ((index < (items.length - 1))) {
+  return push_chunk_bang(chunks, white("\n"));
+} });
+  return new StyledText(chunks);
+}
+
+function work_item_by_id(items, id) {
+  return items.find((item) => (bare(item.id) === id));
+}
+
+function render_dag_view_bang(items, selected, width) {
+  const chunks = [];
+  items.forEach((item, index) => { const condition = text((item.condition || "open"));
+const dependencies = (item.dependencies || []);
+const selected_p = (index === selected);
+push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
+push_condition_bang(chunks, condition, "● ");
+push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(compact_text(item.title, Math.max(12, (width - 16)))));
+push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item), "\n"))));
+if ((dependencies.length === 0)) {
+  push_chunk_bang(chunks, brightBlack("    ╰─ root\n"));
+} else {
+  dependencies.forEach((dependency) => { const target = work_item_by_id(items, dependency);
+push_chunk_bang(chunks, brightBlack("    ╰─ requires ← "));
+push_chunk_bang(chunks, ((target ? brightCyan : brightBlack))(("".concat("@", dependency.slice(0, 8)))));
+return push_chunk_bang(chunks, (target ? dim(("".concat("  ", compact_text(target.title, Math.max(8, (width - 28))), "\n"))) : brightBlack("  outside current board\n"))); });
+}
+if ((index < (items.length - 1))) {
+  return push_chunk_bang(chunks, white("\n"));
+} });
+  return new StyledText(chunks);
+}
+
+function kanban_conditions(items) {
+  const present = [];
+  KANBAN_CONDITIONS.forEach((condition) => { if (items.some((item) => (text(item.condition) === condition))) {
+  return present.push(condition);
+} });
+  items.forEach((item) => { const condition = text((item.condition || "open"));
+if ((!present.includes(condition))) {
+  return present.push(condition);
+} });
+  return present;
+}
+
+function lane_items(items, condition) {
+  return items.filter((item) => (text((item.condition || "open")) === condition));
+}
+
+function max_lane_length(items, conditions) {
+  return conditions.reduce((largest, condition) => Math.max(largest, lane_items(items, condition).length), 0);
+}
+
+function push_lane_gap_bang(chunks, index, count) {
+  if ((index < (count - 1))) {
+    return push_chunk_bang(chunks, white("  "));
+  }
+}
+
+function render_kanban_view_bang(items, selected, width) {
+  const chunks = [];
+  const conditions = kanban_conditions(items);
+  const lane_count = Math.max(1, conditions.length);
+  const lane_width = Math.max(12, Math.floor(((width - (2 * (lane_count - 1))) / lane_count)));
+  const row_count = max_lane_length(items, conditions);
+  conditions.forEach((condition, index) => { const count = lane_items(items, condition).length;
+push_condition_bang(chunks, condition, cell_text(("".concat(condition.toUpperCase(), "  ", count)), lane_width));
+return push_lane_gap_bang(chunks, index, lane_count); });
+  push_chunk_bang(chunks, white("\n"));
+  conditions.forEach((__condition, index) => { push_chunk_bang(chunks, brightBlack(cell_text("─".repeat(lane_width), lane_width)));
+return push_lane_gap_bang(chunks, index, lane_count); });
+  push_chunk_bang(chunks, white("\n"));
+  (() => { let row = 0; while (true) {
+    if ((row < row_count)) { conditions.forEach((condition, index) => { const lane = lane_items(items, condition);
+const item = ((row < lane.length) ? lane[row] : null);
+const selected_p = (item && (items.indexOf(item) === selected));
+const title = (item ? ("".concat((selected_p ? "› " : "  "), compact_text(item.title, (lane_width - 2)))) : "");
+push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(cell_text(title, lane_width)));
+return push_lane_gap_bang(chunks, index, lane_count); }); push_chunk_bang(chunks, white("\n")); conditions.forEach((condition, index) => { const lane = lane_items(items, condition);
+const item = ((row < lane.length) ? lane[row] : null);
+const metadata = (item ? ("".concat("  @", short_thread_id(item))) : "");
+push_chunk_bang(chunks, dim(cell_text(metadata, lane_width)));
+return push_lane_gap_bang(chunks, index, lane_count); }); ((row < (row_count - 1)) ? (() => { return push_chunk_bang(chunks, white("\n")); })() : null); const _recur_0 = (row + 1); row = _recur_0; continue; } else { return null; }
+  } })();
+  return new StyledText(chunks);
+}
+
+function work_content_bang(state, view, selected) {
   const items = (view.items || []);
-  return ((items.length === 0) ? ("".concat("No ", (text(view.title) || "work"), " projection")) : items.map((item, index) => ("".concat(((index === selected) ? "› " : "  "), item_line(item)))).join("\n"));
+  const width = available_work_width(state);
+  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", (text(view.title) || "work"), " items")))]) : ((text(view.id) === "kanban")) ? render_kanban_view_bang(items, selected, width) : ((text(view.id) === "dag")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(items, selected, width));
 }
 
 function render_ui_bang(runtime, ui) {
@@ -351,16 +487,19 @@ function render_ui_bang(runtime, ui) {
     (ui.workPane.width = "100%");
     (ui.agentsPane.height = "50%");
     (ui.workPane.height = "50%");
+    (ui.agentsPane.border = ["bottom"]);
   } else {
     (ui.agentsPane.width = "50%");
     (ui.workPane.width = "50%");
     (ui.agentsPane.height = "100%");
     (ui.workPane.height = "100%");
+    (ui.agentsPane.border = ["right"]);
   }
+  (ui.agentsHeader.content = render_pane_header("Agents", (runtime.pane === "agents")));
   (ui.agentsText.content = roster_text(state, runtime.agentIndex));
   (ui.transcriptText.content = render_conversation_bang(runtime));
-  (ui.tabsText.content = tabs_text(state, text(current.id)));
-  (ui.workText.content = work_text(current, runtime.workIndex));
+  (ui.tabsText.content = render_work_tabs_bang(state, text(current.id), (runtime.pane === "work")));
+  (ui.workText.content = work_content_bang(state, current, runtime.workIndex));
   (ui.statusText.content = render_status(runtime, state));
   (ui.agentPalette.visible = (agent_options.length > 0));
   (ui.agentPalette.height = Math.max(1, Math.min(8, agent_options.length)));
@@ -368,10 +507,6 @@ function render_ui_bang(runtime, ui) {
   (ui.workPalette.visible = (work_options.length > 0));
   (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
   (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
-  (ui.agentsPane.title = "Agents");
-  (ui.workPane.title = ("".concat("Work · ", text(current.id))));
-  (ui.agentsPane.borderColor = ((runtime.pane === "agents") ? "#4ade80" : "#64748b"));
-  (ui.workPane.borderColor = ((runtime.pane === "work") ? "#4ade80" : "#64748b"));
   (runtime.activeView = text(current.id));
   return views;
 }
@@ -535,7 +670,12 @@ async function submit_work_bang(runtime, input, selection) {
   const name = text(parsed.name);
   const rest = text(parsed.rest);
   return ((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
-return runtime.render(); })() : ((name === "view")) ? (() => { (runtime.model = focus_view(runtime.model, rest));
+return runtime.render(); })() : ((name === "view")) ? (() => { if ((!((rest === "list") || (rest === "dag") || (rest === "kanban")))) {
+  (() => { throw new Error("view requires list, dag, or kanban"); })();
+}
+(runtime.model = focus_view(runtime.model, rest));
+(runtime.workIndex = 0);
+runtime.workScroll.scrollTo(0);
 return runtime.render(); })() : ((name === "split")) ? (() => { (runtime.model = set_layout(runtime.model, (((rest === "h") || (rest === "horizontal")) ? "horizontal" : "vertical")));
 return runtime.render(); })() : ((name === "refresh")) ? await refresh_bang(runtime) : ((name === "popout")) ? popout_bang(runtime, ((rest === "") ? runtime.activeView : rest)) : ((name === "capture")) ? (async () => { if ((rest === "")) {
   (() => { throw new Error("capture requires a title"); })();
@@ -555,7 +695,7 @@ publish_line_bang(runtime, "driver reassignment is a retract-then-tell operation
 await run_command([NORTH_BIN, "retract", thread_id, "driver", prior]);
 await run_command([NORTH_BIN, "tell", thread_id, "driver", next_driver]);
 publish_line_bang(runtime, ("".concat("assigned @", thread_id, " to ", next_driver)));
-return await refresh_bang(runtime); })() : ((name === "help")) ? publish_line_bang(runtime, "work commands: /capture <title>, /filter <text>, /assign <driver>, /view graph|kanban, /split h|v, /refresh, /popout") : (() => { throw new Error("unknown work command; use /help"); })();
+return await refresh_bang(runtime); })() : ((name === "help")) ? publish_line_bang(runtime, "work commands: /capture <title>, /filter <text>, /assign <driver>, /view list|dag|kanban, /split h|v, /refresh, /popout") : (() => { throw new Error("unknown work command; use /help"); })();
 }
 
 function report_promise_bang(runtime, promise) {
@@ -683,6 +823,7 @@ if (runtime.windowChord) {
   key.stopPropagation();
   (runtime.model = focus_view(runtime.model, next_id));
   (runtime.workIndex = 0);
+  ui.workScroll.scrollTo(0);
 } else if (((name === "f4") || (meta && (name === "s")))) {
   key.preventDefault();
   key.stopPropagation();
@@ -714,6 +855,7 @@ if (runtime.windowChord) {
     const thread_id = ((items.length > 0) ? bare(items[next_index].id) : "");
     (runtime.workIndex = next_index);
     (runtime.model = select_thread(runtime.model, thread_id));
+    ui.workScroll.scrollBy((delta * ((text(view.id) === "kanban")) ? 2 : ((text(view.id) === "dag")) ? 3 : 1), "step");
   }
 } else if (((name === "escape") || (name === "esc"))) {
   const target = text(runtime.supervisorId);
@@ -732,34 +874,43 @@ if ((!runtime.disposed)) {
 
 async function open_app_bang(view_id) {
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view_id), renderer: renderer, disposed: false, pane: "agents", activeView: ((view_id === "kanban") ? "kanban" : "graph"), agentIndex: 0, workIndex: 0, bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, windowChord: false, render: () => null};
-  const root = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: "100%", gap: 1, padding: 1});
-  const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: true, title: "Agents"});
-  const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: true, title: "Work · graph"});
+  const runtime = {model: make_model(view_id), renderer: renderer, disposed: false, pane: "agents", activeView: ((view_id === "kanban")) ? "kanban" : ((view_id === "dag")) ? "dag" : "list", agentIndex: 0, workIndex: 0, workScroll: null, bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, windowChord: false, render: () => null};
+  const root = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: "100%", gap: 0, padding: 1});
+  const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: ["right"], borderColor: "#64748b"});
+  const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%"});
+  const agents_header = new TextRenderable(renderer, {height: 1, flexShrink: 0, wrapMode: "none"});
   const agents_text = new TextRenderable(renderer, {height: 4, flexShrink: 0, wrapMode: "word"});
-  const transcript_scroll = new ScrollBoxRenderable(renderer, {flexGrow: 1, scrollY: true, stickyScroll: true, stickyStart: "bottom", viewportCulling: true});
+  const transcript_scroll = new ScrollBoxRenderable(renderer, {flexGrow: 1, scrollY: true, stickyScroll: true, stickyStart: "bottom", viewportCulling: true, verticalScrollbarOptions: {visible: false}});
   const transcript_text_view = new TextRenderable(renderer, {width: "100%", flexShrink: 0, wrapMode: "word"});
-  const tabs_text_view = new TextRenderable(renderer, {wrapMode: "word"});
-  const work_text_view = new TextRenderable(renderer, {flexGrow: 1, wrapMode: "word"});
-  const status_text = new TextRenderable(renderer, {wrapMode: "word"});
+  const tabs_text_view = new TextRenderable(renderer, {height: 1, flexShrink: 0, wrapMode: "none"});
+  const work_scroll = new ScrollBoxRenderable(renderer, {flexGrow: 1, scrollY: true, viewportCulling: true, verticalScrollbarOptions: {visible: false}});
+  const work_text_view = new TextRenderable(renderer, {width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
+  const status_text = new TextRenderable(renderer, {flexShrink: 0, wrapMode: "word"});
   const agent_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
   const work_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
   const agent_input = new InputRenderable(renderer, {placeholder: "Message Codex supervisor…"});
-  const work_input = new InputRenderable(renderer, {placeholder: "/capture, /filter, /assign, /view, /split, /popout"});
-  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workText: work_text_view, statusText: status_text, agentPalette: agent_palette, workPalette: work_palette, agentInput: agent_input, workInput: work_input};
+  const work_input = new InputRenderable(renderer, {placeholder: "/view list|dag|kanban, /capture, /filter, /assign"});
+  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, statusText: status_text, agentPalette: agent_palette, workPalette: work_palette, agentInput: agent_input, workInput: work_input};
+  agents_pane.add(agents_header);
   agents_pane.add(agents_text);
   transcript_scroll.add(transcript_text_view);
   agents_pane.add(transcript_scroll);
   agents_pane.add(agent_palette);
   agents_pane.add(agent_input);
   work_pane.add(tabs_text_view);
-  work_pane.add(work_text_view);
+  work_scroll.add(work_text_view);
+  work_pane.add(work_scroll);
   work_pane.add(status_text);
   work_pane.add(work_palette);
   work_pane.add(work_input);
   root.add(agents_pane);
   root.add(work_pane);
   renderer.root.add(root);
+  (transcript_scroll.verticalScrollBar.visible = false);
+  (transcript_scroll.horizontalScrollBar.visible = false);
+  (work_scroll.verticalScrollBar.visible = false);
+  (work_scroll.horizontalScrollBar.visible = false);
+  (runtime.workScroll = work_scroll);
   (runtime.render = () => render_ui_bang(runtime, ui));
   install_input_bang(runtime, ui);
   install_mouse_bang(runtime, ui);
@@ -774,5 +925,5 @@ async function open_app_bang(view_id) {
 }
 
 export function run_northbridge_app_bang(options) {
-  return open_app_bang(text((options.viewId || "graph")));
+  return open_app_bang(text((options.viewId || "list")));
 }

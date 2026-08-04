@@ -25,6 +25,8 @@
 
 (def SPINNER-FRAMES: Any ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"])
 
+(def KANBAN-CONDITIONS: (Vec String) ["active" "ready" "blocked"])
+
 (def AGENT-COMMANDS: (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true)
    (->SlashCommand "/steer" "steer the selected agent" true)
@@ -37,7 +39,7 @@
   [(->SlashCommand "/capture" "capture a new work thread" true)
    (->SlashCommand "/filter" "filter visible work" true)
    (->SlashCommand "/assign" "reassign the selected work" true)
-   (->SlashCommand "/view" "switch graph or Kanban view" true)
+   (->SlashCommand "/view" "switch List, DAG, or Kanban view" true)
    (->SlashCommand "/split" "switch horizontal or vertical layout" true)
    (->SlashCommand "/refresh" "refresh agents and work" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true)
@@ -215,6 +217,16 @@
                             (identical? (bare (.-subject fact)) id))))]
       (if row (bare (.-value row)) ""))))
 
+(defn dependencies-of [facts: Any id: String] -> (Vec String)
+  (if (not (Array/isArray facts))
+    []
+    (.map
+     (.filter facts
+              (fn [fact: Any] -> Bool
+                (and (identical? (text (.-predicate fact)) "depends_on")
+                     (identical? (bare (.-subject fact)) id))))
+     (fn [fact: Any] -> String (bare (.-value fact))))))
+
 (defn normalize-work [board: Any facts: Any] -> Any
   (if (not (Array/isArray board))
     []
@@ -223,12 +235,9 @@
             (let [id (bare (.-id row))
                   title (text (or (.-title row) id))
                   condition (text (or (.-condition row) "open"))
-                  emoji (text (.-emoji row))
                   driver (driver-of facts id)
-                  prefix (if (identical? emoji "") "" (str emoji " "))]
-              (make-work id title condition driver
-                               (.trim (str prefix "@" id " " title))
-                               (.trim (str condition " · " prefix "@" id " " title))))))))
+                  dependencies (dependencies-of facts id)]
+              (make-work id title condition driver dependencies))))))
 
 (defn publish-line! [runtime: Any line: String] -> Any
   (when (and (not (.-disposed runtime))
@@ -278,7 +287,7 @@
                  (.catch (run-json [NORTH-BIN "json" "show-many" (.join ids ",")])
                          (fn [_: Any] -> Any [])))
                 [])
-        work (if board (normalize-work board facts) (or (.-graph state) []))
+        work (if board (normalize-work board facts) (or (.-list state) []))
         kanban (if board
                  (.sort (.slice work)
                         (fn [left: Any right: Any] -> Int
@@ -290,13 +299,11 @@
           (replace-projection (.-model runtime) agents work kanban))
     (.render runtime)))
 
-(defn item-line [item: Any] -> String
-  (if (identical? (js/typeof item) "string") item (text (.-text item))))
-
 (defn view-list [state: Any] -> Any
   (if (and (Array/isArray (.-views state)) (> (.-length (.-views state)) 0))
     (.-views state)
-    [{:id "graph" :title "Threads DAG" :items (or (.-graph state) [])}
+    [{:id "list" :title "List" :items (or (.-list state) [])}
+     {:id "dag" :title "DAG" :items (or (.-list state) [])}
      {:id "kanban" :title "Kanban" :items (or (.-kanban state) [])}]))
 
 (defn selected-view [state: Any view-id: String] -> Any
@@ -430,25 +437,211 @@
       (brightCyan "F5") (brightBlack " refresh · ")
       (brightCyan "F6") (brightBlack " pop out")])))
 
-(defn tabs-text [state: Any view-id: String] -> String
-  (.join
-   (.map (view-list state)
-         (fn [view: Any] -> String
-           (let [selected (identical? (text (.-id view)) view-id)]
-             (str (if selected "[" " ")
-                  (or (text (.-title view)) (text (.-id view)))
-                  (if selected "]" " ")))))
-   " "))
+(defn render-pane-header [title: String focused?: Bool] -> Any
+  (StyledText. [(brightGreen title)]))
 
-(defn work-text [view: Any selected: Int] -> String
-  (let [items (or (.-items view) [])]
+(defn render-work-tabs! [state: Any view-id: String focused?: Bool] -> Any
+  (let [chunks []
+        views (view-list state)]
+    (push-chunk! chunks (brightGreen "Work  "))
+    (.forEach
+     views
+     (fn [view: Any index: Int] -> Any
+       (let [selected? (identical? (text (.-id view)) view-id)
+             title (or (text (.-title view)) (text (.-id view)))]
+         (push-chunk! chunks
+                      ((if selected? brightCyan brightBlack)
+                       (str (if selected? "[" " ") title (if selected? "]" " "))))
+         (when (< index (- (.-length views) 1))
+           (push-chunk! chunks (white "  "))))))
+    (StyledText. chunks)))
+
+(defn compact-text [value: Any width: Int] -> String
+  (let [source (text value)
+        limit (Math/max 1 width)]
+    (if (> (.-length source) limit)
+      (str (.slice source 0 (Math/max 0 (- limit 1))) "…")
+      source)))
+
+(defn cell-text [value: Any width: Int] -> String
+  (.padEnd (compact-text value width) width " "))
+
+(defn short-thread-id [item: Any] -> String
+  (.slice (bare (.-id item)) 0 8))
+
+(defn push-condition! [chunks: Any condition: String label: String] -> Any
+  (push-chunk! chunks
+               ((cond
+                  (identical? condition "active") brightCyan
+                  (identical? condition "ready") brightGreen
+                  (identical? condition "blocked") brightRed
+                  :else brightYellow)
+                label)))
+
+(defn available-work-width [state: Any] -> Int
+  (let [stdout (.-stdout process)
+        raw-columns (if stdout (.-columns stdout) nil)
+        columns (if (identical? (js/typeof raw-columns) "number") raw-columns 120)]
+    (Math/max 24
+              (if (identical? (text (.-layout state)) "horizontal")
+                (- columns 6)
+                (Math/floor (/ (- columns 9) 2))))))
+
+(defn render-list-view! [items: Any selected: Int width: Int] -> Any
+  (let [chunks []]
+    (.forEach
+     items
+     (fn [item: Any index: Int] -> Any
+       (let [condition (text (or (.-condition item) "open"))
+             title-width (Math/max 10 (- width 23))
+             title (compact-text (.-title item) title-width)
+             selected? (identical? index selected)]
+         (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
+         (push-condition! chunks condition
+                          (cell-text (.toUpperCase condition) 9))
+         (push-chunk! chunks ((if selected? brightWhite white) title))
+         (push-chunk! chunks (dim (str "  @" (short-thread-id item))))
+         (when (< index (- (.-length items) 1))
+           (push-chunk! chunks (white "\n"))))))
+    (StyledText. chunks)))
+
+(defn work-item-by-id [items: Any id: String] -> Any
+  (.find items
+         (fn [item: Any] -> Bool
+           (identical? (bare (.-id item)) id))))
+
+(defn render-dag-view! [items: Any selected: Int width: Int] -> Any
+  (let [chunks []]
+    (.forEach
+     items
+     (fn [item: Any index: Int] -> Any
+       (let [condition (text (or (.-condition item) "open"))
+             dependencies (or (.-dependencies item) [])
+             selected? (identical? index selected)]
+         (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
+         (push-condition! chunks condition "● ")
+         (push-chunk! chunks
+                      ((if selected? brightWhite white)
+                       (compact-text (.-title item) (Math/max 12 (- width 16)))))
+         (push-chunk! chunks (dim (str "  @" (short-thread-id item) "\n")))
+         (if (identical? (.-length dependencies) 0)
+           (push-chunk! chunks (brightBlack "    ╰─ root\n"))
+           (.forEach
+            dependencies
+            (fn [dependency: String] -> Any
+              (let [target (work-item-by-id items dependency)]
+                (push-chunk! chunks (brightBlack "    ╰─ requires ← "))
+                (push-chunk! chunks
+                             ((if target brightCyan brightBlack)
+                              (str "@" (.slice dependency 0 8))))
+                (push-chunk! chunks
+                             (if target
+                               (dim (str "  "
+                                         (compact-text (.-title target)
+                                                       (Math/max 8 (- width 28)))
+                                         "\n"))
+                               (brightBlack "  outside current board\n")))))))
+         (when (< index (- (.-length items) 1))
+           (push-chunk! chunks (white "\n"))))))
+    (StyledText. chunks)))
+
+(defn kanban-conditions [items: Any] -> (Vec String)
+  (let [present: (Vec String) []]
+    (.forEach
+     KANBAN-CONDITIONS
+     (fn [condition: String] -> Any
+       (when (.some items
+                    (fn [item: Any] -> Bool
+                      (identical? (text (.-condition item)) condition)))
+         (.push present condition))))
+    (.forEach
+     items
+     (fn [item: Any] -> Any
+       (let [condition (text (or (.-condition item) "open"))]
+         (when (not (.includes present condition))
+           (.push present condition)))))
+    present))
+
+(defn lane-items [items: Any condition: String] -> Any
+  (.filter items
+           (fn [item: Any] -> Bool
+             (identical? (text (or (.-condition item) "open")) condition))))
+
+(defn max-lane-length [items: Any conditions: (Vec String)] -> Int
+  (.reduce
+   conditions
+   (fn [largest: Int condition: String] -> Int
+     (Math/max largest (.-length (lane-items items condition))))
+   0))
+
+(defn push-lane-gap! [chunks: Any index: Int count: Int] -> Any
+  (when (< index (- count 1))
+    (push-chunk! chunks (white "  "))))
+
+(defn render-kanban-view! [items: Any selected: Int width: Int] -> Any
+  (let [chunks []
+        conditions (kanban-conditions items)
+        lane-count (Math/max 1 (.-length conditions))
+        lane-width (Math/max 12 (Math/floor (/ (- width (* 2 (- lane-count 1))) lane-count)))
+        row-count (max-lane-length items conditions)]
+    (.forEach
+     conditions
+     (fn [condition: String index: Int] -> Any
+       (let [count (.-length (lane-items items condition))]
+         (push-condition! chunks condition
+                          (cell-text (str (.toUpperCase condition) "  " count) lane-width))
+         (push-lane-gap! chunks index lane-count))))
+    (push-chunk! chunks (white "\n"))
+    (.forEach
+     conditions
+     (fn [_condition: String index: Int] -> Any
+       (push-chunk! chunks (brightBlack (cell-text (.repeat "─" lane-width) lane-width)))
+       (push-lane-gap! chunks index lane-count)))
+    (push-chunk! chunks (white "\n"))
+    (loop [row 0]
+      (when (< row row-count)
+        (.forEach
+         conditions
+         (fn [condition: String index: Int] -> Any
+           (let [lane (lane-items items condition)
+                 item (if (< row (.-length lane)) (aget lane row) nil)
+                 selected? (and item (identical? (.indexOf items item) selected))
+                 title (if item
+                         (str (if selected? "› " "  ")
+                              (compact-text (.-title item) (- lane-width 2)))
+                         "")]
+             (push-chunk! chunks
+                          ((if selected? brightWhite white) (cell-text title lane-width)))
+             (push-lane-gap! chunks index lane-count))))
+        (push-chunk! chunks (white "\n"))
+        (.forEach
+         conditions
+         (fn [condition: String index: Int] -> Any
+           (let [lane (lane-items items condition)
+                 item (if (< row (.-length lane)) (aget lane row) nil)
+                 metadata (if item
+                            (str "  @" (short-thread-id item))
+                            "")]
+             (push-chunk! chunks (dim (cell-text metadata lane-width)))
+             (push-lane-gap! chunks index lane-count))))
+        (when (< row (- row-count 1)) (push-chunk! chunks (white "\n")))
+        (recur (+ row 1))))
+    (StyledText. chunks)))
+
+(defn work-content! [state: Any view: Any selected: Int] -> Any
+  (let [items (or (.-items view) [])
+        width (available-work-width state)]
     (if (identical? (.-length items) 0)
-      (str "No " (or (text (.-title view)) "work") " projection")
-      (.join
-       (.map items
-             (fn [item: Any index: Int] -> String
-               (str (if (identical? index selected) "› " "  ") (item-line item))))
-       "\n"))))
+      (StyledText. [(brightBlack (str "No " (or (text (.-title view)) "work") " items"))])
+      (cond
+        (identical? (text (.-id view)) "kanban")
+        (render-kanban-view! items selected width)
+
+        (identical? (text (.-id view)) "dag")
+        (render-dag-view! items selected width)
+
+        :else
+        (render-list-view! items selected width)))))
 
 (defn render-ui! [runtime: Any ui: Any] -> Any
   (let [state (snapshot (.-model runtime))
@@ -474,16 +667,23 @@
       (do (set! (.-width (.-agentsPane ui)) "100%")
           (set! (.-width (.-workPane ui)) "100%")
           (set! (.-height (.-agentsPane ui)) "50%")
-          (set! (.-height (.-workPane ui)) "50%"))
+          (set! (.-height (.-workPane ui)) "50%")
+          (set! (.-border (.-agentsPane ui)) ["bottom"]))
       (do (set! (.-width (.-agentsPane ui)) "50%")
           (set! (.-width (.-workPane ui)) "50%")
           (set! (.-height (.-agentsPane ui)) "100%")
-          (set! (.-height (.-workPane ui)) "100%")))
+          (set! (.-height (.-workPane ui)) "100%")
+          (set! (.-border (.-agentsPane ui)) ["right"])))
+    (set! (.-content (.-agentsHeader ui))
+          (render-pane-header "Agents" (identical? (.-pane runtime) "agents")))
     (set! (.-content (.-agentsText ui))
           (roster-text state (.-agentIndex runtime)))
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
-    (set! (.-content (.-tabsText ui)) (tabs-text state (text (.-id current))))
-    (set! (.-content (.-workText ui)) (work-text current (.-workIndex runtime)))
+    (set! (.-content (.-tabsText ui))
+          (render-work-tabs! state (text (.-id current))
+                             (identical? (.-pane runtime) "work")))
+    (set! (.-content (.-workText ui))
+          (work-content! state current (.-workIndex runtime)))
     (set! (.-content (.-statusText ui)) (render-status runtime state))
     (set! (.-visible (.-agentPalette ui)) (> (.-length agent-options) 0))
     (set! (.-height (.-agentPalette ui)) (Math/max 1 (Math/min 8 (.-length agent-options))))
@@ -495,12 +695,6 @@
     (set! (.-content (.-workPalette ui))
           (if (> (.-length work-options) 0)
             (render-command-palette! work-options (.-paletteIndex runtime)) ""))
-    (set! (.-title (.-agentsPane ui)) "Agents")
-    (set! (.-title (.-workPane ui)) (str "Work · " (text (.-id current))))
-    (set! (.-borderColor (.-agentsPane ui))
-          (if (identical? (.-pane runtime) "agents") "#4ade80" "#64748b"))
-    (set! (.-borderColor (.-workPane ui))
-          (if (identical? (.-pane runtime) "work") "#4ade80" "#64748b"))
     (set! (.-activeView runtime) (text (.-id current)))
     views))
 
@@ -821,7 +1015,15 @@
       (do (set! (.-model runtime) (set-filter (.-model runtime) rest)) (.render runtime))
 
       (identical? name "view")
-      (do (set! (.-model runtime) (focus-view (.-model runtime) rest)) (.render runtime))
+      (do
+        (when (not (or (identical? rest "list")
+                       (identical? rest "dag")
+                       (identical? rest "kanban")))
+          (throw (Error. "view requires list, dag, or kanban")))
+        (set! (.-model runtime) (focus-view (.-model runtime) rest))
+        (set! (.-workIndex runtime) 0)
+        (.scrollTo (.-workScroll runtime) 0)
+        (.render runtime))
 
       (identical? name "split")
       (do (set! (.-model runtime)
@@ -857,7 +1059,7 @@
         (js/await (refresh! runtime)))
 
       (identical? name "help")
-      (publish-line! runtime "work commands: /capture <title>, /filter <text>, /assign <driver>, /view graph|kanban, /split h|v, /refresh, /popout")
+      (publish-line! runtime "work commands: /capture <title>, /filter <text>, /assign <driver>, /view list|dag|kanban, /split h|v, /refresh, /popout")
 
       :else
       (throw (Error. "unknown work command; use /help")))))
@@ -1017,7 +1219,8 @@
                (.preventDefault key)
                (.stopPropagation key)
                (set! (.-model runtime) (focus-view (.-model runtime) next-id))
-               (set! (.-workIndex runtime) 0))
+               (set! (.-workIndex runtime) 0)
+               (.scrollTo (.-workScroll ui) 0))
 
              (or (identical? name "f4") (and meta (identical? name "s")))
              (do (.preventDefault key)
@@ -1056,7 +1259,14 @@
                        thread-id (if (> (.-length items) 0)
                                    (bare (.-id (aget items next-index))) "")]
                    (set! (.-workIndex runtime) next-index)
-                   (set! (.-model runtime) (select-thread (.-model runtime) thread-id)))))
+                   (set! (.-model runtime) (select-thread (.-model runtime) thread-id))
+                   (.scrollBy (.-workScroll ui)
+                              (* delta
+                                 (cond
+                                   (identical? (text (.-id view)) "kanban") 2
+                                   (identical? (text (.-id view)) "dag") 3
+                                   :else 1))
+                              "step"))))
 
              (or (identical? name "escape") (identical? name "esc"))
              (let [target (text (.-supervisorId runtime))]
@@ -1075,9 +1285,13 @@
                  :renderer renderer
                  :disposed false
                  :pane "agents"
-                 :activeView (if (identical? view-id "kanban") "kanban" "graph")
+                 :activeView (cond
+                               (identical? view-id "kanban") "kanban"
+                               (identical? view-id "dag") "dag"
+                               :else "list")
                  :agentIndex 0
                  :workIndex 0
+                 :workScroll nil
                  :bridgeExecutions (Set.)
                  :supervisorId ""
                  :conversation []
@@ -1092,41 +1306,55 @@
                  :paletteIndex 0
                  :windowChord false
                  :render (fn [] -> Any nil)}
-        root (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height "100%" :gap 1 :padding 1})
-        agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%" :border true :title "Agents"})
-        work-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%" :border true :title "Work · graph"})
+        root (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height "100%" :gap 0 :padding 1})
+        agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%"
+                                               :border ["right"] :borderColor "#64748b"})
+        work-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%"})
+        agents-header (TextRenderable. renderer {:height 1 :flexShrink 0 :wrapMode "none"})
         agents-text (TextRenderable. renderer {:height 4 :flexShrink 0 :wrapMode "word"})
         transcript-scroll (ScrollBoxRenderable. renderer {:flexGrow 1 :scrollY true
                                                            :stickyScroll true :stickyStart "bottom"
-                                                           :viewportCulling true})
+                                                           :viewportCulling true
+                                                           :verticalScrollbarOptions {:visible false}})
         transcript-text-view (TextRenderable. renderer {:width "100%" :flexShrink 0 :wrapMode "word"})
-        tabs-text-view (TextRenderable. renderer {:wrapMode "word"})
-        work-text-view (TextRenderable. renderer {:flexGrow 1 :wrapMode "word"})
-        status-text (TextRenderable. renderer {:wrapMode "word"})
+        tabs-text-view (TextRenderable. renderer {:height 1 :flexShrink 0 :wrapMode "none"})
+        work-scroll (ScrollBoxRenderable. renderer {:flexGrow 1 :scrollY true :viewportCulling true
+                                                     :verticalScrollbarOptions {:visible false}})
+        work-text-view (TextRenderable. renderer {:width "100%" :flexShrink 0
+                                                   :wrapMode "none" :truncate true})
+        status-text (TextRenderable. renderer {:flexShrink 0 :wrapMode "word"})
         agent-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
                                                   :wrapMode "none" :truncate true :bg "#25272d"})
         work-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
                                                  :wrapMode "none" :truncate true :bg "#25272d"})
         agent-input (InputRenderable. renderer {:placeholder "Message Codex supervisor…"})
-        work-input (InputRenderable. renderer {:placeholder "/capture, /filter, /assign, /view, /split, /popout"})
+        work-input (InputRenderable. renderer {:placeholder "/view list|dag|kanban, /capture, /filter, /assign"})
         ui {:root root :agentsPane agents-pane :workPane work-pane
-            :agentsText agents-text :transcriptText transcript-text-view
-            :tabsText tabs-text-view :workText work-text-view :statusText status-text
+            :agentsHeader agents-header :agentsText agents-text :transcriptText transcript-text-view
+            :tabsText tabs-text-view :workScroll work-scroll
+            :workText work-text-view :statusText status-text
             :agentPalette agent-palette :workPalette work-palette
             :agentInput agent-input :workInput work-input}]
+    (.add agents-pane agents-header)
     (.add agents-pane agents-text)
     (.add transcript-scroll transcript-text-view)
     (.add agents-pane transcript-scroll)
     (.add agents-pane agent-palette)
     (.add agents-pane agent-input)
     (.add work-pane tabs-text-view)
-    (.add work-pane work-text-view)
+    (.add work-scroll work-text-view)
+    (.add work-pane work-scroll)
     (.add work-pane status-text)
     (.add work-pane work-palette)
     (.add work-pane work-input)
     (.add root agents-pane)
     (.add root work-pane)
     (.add (.-root renderer) root)
+    (set! (.-visible (.-verticalScrollBar transcript-scroll)) false)
+    (set! (.-visible (.-horizontalScrollBar transcript-scroll)) false)
+    (set! (.-visible (.-verticalScrollBar work-scroll)) false)
+    (set! (.-visible (.-horizontalScrollBar work-scroll)) false)
+    (set! (.-workScroll runtime) work-scroll)
     (set! (.-render runtime) (fn [] -> Any (render-ui! runtime ui)))
     (install-input! runtime ui)
     (install-mouse! runtime ui)
@@ -1141,4 +1369,4 @@
 
 (js/export
  (defn run-northbridge-app! [options: Any] -> (Promise Any)
-   (open-app! (text (or (.-viewId options) "graph")))))
+   (open-app! (text (or (.-viewId options) "list")))))
