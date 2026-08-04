@@ -53,6 +53,26 @@ function workview_title(r) { return r.title; }
 
 function workview_items(r) { return r.items; }
 
+function ListSection(id, title) {
+  return Object.freeze({_tag: "ListSection", id, title});
+}
+
+function listsection_id(r) { return r.id; }
+
+function listsection_title(r) { return r.title; }
+
+function ListRow(kind, condition, index, count) {
+  return Object.freeze({_tag: "ListRow", kind, condition, index, count});
+}
+
+function listrow_kind(r) { return r.kind; }
+
+function listrow_condition(r) { return r.condition; }
+
+function listrow_index(r) { return r.index; }
+
+function listrow_count(r) { return r.count; }
+
 function WorkSelection(view, index) {
   return Object.freeze({_tag: "WorkSelection", view, index});
 }
@@ -160,6 +180,8 @@ const NORTH_BIN = (() => { const configured = text(process.env.NORTH_BIN); retur
 const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only READY, then wait for operator input.";
 
 const BOARD_LANES = [BoardLane("not-started", "Not Started"), BoardLane("in-progress", "In Progress"), BoardLane("done", "Done")];
+
+const LIST_SECTIONS = [ListSection("active", "In Progress"), ListSection("ready", "Next Up"), ListSection("blocked", "Blocked"), ListSection("dormant", "Backlog"), ListSection("draft", "Draft"), ListSection("terminal", "Done"), ListSection("other", "Todo")];
 
 const DEFAULT_PROMPT_GLYPH = "❯";
 
@@ -273,8 +295,8 @@ function set_working_bang(runtime, working, label) {
     if ((runtime.spinnerTimer == null)) {
       const timer = setInterval(() => { if ((!runtime.disposed)) {
   (runtime.spinnerIndex = (runtime.spinnerIndex + 1));
-  return runtime.render();
-} }, 90);
+  return runtime.renderConversation();
+} }, 180);
       (runtime.spinnerTimer = timer);
       if (timer.unref) {
         timer.unref();
@@ -287,7 +309,7 @@ function set_working_bang(runtime, working, label) {
     (runtime.spinnerTimer = null);
     (runtime.workingSince = 0);
   }
-  return runtime.render();
+  return runtime.renderConversation();
 }
 
 function command(input) {
@@ -410,6 +432,35 @@ return WorkItem(id, title, body, condition, driver, dependencies); }));
 
 function terminal_condition_p(condition) {
   return ((condition === "terminal") || (condition === "done") || (condition === "completed") || (condition === "failed"));
+}
+
+function list_section_id(condition) {
+  return (terminal_condition_p(condition)) ? "terminal" : (["active", "ready", "blocked", "dormant", "draft"].includes(condition)) ? condition : "other";
+}
+
+function list_section_title(section_id) {
+  const section = LIST_SECTIONS.find((candidate) => (listsection_id(candidate) === section_id));
+  return (section ? listsection_title(section) : section_id);
+}
+
+function list_section_count(items, section_id) {
+  return items.filter((item) => (list_section_id(workitem_condition(item)) === section_id)).length;
+}
+
+function list_rows(runtime, items) {
+  const rows = [];
+  const collapsed = runtime.collapsedListConditions;
+  LIST_SECTIONS.forEach((section) => { const section_id = listsection_id(section);
+const count = list_section_count(items, section_id);
+if ((count > 0)) {
+  rows.push(ListRow("header", section_id, -1, count));
+  if ((!collapsed.has(section_id))) {
+    return items.forEach((item, index) => { if ((list_section_id(workitem_condition(item)) === section_id)) {
+  return rows.push(ListRow("item", section_id, index, 0));
+} });
+  }
+} });
+  return rows;
 }
 
 function board_lane_id(condition) {
@@ -590,7 +641,7 @@ function handle_local_command_bang(runtime, ui, input) {
 return true; })() : ((name === "emoji")) ? (() => { const options = emoji_options(rest); if ((options.length === 0)) {
   (() => { throw new Error(("".concat("no emoji matches ", rest))); })();
 }
-const input_renderable = ((runtime.pane === "agents") ? ui.agentInput : ui.workInput);
+const input_renderable = ui.composerInput;
 (input_renderable.value = slashcommand_completion(options[0]));
 input_renderable.focus();
 runtime.render();
@@ -658,8 +709,9 @@ async function refresh_bang(runtime) {
   const work = (Array.isArray(board) ? normalize_work(open_rows, facts) : bridgesnapshot_list(state));
   const prior_terminal = bridgesnapshot_board(state).filter((item) => terminal_condition_p(workitem_condition(item)));
   const terminal_work = (Array.isArray(done) ? normalize_work(done_rows, facts) : prior_terminal);
+  const list_work = work.concat(terminal_work);
   const kanban = ordered_board_items(work, terminal_work);
-  const next_model = replace_projection(runtime.model, agents, work, kanban);
+  const next_model = replace_projection(runtime.model, agents, list_work, kanban);
   const selected_id = bridgesnapshot_selected_thread(state);
   const next_state = snapshot(next_model);
   const next_view = selected_view(next_state, runtime.activeView);
@@ -668,6 +720,9 @@ async function refresh_bang(runtime) {
   (runtime.model = next_model);
   if ((next_index >= 0)) {
     (runtime.workIndex = next_index);
+    if ((workview_id(next_view) === "list")) {
+      runtime.collapsedListConditions.delete(list_section_id(workitem_condition(next_items[next_index])));
+    }
   }
   return runtime.render();
 }
@@ -733,7 +788,7 @@ function pane_visible_p(runtime, pane) {
 
 function workspace_primary_cells(runtime, ui, state) {
   const stacked_p = stacked_workspace_p(state);
-  const measured = (stacked_p ? ui.root.height : ui.root.width);
+  const measured = (stacked_p ? ui.workspace.height : ui.workspace.width);
   const fallback = (stacked_p ? terminal_rows() : terminal_columns());
   const outer = (((typeof measured === "number") && Number.isFinite(measured) && (measured > 0)) ? measured : fallback);
   return Math.max(2, (Math.floor(outer) - 2));
@@ -763,7 +818,7 @@ function apply_workspace_geometry_bang(runtime, ui, state) {
   const work_primary = (both_p ? ("".concat((100 - ratio), "%")) : "100%");
   (ui.agentsPane.visible = pane_visible_p(runtime, "agents"));
   (ui.workPane.visible = pane_visible_p(runtime, "work"));
-  (ui.root.flexDirection = (stacked_p ? "column" : "row"));
+  (ui.workspace.flexDirection = (stacked_p ? "column" : "row"));
   if (stacked_p) {
     (ui.agentsPane.width = "100%");
     (ui.workPane.width = "100%");
@@ -909,8 +964,7 @@ function push_working_wave_bang(chunks, runtime) {
   const letters = "Working".split("");
   const cursor = (runtime.spinnerIndex % letters.length);
   push_chunk_bang(chunks, brightBlack("• "));
-  return letters.forEach((letter, index) => { const phase = (((index - cursor) + letters.length) % letters.length);
-return push_chunk_bang(chunks, ((phase === 0)) ? brightYellow(letter) : (((phase === 1) || (phase === 6))) ? brightWhite(letter) : (((phase === 2) || (phase === 5))) ? white(letter) : brightBlack(letter)); });
+  return letters.forEach((letter, index) => push_chunk_bang(chunks, ((index === cursor) ? brightBlack(letter) : brightWhite(letter))));
 }
 
 function render_conversation_bang(runtime) {
@@ -1003,17 +1057,29 @@ function available_work_width(runtime, state) {
   return Math.max(24, ((stacked_workspace_p(state) || agents_closed_p) ? (columns - 6) : (Math.floor(((columns - 5) * (1 - ratio))) - 3)));
 }
 
-function render_list_view_bang(items, selected, width) {
+function render_list_view_bang(runtime, items, selected, width) {
   const chunks = [];
-  items.forEach((item, index) => { const condition = workitem_condition(item);
-const title_width = Math.max(10, (width - 23));
-const title = compact_text(workitem_title(item), title_width);
-const selected_p = (index === selected);
-push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
-push_condition_bang(chunks, condition, cell_text(condition.toUpperCase(), 9));
-push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(title));
-push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item)))));
-if ((index < (items.length - 1))) {
+  const rows = list_rows(runtime, items);
+  const collapsed = runtime.collapsedListConditions;
+  rows.forEach((row, visual_index) => { const kind = listrow_kind(row);
+const condition = listrow_condition(row);
+if ((kind === "header")) {
+  const collapsed_p = collapsed.has(condition);
+  const header = ("".concat(" ", (collapsed_p ? "▸" : "▾"), "  ", list_section_title(condition), "  ", listrow_count(row)));
+  push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(header.padEnd(width, " "))));
+} else {
+  const index = listrow_index(row);
+  const item = items[index];
+  const title_width = Math.max(10, (width - 25));
+  const title = compact_text(workitem_title(item), title_width);
+  const selected_p = (index === selected);
+  push_chunk_bang(chunks, brightBlack("  "));
+  push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
+  push_condition_bang(chunks, workitem_condition(item), cell_text(workitem_condition(item).toUpperCase(), 9));
+  push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(title));
+  push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item)))));
+}
+if ((visual_index < (rows.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
 } });
   return new StyledText(chunks);
@@ -1086,7 +1152,7 @@ function select_board_card_bang(runtime, ui, item, index) {
 }
 
 function prefill_outcome_bang(runtime, ui, thread_id) {
-  (ui.workInput.value = ("".concat("/outcome @", thread_id, " ")));
+  (ui.composerInput.value = ("".concat("/outcome @", thread_id, " ")));
   focus_pane_bang(runtime, ui, "work");
   return set_board_notice_bang(runtime, ("".concat("Finish the outcome, then press Enter; Done is derived from north tell @", thread_id, " outcome <result>.")));
 }
@@ -1187,7 +1253,24 @@ function sync_board_bang(runtime, ui, items, selected, width) {
 function work_content_bang(runtime, state, view, selected) {
   const items = workview_items(view);
   const width = available_work_width(runtime, state);
-  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", workview_title(view), " items")))]) : ((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(items, selected, width));
+  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", workview_title(view), " items")))]) : ((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(runtime, items, selected, width));
+}
+
+function minibuffer_placeholder(runtime) {
+  return ((text(runtime.pane) === "agents") ? "Message Codex supervisor…" : "/view list|graph|board, /capture, /filter, /assign");
+}
+
+function render_minibuffer_bang(runtime, ui) {
+  const pane = text(runtime.pane);
+  const input = ui.composerInput;
+  const options = palette_options(pane, text(input.value));
+  const palette_max = Math.max(0, (options.length - 1));
+  (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
+  (input.placeholder = minibuffer_placeholder(runtime));
+  (ui.composerPalette.visible = (options.length > 0));
+  (ui.composerPalette.height = Math.max(1, Math.min(8, options.length)));
+  (ui.composerPalette.content = ((options.length > 0) ? render_command_palette_bang(options, runtime.paletteIndex) : ""));
+  return options;
 }
 
 function render_ui_bang(runtime, ui) {
@@ -1200,17 +1283,10 @@ function render_ui_bang(runtime, ui) {
     const items = workview_items(current);
     const agent_max = Math.max(0, (agents.length - 1));
     const work_max = Math.max(0, (items.length - 1));
-    const agent_options = ((runtime.pane === "agents") ? palette_options("agents", text(ui.agentInput.value)) : []);
-    const work_options = ((runtime.pane === "work") ? palette_options("work", text(ui.workInput.value)) : []);
-    const active_options = ((runtime.pane === "agents") ? agent_options : work_options);
-    const palette_max = Math.max(0, (active_options.length - 1));
     const board_p = (workview_id(current) === "board");
     (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
     (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
-    (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
     apply_workspace_geometry_bang(runtime, ui, state);
-    render_prompt_bang(runtime, ui.agentPrompt);
-    render_prompt_bang(runtime, ui.workPrompt);
     (ui.agentsHeader.content = render_pane_header("Agents", (runtime.pane === "agents")));
     (ui.agentsText.content = roster_text(state, runtime.agentIndex));
     (ui.transcriptText.content = render_conversation_bang(runtime));
@@ -1224,15 +1300,10 @@ function render_ui_bang(runtime, ui) {
     }
     (ui.statusText.content = render_status(runtime, state));
     (ui.agentStatusText.content = render_status(runtime, state));
-    (ui.agentContextText.content = render_session_context(runtime));
-    (ui.workContextText.content = render_session_context(runtime));
     (ui.agentStatusText.visible = (text(runtime.closedPane) === "work"));
-    (ui.agentPalette.visible = (agent_options.length > 0));
-    (ui.agentPalette.height = Math.max(1, Math.min(8, agent_options.length)));
-    (ui.agentPalette.content = ((agent_options.length > 0) ? render_command_palette_bang(agent_options, runtime.paletteIndex) : ""));
-    (ui.workPalette.visible = (work_options.length > 0));
-    (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
-    (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
+    render_prompt_bang(runtime, ui.composerPrompt);
+    (ui.composerContextText.content = render_session_context(runtime));
+    render_minibuffer_bang(runtime, ui);
     (runtime.activeView = workview_id(current));
     return views;
   }
@@ -1390,7 +1461,12 @@ function selected_work(runtime, selection) {
   const view = selected_view(state, view_id);
   const items = workview_items(view);
   const index = workselection_index(selection);
-  return (((index >= 0) && (index < items.length)) ? items[index] : null);
+  if (((index >= 0) && (index < items.length))) {
+    const item = items[index];
+    return (((!(workview_id(view) === "list")) || (!runtime.collapsedListConditions.has(list_section_id(workitem_condition(item))))) ? item : null);
+  } else {
+    return null;
+  }
 }
 
 async function submit_agent_bang(runtime, ui, input, selection) {
@@ -1486,7 +1562,7 @@ function pane_box(ui, pane) {
 
 function focus_pane_bang(runtime, ui, pane) {
   select_pane_bang(runtime, pane);
-  ((pane === "agents") ? ui.agentInput : ui.workInput).focus();
+  ui.composerInput.focus();
   return runtime.render();
 }
 
@@ -1498,8 +1574,8 @@ function focus_pane_surface_bang(runtime, ui, pane) {
   }
 }
 
-function active_input(runtime, ui) {
-  return ((runtime.pane === "agents") ? ui.agentInput : ui.workInput);
+function active_input(__runtime, ui) {
+  return ui.composerInput;
 }
 
 function active_palette_options(runtime, ui) {
@@ -1625,27 +1701,24 @@ function complete_palette_bang(runtime, ui, commands) {
     (input.value = ("".concat(((completion === "") ? slashcommand_name(candidate) : completion), suffix)));
     (runtime.paletteIndex = 0);
     input.focus();
-    return runtime.render();
+    return render_minibuffer_bang(runtime, ui);
   }
 }
 
 function install_input_bang(runtime, ui) {
-  ui.agentInput.on(InputRenderableEvents.INPUT, (__value) => { (runtime.paletteIndex = 0);
-return runtime.render(); });
-  ui.workInput.on(InputRenderableEvents.INPUT, (__value) => { (runtime.paletteIndex = 0);
-return runtime.render(); });
-  ui.agentInput.on(InputRenderableEvents.ENTER, () => { const input = text(ui.agentInput.value).trim();
-const state = snapshot(runtime.model);
-const agents = bridgesnapshot_agents(state);
-const selected = ((agents.length > 0) ? agent_id(agents[runtime.agentIndex]) : "");
+  ui.composerInput.on(InputRenderableEvents.INPUT, (__value) => { (runtime.paletteIndex = 0);
+return render_minibuffer_bang(runtime, ui); });
+  return ui.composerInput.on(InputRenderableEvents.ENTER, () => { const input = text(ui.composerInput.value).trim();
 if ((!(input === ""))) {
-  (ui.agentInput.value = "");
-  return report_promise_bang(runtime, submit_agent_bang(runtime, ui, input, selected));
-} });
-  return ui.workInput.on(InputRenderableEvents.ENTER, () => { const input = text(ui.workInput.value).trim();
-if ((!(input === ""))) {
-  (ui.workInput.value = "");
-  return report_promise_bang(runtime, submit_work_bang(runtime, ui, input, WorkSelection(runtime.activeView, runtime.workIndex)));
+  (ui.composerInput.value = "");
+  if ((text(runtime.pane) === "agents")) {
+    const state = snapshot(runtime.model);
+    const agents = bridgesnapshot_agents(state);
+    const selected = ((agents.length > 0) ? agent_id(agents[runtime.agentIndex]) : "");
+    return report_promise_bang(runtime, submit_agent_bang(runtime, ui, input, selected));
+  } else {
+    return report_promise_bang(runtime, submit_work_bang(runtime, ui, input, WorkSelection(runtime.activeView, runtime.workIndex)));
+  }
 } });
 }
 
@@ -1657,7 +1730,7 @@ function work_tab_at(tabs, event) {
 function complete_clicked_palette_bang(runtime, ui, pane, palette_renderable, event) {
   if ((event.button === 0)) {
     select_pane_bang(runtime, pane);
-    const input = ((pane === "agents") ? ui.agentInput : ui.workInput);
+    const input = ui.composerInput;
     const options = palette_options(pane, text(input.value));
     const row = Math.floor((event.y - palette_renderable.y));
     if (((row >= 0) && (row < options.length))) {
@@ -1669,6 +1742,62 @@ function complete_clicked_palette_bang(runtime, ui, pane, palette_renderable, ev
   }
 }
 
+function visible_list_indices(runtime, items) {
+  return list_rows(runtime, items).filter((row) => (listrow_kind(row) === "item")).map((row) => listrow_index(row));
+}
+
+function next_visible_list_index(runtime, items, current, delta) {
+  const indices = visible_list_indices(runtime, items);
+  const position = indices.indexOf(current);
+  const start = ((position >= 0) ? position : ((delta > 0) ? -1 : indices.length));
+  const next = Math.max(0, Math.min((indices.length - 1), (start + delta)));
+  return ((indices.length > 0) ? indices[next] : current);
+}
+
+function select_visible_list_fallback_bang(runtime, items) {
+  const indices = visible_list_indices(runtime, items);
+  const current = runtime.workIndex;
+  if (((indices.length > 0) && (!indices.includes(current)))) {
+    const index = indices[0];
+    const item = items[index];
+    (runtime.workIndex = index);
+    return (runtime.model = select_thread(runtime.model, workitem_id(item)));
+  }
+}
+
+function handle_list_click_bang(runtime, ui, event) {
+  if ((event.button === 0)) {
+    const state = snapshot(runtime.model);
+    const view = selected_view(state, runtime.activeView);
+    if ((workview_id(view) === "list")) {
+      const items = workview_items(view);
+      const rows = list_rows(runtime, items);
+      const row_index = Math.floor((event.y - ui.workText.screenY));
+      if (((row_index >= 0) && (row_index < rows.length))) {
+        const row = rows[row_index];
+        event.preventDefault();
+        event.stopPropagation();
+        if ((listrow_kind(row) === "header")) {
+          const condition = listrow_condition(row);
+          const collapsed = runtime.collapsedListConditions;
+          if (collapsed.has(condition)) {
+            collapsed.delete(condition);
+          } else {
+            collapsed.add(condition);
+          }
+          select_visible_list_fallback_bang(runtime, items);
+        } else {
+          const index = listrow_index(row);
+          const item = items[index];
+          (runtime.workIndex = index);
+          (runtime.model = select_thread(runtime.model, workitem_id(item)));
+        }
+        return focus_pane_surface_bang(runtime, ui, "work");
+      }
+    }
+  }
+}
+
 function install_mouse_bang(runtime, ui) {
   (ui.agentsPane.onMouseDown = (event) => { if ((event.button === 0)) {
   return focus_pane_surface_bang(runtime, ui, "agents");
@@ -1676,16 +1805,12 @@ function install_mouse_bang(runtime, ui) {
   (ui.workPane.onMouseDown = (event) => { if ((event.button === 0)) {
   return focus_pane_surface_bang(runtime, ui, "work");
 } });
-  (ui.agentComposer.onMouseDown = (event) => { if ((event.button === 0)) {
+  (ui.composer.onMouseDown = (event) => { if ((event.button === 0)) {
   event.stopPropagation();
-  return focus_pane_bang(runtime, ui, "agents");
+  return ui.composerInput.focus();
 } });
-  (ui.workComposer.onMouseDown = (event) => { if ((event.button === 0)) {
-  event.stopPropagation();
-  return focus_pane_bang(runtime, ui, "work");
-} });
-  (ui.agentPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, "agents", ui.agentPalette, event));
-  (ui.workPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, "work", ui.workPalette, event));
+  (ui.composerPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, text(runtime.pane), ui.composerPalette, event));
+  (ui.workText.onMouseDown = (event) => handle_list_click_bang(runtime, ui, event));
   return (ui.tabsText.onMouseDown = (event) => { if ((event.button === 0)) {
   const view_id = work_tab_at(ui.tabsText, event);
   if ((!(view_id === ""))) {
@@ -1702,107 +1827,71 @@ function install_mouse_bang(runtime, ui) {
 function install_keys_bang(runtime, ui) {
   return runtime.renderer.keyInput.on("keypress", (key) => { if (((!key.defaultPrevented) && (!key.propagationStopped))) {
   const name = text(key.name).toLowerCase();
-  const state = snapshot(runtime.model);
   const meta = (key.meta || key.option);
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
-  const plain_view_arrow = ((text(runtime.pane) === "work") && (text(ui.workInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
-  if ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) {
-    key.preventDefault();
-    key.stopPropagation();
-    (runtime.paletteIndex = ((runtime.paletteIndex + (((name === "up") || (key.ctrl && (name === "k"))) ? -1 : 1) + palette.length) % palette.length));
-    active_input(runtime, ui).focus();
-  } else if ((palette_open && ((name === "tab") || submit_key_p(name)))) {
-    const index = Math.max(0, Math.min(runtime.paletteIndex, (palette.length - 1)));
-    const candidate = palette[index];
-    const current = text(active_input(runtime, ui).value).trim();
-    const completion = slashcommand_completion(candidate);
-    const candidate_value = ((completion === "") ? slashcommand_name(candidate) : completion);
-    const exact = (current === candidate_value);
-    if (((name === "tab") || (!exact))) {
-      key.preventDefault();
-      key.stopPropagation();
-      complete_palette_bang(runtime, ui, palette);
-    }
-  } else if ((palette_open && ((name === "escape") || (name === "esc")))) {
-    key.preventDefault();
-    key.stopPropagation();
-    (active_input(runtime, ui).value = "");
-    runtime.render();
-  } else if (((name === "tab") || (name === "f2"))) {
-    key.preventDefault();
-    key.stopPropagation();
-    focus_pane_bang(runtime, ui, ((runtime.pane === "agents") ? "work" : "agents"));
-  } else if ((name === "f1")) {
-    key.preventDefault();
-    key.stopPropagation();
-    (runtime.showHelp = (!runtime.showHelp));
-  } else if (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) {
-    const views = view_list(state);
-    const current = selected_view(state, runtime.activeView);
-    const index = views.findIndex((view) => (workview_id(view) === workview_id(current)));
-    const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1);
-    const next_index = ((index + delta + views.length) % views.length);
-    const next_id = text(views[next_index].id);
-    key.preventDefault();
-    key.stopPropagation();
-    (runtime.model = focus_view(runtime.model, next_id));
-    (runtime.workIndex = 0);
-    ui.workScroll.scrollTo(0);
-  } else if (((name === "f4") || (meta && (name === "s")))) {
-    key.preventDefault();
-    key.stopPropagation();
-    (runtime.model = set_layout(runtime.model, ((bridgesnapshot_layout(state) === "horizontal") ? "vertical" : "horizontal")));
-  } else if (((name === "f5") || (key.ctrl && (name === "r")))) {
-    key.preventDefault();
-    key.stopPropagation();
-    report_promise_bang(runtime, refresh_bang(runtime));
-  } else if (((name === "f6") || (key.ctrl && (name === "o")))) {
-    key.preventDefault();
-    key.stopPropagation();
-    popout_bang(runtime, runtime.activeView);
-  } else if ((meta && ((name === "j") || (name === "k")))) {
-    const delta = ((name === "k") ? -1 : 1);
-    key.preventDefault();
-    key.stopPropagation();
-    if ((runtime.pane === "agents")) {
-      const agents = bridgesnapshot_agents(state);
-      const max_index = Math.max(0, (agents.length - 1));
-      const next_index = Math.max(0, Math.min(max_index, (runtime.agentIndex + delta)));
-      const selected_agent_id = ((agents.length > 0) ? agent_id(agents[next_index]) : "");
-      (runtime.agentIndex = next_index);
-      (runtime.model = select_agent(runtime.model, selected_agent_id));
-    } else {
-      const view = selected_view(state, runtime.activeView);
-      const items = workview_items(view);
-      const max_index = Math.max(0, (items.length - 1));
-      const next_index = Math.max(0, Math.min(max_index, (runtime.workIndex + delta)));
-      const thread_id = ((items.length > 0) ? workitem_id(items[next_index]) : "");
-      (runtime.workIndex = next_index);
-      (runtime.model = select_thread(runtime.model, thread_id));
-      ui.workScroll.scrollBy((delta * ((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1), "step");
-    }
-  } else if (((name === "escape") || (name === "esc"))) {
-    const target = text(runtime.supervisorId);
-    if ((runtime.working && (!(target === "")))) {
-      key.preventDefault();
-      key.stopPropagation();
-      report_promise_bang(runtime, submit_agent_bang(runtime, ui, "/interrupt", target));
-    }
-  } else {
-    null;
-  }
-  if ((!runtime.disposed)) {
-    return runtime.render();
-  }
+  const plain_view_arrow = ((text(runtime.pane) === "work") && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
+  return ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) ? (() => { key.preventDefault();
+key.stopPropagation();
+(runtime.paletteIndex = ((runtime.paletteIndex + (((name === "up") || (key.ctrl && (name === "k"))) ? -1 : 1) + palette.length) % palette.length));
+active_input(runtime, ui).focus();
+return render_minibuffer_bang(runtime, ui); })() : ((palette_open && ((name === "tab") || submit_key_p(name)))) ? (() => { const index = Math.max(0, Math.min(runtime.paletteIndex, (palette.length - 1))); const candidate = palette[index]; const current = text(active_input(runtime, ui).value).trim(); const completion = slashcommand_completion(candidate); const candidate_value = ((completion === "") ? slashcommand_name(candidate) : completion); const exact = (current === candidate_value); if (((name === "tab") || (!exact))) {
+  key.preventDefault();
+  key.stopPropagation();
+  return complete_palette_bang(runtime, ui, palette);
+} })() : ((palette_open && ((name === "escape") || (name === "esc")))) ? (() => { key.preventDefault();
+key.stopPropagation();
+(active_input(runtime, ui).value = "");
+return render_minibuffer_bang(runtime, ui); })() : (((name === "tab") || (name === "f2"))) ? (() => { key.preventDefault();
+key.stopPropagation();
+return focus_pane_bang(runtime, ui, ((runtime.pane === "agents") ? "work" : "agents")); })() : ((name === "f1")) ? (() => { key.preventDefault();
+key.stopPropagation();
+(runtime.showHelp = (!runtime.showHelp));
+return runtime.render(); })() : (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1); const next_index = ((index + delta + views.length) % views.length); const next_id = text(views[next_index].id); key.preventDefault();
+key.stopPropagation();
+(runtime.model = focus_view(runtime.model, next_id));
+(runtime.workIndex = 0);
+ui.workScroll.scrollTo(0);
+return runtime.render(); })() : (((name === "f4") || (meta && (name === "s")))) ? (() => { const state = snapshot(runtime.model); key.preventDefault();
+key.stopPropagation();
+(runtime.model = set_layout(runtime.model, ((bridgesnapshot_layout(state) === "horizontal") ? "vertical" : "horizontal")));
+return runtime.render(); })() : (((name === "f5") || (key.ctrl && (name === "r")))) ? (() => { key.preventDefault();
+key.stopPropagation();
+return report_promise_bang(runtime, refresh_bang(runtime)); })() : (((name === "f6") || (key.ctrl && (name === "o")))) ? (() => { key.preventDefault();
+key.stopPropagation();
+return popout_bang(runtime, runtime.activeView); })() : ((meta && ((name === "j") || (name === "k")))) ? (() => { const state = snapshot(runtime.model); const delta = ((name === "k") ? -1 : 1); key.preventDefault();
+key.stopPropagation();
+if ((runtime.pane === "agents")) {
+  const agents = bridgesnapshot_agents(state);
+  const max_index = Math.max(0, (agents.length - 1));
+  const next_index = Math.max(0, Math.min(max_index, (runtime.agentIndex + delta)));
+  const selected_agent_id = ((agents.length > 0) ? agent_id(agents[next_index]) : "");
+  (runtime.agentIndex = next_index);
+  (runtime.model = select_agent(runtime.model, selected_agent_id));
+} else {
+  const view = selected_view(state, runtime.activeView);
+  const items = workview_items(view);
+  const max_index = Math.max(0, (items.length - 1));
+  const next_index = ((workview_id(view) === "list") ? next_visible_list_index(runtime, items, runtime.workIndex, delta) : Math.max(0, Math.min(max_index, (runtime.workIndex + delta))));
+  const thread_id = ((items.length > 0) ? workitem_id(items[next_index]) : "");
+  (runtime.workIndex = next_index);
+  (runtime.model = select_thread(runtime.model, thread_id));
+  ui.workScroll.scrollBy((delta * ((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1), "step");
+}
+return runtime.render(); })() : (((name === "escape") || (name === "esc"))) ? (() => { const target = text(runtime.supervisorId); if ((runtime.working && (!(target === "")))) {
+  key.preventDefault();
+  key.stopPropagation();
+  return report_promise_bang(runtime, submit_agent_bang(runtime, ui, "/interrupt", target));
+} })() : null;
 } });
 }
 
 async function open_app_bang(view_id) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", render: () => null};
-  const root = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: "100%", gap: 0, padding: 1, onSizeChange: () => runtime.render()});
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
+  const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, padding: 1, onSizeChange: () => runtime.render()});
+  const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: ["right"], borderColor: "#64748b", focusable: true});
   const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", focusable: true});
   const agents_header = new TextRenderable(renderer, {height: 1, flexShrink: 0, wrapMode: "none"});
@@ -1815,45 +1904,37 @@ async function open_app_bang(view_id) {
   const board_root = new BoxRenderable(renderer, {visible: false, width: "100%", flexDirection: "column", flexShrink: 0, gap: 1});
   const status_text = new TextRenderable(renderer, {flexShrink: 0, wrapMode: "word"});
   const agent_status_text = new TextRenderable(renderer, {visible: false, flexShrink: 0, wrapMode: "word"});
-  const agent_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
-  const work_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
-  const agent_composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
-  const work_composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
-  const agent_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
-  const work_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
-  const agent_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
-  const work_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
-  const agent_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: "Message Codex supervisor…"});
-  const work_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: "/view list|graph|board, /capture, /filter, /assign"});
-  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, agentPalette: agent_palette, workPalette: work_palette, agentComposer: agent_composer, workComposer: work_composer, agentContextText: agent_context_text, workContextText: work_context_text, agentPrompt: agent_prompt, workPrompt: work_prompt, agentInput: agent_input, workInput: work_input};
+  const composer_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
+  const composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
+  const composer_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
+  const composer_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
+  const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: "Message Codex supervisor…"});
+  const ui = {root: root, workspace: workspace, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerContextText: composer_context_text, composerPrompt: composer_prompt, composerInput: composer_input};
   agents_pane.add(agents_header);
   agents_pane.add(agents_text);
   transcript_scroll.add(transcript_text_view);
   agents_pane.add(transcript_scroll);
   agents_pane.add(agent_status_text);
-  agents_pane.add(agent_palette);
-  agent_composer.add(agent_prompt);
-  agent_composer.add(agent_input);
-  agents_pane.add(agent_composer);
-  agents_pane.add(agent_context_text);
   work_pane.add(tabs_text_view);
   work_scroll.add(work_text_view);
   work_scroll.add(board_root);
   work_pane.add(work_scroll);
   work_pane.add(status_text);
-  work_pane.add(work_palette);
-  work_composer.add(work_prompt);
-  work_composer.add(work_input);
-  work_pane.add(work_composer);
-  work_pane.add(work_context_text);
-  root.add(agents_pane);
-  root.add(work_pane);
+  composer.add(composer_prompt);
+  composer.add(composer_input);
+  workspace.add(agents_pane);
+  workspace.add(work_pane);
+  root.add(workspace);
+  root.add(composer_palette);
+  root.add(composer);
+  root.add(composer_context_text);
   renderer.root.add(root);
   (transcript_scroll.verticalScrollBar.visible = false);
   (transcript_scroll.horizontalScrollBar.visible = false);
   (work_scroll.verticalScrollBar.visible = false);
   (work_scroll.horizontalScrollBar.visible = false);
   (runtime.workScroll = work_scroll);
+  (runtime.renderConversation = () => (transcript_text_view.content = render_conversation_bang(runtime)));
   (runtime.render = () => render_ui_bang(runtime, ui));
   install_input_bang(runtime, ui);
   install_mouse_bang(runtime, ui);
@@ -1862,8 +1943,7 @@ async function open_app_bang(view_id) {
   install_global_exit_bang(runtime);
   install_keys_bang(runtime, ui);
   runtime.render();
-  agent_input.focus();
-  renderer.start();
+  composer_input.focus();
   report_promise_bang(runtime, discover_session_branch_bang(runtime));
   report_promise_bang(runtime, refresh_bang(runtime));
   report_promise_bang(runtime, launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor"));
