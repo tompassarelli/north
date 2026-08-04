@@ -259,7 +259,7 @@ inside a provider config home.
 
 ## Racket / Beagle first for general-purpose programs
 
-New general-purpose tools default to the graph-native language stack; every
+New general-purpose tools default to Beagle with text authoring; every
 escape hatch is stated in one line when it is taken.
 `;
 

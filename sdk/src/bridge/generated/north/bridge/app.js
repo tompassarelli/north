@@ -320,11 +320,11 @@ function render_status(runtime, state) {
   return (runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightBlack("  h left · j down · k up · l right · w cycle · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("F1"), brightBlack(" close help · "), brightWhite("F2"), brightBlack(" switch pane · "), brightWhite("F3"), brightBlack(" switch work view\n"), brightWhite("F4"), brightBlack(" toggle split · "), brightWhite("F5"), brightBlack(" refresh · "), brightWhite("F6"), brightBlack(" pop out\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("Ctrl-w h/j/k/l/w"), brightBlack(" navigate panes\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands")]) : new StyledText([brightBlack(("".concat(text(state.notice), "\n"))), brightCyan("F1"), brightBlack(" help · "), brightCyan("F2"), brightBlack(" pane · "), brightCyan("F3"), brightBlack(" view · "), brightCyan("F4"), brightBlack(" split · "), brightCyan("F5"), brightBlack(" refresh · "), brightCyan("F6"), brightBlack(" pop out")]);
 }
 
-function render_pane_header(title, focused_p) {
+function render_pane_header(title, __focused_p) {
   return new StyledText([brightGreen(title)]);
 }
 
-function render_work_tabs_bang(state, view_id, focused_p) {
+function render_work_tabs_bang(state, view_id, __focused_p) {
   const chunks = [];
   const views = view_list(state);
   push_chunk_bang(chunks, brightGreen("Work  "));
