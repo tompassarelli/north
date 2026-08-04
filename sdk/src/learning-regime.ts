@@ -14,17 +14,6 @@ export type LearningAxis = typeof LEARNING_AXES[number];
 export type LearningMode = "frozen" | "learning";
 export type LearningEvidenceMode = "discovery" | "evaluation";
 export type LearningRisk = "p0" | "p1" | "p2" | "p3";
-export type GraphTextExperimentMode = "off" | "armed";
-export type GraphTextExperimentArm = "graph" | "text";
-
-export interface GraphTextExperimentAssignment {
-  version: "north-graph-text-assignment:v1";
-  status: "off" | "ineligible" | "pinned" | "assigned";
-  arm: GraphTextExperimentArm | "none";
-  applied: boolean;
-  reason: string;
-  manifestSha256: string;
-}
 
 export interface LearningPolicy {
   version: 1;
@@ -36,7 +25,6 @@ export interface LearningPolicy {
   seed: string;
   epoch: string;
   evidenceMode: LearningEvidenceMode;
-  graphTextExperiment: GraphTextExperimentMode;
 }
 
 export interface LearningBaseline {
@@ -83,7 +71,6 @@ export interface LearningAssignment {
   };
   narrowingReason: string;
   manifestSha256: string;
-  graphTextExperiment: GraphTextExperimentAssignment;
 }
 
 export const DEFAULT_LEARNING_POLICY: LearningPolicy = Object.freeze({
@@ -96,7 +83,6 @@ export const DEFAULT_LEARNING_POLICY: LearningPolicy = Object.freeze({
   seed: "north-default",
   epoch: "1",
   evidenceMode: "discovery",
-  graphTextExperiment: "off",
 });
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -122,7 +108,7 @@ export function validateLearningPolicy(value: unknown): LearningPolicy {
   const raw = value as Record<string, unknown>;
   const allowed = new Set([
     "version", "mode", "intensity", "axes", "maxTierDelta", "riskCeiling",
-    "seed", "epoch", "evidenceMode", "graphTextExperiment",
+    "seed", "epoch", "evidenceMode",
   ]);
   const unknown = Object.keys(raw).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`learning policy has unknown field(s): ${unknown.join(", ")}`);
@@ -147,9 +133,6 @@ export function validateLearningPolicy(value: unknown): LearningPolicy {
     seed: requireIdentifier(raw.seed, "learning seed"),
     epoch: requireIdentifier(raw.epoch, "learning epoch"),
     evidenceMode: requireEnum(raw.evidenceMode, ["discovery", "evaluation"] as const, "learning evidence mode"),
-    graphTextExperiment: requireEnum(
-      raw.graphTextExperiment ?? "off", ["off", "armed"] as const, "graph-text experiment",
-    ),
   });
 }
 
@@ -176,38 +159,6 @@ export function learningPolicySha256(policy: LearningPolicy): string {
 function unitInterval(key: string): number {
   const sample = BigInt(`0x${sha256Bytes(key).slice(0, 13)}`);
   return Number(sample) / Number(0x10000000000000n);
-}
-
-export function graphTextExperimentAssignment(
-  policy: LearningPolicy,
-  episodeId: string,
-  eligibility: "eligible" | "ineligible" | "risk-ineligible" | "pinned-graph" | "pinned-text" = "ineligible",
-): GraphTextExperimentAssignment {
-  const base = (() => {
-    if (policy.graphTextExperiment === "off")
-      return { status: "off" as const, arm: "none" as const, applied: false, reason: "config:off" };
-    if (eligibility === "pinned-graph" || eligibility === "pinned-text") {
-      return {
-        status: "pinned" as const,
-        arm: eligibility === "pinned-graph" ? "graph" as const : "text" as const,
-        applied: false,
-        reason: "operator-pinned-authoring-surface",
-      };
-    }
-    if (eligibility === "risk-ineligible")
-      return { status: "ineligible" as const, arm: "none" as const, applied: false, reason: "risk:outside-bounds" };
-    if (eligibility !== "eligible")
-      return { status: "ineligible" as const, arm: "none" as const, applied: false, reason: "spawn-not-eligible" };
-    const key = `${learningPolicySha256(policy)}:${policy.seed}:${policy.epoch}:${episodeId}:graph-text`;
-    return {
-      status: "assigned" as const,
-      arm: unitInterval(key) < 0.5 ? "graph" as const : "text" as const,
-      applied: true,
-      reason: "deterministic-balanced-assignment",
-    };
-  })();
-  const record = { version: "north-graph-text-assignment:v1" as const, ...base };
-  return Object.freeze({ ...record, manifestSha256: sha256Manifest(record) });
 }
 
 function select<T>(values: readonly T[], draw: number): T {
@@ -270,7 +221,6 @@ function controlReason(policy: LearningPolicy, input: LearningAssignmentInput, e
 export function assignLearningEpisode(
   policyValue: LearningPolicy,
   input: LearningAssignmentInput,
-  graphTextEligibility: "eligible" | "ineligible" | "pinned-graph" | "pinned-text" = "ineligible",
 ): LearningAssignment {
   const policy = validateLearningPolicy(policyValue);
   requireIdentifier(input.episodeId, "learning episode id");
@@ -297,13 +247,6 @@ export function assignLearningEpisode(
   const armPropensity = axis === "control" ? 1 : 1 / arms.length;
   const assignedPropensity = axis === "control"
     ? 1 - explorePropensity : explorePropensity * axisPropensity * armPropensity;
-  const boundedGraphTextEligibility = graphTextEligibility === "eligible"
-    && (input.risk === undefined
-      || RISK_ORDER.indexOf(input.risk) > RISK_ORDER.indexOf(policy.riskCeiling))
-    ? "risk-ineligible" as const : graphTextEligibility;
-  const graphTextExperiment = graphTextExperimentAssignment(
-    policy, input.episodeId, boundedGraphTextEligibility,
-  );
   const base = {
     version: LEARNING_ASSIGNMENT_VERSION,
     policyVersion: LEARNING_POLICY_VERSION,
@@ -331,7 +274,6 @@ export function assignLearningEpisode(
     narrowingReason: axis === "control"
       ? controlReason(policy, input, eligibleAxes)
       : `explore:${axis}:${armId}`,
-    graphTextExperiment,
   };
   return Object.freeze({ ...base, manifestSha256: sha256Manifest(base) });
 }
@@ -357,11 +299,5 @@ export function learningAssignmentFacts(assignment: LearningAssignment): Array<[
     ["learning_baseline_sha256", sha256Bytes(canonicalReceiptJson(assignment.baseline))],
     ["learning_options_sha256", sha256Bytes(canonicalReceiptJson(assignment.options))],
     ["learning_assignment_sha256", assignment.manifestSha256],
-    ["graph_text_experiment_version", assignment.graphTextExperiment.version],
-    ["graph_text_experiment_status", assignment.graphTextExperiment.status],
-    ["graph_text_experiment_arm", assignment.graphTextExperiment.arm],
-    ["graph_text_experiment_applied", String(assignment.graphTextExperiment.applied)],
-    ["graph_text_experiment_reason", assignment.graphTextExperiment.reason],
-    ["graph_text_experiment_assignment_sha256", assignment.graphTextExperiment.manifestSha256],
   ];
 }

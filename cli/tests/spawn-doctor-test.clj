@@ -57,165 +57,6 @@
   (check "an unreadable preflight inventory is a FAIL, never a silent pass"
          (= :fail (:status (find-row rows "closure.managed-codex-hooks")))))
 
-;; ---- (5) graph-authoring roots: unset ------------------------------------------
-
-(let [rows (doctor/roots-rows
-            {:graphAuthoring
-             {:framHome nil :beagleHome nil
-              :rootsError "graph_authoring_fram_roots_unset: missing NORTH_FRAM_HOME, NORTH_BEAGLE_HOME"
-              :checkouts []}})
-      row (find-row rows "roots.graph-authoring")]
-  (check "unset graph-authoring roots fail with the named SDK error"
-         (and (= :fail (:status row)) (str/includes? (:why row) "graph_authoring_fram_roots_unset")))
-  (check "the unset-roots row hands back the export that fixes it"
-         (str/includes? (str (:fix row)) "NORTH_FRAM_HOME")))
-
-(let [rows (doctor/roots-rows
-            {:graphAuthoring
-             {:framHome "/no/such/fram" :beagleHome "/no/such/beagle"
-              :framMcpCommand "/no/such/fram/bin/fram-mcp" :framMcpExecutable false
-              :checkouts [{:name "NORTH_FRAM_HOME" :path "/no/such/fram"
-                           :exists false :isGitCheckout false}
-                          {:name "NORTH_BEAGLE_HOME" :path "/no/such/beagle"
-                           :exists true :isGitCheckout false}]}})]
-  (check "a root pointing at nothing fails"
-         (= :fail (:status (find-row rows "roots.NORTH_FRAM_HOME"))))
-  (check "a root that is not a git checkout fails"
-         (= :fail (:status (find-row rows "roots.NORTH_BEAGLE_HOME"))))
-  (check "a non-executable fram-mcp fails"
-         (= :fail (:status (find-row rows "roots.fram-mcp")))))
-
-;; ---- (5, --deep) the lane-local coordinator launch smoke -----------------------
-
-(let [rows (with-redefs [doctor/shell (fn [& _] {:ok false :exit 2 :out ""
-                                                 :err "fram-daemon: serve-flat was removed"})]
-             (doctor/deep-rows {:graphAuthoring {:framDaemonCommand "/f/bin/fram-daemon"
-                                                 :framDaemonExecutable true}}))
-      row (find-row rows "deep.lane-coordinator")]
-  (check "a lane-local coordinator that exits 2 is a FAIL naming the exit and the cause"
-         (and (= :fail (:status row))
-              (str/includes? (:why row) "exited 2")
-              (str/includes? (:why row) "serve-flat was removed"))))
-
-;; The smoke must launch the verb the SDK launches; serve-flat exits 2 on every
-;; current fram, so a doctor still probing it can only report a dead lane.
-(let [argv (atom nil)
-      rows (with-redefs [doctor/shell (fn [a & _] (reset! argv a) {:timeout true :ok false})]
-             (doctor/deep-rows {:graphAuthoring {:framDaemonCommand "/f/bin/fram-daemon"
-                                                 :framDaemonExecutable true}}))
-      row (find-row rows "deep.lane-coordinator")]
-  (check "the coordinator smoke launches fram's supported serve verb, never serve-flat"
-         (= "serve" (second @argv)))
-  (check "the coordinator smoke passes a SpaceId so a fresh store boots with no migration"
-         (and (= 5 (count @argv)) (seq (last @argv))))
-  (check "a coordinator that stays up for the smoke budget passes"
-         (and (= :pass (:status row)) (str/includes? (:why row) "fresh store"))))
-
-;; ---- (7) guard consistency: the impossible constraint --------------------------
-
-(defn- guard-rows-with [{:keys [registry adopted advertised fram-home]}]
-  (with-redefs [doctor/registry-paths (fn [] registry)
-                doctor/scan-repos (fn [_ _] ["/tmp/doctor-fixture-repo"])
-                doctor/sentinel-candidates (fn [_] {"/tmp/doctor-fixture-repo" []})
-                doctor/guard-script "/fixture/code-upstream-guard.sh"
-                doctor/guard-denies? (fn [path] (contains? (set adopted) path))
-                doctor/advertised-fram-tools (fn [_] advertised)]
-    (doctor/guard-rows {:graphAuthoring {:framHome fram-home}})))
-
-(let [rows (guard-rows-with
-            {:registry ["/etc/hostname"]
-             :adopted ["/etc/hostname"]
-             :fram-home "/fixture/fram"
-             :advertised {:tools ["tell" "retract" "show" "ask" "validate"]}})
-      row (find-row rows "guard.fram-verbs-mountable")]
-  (check "a guard redirecting to verbs the server refuses is flagged IMPOSSIBLE"
-         (= :impossible (:status row)))
-  (check "the impossible-constraint row names the unmountable verbs"
-         (and (str/includes? (:why row) "mcp__fram__add-def")
-              (str/includes? (:why row) "mcp__fram__set-body")
-              (str/includes? (:why row) "mcp__fram__rename-def")))
-  (check "the impossible-constraint row names what the server does serve"
-         (str/includes? (:why row) "tell,retract,show,ask,validate"))
-  (check "the impossible-constraint row offers a compliant escape"
-         (some? (:fix row))))
-
-(let [rows (guard-rows-with
-            {:registry ["/etc/hostname"]
-             :adopted ["/etc/hostname"]
-             :fram-home nil
-             :advertised {:tools []}})]
-  (check "adopted files with no resolvable fram checkout are flagged IMPOSSIBLE"
-         (= :impossible (:status (find-row rows "guard.fram-verbs-mountable")))))
-
-(let [rows (guard-rows-with
-            {:registry ["/etc/hostname"]
-             :adopted ["/etc/hostname"]
-             :fram-home "/fixture/fram"
-             :advertised {:tools ["tell" "add-def" "set-body" "rename-def"]}})]
-  (check "a server advertising every redirect verb passes"
-         (= :pass (:status (find-row rows "guard.fram-verbs-mountable")))))
-
-(let [rows (guard-rows-with
-            {:registry ["/etc/hostname"] :adopted [] :fram-home "/fixture/fram"
-             :advertised {:tools []}})]
-  (check "with nothing actually adopted the mountability check skips, never fails"
-         (= :skip (:status (find-row rows "guard.fram-verbs-mountable")))))
-
-(let [rows (guard-rows-with
-            {:registry ["/etc/hostname" "/no/such/adopted/file.bclj"]
-             :adopted ["/etc/hostname"] :fram-home "/fixture/fram"
-             :advertised {:tools ["add-def" "set-body" "rename-def"]}})
-      row (find-row rows "guard.graph-upstream-registry")]
-  (check "a stale registry row is reported as lapsed adoption"
-         (and (= :warn (:status row)) (str/includes? (:why row) "silently lapsed")))
-  (check "the stale-registry row hands back the one-shot repair verb"
-         (str/includes? (str (:fix row)) "--repair-registry")))
-
-(let [rows (guard-rows-with
-            {:registry ["/etc/hostname"]
-             :adopted ["/etc/hostname"] :fram-home "/fixture/fram"
-             :advertised {:tools ["add-def" "set-body" "rename-def"]}})
-      row (find-row rows "guard.graph-upstream-registry")]
-  (check "a registry whose every row resolves passes"
-         (= :pass (:status row))))
-
-;; ---- (7) registry repair: relocate what still holds the sentinel ----------------
-
-(let [home (str (java.nio.file.Files/createTempDirectory
-                 "doctor-registry" (into-array java.nio.file.attribute.FileAttribute [])))
-      write! (fn [path body]
-               (io/make-parents path)
-               (spit path body)
-               path)
-      adopted (write! (str home "/code/fram/main/src/pull.bclj")
-                      "#lang beagle/clj\n\n;; @upstream:graph\n(ns pull)\n")
-      de-adopted (write! (str home "/code/beagle/main/self-host/src/parse.bclj")
-                         "#lang beagle/clj\n\n;; ordinary leading comment\n(ns parse)\n")
-      client (write! (str home "/code/client/acme/thing/main/src/model.bclj")
-                     ";; @upstream:graph\n(ns model)\n")
-      plan (with-redefs [doctor/HOME home]
-             (doctor/registry-repair-plan
-              [adopted
-               (str home "/code/fram/src/pull.bclj")
-               (str home "/code/beagle/self-host/src/parse.bclj")
-               (str home "/code/client/acme/thing/src/model.bclj")
-               (str home "/code/gone/src/vanished.bclj")]))
-      by-action (group-by :action plan)]
-  (check "a row that still resolves is left exactly as it is"
-         (= [{:row adopted :action :keep}] (:keep by-action)))
-  (check "a stale row whose moved file still carries the sentinel is relocated"
-         (= adopted (:to (first (filter #(str/includes? (:row %) "/code/fram/src/") plan)))))
-  (check "the client layout's owner segment survives relocation"
-         (= client (:to (first (filter #(str/includes? (:row %) "/client/") plan)))))
-  (check "a moved file that lost its sentinel is RETIRED, never revived"
-         (let [row (first (filter #(str/includes? (:row %) "/beagle/") plan))]
-           (and (= :retire (:action row))
-                (str/includes? (:reason row) de-adopted))))
-  (check "a row with no file under any layout is retired"
-         (= :retire (:action (first (filter #(str/includes? (:row %) "vanished") plan)))))
-  (check "repair rewrites or retires every stale row and keeps nothing dead"
-         (= 4 (count (remove #(= :keep (:action %)) plan)))))
-
 ;; ---- (2) provider accounts -----------------------------------------------------
 
 (let [rows (doctor/provider-rows
@@ -280,9 +121,6 @@
   (check "an accepted composition passes and echoes its resolved dials"
          (and (= :pass (:status row)) (str/includes? (:why row) "grade=senior"))))
 
-(check "the canonical bespoke probe requests the sealed graph-authoring capability"
-       (some #{"graph-authoring.fram"} (:capabilities doctor/canonical-graph-authoring-contract)))
-
 ;; ---- (3) listener --------------------------------------------------------------
 
 (let [rows (with-redefs [north.message-routing/require-live-address (fn [_ _] {:live false})]
@@ -305,22 +143,22 @@
 ;; ---- the machine contract ------------------------------------------------------
 
 (let [rows [(doctor/row "closure" "closure.x" :pass "fine")
-            (doctor/row "guard" "guard.y" :impossible "no session can comply" "north config guards off")]
+            (doctor/row "dispatch" "dispatch.y" :impossible "no session can comply" "north providers")]
       payload (json/parse-string (str/trim (with-out-str (doctor/render! rows {:json? true}))) true)]
   (check "--json emits the versioned row contract"
          (= "north:spawn-doctor:v1" (:schema payload)))
   (check "--json counts an IMPOSSIBLE row as failing"
          (= 1 (:failing payload)))
   (check "--json carries the fix command for machine consumers"
-         (= "north config guards off" (-> payload :rows second :fix))))
+         (= "north providers" (-> payload :rows second :fix))))
 
 (let [rendered (with-out-str
-                 (doctor/render! [(doctor/row "guard" "guard.y" :impossible "no session can comply"
-                                              "north config guards off")]
+                 (doctor/render! [(doctor/row "dispatch" "dispatch.y" :impossible "no session can comply"
+                                              "north providers")]
                                  {:json? false}))]
   (check "the table prints the IMPOSSIBLE status and its fix line"
          (and (str/includes? rendered "IMPOSSIBLE")
-              (str/includes? rendered "fix: north config guards off"))))
+              (str/includes? rendered "fix: north providers"))))
 
 (let [pass (count (filter second @checks))]
   (println (format "spawn doctor: %d / %d PASS" pass (count @checks)))

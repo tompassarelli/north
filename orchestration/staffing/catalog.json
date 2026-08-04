@@ -7,7 +7,7 @@
     "deliberations": ["low", "medium", "high", "xhigh", "max"],
     "topologies": ["worker", "orchestrator"],
     "postures": ["explore", "deliver", "preserve", "evaluate"],
-    "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination", "graph-authoring.fram"]
+    "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination"]
   },
   "defaults": {
     "taskGrade": "mid", "tier": "standard", "deliberation": "medium", "topology": "worker", "posture": "explore"

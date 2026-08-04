@@ -24,7 +24,7 @@ const script = (name: string, body: string): string => {
 // Fixtures modeled on the real guards' output shapes.
 const DENY_JSON = `#!/usr/bin/env bash
 cat >/dev/null   # drain the hook JSON on stdin, exactly as the real guards do
-printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"This file is GRAPH-OWNED"}}'
+printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"This checkout is launch-critical"}}'
 exit 0
 `;
 const EXIT2_STDERR = `#!/usr/bin/env bash
@@ -98,7 +98,7 @@ describe("runGuardScript — result protocol", () => {
   test("deny JSON on stdout -> deny surfaced with its reason", async () => {
     const d = await runGuardScript(script("deny.sh", DENY_JSON), HOOK);
     expect(d.decision).toBe("deny");
-    if (d.decision === "deny") expect(d.reason).toContain("GRAPH-OWNED");
+    if (d.decision === "deny") expect(d.reason).toContain("launch-critical");
   });
 
   test("exit 2 + stderr -> deny with stderr as reason", async () => {
@@ -197,7 +197,7 @@ describe("evaluateGuards — chain, first deny wins", () => {
     ];
     const d = await evaluateGuards(chain, HOOK);
     expect(d.decision).toBe("deny");
-    if (d.decision === "deny") expect(d.reason).toContain("GRAPH-OWNED");
+    if (d.decision === "deny") expect(d.reason).toContain("launch-critical");
   });
 
   test("empty chain -> allow", async () => {

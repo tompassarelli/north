@@ -1,1 +1,0 @@
-../../../../../../fram/main/integrations/north/skills/code-as-facts/SKILL.md

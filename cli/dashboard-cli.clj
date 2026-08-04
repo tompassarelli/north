@@ -23,10 +23,8 @@
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
 (def FRAM (or (System/getenv "FRAM_HOME") (str HOME "/code/fram/main")))
 (def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle/main")))
-(def FRAM-BIN (or (System/getenv "FRAM_BIN") (str FRAM "/bin")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
-(load-file (str NORTH "/cli/harness-state.clj"))
 (load-file (str NORTH "/cli/coord.clj"))
 (load-file (str NORTH "/cli/message-routing.clj"))
 ;; Shared reader for the reactor's durable last-sweep heartbeat (reactor writes it).
@@ -398,38 +396,6 @@
   (or (cache-get "health.edn" 300000)
       (let [h (parse-health (north-health 30000))]
         (if (:err h) h (cache-put! "health.edn" h)))))
-
-;; ---- profile: rung per layer ------------------------------------------------
-(defn dispatch-mode []
-  (north.harness-state/get-value HOME "dispatch" nil))
-
-(defn code-status
-  "fram-code-status for cwd -> parsed key=val map (level, canonical, coord...)."
-  []
-  (let [r (run [(str FRAM-BIN "/fram-code-status")] :timeout 3000)]
-    (when (:ok r)
-      (into {} (for [[_ k v] (re-seq #"(\w+)=(\S+)" (:out r))] [k v])))))
-
-(defn graph-upstream-count []
-  (let [f (io/file HOME ".config/fram/graph-upstream-files")]
-    (if (.exists f)
-      (count (remove str/blank? (str/split-lines (slurp f))))
-      0)))
-
-(defn profile-status []
-  (let [mode  (or (dispatch-mode) "unknown")
-        dh    (daemon-health)
-        cs    (code-status)
-        level (some-> (get cs "level") parse-long)
-        canon (some-> (get cs "canonical") parse-long)
-        owned (graph-upstream-count)
-        ;; coordination layer (P1): north dispatch mode + coordinator up.
-        p1?   (and (#{"north" "warn"} mode) (:north dh))
-        ;; code-as-facts layer (P2): code-as-facts flipped for cwd repo
-        p2?   (and level (>= level 3) (or (and canon (pos? canon)) (pos? owned)))
-        rung  (cond p2? "P2" p1? "P1" :else "P0")]
-    {:mode mode :daemons dh :level level :canonical canon :owned owned
-     :p1 p1? :p2 p2? :rung rung :code-status cs}))
 
 (defn primary-repo [name]
   (str HOME "/code/" name "/main"))

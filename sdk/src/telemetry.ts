@@ -222,14 +222,10 @@ export interface RunRecord {
   retryAttempt?: number;
 }
 
-export type AuthoringAuthoritySurface = "graph" | "text" | "none" | "unknown";
+export type AuthoringAuthoritySurface = "text" | "none" | "unknown";
 export type AuthoringAuthoritySurfaceCoverage = "exact" | "unknown";
 
-/**
- * Classify admitted authoring authority, not observed authoring behavior. Graph
- * authority wins because it is the task-specific surface for graph-upstream paths;
- * ordinary file authority may still coexist for other repository files.
- */
+/** Classify admitted authoring authority, not observed authoring behavior. */
 export function authoringAuthoritySurfaceEvidence(
   rec: Pick<RunRecord, "executionSource" | "effectiveAuthority">,
 ): { surface: AuthoringAuthoritySurface; coverage: AuthoringAuthoritySurfaceCoverage } | undefined {
@@ -237,8 +233,6 @@ export function authoringAuthoritySurfaceEvidence(
   if (rec.executionSource !== "north-managed" || !rec.effectiveAuthority)
     return { surface: "unknown", coverage: "unknown" };
   const capabilities = rec.effectiveAuthority.capabilities;
-  if (capabilities.includes("graph-authoring.fram"))
-    return { surface: "graph", coverage: "exact" };
   if (capabilities.includes("filesystem.write") || capabilities.includes("shell"))
     return { surface: "text", coverage: "exact" };
   return { surface: "none", coverage: "exact" };

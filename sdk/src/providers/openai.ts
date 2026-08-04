@@ -1057,7 +1057,6 @@ class CodexQuery implements AgentQuery {
         if (!model)
           throw new ProviderRetrySafeError("openai_exact_model_resolution_missing");
         const north = this.options.mcpServers.north;
-        const fram = this.options.mcpServers.fram;
         // The launch prompt is the first North frame; later frames (an
         // orchestrator's post-settlement reduction directive, a live steer) are
         // consumed as additional turns on the SAME provider thread. A string
@@ -1078,13 +1077,6 @@ class CodexQuery implements AgentQuery {
             args: north.args,
             env: managedNorthMcpEnvironment(north.env),
           },
-          ...(fram ? {
-            fram: {
-              command: fram.command,
-              args: fram.args,
-              env: fram.env,
-            },
-          } : {}),
           onActivity: (kind) => {
             this.activity.record("provider", kind);
             renewHarnessPresence(this.options);

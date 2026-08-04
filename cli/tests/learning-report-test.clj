@@ -30,7 +30,7 @@
 
 (defn learning-run!
   [{:keys [run thread episode arm axis arm-id evidence-mode environment-coverage
-           tokens duration struggle authority-surface]}]
+           tokens duration struggle]}]
   (doseq [[predicate object]
           [["kind" "run"] ["agent" (str "agent-" episode)] ["thread" thread]
            ["at" "2026-08-01T00:00:00Z"] ["outcome" "ran"]
@@ -63,26 +63,6 @@
            ["run_envelope_version" "north-run-envelope:v1"]
            ["run_envelope_sha256" digest-c]]]
     (fact! telem run predicate object))
-  (if authority-surface
-    (do
-      (fact! telem run "execution_source" "north-managed")
-      (fact! telem run "effective_authority_provider" "openai")
-      (fact! telem run "effective_authority_capability" "filesystem.read")
-      (fact! telem run "effective_authority_capability" "filesystem.search")
-      (when (#{"graph" "text"} authority-surface)
-        (fact! telem run "effective_authority_capability" "filesystem.write")
-        (fact! telem run "effective_authority_capability" "shell"))
-      (when (= "graph" authority-surface)
-        (fact! telem run "effective_authority_capability" "graph-authoring.fram")
-        (fact! telem run "mcp_activity_source" "codex-app-server:item-completed")
-        (fact! telem run "mcp_activity_coverage" "exact")
-        (fact! telem run "mcp_actual_calls" "2")
-        (fact! telem run "mcp_actual_tool"
-               "{\"server\":\"fram\",\"tool\":\"tell\",\"count\":2}")))
-    (do
-      (fact! telem run "execution_source" "provider-native")
-      (fact! telem run "authoring_authority_surface" "unknown")
-      (fact! telem run "authoring_authority_surface_coverage" "unknown")))
   (when struggle
     (fact! telem run "struggle" "no_progress")
     (fact! telem run "error_count" "2"))
@@ -96,12 +76,12 @@
                   :thread "thread-control" :episode "episode-control"
                   :arm "control" :axis "control" :arm-id "control"
                   :evidence-mode "evaluation" :environment-coverage "exact"
-                  :tokens 100 :duration 1000 :authority-surface "text"})
+                  :tokens 100 :duration 1000})
   (learning-run! {:run "@run:10000000-0000-4000-8000-000000000002"
                   :thread "thread-explore" :episode "episode-explore"
                   :arm "explore" :axis "prompt" :arm-id "compact-v1"
                   :evidence-mode "evaluation" :environment-coverage "exact"
-                  :tokens 80 :duration 900 :struggle true :authority-surface "graph"})
+                  :tokens 80 :duration 900 :struggle true})
   (learning-run! {:run "@run:10000000-0000-4000-8000-000000000003"
                   :thread "thread-incomplete" :episode "episode-discovery"
                   :arm "control" :axis "control" :arm-id "control"
@@ -134,18 +114,6 @@
               (and (= 80 (:tokens prompt)) (= "exact" (:tokenEvidence prompt))
                    (= 900 (:wallMilliseconds prompt))
                    (= 1 (:struggleRuns prompt)) (= 1 (:barEvidencedRuns prompt)))))
-    (check! "authoring report separates exact authority from observed graph activation"
-            (let [authoring (:authoringObservability data)
-                  surfaces (into {} (map (juxt :surface identity)
-                                         (:authoritySurfaces authoring)))]
-              (and (= 2 (:exactAuthorityRuns authoring))
-                   (= 1 (:authorityExcludedRuns authoring))
-                   (= 1 (get-in surfaces ["graph" :runs]))
-                   (= 1 (get-in surfaces ["text" :runs]))
-                   (= 1 (get-in authoring [:activation :graphInvocationRuns]))
-                   (= 2 (get-in authoring [:activation :graphMutationInvocations]))
-                   (nil? (get-in authoring [:activation :textInvocationRuns]))
-                   (= "blocked" (get-in authoring [:exploration :status])))))
     (check! "report emits content identities but never raw prompt material"
             (and (str/includes? (:out result) digest-a)
                  (not (str/includes? (:out result) "PRIVATE PROMPT SENTINEL")))))

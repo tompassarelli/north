@@ -15,7 +15,7 @@ const RUNTIME_FIELDS = new Set([
   "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
   "admitResourceEnvelope", "completeResourceEnvelope",
   "admitDispatchAuthority",
-  "worktreeAllocationWriter", "prepareManagedFramCoordinator",
+  "worktreeAllocationWriter",
   "publishLearningAssignment",
   "journalRoot",
 ]);

@@ -1011,8 +1011,7 @@
     (println "  Contract JSON contains exactly: responsibility, deliverable, capabilities, mayDecide,")
     (println "  mustEscalate, doneWhen, report. Text fields are nonblank; list fields are nonempty.")
     (println "  Canonical capabilities: filesystem.read filesystem.search filesystem.write shell")
-    (println "                          shell.readonly web coordination graph-authoring.fram")
-    (println "  graph-authoring.fram is a bespoke-worker-only sealed mutating authority, never on a preset.")
+    (println "                          shell.readonly web coordination")
     (println "  --nearest TEMPLATE is optional reference provenance, not inheritance.")
     (println "  Without --nearest, explicitly set task grade, topology, tier, reasoning, and posture.")
     (println "  Domain requirements remain an explicit empty list when --domain is omitted.")
@@ -1032,9 +1031,8 @@
     (println "  --reasoning low|medium|high|xhigh|max  (--deliberation is an alias)")
     (println "  --notify PEER                     completion/stall notifications")
     (println "  --dry-run                         validate pinned-provider capability authority; show identity only when supported")
-    (println "  --doctor [--deep] [--json]        test every dispatch invariant at once; one PASS/FAIL row + fix per wall")
-    (println "  --doctor --canary                 spawn one tiny read-only managed lane end to end and report its lifecycle")
-    (println "  --doctor --repair-registry        relocate graph-upstream registry rows to the current checkout layout")))
+    (println "  --doctor [--json]                 test every dispatch invariant at once; one PASS/FAIL row + fix per wall")
+    (println "  --doctor --canary                 spawn one tiny read-only managed lane end to end and report its lifecycle")))
 
 (defn- parse-spawn-args [args]
   (loop [xs args positionals [] opts {:domains [] :seen #{}}]
@@ -1163,7 +1161,7 @@
   ;; catalog must agree exactly; silently accepting a reordered vocabulary
   ;; would split one semantic contract into two identities.
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
-   "shell.readonly" "web" "coordination" "graph-authoring.fram"])
+   "shell.readonly" "web" "coordination"])
 (def bespoke-fingerprint-version "v1")
 (def bespoke-fingerprint-domain "north:bespoke-contract:v1")
 (def edge-ascii-whitespace #"^[\u0009-\u000d\u0020]+|[\u0009-\u000d\u0020]+$")

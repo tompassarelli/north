@@ -135,7 +135,6 @@ export function expectedManagedCodexHooks(
       {
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
         hooks: [
-          command("code-upstream-guard.sh", 10, managedDir),
           command("firn-guard.sh", 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
         ],

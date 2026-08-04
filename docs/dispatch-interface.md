@@ -85,7 +85,6 @@ and the stage where every inherited failure showed up.
 | `shell` / `shell.readonly` | command execution |
 | `web` | network fetch |
 | `coordination` | may create and settle children |
-| `graph-authoring.fram` | sealed mutating graph authority |
 
 Plus an execution envelope: working tree, isolation mode, and lifetime.
 

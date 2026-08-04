@@ -17,12 +17,6 @@
 ;; spends up to 30s per projector subprocess (sdk/src/orchestration-graph-source.ts)
 ;; before provider selection resolves the model/effort identity facts carry.
 (def default-startup-timeout-ms 180000)
-;; sdk/src/fram-graph-authoring.ts permits a lane-local coordinator to spend
-;; 15 minutes folding its code log. The outer spawn acknowledgement must lose
-;; that race: otherwise it SIGTERMs the healthy lane at 45 seconds and the boot
-;; listener can report only an abort. Two additional minutes cover the bounded
-;; blocked-preflight terminal publication after an actual inner boot timeout.
-(def graph-authoring-startup-timeout-ms 1020000)
 (def default-startup-poll-ms 100)
 (def default-exit-grace-ms 300)
 (def detached-pid-suffix ".lane.pid")
@@ -82,14 +76,11 @@
       (catch Exception _ fallback))))
 
 (defn default-startup-timeout-for-capabilities
-  [capabilities]
-  (if (some #{"graph-authoring.fram"} capabilities)
-    graph-authoring-startup-timeout-ms
-    default-startup-timeout-ms))
+  [_capabilities]
+  default-startup-timeout-ms)
 
 (defn startup-timeout-for-capabilities
-  "Honor the existing operator override; otherwise let only Fram graph lanes
-  inherit the outer budget required by their explicitly longer inner boot."
+  "Honor the existing operator override or use the managed-lane default."
   [capabilities]
   (env-ms "NORTH_SPAWN_STARTUP_TIMEOUT_MS"
           (default-startup-timeout-for-capabilities capabilities)))

@@ -25,7 +25,7 @@
 
 (def canonical-orchestration-capabilities
   ["filesystem.read" "filesystem.search" "filesystem.write" "shell"
-   "shell.readonly" "web" "coordination" "graph-authoring.fram"])
+   "shell.readonly" "web" "coordination"])
 (def bespoke-fingerprint-version "v1")
 (def bespoke-fingerprint-domain "north:bespoke-contract:v1")
 (def applied-axis-preds
@@ -170,8 +170,7 @@
 
 (defn learning-fast-predicate? [predicate]
   (or (contains? learning-fast-predicates predicate)
-      (str/starts-with? predicate "learning_")
-      (str/starts-with? predicate "graph_text_experiment_")))
+      (str/starts-with? predicate "learning_")))
 
 (defn fold-facts [ops]
   (reduce
@@ -499,15 +498,14 @@
                      authority-provider
                      (empty? (:unknown authority-capability-evidence)))
             (cond
-              (some #{"graph-authoring.fram"} authority-capabilities) "graph"
               (some #{"filesystem.write" "shell"} authority-capabilities) "text"
               :else "none"))
           authoring-authority
-          (if (#{"graph" "text" "none" "unknown"} explicit-authoring-authority)
+          (if (#{"text" "none" "unknown"} explicit-authoring-authority)
             explicit-authoring-authority
             (or derived-authoring-authority "unknown"))
           authoring-authority-coverage
-          (if (and (#{"graph" "text" "none" "unknown"} explicit-authoring-authority)
+          (if (and (#{"text" "none" "unknown"} explicit-authoring-authority)
                    (#{"exact" "unknown"} explicit-authoring-authority-coverage))
             explicit-authoring-authority-coverage
             (if derived-authoring-authority "exact" "unknown"))
@@ -824,18 +822,6 @@
        (normalized-token (one facts entity "learning_options_sha256"))
        :learningAssignmentSha256
        (normalized-token (one facts entity "learning_assignment_sha256"))
-       :graphTextExperimentVersion
-       (normalized-token (one facts entity "graph_text_experiment_version"))
-       :graphTextExperimentStatus
-       (normalized-token (one facts entity "graph_text_experiment_status"))
-       :graphTextExperimentArm
-       (normalized-token (one facts entity "graph_text_experiment_arm"))
-       :graphTextExperimentApplied
-       (normalized-token (one facts entity "graph_text_experiment_applied"))
-       :graphTextExperimentReason
-       (normalized-token (one facts entity "graph_text_experiment_reason"))
-       :graphTextExperimentAssignmentSha256
-       (normalized-token (one facts entity "graph_text_experiment_assignment_sha256"))
        :promptReceiptVersion
        (normalized-token (one facts entity "prompt_receipt_version"))
        :promptReceiptSha256
@@ -2736,113 +2722,6 @@
                (empty? exploratory) "no-exploratory-observation"
                :else "evaluation-ready")}))
 
-(def fram-authoring-mutation-tools
-  #{"tell" "retract" "add-def" "set-body" "rename-def" "insert-before" "insert-after"
-    "replace-in-body" "edit-transaction"})
-
-(defn graph-mutation-invocations [row]
-  (reduce +
-          (map :count
-               (filter #(and (= "fram" (:server %))
-                             (fram-authoring-mutation-tools (:tool %)))
-                       (:mcpActualTools row)))))
-
-(defn authoring-authority-exclusions [row]
-  (cond-> []
-    (not= "exact" (:authoringAuthoritySurfaceCoverage row))
-    (conj "authoring-authority-not-exact")
-    (not (#{"graph" "text" "none"} (:authoringAuthoritySurface row)))
-    (conj "authoring-authority-unknown")
-    (and (= "provider-native" (:executionSource row))
-         (not= "exact" (:authoringAuthoritySurfaceCoverage row)))
-    (conj "provider-native-authoring-unattested")
-    (not (#{"north-managed" "provider-native"} (:executionSource row)))
-    (conj "execution-source-unattributed")
-    (not (:processOutcomeObserved row))
-    (conj "terminal-process-outcome-unobserved")
-    (not (:deliveryOutcomeObserved row))
-    (conj "terminal-delivery-outcome-unobserved")))
-
-(defn median-observation [values]
-  (let [ordered (vec (sort values))
-        n (count ordered)]
-    (when (pos? n)
-      (if (odd? n)
-        (nth ordered (quot n 2))
-        (/ (+ (nth ordered (dec (quot n 2)))
-              (nth ordered (quot n 2)))
-           2.0)))))
-
-(defn authoring-authority-summary [[surface rows]]
-  (let [usage (usage-stats rows)]
-    {:surface surface
-     :runs (count rows)
-     :runIds (mapv :entity (sort-by :entity rows))
-     :tokens (:tokens usage)
-     :tokenEvidence (:tokenEvidence usage)
-     :tokenCoverage (:tokenCoverage usage)
-     :wallMilliseconds (:wallMilliseconds usage)
-     :medianDurationMs (median-observation (keep :durationMs rows))
-     :durationEvidence (:durationEvidence usage)
-     :durationCoverage (:durationCoverage usage)
-     :processOutcomes (into (sorted-map) (frequencies (map :processOutcome rows)))
-     :deliveryOutcomes (into (sorted-map) (frequencies (map :deliveryOutcome rows)))
-     :struggleRuns (count (filter #(seq (:struggleTriggers %)) rows))
-     :struggleTriggers (into (sorted-map)
-                             (frequencies (mapcat :struggleTriggers rows)))
-     ;; Invocation evidence is activation, unlike the authority grouping above.
-     ;; It does not claim the tool result committed a mutation.
-     :graphMutationInvocations (reduce + (map graph-mutation-invocations rows))
-     :mcpActivityCoverage
-     (into (sorted-map) (frequencies (map #(or (:mcpActivityCoverage %) "unknown") rows)))}))
-
-(defn authoring-observability-report [rows]
-  (let [authority-observations
-        (mapv (fn [row]
-                (let [reasons (authoring-authority-exclusions row)]
-                  {:entity (:entity row)
-                   :surface (:authoringAuthoritySurface row)
-                   :coverage (:authoringAuthoritySurfaceCoverage row)
-                   :evidenceSource (:authoringAuthorityEvidenceSource row)
-                   :eligible (empty? reasons)
-                   :exclusionReasons reasons}))
-              rows)
-        exact-authority-ids (set (map :entity (filter :eligible authority-observations)))
-        exact-authority (filterv #(exact-authority-ids (:entity %)) rows)
-        exclusions (mapcat :exclusionReasons authority-observations)
-        graph-invocation-rows
-        (filterv #(and (:processOutcomeObserved %)
-                       (:deliveryOutcomeObserved %)
-                       (pos? (graph-mutation-invocations %)))
-                 rows)]
-    {:claim (str "authoring authority and observed activation are separate: exact executable "
-                 "authority is availability, mutating Fram MCP calls are invocation evidence, "
-                 "and neither is a causal graph-versus-text comparison")
-     :runs (count rows)
-     :exactAuthorityRuns (count exact-authority)
-     :authorityExcludedRuns (- (count rows) (count exact-authority))
-     :exclusions (into (sorted-map) (frequencies exclusions))
-     :exploration {:status "blocked"
-                   :reason "task-scoped-text-authority-unavailable"
-                   :detail (str "managed dispatch has no safe task-scoped text arm for "
-                                "graph-upstream files; global guard bypass is ineligible")}
-     :activation {:graphInvocationRuns (count graph-invocation-rows)
-                  :graphMutationInvocations
-                  (reduce + (map graph-mutation-invocations graph-invocation-rows))
-                  :graphMcpCoverage
-                  (into (sorted-map)
-                        (frequencies
-                         (map #(or (:mcpActivityCoverage %) "unknown")
-                              graph-invocation-rows)))
-                  :textInvocationRuns nil
-                  :textInvocationCoverage "unknown-provider-ledger-does-not-attest-file-mutations"
-                  :claim "invocation counts do not prove accepted mutation or successful delivery"}
-     :authoritySurfaces (->> exact-authority
-                    (group-by :authoringAuthoritySurface)
-                    (map authoring-authority-summary)
-                    (sort-by (comp {"graph" 0 "text" 1 "none" 2} :surface))
-                    vec)}))
-
 (defn learning-report [rows]
   (let [observed (->> rows
                       (filter #(some identity
@@ -2863,7 +2742,6 @@
      :eligibleRuns (count eligible)
      :excludedRuns (- (count observed) (count eligible))
      :exclusions (into (sorted-map) (frequencies exclusions))
-     :authoringObservability (authoring-observability-report rows)
      :cohorts (->> eligible
                    (group-by (juxt :learningTaskSignatureSha256
                                    :learningAxis :learningArmId))
@@ -2876,111 +2754,6 @@
                             (sort-by (juxt :experimentId :taskSignatureSha256)) vec)
      :observations observations}))
 
-(def graph-text-minimum-pairs 20)
-
-(defn experiment-operation-types [row]
-  (let [arm (:graphTextExperimentArm row)]
-    (cond
-      (= "graph" arm)
-      (->> (:operationAggregates row)
-           (keep (fn [{:keys [operationType]}]
-                   (let [family (first (str/split operationType #"\." 2))]
-                     (when (#{"reasoning" "authoring"} family) family))))
-           distinct vec)
-
-      (= "text" arm)
-      (->> (:nativeCommandOperations row)
-           (map (comp {"read" "reasoning" "edit" "authoring"} :shape))
-           (remove nil?) distinct vec)
-
-      :else [])))
-
-(defn experiment-run-eligible? [row]
-  (and (= "north-graph-text-assignment:v1" (:graphTextExperimentVersion row))
-       (= "assigned" (:graphTextExperimentStatus row))
-       (= "true" (:graphTextExperimentApplied row))
-       (#{"graph" "text"} (:graphTextExperimentArm row))
-       (re-matches sha256-pattern (or (:graphTextExperimentAssignmentSha256 row) ""))
-       (number? (:durationMs row))
-       (:processOutcomeObserved row)
-       (case (:graphTextExperimentArm row)
-         "graph" (= "exact" (:mcpActivityCoverage row))
-         "text" (= "exact" (:nativeCommandActivityCoverage row))
-         false)
-       (seq (experiment-operation-types row))))
-
-(defn experiment-failed? [row]
-  (not= "ran" (:processOutcome row)))
-
-(defn experiment-failure-label [rate]
-  (if (number? rate) (format "%.4f" (double rate)) "n/a"))
-
-(defn pair-arm-rows [rows]
-  (let [by-arm (group-by :graphTextExperimentArm rows)
-        graph (vec (sort-by (juxt :at :entity) (get by-arm "graph" [])))
-        text (vec (sort-by (juxt :at :entity) (get by-arm "text" [])))
-        n (min (count graph) (count text))]
-    (mapv (fn [index] {:graph (nth graph index) :text (nth text index)}) (range n))))
-
-(defn experiment-operation-summary [[operation-type rows]]
-  (let [pairs (->> rows
-                   (group-by :thread)
-                   (mapcat (comp pair-arm-rows val))
-                   vec)
-        green-pairs (remove #(or (experiment-failed? (:graph %))
-                                 (experiment-failed? (:text %)))
-                            pairs)
-        graph (map :graph pairs)
-        text (map :text pairs)
-        graph-wall (median-observation (map (comp :durationMs :graph) green-pairs))
-        text-wall (median-observation (map (comp :durationMs :text) green-pairs))
-        graph-failure (when (seq pairs)
-                        (/ (count (filter experiment-failed? graph)) (double (count pairs))))
-        text-failure (when (seq pairs)
-                       (/ (count (filter experiment-failed? text)) (double (count pairs))))
-        enough? (>= (count pairs) graph-text-minimum-pairs)
-        graph-wins? (and (number? graph-wall)
-                         (number? text-wall)
-                         (< graph-wall text-wall)
-                         (< graph-failure text-failure))]
-    {:operationType operation-type
-     :pairs (count pairs)
-     :pairedGreenWallSamples (count green-pairs)
-     :sampleCounts (frequencies (map (comp keyword :graphTextExperimentArm) rows))
-     :graph {:medianWallMs graph-wall :failureRate graph-failure}
-     :text {:medianWallMs text-wall :failureRate text-failure}
-     :verdict (cond
-                (not enough?) "insufficient data"
-                graph-wins? "flip-to-graph"
-                :else "retain-text")
-     :recommendationReason
-     (cond
-       (not enough?) (str "requires at least " graph-text-minimum-pairs " paired runs")
-       graph-wins? "graph wins both median wall time and terminal failure rate"
-       :else "graph does not win both median wall time and terminal failure rate")}))
-
-(defn graph-text-experiment-report [rows]
-  (let [eligible (filterv experiment-run-eligible? rows)
-        exploded (mapcat (fn [row]
-                           (map #(assoc row :experimentOperationType %)
-                                (experiment-operation-types row)))
-                         eligible)
-        operation-groups (group-by :experimentOperationType exploded)]
-    {:report "graph-text-experiment"
-     :minimumPairs graph-text-minimum-pairs
-     :eligibleRuns (count eligible)
-     :excludedRuns (- (count rows) (count eligible))
-     :priors [{:arc "raw-EDN lost"
-               :transferability "non-transferable"
-               :role "historical context only"}
-              {:arc "adapter won N=1"
-               :transferability "non-transferable"
-               :role "historical context only"}]
-     :operations (->> operation-groups
-                      (map experiment-operation-summary)
-                      (sort-by :operationType)
-                      vec)}))
-
 (defn report [kind rows & [{:keys [all? by-model? by-effort?]
                             :or {all? false by-model? false by-effort? false}}]]
   (case kind
@@ -2992,8 +2765,7 @@
     "calibration" (calibration-report rows)
     "timing" (timing-report rows)
     "learning" (learning-report rows)
-    "experiment" (graph-text-experiment-report rows)
-    (throw (ex-info "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning|experiment] [--json] [--all]" {}))))
+    (throw (ex-info "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning] [--json] [--all]" {}))))
 
 (defn usage-table-line
   ([label row] (usage-table-line label row {}))
@@ -3207,32 +2979,6 @@
     "learning"
     (do
       (println "LEARNING REGIME — bounded ordinary-operation evaluation")
-      (let [authoring (:authoringObservability data)]
-        (println "AUTHORING — authority availability and observed activation (observational only)")
-        (println (format "runs=%d exact-authority=%d excluded=%d exclusions=%s"
-                         (:runs authoring) (:exactAuthorityRuns authoring)
-                         (:authorityExcludedRuns authoring)
-                         (pr-str (:exclusions authoring))))
-        (println (format "exploration=%s reason=%s"
-                         (get-in authoring [:exploration :status])
-                         (get-in authoring [:exploration :reason])))
-        (println (format "graph-invocation-runs=%d graph-mutation-invocations=%d text-invocation-coverage=%s"
-                         (get-in authoring [:activation :graphInvocationRuns])
-                         (get-in authoring [:activation :graphMutationInvocations])
-                         (get-in authoring [:activation :textInvocationCoverage])))
-        (println (format "%-10s %5s %14s %12s %14s %12s %9s %10s"
-                         "AUTHORITY" "runs" "tokens" "tok exact"
-                         "median-ms" "wall exact" "struggle" "fram calls"))
-        (doseq [row (:authoritySurfaces authoring)]
-          (println (format "%-10s %5d %14s %12s %14s %12s %9d %10d"
-                           (:surface row) (:runs row)
-                           (observed-token-label (:tokens row))
-                           (str (get-in row [:tokenCoverage :exactRuns]) "/"
-                                (get-in row [:tokenCoverage :runs]))
-                           (observed-token-label (:medianDurationMs row))
-                           (str (get-in row [:durationCoverage :exactRuns]) "/"
-                                (get-in row [:durationCoverage :runs]))
-                           (:struggleRuns row) (:graphMutationInvocations row)))))
       (println "Discovery and incomplete construction evidence are visible below but never enter comparison cohorts.")
       (println (format "runs=%d eligible=%d excluded=%d exclusions=%s"
                        (:runs data) (:eligibleRuns data) (:excludedRuns data)
@@ -3258,24 +3004,6 @@
                          (str/join "," (:axes group)) (:reason group))))
       (when (empty? (:cohorts data))
         (println "  (no evaluation-ready cohorts)")))
-    "graph-text-experiment"
-    (do
-      (println "GRAPH/TEXT EXPERIMENT — paired real-fleet outcomes")
-      (println "PRIORS (non-transferable): raw-EDN lost; adapter won N=1")
-      (println (format "eligible=%d excluded=%d minimum-pairs=%d"
-                       (:eligibleRuns data) (:excludedRuns data) (:minimumPairs data)))
-      (doseq [row (:operations data)]
-        (println (format "%s pairs=%d paired-green-wall=%d graph[n=%d median-green-ms=%s failure=%s] text[n=%d median-green-ms=%s failure=%s] VERDICT %s"
-                         (:operationType row) (:pairs row) (:pairedGreenWallSamples row)
-                         (get-in row [:sampleCounts :graph] 0)
-                         (get-in row [:graph :medianWallMs])
-                         (experiment-failure-label (get-in row [:graph :failureRate]))
-                         (get-in row [:sampleCounts :text] 0)
-                         (get-in row [:text :medianWallMs])
-                         (experiment-failure-label (get-in row [:text :failureRate]))
-                         (:verdict row))))
-      (when (empty? (:operations data))
-        (println "insufficient data — no paired operation observations")))
     "economics"
     (do
       (println "ROUTING ECONOMICS — bounded exact observations, alert-only policy")
@@ -3324,7 +3052,7 @@
             (println (format "  ALERT %-42s observed=%s threshold=%s"
                              code observed threshold))))))))
 
-(def usage-help "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning|experiment] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
+(def usage-help "usage: north routing report [performance|usage|waste|economics|promotions|calibration|timing|learning] [--json] [--all] [--by-model] [--by-effort] [--window 24h --slice 12h] [--now ISO-INSTANT]")
 
 (defn parse-options [args]
   (loop [remaining args options {:flags #{}}]
@@ -3367,7 +3095,7 @@
       (binding [*out* *err*] (println "--window/--slice/--now apply only to usage/economics reports"))
       (System/exit 2))
     (let [facts (fold-facts (read-ops (default-paths)
-                                      (when (#{"learning" "experiment"} kind)
+                                      (when (= "learning" kind)
                                         learning-fast-predicate?)))
           rows (vec (run-rows facts))
           report-rows (if (= kind "waste") (waste-attempt-rows facts rows) rows)

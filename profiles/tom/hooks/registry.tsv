@@ -11,7 +11,6 @@
 #           silent disable can never be the accidental outcome.
 #
 id	category	kind	in_all	ttl_req	path	events
-code-upstream-guard	authoring	deny	yes	yes	code-upstream-guard.sh	PreToolUse:Edit|Write|MultiEdit
 firn-guard	authoring	deny	yes	yes	firn-guard.sh	PreToolUse:Edit|Write|MultiEdit,PreToolUse:Bash
 launch-critical-worktree-guard	authoring	deny	yes	yes	launch-critical-worktree-guard.sh	PreToolUse:Edit|Write|MultiEdit,PreToolUse:Bash
 git-blind-stage-guard	authoring	deny	yes	yes	git-blind-stage-guard.sh	PreToolUse:Bash

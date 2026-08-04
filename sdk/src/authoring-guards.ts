@@ -13,7 +13,7 @@
 // Guard-script result protocol:
 //   - stdout JSON with hookSpecificOutput.permissionDecision === "deny"
 //       -> DENY, reason = permissionDecisionReason
-//       (code-upstream-guard, firn-guard)
+//       (firn-guard)
 //   - process exit code 2 -> DENY, reason = stderr
 //       (tripwire-guard)
 //   - unavailable guards remain advisory; their explicit denials still win.

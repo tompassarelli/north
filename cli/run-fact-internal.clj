@@ -220,10 +220,7 @@
         "learning_propensity" "learning_explore_propensity"
         "learning_narrowing_reason" "learning_baseline_sha256"
         "learning_options_sha256" "learning_assignment_sha256"
-        "graph_text_experiment_version" "graph_text_experiment_status"
-        "graph_text_experiment_arm" "graph_text_experiment_applied"
-        "graph_text_experiment_reason"
-        "graph_text_experiment_assignment_sha256"}
+        }
       reservation-keys
       (conj (into (set north.terminal-projection/run-reservation-predicates)
                   learning-keys)

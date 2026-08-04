@@ -39,7 +39,7 @@ capture_hook_stdin
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 [ "$payload_oversized" -eq 0 ] || exit 0
 
-# python3 does the JSON I/O (house convention — see code-upstream-guard.sh).
+# python3 does the JSON I/O used by the hook protocol.
 # Source goes in a variable and runs via `python3 -c "$PY"`, never a heredoc,
 # so stdin stays free for the hook's own JSON envelope.
 read -r -d '' PY <<'PYEOF' || true

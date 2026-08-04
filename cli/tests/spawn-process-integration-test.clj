@@ -69,13 +69,10 @@
             (north.spawn-process/identity-defects
              (committed (assoc ready-base "composition_kind" "invalid")))))
 
-  (check "Fram graph lanes outlive their 15-minute coordinator boot ceiling"
-         (and (= 180000
-                 (north.spawn-process/default-startup-timeout-for-capabilities
-                  ["filesystem.write"]))
-              (= 1020000
-                 (north.spawn-process/default-startup-timeout-for-capabilities
-                  ["filesystem.write" "graph-authoring.fram"]))))
+  (check "all managed lanes share the default startup acknowledgement budget"
+         (= 180000
+            (north.spawn-process/default-startup-timeout-for-capabilities
+             ["filesystem.write"])))
 
   (let [pending-facts
         (committed

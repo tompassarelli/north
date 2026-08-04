@@ -3,7 +3,6 @@
 ;;
 ;;   dispatch : who runs agents        managed North SDK  vs  native Agent/Workflow
 ;;   coord    : coordination protocol  north / linear / both
-;;   beagle   : code representation    text      vs  fact-native (per-file)
 ;;   guards   : authoring-guard hooks  + the kill-switch
 ;;   context  : native prompt sections full      vs  gated
 ;;   skills   : shared skill discovery complete set vs resolved projection
@@ -32,8 +31,6 @@
                 "/cli/harness-dial.clj"))
 (def STATE           (north.harness-state/canonical-path home))
 (def LEGACY-STATE    (north.harness-state/legacy-path home))
-(def REGISTRY        (or (System/getenv "GRAPH_UPSTREAM_REGISTRY")
-                         (str home "/.config/fram/graph-upstream-files")))
 (def HOOK-REGISTRY   (north.harness-dial/registry-path home))
 (def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
                          (str home "/.config/north/routing-policy.json")))
@@ -65,7 +62,7 @@
 (def default-learning-policy
   {:version 1 :mode "frozen" :intensity 0.1 :axes learning-axes
    :maxTierDelta 1 :riskCeiling "p1" :seed "north-default" :epoch "1"
-   :evidenceMode "discovery" :graphTextExperiment "off"})
+   :evidenceMode "discovery"})
 
 (defn- slurp' [f] (try (slurp f) (catch Exception _ nil)))
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
@@ -144,10 +141,10 @@
                    (doseq [name names]
                      (println (str "      " name " → " (format command name))))
                    (println "      (none declared)")))]
-    (println "\n11 PROVIDER MCP  provider-owned declarations")
+    (println "\n10 PROVIDER MCP  provider-owned declarations")
     (render "Claude" "MCP" claude-mcp "claude mcp remove %s" CLAUDE-MCP-CONFIG)
     (render "Codex" "MCP" codex-mcp "codex mcp remove %s" CODEX-CONFIG)
-    (println "\n12 PROVIDER PLUGINS  provider-owned installations")
+    (println "\n11 PROVIDER PLUGINS  provider-owned installations")
     (render "Claude" "plugin" claude-plugins "claude plugin uninstall %s" CLAUDE-SETTINGS)
     (render "Codex" "plugin" codex-plugins "codex plugin uninstall %s" CODEX-CONFIG)))
 
@@ -176,17 +173,6 @@
   (if-let [hook (hook-entry id)]
     (if (= "EXEC" (hook-path-status hook)) "✓" "✗")
     "✗")) ; ✓ / ✗
-
-(defn registry-raw []
-  (if-let [c (slurp' REGISTRY)]
-    (if (str/blank? c) [] (str/split-lines c))
-    []))
-
-(defn registry-lines []
-  (->> (registry-raw)
-       (remove #(re-matches #"\s*(#.*)?" %)))) ; drop blank + comment lines
-
-(defn adopted-n [] (count (registry-lines)))
 
 ;; Kill-switch effective state — precedence identical to authoring-killswitch.sh:
 ;;   env 0|false  → force-live (state ignored this session)
@@ -499,15 +485,14 @@
 ;; policy; learning admits bounded, deterministic one-axis exploration during
 ;; ordinary managed work. The SDK fingerprints this whole document.
 (def learning-usage
-  "usage: north config learning [show|mode frozen|learning|graph-text off|armed|intensity <0..1>|axes all|none|<model-tier effort prompt authoring history...>|max-tier-delta <0..3>|risk-ceiling <p0|p1|p2|p3>|seed <id>|epoch <id>|evidence-mode discovery|evaluation]")
+  "usage: north config learning [show|mode frozen|learning|intensity <0..1>|axes all|none|<model-tier effort prompt authoring history...>|max-tier-delta <0..3>|risk-ceiling <p0|p1|p2|p3>|seed <id>|epoch <id>|evidence-mode discovery|evaluation]")
 
 (defn- learning-id? [value]
   (boolean (re-matches #"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}" (or value ""))))
 
 (defn- validate-learning [policy]
-  (let [policy (merge {:graphTextExperiment "off"} policy)
-        expected #{:version :mode :intensity :axes :maxTierDelta
-                   :riskCeiling :seed :epoch :evidenceMode :graphTextExperiment}
+  (let [expected #{:version :mode :intensity :axes :maxTierDelta
+                   :riskCeiling :seed :epoch :evidenceMode}
         unknown (seq (remove expected (keys policy)))
         intensity (:intensity policy)
         axes (:axes policy)]
@@ -535,8 +520,6 @@
       (throw (ex-info "learning epoch must be a portable identifier" {})))
     (when-not (#{"discovery" "evaluation"} (:evidenceMode policy))
       (throw (ex-info "learning evidenceMode must be discovery or evaluation" {})))
-    (when-not (#{"off" "armed"} (:graphTextExperiment policy))
-      (throw (ex-info "learning graphTextExperiment must be off or armed" {})))
     policy))
 
 (defn- learning-read []
@@ -576,7 +559,6 @@
   (println (str "  max tier delta: " (:maxTierDelta policy)
                 " · risk ceiling: " (:riskCeiling policy)))
   (println (str "  seed: " (:seed policy) " · epoch: " (:epoch policy)))
-  (println (str "  graph/text experiment: " (:graphTextExperiment policy)))
   (println (str "  policy: " LEARNING-POLICY))
   (println "  frozen remains fully measured; learning changes at most one eligible axis per episode."))
 
@@ -590,10 +572,6 @@
                (if (and (#{"frozen" "learning"} value) (empty? extra))
                  (save! (assoc policy :mode value))
                  (die learning-usage)))
-      "graph-text" (let [[value & extra] xs]
-                     (if (and (#{"off" "armed"} value) (empty? extra))
-                       (save! (assoc policy :graphTextExperiment value))
-                       (die learning-usage)))
       "intensity" (let [[value & extra] xs
                         parsed (try (Double/parseDouble (or value ""))
                                     (catch Exception _ ##NaN))]
@@ -1395,17 +1373,6 @@
          "│" label (apply str (repeat gap " ")) d "       │\n"
          "╰" rule "╯")))
 
-(defn files-block []
-  (let [ls (registry-lines)]
-    (if (seq ls)
-      (str/join "\n"
-                (map #(str "       "
-                           (if (str/starts-with? % home)
-                             (str "~" (subs % (count home)))
-                             %))
-                     ls))
-      "       (none)")))
-
 (defn- hook-verdict [id]
   (north.harness-dial/hook-verdict #(get' % nil) (hook-registry) id))
 
@@ -1435,34 +1402,28 @@
     note: declarative — agents read this posture; no hard enforcement yet
     flip → north config coord north|linear|both
 
- 3  BEAGLE     code as text vs facts          [guard: " (wired "code-upstream-guard") "]
-    fact-native adopted (text edits denied → fram graph tools): " (adopted-n) " file(s)
-" (files-block) "
-    default-flip: PARKED — pending M1.5-vs-M2 bake-off verdict
-    flip → north config beagle adopt|unadopt <absolute-path> · north config beagle list
-
- 4  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
-    " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "code-upstream-guard") " upstream:graph   " (wired "firn-guard") " firn
+ 3  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
+    " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "firn-guard") " firn
     " (wired "tripwire-guard") " tripwire            " (wired "racket-build-guard") " racket-build      " (wired "beagle-session-start") " beagle-session
     [live]   flip authoring guards → north config guards on|off   (persists, all sessions; dispatch remains independent)
     [launch] one session → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
 
- 5  ROUTING    provider targets + entitlement envelopes
+ 4  ROUTING    provider targets + entitlement envelopes
     " (routing-summary (routing-read)) "
     pressure: automatic usage sensing; manual command is a temporary override/fallback
     configure → north config routing
     policy: " ROUTING-POLICY "
 
- 6  HOOKS      per-hook and per-category runtime dials   [" (hooks-summary) "]
+ 5  HOOKS      per-hook and per-category runtime dials   [" (hooks-summary) "]
     precedence: item > category > all > default(on); coordination is excluded from all
     configure → north config hooks · north config hooks explain <hook-id>
 
- 7  CONTEXT    native provider constitution assembly
+ 6  CONTEXT    native provider constitution assembly
     mode: " (context-mode) " · source: " CONTEXT-SOURCE "
     precedence in gated mode: section > bucket > default(on)
     configure → north config context · north config context apply
 
- 8  SKILLS     shared provider-neutral discovery projection
+ 7  SKILLS     shared provider-neutral discovery projection
     " (:summary skills-readout) " · source: " SKILLS-PROFILE "
     warnings: " (if (seq (:warnings skills-readout))
                     (str/join " · " (:warnings skills-readout)) "none") "
@@ -1471,12 +1432,12 @@
     precedence: item > category > all > default(on)
     configure → north config skills
 
- 9  COMMS      peer mail protocol
+ 8  COMMS      peer mail protocol
     base: " (:base comms-native) " · native: " (:selected comms-native) " · managed: " (:selected comms-managed) " · enforcement: " (:enforcement comms-native) "
     default db preserves the fact-backed path; file is pure Bash/coreutils; both dedupes by @msg id
     configure → north config comms
 
-10  LEARNING   ordinary-operation exploration regime
+ 9  LEARNING   ordinary-operation exploration regime
     mode: " (:mode learning) " · evidence: " (:evidenceMode learning) " · intensity: " (:intensity learning) "
     axes: " (if (seq (:axes learning)) (str/join " · " (:axes learning)) "none") "
     frozen uses the current best-known route/prompt/interface and still records receipts
@@ -1508,19 +1469,7 @@
    blocks the other system yet. Flipping the option does not build the sync.
    Advice: north.
 
- 3 BEAGLE — how Beagle source is authored, per file.
-   text          default; ordinary Edit/Write with the Beagle authoring loop.
-   fact-native  file is a regenerable view of the fram triple graph; text
-                 edits DENIED (code-upstream-guard); author via
-                 mcp__fram__* graph tools. Adoption is PER-FILE: the
-                 registry (~/.config/fram/graph-upstream-files) or a
-                 first-line `;; @upstream:graph` sentinel. The cascade
-                 (skill, guard, authoring loop vs recompile gate) keys off
-                 adoption automatically.
-   Advice: keep text as the default; adopt graph authoring only by explicit
-   per-file choice.
-
- 4 GUARDS — the PreToolUse/SessionStart authoring guards.
+ 3 GUARDS — the PreToolUse/SessionStart authoring guards.
    Individually wired in ~/code/nixos-config/main/dotfiles/claude/settings.json.
    Kill-switch is VALUE-AWARE and has two surfaces:
 
@@ -1540,7 +1489,7 @@
    every guard hook AND by this verb:
      ~/.claude/hooks/lib/authoring-killswitch.sh
 
- 5 ROUTING — durable provider selection and subscription-entitlement policy.
+ 4 ROUTING — durable provider selection and subscription-entitlement policy.
    Show everything with `north config routing`. Balanced allocation is the
    default; preferential and reserved remain explicit choices. Configure
    provider/profile targets and
@@ -1554,7 +1503,7 @@
    sessions. No API keys, credit balances, prices, or dollars live
    in this policy.
 
- 6 HOOKS — runtime control for every registered hook.
+ 5 HOOKS — runtime control for every registered hook.
    List resolved state, provenance, and executable path status:
      north config hooks
      north config hooks explain <hook-id>
@@ -1568,7 +1517,7 @@
    explicit deadline. `north config guards` remains the compatibility surface
    for the authoring category.
 
- 7 CONTEXT — assemble the native provider constitution from North's source.
+ 6 CONTEXT — assemble the native provider constitution from North's source.
    The default `full` mode copies the source byte-for-byte. A section or bucket
    change activates `gated` mode; resolution is section > bucket > default(on):
      north config context
@@ -1580,7 +1529,7 @@
    atomically replaces ~/.claude/CLAUDE.md, including when it is currently a
    symlink; the provider-neutral ~/.agents/AGENTS.md source is never mutated.
 
- 8 SKILLS — resolved shared skill discovery.
+ 7 SKILLS — resolved shared skill discovery.
    North inventories the complete source at the stable North profile:
    $WORLD_REPO_NORTH/agent-profile/skills (the current checkout is the
    direct-invocation fallback). Optional `category:` frontmatter groups skills;
@@ -1598,7 +1547,7 @@
    The readout also proves the published farm symlink, its resolved immutable
    generation, and whether that generation is ready for provider discovery.
 
- 9 COMMS — select the peer-mail transport independently for native and managed
+ 8 COMMS — select the peer-mail transport independently for native and managed
    execution. The default is db + forced, exactly the pre-dial behavior:
      north config comms
      north config comms off|db|file|both [--native|--managed] [--forced|--biased]
@@ -1612,11 +1561,11 @@
    finite broadcast snapshots, and renewable .live presence. It deliberately
    has no durable audit trail; thread facts are unchanged.
 
- 11 PROVIDER MCP / 12 PROVIDER PLUGINS — status prints each declaration it
+ 10 PROVIDER MCP / 11 PROVIDER PLUGINS — status prints each declaration it
    can read and its exact provider inverse command. These are provider-owned,
    not North dials; run `north config` again after changing them.
 
- 10 LEARNING — bounded experimentation during ordinary managed work.
+ 9 LEARNING — bounded experimentation during ordinary managed work.
    frozen    use the current best-known control policy consistently; continue
              telemetry and content-addressed prompt/environment receipts.
    learning  deterministically explore at most one eligible axis per episode,
@@ -1709,29 +1658,6 @@
                     "   (reporting horizon only; admission is immediate)")))
     :else
     (die "usage: north config rebuild-window [<n>[s|m|h]]")))
-
-(defn cmd-beagle [[sub path]]
-  (case (or sub "list")
-    "list"
-    (do (println (str "fact-native adopted files (" (adopted-n) "):"))
-        (let [ls (registry-lines)]
-          (if (seq ls) (doseq [l ls] (println l)) (println "  (none)"))))
-    "adopt"
-    (cond
-      (nil? path) (die "usage: north config beagle adopt </absolute/path>")
-      (not (.isFile (io/file path))) (die (str "no such file: " path))
-      :else
-      (do (io/make-parents REGISTRY)
-          (when-not (some #{path} (registry-raw))
-            (spit REGISTRY (str path "\n") :append true))
-          (println (str "adopted fact-native: " path " (text edits now denied; use mcp__fram__* graph tools)"))))
-    "unadopt"
-    (if (nil? path)
-      (die "usage: north config beagle unadopt </absolute/path>")
-      (let [kept (remove #{path} (registry-raw))]
-        (spit REGISTRY (if (seq kept) (str (str/join "\n" kept) "\n") ""))
-        (println (str "un-adopted (text mode again): " path))))
-    (die "usage: north config beagle [list|adopt <path>|unadopt <path>]")))
 
 (def hooks-usage
   "usage: north config hooks [list|explain <hook-id>|on|off <hook-id> [--until ISO]|category on|off <category> [--until ISO]|all on|off [--until ISO]]")
@@ -1854,7 +1780,7 @@
                       (println "guards → LIVE in all sessions (takes effect immediately)"))
     (nil? sub)
     (do (println (str "kill-switch: " (effective-ks)))
-        (doseq [g ["agent-spawn-guard" "code-upstream-guard" "firn-guard"
+        (doseq [g ["agent-spawn-guard" "firn-guard"
                    "tripwire-guard" "racket-build-guard" "beagle-session-start"]]
           (println (str "  " (wired g) " " g))))
     :else (die "usage: north config guards [on|off]")))
@@ -1868,7 +1794,6 @@
         "coord"    (cmd-coord rest)
         "rebuild-coordination" (cmd-rebuild-coordination rest)
         "rebuild-window" (cmd-rebuild-window rest)
-        "beagle"   (cmd-beagle rest)
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
         "context"  (cmd-context rest)
@@ -1877,7 +1802,7 @@
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|beagle|guards|hooks|context|skills|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|guards|hooks|context|skills|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

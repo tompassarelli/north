@@ -10,7 +10,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { presetRequest } from "./routing-fixtures";
 import {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+  chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -21,7 +21,6 @@ import type {
   WorktreeAllocationRegistration,
 } from "../src/worktree";
 import { ProviderRetrySafeError } from "../src/providers";
-import type { RoutingRequest } from "../src/routing-metadata";
 
 let dir: string;      // fake-north sandbox
 let log: string;      // fake-north invocation log
@@ -62,42 +61,6 @@ function readySubscription(stop: () => void = () => {}) {
     isArmed: () => true,
   });
 }
-
-async function eventually(predicate: () => boolean, timeoutMs = 1_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return true;
-}
-
-const graphAuthoringRequest: RoutingRequest = {
-  role: "beagle-graph-author",
-  taskGrade: "senior",
-  domainRequirements: ["Beagle graph authoring"],
-  topology: "worker",
-  tier: "senior",
-  reasoning: "high",
-  posture: "deliver",
-  composition: {
-    kind: "bespoke",
-    id: "beagle-graph-author",
-    bespokeReason: "Fram graph editing is a distinct sealed authority",
-    promotionCandidate: false,
-    contract: {
-      responsibility: "author a graph-upstream Beagle module",
-      deliverable: "a compiler-accepted graph edit",
-      capabilities: [
-        "filesystem.read", "filesystem.search", "shell.readonly", "graph-authoring.fram",
-      ],
-      mayDecide: ["which graph edit verb fits the requested change"],
-      mustEscalate: ["any text edit to graph-upstream source"],
-      doneWhen: ["the graph edit recompiles"],
-      report: "edited definitions and compiler result",
-    },
-  },
-};
 
 beforeAll(() => {
   origCwd = process.cwd();
@@ -298,90 +261,6 @@ test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, 
   const branches = execFileSync("git", ["-C", expectedPath, "branch", "--list", `lane-${agentId}`], { encoding: "utf8" });
   expect(branches).toContain(`lane-${agentId}`);
   rmSync(expectedPath, { recursive: true, force: true });
-});
-
-test("graph lane reaches provider start after an injected slow coordinator boot", async () => {
-  const { spawn } = await import("./support/spawn");
-  process.chdir(repo);
-  const priorFramHome = process.env.NORTH_FRAM_HOME;
-  const priorBeagleHome = process.env.NORTH_BEAGLE_HOME;
-  process.env.NORTH_FRAM_HOME = repo;
-  process.env.NORTH_BEAGLE_HOME = join(dir, "unrelated-beagle");
-  const framMcpConfig = join(repo, ".mcp.json");
-  writeFileSync(framMcpConfig, JSON.stringify({
-    mcpServers: { fram: { env: { FRAM_CODE_PORT: "45677" } } },
-  }));
-  writeFileSync(log, "");
-  const agentId = "wt-graph-boot-overlap";
-  const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
-  let releaseCoordinator!: () => void;
-  const coordinatorReady = new Promise<void>((resolve) => {
-    releaseCoordinator = resolve;
-  });
-  let providerStarts = 0;
-  let coordinatorCloses = 0;
-  let coordinatorPrepared = false;
-  let providerStartedBeforeCoordinator = false;
-  let identityPublishedBeforeCoordinator = false;
-  const running = spawn({
-    prompt: "start provider after graph coordinator readiness",
-    agentId,
-    worktree: true,
-    routingMetadata: graphAuthoringRequest,
-    prepareManagedFramCoordinator: async ({ worktree }: { worktree: string }) => {
-      await coordinatorReady;
-      mkdirSync(join(worktree, ".fram"), { recursive: true });
-      writeFileSync(join(worktree, ".fram", "managed-code-coordinator.json"), JSON.stringify({
-        version: 1,
-        active: true,
-        sourceRoot: worktree,
-        codeLog: join(worktree, ".fram", "code.log"),
-        codePort: "45678",
-        canonicalSourceRoot: repo,
-        seededFrom: join(repo, ".fram", "code.log"),
-        reboundTrackedPaths: 1,
-        pid: 4242,
-      }));
-      coordinatorPrepared = true;
-      return {
-        sourceRoot: worktree,
-        codeLog: join(worktree, ".fram", "code.log"),
-        codePort: "45678",
-        pid: 4242,
-        close: async () => { coordinatorCloses++; },
-        forceClose: () => {},
-      };
-    },
-    queryFn: () => {
-      providerStartedBeforeCoordinator ||= !coordinatorPrepared;
-      providerStarts++;
-      return capturingQuery({})({ options: {} });
-    },
-    feedSubscriber: () => readySubscription(),
-  });
-  try {
-    identityPublishedBeforeCoordinator = await eventually(() =>
-      existsSync(log)
-      && readFileSync(log, "utf8").includes(`tell agent:${agentId} kind lane`),
-    500);
-  } finally {
-    releaseCoordinator();
-  }
-  try {
-    await running;
-  } finally {
-    process.chdir(origCwd);
-    if (priorFramHome === undefined) delete process.env.NORTH_FRAM_HOME;
-    else process.env.NORTH_FRAM_HOME = priorFramHome;
-    if (priorBeagleHome === undefined) delete process.env.NORTH_BEAGLE_HOME;
-    else process.env.NORTH_BEAGLE_HOME = priorBeagleHome;
-    if (existsSync(framMcpConfig)) rmSync(framMcpConfig, { force: true });
-    if (existsSync(expectedPath)) rmSync(expectedPath, { recursive: true, force: true });
-  }
-  expect(identityPublishedBeforeCoordinator).toBe(true);
-  expect(providerStartedBeforeCoordinator).toBe(false);
-  expect(providerStarts).toBe(1);
-  expect(coordinatorCloses).toBe(1);
 });
 
 test("explicit worktree provisioning failure aborts before provider, admission, identity, or run side effects", async () => {

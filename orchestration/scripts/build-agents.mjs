@@ -37,11 +37,6 @@ const CLAUDE_TOOLS = {
   "shell.readonly": [],
   web: ["WebSearch", "WebFetch"],
   coordination: ["Agent"],
-  // graph-authoring.fram is a North-managed sealed Fram MCP server injected by
-  // the dispatch harness for managed lanes only. Native Claude plugin
-  // frontmatter cannot carry that MCP, so this adapter fails closed with no
-  // native tool, exactly like shell.readonly.
-  "graph-authoring.fram": [],
 };
 if (JSON.stringify([...staffing.vocabulary.capabilities].sort()) !== JSON.stringify(Object.keys(CLAUDE_TOOLS).sort()))
   throw new Error("Claude tool adapter must map every canonical staffing capability exactly once");

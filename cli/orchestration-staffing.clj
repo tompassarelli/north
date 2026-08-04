@@ -10,10 +10,6 @@
     "team-lead" "program" "portfolio"})
 
 (def stock-authoring-roles #{"executor" "implementer" "integrator"})
-;; Preset compositions may only carry these seven authorities. graph-authoring.fram
-;; is a bespoke-worker-only sealed mutating capability: it lives in the wire
-;; vocabulary (so bespoke contracts can request it) but is never grantable to a
-;; stock preset.
 (def preset-capabilities
   #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
     "shell.readonly" "web" "coordination"})
@@ -24,7 +20,7 @@
    "topologies" #{"worker" "orchestrator"}
    "postures" #{"explore" "evaluate" "deliver" "preserve"}
    "capabilities" #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
-                    "shell.readonly" "web" "coordination" "graph-authoring.fram"}})
+                    "shell.readonly" "web" "coordination"}})
 
 ;; Derive the repo root from THIS file's own location (<root>/cli/…), never
 ;; user.dir: an MCP subprocess inherits whatever cwd its parent had, which

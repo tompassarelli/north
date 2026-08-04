@@ -88,11 +88,6 @@ test("managed runs record the exact effective authoring surface and native runs 
   expect(authoringAuthoritySurfaceEvidence({
     executionSource: "north-managed",
     effectiveAuthority: authority(["filesystem.read", "filesystem.search",
-      "filesystem.write", "shell", "graph-authoring.fram"]),
-  })).toEqual({ surface: "graph", coverage: "exact" });
-  expect(authoringAuthoritySurfaceEvidence({
-    executionSource: "north-managed",
-    effectiveAuthority: authority(["filesystem.read", "filesystem.search",
       "filesystem.write", "shell"]),
   })).toEqual({ surface: "text", coverage: "exact" });
   expect(authoringAuthoritySurfaceEvidence({
@@ -106,9 +101,9 @@ test("managed runs record the exact effective authoring surface and native runs 
     thread: "thread-authoring", agent: "lane-authoring", durationMs: 1,
     posture: "spawn", outcome: "ran", executionSource: "north-managed",
     effectiveAuthority: authority(["filesystem.read", "filesystem.search",
-      "filesystem.write", "shell", "graph-authoring.fram"]),
+      "filesystem.write", "shell"]),
   });
-  expect(facts).toContainEqual(["authoring_authority_surface", "graph"]);
+  expect(facts).toContainEqual(["authoring_authority_surface", "text"]);
   expect(facts).toContainEqual(["authoring_authority_surface_coverage", "exact"]);
 });
 

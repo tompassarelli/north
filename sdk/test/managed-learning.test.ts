@@ -30,7 +30,7 @@ beforeAll(() => {
     version: 1, mode: "learning", intensity: 1,
     axes: ["model-tier", "effort", "prompt", "authoring", "history"],
     maxTierDelta: 1, riskCeiling: "p1", seed: "managed-test", epoch: "1",
-    evidenceMode: "evaluation", graphTextExperiment: "armed",
+    evidenceMode: "evaluation",
   }));
   process.env.NORTH_LEARNING_POLICY = policyPath;
 });
@@ -73,20 +73,6 @@ describe("managed learning integration", () => {
     });
     expect(decision.assignment.arm).toBe("control");
     expect(decision.assignment.narrowingReason).toBe("arms:none-eligible");
-    expect(decision.routingMetadata).toEqual(baseline);
-  });
-
-  test("an eligible graph/text spawn changes no second learning axis", () => {
-    const baseline = presetRequest("integrator");
-    const decision = decideManagedLearning({
-      episodeId: "managed-graph-text-treatment",
-      taskSignature: { class: "fixture" }, taskSignatureCoverage: "exact",
-      routingMetadata: baseline, routingAssessment: assessment,
-      graphTextExperimentEligible: true,
-    });
-    expect(decision.assignment.graphTextExperiment.status).toBe("assigned");
-    expect(["graph", "text"]).toContain(decision.assignment.graphTextExperiment.arm);
-    expect(decision.assignment.arm).toBe("control");
     expect(decision.routingMetadata).toEqual(baseline);
   });
 });
