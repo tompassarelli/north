@@ -141,6 +141,14 @@ export const codexBridgeProvider: BridgeProviderExecution = {
     input.push(context.prompt);
     const query = openaiProvider.query({ prompt: input, options });
     const events = new EventChannel();
+    events.push({
+      kind: "session.config",
+      data: {
+        model: options.model,
+        effort: options.effort,
+        cwd: options.cwd ?? context.cwd,
+      },
+    });
     let activitySequence = query.executionActivity?.snapshot().sequence ?? 0;
     const unsubscribe = query.subscribeProviderEvents
       ? query.subscribeProviderEvents((event) => {

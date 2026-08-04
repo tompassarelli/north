@@ -7,11 +7,21 @@
                                      red stripAnsiSequences TextRenderable white]]
             [|@opentui/keymap/addons| :refer [registerEmacsBindings registerEscapeClearsPendingSequence]]
             [|@opentui/keymap/opentui| :refer [createDefaultOpenTuiKeymap]]
-            [north.bridge.model :refer [focus-view make-agent make-model make-work replace-projection select-agent select-thread set-filter set-layout snapshot upsert-agent]]))
+            [north.bridge.model :refer [Agent BridgeSnapshot WorkItem ->Agent ->WorkItem
+                                        agent-id agent-name agent-status agent-task
+                                        bridgesnapshot-active-view-id bridgesnapshot-agents
+                                        bridgesnapshot-board bridgesnapshot-layout
+                                        bridgesnapshot-list bridgesnapshot-notice
+                                        bridgesnapshot-selected-thread
+                                        focus-view make-model
+                                        replace-projection select-agent select-thread
+                                        set-filter set-layout snapshot upsert-agent
+                                        workitem-body workitem-condition workitem-dependencies
+                                        workitem-driver workitem-id workitem-title]]))
 
 (define-mode strict)
 
-(declare-extern [process Bun Response TextDecoder Promise JSON console Error Math String Number Array Set Date Intl
+(declare-extern [process Bun Response TextDecoder Error String Number Set Intl
                  setInterval clearInterval] Any)
 
 (def IntlSegmenter: Any (.-Segmenter Intl))
@@ -23,30 +33,101 @@
    completion: String
    emoji: Bool])
 
+(defrecord ParsedCommand
+  [name: String
+   rest: String])
+
+(defrecord ConversationItem
+  [id: String
+   kind: String
+   title: String
+   body: String
+   status: String
+   data: Any])
+
+(defrecord WorkView
+  [id: String
+   title: String
+   items: (Vec WorkItem)])
+
+(defrecord WorkSelection
+  [view: String
+   index: Int])
+
+(defrecord BoardLane
+  [id: String
+   title: String])
+
+(defrecord SoundPack
+  [ready: (Vec String)
+   done: (Vec String)
+   interrupted: (Vec String)
+   failed: (Vec String)])
+
+(defrecord SoundPlayer
+  [kind: String
+   path: String])
+
+(defrecord ParsedRecord
+  [kind: String
+   data: Any])
+
+(defrecord CommandParts
+  [executable: String
+   arguments: String])
+
+(defrecord DiffRow
+  [kind: String
+   old: String
+   new: String
+   text: String])
+
+(defrecord DiffState
+  [old-line: Int
+   new-line: Int
+   additions: Int
+   deletions: Int
+   rows: (Vec DiffRow)])
+
+(defrecord FileChangeDetails
+  [path: String
+   kind: String
+   additions: Int
+   deletions: Int
+   rows: (Vec DiffRow)])
+
+(defrecord FileChangeSummary
+  [additions: Int
+   deletions: Int
+   files: (Vec FileChangeDetails)])
+
 (def NORTH-BIN: String
-  (or (.-NORTH_BIN (.-env process)) "north"))
+  (let [configured (text (.-NORTH_BIN (.-env process)))]
+    (if (identical? configured "") "north" configured)))
 
 (def SUPERVISOR-BOOT-PROMPT: String
   "You are the Northbridge supervisor. Reply only READY, then wait for operator input.")
 
-(def BOARD-LANES: Any
-  [{:id "not-started" :title "Not Started"}
-   {:id "in-progress" :title "In Progress"}
-   {:id "done" :title "Done"}])
+(def BOARD-LANES: (Vec BoardLane)
+  [(->BoardLane "not-started" "Not Started")
+   (->BoardLane "in-progress" "In Progress")
+   (->BoardLane "done" "Done")])
 
 (def DEFAULT-PROMPT-GLYPH: String "❯")
 
 (def SOUND-COOLDOWN-MS: Int 700)
 
-(def SOUND-PACKS: Any
-  {:peon {:ready ["PeonReady1.ogg"]
-          :done ["PeonYes1.ogg" "PeonYes2.ogg" "PeonYes3.ogg" "PeonYes4.ogg"]
-          :interrupted ["PeonWhat1.ogg" "PeonWhat3.ogg" "PeonWhat4.ogg"]
-          :failed ["PeonAngry1.ogg" "PeonAngry4.ogg"]}
-   :peasant {:ready ["PeasantReady1.mp3"]
-             :done ["PeasantYes2.mp3" "PeasantYes4.mp3" "PeasantYesAttack4.mp3"]
-             :interrupted ["PeasantWhat1.mp3"]
-             :failed ["PeasantAngry1.mp3"]}})
+(def PEON-SOUND-PACK: SoundPack
+  (->SoundPack ["PeonReady1.ogg"]
+               ["PeonYes1.ogg" "PeonYes2.ogg" "PeonYes3.ogg" "PeonYes4.ogg"]
+               ["PeonWhat1.ogg" "PeonWhat3.ogg" "PeonWhat4.ogg"]
+               ["PeonAngry1.ogg" "PeonAngry4.ogg"]))
+
+(def PEASANT-SOUND-PACK: SoundPack
+  (->SoundPack ["PeasantReady1.mp3"]
+               ["PeasantYes2.mp3" "PeasantYes4.mp3" "PeasantYesAttack4.mp3"]
+               ["PeasantWhat1.mp3"]
+               ["PeasantAngry1.mp3"]))
 
 (def EMOJI-COMMANDS: (Vec SlashCommand)
   [(->SlashCommand "😀" "grinning face · happy smile" false "😀" true)
@@ -141,6 +222,12 @@
 (defn text [value: Any] -> String
   (if (identical? (js/typeof value) "string") value ""))
 
+(defn text-or
+  [value: Any
+   fallback: String] -> String
+  (let [candidate (text value)]
+    (if (identical? candidate "") fallback candidate)))
+
 (defn bare [value: Any] -> String
   (let [value-text (text value)]
     (if (.startsWith value-text "@") (.slice value-text 1) value-text)))
@@ -177,8 +264,8 @@
    kind: String
    title: String
    body: String
-   status: String] -> Any
-  {:id id :kind kind :title title :body body :status status})
+   status: String] -> ConversationItem
+  (->ConversationItem id kind title body status nil))
 
 (defn conversation-item-with-data!
   [id: String
@@ -186,27 +273,26 @@
    title: String
    body: String
    status: String
-   data: Any] -> Any
-  (let [item (conversation-item id kind title body status)]
-    (set! (.-data item) data)
-    item))
+   data: Any] -> ConversationItem
+  (->ConversationItem id kind title body status data))
 
 (defn conversation-index
   [runtime: Any
    id: String] -> Int
   (.findIndex (.-conversation runtime)
-              (fn [item: Any] -> Bool (identical? (text (.-id item)) id))))
+              (fn [item: ConversationItem] -> Bool
+                (identical? (conversationitem-id item) id))))
 
 (defn conversation-item-by-id
   [runtime: Any
-   id: String] -> Any
+   id: String] -> ConversationItem?
   (let [index (conversation-index runtime id)]
     (if (>= index 0) (aget (.-conversation runtime) index) nil)))
 
 (defn upsert-conversation!
   [runtime: Any
-   item: Any] -> Any
-  (let [index (conversation-index runtime (text (.-id item)))]
+   item: ConversationItem] -> Any
+  (let [index (conversation-index runtime (conversationitem-id item))]
     (if (>= index 0)
       (aset (.-conversation runtime) index item)
       (.push (.-conversation runtime) item))
@@ -264,14 +350,14 @@
       (set! (.-workingSince runtime) 0)))
   (.render runtime))
 
-(defn command [input: String] -> Any
+(defn command [input: String] -> ParsedCommand
   (let [trimmed (.trim input)
         normalized (if (.startsWith trimmed "/") (.slice trimmed 1) trimmed)
         split-at (.indexOf normalized " ")]
     (if (< split-at 0)
-      {:name (.toLowerCase normalized) :rest ""}
-      {:name (.toLowerCase (.slice normalized 0 split-at))
-       :rest (.trim (.slice normalized (+ split-at 1)))})))
+      (->ParsedCommand (.toLowerCase normalized) "")
+      (->ParsedCommand (.toLowerCase (.slice normalized 0 split-at))
+                       (.trim (.slice normalized (+ split-at 1)))))))
 
 (defn exit-command? [name: String] -> Bool
   (or (identical? name "exit")
@@ -307,13 +393,13 @@
    input: String] -> (Vec SlashCommand)
   (let [query (.toLowerCase (.trim input))
         parsed (command input)
-        name (text (.-name parsed))
+        name (parsedcommand-name parsed)
         commands (if (identical? pane "agents") AGENT-COMMANDS WORK-COMMANDS)]
     (cond
       (not (.startsWith query "/")) []
-      (identical? name "emoji") (emoji-options (text (.-rest parsed)))
+      (identical? name "emoji") (emoji-options (parsedcommand-rest parsed))
       (or (identical? name "glyph") (identical? name "prompt"))
-      (glyph-options (text (.-rest parsed)))
+      (glyph-options (parsedcommand-rest parsed))
       (>= (.indexOf query " ") 0) []
       :else
       (.slice
@@ -328,7 +414,7 @@
       (identical? name "kpenter")
       (identical? name "linefeed")))
 
-(defn run-command [argv: Any] -> (Promise Any)
+(defn run-command [argv: (Vec String)] -> (Promise String)
   (let [child (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
         results (js/await
                  (Promise/all [(.text (Response. (.-stdout child)))
@@ -340,9 +426,9 @@
     (if (identical? exit-code 0)
       stdout
       (throw (Error. (str (.join argv " ") " failed (" exit-code "): "
-                          (or (.trim stderr) (.trim stdout))))))))
+                          (text-or (.trim stderr) (.trim stdout))))))))
 
-(defn run-json [argv: Any] -> (Promise Any)
+(defn run-json [argv: (Vec String)] -> (Promise Any)
   (let [output (js/await (run-command argv))]
     (JSON/parse output)))
 
@@ -360,7 +446,7 @@
 
 (defn read-stream
   [stream: Any
-   on-chunk: Any] -> (Promise Any)
+   on-chunk: [String -> Any]] -> (Promise Any)
   (let [reader (.getReader stream)
         decoder (TextDecoder.)]
     (loop []
@@ -370,9 +456,9 @@
           (recur))))))
 
 (defn stream-command
-  [argv: Any
-   on-stdout: Any
-   on-stderr: Any] -> (Promise Any)
+  [argv: (Vec String)
+   on-stdout: [String -> Any]
+   on-stderr: [String -> Any]] -> (Promise Int)
   (let [child (.spawn Bun {:cmd argv :stdout "pipe" :stderr "pipe"})
         results (js/await
                  (Promise/all [(read-stream (.-stdout child) on-stdout)
@@ -380,15 +466,18 @@
                                (.-exited child)]))]
     (aget results 2)))
 
-(defn normalize-agents [payload: Any] -> Any
+(defn normalize-agents [payload: Any] -> (Vec Agent)
   (let [rows (if (and payload (Array/isArray (.-agents payload))) (.-agents payload) [])]
     (.map rows
-          (fn [row: Any] -> Any
-            (let [id (bare (or (.-control_id row) (.-uuid row) (.-id row)))
-                  name (text (or (.-display_handle row) (.-display_name row) id))
-                  status (text (or (.-state_label row) (.-state row) "unknown"))
-                  task (text (or (.-task row) (.-thread_title row) ""))]
-              (make-agent id name status task))))))
+          (fn [row: Any] -> Agent
+            (let [id (bare (text-or (.-control_id row)
+                                    (text-or (.-uuid row) (text (.-id row)))))
+                  name (text-or (.-display_handle row)
+                                (text-or (.-display_name row) id))
+                  status (text-or (.-state_label row)
+                                  (text-or (.-state row) "unknown"))
+                  task (text-or (.-task row) (text (.-thread_title row)))]
+              (->Agent id name status task))))))
 
 (defn board-ids [board: Any] -> (Vec String)
   (if (Array/isArray board)
@@ -433,18 +522,18 @@
 
 (defn normalize-work
   [board: Any
-   facts: Any] -> Any
+   facts: Any] -> (Vec WorkItem)
   (if (not (Array/isArray board))
     []
     (.map board
-          (fn [row: Any] -> Any
+          (fn [row: Any] -> WorkItem
             (let [id (bare (.-id row))
-                  title (text (or (.-title row) id))
+                  title (text-or (.-title row) id)
                   body (body-of facts id)
-                  condition (text (or (.-condition row) "open"))
+                  condition (text-or (.-condition row) "open")
                   driver (driver-of facts id)
                   dependencies (dependencies-of facts id)]
-              (make-work id title body condition driver dependencies))))))
+              (->WorkItem id title body condition driver dependencies))))))
 
 (defn terminal-condition? [condition: String] -> Bool
   (or (identical? condition "terminal")
@@ -459,19 +548,19 @@
     :else "not-started"))
 
 (defn ordered-board-items
-  [open-items: Any
-   done-items: Any] -> Any
+  [open-items: (Vec WorkItem)
+   done-items: (Vec WorkItem)] -> (Vec WorkItem)
   (let [ready (.filter open-items
-                       (fn [item: Any] -> Bool
-                         (identical? (text (.-condition item)) "ready")))
+                       (fn [item: WorkItem] -> Bool
+                         (identical? (workitem-condition item) "ready")))
         waiting (.filter open-items
-                         (fn [item: Any] -> Bool
-                           (let [condition (text (.-condition item))]
+                         (fn [item: WorkItem] -> Bool
+                           (let [condition (workitem-condition item)]
                              (and (not (identical? condition "ready"))
                                   (not (identical? condition "active"))))))
         active (.filter open-items
-                        (fn [item: Any] -> Bool
-                          (identical? (text (.-condition item)) "active")))]
+                        (fn [item: WorkItem] -> Bool
+                          (identical? (workitem-condition item) "active")))]
     (.concat ready waiting active done-items)))
 
 (defn publish-line!
@@ -525,14 +614,14 @@
       (not (identical? home "")) (str home "/code/north/warcraft-sounds")
       :else "warcraft-sounds")))
 
-(defn discover-sound-player [] -> Any
+(defn discover-sound-player [] -> SoundPlayer?
   (let [mpv (.which Bun "mpv")
         ffplay (.which Bun "ffplay")
         pw-play (.which Bun "pw-play")]
     (cond
-      mpv {:kind "mpv" :path (text mpv)}
-      ffplay {:kind "ffplay" :path (text ffplay)}
-      pw-play {:kind "pw-play" :path (text pw-play)}
+      mpv (->SoundPlayer "mpv" (text mpv))
+      ffplay (->SoundPlayer "ffplay" (text ffplay))
+      pw-play (->SoundPlayer "pw-play" (text pw-play))
       :else nil)))
 
 (defn sound-warning!
@@ -549,14 +638,14 @@
   (str directory (if (.endsWith directory "/") "" "/") filename))
 
 (defn sound-argv
-  [player: Any
-   path: String] -> Any
-  (let [executable (text (.-path player))]
+  [player: SoundPlayer
+   path: String] -> (Vec String)
+  (let [executable (soundplayer-path player)]
     (cond
-      (identical? (text (.-kind player)) "mpv")
+      (identical? (soundplayer-kind player) "mpv")
       [executable "--no-video" "--really-quiet" path]
 
-      (identical? (text (.-kind player)) "ffplay")
+      (identical? (soundplayer-kind player) "ffplay")
       [executable "-nodisp" "-autoexit" "-loglevel" "quiet" path]
 
       :else [executable path])))
@@ -604,12 +693,12 @@
   [runtime: Any
    event: String] -> String
   (let [pack (if (identical? (text (.-soundPack runtime)) "peasant")
-               (.-peasant SOUND-PACKS) (.-peon SOUND-PACKS))
+               PEASANT-SOUND-PACK PEON-SOUND-PACK)
         files (cond
-                (identical? event "ready") (.-ready pack)
-                (identical? event "done") (.-done pack)
-                (identical? event "interrupted") (.-interrupted pack)
-                (identical? event "failed") (.-failed pack)
+                (identical? event "ready") (soundpack-ready pack)
+                (identical? event "done") (soundpack-done pack)
+                (identical? event "interrupted") (soundpack-interrupted pack)
+                (identical? event "failed") (soundpack-failed pack)
                 :else [])
         count (.-length files)]
     (if (identical? count 0)
@@ -644,7 +733,7 @@
   (let [player (.-soundPlayer runtime)]
     (str "sound " (if (.-soundEnabled runtime) "on" "off")
          " · pack " (text (.-soundPack runtime))
-         " · player " (if player (text (.-kind player)) "none")
+         " · player " (if player (soundplayer-kind player) "none")
          " · " (text (.-soundDirectory runtime)))))
 
 (defn handle-sound-command!
@@ -683,8 +772,8 @@
     (if (not (.startsWith trimmed "/"))
       false
       (let [parsed (command trimmed)
-            name (text (.-name parsed))
-            rest (text (.-rest parsed))]
+            name (parsedcommand-name parsed)
+            rest (parsedcommand-rest parsed)]
         (cond
           (or (identical? name "glyph") (identical? name "prompt"))
           (do
@@ -762,14 +851,14 @@
         board (aget payloads 1)
         done (aget payloads 2)
         state (snapshot (.-model runtime))
-        current-agents (or (.-agents state) [])
+        current-agents (bridgesnapshot-agents state)
         bridge-agents (.filter current-agents
-                               (fn [agent: Any] -> Bool
-                                 (.has (.-bridgeExecutions runtime) (text (.-id agent)))))
+                               (fn [agent: Agent] -> Bool
+                                 (.has (.-bridgeExecutions runtime) (agent-id agent))))
         remote-agents (if agent-payload (normalize-agents agent-payload) [])
         distinct-remote (.filter remote-agents
-                                 (fn [agent: Any] -> Bool
-                                   (not (.has (.-bridgeExecutions runtime) (text (.-id agent))))))
+                                 (fn [agent: Agent] -> Bool
+                                   (not (.has (.-bridgeExecutions runtime) (agent-id agent)))))
         agents (if agent-payload (.concat bridge-agents distinct-remote) current-agents)
         open-rows (if (Array/isArray board) board [])
         done-rows (if (Array/isArray done) done [])
@@ -781,22 +870,22 @@
                 [])
         work (if (Array/isArray board)
                (normalize-work open-rows facts)
-               (or (.-list state) []))
-        prior-terminal (.filter (or (.-kanban state) [])
-                                (fn [item: Any] -> Bool
-                                  (terminal-condition? (text (.-condition item)))))
+               (bridgesnapshot-list state))
+        prior-terminal (.filter (bridgesnapshot-board state)
+                                (fn [item: WorkItem] -> Bool
+                                  (terminal-condition? (workitem-condition item))))
         terminal-work (if (Array/isArray done)
                         (normalize-work done-rows facts)
                         prior-terminal)
         kanban (ordered-board-items work terminal-work)
         next-model (replace-projection (.-model runtime) agents work kanban)
-        selected-id (bare (.-selectedThread state))
+        selected-id (bridgesnapshot-selected-thread state)
         next-state (snapshot next-model)
         next-view (selected-view next-state (.-activeView runtime))
-        next-items (or (.-items next-view) [])
+        next-items (workview-items next-view)
         next-index (.findIndex next-items
-                               (fn [item: Any] -> Bool
-                                 (identical? (bare (.-id item)) selected-id)))]
+                               (fn [item: WorkItem] -> Bool
+                                 (identical? (workitem-id item) selected-id)))]
     (set! (.-model runtime) next-model)
     (when (>= next-index 0) (set! (.-workIndex runtime) next-index))
     (.render runtime)))
@@ -807,13 +896,6 @@
     (or (identical? view-id "board") (identical? view-id "kanban")) "board"
     :else "list"))
 
-(defn model-work-view [view-id: String] -> String
-  (let [view (canonical-work-view view-id)]
-    (cond
-      (identical? view "graph") "dag"
-      (identical? view "board") "kanban"
-      :else "list")))
-
 (defn recognized-work-view? [view-id: String] -> Bool
   (or (identical? view-id "list")
       (identical? view-id "graph")
@@ -821,36 +903,39 @@
       (identical? view-id "dag")
       (identical? view-id "kanban")))
 
-(defn view-list [state: Any] -> Any
-  [{:id "list" :title "List" :items (or (.-list state) [])}
-   {:id "graph" :title "Graph" :items (or (.-list state) [])}
-   {:id "board" :title "Board" :items (or (.-kanban state) [])}])
+(defn view-list [state: BridgeSnapshot] -> (Vec WorkView)
+  [(->WorkView "list" "List" (bridgesnapshot-list state))
+   (->WorkView "graph" "Graph" (bridgesnapshot-list state))
+   (->WorkView "board" "Board" (bridgesnapshot-board state))])
 
 (defn selected-view
-  [state: Any
-   view-id: String] -> Any
+  [state: BridgeSnapshot
+   view-id: String] -> WorkView
   (let [views (view-list state)
         canonical (canonical-work-view view-id)
-        selected (.find views (fn [view: Any] -> Bool (identical? (text (.-id view)) canonical)))]
+        selected (.find views
+                        (fn [view: WorkView] -> Bool
+                          (identical? (workview-id view) canonical)))]
     (or selected (aget views 0))))
 
 (defn roster-text
-  [state: Any
+  [state: BridgeSnapshot
    selected: Int] -> String
-  (let [agents (or (.-agents state) [])]
+  (let [agents (bridgesnapshot-agents state)]
     (if (identical? (.-length agents) 0)
       "No agents attached"
       (.join
        (.map agents
              (fn
-               [agent: Any
+               [agent: Agent
                 index: Int] -> String
                (str (if (identical? index selected) "› " "  ")
-                    (or (text (.-name agent)) (text (.-id agent)))
-                    (if (identical? (text (.-status agent)) "") ""
-                      (str " (" (text (.-status agent)) ")"))
-                    (if (identical? (text (.-task agent)) "") ""
-                      (str " — " (text (.-task agent)))))))
+                    (let [name (agent-name agent)]
+                      (if (identical? name "") (agent-id agent) name))
+                    (if (identical? (agent-status agent) "") ""
+                      (str " (" (agent-status agent) ")"))
+                    (if (identical? (agent-task agent) "") ""
+                      (str " — " (agent-task agent))))))
        "\n"))))
 
 (defn push-chunk!
@@ -887,8 +972,8 @@
         rows (if stdout (.-rows stdout) nil)]
     (Math/max 1 (if (identical? (js/typeof rows) "number") rows 40))))
 
-(defn stacked-workspace? [state: Any] -> Bool
-  (identical? (text (.-layout state)) "horizontal"))
+(defn stacked-workspace? [state: BridgeSnapshot] -> Bool
+  (identical? (bridgesnapshot-layout state) "horizontal"))
 
 (defn pane-visible?
   [runtime: Any
@@ -898,7 +983,7 @@
 (defn workspace-primary-cells
   [runtime: Any
    ui: Any
-   state: Any] -> Int
+   state: BridgeSnapshot] -> Int
   (let [stacked? (stacked-workspace? state)
         measured (if stacked? (.-height (.-root ui)) (.-width (.-root ui)))
         fallback (if stacked? (terminal-rows) (terminal-columns))
@@ -909,7 +994,7 @@
     (Math/max 2 (- (Math/floor outer) 2))))
 
 (defn minimum-pane-cells
-  [state: Any
+  [state: BridgeSnapshot
    total: Int] -> Int
   (Math/max 1
             (Math/min (if (stacked-workspace? state) 5 20)
@@ -918,7 +1003,7 @@
 (defn clamp-pane-ratio!
   [runtime: Any
    ui: Any
-   state: Any] -> Any
+   state: BridgeSnapshot] -> Any
   (let [total (workspace-primary-cells runtime ui state)
         minimum (minimum-pane-cells state total)
         raw (Number (or (.-paneRatio runtime) 50))
@@ -932,7 +1017,7 @@
 (defn apply-workspace-geometry!
   [runtime: Any
    ui: Any
-   state: Any] -> Any
+   state: BridgeSnapshot] -> Any
   (let [stacked? (stacked-workspace? state)
         both? (identical? (text (.-closedPane runtime)) "")
         ratio (if both? (clamp-pane-ratio! runtime ui state) 50)
@@ -986,17 +1071,28 @@
       path)))
 
 (defn session-context-text [runtime: Any] -> String
-  (str (or (text (.-sessionModel runtime)) "model pending") " "
-       (or (text (.-sessionEffort runtime)) "effort pending") " · "
-       (or (short-directory (.-sessionCwd runtime)) "directory pending") " · "
-       (or (text (.-sessionBranch runtime)) "branch pending")))
+  (str (text-or (.-sessionModel runtime) "model pending") " "
+       (text-or (.-sessionEffort runtime) "effort pending") " · "
+       (text-or (short-directory (.-sessionCwd runtime)) "directory pending") " · "
+       (text-or (.-sessionBranch runtime) "branch pending")))
 
-(defn command-parts [title: String] -> Any
+(defn render-session-context [runtime: Any] -> Any
+  (StyledText.
+   [(brightBlack "  ")
+    (brightYellow
+     (str (text-or (.-sessionModel runtime) "model pending") " "
+          (text-or (.-sessionEffort runtime) "effort pending")))
+    (brightBlack " · ")
+    (brightGreen (text-or (short-directory (.-sessionCwd runtime)) "directory pending"))
+    (brightBlack " · ")
+    (dim (text-or (.-sessionBranch runtime) "branch pending"))]))
+
+(defn command-parts [title: String] -> CommandParts
   (let [space (.indexOf title " ")]
     (if (< space 0)
-      {:executable title :arguments ""}
-      {:executable (.slice title 0 space)
-       :arguments (.slice title (+ space 1))})))
+      (->CommandParts title "")
+      (->CommandParts (.slice title 0 space)
+                      (.slice title (+ space 1))))))
 
 (defn push-command-output!
   [chunks: Any
@@ -1033,9 +1129,9 @@
                     :else brightGreen)
                   "• "))
     (push-chunk! chunks (brightWhite (if running? "Running " "Ran ")))
-    (push-chunk! chunks (brightCyan (text (.-executable parts))))
-    (when (not (identical? (text (.-arguments parts)) ""))
-      (push-chunk! chunks (dim (str " " (text (.-arguments parts))))))
+    (push-chunk! chunks (brightCyan (commandparts-executable parts)))
+    (when (not (identical? (commandparts-arguments parts) ""))
+      (push-chunk! chunks (dim (str " " (commandparts-arguments parts)))))
     (push-command-output! chunks body)
     (push-chunk! chunks (white "\n\n"))))
 
@@ -1047,70 +1143,84 @@
         parsed (Number number-text)]
     (if (Number/isFinite parsed) parsed 0)))
 
-(defn diff-rows [diff: Any] -> Any
+(defn append-diff-row
+  [state: DiffState
+   row: DiffRow] -> DiffState
+  (with state [:rows (.concat (diffstate-rows state) row)]))
+
+(defn diff-rows [diff: Any] -> DiffState
   (let [source (clean-text diff)]
     (if (identical? source "")
-      {:oldLine 0 :newLine 0 :additions 0 :deletions 0 :rows []}
+      (->DiffState 0 0 0 0 [])
       (.reduce
        (.split source "\n")
        (fn
-         [state: Any
-          line: String] -> Any
+         [state: DiffState
+          line: String] -> DiffState
          (cond
            (.startsWith line "@@ ")
            (let [parts (.split line " ")]
-             (set! (.-oldLine state) (diff-start-line (aget parts 1)))
-             (set! (.-newLine state) (diff-start-line (aget parts 2)))
-             (.push (.-rows state) {:kind "hunk" :old "" :new "" :text line}))
+             (append-diff-row
+              (with state
+                [:old-line (diff-start-line (aget parts 1))]
+                [:new-line (diff-start-line (aget parts 2))])
+              (->DiffRow "hunk" "" "" line)))
 
            (or (.startsWith line "diff --git ")
                (.startsWith line "index ")
                (.startsWith line "--- ")
-               (.startsWith line "+++ ")) nil
+               (.startsWith line "+++ ")) state
 
            (.startsWith line "+")
-           (do (.push (.-rows state)
-                      {:kind "add" :old "" :new (.-newLine state) :text line})
-               (set! (.-newLine state) (+ (.-newLine state) 1))
-               (set! (.-additions state) (+ (.-additions state) 1)))
+           (append-diff-row
+            (with state
+              [:new-line (+ (diffstate-new-line state) 1)]
+              [:additions (+ (diffstate-additions state) 1)])
+            (->DiffRow "add" "" (str (diffstate-new-line state)) line))
 
            (.startsWith line "-")
-           (do (.push (.-rows state)
-                      {:kind "delete" :old (.-oldLine state) :new "" :text line})
-               (set! (.-oldLine state) (+ (.-oldLine state) 1))
-               (set! (.-deletions state) (+ (.-deletions state) 1)))
+           (append-diff-row
+            (with state
+              [:old-line (+ (diffstate-old-line state) 1)]
+              [:deletions (+ (diffstate-deletions state) 1)])
+            (->DiffRow "delete" (str (diffstate-old-line state)) "" line))
 
            (.startsWith line "\\ No newline")
-           (.push (.-rows state) {:kind "meta" :old "" :new "" :text line})
+           (append-diff-row state (->DiffRow "meta" "" "" line))
 
            :else
-           (do (.push (.-rows state)
-                      {:kind "context" :old (.-oldLine state) :new (.-newLine state) :text line})
-               (set! (.-oldLine state) (+ (.-oldLine state) 1))
-               (set! (.-newLine state) (+ (.-newLine state) 1))))
-         state)
-       {:oldLine 0 :newLine 0 :additions 0 :deletions 0 :rows []}))))
+           (append-diff-row
+            (with state
+              [:old-line (+ (diffstate-old-line state) 1)]
+              [:new-line (+ (diffstate-new-line state) 1)])
+            (->DiffRow "context"
+                       (str (diffstate-old-line state))
+                       (str (diffstate-new-line state))
+                       line))))
+       (->DiffState 0 0 0 0 [])))))
 
-(defn file-change-details [change: Any] -> Any
+(defn file-change-details [change: Any] -> FileChangeDetails
   (let [parsed (diff-rows (.-diff change))]
-    {:path (text (.-path change))
-     :kind (text (.-kind change))
-     :additions (.-additions parsed)
-     :deletions (.-deletions parsed)
-     :rows (.-rows parsed)}))
+    (->FileChangeDetails (text (.-path change))
+                         (text (.-kind change))
+                         (diffstate-additions parsed)
+                         (diffstate-deletions parsed)
+                         (diffstate-rows parsed))))
 
-(defn file-change-summary [changes: Any] -> Any
+(defn file-change-summary [changes: Any] -> FileChangeSummary
   (.reduce
    changes
    (fn
-     [summary: Any
-      change: Any] -> Any
+     [summary: FileChangeSummary
+      change: Any] -> FileChangeSummary
      (let [details (file-change-details change)]
-       (set! (.-additions summary) (+ (.-additions summary) (.-additions details)))
-       (set! (.-deletions summary) (+ (.-deletions summary) (.-deletions details)))
-       (.push (.-files summary) details)
-       summary))
-   {:additions 0 :deletions 0 :files []}))
+       (with summary
+         [:additions (+ (filechangesummary-additions summary)
+                        (filechangedetails-additions details))]
+         [:deletions (+ (filechangesummary-deletions summary)
+                        (filechangedetails-deletions details))]
+         [:files (.concat (filechangesummary-files summary) details)])))
+   (->FileChangeSummary 0 0 [])))
 
 (defn diff-line-number [value: Any] -> String
   (let [number-text (text value)]
@@ -1118,18 +1228,18 @@
 
 (defn push-diff-rows!
   [chunks: Any
-   rows: Any
+   rows: (Vec DiffRow)
    width: Int] -> Any
   (let [limit 36
         visible (.slice rows 0 limit)
         overflow (Math/max 0 (- (.-length rows) limit))]
     (.forEach
      visible
-     (fn [row: Any] -> Any
-       (let [kind (text (.-kind row))
-             numbers (str (diff-line-number (.-old row)) " "
-                          (diff-line-number (.-new row)) " │ ")
-             line (compact-text (str numbers (text (.-text row))) width)]
+     (fn [row: DiffRow] -> Any
+       (let [kind (diffrow-kind row)
+             numbers (str (diff-line-number (diffrow-old row)) " "
+                          (diff-line-number (diffrow-new row)) " │ ")
+             line (compact-text (str numbers (diffrow-text row)) width)]
          (push-chunk! chunks (white "\n"))
          (push-chunk! chunks
                       (cond
@@ -1142,33 +1252,35 @@
 
 (defn push-file-change-card!
   [chunks: Any
-   item: Any
+   item: ConversationItem
    status: String
    runtime: Any] -> Any
-  (let [data (.-data item)
+  (let [data (conversationitem-data item)
         changes (if (and data (Array/isArray (.-changes data))) (.-changes data) [])
         summary (file-change-summary changes)
-        files (.-files summary)
+        files (filechangesummary-files summary)
         width (Math/max 24 (- (available-agent-width runtime) 2))]
     (push-chunk! chunks (if (identical? status "failed") (brightRed "• ") (brightGreen "• ")))
     (push-chunk! chunks
                  (brightWhite
                   (str (if (identical? status "running") "Editing " "Edited ")
                        (.-length files) (if (identical? (.-length files) 1) " file" " files")
-                       " (+" (.-additions summary) " -" (.-deletions summary) ")")))
+                       " (+" (filechangesummary-additions summary)
+                       " -" (filechangesummary-deletions summary) ")")))
     (.forEach
      files
      (fn
-       [file: Any
+       [file: FileChangeDetails
         index: Int] -> Any
        (let [last? (identical? index (- (.-length files) 1))]
          (push-chunk! chunks
                       (brightBlack
                        (str "\n  " (if last? "└ " "├ ")
-                            (text (.-path file)) " (+" (.-additions file)
-                            " -" (.-deletions file) ")")))
-         (when (> (.-length (.-rows file)) 0)
-           (push-diff-rows! chunks (.-rows file) width)))))
+                            (filechangedetails-path file) " (+"
+                            (filechangedetails-additions file)
+                            " -" (filechangedetails-deletions file) ")")))
+         (when (> (.-length (filechangedetails-rows file)) 0)
+           (push-diff-rows! chunks (filechangedetails-rows file) width)))))
     (push-chunk! chunks (white "\n\n"))))
 
 (defn push-working-wave!
@@ -1196,11 +1308,11 @@
         items (.-conversation runtime)]
     (.forEach
      items
-     (fn [item: Any] -> Any
-       (let [kind (text (.-kind item))
-             title (text (.-title item))
-             body (clipped (.-body item) 6000)
-             status (text (.-status item))]
+     (fn [item: ConversationItem] -> Any
+       (let [kind (conversationitem-kind item)
+             title (conversationitem-title item)
+             body (clipped (conversationitem-body item) 6000)
+             status (conversationitem-status item)]
          (cond
            (identical? kind "user")
            (do (push-chunk! chunks
@@ -1263,11 +1375,11 @@
 
 (defn render-status
   [runtime: Any
-   state: Any] -> Any
+   state: BridgeSnapshot] -> Any
   (let [count-text (text (.-windowCount runtime))
         workspace-notice (text (.-workspaceNotice runtime))
         notice (if (identical? workspace-notice "")
-                 (visible-notice (.-notice state)) workspace-notice)]
+                 (visible-notice (bridgesnapshot-notice state)) workspace-notice)]
     (cond
       (.-windowChord runtime)
       (StyledText.
@@ -1278,13 +1390,8 @@
       (.-showHelp runtime)
       (StyledText.
        [(brightYellow "Northbridge keys\n")
-        (brightWhite "F1") (brightBlack " close help · ")
-        (brightWhite "F2") (brightBlack " switch pane · ")
-        (brightWhite "F3") (brightBlack " switch work view\n")
-        (brightWhite "F4") (brightBlack " toggle split · ")
-        (brightWhite "F5") (brightBlack " refresh · ")
-        (brightWhite "F6") (brightBlack " pop out\n")
         (brightWhite "Tab") (brightBlack " switch pane · ")
+        (brightWhite "←/→") (brightBlack " switch work view · ")
         (brightWhite "Ctrl-w h/j/k/l") (brightBlack " neighbor · ")
         (brightWhite "w") (brightBlack " cycle · ")
         (brightWhite "v/s") (brightBlack " side-by-side/stacked · ")
@@ -1300,16 +1407,7 @@
         (brightWhite "/mute") (brightBlack " quiet")])
 
       :else
-      (StyledText.
-       [(brightBlack (str notice "\n"))
-        (brightCyan "F1") (brightBlack " help · ")
-        (brightCyan "F2") (brightBlack " pane · ")
-        (brightCyan "F3") (brightBlack " view · ")
-        (brightCyan "F4") (brightBlack " split · ")
-        (brightCyan "F5") (brightBlack " refresh · ")
-        (brightCyan "F6") (brightBlack " pop out\n")
-        (brightCyan "Ctrl-w")
-        (brightBlack " h/j/k/l neighbor · w cycle · v/s split · c close · = equalize · [count] >/< resize")]))))
+      (StyledText. [(brightBlack notice)]))))
 
 (defn render-pane-header
   [title: String
@@ -1317,7 +1415,7 @@
   (StyledText. [(brightGreen title)]))
 
 (defn render-work-tabs!
-  [state: Any
+  [state: BridgeSnapshot
    view-id: String
    _focused?: Bool] -> Any
   (let [chunks []
@@ -1326,15 +1424,16 @@
     (.forEach
      views
      (fn
-       [view: Any
+       [view: WorkView
         index: Int] -> Any
-       (let [selected? (identical? (text (.-id view)) view-id)
-             title (or (text (.-title view)) (text (.-id view)))]
+       (let [selected? (identical? (workview-id view) view-id)
+             title (workview-title view)]
          (push-chunk! chunks
                       ((if selected? brightCyan brightBlack)
                        (str (if selected? "[" " ") title (if selected? "]" " "))))
          (when (< index (- (.-length views) 1))
            (push-chunk! chunks (white "  "))))))
+    (push-chunk! chunks (brightBlack "  ← switch →"))
     (StyledText. chunks)))
 
 (defn compact-text
@@ -1351,8 +1450,8 @@
    width: Int] -> String
   (.padEnd (compact-text value width) width " "))
 
-(defn short-thread-id [item: Any] -> String
-  (.slice (bare (.-id item)) 0 8))
+(defn short-thread-id [item: WorkItem] -> String
+  (.slice (workitem-id item) 0 8))
 
 (defn push-condition!
   [chunks: Any
@@ -1368,7 +1467,7 @@
 
 (defn available-work-width
   [runtime: Any
-   state: Any] -> Int
+   state: BridgeSnapshot] -> Int
   (let [columns (terminal-columns)
         agents-closed? (identical? (text (.-closedPane runtime)) "agents")
         ratio (/ (or (.-paneRatio runtime) 50) 100)]
@@ -1378,18 +1477,18 @@
                 (- (Math/floor (* (- columns 5) (- 1 ratio))) 3)))))
 
 (defn render-list-view!
-  [items: Any
+  [items: (Vec WorkItem)
    selected: Int
    width: Int] -> Any
   (let [chunks []]
     (.forEach
      items
      (fn
-       [item: Any
+       [item: WorkItem
         index: Int] -> Any
-       (let [condition (text (or (.-condition item) "open"))
+       (let [condition (workitem-condition item)
              title-width (Math/max 10 (- width 23))
-             title (compact-text (.-title item) title-width)
+             title (compact-text (workitem-title item) title-width)
              selected? (identical? index selected)]
          (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
          (push-condition! chunks condition
@@ -1401,30 +1500,42 @@
     (StyledText. chunks)))
 
 (defn work-item-by-id
-  [items: Any
-   id: String] -> Any
+  [items: (Vec WorkItem)
+   id: String] -> WorkItem?
   (.find items
-         (fn [item: Any] -> Bool
-           (identical? (bare (.-id item)) id))))
+         (fn [item: WorkItem] -> Bool
+           (identical? (workitem-id item) id))))
+
+(defn work-item-condition-for
+  [items: (Vec WorkItem)
+   id: String] -> String
+  (.reduce items
+           (fn
+             [condition: String
+              item: WorkItem] -> String
+             (if (identical? (workitem-id item) id)
+               (workitem-condition item)
+               condition))
+           ""))
 
 (defn render-dag-view!
-  [items: Any
+  [items: (Vec WorkItem)
    selected: Int
    width: Int] -> Any
   (let [chunks []]
     (.forEach
      items
      (fn
-       [item: Any
+       [item: WorkItem
         index: Int] -> Any
-       (let [condition (text (or (.-condition item) "open"))
-             dependencies (or (.-dependencies item) [])
+       (let [condition (workitem-condition item)
+             dependencies (workitem-dependencies item)
              selected? (identical? index selected)]
          (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
          (push-condition! chunks condition "● ")
          (push-chunk! chunks
                       ((if selected? brightWhite white)
-                       (compact-text (.-title item) (Math/max 12 (- width 16)))))
+                       (compact-text (workitem-title item) (Math/max 12 (- width 16)))))
          (push-chunk! chunks (dim (str "  @" (short-thread-id item) "\n")))
          (if (identical? (.-length dependencies) 0)
            (push-chunk! chunks (brightBlack "    ╰─ root\n"))
@@ -1439,7 +1550,7 @@
                 (push-chunk! chunks
                              (if target
                                (dim (str "  "
-                                         (compact-text (.-title target)
+                                         (compact-text (workitem-title target)
                                                        (Math/max 8 (- width 28)))
                                          "\n"))
                                (brightBlack "  outside current board\n")))))))
@@ -1448,11 +1559,11 @@
     (StyledText. chunks)))
 
 (defn board-lane-items
-  [items: Any
-   lane-id: String] -> Any
+  [items: (Vec WorkItem)
+   lane-id: String] -> (Vec WorkItem)
   (.filter items
-           (fn [item: Any] -> Bool
-             (identical? (board-lane-id (text (.-condition item))) lane-id))))
+           (fn [item: WorkItem] -> Bool
+             (identical? (board-lane-id (workitem-condition item)) lane-id))))
 
 (defn compact-body
   [value: Any
@@ -1467,17 +1578,17 @@
   (str "board-card-" thread-id))
 
 (defn board-signature
-  [items: Any
+  [items: (Vec WorkItem)
    selected: Int
    width: Int] -> String
   (str width "|" selected "|"
        (.join
         (.map items
-              (fn [item: Any] -> String
-                (str (bare (.-id item)) "\u0001"
-                     (text (.-title item)) "\u0001"
-                     (text (.-body item)) "\u0001"
-                     (text (.-condition item)))))
+              (fn [item: WorkItem] -> String
+                (str (workitem-id item) "\u0001"
+                     (workitem-title item) "\u0001"
+                     (workitem-body item) "\u0001"
+                     (workitem-condition item))))
         "\u0002")))
 
 (defn board-card-node [source: Any] -> Any
@@ -1496,13 +1607,13 @@
 (defn select-board-card!
   [runtime: Any
    ui: Any
-   item: Any
+   item: WorkItem
    index: Int] -> Any
   (set! (.-workIndex runtime) index)
   (set! (.-model runtime)
-        (select-thread (.-model runtime) (bare (.-id item))))
+        (select-thread (.-model runtime) (workitem-id item)))
   (focus-pane-surface! runtime ui "work")
-  (.scrollChildIntoView (.-workScroll ui) (board-card-id (bare (.-id item)))))
+  (.scrollChildIntoView (.-workScroll ui) (board-card-id (workitem-id item))))
 
 (defn prefill-outcome!
   [runtime: Any
@@ -1557,13 +1668,11 @@
   (let [source-card (board-card-node (.-source event))
         source-id (if source-card (bare (.-northThreadId source-card)) "")
         state (snapshot (.-model runtime))
-        items (or (.-kanban state) [])
-        source-item (work-item-by-id items source-id)
-        source-condition (if source-item (text (.-condition source-item)) "")
+        items (bridgesnapshot-board state)
+        source-condition (work-item-condition-for items source-id)
         source-lane (board-lane-id source-condition)
         target-id (if target-card (bare (.-northThreadId target-card)) "")
-        target-item (if (identical? target-id "") nil (work-item-by-id items target-id))
-        target-condition (if target-item (text (.-condition target-item)) "")]
+        target-condition (work-item-condition-for items target-id)]
     (cond
       (identical? source-id "")
       (set-board-notice! runtime "Drop ignored: the dragged source was not a North work card.")
@@ -1595,25 +1704,25 @@
                          (unsupported-drop-notice source-condition target-lane)))))
 
 (defn card-content
-  [item: Any
+  [item: WorkItem
    width: Int] -> Any
-  (let [body (compact-body (.-body item) (Math/max 8 (- width 4)))
+  (let [body (compact-body (workitem-body item) (Math/max 8 (- width 4)))
         fallback (str "@" (short-thread-id item))]
     (StyledText.
-     [(brightWhite (compact-text (.-title item) (Math/max 8 (- width 4))))
+     [(brightWhite (compact-text (workitem-title item) (Math/max 8 (- width 4))))
       (white "\n")
       (dim (if (identical? body "") fallback body))])))
 
 (defn make-board-card!
   [runtime: Any
    ui: Any
-   item: Any
+   item: WorkItem
    index: Int
    lane-index: Int
    width: Int] -> Any
   (let [renderer (.-renderer runtime)
-        thread-id (bare (.-id item))
-        condition (text (.-condition item))
+        thread-id (workitem-id item)
+        condition (workitem-condition item)
         selected? (identical? index (.-workIndex runtime))
         next-up? (and (identical? condition "ready") (identical? lane-index 0))
         card (BoxRenderable. renderer
@@ -1657,12 +1766,12 @@
 (defn make-board-lane!
   [runtime: Any
    ui: Any
-   lane: Any
-   items: Any
+   lane: BoardLane
+   items: (Vec WorkItem)
    card-width: Int] -> Any
   (let [renderer (.-renderer runtime)
-        lane-id (text (.-id lane))
-        title (text (.-title lane))
+        lane-id (boardlane-id lane)
+        title (boardlane-title lane)
         lane-items (board-lane-items items lane-id)
         lane-box (BoxRenderable. renderer
                                  {:width "100%" :flexDirection "column" :flexShrink 0
@@ -1689,7 +1798,7 @@
     (.forEach
      lane-items
      (fn
-       [item: Any
+       [item: WorkItem
         lane-index: Int] -> Any
        (.add cards
              (make-board-card! runtime ui item (.indexOf items item) lane-index card-width))))
@@ -1704,7 +1813,7 @@
 (defn sync-board!
   [runtime: Any
    ui: Any
-   items: Any
+   items: (Vec WorkItem)
    selected: Int
    width: Int] -> Any
   (let [signature (board-signature items selected width)]
@@ -1713,24 +1822,24 @@
       (clear-board! (.-boardRoot ui))
       (let [card-width (if (>= width 54) 25 (Math/max 18 (- width 3)))]
         (.forEach BOARD-LANES
-                  (fn [lane: Any] -> Any
+                  (fn [lane: BoardLane] -> Any
                     (.add (.-boardRoot ui)
                           (make-board-lane! runtime ui lane items card-width)))))
       (when (and (>= selected 0) (< selected (.-length items)))
         (.scrollChildIntoView (.-workScroll ui)
-                              (board-card-id (bare (.-id (aget items selected)))))))))
+                              (board-card-id (workitem-id (aget items selected))))))))
 
 (defn work-content!
   [runtime: Any
-   state: Any
-   view: Any
+   state: BridgeSnapshot
+   view: WorkView
    selected: Int] -> Any
-  (let [items (or (.-items view) [])
+  (let [items (workview-items view)
         width (available-work-width runtime state)]
     (if (identical? (.-length items) 0)
-      (StyledText. [(brightBlack (str "No " (or (text (.-title view)) "work") " items"))])
+      (StyledText. [(brightBlack (str "No " (workview-title view) " items"))])
       (cond
-        (identical? (text (.-id view)) "graph")
+        (identical? (workview-id view) "graph")
         (render-dag-view! items selected width)
 
         :else
@@ -1741,11 +1850,11 @@
    ui: Any] -> Any
   (when (not (.-disposed runtime))
     (let [state (snapshot (.-model runtime))
-        agents (or (.-agents state) [])
+        agents (bridgesnapshot-agents state)
         views (view-list state)
-        requested (text (.-activeViewId state))
+        requested (bridgesnapshot-active-view-id state)
         current (selected-view state requested)
-        items (or (.-items current) [])
+        items (workview-items current)
         agent-max (Math/max 0 (- (.-length agents) 1))
         work-max (Math/max 0 (- (.-length items) 1))
         agent-options (if (identical? (.-pane runtime) "agents")
@@ -1754,7 +1863,7 @@
                        (palette-options "work" (text (.-value (.-workInput ui)))) [])
         active-options (if (identical? (.-pane runtime) "agents") agent-options work-options)
         palette-max (Math/max 0 (- (.-length active-options) 1))
-        board? (identical? (text (.-id current)) "board")]
+        board? (identical? (workview-id current) "board")]
     (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
     (set! (.-paletteIndex runtime) (Math/max 0 (Math/min (.-paletteIndex runtime) palette-max)))
@@ -1767,7 +1876,7 @@
           (roster-text state (.-agentIndex runtime)))
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
     (set! (.-content (.-tabsText ui))
-          (render-work-tabs! state (text (.-id current))
+          (render-work-tabs! state (workview-id current)
                              (identical? (.-pane runtime) "work")))
     (set! (.-visible (.-workText ui)) (not board?))
     (set! (.-visible (.-boardRoot ui)) board?)
@@ -1778,6 +1887,8 @@
             (work-content! runtime state current (.-workIndex runtime))))
     (set! (.-content (.-statusText ui)) (render-status runtime state))
     (set! (.-content (.-agentStatusText ui)) (render-status runtime state))
+    (set! (.-content (.-agentContextText ui)) (render-session-context runtime))
+    (set! (.-content (.-workContextText ui)) (render-session-context runtime))
     (set! (.-visible (.-agentStatusText ui))
           (identical? (text (.-closedPane runtime)) "work"))
     (set! (.-visible (.-agentPalette ui)) (> (.-length agent-options) 0))
@@ -1790,7 +1901,7 @@
     (set! (.-content (.-workPalette ui))
           (if (> (.-length work-options) 0)
             (render-command-palette! work-options (.-paletteIndex runtime)) ""))
-      (set! (.-activeView runtime) (text (.-id current)))
+      (set! (.-activeView runtime) (workview-id current))
       views)))
 
 (defn bridge-agent!
@@ -1804,17 +1915,17 @@
     (set! (.-agentIndex runtime) 0))
   (set! (.-model runtime)
         (upsert-agent (.-model runtime)
-                      (make-agent execution-id
-                                  (if (identical? role "supervisor")
-                                    "Codex supervisor"
-                                    (str "Codex " (.slice execution-id 0 8)))
-                                  status
-                                  (if (identical? role "supervisor")
-                                    "Northbridge control session"
-                                    "Bridge execution"))))
+                      (->Agent execution-id
+                               (if (identical? role "supervisor")
+                                 "Codex supervisor"
+                                 (str "Codex " (.slice execution-id 0 8)))
+                               status
+                               (if (identical? role "supervisor")
+                                 "Northbridge control session"
+                                 "Bridge execution"))))
   (.render runtime))
 
-(defn record-line [line: String] -> Any
+(defn record-line [line: String] -> ParsedRecord?
   (let [close (.indexOf line "] ")]
     (if (or (not (.startsWith line "[")) (< close 0))
       nil
@@ -1823,7 +1934,7 @@
             kind (if (< space 0) rest (.slice rest 0 space))
             payload (if (< space 0) "" (.trim (.slice rest (+ space 1))))]
         (try
-          {:kind kind :data (if (identical? payload "") {} (JSON/parse payload))}
+          (->ParsedRecord kind (if (identical? payload "") {} (JSON/parse payload)))
           (catch Error _ nil))))))
 
 (defn event-item-id
@@ -1839,12 +1950,12 @@
    delta: String
    status: String] -> Any
   (let [existing (conversation-item-by-id runtime id)
-        prior (if existing (text (.-body existing)) "")
-        actual-title (if existing (text (.-title existing)) title)]
+        prior (if existing (conversationitem-body existing) "")
+        actual-title (if existing (conversationitem-title existing) title)]
     (upsert-conversation!
      runtime
      (conversation-item-with-data! id kind actual-title (clipped (str prior delta) 6000) status
-                                   (if existing (.-data existing) nil)))))
+                                   (if existing (conversationitem-data existing) nil)))))
 
 (defn assistant-message-text [data: Any] -> String
   (let [message (.-message data)
@@ -1855,15 +1966,15 @@
         (.map content (fn [part: Any] -> String (text (.-text part))))
         (fn [part: String] -> Bool (not (identical? part ""))))
        "\n")
-      (text (or (.-text data) (.-result data))))))
+      (text-or (.-text data) (text (.-result data))))))
 
 (defn adopt-session-metadata!
   [runtime: Any
    source: Any] -> Any
   (when source
-    (let [model (text (or (.-model source) (.-modelName source)))
-          effort (text (or (.-reasoningEffort source) (.-effort source)))
-          cwd (text (or (.-cwd source) (.-workingDirectory source)))]
+    (let [model (text-or (.-model source) (text (.-modelName source)))
+          effort (text-or (.-reasoningEffort source) (text (.-effort source)))
+          cwd (text-or (.-cwd source) (text (.-workingDirectory source)))]
       (when (not (identical? model "")) (set! (.-sessionModel runtime) model))
       (when (not (identical? effort "")) (set! (.-sessionEffort runtime) effort))
       (when (not (identical? cwd "")) (set! (.-sessionCwd runtime) cwd)))))
@@ -1940,7 +2051,7 @@
          runtime
          (conversation-item-with-data!
           id "change" "Editing files"
-          (if existing (text (.-body existing)) "") "running" params)))
+          (if existing (conversationitem-body existing) "") "running" params)))
 
       (identical? method "item/mcpToolCall/progress")
       (append-item-delta! runtime
@@ -2001,9 +2112,9 @@
 (defn handle-record!
   [runtime: Any
    stream-state: Any
-   record: Any] -> Any
-  (let [kind (text (.-kind record))
-        data (or (.-data record) {})
+   record: ParsedRecord] -> Any
+  (let [kind (parsedrecord-kind record)
+        data (or (parsedrecord-data record) {})
         execution-id (text (.-executionId stream-state))]
     (cond
       (identical? kind "execution.accepted")
@@ -2017,6 +2128,9 @@
 
       (identical? kind "provider.codex.event")
       (handle-codex-event! runtime stream-state data)
+
+      (identical? kind "provider.session.config")
+      (adopt-session-metadata! runtime data)
 
       (identical? kind "provider.assistant")
       (let [body (assistant-message-text data)]
@@ -2143,32 +2257,33 @@
 
 (defn selected-work
   [runtime: Any
-   selection: Any] -> Any
+   selection: WorkSelection] -> WorkItem?
   (let [state (snapshot (.-model runtime))
-        view-id (text (or (.-view selection) (.-activeView runtime)))
+        view-id (text-or (workselection-view selection) (text (.-activeView runtime)))
         view (selected-view state view-id)
-        items (or (.-items view) [])
-        index (if (nil? (.-index selection)) -1 (.-index selection))]
+        items (workview-items view)
+        index (workselection-index selection)]
     (if (and (>= index 0) (< index (.-length items))) (aget items index) nil)))
 
 (defn submit-agent!
   [runtime: Any
    ui: Any
    input: String
-   selection: Any] -> (Promise Any)
+   selection: String] -> (Promise Any)
   (let [trimmed (.trim input)
         slash? (.startsWith trimmed "/")
         parsed (command input)
-        name (text (.-name parsed))
-        rest (text (.-rest parsed))
-        target (text (or selection (.-supervisorId runtime)))]
+        name (parsedcommand-name parsed)
+        rest (parsedcommand-rest parsed)
+        target (text-or selection (text (.-supervisorId runtime)))]
     (if (handle-local-command! runtime ui input)
       nil
       (cond
       (and slash? (exit-command? name)) (destroy! runtime)
       (and slash? (identical? name "launch")) (js/await (launch-agent! runtime rest "worker"))
       (and slash? (identical? name "refresh")) (js/await (refresh! runtime))
-      (and slash? (identical? name "popout")) (popout! runtime (or rest (.-activeView runtime)))
+      (and slash? (identical? name "popout"))
+      (popout! runtime (text-or rest (text (.-activeView runtime))))
       (and slash? (identical? name "help"))
       (do (set! (.-showHelp runtime) (not (.-showHelp runtime))) (.render runtime))
       :else
@@ -2197,12 +2312,12 @@
   [runtime: Any
    ui: Any
    input: String
-   selection: Any] -> (Promise Any)
+   selection: WorkSelection] -> (Promise Any)
   (let [trimmed (.trim input)
         slash? (.startsWith trimmed "/")
         parsed (command input)
-        name (text (.-name parsed))
-        rest (text (.-rest parsed))]
+        name (parsedcommand-name parsed)
+        rest (parsedcommand-rest parsed)]
     (if (not slash?)
       (js/await (submit-agent! runtime ui input (.-supervisorId runtime)))
       (if (handle-local-command! runtime ui input)
@@ -2217,7 +2332,7 @@
         (when (not (recognized-work-view? rest))
           (throw (Error. "view requires list, graph, or board")))
         (set! (.-model runtime)
-              (focus-view (.-model runtime) (model-work-view rest)))
+              (focus-view (.-model runtime) (canonical-work-view rest)))
         (set! (.-workIndex runtime) 0)
         (.scrollTo (.-workScroll runtime) 0)
         (.render runtime))
@@ -2242,10 +2357,12 @@
       (identical? name "assign")
       (let [item (selected-work runtime selection)
             words (.filter (.split rest " ") (fn [word: String] -> Bool (not (identical? (.trim word) ""))))
-            current (if item (text (.-driver item)) "")
+            current (if item (workitem-driver item) "")
             prior (if (> (.-length words) 1) (aget words 0) current)
-            next-driver (if (> (.-length words) 1) (aget words 1) (or (aget words 0) ""))
-            thread-id (if item (bare (.-id item)) "")]
+            next-driver (if (> (.-length words) 1)
+                          (aget words 1)
+                          (text (aget words 0)))
+            thread-id (if item (workitem-id item) "")]
         (when (identical? thread-id "") (throw (Error. "select work before assigning")))
         (when (identical? prior "") (throw (Error. "unassigned work requires: /assign <prior-driver> <next-driver>")))
         (when (identical? next-driver "") (throw (Error. "assign requires a new driver")))
@@ -2323,10 +2440,10 @@
 
 (defn pane-for-direction
   [runtime: Any
-   state: Any
+   state: BridgeSnapshot
    direction: String] -> String
   (let [pane (text (.-pane runtime))
-        layout (text (.-layout state))]
+        layout (bridgesnapshot-layout state)]
     (cond
       (identical? direction "w")
       (let [next-pane (if (identical? pane "agents") "work" "agents")]
@@ -2487,7 +2604,7 @@
                (not (.-hyper key)))
       {:value name :display name})))
 
-(defn finalize-count [values: Any] -> Any
+(defn finalize-count [values: (Vec String)] -> Int
   (Number (.join values "")))
 
 (defn pending-count-text [sequence: Any] -> String
@@ -2558,9 +2675,9 @@
        (fn [] -> Any
          (let [input (.trim (text (.-value (.-agentInput ui))))
                state (snapshot (.-model runtime))
-               agents (or (.-agents state) [])
+               agents (bridgesnapshot-agents state)
                selected (if (> (.-length agents) 0)
-                          (text (.-id (aget agents (.-agentIndex runtime)))) "")]
+                          (agent-id (aget agents (.-agentIndex runtime))) "")]
            (when (not (identical? input ""))
              (set! (.-value (.-agentInput ui)) "")
              (report-promise! runtime (submit-agent! runtime ui input selected))))))
@@ -2571,8 +2688,8 @@
              (set! (.-value (.-workInput ui)) "")
              (report-promise! runtime
                               (submit-work! runtime ui input
-                                            {:view (.-activeView runtime)
-                                             :index (.-workIndex runtime)})))))))
+                                            (->WorkSelection (.-activeView runtime)
+                                                             (.-workIndex runtime)))))))))
 
 (defn work-tab-at
   [tabs: Any
@@ -2636,7 +2753,7 @@
                 (.preventDefault event)
                 (.stopPropagation event)
                 (set! (.-model runtime)
-                      (focus-view (.-model runtime) (model-work-view view-id)))
+                      (focus-view (.-model runtime) (canonical-work-view view-id)))
                 (set! (.-workIndex runtime) 0)
                 (.scrollTo (.-workScroll ui) 0)
                 (focus-pane-surface! runtime ui "work")))))))
@@ -2652,7 +2769,13 @@
                  state (snapshot (.-model runtime))
                  meta (or (.-meta key) (.-option key))
                  palette (active-palette-options runtime ui)
-                 palette-open (> (.-length palette) 0)]
+                 palette-open (> (.-length palette) 0)
+                 plain-view-arrow
+                 (and (identical? (text (.-pane runtime)) "work")
+                      (identical? (.trim (text (.-value (.-workInput ui)))) "")
+                      (not (.-ctrl key))
+                      (not meta)
+                      (or (identical? name "left") (identical? name "right")))]
              (cond
              (and palette-open
                   (or (identical? name "up")
@@ -2701,19 +2824,23 @@
                  (.stopPropagation key)
                  (set! (.-showHelp runtime) (not (.-showHelp runtime))))
 
-             (or (identical? name "f3") (and meta (or (identical? name "h") (identical? name "l"))))
+             (or (identical? name "f3")
+                 plain-view-arrow
+                 (and meta (or (identical? name "h") (identical? name "l"))))
              (let [views (view-list state)
                    current (selected-view state (.-activeView runtime))
                    index (.findIndex views
-                                     (fn [view: Any] -> Bool
-                                       (identical? (.-id view) (.-id current))))
-                   delta (if (and meta (identical? name "h")) -1 1)
+                                     (fn [view: WorkView] -> Bool
+                                       (identical? (workview-id view)
+                                                   (workview-id current))))
+                   delta (if (or (identical? name "left")
+                                 (and meta (identical? name "h"))) -1 1)
                    next-index (mod (+ index delta (.-length views)) (.-length views))
                    next-id (text (.-id (aget views next-index)))]
                (.preventDefault key)
                (.stopPropagation key)
                (set! (.-model runtime)
-                     (focus-view (.-model runtime) (model-work-view next-id)))
+                     (focus-view (.-model runtime) next-id))
                (set! (.-workIndex runtime) 0)
                (.scrollTo (.-workScroll ui) 0))
 
@@ -2722,7 +2849,7 @@
                  (.stopPropagation key)
                  (set! (.-model runtime)
                        (set-layout (.-model runtime)
-                                   (if (identical? (text (.-layout state)) "horizontal")
+                                   (if (identical? (bridgesnapshot-layout state) "horizontal")
                                      "vertical" "horizontal"))))
 
              (or (identical? name "f5") (and (.-ctrl key) (identical? name "r")))
@@ -2740,26 +2867,27 @@
                (.preventDefault key)
                (.stopPropagation key)
                (if (identical? (.-pane runtime) "agents")
-                 (let [agents (or (.-agents state) [])
+                 (let [agents (bridgesnapshot-agents state)
                        max-index (Math/max 0 (- (.-length agents) 1))
                        next-index (Math/max 0 (Math/min max-index (+ (.-agentIndex runtime) delta)))
-                       agent-id (if (> (.-length agents) 0)
-                                  (text (.-id (aget agents next-index))) "")]
+                       selected-agent-id (if (> (.-length agents) 0)
+                                           (agent-id (aget agents next-index)) "")]
                    (set! (.-agentIndex runtime) next-index)
-                   (set! (.-model runtime) (select-agent (.-model runtime) agent-id)))
+                   (set! (.-model runtime)
+                         (select-agent (.-model runtime) selected-agent-id)))
                  (let [view (selected-view state (.-activeView runtime))
-                       items (or (.-items view) [])
+                       items (workview-items view)
                        max-index (Math/max 0 (- (.-length items) 1))
                        next-index (Math/max 0 (Math/min max-index (+ (.-workIndex runtime) delta)))
                        thread-id (if (> (.-length items) 0)
-                                   (bare (.-id (aget items next-index))) "")]
+                                   (workitem-id (aget items next-index)) "")]
                    (set! (.-workIndex runtime) next-index)
                    (set! (.-model runtime) (select-thread (.-model runtime) thread-id))
                    (.scrollBy (.-workScroll ui)
                               (* delta
                                  (cond
-                                   (identical? (text (.-id view)) "board") 2
-                                   (identical? (text (.-id view)) "graph") 3
+                                   (identical? (workview-id view) "board") 2
+                                   (identical? (workview-id view) "graph") 3
                                    :else 1))
                               "step"))))
 
@@ -2777,7 +2905,7 @@
 (defn open-app! [view-id: String] -> (Promise Any)
   (let [view (canonical-work-view view-id)
         renderer (js/await (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true}))
-        runtime {:model (make-model (model-work-view view))
+        runtime {:model (make-model view)
                  :renderer renderer
                  :disposed false
                  :pane "agents"
@@ -2818,10 +2946,10 @@
                  :closedPane ""
                  :paneRatio 50
                  :keymap nil
-                 :sessionModel (text (or (.-NORTH_BRIDGE_MODEL (.-env process))
-                                         (.-AGENT_MODEL (.-env process))))
-                 :sessionEffort (text (or (.-AGENT_REASONING (.-env process))
-                                          (.-AGENT_EFFORT (.-env process))))
+                 :sessionModel (text-or (.-NORTH_BRIDGE_MODEL (.-env process))
+                                        (text (.-AGENT_MODEL (.-env process))))
+                 :sessionEffort (text-or (.-AGENT_REASONING (.-env process))
+                                         (text (.-AGENT_EFFORT (.-env process))))
                  :sessionCwd (text (.cwd process))
                  :sessionBranch ""
                  :render (fn [] -> Any nil)}
@@ -2854,10 +2982,16 @@
                                                   :wrapMode "none" :truncate true :bg "#25272d"})
         work-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
                                                  :wrapMode "none" :truncate true :bg "#25272d"})
-        agent-composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 1
+        agent-composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 3
+                                                  :paddingTop 1 :paddingLeft 1 :paddingRight 1
                                                   :flexShrink 0 :backgroundColor "#25272d"})
-        work-composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 1
+        work-composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 3
+                                                 :paddingTop 1 :paddingLeft 1 :paddingRight 1
                                                  :flexShrink 0 :backgroundColor "#25272d"})
+        agent-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
+                                                       :wrapMode "none" :truncate true})
+        work-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
+                                                      :wrapMode "none" :truncate true})
         agent-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
                                                 :content (StyledText. [(brightCyan "❯ ")])})
         work-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
@@ -2881,6 +3015,7 @@
             :statusText status-text :agentStatusText agent-status-text
             :agentPalette agent-palette :workPalette work-palette
             :agentComposer agent-composer :workComposer work-composer
+            :agentContextText agent-context-text :workContextText work-context-text
             :agentPrompt agent-prompt :workPrompt work-prompt
             :agentInput agent-input :workInput work-input}]
     (.add agents-pane agents-header)
@@ -2892,6 +3027,7 @@
     (.add agent-composer agent-prompt)
     (.add agent-composer agent-input)
     (.add agents-pane agent-composer)
+    (.add agents-pane agent-context-text)
     (.add work-pane tabs-text-view)
     (.add work-scroll work-text-view)
     (.add work-scroll board-root)
@@ -2901,6 +3037,7 @@
     (.add work-composer work-prompt)
     (.add work-composer work-input)
     (.add work-pane work-composer)
+    (.add work-pane work-context-text)
     (.add root agents-pane)
     (.add root work-pane)
     (.add (.-root renderer) root)
@@ -2926,4 +3063,4 @@
 
 (js/export
  (defn run-northbridge-app! [options: Any] -> (Promise Any)
-   (open-app! (text (or (.-viewId options) "list")))))
+   (open-app! (text-or (.-viewId options) "list"))))
