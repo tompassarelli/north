@@ -27,8 +27,9 @@
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (load-file (str NORTH "/cli/coord.clj"))
 (load-file (str NORTH "/cli/message-routing.clj"))
-;; Shared reader for the reactor's durable last-sweep heartbeat (reactor writes it).
-(load-file (str NORTH "/cli/reactor-heartbeat.clj"))
+;; Scheduled maintenance writes one durable heartbeat per responsibility.
+(load-file (str NORTH "/cli/worker-heartbeat.clj"))
+(load-file (str NORTH "/out/north/worker_policy.clj"))
 (load-file (str NORTH "/cli/dashboard-state.clj"))
 (load-file (str NORTH "/cli/dashboard-collectors.clj"))
 (load-file (str NORTH "/cli/dashboard-render.clj"))
@@ -499,23 +500,34 @@
           (north.dashboard.collectors/refresh!)
           (recur)))))))
 
-(defn reactor-doctor-line
-  "One-line reactor-sweep verdict from the durable last-sweep heartbeat for `port`.
-   A running-vs-dead reactor is otherwise invisible in doctor: the :7977 daemon can
-   be up while the reactor sidecar is stopped, so a fresh heartbeat is the ONLY proof
-   sweeps are landing. STALE (>15min) and MISSING are LOUD [ERR]; a stopped reactor
-   can never read healthy. `port` is NORTH_PORT-derived here — see reactor-heartbeat.clj
-   on why the reactor's FRAM_PORT derivation is duplicated rather than shared (both 7977)."
-  [port]
-  (let [{:keys [state age-ms ts]} (north.reactor-heartbeat/heartbeat-status port)]
+(def scheduled-maintenance-tasks
+  [:spend-guard :stale-lanes :stale-concerns :worktrees :agent-logs])
+
+(defn maintenance-heartbeat-threshold-ms [task]
+  (+ (* 3 (north.worker-policy/task-cadence-ms task))
+     (north.worker-policy/task-timeout-ms task)))
+
+(defn maintenance-doctor-line
+  "One liveness verdict for an independently scheduled maintenance task."
+  [port task]
+  (let [worker (name task)
+        threshold-ms (maintenance-heartbeat-threshold-ms task)
+        {:keys [state age-ms ts]}
+        (north.worker-heartbeat/heartbeat-status worker port threshold-ms)]
     (case state
-      :fresh   (str (grn "[ok]  ") " last sweep "
-                    (north.reactor-heartbeat/humanize-age age-ms) " ago (" ts ")")
-      :stale   (str (red "[ERR] ") " reactor STALE — last sweep "
-                    (north.reactor-heartbeat/humanize-age age-ms)
-                    " ago (threshold 15m); reactor hung or stopped — `north reactor &`")
-      :missing (str (red "[ERR] ") " reactor heartbeat MISSING — reactor has not swept "
-                    "(never started or stopped); start it: `north reactor &`"))))
+      :fresh
+      (str (grn "[ok]  ") " " worker " last completed "
+           (north.worker-heartbeat/humanize-age age-ms) " ago (" ts ")")
+      :stale
+      (str (red "[ERR] ") " " worker " STALE — last completed "
+           (north.worker-heartbeat/humanize-age age-ms)
+           " ago; inspect `systemctl --user status north-" worker "`")
+      :missing
+      (str (red "[ERR] ") " " worker " heartbeat MISSING — no successful run; "
+           "inspect `systemctl --user status north-" worker "`"))))
+
+(defn maintenance-doctor-lines [port]
+  (mapv #(maintenance-doctor-line port %) scheduled-maintenance-tasks))
 
 ;; ---- coordinator JVM health -------------------------------------------------
 ;; A coordinator can be UP, serving the right log, and still unusable. On
@@ -894,11 +906,10 @@
   (let [jvm-line (coordinator-jvm-line PORT)]
     (when (str/includes? jvm-line "[ERR]") (mark-doctor-failed!))
     (println (str "    " jvm-line)))
-  ;; reactor sweep liveness — see reactor-doctor-line.
-  (println (bold "  reactor sweep"))
-  (let [reactor-line (reactor-doctor-line PORT)]
-    (when (str/includes? reactor-line "[ERR]") (mark-doctor-failed!))
-    (println (str "    " reactor-line)))
+  (println (bold "  scheduled maintenance"))
+  (doseq [line (maintenance-doctor-lines PORT)]
+    (when (str/includes? line "[ERR]") (mark-doctor-failed!))
+    (println (str "    " line)))
   (render-dead-letters! PORT)
   (render-coordination-health!)
   (render-activation-health!)

@@ -1,8 +1,8 @@
-;; Reactor-owned cleanup for terminal managed-lane worktrees.
+;; Worktree-janitor cleanup for terminal managed-lane worktrees.
 ;;
 ;; This file is a library, not a command. Loading it only defines functions: the
-;; production surface is `north-reactor.clj sweep-once`, and the long-running
-;; reactor calls the exact same `sweep-worktrees!` function on its normal sweep.
+;; production surface is the independently scheduled `worktrees` task, which
+;; calls this exact `sweep-worktrees!` function.
 (ns north.worktree-janitor
   (:require [babashka.fs :as fs]
             [babashka.process :as proc]
@@ -606,11 +606,11 @@
 
 (defn sweep-unregistered-worktrees!
   "Reclaim `wt-` siblings no fact claims. Both graph joins arrive as deferred
-   values the reactor supplies, so the sweep pays for them only when a tree
+   values the scheduled task supplies, so the sweep pays for them only when a tree
    actually reaches that gate — and can be driven with no live daemon."
   [{:keys [dry? repo-filter claimed-worktrees live-concern-repos]}]
   (when-not (and (delay? claimed-worktrees) (delay? live-concern-repos))
-    (throw (ex-info "unregistered sweep requires the reactor's deferred graph joins" {})))
+    (throw (ex-info "unregistered sweep requires deferred graph joins" {})))
   (reduce
    (fn [result repo-entry]
      (let [base (north.worktree-census/main-branch (:root repo-entry))
@@ -630,10 +630,10 @@
 (defn sweep-worktrees!
   "Inspect registered lane worktrees and reclaim only a canonically terminal,
    provenance-valid, status-clean tree on its derived branch. `lane-resolved?`
-   is the reactor's canonical full lane-terminal/committed-run join."
+   is the worktree janitor's canonical full lane-terminal/committed-run join."
   [{:keys [port dry? lane-resolved? repo-filter]}]
   (when-not (fn? lane-resolved?)
-    (throw (ex-info "worktree janitor requires the reactor's canonical lane resolver" {})))
+    (throw (ex-info "worktree janitor requires its canonical lane resolver" {})))
   (let [subjects (sort
                   (distinct
                    (q-col port [{:rel "triple"

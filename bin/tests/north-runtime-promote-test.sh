@@ -25,18 +25,21 @@ export FRAM_LOG=$work/coordination.log
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok: $1"; }
 
-mkdir -p "$origin/bin" "$origin/cli"
+mkdir -p "$origin/bin" "$origin/cli" "$origin/out/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/concern"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north-stream-sync-all"
 chmod +x "$origin/bin/north" "$origin/bin/concern" "$origin/bin/north-stream-sync-all"
-printf '(println "reactor")\n' >"$origin/cli/north-reactor.clj"
+for entry in coordinated-nix-rebuild-worker-host.clj coordination-maintenance-task-host.clj coordination-projection-worker-host.clj reconciliation-worker-host.clj; do
+  printf '(println "worker one")\n' >"$origin/cli/$entry"
+done
 printf '(ns north.coord)\n' >"$origin/cli/coord.clj"
+printf '(ns north.worker-policy)\n' >"$origin/out/north/worker_policy.clj"
 git -C "$origin" init -q -b main
 git -C "$origin" -c user.email=t@example.com -c user.name=t add -A
 git -C "$origin" -c user.email=t@example.com -c user.name=t commit -qm first
 first=$(git -C "$origin" rev-parse HEAD)
-printf '(println "reactor two")\n' >"$origin/cli/north-reactor.clj"
+printf '(println "worker two")\n' >"$origin/cli/coordination-maintenance-task-host.clj"
 git -C "$origin" -c user.email=t@example.com -c user.name=t commit -qam second
 second=$(git -C "$origin" rev-parse HEAD)
 
@@ -57,7 +60,7 @@ pass "promote selects the exact commit and survives an unreachable coordinator"
   fail "the stable selector does not resolve to the deployment"
 [ "$(git -C "$state/deployments/$first" rev-parse HEAD)" = "$first" ] ||
   fail "the deployment is not checked out at the promoted commit"
-grep -Fq '(println "reactor")' "$state/deployments/$first/cli/north-reactor.clj" ||
+grep -Fq '(println "worker one")' "$state/deployments/$first/cli/coordination-maintenance-task-host.clj" ||
   fail "the deployment does not carry the promoted commit's content"
 pass "the deployment is the exact commit, runnable in place"
 
@@ -96,19 +99,23 @@ pass "rollback reselects the retained previous deployment, recorded"
   fail "rollback is not itself rollback-able"
 pass "rollback is itself rollback-able"
 
-# The sweep unit chdirs into the deployment and degrades to the packaged
-# runtime on any missing entrypoint, so promote must refuse an incomplete tree.
+# Worker units chdir into the deployment, so promotion must refuse an
+# incomplete tree.
 thin=$work/thin
-mkdir -p "$thin/bin" "$thin/cli"
+mkdir -p "$thin/bin" "$thin/cli" "$thin/out/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/concern"
 chmod +x "$thin/bin/north" "$thin/bin/concern"
-touch "$thin/cli/north-reactor.clj" "$thin/cli/coord.clj"
+touch "$thin/cli/coordinated-nix-rebuild-worker-host.clj" \
+  "$thin/cli/coordination-maintenance-task-host.clj" \
+  "$thin/cli/coordination-projection-worker-host.clj" \
+  "$thin/cli/reconciliation-worker-host.clj" \
+  "$thin/cli/coord.clj" "$thin/out/north/worker_policy.clj"
 git -C "$thin" init -q -b main
 git -C "$thin" -c user.email=t@example.com -c user.name=t add -A
 git -C "$thin" -c user.email=t@example.com -c user.name=t commit -qm thin
 "$tool" promote "$thin" HEAD --why "thin" >/dev/null 2>&1 &&
-  fail "promote accepted a deployment missing an entrypoint the unit execs" || true
-pass "promote refuses a tree the sweep unit could not run from"
+  fail "promote accepted a deployment missing a required executable" || true
+pass "promote refuses a tree the worker units could not run from"
 
 echo "PASS north-runtime-promote-test"

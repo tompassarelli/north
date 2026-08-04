@@ -1,34 +1,6 @@
 #!/usr/bin/env bb
-;; ============================================================================
-;; north-reactor.clj <port> [debounce-ms] — COORDINATOR AUTO-EXPORT.
-;;
-;; The threads/*.md files are a PROJECTION of the fact log, but freshness was
-;; MANUAL (`north export`/`heal`) and forbidden during concurrent work — so every
-;; write that didn't self-render (`fram tell`, the MCP tell tool, and the CLI
-;; spokes concern/presence/msg/lease that write via the daemon socket) left the
-;; file lagging the log. That lag ACCUMULATED (348 stale facts in one day) until
-;; a human ran `heal`, and doctor screamed DEGRADED at every boot for the benign
-;; drift. This reactor kills the class at the root: it treats the coordinator's
-;; commit stream as the trigger and re-projects touched threads automatically, so
-;; files NEVER lag the log and no client ever has to remember to render.
-;;
-;; HOW: the daemon already firehoses every commit to :subscribe subscribers
-;; (coord_daemon notify-subs!). We subscribe (nil filter = firehose), coalesce
-;; a burst of commits behind a short debounce, then shell the SAME `north heal` a
-;; human runs — byte-identical to `north export` (both render via fram.export/
-;; thread-md) and FAIL-CLOSED on genuine hand edits (a human decides those). heal
-;; self-scopes: it re-renders ONLY the files that diverge from the log, so a burst
-;; of edits costs one flush, and an idle stream costs nothing.
-;;
-;; This needs NO change to the coordinator (fram) — it rides the existing
-;; :subscribe seam. It is a standalone sidecar: start it alongside the daemon.
-;;   FRAM_LOG / FRAM_THREADS / FRAM_PORT select the target state (same env
-;;   `north`/`fram-up` read); heal inherits them from our env.
-;;
-;;   bb cli/north-reactor.clj 7977            # firehose :7977, 400ms debounce
-;;   bb cli/north-reactor.clj 7977 250        # tighter debounce
-;;   north reactor &                          # via the bin/north wrapper (bg task)
-;; ============================================================================
+;; Run exactly one scheduled maintenance responsibility. Systemd owns cadence,
+;; concurrency, restart, and failure isolation; this host never chains tasks.
 (require '[cheshire.core :as json]
          '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[babashka.process :as proc])
@@ -44,44 +16,31 @@
 ;; janitor's unregistered sweep decides off it. Must load before the janitor.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
                 "/worktree-census.clj"))
-;; Side-effect-free managed-worktree janitor. It is deliberately owned by this
-;; reactor: `sweep-once` and the five-minute loop execute the same function with
-;; this file's canonical full terminal/run resolver.
+;; Side-effect-free managed-worktree janitor.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
                 "/worktree-janitor.clj"))
-;; DURABLE last-sweep heartbeat — the reactor's liveness trace `north doctor` reads.
-;; Shared writer/reader lib (doctor loads the same file); we stamp it at each sweep.
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/reactor-heartbeat.clj"))
-;; Rebuild QUEUE read/write path — the reactor is the window OWNER, and it drives
-;; the same verbs `north rebuild` exposes rather than writing request facts itself.
-(System/setProperty "north.rebuild-request-cli.lib" "1")
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
-                "/rebuild-request-cli.clj"))
-;; The event-driven owner and this periodic fallback share one serialized
-;; plan/claim/launch implementation.
-(load-file (str (.getParent (io/file (System/getProperty "babashka.file")))
-                "/rebuild_window_owner.clj"))
-;; Spend-guard breaker + burn/kill/reaper-settle primitives (step 3). Loaded AFTER
-;; coord so its north.coord/* references resolve. The reactor is the ONLY place the
-;; burn-rate trip is computed + written and the only terminal for dead-lane spend.
+                "/worker-heartbeat.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/spend-breaker.clj"))
+(load-file
+ (str (-> (io/file (System/getProperty "babashka.file"))
+          .getParentFile .getParentFile .getCanonicalPath)
+      "/out/north/worker_policy.clj"))
 
-;; `sweep-once` verb: one-shot reap for testing. `bb cli/north-reactor.clj sweep-once
-;; [--dry-run] [--repo <repo>]`. Otherwise argv = [port debounce] for the reactor loop.
-(def raw-args   *command-line-args*)
-(def sweep-verb? (= (first raw-args) "sweep-once"))
-(def s-args     (if sweep-verb? (vec (rest raw-args)) (vec raw-args)))
+(def raw-args *command-line-args*)
+(def maintenance-task
+  (some-> (first raw-args) keyword))
+(def s-args (vec (rest raw-args)))
 (def sweep-flags (set (filter #(str/starts-with? % "--") s-args)))
-(def dry-run?   (contains? sweep-flags "--dry-run"))
-(def sweep-repo (when sweep-verb?
-                  (let [pos (remove #(str/starts-with? % "--") s-args)
-                        i (.indexOf (vec s-args) "--repo")]
-                    (cond (>= i 0) (get s-args (inc i))
-                          (seq pos) (first pos)
-                          :else nil))))
-(def port (Integer/parseInt (or (when-not sweep-verb? (first s-args))
-                                 (System/getenv "FRAM_PORT") "7977")))
-(def debounce-ms (Integer/parseInt (or (when-not sweep-verb? (second s-args)) "400")))
+(def dry-run? (contains? sweep-flags "--dry-run"))
+(def sweep-repo
+  (let [i (.indexOf (vec s-args) "--repo")]
+    (when (>= i 0) (get s-args (inc i)))))
+(def port
+  (Integer/parseInt
+   (or (System/getenv "NORTH_PORT")
+       (System/getenv "FRAM_PORT")
+       "7977")))
 
 ;; A bounded sweep owns every subprocess it starts. The outer deadline and the
 ;; phase runner synchronize on this context so cancellation wins atomically:
@@ -134,13 +93,13 @@
       (let [survivors (await-handles-gone! expanded CHILD-KILL-GRACE-MS)]
         (when (seq survivors)
           (throw
-           (ex-info "reactor child process tree survived cancellation"
+           (ex-info "maintenance child process tree survived cancellation"
                     {:type :sweep-child-cleanup-failed
                      :pids (mapv #(.pid ^java.lang.ProcessHandle %) survivors)})))
         {:handles (count expanded) :terminated (count expanded)}))))
 
 (defn sweep-deadline-ex [stage]
-  (ex-info "aggregate reactor sweep deadline reached"
+  (ex-info "maintenance task deadline reached"
            {:type :sweep-deadline :stage stage}))
 
 (defn run-sweep-stage! [stage f]
@@ -153,8 +112,8 @@
   (f))
 
 (defn start-sweep-child!
-  "Start and register a reactor-owned child under the same lock that publishes
-   aggregate cancellation. Outside sweep-once, retain the normal bounded child."
+  "Start and register a task-owned child under the same lock that publishes
+   aggregate cancellation. Outside a scheduled task, retain the normal bounded child."
   [label options & command]
   (if-not *sweep-runtime*
     (apply proc/process options command)
@@ -205,7 +164,7 @@
      :surviving (count @(:children runtime))}))
 
 ;; ---- LIVENESS-DERIVED REAPING (design 019f4418) -----------------------------
-;; Two terminal verdicts the reactor writes on its cadence (or via sweep-once):
+;; Two terminal verdicts the lifecycle janitors write on their cadences:
 ;;   1. a `building` concern whose owner has been LAPSED >24h  -> reached=abandoned-stale
 ;;      (likely-to-land is EXEMPT — it survives owner death as an ORPHANED retained
 ;;      recovery candidate, not evidence a handoff procedure occurred).
@@ -220,10 +179,37 @@
   (-> (io/file (System/getProperty "babashka.file"))
       .getParentFile (io/file "concern-cli.clj") .getPath))
 
-(defn q-col [body]
-  (->> (:ok (north.coord/send-op port {:op :query
-              :query {:find "e" :rules [{:head {:rel "e" :args [{:var "e"}]} :body body}]}}))
-       (map first)))
+(def automatic-index-row-limit 4096)
+
+(defn indexed-subjects-for [predicate object]
+  (->> (north.coord/indexed-query-in-domain
+        port
+        :coordination
+        {:find "maintenance_subject"
+         :rules
+         [{:head {:rel "maintenance_subject"
+                  :args [{:var "entity"}]}
+           :body
+           [{:rel "triple"
+             :args [{:var "entity"} predicate object]}]}]}
+        automatic-index-row-limit)
+       :ok
+       (mapv first)))
+
+(defn indexed-predicate-rows [predicate]
+  (:ok
+   (north.coord/indexed-query-in-domain
+    port
+    :coordination
+    {:find "maintenance_predicate_rows"
+     :rules
+     [{:head
+       {:rel "maintenance_predicate_rows"
+        :args [{:var "entity"} {:var "value"}]}
+       :body
+       [{:rel "triple"
+         :args [{:var "entity"} predicate {:var "value"}]}]}]}
+    automatic-index-row-limit)))
 
 (defn strip-sigil [s pfx] (if (str/starts-with? s pfx) (subs s (count pfx)) s))
 
@@ -257,7 +243,7 @@
 
 (defn retire-stale-concern!
   "Invoke concern-cli's transition-aware terminal boundary. Its atomic outbox
-   + reached batch is the authority; the reactor never appends terminal concern
+   + reached batch is the authority; the janitor never appends terminal concern
    facts directly."
   [concern]
   (let [child
@@ -312,7 +298,7 @@
   (let [index (north.worktree-census/container-index
                (north.worktree-census/containers))]
     (into #{}
-          (for [c (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "concern"]}]))
+          (for [c (indexed-subjects-for "kind" "concern")
                 :let [reached (set (north.coord/many port c "reached"))]
                 :when (and (not (reached "landed"))
                            (not (reached "abandoned-stale"))
@@ -323,7 +309,7 @@
             container))))
 
 (defn sweep-concerns! [dry?]
-  (let [concerns (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "concern"]}]))
+  (let [concerns (indexed-subjects-for "kind" "concern")
         hits (for [c concerns
                    :let  [rs (set (north.coord/many port c "reached"))]
                    :when (building-only? rs)
@@ -357,9 +343,9 @@
   (try
     (proc/shell {:out :string :err :string :continue true}
                 "bb" (str (.getParent (io/file (System/getProperty "babashka.file"))) "/msg-cli.clj")
-                (str port) "send" "north-reactor" coord "URGENT"
+                (str port) "send" "north-lane-lifecycle-janitor" coord "URGENT"
                 (str "lane " h
-                     " died unreported (presence lapsed >30min, no committed terminal) — reaped by reactor"))
+                     " died unreported (presence lapsed >30min, no committed terminal) — reaped by the lane lifecycle janitor"))
     (catch Throwable _ nil)))
 
 ;; ---- impure GATHER for the reap verdict (pure logic lives in north.reap) ------------
@@ -487,10 +473,7 @@
     (try (.toEpochMilli (java.time.Instant/parse ts)) (catch Throwable _ nil))))
 
 (defn driver-pairs []
-  (:ok (north.coord/send-op port {:op :query
-        :query {:find "row"
-                :rules [{:head {:rel "row" :args [{:var "e"} {:var "driver"}]}
-                         :body [{:rel "triple" :args [{:var "e"} "driver" {:var "driver"}]}]}]}})))
+  (indexed-predicate-rows "driver"))
 
 (defn release-orphaned-drivers! [h]
   ;; A hard-killed dispatch cannot run its finally/release. Once the SAME lane
@@ -498,7 +481,7 @@
   ;; A successor that won between query and retract has a different object and
   ;; is therefore untouched by the exact-value retraction.
   (let [driver-ref (str "@" h)
-        threads (q-col [{:rel "triple" :args [{:var "e"} "driver" driver-ref]}])]
+        threads (indexed-subjects-for "driver" driver-ref)]
     (doseq [thread threads]
       (north.coord/retract! port thread "driver" driver-ref))))
 
@@ -509,7 +492,7 @@
   ;; unpublished holder is unrecoverable and its exact driver ref can be retired.
   ;; Legacy/malformed IDs have no trusted clock and are never guessed at.
   (let [now (System/currentTimeMillis)
-        lanes (->> (q-col [{:rel "triple" :args [{:var "e"} "kind" "lane"]}])
+        lanes (->> (indexed-subjects-for "kind" "lane")
                    (map #(strip-sigil % "@agent:"))
                    set)
         hits (north.reap/orphaned-unpublished-driver-pairs now lanes (driver-pairs))]
@@ -521,7 +504,7 @@
     (count hits)))
 
 (defn sweep-lanes! [dry?]
-  (let [lanes (distinct (q-col [{:rel "triple" :args [{:var "e"} "kind" "lane"]}]))
+  (let [lanes (indexed-subjects-for "kind" "lane")
         now   (System/currentTimeMillis)
         deaths (north.coord/many port "@swarm" "agent_death")
         hits (for [e lanes
@@ -550,15 +533,6 @@
                     "  lapsed " (long (/ lapse 60000))
                     "min -> process=died-unreported delivery=blocked")))
     (count hits)))
-
-;; ---- REBUILD WINDOW PERIODIC FALLBACK --------------------------------------
-(defn maybe-rebuild-window!
-  "The broad sweep is the durable periodic fallback for the dedicated
-   subscription-driven queue owner."
-  [dry?]
-  (let [north (-> (io/file (System/getProperty "babashka.file"))
-                  .getParentFile .getParentFile (io/file "bin" "north") .getPath)]
-    (north.rebuild-window-owner/collect! port dry? north)))
 
 ;; ---- AGENT STREAM-LOG ROTATION (durable-but-untidy GC) ----------------------
 ;; north-data/agents/*.log are per-agent SDK stream logs — hundreds of files,
@@ -630,353 +604,77 @@
               (println (str "[sweep] " (if dry? "WOULD cap" "capped") " log " (.getName f)
                             "  -" (long (/ trimmed 1048576)) "MB (tail kept)")))))))
     {:deleted @deleted :capped @capped}))
-
-(def ATTENTION-RECONCILE-TIMEOUT-MS 45000)
-(def attention-reconcile-cli concern-transition-cli)
-(def CONCERN-RECONCILE-PASS-MILLIS 20000)
-(def CONCERN-RECONCILE-TIMEOUT-MS 30000)
-
-(defn reconcile-local-concerns-bounded!
-  "Drain one bounded batch of durable local concern operations. The operation
-   reconciler owns its own process lock; a timeout leaves every unfinished intent
-   in the active spool for the next sweep."
-  [reason]
-  (try
-    (let [child
-          (start-sweep-child!
-           :local-concern-reconcile
-           {:out :string
-            :err :string
-            :extra-env
-            {"NORTH_CONCERN_RECONCILE_MAX_MILLIS"
-             (str CONCERN-RECONCILE-PASS-MILLIS)}}
-           "bb" concern-transition-cli (str port)
-           "reconcile-local" "--operations-only")
-          awaited
-          (await-sweep-child! child CONCERN-RECONCILE-TIMEOUT-MS)]
-      (if (= :timeout (:status awaited))
-        (do
-          (println
-           (str "[sweep] local concern reconcile deferred reason=timeout"
-                " timeout_ms=" CONCERN-RECONCILE-TIMEOUT-MS
-                " trigger=" reason))
-          {:status :timeout})
-        (let [result (:result awaited)
-              ok? (zero? (:exit result))]
-          (println
-           (str "[sweep] local concern reconcile "
-                (if ok? "completed" "deferred")
-                " trigger=" reason
-                (when-not ok?
-                  (str " exit=" (:exit result)
-                       " error=" (pr-str (str/trim (str (:err result))))))))
-          {:status (if ok? :completed :failed)
-           :exit (:exit result)})))
-    (catch Throwable error
-      (println
-       (str "[sweep] local concern reconcile deferred trigger=" reason
-            " error=" (pr-str (.getMessage error))))
-      {:status :failed})))
-
-(defn reconcile-attention-bounded!
-  "Run concern attention healing out of process. Failure or timeout is reported
-   and deferred to the next sweep; it never escapes into reactor liveness."
-  [reason]
-  (try
-    (let [child
-          (start-sweep-child!
-           :attention-reconcile
-           {:out :string :err :string}
-           "bb" attention-reconcile-cli (str port) "reconcile-attention")
-          awaited (await-sweep-child! child ATTENTION-RECONCILE-TIMEOUT-MS)]
-      (if (= :timeout (:status awaited))
-        (do
-          (println
-           (str "[sweep] attention reconcile deferred reason=timeout"
-                " timeout_ms=" ATTENTION-RECONCILE-TIMEOUT-MS
-                " trigger=" reason))
-          {:status :timeout})
-        (let [result (:result awaited)
-              ok? (zero? (:exit result))]
-          (println
-           (str "[sweep] attention reconcile "
-                (if ok? "completed" "deferred")
-                " trigger=" reason
-                (when-not ok?
-                  (str " exit=" (:exit result)
-                       " error=" (pr-str (str/trim (str (:err result))))))))
-          {:status (if ok? :completed :failed)
-           :exit (:exit result)})))
-    (catch Throwable error
-      (println
-       (str "[sweep] attention reconcile deferred trigger=" reason
-            " error=" (pr-str (.getMessage error))))
-      {:status :failed})))
-
-(defn sweep-maintenance! [dry? rw]
-  ;; A rejected concern transition is one stage's failure, never maintenance's;
-  ;; only aggregate cancellation may still abort the run.
-  (let [local-concerns
+(defn run-worktree-task! [dry?]
+  (let [registered
         (run-sweep-stage!
-         :local-concern-reconcile
-         #(if dry?
-            {:status :skipped}
-            (reconcile-local-concerns-bounded! "post-sweep")))
-        nc (run-sweep-stage!
-            :concerns
-            #(try
-               (sweep-concerns! dry?)
-               (catch Throwable t
-                 (if (= :sweep-deadline (:type (ex-data t)))
-                   (throw t)
-                   (do (println (str "[sweep] concerns error: " (.getMessage t)))
-                       0)))))
-        nl (run-sweep-stage! :lanes #(sweep-lanes! dry?))
-        nd (run-sweep-stage!
+         :registered-worktrees
+         #(north.worktree-janitor/sweep-worktrees!
+           {:port port
+            :dry? dry?
+            :repo-filter sweep-repo
+            :lane-resolved? lane-resolved?*}))
+        unregistered
+        (run-sweep-stage!
+         :unregistered-worktrees
+         #(north.worktree-janitor/sweep-unregistered-worktrees!
+           {:dry? dry?
+            :repo-filter sweep-repo
+            :claimed-worktrees
+            (delay
+             (north.worktree-janitor/registered-worktree-paths
+              (north.coord/expected-log)))
+            :live-concern-repos (delay (live-concern-repos))}))]
+    {:registered registered :unregistered unregistered}))
+
+(defn run-maintenance-task! [dry?]
+  (let [result
+        (case maintenance-task
+          :stale-concerns
+          (run-sweep-stage!
+           :stale-concerns
+           #(sweep-concerns! dry?))
+
+          :stale-lanes
+          {:lanes
+           (run-sweep-stage! :stale-lanes #(sweep-lanes! dry?))
+           :unpublished-drivers
+           (run-sweep-stage!
             :unpublished-driver-claims
-            #(sweep-unpublished-driver-claims! dry?))
-        wt (run-sweep-stage!
-            :worktree-janitor
-            #(try
-               (north.worktree-janitor/sweep-worktrees!
-                {:port port
-                 :dry? dry?
-                 :repo-filter sweep-repo
-                 :lane-resolved? lane-resolved?*})
-               (catch Throwable t
-                 (println (str "[sweep] worktree janitor error: " (.getMessage t)))
-                 {:scanned 0 :unresolved 0 :dirty 0 :uncertain 0 :partial 0
-                  :already-removed 0
-                  :removed 0 :would-remove 0 :orphan-facts-written 0
-                  :errors 1})))
-        uw (run-sweep-stage!
-            :unregistered-worktree-janitor
-            #(try
-               (north.worktree-janitor/sweep-unregistered-worktrees!
-                {:dry? dry?
-                 :repo-filter sweep-repo
-                 :claimed-worktrees
-                 (delay (north.worktree-janitor/registered-worktree-paths
-                         (north.coord/expected-log)))
-                 :live-concern-repos (delay (live-concern-repos))})
-               (catch Throwable t
-                 (println (str "[sweep] unregistered worktree janitor error: "
-                               (.getMessage t)))
-                 {:scanned 0 :claimed 0 :fresh 0 :review 0 :live-concern 0
-                  :uncertain 0 :partial 0 :removed 0 :would-remove 0
-                  :errors 1})))
-        al (run-sweep-stage! :agent-logs #(sweep-agent-logs! dry?))
-        ;; Spend-guard backstop (step 3): burn-rate breach TRIPS the global breaker;
-        ;; a tripped breaker SIGKILLs every verified live breached lane + settles it.
-        ;; Best-effort — a coordinator hiccup here never crashes the liveness sweep.
-        burn (run-sweep-stage!
-              :spend-burn
-              #(try
-                 (north.spend-breaker/sweep-burn! port dry?)
-                 (catch Throwable t
-                   (println (str "[sweep] burn error: " (.getMessage t)))
-                   {:tripped false})))
-        nk (run-sweep-stage!
+            #(sweep-unpublished-driver-claims! dry?))}
+
+          :worktrees
+          (run-worktree-task! dry?)
+
+          :agent-logs
+          (run-sweep-stage! :agent-logs #(sweep-agent-logs! dry?))
+
+          :spend-guard
+          {:breaker
+           (run-sweep-stage!
+            :spend-burn
+            #(north.spend-breaker/sweep-burn! port dry?))
+           :lanes-killed
+           (run-sweep-stage!
             :spend-kill
-            #(try
-               (north.spend-breaker/sweep-kill! port dry?)
-               (catch Throwable t
-                 (println (str "[sweep] sweep-kill error: " (.getMessage t)))
-                 0)))
-        ;; The liveness work is complete at this boundary.
-        _ (run-sweep-stage!
-           :core-heartbeat
-           #(when-not dry?
-              (north.reactor-heartbeat/write-heartbeat!
-               port {:worktrees wt :unregistered-worktrees uw})))
-        attention (run-sweep-stage!
-                   :attention-reconcile
-                   #(if dry?
-                      {:status :skipped}
-                      (reconcile-attention-bounded! "post-sweep")))
-        summary {:concerns nc :lanes nl :unpublished-drivers nd
-                 :worktrees wt :unregistered-worktrees uw
-                 :agent-logs al :breaker burn
-                 :lanes-killed nk
-                 :rebuild-window rw
-                 :local-concern-reconcile local-concerns
-                 :attention-reconcile attention
-                 :terminal-status :completed}]
-    (println (str "[sweep] " (when dry? "(dry-run) ") "concerns abandoned=" nc
-                  " lanes reaped=" nl " unpublished drivers released=" nd
-                  " worktrees removed=" (:removed wt)
-                  " dirty-kept=" (:dirty wt)
-                  " uncertain-kept=" (:uncertain wt)
-                  " partial-cleanup=" (:partial wt)
-                  " already-reclaimed=" (:already-removed wt)
-                  " orphan-facts=" (:orphan-facts-written wt)
-                  " worktree-errors=" (get wt :errors 0)
-                  " unregistered scanned=" (:scanned uw)
-                  " removed=" (:removed uw)
-                  " would-remove=" (:would-remove uw)
-                  " needs-review=" (:review uw)
-                  " concern-held=" (:live-concern uw)
-                  " kept-uncertain=" (:uncertain uw)
-                  " partial=" (:partial uw)
-                  " errors=" (get uw :errors 0)
-                  " logs deleted=" (:deleted al) " capped=" (:capped al)
-                  " breaker-tripped=" (:tripped burn) " lanes-killed=" nk
-                  " rebuild-window=" (:action rw) ":" (:count rw)
-                  " attention-reconcile=" (name (:status attention))))
+            #(north.spend-breaker/sweep-kill! port dry?))})]
+    (when-not dry?
+      (north.worker-heartbeat/write-heartbeat!
+       (name maintenance-task) port {:result result}))
+    (println
+     (str "[coordination-maintenance-task] task=" (name maintenance-task)
+          (when dry? " dry-run=true")
+          " result=" (pr-str result)))
     (flush)
-    summary))
+    {:task maintenance-task
+     :result result
+     :terminal-status :completed}))
 
 (defn sweep! [dry?]
-  ;; A fired window is durable; independent maintenance cannot rewrite that outcome.
-  (let [rw (run-sweep-stage! :rebuild-window #(maybe-rebuild-window! dry?))]
-    (when (= "error" (:action rw))
-      (throw
-       (ex-info "rebuild window collection failed"
-                {:type :rebuild-window-collection-failed
-                 :rebuild-window (dissoc rw :error)}
-                (:error rw))))
-    (try
-      (sweep-maintenance! dry? rw)
-      (catch Throwable error
-        (if (= "fired" (:action rw))
-          (let [stage (or (some-> *sweep-runtime* :stage deref) :maintenance)
-                maintenance {:status :degraded :stage stage :error error}
-                summary {:rebuild-window rw
-                         :maintenance maintenance
-                         :terminal-status :completed}]
-            (println (str "[sweep] maintenance=degraded after rebuild-window=fired"
-                          " stage=" (name stage)
-                          " error=" (pr-str (.getMessage error))
-                          " action=retry-maintenance-on-next-scheduled-run"))
-            (flush)
-            summary)
-          (throw error))))))
-
-(declare sweep-once-exit-code)
-
-(defn sweep-loop []
-  (loop []
-    (Thread/sleep (* 5 60 1000))                    ; 5-min cadence, first sweep after one interval
-    ;; Both automatic owners enter through the same lock and aggregate deadline.
-    (try (sweep-once-exit-code)
-         (catch Throwable t (println (str "[sweep] error: " (.getMessage t))) (flush)))
-    (recur)))
-
-;; bin/north is a sibling of this cli/ dir: <repo>/cli/north-reactor.clj -> <repo>/bin/north
-(def north-bin
-  (-> (io/file (System/getProperty "babashka.file"))
-      .getParentFile .getParentFile (io/file "bin" "north") .getPath))
-
-;; Coordination-EPHEMERAL subjects: never projected to a thread .md AND written at
-;; tool-call frequency (presence leases, session stamps, per-run costs, messages,
-;; command envelopes, agent/role registry). Skipping them keeps heal firing only on
-;; REAL thread edits instead of on every heartbeat — the reactor's whole cost budget.
-(def ephemeral-prefixes
-  ["@lease:" "@session:" "@run:" "@cmd:" "@agent:" "@role:"
-   "@notification:" "@subscription:"])
-(defn ephemeral? [l]
-  (and (string? l) (boolean (some #(str/starts-with? l %) ephemeral-prefixes))))
-
-(def last-commit (atom 0))   ; wall-clock of the most recent projected-relevant commit
-(def dirty       (atom false))
-(def running     (atom false))
-(def last-heal-out (atom nil))  ; last heal output line — dedup repeated identical output
-
-(defn heal! []
-  ;; Shell the SAME `north heal` a human runs — byte-identical projection, fail-closed
-  ;; on hand edits, reads the flat log directly (no daemon dependency). FRAM_LOG
-  ;; is pinned to this coordination corpus; FRAM_THREADS/FRAM_PORT stay inherited.
-  ;; NOISE FIX: a permanent hand-edit refusal re-prints "heal REFUSED …" on EVERY flush,
-  ;; so a single unresolved conflict grew reactor-7977.log to 642KB of one repeated line —
-  ;; burying real events. Dedup: log heal output only when it CHANGES from the last line.
-  ;; A resolved conflict (output goes empty/different) prints again, so no signal is lost.
-  (try
-    (let [r    (proc/shell
-                {:out :string :err :string :continue true
-                 :extra-env {"FRAM_LOG" (north.coord/expected-log)
-                             "NORTH_TELEMETRY_PARTITION" "0"
-                             "FRAM_TELEMETRY_LOG" ""}}
-                north-bin "heal")
-          out  (str/trim (str (:out r) (when (seq (:err r)) (str "\n" (:err r)))))
-          line (when (seq out) (str "[reactor] " (str/replace out #"\n+" " | ")))]
-      (when (and line (not= line @last-heal-out))
-        (println line) (flush))
-      (reset! last-heal-out line))
-    (catch Throwable t
-      (println (str "[reactor] heal error: " (.getMessage t))) (flush))))
-
-;; Flusher: once a burst goes quiet for debounce-ms, project. Coalesced — only one
-;; heal in flight; commits arriving mid-heal re-arm dirty for the next quiet window.
-(defn flusher []
-  (loop []
-    (Thread/sleep 100)
-    (when (and @dirty (not @running)
-               (>= (- (System/currentTimeMillis) @last-commit) debounce-ms))
-      (reset! dirty false)
-      (reset! running true)
-      (try (heal!) (finally (reset! running false))))
-    (recur)))
-
-(defn mark! [l]
-  (when-not (ephemeral? l)
-    (reset! last-commit (System/currentTimeMillis))
-    (reset! dirty true)))
-
-(defn subscribe-once
-  "Open one subscription and pump commit events until the socket drops. Returns on
-   disconnect (daemon bounce / restart) so -main can reconnect."
-  []
-  (with-open [s (north.coord/connect-socket port)]
-    (let [w (.getOutputStream s)
-          reader (north.coord/coordinator-reader s)]
-      (.write w
-              (.getBytes
-               (str (pr-str
-                     (north.coord/log-envelope {:op :subscribe}))
-                    "\n")
-               java.nio.charset.StandardCharsets/UTF_8))
-      (.flush w)
-      (north.coord/validate-subscription!
-       (north.coord/read-line-bounded! reader))
-      (.setSoTimeout s 0)               ; validated long-lived stream: wait indefinitely for pushes
-      (loop []
-        (when-let [line
-                   (north.coord/read-stream-line-bounded! reader)]
-          (let [ev (try (edn/read-string line) (catch Throwable _ nil))]
-            (when (and (map? ev) (= (:event ev) :commit))
-              (mark! (:l ev))))
-          (recur))))))
-
-(defn -main []
-  (println (str "[reactor] coordinator auto-export: subscribe :" port
-                " (debounce " debounce-ms "ms) -> " north-bin " heal"
-                " | liveness sweep every 5min"))
-  (flush)
-  ;; Stamp once at startup so a just-booted reactor reads FRESH in doctor immediately,
-  ;; rather than MISSING for the first 5-min interval before sweep-loop's first pass.
-  (north.reactor-heartbeat/write-heartbeat! port)
-  ;; Startup recovery is isolated from subscription admission and serialized so
-  ;; active concern intents land before advisory attention healing reads them.
-  (future
-    (reconcile-local-concerns-bounded! "startup")
-    (reconcile-attention-bounded! "startup"))
-  (future (flusher))
-  (future (sweep-loop))       ; liveness-derived reaping on the reactor cadence
-  (loop []
-    (try (subscribe-once)
-         (catch Throwable t
-           (println (str "[reactor] subscription lost (" (.getMessage t) ") — reconnecting")) (flush)))
-    (Thread/sleep 1000)               ; brief backoff, then reconnect (survives a bounce)
-    (recur)))
+  (run-maintenance-task! dry?))
 
 ;; ---- BOUNDED ONE-SHOT LIFECYCLE --------------------------------------------
-;; The user timer invokes sweep-once every five minutes. Individual coordinator
-;; reads are bounded, but a sweep performs many of them; summing those per-call
-;; bounds allowed one oneshot to stay activating for more than twenty minutes.
-;; Keep the aggregate deadline below the timer cadence and serialize all entry
-;; paths with an OS lock. A coordinator bounce is retryable and ultimately
-;; DEFERRED (the next timer tick is the retry), while a code/configuration defect
-;; remains a nonzero terminal failure.
+;; Each task has its own timer, deadline, and lock. A coordinator bounce is
+;; retryable within that task's budget and otherwise defers to its next cadence.
 (def MAX-SWEEP-TIMEOUT-MS (* 4 60 1000))
 (def DEFAULT-SWEEP-RETRY-MS 250)
 
@@ -993,17 +691,15 @@
     value))
 
 (defn sweep-lock-path []
-  (or (System/getenv "NORTH_REACTOR_SWEEP_LOCK_PATH")
-      (let [filename (if dry-run?
-                       "north-reactor-sweep-dry-run.lock"
-                       "north-reactor-sweep.lock")]
+  (or (System/getenv "NORTH_MAINTENANCE_TASK_LOCK_PATH")
+      (let [task-name (name maintenance-task)
+            filename (str "north-" task-name
+                          (when dry-run? "-dry-run")
+                          ".lock")]
         (if-let [runtime-dir (System/getenv "XDG_RUNTIME_DIR")]
           (.getPath (io/file runtime-dir filename))
           (.getPath (io/file (System/getProperty "user.home")
-                             ".cache" "north"
-                             (if dry-run?
-                               "reactor-sweep-dry-run.lock"
-                               "reactor-sweep.lock")))))))
+                             ".cache" "north" filename))))))
 
 (def retryable-coordinator-types
   #{:coordinator-response-timeout
@@ -1128,36 +824,40 @@
           ;; not expose FileLock.release, so keep ownership scoped by with-open.
           (f))))))
 
-(defn sweep-once-exit-code []
+(defn maintenance-task-exit-code []
   (try
-    (let [timeout-ms (positive-ms "NORTH_REACTOR_SWEEP_TIMEOUT_MS"
-                                  MAX-SWEEP-TIMEOUT-MS MAX-SWEEP-TIMEOUT-MS)
-          retry-ms (positive-ms "NORTH_REACTOR_SWEEP_RETRY_MS"
+    (let [default-timeout
+          (north.worker-policy/task-timeout-ms maintenance-task)
+          timeout-ms (positive-ms "NORTH_MAINTENANCE_TASK_TIMEOUT_MS"
+                                  default-timeout MAX-SWEEP-TIMEOUT-MS)
+          retry-ms (positive-ms "NORTH_MAINTENANCE_TASK_RETRY_MS"
                                 (min DEFAULT-SWEEP-RETRY-MS timeout-ms) timeout-ms)
           result (with-sweep-lock
                    #(run-bounded-sweep! dry-run? timeout-ms retry-ms))]
       (cond
         (= :completed (:status result))
-        (let [maintenance (get-in result [:summary :maintenance])]
-          (println (str "[sweep] terminal=completed attempts=" (:attempts result)
-                        " elapsed_ms=" (:elapsed-ms result)
-                        (when (= :degraded (:status maintenance))
-                          (str " rebuild-window="
-                               (get-in result [:summary :rebuild-window :action])
-                               " maintenance=degraded"
-                               " stage=" (name (:stage maintenance))))))
-            (flush)
-            0)
+        (do
+          (println
+           (str "[coordination-maintenance-task] task="
+                (name maintenance-task)
+                " terminal=completed attempts=" (:attempts result)
+                " elapsed_ms=" (:elapsed-ms result)))
+          (flush)
+          0)
 
         (= :already-running (:status result))
-        (do (println (str "[sweep] terminal=deferred reason=already-running"
-                          " action=wait-for-current-sweep lock=" (:lock result)))
+        (do (println (str "[coordination-maintenance-task] task="
+                          (name maintenance-task)
+                          " terminal=deferred reason=already-running"
+                          " action=wait-for-current-task lock=" (:lock result)))
             (flush)
             0)
 
         (= :deferred (:status result))
         (do
-          (println (str "[sweep] terminal=deferred reason="
+          (println (str "[coordination-maintenance-task] task="
+                        (name maintenance-task)
+                        " terminal=deferred reason="
                         (name (or (:reason result) :maintenance))
                         " attempts=" (:attempts result)
                         " action=retry-on-next-scheduled-run"))
@@ -1165,7 +865,9 @@
           0)
 
         (contains? #{:deadline :unavailable} (:status result))
-        (do (println (str "[sweep] terminal=deferred reason=" (name (:status result))
+        (do (println (str "[coordination-maintenance-task] task="
+                          (name maintenance-task)
+                          " terminal=deferred reason=" (name (:status result))
                           " timeout_ms=" timeout-ms
                           " attempts=" (:attempts result)
                           (when-let [stage (:stage result)]
@@ -1182,18 +884,28 @@
 
         :else
         (do (binding [*out* *err*]
-              (println (str "[sweep] terminal=failed attempts=" (:attempts result)
+              (println (str "[coordination-maintenance-task] task="
+                            (name maintenance-task)
+                            " terminal=failed attempts=" (:attempts result)
                             " error=\"" (concise-error (:error result)) "\""
-                            " action=inspect-north-reactor-journal"))
+                            " action=inspect-task-journal"))
               (flush))
             1)))
     (catch Throwable throwable
       (binding [*out* *err*]
-        (println (str "[sweep] terminal=failed error=\"" (concise-error throwable) "\""
-                      " action=check-sweep-lifecycle-configuration"))
+        (println (str "[coordination-maintenance-task] task="
+                      (some-> maintenance-task name)
+                      " terminal=failed error=\"" (concise-error throwable) "\""
+                      " action=check-task-configuration"))
         (flush))
       1)))
 
-(if sweep-verb?
-  (System/exit (sweep-once-exit-code))
-  (-main))
+(when-not
+ (= "1" (System/getProperty "north.coordination-maintenance-task-host.lib"))
+ (if (north.worker-policy/scheduled-task? maintenance-task)
+   (System/exit (maintenance-task-exit-code))
+   (do
+     (binding [*out* *err*]
+       (println
+        "usage: coordination-maintenance-task-host.clj {stale-concerns|stale-lanes|worktrees|agent-logs|spend-guard} [--dry-run] [--repo PATH]"))
+     (System/exit 2))))

@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Production worktree-janitor regression. A throwaway Git repository and a
-;; separately fenced Fram coordinator exercise the real `north-reactor.clj
-;; sweep-once` surface twice; no janitor function is called directly.
+;; separately fenced Fram coordinator exercise the scheduled worktree task
+;; twice; no janitor function is called directly.
 (require '[babashka.fs :as fs]
          '[babashka.process :as proc]
          '[clojure.edn :as edn]
@@ -24,7 +24,7 @@
 (when-not (and (.isFile (io/file fram "coord_daemon.clj"))
                (.isDirectory (io/file fram "out")))
   (throw (ex-info "Fram fixture lacks coord_daemon.clj or out/" {:fram fram})))
-(def reactor (str root "/cli/north-reactor.clj"))
+(def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def lander (str root "/cli/worktree-lander.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
 
@@ -33,7 +33,7 @@
 (defn check [label value & [detail]]
   (swap! checks conj [label (boolean value) detail]))
 
-(let [source (slurp reactor)]
+(let [source (slurp maintenance-host)]
   (check "sweep lifecycle lookup is indexed, capped, and never scans all subject facts"
          (and (str/includes? source "north.coord/indexed-query")
               (str/includes? source "lane_run_candidate")
@@ -164,7 +164,7 @@
     ;; Digest is the lane terminal's last-write commit marker.
     (assert-fact! port subject "terminal_manifest_sha256" marker)))
 
-(defn run-reactor [port environment & flags]
+(defn run-maintenance [port environment & flags]
   (apply proc/shell
          {:out :string :err :string :continue true
           :extra-env (merge environment
@@ -172,7 +172,7 @@
                              "FRAM_LOG" @test-log
                              "NORTH_TELEMETRY_PARTITION" "0"
                              "FRAM_TELEMETRY_LOG" ""})}
-         "bb" reactor "sweep-once" flags))
+         "bb" maintenance-host "worktrees" flags))
 
 ;; ---- unregistered wt-* census fixture ---------------------------------------
 ;; Container layout (<root>/<repo>/main + wt-<slug> siblings) with dated commits
@@ -243,7 +243,7 @@
       worktrees (doto (io/file tmp "managed worktrees") .mkdirs)
       census-root (doto (io/file tmp "census root") .mkdirs)
       log (io/file tmp "facts.log")
-      heartbeat (io/file tmp "reactor-heartbeat")
+      heartbeat (io/file tmp "worktree-heartbeat")
       agent-logs (doto (io/file tmp "agent logs") .mkdirs)
       git-log (io/file tmp "git-calls.log")
       git-wrapper (io/file tmp "git-wrapper")
@@ -379,9 +379,9 @@
             before (into {} (map (juxt :handle #(tree-snapshot (:path %))) watched))
             dirty-before (tree-snapshot (:path dirty))
             environment {"HOME" (.getCanonicalPath home)
-                         "NORTH_REACTOR_HEARTBEAT" (.getCanonicalPath heartbeat)
-                         "NORTH_REACTOR_SWEEP_LOCK_PATH"
-                         (.getCanonicalPath (io/file tmp "reactor-sweep.lock"))
+                         "NORTH_WORKER_HEARTBEAT" (.getCanonicalPath heartbeat)
+                         "NORTH_MAINTENANCE_TASK_LOCK_PATH"
+                         (.getCanonicalPath (io/file tmp "worktree-task.lock"))
                          "NORTH_AGENT_LOGS_DIR" (.getCanonicalPath agent-logs)
                          "NORTH_WORKTREE_ROOTS" (.getCanonicalPath census-root)
                          "NORTH_GIT_BIN" (.getCanonicalPath git-wrapper)
@@ -396,26 +396,27 @@
                                 [census-reapable census-dirty census-unmerged
                                  census-fresh census-claimed census-held])
             before-dry-log (slurp log)
-            dry-run (run-reactor port environment "--dry-run")
+            dry-run (run-maintenance port environment "--dry-run")
             after-dry-log (slurp log)
             census-after-dry
             (into {} (map (juxt :slug #(tree-snapshot (:path %))))
                   [census-reapable census-dirty census-unmerged
                    census-fresh census-claimed census-held])
-            first-run (run-reactor port environment)
+            first-run (run-maintenance port environment)
             after-first-log (slurp log)
             orphan-values (many port (:subject dirty) "worktree_orphaned")]
-        (check "production sweep-once exits zero"
+        (check "production worktree task exits zero"
                (zero? (:exit first-run)) (str (:out first-run) (:err first-run)))
         (check "dry-run detects the unregistered reapable tree without mutating it"
                (and (zero? (:exit dry-run))
                     (str/includes? (:out dry-run)
                                    (str "WOULD REMOVE unregistered "
                                         (:path census-reapable)))
-                    (str/includes? (:out dry-run) "unregistered scanned=6")
-                    (str/includes? (:out dry-run) "would-remove=1")
-                    (str/includes? (:out dry-run) "needs-review=2")
-                    (str/includes? (:out dry-run) "concern-held=1")
+                    (str/includes? (:out dry-run) ":unregistered")
+                    (str/includes? (:out dry-run) ":would-remove 1")
+                    (str/includes? (:out dry-run) ":review 2")
+                    (str/includes? (:out dry-run) ":live-concern 1")
+                    (str/includes? (:out dry-run) ":scanned 6")
                     (= census-before census-after-dry))
                (:out dry-run))
         (check "dry-run surfaces dirty and unmerged stale trees for review"
@@ -432,11 +433,12 @@
                (:out dry-run))
         (check "dry-run performs zero coordinator writes"
                (= before-dry-log after-dry-log))
-        (check "reactor summary exposes janitor clone result"
-               (and (str/includes? (:out first-run) "worktrees removed=2")
-                    (str/includes? (:out first-run) "dirty-kept=2")
-                    (str/includes? (:out first-run) "partial-cleanup=2")
-                    (str/includes? (:out first-run) "orphan-facts=2"))
+        (check "maintenance summary exposes janitor clone result"
+               (and (str/includes? (:out first-run) ":registered")
+                    (str/includes? (:out first-run) ":dirty 2")
+                    (str/includes? (:out first-run) ":removed 2")
+                    (str/includes? (:out first-run) ":partial 2")
+                    (str/includes? (:out first-run) ":orphan-facts-written 2"))
                (:out first-run))
         (check "non-lane worktree control subjects never enter classification"
                (and (not (str/includes? (:out first-run)
@@ -495,8 +497,9 @@
                     (not (branch-present? (:root demo) (:branch census-reapable)))
                     (str/includes? (:out first-run)
                                    (str "removed unregistered " (:path census-reapable)))
-                    (str/includes? (:out first-run) "unregistered scanned=6")
-                    (str/includes? (:out first-run) "removed=1"))
+                    (str/includes? (:out first-run) ":unregistered")
+                    (str/includes? (:out first-run) ":removed 1")
+                    (str/includes? (:out first-run) ":scanned 6"))
                (:out first-run))
         (check "no unregistered tree held by dirt, an unmerged commit, a claim, freshness, or a live concern is touched"
                (and (every? #(.isDirectory (io/file (:path %)))
@@ -536,16 +539,17 @@
         ;; A second production pass is the idempotency bar: no tree/branch is
         ;; removed, the dirty fact is not rewritten, and the coordinator log is
         ;; byte-identical to the post-first-pass log.
-        (let [second-run (run-reactor port environment)
+        (let [second-run (run-maintenance port environment)
               after-second-log (slurp log)
               orphan-values-2 (many port (:subject dirty) "worktree_orphaned")]
-          (check "repeat sweep-once exits zero" (zero? (:exit second-run))
+          (check "repeat worktree task exits zero" (zero? (:exit second-run))
                  (str (:out second-run) (:err second-run)))
           (check "repeat removes zero worktrees and writes zero orphan facts"
-                 (and (str/includes? (:out second-run) "worktrees removed=0")
-                      (str/includes? (:out second-run) "partial-cleanup=2")
-                      (str/includes? (:out second-run) "already-reclaimed=2")
-                      (str/includes? (:out second-run) "orphan-facts=0"))
+                 (and (str/includes? (:out second-run) ":registered")
+                      (str/includes? (:out second-run) ":removed 0")
+                      (str/includes? (:out second-run) ":partial 2")
+                      (str/includes? (:out second-run) ":already-removed 2")
+                      (str/includes? (:out second-run) ":orphan-facts-written 0"))
                  (:out second-run))
           (check "repeat never relabels an absent worktree as kept"
                  (and (not (str/includes? (:out second-run)
@@ -560,10 +564,11 @@
                                      (str "PARTIAL cleanup " (:subject branch-delete-fail))))
                  (:out second-run))
           (check "repeat reclaims no further unregistered tree"
-                 (and (str/includes? (:out second-run) "unregistered scanned=5")
-                      (str/includes? (:out second-run) "removed=0")
-                      (str/includes? (:out second-run) "needs-review=2")
-                      (str/includes? (:out second-run) "concern-held=1"))
+                 (and (str/includes? (:out second-run) ":unregistered")
+                      (str/includes? (:out second-run) ":removed 0")
+                      (str/includes? (:out second-run) ":review 2")
+                      (str/includes? (:out second-run) ":live-concern 1")
+                      (str/includes? (:out second-run) ":scanned 5"))
                  (:out second-run))
           (check "repeat performs zero coordinator writes"
                  (= after-first-log after-second-log))
@@ -571,11 +576,11 @@
                  (= orphan-values orphan-values-2))
           (check "heartbeat carries the latest worktree-janitor result"
                  (and (.isFile heartbeat)
-                      (str/includes? (slurp heartbeat) ":worktrees")
+                      (str/includes? (slurp heartbeat) ":registered")
                       (str/includes? (slurp heartbeat) ":removed 0")
                       (str/includes? (slurp heartbeat) ":partial 2")
                       (str/includes? (slurp heartbeat) ":already-removed 2")
-                      (str/includes? (slurp heartbeat) ":unregistered-worktrees"))
+                      (str/includes? (slurp heartbeat) ":unregistered"))
                  (when (.isFile heartbeat) (slurp heartbeat))))))
 
       ;; Lander fixture: a ref at main is safe to delete; a descendant is not.

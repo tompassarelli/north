@@ -117,14 +117,14 @@ fi
 
 set +e
 "${hermetic_env[@]}" "${common_env[@]}" timeout 3 \
-  bb "$root/cli/north-reactor.clj" "$port" 100 \
-  >"$tmp/reactor.out" 2>&1
-reactor_rc=$?
+  bb "$root/cli/coordination-projection-worker-host.clj" "$port" 100 \
+  >"$tmp/projection-worker.out" 2>&1
+projection_worker_rc=$?
 set -e
-[[ "$reactor_rc" -eq 124 ]]
-grep -q 'subscription lost.*refused the fenced subscription' "$tmp/reactor.out"
-reactor_retries="$(grep -c 'subscription lost' "$tmp/reactor.out")"
-(( reactor_retries >= 1 && reactor_retries <= 4 ))
+[[ "$projection_worker_rc" -eq 124 ]]
+grep -q 'subscription lost.*refused the fenced subscription' "$tmp/projection-worker.out"
+projection_worker_retries="$(grep -c 'subscription lost' "$tmp/projection-worker.out")"
+(( projection_worker_retries >= 1 && projection_worker_retries <= 4 ))
 
 # Defense in depth: strict mode rejects a raw write even if a future North
 # client accidentally bypasses the envelope.

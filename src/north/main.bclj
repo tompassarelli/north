@@ -488,7 +488,7 @@
         ;; kind=thread in the SAME coordinator write batch — so `north schema` and any
         ;; log-separation view can group by kind without a subject-prefix guess.
         ;; single-valued (bin/north FRAM_SINGLE_VALUED); mirrors concern-cli, which
-        ;; already stamps kind=concern. NO backfill of old subjects (reactor/migration).
+        ;; already stamps kind=concern. NO backfill of old subjects (maintenance/migration).
         c (add-fact c te "kind" "thread")
         ;; the-model §7: `personal` is the IMPLICIT owner default — store `owner`
         ;; only for a non-personal owner, so absence == personal.

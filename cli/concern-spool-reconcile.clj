@@ -755,10 +755,26 @@
           :binding-cid binding-cid
           :response response})))))
 
+(defn- reconciliation-facts [operation]
+  (let [facts (:facts operation)]
+    (if (and (= north.concern-spool/declaration-operation-type
+                (:operation-type operation))
+             (not-any?
+              #(= "attention_reconcile_pending" (:predicate %))
+              facts))
+      (vec
+       (concat
+        (butlast facts)
+        [{:predicate "attention_reconcile_pending"
+          :object (:operation-id operation)
+          :cardinality "multi"}
+         (last facts)]))
+      facts)))
+
 (defn- expected-rows [operation]
   (mapv
    (fn [{:keys [predicate object]}] [predicate object])
-   (:facts operation)))
+   (reconciliation-facts operation)))
 
 (def ^:private concern-fact-cardinalities
   {"title" "single"
@@ -770,6 +786,7 @@
    "code_port" "single"
    "code_log" "single"
    "touches" "multi"
+   "attention_reconcile_pending" "multi"
    "reached" "multi"
    "kind" "single"})
 
@@ -791,7 +808,8 @@
         repo (first (values "repo"))
         intent (first (values "intent"))
         code-port (first (values "code_port"))
-        code-log (first (values "code_log"))]
+        code-log (first (values "code_log"))
+        reconcile-token (first (values "attention_reconcile_pending"))]
     (when-not
      (every?
       (fn [{:keys [predicate cardinality]}]
@@ -828,6 +846,13 @@
       (fail! "offline concern declaration must begin at reached=building"
              {:type :invalid-concern-operation
               :field :facts}))
+    (when (and reconcile-token
+               (not= [(:operation-id operation)]
+                     (values "attention_reconcile_pending")))
+      (fail! "offline concern declaration has an invalid attention marker"
+             {:type :invalid-concern-operation
+              :field :facts
+              :token reconcile-token}))
     (when-not (= ["concern"] (values "kind"))
       (fail! "offline concern operation has an invalid terminal kind"
              {:type :invalid-concern-operation
@@ -868,11 +893,17 @@
 
 (defn- validate-transition-operation! [operation]
   (let [facts (:facts operation)
-        fact (first facts)]
+        marker (first facts)
+        fact (peek facts)
+        marker-present? (= 2 (count facts))]
     (when-not
      (and (= north.concern-spool/transition-operation-type
              (:operation-type operation))
-          (= 1 (count facts))
+          (or (= 1 (count facts)) marker-present?)
+          (or (not marker-present?)
+              (and (= "attention_reconcile_pending" (:predicate marker))
+                   (= (:operation-id operation) (:object marker))
+                   (= "multi" (:cardinality marker))))
           (= "reached" (:predicate fact))
           (= "multi" (:cardinality fact))
           (contains? north.concern-spool/transition-statuses (:object fact))
@@ -990,13 +1021,14 @@
                    (mapv
                     (fn [{:keys [predicate object]}]
                       {:p predicate :r object})
-                    (:facts operation))
+                    (reconciliation-facts operation))
                    :base (:base snapshot)})]
              (cond
                (= :conflict (:reject response))
                response
 
-               (valid-commit-ack? response (count (:facts operation)))
+               (valid-commit-ack?
+                response (count (reconciliation-facts operation)))
                (do
                  (*reconcile-stage!* :post-commit-pre-ack
                                      {:operation operation
@@ -1027,7 +1059,7 @@
 (defn- transition-present? [operation rows]
   (contains?
    (set rows)
-   ["reached" (get-in operation [:facts 0 :object])]))
+   ["reached" (:object (peek (:facts operation)))]))
 
 (defn- transition-commit-attempt! [port operation]
   (let [snapshot (transition-snapshot-at-base port operation)]

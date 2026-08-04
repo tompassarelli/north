@@ -1,5 +1,5 @@
-;; reap_test.clj — the reactor's liveness-reap verdict (north.reap, split from
-;; north-reactor.clj so it is testable off in-memory facts). A terminal is usable
+;; reap_test.clj — the lane lifecycle janitor's liveness verdict (north.reap,
+;; split from hosted I/O so it is testable off in-memory facts). A terminal is usable
 ;; only after its publication marker: terminal_manifest_sha256 for a modern lane
 ;; and kind=run for a run. These cases pin both markers, the legacy lane boundary,
 ;; and the genuinely silent lane that should be reaped.
@@ -91,7 +91,7 @@
     (reap? now false nil nil)                                                     false]
 
    ;; --- other terminal short-circuits --------------------------------------------
-   ["legacy reactor terminal is still terminal"
+   ["legacy liveness terminal is still terminal"
     (reap? now (resolved? "sdk-legacy" {"outcome" "died-unreported"} [])
            lapsed-exp nil)                                                        false]
    ["agent_death alone does not resolve a stale lane"

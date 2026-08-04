@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Production-shape sweep over a large isolated corpus. The fixture carries
+;; Production-shape lane maintenance over a large isolated corpus. The fixture carries
 ;; enough live triples and lanes to make the retired per-lane query-page path
 ;; repeat whole-corpus Datalog fixpoints through the four-minute sweep budget.
 (require '[babashka.process :as proc]
@@ -21,7 +21,7 @@
 (when-not (and (.isFile (io/file fram "coord_daemon.clj"))
                (.isDirectory (io/file fram "out")))
   (throw (ex-info "Fram fixture lacks coord_daemon.clj or out/" {:fram fram})))
-(def reactor (str root "/cli/north-reactor.clj"))
+(def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def checks (atom []))
 (def control-subject-count 1352)
 
@@ -49,7 +49,7 @@
 
 (defn fact-line [tx subject predicate object]
   (pr-str {:tx tx :op "assert" :l subject :p predicate
-           :r object :frame "reactor-large-corpus-fixture"}))
+           :r object :frame "maintenance-large-corpus-fixture"}))
 
 (defn write-large-log! [file]
   (with-open [writer (io/writer file)]
@@ -97,7 +97,7 @@
 
 (def tmp (.toFile
           (java.nio.file.Files/createTempDirectory
-           "north-reactor-large-corpus-"
+           "north-maintenance-large-corpus-"
            (make-array java.nio.file.attribute.FileAttribute 0))))
 
 (try
@@ -135,12 +135,12 @@
                "NORTH_TELEMETRY_PARTITION" "0"
                "FRAM_TELEMETRY_LOG" ""
                "NORTH_AGENT_LOGS_DIR" (.getCanonicalPath agent-logs)
-               "NORTH_REACTOR_HEARTBEAT" (.getCanonicalPath (io/file tmp "heartbeat"))
-               "NORTH_REACTOR_SWEEP_LOCK_PATH" (.getCanonicalPath (io/file tmp "sweep.lock"))
+               "NORTH_WORKER_HEARTBEAT" (.getCanonicalPath (io/file tmp "heartbeat"))
+               "NORTH_MAINTENANCE_TASK_LOCK_PATH" (.getCanonicalPath (io/file tmp "task.lock"))
                ;; Completion, not the timeout terminal, is the regression bar.
-               "NORTH_REACTOR_SWEEP_TIMEOUT_MS" "60000"
+               "NORTH_MAINTENANCE_TASK_TIMEOUT_MS" "60000"
                "NORTH_COORD_READ_TIMEOUT_MS" "10000"}}
-             "bb" reactor "sweep-once" "--dry-run")
+             "bb" maintenance-host "stale-lanes" "--dry-run")
             elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))
             output (str (:out result) (:err result))
             output-bytes (alength (.getBytes output "UTF-8"))]
@@ -159,16 +159,12 @@
                (and (not (str/includes? output "invalid managed-lane subject"))
                     (< output-bytes 65536))
                (str "output-bytes=" output-bytes "\n" output))
-        (check "canonical lane worktree subjects still enter classification"
-               (and (some #(and (str/starts-with? % "[worktrees]")
-                                (str/includes? % "@agent:large-corpus-01"))
-                          (str/split-lines output))
-                    (not (str/includes?
-                          output
-                          "[worktrees] KEEP @agent:large-corpus-01 — invalid managed-lane subject")))
+        (check "canonical lane subjects still enter lifecycle classification"
+               (and (str/includes? output "@agent:large-corpus-00")
+                    (not (str/includes? output "invalid managed-lane subject")))
                output)
         (check "unresolved stale lanes remain reapable"
-               (and (str/includes? output "lanes reaped=24")
+               (and (str/includes? output ":lanes 24")
                     (str/includes? output "WOULD reap lane @agent:large-corpus-00"))
                output)
         (check "committed-run lanes remain protected from reaping"
@@ -186,6 +182,6 @@
   (doseq [[label ok detail] results]
     (println (format "  [%s] %s" (if ok "PASS" "FAIL") label))
     (when-not ok (println (str "        " detail))))
-  (println (format "\nreactor large corpus: %d / %d PASS"
+  (println (format "\nmaintenance large corpus: %d / %d PASS"
                    passed (count results)))
   (System/exit (if (= passed (count results)) 0 1)))

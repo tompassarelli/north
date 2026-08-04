@@ -43,6 +43,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool-reconcile.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/attention.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/../out/north/worker_policy.clj"))
 (def send-op  north.coord/send-op)
 (def send-op-for-log north.coord/send-op-for-log)
 (def append!  north.coord/append!)
@@ -59,7 +60,7 @@
 ;; renders as ORPHANED (prominent) — a RETAINED RECOVERY CANDIDATE that survives
 ;; owner death, a signal to the next agent to adopt (or prepare an explicit
 ;; handoff), not stranded WIP and NOT evidence a handoff procedure occurred.
-;; Terminal reactor verdict
+;; Terminal stale-concern janitor verdict
 ;; `reached=abandoned-stale` (owner dead >24h) renders abandoned + hides by default.
 (def ^:private use-color? (some? (System/console)))   ; ANSI only on a real TTY; piped/captured stays plain
 (defn- dim  [] (if use-color? "\033[2m" ""))
@@ -77,7 +78,7 @@
               :else       (str (quot s 86400) "d")))))
 
 ;; declare-time embedded in the id (@concern-<epoch-ms>-<hex>): the lapse lower bound
-;; when a dead owner never held a lease (pre-presence agents). Matches the reactor's rule.
+;; when a dead owner never held a lease (pre-presence agents). Matches the janitor rule.
 (defn concern-mint-ms [c]
   (some-> (re-find #"concern-(\d{10,})" (str c)) second parse-long))
 
@@ -243,6 +244,43 @@
               :rules [{:head {:rel "e" :args [{:var "e"}]} :body body}]})
        (map first)))
 
+(def automatic-index-row-limit 4096)
+
+(defn indexed-subjects-for
+  "Bounded predicate/object lookup for automatic workers. This must stay on
+   Fram's predicate/object index; an automatic path may not warm the
+   whole-corpus query cache."
+  [port predicate object]
+  (->> (north.coord/indexed-query-in-domain
+        port
+        :coordination
+        {:find "indexed_subject"
+         :rules
+         [{:head {:rel "indexed_subject" :args [{:var "entity"}]}
+           :body
+           [{:rel "triple"
+             :args [{:var "entity"} predicate object]}]}]}
+        automatic-index-row-limit)
+       :ok
+       (mapv first)))
+
+(defn indexed-predicate-rows
+  "Bounded [subject value] lookup for one predicate."
+  [port predicate]
+  (:ok
+   (north.coord/indexed-query-in-domain
+    port
+    :coordination
+    {:find "indexed_predicate_rows"
+     :rules
+     [{:head
+       {:rel "indexed_predicate_rows"
+        :args [{:var "entity"} {:var "value"}]}
+       :body
+       [{:rel "triple"
+         :args [{:var "entity"} predicate {:var "value"}]}]}]}
+    automatic-index-row-limit)))
+
 ;; ---- monotone maturity (decision 8: status is DERIVED, never SET) -----------
 ;; `reached` is an append-only, multi-valued ladder fact; status = the MAX level reached.
 ;; Double-report is idempotent; full history is retained; no set-single! retract-then-put.
@@ -251,6 +289,7 @@
 (def concern-stale-ms (* 24 60 60 1000))
 (def attention-event-intent-predicate "attention_event_intent")
 (def attention-event-settled-predicate "attention_event_settled")
+(def attention-reconcile-pending-predicate "attention_reconcile_pending")
 (def attention-event-intent-schema
   "north-concern-attention-event-intent-v1")
 (def attention-event-intent-max-bytes (* 16 1024))
@@ -372,7 +411,7 @@
       (->> reached (sort-by #(get maturity-idx % -1)) last)
       "building")))
 
-;; Terminal reactor verdict: owner dead >24h while still building. Off the maturity
+;; Terminal stale-concern verdict: owner dead >24h while still building. Off the maturity
 ;; ladder (orthogonal to progress), so it flags the concern without shadowing status.
 (defn abandoned? [port c] (contains? (set (many port c "reached")) "abandoned-stale"))
 
@@ -816,7 +855,7 @@
 ;;   orphaned — owner lapsed, likely-to-land: a RETAINED RECOVERY CANDIDATE that
 ;;              survives owner death (formerly mislabeled HANDOFF — an owner
 ;;              disappearing is NOT evidence a handoff procedure occurred)
-;;   retired  — reactor verdict abandoned-stale (owner dead >24h)
+;;   retired  — janitor verdict abandoned-stale (owner dead >24h)
 ;; `retired` is also carried as an explicit boolean so a consumer can exclude
 ;; retired rows without re-deriving the class. landed concerns are OMITTED (done).
 (def concern-projection-version 1)
@@ -867,7 +906,7 @@
   (let [base (fmt m)]
     (cond
       (:abandoned m)
-        (str (dim) base "\n       (ABANDONED-STALE: owner dead >24h — auto-retired by reactor)" (rst))
+        (str (dim) base "\n       (ABANDONED-STALE: owner dead >24h — auto-retired by stale-concern janitor)" (rst))
       (:online m) base
       (= (:status m) "likely-to-land")
         (str (bold) "» ORPHANED  " base
@@ -897,23 +936,30 @@
      :footprint-count (count (:footprint resp))
      :overlaps hits}))
 
-;; Peer count here is the whole corpus, so this read ALWAYS runs off one bulk
-;; snapshot — reusing the caller's when a CAS read phase already built it.
+;; Candidate peers come only from the bounded touches predicate/object index;
+;; automatic overlap checks never enumerate the concern corpus.
 (defn path-overlap-data [port c]
-  (binding [*concern-metas* (or *concern-metas* (concern-meta-index port))]
-    (let [mine (concern-meta port c)
-          hits (->> (all-concerns port)
-                    (remove #(= % c))
-                    (map #(concern-meta port %))
-                    (keep (fn [peer]
-                            (let [shared (set/intersection (:touches mine) (:touches peer))]
-                              (when (and (active-concern? mine)
-                                         (active-concern? peer)
-                                         (seq shared))
-                                (canonical-overlap mine peer shared "path")))))
-                    (sort-by :pair-key)
-                    vec)]
-      {:mine mine :overlaps hits})))
+  (let [mine (concern-meta port c)
+        peer-ids
+        (->> (:touches mine)
+             (mapcat #(indexed-subjects-for port "touches" %))
+             (remove #(= % c))
+             distinct
+             sort)
+        hits
+        (->> peer-ids
+             (map #(concern-meta port %))
+             (keep
+              (fn [peer]
+                (let [shared
+                      (set/intersection (:touches mine) (:touches peer))]
+                  (when (and (active-concern? mine)
+                             (active-concern? peer)
+                             (seq shared))
+                    (canonical-overlap mine peer shared "path")))))
+             (sort-by :pair-key)
+             vec)]
+    {:mine mine :overlaps hits}))
 
 (defn render-overlap-data [spine {:keys [mine footprint-count overlaps]} statuses none-msg]
   (let [hits (filter #(or (nil? statuses)
@@ -968,67 +1014,37 @@
     (if cport (code-overlap-data spine cport clog c)
               (path-overlap-data spine c))))
 
-(defn pending-attention-intent-query
-  "Return only intent values without an exact durable settlement marker.
-   Keeping the subtraction in Fram prevents every sweep from replaying the
-   complete historical terminal outbox."
-  [concern]
-  (let [subject (or concern {:var "concern"})
-        head-args
-        (if concern
-          [{:var "intent"}]
-          [{:var "concern"} {:var "intent"}])]
-    {:find "pending_attention_event_intent"
-     :strata
-     [[{:head {:rel "attention_intent_candidate" :args head-args}
-        :body [{:rel "triple"
-                :args [subject attention-event-intent-predicate
-                       {:var "intent"}]}]}
-       {:head {:rel "attention_intent_settled" :args head-args}
-        :body [{:rel "triple"
-                :args [subject attention-event-settled-predicate
-                       {:var "intent"}]}]}]
-      [{:head {:rel "pending_attention_event_intent" :args head-args}
-        :body [{:rel "attention_intent_candidate" :args head-args}
-               {:rel "attention_intent_settled"
-                :args head-args :neg true}]}]]}))
+(defn validate-attention-index-rows! [rows]
+  (when-not
+   (and (vector? rows)
+        (every?
+         #(and (vector? %)
+               (= 2 (count %))
+               (every? string? %)
+               (str/starts-with? (first %) "@concern-"))
+         rows))
+    (throw
+     (ex-info "malformed concern attention index rows"
+              {:type :malformed-concern-attention-index})))
+  rows)
 
 (defn pending-attention-event-intents [port raw]
   (let [concern (when raw (existing-concern! port raw))
-        response
-        (north.coord/query-page
-         port
-         (pending-attention-intent-query concern)
-         attention-event-reconcile-limit
-         nil)
-        rows (:ok response)
-        row-arity (if concern 1 2)]
-    (when (:error response)
-      (throw
-       (ex-info "pending concern attention outbox query failed"
-                {:type :concern-attention-outbox-query-failed
-                 :error (:error response)})))
-    (when-not
-     (and (vector? rows)
-          (<= (count rows) attention-event-reconcile-limit)
-          (every?
-           #(and (vector? %)
-                 (= row-arity (count %))
-                 (every? string? %))
-           rows)
-          (boolean? (:more response)))
-      (throw
-       (ex-info "pending concern attention outbox page is malformed"
-                {:type :malformed-concern-attention-outbox-page})))
-    {:more (:more response)
+        candidates
+        (if concern
+          (mapv (fn [encoded] [concern encoded])
+                (many port concern attention-event-intent-predicate))
+          (validate-attention-index-rows!
+           (indexed-predicate-rows port attention-event-intent-predicate)))
+        pending (->> candidates distinct sort vec)
+        rows (vec (take attention-event-reconcile-limit pending))]
+    {:more (> (count pending) attention-event-reconcile-limit)
      :intents
      (mapv
-      (fn [row]
-        (let [[subject encoded]
-              (if concern [concern (first row)] row)]
-          (merge
-           {:concern subject :encoded encoded}
-           (parse-attention-event-intent port subject encoded))))
+      (fn [[subject encoded]]
+        (merge
+         {:concern subject :encoded encoded}
+         (parse-attention-event-intent port subject encoded)))
       rows)}))
 
 (defn terminal-intent-eligible? [port concern trigger-status]
@@ -1042,16 +1058,26 @@
 
 (defn settle-attention-event-intent! [port concern encoded]
   (let [result
-        (append! port concern attention-event-settled-predicate encoded)]
-    (when (:reject result)
+        (append! port concern attention-event-settled-predicate encoded)
+        retract-result
+        (north.coord/retract!
+         port concern attention-event-intent-predicate encoded)]
+    (when (or (:reject result)
+              (:error result)
+              (:reject retract-result)
+              (:error retract-result))
       (throw
        (ex-info "concern attention event settlement was rejected"
                 {:type :concern-attention-settlement-rejected
                  :concern concern})))
-    (when-not
-     (contains?
-      (set (many port concern attention-event-settled-predicate))
-      encoded)
+    (when-not (and
+               (contains?
+                (set (many port concern attention-event-settled-predicate))
+                encoded)
+               (not
+                (contains?
+                 (set (many port concern attention-event-intent-predicate))
+                 encoded)))
       (throw
        (ex-info "concern attention event settlement read-back mismatch"
                 {:type :concern-attention-settlement-readback-mismatch
@@ -1079,49 +1105,93 @@
       []
       intents)}))
 
+(defn pending-attention-reconciliations [port raw]
+  (let [concern (when raw (existing-concern! port raw))
+        candidates
+        (if concern
+          (mapv (fn [token] [concern token])
+                (many port concern attention-reconcile-pending-predicate))
+          (validate-attention-index-rows!
+           (indexed-predicate-rows
+            port attention-reconcile-pending-predicate)))
+        pending (->> candidates distinct sort vec)
+        limit north.worker-policy/attention-reconcile-limit
+        rows (vec (take limit pending))]
+    {:more (> (count pending) limit)
+     :rows rows}))
+
+(defn settle-attention-reconciliations! [port rows]
+  (doseq [[concern token] rows]
+    (let [result
+          (north.coord/retract!
+           port concern attention-reconcile-pending-predicate token)]
+      (when (or (:reject result) (:error result))
+        (throw
+         (ex-info "concern attention reconciliation settlement was rejected"
+                  {:type :concern-attention-reconciliation-settlement-rejected
+                   :concern concern})))
+      (when
+       (contains?
+        (set (many port concern attention-reconcile-pending-predicate))
+        token)
+        (throw
+         (ex-info "concern attention reconciliation settlement read-back mismatch"
+                  {:type :concern-attention-reconciliation-settlement-readback-mismatch
+                   :concern concern})))))
+  true)
+
 (defn reconciliation-overlaps
-  "Discover each current pair at most once. A cold or unavailable code corpus
-   skips only its affected concern; reconciliation remains best-effort and the
-   next bounded pass can heal it."
+  "Discover current pairs for exactly one concern. Automatic callers supply
+   durable pending subjects; this function never enumerates the corpus."
   [spine raw]
-  ;; Whole-corpus reconciliation is the same per-peer read as a transition; it
-  ;; reads one bulk snapshot rather than nine round trips per concern.
-  (binding [*concern-metas* (or *concern-metas* (concern-meta-index spine))]
-    (let [concerns
-          (if raw
-            [(existing-concern! spine raw)]
-            (->> (all-concerns spine)
-                 (filter #(active-concern? (concern-meta spine %)))
-                 sort))]
-      (->> concerns
-           (mapcat
-            (fn [concern]
-              (try
-                (binding [*throw-code-store-errors?* true]
-                  (:overlaps (overlaps-for spine concern)))
-                (catch Exception error
-                  (binding [*out* *err*]
-                    (println
-                     (str "concern: attention reconciliation deferred for "
-                          concern ": " (.getMessage error))))
-                  []))))
-           (reduce (fn [pairs overlap]
-                     (assoc pairs (:pair-key overlap) overlap))
-                   {})
-           vals
-           (sort-by :pair-key)
-           vec))))
+  (when-not raw
+    (throw
+     (ex-info "attention overlap reconciliation requires one concern"
+              {:type :unscoped-attention-reconciliation})))
+  (let [concern (existing-concern! spine raw)]
+    (binding [*throw-code-store-errors?* true]
+      (:overlaps (overlaps-for spine concern)))))
 
 (defn reconcile-attention!
-  "Idempotently materialize current active-overlap attention plus pending
-   durable terminal intents. Settled terminal history is subtracted in Fram
-   before it reaches this pass."
+  "Idempotently materialize pending current-overlap work plus durable terminal
+   intents. The automatic form reads only live indexed outbox rows."
   ([spine] (reconcile-attention! spine nil))
   ([spine raw]
    (let [{terminal-notifications :notifications
           terminal-more :more}
          (publish-pending-attention-event-intents! spine raw)
-         overlaps (reconciliation-overlaps spine raw)
+         {pending-rows :rows active-more :more}
+         (pending-attention-reconciliations spine raw)
+         concerns
+         (if raw
+           [(existing-concern! spine raw)]
+           (->> pending-rows (map first) distinct sort vec))
+         attempts
+         (mapv
+          (fn [concern]
+            (try
+              {:concern concern
+               :overlaps (reconciliation-overlaps spine concern)}
+              (catch Exception error
+                (binding [*out* *err*]
+                  (println
+                   (str "concern: attention reconciliation deferred for "
+                        concern ": " (.getMessage error))))
+                {:concern concern :error error :overlaps []})))
+          concerns)
+         successful-concerns
+         (set (map :concern (remove :error attempts)))
+         settled-rows
+         (filterv #(contains? successful-concerns (first %)) pending-rows)
+         overlaps
+         (->> attempts
+              (mapcat :overlaps)
+              (reduce (fn [pairs overlap]
+                        (assoc pairs (:pair-key overlap) overlap))
+                      {})
+              vals
+              (sort-by :pair-key)
+              vec)
          events
          (->> overlaps
               (mapcat desired-events-for-overlap)
@@ -1132,12 +1202,15 @@
               (sort-by (juxt :event-key :to))
               vec)
          current-notifications (publish-attention-events! spine events)
+         _ (settle-attention-reconciliations! spine settled-rows)
          notifications
          (vec (concat terminal-notifications current-notifications))]
      {:overlaps (count overlaps)
       :events (count events)
       :terminal-events (count terminal-notifications)
       :terminal-more terminal-more
+      :active-more active-more
+      :deferred (count (filter :error attempts))
       :notifications notifications})))
 
 (defn transition-state [before trigger-status]
@@ -1177,7 +1250,8 @@
    active-state warnings are recovered from the current concern projection."
   [port operation snapshot]
   (let [concern (:concern-id operation)
-        trigger-status (get-in operation [:facts 0 :object])
+        trigger-status (:object (peek (:facts operation)))
+        reconcile-token (:operation-id operation)
         observed-rows (or (:rows snapshot) [])
         snapshot-before
         (when snapshot
@@ -1213,7 +1287,9 @@
              :rows observed-rows}
 
             (not terminal?)
-            {:facts [{:p "reached" :r trigger-status}]}
+            {:facts [{:p attention-reconcile-pending-predicate
+                      :r reconcile-token}
+                     {:p "reached" :r trigger-status}]}
 
             :else
             (let [after (transition-state before trigger-status)
@@ -1245,8 +1321,7 @@
 
       terminal?
       (binding [*concern-metas*
-                (cond-> (concern-meta-index port)
-                  snapshot-before (assoc concern snapshot-before))]
+                (when snapshot-before {concern snapshot-before})]
         (plan (or snapshot-before (concern-meta port concern))))
 
       :else
@@ -1268,9 +1343,8 @@
          port concern
          (fn []
            ;; Every read of this phase is guarded by the global base captured
-           ;; just above, so it must cost queries, not one round trip per peer.
-           (binding [*concern-metas* (concern-meta-index port)]
-             (let [before (concern-meta port concern)]
+           ;; just above. Candidate peers come from bounded touches indexes.
+           (let [before (concern-meta port concern)]
                (cond
                  (terminal-status-present? before trigger-status)
                  {:done {:status :already :concern concern
@@ -1303,7 +1377,7 @@
                              {:p attention-event-intent-predicate
                               :r intent})
                            intents)
-                      [{:p "reached" :r trigger-status}]))}))))))
+                      [{:p "reached" :r trigger-status}]))})))))
         transition
         (cond
           (:done result) (:done result)
@@ -1375,7 +1449,7 @@
   "The exact ordered desired projection. kind=concern is last: it is the
    visibility marker both the live batch and future reconciliation publish
    only after the complete body is present."
-  [{:keys [agent repo intent about files]}]
+  [{:keys [agent repo intent about files reconcile-token]}]
   (vec
    (concat
     [{:predicate "title"
@@ -1394,7 +1468,10 @@
     (map (fn [file]
            {:predicate "touches" :object file :cardinality "multi"})
          files)
-    [{:predicate "reached" :object "building" :cardinality "multi"}
+    [{:predicate attention-reconcile-pending-predicate
+      :object reconcile-token
+      :cardinality "multi"}
+     {:predicate "reached" :object "building" :cardinality "multi"}
      {:predicate "kind" :object "concern" :cardinality "single"}])))
 
 (defn build-concern-operation
@@ -1417,21 +1494,26 @@
         :repo repo
         :intent intent
         :about about
+        :reconcile-token operation-id
         :files files})})))
 
 (defn build-concern-transition-operation [raw trigger-status]
-  (let [concern (norm-cid raw)]
+  (let [concern (norm-cid raw)
+        operation-id (str (java.util.UUID/randomUUID))]
     (when-not (and (string? concern)
                    (re-matches #"@concern-[0-9]{10,}-[0-9a-f]{4}" concern))
       (usage-error! "a canonical concern id is required"))
     (north.concern-spool/build-operation
      {:operation-type north.concern-spool/transition-operation-type
-      :operation-id (str (java.util.UUID/randomUUID))
+      :operation-id operation-id
       :concern-id concern
       :target-log (north.coord/expected-log)
       :created-at (str (java.time.Instant/now))
       :facts
-      [{:predicate "reached"
+      [{:predicate attention-reconcile-pending-predicate
+        :object operation-id
+        :cardinality "multi"}
+       {:predicate "reached"
         :object trigger-status
         :cardinality "multi"}]})))
 
@@ -1535,7 +1617,7 @@
            (north.coord/request-deadline-ns 400))]
       (println
        (str "✓ concern " (:concern-id operation)
-            " transition=" (get-in operation [:facts 0 :object])
+            " transition=" (:object (peek (:facts operation)))
             " durable-local visibility=pending"))
       (println
        (str "  operation=" (:operation-id receipt)
@@ -1543,7 +1625,7 @@
       (println (str "  local_path=" (:path receipt)))
       {:status :pending
        :concern (:concern-id operation)
-       :trigger-status (get-in operation [:facts 0 :object])
+       :trigger-status (:object (peek (:facts operation)))
        :receipt receipt})
     (catch Exception error
       (binding [*out* *err*]
@@ -1588,17 +1670,18 @@
 
 (defn advance-active-maturity! [port raw maturity-level]
   (let [concern (existing-concern! port raw)
-        before (meta-of port concern)
-        before-overlaps (:overlaps (overlaps-for port concern))]
-    (append! port concern "reached" maturity-level)
-    (let [after (meta-of port concern)
-          after-overlaps
-          (if (active-concern? after)
-            (:overlaps (overlaps-for port concern))
-            [])]
-      (publish-transition!
-       port before after before-overlaps after-overlaps)
-      (reconcile-attention! port concern)
+        reconcile-token (str (java.util.UUID/randomUUID))]
+    (north.coord/assert-batch-after-read!
+     port concern
+     (fn []
+       (let [before (concern-meta port concern)]
+         (if (transition-status-present? port before maturity-level)
+           {:done :identical}
+           {:facts
+            [{:p attention-reconcile-pending-predicate :r reconcile-token}
+             {:p "reached" :r maturity-level}]}))))
+    (reconcile-attention! port concern)
+    (let [after (meta-of port concern)]
       (println
        (str "✓ " concern " reached=" maturity-level
             " (status=" (:status after) ")"
@@ -1674,13 +1757,10 @@
                           {:mode :code :hits hits :misses misses})
                         {:mode :path})
                       _code-result (reset! code-result* code-result)
-                      {:keys [overlaps] :as after-data}
-                      (overlaps-for port id)
-                      _after-data (reset! after-data* after-data)
-                      after (:mine after-data)]
-                  (publish-transition! port nil after [] overlaps)
-                  ;; A second desired-state pass closes ordinary attention
-                  ;; publication windows after the declaration commit.
+                      after-data (overlaps-for port id)
+                      _after-data (reset! after-data* after-data)]
+                  ;; The declaration batch's pending marker makes this desired-
+                  ;; state publication replayable after every crash point.
                   (reconcile-attention! port id)
                   {:durability "coordinator"
                    :code-result code-result
@@ -1794,7 +1874,7 @@
     ;; Liveness-derived DECAY (design 019f4418): a lapsed owner's concern is NOT hidden
     ;; — hiding is what made 17 dead-agent concerns invisibly linger AND let a stale one
     ;; misroute a live lane. It is RENDERED, decayed at read time: building -> STALE (dim),
-    ;; likely-to-land -> ORPHANED (prominent retained recovery candidate). The reactor's
+    ;; likely-to-land -> ORPHANED (prominent retained recovery candidate). The janitor's
     ;; terminal verdict `abandoned-stale` (owner dead >24h) retires the concern — hidden by
     ;; default, shown with --all. Agent-less concerns can't lapse, so render live.
     "ls"
@@ -1833,17 +1913,20 @@
     (let [[raw] args]
       (when (> (count args) 1)
         (usage-error! "reconcile-attention accepts at most one concern id"))
-      (let [{:keys [overlaps events terminal-events terminal-more
-                    notifications]}
+      (let [{:keys [overlaps events terminal-events terminal-more active-more
+                    deferred notifications]}
             (reconcile-attention! port raw)]
         (println
          (str "✓ concern attention reconciled overlaps=" overlaps
               " desired=" events
               " terminal=" terminal-events
               " terminal_more=" terminal-more
+              " active_more=" active-more
+              " deferred=" deferred
+              " more=" (boolean (or terminal-more active-more))
               " materialized=" (count notifications)))))
 
-    "retire-stale"                                      ; hidden reactor boundary
+    "retire-stale"                                      ; hidden janitor boundary
     (let [[raw] args]
       (when-not (= 1 (count args))
         (usage-error! "retire-stale requires exactly <concern-id>"))

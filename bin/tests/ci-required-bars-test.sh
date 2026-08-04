@@ -66,7 +66,7 @@ clojure_bars=(
   cli/tests/json-children-indexed-test.clj
   cli/tests/dashboard-doctor-exit-test.clj
   cli/tests/rebuild-request-window-test.clj
-  cli/tests/rebuild-window-wake-test.clj
+  cli/tests/coordinated-nix-rebuild-worker-test.clj
   cli/tests/coordinator-jvm-health-test.clj
   cli/tests/deployed-cli-test.clj
   cli/tests/wip-cli-test.clj
@@ -86,7 +86,7 @@ clojure_bars=(
   cli/tests/peer-command-integration-test.clj
   cli/tests/worktree-allocation-integration-test.clj
   cli/tests/worktree-janitor-integration-test.clj
-  cli/tests/reactor-sweep-large-corpus-test.clj
+  cli/tests/maintenance-large-corpus-test.clj
 )
 
 for entrypoint in "${shell_bars[@]}"; do

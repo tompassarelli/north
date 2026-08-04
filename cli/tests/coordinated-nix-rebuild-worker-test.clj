@@ -4,15 +4,15 @@
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root
   (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
-(def watcher (str root "/cli/rebuild-window-watch.clj"))
+(def watcher (str root "/cli/coordinated-nix-rebuild-worker-host.clj"))
 
-(System/setProperty "north.rebuild-window-watch.lib" "1")
+(System/setProperty "north.coordinated-nix-rebuild-worker-host.lib" "1")
 (System/setProperty "babashka.file" watcher)
 (load-file watcher)
 
-(alias 'owner 'north.rebuild-window-owner)
+(alias 'owner 'north.coordinated-nix-rebuild)
 (alias 'request 'north.rebuild-request)
-(alias 'watch 'north.rebuild-window-watch)
+(alias 'watch 'north.coordinated-nix-rebuild-worker-host)
 
 (def checks (atom []))
 (defn check [label ok detail]
@@ -40,12 +40,12 @@
    :l request/queue-subject :p request/queue-predicate :r raw})
 
 (defn reset-watch-state! []
-  (when-let [reset-fn (ns-resolve 'north.rebuild-window-watch
+  (when-let [reset-fn (ns-resolve 'north.coordinated-nix-rebuild-worker-host
                                   'reset-event-state!)]
     (reset-fn)))
 
 (defn with-zero-debounce [f]
-  (if-let [debounce-var (ns-resolve 'north.rebuild-window-watch
+  (if-let [debounce-var (ns-resolve 'north.coordinated-nix-rebuild-worker-host
                                     'event-debounce-ms)]
     (with-redefs-fn {debounce-var 0} f)
     (f)))
@@ -61,9 +61,9 @@
            {:exit 3 :out "activating\n" :err ""}))
        nil)
 
-(let [debounce-var (ns-resolve 'north.rebuild-window-watch
+(let [debounce-var (ns-resolve 'north.coordinated-nix-rebuild-worker-host
                                'event-debounce-ms)
-      bounded-debounce (ns-resolve 'north.rebuild-window-watch
+      bounded-debounce (ns-resolve 'north.coordinated-nix-rebuild-worker-host
                                    'bounded-event-debounce-ms)]
   (check "queue event debounce defaults to one second"
          (= 1000 (bounded-debounce))
@@ -349,6 +349,6 @@
   (doseq [[label ok detail] results]
     (println (format "  [%s] %s" (if ok "PASS" "FAIL") label))
     (when-not ok (println (str "        " detail))))
-  (println (format "\nrebuild window wake: %d / %d PASS"
+  (println (format "\ncoordinated Nix rebuild worker: %d / %d PASS"
                    passed (count results)))
   (System/exit (if (= passed (count results)) 0 1)))

@@ -254,7 +254,7 @@ bypass — env inherits into child lanes.
 
 ### Deferred to later build-order steps
 
-The circuit breaker + human reset, the reactor burn-rate sweep and sweep-kill,
+The circuit breaker + human reset, the scheduled burn-rate check and lane kill,
 the reaper's dead-lane settlement, per-turn parent-adapter accumulation, and
 reconciliation are later steps. The reservation-carrying plumbing from admission
 through to the terminal record lands with the first API adapter (no producer

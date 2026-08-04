@@ -53,7 +53,7 @@ function pinEvidence(provider: "anthropic" | "openai") {
 // so a scrub here never leaks into sibling suites. Includes the INHERITED IDENTITY keys:
 // a real north session runs with AGENT_ID / NORTH_AGENT_ID / AGENT_COORDINATOR (+ model/
 // role/effort) exported, and a naive spawn INHERITS them — so scripted test deaths would
-// stamp the REAL coordinator onto @agent:test-dead-W3 and ping a live session every reactor
+// stamp the REAL coordinator onto @agent:test-dead-W3 and ping a live session every lifecycle
 // sweep (~50s). We scrub identity and pin a SYNTHETIC coordinator so any fact/ping the
 // harness emits routes nowhere real, even if a future edit lets a write escape the fake.
 const MANAGED_ENV = [

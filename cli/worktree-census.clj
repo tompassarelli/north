@@ -1,4 +1,4 @@
-;; Shared read model behind `north worktrees` and the reactor's unregistered
+;; Shared read model behind `north worktrees` and the scheduled unregistered
 ;; sweep. Library, not a command; derives from Git at read time and never writes —
 ;; a fact about a mutable filesystem would outlive the state it describes.
 (ns north.worktree-census

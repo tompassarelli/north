@@ -423,10 +423,10 @@
           (sleep! delay-ms)
           (recur (inc failure-attempt)))))))
 
-;; --- Phase 1: the reactor — a forward-chaining rule over fact-patterns ------
-;; The reactor NO LONGER string-parses a command envelope (the parse-envelope copy that
+;; --- Phase 1: command consumption — a forward-chaining rule over facts -------
+;; The consumer never string-parses a command envelope (the parse-envelope copy that
 ;; "MUST stay in sync" with msg-cli is DELETED). A command is FACTS on @cmd:<id>; the
-;; reactor matches PENDING ones (op+target, NOT acked_by) via the shared Datalog rule
+;; consumer matches PENDING ones (op+target, NOT acked_by) via the shared Datalog rule
 ;; (coord/pending-cmds) and reads each arg as a fact with rf — no parsing, no settle sleep.
 (def acquire-cli
   (str (.getParent (io/file (System/getProperty "babashka.file"))) "/acquire-cli.clj"))
@@ -469,7 +469,7 @@
                  (if (zero? (:exit result))
                    {:ok true :retryable false :message (str "acquired " subj " driver=@" bare-holder)}
                    {:ok false :retryable true :message (str "acquire denied for " subj " — already driven")}))
-    {:ok false :retryable false :message (str "op " op " not wired in the reactor")}))
+    {:ok false :retryable false :message (str "op " op " not wired in the command consumer")}))
 
 ;; The forward-chaining loop: every PENDING command targeting one of my addrs -> execute,
 ;; ack (acked_by removes it from the pending set — exactly-once), and reply with a FACT

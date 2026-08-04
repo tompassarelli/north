@@ -97,7 +97,7 @@
                 (not (str/includes? (:out result) "» "))))))
 
 (doseq [[surface argv expected]
-        [["listener reactor"
+        [["listener command consumer"
           ["bb" (str root "/cli/north-listen.clj") "59999" "probe" "--react"]
           "listen --react requires orchestrator topology"]
          ["fan-out map"

@@ -176,7 +176,7 @@
                           (get counts :review 0)
                           (+ (get counts :registered 0) (get counts :live-concern 0))
                           (get counts :fresh 0)))))
-  (println (dim "  STALE = merged + clean + idle >48h with no lane or live concern; the reactor sweep reaps these."))
+  (println (dim "  STALE = merged + clean + idle >48h with no lane or live concern; the worktree janitor reaps these."))
   (println (dim "  REVIEW = idle >48h but dirty or unmerged; never auto-removed — salvage or land it.")))
 
 (defn render-json [rows concerns registrations joined? sources]

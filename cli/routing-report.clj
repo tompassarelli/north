@@ -971,7 +971,7 @@
 
 ;; A blocked delivery's :deliveryReason is a stable machine literal from
 ;; sdk/src/execution-outcome.ts's BLOCKED_REASON map, or (for reaper-written
-;; deaths) cli/north-reactor.clj's publish-reaped-terminal!. classifyExecutionTerminal
+;; deaths) the lane lifecycle janitor's publish-reaped-terminal!. classifyExecutionTerminal
 ;; folds ~16 distinct reasons into a single deliveryOutcome="blocked" bucket;
 ;; a coordinator reading that one number as a provider failure rate mistook
 ;; our own admission refusals for provider deaths and quarantined a provider

@@ -147,6 +147,7 @@
    ["window_action" "single" "literal" "current lifecycle action of one coordinated rebuild window"]
    ["window_intent" "single" "literal" "rebuild intent fulfilled by one coordinated rebuild window"]
    ["window_generation" "single" "literal" "Nix generation produced by one fired coordinated rebuild window"]
+   ["window_canary" "single" "literal" "post-window canary result for the landed generation"]
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]
@@ -322,7 +323,8 @@
    ["event_key" "single" "literal" "publisher-defined idempotency key for a notification"]
    ["attention_event_intent" "multi" "literal" "bounded canonical EDN concern-attention outbox event"]
    ["attention_event_settled" "multi" "literal" "exact outbox event durably settled after idempotent publication"]
-   ["known_op" "multi" "literal" "peer command operations currently admitted by the reactor"]
+   ["attention_reconcile_pending" "multi" "literal" "live transition token awaiting indexed concern-attention reconciliation"]
+   ["known_op" "multi" "literal" "peer command operations admitted by the command consumer"]
    ["op"       "single" "literal" "operation carried by a peer command"]
    ["target"   "single" "literal" "peer-command routing address or guard target"]
    ["id"       "single" "literal" "subject argument carried by a peer tell command"]

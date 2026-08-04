@@ -100,7 +100,8 @@
        (remove #(some #{"tests"} (str/split (.getPath %) #"[/\\]")))
        ;; This is a generic FRAMRPC transport: its assert!/retract! accept a
        ;; whole proposition, not a North predicate position.
-       (remove #(= "framrpc-client.clj" (.getName %)))
+       (remove #(contains? #{"framrpc-client.clj" "framrpc-command.clj"}
+                           (.getName %)))
        (sort-by #(.getPath %))))
 
 (def engine-schema-predicates #{"acyclic" "cardinality" "value_kind"})
@@ -143,9 +144,10 @@
     ["cli/msg-cli.clj" "retract!" "predicate"]
     ["cli/message-audience.clj" "append!" "rejected-by-predicate"]
     ["cli/message-audience.clj" "append!" "rejection-predicate"]
-    ;; The concern terminal outbox settles the fixed, registered
-    ;; attention_event_settled predicate through one shared constant.
+    ;; Concern attention outboxes use fixed registered predicates.
     ["cli/concern-cli.clj" "append!" "attention-event-settled-predicate"]
+    ["cli/concern-cli.clj" "retract!" "attention-event-intent-predicate"]
+    ["cli/concern-cli.clj" "retract!" "attention-reconcile-pending-predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
     ["cli/north-mine.clj" "append!" "pred"]
     ["cli/north-mine.clj" "put!" "pred"]
@@ -503,7 +505,8 @@
         "delivery_class" "requires_ack"}
       single-ref #{"subscriber" "about" "subscription" "recipient"}
       multi-literal
-      #{"event_filter" "attention_event_intent" "attention_event_settled"}
+      #{"event_filter" "attention_event_intent" "attention_event_settled"
+        "attention_reconcile_pending"}
       multi-ref #{"source_concern" "read_by"}]
   (check "attention scalar fields are cataloged single/literal"
          (every? #(= {:card "single" :kind "literal"}

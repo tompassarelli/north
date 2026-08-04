@@ -404,7 +404,7 @@ is hard-killed before its `finally`, the liveness reaper marks the lane after th
 30-minute lapse bar and retracts only that dead lane's exact driver refs. There
 is one earlier crash window: MCP may commit the driver claim before the child has
 published its `kind=lane` identity. New SDK agent ids carry their mint timestamp
-and a full UUID, so the reactor can recover an unpublished claim only after the
+and a full UUID, so the lane lifecycle janitor can recover an unpublished claim only after the
 same 30-minute bar. It retracts the exact thread/holder pair; legacy, malformed,
 future-dated, and already-published lane ids fail closed and are never inferred
 dead from their spelling.
@@ -940,17 +940,17 @@ leaves active overlap views; no separate `concern done` ceremony is required.
    `<ago>` uses the lease-expiry lapse, or the concern's own declare-age when a
    pre-presence owner never held a lease.
 
-2. **Reactor auto-abandon (fact write).** The reactor (`cli/north-reactor.clj`)
-   sweeps on its cadence (every 5 min): a `building` concern whose owner has
+2. **Stale-concern janitor (fact write).** The independently scheduled
+   `stale-concerns` task runs every 15 minutes: a `building` concern whose owner has
    been lapsed **>24h** gets `reached=abandoned-stale` written through :7977
    (auditable, reversible — a later `landed` still wins). `likely-to-land` is
    **exempt** — not because lapsing constitutes a handoff, but because a
    near-landing footprint is worth retaining as an orphaned candidate for
    recovery or adoption rather than auto-abandoning it. Abandoned concerns are
-   retired from `concern ls` (shown with `--all`). Test one-shot:
-   `bb cli/north-reactor.clj sweep-once [--dry-run] [--repo <repo>]`.
+   retired from `concern ls` (shown with `--all`). Test one task:
+   `bb cli/coordination-maintenance-task-host.clj stale-concerns --dry-run [--repo <repo>]`.
 
-3. **Stuck-fork reaping.** The same sweep finds `kind=lane` agents whose
+3. **Lane lifecycle janitor.** Its own five-minute task finds `kind=lane` agents whose
    presence lapsed **>30min** with no `outcome` fact → writes
    `outcome=died-unreported`, prefixes `display_name` with `✝ `, and pings the
    lane's coordinator (if any) over the fact feed. Zombie forks surface instead
@@ -959,7 +959,7 @@ leaves active overlap views; no separate `concern done` ceremony is required.
    identity. This closes the claim-before-identity crash window without guessing
    about older id formats.
 
-4. **Managed-worktree janitor.** The reactor's same sweep reclaims a registered
+4. **Managed-worktree janitor.** Its own 15-minute task reclaims a registered
    lane worktree only after the canonical full lane-terminal/committed-run join
    resolves it, its graph registration exactly names `repo`, `worktree`, and the
    derived `lane-<agent-id>` branch, and real Git proves that provenance plus a
@@ -973,10 +973,10 @@ leaves active overlap views; no separate `concern done` ceremony is required.
    Later sweeps recognize a fully absent tree + registration + branch as already
    reclaimed, while an absent tree with a surviving/unknown branch remains
    partial. The janitor never describes an already-removed worktree as kept. The
-   one-shot probe is the normal reactor surface:
-   `bb ~/code/north/main/cli/north-reactor.clj sweep-once [--dry-run]`.
+   one-task probe is:
+   `bb ~/code/north/main/cli/coordination-maintenance-task-host.clj worktrees --dry-run`.
 
-5. **Unregistered-worktree janitor.** The same sweep also reaps `wt-*` siblings
+5. **Unregistered-worktree janitor.** The worktree task also reaps `wt-*` siblings
    that no fact claims — the hand-made worktrees that accumulated because
    nothing owned their cleanup. A tree is reclaimed only when Git proves it is a
    linked worktree of that repository on its own branch, that branch is merged,
@@ -1007,7 +1007,7 @@ lane branch.
 
 What escapes that cleanup is caught, not lost. A `wt-*` tree idle past 48h with no
 owning lane and no live concern is **stale**: merged and clean ones are reaped
-by the reactor's unregistered-worktree janitor (§ item 5 above); dirty or
+by the unregistered-worktree janitor (§ item 5 above); dirty or
 unmerged ones are only ever **surfaced** for review, never auto-removed, because
 the uncommitted bytes may be the only copy.
 

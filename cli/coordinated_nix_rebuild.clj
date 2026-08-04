@@ -1,4 +1,4 @@
-(ns north.rebuild-window-owner
+(ns north.coordinated-nix-rebuild
   (:require [babashka.process :as proc]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -69,7 +69,7 @@
     (let [plan (north.rebuild-request/plan-window port)
           n (:count plan)
           queue-read (:queue-read plan)]
-      (println (str "[rebuild-owner] queue"
+      (println (str "[coordinated-nix-rebuild-worker] queue"
                     " mode=" (:mode queue-read)
                     " bridge_start=" (:start-offset queue-read)
                     " bridge_end=" (:end-offset queue-read)
@@ -85,20 +85,20 @@
         :fire
         (if dry?
           (do
-            (println (str "[rebuild-owner] WOULD open a rebuild window for "
+            (println (str "[coordinated-nix-rebuild-worker] WOULD open a rebuild window for "
                           n " request(s)"))
             {:action "would-fire" :count n :queue-read queue-read})
           (let [{:keys [state reason]} (window-unit-state)]
             (case state
               :active
               (do
-                (println (str "[rebuild-owner] active window owns "
+                (println (str "[coordinated-nix-rebuild-worker] active window owns "
                               n " queued request(s)"))
                 {:action "active" :count n :queue-read queue-read})
 
               :unknown
               (do
-                (println (str "[rebuild-owner] wake deferred: "
+                (println (str "[coordinated-nix-rebuild-worker] wake deferred: "
                               (or reason "systemd state unavailable")))
                 {:action "deferred" :count n :reason reason
                  :queue-read queue-read})
@@ -110,7 +110,7 @@
                     launch (launch-window! north-bin window-id)]
                 (if (:launched launch)
                   (do
-                    (println (str "[rebuild-owner] window " window-id
+                    (println (str "[coordinated-nix-rebuild-worker] window " window-id
                                   " launched for " n " request(s) — unit "
                                   (:unit launch)))
                     {:action "fired" :count n :window window-id
@@ -118,7 +118,7 @@
                   (do
                     (north.rebuild-request/set-window-action!
                      port window-id "deferred")
-                    (println (str "[rebuild-owner] window " window-id
+                    (println (str "[coordinated-nix-rebuild-worker] window " window-id
                                   " deferred: " (:reason launch)))
                     {:action "deferred" :count n :window window-id
                      :reason (:reason launch) :queue-read queue-read}))))))
@@ -127,7 +127,7 @@
                          {:type :unsupported-rebuild-window-plan
                           :plan plan})}))
     (catch Throwable error
-      (println (str "[rebuild-owner] error: " (.getMessage error)))
+      (println (str "[coordinated-nix-rebuild-worker] error: " (.getMessage error)))
       {:action "error" :count 0 :error error})))
 
 (defn collect! [port dry? north-bin]

@@ -70,7 +70,7 @@
                           :timeout-ms 100}
                          {:ok true :out "coordinator runtime identity OK\n" :err ""}))
                 daemon-health (fn [] {:north true})
-                reactor-doctor-line (fn [_] "[ok]  last sweep now")
+                maintenance-doctor-lines (fn [_] ["[ok]  maintenance current"])
                 cache-get (fn [& _] {:lanes-ran-24h 1
                                      :lanes-died-24h 0})
                 source-revision (fn [_ _] {:revision "test-rev" :origin "checkout HEAD"})

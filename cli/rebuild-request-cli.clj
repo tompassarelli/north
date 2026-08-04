@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; The rebuild QUEUE surface: record a durable ask and return — never build,
 ;; never hold. Loadable as a library (north.rebuild-request-cli.lib=1) so the
-;; reactor's window owner drives this exact read/write path; every function
+;; coordinated Nix rebuild worker drives this exact read/write path; every function
 ;; therefore takes its port explicitly instead of reading one global.
 (ns north.rebuild-request
   (:require [babashka.process :as proc]
@@ -774,7 +774,7 @@
 (defn run-window!
   "Execute one claimed window through the mutexed rebuild/readiness path, then
    close every request the window claimed against the landed generation. Runs
-  OUTSIDE the reactor sweep (a rebuild outlives the sweep's bounded lifecycle),
+  OUTSIDE scheduled maintenance (a rebuild has its own bounded lifecycle),
   so it is a verb rather than an inline call."
   [port window-id]
   (let [record (load-window-record port window-id)
@@ -874,7 +874,7 @@
     (when-not (:why options) (fail! "--why is required"))
     (let [id (record-request! port (assoc options :requester (current-requester)))]
       (println id)
-      (println (str "queued: an idle reactor owner immediately coalesces open requests "
+      (println (str "queued: an idle coordinated Nix rebuild worker immediately coalesces open requests "
                     "into one coordinated rebuild"
                     (when-not (coordination-on?)
                       " (rebuild-coordination is off — requests queue and report, nothing fires)")))

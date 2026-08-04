@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; spend-breaker-test.clj — the spend-guard CIRCUIT BREAKER + reactor burn/kill/reap
+;; spend-breaker-test.clj — the spend-guard circuit breaker + burn/kill/reap
 ;; primitives (build-order step 3) against a REAL Fram daemon. Reuses the step-2
 ;; harness (temp daemon + temp log). Covers, in dependency order (the breaker is
 ;; GLOBAL, so trip/reset ordering is explicit):

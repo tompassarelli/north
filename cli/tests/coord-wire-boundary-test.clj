@@ -405,11 +405,12 @@
                (str/includes? (:err result)
                               "coordinator response line exceeds 256 bytes"))))
 
-(doseq [path ["cli/north-listen.clj" "cli/north-reactor.clj"]
+(doseq [path ["cli/north-listen.clj" "cli/coordination-projection-worker-host.clj"]
         :let [source (slurp (io/file root path))
               bounded (str/index-of source
                                     "(north.coord/read-line-bounded! reader)")
-              idle (str/index-of source "(.setSoTimeout s 0)")
+              idle (or (str/index-of source "(.setSoTimeout s 0)")
+                       (str/index-of source "(.setSoTimeout socket 0)"))
               stream (str/index-of
                       source
                       "(north.coord/read-stream-line-bounded! reader)")]]

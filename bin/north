@@ -449,8 +449,8 @@ case "${1:-}" in
     exec "$BB" "$NORTH/cli/rebuild-intent-cli.clj" "${@:2}" ;;
   rebuild)
     # The QUEUE in front of that protocol: `request` records a durable ask and
-    # returns immediately — an agent never fires a rebuild itself. The reactor's
-    # window owner is the only collector. cli/rebuild-request-cli.clj.
+    # returns immediately — an agent never fires a rebuild itself. The
+    # coordinated Nix rebuild worker is the only collector.
     exec "$BB" "$NORTH/cli/rebuild-request-cli.clj" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a
@@ -577,13 +577,6 @@ case "${1:-}" in
     # tokens) until a peer addresses you, then prints the message and exits:
     # that exit is the interrupt. Read it, act, re-arm. bin/north-arm = alias.
     exec "$BB" "$NORTH/cli/north-listen.clj" "${NORTH_PORT:-7977}" "${2:?usage: north listen <agent-id>}" --once --ack "${@:3}" ;;
-  reactor)
-    # Coordinator AUTO-EXPORT sidecar — RUN AS A LONG-LIVED BACKGROUND TASK next to
-    # the daemon. Subscribes to the coordinator commit firehose and re-projects
-    # touched threads (`heal`, debounced) so threads/*.md never lag the log. Rides
-    # the existing :subscribe seam — no daemon change. Inherits FRAM_LOG/FRAM_THREADS.
-    #   north reactor [port] [debounce-ms]   (defaults: 7977, 400)
-    exec "$BB" "$NORTH/cli/north-reactor.clj" "${2:-${NORTH_PORT:-7977}}" "${@:3}" ;;
   worktrees)
     # Machine-wide worktree census: every wt-* sibling of a container repo's main
     # checkout, joined to live concerns and graph lane registrations. Read-only.

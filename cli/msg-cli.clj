@@ -13,7 +13,7 @@
 
 ;; shared coord substrate: cardinality-typed write verbs + the command-as-facts
 ;; pending rule (move-C) live once in cli/coord.clj. append! = MULTI coexist; put! =
-;; SINGLE last-writer-wins; pending-cmds = the single Datalog rule the reactor shares.
+;; SINGLE last-writer-wins; pending-cmds is the command consumer's shared Datalog rule.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
@@ -163,7 +163,7 @@
 ;; A command is NOT an opaque {:op :args} EDN blob in one `body` cell (the old cargo-cult,
 ;; whose parse-envelope parser was duplicated across this file + north-listen.clj "MUST
 ;; stay in sync"). It is FACTS on @cmd:<id>: `op` + `target` (routing handle) + one fact
-;; per arg, so the graph can query/supersede/attach-provenance to each, and the reactor
+;; per arg, so the graph can query/supersede/attach-provenance to each, and the consumer
 ;; drives off fact-patterns (a Datalog rule), never a string parse.
 ;;
 ;; Every invocation mints a fresh command id: two legitimate identical commands
@@ -485,7 +485,7 @@
         (do (println "REJECTED: <args-edn> must be an EDN map") (System/exit 2))
         :else
         (let [e (str "@cmd:" (command-id op argm target idempotency-key))]
-          ;; arg facts + provenance + op first; `target` (the routing key the reactor
+          ;; arg facts + provenance + op first; `target` (the routing key the consumer
           ;; triggers on) LAST → op/args already visible when it lands (no settle race).
           ;; All write-once (put!): a re-send re-asserts identical facts = idempotent no-op.
           (doseq [[k v] argm] (put! port e (arg-pred k) (encoded-arg v)))

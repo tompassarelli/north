@@ -328,7 +328,7 @@
            " agent_death recorded. Remedy: re-dispatch the thread (idempotent); for chronic deaths re-dispatch at the next tier per the D2 execution-axis move; read the partial result first.")
       (= terminal-kind :died-unreported)
       (str (red (str "F3 — silent death; " summary "."))
-           " The lease/telemetry missed the death; trust the reactor verdict.")
+           " The lease/telemetry missed the death; trust the lifecycle-janitor verdict.")
       (= terminal-kind :stopped)
       (str (red (str "terminal execution did not succeed; " summary "."))
            (when online " The still-live lease is stale presence, not evidence of healthy execution."))
@@ -338,7 +338,7 @@
       (and on-roster (not terminal?) (not online))
       (str (red "F2/F3 — offline with NO completion signal.")
            (if lease " Lease lapsed but still present:" " Lease gone entirely (expired + reaped, or never leased):")
-           " if the transcript moved after the lease expiry → F2 (lapsed-but-alive): trust the transcript. Else it died silently — the reactor reaps it as died-unreported within 30min (confirm: `north show @agent:"
+           " if the transcript moved after the lease expiry → F2 (lapsed-but-alive): trust the transcript. Else it died silently — the lane lifecycle janitor reaps it as died-unreported within 30min (confirm: `north show @agent:"
            id "` for outcome=died-unreported).")
       (and (= lineage :sdk-lane) (not identity-complete))
       (red "F6 — SDK-lane missing identity facts: possible id-collision/aliasing, or writeAgentFacts failed. Check `north show @agent:<id>` for contradictory repos/goals.")
@@ -503,7 +503,7 @@
                                     (str " · notification: \"" (:reason death-notification) "\"")))
                        :died-unreported
                        (red (str (terminal-summary terminal-state delivery-state)
-                                 " (reactor-reaped silent death)"))
+                                 " (lifecycle-reaped silent death)"))
                        :stopped (red (terminal-summary terminal-state delivery-state))
                        (cond
                          (= :indeterminate (:resolution-status terminal-state))
@@ -525,8 +525,8 @@
         ;; 7 REAPING
         (let [stale-concern (first (filter #(and (= (:status %) "building")) concerns))
               detail (str (cond online "live — not reaped"
-                                terminal? (str "lease lapsed" (when (= terminal-kind :died-unreported) " · reactor reaped"))
-                                (nil? l) "no lease (lapsed + reaped, or never leased) — awaiting reactor verdict"
+                                terminal? (str "lease lapsed" (when (= terminal-kind :died-unreported) " · lifecycle reaped"))
+                                (nil? l) "no lease (lapsed + reaped, or never leased) — awaiting lifecycle-janitor verdict"
                                 :else (str "lease lapsed " (ago lapse) " — awaiting reap"))
                           (when (and stale-concern (not online))
                             (ylw (str " · concern still " (:status stale-concern) " (STALE)"))))]
