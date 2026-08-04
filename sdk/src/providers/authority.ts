@@ -130,45 +130,6 @@ export function formatProviderAuthoritySurface(surface: ProviderAuthoritySurface
       + `mcp tools=${list(surface.managedTools)}`;
 }
 
-/**
- * A lane that must coordinate, in a sandbox that forbids coordinating.
- *
- * `shell.readonly` selects Codex's read-only sandbox, which blocks `:7977`.
- * A lane holding `coordination` has to reach the coordinator — its dispatch
- * driver claim is a TCP call — so the two together cannot both be satisfied.
- * The lane does not fail fast: the claim HANGS until the 8s budget expires and
- * the operator sees a bare `spawnSync … ETIMEDOUT`.
- *
- * Confirmed by controlled experiment 2026-07-29 — same probe, same coordinator,
- * same minute: `scout` (read-only) died, `implementer` (workspace-write) ran.
- *
- * The contradiction is enforced from both ends in orchestration-staffing.ts:
- * the orchestrator ladder MUST hold `coordination`, and every non-authoring
- * role MUST be `shell.readonly`. So every orchestrator template is in this
- * state by construction, which is why Codex orchestration has never worked.
- *
- * This warns rather than refuses: resolving it is a capability-policy decision,
- * and an unattended guard that blocks every orchestrator spawn would be a
- * bigger change than the one it is reporting. Announced at spawn so the reason
- * is visible BEFORE the 8s wait, not only after it.
- */
-export function warnCoordinationUnderReadOnlySandbox(
-  operation: "spawn" | "dispatch",
-  surface: ProviderAuthoritySurface,
-): void {
-  if (surface.provider !== "openai") return;
-  if ((surface as OpenAIAuthoritySurface).sandbox !== "read-only") return;
-  if (!surface.capabilities.includes("coordination")) return;
-  console.warn(
-    `[${operation}] WARNING: this lane holds "coordination" but runs in Codex's `
-    + `read-only sandbox (from "shell.readonly"), which blocks :7977. Its `
-    + `dispatch-driver claim is a TCP call and will HANG until the 8s budget `
-    + `expires, surfacing as "spawnSync … ETIMEDOUT". Every orchestrator `
-    + `template is in this state. To coordinate on Codex the role needs a `
-    + `sandbox that permits loopback.`,
-  );
-}
-
 export function logProviderAuthoritySurface(
   operation: "spawn" | "dispatch",
   provider: ProviderId,
@@ -176,6 +137,5 @@ export function logProviderAuthoritySurface(
 ): ProviderAuthoritySurface {
   const surface = compileProviderAuthoritySurface(provider, options);
   console.log(`[${operation}] effective authority: ${formatProviderAuthoritySurface(surface)}`);
-  warnCoordinationUnderReadOnlySandbox(operation, surface);
   return surface;
 }

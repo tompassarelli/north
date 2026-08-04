@@ -108,6 +108,8 @@ test("attach replays a committed prefix, emits its barrier, then tails later rec
     () => attached.messages.some((message) => message.record?.kind === "session.idle"),
     "idle session",
   );
+  expect(attached.messages.find((message) => message.record?.kind === "session.idle")?.record.data)
+    .toEqual({ armed: true, disposition: "completed", pendingInputs: 0 });
   const liveIndex = attached.messages.findIndex((message) => message.record?.data?.text === "live");
   expect(liveIndex).toBeGreaterThan(barrierIndex);
   expect(attached.messages[liveIndex].record.seq).toBe(4);
@@ -137,6 +139,8 @@ test("a restarted northd replays terminal history from the journal without provi
   const original = launched.messages
     .filter((message) => message.type === "event")
     .map((message) => message.record);
+  expect(original.find((record) => record.kind === "session.idle")?.data)
+    .toEqual({ armed: true, disposition: "completed", pendingInputs: 0 });
   await first.close();
 
   let providerCalls = 0;

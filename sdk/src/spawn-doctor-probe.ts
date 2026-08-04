@@ -22,8 +22,11 @@ export interface PresetSandboxVerdict {
   topology: string;
   capabilities: string[];
   openai: "workspace-write" | "read-only" | "rejected";
-  /** Codex's read-only sandbox blocks :7977, so a coordinating lane cannot claim. */
-  coordinationUnderReadOnly: boolean;
+  /** A model-issued shell command cannot reach North from the read-only sandbox. */
+  directShellLoopback: "open" | "closed";
+  /** Coordination-capable Codex lanes call the required North MCP hosted outside the sandbox. */
+  coordinationTransport: "north-mcp-host" | "not-granted";
+  sandboxNetwork: "open" | "closed";
   rejection?: string;
 }
 
@@ -76,7 +79,11 @@ function presetSandboxVerdicts(): PresetSandboxVerdict[] {
       topology: preset.topology,
       capabilities,
       openai: rejection ? "rejected" : readOnly ? "read-only" : "workspace-write",
-      coordinationUnderReadOnly: !rejection && readOnly && capabilities.includes("coordination"),
+      directShellLoopback: readOnly ? "closed" : "open",
+      coordinationTransport: !rejection && capabilities.includes("coordination")
+        ? "north-mcp-host"
+        : "not-granted",
+      sandboxNetwork: readOnly ? "closed" : "open",
       ...(rejection ? { rejection } : {}),
     };
   });

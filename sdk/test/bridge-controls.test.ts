@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
 import { scanJournalFile } from "../src/bridge/journal";
-import type {
-  BridgeProviderExecution, BridgeProviderSession, NormalizedProviderEvent,
+import {
+  bridgeSystemPrompt, type BridgeProviderExecution, type BridgeProviderSession,
+  type NormalizedProviderEvent,
 } from "../src/bridge/provider";
 
 interface Client {
@@ -55,7 +56,10 @@ class ControlledSession implements BridgeProviderSession {
   private wake?: () => void;
   private ended = false;
 
-  constructor(private readonly onEffect?: (effect: string) => void) {}
+  constructor(
+    private readonly onEffect?: (effect: string) => void,
+    private readonly interruptFailure?: Error,
+  ) {}
 
   private effect(value: string): void {
     this.effects.push(value);
@@ -63,7 +67,10 @@ class ControlledSession implements BridgeProviderSession {
   }
 
   async submitInput(input: string): Promise<void> { this.effect(`submit:${input}`); }
-  async interruptTurn(): Promise<void> { this.effect("interrupt"); }
+  async interruptTurn(): Promise<void> {
+    this.effect("interrupt");
+    if (this.interruptFailure) throw this.interruptFailure;
+  }
   async terminateSession(): Promise<void> {
     if (this.ended) return;
     this.effect("terminate");
@@ -91,24 +98,59 @@ class ControlledSession implements BridgeProviderSession {
   }
 }
 
-async function fixture(onEffect?: (effect: string) => void) {
+async function fixture(
+  onEffect?: (effect: string) => void,
+  role?: "director" | "implementer",
+  interruptFailure?: Error,
+) {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-controls-"));
   const socketPath = join(root, "northd.sock");
   const journalRoot = join(root, "journal");
-  const session = new ControlledSession(onEffect);
+  const session = new ControlledSession(onEffect, interruptFailure);
   let opens = 0;
+  const openContexts: Array<Parameters<BridgeProviderExecution["open"]>[0]> = [];
   const provider: BridgeProviderExecution = {
-    async open() { opens += 1; return session; },
+    async open(context) { opens += 1; openContexts.push(context); return session; },
   };
   const northd = new Northd({ socketPath, journalRoot, provider });
   await northd.listen();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   cleanups.push(() => northd.close());
-  const launched = await client(socketPath, { op: "launch", prompt: "first", cwd: root });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "first", cwd: root, ...(role ? { role } : {}),
+  });
   await waitFor(() => launched.messages.some((message) => message.type === "launched"), "launch id");
   const executionId = launched.messages.find((message) => message.type === "launched").executionId;
-  return { root, socketPath, journalRoot, session, launched, executionId, opens: () => opens };
+  return {
+    root, socketPath, journalRoot, session, launched, executionId,
+    opens: () => opens, openContexts,
+  };
 }
+
+test("launch role defaults to implementer and an explicit director reaches the provider", async () => {
+  const worker = await fixture();
+  await waitFor(() => worker.openContexts.length === 1, "default worker provider open");
+  expect(worker.openContexts[0]?.role).toBe("implementer");
+  expect(scanJournalFile(join(worker.journalRoot, worker.executionId, "events.log")).records
+    .find((record) => record.kind === "execution.accepted")?.data.role).toBe("implementer");
+
+  const supervisor = await fixture(undefined, "director");
+  await waitFor(() => supervisor.openContexts.length === 1, "director provider open");
+  expect(supervisor.openContexts[0]?.role).toBe("director");
+  expect(scanJournalFile(join(supervisor.journalRoot, supervisor.executionId, "events.log")).records
+    .find((record) => record.kind === "execution.accepted")?.data.role).toBe("director");
+
+  const invalid = await client(supervisor.socketPath, {
+    op: "launch", prompt: "invalid", cwd: supervisor.root, role: "portfolio",
+  });
+  await invalid.closed;
+  expect(invalid.messages.at(-1)).toEqual({
+    type: "error", message: "bridge launch role must be director or implementer",
+  });
+
+  expect(bridgeSystemPrompt("director")).toContain("North MCP spawn and dispatch");
+  expect(bridgeSystemPrompt("implementer")).toContain("do not spawn or delegate");
+});
 
 test("queued input becomes a second turn on the same provider session", async () => {
   const f = await fixture();
@@ -129,6 +171,12 @@ test("queued input becomes a second turn on the same provider session", async ()
     () => f.launched.messages.filter((message) => message.record?.kind === "session.idle").length === 2,
     "second idle boundary",
   );
+  expect(f.launched.messages
+    .filter((message) => message.record?.kind === "session.idle")
+    .map((message) => message.record.data)).toEqual([
+    { armed: true, disposition: "completed", pendingInputs: 1 },
+    { armed: true, disposition: "completed", pendingInputs: 0 },
+  ]);
 });
 
 test("interrupt settles only the active turn and leaves the session attachable", async () => {
@@ -142,6 +190,8 @@ test("interrupt settles only the active turn and leaves the session attachable",
     () => f.launched.messages.some((message) => message.record?.kind === "session.idle"),
     "idle boundary",
   );
+  expect(f.launched.messages.find((message) => message.record?.kind === "session.idle")?.record.data)
+    .toEqual({ armed: true, disposition: "interrupted", pendingInputs: 0 });
   const attached = await client(f.socketPath, { op: "attach", executionId: f.executionId, cursor: 0 });
   await waitFor(() => attached.messages.some((message) => message.type === "barrier"), "attach barrier");
   expect(attached.socket.destroyed).toBe(false);
@@ -163,6 +213,28 @@ test("redirect-now interrupts, awaits the terminal boundary, then submits replac
   f.session.settle("interrupted");
   await waitFor(() => f.session.effects.length === 2, "replacement submission");
   expect(f.session.effects).toEqual(["interrupt", "submit:replacement"]);
+  expect(f.launched.messages.find((message) => message.record?.kind === "session.idle")?.record.data)
+    .toEqual({ armed: true, disposition: "interrupted", pendingInputs: 1 });
+});
+
+test("a rejected interrupt cannot mislabel a later normal terminal boundary", async () => {
+  for (const request of [
+    { op: "interruptTurn" },
+    { op: "redirectNow", input: "replacement" },
+  ] as const) {
+    const f = await fixture(undefined, undefined, new Error("interrupt rejected"));
+    const control = await client(f.socketPath, { ...request, executionId: f.executionId });
+    await control.closed;
+    expect(control.messages.at(-1)).toEqual({ type: "error", message: "interrupt rejected" });
+
+    f.session.settle("completed normally");
+    await waitFor(
+      () => f.launched.messages.some((message) => message.record?.kind === "session.idle"),
+      "normal idle boundary",
+    );
+    expect(f.launched.messages.find((message) => message.record?.kind === "session.idle")?.record.data)
+      .toEqual({ armed: true, disposition: "completed", pendingInputs: 0 });
+  }
 });
 
 test("each control command is committed to the journal before its provider effect", async () => {
@@ -191,6 +263,10 @@ test("each control command is committed to the journal before its provider effec
     () => f.launched.messages.filter((message) => message.record?.kind === "session.idle").length === 2,
     "second idle boundary",
   );
+  expect(f.launched.messages
+    .filter((message) => message.record?.kind === "session.idle")
+    .map((message) => message.record.data.disposition))
+    .toEqual(["interrupted", "completed"]);
 
   const terminate = await client(f.socketPath, { op: "terminateSession", executionId: f.executionId });
   await terminate.closed;

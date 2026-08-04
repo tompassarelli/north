@@ -932,27 +932,16 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
   expect(() => { canonical.env.AGENT_TOPOLOGY = undefined; }).toThrow();
 });
 
-test("the executable Codex adapter refuses managed orchestrator authority", () => {
-  const orchestrator = harnessOptions({
+test("the executable Codex adapter admits exact managed orchestrator authority", () => {
+  const options = harnessOptions({
     self: "openai-orchestrator-admission-proof",
     provider: "openai",
     cwd: northRoot,
     routingMetadata: applyOrchestrationStaffing({ role: "director" }),
     presenceRegistrar: false,
   }) as any;
-  // Coordination needs :7977, which the Codex sandbox blocks: refuse the
-  // authority compile rather than hand the lane an unreachable coordinator.
-  expect(() => codexHarnessArguments(orchestrator))
-    .toThrow("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
-  // A read-only, web-declaring WORKER keeps the same compiled feature surface.
-  const worker = harnessOptions({
-    self: "openai-readonly-web-worker-proof",
-    provider: "openai",
-    cwd: northRoot,
-    routingMetadata: applyOrchestrationStaffing({ role: "analyst" }),
-    presenceRegistrar: false,
-  }) as any;
-  expect(codexHarnessArguments(worker)).toEqual(expectedCodexFeatureArgs(true));
+  // director: read-only and web-declaring, like every orchestrator template.
+  expect(codexHarnessArguments(options)).toEqual(expectedCodexFeatureArgs(true));
 });
 
 test("managed executable resolution fails retry-safe before onRoute or query construction", async () => {

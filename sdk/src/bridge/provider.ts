@@ -1,3 +1,5 @@
+import type { BridgeLaunchRole } from "./protocol";
+
 export interface NormalizedProviderEvent {
   kind: string;
   data: Record<string, unknown>;
@@ -13,8 +15,20 @@ export interface BridgeProviderSession {
 
 export interface BridgeProviderExecution {
   open(
-    context: { executionId: string; prompt: string; cwd: string; signal: AbortSignal },
+    context: {
+      executionId: string;
+      prompt: string;
+      cwd: string;
+      role: BridgeLaunchRole;
+      signal: AbortSignal;
+    },
   ): Promise<BridgeProviderSession>;
+}
+
+export function bridgeSystemPrompt(role: BridgeLaunchRole): string {
+  return role === "director"
+    ? "You are the North Bridge supervisor. Use the host-provided North MCP spawn and dispatch tools to coordinate the attached operator request; do not run North coordination commands through the sandboxed shell."
+    : "You are a North Bridge implementation worker. Complete the attached operator request in the assigned workspace and report the result; do not spawn or delegate other agents.";
 }
 
 class InputChannel implements AsyncIterable<string> {
@@ -106,7 +120,7 @@ export const codexBridgeProvider: BridgeProviderExecution = {
       import("../orchestration-staffing"),
       import("../providers/openai"),
     ]);
-    const routingMetadata = applyOrchestrationStaffing({ role: "implementer" });
+    const routingMetadata = applyOrchestrationStaffing({ role: context.role });
     const abortController = new AbortController();
     const options = harnessOptions({
       self: `bridge-${context.executionId}`,
@@ -118,7 +132,7 @@ export const codexBridgeProvider: BridgeProviderExecution = {
       model: process.env.NORTH_BRIDGE_MODEL,
       presenceRegistrar: false,
       presenceRenewer: false,
-      systemPrompt: "You are a North Bridge execution. Complete the attached operator request.",
+      systemPrompt: bridgeSystemPrompt(context.role),
       abortController,
     });
     await openaiProvider.admit?.({ options });
