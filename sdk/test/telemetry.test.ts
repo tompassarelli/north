@@ -11,6 +11,10 @@ import { makeStruggleObserver, resolveStrugglePolicy } from "../src/struggle";
 import {
   providerJoinEvidence, providerSessionKey, providerTurnKey,
 } from "../src/providers/provider-join";
+import {
+  assignLearningEpisode, DEFAULT_LEARNING_POLICY, learningAssignmentFacts,
+} from "../src/learning-regime";
+import { sha256Bytes } from "../src/composition-receipt";
 
 // Mirror of the fram coord_daemon log-split contract (coord_daemon.clj
 // subject-token + default-telemetry-kinds). A subject routes to telemetry.log
@@ -154,7 +158,16 @@ test("dispatch estimate capture accepts one positive estimate and rejects malfor
 });
 
 test("recurring canaries retain only their reliability roll-up projection", () => {
-  const facts = runFacts({
+  const learningAssignment = assignLearningEpisode(DEFAULT_LEARNING_POLICY, {
+    episodeId: "canary-episode",
+    taskSignatureSha256: sha256Bytes("canary-task"),
+    taskSignatureCoverage: "exact",
+    baseline: {
+      modelTier: "economy", effort: "low", prompt: "baseline",
+      authoring: "text", history: "git",
+    },
+  });
+  const recurringCanary = {
     thread: "@canary-thread", agent: "lane-canary", durationMs: 250,
     posture: "spawn", outcome: "ran", processOutcome: "ran",
     provider: "openai", providerTarget: "codex-personal",
@@ -171,19 +184,26 @@ test("recurring canaries retain only their reliability roll-up projection", () =
       detail: "recurring-cross-provider-canary:@canary-thread",
       pins: [{ kind: "provider", value: "openai" }],
     },
-  } as any);
+  } as any;
+  const facts = runFacts({ ...recurringCanary, learningAssignment });
 
   const predicates = new Set(facts.map(([predicate]) => predicate));
-  expect(facts).toHaveLength(18);
-  expect(predicates).toEqual(new Set([
+  const reliabilityPredicates = new Set([
     "kind", "thread", "agent", "agent_run_ledger_version", "run_event_status",
     "duration_ms", "posture", "outcome", "at", "process_outcome",
     "provider", "provider_target", "delivery_outcome", "delivery_reason",
     "delivery_evidence", "delivery_evidence_sha256",
     "routing_pin_reason_code", "routing_pin_detail",
-  ]));
+  ]);
+  const assignmentPredicates = new Set(
+    learningAssignmentFacts(learningAssignment).map(([predicate]) => predicate),
+  );
+  expect(facts).toHaveLength(reliabilityPredicates.size + assignmentPredicates.size);
+  expect(predicates).toEqual(new Set([...reliabilityPredicates, ...assignmentPredicates]));
   expect(predicates.has("routing_assessment_policy")).toBe(false);
   expect(predicates.has("prompt_composition_applied")).toBe(false);
+  expect(new Set(runFacts(recurringCanary).map(([predicate]) => predicate)))
+    .toEqual(reliabilityPredicates);
 });
 
 test("a @run model fact is canonicalized at write, never a bare family alias", () => {

@@ -97,9 +97,15 @@ function isRecurringCanary(rec: RunRecord): boolean {
 }
 
 function retainedTelemetryFacts(rec: RunRecord, facts: Array<[string, string]>): Array<[string, string]> {
-  return isRecurringCanary(rec)
-    ? facts.filter(([predicate]) => CANARY_FACT_PREDICATES.has(predicate))
-    : facts;
+  if (!isRecurringCanary(rec)) return facts;
+  // The run writer requires the terminal payload to repeat the exact immutable
+  // assignment already committed before provider execution.
+  const predicates = new Set(CANARY_FACT_PREDICATES);
+  if (rec.learningAssignment) {
+    for (const [predicate] of learningAssignmentFacts(rec.learningAssignment))
+      predicates.add(predicate);
+  }
+  return facts.filter(([predicate]) => predicates.has(predicate));
 }
 
 export interface RunRecord {
