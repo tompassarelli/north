@@ -1,5 +1,5 @@
 // The provider-neutral harness contract. One place builds the query Options that
-// both the Claude SDK and Codex adapter consume, so graph tools, Orchestration authority,
+// both the Claude SDK and Codex adapter consume, so coordination tools, Orchestration authority,
 // topology enforcement, reasoning, model calibration, and system instructions
 // stay identical across dispatch.ts and spawn.ts.
 //
@@ -29,12 +29,8 @@ import {
 import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import {
-  graphTextExperimentCapabilities, hasAuthoringCapability, type OrchestrationCapability,
+  hasAuthoringCapability, type OrchestrationCapability,
 } from "./orchestration-capabilities";
-import type { GraphTextExperimentAssignment } from "./learning-regime";
-import {
-  FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOLS, framMcpServer,
-} from "./fram-graph-authoring";
 import {
   BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION,
   bespokeContractFingerprint, canonicalOrchestrationCapabilities,
@@ -275,7 +271,6 @@ const CAPABILITY_TOOLS: Record<OrchestrationCapability, string[]> = {
   "shell.readonly": [READONLY_SHELL_TOOL],
   web: ["WebSearch", "WebFetch"],
   coordination: ORCHESTRATION_TOOLS,
-  [FRAM_GRAPH_AUTHORING_CAPABILITY]: [...FRAM_MCP_TOOLS],
 };
 const ALL_CAPABILITY_TOOLS = [...new Set(Object.values(CAPABILITY_TOOLS).flat())];
 
@@ -376,10 +371,6 @@ export interface HarnessOpts {
     receipt?: ProviderModelAdmissionReceipt;
   };
   cwd?: string; // provider working directory; dispatch resolves this from thread repo facts, spawn from opt-in worktree provisioning
-  /** Spawn-provisioned worktree: graph authoring must use its prepared local coordinator. */
-  managedWorktree?: boolean;
-  /** Pre-provider deterministic graph/text assignment, already fenced on @run. */
-  graphTextExperiment?: GraphTextExperimentAssignment;
   /** Capability-bound delivery context reserved before provider execution. */
   deliveryRun?: {
     runId: string;
@@ -1704,10 +1695,10 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // the interactive matchers run and translate their output into HookJSONOutput.
 // PARITY SOURCE: ~/code/nixos-config/dotfiles/claude/settings.json (PreToolUse). These
 // lists are the POST-parity target; keep both in lockstep with settings.json.
-//   Edit|Write|MultiEdit -> code-upstream, firn
+//   Edit|Write|MultiEdit -> firn
 //   Bash                 -> tripwire, firn
 const EDIT_GUARDS = resolveManagedGuardChain([
-  "code-upstream-guard.sh", "firn-guard.sh",
+  "firn-guard.sh",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
   "tripwire-guard.sh", "firn-guard.sh",
@@ -1834,16 +1825,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     : o.model;
   const topology = metadata?.topology;
   const orchestration = orchestrationAppendix(metadata, cwd, composerEnvironment);
-  const capabilities = orchestration.evidence.capabilities
-    ? graphTextExperimentCapabilities(
-      orchestration.evidence.capabilities, o.graphTextExperiment,
-    ) : undefined;
-  const experimentAppendix = o.graphTextExperiment?.status === "assigned"
-    ? `\n\n## Graph/text experiment arm\nSession arm: ${o.graphTextExperiment.arm}. `
-      + (o.graphTextExperiment.arm === "graph"
-        ? "Use the mounted Fram reasoning and authoring verbs where the task fits."
-        : "No Fram graph session verbs are mounted; use the ordinary text surface.")
-    : "";
+  const capabilities = orchestration.evidence.capabilities;
   // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
   // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
@@ -1915,7 +1897,6 @@ export function harnessOptions(o: HarnessOpts): Options {
     ? undefined
     : o.presenceRenewer ?? (o.presenceRegistrar === undefined ? renewPresence : undefined);
   const readonlyShell = capabilities?.includes("shell.readonly") === true;
-  const graphAuthoring = capabilities?.includes(FRAM_GRAPH_AUTHORING_CAPABILITY) === true;
   const northMcpEnv = Object.freeze(
     managedNorthMcpEnvironment({ ...childEnv, NORTH_BIN: ENGINE }),
   );
@@ -1935,9 +1916,6 @@ export function harnessOptions(o: HarnessOpts): Options {
     // denied native Bash plus North's isolated read-only shell.
     ...(readonlyShell
       ? { [READONLY_SHELL_SERVER]: Object.freeze(readonlyShellServer(cwd, childEnv)) }
-      : {}),
-    ...(graphAuthoring
-      ? { fram: framMcpServer(cwd, o.managedWorktree === true) }
       : {}),
   });
   const sealedTools = policy
@@ -1965,7 +1943,7 @@ export function harnessOptions(o: HarnessOpts): Options {
   const compositionSeed: HarnessCompositionState = {
     self: o.self,
     basePrompt,
-    orchestrationAppendix: orchestration.appendix + experimentAppendix,
+    orchestrationAppendix: orchestration.appendix,
     capabilities: capabilities ? [...capabilities] : undefined,
     cwd,
     evidence: { ...orchestration.evidence, capabilities, environmentReceipt },
@@ -2003,9 +1981,6 @@ export function harnessOptions(o: HarnessOpts): Options {
       northCapabilities: Object.freeze([...capabilities]) as unknown as OrchestrationCapability[],
     } : {}),
     ...(metadata ? { northRoutingRequest: metadata } : {}),
-    ...(o.graphTextExperiment ? {
-      northGraphTextExperiment: deepFreeze({ ...o.graphTextExperiment }),
-    } : {}),
     cwd,
     systemPrompt: initialSystemPrompt,
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),

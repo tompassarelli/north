@@ -17,7 +17,6 @@ printf '%s\n' 'dispatch=native' 'guards=on' >"$STATE"
 
 hooks=(
   agent-spawn-guard.sh
-  code-upstream-guard.sh
   firn-guard.sh
   launch-critical-worktree-guard.sh
   git-blind-stage-guard.sh
@@ -60,12 +59,6 @@ envelopes = {
             "subagent_type": "general-purpose",
             "prompt": "transport allow",
         },
-        "cwd": plain,
-    },
-    "code-upstream-guard.sh": {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Edit",
-        "tool_input": {"file_path": target},
         "cwd": plain,
     },
     "firn-guard.sh": {
@@ -152,7 +145,6 @@ env.update({
     "HOME": home,
     "NORTH_HOME": os.path.abspath(os.path.join(os.path.dirname(hook), "../../..")),
     "NORTH_HARNESS_STATE": state,
-    "GRAPH_UPSTREAM_REGISTRY": os.path.join(home, "missing-registry"),
     "BEAGLE_SESSION_STATE_DIR": os.path.join(home, "session-state"),
     "AGENT_TOPOLOGY": "orchestrator",
 })
@@ -243,23 +235,6 @@ if jq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$agent_out" >/de
 else
   fail=$((fail + 1))
   printf '%s\n' 'FAIL  agent-spawn-guard.sh decision changed'
-fi
-
-canonical="$PLAIN_DIR/canonical.bclj"
-touch "$canonical"
-printf '%s\n' "$canonical" >"$SCRATCH/graph-registry"
-upstream_out="$(
-  python3 -c 'import json,sys; print(json.dumps({"tool_name":"Edit","tool_input":{"file_path":sys.argv[1]}}))' "$canonical" |
-    env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" AGENT_NO_AUTHORING_HOOKS=0 \
-      GRAPH_UPSTREAM_REGISTRY="$SCRATCH/graph-registry" \
-      "$HERE/code-upstream-guard.sh"
-)"
-if jq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$upstream_out" >/dev/null; then
-  pass=$((pass + 1))
-  printf '%s\n' 'PASS  code-upstream-guard.sh decision remains deny'
-else
-  fail=$((fail + 1))
-  printf '%s\n' 'FAIL  code-upstream-guard.sh decision changed'
 fi
 
 firn_out="$(

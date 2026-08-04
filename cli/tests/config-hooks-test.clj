@@ -51,8 +51,7 @@
     (check "list succeeds" (zero? (:exit listed)))
     (check "list renders every registered hook"
            (every? #(str/includes? (:out listed) %)
-                   ["code-upstream-guard" "firn-guard"
-                    "launch-critical-worktree-guard" "git-blind-stage-guard"
+                   ["firn-guard" "launch-critical-worktree-guard" "git-blind-stage-guard"
                     "tripwire-guard" "agent-spawn-guard"
                     "racket-build-guard" "logcompress-hook"
                     "beagle-session-start" "north-session-end" "hook-detach"]))
@@ -70,12 +69,12 @@
     (check "invalid deny-hook TTL is rejected" (not (zero? (:exit bad))))
     (check "invalid TTL does not write state" (nil? (stored "hooks.hook.agent-spawn-guard"))))
 
-  (let [defaulted (run-cli "off" "code-upstream-guard")]
+  (let [defaulted (run-cli "off" "firn-guard")]
     (check "deny hook disable defaults to a TTL" (zero? (:exit defaulted)))
     (check "default deny-hook TTL is stored canonically"
            (boolean
             (re-matches #"off:until=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
-                        (or (stored "hooks.hook.code-upstream-guard") "")))))
+                        (or (stored "hooks.hook.firn-guard") "")))))
 
   (let [disabled (run-cli "off" "agent-spawn-guard" "--until" "2099-01-01T00:00:00Z")]
     (check "deny hook disable succeeds with TTL" (zero? (:exit disabled)))

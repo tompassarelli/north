@@ -1,13 +1,7 @@
-import { accessSync, constants, statSync } from "node:fs";
-import { join } from "node:path";
 import {
   CODEX_MANAGED_HOOKS_DIR, CODEX_MANAGED_REQUIREMENTS, reportManagedCodexHookInstallation,
   type ManagedCodexHookReport,
 } from "./providers/codex-managed-hooks";
-import {
-  FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOL_NAMES, FRAM_MCP_SERVER,
-  graphAuthoringRoot,
-} from "./fram-graph-authoring";
 import { loadOrchestrationStaffing } from "./orchestration-staffing";
 import { providerCapabilityRejectionCode } from "./orchestration-capabilities";
 
@@ -30,43 +24,10 @@ export interface PresetSandboxVerdict {
   rejection?: string;
 }
 
-export interface GraphAuthoringProbe {
-  capability: string;
-  server: string;
-  /** Tool names North grants a graph-authoring lane; the server must advertise all of them. */
-  declaredTools: string[];
-  framHome: string | null;
-  beagleHome: string | null;
-  rootsError?: string;
-  framMcpCommand?: string;
-  framMcpExecutable?: boolean;
-  framDaemonCommand?: string;
-  framDaemonExecutable?: boolean;
-  checkouts: Array<{ name: string; path: string; exists: boolean; isGitCheckout: boolean }>;
-}
-
 export interface SpawnDoctorProbe {
   schema: "north:spawn-doctor-probe:v1";
   managedCodexHooks: ManagedCodexHookReport;
   presets: PresetSandboxVerdict[];
-  graphAuthoring: GraphAuthoringProbe;
-}
-
-function executable(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK);
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function directory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 function presetSandboxVerdicts(): PresetSandboxVerdict[] {
@@ -89,43 +50,6 @@ function presetSandboxVerdicts(): PresetSandboxVerdict[] {
   });
 }
 
-function graphAuthoringProbe(): GraphAuthoringProbe {
-  const base: GraphAuthoringProbe = {
-    capability: FRAM_GRAPH_AUTHORING_CAPABILITY,
-    server: FRAM_MCP_SERVER,
-    declaredTools: [...FRAM_MCP_TOOL_NAMES],
-    // Same resolver the real spawn path uses, so a bare env reports the
-    // standard-layout default rather than a wall the lane would not hit.
-    framHome: graphAuthoringRoot("NORTH_FRAM_HOME") ?? null,
-    beagleHome: graphAuthoringRoot("NORTH_BEAGLE_HOME") ?? null,
-    checkouts: [],
-  };
-  if (!base.framHome || !base.beagleHome) {
-    const missing = [
-      !base.framHome && "NORTH_FRAM_HOME", !base.beagleHome && "NORTH_BEAGLE_HOME",
-    ].filter(Boolean).join(", ");
-    return { ...base, rootsError: `graph_authoring_fram_roots_unset: missing ${missing}` };
-  }
-  const framMcpCommand = join(base.framHome, "bin", "fram-mcp");
-  const framDaemonCommand = join(base.framHome, "bin", "fram-daemon");
-  return {
-    ...base,
-    framMcpCommand,
-    framMcpExecutable: executable(framMcpCommand),
-    framDaemonCommand,
-    framDaemonExecutable: executable(framDaemonCommand),
-    checkouts: [
-      { name: "NORTH_FRAM_HOME", path: base.framHome },
-      { name: "NORTH_BEAGLE_HOME", path: base.beagleHome },
-    ].map(({ name, path }) => ({
-      name,
-      path,
-      exists: directory(path),
-      isGitCheckout: directory(join(path, ".git")) || executable(join(path, ".git")),
-    })),
-  };
-}
-
 export function spawnDoctorProbe(): SpawnDoctorProbe {
   return {
     schema: "north:spawn-doctor-probe:v1",
@@ -137,7 +61,6 @@ export function spawnDoctorProbe(): SpawnDoctorProbe {
       expectedOwnerUid: 0,
     }),
     presets: presetSandboxVerdicts(),
-    graphAuthoring: graphAuthoringProbe(),
   };
 }
 

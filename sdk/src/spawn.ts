@@ -123,7 +123,7 @@ import {
   orchestrationCapabilities,
 } from "./orchestration-staffing";
 import {
-  graphTextExperimentCapabilities, hasAuthoringCapability,
+  hasAuthoringCapability,
 } from "./orchestration-capabilities";
 import { refreshAccountUsages } from "./account-usage";
 import {
@@ -164,10 +164,6 @@ import {
 import {
   ManagedQueryTermination, type HostTerminationRegistrar,
 } from "./query-lifecycle";
-import {
-  managedFramLaneSourceConfiguration,
-  prepareManagedFramCoordinator,
-} from "./fram-graph-authoring";
 import { decideManagedLearning } from "./managed-learning";
 import type { LearningAssignment } from "./learning-regime";
 import {
@@ -229,7 +225,6 @@ interface SpawnRuntime {
    * fixture owns PATH. Production never injects. */
   admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
   worktreeAllocationWriter?: WorktreeAllocationWriter;
-  prepareManagedFramCoordinator?: typeof prepareManagedFramCoordinator;
   publishLearningAssignment?: (
     runId: string, assignment: LearningAssignment,
   ) => Promise<LearningAssignmentPublicationStatus>;
@@ -313,7 +308,7 @@ export function eligibleForLaneStartProviderRetry(
  *    preflight block, stall, cap, or resource-envelope refusal;
  *  - topology is worker — an orchestrator's live child obligations make retry
  *    semantics wrong (a fresh run cannot honestly re-inherit them);
- *  - the lane's capability surface is read-only (no filesystem.write/shell/Fram graph authoring) —
+ *  - the lane's capability surface is read-only (no filesystem.write or shell) —
  *    a writable lane may already have mutated the checkout, so re-running it
  *    is unsafe.
  */
@@ -402,7 +397,6 @@ async function runSpawn(
   injected: SpawnRuntime = {},
   termination: ManagedQueryTermination = new ManagedQueryTermination(),
   worktreeLease?: ManagedWorktreeLease,
-  providerReady?: Promise<void>,
   retryContext?: RetryContext,
   retryTarget?: string,
   learningAssignment?: LearningAssignment,
@@ -415,9 +409,7 @@ async function runSpawn(
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
   const routingMetadata = opts.routingMetadata;
-  const capabilities = graphTextExperimentCapabilities(
-    orchestrationCapabilities(routingMetadata), learningAssignment?.graphTextExperiment,
-  );
+  const capabilities = orchestrationCapabilities(routingMetadata);
   const requested = { provider: opts.provider, target: opts.target,
     tier: opts.tier, model: opts.model, effort: opts.effort };
   const agentId = opts.agentId ?? createSpawnAgentId();
@@ -699,12 +691,6 @@ async function runSpawn(
   let pendingResume: string | undefined;
   let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   try {
-  // A graph lane publishes its structured startup identity while the detached
-  // coordinator replays the lane log. Provider construction remains fenced
-  // until that coordinator is ready, so the dispatcher can release ownership
-  // without racing a boot whose bounded timeout is intentionally much longer
-  // than the startup acknowledgement window.
-  await providerReady;
   termination.throwIfTerminated();
   console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
   // Reserve only at the last pre-provider seam. Earlier routing/admission
@@ -768,8 +754,6 @@ async function runSpawn(
     abortController: termination.abortController,
     role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
-    managedWorktree: wt !== undefined,
-    graphTextExperiment: learningAssignment.graphTextExperiment,
     deliveryRun: deliveryReservationReady ? runContext : undefined,
   });
   injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
@@ -1608,7 +1592,6 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     routingMetadata: composed.routingMetadata,
     routingAssessment: composed.routingEconomics.assessment,
     pinEvidence: composed.routingEconomics.pinEvidence,
-    graphTextExperimentEligible: true,
   });
   composed.routingMetadata = learning.routingMetadata;
   composed.routingAssessment = learning.routingAssessment;
@@ -1704,61 +1687,11 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     // Each attempt gets its OWN shallow copy: runSpawn resolves opts.model/
     // opts.effort onto its argument in place, and a retry must re-resolve from
     // the original request, not inherit the prior attempt's pinned resolution.
-    let attempt: Awaited<ReturnType<typeof runSpawn>>;
-    if (worktreeLease
-        && requestedCapabilities.includes("graph-authoring.fram")) {
-      let releaseProvider!: () => void;
-      let rejectProvider!: (error: unknown) => void;
-      const providerReady = new Promise<void>((resolve, reject) => {
-        releaseProvider = resolve;
-        rejectProvider = reject;
-      });
-      const attemptPromise = runSpawn(
-        { ...composed }, judgmentGrade, strugglePolicy,
-        admission, injected, termination, worktreeLease, providerReady,
-        undefined, undefined, learning.assignment, lifecycleJournal,
-      );
-      // Coordinator boot can outlive the caller's startup handshake. Retain the
-      // attempt concurrently so identity publication happens first, while this
-      // branch owns readiness and releases provider construction exactly once.
-      // The original promise is still awaited below, so this handler does not
-      // replace its rejection. It makes a genuine pre-readiness runSpawn
-      // failure visible immediately instead of leaving coordinator teardown as
-      // the first and only line in the durable lane log.
-      void attemptPromise.catch((error) => {
-        console.error(
-          `[spawn] @agent:${agentId} pre-provider attempt failed while the `
-          + `worktree-local Fram coordinator was booting: ${causeChain(error)}`,
-        );
-      });
-      try {
-        const coordinator = await (
-          injected.prepareManagedFramCoordinator ?? prepareManagedFramCoordinator
-        )({
-          worktree: worktreeLease.path,
-          ...managedFramLaneSourceConfiguration(
-            worktreeLease.path,
-            worktreeLease.repoRoot,
-          ),
-          signal: termination.signal,
-        });
-        termination.attachResource(coordinator);
-        console.log(
-          `[spawn] @agent:${agentId} worktree-local Fram coordinator `
-          + `pid=${coordinator.pid} port=${coordinator.codePort} log=${coordinator.codeLog}`,
-        );
-        releaseProvider();
-      } catch (error) {
-        rejectProvider(error);
-      }
-      attempt = await attemptPromise;
-    } else {
-      attempt = await runSpawn(
-        { ...composed }, judgmentGrade, strugglePolicy,
-        admission, injected, termination, worktreeLease,
-        undefined, undefined, undefined, learning.assignment, lifecycleJournal,
-      );
-    }
+    let attempt = await runSpawn(
+      { ...composed }, judgmentGrade, strugglePolicy,
+      admission, injected, termination, worktreeLease,
+      undefined, undefined, learning.assignment, lifecycleJournal,
+    );
     let retries = 0;
     // The lane whose identity is terminal-committed by the attempt that just
     // finished; a retry mints a FRESH agent id rather than reusing it. Terminal
@@ -1789,7 +1722,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       lifecycleJournal = openLifecycleJournal(retryAgentId, deadAgentId);
       attempt = await runSpawn(
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
-        admission, injected, termination, worktreeLease, undefined,
+        admission, injected, termination, worktreeLease,
         { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
         learning.assignment, lifecycleJournal,
       );

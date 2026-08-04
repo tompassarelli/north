@@ -1,14 +1,12 @@
 import { ProviderRetrySafeError, type ProviderId } from "./types";
 import type { LiveInputCapability } from "./types";
 import type { OrchestrationCapability } from "../orchestration-capabilities";
-import { graphTextExperimentCapabilities } from "../orchestration-capabilities";
 import { orchestrationCapabilities } from "../orchestration-staffing";
 import { admitPinnedProvider } from "../execution-admission";
 import { admitRoutingRequest } from "../routing-admission";
 import {
   COORDINATION_TOOLS, ORCHESTRATION_TOOLS, hasCanonicalHarnessAuthority, managedToolPolicy,
 } from "../harness";
-import { FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_TOOLS } from "../fram-graph-authoring";
 import { managedCodexNetworkPolicy } from "./codex-network-policy";
 
 function bareNorthTool(toolName: string): string | undefined {
@@ -40,8 +38,7 @@ export interface OpenAIAuthoritySurface extends AuthoritySurfaceBase {
   /**
    * Every MCP tool the managed Codex session may call, fully qualified — the
    * same shape the Anthropic surface logs as `managedTools`. Codex enforces
-   * per-server `enabled_tools`, so this is the union of the North grant and
-   * (only under graph-authoring.fram) the sealed fram graph-edit verbs.
+   * per-server `enabled_tools`, so this is the fully qualified North grant.
    */
   managedTools: readonly string[];
 }
@@ -65,12 +62,10 @@ export function compileProviderAuthoritySurface(
   const request = admitRoutingRequest(
     options.northRoutingRequest, `${provider} authority compiler`,
   );
-  const expectedCapabilities = graphTextExperimentCapabilities(
-    orchestrationCapabilities(request), options.northGraphTextExperiment,
-  );
+  const expectedCapabilities = orchestrationCapabilities(request);
   const suppliedCapabilities = options.northCapabilities as readonly OrchestrationCapability[];
   if (JSON.stringify(expectedCapabilities) !== JSON.stringify(suppliedCapabilities))
-    throw new ProviderRetrySafeError(`${provider}_graph_text_experiment_authority_mismatch`);
+    throw new ProviderRetrySafeError(`${provider}_orchestration_authority_mismatch`);
   const capabilities = Object.freeze([...suppliedCapabilities]);
   // A surface is evidence of executable authority, not a requested wish list.
   // Reject provider-inexpressible shapes before any caller can log or persist
@@ -90,10 +85,9 @@ export function compileProviderAuthoritySurface(
       sandbox: capabilities.includes("shell.readonly") ? "read-only" : "workspace-write",
       web: capabilities.includes("web") ? "cached" : "disabled",
       northEnabledTools,
-      managedTools: Object.freeze([
-        ...northEnabledTools.map((name) => `mcp__north__${name}`),
-        ...(capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY) ? FRAM_MCP_TOOLS : []),
-      ]),
+      managedTools: Object.freeze(
+        northEnabledTools.map((name) => `mcp__north__${name}`),
+      ),
     });
   }
   const policy = managedToolPolicy(capabilities);

@@ -42,10 +42,6 @@ import type { TerminalTokenUsage } from "../usage";
 import {
   McpActivityAccumulator, mcpReceiptMetadata, normalizeCodexMcpIdentity, type McpActivityObservation,
 } from "../tool-activity";
-import {
-  FRAM_GRAPH_AUTHORING_CAPABILITY, FRAM_MCP_SERVER, FRAM_MCP_TOOL_NAMES,
-  hasCanonicalFramMcpServer,
-} from "../fram-graph-authoring";
 import type { OpenAIAuthoritySurface } from "./authority";
 import {
   assertInstalledManagedCodexHooks, expectedManagedCodexHooks,
@@ -68,9 +64,8 @@ const RPC_TIMEOUT_MS = 20_000;
 // finite, but allow legitimate large tool/result messages within our existing
 // 32 MiB cumulative transport budget.
 const MAX_LINE_BYTES = 8 * 1024 * 1024;
-// 128 MiB: a single atomic graph edit-transaction (36 ops with rendered
-// diffs) exceeded 32 MiB cumulative and killed an otherwise-clean lane
-// mid-verification (2026-07-28, rt_core annotation salvage).
+// Large mutating tool results can exceed the default transport budget, so the
+// cumulative ceiling remains higher than the per-frame limit.
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const MAX_FRAMES = 20_000;
 const MAX_INVENTORY_PAGES = 32;
@@ -258,7 +253,6 @@ export interface ManagedCodexAppServerOptions {
   developerInstructions: string;
   surface: OpenAIAuthoritySurface;
   north: ManagedCodexNorthServer;
-  fram?: ManagedCodexNorthServer;
   timeoutMs?: number;
   /** Overall bound on one turn; defaults to NORTH_CODEX_TURN_DEADLINE_MS. */
   turnDeadlineMs?: number;
@@ -742,29 +736,6 @@ export function managedCodexAppServerLaunch(
   };
 
   const northEnv = managedNorthMcpEnvironment(options.north.env);
-  const graphAuthoring = options.surface.capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY);
-  if (graphAuthoring
-    ? !options.fram || !hasCanonicalFramMcpServer({
-      type: "stdio",
-      command: options.fram.command,
-      args: options.fram.args,
-      env: options.fram.env,
-    }, options.cwd)
-    : options.fram !== undefined) {
-    throw new ManagedCodexPreThreadError("openai_managed_fram_mcp_contract_missing");
-  }
-  const framConfig = options.fram
-    ? {
-      [FRAM_MCP_SERVER]: {
-        command: options.fram.command,
-        args: options.fram.args,
-        env: options.fram.env,
-        enabled: true,
-        required: true,
-        enabled_tools: [...FRAM_MCP_TOOL_NAMES],
-      },
-    }
-    : {};
   const network = managedCodexNetworkPolicy(options.surface);
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true] as const),
@@ -803,7 +774,6 @@ export function managedCodexAppServerLaunch(
         required: true,
         enabled_tools: options.surface.northEnabledTools,
       },
-      ...framConfig,
     },
     web_search: options.surface.web,
     features: sessionFeatures,
@@ -829,14 +799,6 @@ export function managedCodexAppServerLaunch(
     "-c", "mcp_servers.north.enabled=true",
     "-c", "mcp_servers.north.required=true",
     "-c", `mcp_servers.north.enabled_tools=${JSON.stringify(options.surface.northEnabledTools)}`,
-    ...(options.fram ? [
-      "-c", `mcp_servers.${FRAM_MCP_SERVER}.command=${JSON.stringify(options.fram.command)}`,
-      "-c", `mcp_servers.${FRAM_MCP_SERVER}.args=${JSON.stringify(options.fram.args)}`,
-      "-c", `mcp_servers.${FRAM_MCP_SERVER}.env=${tomlStringMap(options.fram.env)}`,
-      "-c", `mcp_servers.${FRAM_MCP_SERVER}.enabled=true`,
-      "-c", `mcp_servers.${FRAM_MCP_SERVER}.required=true`,
-      "-c", `mcp_servers.${FRAM_MCP_SERVER}.enabled_tools=${JSON.stringify(FRAM_MCP_TOOL_NAMES)}`,
-    ] : []),
     "-c", `web_search=${JSON.stringify(options.surface.web)}`,
     ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
     ...managedCodexNetworkArguments(options.surface),
@@ -1431,32 +1393,16 @@ function validateHooks(response: unknown, cwd: string): void {
   exact(rows, expectedHookRows(), "Codex managed hook inventory");
 }
 
-/**
- * One MCP server North expects the managed session to be carrying, with the
- * exact tool grant it may expose. `version` is pinned only where North itself
- * ships the server binary: the fram graph-authoring server is a separate
- * deployment (`bin/fram-mcp` out of NORTH_FRAM_HOME) whose version string North
- * does not own, so pinning it here would turn an upstream version bump into a
- * dead codex graph lane. Its identity is still fenced — exact name, no title/
- * description/icons/website, no auth authority, no resources, exact tool set.
- */
+/** One MCP server North expects the managed session to carry. */
 interface ExpectedMcpServer {
   name: string;
   tools: readonly string[];
   version?: string;
 }
 
-/**
- * The sealed MCP inventory for one authority surface. North is unconditional;
- * fram appears exactly when the surface carries the graph-authoring capability,
- * which is the same condition that injected the server into the launch config.
- */
 function expectedMcpInventory(surface: OpenAIAuthoritySurface): readonly ExpectedMcpServer[] {
   return Object.freeze([
     { name: "north", tools: surface.northEnabledTools, version: "0.1.0" },
-    ...(surface.capabilities.includes(FRAM_GRAPH_AUTHORING_CAPABILITY)
-      ? [{ name: FRAM_MCP_SERVER, tools: FRAM_MCP_TOOL_NAMES as readonly string[] }]
-      : []),
   ]);
 }
 
@@ -2714,9 +2660,8 @@ export class ManagedCodexAppServerRun {
       }), { cause: failure });
     }
     this.nativeCommands = new NativeCommandActivityAccumulator(contract.cwd, ENGINE);
-    // The sealed MCP grant for this session: North always, fram only under the
-    // graph-authoring capability. Every inventory read, startup notification,
-    // and tool-approval request is proven against exactly this.
+    // Every inventory read, startup notification, and tool-approval request is
+    // proven against the sealed North MCP grant for this session.
     const inventory = expectedMcpInventory(this.options.surface);
     const mcpServerNames = Object.freeze(inventory.map((server) => server.name));
     const supervised = this.options.useSupervisor !== false;
@@ -3065,9 +3010,8 @@ export class ManagedCodexAppServerRun {
         "Codex managed MCP approval question");
       const questionId = `mcp_tool_call_approval_${itemId}`;
       const prompt = boundedString(question.question, "Codex managed MCP approval prompt", 512);
-      // fram's graph-edit verbs are hyphenated (`set-body`), North's are
-      // underscored (`evidence_record`); the character class covers both and the
-      // grant itself is proven by exact membership in that server's tool list.
+      // Tool identifiers may contain hyphens or underscores; exact membership
+      // in the server's sealed grant remains authoritative.
       const match = /^Allow the ([a-z][a-z0-9-]*) MCP server to run tool "([a-z][a-z0-9_-]*)"\?$/
         .exec(prompt);
       const granted = match

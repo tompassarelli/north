@@ -30,9 +30,6 @@ import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
 import { managedCodexWritableRoots } from "../src/providers/codex-app-server";
-import {
-  FRAM_MCP_TOOL_NAMES, framMcpCommand, framMcpEnvironment,
-} from "../src/fram-graph-authoring";
 
 function firstLine(stream: NodeJS.ReadableStream, label: string): Promise<string> {
   return new Promise((resolveLine, reject) => {
@@ -155,23 +152,6 @@ function populatedPersonalCodexConfig(projectRoot: string) {
   };
 }
 
-/**
- * Stand in for a `fram-code-on <framHome>` flip: the deployment roots the
- * graph-authoring capability derives every path from, plus the `.mcp.json`
- * whose mcpServers.fram.env.FRAM_CODE_PORT the spawn path reads.
- */
-function framFixtureRoots(): void {
-  process.env.NORTH_FRAM_HOME ??= "/tmp/fram-home-codex-test";
-  process.env.NORTH_BEAGLE_HOME ??= "/tmp/beagle-home-codex-test";
-  mkdirSync(process.env.NORTH_FRAM_HOME, { recursive: true });
-  const mcpJsonPath = join(process.env.NORTH_FRAM_HOME, ".mcp.json");
-  if (!existsSync(mcpJsonPath)) {
-    writeFileSync(mcpJsonPath, JSON.stringify({
-      mcpServers: { fram: { command: "x", args: [], env: { FRAM_CODE_PORT: "38214" } } },
-    }));
-  }
-}
-
 function hookRows() {
   const rows: any[] = [];
   for (const [event, groups] of Object.entries(expectedManagedCodexHooks())) {
@@ -246,7 +226,6 @@ function setup(mode = "ok") {
     "web-network-session-drift", "web-network-thread-drift",
   ]
     .includes(mode);
-  const graphAuthoring = mode === "graph-authoring" || mode === "graph-authoring-no-fram-inventory";
   const sandboxNetwork = true;
   const features = Object.fromEntries([
     ...MANAGED_CODEX_ENABLED_FEATURES.map((name) => [name, true]),
@@ -285,17 +264,6 @@ function setup(mode = "ok") {
   // so a managed lane can commit what it wrote; the fixture mirrors production
   // rather than restating a hard-coded path.
   const writableRoots = managedCodexWritableRoots(cwd);
-  // A graph-authoring lane carries a SECOND sealed MCP server (fram) through the
-  // same launch config, inventory, and startup-notification gates as North.
-  const framServer = graphAuthoring
-    ? { command: framMcpCommand(), args: [] as string[], env: framMcpEnvironment(cwd) }
-    : undefined;
-  const framSessionConfig = framServer
-    ? { fram: {
-      command: framServer.command, args: framServer.args, env: framServer.env,
-      enabled: true, required: true, enabled_tools: [...FRAM_MCP_TOOL_NAMES],
-    } }
-    : {};
   const session = {
     cli_auth_credentials_store: "file",
     forced_login_method: "chatgpt",
@@ -314,7 +282,6 @@ function setup(mode = "ok") {
         command: north.command, args: [], env: north.env,
         enabled: true, required: true, enabled_tools: tools,
       },
-      ...framSessionConfig,
     },
     web_search: webNetwork ? "cached" : "disabled",
     features: sessionFeatures,
@@ -326,11 +293,6 @@ function setup(mode = "ok") {
         north: {
           ...session.mcp_servers.north, environment_id: "local", tool_timeout_sec: null,
         },
-        ...(framServer
-          ? { fram: {
-            ...framSessionConfig.fram, environment_id: "local", tool_timeout_sec: null,
-          } }
-          : {}),
       },
       projects: session.projects,
       shell_environment_policy: effectiveShellEnvironmentPolicy,
@@ -472,22 +434,7 @@ function setup(mode = "ok") {
       if (mode === "mcp-server-info") server.serverInfo.version = "9.9.9";
       return server;
     };
-    // fram reports its own upstream identity (name "fram", its own version) and
-    // exactly the ten graph-edit verbs Codex was told to enable.
-    const framInventoryServer = () => ({
-      name: "fram",
-      serverInfo: {
-        name: "fram", title: null, version: "0.1", description: null,
-        icons: null, websiteUrl: null,
-      },
-      tools: Object.fromEntries(FRAM_MCP_TOOL_NAMES.map((name) => [name, {
-        name, inputSchema: { type: "object" }, description: null, annotations: null,
-      }])),
-      resources: [], resourceTemplates: [], authStatus: "unsupported",
-    });
-    const mcpInventory = () => (mode === "graph-authoring"
-      ? [mcpServer(), framInventoryServer()]
-      : [mcpServer()]);
+    const mcpInventory = () => [mcpServer()];
     const startedThread = (request: any) => {
       const thread: any = {
         id: threadId, extra: null, sessionId: "019f7abc-0000-7000-8000-000000000000",
@@ -942,14 +889,6 @@ function setup(mode = "ok") {
       }
       if (request.method === "thread/start") {
         if (mode === "thread-failure") { fail(request); return; }
-        if (mode === "graph-authoring") {
-          // The second sealed server announces itself under its own name; the
-          // startup gate must admit it exactly as it admits North's.
-          notify("mcpServer/startupStatus/updated", {
-            threadId: null, name: "fram", status: "ready",
-            error: null, failureReason: null,
-          });
-        }
         if (mode === "mcp-startup-before-thread-response"
             || mode === "mcp-startup-wrong-thread-before-thread-response") {
           const startupThreadId = mode === "mcp-startup-wrong-thread-before-thread-response"
@@ -1060,20 +999,10 @@ function setup(mode = "ok") {
     model: "gpt-fixture-exact",
     effort: "high",
     developerInstructions: "bounded developer contract",
-    surface: graphAuthoring
-      ? {
-        ...surface,
-        capabilities: [...surface.capabilities, "graph-authoring.fram"],
-        managedTools: [
-          ...surface.managedTools,
-          ...FRAM_MCP_TOOL_NAMES.map((name) => `mcp__fram__${name}`),
-        ],
-      } as OpenAIAuthoritySurface
-      : webNetwork
-        ? { ...surface, capabilities: [...surface.capabilities, "web"], web: "cached" }
-        : surface,
+    surface: webNetwork
+      ? { ...surface, capabilities: [...surface.capabilities, "web"], web: "cached" }
+      : surface,
     north,
-    ...(framServer ? { fram: framServer } : {}),
     timeoutMs: 500,
   };
   return {
@@ -1284,61 +1213,6 @@ test("launch seals the exact package shell environment policy", () => {
   expect(launch.args).toContain("allow_login_shell=false");
   expect(launch.args).toContain(
     `shell_environment_policy.set={"NORTH_BIN"=${JSON.stringify(options.env.NORTH_BIN)},"PATH"=${JSON.stringify(options.env.PATH)}}`,
-  );
-});
-
-test("launch seals the opt-in Fram MCP server and its exact graph-edit tool set", () => {
-  // FRAM_CODE_PORT is read from framHome/.mcp.json at spawn time, standing in
-  // for a real `fram-code-on` flip of this framHome.
-  framFixtureRoots();
-  const { options } = setup();
-  options.surface = {
-    ...options.surface,
-    capabilities: [
-      "filesystem.read", "filesystem.search", "shell.readonly", "graph-authoring.fram",
-    ],
-    sandbox: "read-only",
-  };
-  options.fram = {
-    command: framMcpCommand(),
-    args: [],
-    env: framMcpEnvironment(options.cwd),
-  };
-  const launch = managedCodexAppServerLaunch(options);
-  expect(launch.expectedSessionConfig.mcp_servers).toMatchObject({
-    fram: {
-      command: framMcpCommand(),
-      args: [],
-      env: framMcpEnvironment(options.cwd),
-      enabled: true,
-      required: true,
-      enabled_tools: [...FRAM_MCP_TOOL_NAMES],
-    },
-  });
-  expect(launch.args).toContain("mcp_servers.fram.required=true");
-  expect(launch.args).toContain(
-    `mcp_servers.fram.enabled_tools=${JSON.stringify(FRAM_MCP_TOOL_NAMES)}`,
-  );
-});
-
-test("a graph-authoring lane proves a two-server MCP inventory and runs", async () => {
-  framFixtureRoots();
-  const { options, requests } = setup("graph-authoring");
-  const result = await new ManagedCodexAppServerRun(options).execute();
-  expect(result.text).toBe("managed answer");
-  // Both preflight and the per-turn re-proof accepted North *and* fram; the
-  // pre-fix gate refused any inventory that was not exactly North.
-  expect(requests.filter(({ method }) => method === "mcpServerStatus/list")).toHaveLength(4);
-});
-
-test("a graph-authoring lane fails closed when the fram server never mounts", async () => {
-  framFixtureRoots();
-  const { options } = setup("graph-authoring-no-fram-inventory");
-  const error = await new ManagedCodexAppServerRun(options).execute()
-    .then(() => null, (thrown: Error) => thrown);
-  expect(error?.message).toBe("openai_codex_authority_preflight_failed");
-  expect(causeChain(error!)).toContain(
-    "Codex MCP inventory is not exactly north+fram: observed north",
   );
 });
 
@@ -2322,15 +2196,6 @@ test("only a web-capable workspace-write lane receives the exact Gitiles proxy p
   expect((denied.expectedSessionConfig as any).features.network_proxy).toBe(false);
   expect(denied.args.filter((argument) => argument.includes("network_proxy"))).toEqual(["network_proxy"]);
   expect(denied.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
-});
-
-test("a graph-authoring workspace-write lane enables sandbox networking without a web proxy", () => {
-  const { options } = setup("graph-authoring");
-  const contract = managedCodexAppServerLaunch(options as any);
-  expect((contract.expectedSessionConfig as any).sandbox_workspace_write.network_access).toBe(true);
-  expect(contract.args).toContain("sandbox_workspace_write.network_access=true");
-  expect((contract.expectedSessionConfig as any).features.network_proxy).toBe(false);
-  expect(contract.args).toEqual(expect.arrayContaining(["--disable", "network_proxy"]));
 });
 
 test("the Gitiles network config accepts the production object and fails closed on drift", async () => {

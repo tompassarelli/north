@@ -161,7 +161,7 @@ Account settings mirror this surface through the wrapper’s account bootstrap.
 
 The profile registry currently contains these classes:
 
-- Authoring deny hooks: code-upstream, Firn, launch-critical, blind staging, and tripwire guards.
+- Authoring deny hooks: Firn, launch-critical, blind staging, and tripwire guards.
 - Dispatch deny hook: agent-spawn guard.
 - Advisory hooks: comment bloat, Racket build, and log compression.
 - Context hook: Beagle SessionStart.

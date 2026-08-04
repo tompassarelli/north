@@ -555,13 +555,6 @@ case "${1:-}" in
     # lane terminal, with current thread facts retained only as review context.
     # It never claims causal model quality or auto-promotes bespoke recurrence.
     exec "$BB" "$NORTH/cli/routing-report.clj" "${@:2}" ;;
-  experiment)
-    # Deterministic graph/text A/B outcomes from fenced managed-run telemetry.
-    if [ "${2:-}" = "report" ]; then
-      exec "$BB" "$NORTH/cli/routing-report.clj" report experiment "${@:3}"
-    fi
-    echo "usage: north experiment report [--json]" >&2
-    exit 2 ;;
   canary)
     # Recurring reliability probe. `run` composes the existing capture + delegate
     # production path; `report` reads the same terminal telemetry and failure

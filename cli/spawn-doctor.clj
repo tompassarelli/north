@@ -16,7 +16,6 @@
   (when-not (find-ns lib)
     (load-file (str (.getParent (io/file *file*)) file))))
 
-(def HOME (System/getenv "HOME"))
 (def NORTH (or (System/getenv "NORTH_HOME")
                (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)))
 (def NORTH-CLI (or (System/getenv "NORTH_BIN") (str NORTH "/bin/north")))
@@ -24,18 +23,9 @@
 (def PROBE-CLI (str NORTH "/sdk/src/spawn-doctor-probe.ts"))
 (def PROVIDERS-CLI (str NORTH "/sdk/src/providers-cli.ts"))
 (def BUN (or (System/getenv "NORTH_POLICY_BUN") "bun"))
-(def GRAPH-UPSTREAM-REGISTRY
-  (or (System/getenv "GRAPH_UPSTREAM_REGISTRY") (str HOME "/.config/fram/graph-upstream-files")))
-
-;; The three verbs code-upstream-guard.sh's deny message redirects a refused
-;; text edit to. A guard is only satisfiable if a session can mount all three.
-(def guard-redirect-verbs ["add-def" "set-body" "rename-def"])
-
 (def probe-timeout-ms 180000)
 (def providers-timeout-ms 180000)
 (def dry-run-timeout-ms 240000)
-(def mcp-probe-timeout-ms 180000)
-(def deep-coordinator-timeout-ms 45000)
 
 (def color? (and (nil? (System/getenv "NO_COLOR")) (some? (System/console))))
 (defn- c [code s] (if color? (str "\033[" code "m" s "\033[0m") (str s)))
@@ -192,15 +182,6 @@
 
 ;; ---- (4) composition dry-run ----------------------------------------------------
 
-(def canonical-graph-authoring-contract
-  {:responsibility "Author one adopted graph-upstream module through the sealed graph-edit verbs."
-   :deliverable "One committed graph edit plus the regenerated downstream text view."
-   :capabilities ["filesystem.read" "filesystem.search" "graph-authoring.fram"]
-   :mayDecide ["form of the edit inside the adopted module"]
-   :mustEscalate ["adopting or de-adopting a file" "any edit outside the adopted module"]
-   :doneWhen ["the graph edit is committed and the regenerated view recompiles"]
-   :report "the edited defs, the recompile result, and residual uncertainty"})
-
 (defn- dry-run! [args]
   (shell (into [NORTH-CLI "spawn"] args)
          :timeout dry-run-timeout-ms
@@ -223,81 +204,9 @@
 
 (defn dry-run-rows []
   [(dry-run-row "dryrun.preset" "canonical preset (integrator)"
-                ["integrator" "north spawn --doctor composition probe" "--dry-run" "--ad-hoc"])
-   (dry-run-row "dryrun.bespoke-graph-authoring" "canonical bespoke graph-authoring contract"
-                ["graph-author" "north spawn --doctor composition probe"
-                 "--dry-run" "--ad-hoc"
-                 "--rationale" "spawn --doctor canonical bespoke composition probe"
-                 "--nearest" "implementer"
-                 "--contract" (json/generate-string canonical-graph-authoring-contract)])])
+                ["integrator" "north spawn --doctor composition probe" "--dry-run" "--ad-hoc"])])
 
-;; ---- (5) graph-authoring roots --------------------------------------------------
-
-(defn- fram-home [probe]
-  (some-> probe :graphAuthoring :framHome not-empty))
-
-(defn roots-rows [probe]
-  (if (:error probe)
-    [(row "roots" "roots.graph-authoring" :skip
-          "graph-authoring roots were not probed (the SDK probe failed)")]
-    (let [{:keys [framHome beagleHome rootsError checkouts framMcpCommand framMcpExecutable]}
-          (:graphAuthoring probe)]
-      (if rootsError
-        [(row "roots" "roots.graph-authoring" :fail
-              (str rootsError
-                   " — no graph-authoring.fram lane can be composed from this environment")
-              "export NORTH_FRAM_HOME=~/code/fram/main NORTH_BEAGLE_HOME=~/code/beagle/main")]
-        (conj
-         (mapv (fn [{:keys [name path exists isGitCheckout]}]
-                 (cond
-                   (not exists)
-                   (row "roots" (str "roots." name) :fail
-                        (str path " is not a directory") (str "export " name "=<checkout>"))
-                   (not isGitCheckout)
-                   (row "roots" (str "roots." name) :fail
-                        (str path " is not a git checkout") (str "export " name "=<checkout>"))
-                   :else (row "roots" (str "roots." name) :pass (str path " is a real checkout"))))
-               checkouts)
-         (if framMcpExecutable
-           (row "roots" "roots.fram-mcp" :pass (str framMcpCommand " is executable"))
-           (row "roots" "roots.fram-mcp" :fail
-                (str (or framMcpCommand (str framHome "/bin/fram-mcp")) " is not executable")
-                (str "ls -l " framHome "/bin/fram-mcp"))))))))
-
-(defn deep-rows [probe]
-  (let [{:keys [framDaemonCommand framDaemonExecutable]} (:graphAuthoring probe)]
-    (cond
-      (:error probe) [(row "deep" "deep.lane-coordinator" :skip "the SDK probe failed")]
-      (not framDaemonExecutable)
-      [(row "deep" "deep.lane-coordinator" :fail
-            (str "the lane-local coordinator launcher " (or framDaemonCommand "fram-daemon")
-                 " is not executable")
-            "export NORTH_FRAM_HOME=<fram checkout>")]
-      :else
-      ;; The exact argv sdk/src/fram-graph-authoring.ts launches for a lane's
-      ;; own coordinator; a scratch log keeps the smoke off every real corpus,
-      ;; and an absent one proves a fresh store boots with no migration step.
-      (let [dir (java.nio.file.Files/createTempDirectory
-                 "north-spawn-doctor" (into-array java.nio.file.attribute.FileAttribute []))
-            log (str dir "/code.log")
-            port (str (+ 41000 (rand-int 4000)))
-            space "north-spawn-doctor-probe"
-            result (shell [framDaemonCommand "serve" port log space]
-                          :timeout deep-coordinator-timeout-ms
-                          :env (assoc (into {} (System/getenv)) "FRAM_REQUIRE_LOG_FENCE" "1"))]
-        (doseq [leftover [log (str log ".writer-authority.lock") (str dir)]]
-          (io/delete-file (io/file leftover) true))
-        [(if (:timeout result)
-           (row "deep" "deep.lane-coordinator" :pass
-                (str framDaemonCommand " serve stayed up for the smoke budget on a fresh store"))
-           (row "deep" "deep.lane-coordinator" :fail
-                (str framDaemonCommand " serve exited " (:exit result)
-                     ": " (truncate 160 (or (not-empty (first-line (:err result)))
-                                            (first-line (:out result))))
-                     " — every graph-authoring lane dies at coordinator boot")
-                (str framDaemonCommand " serve " port " <log> <space-id>")))]))))
-
-;; ---- (6) sandbox expectations ---------------------------------------------------
+;; ---- (5) sandbox expectations ---------------------------------------------------
 
 (defn sandbox-rows [probe]
   (if (:error probe)
@@ -321,266 +230,6 @@
                    (str "coordination uses the required host-side North MCP for "
                         (names host-coordination)
                         "; the read-only/no-network sandbox still keeps direct shell loopback closed")))))))
-
-;; ---- (7) guard consistency ------------------------------------------------------
-
-(defn- registry-paths []
-  (let [file (io/file GRAPH-UPSTREAM-REGISTRY)]
-    (when (.isFile file)
-      (->> (str/split-lines (slurp file))
-           (map str/trim)
-           (remove #(or (str/blank? %) (str/starts-with? % "#")))
-           (map #(str/replace-first % #"^~" (str HOME)))
-           vec))))
-
-;; ---- graph-upstream registry repair ---------------------------------------------
-;; Rows are bare absolute paths, so a checkout that moved cannot be matched by
-;; provenance either: the guard's git probe needs the row's PARENT DIRECTORY to
-;; still exist. Repair therefore rewrites the rows.
-
-(def ^:private sentinel-markers
-  ["@upstream:graph" "@upstream-is-graph" "@claim-canonical"])
-
-(defn- sentinel-directive? [line]
-  (boolean (re-find (re-pattern (str ";+\\s*(?:"
-                                     (str/join "|" (map #(java.util.regex.Pattern/quote %)
-                                                        sentinel-markers))
-                                     ")(?:\\s|$)"))
-                    line)))
-
-(defn- carries-sentinel?
-  "Mirror of code-upstream-guard.sh's in-band check: only a leading `;;` comment
-   before the first real form counts. Kept in sync with that guard by hand."
-  [path]
-  (let [file (io/file path)]
-    (and (.isFile file)
-         (with-open [reader (io/reader file)]
-           (loop [scanned 0]
-             (if (>= scanned 65536)
-               false
-               (if-let [line (.readLine ^java.io.BufferedReader reader)]
-                 (let [s (str/trim line)]
-                   (cond
-                     (or (str/blank? s)
-                         (re-matches #"(?:#lang\s+\S+|\(define-target\s+\S+\))" s))
-                     (recur (+ scanned (count line) 1))
-
-                     (str/starts-with? s ";;")
-                     (if (sentinel-directive? s) true (recur (+ scanned (count line) 1)))
-
-                     :else false))
-                 false)))))))
-
-(defn- relocations
-  "~/code/<project>/… and ~/code/client/<owner>/<project>/… both gained a `main/`
-   checkout segment when the container layout landed."
-  [path]
-  (let [code (str HOME "/code/")
-        client (str code "client/")]
-    (cond
-      (str/starts-with? path client)
-      (let [[owner project & rest] (str/split (subs path (count client)) #"/")]
-        (when (seq rest)
-          [(str client owner "/" project "/main/" (str/join "/" rest))]))
-
-      (str/starts-with? path code)
-      (let [[project & rest] (str/split (subs path (count code)) #"/")]
-        (when (seq rest)
-          [(str code project "/main/" (str/join "/" rest))]))
-
-      :else nil)))
-
-(defn registry-repair-plan
-  "Classify every row: a resolving row is left alone, a stale row is revived only
-   when its relocated file still carries the graph-upstream sentinel, and every
-   other stale row is retired rather than re-adopted."
-  [paths]
-  (mapv (fn [path]
-          (cond
-            (.exists (io/file path)) {:row path :action :keep}
-            :else
-            (if-let [moved (first (filter #(.isFile (io/file %)) (relocations path)))]
-              (if (carries-sentinel? moved)
-                {:row path :action :rewrite :to moved}
-                {:row path :action :retire
-                 :reason (str "moved to " moved ", which no longer carries the sentinel")})
-              {:row path :action :retire :reason "no file at this path or the current layout"})))
-        paths))
-
-(defn repair-registry!
-  "One-shot: rewrite GRAPH-UPSTREAM-REGISTRY from the repair plan, keeping a .bak."
-  []
-  (let [paths (registry-paths)]
-    (cond
-      (nil? paths)
-      (do (println (c "33" "no registry") (str "nothing to repair at " GRAPH-UPSTREAM-REGISTRY)) 0)
-
-      :else
-      (let [plan (registry-repair-plan paths)
-            kept (->> plan (remove #(= :retire (:action %))) (mapv #(or (:to %) (:row %))))
-            changed (filter #(not= :keep (:action %)) plan)]
-        (println (bold "north spawn --doctor --repair-registry") (dim GRAPH-UPSTREAM-REGISTRY))
-        (doseq [{:keys [row action to reason]} plan]
-          (println (format "%-8s %s%s"
-                           (name action) row
-                           (case action
-                             :rewrite (str "\n         -> " to)
-                             :retire (str "\n         retired: " reason)
-                             ""))))
-        (if (empty? changed)
-          (do (println (c "32" (str "all " (count paths) " rows already resolve; nothing rewritten"))) 0)
-          (do
-            (spit (str GRAPH-UPSTREAM-REGISTRY ".bak") (slurp GRAPH-UPSTREAM-REGISTRY))
-            (spit GRAPH-UPSTREAM-REGISTRY (str (str/join "\n" kept) "\n"))
-            (println (c "32" (str (count (filter #(= :rewrite (:action %)) plan)) " rewritten, "
-                                  (count (filter #(= :retire (:action %)) plan)) " retired, "
-                                  (count kept) " rows remain"))
-                     (dim (str "backup: " GRAPH-UPSTREAM-REGISTRY ".bak")))
-            0))))))
-
-(defn- nearest-existing-dir [path]
-  (loop [file (some-> path io/file .getParentFile)]
-    (cond (nil? file) nil
-          (.isDirectory file) (str file)
-          :else (recur (.getParentFile file)))))
-
-(defn- git-toplevel [path]
-  (when-let [dir (nearest-existing-dir path)]
-    (let [result (shell ["git" "-C" dir "rev-parse" "--show-toplevel"] :timeout 5000)]
-      (when (:ok result) (not-empty (str/trim (:out result)))))))
-
-(defn- sentinel-candidates [repos]
-  (reduce (fn [acc repo]
-            (let [result (shell ["git" "-C" repo "grep" "-l" "-F" "@upstream:graph"] :timeout 30000)]
-              (assoc acc repo (if (:ok result)
-                                (mapv #(str repo "/" %)
-                                      (remove str/blank? (str/split-lines (:out result))))
-                                []))))
-          {} repos))
-
-(def guard-script
-  (first (filter #(.canExecute (io/file %))
-                 [(str HOME "/.agents/hooks/code-upstream-guard.sh")
-                  (str NORTH "/profiles/tom/hooks/code-upstream-guard.sh")])))
-
-(def max-guard-probes 256)
-
-(defn- guard-denies?
-  "Ask the guard itself instead of restating its adoption rule. AGENT_NO_AUTHORING_HOOKS=0
-   forces guards live so an operator kill-switch cannot read as 'nothing is adopted'."
-  [path]
-  (when guard-script
-    (let [result (shell [guard-script] :timeout 20000
-                        :in (json/generate-string
-                             {:tool_name "Edit" :tool_input {:file_path path}})
-                        :env (assoc (into {} (System/getenv)) "AGENT_NO_AUTHORING_HOOKS" "0"))
-          decision (try (-> (:out result) (json/parse-string true)
-                            :hookSpecificOutput :permissionDecision)
-                        (catch Exception _ nil))]
-      (= "deny" decision))))
-
-(defn- advertised-fram-tools [fram-root]
-  (let [command (str fram-root "/bin/fram-mcp")
-        request (str (json/generate-string
-                      {:jsonrpc "2.0" :id 1 :method "initialize"
-                       :params {:protocolVersion "2024-11-05" :capabilities {}
-                                :clientInfo {:name "north-spawn-doctor" :version "1"}}})
-                     "\n"
-                     (json/generate-string {:jsonrpc "2.0" :id 2 :method "tools/list" :params {}})
-                     "\n")
-        result (shell [command] :timeout mcp-probe-timeout-ms :in request
-                      :env (assoc (into {} (System/getenv))
-                                  "FRAM_SPACE_ID" "north-spawn-doctor-probe"))]
-    (if-not (or (:ok result) (seq (:out result)))
-      {:error (truncate 160 (or (not-empty (first-line (:err result))) (str "exit " (:exit result))))}
-      (or (some (fn [line]
-                  (let [parsed (try (json/parse-string line true) (catch Exception _ nil))]
-                    (when-let [tools (get-in parsed [:result :tools])]
-                      {:tools (mapv :name tools)})))
-                (str/split-lines (:out result)))
-          {:error "fram-mcp answered tools/list with no tool catalog"}))))
-
-(defn- scan-repos [paths probe]
-  (->> (concat (keep git-toplevel paths)
-               (keep git-toplevel [(str (System/getProperty "user.dir") "/.")])
-               (keep #(some-> % (str "/.") git-toplevel)
-                     [(fram-home probe) (some-> probe :graphAuthoring :beagleHome not-empty)]))
-       (remove nil?) distinct sort vec))
-
-(defn guard-rows [probe]
-  (let [paths (registry-paths)
-        resolving (filter #(.exists (io/file %)) paths)
-        stale (remove #(.exists (io/file %)) paths)
-        repos (scan-repos paths probe)
-        sentinels (sentinel-candidates repos)
-        candidates (->> (concat resolving (mapcat val sentinels))
-                        distinct (take max-guard-probes) vec)
-        refused (filterv guard-denies? candidates)
-        adopted (count refused)
-        fram-root (or (fram-home probe)
-                      (first (filter #(.exists (io/file % "bin/fram-mcp")) repos)))
-        advertised (when (and fram-root (pos? adopted)) (advertised-fram-tools fram-root))
-        unmountable (when (:tools advertised) (remove (set (:tools advertised)) guard-redirect-verbs))]
-    [(cond
-       (empty? paths)
-       (row "guard" "guard.graph-upstream-registry" :skip
-            (str "no registry rows at " GRAPH-UPSTREAM-REGISTRY))
-       (seq stale)
-       (row "guard" "guard.graph-upstream-registry" :warn
-            (str (count stale) " of " (count paths) " registry rows name files that no longer exist"
-                 " — realpath and git-provenance matching both miss, so their adoption has"
-                 " silently lapsed (e.g. " (first stale) ")")
-            (str NORTH-CLI " spawn --doctor --repair-registry"))
-       :else
-       (row "guard" "guard.graph-upstream-registry" :pass
-            (str "all " (count paths) " registry rows resolve to real files")))
-
-     (cond
-       (nil? guard-script)
-       (row "guard" "guard.graph-upstream-adoption" :skip
-            "code-upstream-guard.sh is not installed; nothing enforces graph upstream here")
-       (empty? repos)
-       (row "guard" "guard.graph-upstream-adoption" :skip
-            "no scannable git checkout was resolvable from the registry, cwd, or the roots")
-       :else
-       (row "guard" "guard.graph-upstream-adoption" :info
-            (str adopted " of " (count candidates) " candidates are actually refused by "
-                 guard-script " (registry rows + in-band @upstream:graph across "
-                 (count repos) " repos: "
-                 (str/join " " (map (fn [[repo hits]] (str (.getName (io/file repo)) "=" (count hits)))
-                                    (sort-by key sentinels)))
-                 ")")))
-
-     (cond
-       (zero? adopted)
-       (row "guard" "guard.fram-verbs-mountable" :skip
-            "no file is currently graph-upstream, so the guard can refuse nothing")
-
-       (nil? fram-root)
-       (row "guard" "guard.fram-verbs-mountable" :impossible
-            (str "IMPOSSIBLE CONSTRAINT — the guard refuses text edits to " adopted
-                 " adopted files and redirects to mcp__fram__"
-                 (str/join "/mcp__fram__" guard-redirect-verbs)
-                 ", but no fram checkout is resolvable to serve them, so no session can comply")
-            "export NORTH_FRAM_HOME=<fram checkout>")
-
-       (:error advertised)
-       (row "guard" "guard.fram-verbs-mountable" :fail
-            (str fram-root "/bin/fram-mcp could not be queried: " (:error advertised))
-            (str "FRAM_SPACE_ID=probe " fram-root "/bin/fram-mcp"))
-
-       (seq unmountable)
-       (row "guard" "guard.fram-verbs-mountable" :impossible
-            (str "IMPOSSIBLE CONSTRAINT — the guard refuses text edits to " adopted
-                 " adopted files and redirects to verbs the server refuses to advertise: "
-                 (str/join "," (map #(str "mcp__fram__" %) unmountable))
-                 ". " fram-root "/bin/fram-mcp serves only " (str/join "," (:tools advertised))
-                 ", so NO session can hold the capability the guard demands")
-            (str "north config guards off  # or de-adopt from " GRAPH-UPSTREAM-REGISTRY))
-
-       :else
-       (row "guard" "guard.fram-verbs-mountable" :pass
-            (str "every verb the guard redirects to is advertised by " fram-root "/bin/fram-mcp")))]))
 
 ;; ---- rendering ------------------------------------------------------------------
 
@@ -650,24 +299,20 @@
 ;; ---- entry ----------------------------------------------------------------------
 
 (def usage
-  (str "usage: north spawn --doctor [--deep] [--json]\n"
+  (str "usage: north spawn --doctor [--json]\n"
        "       north spawn --doctor --canary\n"
-       "       north spawn --doctor --repair-registry\n\n"
-       "  --deep    also run the lane-local coordinator launch smoke\n"
+       "\n"
        "  --canary  actually spawn one tiny read-only managed lane end to end\n"
-       "  --json    emit the versioned north:spawn-doctor:v1 row contract\n"
-       "  --repair-registry  relocate graph-upstream rows to the current checkout\n"
-       "                     layout and retire the ones no sentinel still backs"))
+       "  --json    emit the versioned north:spawn-doctor:v1 row contract"))
 
 (defn run! [args]
   (let [flags (set args)
-        unknown (remove #{"--doctor" "--deep" "--json" "--canary" "--repair-registry"} args)]
+        unknown (remove #{"--doctor" "--json" "--canary"} args)]
     (cond
       (seq unknown)
       (do (binding [*out* *err*] (println (c "31" (str "unknown doctor option: " (first unknown)))))
           (println usage)
           2)
-      (flags "--repair-registry") (repair-registry!)
       (flags "--canary") (canary!)
       :else
       ;; The three subprocess-heavy probes are independent; running them serially
@@ -680,16 +325,11 @@
                               (provider-rows @providers-f)
                               (listener-rows)
                               @dry-f
-                              (roots-rows probe)
-                              (when (flags "--deep") (deep-rows probe))
-                              (sandbox-rows probe)
-                              (guard-rows probe)))]
+                              (sandbox-rows probe)))]
         (render! rows {:json? (contains? flags "--json")})
         (let [broken (filter failing? rows)]
           (when-not (contains? flags "--json")
             (println (if (seq broken)
                        (c "31" (str (count broken) " of " (count rows) " checks are walls right now"))
-                       (c "32" (str "all " (count rows) " checks clear"))))
-            (when-not (flags "--deep")
-              (println (dim "  --deep adds the lane-local coordinator launch smoke"))))
+                       (c "32" (str "all " (count rows) " checks clear")))))
           (if (seq broken) 1 0))))))

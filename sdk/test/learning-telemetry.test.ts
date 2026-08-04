@@ -62,7 +62,6 @@ test("terminal telemetry carries immutable assignment and receipt identities, ne
     "activated_resource_closure_sha256", environmentReceipt.activatedResourceClosureSha256,
   ]);
   expect(facts).toContainEqual(["run_envelope_sha256", runEnvelopeReceipt.manifestSha256]);
-  expect(facts).toContainEqual(["graph_text_experiment_arm", "none"]);
   expect(facts).toContainEqual([
     "mcp_operation_aggregate",
     JSON.stringify({

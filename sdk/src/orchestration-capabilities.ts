@@ -1,5 +1,4 @@
 import type { ProviderId } from "./providers/types";
-import type { GraphTextExperimentAssignment } from "./learning-regime";
 
 export const ORCHESTRATION_PRESET_CAPABILITIES = [
   "filesystem.read",
@@ -12,28 +11,12 @@ export const ORCHESTRATION_PRESET_CAPABILITIES = [
 ] as const;
 export const ORCHESTRATION_CAPABILITIES = [
   ...ORCHESTRATION_PRESET_CAPABILITIES,
-  "graph-authoring.fram",
 ] as const;
 export type OrchestrationCapability = typeof ORCHESTRATION_CAPABILITIES[number];
 
 export function hasAuthoringCapability(capabilities: readonly string[]): boolean {
   return capabilities.includes("filesystem.write")
-    || capabilities.includes("shell")
-    || capabilities.includes("graph-authoring.fram");
-}
-
-/** Apply the armed graph treatment without changing the operator's semantic route. */
-export function graphTextExperimentCapabilities(
-  capabilities: readonly OrchestrationCapability[],
-  assignment: GraphTextExperimentAssignment | undefined,
-): OrchestrationCapability[] {
-  if (assignment?.status !== "assigned" || assignment.arm !== "graph")
-    return [...capabilities];
-  if (!capabilities.includes("filesystem.write") || !capabilities.includes("shell"))
-    throw new Error("graph-text experiment graph arm requires a stock authoring worker surface");
-  return requireOrchestrationCapabilities(
-    [...capabilities, "graph-authoring.fram"], "graph-text experiment capabilities",
-  );
+    || capabilities.includes("shell");
 }
 
 export function requireOrchestrationCapabilities(value: unknown, label = "capabilities"): OrchestrationCapability[] {
@@ -61,8 +44,6 @@ export function validateTopologyCapabilities(
       throw new Error(label + ": orchestrator topology forbids filesystem.write capability");
     if (has("shell"))
       throw new Error(label + ": orchestrator topology forbids unrestricted shell capability");
-    if (has("graph-authoring.fram"))
-      throw new Error(label + ": orchestrator topology forbids graph-authoring.fram capability");
   } else if (has("coordination")) {
     throw new Error(label + ": worker topology forbids coordination capability");
   }
