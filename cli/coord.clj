@@ -1401,7 +1401,7 @@
 ;; = has op+target, NO acked_by and NO failed_by. Success and failure are distinct
 ;; terminal states; an explicit `msg-cli retry` retracts failure and emits a
 ;; retry_requested edge rather than pretending a failed execution was acknowledged.
-;; match BOTH the sender's `cmds` listing and the reactor drive off; it lives ONCE
+;; match BOTH the sender's `cmds` listing and the command consumer drive off; it lives ONCE
 ;; here so the duplication this redesign deletes can never reappear as a copied query.
 (defn pending-cmds
   "[[cmd op target] …] for every command carrying op+target and no terminal result.

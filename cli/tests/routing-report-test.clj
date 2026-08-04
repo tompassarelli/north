@@ -699,7 +699,7 @@
 ;; separately from North's own admission/budget/cap/reconciliation refusals
 ;; and from reaper-suspected lapse deaths, using the real BLOCKED_REASON
 ;; tokens from sdk/src/execution-outcome.ts and the reaper's literal from
-;; cli/north-reactor.clj — never the generic legacy strings used elsewhere
+;; the lane lifecycle janitor — never the generic legacy strings used elsewhere
 ;; in this fixture file. Isolated fixture set (thread 019f9c42).
 (check "blocked-failure-category recognizes every BLOCKED_REASON token"
        (and (= :provider-caused (blocked-failure-category "provider_process_died"))

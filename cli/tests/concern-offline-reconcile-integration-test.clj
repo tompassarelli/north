@@ -65,20 +65,23 @@
   (north.coord/send-op-for-log port (.getCanonicalPath log) request))
 
 (defn sample-operation [log concern-id]
-  (north.concern-spool/build-operation
-   {:operation-id (str (java.util.UUID/randomUUID))
-    :concern-id concern-id
-    :target-log (.getCanonicalPath log)
-    :created-at (str (java.time.Instant/now))
-    :facts
-    [{:predicate "title" :object "[north] reconcile fixture" :cardinality "single"}
-     {:predicate "agent" :object "@offline-fixture" :cardinality "single"}
-     {:predicate "driver" :object "@offline-fixture" :cardinality "single"}
-     {:predicate "repo" :object "north" :cardinality "single"}
-     {:predicate "intent" :object "reconcile fixture" :cardinality "single"}
-     {:predicate "touches" :object "cli/reconcile.clj" :cardinality "multi"}
-     {:predicate "reached" :object "building" :cardinality "multi"}
-     {:predicate "kind" :object "concern" :cardinality "single"}]}))
+  (let [operation-id (str (java.util.UUID/randomUUID))]
+    (north.concern-spool/build-operation
+     {:operation-id operation-id
+      :concern-id concern-id
+      :target-log (.getCanonicalPath log)
+      :created-at (str (java.time.Instant/now))
+      :facts
+      [{:predicate "title" :object "[north] reconcile fixture" :cardinality "single"}
+       {:predicate "agent" :object "@offline-fixture" :cardinality "single"}
+       {:predicate "driver" :object "@offline-fixture" :cardinality "single"}
+       {:predicate "repo" :object "north" :cardinality "single"}
+       {:predicate "intent" :object "reconcile fixture" :cardinality "single"}
+       {:predicate "touches" :object "cli/reconcile.clj" :cardinality "multi"}
+       {:predicate "attention_reconcile_pending" :object operation-id
+        :cardinality "multi"}
+       {:predicate "reached" :object "building" :cardinality "multi"}
+       {:predicate "kind" :object "concern" :cardinality "single"}]})))
 
 (defn start-daemon [port log telemetry]
   (p/process
@@ -168,6 +171,7 @@
    (fixture-operation log label about nil))
   ([log label about about-binding-cid]
    (let [concern-id (fresh-concern-id)
+         operation-id (str (java.util.UUID/randomUUID))
          facts
          (vec
           (concat
@@ -187,10 +191,13 @@
            [{:predicate "touches"
              :object (str "cli/" label ".clj")
              :cardinality "multi"}
+            {:predicate "attention_reconcile_pending"
+             :object operation-id
+             :cardinality "multi"}
             {:predicate "reached" :object "building" :cardinality "multi"}
             {:predicate "kind" :object "concern" :cardinality "single"}]))]
      (north.concern-spool/build-operation
-      {:operation-id (str (java.util.UUID/randomUUID))
+      {:operation-id operation-id
        :concern-id concern-id
        :target-log (.getCanonicalPath (io/file log))
        :created-at (str (java.time.Instant/now))
@@ -208,8 +215,12 @@
     :about-binding-cid
     (get-in operation [:precondition :about :binding-cid])
     :facts
-    (mapv #(select-keys % [:predicate :object :cardinality])
-          (:facts operation))}))
+    (mapv
+     (fn [fact]
+       (cond-> (select-keys fact [:predicate :object :cardinality])
+         (= "attention_reconcile_pending" (:predicate fact))
+         (assoc :object operation-id)))
+     (:facts operation))}))
 
 (defn publish! [spool operation]
   (with-redefs [north.concern-spool/state-directory
@@ -846,7 +857,10 @@
           :target-log (.getCanonicalPath log)
           :created-at "2026-07-31T08:00:03Z"
           :facts
-          [{:predicate "reached"
+          [{:predicate "attention_reconcile_pending"
+            :object "00000000-0000-0000-0000-000000000005"
+            :cardinality "multi"}
+           {:predicate "reached"
             :object "likely-to-land"
             :cardinality "multi"}]})
         calls (atom [])
@@ -880,7 +894,10 @@
           :target-log (.getCanonicalPath log)
           :created-at "2026-07-31T08:00:02Z"
           :facts
-          [{:predicate "reached"
+          [{:predicate "attention_reconcile_pending"
+            :object "00000000-0000-0000-0000-000000000004"
+            :cardinality "multi"}
+           {:predicate "reached"
             :object "likely-to-land"
             :cardinality "multi"}]})
         planner @(resolve 'concern-transition-plan!)
@@ -907,7 +924,9 @@
                 (= "concern-missing-or-invalid" (:reason missing))
                 (= 41 (:observed-version missing))))
     (check "nonterminal transition replay needs no whole-board query"
-           (= [{:p "reached" :r "likely-to-land"}]
+           (= [{:p "attention_reconcile_pending"
+                :r "00000000-0000-0000-0000-000000000004"}
+               {:p "reached" :r "likely-to-land"}]
               (:facts nonterminal)))))
 
 (defn terminal-replay-probe []
@@ -928,7 +947,10 @@
           :target-log target-log
           :created-at "2026-07-31T08:00:00Z"
           :facts
-          [{:predicate "reached" :object "landed" :cardinality "multi"}]})
+          [{:predicate "attention_reconcile_pending"
+            :object "ffffffff-ffff-ffff-ffff-fffffffffff1"
+            :cardinality "multi"}
+           {:predicate "reached" :object "landed" :cardinality "multi"}]})
         raced-transition
         (north.concern-spool/build-operation
          {:operation-type north.concern-spool/transition-operation-type
@@ -937,7 +959,10 @@
           :target-log target-log
           :created-at "2026-07-31T08:00:01Z"
           :facts
-          [{:predicate "reached" :object "landed" :cardinality "multi"}]})
+          [{:predicate "attention_reconcile_pending"
+            :object "00000000-0000-0000-0000-000000000002"
+            :cardinality "multi"}
+           {:predicate "reached" :object "landed" :cardinality "multi"}]})
         states
         {concern {:id concern :kind "concern" :agent "@agent-a"
                   :about nil :repo "north" :intent "terminal replay"

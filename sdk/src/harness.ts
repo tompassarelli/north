@@ -414,7 +414,7 @@ function registerPresence(self: string, cwd: string): void {
 // Claude Code PostToolUse hook) — renewal MEANS "this agent ran a tool just now"
 // (IS-WORKING), so a lapsed lease stays a real death signal. NOT a setInterval:
 // a timer on a hung-but-alive process would renew forever and defeat the
-// reactor's stuck-fork reaping (lapsed>30min + no outcome -> died-unreported).
+// lane lifecycle janitor's stuck-fork reaping (lapsed>30min + no outcome -> died-unreported).
 // Throttle ≥60s per agent (a bb spawn per tool call is pure waste against a
 // 30min lease); marker is an in-process Map (the hook callback runs in this host
 // process, so no XDG marker file needed — and it can't alias across agents).

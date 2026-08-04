@@ -136,8 +136,8 @@ export interface ObservedAgentIdentity {
   repo?: string;
   goal?: string;
   // spawning coordinator handle. Persisted (not just held at ping time) so it survives
-  // the spawning session: the reactor's died-unreported sweep reads it to ping on a
-  // silent hard-kill (sweep-lanes! in north-reactor.clj), and `north health` folds it to
+  // the spawning session: the lane lifecycle janitor reads it to ping on a
+  // silent hard-kill, and `north health` folds it to
   // compute ping-loss (lanes that carried a coordinator but landed no COMPLETE/DEATH).
   coordinator?: string;
   worktree?: string; // absolute path of this lane's git worktree (opt-in; null-skipped otherwise)
@@ -585,7 +585,7 @@ export function updateAgentRoute(agentId: string, f: AgentIdentity): ManagedWrit
 
 // Crash-safe terminal projection on @agent:<id>. The scoped writer publishes
 // process + delivery facts, verifies the exact projection, then lands
-// terminal_manifest_sha256 last. The reactor accepts a modern terminal only
+// terminal_manifest_sha256 last. The lifecycle janitor accepts a modern terminal only
 // through that marker; an interrupted publication therefore remains unresolved
 // and is safely reaped after the presence-lapse bar. recordRun is a secondary,
 // independently committed trail. This synchronous write remains non-fatal:

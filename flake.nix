@@ -1112,15 +1112,15 @@ PY
               NORTH_PACKAGE_MODE=forged NORTH_PACKAGE_REV=forged FRAM_PACKAGE_REV=forged \
               NORTH_PORT="$coord_port" FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" \
               $out/bin/north doctor > "$smoke/doctor.out" || doctor_rc=$?
-            # The hermetic smoke deliberately has no reactor. Doctor must render
-            # every section and report that critical absence through exit 1.
+            # The hermetic smoke deliberately has no scheduled workers. Doctor
+            # must render every section and report that critical absence via exit 1.
             doctor_block_fail() {
               echo "north package smoke: doctor block failed at: $1 (doctor_rc=$doctor_rc)" >&2
               sed -n '1,120p' "$smoke/doctor.out" >&2
               exit 1
             }
             test "$doctor_rc" -eq 1 || doctor_block_fail rc
-            grep -Fq '[ERR]  reactor heartbeat MISSING' "$smoke/doctor.out" || doctor_block_fail reactor
+            grep -Fq '[ERR]  spend-guard heartbeat MISSING' "$smoke/doctor.out" || doctor_block_fail maintenance
             grep -Fq 'guard hooks' "$smoke/doctor.out" || doctor_block_fail guard-hooks
             grep -Fq 'north  package rev ${builtins.substring 0 12 (self.rev or self.dirtyRev or "dirty")}' "$smoke/doctor.out" || doctor_block_fail north-rev
             grep -Fq 'fram  package rev ${builtins.substring 0 12 (fram.rev or fram.dirtyRev or "local")}' "$smoke/doctor.out" || doctor_block_fail fram-rev

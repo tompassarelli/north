@@ -1,8 +1,8 @@
-;; reap.clj — PURE liveness-reap decisions, split from north-reactor.clj's I/O so the
+;; reap.clj — PURE liveness-reap decisions, split from hosted I/O so the
 ;; verdict is unit-testable off in-memory facts (../tests/reap_test.clj) with no live daemon.
-;; The reactor GATHERS facts through the coordinator, then calls these; the test feeds
+;; The lane lifecycle janitor gathers facts through the coordinator, then calls these; the test feeds
 ;; the same shapes directly. No coordinator, no clock, no atoms here — inputs in, verdict
-;; out. Loaded (not required) the same way north-reactor.clj loads coord.clj.
+;; out. Loaded by the scheduled maintenance task host.
 (ns north.reap
   (:require [clojure.java.io :as io]
             [clojure.string :as str]))

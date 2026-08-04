@@ -1204,7 +1204,7 @@ async function runSpawn(
   }
 
   // Commit the lane's process/delivery terminal (SYNC, digest marker last)
-  // before exit so the reactor cannot mistake a completed lane for silence.
+  // before exit so the lifecycle janitor cannot mistake a completed lane for silence.
   refreshIdentityRoute();
   let delivery: DeliveryAssessment | undefined;
   if (outcome === "ran" && opts.thread) {

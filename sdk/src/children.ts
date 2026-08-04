@@ -6,7 +6,7 @@
 // an outcome — exactly specimen sdk-524a451b (orchestrator said "turn ends here",
 // exited, its two workers completed later into a dead inbox; the next wave never fired).
 //
-// The reactor's died-unreported sweep eventually catches this (lapsed >30min), but that
+// The lane lifecycle janitor eventually catches this (lapsed >30min), but that
 // is a 30-minute-late signal. This fires it IMMEDIATELY, at the moment of exit, so the
 // coordinator learns "I am leaving children behind" now, loudly, with the ids named.
 //

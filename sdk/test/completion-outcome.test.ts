@@ -271,7 +271,7 @@ test("a lane that dies mid-stream records outcome=died ON the lane entity (repor
 
   // The SDK subprocess dies mid-turn (real exitError shape). The finally path runs, so this
   // is a REPORTED death: outcome=died on @agent:<id> alongside the agent_death fact. The
-  // reactor then skips its committed terminal — died-unreported is reserved for
+  // The lane lifecycle janitor then skips its committed terminal — died-unreported is reserved for
   // a hard-kill (or torn publication) with no committed terminal evidence.
   const dyingQuery: any = () =>
     (async function* () {

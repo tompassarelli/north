@@ -409,7 +409,7 @@ Run \`$ENSURE_PRIVATE_DOCS_BIN\` to set up the ignore in a repo before writing t
 Need a system rebuild? QUEUE the ask and keep working — you never fire one yourself:
   $NORTH_BIN rebuild request --why "<reason>"        # returns at once; never builds
   ... --urgent "<why it cannot wait>"                            # counted, never refused
-The reactor's window owner coalesces every open ask into ONE coordinated rebuild and closes
+The coordinated Nix rebuild worker coalesces every open ask into ONE rebuild and closes
 your request against the generation that landed. Direct \`firn rebuild\` / \`firn-rebuild-coordinated\`
 are DENIED for agents.
 

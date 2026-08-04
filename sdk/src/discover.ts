@@ -5,7 +5,7 @@
 // Jittered exponential backoff
 // on empty/contended rounds so agents desynchronize instead of thundering an empty queue.
 //
-// This is the pull side of the loop: P1 (reactor) reacts to commands addressed to
+// This is the pull side of the loop: P1 (command consumer) reacts to commands addressed to
 // an agent; discover lets an idle agent SELECT its own work. Together: a thread is
 // dropped, and whichever agent is free grabs it — leaderless.
 import { execSync } from "node:child_process";

@@ -228,7 +228,10 @@
                        (:schema-version operation))
                     (= "concern-transition" (:operation-type operation))
                     (= concern (:concern-id operation))
-                    (= [["reached" "landed" "multi"]]
+                    (= [["attention_reconcile_pending"
+                         (:operation-id operation)
+                         "multi"]
+                        ["reached" "landed" "multi"]]
                        (mapv
                         (juxt :predicate :object :cardinality)
                         (:facts operation)))

@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Unregistered-worktree janitor regression, driven with NO live daemon: the two
 ;; graph joins are deferred values, so real Git is the only authority under test.
-;; The reactor's `sweep-once` calls this exact function (see north-reactor.clj).
+;; The scheduled worktree task calls this exact function.
 (require '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[clojure.string :as str])

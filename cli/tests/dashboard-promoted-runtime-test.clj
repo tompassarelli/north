@@ -78,7 +78,7 @@
   (check "a selector that names no revision is malformed, never promoted"
          (and (false? (:promoted? result)) (some? (:malformed result)))))
 
-(let [open [{:why "code-adoption: reactor sweep fix" :requester "a"}
+(let [open [{:why "code-adoption: maintenance worker fix" :requester "a"}
             {:why "  Code-Adoption: doctor gauge  " :requester "b"}
             {:why "new kernel module" :requester "c"}
             {:why "adopt code-adoption: not at the start" :requester "d"}

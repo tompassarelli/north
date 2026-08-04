@@ -178,7 +178,7 @@ policy sources. Edit a file in its owning repository and commit it there.
 Firn owns the NixOS wiring and application step.
 **Agents QUEUE rebuilds, never fire them.** `north rebuild request --why
 "<reason>"` records one durable ask and returns; `--urgent "<why>"` is counted
-and never refused. The reactor's window owner coalesces every open ask into ONE
+and never refused. The coordinated Nix rebuild worker coalesces every open ask into ONE
 coordinated rebuild and closes each request against the generation that landed.
 Direct `firn rebuild` and `firn-rebuild-coordinated` are DENIED for agent tool
 calls (deliberate owner escape: `north config guards off`); `firn update` and
@@ -194,7 +194,7 @@ Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 
 north, fram, and beagle deliver code through their own channels — live
 checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
-reactor, timers), sealed `north-enforcement-promote` (guards, deliberately
+workers, timers), sealed `north-enforcement-promote` (guards, deliberately
 slow). A rebuild whose purpose is adopting hot-loop code is a DEFECT: tag
 the ask `--why "code-adoption: …"`, capture a thread naming the coupling,
 and fix the channel instead. The target is zero code-adoption rebuild asks;

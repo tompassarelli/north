@@ -257,8 +257,6 @@
    :summary "runtime identity + strict log-fence round trip"}
   {:verb "up" :form "north up [--restart|--stop]" :topic :ops
    :summary "start/revive the fact-server daemon(s) on the canonical logs"}
-  {:verb "reactor" :form "north reactor [port] [debounce-ms]" :topic :ops
-   :summary "auto-export sidecar: re-projects touched threads (background)"}
   {:verb "stream-sync" :form "north stream-sync" :topic :ops
    :summary "cursor-based transcript log-shipping"}
   {:verb "rebuild" :form "north rebuild request --why \"…\"" :topic :ops

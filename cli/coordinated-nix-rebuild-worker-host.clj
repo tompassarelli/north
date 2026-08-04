@@ -1,17 +1,20 @@
 #!/usr/bin/env bb
-(ns north.rebuild-window-watch
+(ns north.coordinated-nix-rebuild-worker-host
   (:require [cheshire.core :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
 (def ^:private cli-dir
   (.getParent (io/file (System/getProperty "babashka.file"))))
+(def ^:private root
+  (.getCanonicalPath (io/file cli-dir "..")))
 (def ^:private north-bin
   (.getPath (io/file cli-dir ".." "bin" "north")))
 
 (System/setProperty "north.rebuild-request-cli.lib" "1")
 (load-file (str cli-dir "/rebuild-request-cli.clj"))
-(load-file (str cli-dir "/rebuild_window_owner.clj"))
+(load-file (str cli-dir "/coordinated_nix_rebuild.clj"))
+(load-file (str root "/out/north/worker_policy.clj"))
 
 (def port
   (Integer/parseInt
@@ -111,7 +114,7 @@
 
 (defn wait-for-window-release! [deadline-ns]
   (loop []
-    (case (:state (north.rebuild-window-owner/window-unit-state))
+    (case (:state (north.coordinated-nix-rebuild/window-unit-state))
       :inactive true
       :unknown false
       :active
@@ -128,7 +131,7 @@
     (loop [attempt 0]
       (let [queue-observation (observe-current-queue)
             result
-            (north.rebuild-window-owner/collect! port false north-bin)]
+            (north.coordinated-nix-rebuild/collect! port false north-bin)]
         (cond
           (and (= "owner-busy" (:action result))
                (< attempt busy-retries))
@@ -141,7 +144,7 @@
             (recur 0)
             (let [elapsed-ms
                   (long (/ (- (System/nanoTime) started) 1000000))]
-              (println (str "[rebuild-owner] wake=" (name reason)
+              (println (str "[coordinated-nix-rebuild-worker] wake=" (name reason)
                             " action=active-rearm-deferred"
                             " elapsed_ms=" elapsed-ms))
               (flush)
@@ -152,7 +155,7 @@
           :else
           (let [elapsed-ms
                 (long (/ (- (System/nanoTime) started) 1000000))]
-            (println (str "[rebuild-owner] wake=" (name reason)
+            (println (str "[coordinated-nix-rebuild-worker] wake=" (name reason)
                           " action=" (:action result)
                           " elapsed_ms=" elapsed-ms))
             (flush)
@@ -164,17 +167,24 @@
   (when (queue-commit? event)
     (locking event-lock
       (let [incoming (queue-observation (:version event) (:r event))
-            observed @event-state]
-        (when (> (:version incoming) (:version observed))
-          (if (= (:semantic incoming) (:semantic observed))
+            observed @event-state
+            decision
+            (north.worker-policy/rebuild-wake-decision
+             (:version observed)
+             (:version incoming)
+             (not= (:semantic incoming) (:semantic observed))
+             (boolean
+              (seq (get-in incoming [:semantic :request-ids]))))]
+        (case (:action decision)
+          :ignore nil
+          :advance (advance-event-state! incoming)
+          :wake
+          (do
             (advance-event-state! incoming)
-            (do
-              (advance-event-state! incoming)
-              (when (seq (get-in incoming [:semantic :request-ids]))
-                (debounce!)
-                (let [result (wake-owner! :queue-commit)]
-                  (advance-event-state! (:queue-observation result))
-                  result)))))))))
+            (debounce!)
+            (let [result (wake-owner! :queue-commit)]
+              (advance-event-state! (:queue-observation result))
+              result)))))))
 
 (defn connected-catch-up! []
   (locking event-lock
@@ -206,18 +216,18 @@
           (recur))))))
 
 (defn -main []
-  (println (str "[rebuild-owner] scoped fact-server subscription :" port
+  (println (str "[coordinated-nix-rebuild-worker] scoped fact-server subscription :" port
                 " -> " north.rebuild-request/queue-subject))
   (flush)
   (loop []
     (try
       (subscribe-once)
       (catch Throwable error
-        (println (str "[rebuild-owner] fact-server subscription lost ("
+        (println (str "[coordinated-nix-rebuild-worker] fact-server subscription lost ("
                       (.getMessage error) ") — reconnecting"))
         (flush)))
     (Thread/sleep 1000)
     (recur)))
 
-(when-not (= "1" (System/getProperty "north.rebuild-window-watch.lib"))
+(when-not (= "1" (System/getProperty "north.coordinated-nix-rebuild-worker-host.lib"))
   (-main))

@@ -7,7 +7,7 @@
 ;; spawning session is long gone:
 ;;   1. lane outcomes      run-<agent>-<ts>  kind=run  outcome=ran|died|resource_envelope_exceeded|error
 ;;   2. reported deaths     @swarm            agent_death "<id> | <reason> | <ts>"  (death.notifyDeath)
-;;   3. silent hard-kills   @agent:<id>       outcome=died-unreported               (reactor.sweep-lanes!)
+;;   3. silent hard-kills   @agent:<id>       outcome=died-unreported               (lane lifecycle janitor)
 ;;   4. stale/orphaned concerns  (the same renewable-lease liveness DECAY as `concern ls`)
 ;; plus ping-loss (a lane carried a `coordinator` fact but landed no COMPLETE/DEATH
 ;; ping) and a zombie-fork scan (F4: an agent-handle git author absent from the roster).
@@ -224,7 +224,7 @@
       (println (format "%-10s %d reported (7d, agent_death with reason) · %s"
                        "deaths" (count d7)
                        (str (if (pos? silent) (ylw (str silent)) "0")
-                            " silent (all-time, died-unreported/reactor-reaped)")))
+                            " silent (all-time, died-unreported/lifecycle-reaped)")))
       (when last-d
         (println (format "%-10s last death  %s — \"%s\" — %s ago" ""
                          (:id last-d) (:reason last-d) (ago (when (:ms last-d) (- now (:ms last-d))))))))

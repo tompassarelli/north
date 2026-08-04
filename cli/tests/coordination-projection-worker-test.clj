@@ -1,33 +1,28 @@
 #!/usr/bin/env bb
-(require '[clojure.java.io :as io]
-         '[clojure.string :as str])
+(require '[babashka.process]
+         '[clojure.java.io :as io])
 
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
-(def reactor
-  (or (System/getenv "NORTH_TEST_REACTOR")
-      (str root "/cli/north-reactor.clj")))
+(def worker-host (str root "/cli/coordination-projection-worker-host.clj"))
 (def checks (atom []))
 
 (defn check [label ok detail]
   (swap! checks conj [label (boolean ok) detail]))
 
-(System/setProperty "babashka.file" reactor)
-(load-string
- (-> (slurp reactor)
-     (str/replace-first #"^#![^\n]*\n" "")
-     (str/replace
-      #"\n\(if sweep-verb\?\n  \(System/exit \(sweep-once-exit-code\)\)\n  \(-main\)\)\s*$"
-      "\n")))
+(System/setProperty "babashka.file" worker-host)
+(System/setProperty "north.coordination-projection-worker-host.lib" "1")
+(load-file worker-host)
 
 (let [call (atom nil)]
-  (with-redefs [proc/shell
+  (with-redefs [babashka.process/shell
                 (fn [options & command]
                   (reset! call {:options options :command command})
                   {:exit 0 :out "" :err ""})
-                north-bin "/fixture/north"
+                north.coordination-projection-worker-host/north-bin
+                "/fixture/north"
                 north.coord/expected-log (constantly "/fixture/coordination.log")]
-    (heal!))
+    (north.coordination-projection-worker-host/heal!))
   (check "auto-heal selects only the coordination corpus"
          (= {"FRAM_LOG" "/fixture/coordination.log"
              "NORTH_TELEMETRY_PARTITION" "0"
@@ -43,6 +38,6 @@
   (doseq [[label ok detail] results]
     (println (format "  [%s] %s" (if ok "PASS" "FAIL") label))
     (when-not ok (println (str "        " detail))))
-  (println (format "\nreactor heal projection: %d / %d PASS"
+  (println (format "\ncoordination projection worker: %d / %d PASS"
                    passed (count results)))
   (System/exit (if (= passed (count results)) 0 1)))

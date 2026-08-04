@@ -214,34 +214,58 @@
   (fact! "@wrong-kind" "title" "Not a thread")
   (fact! "@wrong-kind" "kind" "document")
 
-  (let [request (atom nil)
+  (let [requests (atom [])
         page
         (with-redefs
-          [north.coord/query-page
-           (fn [_ query limit after]
-             (reset! request {:query query :limit limit :after after})
-             {:ok [] :more true})]
+          [north.coord/indexed-query-in-domain
+           (fn [_ domain query limit]
+             (swap! requests conj {:domain domain :query query :limit limit})
+             {:ok [] :version 0 :engine "index"})]
           (pending-attention-event-intents port nil))
         errored
         (with-redefs
-          [north.coord/query-page
-           (fn [& _] {:error ["fixture failure"] :more false})]
+          [indexed-predicate-rows
+           (fn [& _]
+             (throw (ex-info "fixture failure"
+                             {:type :indexed-query-error})))]
           (thrown #(pending-attention-event-intents port nil)))
         malformed
         (with-redefs
-          [north.coord/query-page
-           (fn [& _] {:ok [["one-column-unscoped"]] :more false})]
+          [indexed-predicate-rows
+           (fn [& _] [["one-column-unscoped"]])]
           (thrown #(pending-attention-event-intents port nil)))]
-    (check "terminal outbox reads one fixed page and reports remaining work"
-           (and (= attention-event-reconcile-limit (:limit @request))
-                (nil? (:after @request))
-                (true? (:more page))
+    (check "terminal outbox uses one bounded live-intent index"
+           (and (= 1 (count @requests))
+                (every? #(= :coordination (:domain %)) @requests)
+                (every? #(= automatic-index-row-limit (:limit %)) @requests)
+                (false? (:more page))
                 (empty? (:intents page))))
-    (check "terminal outbox query errors and malformed rows fail visibly"
-           (and (= :concern-attention-outbox-query-failed
+    (check "terminal outbox index errors and malformed rows fail visibly"
+           (and (= :indexed-query-error
                    (:type (ex-data errored)))
-                (= :malformed-concern-attention-outbox-page
+                (= :malformed-concern-attention-index
                    (:type (ex-data malformed))))))
+
+  (let [predicates (atom [])
+        result
+        (with-redefs
+          [indexed-predicate-rows
+           (fn [_ predicate]
+             (swap! predicates conj predicate)
+             [])
+           all-concerns
+           (fn [& _]
+             (throw (ex-info "whole-corpus concern scan invoked" {})))
+           concern-meta-index
+           (fn [& _]
+             (throw (ex-info "whole-corpus concern metadata invoked" {})))]
+          (reconcile-attention! port))]
+    (check "automatic attention reconciliation reads only live indexed outboxes"
+           (and (= #{attention-event-intent-predicate
+                     attention-reconcile-pending-predicate}
+                   (set @predicates))
+                (zero? (:overlaps result))
+                (zero? (:deferred result)))))
 
   (let [legacy (run-concern "declare" "agent-a" "/tmp/no-code"
                             "legacy declaration" "src/shared.clj")
@@ -415,6 +439,7 @@
       (check "terminal reconciliation publishes, settles, and dedupes the crash gap"
              (and (zero? (:exit reconciled))
                   (zero? (:exit repeated-reconcile))
+                  (empty? (values-of anchored-id attention-event-intent-predicate))
                   (= intents settled-after)
                   (empty? (:intents pending-after))
                   (= after-reconcile (notification-rows))
@@ -507,28 +532,27 @@
            (notification-rows))
           intents (values-of retiring attention-event-intent-predicate)
           settled (values-of retiring attention-event-settled-predicate)]
-      (check "hidden reactor retirement boundary emits and settles overlap-left"
+      (check "stale-concern janitor boundary emits and settles overlap-left"
              (and (zero? (:exit seed))
                   (zero? (:exit retired))
                   (str/includes? (:out retired) ":status :committed")
                   (:abandoned state)
                   (= 1 (count left))
                   (= "@retire-peer" (:recipient (first left)))
-                  (= intents settled)
-                  (= 1 (count intents))))))
+                  (empty? intents)
+                  (= 1 (count settled))))))
 
-  (let [reactor-source (slurp (str root "/cli/north-reactor.clj"))]
-    (check "reactor retirement calls the concern boundary and never appends terminal directly"
+  (let [maintenance-source
+        (slurp (str root "/cli/coordination-maintenance-task-host.clj"))]
+    (check "stale-concern janitor calls the concern boundary and never appends terminal directly"
            (and
             (str/includes?
-             reactor-source
+             maintenance-source
              "(retire-stale-concern! c)")
             (not
              (re-find
               #"append!\s+port\s+c\s+\"reached\"\s+\"abandoned-stale\""
-              reactor-source))
-            (str/includes? reactor-source "\"@notification:\"")
-            (str/includes? reactor-source "\"@subscription:\""))))
+              maintenance-source)))))
 
   (let [projection (concern-projection port nil)
         rows (:concerns projection)]

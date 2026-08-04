@@ -1,12 +1,8 @@
-;; spend-breaker.clj — the spend-guard CIRCUIT BREAKER + reactor burn/kill/reap
-;; logic (build-order step 3). Loaded (not required) the same way north-reactor.clj
-;; loads coord.clj/reap.clj: the CALLER loads coord.clj FIRST, then this file, so
-;; `north.coord/*` resolves. Two callers load it — north-reactor.clj (the sweep
-;; that WRITES trips + kills breached lanes + settles dead lanes) and spend-cli.clj
-;; (the reserve precondition + the human `reset-breaker` ceremony). north-reactor.clj
-;; runs `-main` on load, so it can NEVER be load-file'd by a test; every daemon-
-;; touching sweep primitive therefore lives HERE, in a load-safe lib, and the
-;; reactor is a thin caller. spend-breaker-test.clj drives these directly.
+;; spend-breaker.clj — spend-guard circuit breaker + burn/kill/reap logic.
+;; The caller loads coord.clj first so `north.coord/*` resolves. The independently
+;; scheduled spend-guard task writes trips, kills breached lanes, and settles dead
+;; lanes; spend-cli.clj owns reservation admission and the human reset ceremony.
+;; This load-safe library owns the shared logic; both callers are thin adapters.
 ;;
 ;; DESIGN (spend-guard-design-2026-07-19.md §4): ONE global breaker
 ;; `@spend-breaker:global`. Trip = assert `tripped <ts>` + `trip_reason "..."`.
@@ -18,8 +14,8 @@
 ;;
 ;; WINDOW RESOLUTION (documented honestly): the accrual metric is the cumulative
 ;; (reserved+settled) micro-USD charge on the target's CURRENT-month period. The
-;; reactor samples it every sweep (5-min cadence) into a small on-disk ring
-;; (~/.cache/north, the reactor's existing state home — no new fact-log churn, no
+;; The spend-guard worker samples it every minute into a small on-disk ring
+;; (~/.cache/north — no new fact-log churn, no
 ;; new daemon), keyed by port + target. Burn = Δ(cumulative) over the trailing
 ;; WINDOW-MS; rate = Δ · hour / elapsed. Trip when rate > burn_limit_per_hour once
 ;; at least MIN-ELAPSED-MS of history spans the window (below that: insufficient
@@ -38,7 +34,7 @@
 ;; Sibling-relative paths captured at LOAD time (*file* = this file while loading,
 ;; the coord.clj precedent). Used to shell `spend-cli.clj settle` for the FULL
 ;; reservation settlement of killed/dead lanes — the design's "settle via spend-cli
-;; settle" wording, and the only way the reactor (which never load-file's spend-cli)
+;; settle" wording, and the only way the worker (which never load-file's spend-cli)
 ;; reaches the settlement primitive.
 (def ^:private here (.getParent (io/file *file*)))
 (def ^:private spend-cli-path (str here "/spend-cli.clj"))
@@ -48,7 +44,7 @@
 (def MIN-ELAPSED-MS (* 15 60 1000))      ; need ≥15min of spanning history before a rate is meaningful
 (def RING-KEEP-MS   (* 2 WINDOW-MS))     ; retain ~2 windows of samples, drop older
 
-;; --- money counters (mirror spend-cli's fail-closed reads; the reactor does not
+;; --- money counters (mirror spend-cli's fail-closed reads; the worker does not
 ;; --- load spend-cli, so the 3-line period math is duplicated deliberately) -----
 (defn utc-month [] (.format (java.time.format.DateTimeFormatter/ofPattern "yyyy-MM")
                             (java.time.ZonedDateTime/now java.time.ZoneOffset/UTC)))
@@ -108,7 +104,7 @@
                        (format "burn-rate breach: %d micro-USD/hr over trailing %dmin > limit %d micro-USD/hr"
                                rate (long (/ elapsed 60000)) burn-limit-per-hr))}))))))
 
-;; --- burn sample ring (on-disk, reactor's ~/.cache/north state home) ---------
+;; --- burn sample ring (on-disk in ~/.cache/north) ----------------------------
 (defn ring-file [port]
   (if-let [o (System/getenv "NORTH_SPEND_BURN_STATE")]
     (io/file o)
@@ -192,7 +188,7 @@
 
 ;; --- RECONCILIATION DIVERGENCE — STEP-5 SEAM (named, deliberately not built) --
 ;; Step 5 lands the SpendReconciliationAdapter (design §5): provider balance/usage
-;; vs ledger, hourly reactor piggyback. When it detects a dangerous-direction
+;; vs ledger, hourly spend-guard check. When it detects a dangerous-direction
 ;; divergence it calls `(trip! port <reason>)` from that hourly gate. Nothing here
 ;; fetches provider state; this fn is the only hook and always returns nil now.
 (defn reconciliation-divergence-reason
@@ -200,7 +196,7 @@
   [_port _now] nil)
 
 ;; ============================================================================
-;; REACTOR SWEEP PRIMITIVES (called by north-reactor.clj sweep!, driven directly
+;; SPEND-GUARD PRIMITIVES (called by the scheduled task, driven directly
 ;; by spend-breaker-test.clj). Each returns a small map/count and prints its act.
 ;; ============================================================================
 
@@ -276,7 +272,7 @@
         #{}))
     (catch Throwable _ #{})))
 
-;; babashka.process is required by the reactor + test entry scripts; reference it
+;; babashka.process is required by the task host + test entry scripts; reference it
 ;; through requiring-resolve so this lib needs no top-level require of it.
 (defn proc-shell-settle [port target period reserved]
   ((requiring-resolve 'babashka.process/shell)
@@ -289,7 +285,7 @@
   "Settle one open spend-lane at its FULL reservation (status unknown) by shelling
    `spend-cli.clj settle`, then stamp settled_at. Idempotent: skips if already
    stamped. WHY: the exact micro-USD settle math + CAS lives in spend-cli; the
-   reactor never load-file's it, so the settlement primitive is reached by shell —
+   worker never load-file's it, so the settlement primitive is reached by shell —
    the design's 'settle via spend-cli settle'."
   [port {:keys [id target period reserved]} dry? note]
   (if (north.coord/resolved port id "settled_at")

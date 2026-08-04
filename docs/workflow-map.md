@@ -45,7 +45,7 @@ what could not be verified from source.
 | **function / role** | responsibility and deliverable; independent of task grade, domain requirements, topology, semantic tier, and deliberation |
 | **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility (`novice` through `research-grade`), not a model identity |
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |
-| **the reactor** | a long-lived sidecar (`north reactor`) that re-projects touched threads off the commit firehose; the intended home of specced auto-reaping |
+| **coordination workers** | independently supervised processes for rebuild coordination, durable reconciliation, projection, and bounded scheduled maintenance |
 
 **The two writer origins.** Port `:7978` was once a stranded coordination
 writer, which caused the historical §3 F7 incident. It is now deliberately the
@@ -107,7 +107,7 @@ flowchart TD
 > *started by a peer instead of a human*, with no human relay. `command_peer`
 > (`harness.ts:55`, tool `mcp__north-peer__command_peer`) shells to
 > `msg-cli send-cmd`, which asserts a command as facts on `@cmd:<id>` (op ∈
-> {spawn, dispatch, tell, acquire}); the target's reactor triggers on the
+> {spawn, dispatch, tell, acquire}); the target's command consumer triggers on the
 > `target` routing key and runs the op. So "peer commands a spawn" is just
 > pattern D/E with a fact-feed trigger in front of INTAKE.
 
@@ -453,11 +453,11 @@ pipeline-debug checklist and the spec skeleton for a future `north trace
    for dispatch (E) also `north show @<thread>`. Telemetry: the run's
    `outcome="died"`.
 
-7. **Reaping.** *(Specced, not shipped — see §3.)*
+7. **Reaping.**
    Today: `north agents` → the id ages to `lapsed` / drops off after the 30-min
    TTL; `concern ls` may still show a stale `building` concern.
-   Intended (coordination-v2): a `STALE` render on owner-lapse and a reactor
-   `abandoned` fact after 24h.
+   The stale-concern janitor writes `abandoned-stale` after a building concern's
+   owner has been lapsed for 24h; likely-to-land concerns remain recoverable.
 
 ---
 
@@ -482,7 +482,7 @@ flowchart TD
 
 > **Status note (2026-07-09, after this map was written).** Coordination-v2
 > lane V1 landed the same day (north `17b3e97`): STALE/HANDOFF concern rendering
-> on owner-lapse, reactor auto-abandon after 24h (`abandoned-stale`), the ≥60s
+> on owner-lapse, stale-concern janitor retirement after 24h (`abandoned-stale`), the ≥60s
 > activity-heartbeat throttle (session lineage), and stuck-fork reaping (lane
 > lapsed >30min with no `outcome` → `died-unreported`). The "specced" remedies
 > in F2/F3/F5 below are now LIVE — except SDK-lane lease renewal, which still
@@ -543,7 +543,7 @@ below are its rule set.
   lease and *no* death fact = hard SIGKILL that skipped `finally` (worst case).
 - **Remedy (today):** trust the `agent_death`/`outcome` over the lease. **Remedy
   (specced):** activity-derived heartbeat (as F2) makes a stalled lease decay
-  quickly; the reactor's auto-abandon closes the gap.
+  quickly; independent lifecycle and stale-concern janitors close the gap.
 
 ### F4 — zombie forks
 - **Presents:** repo is changing (new commits, edited files) but the actor is on
@@ -562,8 +562,9 @@ below are its rule set.
   whose owner id is `lapsed`/absent in `north agents`.
 - **Remedy (today):** manually `concern status <id> done`/abandon the orphan.
   **Remedy (specced, coordination-v2 item 1):** owner-presence-lapsed →
-  concern renders `STALE` (pure projection, no write); `STALE >24h` → reactor
-  writes an `abandoned` fact; `likely-to-land` survives lapse as a handoff.
+  concern renders `STALE` (pure projection, no write); `STALE >24h` → the
+  stale-concern janitor writes an `abandoned-stale` fact; `likely-to-land`
+  survives lapse as a recovery candidate.
 
 ### F6 — id-collision / aliasing
 - **Presents:** one id on the roster with contradictory focus; a peer's reply
