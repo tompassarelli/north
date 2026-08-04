@@ -51,6 +51,29 @@
    #'reconcile-attention-bounded!
    (fn [_] (swap! calls conj :attention-reconcile) {:status :completed})})
 
+(let [started (atom nil)
+      awaited (atom nil)]
+  (with-out-str
+    (with-redefs
+     [start-sweep-child!
+      (fn [label options & command]
+        (reset! started {:label label :options options :command command})
+        ::child)
+      await-sweep-child!
+      (fn [child timeout-ms]
+        (reset! awaited {:child child :timeout-ms timeout-ms})
+        {:status :completed :result {:exit 0}})]
+      (reconcile-local-concerns-bounded! "fixture")))
+  (check "local concern recovery gives its bounded pass enough process headroom"
+         (and (= "20000"
+                 (get-in @started
+                         [:options :extra-env
+                          "NORTH_CONCERN_RECONCILE_MAX_MILLIS"]))
+              (= 30000 (:timeout-ms @awaited))
+              (= ["reconcile-local" "--operations-only"]
+                 (vec (take-last 2 (:command @started)))))
+         {:started @started :awaited @awaited}))
+
 (let [calls (atom [])
       summary
       (with-redefs-fn
