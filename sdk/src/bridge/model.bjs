@@ -15,13 +15,12 @@
    title: String
    condition: String
    driver: String
-   text: String
-   kanban-text: String])
+   dependencies: (Vec String)])
 
 (defrecord BridgeModel
   [agents: (Vec Agent)
    transcript: (Vec String)
-   graph: (Vec WorkItem)
+   list: (Vec WorkItem)
    kanban: (Vec WorkItem)
    layout: String
    active-view-id: String
@@ -34,21 +33,27 @@
   (->Agent id name status task))
 
 (defn make-work
-  [id: String title: String condition: String driver: String text: String kanban-text: String]
+  [id: String title: String condition: String driver: String dependencies: (Vec String)]
   -> WorkItem
-  (->WorkItem id title condition driver text kanban-text))
+  (->WorkItem id title condition driver dependencies))
+
+(defn canonical-view [view-id: String] -> String
+  (cond
+    (identical? view-id "kanban") "kanban"
+    (identical? view-id "dag") "dag"
+    :else "list"))
 
 (defn make-model [view-id: String] -> BridgeModel
-  (->BridgeModel [] [] [] [] "vertical"
-                 (if (identical? view-id "kanban") "kanban" "graph")
-                 "" "" "" (str "view " view-id)))
+  (let [view (canonical-view view-id)]
+    (->BridgeModel [] [] [] [] "vertical" view
+                   "" "" "" (str "view " view))))
 
 (defn replace-projection
-  [model: BridgeModel agents: (Vec Agent) graph: (Vec WorkItem) kanban: (Vec WorkItem)]
+  [model: BridgeModel agents: (Vec Agent) list-items: (Vec WorkItem) kanban: (Vec WorkItem)]
   -> BridgeModel
   (->BridgeModel agents
                  (bridgemodel-transcript model)
-                 graph
+                 list-items
                  kanban
                  (bridgemodel-layout model)
                  (bridgemodel-active-view-id model)
@@ -63,7 +68,7 @@
                           (not (identical? (agent-id existing) (agent-id agent)))))]
     (->BridgeModel (.concat agents agent)
                    (bridgemodel-transcript model)
-                   (bridgemodel-graph model)
+                   (bridgemodel-list model)
                    (bridgemodel-kanban model)
                    (bridgemodel-layout model)
                    (bridgemodel-active-view-id model)
@@ -75,7 +80,7 @@
 (defn append-transcript [model: BridgeModel line: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (.slice (.concat (bridgemodel-transcript model) line) -500)
-                 (bridgemodel-graph model)
+                 (bridgemodel-list model)
                  (bridgemodel-kanban model)
                  (bridgemodel-layout model)
                  (bridgemodel-active-view-id model)
@@ -85,21 +90,22 @@
                  line))
 
 (defn focus-view [model: BridgeModel view-id: String] -> BridgeModel
-  (->BridgeModel (bridgemodel-agents model)
-                 (bridgemodel-transcript model)
-                 (bridgemodel-graph model)
-                 (bridgemodel-kanban model)
-                 (bridgemodel-layout model)
-                 (if (identical? view-id "kanban") "kanban" "graph")
-                 (bridgemodel-selected-agent model)
-                 (bridgemodel-selected-thread model)
-                 (bridgemodel-filter-text model)
-                 (bridgemodel-notice model)))
+  (let [view (canonical-view view-id)]
+    (->BridgeModel (bridgemodel-agents model)
+                   (bridgemodel-transcript model)
+                   (bridgemodel-list model)
+                   (bridgemodel-kanban model)
+                   (bridgemodel-layout model)
+                   view
+                   (bridgemodel-selected-agent model)
+                   (bridgemodel-selected-thread model)
+                   (bridgemodel-filter-text model)
+                   (str "view " view))))
 
 (defn set-layout [model: BridgeModel layout: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
-                 (bridgemodel-graph model)
+                 (bridgemodel-list model)
                  (bridgemodel-kanban model)
                  (if (identical? layout "horizontal") "horizontal" "vertical")
                  (bridgemodel-active-view-id model)
@@ -111,7 +117,7 @@
 (defn select-agent [model: BridgeModel agent-id: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
-                 (bridgemodel-graph model)
+                 (bridgemodel-list model)
                  (bridgemodel-kanban model)
                  (bridgemodel-layout model)
                  (bridgemodel-active-view-id model)
@@ -123,7 +129,7 @@
 (defn select-thread [model: BridgeModel thread-id: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
-                 (bridgemodel-graph model)
+                 (bridgemodel-list model)
                  (bridgemodel-kanban model)
                  (bridgemodel-layout model)
                  (bridgemodel-active-view-id model)
@@ -135,7 +141,7 @@
 (defn set-filter [model: BridgeModel filter-text: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
-                 (bridgemodel-graph model)
+                 (bridgemodel-list model)
                  (bridgemodel-kanban model)
                  (bridgemodel-layout model)
                  (bridgemodel-active-view-id model)
@@ -160,13 +166,14 @@
                          needle)))))))
 
 (defn snapshot [model: BridgeModel] -> Any
-  (let [graph (visible-work model (bridgemodel-graph model))
+  (let [list-items (visible-work model (bridgemodel-list model))
         kanban (visible-work model (bridgemodel-kanban model))]
     {:agents (bridgemodel-agents model)
      :transcript (bridgemodel-transcript model)
-     :graph graph
+     :list list-items
      :kanban kanban
-     :views [{:id "graph" :title "Threads DAG" :items graph}
+     :views [{:id "list" :title "List" :items list-items}
+             {:id "dag" :title "DAG" :items list-items}
              {:id "kanban" :title "Kanban" :items kanban}]
      :layout (bridgemodel-layout model)
      :activeViewId (bridgemodel-active-view-id model)
