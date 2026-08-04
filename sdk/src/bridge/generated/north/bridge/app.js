@@ -453,21 +453,34 @@ return true; })() : false;
   }
 }
 
-function destroy_bang(runtime) {
+function quiesce_bang(runtime) {
   if ((!runtime.disposed)) {
     (runtime.disposed = true);
     if (runtime.spinnerTimer) {
       clearInterval(runtime.spinnerTimer);
     }
+    (runtime.spinnerTimer = null);
     runtime.soundChildren.forEach((child) => (() => { try {
     return child.kill();
   } catch (__) {
     return null;
   } })());
-    runtime.soundChildren.clear();
+    return runtime.soundChildren.clear();
+  }
+}
+
+function destroy_bang(runtime) {
+  if ((!runtime.disposed)) {
+    quiesce_bang(runtime);
     runtime.renderer.destroy();
     return process.exit(0);
   }
+}
+
+function install_process_cleanup_bang(runtime) {
+  ["SIGINT", "SIGTERM", "SIGHUP"].forEach((signal) => {
+  process.prependOnceListener(signal, () => quiesce_bang(runtime));
+});
 }
 
 function install_global_exit_bang(runtime) {
@@ -1049,47 +1062,49 @@ function work_content_bang(runtime, state, view, selected) {
 }
 
 function render_ui_bang(runtime, ui) {
-  const state = snapshot(runtime.model);
-  const agents = (state.agents || []);
-  const views = view_list(state);
-  const requested = text(state.activeViewId);
-  const current = selected_view(state, requested);
-  const items = (current.items || []);
-  const agent_max = Math.max(0, (agents.length - 1));
-  const work_max = Math.max(0, (items.length - 1));
-  const agent_options = ((runtime.pane === "agents") ? palette_options("agents", text(ui.agentInput.value)) : []);
-  const work_options = ((runtime.pane === "work") ? palette_options("work", text(ui.workInput.value)) : []);
-  const active_options = ((runtime.pane === "agents") ? agent_options : work_options);
-  const palette_max = Math.max(0, (active_options.length - 1));
-  const board_p = (text(current.id) === "board");
-  (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
-  (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
-  (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
-  apply_workspace_geometry_bang(runtime, ui, state);
-  render_prompt_bang(runtime, ui.agentPrompt);
-  render_prompt_bang(runtime, ui.workPrompt);
-  (ui.agentsHeader.content = render_pane_header("Agents", (runtime.pane === "agents")));
-  (ui.agentsText.content = roster_text(state, runtime.agentIndex));
-  (ui.transcriptText.content = render_conversation_bang(runtime));
-  (ui.tabsText.content = render_work_tabs_bang(state, text(current.id), (runtime.pane === "work")));
-  (ui.workText.visible = (!board_p));
-  (ui.boardRoot.visible = board_p);
-  if (board_p) {
-    sync_board_bang(runtime, ui, items, runtime.workIndex, available_work_width(runtime, state));
-  } else {
-    (ui.workText.content = work_content_bang(runtime, state, current, runtime.workIndex));
+  if ((!runtime.disposed)) {
+    const state = snapshot(runtime.model);
+    const agents = (state.agents || []);
+    const views = view_list(state);
+    const requested = text(state.activeViewId);
+    const current = selected_view(state, requested);
+    const items = (current.items || []);
+    const agent_max = Math.max(0, (agents.length - 1));
+    const work_max = Math.max(0, (items.length - 1));
+    const agent_options = ((runtime.pane === "agents") ? palette_options("agents", text(ui.agentInput.value)) : []);
+    const work_options = ((runtime.pane === "work") ? palette_options("work", text(ui.workInput.value)) : []);
+    const active_options = ((runtime.pane === "agents") ? agent_options : work_options);
+    const palette_max = Math.max(0, (active_options.length - 1));
+    const board_p = (text(current.id) === "board");
+    (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
+    (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
+    (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
+    apply_workspace_geometry_bang(runtime, ui, state);
+    render_prompt_bang(runtime, ui.agentPrompt);
+    render_prompt_bang(runtime, ui.workPrompt);
+    (ui.agentsHeader.content = render_pane_header("Agents", (runtime.pane === "agents")));
+    (ui.agentsText.content = roster_text(state, runtime.agentIndex));
+    (ui.transcriptText.content = render_conversation_bang(runtime));
+    (ui.tabsText.content = render_work_tabs_bang(state, text(current.id), (runtime.pane === "work")));
+    (ui.workText.visible = (!board_p));
+    (ui.boardRoot.visible = board_p);
+    if (board_p) {
+      sync_board_bang(runtime, ui, items, runtime.workIndex, available_work_width(runtime, state));
+    } else {
+      (ui.workText.content = work_content_bang(runtime, state, current, runtime.workIndex));
+    }
+    (ui.statusText.content = render_status(runtime, state));
+    (ui.agentStatusText.content = render_status(runtime, state));
+    (ui.agentStatusText.visible = (text(runtime.closedPane) === "work"));
+    (ui.agentPalette.visible = (agent_options.length > 0));
+    (ui.agentPalette.height = Math.max(1, Math.min(8, agent_options.length)));
+    (ui.agentPalette.content = ((agent_options.length > 0) ? render_command_palette_bang(agent_options, runtime.paletteIndex) : ""));
+    (ui.workPalette.visible = (work_options.length > 0));
+    (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
+    (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
+    (runtime.activeView = text(current.id));
+    return views;
   }
-  (ui.statusText.content = render_status(runtime, state));
-  (ui.agentStatusText.content = render_status(runtime, state));
-  (ui.agentStatusText.visible = (text(runtime.closedPane) === "work"));
-  (ui.agentPalette.visible = (agent_options.length > 0));
-  (ui.agentPalette.height = Math.max(1, Math.min(8, agent_options.length)));
-  (ui.agentPalette.content = ((agent_options.length > 0) ? render_command_palette_bang(agent_options, runtime.paletteIndex) : ""));
-  (ui.workPalette.visible = (work_options.length > 0));
-  (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
-  (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
-  (runtime.activeView = text(current.id));
-  return views;
 }
 
 function bridge_agent_bang(runtime, execution_id, role, status) {
@@ -1705,6 +1720,7 @@ async function open_app_bang(view_id) {
   install_input_bang(runtime, ui);
   install_mouse_bang(runtime, ui);
   install_workspace_keymap_bang(runtime, ui);
+  install_process_cleanup_bang(runtime);
   install_global_exit_bang(runtime);
   install_keys_bang(runtime, ui);
   runtime.render();

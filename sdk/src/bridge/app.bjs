@@ -692,16 +692,28 @@
 
           :else false)))))
 
-(defn destroy! [runtime: Any] -> Any
+(defn quiesce! [runtime: Any] -> Any
   (when (not (.-disposed runtime))
     (set! (.-disposed runtime) true)
     (when (.-spinnerTimer runtime) (clearInterval (.-spinnerTimer runtime)))
+    (set! (.-spinnerTimer runtime) nil)
     (.forEach (.-soundChildren runtime)
               (fn [child: Any] -> Any
                 (try (.kill child) (catch Error _ nil))))
-    (.clear (.-soundChildren runtime))
+    (.clear (.-soundChildren runtime))))
+
+(defn destroy! [runtime: Any] -> Any
+  (when (not (.-disposed runtime))
+    (quiesce! runtime)
     (.destroy (.-renderer runtime))
     (.exit process 0)))
+
+(defn install-process-cleanup! [runtime: Any] -> Any
+  (doseq [signal ["SIGINT" "SIGTERM" "SIGHUP"]]
+    ;; Run before OpenTUI's shutdown listener so late provider/timer callbacks
+    ;; see a quiesced runtime before its renderables are destroyed.
+    (.prependOnceListener process signal
+                          (fn [] -> Any (quiesce! runtime)))))
 
 (defn install-global-exit! [runtime: Any] -> Any
   (.on (.-keyInput (.-renderer runtime)) "keypress"
@@ -1704,7 +1716,8 @@
 (defn render-ui!
   [runtime: Any
    ui: Any] -> Any
-  (let [state (snapshot (.-model runtime))
+  (when (not (.-disposed runtime))
+    (let [state (snapshot (.-model runtime))
         agents (or (.-agents state) [])
         views (view-list state)
         requested (text (.-activeViewId state))
@@ -1754,8 +1767,8 @@
     (set! (.-content (.-workPalette ui))
           (if (> (.-length work-options) 0)
             (render-command-palette! work-options (.-paletteIndex runtime)) ""))
-    (set! (.-activeView runtime) (text (.-id current)))
-    views))
+      (set! (.-activeView runtime) (text (.-id current)))
+      views)))
 
 (defn bridge-agent!
   [runtime: Any
@@ -2875,6 +2888,7 @@
     (install-input! runtime ui)
     (install-mouse! runtime ui)
     (install-workspace-keymap! runtime ui)
+    (install-process-cleanup! runtime)
     (install-global-exit! runtime)
     (install-keys! runtime ui)
     (.render runtime)
