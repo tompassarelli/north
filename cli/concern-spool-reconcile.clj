@@ -683,24 +683,6 @@
      {:response response
       :observed-version (:version response)})))
 
-(defn- exact-version! [port target-log]
-  (let [response
-        (north.coord/send-op-for-log port target-log {:op :version})]
-    (cond
-      (and (map? response)
-           (= #{:version} (set (keys response)))
-           (integer? (:version response))
-           (not (neg? (:version response))))
-      (:version response)
-
-      (explicit-rejection? response)
-      (response-conflict! response)
-
-      :else
-      (deferred!
-       "coordinator returned a malformed version response"
-       {:response response}))))
-
 (defn- exact-show! [port target-log subject]
   (let [response
         (north.coord/send-op-for-log
@@ -920,9 +902,9 @@
 
 (defn- read-snapshot-at-base [port operation]
   (let [target-log (:target-log operation)
-        base (exact-version! port target-log)
         subject-view
         (exact-show! port target-log (:concern-id operation))
+        base (:version subject-view)
         about-subject (get-in operation [:precondition :about :subject])
         about-view
         (when about-subject
@@ -935,8 +917,7 @@
            about-subject
            (get-in operation
                    [:precondition :about :binding-cid])))]
-    (if (or (not= base (:version subject-view))
-            (and about-view (not= base (:version about-view)))
+    (if (or (and about-view (not= base (:version about-view)))
             (and (:version about-binding)
                  (not= base (:version about-binding))))
       {:reject :conflict}
@@ -1039,12 +1020,9 @@
                 {:response response})))))))))
 
 (defn- transition-snapshot-at-base [port operation]
-  (let [base (exact-version! port (:target-log operation))
-        subject-view
+  (let [subject-view
         (exact-show! port (:target-log operation) (:concern-id operation))]
-    (if (not= base (:version subject-view))
-      {:reject :conflict}
-      {:base base :rows (:rows subject-view)})))
+    {:base (:version subject-view) :rows (:rows subject-view)}))
 
 (defn- transition-present? [operation rows]
   (contains?
