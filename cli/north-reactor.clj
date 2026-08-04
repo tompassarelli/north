@@ -633,6 +633,45 @@
 
 (def ATTENTION-RECONCILE-TIMEOUT-MS 45000)
 (def attention-reconcile-cli concern-transition-cli)
+(def CONCERN-RECONCILE-TIMEOUT-MS 15000)
+
+(defn reconcile-local-concerns-bounded!
+  "Drain one bounded batch of durable local concern operations. The operation
+   reconciler owns its own process lock; a timeout leaves every unfinished intent
+   in the active spool for the next sweep."
+  [reason]
+  (try
+    (let [child
+          (start-sweep-child!
+           :local-concern-reconcile
+           {:out :string :err :string}
+           "bb" concern-transition-cli (str port)
+           "reconcile-local" "--operations-only")
+          awaited
+          (await-sweep-child! child CONCERN-RECONCILE-TIMEOUT-MS)]
+      (if (= :timeout (:status awaited))
+        (do
+          (println
+           (str "[sweep] local concern reconcile deferred reason=timeout"
+                " timeout_ms=" CONCERN-RECONCILE-TIMEOUT-MS
+                " trigger=" reason))
+          {:status :timeout})
+        (let [result (:result awaited)
+              ok? (zero? (:exit result))]
+          (println
+           (str "[sweep] local concern reconcile "
+                (if ok? "completed" "deferred")
+                " trigger=" reason
+                (when-not ok?
+                  (str " exit=" (:exit result)
+                       " error=" (pr-str (str/trim (str (:err result))))))))
+          {:status (if ok? :completed :failed)
+           :exit (:exit result)})))
+    (catch Throwable error
+      (println
+       (str "[sweep] local concern reconcile deferred trigger=" reason
+            " error=" (pr-str (.getMessage error))))
+      {:status :failed})))
 
 (defn reconcile-attention-bounded!
   "Run concern attention healing out of process. Failure or timeout is reported
@@ -672,7 +711,13 @@
 (defn sweep-maintenance! [dry? rw]
   ;; A rejected concern transition is one stage's failure, never maintenance's;
   ;; only aggregate cancellation may still abort the run.
-  (let [nc (run-sweep-stage!
+  (let [local-concerns
+        (run-sweep-stage!
+         :local-concern-reconcile
+         #(if dry?
+            {:status :skipped}
+            (reconcile-local-concerns-bounded! "post-sweep")))
+        nc (run-sweep-stage!
             :concerns
             #(try
                (sweep-concerns! dry?)
@@ -749,6 +794,7 @@
                  :agent-logs al :breaker burn
                  :lanes-killed nk
                  :rebuild-window rw
+                 :local-concern-reconcile local-concerns
                  :attention-reconcile attention
                  :terminal-status :completed}]
     (println (str "[sweep] " (when dry? "(dry-run) ") "concerns abandoned=" nc
@@ -904,9 +950,11 @@
   ;; Stamp once at startup so a just-booted reactor reads FRESH in doctor immediately,
   ;; rather than MISSING for the first 5-min interval before sweep-loop's first pass.
   (north.reactor-heartbeat/write-heartbeat! port)
-  ;; Startup healing is isolated from subscription admission and bounded inside
-  ;; the child process wrapper.
-  (future (reconcile-attention-bounded! "startup"))
+  ;; Startup recovery is isolated from subscription admission and serialized so
+  ;; active concern intents land before advisory attention healing reads them.
+  (future
+    (reconcile-local-concerns-bounded! "startup")
+    (reconcile-attention-bounded! "startup"))
   (future (flusher))
   (future (sweep-loop))       ; liveness-derived reaping on the reactor cadence
   (loop []

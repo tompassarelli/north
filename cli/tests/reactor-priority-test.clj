@@ -29,6 +29,10 @@
    (fn [_]
      (swap! calls conj :concerns)
      (concern-fn))
+   #'reconcile-local-concerns-bounded!
+   (fn [_]
+     (swap! calls conj :local-concern-reconcile)
+     {:status :completed})
    #'sweep-lanes!
    (fn [_] (swap! calls conj :lanes) 0)
    #'sweep-unpublished-driver-claims!
@@ -58,7 +62,10 @@
   (check "maintenance preserves an already collected rebuild window"
          (and (= "fired" (get-in summary [:rebuild-window :action]))
               (= :completed (:terminal-status summary)))
-         summary))
+         summary)
+  (check "dry-run maintenance does not mutate the local concern spool"
+         (not (some #{:local-concern-reconcile} @calls))
+         @calls))
 
 (let [calls (atom [])
       exit (atom nil)
@@ -76,7 +83,8 @@
              #(sweep-once-exit-code)))))]
   (check "a failed stale-concern stage is contained and starves no later stage"
          (and (= :rebuild-window (first @calls))
-              (= :concerns (second @calls))
+              (= :local-concern-reconcile (second @calls))
+              (= :concerns (nth @calls 2))
               (some #{:attention-reconcile} @calls)
               (zero? @exit)
               (str/includes? output "terminal=completed")
@@ -102,7 +110,8 @@
                 (throw (ex-info "fixture lane sweep failed" {}))))
              #(sweep-once-exit-code)))))]
   (check "post-launch maintenance failure preserves the owner success"
-         (and (= [:rebuild-window :concerns :lanes] @calls)
+         (and (= [:rebuild-window :local-concern-reconcile :concerns :lanes]
+                 @calls)
               (zero? @exit)
               (str/includes? output "terminal=completed")
               (str/includes? output "rebuild-window=fired")

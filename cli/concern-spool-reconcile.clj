@@ -437,6 +437,12 @@
             (catch Throwable _ nil)))
         (throw error)))))
 
+(defn- clear-cursor! [^Path directory]
+  (let [path (.resolve directory cursor-name)]
+    (when (Files/deleteIfExists path)
+      (fsync-directory! directory))
+    nil))
+
 (defn- record-path [^Path directory operation-id record-type]
   (.resolve
    directory
@@ -547,9 +553,14 @@
 (defn- operation-order-key [^Path path]
   (try
     (let [operation (north.concern-spool/read-operation-file! path)]
-      [0 (Instant/parse (:created-at operation)) (:operation-id operation)])
+      [(case (:operation-type operation)
+         "concern-declare" 0
+         "concern-transition" 1
+         2)
+       (Instant/parse (:created-at operation))
+       (:operation-id operation)])
     (catch Throwable _
-      [1 "" (str (.getFileName path))])))
+      [2 "" (str (.getFileName path))])))
 
 (defn- operation-files [^Path spool-directory deadline-ns]
   (if-not (ensure-spool-directory! spool-directory)
@@ -597,19 +608,25 @@
              (cond-> operations operation? (conj path)))))))))
 
 (defn- rotate-after [files last-file]
-  (if-not last-file
-    files
-    (let [index
-          (first
-           (keep-indexed
-            (fn [position ^Path path]
-              (when (= last-file (str (.getFileName path))) position))
-            files))]
-      (if (nil? index)
-        files
-        (vec
-         (concat (subvec files (inc index))
-                 (subvec files 0 (inc index))))))))
+  (letfn [(rotate-group [group]
+            (let [group (vec group)
+                  index
+                  (first
+                   (keep-indexed
+                    (fn [position ^Path path]
+                      (when (= last-file (str (.getFileName path))) position))
+                    group))]
+              (if (nil? index)
+                group
+                (vec
+                 (concat (subvec group (inc index))
+                         (subvec group 0 (inc index)))))))]
+    (if-not last-file
+      files
+      (->> files
+           (partition-by #(first (operation-order-key %)))
+           (mapcat rotate-group)
+           vec))))
 
 (defn- operation-id-from-path [^Path path]
   (second
@@ -1223,7 +1240,7 @@
          :record record
          :error (.getMessage error)}))))
 
-(defn- process-operation! [port state-dir operation-path deadline-ns]
+(defn- process-operation-result! [port state-dir operation-path deadline-ns]
   (try
     (let [operation
           (validate-concern-operation!
@@ -1273,8 +1290,42 @@
        :reason "transport-or-filesystem-failure"
        :error (.getMessage error)})))
 
+(def ^:private terminal-outcome-statuses
+  #{:settled :conflict :already-settled :already-conflict})
+
+(defn- retire-terminal-operation!
+  [^Path spool-dir ^Path operation-path deadline-ns outcome]
+  (if-not (contains? terminal-outcome-statuses (:status outcome))
+    outcome
+    (try
+      (let [record (:record outcome)
+            receipt
+            (north.concern-spool/retire-operation!
+             spool-dir
+             (:operation-id record)
+             (:operation-sha256 record)
+             deadline-ns)]
+        (assoc outcome :retired true :retirement receipt))
+      (catch Throwable error
+        {:status :deferred
+         :reason "terminal-operation-retirement-failed"
+         :terminal-status (:status outcome)
+         :record (:record outcome)
+         :retired false
+         :file (str (.getFileName operation-path))
+         :error (.getMessage error)}))))
+
+(defn- process-operation!
+  [port spool-dir state-dir operation-path deadline-ns]
+  (retire-terminal-operation!
+   spool-dir
+   operation-path
+   deadline-ns
+   (process-operation-result! port state-dir operation-path deadline-ns)))
+
 (defn- summarize-outcomes [outcomes selected-count total-count bytes elapsed-ms]
-  (let [statuses (frequencies (map :status outcomes))]
+  (let [statuses (frequencies (map :status outcomes))
+        retired (count (filter :retired outcomes))]
     {:status :complete
      :selected selected-count
      :processed (count outcomes)
@@ -1284,16 +1335,17 @@
      :already-settled (get statuses :already-settled 0)
      :already-conflict (get statuses :already-conflict 0)
      :deferred (get statuses :deferred 0)
-     :remaining (- total-count (count outcomes))
+     :retired retired
+     :remaining (max 0 (- total-count retired))
      :elapsed-ms elapsed-ms
      :outcomes outcomes}))
 
 (defn reconcile-pass!
   "Run one deterministic, single-process, bounded reconciliation pass.
 
-   The pending operation is never removed. A valid immutable settlement or
-   conflict marker makes later passes idempotent without weakening the spool's
-   sole durable copy."
+   A terminal operation is retired only after its exact immutable settlement or
+   conflict marker is durable. Deferred operations remain in the bounded active
+   recovery queue."
   ([port]
    (reconcile-pass!
     port
@@ -1317,6 +1369,7 @@
           :settled 0
           :conflicts 0
           :deferred 0
+          :retired 0
           :remaining 0
           :elapsed-ms (quot (- (System/nanoTime) start-ns) 1000000)
           :outcomes []}
@@ -1363,7 +1416,11 @@
                                 "operation-exceeds-remaining-pass-byte-budget"
                                 :bytes size}
                                (process-operation!
-                                port state-directory path deadline-ns))]
+                                port
+                                spool-directory
+                                state-directory
+                                path
+                                deadline-ns))]
                          (recur
                           (rest remaining)
                           (conj
@@ -1371,8 +1428,10 @@
                            (assoc
                             result
                             :file (str (.getFileName ^Path path)))))))))]
-             (when-let [last-file (:file (peek outcomes))]
-               (write-cursor! state-directory last-file))
+             (if-let [last-file
+                      (:file (peek (filterv (complement :retired) outcomes)))]
+               (write-cursor! state-directory last-file)
+               (clear-cursor! state-directory))
              (summarize-outcomes
               outcomes
               (count files)

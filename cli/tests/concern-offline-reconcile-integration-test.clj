@@ -11,7 +11,13 @@
 (def subject-root
   (.getCanonicalPath
    (io/file (or (System/getenv "NORTH_TEST_SUBJECT_ROOT") test-root))))
-(def fram-root "/home/tom/code/fram/main")
+(def fram-root
+  (or (System/getenv "NORTH_TEST_FRAM_ROOT")
+      (let [home (System/getProperty "user.home")
+            current (io/file home "code/north-data/fram-runtime/current")]
+        (if (.isDirectory current)
+          (.getCanonicalPath current)
+          (str home "/code/fram/main")))))
 
 (load-file (str test-root "/cli/coord.clj"))
 (load-file (str test-root "/cli/concern-spool.clj"))
@@ -342,9 +348,12 @@
            (and (= 1 (:settled restarted))
                 (.isFile (settled-record state operation))
                 (not (.exists (conflict-record state operation)))
+                (not (.isFile
+                      (io/file spool
+                               (str (:operation-id operation) ".op.edn"))))
                 (exact-projection? operation projection)))
     (check (str label " replay cannot duplicate the recovered commit")
-           (and (pos? (:already-settled replayed))
+           (and (zero? (:processed replayed))
                 (= version-after-restart version-after-replay)
                 (if (= stage :pre-commit)
                   (and (= version-before version-after-crash)
@@ -365,8 +374,8 @@
       (check "focused strict scratch coordinator starts"
              (await-port port daemon))
 
-      ;; A normal restartable operation lands once, remains locally durable, and
-      ;; is skipped on every later pass.
+      ;; A normal restartable operation lands once, records its immutable result,
+      ;; and leaves the bounded active queue.
       (let [operation (fixture-operation log "double-reconcile")
             _ (publish! spool operation)
             first-pass (run-pass port spool state)
@@ -379,14 +388,13 @@
                     (exact-projection?
                      operation (:rows (show port log operation)))
                     (= first-version second-version)
-                    (= 1 (:processed second-pass))
-                    (= 1 (:already-settled second-pass))))
-        (check "settlement is fsynced separately while the sole pending copy remains"
+                    (zero? (:processed second-pass))))
+        (check "durable settlement retires the active recovery operation"
                (and (.isFile (settled-record state operation))
-                    (.isFile
-                     (io/file
-                      spool
-                      (str (:operation-id operation) ".op.edn")))
+                    (not (.isFile
+                          (io/file
+                           spool
+                           (str (:operation-id operation) ".op.edn"))))
                     (= "north-concern-reconciliation-committed-v1"
                        (:commit (read-record
                                  (settled-record state operation)))))))
@@ -408,8 +416,8 @@
                     (exact-projection?
                      operation (:rows (show port log operation))))))
 
-      ;; Any nonempty non-exact subject is a retained conflict. The reconciler
-      ;; never tries to fill a partial spine.
+      ;; Any nonempty non-exact subject gets an immutable conflict. The
+      ;; reconciler never tries to fill a partial spine.
       (let [operation (fixture-operation log "differing")
             _ (assert-facts!
                port log (:concern-id operation)
@@ -419,16 +427,16 @@
             result (run-pass port spool state)
             after (version port log)
             record (read-record (conflict-record state operation))]
-        (check "differing or partial projection is retained with zero target mutation"
+        (check "differing or partial projection conflicts with zero target mutation"
                (and (= before after)
                     (= 1 (:conflicts result))
                     (= "projection-differs" (:reason record))
                     (= [["title" "existing different title"]]
                        (:rows (show port log operation)))
-                    (.isFile
-                     (io/file
-                      spool
-                      (str (:operation-id operation) ".op.edn"))))))
+                    (not (.isFile
+                          (io/file
+                           spool
+                           (str (:operation-id operation) ".op.edn")))))))
 
       ;; The Phase 1 envelope is cryptographically self-consistent even when a
       ;; hand-built payload violates the fixed concern spine. Phase 2 rejects
@@ -542,20 +550,24 @@
                  (sort-by (juxt :created-at :operation-id))
                  (map #(str (:operation-id %) ".op.edn"))
                  vec)
+            published-complete?
+            (and (= 16 (count (operation-files parallel-spool)))
+                 (every?
+                  #(north.concern-spool/read-operation-file!
+                    (io/file
+                     parallel-spool
+                     (str (:operation-id %) ".op.edn")))
+                  receipts))
             result (run-pass port parallel-spool parallel-state)
             observed-files (mapv :file (:outcomes result))]
-        (check "16 parallel publishers retain 16 complete immutable operations"
+        (check "16 parallel publishers create 16 complete immutable operations"
                (and (= 16 (count receipts))
                     (= 16 (count (set (map :operation-id receipts))))
-                    (every?
-                     #(north.concern-spool/read-operation-file!
-                       (io/file
-                        parallel-spool
-                        (str (:operation-id %) ".op.edn")))
-                     receipts)))
+                    published-complete?))
         (check "one bounded pass consumes parallel operations in canonical creation order"
                (and (= expected-files observed-files)
                     (= 16 (:settled result))
+                    (empty? (operation-files parallel-spool))
                     (every?
                      #(exact-projection? % (:rows (show port log %)))
                      operations))))
@@ -690,6 +702,7 @@
                (and crashed? marker-visible?))
         (check "restart validates, re-fsyncs, and skips the bound marker"
                (and (pos? (:already-settled restarted))
+                    (empty? (operation-files spool))
                     (= version-after-crash version-after-restart)
                     (exact-projection?
                      operation (:rows (show port log operation))))))
@@ -747,6 +760,80 @@
     (System/setProperty "babashka.file" source-path)
     (load-string (subs source-text 0 main-offset))
     (System/setProperty "babashka.file" test-script)))
+
+(defn retirement-capacity-probe []
+  (let [tmp (temp-directory "north-concern-retirement-capacity")
+        spool (doto (io/file tmp "spool") .mkdirs)
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        first-operation (fixture-operation log "capacity-first")
+        second-operation (fixture-operation log "capacity-second")
+        configured
+        {:max-record-bytes (* 64 1024)
+         :max-files 1
+         :max-total-bytes (* 1024 1024)}]
+    (try
+      (binding [north.concern-spool/*limits-override* configured]
+        (publish! spool first-operation)
+        (let [full?
+              (try
+                (publish! spool second-operation)
+                false
+                (catch clojure.lang.ExceptionInfo error
+                  (= :concern-spool-full (:type (ex-data error)))))]
+          (check "active spool capacity remains fail-closed" full?))
+        (north.concern-spool/retire-operation!
+         (.toPath spool)
+         (:operation-id first-operation)
+         (:sha256 first-operation)
+         (+ (System/nanoTime) (* 1000000 1000)))
+        (let [receipt (publish! spool second-operation)]
+          (check "terminal retirement immediately restores publication capacity"
+                 (and (= (:operation-id second-operation)
+                         (:operation-id receipt))
+                      (= 1 (count (operation-files spool)))))))
+      (finally
+        (delete-tree! tmp)))))
+
+(defn transition-snapshot-fast-path-probe []
+  (let [log (io/file "/tmp/north-transition-snapshot-fast-path.log")
+        concern "@concern-1785506000003-d004"
+        operation
+        (north.concern-spool/build-operation
+         {:operation-type north.concern-spool/transition-operation-type
+          :operation-id "00000000-0000-0000-0000-000000000004"
+          :concern-id concern
+          :target-log (.getCanonicalPath log)
+          :created-at "2026-07-31T08:00:02Z"
+          :facts
+          [{:predicate "reached"
+            :object "likely-to-land"
+            :cardinality "multi"}]})
+        planner @(resolve 'concern-transition-plan!)
+        no-global-query
+        (fn [_]
+          (throw (ex-info "global concern index must not be queried" {})))
+        [missing nonterminal]
+        (with-redefs-fn
+         {(resolve 'concern-meta-index) no-global-query}
+         (fn []
+           [(planner 7977 operation {:base 41 :rows []})
+            (planner
+             7977
+             operation
+             {:base 42
+              :rows
+              [["kind" "concern"]
+               ["agent" "@offline-fixture"]
+               ["repo" "north"]
+               ["intent" "fast replay"]
+               ["reached" "building"]]})]))]
+    (check "missing transition target conflicts from its exact fenced snapshot"
+           (and (:local-conflict missing)
+                (= "concern-missing-or-invalid" (:reason missing))
+                (= 41 (:observed-version missing))))
+    (check "nonterminal transition replay needs no whole-board query"
+           (= [{:p "reached" :r "likely-to-land"}]
+              (:facts nonterminal)))))
 
 (defn terminal-replay-probe []
   (load-concern-cli-prefix!)
@@ -900,20 +987,24 @@
                     (.isFile (conflict-record state raced-transition))
                     (not (contains? (set (get @rows raced))
                                     ["reached" "landed"]))))
-        (check "settled and conflicted transitions replay idempotently"
+        (check "settled and conflicted transitions leave no active replay work"
                (and (= replay-version @version*)
-                    (= 1 (:already-settled replay))
-                    (= 1 (:already-conflict replay)))))
+                    (zero? (:processed replay))
+                    (empty? (operation-files spool)))))
       (finally
         (delete-tree! tmp)))))
 
 (when (= "terminal-offline" (first *command-line-args*))
+  (retirement-capacity-probe)
   (terminal-replay-probe)
+  (transition-snapshot-fast-path-probe)
   (System/exit (if (zero? @fails) 0 1)))
 
 (primary-probes)
 (bounded-transport-probe)
+(retirement-capacity-probe)
 (terminal-replay-probe)
+(transition-snapshot-fast-path-probe)
 
 (if (zero? @fails)
   (do

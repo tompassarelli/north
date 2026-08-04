@@ -210,7 +210,7 @@
               (north.concern-spool/read-operation-file! (first files)))
             full
             (run-transition
-             root port log spool "status" [concern "likely-to-land"]
+             root port log spool "status" [concern "building"]
              {"NORTH_CONCERN_SPOOL_MAX_FILES" "1"})
             oversized
             (run-transition
@@ -234,7 +234,7 @@
                         (:facts operation)))
                     (= "concern-transition-or-exact"
                        (get-in operation [:precondition :mode]))))
-        (check "terminal operations obey the existing entry cap"
+        (check "transition operations obey the existing entry cap"
                (and (= 4 (:exit full))
                     (str/includes? (:err full) "spool is full")
                     (= 1 (count (operation-files spool)))))
@@ -537,7 +537,12 @@
       log (doto (io/file tmp "coordination.log") (spit ""))
       telemetry-log (doto (io/file tmp "telemetry.log") (spit ""))
       port (free-port)
-      fram "/home/tom/code/fram/main"
+      fram (or (System/getenv "NORTH_TEST_FRAM_ROOT")
+               (let [home (System/getProperty "user.home")
+                     current (io/file home "code/north-data/fram-runtime/current")]
+                 (if (.isDirectory current)
+                   (.getCanonicalPath current)
+                   (str home "/code/fram/main"))))
       env
       {"FRAM_LOG" (.getCanonicalPath log)
        "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry-log)

@@ -2,7 +2,7 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
-  (:import [java.io PushbackReader StringReader]
+  (:import [java.io BufferedInputStream PushbackReader StringReader]
            [java.nio ByteBuffer]
            [java.nio.channels FileChannel]
            [java.nio.charset CodingErrorAction StandardCharsets]
@@ -483,6 +483,88 @@
         (.write channel buffer)))
     (.force channel true))
   (set-permissions! path file-permissions))
+
+(defn- raw-file-sha256 [^Path path]
+  (let [digest (MessageDigest/getInstance "SHA-256")
+        buffer (byte-array 8192)]
+    (with-open [input (BufferedInputStream. (io/input-stream (.toFile path)))]
+      (loop []
+        (let [read-count (.read input buffer)]
+          (when (pos? read-count)
+            (.update digest buffer 0 read-count)
+            (recur)))))
+    (apply str
+           (map #(format "%02x" (bit-and 0xff %)) (.digest digest)))))
+
+(defn retire-operation!
+  "Retire one terminal operation after its immutable reconciliation marker is
+   durable. Publication and retirement share the capacity lock, so a publisher
+   never scans through an in-flight deletion."
+  ([operation-id expected-sha256]
+   (retire-operation!
+    (state-directory)
+    operation-id
+    expected-sha256
+    (+ (System/nanoTime) (* 1000000 1000))))
+  ([operation-id expected-sha256 deadline-ns]
+   (retire-operation!
+    (state-directory)
+    operation-id
+    expected-sha256
+    deadline-ns))
+  ([directory operation-id expected-sha256 deadline-ns]
+   (when-not
+    (and (string? operation-id)
+         (re-matches
+          #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+          operation-id))
+    (fail! "retired concern operation id must be a lowercase UUID"
+           {:type :invalid-concern-operation-retirement
+            :field :operation-id}))
+   (when-not (and (string? expected-sha256)
+                  (re-matches #"[0-9a-f]{64}" expected-sha256))
+     (fail! "retired concern operation digest must be SHA-256"
+            {:type :invalid-concern-operation-retirement
+             :field :sha256}))
+   (let [directory (ensure-state-directory! directory)
+         operation-path (.resolve directory (str operation-id final-suffix))
+         lock-path (.resolve directory lock-name)]
+     (with-open [lock-channel (open-lock-channel lock-path)]
+       (let [_lock (acquire-lock! lock-channel deadline-ns)]
+         (if-not (Files/exists operation-path no-follow)
+           {:operation-id operation-id
+            :sha256 expected-sha256
+            :retired true
+            :already-retired true}
+           (do
+             (when (or (Files/isSymbolicLink operation-path)
+                       (not (Files/isRegularFile operation-path no-follow)))
+               (fail! "retired concern operation is not a safe regular file"
+                      {:type :invalid-concern-spool-entry
+                       :path (str operation-path)}))
+             (let [canonical-sha256
+                   (try
+                     (:sha256 (read-operation-file! operation-path))
+                     (catch Throwable _ nil))
+                   actual-sha256
+                   (if (= expected-sha256 canonical-sha256)
+                     canonical-sha256
+                     (raw-file-sha256 operation-path))]
+               (when-not (= expected-sha256 actual-sha256)
+                 (fail! "retired concern operation digest differs from its marker"
+                        {:type :invalid-concern-operation-retirement
+                         :operation-id operation-id
+                         :expected-sha256 expected-sha256
+                         :actual-sha256 actual-sha256})))
+             (when-not (Files/deleteIfExists operation-path)
+               (fail! "retired concern operation disappeared before deletion"
+                      {:type :concern-operation-retirement-race
+                       :operation-id operation-id}))
+             (fsync-directory! directory)
+             {:operation-id operation-id
+              :sha256 expected-sha256
+              :retired true
+              :already-retired false})))))))
 
 (defn publish-operation!
   "Publish one immutable operation through exclusive temp + file fsync + atomic
