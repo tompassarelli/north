@@ -29,12 +29,19 @@
    filter-text: String
    notice: String])
 
-(defn make-agent [id: String name: String status: String task: String] -> Agent
+(defn make-agent
+  [id: String
+   name: String
+   status: String
+   task: String] -> Agent
   (->Agent id name status task))
 
 (defn make-work
-  [id: String title: String condition: String driver: String dependencies: (Vec String)]
-  -> WorkItem
+  [id: String
+   title: String
+   condition: String
+   driver: String
+   dependencies: (Vec String)] -> WorkItem
   (->WorkItem id title condition driver dependencies))
 
 (defn canonical-view [view-id: String] -> String
@@ -49,8 +56,10 @@
                    "" "" "" (str "view " view))))
 
 (defn replace-projection
-  [model: BridgeModel agents: (Vec Agent) list-items: (Vec WorkItem) kanban: (Vec WorkItem)]
-  -> BridgeModel
+  [model: BridgeModel
+   agents: (Vec Agent)
+   list-items: (Vec WorkItem)
+   kanban: (Vec WorkItem)] -> BridgeModel
   (->BridgeModel agents
                  (bridgemodel-transcript model)
                  list-items
@@ -62,7 +71,9 @@
                  (bridgemodel-filter-text model)
                  (bridgemodel-notice model)))
 
-(defn upsert-agent [model: BridgeModel agent: Agent] -> BridgeModel
+(defn upsert-agent
+  [model: BridgeModel
+   agent: Agent] -> BridgeModel
   (let [agents (.filter (bridgemodel-agents model)
                         (fn [existing: Agent] -> Bool
                           (not (identical? (agent-id existing) (agent-id agent)))))]
@@ -77,7 +88,9 @@
                    (bridgemodel-filter-text model)
                    (bridgemodel-notice model))))
 
-(defn append-transcript [model: BridgeModel line: String] -> BridgeModel
+(defn append-transcript
+  [model: BridgeModel
+   line: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (.slice (.concat (bridgemodel-transcript model) line) -500)
                  (bridgemodel-list model)
@@ -89,7 +102,9 @@
                  (bridgemodel-filter-text model)
                  line))
 
-(defn focus-view [model: BridgeModel view-id: String] -> BridgeModel
+(defn focus-view
+  [model: BridgeModel
+   view-id: String] -> BridgeModel
   (let [view (canonical-view view-id)]
     (->BridgeModel (bridgemodel-agents model)
                    (bridgemodel-transcript model)
@@ -102,7 +117,9 @@
                    (bridgemodel-filter-text model)
                    (str "view " view))))
 
-(defn set-layout [model: BridgeModel layout: String] -> BridgeModel
+(defn set-layout
+  [model: BridgeModel
+   layout: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
                  (bridgemodel-list model)
@@ -114,7 +131,9 @@
                  (bridgemodel-filter-text model)
                  (bridgemodel-notice model)))
 
-(defn select-agent [model: BridgeModel agent-id: String] -> BridgeModel
+(defn select-agent
+  [model: BridgeModel
+   agent-id: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
                  (bridgemodel-list model)
@@ -126,7 +145,9 @@
                  (bridgemodel-filter-text model)
                  (if (identical? agent-id "") "showing all work" (str "work assigned to " agent-id))))
 
-(defn select-thread [model: BridgeModel thread-id: String] -> BridgeModel
+(defn select-thread
+  [model: BridgeModel
+   thread-id: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
                  (bridgemodel-list model)
@@ -138,7 +159,9 @@
                  (bridgemodel-filter-text model)
                  (if (identical? thread-id "") "no thread selected" (str "selected @" thread-id))))
 
-(defn set-filter [model: BridgeModel filter-text: String] -> BridgeModel
+(defn set-filter
+  [model: BridgeModel
+   filter-text: String] -> BridgeModel
   (->BridgeModel (bridgemodel-agents model)
                  (bridgemodel-transcript model)
                  (bridgemodel-list model)
@@ -150,7 +173,9 @@
                  (.toLowerCase (.trim filter-text))
                  (if (identical? (.trim filter-text) "") "filter cleared" (str "filter: " filter-text))))
 
-(defn visible-work [model: BridgeModel source: (Vec WorkItem)] -> (Vec WorkItem)
+(defn visible-work
+  [model: BridgeModel
+   source: (Vec WorkItem)] -> (Vec WorkItem)
   (let [agent-id (bridgemodel-selected-agent model)
         needle (bridgemodel-filter-text model)]
     (.filter source

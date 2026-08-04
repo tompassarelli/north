@@ -226,7 +226,7 @@ annotation; a doc that must carry such a list uses a generated fill, never
 hand-enumeration. New tools,
 scripts, and apps default to Beagle (`#lang beagle`; the beagle-authoring
 skill, `~/code/beagle/main/integrations/north/skills/beagle-authoring/SKILL.md`,
-bootstraps the stack — language `~/code/beagle`, engine `~/code/fram`).
+bootstraps the stack from `~/code/beagle`).
 Dogfood by default. Escape hatches, stated in one line when taken: the repo
 is already committed to another language; a platform boundary demands one
 (nix module, CI config, browser-only); or a one-liner where shell/python is
@@ -237,7 +237,7 @@ primitives and Beagle machinery target the target-neutral **Beagle Native
 Core** profile: target-independent typed/effect/region/layout/control/
 capability/ABI semantics. Their authoritative lowered program is an immutable
 **Native World**. Fram stays entirely Beagle; greenfield work stays
-graph-upstream per the rule below. Materializers are disposable projections:
+text-upstream per the rule below. Materializers are disposable projections:
 restricted C11 for bootstrap/reference/sanitizers, QBE as the first
 direct-native and anti-C-capture check, Wasm/WASI for capability sandboxing, and
 LLVM/Cranelift/direct codegen only when measurement justifies them. Coverage
@@ -256,26 +256,17 @@ label. The amendment's provenance lives on North thread
 `019fbd6c-7e2b-7e21-aa2a-57b581004f37`.
 
 App-layer code (CLIs, projections, higher-level tooling) may stay Clojure
-where the repo is already committed to it. The brownfield rule below is
-unchanged: a bounded fix never switches language mid-task; deferred candidates
-go to the migration inventory and ride an explicit pick.
+where the repo is already committed to it.
 
-**Greenfield vs brownfield stewardship.** A wholly new Beagle program/module
-(greenfield) **starts graph-native at inception**. Follow the seed-only
-bootstrap in
-`~/code/beagle/main/integrations/north/skills/beagle-authoring/SKILL.md`: run
-`fram:bin/fram-code-on ~/code/<repo>`, require flip level 3 in a fresh or
-restarted trusted-project harness session, then author substantive code only via
-the code-as-facts graph-edit verbs. A coordinator or session-wiring failure is a
-repair-loop problem, never permission to fall back to text authoring.
-
-A surface whose upstream is already Clojure/text (brownfield) never silently
-expands the bounded task into a migration. Surface exactly three choices to the
-human — (1) keep the current upstream/language for this bounded task, (2)
-migrate to text-upstream Beagle, or (3) migrate directly to graph-upstream
-Beagle — and wait for a pick before migrating. Deferred candidates go in a
-separate migration inventory, never a side-project expansion. Graph-native
-detail: `~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md`.
+**Source stewardship.** New and existing Beagle source defaults to ordinary
+text authoring through the beagle-authoring skill and compiler-driven authoring
+loop. Graph-upstream authoring is an explicit per-file opt-in only when the
+human asks for it; then
+`~/code/fram/main/integrations/north/skills/code-as-facts/SKILL.md` applies.
+Never make graph activation, coordinator health, or a migration-choice prompt a
+prerequisite for bounded work. Preserve the current language and upstream unless
+the human requests a migration; deferred candidates belong in a separate
+migration inventory.
 
 ## Background shells — always accountable
 <!-- north-section: background-shells · bucket: shell -->

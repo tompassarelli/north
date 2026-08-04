@@ -68,7 +68,9 @@
 
 ;; --- display helpers --------------------------------------------------------
 
-(defn- title-of [idx :- k/Index te :- String] :- String
+(defn- title-of
+  [idx :- k/Index
+   te :- String] :- String
   (let [t (k/one-i idx te "title")] (if (some? t) t "")))
 
 (defn- short-id [te :- String] :- String
@@ -80,7 +82,9 @@
 ;; it a ref, this maps it to the canonical id first. Passthrough when the ref
 ;; already names a thread (has a title); else find a thread whose `handle` fact
 ;; equals the ref (sans @), latest created_at winning ties; else ref unchanged.
-(defn resolve-ref [idx :- k/Index ref :- String] :- String
+(defn resolve-ref
+  [idx :- k/Index
+   ref :- String] :- String
   (if (some? (k/one-i idx ref "title"))
     ref
     (let [bare (short-id ref)
@@ -99,7 +103,9 @@
                                (str/starts-with? (short-id te) bare))
                              (k/thread-ids-i idx)))]
           (if (= (count pms) 1) (first pms) ref))
-        (reduce (fn [best :- String te :- String] :- String
+        (reduce (fn
+                  [best :- String
+                   te :- String] :- String
                   (if (str/blank? best)
                     te
                     (let [bc (let [c (k/one-i idx best "created_at")] (if (some? c) c ""))
@@ -107,7 +113,9 @@
                       (if (fram.rt/str-lt? bc tc) te best))))
                 "" matches)))))
 
-(defn- trunc [s :- String n :- Int] :- String
+(defn- trunc
+  [s :- String
+   n :- Int] :- String
   (if (> (count s) n) (str (subs s 0 (- n 1)) "…") s))
 
 ;; --- entity KIND: the census classifier ------------------------------------
@@ -142,7 +150,9 @@
     [(str/starts-with? bare "arena-") "north/arena_run"]
     [:else ""]))
 
-(defn- kind-of [idx :- k/Index te :- String?] :- String
+(defn- kind-of
+  [idx :- k/Index
+   te :- String?] :- String
   ;; Historical malformed writes can leave an unrenderable subject in a warm
   ;; store. The census is a diagnostic read: keep it total and surface that
   ;; subject in `other` instead of crashing before the operator can inspect it.
@@ -170,14 +180,18 @@
 
 ;; The human label for a thread's driver: its display_name if the agent carries
 ;; one, else the bare ref — board legibility (who's on what).
-(defn- driver-label [idx :- k/Index te :- String] :- String
+(defn- driver-label
+  [idx :- k/Index
+   te :- String] :- String
   (let [d (k/one-i idx te "driver")]
     (if (nil? d)
       ""
       (let [dn (k/one-i idx d "display_name")]
         (if (some? dn) dn (short-id d))))))
 
-(defrecord LevItem [te :- String score :- Int])
+(defrecord LevItem
+  [te :- String
+   score :- Int])
 ;; A next recommendation carries its SCORE and the orthogonal components that
 ;; produced it, each a DISTINCT documented axis (never silently summed into one
 ;; opaque number):
@@ -198,12 +212,16 @@
    priority :- String
    sequencing :- Int
    basis :- String])
-(defrecord AgendaItem [te :- String do_on :- String])
+(defrecord AgendaItem
+  [te :- String
+   do_on :- String])
 
 ;; --- fact-set signatures (for capture's import guard) ----------------------
 (defn- fact-sig [c :- k/Fact] :- String (str (:l c) "|" (:p c) "|" (:r c)))
 (defn- sig-member-map [facts :- (Vec k/Fact)] :- (Map String Bool)
-  (reduce (fn [m :- (Map String Bool) c :- k/Fact] :- (Map String Bool)
+  (reduce (fn
+            [m :- (Map String Bool)
+             c :- k/Fact] :- (Map String Bool)
             (assoc m (fact-sig c) true))
           {} facts))
 
@@ -246,7 +264,9 @@
 ;; no longer file-ahead, so it never reaches this scan. Sigs match `fact-sig`; the scan
 ;; reads read-logs-merged so BOTH the coordination + telemetry logs are seen.
 (defn- retracted-sigs [ops :- (Vec fold/FactOp)] :- (Map String Bool)
-  (reduce (fn [m :- (Map String Bool) a :- fold/FactOp] :- (Map String Bool)
+  (reduce (fn
+            [m :- (Map String Bool)
+             a :- fold/FactOp] :- (Map String Bool)
             (if (= (:op a) "retract")
               (assoc m (str (:l a) "|" (:p a) "|" (:r a)) true)
               m))
@@ -265,7 +285,9 @@
 ;; subject-wire-snapshot) — that contract is what makes a slice render byte-identical.
 ;; [] conflates daemon-down/no-:show/wrong-corpus with an absent subject, so every
 ;; caller needs a whole-corpus fallback through the validated live-state path.
-(defn- coord-subject-facts [log :- String te :- String] :- (Vec k/Fact)
+(defn- coord-subject-facts
+  [log :- String
+   te :- String] :- (Vec k/Fact)
   (let [rows :- (Vec (Vec String))
         (try
           (let [resp (fram.rt/coord-show-for-log (fram.rt/coord-port) log te)]
@@ -275,12 +297,18 @@
             (k/->Fact te (nth row 0) (nth row 1)))
           rows)))
 
-(defn- subject-facts [log :- String te :- String] :- (Vec k/Fact)
+(defn- subject-facts
+  [log :- String
+   te :- String] :- (Vec k/Fact)
   (let [warm (coord-subject-facts log te)]
     (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
 
 ;; --- write THROUGH the coordinator (serialized, safe under concurrent agents) --
-(defn coordinator-failure-message [code :- Int port :- Int log :- String consequence :- String] :- String
+(defn coordinator-failure-message
+  [code :- Int
+   port :- Int
+   log :- String
+   consequence :- String] :- String
   (let [summary
         (cond
           [(= code -1)
@@ -305,7 +333,13 @@
          (if (str/blank? consequence) "" (str " — " consequence))
          ". " remedy ".")))
 
-(defn- tell-once [port :- Int log :- String op :- String te :- String pred :- String rv :- String] :- String
+(defn- tell-once
+  [port :- Int
+   log :- String
+   op :- String
+   te :- String
+   pred :- String
+   rv :- String] :- String
   (let [v (fram.rt/coord-version-for-log port log)]
     (if (< v 0)
       (if (= v -2) "log-mismatch" (if (= v -3) "protocol-incompatible" "nodaemon"))
@@ -313,7 +347,14 @@
         (fram.rt/coord-assert-for-log port log te pred rv v)
         (fram.rt/coord-retract-for-log port log te pred rv v)))))
 
-(defn- tell-retry [port :- Int log :- String op :- String te :- String pred :- String rv :- String tries :- Int] :- String
+(defn- tell-retry
+  [port :- Int
+   log :- String
+   op :- String
+   te :- String
+   pred :- String
+   rv :- String
+   tries :- Int] :- String
   (let [resp (tell-once port log op te pred rv)]
     (if (and (= resp "conflict") (> tries 0))
       (tell-retry port log op te pred rv (- tries 1))
@@ -323,15 +364,26 @@
 (defn- ctrl? [s :- String] :- Bool
   (or (str/includes? s "\n") (str/includes? s "\r")))
 
-(defn- add-fact [acc :- (Vec k/Fact) te :- String p :- String v :- String] :- (Vec k/Fact)
+(defn- add-fact
+  [acc :- (Vec k/Fact)
+   te :- String
+   p :- String
+   v :- String] :- (Vec k/Fact)
   (if (str/blank? v) acc (conj acc (k/->Fact te p v))))
 
 (defn- ref-or-blank [v :- String] :- String
   (if (str/blank? v) "" (str "@" v)))
 
-(defn- capture-facts [te :- String title :- String owner :- String source :- String
-                      author :- String lead :- String proposed :- String
-                      created-at :- String today :- String] :- (Vec k/Fact)
+(defn- capture-facts
+  [te :- String
+   title :- String
+   owner :- String
+   source :- String
+   author :- String
+   lead :- String
+   proposed :- String
+   created-at :- String
+   today :- String] :- (Vec k/Fact)
   ;; NO `driver` at birth (operating-manual): making a thread active is a deliberate
   ;; pickup (`tell <id> driver @x`), never a capture default — a driver cell here is
   ;; exactly the "stray driver" pollution the-model warns about.
@@ -373,14 +425,23 @@
   (= "1" (fram.rt/getenv-or "NORTH_CAPTURE_STRUCTURED" "")))
 
 (defn- print-capture-receipt
-  [id :- String te :- String title :- String path :- String expected :- Int
-   committed :- Int complete :- Bool reason :- String] :- Nil
+  [id :- String
+   te :- String
+   title :- String
+   path :- String
+   expected :- Int
+   committed :- Int
+   complete :- Bool
+   reason :- String] :- Nil
   (println
    (fram.rt/to-json
     (->CaptureReceipt id te title path expected committed complete reason))))
 
 (defn- retract-committed-capture-facts
-  [port :- Int log :- String facts :- (Vec k/Fact) results :- (Vec String)
+  [port :- Int
+   log :- String
+   facts :- (Vec k/Fact)
+   results :- (Vec String)
    i :- Int] :- Bool
   (if (>= i (count facts))
     true
@@ -400,8 +461,12 @@
       (and current-ok remaining-ok))))
 
 (defn- cleanup-partial-capture
-  [port :- Int log :- String te :- String path :- String
-   facts :- (Vec k/Fact) results :- (Vec String)] :- Bool
+  [port :- Int
+   log :- String
+   te :- String
+   path :- String
+   facts :- (Vec k/Fact)
+   results :- (Vec String)] :- Bool
   ;; Structured capture owns this freshly minted UUID, so it can compensate
   ;; exactly the facts acknowledged by this attempt. Prove both graph and view
   ;; absence before describing the rollback as clean.
@@ -415,7 +480,11 @@
          (empty? remaining)
          (not (fram.rt/file-exists path)))))
 
-(defn cmd-capture [threads-dir :- String log :- String title :- String owner :- String] :- Nil
+(defn cmd-capture
+  [threads-dir :- String
+   log :- String
+   title :- String
+   owner :- String] :- Nil
   (let [source (fram.rt/getenv-or "NORTH_SOURCE" "self")
         author (fram.rt/getenv-or "NORTH_AUTHOR" "you")
         lead (fram.rt/getenv-or "NORTH_LEAD" "")
@@ -503,7 +572,9 @@
        (str/blank? (str/replace bare #"[0-9a-f-]" ""))
        (or (str/includes? bare "-") (>= (count bare) 8))))
 
-(defn cmd-resolve [log :- String ref :- String] :- Nil
+(defn cmd-resolve
+  [log :- String
+   ref :- String] :- Nil
   (let [idx (live-idx log)
         r (resolve-ref idx ref)]
     (if (and (= r ref)
@@ -520,7 +591,9 @@
 ;; closing their own thread). Silent when the thread has no bars, so the tell
 ;; path can invoke it unconditionally. ✓/○ per bar = evidence containment
 ;; (a bar_evidence fact quoting the bar text).
-(defn cmd-done-bars [log :- String ref :- String] :- Nil
+(defn cmd-done-bars
+  [log :- String
+   ref :- String] :- Nil
   (let [idx (live-idx log)
         te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
         bars (k/many-i idx te "done_when")
@@ -548,8 +621,12 @@
   (let [idx (live-idx log)
         ids (k/thread-ids-i idx)
         problems (reduce
-                  (fn [acc :- (Vec String) te :- String] :- (Vec String)
-                    (reduce (fn [a :- (Vec String) v :- String] :- (Vec String)
+                  (fn
+                    [acc :- (Vec String)
+                     te :- String] :- (Vec String)
+                    (reduce (fn
+                              [a :- (Vec String)
+                               v :- String] :- (Vec String)
                               (conj a (str (short-id te) ": " v)))
                             acc (val/violations-i idx te)))
                   []
@@ -587,7 +664,9 @@
 ;; ready/board/next/JSON/grooming all classify against `live-driver-pred`, so a
 ;; parked driver reads the same (not-active -> its committed/schedule state)
 ;; everywhere. `--all` changes scope only; it never changes lifecycle semantics.
-(defn- lease-exp-secs [idx :- k/Index driverref :- String] :- Int
+(defn- lease-exp-secs
+  [idx :- k/Index
+   driverref :- String] :- Int
   ;; exp of @lease:session:<handle> in EPOCH SECONDS, or -1 if no lease. Lease value
   ;; is "holder|exp-ms|epoch"; slice exp-ms to seconds (drop the last 3 chars) —
   ;; parse-int is 32-bit, so 13-digit ms overflows while 10-digit secs (good to
@@ -615,7 +694,11 @@
      (fram.rt/iso-to-seconds (str s "T00:00:00"))]
     [:else -1]))
 
-(defn- driver-live? [idx :- k/Index te :- String now-secs :- Int window-secs :- Int] :- Bool
+(defn- driver-live?
+  [idx :- k/Index
+   te :- String
+   now-secs :- Int
+   window-secs :- Int] :- Bool
   (let [d (k/one-i idx te "driver")]
     (if (nil? d)
       false
@@ -636,8 +719,12 @@
 
 ;; The canonical live? predicate the classifier consumes, curried over a fixed
 ;; now/window so every thread in one command is judged against the same instant.
-(defn- live-driver-pred [now-secs :- Int window-secs :- Int] :- [k/Index String -> Bool]
-  (fn [idx :- k/Index te :- String] :- Bool (driver-live? idx te now-secs window-secs)))
+(defn- live-driver-pred
+  [now-secs :- Int
+   window-secs :- Int] :- [k/Index String -> Bool]
+  (fn
+    [idx :- k/Index
+     te :- String] :- Bool (driver-live? idx te now-secs window-secs)))
 
 ;; Build the canonical live? for "right now" — one clock read, reused for the whole
 ;; command. Callers that already hold now-secs/window use live-driver-pred directly.
@@ -646,13 +733,21 @@
 
 ;; Assignment and activity are orthogonal. A parked assignment remains visible
 ;; for cleanup even though it no longer forces the lifecycle to `active`.
-(defn- parked-assignment? [idx :- k/Index te :- String live? :- [k/Index String -> Bool]] :- Bool
+(defn- parked-assignment?
+  [idx :- k/Index
+   te :- String
+   live? :- [k/Index String -> Bool]] :- Bool
   (and (proj/assigned? idx te) (not (live? idx te))))
 
-(defn- parked-assignments [idx :- k/Index tes :- (Vec String) live? :- [k/Index String -> Bool]] :- (Vec String)
+(defn- parked-assignments
+  [idx :- k/Index
+   tes :- (Vec String)
+   live? :- [k/Index String -> Bool]] :- (Vec String)
   (filterv (fn [te :- String] :- Bool (parked-assignment? idx te live?)) tes))
 
-(defn cmd-ready [log :- String all :- Bool] :- Nil
+(defn cmd-ready
+  [log :- String
+   all :- Bool] :- Nil
   (let [idx (live-idx log)
         today (fram.rt/today-iso)
         live? (default-live?)
@@ -701,7 +796,12 @@
       (println (str "  unblocks " (:score it) "  " (short-id (:te it))
                     "  " (trunc (title-of idx (:te it)) 46))))))
 
-(defn- next-item [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- NextItem
+(defn- next-item
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- NextItem
   (let [lev (proj/leverage-score idx te)
         doo (k/one-i idx te "do_on")
         urg (if (some? doo)
@@ -765,16 +865,30 @@
     (println (str "UPCOMING (" (count upcoming) ")"))
     (doseq [it upcoming] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
 
-(defn- board-group [idx :- k/Index label :- String grp :- (Vec String)] :- Nil
+(defn- board-group
+  [idx :- k/Index
+   label :- String
+   grp :- (Vec String)] :- Nil
   (when (not (empty? grp))
     (println (str "\n" (proj/condition-emoji idx label) " " label " (" (count grp) ")"))
     (doseq [te grp]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
 
-(defn- in-condition [idx :- k/Index nonterm :- (Vec String) today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] c :- String] :- (Vec String)
+(defn- in-condition
+  [idx :- k/Index
+   nonterm :- (Vec String)
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]
+   c :- String] :- (Vec String)
   (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before? live?) c)) nonterm))
 
-(defn- parked-group [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] grp :- (Vec String)] :- Nil
+(defn- parked-group
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]
+   grp :- (Vec String)] :- Nil
   (when (not (empty? grp))
     (println (str "\nPARKED ASSIGNMENTS (" (count grp) ") — stale driver retained; lifecycle is not active"))
     (doseq [te grp]
@@ -786,7 +900,12 @@
 ;; DEFAULT = SIGNAL: active drivers (who's on what) + top-15 ready by leverage +
 ;; a counts line. The full per-condition kanban dump moved behind `--all` (chaos
 ;; was the census diagnosis: the flat dump drowned the ~15 threads that matter).
-(defn- board-full [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] nonterm :- (Vec String)] :- Nil
+(defn- board-full
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]
+   nonterm :- (Vec String)] :- Nil
   (do
     (println (str "THREADS — " (count nonterm) " open"))
     (board-group idx "active" (in-condition idx nonterm today before? live? "active"))
@@ -796,7 +915,12 @@
     (board-group idx "draft" (in-condition idx nonterm today before? live? "draft"))
     (parked-group idx today before? live? (parked-assignments idx nonterm live?))))
 
-(defn- board-curated [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] nonterm :- (Vec String)] :- Nil
+(defn- board-curated
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]
+   nonterm :- (Vec String)] :- Nil
   ;; SCOPE TO WORK THREADS: concerns/telemetry/mine also carry `title` (so
   ;; thread-ids-i sees them), which is exactly what drowned the old board — 200+
   ;; concern rows rendering as "active". kind-of excludes them; the full --all
@@ -846,7 +970,9 @@
       (println (str "  … +" (- (count readyl) (count rranked)) " more · north threads --all")))
     (println "  machinery/agents/daemons → north dashboard")))
 
-(defn cmd-board [log :- String all :- Bool] :- Nil
+(defn cmd-board
+  [log :- String
+   all :- Bool] :- Nil
   (let [idx (live-idx log)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
@@ -858,20 +984,45 @@
       (board-curated idx today before? live? nonterm))))
 
 ;; --- structured (JSON) projections for the MCP edge --------------------------
-(defrecord JThread [id :- String title :- String condition :- String emoji :- String])
-(defrecord JPresentation [active :- String ready :- String blocked :- String draft :- String])
-(defrecord JReview [id :- String title :- String pred :- String detail :- String])
-(defrecord JFact [predicate :- String value :- String])
-(defrecord JSubjectFact [subject :- String predicate :- String value :- String])
+(defrecord JThread
+  [id :- String
+   title :- String
+   condition :- String
+   emoji :- String])
+(defrecord JPresentation
+  [active :- String
+   ready :- String
+   blocked :- String
+   draft :- String])
+(defrecord JReview
+  [id :- String
+   title :- String
+   pred :- String
+   detail :- String])
+(defrecord JFact
+  [predicate :- String
+   value :- String])
+(defrecord JSubjectFact
+  [subject :- String
+   predicate :- String
+   value :- String])
 (defrecord JChildSettlementProjection
   [protocol :- String
    version :- Int
    coordinator :- String
    children :- (Vec JSubjectFact)
    runs :- (Vec JSubjectFact)])
-(defrecord JAgentFact [id :- String predicate :- String value :- String])
+(defrecord JAgentFact
+  [id :- String
+   predicate :- String
+   value :- String])
 
-(defn- jthread [idx :- k/Index te :- String today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- JThread
+(defn- jthread
+  [idx :- k/Index
+   te :- String
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- JThread
   (let [c (proj/condition-i idx te today before? live?)]
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
@@ -881,13 +1032,23 @@
 ;; lived ONLY in cmd-board/cmd-ready; the JSON path bypassed it. These helpers
 ;; move it into the JSON path too, gated on all? — --all restores the full,
 ;; unscoped dump that discover.ts/analysis consumers still want.
-(defn- ready-curated-tes [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] all? :- Bool] :- (Vec String)
+(defn- ready-curated-tes
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]
+   all? :- Bool] :- (Vec String)
   (let [raw (proj/ready idx today before? live?)
         rs (if all? raw (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
         ranked (vec (sort-by (fn [te :- String] :- Int (- 0 (proj/leverage-score idx te))) rs))]
     (if all? ranked (vec (take 15 ranked)))))
 
-(defn- board-curated-tes [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool] all? :- Bool] :- (Vec String)
+(defn- board-curated-tes
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]
+   all? :- Bool] :- (Vec String)
   (let [nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all?
@@ -902,18 +1063,25 @@
         (vec (concat active ready))))))
 
 (defn- matching-subjects
-  [facts :- (Vec k/Fact) predicate :- String value :- String] :- (Map String Bool)
+  [facts :- (Vec k/Fact)
+   predicate :- String
+   value :- String] :- (Map String Bool)
   (reduce
-   (fn [subjects :- (Map String Bool) fact :- k/Fact] :- (Map String Bool)
+   (fn
+     [subjects :- (Map String Bool)
+      fact :- k/Fact] :- (Map String Bool)
      (if (and (= (:p fact) predicate) (= (:r fact) value))
        (assoc subjects (:l fact) true)
        subjects))
    {} facts))
 
 (defn- direct-child-subjects
-  [facts :- (Vec k/Fact) coordinator :- String] :- (Map String Bool)
+  [facts :- (Vec k/Fact)
+   coordinator :- String] :- (Map String Bool)
   (reduce
-   (fn [subjects :- (Map String Bool) fact :- k/Fact] :- (Map String Bool)
+   (fn
+     [subjects :- (Map String Bool)
+      fact :- k/Fact] :- (Map String Bool)
      (if (and (= (:p fact) "coordinator")
               (= (:r fact) coordinator)
               (str/starts-with? (:l fact) "@agent:"))
@@ -921,10 +1089,12 @@
        subjects))
    {} facts))
 
-(defn- child-agent-ids
-  [subjects :- (Map String Bool)] :- (Map String Bool)
+(defn- child-agent-ids [subjects :- (Map String Bool)] :- (Map String Bool)
   (reduce-kv
-   (fn [ids :- (Map String Bool) subject :- String _present :- Bool] :- (Map String Bool)
+   (fn
+     [ids :- (Map String Bool)
+      subject :- String
+      _present :- Bool] :- (Map String Bool)
      (assoc ids (subs subject (count "@agent:")) true))
    {} subjects))
 
@@ -933,7 +1103,9 @@
    children :- (Map String Bool)
    committed-runs :- (Map String Bool)] :- (Map String Bool)
   (reduce
-   (fn [subjects :- (Map String Bool) fact :- k/Fact] :- (Map String Bool)
+   (fn
+     [subjects :- (Map String Bool)
+      fact :- k/Fact] :- (Map String Bool)
      (if (and (= (:p fact) "agent")
               (get children (:r fact) false)
               (get committed-runs (:l fact) false))
@@ -942,7 +1114,8 @@
    {} facts))
 
 (defn- subject-fact-projection
-  [facts :- (Vec k/Fact) subjects :- (Map String Bool)] :- (Vec JSubjectFact)
+  [facts :- (Vec k/Fact)
+   subjects :- (Map String Bool)] :- (Vec JSubjectFact)
   (mapv
    (fn [fact :- k/Fact] :- JSubjectFact
      (->JSubjectFact (short-id (:l fact)) (:p fact) (:r fact)))
@@ -955,9 +1128,14 @@
 ;; this composition layer removes its raw-driver done-bar false positives and
 ;; adds explicit parked-assignment reviews without mutating lifecycle facts.
 (defn- parked-assignment-reviews
-  [idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
+  [idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
   (reduce
-   (fn [acc :- (Vec stale/Review) te :- String] :- (Vec stale/Review)
+   (fn
+     [acc :- (Vec stale/Review)
+      te :- String] :- (Vec stale/Review)
      (if (and (= (kind-of idx te) "thread")
               (and (not (proj/terminal-i? idx te))
                    (parked-assignment? idx te live?)))
@@ -974,7 +1152,12 @@
    (proj/work-thread-ids-i idx)))
 
 (defn- canonical-grooming-reviews
-  [cold-idx :- k/Index latest :- (Vec fold/Latest) live-idx :- k/Index today :- String before? :- [String String -> Bool] live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
+  [cold-idx :- k/Index
+   latest :- (Vec fold/Latest)
+   live-idx :- k/Index
+   today :- String
+   before? :- [String String -> Bool]
+   live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
   (let [base (stale/needs-review cold-idx latest today before?)
         live-base (filterv
                    (fn [rv :- stale/Review] :- Bool
@@ -986,12 +1169,18 @@
 
 ;; Split out of cmd-json's corpus-wide let so a single-subject show never binds
 ;; live-facts: the whole point is that this verb touches ONE subject.
-(defn- cmd-json-show [log :- String arg :- String] :- Nil
+(defn- cmd-json-show
+  [log :- String
+   arg :- String] :- Nil
   (println (fram.rt/to-json
             (mapv (fn [c :- k/Fact] :- JFact (->JFact (:p c) (:r c)))
                   (subject-facts log (str "@" arg))))))
 
-(defn- cmd-json-corpus [log :- String what :- String arg :- String all? :- Bool] :- Nil
+(defn- cmd-json-corpus
+  [log :- String
+   what :- String
+   arg :- String
+   all? :- Bool] :- Nil
   (let [facts (live-facts log)
         idx (k/build-index facts)
         today (fram.rt/today-iso)
@@ -1026,7 +1215,9 @@
        (let [subjects (filterv (fn [s :- String] :- Bool (not (str/blank? s)))
                                (mapv (fn [s :- String] :- String (short-id s))
                                      (vec (str/split arg #","))))
-             subject-set (reduce (fn [m :- (Map String Bool) s :- String] :- (Map String Bool)
+             subject-set (reduce (fn
+                                   [m :- (Map String Bool)
+                                    s :- String] :- (Map String Bool)
                                    (assoc m (str "@" s) true))
                                  {} subjects)]
          (println (fram.rt/to-json
@@ -1078,7 +1269,11 @@
                                   (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))]
       [:else (println "usage: json board|ready|blocked|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation")])))
 
-(defn cmd-json [log :- String what :- String arg :- String all? :- Bool] :- Nil
+(defn cmd-json
+  [log :- String
+   what :- String
+   arg :- String
+   all? :- Bool] :- Nil
   (if (= what "show")
     (cmd-json-show log arg)
     (cmd-json-corpus log what arg all?)))
@@ -1107,8 +1302,13 @@
 ;; daemon never means a file was tampered with. `probe` computes both from ONE log
 ;; read + ONE corpus read so doctor/heal/boot classify identically.
 (defrecord Probe
-  [up :- Bool serving :- Bool fresh :- Bool         ; safety inputs
-   port :- Int status :- String daemon-v :- Int log-v :- Int
+  [up :- Bool
+   serving :- Bool
+   fresh :- Bool         ; safety inputs
+   port :- Int
+   status :- String
+   daemon-v :- Int
+   log-v :- Int
    log-facts :- (Vec k/Fact)                      ; whole log (render/entry-point/board)
    idx :- k/Index
    stale :- (Vec k/Fact)                           ; file-ahead, superseded projection
@@ -1121,12 +1321,16 @@
 ;; bin/north exports) AND the log holds a DIFFERENT value for the same (subject,pred)
 ;; — i.e. a `tell` replaced the value and the .md just wasn't re-rendered. Otherwise
 ;; the log has no competing value: a genuine hand edit a human must reconcile.
-(defn- stale-projection? [idx :- k/Index c :- k/Fact] :- Bool
+(defn- stale-projection?
+  [idx :- k/Index
+   c :- k/Fact] :- Bool
   (and (k/single? (:p c))
        (let [v (k/one-i idx (:l c) (:p c))]
          (and (some? v) (not (= v (:r c)))))))
 
-(defn- probe [threads-dir :- String log :- String] :- Probe
+(defn- probe
+  [threads-dir :- String
+   log :- String] :- Probe
   (let [port (fram.rt/coord-port)
         status (fram.rt/coord-status-for-log port log)
         ;; logs: fold the UNION so log-v (max :tx across BOTH logs) tracks
@@ -1186,7 +1390,9 @@
            (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
 
 ;; --- doctor: SAFETY handshake + HYGIENE report ------------------------------
-(defn cmd-doctor [threads-dir :- String log :- String] :- Nil
+(defn cmd-doctor
+  [threads-dir :- String
+   log :- String] :- Nil
   (let [p (probe threads-dir log)]
     (println "north doctor")
     ;; SAFETY: the daemon handshake — the only inputs to the verdict.
@@ -1226,7 +1432,9 @@
 ;; Idempotent, fail-closed. Flushes projection drift WITHOUT whole-corpus `export`
 ;; (which touches every file and refuses on any hand edit). Writes only .md files.
 (defn- distinct-ids [xs :- (Vec String)] :- (Vec String)
-  (reduce (fn [acc :- (Vec String) x :- String] :- (Vec String)
+  (reduce (fn
+            [acc :- (Vec String)
+             x :- String] :- (Vec String)
             (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
 
 ;; Subjects whose .md diverges from the log: a superseded fact OR a log fact not
@@ -1247,7 +1455,9 @@
         [:else (recur (+ i 1))]))))
 
 ;; A file's basename (list-md returns "<threads-dir>/<name>").
-(defn- basename [threads-dir :- String path :- String] :- String
+(defn- basename
+  [threads-dir :- String
+   path :- String] :- String
   (let [pre (+ (count threads-dir) 1)]
     (if (> (count path) pre) (subs path pre) path)))
 
@@ -1255,33 +1465,51 @@
 ;; "<id>-" prefixes the name (or "<id>.md" == name). Longest-match is load-bearing —
 ;; a bare id like `topic-agent` must NOT fact `topic-agent-ability`'s file (they
 ;; share the prefix); substring/first-match silently clobbers the wrong file.
-(defn- file-owner [ids :- (Vec String) name :- String] :- String
-  (reduce (fn [best :- String id :- String] :- String
+(defn- file-owner
+  [ids :- (Vec String)
+   name :- String] :- String
+  (reduce (fn
+            [best :- String
+             id :- String] :- String
             (if (and (or (str/starts-with? name (str id "-")) (= name (str id ".md")))
                      (> (count id) (count best)))
               id best))
           "" ids))
 
-(defrecord FileInfo [path :- String owner :- String head :- String])
+(defrecord FileInfo
+  [path :- String
+   owner :- String
+   head :- String])
 
-(defn- scan-files [threads-dir :- String files :- (Vec String) ids :- (Vec String)] :- (Vec FileInfo)
+(defn- scan-files
+  [threads-dir :- String
+   files :- (Vec String)
+   ids :- (Vec String)] :- (Vec FileInfo)
   (mapv (fn [path :- String] :- FileInfo
           (->FileInfo path (file-owner ids (basename threads-dir path))
                       (file-subject (fram.rt/slurp path))))
         files))
 
 ;; The .md path already assigned to a bare id ("" if none) — overwrite THIS in place.
-(defn- path-of [scan :- (Vec FileInfo) id :- String] :- String
-  (reduce (fn [acc :- String fi :- FileInfo] :- String
+(defn- path-of
+  [scan :- (Vec FileInfo)
+   id :- String] :- String
+  (reduce (fn
+            [acc :- String
+             fi :- FileInfo] :- String
             (if (and (str/blank? acc) (= (:owner fi) id)) (:path fi) acc))
           "" scan))
 
 ;; Bare ids of files whose head @subject != their owning thread (headless, or a
 ;; wrong/clobbered @subject) while the owner is a live titled thread — the importer
 ;; would silently drop/misread these; re-render restores the projection.
-(defn- broken-head-ids [scan :- (Vec FileInfo) idx :- k/Index] :- (Vec String)
+(defn- broken-head-ids
+  [scan :- (Vec FileInfo)
+   idx :- k/Index] :- (Vec String)
   (distinct-ids
-   (reduce (fn [acc :- (Vec String) fi :- FileInfo] :- (Vec String)
+   (reduce (fn
+             [acc :- (Vec String)
+              fi :- FileInfo] :- (Vec String)
              (if (and (not (str/blank? (:owner fi)))
                       (and (not (= (:head fi) (str "@" (:owner fi))))
                            (some? (k/one-i idx (str "@" (:owner fi)) "title"))))
@@ -1292,7 +1520,9 @@
 ;; The normal projection pass: re-render every thread file whose .md diverges
 ;; from the log (superseded/lagging diff ∪ broken-head). Writes only .md files —
 ;; the log is never touched. Shared by bare `heal` and `heal --adopt`'s tail.
-(defn- heal-project [threads-dir :- String p :- Probe] :- Nil
+(defn- heal-project
+  [threads-dir :- String
+   p :- Probe] :- Nil
   (let [files (fram.rt/list-md threads-dir)
         ids (mapv (fn [te :- String] :- String (short-id te)) (k/thread-ids-i (:idx p)))
         scan (scan-files threads-dir files ids)
@@ -1314,7 +1544,11 @@
         (println (str "heal: re-rendered " (count targets)
                       " thread file(s) from the log. Log untouched."))))))
 
-(defrecord AdoptResult [adopted :- Int skipped :- Int failed :- Int dropped :- Int])
+(defrecord AdoptResult
+  [adopted :- Int
+   skipped :- Int
+   failed :- Int
+   dropped :- Int])
 
 ;; A blank predicate or blank value is never a real hand edit — it's a corpus
 ;; PARSE ARTIFACT (a stray line the importer split into `("" "")`). Asserting it
@@ -1332,9 +1566,15 @@
 ;; stale file line; (3) everything else is asserted. `live` is re-read at call
 ;; time so a supersession that landed AFTER the probe is still caught (safe under
 ;; concurrent writers).
-(defn- adopt-hand-facts [port :- Int log :- String live :- k/Index hand :- (Vec k/Fact)] :- AdoptResult
+(defn- adopt-hand-facts
+  [port :- Int
+   log :- String
+   live :- k/Index
+   hand :- (Vec k/Fact)] :- AdoptResult
   (reduce
-   (fn [acc :- AdoptResult c :- k/Fact] :- AdoptResult
+   (fn
+     [acc :- AdoptResult
+      c :- k/Fact] :- AdoptResult
      (cond
        [(not (adoptable? c))
         (do
@@ -1370,7 +1610,11 @@
       (doseq [c tombstoned]
         (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))))
 
-(defn cmd-heal [threads-dir :- String log :- String adopt :- Bool resurrect :- Bool] :- Nil
+(defn cmd-heal
+  [threads-dir :- String
+   log :- String
+   adopt :- Bool
+   resurrect :- Bool] :- Nil
   (let [p (probe threads-dir log)
         ;; --resurrect folds tombstones back into the adopt set (force-reassert a
         ;; deliberately-retracted triple); default off leaves them to re-render away.
@@ -1411,17 +1655,26 @@
            (heal-project threads-dir p)))])))
 
 ;; --- boot: the one-screen session-start view --------------------------------
-(defrecord EntryPoint [te :- String note :- String created :- String])
+(defrecord EntryPoint
+  [te :- String
+   note :- String
+   created :- String])
 
 ;; The SESSION ENTRY POINT note on a thread ("" if none).
-(defn- entry-note [idx :- k/Index te :- String] :- String
-  (reduce (fn [acc :- String v :- String] :- String
+(defn- entry-note
+  [idx :- k/Index
+   te :- String] :- String
+  (reduce (fn
+            [acc :- String
+             v :- String] :- String
             (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc))
           "" (k/many-i idx te "note")))
 
 ;; The most-recent (by created_at) thread carrying a SESSION ENTRY POINT note.
 (defn- find-entry [idx :- k/Index] :- EntryPoint
-  (reduce (fn [best :- EntryPoint te :- String] :- EntryPoint
+  (reduce (fn
+            [best :- EntryPoint
+             te :- String] :- EntryPoint
             (let [note (entry-note idx te)]
               (if (str/blank? note)
                 best
@@ -1432,7 +1685,9 @@
           (->EntryPoint "" "" "")
           (k/thread-ids-i idx)))
 
-(defn cmd-boot [threads-dir :- String log :- String] :- Nil
+(defn cmd-boot
+  [threads-dir :- String
+   log :- String] :- Nil
   (let [p (probe threads-dir log)
         idx (:idx p)
         today (fram.rt/today-iso)
@@ -1473,7 +1728,9 @@
 ;; Historical compatibility only. The env-derived schema-seed writer was a
 ;; second, incomplete authority and is permanently non-mutating. The exact-fold
 ;; schema-migrate command owns cutover, audit, collision checks, and receipts.
-(defn cmd-schema-seed [_log :- String _execute :- Bool] :- Nil
+(defn cmd-schema-seed
+  [_log :- String
+   _execute :- Bool] :- Nil
   (do
     (println "schema-seed RETIRED — no facts were written.")
     (println "Use `north schema-migrate plan`, then maintenance-approved `migrate --execute`, and `audit --strict`.")))
@@ -1501,30 +1758,46 @@
 ;; declared predicate metadata (cardinality/value_kind/acyclic — schema-as-facts).
 ;; ONE fold (live-facts) then pure map-reduce; sorted by fact count so the biggest
 ;; blobs — the session/run telemetry bulk — name themselves loudly with numbers.
-(defrecord PredCount [pred :- String n :- Int])
-(defrecord KindStat [kind :- String subjects :- Int facts :- Int preds :- (Vec PredCount)])
+(defrecord PredCount
+  [pred :- String
+   n :- Int])
+(defrecord KindStat
+  [kind :- String
+   subjects :- Int
+   facts :- Int
+   preds :- (Vec PredCount)])
 
 ;; composite-key sep for the (kind, pred) tally — neither kind nor pred contains it.
 (def ^:private KP-SEP :- String "")
 
-(defn- census [idx :- k/Index facts :- (Vec k/Fact)] :- (Vec KindStat)
+(defn- census
+  [idx :- k/Index
+   facts :- (Vec k/Fact)] :- (Vec KindStat)
   (let [subj-list (:subjects idx)
         ;; subject -> kind (computed ONCE per subject, then reused per fact)
-        skind (reduce (fn [m :- (Map String String) s :- String] :- (Map String String)
+        skind (reduce (fn
+                        [m :- (Map String String)
+                         s :- String] :- (Map String String)
                         (assoc m s (kind-of idx s)))
                       {} subj-list)
         ;; kind -> subject count
-        ksub (reduce (fn [m :- (Map String Int) s :- String] :- (Map String Int)
+        ksub (reduce (fn
+                       [m :- (Map String Int)
+                        s :- String] :- (Map String Int)
                        (let [kd (get skind s "other")]
                          (assoc m kd (+ 1 (get m kd 0)))))
                      {} subj-list)
         ;; kind -> fact count
-        kfacts (reduce (fn [m :- (Map String Int) c :- k/Fact] :- (Map String Int)
+        kfacts (reduce (fn
+                         [m :- (Map String Int)
+                          c :- k/Fact] :- (Map String Int)
                          (let [kd (get skind (:l c) "other")]
                            (assoc m kd (+ 1 (get m kd 0)))))
                        {} facts)
         ;; (kind KP-SEP pred) -> fact count  (flat map; nested Map-of-Map avoided)
-        kpreds (reduce (fn [m :- (Map String Int) c :- k/Fact] :- (Map String Int)
+        kpreds (reduce (fn
+                         [m :- (Map String Int)
+                          c :- k/Fact] :- (Map String Int)
                          (let [kd (get skind (:l c) "other")
                                kk (str kd KP-SEP (:p c))]
                            (assoc m kk (+ 1 (get m kk 0)))))
@@ -1550,18 +1823,28 @@
 ;; per subject), not fact count — "how many of this kind have it", not "how often".
 
 (def ^:private SP24 :- String "                        ")
-(defn- padr [s :- String n :- Int] :- String
+(defn- padr
+  [s :- String
+   n :- Int] :- String
   (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))
 (defn- pad7 [n :- Int] :- String
   (let [s (str n)] (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
-(defn- kind-subjects [idx :- k/Index kind :- String] :- (Vec String)
+(defn- kind-subjects
+  [idx :- k/Index
+   kind :- String] :- (Vec String)
   (filterv (fn [s :- String] :- Bool (= (kind-of idx s) kind)) (:subjects idx)))
 
 ;; distinct-subject coverage per predicate over a subject set (one pass over facts).
-(defrecord CovAcc [seen :- (Map String Bool) pc :- (Map String Int)])
-(defn- coverage [facts :- (Vec k/Fact) subjset :- (Map String Bool)] :- (Map String Int)
-  (:pc (reduce (fn [a :- CovAcc c :- k/Fact] :- CovAcc
+(defrecord CovAcc
+  [seen :- (Map String Bool)
+   pc :- (Map String Int)])
+(defn- coverage
+  [facts :- (Vec k/Fact)
+   subjset :- (Map String Bool)] :- (Map String Int)
+  (:pc (reduce (fn
+                 [a :- CovAcc
+                  c :- k/Fact] :- CovAcc
                  (if (get subjset (:l c) false)
                    (let [sk (str (:l c) KP-SEP (:p c))]
                      (if (get (:seen a) sk false)
@@ -1571,11 +1854,20 @@
                    a))
                (->CovAcc {} {}) facts)))
 
-(defrecord FieldStat [pred :- String subs :- Int pct :- Int required :- Bool])
-(defn- schema-fields [idx :- k/Index facts :- (Vec k/Fact) kind :- String] :- (Vec FieldStat)
+(defrecord FieldStat
+  [pred :- String
+   subs :- Int
+   pct :- Int
+   required :- Bool])
+(defn- schema-fields
+  [idx :- k/Index
+   facts :- (Vec k/Fact)
+   kind :- String] :- (Vec FieldStat)
   (let [ksubs (kind-subjects idx kind)
         total (count ksubs)
-        subjset (reduce (fn [m :- (Map String Bool) s :- String] :- (Map String Bool)
+        subjset (reduce (fn
+                          [m :- (Map String Bool)
+                           s :- String] :- (Map String Bool)
                           (assoc m s true)) {} ksubs)
         pc (coverage facts subjset)
         stats (mapv (fn [p :- String] :- FieldStat
@@ -1593,7 +1885,9 @@
 
 ;; declared cardinality/value_kind for a predicate, if present (schema-migrate and
 ;; predicate define write @<pred> subjects; tolerate a bare legacy subject too).
-(defn- pred-ann [idx :- k/Index p :- String] :- String
+(defn- pred-ann
+  [idx :- k/Index
+   p :- String] :- String
   (let [ps (if (or (some? (k/one-i idx (str "@" p) "cardinality"))
                    (some? (k/one-i idx (str "@" p) "value_kind")))
              (str "@" p) p)
@@ -1616,7 +1910,10 @@
     [(= kind "topic") "topic grouping anchors (topic- prefix)"]
     [:else "(writer not curated — grep the coordination log for this kind's writer)"]))
 
-(defn- print-schema-kind [idx :- k/Index facts :- (Vec k/Fact) kind :- String] :- Nil
+(defn- print-schema-kind
+  [idx :- k/Index
+   facts :- (Vec k/Fact)
+   kind :- String] :- Nil
   (let [ksubs (kind-subjects idx kind)
         total (count ksubs)]
     (if (= total 0)
@@ -1637,7 +1934,9 @@
 
 ;; `north schema`        -> the kind census (one screen: kinds + counts + hint)
 ;; `north schema <kind>` -> the per-kind field spec (required/optional + writers)
-(defn cmd-schema [log :- String kind :- String] :- Nil
+(defn cmd-schema
+  [log :- String
+   kind :- String] :- Nil
   (let [facts (live-facts log)
         idx (k/build-index facts)]
     (if (not (str/blank? kind))
@@ -1693,10 +1992,15 @@
         (println "  add predicate_example graph facts; bootstrap tables are not authority")))))
 
 ;; --- dispatch (life verbs; engine verbs are routed to fram by the wrapper) ---
-(defn- has-flag? [args :- (Vec String) f :- String] :- Bool
+(defn- has-flag?
+  [args :- (Vec String)
+   f :- String] :- Bool
   (not (empty? (filterv (fn [a :- String] :- Bool (= a f)) args))))
 
-(defn run [args :- (Vec String) threads-dir :- String log :- String] :- Nil
+(defn run
+  [args :- (Vec String)
+   threads-dir :- String
+   log :- String] :- Nil
   (let [cmd (if (empty? args) "" (first args))]
     (cond
       [(= cmd "capture")
@@ -1742,7 +2046,10 @@
 ;; Composable command boundary: returns the exact validation status without
 ;; terminating its host process. Retired schema-seed is a deliberate compatibility
 ;; refusal (2); other commands succeed after their normal `run` side effects.
-(defn run-status [args :- (Vec String) threads-dir :- String log :- String] :- Int
+(defn run-status
+  [args :- (Vec String)
+   threads-dir :- String
+   log :- String] :- Int
   (cond
     [(and (not (empty? args)) (= (first args) "validate")) (cmd-validate log)]
     [(and (not (empty? args)) (= (first args) "schema-seed"))

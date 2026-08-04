@@ -17,9 +17,16 @@
 ;; A tenant the gateway routes to (the typed shape the registry EDN validates into).
 ;; `log` is the coordinator's absolute corpus identity. The gateway injects it
 ;; into every wire request; an untrusted HTTP client never supplies this field.
-(defrecord Tenant [tid :- String host :- String port :- Int log :- String])
+(defrecord Tenant
+  [tid :- String
+   host :- String
+   port :- Int
+   log :- String])
 ;; A per-tenant token-bucket cell (rate limiting state).
-(defrecord Bucket [tokens :- Float ts :- Float ok :- Bool])
+(defrecord Bucket
+  [tokens :- Float
+   ts :- Float
+   ok :- Bool])
 
 ;; --- token hashing: SHA-256 hex (Java interop) ------------------------------
 (defn- hex-byte [b :- Int] :- String
@@ -30,7 +37,9 @@
 (defn sha256-hex [s :- String] :- String
   (let [md (MessageDigest/getInstance "SHA-256")
         bs (.digest md (.getBytes s "UTF-8"))]
-    (reduce (fn [acc :- String b :- Int] :- String (str acc (hex-byte b))) "" (vec bs))))
+    (reduce (fn
+              [acc :- String
+               b :- Int] :- String (str acc (hex-byte b))) "" (vec bs))))
 
 ;; --- bearer header -> raw token ---------------------------------------------
 (defn bearer-token [auth :- String] :- String
@@ -38,7 +47,9 @@
 
 ;; --- validate one untrusted registry entry INTO a typed Tenant (or nil) ------
 ;; cfg is Any: it's raw EDN off disk. This is the boundary — dynamic in, typed out.
-(defn parse-tenant [tid :- String cfg :- Any] :- Any
+(defn parse-tenant
+  [tid :- String
+   cfg :- Any] :- Any
   (let [host (:coordinator-host cfg)
         port (:coordinator-port cfg)
         log (:coordinator-log cfg)]
@@ -53,13 +64,19 @@
       nil)))
 
 ;; --- token -> Tenant: hash, look it up in the by-hash index ------------------
-(defn token->tenant [by-hash :- (Map String Tenant) token :- String] :- Any
+(defn token->tenant
+  [by-hash :- (Map String Tenant)
+   token :- String] :- Any
   (if (and (some? token) (not (= token "")))
     (get by-hash (sha256-hex token))
     nil))
 
 ;; --- per-tenant token bucket: PURE step (state in, new state + verdict out) --
-(defn bucket-step [b :- Any now :- Float rate :- Float burst :- Float] :- Bucket
+(defn bucket-step
+  [b :- Any
+   now :- Float
+   rate :- Float
+   burst :- Float] :- Bucket
   (let [bk (if (some? b) b (->Bucket burst now true))
         elapsed (max 0.0 (/ (- now (:ts bk)) 1.0e9))
         refilled (min burst (+ (:tokens bk) (* elapsed rate)))]
@@ -75,7 +92,9 @@
 
 ;; The registry-selected Tenant owns corpus identity. Preserve the response
 ;; format on the OUTER envelope because Fram formats at the connection boundary.
-(defn fenced-request [tenant :- Tenant parsed :- Any] :- Any
+(defn fenced-request
+  [tenant :- Tenant
+   parsed :- Any] :- Any
   (let [envelope {:op :for-log
                   :expected-log (:log tenant)
                   :request parsed}]
@@ -101,7 +120,9 @@
     (catch StackOverflowError _ nil)
     (catch Exception _ nil)))
 
-(defn- whitespace-tail? [s :- String start :- Int] :- Bool
+(defn- whitespace-tail?
+  [s :- String
+   start :- Int] :- Bool
   (loop [i start]
     (if (>= i (count s))
       true
