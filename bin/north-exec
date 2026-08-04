@@ -39,7 +39,11 @@ container=$(dirname "$root")
 
 wt=$container/wt-$slug
 [ ! -e "$wt" ] || die "worktree already exists: $wt"
-git -C "$root" worktree add "$wt" -b "$slug" >/dev/null
+# Clone, not worktree: a worktree's git metadata lives under main/.git,
+# outside the workspace-write sandbox, so the agent could never commit.
+git clone -q "$root" "$wt"
+git -C "$wt" switch -q -c "$slug"
+git -C "$wt" remote set-url --push origin DISABLED
 base=$(git -C "$wt" rev-parse --short HEAD)
 
 logdir=${XDG_STATE_HOME:-$HOME/.local/state}/north/exec
@@ -62,7 +66,7 @@ if [ "$status" -ne 0 ]; then
   echo "north-exec: last stderr lines:" && tail -3 "$err" | sed 's/^/  /'
 fi
 if [ "$commits" -gt 0 ]; then
-  echo "land:  git -C $root merge --ff-only $slug"
+  echo "land:  git -C $root fetch $wt $slug && git -C $root merge --ff-only FETCH_HEAD"
 fi
-echo "clean: git -C $root worktree remove $wt && git -C $root branch -d $slug"
+echo "clean: rm -rf $wt"
 exit $status
