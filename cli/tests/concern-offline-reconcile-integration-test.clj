@@ -794,6 +794,47 @@
       (finally
         (delete-tree! tmp)))))
 
+(defn terminal-marker-priority-probe []
+  (let [tmp (temp-directory "north-concern-terminal-priority")
+        spool (doto (io/file tmp "spool") .mkdirs)
+        state (doto (io/file tmp "state") .mkdirs)
+        log (doto (io/file tmp "coordination.log") (spit ""))
+        pending (fixture-operation log "priority-pending")
+        _ (Thread/sleep 2)
+        terminal (fixture-operation log "priority-terminal")]
+    (try
+      (publish! spool pending)
+      (publish! spool terminal)
+      (#'north.concern-spool-reconcile/publish-record!
+       (.toPath state)
+       (#'north.concern-spool-reconcile/build-record
+        {:record-type "settled"
+         :operation-id (:operation-id terminal)
+         :concern-id (:concern-id terminal)
+         :target-log (:target-log terminal)
+         :operation-sha256 (:sha256 terminal)
+         :reason "fixture-terminal"
+         :observed-version 0
+         :observed-projection-sha256 ""}))
+      (let [result
+            (run-pass
+             7977 spool state
+             {:max-items 1 :max-bytes (* 1024 1024) :max-millis 1000})]
+        (check "durable terminal markers reclaim capacity before transport work"
+               (and (= 1 (:retired result))
+                    (= 1 (:remaining result))
+                    (= (str (:operation-id terminal) ".op.edn")
+                       (:file (first (:outcomes result))))
+                    (.isFile
+                     (io/file spool
+                              (str (:operation-id pending) ".op.edn")))
+                    (not (.exists
+                          (io/file spool
+                                   (str (:operation-id terminal)
+                                        ".op.edn")))))))
+      (finally
+        (delete-tree! tmp)))))
+
 (defn transition-snapshot-fast-path-probe []
   (let [log (io/file "/tmp/north-transition-snapshot-fast-path.log")
         concern "@concern-1785506000003-d004"
@@ -996,6 +1037,7 @@
 
 (when (= "terminal-offline" (first *command-line-args*))
   (retirement-capacity-probe)
+  (terminal-marker-priority-probe)
   (terminal-replay-probe)
   (transition-snapshot-fast-path-probe)
   (System/exit (if (zero? @fails) 0 1)))
@@ -1003,6 +1045,7 @@
 (primary-probes)
 (bounded-transport-probe)
 (retirement-capacity-probe)
+(terminal-marker-priority-probe)
 (terminal-replay-probe)
 (transition-snapshot-fast-path-probe)
 

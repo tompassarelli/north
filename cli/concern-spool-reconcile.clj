@@ -632,6 +632,38 @@
   (second
    (re-matches operation-name-pattern (str (.getFileName path)))))
 
+(defn- terminal-marker-candidate?
+  [^Path state-directory ^Path operation-path]
+  (let [operation-id (operation-id-from-path operation-path)]
+    (or (Files/exists
+         (record-path state-directory operation-id "settled")
+         no-follow)
+        (Files/exists
+         (record-path state-directory operation-id "conflict")
+         no-follow))))
+
+(defn- recovery-order
+  "Schedule marker-bound operations before transport work. Marker presence is
+   only a hint: process-operation! still validates the exact immutable binding
+   before retirement."
+  [files ^Path state-directory last-file]
+  (let [{marked true pending false}
+        (group-by #(terminal-marker-candidate? state-directory %) files)
+        marked (vec marked)
+        pending (vec pending)
+        deferred-marker?
+        (some
+         #(= last-file (str (.getFileName ^Path %)))
+         marked)]
+    (vec
+     (if deferred-marker?
+       (concat
+        (rotate-after pending last-file)
+        (rotate-after marked last-file))
+       (concat
+        (rotate-after marked last-file)
+        (rotate-after pending last-file))))))
+
 (defn- wrong-log-response? [response]
   (and (map? response) (= :log-mismatch (:code response))))
 
@@ -1379,7 +1411,9 @@
                                 :state-directory state-directory})
            (let [all-files (operation-files spool-directory deadline-ns)
                  cursor (read-cursor! state-directory)
-                 ordered-files (rotate-after all-files (:last-file cursor))
+                 ordered-files
+                 (recovery-order
+                  all-files state-directory (:last-file cursor))
                  selected
                  (loop [remaining ordered-files
                         picked []
