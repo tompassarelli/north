@@ -123,6 +123,11 @@ report they appear in: a bare id refers to the latest report, older
 references are qualified in prose. Durable addressing belongs to thread
 and task ids, never to a parallel report-id scheme.
 
+Scoped ids are operator-chat sugar and never cross an agent boundary.
+An agent reporting to an agent rides threads, where every committed fact
+already carries its durable occurrence coordinate — the substrate mints
+machine identity; reports never mint their own.
+
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
 
