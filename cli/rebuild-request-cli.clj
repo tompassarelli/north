@@ -724,8 +724,8 @@
     (assoc plan :unread-older 0 :queue-read bridge)))
 
 ;; ---- post-window canary probe ------------------------------------------------
-;; Gate D: probes the landed generation right after window close instead of
-;; waiting on the next scheduled canary sweep. Never gates the fired result.
+;; Gate D probes the landed generation after window close. It must run in a
+;; separate unit so a slow probe cannot retain the singleton rebuild unit.
 
 (def canary-alert-subject "north-rebuild-window-owner")
 
@@ -771,6 +771,51 @@
        (str "canary probe itself errored after rebuild window " window-id
             " (generation " generation "): " (.getMessage error))))))
 
+(defn record-canary-schedule-failure!
+  [port window-id generation message]
+  (let [at (now-ms)]
+    (try
+      (north.coord/put! port (window-subject window-id) "window_canary"
+                        (json/generate-string
+                         (sorted-map "atMs" at "at" (instant at)
+                                     "generation" (str generation)
+                                     "status" "schedule-failure")))
+      (catch Throwable _ nil))
+    (binding [*out* *err*]
+      (println (str "north rebuild: post-window canary was not scheduled for window "
+                    window-id ": " message)))
+    (send-urgent-alert!
+     (str "canary could not be scheduled after rebuild window " window-id
+          " (generation " generation "): " message))))
+
+(defn schedule-post-window-canary!
+  [port window-id generation]
+  (let [window-id (normalize-window-id window-id)
+        unit (str "north-rebuild-canary-" window-id)]
+    (try
+      (let [result
+            (proc/shell {:out :string :err :string :continue true}
+                        "systemd-run" "--user" "--collect"
+                        (str "--unit=" unit)
+                        "--description=north post-window canary"
+                        "--property=Type=exec"
+                        (str "--setenv=NORTH_PORT=" port)
+                        (str repo-root "/bin/north")
+                        "rebuild" "run-canary" window-id (str generation))]
+        (if (zero? (:exit result))
+          (do
+            (println (str "post-window canary scheduled · unit " unit))
+            true)
+          (do
+            (record-canary-schedule-failure!
+             port window-id generation
+             (str/trim (str (:out result) (:err result))))
+            false)))
+      (catch Throwable error
+        (record-canary-schedule-failure!
+         port window-id generation (or (.getMessage error) (str (class error))))
+        false))))
+
 (defn run-window!
   "Execute one claimed window through the mutexed rebuild/readiness path, then
    close every request the window claimed against the landed generation. Runs
@@ -803,7 +848,7 @@
         (write-window-action-projection! port window-id "fired")
         (println (str "rebuild window " window-id " fired · " (count requests)
                       " request(s) satisfied · generation " generation))
-        (run-post-window-canary! port window-id generation)
+        (schedule-post-window-canary! port window-id generation)
         0)
       (do
         (set-window-action! port window-id "failed")
@@ -939,6 +984,11 @@
           "run-window"
           (if (= 1 (count args))
             (System/exit (run-window! port (first args)))
+            (fail! usage))
+          "run-canary"
+          (if (= 2 (count args))
+            (let [[window-id generation] args]
+              (run-post-window-canary! port (normalize-window-id window-id) generation))
             (fail! usage))
           "repair-legacy-cursor"
           (if (empty? args)

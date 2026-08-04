@@ -211,11 +211,47 @@
                  @satisfied)
               (= [window-id "fired"] @action)
               (= "window_generation" (nth (first @writes) 2))))
-  (check "a fired window immediately probes the landed generation via the canary matrix"
-         (and (= 2 (count @shell-calls))
-              (= ["canary" "run" "--matrix"] (vec (rest (second @shell-calls))))
-              (= "window_canary" (nth (second @writes) 2))
-              (str/includes? (nth (second @writes) 3) "\"status\":\"full-green\""))))
+  (check "a fired window schedules the canary outside the singleton rebuild unit"
+         (let [canary-call (second @shell-calls)]
+           (and (= 2 (count @shell-calls))
+                (= "systemd-run" (first canary-call))
+                (some #{(str "--unit=north-rebuild-canary-" window-id)} canary-call)
+                (some #{"--property=Type=exec"} canary-call)
+                (= [(str root "/bin/north") "rebuild" "run-canary"
+                    window-id "/nix/store/test-generation"]
+                   (subvec canary-call (- (count canary-call) 5)))
+                (= 1 (count @writes))))))
+
+(let [shell-calls (atom [])
+      writes (atom [])]
+  (with-redefs
+    [babashka.process/shell
+     (fn [_ & args]
+       (swap! shell-calls conj (vec args))
+       {:exit 0 :out "canary green\n" :err ""})
+     north.coord/put! (fn [& args] (swap! writes conj args))]
+    (rq/run-post-window-canary! 7977 window-id "/nix/store/test-generation"))
+  (check "the detached canary records the landed generation result"
+         (and (= [[(str root "/bin/north") "canary" "run" "--matrix"]]
+                 @shell-calls)
+              (= "window_canary" (nth (first @writes) 2))
+              (str/includes? (nth (first @writes) 3) "\"status\":\"full-green\""))))
+
+(let [writes (atom [])
+      alerts (atom [])]
+  (with-redefs
+    [babashka.process/shell
+     (fn [_ & _] {:exit 1 :out "" :err "systemd unavailable"})
+     north.coord/put! (fn [& args] (swap! writes conj args))
+     rq/send-urgent-alert! (fn [message] (swap! alerts conj message))]
+    (check "canary admission failure is recorded without reopening a fired window"
+           (false? (rq/schedule-post-window-canary!
+                    7977 window-id "/nix/store/test-generation"))))
+  (check "canary admission failure alerts with durable window provenance"
+         (and (= "window_canary" (nth (first @writes) 2))
+              (str/includes? (nth (first @writes) 3)
+                             "\"status\":\"schedule-failure\"")
+              (str/includes? (first @alerts) window-id))))
 
 (let [satisfied (atom [])
       writes (atom [])
