@@ -98,6 +98,7 @@ rule, its trigger, and the compliant move; provenance, rationale, and war
 stories live on threads or provenance files, never in always-loaded text.
 
 ## Operator reports — work-state schema
+<!-- north-section: operator-reports · bucket: core -->
 
 Fire this schema at report moments: a task or milestone completes, you
 return from autonomous or background work, you wrap up or hand off, or you
@@ -220,8 +221,16 @@ Build-only verify: `nix build --no-link`.
 Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 `nix develop` / `nix shell`.
 
-## Hot-loop repos never ride the rebuild cycle
+## Nix publishes the stable shell; hot loops stay live
 <!-- north-section: hot-loop-repos · bucket: write -->
+
+Nix is the system-publication boundary, not the development loop. It owns
+stable machine wiring and runtime pointers; changing code stays in live
+checkouts, out-of-store links, or promoted runtimes with its own reload/restart
+channel. Purity applies to the committed generation that lands, not every edit
+or host-management child command. A live host adapter uses one explicit,
+root-owned host-tool boundary; never grow a tiny bespoke closure one missing
+binary at a time.
 
 north, fram, and beagle deliver code through their own channels — live
 checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
@@ -230,6 +239,12 @@ slow). A rebuild whose purpose is adopting hot-loop code is a DEFECT: tag
 the ask `--why "code-adoption: …"`, capture a thread naming the coupling,
 and fix the channel instead. The target is zero code-adoption rebuild asks;
 rebuilds are for system config only.
+
+The Nix rebuild queue is Fram data, never a process. Exactly one Nix rebuild
+worker consumes it synchronously. A change to that worker's own unit or
+privilege seam is a bootstrap change: land it, quiesce the worker, and hand the
+owner one explicit activation command; never make a broken consumer deploy its
+own repair through its queue. Firn owns the detailed house rules linked above.
 
 ## Paths — full and `~`-anchored, always
 <!-- north-section: paths · bucket: core -->
