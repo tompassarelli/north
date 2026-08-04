@@ -50,6 +50,16 @@
    title: String
    items: (Vec WorkItem)])
 
+(defrecord ListSection
+  [id: String
+   title: String])
+
+(defrecord ListRow
+  [kind: String
+   condition: String
+   index: Int
+   count: Int])
+
 (defrecord WorkSelection
   [view: String
    index: Int])
@@ -112,6 +122,15 @@
   [(->BoardLane "not-started" "Not Started")
    (->BoardLane "in-progress" "In Progress")
    (->BoardLane "done" "Done")])
+
+(def LIST-SECTIONS: (Vec ListSection)
+  [(->ListSection "active" "In Progress")
+   (->ListSection "ready" "Next Up")
+   (->ListSection "blocked" "Blocked")
+   (->ListSection "dormant" "Backlog")
+   (->ListSection "draft" "Draft")
+   (->ListSection "terminal" "Done")
+   (->ListSection "other" "Todo")])
 
 (def DEFAULT-PROMPT-GLYPH: String "❯")
 
@@ -340,15 +359,15 @@
                (fn [] -> Any
                  (when (not (.-disposed runtime))
                    (set! (.-spinnerIndex runtime) (+ (.-spinnerIndex runtime) 1))
-                   (.render runtime)))
-               90)]
+                   (.renderConversation runtime)))
+               180)]
           (set! (.-spinnerTimer runtime) timer)
           (when (.-unref timer) (.unref timer)))))
     (do
       (when (.-spinnerTimer runtime) (clearInterval (.-spinnerTimer runtime)))
       (set! (.-spinnerTimer runtime) nil)
       (set! (.-workingSince runtime) 0)))
-  (.render runtime))
+  (.renderConversation runtime))
 
 (defn command [input: String] -> ParsedCommand
   (let [trimmed (.trim input)
@@ -540,6 +559,48 @@
       (identical? condition "done")
       (identical? condition "completed")
       (identical? condition "failed")))
+
+(defn list-section-id [condition: String] -> String
+  (cond
+    (terminal-condition? condition) "terminal"
+    (.includes ["active" "ready" "blocked" "dormant" "draft"] condition) condition
+    :else "other"))
+
+(defn list-section-title [section-id: String] -> String
+  (let [section (.find LIST-SECTIONS
+                       (fn [candidate: ListSection] -> Bool
+                         (identical? (listsection-id candidate) section-id)))]
+    (if section (listsection-title section) section-id)))
+
+(defn list-section-count
+  [items: (Vec WorkItem)
+   section-id: String] -> Int
+  (.-length
+   (.filter items
+            (fn [item: WorkItem] -> Bool
+              (identical? (list-section-id (workitem-condition item)) section-id)))))
+
+(defn list-rows
+  [runtime: Any
+   items: (Vec WorkItem)] -> (Vec ListRow)
+  (let [rows []
+        collapsed (.-collapsedListConditions runtime)]
+    (.forEach
+     LIST-SECTIONS
+     (fn [section: ListSection] -> Any
+       (let [section-id (listsection-id section)
+             count (list-section-count items section-id)]
+         (when (> count 0)
+           (.push rows (->ListRow "header" section-id -1 count))
+           (when (not (.has collapsed section-id))
+             (.forEach
+              items
+              (fn
+                [item: WorkItem
+                 index: Int] -> Any
+                (when (identical? (list-section-id (workitem-condition item)) section-id)
+                  (.push rows (->ListRow "item" section-id index 0))))))))))
+    rows))
 
 (defn board-lane-id [condition: String] -> String
   (cond
@@ -786,8 +847,7 @@
           (let [options (emoji-options rest)]
             (when (identical? (.-length options) 0)
               (throw (Error. (str "no emoji matches " rest))))
-            (let [input-renderable (if (identical? (.-pane runtime) "agents")
-                                     (.-agentInput ui) (.-workInput ui))]
+            (let [input-renderable (.-composerInput ui)]
               (set! (.-value input-renderable)
                     (slashcommand-completion (aget options 0)))
               (.focus input-renderable)
@@ -877,8 +937,9 @@
         terminal-work (if (Array/isArray done)
                         (normalize-work done-rows facts)
                         prior-terminal)
+        list-work (.concat work terminal-work)
         kanban (ordered-board-items work terminal-work)
-        next-model (replace-projection (.-model runtime) agents work kanban)
+        next-model (replace-projection (.-model runtime) agents list-work kanban)
         selected-id (bridgesnapshot-selected-thread state)
         next-state (snapshot next-model)
         next-view (selected-view next-state (.-activeView runtime))
@@ -887,7 +948,11 @@
                                (fn [item: WorkItem] -> Bool
                                  (identical? (workitem-id item) selected-id)))]
     (set! (.-model runtime) next-model)
-    (when (>= next-index 0) (set! (.-workIndex runtime) next-index))
+    (when (>= next-index 0)
+      (set! (.-workIndex runtime) next-index)
+      (when (identical? (workview-id next-view) "list")
+        (.delete (.-collapsedListConditions runtime)
+                 (list-section-id (workitem-condition (aget next-items next-index))))))
     (.render runtime)))
 
 (defn canonical-work-view [view-id: String] -> String
@@ -985,7 +1050,7 @@
    ui: Any
    state: BridgeSnapshot] -> Int
   (let [stacked? (stacked-workspace? state)
-        measured (if stacked? (.-height (.-root ui)) (.-width (.-root ui)))
+        measured (if stacked? (.-height (.-workspace ui)) (.-width (.-workspace ui)))
         fallback (if stacked? (terminal-rows) (terminal-columns))
         outer (if (and (identical? (js/typeof measured) "number")
                        (Number/isFinite measured)
@@ -1025,7 +1090,7 @@
         work-primary (if both? (str (- 100 ratio) "%") "100%")]
     (set! (.-visible (.-agentsPane ui)) (pane-visible? runtime "agents"))
     (set! (.-visible (.-workPane ui)) (pane-visible? runtime "work"))
-    (set! (.-flexDirection (.-root ui)) (if stacked? "column" "row"))
+    (set! (.-flexDirection (.-workspace ui)) (if stacked? "column" "row"))
     (if stacked?
       (do (set! (.-width (.-agentsPane ui)) "100%")
           (set! (.-width (.-workPane ui)) "100%")
@@ -1294,14 +1359,11 @@
      (fn
        [letter: String
         index: Int] -> Any
-       (let [phase (mod (+ (- index cursor) (.-length letters)) (.-length letters))]
-         (push-chunk!
-          chunks
-          (cond
-            (identical? phase 0) (brightYellow letter)
-            (or (identical? phase 1) (identical? phase 6)) (brightWhite letter)
-            (or (identical? phase 2) (identical? phase 5)) (white letter)
-            :else (brightBlack letter))))))))
+       (push-chunk!
+        chunks
+        (if (identical? index cursor)
+          (brightBlack letter)
+          (brightWhite letter)))))))
 
 (defn render-conversation! [runtime: Any] -> Any
   (let [chunks []
@@ -1477,25 +1539,40 @@
                 (- (Math/floor (* (- columns 5) (- 1 ratio))) 3)))))
 
 (defn render-list-view!
-  [items: (Vec WorkItem)
+  [runtime: Any
+   items: (Vec WorkItem)
    selected: Int
    width: Int] -> Any
-  (let [chunks []]
+  (let [chunks []
+        rows (list-rows runtime items)
+        collapsed (.-collapsedListConditions runtime)]
     (.forEach
-     items
+     rows
      (fn
-       [item: WorkItem
-        index: Int] -> Any
-       (let [condition (workitem-condition item)
-             title-width (Math/max 10 (- width 23))
-             title (compact-text (workitem-title item) title-width)
-             selected? (identical? index selected)]
-         (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
-         (push-condition! chunks condition
-                          (cell-text (.toUpperCase condition) 9))
-         (push-chunk! chunks ((if selected? brightWhite white) title))
-         (push-chunk! chunks (dim (str "  @" (short-thread-id item))))
-         (when (< index (- (.-length items) 1))
+       [row: ListRow
+        visual-index: Int] -> Any
+       (let [kind (listrow-kind row)
+             condition (listrow-condition row)]
+         (if (identical? kind "header")
+           (let [collapsed? (.has collapsed condition)
+                 header (str " " (if collapsed? "▸" "▾") "  "
+                             (list-section-title condition) "  "
+                             (listrow-count row))]
+             (push-chunk! chunks
+                          ((bg "#292c32")
+                           (brightWhite (.padEnd header width " ")))))
+           (let [index (listrow-index row)
+                 item (aget items index)
+                 title-width (Math/max 10 (- width 25))
+                 title (compact-text (workitem-title item) title-width)
+                 selected? (identical? index selected)]
+             (push-chunk! chunks (brightBlack "  "))
+             (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
+             (push-condition! chunks (workitem-condition item)
+                              (cell-text (.toUpperCase (workitem-condition item)) 9))
+             (push-chunk! chunks ((if selected? brightWhite white) title))
+             (push-chunk! chunks (dim (str "  @" (short-thread-id item))))))
+         (when (< visual-index (- (.-length rows) 1))
            (push-chunk! chunks (white "\n"))))))
     (StyledText. chunks)))
 
@@ -1619,7 +1696,7 @@
   [runtime: Any
    ui: Any
    thread-id: String] -> Any
-  (set! (.-value (.-workInput ui)) (str "/outcome @" thread-id " "))
+  (set! (.-value (.-composerInput ui)) (str "/outcome @" thread-id " "))
   (focus-pane! runtime ui "work")
   (set-board-notice! runtime
                      (str "Finish the outcome, then press Enter; Done is derived from north tell @"
@@ -1843,7 +1920,30 @@
         (render-dag-view! items selected width)
 
         :else
-        (render-list-view! items selected width)))))
+        (render-list-view! runtime items selected width)))))
+
+(defn minibuffer-placeholder [runtime: Any] -> String
+  (if (identical? (text (.-pane runtime)) "agents")
+    "Message Codex supervisor…"
+    "/view list|graph|board, /capture, /filter, /assign"))
+
+(defn render-minibuffer!
+  [runtime: Any
+   ui: Any] -> (Vec SlashCommand)
+  (let [pane (text (.-pane runtime))
+        input (.-composerInput ui)
+        options (palette-options pane (text (.-value input)))
+        palette-max (Math/max 0 (- (.-length options) 1))]
+    (set! (.-paletteIndex runtime)
+          (Math/max 0 (Math/min (.-paletteIndex runtime) palette-max)))
+    (set! (.-placeholder input) (minibuffer-placeholder runtime))
+    (set! (.-visible (.-composerPalette ui)) (> (.-length options) 0))
+    (set! (.-height (.-composerPalette ui))
+          (Math/max 1 (Math/min 8 (.-length options))))
+    (set! (.-content (.-composerPalette ui))
+          (if (> (.-length options) 0)
+            (render-command-palette! options (.-paletteIndex runtime)) ""))
+    options))
 
 (defn render-ui!
   [runtime: Any
@@ -1857,19 +1957,10 @@
         items (workview-items current)
         agent-max (Math/max 0 (- (.-length agents) 1))
         work-max (Math/max 0 (- (.-length items) 1))
-        agent-options (if (identical? (.-pane runtime) "agents")
-                        (palette-options "agents" (text (.-value (.-agentInput ui)))) [])
-        work-options (if (identical? (.-pane runtime) "work")
-                       (palette-options "work" (text (.-value (.-workInput ui)))) [])
-        active-options (if (identical? (.-pane runtime) "agents") agent-options work-options)
-        palette-max (Math/max 0 (- (.-length active-options) 1))
         board? (identical? (workview-id current) "board")]
     (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
-    (set! (.-paletteIndex runtime) (Math/max 0 (Math/min (.-paletteIndex runtime) palette-max)))
     (apply-workspace-geometry! runtime ui state)
-    (render-prompt! runtime (.-agentPrompt ui))
-    (render-prompt! runtime (.-workPrompt ui))
     (set! (.-content (.-agentsHeader ui))
           (render-pane-header "Agents" (identical? (.-pane runtime) "agents")))
     (set! (.-content (.-agentsText ui))
@@ -1887,20 +1978,11 @@
             (work-content! runtime state current (.-workIndex runtime))))
     (set! (.-content (.-statusText ui)) (render-status runtime state))
     (set! (.-content (.-agentStatusText ui)) (render-status runtime state))
-    (set! (.-content (.-agentContextText ui)) (render-session-context runtime))
-    (set! (.-content (.-workContextText ui)) (render-session-context runtime))
     (set! (.-visible (.-agentStatusText ui))
           (identical? (text (.-closedPane runtime)) "work"))
-    (set! (.-visible (.-agentPalette ui)) (> (.-length agent-options) 0))
-    (set! (.-height (.-agentPalette ui)) (Math/max 1 (Math/min 8 (.-length agent-options))))
-    (set! (.-content (.-agentPalette ui))
-          (if (> (.-length agent-options) 0)
-            (render-command-palette! agent-options (.-paletteIndex runtime)) ""))
-    (set! (.-visible (.-workPalette ui)) (> (.-length work-options) 0))
-    (set! (.-height (.-workPalette ui)) (Math/max 1 (Math/min 8 (.-length work-options))))
-    (set! (.-content (.-workPalette ui))
-          (if (> (.-length work-options) 0)
-            (render-command-palette! work-options (.-paletteIndex runtime)) ""))
+    (render-prompt! runtime (.-composerPrompt ui))
+    (set! (.-content (.-composerContextText ui)) (render-session-context runtime))
+    (render-minibuffer! runtime ui)
       (set! (.-activeView runtime) (workview-id current))
       views)))
 
@@ -2263,7 +2345,14 @@
         view (selected-view state view-id)
         items (workview-items view)
         index (workselection-index selection)]
-    (if (and (>= index 0) (< index (.-length items))) (aget items index) nil)))
+    (if (and (>= index 0) (< index (.-length items)))
+      (let [item (aget items index)]
+        (if (or (not (identical? (workview-id view) "list"))
+                (not (.has (.-collapsedListConditions runtime)
+                           (list-section-id (workitem-condition item)))))
+          item
+          nil))
+      nil)))
 
 (defn submit-agent!
   [runtime: Any
@@ -2414,7 +2503,7 @@
    ui: Any
    pane: String] -> Any
   (select-pane! runtime pane)
-  (.focus (if (identical? pane "agents") (.-agentInput ui) (.-workInput ui)))
+  (.focus (.-composerInput ui))
   (.render runtime))
 
 (defn focus-pane-surface!
@@ -2427,9 +2516,9 @@
     (.render runtime)))
 
 (defn active-input
-  [runtime: Any
+  [_runtime: Any
    ui: Any] -> Any
-  (if (identical? (.-pane runtime) "agents") (.-agentInput ui) (.-workInput ui)))
+  (.-composerInput ui))
 
 (defn active-palette-options
   [runtime: Any
@@ -2658,38 +2747,30 @@
                  suffix))
       (set! (.-paletteIndex runtime) 0)
       (.focus input)
-      (.render runtime))))
+      (render-minibuffer! runtime ui))))
 
 (defn install-input!
   [runtime: Any
    ui: Any] -> Any
-  (.on (.-agentInput ui) (.-INPUT InputRenderableEvents)
+  (.on (.-composerInput ui) (.-INPUT InputRenderableEvents)
        (fn [_value: Any] -> Any
          (set! (.-paletteIndex runtime) 0)
-         (.render runtime)))
-  (.on (.-workInput ui) (.-INPUT InputRenderableEvents)
-       (fn [_value: Any] -> Any
-         (set! (.-paletteIndex runtime) 0)
-         (.render runtime)))
-  (.on (.-agentInput ui) (.-ENTER InputRenderableEvents)
+         (render-minibuffer! runtime ui)))
+  (.on (.-composerInput ui) (.-ENTER InputRenderableEvents)
        (fn [] -> Any
-         (let [input (.trim (text (.-value (.-agentInput ui))))
-               state (snapshot (.-model runtime))
-               agents (bridgesnapshot-agents state)
-               selected (if (> (.-length agents) 0)
-                          (agent-id (aget agents (.-agentIndex runtime))) "")]
+         (let [input (.trim (text (.-value (.-composerInput ui))))]
            (when (not (identical? input ""))
-             (set! (.-value (.-agentInput ui)) "")
-             (report-promise! runtime (submit-agent! runtime ui input selected))))))
-  (.on (.-workInput ui) (.-ENTER InputRenderableEvents)
-       (fn [] -> Any
-         (let [input (.trim (text (.-value (.-workInput ui))))]
-           (when (not (identical? input ""))
-             (set! (.-value (.-workInput ui)) "")
-             (report-promise! runtime
-                              (submit-work! runtime ui input
-                                            (->WorkSelection (.-activeView runtime)
-                                                             (.-workIndex runtime)))))))))
+             (set! (.-value (.-composerInput ui)) "")
+             (if (identical? (text (.-pane runtime)) "agents")
+               (let [state (snapshot (.-model runtime))
+                     agents (bridgesnapshot-agents state)
+                     selected (if (> (.-length agents) 0)
+                                (agent-id (aget agents (.-agentIndex runtime))) "")]
+                 (report-promise! runtime (submit-agent! runtime ui input selected)))
+               (report-promise! runtime
+                                (submit-work! runtime ui input
+                                              (->WorkSelection (.-activeView runtime)
+                                                               (.-workIndex runtime))))))))))
 
 (defn work-tab-at
   [tabs: Any
@@ -2709,7 +2790,7 @@
    event: Any] -> Any
   (when (identical? (.-button event) 0)
     (select-pane! runtime pane)
-    (let [input (if (identical? pane "agents") (.-agentInput ui) (.-workInput ui))
+    (let [input (.-composerInput ui)
           options (palette-options pane (text (.-value input)))
           row (Math/floor (- (.-y event) (.-y palette-renderable)))]
       (when (and (>= row 0) (< row (.-length options)))
@@ -2717,6 +2798,68 @@
         (.stopPropagation event)
         (set! (.-paletteIndex runtime) row)
         (complete-palette! runtime ui options)))))
+
+(defn visible-list-indices
+  [runtime: Any
+   items: (Vec WorkItem)] -> (Vec Int)
+  (.map
+   (.filter (list-rows runtime items)
+            (fn [row: ListRow] -> Bool
+              (identical? (listrow-kind row) "item")))
+   (fn [row: ListRow] -> Int (listrow-index row))))
+
+(defn next-visible-list-index
+  [runtime: Any
+   items: (Vec WorkItem)
+   current: Int
+   delta: Int] -> Int
+  (let [indices (visible-list-indices runtime items)
+        position (.indexOf indices current)
+        start (if (>= position 0) position (if (> delta 0) -1 (.-length indices)))
+        next (Math/max 0 (Math/min (- (.-length indices) 1) (+ start delta)))]
+    (if (> (.-length indices) 0) (aget indices next) current)))
+
+(defn select-visible-list-fallback!
+  [runtime: Any
+   items: (Vec WorkItem)] -> Any
+  (let [indices (visible-list-indices runtime items)
+        current (.-workIndex runtime)]
+    (when (and (> (.-length indices) 0)
+               (not (.includes indices current)))
+      (let [index (aget indices 0)
+            item (aget items index)]
+        (set! (.-workIndex runtime) index)
+        (set! (.-model runtime)
+              (select-thread (.-model runtime) (workitem-id item)))))))
+
+(defn handle-list-click!
+  [runtime: Any
+   ui: Any
+   event: Any] -> Any
+  (when (identical? (.-button event) 0)
+    (let [state (snapshot (.-model runtime))
+          view (selected-view state (.-activeView runtime))]
+      (when (identical? (workview-id view) "list")
+        (let [items (workview-items view)
+              rows (list-rows runtime items)
+              row-index (Math/floor (- (.-y event) (.-screenY (.-workText ui))))]
+          (when (and (>= row-index 0) (< row-index (.-length rows)))
+            (let [row (aget rows row-index)]
+              (.preventDefault event)
+              (.stopPropagation event)
+              (if (identical? (listrow-kind row) "header")
+                (let [condition (listrow-condition row)
+                      collapsed (.-collapsedListConditions runtime)]
+                  (if (.has collapsed condition)
+                    (.delete collapsed condition)
+                    (.add collapsed condition))
+                  (select-visible-list-fallback! runtime items))
+                (let [index (listrow-index row)
+                      item (aget items index)]
+                  (set! (.-workIndex runtime) index)
+                  (set! (.-model runtime)
+                        (select-thread (.-model runtime) (workitem-id item)))))
+              (focus-pane-surface! runtime ui "work"))))))))
 
 (defn install-mouse!
   [runtime: Any
@@ -2729,22 +2872,18 @@
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
             (focus-pane-surface! runtime ui "work"))))
-  (set! (.-onMouseDown (.-agentComposer ui))
+  (set! (.-onMouseDown (.-composer ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
             (.stopPropagation event)
-            (focus-pane! runtime ui "agents"))))
-  (set! (.-onMouseDown (.-workComposer ui))
+            (.focus (.-composerInput ui)))))
+  (set! (.-onMouseDown (.-composerPalette ui))
         (fn [event: Any] -> Any
-          (when (identical? (.-button event) 0)
-            (.stopPropagation event)
-            (focus-pane! runtime ui "work"))))
-  (set! (.-onMouseDown (.-agentPalette ui))
+          (complete-clicked-palette! runtime ui (text (.-pane runtime))
+                                     (.-composerPalette ui) event)))
+  (set! (.-onMouseDown (.-workText ui))
         (fn [event: Any] -> Any
-          (complete-clicked-palette! runtime ui "agents" (.-agentPalette ui) event)))
-  (set! (.-onMouseDown (.-workPalette ui))
-        (fn [event: Any] -> Any
-          (complete-clicked-palette! runtime ui "work" (.-workPalette ui) event)))
+          (handle-list-click! runtime ui event)))
   (set! (.-onMouseDown (.-tabsText ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
@@ -2766,13 +2905,12 @@
          (when (and (not (.-defaultPrevented key))
                     (not (.-propagationStopped key)))
            (let [name (.toLowerCase (text (.-name key)))
-                 state (snapshot (.-model runtime))
                  meta (or (.-meta key) (.-option key))
                  palette (active-palette-options runtime ui)
                  palette-open (> (.-length palette) 0)
                  plain-view-arrow
                  (and (identical? (text (.-pane runtime)) "work")
-                      (identical? (.trim (text (.-value (.-workInput ui)))) "")
+                      (identical? (.trim (text (.-value (.-composerInput ui)))) "")
                       (not (.-ctrl key))
                       (not meta)
                       (or (identical? name "left") (identical? name "right")))]
@@ -2791,7 +2929,8 @@
                                  -1 1)
                                (.-length palette))
                             (.-length palette)))
-                 (.focus (active-input runtime ui)))
+                 (.focus (active-input runtime ui))
+                 (render-minibuffer! runtime ui))
 
              (and palette-open (or (identical? name "tab") (submit-key? name)))
              (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length palette) 1)))
@@ -2811,7 +2950,7 @@
              (do (.preventDefault key)
                  (.stopPropagation key)
                  (set! (.-value (active-input runtime ui)) "")
-                 (.render runtime))
+                 (render-minibuffer! runtime ui))
 
              (or (identical? name "tab") (identical? name "f2"))
              (do (.preventDefault key)
@@ -2822,12 +2961,14 @@
              (identical? name "f1")
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (set! (.-showHelp runtime) (not (.-showHelp runtime))))
+                 (set! (.-showHelp runtime) (not (.-showHelp runtime)))
+                 (.render runtime))
 
              (or (identical? name "f3")
                  plain-view-arrow
                  (and meta (or (identical? name "h") (identical? name "l"))))
-             (let [views (view-list state)
+             (let [state (snapshot (.-model runtime))
+                   views (view-list state)
                    current (selected-view state (.-activeView runtime))
                    index (.findIndex views
                                      (fn [view: WorkView] -> Bool
@@ -2842,15 +2983,18 @@
                (set! (.-model runtime)
                      (focus-view (.-model runtime) next-id))
                (set! (.-workIndex runtime) 0)
-               (.scrollTo (.-workScroll ui) 0))
+               (.scrollTo (.-workScroll ui) 0)
+               (.render runtime))
 
              (or (identical? name "f4") (and meta (identical? name "s")))
-             (do (.preventDefault key)
-                 (.stopPropagation key)
-                 (set! (.-model runtime)
-                       (set-layout (.-model runtime)
-                                   (if (identical? (bridgesnapshot-layout state) "horizontal")
-                                     "vertical" "horizontal"))))
+             (let [state (snapshot (.-model runtime))]
+               (.preventDefault key)
+               (.stopPropagation key)
+               (set! (.-model runtime)
+                     (set-layout (.-model runtime)
+                                 (if (identical? (bridgesnapshot-layout state) "horizontal")
+                                   "vertical" "horizontal")))
+               (.render runtime))
 
              (or (identical? name "f5") (and (.-ctrl key) (identical? name "r")))
              (do (.preventDefault key)
@@ -2863,7 +3007,8 @@
                  (popout! runtime (.-activeView runtime)))
 
              (and meta (or (identical? name "j") (identical? name "k")))
-             (let [delta (if (identical? name "k") -1 1)]
+             (let [state (snapshot (.-model runtime))
+                   delta (if (identical? name "k") -1 1)]
                (.preventDefault key)
                (.stopPropagation key)
                (if (identical? (.-pane runtime) "agents")
@@ -2878,7 +3023,11 @@
                  (let [view (selected-view state (.-activeView runtime))
                        items (workview-items view)
                        max-index (Math/max 0 (- (.-length items) 1))
-                       next-index (Math/max 0 (Math/min max-index (+ (.-workIndex runtime) delta)))
+                       next-index (if (identical? (workview-id view) "list")
+                                    (next-visible-list-index runtime items
+                                                             (.-workIndex runtime) delta)
+                                    (Math/max 0 (Math/min max-index
+                                                         (+ (.-workIndex runtime) delta))))
                        thread-id (if (> (.-length items) 0)
                                    (workitem-id (aget items next-index)) "")]
                    (set! (.-workIndex runtime) next-index)
@@ -2889,7 +3038,8 @@
                                    (identical? (workview-id view) "board") 2
                                    (identical? (workview-id view) "graph") 3
                                    :else 1))
-                              "step"))))
+                              "step")))
+               (.render runtime))
 
              (or (identical? name "escape") (identical? name "esc"))
              (let [target (text (.-supervisorId runtime))]
@@ -2899,8 +3049,7 @@
                  (report-promise! runtime
                                   (submit-agent! runtime ui "/interrupt" target))))
 
-             :else nil)
-             (when (not (.-disposed runtime)) (.render runtime)))))))
+             :else nil))))))
 
 (defn open-app! [view-id: String] -> (Promise Any)
   (let [view (canonical-work-view view-id)
@@ -2912,6 +3061,8 @@
                  :activeView view
                  :agentIndex 0
                  :workIndex 0
+                 :collapsedListConditions (Set. ["blocked" "dormant" "draft"
+                                                   "terminal" "other"])
                  :workScroll nil
                  :boardSignature ""
                  :dragThreadId ""
@@ -2952,11 +3103,14 @@
                                          (text (.-AGENT_EFFORT (.-env process))))
                  :sessionCwd (text (.cwd process))
                  :sessionBranch ""
+                 :renderConversation (fn [] -> Any nil)
                  :render (fn [] -> Any nil)}
         root (BoxRenderable. renderer
-                             {:flexDirection "row" :width "100%" :height "100%"
+                             {:flexDirection "column" :width "100%" :height "100%"
                               :gap 0 :padding 1
                               :onSizeChange (fn [] -> Any (.render runtime))})
+        workspace (BoxRenderable. renderer {:flexDirection "row" :width "100%"
+                                             :flexGrow 1 :gap 0})
         agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%"
                                                :border ["right"] :borderColor "#64748b"
                                                :focusable true})
@@ -2978,74 +3132,56 @@
                                              :flexDirection "column" :flexShrink 0 :gap 1})
         status-text (TextRenderable. renderer {:flexShrink 0 :wrapMode "word"})
         agent-status-text (TextRenderable. renderer {:visible false :flexShrink 0 :wrapMode "word"})
-        agent-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
-                                                  :wrapMode "none" :truncate true :bg "#25272d"})
-        work-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
-                                                 :wrapMode "none" :truncate true :bg "#25272d"})
-        agent-composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 3
-                                                  :paddingTop 1 :paddingLeft 1 :paddingRight 1
-                                                  :flexShrink 0 :backgroundColor "#25272d"})
-        work-composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 3
-                                                 :paddingTop 1 :paddingLeft 1 :paddingRight 1
-                                                 :flexShrink 0 :backgroundColor "#25272d"})
-        agent-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
-                                                       :wrapMode "none" :truncate true})
-        work-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
-                                                      :wrapMode "none" :truncate true})
-        agent-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
-                                                :content (StyledText. [(brightCyan "❯ ")])})
-        work-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
-                                               :content (StyledText. [(brightCyan "❯ ")])})
-        agent-input (InputRenderable. renderer
-                                      {:width "100%" :flexGrow 1
-                                       :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
-                                       :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
-                                       :placeholderColor "#6b7280"
-                                       :placeholder "Message Codex supervisor…"})
-        work-input (InputRenderable. renderer
-                                     {:width "100%" :flexGrow 1
-                                      :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
-                                      :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
-                                      :placeholderColor "#6b7280"
-                                      :placeholder "/view list|graph|board, /capture, /filter, /assign"})
-        ui {:root root :agentsPane agents-pane :workPane work-pane
+        composer-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
+                                                     :wrapMode "none" :truncate true :bg "#25272d"})
+        composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 3
+                                            :paddingTop 1 :paddingLeft 1 :paddingRight 1
+                                            :flexShrink 0 :backgroundColor "#25272d"})
+        composer-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
+                                                          :wrapMode "none" :truncate true})
+        composer-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
+                                                   :content (StyledText. [(brightCyan "❯ ")])})
+        composer-input (InputRenderable. renderer
+                                         {:width "100%" :flexGrow 1
+                                          :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
+                                          :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
+                                          :placeholderColor "#6b7280"
+                                          :placeholder "Message Codex supervisor…"})
+        ui {:root root :workspace workspace :agentsPane agents-pane :workPane work-pane
             :agentsHeader agents-header :agentsText agents-text :transcriptText transcript-text-view
             :tabsText tabs-text-view :workScroll work-scroll
             :workText work-text-view :boardRoot board-root
             :statusText status-text :agentStatusText agent-status-text
-            :agentPalette agent-palette :workPalette work-palette
-            :agentComposer agent-composer :workComposer work-composer
-            :agentContextText agent-context-text :workContextText work-context-text
-            :agentPrompt agent-prompt :workPrompt work-prompt
-            :agentInput agent-input :workInput work-input}]
+            :composerPalette composer-palette :composer composer
+            :composerContextText composer-context-text
+            :composerPrompt composer-prompt :composerInput composer-input}]
     (.add agents-pane agents-header)
     (.add agents-pane agents-text)
     (.add transcript-scroll transcript-text-view)
     (.add agents-pane transcript-scroll)
     (.add agents-pane agent-status-text)
-    (.add agents-pane agent-palette)
-    (.add agent-composer agent-prompt)
-    (.add agent-composer agent-input)
-    (.add agents-pane agent-composer)
-    (.add agents-pane agent-context-text)
     (.add work-pane tabs-text-view)
     (.add work-scroll work-text-view)
     (.add work-scroll board-root)
     (.add work-pane work-scroll)
     (.add work-pane status-text)
-    (.add work-pane work-palette)
-    (.add work-composer work-prompt)
-    (.add work-composer work-input)
-    (.add work-pane work-composer)
-    (.add work-pane work-context-text)
-    (.add root agents-pane)
-    (.add root work-pane)
+    (.add composer composer-prompt)
+    (.add composer composer-input)
+    (.add workspace agents-pane)
+    (.add workspace work-pane)
+    (.add root workspace)
+    (.add root composer-palette)
+    (.add root composer)
+    (.add root composer-context-text)
     (.add (.-root renderer) root)
     (set! (.-visible (.-verticalScrollBar transcript-scroll)) false)
     (set! (.-visible (.-horizontalScrollBar transcript-scroll)) false)
     (set! (.-visible (.-verticalScrollBar work-scroll)) false)
     (set! (.-visible (.-horizontalScrollBar work-scroll)) false)
     (set! (.-workScroll runtime) work-scroll)
+    (set! (.-renderConversation runtime)
+          (fn [] -> Any
+            (set! (.-content transcript-text-view) (render-conversation! runtime))))
     (set! (.-render runtime) (fn [] -> Any (render-ui! runtime ui)))
     (install-input! runtime ui)
     (install-mouse! runtime ui)
@@ -3054,8 +3190,7 @@
     (install-global-exit! runtime)
     (install-keys! runtime ui)
     (.render runtime)
-    (.focus agent-input)
-    (.start renderer)
+    (.focus composer-input)
     (report-promise! runtime (discover-session-branch! runtime))
     (report-promise! runtime (refresh! runtime))
     (report-promise! runtime (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))
