@@ -633,7 +633,8 @@
 
 (def ATTENTION-RECONCILE-TIMEOUT-MS 45000)
 (def attention-reconcile-cli concern-transition-cli)
-(def CONCERN-RECONCILE-TIMEOUT-MS 15000)
+(def CONCERN-RECONCILE-PASS-MILLIS 20000)
+(def CONCERN-RECONCILE-TIMEOUT-MS 30000)
 
 (defn reconcile-local-concerns-bounded!
   "Drain one bounded batch of durable local concern operations. The operation
@@ -644,7 +645,11 @@
     (let [child
           (start-sweep-child!
            :local-concern-reconcile
-           {:out :string :err :string}
+           {:out :string
+            :err :string
+            :extra-env
+            {"NORTH_CONCERN_RECONCILE_MAX_MILLIS"
+             (str CONCERN-RECONCILE-PASS-MILLIS)}}
            "bb" concern-transition-cli (str port)
            "reconcile-local" "--operations-only")
           awaited
