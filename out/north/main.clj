@@ -98,11 +98,70 @@
 
 (defn nextitem-basis [r] (:basis r))
 
+(defrecord QueueDirective [te version position anchor])
+
+(defn queuedirective-te [r] (:te r))
+
+(defn queuedirective-version [r] (:version r))
+
+(defn queuedirective-position [r] (:position r))
+
+(defn queuedirective-anchor [r] (:anchor r))
+
 (defrecord AgendaItem [te do_on])
 
 (defn agendaitem-te [r] (:te r))
 
 (defn agendaitem-do_on [r] (:do_on r))
+
+(defn ^String queue-rank-value [version ^String position ^String anchor]
+  (str "v1|" version "|" position "|" (if (str/blank? anchor) "_" anchor)))
+
+(defn- queue-directive [idx ^String te]
+  (let [raw (k/one-i idx te "queue_rank")
+   parts (if (some? raw) (vec (str/split raw #"\|")) [])
+   version (if (= (count parts) 4) (fram.rt/parse-int (nth parts 1)) -1)
+   position (if (= (count parts) 4) (nth parts 2) "")
+   anchor-token (if (= (count parts) 4) (nth parts 3) "")
+   anchor (if (= anchor-token "_") "" anchor-token)
+   relative? (or (= position "before") (= position "after"))
+   edge? (or (= position "first") (= position "last"))]
+  (if (and (= (if (some? raw) (nth parts 0) "") "v1") (and (>= version 0) (or (and edge? (str/blank? anchor)) (and relative? (str/starts-with? anchor "@"))))) (->QueueDirective te version position anchor) nil)))
+
+(defn- queue-index [items ^String target]
+  (loop [i 0]
+  (cond
+  (>= i (count items)) -1
+  (= (nth items i) target) i
+  :else (recur (+ i 1)))))
+
+(defn- queue-insert [items ^String target at]
+  (loop [i 0
+   result []]
+  (if (>= i (count items)) (if (= at i) (conj result target) result) (let [with-target (if (= at i) (conj result target) result)]
+  (recur (+ i 1) (conj with-target (nth items i)))))))
+
+(defn- apply-queue-directive [items ^QueueDirective directive]
+  (let [te (:te directive)
+   old-index (queue-index items te)
+   remaining (filterv (fn [item] (not (= item te))) items)
+   anchor-index (queue-index remaining (:anchor directive))
+   fallback-index (if (< old-index 0) (count remaining) (if (> old-index (count remaining)) (count remaining) old-index))
+   insert-index (cond
+  (= (:position directive) "first") 0
+  (= (:position directive) "last") (count remaining)
+  (and (= (:position directive) "before") (>= anchor-index 0)) anchor-index
+  (and (= (:position directive) "after") (>= anchor-index 0)) (+ anchor-index 1)
+  :else fallback-index)]
+  (queue-insert remaining te insert-index)))
+
+(defn- queue-order-from-base [idx base]
+  (let [directives (reduce (fn [found te] (let [directive (queue-directive idx te)]
+  (if (some? directive) (conj found directive) found))) [] base)]
+  (reduce (fn [ordered directive] (apply-queue-directive ordered directive)) base (vec (sort-by (fn [directive] (:version directive)) directives)))))
+
+(defn queue-order [idx tes]
+  (queue-order-from-base idx (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) tes))))
 
 (defn- ^String fact-sig [c]
   (str (:l c) "|" (:p c) "|" (:r c)))
@@ -328,9 +387,9 @@
    live? (default-live?)
    raw (proj/ready idx today fram.rt/str-lt? live?)
    rs (if all raw (filterv (fn [te] (= (kind-of idx te) "thread")) raw))
-   ranked (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) rs))
+   ranked (queue-order idx rs)
    shown (if all ranked (vec (take 15 ranked)))]
-  (if all (println (str "READY NOW — " (count rs))) (println (str "READY NOW — top " (count shown) " of " (count rs) " by leverage")))
+  (if all (println (str "READY NOW — " (count rs))) (println (str "READY NOW — top " (count shown) " of " (count rs) " by queue order (leverage fallback)")))
   (println "  ready = committed + unblocked + no live driver + not future-scheduled (vs open = merely nonterminal)")
   (doseq [te shown]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
@@ -376,10 +435,11 @@
    before? fram.rt/str-lt?
    live? (default-live?)
    items (mapv (fn [te] (next-item idx te today before? live?)) (proj/ready idx today before? live?))
-   ranked (vec (take 12 (sort-by (fn [it] (- 0 (:score it))) items)))]
+   score-order (mapv (fn [it] (:te it)) (vec (sort-by (fn [it] (- 0 (:score it))) items)))
+   ranked (mapv (fn [te] (next-item idx te today before? live?)) (vec (take 12 (queue-order-from-base idx score-order))))]
   (println (str "WHAT TO WORK ON — top picks (" today ")"))
   (println "  eligible = ready (committed + unblocked + no live driver + not scheduled-later)")
-  (println "  dependency sequencing gates eligibility · score = 3·graph-leverage + do_on urgency + parked-assignment momentum")
+  (println "  manual queue order is primary · fallback score = 3·graph-leverage + do_on urgency + parked-assignment momentum")
   (println "  stored priority is orthogonal human intent (shown, never silently scored)")
   (doseq [it ranked]
   (println (str "  [" (:score it) "] " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 46)))
@@ -425,7 +485,7 @@
   (do
   (println (str "THREADS — " (count nonterm) " open"))
   (board-group idx "active" (in-condition idx nonterm today before? live? "active"))
-  (board-group idx "ready" (in-condition idx nonterm today before? live? "ready"))
+  (board-group idx "ready" (queue-order idx (in-condition idx nonterm today before? live? "ready")))
   (board-group idx "blocked" (in-condition idx nonterm today before? live? "blocked"))
   (board-group idx "dormant" (in-condition idx nonterm today before? live? "dormant"))
   (board-group idx "draft" (in-condition idx nonterm today before? live? "draft"))
@@ -440,8 +500,7 @@
    blockedl (in-condition idx threads today before? live? "blocked")
    nconcern (count (filterv (fn [s] (= (kind-of idx s) "concern")) (:subjects idx)))
    ashow (vec (take 20 active))
-   ritems (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) readyl)
-   rranked (vec (take 15 (sort-by (fn [it] (- 0 (:score it))) ritems)))]
+   rranked (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) (vec (take 15 (queue-order idx readyl))))]
   (println (str "THREADS — " (count threads) " open threads · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (north threads --all for the full kanban)"))
   (println "  open = not terminal · active = live driver · ready = committed + unblocked + no live driver + not future-scheduled")
   (if (not (empty? active)) (do
@@ -458,7 +517,7 @@
   (println (str "  " (driver-label idx te) "  " (short-id te) "  " (proj/condition-i idx te today before? live?) "  " (trunc (title-of idx te) 36))))
   (if (> nparked (count pshow)) (do
   (println (str "  … +" (- nparked (count pshow)) " more · north needs-review")))))))
-  (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked) " of " (count readyl) " by leverage"))
+  (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked) " of " (count readyl) " by queue order (leverage fallback)"))
   (doseq [it rranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
   (if (> (count readyl) (count rranked)) (do
@@ -544,15 +603,21 @@
 (defn- ready-curated-tes [idx ^String today before? live? ^Boolean all?]
   (let [raw (proj/ready idx today before? live?)
    rs (if all? raw (filterv (fn [te] (= (kind-of idx te) "thread")) raw))
-   ranked (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) rs))]
+   ranked (queue-order idx rs)]
   (if all? ranked (vec (take 15 ranked)))))
 
 (defn- board-curated-tes [idx ^String today before? live? ^Boolean all?]
   (let [nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (if all? nonterm (let [threads (filterv (fn [te] (= (kind-of idx te) "thread")) nonterm)
    active (in-condition idx threads today before? live? "active")
-   ready (vec (take 15 (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) (in-condition idx threads today before? live? "ready"))))]
+   ready (vec (take 15 (queue-order idx (in-condition idx threads today before? live? "ready"))))]
   (vec (concat active ready))))))
+
+(defn- recent-terminal-tes [idx]
+  (let [terminal (filterv (fn [te] (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
+  (vec (take 15 (reverse (sort-by (fn [te] (let [updated (k/one-i idx te "updated_at")
+   created (k/one-i idx te "created_at")]
+  (str (if (some? updated) updated "") "|" (if (some? created) created "") "|" te))) terminal))))))
 
 (defn- matching-subjects [facts ^String predicate ^String value]
   (reduce (fn [subjects fact] (if (and (= (:p fact) predicate) (= (:r fact) value)) (assoc subjects (:l fact) true) subjects)) {} facts))
@@ -592,6 +657,7 @@
   (or (= what "board") (= what "plate")) (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (board-curated-tes idx today before? live? all?))))
   (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (ready-curated-tes idx today before? live? all?))))
   (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (filterv (fn [te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx)))))
+  (= what "done") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (recent-terminal-tes idx))))
   (= what "needs-review") (let [as (fram.rt/read-log log)
    cidx (k/build-index (:facts (fold/fold as)))
    latest (fold/fold-latest as)
@@ -610,7 +676,7 @@
   (= what "agents") (println (fram.rt/to-json (mapv (fn [c] (->JAgentFact (subs (:l c) (count "@agent:")) (:p c) (:r c))) (filterv (fn [c] (let [l (:l c)]
   (and (some? l) (str/starts-with? l "@agent:")))) facts))))
   (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
-  :else (println "usage: json board|ready|blocked|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
+  :else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
 
 (defn cmd-json [^String log ^String what ^String arg ^Boolean all?]
   (if (= what "show") (cmd-json-show log arg) (cmd-json-corpus log what arg all?)))

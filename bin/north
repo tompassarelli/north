@@ -56,7 +56,7 @@ unset _north_fram_log_explicit
 # this compatibility set only until a verified two-corpus snapshot, canonical
 # schema-migrate execution, strict audit, and restart proof have all landed; its
 # removal is deliberately sequenced after that live-data cutover.
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log candidate_rev candidate_git_dir judgment_grade}"
+export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log candidate_rev candidate_git_dir judgment_grade queue_rank}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -575,6 +575,10 @@ case "${1:-}" in
     # Durable local execution host. It does not read or write the coordinator;
     # replay remains available when Fram is down.
     exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" "${@:2}" ;;
+  queue)
+    # Ready-lane ordering is a coordinator CAS over one single-valued thread
+    # receipt; the queue never owns or mutates lifecycle condition.
+    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/queue-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
   listen)
     # Real-time interrupt listener — RUN AS A BACKGROUND TASK. Dormant (zero
     # tokens) until a peer addresses you, then prints the message and exits:

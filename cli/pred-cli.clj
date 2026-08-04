@@ -651,6 +651,7 @@
    ["planned"       "single" "literal" "flag: a thread's plan has been ratified"]
    ["atomic"        "single" "literal" "flag: a thread is atomic and must not be decomposed"]
    ["priority"      "single" "literal" "priority band of a thread (e.g. low|med|high)"]
+   ["queue_rank"    "single" "literal" "versioned manual move replayed over a lane's derived fallback order"]
    ;; --- claims-log split snapshots (acquire claims substrate / log-split) ---
    ["byte_offset"   "single" "literal" "byte offset a snapshot covers within the source claims log"]
    ["covers_through" "single" "literal" "highest claim/tx a log snapshot covers"]
