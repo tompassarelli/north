@@ -177,10 +177,6 @@
              "promotions — bespoke patterns for stock-template review"
              "calibration — run-local judgment/struggle detector cohorts"
              "learning — exact evaluation cohorts plus explicit evidence exclusions"]}
-  {:verb "experiment" :form "north experiment report [--json]" :topic :routing
-   :summary "paired graph-vs-text outcomes by operation type"
-   :details ["N<20 pairs is always insufficient data"
-             "flip-to-graph requires lower median wall and lower failure rate"]}
   {:verb "canary" :form "north canary run|report" :topic :routing
    :summary "production-path managed-lane reliability probe"}
   {:verb "ccr" :form "north ccr prepare|retrieve" :topic :routing
