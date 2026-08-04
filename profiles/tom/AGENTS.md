@@ -229,8 +229,11 @@ stable machine wiring and runtime pointers; changing code stays in live
 checkouts, out-of-store links, or promoted runtimes with its own reload/restart
 channel. Purity applies to the committed generation that lands, not every edit
 or host-management child command. A live host adapter uses one explicit,
-root-owned host-tool boundary; never grow a tiny bespoke closure one missing
-binary at a time.
+ordered host-tool boundary and exact live entrypoints; never grow a tiny
+bespoke closure one missing binary at a time. When both are correct,
+out-of-store wins for user-owned
+hot-loop files; a store-managed copy requires a named immutability, security,
+publication, or rollback invariant.
 
 north, fram, and beagle deliver code through their own channels — live
 checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
