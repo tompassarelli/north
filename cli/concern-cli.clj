@@ -776,6 +776,19 @@
   (every? #(<= (count (get-in facts [concern %] #{})) 1)
           concern-single-predicates))
 
+(defn concern-meta-from-exact-rows [concern rows]
+  (let [facts
+        (reduce
+         (fn [current [predicate value]]
+           (update-in current [concern predicate] (fnil conj #{}) value))
+         {}
+         rows)]
+    (when (and (= #{"concern"} (get-in facts [concern "kind"] #{}))
+               (bulk-meta-exact? facts concern))
+      (-> (meta-from-live facts concern (System/currentTimeMillis))
+          (update :agent norm-cid)
+          (dissoc :online :lapsed-ago-ms)))))
+
 (defn concern-meta-index
   "One bulk read -> {concern-id meta}, so a read phase costs a fixed number of
    queries instead of one nine-round-trip meta-of per concern. A subject whose
@@ -1164,58 +1177,80 @@
    active-state warnings are recovered from the current concern projection."
   [port operation snapshot]
   (let [concern (:concern-id operation)
-        trigger-status (get-in operation [:facts 0 :object])]
-    (binding [*concern-metas* (concern-meta-index port)]
-      (let [before (concern-meta port concern)
-            observed-rows (or (:rows snapshot) [])]
-        (cond
-          (not= "concern" (:kind before))
-          (if snapshot
+        trigger-status (get-in operation [:facts 0 :object])
+        observed-rows (or (:rows snapshot) [])
+        snapshot-before
+        (when snapshot
+          (concern-meta-from-exact-rows concern observed-rows))
+        terminal? (contains? terminal-attention-statuses trigger-status)
+        plan
+        (fn [before]
+          (cond
+            (not= "concern" (:kind before))
+            (if snapshot
+              {:local-conflict true
+               :reason "concern-missing-or-invalid"
+               :observed-version (:base snapshot)
+               :rows observed-rows}
+              (usage-error! (str concern " is not an existing concern")))
+
+            (if snapshot
+              (contains? (:reached before) trigger-status)
+              (transition-status-present? port before trigger-status))
+            {:done :identical}
+
+            (not (active-concern? before))
             {:local-conflict true
-             :reason "concern-missing-or-invalid"
+             :reason "transition-overtaken"
              :observed-version (:base snapshot)
              :rows observed-rows}
-            (usage-error! (str concern " is not an existing concern")))
 
-          (transition-status-present? port before trigger-status)
-          {:done :identical}
+            (and (= "abandoned-stale" trigger-status)
+                 (not (stale-building-concern? port before)))
+            {:local-conflict true
+             :reason "transition-ineligible"
+             :observed-version (:base snapshot)
+             :rows observed-rows}
 
-          (not (active-concern? before))
-          {:local-conflict true
-           :reason "transition-overtaken"
-           :observed-version (:base snapshot)
-           :rows observed-rows}
+            (not terminal?)
+            {:facts [{:p "reached" :r trigger-status}]}
 
-          (and (= "abandoned-stale" trigger-status)
-               (not (stale-building-concern? port before)))
-          {:local-conflict true
-           :reason "transition-ineligible"
-           :observed-version (:base snapshot)
-           :rows observed-rows}
-
-          :else
-          (let [after (transition-state before trigger-status)
-                attention-kind (transition-kind before after)
-                overlaps
-                (if attention-kind
-                  (binding [*throw-code-store-errors?* (boolean snapshot)]
-                    (:overlaps (overlaps-for port concern)))
-                  [])
-                events (attention-events-for-transition before after overlaps)
-                intents
-                (if (contains? terminal-attention-statuses trigger-status)
+            :else
+            (let [after (transition-state before trigger-status)
+                  attention-kind (transition-kind before after)
+                  overlaps
+                  (if attention-kind
+                    (binding [*throw-code-store-errors?* (boolean snapshot)]
+                      (:overlaps (overlaps-for port concern)))
+                    [])
+                  events (attention-events-for-transition before after overlaps)
+                  intents
                   (mapv
                    #(attention-event-intent-value
                      port concern trigger-status %)
-                   events)
-                  [])]
-            {:facts
-             (vec
-              (concat
-               (map (fn [intent]
-                      {:p attention-event-intent-predicate :r intent})
-                    intents)
-               [{:p "reached" :r trigger-status}]))}))))))
+                   events)]
+              {:facts
+               (vec
+                (concat
+                 (map (fn [intent]
+                        {:p attention-event-intent-predicate :r intent})
+                      intents)
+                 [{:p "reached" :r trigger-status}]))})))]
+    (cond
+      (and snapshot (nil? snapshot-before))
+      {:local-conflict true
+       :reason "concern-missing-or-invalid"
+       :observed-version (:base snapshot)
+       :rows observed-rows}
+
+      terminal?
+      (binding [*concern-metas*
+                (cond-> (concern-meta-index port)
+                  snapshot-before (assoc concern snapshot-before))]
+        (plan (or snapshot-before (concern-meta port concern))))
+
+      :else
+      (plan (or snapshot-before (concern-meta port concern))))))
 
 (defn terminal-concern-transition!
   "Commit terminal overlap-left intents and the concern terminal fact in one
@@ -1700,40 +1735,53 @@
 
     "reconcile-local"
     (do
-      (when (seq args)
-        (usage-error! "reconcile-local accepts no arguments"))
-      (let [result
+      (when-not (or (empty? args) (= ["--operations-only"] (vec args)))
+        (usage-error! "reconcile-local accepts only optional --operations-only"))
+      (let [operations-only? (= ["--operations-only"] (vec args))
+            result
             (binding
              [north.concern-spool-reconcile/*transition-plan!*
               concern-transition-plan!]
               (north.concern-spool-reconcile/reconcile-pass! port))
             {:keys [status selected processed bytes settled conflicts
-                    already-settled already-conflict deferred remaining
+                    already-settled already-conflict deferred retired remaining
                     elapsed-ms]}
             result
-            attention
-            (when (and (not= :busy status)
+            attention-attempt
+            (when (and (not operations-only?)
+                       (not= :busy status)
                        (pos? (+ settled already-settled)))
-              (reconcile-attention! port))]
+              (try
+                {:result (reconcile-attention! port)}
+                (catch Exception error
+                  {:deferred (.getMessage error)})))
+            attention (:result attention-attempt)]
         (if (= :busy status)
           (do
             (binding [*out* *err*]
               (println "concern: local reconciler is already running"))
             (System/exit 3))
-          (println
-           (str "✓ concern local reconciliation"
-                " selected=" selected
-                " processed=" processed
-                " bytes=" bytes
-                " settled=" settled
-                " conflicts=" conflicts
-                " already_settled=" already-settled
-                " already_conflict=" already-conflict
-                " deferred=" deferred
-                " remaining=" remaining
-                " elapsed_ms=" elapsed-ms
-                (when attention
-                  (str " attention=" (count (:notifications attention)))))))))
+          (do
+            (println
+             (str "✓ concern local reconciliation"
+                  " selected=" selected
+                  " processed=" processed
+                  " bytes=" bytes
+                  " settled=" settled
+                  " conflicts=" conflicts
+                  " already_settled=" already-settled
+                  " already_conflict=" already-conflict
+                  " deferred=" deferred
+                  " retired=" retired
+                  " remaining=" remaining
+                  " elapsed_ms=" elapsed-ms
+                  (when attention
+                    (str " attention=" (count (:notifications attention))))))
+            (when-let [message (:deferred attention-attempt)]
+              (binding [*out* *err*]
+                (println
+                 (str "concern: local operations reconciled; attention repair "
+                      "is deferred after a transport failure: " message))))))))
 
     "overlap"
     (let [[c & flags] args]
