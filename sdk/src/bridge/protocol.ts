@@ -1,8 +1,17 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+export const BRIDGE_LAUNCH_ROLES = ["director", "implementer"] as const;
+export type BridgeLaunchRole = typeof BRIDGE_LAUNCH_ROLES[number];
+
+export function parseBridgeLaunchRole(value: unknown): BridgeLaunchRole {
+  if (value === undefined) return "implementer";
+  if (value === "director" || value === "implementer") return value;
+  throw new Error("bridge launch role must be director or implementer");
+}
+
 export type BridgeRequest =
-  | { op: "launch"; prompt: string; cwd: string }
+  | { op: "launch"; prompt: string; cwd: string; role: BridgeLaunchRole }
   | { op: "attach"; executionId: string; cursor: number }
   | { op: "submitInput"; executionId: string; input: string }
   | { op: "interruptTurn"; executionId: string }
@@ -31,7 +40,10 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
       throw new Error("bridge launch requires a non-empty prompt");
     if (typeof request.cwd !== "string" || !request.cwd)
       throw new Error("bridge launch requires cwd");
-    return { op: "launch", prompt: request.prompt, cwd: request.cwd };
+    return {
+      op: "launch", prompt: request.prompt, cwd: request.cwd,
+      role: parseBridgeLaunchRole(request.role),
+    };
   }
   if (request.op === "attach") {
     if (typeof request.executionId !== "string" || !request.executionId)

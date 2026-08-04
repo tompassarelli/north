@@ -13,6 +13,7 @@
 (defrecord WorkItem
   [id: String
    title: String
+   body: String
    condition: String
    driver: String
    dependencies: (Vec String)])
@@ -39,10 +40,11 @@
 (defn make-work
   [id: String
    title: String
+   body: String
    condition: String
    driver: String
    dependencies: (Vec String)] -> WorkItem
-  (->WorkItem id title condition driver dependencies))
+  (->WorkItem id title body condition driver dependencies))
 
 (defn canonical-view [view-id: String] -> String
   (cond
@@ -186,6 +188,7 @@
                          (.toLowerCase
                           (str (workitem-id item) " "
                                (workitem-title item) " "
+                               (workitem-body item) " "
                                (workitem-condition item) " "
                                (workitem-driver item)))
                          needle)))))))

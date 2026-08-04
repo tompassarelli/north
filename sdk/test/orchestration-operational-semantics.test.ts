@@ -203,19 +203,11 @@ test("Orchestration capabilities compile to exact provider authority before work
   expect(director.allowedTools).toContain(READONLY_SHELL_TOOL);
   expect(director.allowedTools).not.toContain("Bash");
   expect(codexGlobalArguments(director)).toEqual([]);
-  // Every orchestrator template holds `coordination`, which Codex's sandbox
-  // cannot reach: the authority compile refuses before a turn can be built.
-  expect(() => codexHarnessArguments(director))
-    .toThrow("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
-  expect(() => compileProviderAuthoritySurface("openai", director))
-    .toThrow("openai_sandbox_cannot_reach_north_coordinator_for_coordination_capability");
-  const anthropicDirector = harnessOptions({
-    self: "capability-director-anthropic", provider: "anthropic", cwd: north,
-    presenceRegistrar: false, routingMetadata: preset("director"),
-  }) as any;
-  const directorSurface = compileProviderAuthoritySurface("anthropic", anthropicDirector);
+  // director: read-only and web-declaring, like every orchestrator template.
+  expect(codexHarnessArguments(director)).toEqual(managedCodexPreview(true));
+  const directorSurface = compileProviderAuthoritySurface("openai", director);
   expect(directorSurface.northEnabledTools).toEqual(expect.arrayContaining(["spawn", "dispatch"]));
-  expect(directorSurface.web).toBe("enabled");
+  expect(directorSurface.web).toBe("cached");
   expect(director.mcpServers[READONLY_SHELL_SERVER]).toBeDefined();
 
   const integrator = harnessOptions({

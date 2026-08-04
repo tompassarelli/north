@@ -22,7 +22,11 @@ import {
   CODEX_SUPERVISOR_STATUS_PREFIX, codexSupervisorStatusLine, codexSupervisorStderrLine,
   codexSupervisorStderrStatus,
 } from "../src/providers/codex-supervisor-protocol";
-import type { OpenAIAuthoritySurface } from "../src/providers/authority";
+import {
+  compileProviderAuthoritySurface, type OpenAIAuthoritySurface,
+} from "../src/providers/authority";
+import { harnessOptions } from "../src/harness";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
 import { managedCodexWritableRoots } from "../src/providers/codex-app-server";
@@ -2373,6 +2377,30 @@ test("a read-only lane is granted no writable root at all", () => {
   expect((contract.expectedSessionConfig as any).sandbox_workspace_write).toBeUndefined();
   expect(contract.args.some((argument) => argument.startsWith("sandbox_workspace_write")))
     .toBe(false);
+});
+
+test("a Codex director coordinates through required host-side North MCP without shell network", () => {
+  const { options } = setup();
+  const director = harnessOptions({
+    self: "codex-app-server-director-authority",
+    provider: "openai",
+    cwd: options.cwd,
+    routingMetadata: applyOrchestrationStaffing({ role: "director" }),
+    presenceRegistrar: false,
+  }) as any;
+  const directorSurface = compileProviderAuthoritySurface("openai", director);
+  const contract = managedCodexAppServerLaunch({ ...options, surface: directorSurface });
+  const north = (contract.expectedSessionConfig as any).mcp_servers.north;
+
+  expect(directorSurface.sandbox).toBe("read-only");
+  expect(contract.network.networkAccess).toBe(false);
+  expect(contract.writableRoots).toEqual([]);
+  expect((contract.expectedSessionConfig as any).sandbox_workspace_write).toBeUndefined();
+  expect(north).toMatchObject({ enabled: true, required: true });
+  expect(north.enabled_tools).toEqual(expect.arrayContaining(["spawn", "dispatch"]));
+  expect(directorSurface.managedTools).toEqual(expect.arrayContaining([
+    "mcp__north__spawn", "mcp__north__dispatch",
+  ]));
 });
 
 test("a read-only lane keeps declared web access — orchestrators are read-only by design", () => {

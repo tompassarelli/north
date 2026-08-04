@@ -11,13 +11,15 @@ function agent_status(r) { return r.status; }
 
 function agent_task(r) { return r.task; }
 
-function WorkItem(id, title, condition, driver, dependencies) {
-  return Object.freeze({_tag: "WorkItem", id, title, condition, driver, dependencies});
+function WorkItem(id, title, body, condition, driver, dependencies) {
+  return Object.freeze({_tag: "WorkItem", id, title, body, condition, driver, dependencies});
 }
 
 function workitem_id(r) { return r.id; }
 
 function workitem_title(r) { return r.title; }
+
+function workitem_body(r) { return r.body; }
 
 function workitem_condition(r) { return r.condition; }
 
@@ -53,8 +55,8 @@ export function make_agent(id, name, status, task) {
   return Agent(id, name, status, task);
 }
 
-export function make_work(id, title, condition, driver, dependencies) {
-  return WorkItem(id, title, condition, driver, dependencies);
+export function make_work(id, title, body, condition, driver, dependencies) {
+  return WorkItem(id, title, body, condition, driver, dependencies);
 }
 
 function canonical_view(view_id) {
@@ -103,7 +105,7 @@ export function set_filter(model, filter_text) {
 function visible_work(model, source) {
   const agent_id = bridgemodel_selected_agent(model);
   const needle = bridgemodel_filter_text(model);
-  return source.filter((item) => (((agent_id === "") || (workitem_driver(item) === agent_id)) && ((needle === "") || ("".concat(workitem_id(item), " ", workitem_title(item), " ", workitem_condition(item), " ", workitem_driver(item))).toLowerCase().includes(needle))));
+  return source.filter((item) => (((agent_id === "") || (workitem_driver(item) === agent_id)) && ((needle === "") || ("".concat(workitem_id(item), " ", workitem_title(item), " ", workitem_body(item), " ", workitem_condition(item), " ", workitem_driver(item))).toLowerCase().includes(needle))));
 }
 
 export function snapshot(model) {

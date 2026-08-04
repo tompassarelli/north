@@ -4,10 +4,25 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "../src/bridge/journal";
+import { parseBridgeLaunchArguments } from "../src/bridge/cli";
 
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+test("bridge launch CLI defaults to implementer and accepts only explicit launch roles", () => {
+  expect(parseBridgeLaunchArguments(["ship", "it"])).toEqual({
+    role: "implementer", promptArguments: ["ship", "it"],
+  });
+  expect(parseBridgeLaunchArguments(["--role", "director", "supervise"])).toEqual({
+    role: "director", promptArguments: ["supervise"],
+  });
+  expect(parseBridgeLaunchArguments(["--role", "implementer", "build"])).toEqual({
+    role: "implementer", promptArguments: ["build"],
+  });
+  expect(() => parseBridgeLaunchArguments(["--role", "portfolio", "plan"]))
+    .toThrow("bridge launch role must be director or implementer");
 });
 
 test("bridge pending is a restart-safe terminal lane queue", () => {

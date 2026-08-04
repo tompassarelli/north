@@ -34,6 +34,8 @@ interface QueuedInput {
   commandSeq: number;
 }
 
+type TurnDisposition = "completed" | "interrupted";
+
 interface ExecutionRuntime {
   executionId: string;
   journal: ExecutionJournal;
@@ -42,6 +44,7 @@ interface ExecutionRuntime {
   pendingInputs: QueuedInput[];
   session?: BridgeProviderSession;
   activeTurn: boolean;
+  turnDisposition: TurnDisposition;
   terminating: boolean;
   terminal: boolean;
 }
@@ -135,6 +138,7 @@ export class Northd {
       abort: new AbortController(),
       pendingInputs: [],
       activeTurn: false,
+      turnDisposition: "completed",
       terminating: false,
       terminal,
     };
@@ -171,6 +175,7 @@ export class Northd {
     this.append(runtime, kind, data);
     runtime.terminal = true;
     runtime.activeTurn = false;
+    runtime.turnDisposition = "completed";
     for (const subscriber of runtime.subscribers) subscriber.end();
     runtime.subscribers.clear();
   }
@@ -180,6 +185,7 @@ export class Northd {
     const next = runtime.pendingInputs.shift();
     if (!next) return;
     runtime.activeTurn = true;
+    runtime.turnDisposition = "completed";
     try {
       await runtime.session.submitInput(next.input);
       this.append(runtime, "control.input_delivered", {
@@ -194,21 +200,30 @@ export class Northd {
   private providerEvent(runtime: ExecutionRuntime, event: NormalizedProviderEvent): void {
     this.append(runtime, `provider.${event.kind}`, event.data);
     if (!event.turnTerminal || runtime.terminal) return;
+    const disposition = runtime.turnDisposition;
     runtime.activeTurn = false;
+    runtime.turnDisposition = "completed";
     this.append(runtime, "session.idle", {
       armed: true,
+      disposition,
       pendingInputs: runtime.pendingInputs.length,
     });
     void this.dispatchNext(runtime);
   }
 
-  private async drive(runtime: ExecutionRuntime, prompt: string, cwd: string): Promise<void> {
+  private async drive(
+    runtime: ExecutionRuntime,
+    prompt: string,
+    cwd: string,
+    role: Extract<BridgeRequest, { op: "launch" }>["role"],
+  ): Promise<void> {
     try {
       this.append(runtime, "provider.starting", { adapter: this.providerAdapter });
       const session = await this.provider.open({
         executionId: runtime.executionId,
         prompt,
         cwd,
+        role,
         signal: runtime.abort.signal,
       });
       runtime.session = session;
@@ -234,14 +249,17 @@ export class Northd {
       abort: new AbortController(),
       pendingInputs: [],
       activeTurn: true,
+      turnDisposition: "completed",
       terminating: false,
       terminal: false,
     };
     this.runtimes.set(executionId, runtime);
-    this.append(runtime, "execution.accepted", { prompt: request.prompt, cwd: request.cwd });
+    this.append(runtime, "execution.accepted", {
+      prompt: request.prompt, cwd: request.cwd, role: request.role,
+    });
     wire(socket, { type: "launched", executionId });
     this.attach(socket, runtime, 0);
-    const drive = this.drive(runtime, request.prompt, request.cwd);
+    const drive = this.drive(runtime, request.prompt, request.cwd, request.role);
     this.drives.add(drive);
     void drive.finally(() => this.drives.delete(drive));
   }
@@ -271,7 +289,13 @@ export class Northd {
       this.append(runtime, "control.interrupt_turn", { delivery: "active-turn" });
       if (!runtime.activeTurn || !runtime.session)
         throw new Error(`bridge execution ${runtime.executionId} has no active turn`);
-      await runtime.session.interruptTurn();
+      runtime.turnDisposition = "interrupted";
+      try { await runtime.session.interruptTurn(); }
+      catch (error) {
+        if (!runtime.terminal && runtime.turnDisposition === "interrupted")
+          runtime.turnDisposition = "completed";
+        throw error;
+      }
       wire(socket, {
         type: "controlled", executionId: runtime.executionId,
         control: request.op, delivery: "active-turn",
@@ -291,10 +315,13 @@ export class Northd {
           runtime.pendingInputs.shift();
           throw new Error(`bridge execution ${runtime.executionId} provider is still starting`);
         }
+        runtime.turnDisposition = "interrupted";
         try { await runtime.session.interruptTurn(); }
         catch (error) {
           runtime.pendingInputs = runtime.pendingInputs
             .filter((pending) => pending.commandSeq !== command.seq);
+          if (!runtime.terminal && runtime.turnDisposition === "interrupted")
+            runtime.turnDisposition = "completed";
           throw error;
         }
       } else {

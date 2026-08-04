@@ -304,21 +304,23 @@
     [(row "sandbox" "sandbox.openai" :skip "preset capabilities were not probed")]
     (let [presets (:presets probe)
           by (group-by :openai presets)
-          contradictory (filter :coordinationUnderReadOnly presets)
+          read-only-no-network (filter #(and (= "read-only" (:openai %))
+                                             (= "closed" (:sandboxNetwork %))) presets)
+          closed-loopback (filter #(= "closed" (:directShellLoopback %)) presets)
+          host-coordination (filter #(= "north-mcp-host" (:coordinationTransport %)) presets)
           names #(str/join "," (sort (map :role %)))]
       (cond-> [(row "sandbox" "sandbox.openai" :info
-                    (str "KNOWN CONSTRAINT — brief managed OpenAI lanes as READ-ONLY workers; "
-                         "route mutating work to a native session. Derived: read-only="
-                         (names (get by "read-only")) " · workspace-write="
+                    (str "Codex shell authority is derived per preset: read-only/no-network="
+                         (names read-only-no-network) " · workspace-write="
                          (names (get by "workspace-write"))
+                         " · direct-shell-loopback-closed=" (names closed-loopback)
                          (when-let [rejected (seq (get by "rejected"))]
                            (str " · openai-rejected=" (names rejected)))))]
-        (seq contradictory)
-        (conj (row "sandbox" "sandbox.openai-coordination" :fail
-                   (str "these presets hold coordination inside Codex's read-only sandbox, which "
-                        "blocks :7977 — their dispatch claim hangs to timeout: "
-                        (names contradictory))
-                   "north spawn <role> --provider anthropic"))))))
+        (seq host-coordination)
+        (conj (row "sandbox" "sandbox.openai-coordination" :pass
+                   (str "coordination uses the required host-side North MCP for "
+                        (names host-coordination)
+                        "; the read-only/no-network sandbox still keeps direct shell loopback closed")))))))
 
 ;; ---- (7) guard consistency ------------------------------------------------------
 

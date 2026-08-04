@@ -244,19 +244,27 @@
 ;; ---- (6) sandbox expectations --------------------------------------------------
 
 (let [rows (doctor/sandbox-rows
-            {:presets [{:role "scout" :openai "read-only" :coordinationUnderReadOnly false}
-                       {:role "integrator" :openai "workspace-write" :coordinationUnderReadOnly false}
-                       {:role "director" :openai "read-only" :coordinationUnderReadOnly true}]})
+            {:presets [{:role "scout" :openai "read-only" :sandboxNetwork "closed"
+                        :directShellLoopback "closed" :coordinationTransport "not-granted"}
+                       {:role "integrator" :openai "workspace-write" :sandboxNetwork "open"
+                        :directShellLoopback "open" :coordinationTransport "not-granted"}
+                       {:role "director" :openai "read-only" :sandboxNetwork "closed"
+                        :directShellLoopback "closed" :coordinationTransport "north-mcp-host"}]})
       constraint (find-row rows "sandbox.openai")]
   (check "the sandbox expectation always prints as INFO, never a wall"
          (= :info (:status constraint)))
-  (check "the sandbox expectation states the read-only worker constraint"
-         (str/includes? (:why constraint) "READ-ONLY"))
+  (check "the sandbox expectation preserves the read-only no-network fact"
+         (str/includes? (:why constraint) "read-only/no-network=director,scout"))
   (check "the sandbox expectation is derived, listing each preset's real sandbox"
-         (and (str/includes? (:why constraint) "read-only=director,scout")
+         (and (str/includes? (:why constraint) "read-only/no-network=director,scout")
               (str/includes? (:why constraint) "workspace-write=integrator")))
-  (check "coordination inside the read-only sandbox is a named FAIL"
-         (= :fail (:status (find-row rows "sandbox.openai-coordination")))))
+  (check "the sandbox expectation names closed direct shell loopback"
+         (str/includes? (:why constraint) "direct-shell-loopback-closed=director,scout"))
+  (check "host-side North MCP coordination is a named PASS, not a sandbox failure"
+         (let [row (find-row rows "sandbox.openai-coordination")]
+           (and (= :pass (:status row))
+                (str/includes? (:why row) "host-side North MCP")
+                (str/includes? (:why row) "director")))))
 
 ;; ---- (4) composition dry-run ---------------------------------------------------
 

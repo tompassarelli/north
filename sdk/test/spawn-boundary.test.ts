@@ -225,7 +225,7 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
   expect(received).toContain("child lane settled");
   expect(stopCalls).toBe(1);
   const meta = JSON.parse(readFileSync(join(dir, "lane-test-spawn-live-feed.meta.json"), "utf8"));
-  expect(meta).toMatchObject({ thread: null, role: "executor", tier: "standard", effort: "medium", provider: "anthropic", model: expect.any(String) });
+  expect(meta).toMatchObject({ thread: null, role: "integrator", tier: "senior", effort: "high", provider: "anthropic", model: expect.any(String) });
   expect(typeof meta.startedAt).toBe("string");
 });
 
