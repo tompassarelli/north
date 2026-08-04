@@ -38,6 +38,7 @@
 ;; names this canary adapter.
 (load-file (str NORTH "/cli/routing-report.clj"))
 (load-file (str NORTH "/cli/topology-authority.clj"))
+(load-file (str NORTH "/cli/coord.clj"))
 
 (def usage
   (str "usage:\n"
@@ -209,18 +210,67 @@
 (defn current-run-rows []
   (-> (default-paths) read-ops fold-facts run-rows vec))
 
+(def max-terminal-run-candidates 32)
+
+(defn canary-terminal-run-query [control thread]
+  {:find "canary_terminal_run"
+   :rules
+   [{:head {:rel "canary_terminal_run" :args [{:var "run"}]}
+     :body [{:rel "triple" :args [{:var "run"} "kind" "run"]}
+            {:rel "triple" :args [{:var "run"} "agent" control]}
+            {:rel "triple" :args [{:var "run"} "thread" (thread-ref thread)]}]}]})
+
+(defn exact-run-facts [port subject]
+  (reduce (fn [facts [predicate value]]
+            (update facts predicate (fnil conj []) value))
+          {}
+          (:rows (north.coord/show-envelope port subject))))
+
+(defn terminal-canary-row [subject facts control thread]
+  (let [process (north.terminal-projection/committed-run-process-outcome facts)
+        delivery (north.terminal-projection/singleton-value facts "delivery_outcome")
+        reason (north.terminal-projection/singleton-value facts "delivery_reason")
+        agent (north.terminal-projection/singleton-value facts "agent")
+        run-thread (north.terminal-projection/singleton-value facts "thread")
+        at (north.terminal-projection/singleton-value facts "at")
+        at-instant (parse-instant at)
+        provider-target
+        (north.terminal-projection/singleton-value facts "provider_target")]
+    (when (and process delivery reason at-instant provider-target
+               (= control agent)
+               (= (thread-ref thread) (thread-ref run-thread))
+               (north.terminal-projection/delivery-projection-valid? facts))
+      {:entity subject
+       :thread (thread-ref run-thread)
+       :agent agent
+       :at at
+       :at-instant at-instant
+       :providerTarget provider-target
+       :processOutcome process
+       :processOutcomeObserved true
+       :deliveryOutcome delivery
+       :deliveryOutcomeObserved true
+       :deliveryReason reason
+       :deliveryReasonObserved true})))
+
 (defn terminal-row-for [control thread]
-  ;; Row threads are projected through `thread-ref`, so they always carry the @.
-  (let [thread-key (thread-ref (bare-subject thread))]
-   (->> (current-run-rows)
-       (filter #(and (= control (:agent %))
-                     (= thread-key (:thread %))
-                     (:processOutcomeObserved %)
-                     (:deliveryOutcomeObserved %)
-                     (:deliveryReasonObserved %)
-                     (:at %)))
-       (sort-by :at)
-       last)))
+  (let [port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
+        response
+        (north.coord/indexed-query-in-domain
+         port :telemetry (canary-terminal-run-query control thread)
+         max-terminal-run-candidates)
+        subjects
+        (mapv first
+              (filter #(and (vector? %) (= 1 (count %))
+                            (north.terminal-projection/valid-run-entity? (first %)))
+                      (:ok response)))
+        rows (keep #(terminal-canary-row % (exact-run-facts port %) control thread)
+                   (distinct subjects))
+        latest-at (some->> rows (map :at-instant) sort last)
+        latest (filter #(= latest-at (:at-instant %)) rows)]
+    ;; Equal latest timestamps cannot establish which immutable run is current.
+    (when (= 1 (count latest))
+      (dissoc (first latest) :at-instant))))
 
 (defn- wait-terminal! [control thread]
   (let [timeout-ms (or (some-> (System/getenv "NORTH_CANARY_TIMEOUT_MS")

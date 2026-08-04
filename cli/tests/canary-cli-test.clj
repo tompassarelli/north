@@ -289,19 +289,48 @@
                (north.canary-cli/delegate-cwd
                 {"NORTH_CANARY_TARGET_REPO" "/tmp/canary-target"}))))
 
-;; Rows project the thread through `thread-ref`, so the captured bare id must be
-;; normalized before matching or the wait never terminates.
-(let [rows [(canary-row "2026-07-26T08:00:00Z" "codex-a" "ran" "reported"
-                        "complete_run_scoped_done_bar_evidence_self_reported"
-                        "full-green")]
-      rows (mapv #(assoc % :agent "lane-canary" :thread "@019f-thread") rows)]
-  (with-redefs-fn {#'north.canary-cli/current-run-rows (fn [] rows)}
+;; Poll one exact terminal subject. The report command keeps the corpus fold,
+;; but a live canary must never repeat that global read while it waits.
+(let [subject "@run:lane-canary-1234"
+      rows [["kind" "run"]
+            ["agent" "lane-canary"]
+            ["thread" "@019f-thread"]
+            ["at" "2026-07-26T08:00:00Z"]
+            ["outcome" "ran"]
+            ["process_outcome" "ran"]
+            ["provider_target" "codex-a"]
+            ["delivery_outcome" "unverified"]
+            ["delivery_reason" "delivery_bar_evidence_incomplete"]]
+      query-calls (atom [])
+      show-calls (atom [])]
+  (with-redefs-fn {#'north.coord/indexed-query-in-domain
+                   (fn [port domain query limit]
+                     (swap! query-calls conj [port domain query limit])
+                     {:ok [[subject]] :version 1 :engine "index"})
+                   #'north.coord/show-envelope
+                   (fn [port actual-subject]
+                     (swap! show-calls conj [port actual-subject])
+                     {:version 1 :rows rows})
+                   #'north.canary-cli/current-run-rows
+                   (fn [] (throw (ex-info "global fold reached" {})))}
     (fn []
-      (check "a terminal row matches the bare captured thread id against the projected @ref"
-             (= (first rows)
-                (north.canary-cli/terminal-row-for "lane-canary" "019f-thread")))
-      (check "a terminal row is not matched across a different lane"
-             (nil? (north.canary-cli/terminal-row-for "lane-other" "019f-thread"))))))
+      (let [row (north.canary-cli/terminal-row-for "lane-canary" "019f-thread")]
+        (check "a live canary discovers one committed run through a bounded telemetry query"
+               (and (= 1 (count @query-calls))
+                    (= [7977 :telemetry] (subvec (first @query-calls) 0 2))
+                    (= north.canary-cli/max-terminal-run-candidates
+                       (nth (first @query-calls) 3))
+                    (= [[7977 subject]] @show-calls)))
+        (check "an exact terminal row normalizes its thread and preserves its failure result"
+               (and (= subject (:entity row))
+                    (= "@019f-thread" (:thread row))
+                    (= "ran" (:processOutcome row))
+                    (= "unverified" (:deliveryOutcome row))))
+        (check "a terminal row is not matched across a different lane"
+               (nil? (north.canary-cli/terminal-canary-row
+                      subject
+                      (north.canary-cli/exact-run-facts 7977 subject)
+                      "lane-other" "019f-thread")))))))
 
 (check "an independently verified delivery is full-green, not a North-caused alarm"
        (and (= "full-green"
