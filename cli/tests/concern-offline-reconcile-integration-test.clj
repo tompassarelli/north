@@ -835,6 +835,40 @@
       (finally
         (delete-tree! tmp)))))
 
+(defn single-read-snapshot-probe []
+  (let [log (doto (io/file "/tmp/north-single-read-snapshot.log") (spit ""))
+        declaration (fixture-operation log "single-read-declaration")
+        transition
+        (north.concern-spool/build-operation
+         {:operation-type north.concern-spool/transition-operation-type
+          :operation-id "00000000-0000-0000-0000-000000000005"
+          :concern-id (:concern-id declaration)
+          :target-log (.getCanonicalPath log)
+          :created-at "2026-07-31T08:00:03Z"
+          :facts
+          [{:predicate "reached"
+            :object "likely-to-land"
+            :cardinality "multi"}]})
+        calls (atom [])
+        fake-send
+        (fn [_port _target-log request]
+          (swap! calls conj request)
+          (if (= :show (:op request))
+            {:version 73 :rows []}
+            (throw
+             (ex-info "snapshot must not perform a separate version read"
+                      {:request request}))))
+        [declaration-snapshot transition-snapshot]
+        (with-redefs [north.coord/send-op-for-log fake-send]
+          [(#'north.concern-spool-reconcile/read-snapshot-at-base
+            7977 declaration)
+           (#'north.concern-spool-reconcile/transition-snapshot-at-base
+            7977 transition)])]
+    (check "fenced show supplies the snapshot rows and their exact global base"
+           (and (= 73 (:base declaration-snapshot))
+                (= 73 (:base transition-snapshot))
+                (= [:show :show] (mapv :op @calls))))))
+
 (defn transition-snapshot-fast-path-probe []
   (let [log (io/file "/tmp/north-transition-snapshot-fast-path.log")
         concern "@concern-1785506000003-d004"
@@ -1038,6 +1072,7 @@
 (when (= "terminal-offline" (first *command-line-args*))
   (retirement-capacity-probe)
   (terminal-marker-priority-probe)
+  (single-read-snapshot-probe)
   (terminal-replay-probe)
   (transition-snapshot-fast-path-probe)
   (System/exit (if (zero? @fails) 0 1)))
@@ -1046,6 +1081,7 @@
 (bounded-transport-probe)
 (retirement-capacity-probe)
 (terminal-marker-priority-probe)
+(single-read-snapshot-probe)
 (terminal-replay-probe)
 (transition-snapshot-fast-path-probe)
 
