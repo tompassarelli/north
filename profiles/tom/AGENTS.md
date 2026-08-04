@@ -209,8 +209,8 @@ policy sources. Edit a file in its owning repository and commit it there.
 Firn owns the NixOS wiring and application step.
 **Agents QUEUE rebuilds, never fire them.** `north rebuild request --why
 "<reason>"` records one durable ask and returns; `--urgent "<why>"` is counted
-and never refused. The coordinated Nix rebuild worker coalesces every open ask into ONE
-coordinated rebuild and closes each request against the generation that landed.
+and never refused. The Nix rebuild worker watches the durable request queue,
+coalesces every open ask into one rebuild, and closes each request against the generation that landed.
 Direct `firn rebuild` and `firn-rebuild-coordinated` are DENIED for agent tool
 calls (deliberate owner escape: `north config guards off`); `firn update` and
 raw nixos-rebuild/nh stay the USER's. A rebuild still builds a COMMIT SNAPSHOT

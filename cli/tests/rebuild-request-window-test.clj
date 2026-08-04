@@ -123,7 +123,7 @@
          north.coord/indexed-query
          (fn [& _] (throw (ex-info "global query used" {})))]
         (rq/load-window-record 7977 window-id))]
-  (check "the window owner loads one exact subject without a global query"
+(check "the request queue loads one exact window without a global query"
          (and (= [[7977 (str "@rebuild-window:" window-id)]] @calls)
               (= window-record (select-keys record [:id :requests]))
               (= "launching" (:action record)))))
@@ -202,7 +202,7 @@
          north.rebuild-request/write-window-action-projection!
          (fn [_ id value] (reset! action [id value]))]
         (rq/run-window! 7977 window-id))]
-  (check "the window owner uses automatic mode without a second human intent ceremony"
+(check "the Nix rebuild worker uses automatic mode without a second human intent ceremony"
          (and (zero? rc)
               (= "--automatic" (nth (first @shell-calls) 1))
               (= "--why" (nth (first @shell-calls) 2))
@@ -211,7 +211,7 @@
                  @satisfied)
               (= [window-id "fired"] @action)
               (= "window_generation" (nth (first @writes) 2))))
-  (check "a fired window schedules the canary outside the singleton rebuild unit"
+(check "a fired window schedules the canary outside the Nix rebuild worker"
          (let [canary-call (second @shell-calls)]
            (and (= 2 (count @shell-calls))
                 (= "systemd-run" (first canary-call))

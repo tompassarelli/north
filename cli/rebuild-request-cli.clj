@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; The rebuild QUEUE surface: record a durable ask and return — never build,
 ;; never hold. Loadable as a library (north.rebuild-request-cli.lib=1) so the
-;; coordinated Nix rebuild worker drives this exact read/write path; every function
+;; Nix rebuild worker drives this exact path; every function
 ;; therefore takes its port explicitly instead of reading one global.
 (ns north.rebuild-request
   (:require [babashka.process :as proc]
@@ -537,7 +537,7 @@
      :bridge bridge}))
 
 (defn load-window-records
-  "Window-owner records, newest first: {:id :at-ms :action :requests}."
+  "Rebuild request windows, newest first: {:id :at-ms :action :requests}."
   [port]
   (let [requests (reduce (fn [acc [subject value]] (update acc subject (fnil conj []) value))
                          {} (pairs-with port "window_request" max-subjects))]
@@ -566,13 +566,12 @@
        :requests (get facts "window_request" [])})))
 
 (defn last-fired-window-ms
-  "Legacy-compatible telemetry for when the owner last completed a window."
+  "Legacy-compatible telemetry for the queue's latest completed window."
   [port]
   (get-in (queue-snapshot! port) [:snapshot :last-fired-ms]))
 
 (defn intent-creation-times
-  "createdAtMs of every recorded rebuild intent — the only durable trace a
-   coordinated rebuild leaves."
+  "createdAtMs of every recorded rebuild intent — each rebuild's durable trace."
   [port]
   (->> (pairs-with port "rebuild_intent" max-subjects)
        (keep (fn [[_ raw]]
@@ -704,7 +703,7 @@
        :path (.getPath current)
        :note "promote infra not yet deployed"})))
 
-;; ---- window owner -----------------------------------------------------------
+;; ---- request window planning ------------------------------------------------
 
 (defn plan-window [port]
   (let [{:keys [snapshot bridge]} (queue-snapshot! port)
@@ -724,13 +723,13 @@
     (assoc plan :unread-older 0 :queue-read bridge)))
 
 ;; ---- post-window canary probe ------------------------------------------------
-;; Gate D probes the landed generation after window close. It must run in a
-;; separate unit so a slow probe cannot retain the singleton rebuild unit.
+;; Gate D probes the landed generation after window close. It runs separately
+;; so a slow probe cannot block the Nix rebuild worker from reading its queue.
 
-(def canary-alert-subject "north-rebuild-window-owner")
+(def canary-alert-subject "north-rebuild-canary")
 
 (defn canary-alert-recipient []
-  (or (System/getenv "NORTH_REBUILD_CANARY_OWNER")
+  (or (System/getenv "NORTH_REBUILD_CANARY_RECIPIENT")
       (System/getenv "NORTH_AUTHOR")
       "tom_passarelli"))
 
@@ -919,8 +918,8 @@
     (when-not (:why options) (fail! "--why is required"))
     (let [id (record-request! port (assoc options :requester (current-requester)))]
       (println id)
-      (println (str "queued: an idle coordinated Nix rebuild worker immediately coalesces open requests "
-                    "into one coordinated rebuild"
+      (println (str "queued: the Nix rebuild worker coalesces open requests "
+                    "into one rebuild"
                     (when-not (coordination-on?)
                       " (rebuild-coordination is off — requests queue and report, nothing fires)")))
       (when (:urgent-reason options)
@@ -955,7 +954,6 @@
    "      then fix the delivery channel (promote, not rebuild). Target: zero.\n"
    "  north rebuild list\n"
    "  north rebuild satisfy <request-id> --generation <path> [--intent <id>]\n"
-   "  north rebuild run-window <window-id>\n"
    "  north rebuild repair-legacy-cursor\n"
    "  north rebuild health-json"))
 
@@ -981,10 +979,6 @@
             (when-not (:generation options) (fail! "satisfy requires --generation"))
             (mark-satisfied! port id options)
             (println (str "satisfied " (normalize-request-id id))))
-          "run-window"
-          (if (= 1 (count args))
-            (System/exit (run-window! port (first args)))
-            (fail! usage))
           "run-canary"
           (if (= 2 (count args))
             (let [[window-id generation] args]

@@ -449,8 +449,8 @@ case "${1:-}" in
     exec "$BB" "$NORTH/cli/rebuild-intent-cli.clj" "${@:2}" ;;
   rebuild)
     # The QUEUE in front of that protocol: `request` records a durable ask and
-    # returns immediately — an agent never fires a rebuild itself. The
-    # coordinated Nix rebuild worker is the only collector.
+    # returns immediately — an agent never fires a rebuild itself. The Nix
+    # rebuild worker is the only queue consumer.
     exec "$BB" "$NORTH/cli/rebuild-request-cli.clj" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a

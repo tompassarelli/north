@@ -173,7 +173,7 @@ jobs:
           bb cli/tests/dashboard-live-test.clj
           bb cli/tests/dashboard-promoted-runtime-test.clj  # promoted-runtime selector reading + code-adoption gauge
           bb cli/tests/rebuild-request-window-test.clj  # window owner decides on fixture time, never wall-clock
-          bb cli/tests/coordinated-nix-rebuild-worker-test.clj  # scoped wake, sole claim, durable fallback
+          bb cli/tests/nix-rebuild-worker-test.clj  # one queue consumer, synchronous rebuild, durable fallback
           bb cli/tests/coordinator-jvm-health-test.clj
           bb cli/tests/deployed-cli-test.clj
           BABASHKA_CLASSPATH="out:../fram/out" bb cli/tests/wip-cli-test.clj
