@@ -1,7 +1,7 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { focus_view, make_agent, make_model, make_work, replace_projection, select_agent, select_thread, set_filter, set_layout, snapshot, upsert_agent } from './model.js';
+import { Agent, WorkItem, agent_id, agent_name, agent_status, agent_task, bridgesnapshot_active_view_id, bridgesnapshot_agents, bridgesnapshot_board, bridgesnapshot_layout, bridgesnapshot_list, bridgesnapshot_notice, bridgesnapshot_selected_thread, focus_view, make_model, replace_projection, select_agent, select_thread, set_filter, set_layout, snapshot, upsert_agent, workitem_body, workitem_condition, workitem_dependencies, workitem_driver, workitem_id, workitem_title } from './model.js';
 
 const IntlSegmenter = Intl.Segmenter;
 
@@ -19,17 +19,155 @@ function slashcommand_completion(r) { return r.completion; }
 
 function slashcommand_emoji(r) { return r.emoji; }
 
-const NORTH_BIN = (process.env.NORTH_BIN || "north");
+function ParsedCommand(name, rest) {
+  return Object.freeze({_tag: "ParsedCommand", name, rest});
+}
+
+function parsedcommand_name(r) { return r.name; }
+
+function parsedcommand_rest(r) { return r.rest; }
+
+function ConversationItem(id, kind, title, body, status, data) {
+  return Object.freeze({_tag: "ConversationItem", id, kind, title, body, status, data});
+}
+
+function conversationitem_id(r) { return r.id; }
+
+function conversationitem_kind(r) { return r.kind; }
+
+function conversationitem_title(r) { return r.title; }
+
+function conversationitem_body(r) { return r.body; }
+
+function conversationitem_status(r) { return r.status; }
+
+function conversationitem_data(r) { return r.data; }
+
+function WorkView(id, title, items) {
+  return Object.freeze({_tag: "WorkView", id, title, items});
+}
+
+function workview_id(r) { return r.id; }
+
+function workview_title(r) { return r.title; }
+
+function workview_items(r) { return r.items; }
+
+function WorkSelection(view, index) {
+  return Object.freeze({_tag: "WorkSelection", view, index});
+}
+
+function workselection_view(r) { return r.view; }
+
+function workselection_index(r) { return r.index; }
+
+function BoardLane(id, title) {
+  return Object.freeze({_tag: "BoardLane", id, title});
+}
+
+function boardlane_id(r) { return r.id; }
+
+function boardlane_title(r) { return r.title; }
+
+function SoundPack(ready, done, interrupted, failed) {
+  return Object.freeze({_tag: "SoundPack", ready, done, interrupted, failed});
+}
+
+function soundpack_ready(r) { return r.ready; }
+
+function soundpack_done(r) { return r.done; }
+
+function soundpack_interrupted(r) { return r.interrupted; }
+
+function soundpack_failed(r) { return r.failed; }
+
+function SoundPlayer(kind, path) {
+  return Object.freeze({_tag: "SoundPlayer", kind, path});
+}
+
+function soundplayer_kind(r) { return r.kind; }
+
+function soundplayer_path(r) { return r.path; }
+
+function ParsedRecord(kind, data) {
+  return Object.freeze({_tag: "ParsedRecord", kind, data});
+}
+
+function parsedrecord_kind(r) { return r.kind; }
+
+function parsedrecord_data(r) { return r.data; }
+
+function CommandParts(executable, arguments$) {
+  return Object.freeze({_tag: "CommandParts", executable, arguments: arguments$});
+}
+
+function commandparts_executable(r) { return r.executable; }
+
+function commandparts_arguments(r) { return r.arguments; }
+
+function DiffRow(kind, old, new$, text) {
+  return Object.freeze({_tag: "DiffRow", kind, old, new: new$, text});
+}
+
+function diffrow_kind(r) { return r.kind; }
+
+function diffrow_old(r) { return r.old; }
+
+function diffrow_new(r) { return r.new; }
+
+function diffrow_text(r) { return r.text; }
+
+function DiffState(old_line, new_line, additions, deletions, rows) {
+  return Object.freeze({_tag: "DiffState", old_line, new_line, additions, deletions, rows});
+}
+
+function diffstate_old_line(r) { return r.old_line; }
+
+function diffstate_new_line(r) { return r.new_line; }
+
+function diffstate_additions(r) { return r.additions; }
+
+function diffstate_deletions(r) { return r.deletions; }
+
+function diffstate_rows(r) { return r.rows; }
+
+function FileChangeDetails(path, kind, additions, deletions, rows) {
+  return Object.freeze({_tag: "FileChangeDetails", path, kind, additions, deletions, rows});
+}
+
+function filechangedetails_path(r) { return r.path; }
+
+function filechangedetails_kind(r) { return r.kind; }
+
+function filechangedetails_additions(r) { return r.additions; }
+
+function filechangedetails_deletions(r) { return r.deletions; }
+
+function filechangedetails_rows(r) { return r.rows; }
+
+function FileChangeSummary(additions, deletions, files) {
+  return Object.freeze({_tag: "FileChangeSummary", additions, deletions, files});
+}
+
+function filechangesummary_additions(r) { return r.additions; }
+
+function filechangesummary_deletions(r) { return r.deletions; }
+
+function filechangesummary_files(r) { return r.files; }
+
+const NORTH_BIN = (() => { const configured = text(process.env.NORTH_BIN); return ((configured === "") ? "north" : configured); })();
 
 const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only READY, then wait for operator input.";
 
-const BOARD_LANES = [{id: "not-started", title: "Not Started"}, {id: "in-progress", title: "In Progress"}, {id: "done", title: "Done"}];
+const BOARD_LANES = [BoardLane("not-started", "Not Started"), BoardLane("in-progress", "In Progress"), BoardLane("done", "Done")];
 
 const DEFAULT_PROMPT_GLYPH = "❯";
 
 const SOUND_COOLDOWN_MS = 700;
 
-const SOUND_PACKS = {peon: {ready: ["PeonReady1.ogg"], done: ["PeonYes1.ogg", "PeonYes2.ogg", "PeonYes3.ogg", "PeonYes4.ogg"], interrupted: ["PeonWhat1.ogg", "PeonWhat3.ogg", "PeonWhat4.ogg"], failed: ["PeonAngry1.ogg", "PeonAngry4.ogg"]}, peasant: {ready: ["PeasantReady1.mp3"], done: ["PeasantYes2.mp3", "PeasantYes4.mp3", "PeasantYesAttack4.mp3"], interrupted: ["PeasantWhat1.mp3"], failed: ["PeasantAngry1.mp3"]}};
+const PEON_SOUND_PACK = SoundPack(["PeonReady1.ogg"], ["PeonYes1.ogg", "PeonYes2.ogg", "PeonYes3.ogg", "PeonYes4.ogg"], ["PeonWhat1.ogg", "PeonWhat3.ogg", "PeonWhat4.ogg"], ["PeonAngry1.ogg", "PeonAngry4.ogg"]);
+
+const PEASANT_SOUND_PACK = SoundPack(["PeasantReady1.mp3"], ["PeasantYes2.mp3", "PeasantYes4.mp3", "PeasantYesAttack4.mp3"], ["PeasantWhat1.mp3"], ["PeasantAngry1.mp3"]);
 
 const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", false, "😀", true), SlashCommand("😄", "smiling face · happy cheerful", false, "😄", true), SlashCommand("😂", "tears of joy · laugh funny", false, "😂", true), SlashCommand("😊", "warm smile · pleased blush", false, "😊", true), SlashCommand("😎", "cool face · sunglasses", false, "😎", true), SlashCommand("🤔", "thinking face · consider question", false, "🤔", true), SlashCommand("😅", "relieved smile · nervous sweat", false, "😅", true), SlashCommand("😭", "crying face · sad tears", false, "😭", true), SlashCommand("😡", "angry face · mad upset", false, "😡", true), SlashCommand("😤", "frustrated face · annoyed", false, "😤", true), SlashCommand("🥳", "celebration face · party", false, "🥳", true), SlashCommand("🤯", "mind blown · surprised", false, "🤯", true), SlashCommand("🫡", "salute · acknowledged", false, "🫡", true), SlashCommand("👋", "wave · hello goodbye", false, "👋", true), SlashCommand("👍", "thumbs up · approve yes", false, "👍", true), SlashCommand("👎", "thumbs down · reject no", false, "👎", true), SlashCommand("🙏", "thanks · please gratitude", false, "🙏", true), SlashCommand("💪", "strength · effort strong", false, "💪", true), SlashCommand("👀", "eyes · look review", false, "👀", true), SlashCommand("🎉", "party popper · celebrate success", false, "🎉", true), SlashCommand("❤️", "heart · love favorite", false, "❤️", true), SlashCommand("🔥", "fire · hot excellent", false, "🔥", true), SlashCommand("✨", "sparkles · magic polish", false, "✨", true), SlashCommand("🚀", "rocket · launch ship", false, "🚀", true), SlashCommand("💡", "light bulb · idea insight", false, "💡", true), SlashCommand("✅", "done · complete success check", false, "✅", true), SlashCommand("❌", "failed · error cross", false, "❌", true), SlashCommand("⚠️", "warning · caution attention", false, "⚠️", true), SlashCommand("🐛", "bug · defect debug", false, "🐛", true), SlashCommand("🔧", "wrench · fix repair tool", false, "🔧", true), SlashCommand("🧪", "test tube · test experiment", false, "🧪", true), SlashCommand("📌", "pin · important remember", false, "📌", true), SlashCommand("📝", "note · write document", false, "📝", true), SlashCommand("⏳", "waiting · hourglass pending", false, "⏳", true), SlashCommand("🔒", "lock · secure private", false, "🔒", true), SlashCommand("🔓", "unlock · open access", false, "🔓", true), SlashCommand("📦", "package · bundle release", false, "📦", true), SlashCommand("🧭", "compass · navigate direction", false, "🧭", true), SlashCommand("🔊", "speaker · sound volume", false, "🔊", true), SlashCommand("🔇", "muted speaker · quiet silence", false, "🔇", true), SlashCommand("❯", "prompt · leader chevron", false, "❯", true), SlashCommand("→", "right arrow · next forward", false, "→", true), SlashCommand("←", "left arrow · back previous", false, "←", true), SlashCommand("↑", "up arrow · increase", false, "↑", true), SlashCommand("↓", "down arrow · decrease", false, "↓", true), SlashCommand("★", "star · favorite important", false, "★", true), SlashCommand("•", "bullet · list point", false, "•", true), SlashCommand("✓", "check · yes done", false, "✓", true), SlashCommand("✗", "cross · no failed", false, "✗", true)];
 
@@ -41,6 +179,11 @@ const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", tru
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
+}
+
+function text_or(value, fallback) {
+  const candidate = text(value);
+  return ((candidate === "") ? fallback : candidate);
 }
 
 function bare(value) {
@@ -75,17 +218,15 @@ function next_item_id_bang(runtime, prefix) {
 }
 
 function conversation_item(id, kind, title, body, status) {
-  return {id: id, kind: kind, title: title, body: body, status: status};
+  return ConversationItem(id, kind, title, body, status, null);
 }
 
 function conversation_item_with_data_bang(id, kind, title, body, status, data) {
-  const item = conversation_item(id, kind, title, body, status);
-  (item.data = data);
-  return item;
+  return ConversationItem(id, kind, title, body, status, data);
 }
 
 function conversation_index(runtime, id) {
-  return runtime.conversation.findIndex((item) => (text(item.id) === id));
+  return runtime.conversation.findIndex((item) => (conversationitem_id(item) === id));
 }
 
 function conversation_item_by_id(runtime, id) {
@@ -94,7 +235,7 @@ function conversation_item_by_id(runtime, id) {
 }
 
 function upsert_conversation_bang(runtime, item) {
-  const index = conversation_index(runtime, text(item.id));
+  const index = conversation_index(runtime, conversationitem_id(item));
   if ((index >= 0)) {
     (runtime.conversation[index] = item);
   } else {
@@ -153,7 +294,7 @@ function command(input) {
   const trimmed = input.trim();
   const normalized = (trimmed.startsWith("/") ? trimmed.slice(1) : trimmed);
   const split_at = normalized.indexOf(" ");
-  return ((split_at < 0) ? {name: normalized.toLowerCase(), rest: ""} : {name: normalized.slice(0, split_at).toLowerCase(), rest: normalized.slice((split_at + 1)).trim()});
+  return ((split_at < 0) ? ParsedCommand(normalized.toLowerCase(), "") : ParsedCommand(normalized.slice(0, split_at).toLowerCase(), normalized.slice((split_at + 1)).trim()));
 }
 
 function exit_command_p(name) {
@@ -173,9 +314,9 @@ function glyph_options(query) {
 function palette_options(pane, input) {
   const query = input.trim().toLowerCase();
   const parsed = command(input);
-  const name = text(parsed.name);
+  const name = parsedcommand_name(parsed);
   const commands = ((pane === "agents") ? AGENT_COMMANDS : WORK_COMMANDS);
-  return ((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(text(parsed.rest)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(text(parsed.rest)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)).slice(0, 8);
+  return ((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)).slice(0, 8);
 }
 
 function submit_key_p(name) {
@@ -188,7 +329,7 @@ async function run_command(argv) {
   const stdout = text(results[0]);
   const stderr = text(results[1]);
   const exit_code = results[2];
-  return ((exit_code === 0) ? stdout : (() => { throw new Error(("".concat(argv.join(" "), " failed (", exit_code, "): ", (stderr.trim() || stdout.trim())))); })());
+  return ((exit_code === 0) ? stdout : (() => { throw new Error(("".concat(argv.join(" "), " failed (", exit_code, "): ", text_or(stderr.trim(), stdout.trim())))); })());
 }
 
 async function run_json(argv) {
@@ -224,11 +365,11 @@ async function stream_command(argv, on_stdout, on_stderr) {
 
 function normalize_agents(payload) {
   const rows = ((payload && Array.isArray(payload.agents)) ? payload.agents : []);
-  return rows.map((row) => { const id = bare((row.control_id || row.uuid || row.id));
-const name = text((row.display_handle || row.display_name || id));
-const status = text((row.state_label || row.state || "unknown"));
-const task = text((row.task || row.thread_title || ""));
-return make_agent(id, name, status, task); });
+  return rows.map((row) => { const id = bare(text_or(row.control_id, text_or(row.uuid, text(row.id))));
+const name = text_or(row.display_handle, text_or(row.display_name, id));
+const status = text_or(row.state_label, text_or(row.state, "unknown"));
+const task = text_or(row.task, text(row.thread_title));
+return Agent(id, name, status, task); });
 }
 
 function board_ids(board) {
@@ -259,12 +400,12 @@ function body_of(facts, id) {
 
 function normalize_work(board, facts) {
   return ((!Array.isArray(board)) ? [] : board.map((row) => { const id = bare(row.id);
-const title = text((row.title || id));
+const title = text_or(row.title, id);
 const body = body_of(facts, id);
-const condition = text((row.condition || "open"));
+const condition = text_or(row.condition, "open");
 const driver = driver_of(facts, id);
 const dependencies = dependencies_of(facts, id);
-return make_work(id, title, body, condition, driver, dependencies); }));
+return WorkItem(id, title, body, condition, driver, dependencies); }));
 }
 
 function terminal_condition_p(condition) {
@@ -276,10 +417,10 @@ function board_lane_id(condition) {
 }
 
 function ordered_board_items(open_items, done_items) {
-  const ready = open_items.filter((item) => (text(item.condition) === "ready"));
-  const waiting = open_items.filter((item) => { const condition = text(item.condition);
+  const ready = open_items.filter((item) => (workitem_condition(item) === "ready"));
+  const waiting = open_items.filter((item) => { const condition = workitem_condition(item);
 return ((!(condition === "ready")) && (!(condition === "active"))); });
-  const active = open_items.filter((item) => (text(item.condition) === "active"));
+  const active = open_items.filter((item) => (workitem_condition(item) === "active"));
   return ready.concat(waiting, active, done_items);
 }
 
@@ -332,7 +473,7 @@ function discover_sound_player() {
   const mpv = Bun.which("mpv");
   const ffplay = Bun.which("ffplay");
   const pw_play = Bun.which("pw-play");
-  return (mpv) ? {kind: "mpv", path: text(mpv)} : (ffplay) ? {kind: "ffplay", path: text(ffplay)} : (pw_play) ? {kind: "pw-play", path: text(pw_play)} : null;
+  return (mpv) ? SoundPlayer("mpv", text(mpv)) : (ffplay) ? SoundPlayer("ffplay", text(ffplay)) : (pw_play) ? SoundPlayer("pw-play", text(pw_play)) : null;
 }
 
 function sound_warning_bang(runtime, message) {
@@ -347,8 +488,8 @@ function sound_path(directory, filename) {
 }
 
 function sound_argv(player, path) {
-  const executable = text(player.path);
-  return ((text(player.kind) === "mpv")) ? [executable, "--no-video", "--really-quiet", path] : ((text(player.kind) === "ffplay")) ? [executable, "-nodisp", "-autoexit", "-loglevel", "quiet", path] : [executable, path];
+  const executable = soundplayer_path(player);
+  return ((soundplayer_kind(player) === "mpv")) ? [executable, "--no-video", "--really-quiet", path] : ((soundplayer_kind(player) === "ffplay")) ? [executable, "-nodisp", "-autoexit", "-loglevel", "quiet", path] : [executable, path];
 }
 
 function spawn_sound_bang(runtime, path) {
@@ -386,8 +527,8 @@ function play_sound_path_bang(runtime, path) {
 }
 
 function select_sound_path_bang(runtime, event) {
-  const pack = ((text(runtime.soundPack) === "peasant") ? SOUND_PACKS.peasant : SOUND_PACKS.peon);
-  const files = ((event === "ready")) ? pack.ready : ((event === "done")) ? pack.done : ((event === "interrupted")) ? pack.interrupted : ((event === "failed")) ? pack.failed : [];
+  const pack = ((text(runtime.soundPack) === "peasant") ? PEASANT_SOUND_PACK : PEON_SOUND_PACK);
+  const files = ((event === "ready")) ? soundpack_ready(pack) : ((event === "done")) ? soundpack_done(pack) : ((event === "interrupted")) ? soundpack_interrupted(pack) : ((event === "failed")) ? soundpack_failed(pack) : [];
   const count = files.length;
   if ((count === 0)) {
     return "";
@@ -416,7 +557,7 @@ function play_sound_event_bang(runtime, stream_state, event) {
 
 function sound_status(runtime) {
   const player = runtime.soundPlayer;
-  return ("".concat("sound ", (runtime.soundEnabled ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (player ? text(player.kind) : "none"), " · ", text(runtime.soundDirectory)));
+  return ("".concat("sound ", (runtime.soundEnabled ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (player ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory)));
 }
 
 function handle_sound_command_bang(runtime, rest) {
@@ -439,8 +580,8 @@ function handle_local_command_bang(runtime, ui, input) {
     return false;
   } else {
     const parsed = command(trimmed);
-    const name = text(parsed.name);
-    const rest = text(parsed.rest);
+    const name = parsedcommand_name(parsed);
+    const rest = parsedcommand_rest(parsed);
     return (((name === "glyph") || (name === "prompt"))) ? (() => { if ((rest.toLowerCase() === "reset")) {
   set_prompt_glyph_bang(runtime, DEFAULT_PROMPT_GLYPH);
 } else {
@@ -505,25 +646,25 @@ async function refresh_bang(runtime) {
   const board = payloads[1];
   const done = payloads[2];
   const state = snapshot(runtime.model);
-  const current_agents = (state.agents || []);
-  const bridge_agents = current_agents.filter((agent) => runtime.bridgeExecutions.has(text(agent.id)));
+  const current_agents = bridgesnapshot_agents(state);
+  const bridge_agents = current_agents.filter((agent) => runtime.bridgeExecutions.has(agent_id(agent)));
   const remote_agents = (agent_payload ? normalize_agents(agent_payload) : []);
-  const distinct_remote = remote_agents.filter((agent) => (!runtime.bridgeExecutions.has(text(agent.id))));
+  const distinct_remote = remote_agents.filter((agent) => (!runtime.bridgeExecutions.has(agent_id(agent))));
   const agents = (agent_payload ? bridge_agents.concat(distinct_remote) : current_agents);
   const open_rows = (Array.isArray(board) ? board : []);
   const done_rows = (Array.isArray(done) ? done : []);
   const ids = board_ids(open_rows).concat(board_ids(done_rows));
   const facts = ((ids.length > 0) ? await run_json([NORTH_BIN, "json", "show-many", ids.join(",")]).catch((__) => []) : []);
-  const work = (Array.isArray(board) ? normalize_work(open_rows, facts) : (state.list || []));
-  const prior_terminal = (state.kanban || []).filter((item) => terminal_condition_p(text(item.condition)));
+  const work = (Array.isArray(board) ? normalize_work(open_rows, facts) : bridgesnapshot_list(state));
+  const prior_terminal = bridgesnapshot_board(state).filter((item) => terminal_condition_p(workitem_condition(item)));
   const terminal_work = (Array.isArray(done) ? normalize_work(done_rows, facts) : prior_terminal);
   const kanban = ordered_board_items(work, terminal_work);
   const next_model = replace_projection(runtime.model, agents, work, kanban);
-  const selected_id = bare(state.selectedThread);
+  const selected_id = bridgesnapshot_selected_thread(state);
   const next_state = snapshot(next_model);
   const next_view = selected_view(next_state, runtime.activeView);
-  const next_items = (next_view.items || []);
-  const next_index = next_items.findIndex((item) => (bare(item.id) === selected_id));
+  const next_items = workview_items(next_view);
+  const next_index = next_items.findIndex((item) => (workitem_id(item) === selected_id));
   (runtime.model = next_model);
   if ((next_index >= 0)) {
     (runtime.workIndex = next_index);
@@ -535,29 +676,24 @@ function canonical_work_view(view_id) {
   return (((view_id === "graph") || (view_id === "dag"))) ? "graph" : (((view_id === "board") || (view_id === "kanban"))) ? "board" : "list";
 }
 
-function model_work_view(view_id) {
-  const view = canonical_work_view(view_id);
-  return ((view === "graph")) ? "dag" : ((view === "board")) ? "kanban" : "list";
-}
-
 function recognized_work_view_p(view_id) {
   return ((view_id === "list") || (view_id === "graph") || (view_id === "board") || (view_id === "dag") || (view_id === "kanban"));
 }
 
 function view_list(state) {
-  return [{id: "list", title: "List", items: (state.list || [])}, {id: "graph", title: "Graph", items: (state.list || [])}, {id: "board", title: "Board", items: (state.kanban || [])}];
+  return [WorkView("list", "List", bridgesnapshot_list(state)), WorkView("graph", "Graph", bridgesnapshot_list(state)), WorkView("board", "Board", bridgesnapshot_board(state))];
 }
 
 function selected_view(state, view_id) {
   const views = view_list(state);
   const canonical = canonical_work_view(view_id);
-  const selected = views.find((view) => (text(view.id) === canonical));
+  const selected = views.find((view) => (workview_id(view) === canonical));
   return (selected || views[0]);
 }
 
 function roster_text(state, selected) {
-  const agents = (state.agents || []);
-  return ((agents.length === 0) ? "No agents attached" : agents.map((agent, index) => ("".concat(((index === selected) ? "› " : "  "), (text(agent.name) || text(agent.id)), ((text(agent.status) === "") ? "" : ("".concat(" (", text(agent.status), ")"))), ((text(agent.task) === "") ? "" : ("".concat(" — ", text(agent.task))))))).join("\n"));
+  const agents = bridgesnapshot_agents(state);
+  return ((agents.length === 0) ? "No agents attached" : agents.map((agent, index) => ("".concat(((index === selected) ? "› " : "  "), (() => { const name = agent_name(agent); return ((name === "") ? agent_id(agent) : name); })(), ((agent_status(agent) === "") ? "" : ("".concat(" (", agent_status(agent), ")"))), ((agent_task(agent) === "") ? "" : ("".concat(" — ", agent_task(agent))))))).join("\n"));
 }
 
 function push_chunk_bang(chunks, chunk) {
@@ -588,7 +724,7 @@ function terminal_rows() {
 }
 
 function stacked_workspace_p(state) {
-  return (text(state.layout) === "horizontal");
+  return (bridgesnapshot_layout(state) === "horizontal");
 }
 
 function pane_visible_p(runtime, pane) {
@@ -666,12 +802,16 @@ function short_directory(directory) {
 }
 
 function session_context_text(runtime) {
-  return ("".concat((text(runtime.sessionModel) || "model pending"), " ", (text(runtime.sessionEffort) || "effort pending"), " · ", (short_directory(runtime.sessionCwd) || "directory pending"), " · ", (text(runtime.sessionBranch) || "branch pending")));
+  return ("".concat(text_or(runtime.sessionModel, "model pending"), " ", text_or(runtime.sessionEffort, "effort pending"), " · ", text_or(short_directory(runtime.sessionCwd), "directory pending"), " · ", text_or(runtime.sessionBranch, "branch pending")));
+}
+
+function render_session_context(runtime) {
+  return new StyledText([brightBlack("  "), brightYellow(("".concat(text_or(runtime.sessionModel, "model pending"), " ", text_or(runtime.sessionEffort, "effort pending")))), brightBlack(" · "), brightGreen(text_or(short_directory(runtime.sessionCwd), "directory pending")), brightBlack(" · "), dim(text_or(runtime.sessionBranch, "branch pending"))]);
 }
 
 function command_parts(title) {
   const space = title.indexOf(" ");
-  return ((space < 0) ? {executable: title, arguments: ""} : {executable: title.slice(0, space), arguments: title.slice((space + 1))});
+  return ((space < 0) ? CommandParts(title, "") : CommandParts(title.slice(0, space), title.slice((space + 1))));
 }
 
 function push_command_output_bang(chunks, output) {
@@ -694,9 +834,9 @@ function push_command_card_bang(chunks, title, body, status) {
   const running_p = (status === "running");
   push_chunk_bang(chunks, (((status === "failed")) ? brightRed : (running_p) ? brightYellow : brightGreen)("• "));
   push_chunk_bang(chunks, brightWhite((running_p ? "Running " : "Ran ")));
-  push_chunk_bang(chunks, brightCyan(text(parts.executable)));
-  if ((!(text(parts.arguments) === ""))) {
-    push_chunk_bang(chunks, dim(("".concat(" ", text(parts.arguments)))));
+  push_chunk_bang(chunks, brightCyan(commandparts_executable(parts)));
+  if ((!(commandparts_arguments(parts) === ""))) {
+    push_chunk_bang(chunks, dim(("".concat(" ", commandparts_arguments(parts)))));
   }
   push_command_output_bang(chunks, body);
   return push_chunk_bang(chunks, white("\n\n"));
@@ -711,44 +851,23 @@ function diff_start_line(token) {
   return (Number.isFinite(parsed) ? parsed : 0);
 }
 
+function append_diff_row(state, row) {
+  return Object.freeze({...state, rows: diffstate_rows(state).concat(row)});
+}
+
 function diff_rows(diff) {
   const source = clean_text(diff);
-  return ((source === "") ? {oldLine: 0, newLine: 0, additions: 0, deletions: 0, rows: []} : source.split("\n").reduce((state, line) => { if (line.startsWith("@@ ")) {
-  const parts = line.split(" ");
-  (state.oldLine = diff_start_line(parts[1]));
-  (state.newLine = diff_start_line(parts[2]));
-  state.rows.push({kind: "hunk", old: "", new: "", text: line});
-} else if ((line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ "))) {
-  null;
-} else if (line.startsWith("+")) {
-  state.rows.push({kind: "add", old: "", new: state.newLine, text: line});
-  (state.newLine = (state.newLine + 1));
-  (state.additions = (state.additions + 1));
-} else if (line.startsWith("-")) {
-  state.rows.push({kind: "delete", old: state.oldLine, new: "", text: line});
-  (state.oldLine = (state.oldLine + 1));
-  (state.deletions = (state.deletions + 1));
-} else if (line.startsWith("\\ No newline")) {
-  state.rows.push({kind: "meta", old: "", new: "", text: line});
-} else {
-  state.rows.push({kind: "context", old: state.oldLine, new: state.newLine, text: line});
-  (state.oldLine = (state.oldLine + 1));
-  (state.newLine = (state.newLine + 1));
-}
-return state; }, {oldLine: 0, newLine: 0, additions: 0, deletions: 0, rows: []}));
+  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => (line.startsWith("@@ ")) ? (() => { const parts = line.split(" "); return append_diff_row(Object.freeze({...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : ((line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ "))) ? state : (line.startsWith("+")) ? append_diff_row(Object.freeze({...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", ("".concat(diffstate_new_line(state))), line)) : (line.startsWith("-")) ? append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", ("".concat(diffstate_old_line(state))), "", line)) : (line.startsWith("\\ No newline")) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", ("".concat(diffstate_old_line(state))), ("".concat(diffstate_new_line(state))), line)), DiffState(0, 0, 0, 0, [])));
 }
 
 function file_change_details(change) {
   const parsed = diff_rows(change.diff);
-  return {path: text(change.path), kind: text(change.kind), additions: parsed.additions, deletions: parsed.deletions, rows: parsed.rows};
+  return FileChangeDetails(text(change.path), text(change.kind), diffstate_additions(parsed), diffstate_deletions(parsed), diffstate_rows(parsed));
 }
 
 function file_change_summary(changes) {
   return changes.reduce((summary, change) => { const details = file_change_details(change);
-(summary.additions = (summary.additions + details.additions));
-(summary.deletions = (summary.deletions + details.deletions));
-summary.files.push(details);
-return summary; }, {additions: 0, deletions: 0, files: []});
+return Object.freeze({...summary, additions: (filechangesummary_additions(summary) + filechangedetails_additions(details)), deletions: (filechangesummary_deletions(summary) + filechangedetails_deletions(details)), files: filechangesummary_files(summary).concat(details)}); }, FileChangeSummary(0, 0, []));
 }
 
 function diff_line_number(value) {
@@ -760,9 +879,9 @@ function push_diff_rows_bang(chunks, rows, width) {
   const limit = 36;
   const visible = rows.slice(0, limit);
   const overflow = Math.max(0, (rows.length - limit));
-  visible.forEach((row) => { const kind = text(row.kind);
-const numbers = ("".concat(diff_line_number(row.old), " ", diff_line_number(row.new), " │ "));
-const line = compact_text(("".concat(numbers, text(row.text))), width);
+  visible.forEach((row) => { const kind = diffrow_kind(row);
+const numbers = ("".concat(diff_line_number(diffrow_old(row)), " ", diff_line_number(diffrow_new(row)), " │ "));
+const line = compact_text(("".concat(numbers, diffrow_text(row))), width);
 push_chunk_bang(chunks, white("\n"));
 return push_chunk_bang(chunks, ((kind === "add")) ? (bg("#173326"))(brightGreen(line.padEnd(width, " "))) : ((kind === "delete")) ? (bg("#382127"))(brightRed(line.padEnd(width, " "))) : ((kind === "hunk")) ? brightCyan(line) : dim(line)); });
   if ((overflow > 0)) {
@@ -771,17 +890,17 @@ return push_chunk_bang(chunks, ((kind === "add")) ? (bg("#173326"))(brightGreen(
 }
 
 function push_file_change_card_bang(chunks, item, status, runtime) {
-  const data = item.data;
+  const data = conversationitem_data(item);
   const changes = ((data && Array.isArray(data.changes)) ? data.changes : []);
   const summary = file_change_summary(changes);
-  const files = summary.files;
+  const files = filechangesummary_files(summary);
   const width = Math.max(24, (available_agent_width(runtime) - 2));
   push_chunk_bang(chunks, ((status === "failed") ? brightRed("• ") : brightGreen("• ")));
-  push_chunk_bang(chunks, brightWhite(("".concat(((status === "running") ? "Editing " : "Edited "), files.length, ((files.length === 1) ? " file" : " files"), " (+", summary.additions, " -", summary.deletions, ")"))));
+  push_chunk_bang(chunks, brightWhite(("".concat(((status === "running") ? "Editing " : "Edited "), files.length, ((files.length === 1) ? " file" : " files"), " (+", filechangesummary_additions(summary), " -", filechangesummary_deletions(summary), ")"))));
   files.forEach((file, index) => { const last_p = (index === (files.length - 1));
-push_chunk_bang(chunks, brightBlack(("".concat("\n  ", (last_p ? "└ " : "├ "), text(file.path), " (+", file.additions, " -", file.deletions, ")"))));
-if ((file.rows.length > 0)) {
-  return push_diff_rows_bang(chunks, file.rows, width);
+push_chunk_bang(chunks, brightBlack(("".concat("\n  ", (last_p ? "└ " : "├ "), filechangedetails_path(file), " (+", filechangedetails_additions(file), " -", filechangedetails_deletions(file), ")"))));
+if ((filechangedetails_rows(file).length > 0)) {
+  return push_diff_rows_bang(chunks, filechangedetails_rows(file), width);
 } });
   return push_chunk_bang(chunks, white("\n\n"));
 }
@@ -797,10 +916,10 @@ return push_chunk_bang(chunks, ((phase === 0)) ? brightYellow(letter) : (((phase
 function render_conversation_bang(runtime) {
   const chunks = [];
   const items = runtime.conversation;
-  items.forEach((item) => { const kind = text(item.kind);
-const title = text(item.title);
-const body = clipped(item.body, 6000);
-const status = text(item.status);
+  items.forEach((item) => { const kind = conversationitem_kind(item);
+const title = conversationitem_title(item);
+const body = clipped(conversationitem_body(item), 6000);
+const status = conversationitem_status(item);
 return ((kind === "user")) ? (() => { push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(user_block_text(runtime, body))));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "assistant")) ? (() => { push_chunk_bang(chunks, brightGreen("• "));
 push_chunk_bang(chunks, brightWhite(body));
@@ -837,8 +956,8 @@ function visible_notice(notice) {
 function render_status(runtime, state) {
   const count_text = text(runtime.windowCount);
   const workspace_notice = text(runtime.workspaceNotice);
-  const notice = ((workspace_notice === "") ? visible_notice(state.notice) : workspace_notice);
-  return (runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightYellow(((count_text === "") ? "" : ("".concat(" · count ", count_text)))), brightBlack("  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("F1"), brightBlack(" close help · "), brightWhite("F2"), brightBlack(" switch pane · "), brightWhite("F3"), brightBlack(" switch work view\n"), brightWhite("F4"), brightBlack(" toggle split · "), brightWhite("F5"), brightBlack(" refresh · "), brightWhite("F6"), brightBlack(" pop out\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("Ctrl-w h/j/k/l"), brightBlack(" neighbor · "), brightWhite("w"), brightBlack(" cycle · "), brightWhite("v/s"), brightBlack(" side-by-side/stacked · "), brightWhite("c"), brightBlack(" close · "), brightWhite("="), brightBlack(" equalize · "), brightWhite("[count] >/<"), brightBlack(" resize\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands · "), brightWhite("/close|/esc|/exit"), brightBlack(" close\n"), brightWhite("/glyph <one>|reset"), brightBlack(" prompt · "), brightWhite("/emoji <query>"), brightBlack(" picker\n"), brightWhite("/sound on|off|pack"), brightBlack(" voice lines · "), brightWhite("/mute"), brightBlack(" quiet")]) : new StyledText([brightBlack(("".concat(notice, "\n"))), brightCyan("F1"), brightBlack(" help · "), brightCyan("F2"), brightBlack(" pane · "), brightCyan("F3"), brightBlack(" view · "), brightCyan("F4"), brightBlack(" split · "), brightCyan("F5"), brightBlack(" refresh · "), brightCyan("F6"), brightBlack(" pop out\n"), brightCyan("Ctrl-w"), brightBlack(" h/j/k/l neighbor · w cycle · v/s split · c close · = equalize · [count] >/< resize")]);
+  const notice = ((workspace_notice === "") ? visible_notice(bridgesnapshot_notice(state)) : workspace_notice);
+  return (runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightYellow(((count_text === "") ? "" : ("".concat(" · count ", count_text)))), brightBlack("  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("←/→"), brightBlack(" switch work view · "), brightWhite("Ctrl-w h/j/k/l"), brightBlack(" neighbor · "), brightWhite("w"), brightBlack(" cycle · "), brightWhite("v/s"), brightBlack(" side-by-side/stacked · "), brightWhite("c"), brightBlack(" close · "), brightWhite("="), brightBlack(" equalize · "), brightWhite("[count] >/<"), brightBlack(" resize\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands · "), brightWhite("/close|/esc|/exit"), brightBlack(" close\n"), brightWhite("/glyph <one>|reset"), brightBlack(" prompt · "), brightWhite("/emoji <query>"), brightBlack(" picker\n"), brightWhite("/sound on|off|pack"), brightBlack(" voice lines · "), brightWhite("/mute"), brightBlack(" quiet")]) : new StyledText([brightBlack(notice)]);
 }
 
 function render_pane_header(title, __focused_p) {
@@ -849,12 +968,13 @@ function render_work_tabs_bang(state, view_id, __focused_p) {
   const chunks = [];
   const views = view_list(state);
   push_chunk_bang(chunks, brightGreen("Work  "));
-  views.forEach((view, index) => { const selected_p = (text(view.id) === view_id);
-const title = (text(view.title) || text(view.id));
+  views.forEach((view, index) => { const selected_p = (workview_id(view) === view_id);
+const title = workview_title(view);
 push_chunk_bang(chunks, ((selected_p ? brightCyan : brightBlack))(("".concat((selected_p ? "[" : " "), title, (selected_p ? "]" : " ")))));
 if ((index < (views.length - 1))) {
   return push_chunk_bang(chunks, white("  "));
 } });
+  push_chunk_bang(chunks, brightBlack("  ← switch →"));
   return new StyledText(chunks);
 }
 
@@ -869,7 +989,7 @@ function cell_text(value, width) {
 }
 
 function short_thread_id(item) {
-  return bare(item.id).slice(0, 8);
+  return workitem_id(item).slice(0, 8);
 }
 
 function push_condition_bang(chunks, condition, label) {
@@ -885,9 +1005,9 @@ function available_work_width(runtime, state) {
 
 function render_list_view_bang(items, selected, width) {
   const chunks = [];
-  items.forEach((item, index) => { const condition = text((item.condition || "open"));
+  items.forEach((item, index) => { const condition = workitem_condition(item);
 const title_width = Math.max(10, (width - 23));
-const title = compact_text(item.title, title_width);
+const title = compact_text(workitem_title(item), title_width);
 const selected_p = (index === selected);
 push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
 push_condition_bang(chunks, condition, cell_text(condition.toUpperCase(), 9));
@@ -900,17 +1020,21 @@ if ((index < (items.length - 1))) {
 }
 
 function work_item_by_id(items, id) {
-  return items.find((item) => (bare(item.id) === id));
+  return items.find((item) => (workitem_id(item) === id));
+}
+
+function work_item_condition_for(items, id) {
+  return items.reduce((condition, item) => ((workitem_id(item) === id) ? workitem_condition(item) : condition), "");
 }
 
 function render_dag_view_bang(items, selected, width) {
   const chunks = [];
-  items.forEach((item, index) => { const condition = text((item.condition || "open"));
-const dependencies = (item.dependencies || []);
+  items.forEach((item, index) => { const condition = workitem_condition(item);
+const dependencies = workitem_dependencies(item);
 const selected_p = (index === selected);
 push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
 push_condition_bang(chunks, condition, "● ");
-push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(compact_text(item.title, Math.max(12, (width - 16)))));
+push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(compact_text(workitem_title(item), Math.max(12, (width - 16)))));
 push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item), "\n"))));
 if ((dependencies.length === 0)) {
   push_chunk_bang(chunks, brightBlack("    ╰─ root\n"));
@@ -918,7 +1042,7 @@ if ((dependencies.length === 0)) {
   dependencies.forEach((dependency) => { const target = work_item_by_id(items, dependency);
 push_chunk_bang(chunks, brightBlack("    ╰─ requires ← "));
 push_chunk_bang(chunks, ((target ? brightCyan : brightBlack))(("".concat("@", dependency.slice(0, 8)))));
-return push_chunk_bang(chunks, (target ? dim(("".concat("  ", compact_text(target.title, Math.max(8, (width - 28))), "\n"))) : brightBlack("  outside current board\n"))); });
+return push_chunk_bang(chunks, (target ? dim(("".concat("  ", compact_text(workitem_title(target), Math.max(8, (width - 28))), "\n"))) : brightBlack("  outside current board\n"))); });
 }
 if ((index < (items.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
@@ -927,7 +1051,7 @@ if ((index < (items.length - 1))) {
 }
 
 function board_lane_items(items, lane_id) {
-  return items.filter((item) => (board_lane_id(text(item.condition)) === lane_id));
+  return items.filter((item) => (board_lane_id(workitem_condition(item)) === lane_id));
 }
 
 function compact_body(value, width) {
@@ -940,7 +1064,7 @@ function board_card_id(thread_id) {
 }
 
 function board_signature(items, selected, width) {
-  return ("".concat(width, "|", selected, "|", items.map((item) => ("".concat(bare(item.id), "\x01", text(item.title), "\x01", text(item.body), "\x01", text(item.condition)))).join("\x02")));
+  return ("".concat(width, "|", selected, "|", items.map((item) => ("".concat(workitem_id(item), "\x01", workitem_title(item), "\x01", workitem_body(item), "\x01", workitem_condition(item)))).join("\x02")));
 }
 
 function board_card_node(source) {
@@ -956,9 +1080,9 @@ function set_board_notice_bang(runtime, notice) {
 
 function select_board_card_bang(runtime, ui, item, index) {
   (runtime.workIndex = index);
-  (runtime.model = select_thread(runtime.model, bare(item.id)));
+  (runtime.model = select_thread(runtime.model, workitem_id(item)));
   focus_pane_surface_bang(runtime, ui, "work");
-  return ui.workScroll.scrollChildIntoView(board_card_id(bare(item.id)));
+  return ui.workScroll.scrollChildIntoView(board_card_id(workitem_id(item)));
 }
 
 function prefill_outcome_bang(runtime, ui, thread_id) {
@@ -985,26 +1109,24 @@ function handle_board_drop_bang(runtime, ui, target_lane, target_card, event) {
   const source_card = board_card_node(event.source);
   const source_id = (source_card ? bare(source_card.northThreadId) : "");
   const state = snapshot(runtime.model);
-  const items = (state.kanban || []);
-  const source_item = work_item_by_id(items, source_id);
-  const source_condition = (source_item ? text(source_item.condition) : "");
+  const items = bridgesnapshot_board(state);
+  const source_condition = work_item_condition_for(items, source_id);
   const source_lane = board_lane_id(source_condition);
   const target_id = (target_card ? bare(target_card.northThreadId) : "");
-  const target_item = ((target_id === "") ? null : work_item_by_id(items, target_id));
-  const target_condition = (target_item ? text(target_item.condition) : "");
+  const target_condition = work_item_condition_for(items, target_id);
   return ((source_id === "")) ? set_board_notice_bang(runtime, "Drop ignored: the dragged source was not a North work card.") : (((target_lane === "done") && (!terminal_condition_p(source_condition)))) ? prefill_outcome_bang(runtime, ui, source_id) : (((source_lane === "not-started") && (target_lane === "not-started") && (source_condition === "ready") && ((target_id === "") || (target_condition === "ready")))) ? ((source_id === target_id) ? set_board_notice_bang(runtime, "Queue order unchanged: a card cannot be moved relative to itself.") : (() => { const position = ((target_id === "") ? ((event.x < (event.currentTarget.screenX + (event.currentTarget.width / 2))) ? "first" : "last") : ((event.x < (target_card.screenX + (target_card.width / 2))) ? "before" : "after")); return report_promise_bang(runtime, move_ready_thread_bang(runtime, source_id, position, target_id)); })()) : set_board_notice_bang(runtime, unsupported_drop_notice(source_condition, target_lane));
 }
 
 function card_content(item, width) {
-  const body = compact_body(item.body, Math.max(8, (width - 4)));
+  const body = compact_body(workitem_body(item), Math.max(8, (width - 4)));
   const fallback = ("".concat("@", short_thread_id(item)));
-  return new StyledText([brightWhite(compact_text(item.title, Math.max(8, (width - 4)))), white("\n"), dim(((body === "") ? fallback : body))]);
+  return new StyledText([brightWhite(compact_text(workitem_title(item), Math.max(8, (width - 4)))), white("\n"), dim(((body === "") ? fallback : body))]);
 }
 
 function make_board_card_bang(runtime, ui, item, index, lane_index, width) {
   const renderer = runtime.renderer;
-  const thread_id = bare(item.id);
-  const condition = text(item.condition);
+  const thread_id = workitem_id(item);
+  const condition = workitem_condition(item);
   const selected_p = (index === runtime.workIndex);
   const next_up_p = ((condition === "ready") && (lane_index === 0));
   const card = new BoxRenderable(renderer, {id: board_card_id(thread_id), width: width, height: 4, flexShrink: 0, paddingX: 1, border: true, borderColor: (selected_p ? "#22d3ee" : "#64748b"), title: (next_up_p ? "Next Up" : null), titleColor: (next_up_p ? "#4ade80" : "#94a3b8")});
@@ -1029,8 +1151,8 @@ return ui.workScroll.stopAutoScroll(); });
 
 function make_board_lane_bang(runtime, ui, lane, items, card_width) {
   const renderer = runtime.renderer;
-  const lane_id = text(lane.id);
-  const title = text(lane.title);
+  const lane_id = boardlane_id(lane);
+  const title = boardlane_title(lane);
   const lane_items = board_lane_items(items, lane_id);
   const lane_box = new BoxRenderable(renderer, {width: "100%", flexDirection: "column", flexShrink: 0, border: ["bottom"], borderColor: "#334155", paddingBottom: 1});
   const header = new TextRenderable(renderer, {width: "100%", height: 1, flexShrink: 0, selectable: false, wrapMode: "none", content: new StyledText([brightGreen(title), brightBlack(("".concat("  ", lane_items.length)))])});
@@ -1057,32 +1179,32 @@ function sync_board_bang(runtime, ui, items, selected, width) {
     const card_width = ((width >= 54) ? 25 : Math.max(18, (width - 3)));
     BOARD_LANES.forEach((lane) => ui.boardRoot.add(make_board_lane_bang(runtime, ui, lane, items, card_width)));
     if (((selected >= 0) && (selected < items.length))) {
-      return ui.workScroll.scrollChildIntoView(board_card_id(bare(items[selected].id)));
+      return ui.workScroll.scrollChildIntoView(board_card_id(workitem_id(items[selected])));
     }
   }
 }
 
 function work_content_bang(runtime, state, view, selected) {
-  const items = (view.items || []);
+  const items = workview_items(view);
   const width = available_work_width(runtime, state);
-  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", (text(view.title) || "work"), " items")))]) : ((text(view.id) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(items, selected, width));
+  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", workview_title(view), " items")))]) : ((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(items, selected, width));
 }
 
 function render_ui_bang(runtime, ui) {
   if ((!runtime.disposed)) {
     const state = snapshot(runtime.model);
-    const agents = (state.agents || []);
+    const agents = bridgesnapshot_agents(state);
     const views = view_list(state);
-    const requested = text(state.activeViewId);
+    const requested = bridgesnapshot_active_view_id(state);
     const current = selected_view(state, requested);
-    const items = (current.items || []);
+    const items = workview_items(current);
     const agent_max = Math.max(0, (agents.length - 1));
     const work_max = Math.max(0, (items.length - 1));
     const agent_options = ((runtime.pane === "agents") ? palette_options("agents", text(ui.agentInput.value)) : []);
     const work_options = ((runtime.pane === "work") ? palette_options("work", text(ui.workInput.value)) : []);
     const active_options = ((runtime.pane === "agents") ? agent_options : work_options);
     const palette_max = Math.max(0, (active_options.length - 1));
-    const board_p = (text(current.id) === "board");
+    const board_p = (workview_id(current) === "board");
     (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
     (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
     (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
@@ -1092,7 +1214,7 @@ function render_ui_bang(runtime, ui) {
     (ui.agentsHeader.content = render_pane_header("Agents", (runtime.pane === "agents")));
     (ui.agentsText.content = roster_text(state, runtime.agentIndex));
     (ui.transcriptText.content = render_conversation_bang(runtime));
-    (ui.tabsText.content = render_work_tabs_bang(state, text(current.id), (runtime.pane === "work")));
+    (ui.tabsText.content = render_work_tabs_bang(state, workview_id(current), (runtime.pane === "work")));
     (ui.workText.visible = (!board_p));
     (ui.boardRoot.visible = board_p);
     if (board_p) {
@@ -1102,6 +1224,8 @@ function render_ui_bang(runtime, ui) {
     }
     (ui.statusText.content = render_status(runtime, state));
     (ui.agentStatusText.content = render_status(runtime, state));
+    (ui.agentContextText.content = render_session_context(runtime));
+    (ui.workContextText.content = render_session_context(runtime));
     (ui.agentStatusText.visible = (text(runtime.closedPane) === "work"));
     (ui.agentPalette.visible = (agent_options.length > 0));
     (ui.agentPalette.height = Math.max(1, Math.min(8, agent_options.length)));
@@ -1109,7 +1233,7 @@ function render_ui_bang(runtime, ui) {
     (ui.workPalette.visible = (work_options.length > 0));
     (ui.workPalette.height = Math.max(1, Math.min(8, work_options.length)));
     (ui.workPalette.content = ((work_options.length > 0) ? render_command_palette_bang(work_options, runtime.paletteIndex) : ""));
-    (runtime.activeView = text(current.id));
+    (runtime.activeView = workview_id(current));
     return views;
   }
 }
@@ -1120,7 +1244,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
     (runtime.supervisorId = execution_id);
     (runtime.agentIndex = 0);
   }
-  (runtime.model = upsert_agent(runtime.model, make_agent(execution_id, ((role === "supervisor") ? "Codex supervisor" : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
+  (runtime.model = upsert_agent(runtime.model, Agent(execution_id, ((role === "supervisor") ? "Codex supervisor" : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
   return runtime.render();
 }
 
@@ -1134,7 +1258,7 @@ function record_line(line) {
     const kind = ((space < 0) ? rest : rest.slice(0, space));
     const payload = ((space < 0) ? "" : rest.slice((space + 1)).trim());
     return (() => { try {
-    return {kind: kind, data: ((payload === "") ? {} : JSON.parse(payload))};
+    return ParsedRecord(kind, ((payload === "") ? {} : JSON.parse(payload)));
   } catch (__) {
     return null;
   } })();
@@ -1147,22 +1271,22 @@ function event_item_id(execution_id, item_id) {
 
 function append_item_delta_bang(runtime, id, kind, title, delta, status) {
   const existing = conversation_item_by_id(runtime, id);
-  const prior = (existing ? text(existing.body) : "");
-  const actual_title = (existing ? text(existing.title) : title);
-  return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (existing ? existing.data : null)));
+  const prior = (existing ? conversationitem_body(existing) : "");
+  const actual_title = (existing ? conversationitem_title(existing) : title);
+  return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (existing ? conversationitem_data(existing) : null)));
 }
 
 function assistant_message_text(data) {
   const message = data.message;
   const content = (message ? message.content : null);
-  return (Array.isArray(content) ? content.map((part) => text(part.text)).filter((part) => (!(part === ""))).join("\n") : text((data.text || data.result)));
+  return (Array.isArray(content) ? content.map((part) => text(part.text)).filter((part) => (!(part === ""))).join("\n") : text_or(data.text, text(data.result)));
 }
 
 function adopt_session_metadata_bang(runtime, source) {
   if (source) {
-    const model = text((source.model || source.modelName));
-    const effort = text((source.reasoningEffort || source.effort));
-    const cwd = text((source.cwd || source.workingDirectory));
+    const model = text_or(source.model, text(source.modelName));
+    const effort = text_or(source.reasoningEffort, text(source.effort));
+    const cwd = text_or(source.cwd, text(source.workingDirectory));
     if ((!(model === ""))) {
       (runtime.sessionModel = model);
     }
@@ -1183,19 +1307,19 @@ function handle_codex_event_bang(runtime, stream_state, data) {
 set_working_bang(runtime, true, "Codex is working");
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "working");
-} })() : ((method === "item/started")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return ((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), "", "running", item)) : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), safe_json(item.arguments), "running")) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", "", "running", item)) : null; })() : ((method === "item/commandExecution/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "command", "command", text(params.delta), "running") : ((method === "item/agentMessage/delta")) ? ((!stream_state.booting) ? (() => { return append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "assistant", "", text(params.delta), "running"); })() : null) : (((method === "item/reasoning/summaryTextDelta") || (method === "item/plan/delta"))) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "thought", "", text(params.delta), "running") : ((method === "item/fileChange/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "change", "Editing files", text(params.delta), "running") : ((method === "item/fileChange/patchUpdated")) ? (() => { const id = event_item_id(execution_id, params.itemId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", (existing ? text(existing.body) : ""), "running", params)); })() : ((method === "item/mcpToolCall/progress")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "tool", "Tool activity", text(params.message), "running") : ((method === "item/completed")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return ((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), clipped(item.aggregatedOutput, 6000), (((text(item.status) === "completed") && (item.exitCode === 0)) ? "done" : "failed"), item)) : ((kind === "agentMessage")) ? (() => { const body = clean_text(item.text); (runtime.lastAssistantText = body);
+} })() : ((method === "item/started")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return ((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), "", "running", item)) : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), safe_json(item.arguments), "running")) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", "", "running", item)) : null; })() : ((method === "item/commandExecution/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "command", "command", text(params.delta), "running") : ((method === "item/agentMessage/delta")) ? ((!stream_state.booting) ? (() => { return append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "assistant", "", text(params.delta), "running"); })() : null) : (((method === "item/reasoning/summaryTextDelta") || (method === "item/plan/delta"))) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "thought", "", text(params.delta), "running") : ((method === "item/fileChange/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "change", "Editing files", text(params.delta), "running") : ((method === "item/fileChange/patchUpdated")) ? (() => { const id = event_item_id(execution_id, params.itemId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", (existing ? conversationitem_body(existing) : ""), "running", params)); })() : ((method === "item/mcpToolCall/progress")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "tool", "Tool activity", text(params.message), "running") : ((method === "item/completed")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return ((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), clipped(item.aggregatedOutput, 6000), (((text(item.status) === "completed") && (item.exitCode === 0)) ? "done" : "failed"), item)) : ((kind === "agentMessage")) ? (() => { const body = clean_text(item.text); (runtime.lastAssistantText = body);
 if ((!stream_state.booting)) {
   return upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", body, "done"));
 } })() : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), clipped(safe_json(item.result), 6000), ((text(item.status) === "failed") ? "failed" : "done"))) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Edited files", "", ((text(item.status) === "failed") ? "failed" : "done"), item)) : (((kind === "webSearch") || (kind === "todoList"))) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", kind, clipped(safe_json(item), 3000), "done")) : null; })() : ((method === "turn/completed")) ? (runtime.workingLabel = "Finishing") : null;
 }
 
 function handle_record_bang(runtime, stream_state, record) {
-  const kind = text(record.kind);
-  const data = (record.data || {});
+  const kind = parsedrecord_kind(record);
+  const data = (parsedrecord_data(record) || {});
   const execution_id = text(stream_state.executionId);
   return ((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); if ((!(cwd === ""))) {
   return (runtime.sessionCwd = cwd);
-} })() : ((kind === "provider.starting")) ? ((!(execution_id === "")) ? (() => { return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : null) : ((kind === "provider.codex.event")) ? handle_codex_event_bang(runtime, stream_state, data) : ((kind === "provider.assistant")) ? (() => { const body = assistant_message_text(data); if (((!stream_state.booting) && (!(body === "")) && (!(body === runtime.lastAssistantText)))) {
+} })() : ((kind === "provider.starting")) ? ((!(execution_id === "")) ? (() => { return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : null) : ((kind === "provider.codex.event")) ? handle_codex_event_bang(runtime, stream_state, data) : ((kind === "provider.session.config")) ? adopt_session_metadata_bang(runtime, data) : ((kind === "provider.assistant")) ? (() => { const body = assistant_message_text(data); if (((!stream_state.booting) && (!(body === "")) && (!(body === runtime.lastAssistantText)))) {
   (runtime.lastAssistantText = body);
   return upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "assistant"), "assistant", "", body, "done"));
 } })() : ((kind === "provider.result")) ? set_working_bang(runtime, false, "") : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number((data.pendingInputs || 0)); const booting = stream_state.booting; set_working_bang(runtime, false, "");
@@ -1262,10 +1386,10 @@ function popout_bang(runtime, view_id) {
 
 function selected_work(runtime, selection) {
   const state = snapshot(runtime.model);
-  const view_id = text((selection.view || runtime.activeView));
+  const view_id = text_or(workselection_view(selection), text(runtime.activeView));
   const view = selected_view(state, view_id);
-  const items = (view.items || []);
-  const index = ((selection.index == null) ? -1 : selection.index);
+  const items = workview_items(view);
+  const index = workselection_index(selection);
   return (((index >= 0) && (index < items.length)) ? items[index] : null);
 }
 
@@ -1273,10 +1397,10 @@ async function submit_agent_bang(runtime, ui, input, selection) {
   const trimmed = input.trim();
   const slash_p = trimmed.startsWith("/");
   const parsed = command(input);
-  const name = text(parsed.name);
-  const rest = text(parsed.rest);
-  const target = text((selection || runtime.supervisorId));
-  return (handle_local_command_bang(runtime, ui, input) ? null : ((slash_p && exit_command_p(name))) ? destroy_bang(runtime) : ((slash_p && (name === "launch"))) ? await launch_agent_bang(runtime, rest, "worker") : ((slash_p && (name === "refresh"))) ? await refresh_bang(runtime) : ((slash_p && (name === "popout"))) ? popout_bang(runtime, (rest || runtime.activeView)) : ((slash_p && (name === "help"))) ? (() => { (runtime.showHelp = (!runtime.showHelp));
+  const name = parsedcommand_name(parsed);
+  const rest = parsedcommand_rest(parsed);
+  const target = text_or(selection, text(runtime.supervisorId));
+  return (handle_local_command_bang(runtime, ui, input) ? null : ((slash_p && exit_command_p(name))) ? destroy_bang(runtime) : ((slash_p && (name === "launch"))) ? await launch_agent_bang(runtime, rest, "worker") : ((slash_p && (name === "refresh"))) ? await refresh_bang(runtime) : ((slash_p && (name === "popout"))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : ((slash_p && (name === "help"))) ? (() => { (runtime.showHelp = (!runtime.showHelp));
 return runtime.render(); })() : (async () => { if ((target === "")) {
   (() => { throw new Error("select an agent before steering or interrupting"); })();
 }
@@ -1307,13 +1431,13 @@ async function submit_work_bang(runtime, ui, input, selection) {
   const trimmed = input.trim();
   const slash_p = trimmed.startsWith("/");
   const parsed = command(input);
-  const name = text(parsed.name);
-  const rest = text(parsed.rest);
+  const name = parsedcommand_name(parsed);
+  const rest = parsedcommand_rest(parsed);
   return ((!slash_p) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : (exit_command_p(name)) ? destroy_bang(runtime) : ((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
 return runtime.render(); })() : ((name === "view")) ? (() => { if ((!recognized_work_view_p(rest))) {
   (() => { throw new Error("view requires list, graph, or board"); })();
 }
-(runtime.model = focus_view(runtime.model, model_work_view(rest)));
+(runtime.model = focus_view(runtime.model, canonical_work_view(rest)));
 (runtime.workIndex = 0);
 runtime.workScroll.scrollTo(0);
 return runtime.render(); })() : ((name === "split")) ? (() => { (runtime.model = set_layout(runtime.model, (((rest === "h") || (rest === "horizontal")) ? "horizontal" : "vertical")));
@@ -1322,7 +1446,7 @@ return runtime.render(); })() : ((name === "refresh")) ? await refresh_bang(runt
 }
 const output = await run_command([NORTH_BIN, "capture", rest]);
 publish_line_bang(runtime, text(output).trim());
-return await refresh_bang(runtime); })() : ((name === "assign")) ? (async () => { const item = selected_work(runtime, selection); const words = rest.split(" ").filter((word) => (!(word.trim() === ""))); const current = (item ? text(item.driver) : ""); const prior = ((words.length > 1) ? words[0] : current); const next_driver = ((words.length > 1) ? words[1] : (words[0] || "")); const thread_id = (item ? bare(item.id) : ""); if ((thread_id === "")) {
+return await refresh_bang(runtime); })() : ((name === "assign")) ? (async () => { const item = selected_work(runtime, selection); const words = rest.split(" ").filter((word) => (!(word.trim() === ""))); const current = (item ? workitem_driver(item) : ""); const prior = ((words.length > 1) ? words[0] : current); const next_driver = ((words.length > 1) ? words[1] : text(words[0])); const thread_id = (item ? workitem_id(item) : ""); if ((thread_id === "")) {
   (() => { throw new Error("select work before assigning"); })();
 }
 if ((prior === "")) {
@@ -1386,7 +1510,7 @@ function active_palette_options(runtime, ui) {
 
 function pane_for_direction(runtime, state, direction) {
   const pane = text(runtime.pane);
-  const layout = text(state.layout);
+  const layout = bridgesnapshot_layout(state);
   return ((direction === "w")) ? (() => { const next_pane = ((pane === "agents") ? "work" : "agents"); return (pane_visible_p(runtime, next_pane) ? next_pane : pane); })() : (((layout === "vertical") && (direction === "h") && (pane === "work") && pane_visible_p(runtime, "agents"))) ? "agents" : (((layout === "vertical") && (direction === "l") && (pane === "agents") && pane_visible_p(runtime, "work"))) ? "work" : (((layout === "horizontal") && (direction === "k") && (pane === "work") && pane_visible_p(runtime, "agents"))) ? "agents" : (((layout === "horizontal") && (direction === "j") && (pane === "agents") && pane_visible_p(runtime, "work"))) ? "work" : pane;
 }
 
@@ -1512,8 +1636,8 @@ return runtime.render(); });
 return runtime.render(); });
   ui.agentInput.on(InputRenderableEvents.ENTER, () => { const input = text(ui.agentInput.value).trim();
 const state = snapshot(runtime.model);
-const agents = (state.agents || []);
-const selected = ((agents.length > 0) ? text(agents[runtime.agentIndex].id) : "");
+const agents = bridgesnapshot_agents(state);
+const selected = ((agents.length > 0) ? agent_id(agents[runtime.agentIndex]) : "");
 if ((!(input === ""))) {
   (ui.agentInput.value = "");
   return report_promise_bang(runtime, submit_agent_bang(runtime, ui, input, selected));
@@ -1521,7 +1645,7 @@ if ((!(input === ""))) {
   return ui.workInput.on(InputRenderableEvents.ENTER, () => { const input = text(ui.workInput.value).trim();
 if ((!(input === ""))) {
   (ui.workInput.value = "");
-  return report_promise_bang(runtime, submit_work_bang(runtime, ui, input, {view: runtime.activeView, index: runtime.workIndex}));
+  return report_promise_bang(runtime, submit_work_bang(runtime, ui, input, WorkSelection(runtime.activeView, runtime.workIndex)));
 } });
 }
 
@@ -1567,7 +1691,7 @@ function install_mouse_bang(runtime, ui) {
   if ((!(view_id === ""))) {
     event.preventDefault();
     event.stopPropagation();
-    (runtime.model = focus_view(runtime.model, model_work_view(view_id)));
+    (runtime.model = focus_view(runtime.model, canonical_work_view(view_id)));
     (runtime.workIndex = 0);
     ui.workScroll.scrollTo(0);
     return focus_pane_surface_bang(runtime, ui, "work");
@@ -1582,6 +1706,7 @@ function install_keys_bang(runtime, ui) {
   const meta = (key.meta || key.option);
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
+  const plain_view_arrow = ((text(runtime.pane) === "work") && (text(ui.workInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
   if ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) {
     key.preventDefault();
     key.stopPropagation();
@@ -1612,22 +1737,22 @@ function install_keys_bang(runtime, ui) {
     key.preventDefault();
     key.stopPropagation();
     (runtime.showHelp = (!runtime.showHelp));
-  } else if (((name === "f3") || (meta && ((name === "h") || (name === "l"))))) {
+  } else if (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) {
     const views = view_list(state);
     const current = selected_view(state, runtime.activeView);
-    const index = views.findIndex((view) => (view.id === current.id));
-    const delta = ((meta && (name === "h")) ? -1 : 1);
+    const index = views.findIndex((view) => (workview_id(view) === workview_id(current)));
+    const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1);
     const next_index = ((index + delta + views.length) % views.length);
     const next_id = text(views[next_index].id);
     key.preventDefault();
     key.stopPropagation();
-    (runtime.model = focus_view(runtime.model, model_work_view(next_id)));
+    (runtime.model = focus_view(runtime.model, next_id));
     (runtime.workIndex = 0);
     ui.workScroll.scrollTo(0);
   } else if (((name === "f4") || (meta && (name === "s")))) {
     key.preventDefault();
     key.stopPropagation();
-    (runtime.model = set_layout(runtime.model, ((text(state.layout) === "horizontal") ? "vertical" : "horizontal")));
+    (runtime.model = set_layout(runtime.model, ((bridgesnapshot_layout(state) === "horizontal") ? "vertical" : "horizontal")));
   } else if (((name === "f5") || (key.ctrl && (name === "r")))) {
     key.preventDefault();
     key.stopPropagation();
@@ -1641,21 +1766,21 @@ function install_keys_bang(runtime, ui) {
     key.preventDefault();
     key.stopPropagation();
     if ((runtime.pane === "agents")) {
-      const agents = (state.agents || []);
+      const agents = bridgesnapshot_agents(state);
       const max_index = Math.max(0, (agents.length - 1));
       const next_index = Math.max(0, Math.min(max_index, (runtime.agentIndex + delta)));
-      const agent_id = ((agents.length > 0) ? text(agents[next_index].id) : "");
+      const selected_agent_id = ((agents.length > 0) ? agent_id(agents[next_index]) : "");
       (runtime.agentIndex = next_index);
-      (runtime.model = select_agent(runtime.model, agent_id));
+      (runtime.model = select_agent(runtime.model, selected_agent_id));
     } else {
       const view = selected_view(state, runtime.activeView);
-      const items = (view.items || []);
+      const items = workview_items(view);
       const max_index = Math.max(0, (items.length - 1));
       const next_index = Math.max(0, Math.min(max_index, (runtime.workIndex + delta)));
-      const thread_id = ((items.length > 0) ? bare(items[next_index].id) : "");
+      const thread_id = ((items.length > 0) ? workitem_id(items[next_index]) : "");
       (runtime.workIndex = next_index);
       (runtime.model = select_thread(runtime.model, thread_id));
-      ui.workScroll.scrollBy((delta * ((text(view.id) === "board")) ? 2 : ((text(view.id) === "graph")) ? 3 : 1), "step");
+      ui.workScroll.scrollBy((delta * ((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1), "step");
     }
   } else if (((name === "escape") || (name === "esc"))) {
     const target = text(runtime.supervisorId);
@@ -1676,7 +1801,7 @@ function install_keys_bang(runtime, ui) {
 async function open_app_bang(view_id) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(model_work_view(view)), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text((process.env.NORTH_BRIDGE_MODEL || process.env.AGENT_MODEL)), sessionEffort: text((process.env.AGENT_REASONING || process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", render: () => null};
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: "100%", gap: 0, padding: 1, onSizeChange: () => runtime.render()});
   const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: ["right"], borderColor: "#64748b", focusable: true});
   const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", focusable: true});
@@ -1692,13 +1817,15 @@ async function open_app_bang(view_id) {
   const agent_status_text = new TextRenderable(renderer, {visible: false, flexShrink: 0, wrapMode: "word"});
   const agent_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
   const work_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
-  const agent_composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 1, flexShrink: 0, backgroundColor: "#25272d"});
-  const work_composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 1, flexShrink: 0, backgroundColor: "#25272d"});
+  const agent_composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
+  const work_composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
+  const agent_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
+  const work_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
   const agent_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
   const work_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
   const agent_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: "Message Codex supervisor…"});
   const work_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: "/view list|graph|board, /capture, /filter, /assign"});
-  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, agentPalette: agent_palette, workPalette: work_palette, agentComposer: agent_composer, workComposer: work_composer, agentPrompt: agent_prompt, workPrompt: work_prompt, agentInput: agent_input, workInput: work_input};
+  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, agentPalette: agent_palette, workPalette: work_palette, agentComposer: agent_composer, workComposer: work_composer, agentContextText: agent_context_text, workContextText: work_context_text, agentPrompt: agent_prompt, workPrompt: work_prompt, agentInput: agent_input, workInput: work_input};
   agents_pane.add(agents_header);
   agents_pane.add(agents_text);
   transcript_scroll.add(transcript_text_view);
@@ -1708,6 +1835,7 @@ async function open_app_bang(view_id) {
   agent_composer.add(agent_prompt);
   agent_composer.add(agent_input);
   agents_pane.add(agent_composer);
+  agents_pane.add(agent_context_text);
   work_pane.add(tabs_text_view);
   work_scroll.add(work_text_view);
   work_scroll.add(board_root);
@@ -1717,6 +1845,7 @@ async function open_app_bang(view_id) {
   work_composer.add(work_prompt);
   work_composer.add(work_input);
   work_pane.add(work_composer);
+  work_pane.add(work_context_text);
   root.add(agents_pane);
   root.add(work_pane);
   renderer.root.add(root);
@@ -1742,5 +1871,5 @@ async function open_app_bang(view_id) {
 }
 
 export function run_northbridge_app_bang(options) {
-  return open_app_bang(text((options.viewId || "list")));
+  return open_app_bang(text_or(options.viewId, "list"));
 }
