@@ -19,9 +19,6 @@ north help routing — providers, accounts, dispatch posture
                                     promotions — bespoke patterns for stock-template review
                                     calibration — run-local judgment/struggle detector cohorts
                                     learning — exact evaluation cohorts plus explicit evidence exclusions
-  north experiment report [--json]  paired graph-vs-text outcomes by operation type
-                                    N<20 pairs is always insufficient data
-                                    flip-to-graph requires lower median wall and lower failure rate
   north canary run|report           production-path managed-lane reliability probe
   north ccr prepare|retrieve        default-off structured-output CCR canary
   north dials                       legacy — compatibility bridge to the evidence-aware routing report
