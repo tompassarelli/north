@@ -186,7 +186,7 @@ validate_deployment() {
       die "deployment entrypoint is missing or not executable: $deployment/$entry"
   done
   for entry in \
-    cli/coordinated-nix-rebuild-worker-host.clj \
+    cli/nix-rebuild-worker.clj \
     cli/coordination-maintenance-task-host.clj \
     cli/coordination-projection-worker-host.clj \
     cli/reconciliation-worker-host.clj \
