@@ -99,6 +99,16 @@
    (->SlashCommand "✓" "check · yes done" false "✓" true)
    (->SlashCommand "✗" "cross · no failed" false "✗" true)])
 
+(def GLYPH-COMMANDS: (Vec SlashCommand)
+  [(->SlashCommand "❯" "heavy chevron" false "/glyph ❯" true)
+   (->SlashCommand "›" "single chevron" false "/glyph ›" true)
+   (->SlashCommand "»" "double chevron" false "/glyph »" true)
+   (->SlashCommand "→" "right arrow" false "/glyph →" true)
+   (->SlashCommand "λ" "lambda" false "/glyph λ" true)
+   (->SlashCommand "◆" "diamond" false "/glyph ◆" true)
+   (->SlashCommand "•" "bullet" false "/glyph •" true)
+   (->SlashCommand "$" "shell dollar" false "/glyph $" true)])
+
 (def AGENT-COMMANDS: (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
    (->SlashCommand "/steer" "steer the selected agent" true "" false)
@@ -281,6 +291,17 @@
                      needle))))
      0 8)))
 
+(defn glyph-options [query: String] -> (Vec SlashCommand)
+  (let [needle (.toLowerCase (.trim query))]
+    (.filter GLYPH-COMMANDS
+             (fn [candidate: SlashCommand] -> Bool
+               (or (identical? needle "")
+                   (.includes
+                    (.toLowerCase
+                     (str (slashcommand-name candidate) " "
+                          (slashcommand-description candidate)))
+                    needle))))))
+
 (defn palette-options
   [pane: String
    input: String] -> (Vec SlashCommand)
@@ -291,6 +312,8 @@
     (cond
       (not (.startsWith query "/")) []
       (identical? name "emoji") (emoji-options (text (.-rest parsed)))
+      (or (identical? name "glyph") (identical? name "prompt"))
+      (glyph-options (text (.-rest parsed)))
       (>= (.indexOf query " ") 0) []
       :else
       (.slice
@@ -2651,10 +2674,12 @@
              (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length palette) 1)))
                    candidate (aget palette index)
                    current (.trim (text (.-value (active-input runtime ui))))
-                   exact (identical? current (slashcommand-name candidate))]
+                   completion (slashcommand-completion candidate)
+                   candidate-value (if (identical? completion "")
+                                     (slashcommand-name candidate) completion)
+                   exact (identical? current candidate-value)]
                (when (or (identical? name "tab")
-                         (not exact)
-                         (slashcommand-arguments candidate))
+                         (not exact))
                  (.preventDefault key)
                  (.stopPropagation key)
                  (complete-palette! runtime ui palette)))
