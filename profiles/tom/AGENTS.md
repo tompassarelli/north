@@ -114,9 +114,9 @@ one-line progress notes, and conversation — ceremony there is noise.
   `Recommended:` (one-line why) and `Alternatives:` (each with when it wins).
   Omit when empty; never bury a decision anywhere else.
 
-Items are one line and addressable by id ("skip A2", "take D1's
-alternative"). Prose rides above or below the block only when context cannot
-fit an item.
+Render each item as `O1: …` — bare id, colon, one line; no leading bullets
+or dashes. Items are addressable by id ("skip A2", "take D1's alternative").
+Prose rides above or below the block only when context cannot fit an item.
 
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
