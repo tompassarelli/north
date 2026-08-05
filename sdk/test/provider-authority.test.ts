@@ -40,7 +40,9 @@ const north = join(import.meta.dir, "../..");
 const temporary: string[] = [];
 const envKeys = [
   "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "AGENT_SKILLS_DIR", "NORTH_PORT",
-  "FRAM_LOG", "FRAM_TELEMETRY_LOG",
+  "NORTH_FRAMRPC_HOST", "NORTH_FRAMRPC_OUT", "NORTH_TELEMETRY_PARTITION",
+  "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
+  "FRAM_BIN", "FRAM_HOME", "FRAM_OUT", "FRAM_SERVER_PORT", "FRAM_SPACE_ID",
   "FRAM_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
   "NORTH_CODEX_BIN", "NORTH_MANAGED_CODEX_BIN",
   "NORTH_BIN", "PATH",
@@ -283,8 +285,16 @@ test("managed provider shells resolve North from the admitted package before amb
 
 test("both providers receive the exact custom North and Fram instance selectors without ambient secrets", () => {
   process.env.NORTH_PORT = "64129";
-  process.env.FRAM_LOG = "/tmp/north-authority-facts.log";
-  process.env.FRAM_TELEMETRY_LOG = "/tmp/north-authority-telemetry.log";
+  process.env.NORTH_FRAMRPC_HOST = "127.0.0.1";
+  process.env.NORTH_FRAMRPC_OUT = "/tmp/north-authority-fram/out";
+  process.env.NORTH_TELEMETRY_PARTITION = "1";
+  process.env.NORTH_TELEMETRY_PORT = "64130";
+  process.env.NORTH_TELEMETRY_SPACE_ID = "north-telemetry";
+  process.env.FRAM_BIN = "/tmp/north-authority-fram/bin";
+  process.env.FRAM_HOME = "/tmp/north-authority-fram";
+  process.env.FRAM_OUT = "/tmp/north-authority-fram/out";
+  process.env.FRAM_SERVER_PORT = "64129";
+  process.env.FRAM_SPACE_ID = "north-coordination";
   process.env.FRAM_THREADS = "/tmp/north-authority-threads";
   process.env.UNRELATED_SECRET_CANARY = "must-not-cross-mcp-boundary";
 
@@ -293,8 +303,16 @@ test("both providers receive the exact custom North and Fram instance selectors 
     const env = options.mcpServers.north.env;
     expect(env).toMatchObject({
       NORTH_PORT: "64129",
-      FRAM_LOG: "/tmp/north-authority-facts.log",
-      FRAM_TELEMETRY_LOG: "/tmp/north-authority-telemetry.log",
+      NORTH_FRAMRPC_HOST: "127.0.0.1",
+      NORTH_FRAMRPC_OUT: "/tmp/north-authority-fram/out",
+      NORTH_TELEMETRY_PARTITION: "1",
+      NORTH_TELEMETRY_PORT: "64130",
+      NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+      FRAM_BIN: "/tmp/north-authority-fram/bin",
+      FRAM_HOME: "/tmp/north-authority-fram",
+      FRAM_OUT: "/tmp/north-authority-fram/out",
+      FRAM_SERVER_PORT: "64129",
+      FRAM_SPACE_ID: "north-coordination",
       FRAM_THREADS: "/tmp/north-authority-threads",
     });
     expect(env).not.toHaveProperty("UNRELATED_SECRET_CANARY");
@@ -310,8 +328,8 @@ test("both providers receive the exact custom North and Fram instance selectors 
   // MCP state enter only the same-process app-server layer that attests them.
   const preview = codexHarnessArguments(openai).join("\n");
   expect(preview).not.toContain("NORTH_PORT");
-  expect(preview).not.toContain("FRAM_LOG");
-  expect(preview).not.toContain("FRAM_TELEMETRY_LOG");
+  expect(preview).not.toContain("FRAM_SERVER_PORT");
+  expect(preview).not.toContain("FRAM_SPACE_ID");
   expect(preview).not.toContain("FRAM_THREADS");
   expect(preview).not.toContain("UNRELATED_SECRET_CANARY");
 

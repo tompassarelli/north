@@ -35,7 +35,7 @@
     (check "routing policy points to categorized live telemetry surfaces"
            (and (str/includes? (:out show) "`north providers`")
                 (str/includes? (:out show) "`north account usage`")))
-    (check "routing report states exact named-account execution is live"
+    (check "routing config states exact named-account execution is live"
            (and (str/includes? (:out show) "exact named-account execution are live")
                 (str/includes? (:out show) "explicit target is pinned with no fallback")
                 (not (str/includes? (:out show) "policy-only")))))

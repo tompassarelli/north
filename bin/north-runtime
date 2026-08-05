@@ -23,7 +23,6 @@ active_link=$state_root/active
 current_link=$state_root/current
 previous_link=$state_root/previous
 selector_lock=$state_parent/.${project}-runtime.selector.lock
-coordination_log=${FRAM_LOG:-$HOME/.local/state/$project/coordination.log}
 port=${NORTH_PORT:-7977}
 bb=${NORTH_BB:-bb}
 cli_root=${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}
@@ -227,15 +226,21 @@ mint_id() {
 publish_fact() {
   local id=$1 kind=$2 revision=$3 previous=$4 why=$5 source=$6 origin=$7 ts=$8
 
-  FRAM_LOG="$coordination_log" "$bb" -cp "$north_runtime_classpath" -e '
+  "$bb" -cp "$north_runtime_classpath" -e '
 (load-file (str (nth *command-line-args* 0) "/cli/coord.clj"))
 (let [args (vec *command-line-args*)
       port (Integer/parseInt (nth args 1))
       subject (nth args 2)
-      facts (mapv (fn [[p r]] {:p p :r r}) (partition 2 (drop 3 args)))
-      response (north.coord/send-op port {:op :assert-batch :te subject :facts facts})]
+      actions (mapv (fn [[predicate value]]
+                      {:op :assert
+                       :subject subject
+                       :predicate predicate
+                       :value value
+                       :cardinality :one})
+                    (partition 2 (drop 3 args)))
+      response (north.coord/publish! port actions)]
   (when-not (:ok response)
-    (binding [*out* *err*] (println (str "coordinator rejected: " (pr-str response))))
+    (binding [*out* *err*] (println (str "FRAMRPC publication rejected: " (pr-str response))))
     (System/exit 1))
   (println subject))' \
     "$cli_root" "$port" "@north-runtime-promote:$id" \

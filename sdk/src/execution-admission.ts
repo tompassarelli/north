@@ -1,5 +1,5 @@
 import { accessSync, constants } from "node:fs";
-import { spawn as procSpawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import type { OrchestrationCapability } from "./orchestration-capabilities";
 import {
@@ -15,17 +15,11 @@ import {
 import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
-import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+import { FramRpcClient } from "./framrpc-client";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
 const MCP = `${REPO}/bin/north-mcp`;
-const COORD = `${REPO}/cli/coord.clj`;
-const COORDINATOR_PROBE_OUTPUT_BYTES = 16_384;
 const admissionReceipts = new WeakMap<object, Set<ProviderId>>();
 
 /**
@@ -44,8 +38,11 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "AGENT_TOPOLOGY",
   "AGENT_COORDINATOR",
   "NORTH_PORT",
+  "NORTH_FRAMRPC_HOST",
+  "NORTH_FRAMRPC_OUT",
   "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT",
+  "NORTH_TELEMETRY_SPACE_ID",
   "NORTH_RUN_ID",
   "NORTH_THREAD_ID",
   "NORTH_RUN_CAPABILITY",
@@ -72,10 +69,10 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "FRAM_BIN",
   "FRAM_HOME",
   "FRAM_OUT",
-  "FRAM_LOG",
-  "FRAM_PORT",
+  "FRAM_SERVER_CONNECT",
+  "FRAM_SERVER_PORT",
+  "FRAM_SPACE_ID",
   "FRAM_SINGLE_VALUED",
-  "FRAM_TELEMETRY_LOG",
   "FRAM_TERMINAL_PREDS",
   "FRAM_THREADS",
   "FRAM_WITHDRAWN_PREDS",
@@ -368,80 +365,53 @@ export function validateManagedExecutionEnvelope(
 }
 
 async function requireCoordinator(
-  portValue: unknown,
-  logValue: unknown,
+  northEnvironment: unknown,
   timeoutMs = 30_000,
 ): Promise<void> {
-  if (typeof portValue !== "string" || !portValue.trim())
+  if (!northEnvironment || typeof northEnvironment !== "object"
+      || Array.isArray(northEnvironment))
+    throw new ExecutionAdmissionError("north_framrpc_environment_missing");
+  const environment = northEnvironment as Record<string, unknown>;
+  const portValue = environment.NORTH_PORT;
+  const serverPortValue = environment.FRAM_SERVER_PORT;
+  if (typeof portValue !== "string" || !portValue.trim()
+      || typeof serverPortValue !== "string" || !serverPortValue.trim())
     throw new ExecutionAdmissionError("north_coordination_port_missing");
   const port = Number(portValue);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535)
+  const serverPort = Number(serverPortValue);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535
+      || !Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65_535)
     throw new ExecutionAdmissionError("north_coordination_port_invalid");
-  if (typeof logValue !== "string" || !logValue.trim())
-    throw new ExecutionAdmissionError("north_coordination_log_missing");
-  if (!isAbsolute(logValue) || resolve(logValue) !== logValue)
-    throw new ExecutionAdmissionError("north_coordination_log_identity_invalid");
-  const boundedTimeout = Math.min(999_999, framCoordinatorChildTimeout(timeoutMs));
-  const bb = process.env.NORTH_MCP_BB ?? process.env.NORTH_BB ?? "bb";
-  const childEnv = framEngineEnvironment({
-    ...process.env,
-    FRAM_LOG: logValue,
-    NORTH_COORD_CONNECT_TIMEOUT_MS: String(boundedTimeout),
-    NORTH_COORD_READ_TIMEOUT_MS: String(boundedTimeout),
-    NORTH_COORD_MAX_RESPONSE_BYTES: "4096",
-  });
-  let child;
+  if (port !== serverPort)
+    throw new ExecutionAdmissionError("north_coordination_port_identity_mismatch");
+  const spaceValue = environment.FRAM_SPACE_ID;
+  if (typeof spaceValue !== "string" || !spaceValue.trim())
+    throw new ExecutionAdmissionError("north_coordination_space_missing");
+  if (spaceValue.trim() !== spaceValue)
+    throw new ExecutionAdmissionError("north_coordination_space_invalid");
+  const hostValue = environment.NORTH_FRAMRPC_HOST ?? environment.FRAM_SERVER_CONNECT
+    ?? "127.0.0.1";
+  if (typeof hostValue !== "string" || !hostValue.trim()
+      || hostValue.trim() !== hostValue)
+    throw new ExecutionAdmissionError("north_coordination_host_invalid");
+  const boundedTimeout = Math.min(999_999, Math.max(1, timeoutMs));
+  let client: FramRpcClient | null = null;
   try {
-    // Keep the wire contract in one place. `strict-probe` proves the fenced
-    // version response, raw-request rejection, canonical served corpus, fatal
-    // UTF-8 decoding, an exact terminal frame, and bounded response bytes.
-    child = procSpawn(bb, framBabashkaArguments([
-      COORD, "strict-probe", String(port), logValue,
-    ], childEnv), {
-      cwd: REPO,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
+    client = await FramRpcClient.connect({
+      host: hostValue,
+      port,
+      spaceId: spaceValue,
+      connectTimeoutMs: boundedTimeout,
+      readTimeoutMs: boundedTimeout,
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      jitterMs: 0,
     });
   } catch (cause) {
     throw new ExecutionAdmissionError("north_coordinator_preflight_failed", { cause });
+  } finally {
+    client?.close();
   }
-
-  let outputBytes = 0;
-  let outputLimitExceeded = false;
-  let timedOut = false;
-  const countOutput = (chunk: Buffer) => {
-    outputBytes += chunk.length;
-    if (outputBytes <= COORDINATOR_PROBE_OUTPUT_BYTES) return;
-    outputLimitExceeded = true;
-    try { child.kill("SIGKILL"); } catch { /* already terminal */ }
-  };
-  child.stdout.on("data", countOutput);
-  child.stderr.on("data", countOutput);
-  const timer = setTimeout(() => {
-    timedOut = true;
-    try { child.kill("SIGKILL"); } catch { /* already terminal */ }
-  }, boundedTimeout);
-  timer.unref?.();
-  const terminal = await new Promise<{ code: number | null; cause?: Error }>((resolveTerminal) => {
-    let settled = false;
-    const finish = (result: { code: number | null; cause?: Error }) => {
-      if (settled) return;
-      settled = true;
-      resolveTerminal(result);
-    };
-    child.once("error", (cause) => finish({ code: null, cause }));
-    // `close`, unlike `exit`, means both bounded output streams are drained.
-    child.once("close", (code) => finish({ code }));
-  });
-  clearTimeout(timer);
-  if (timedOut)
-    throw new ExecutionAdmissionError("north_coordinator_preflight_timed_out");
-  if (outputLimitExceeded)
-    throw new ExecutionAdmissionError("north_coordinator_preflight_output_too_large");
-  if (terminal.cause)
-    throw new ExecutionAdmissionError("north_coordinator_preflight_failed", { cause: terminal.cause });
-  if (terminal.code !== 0)
-    throw new ExecutionAdmissionError("north_coordinator_preflight_invalid_response");
 }
 
 /**
@@ -486,10 +456,7 @@ export async function admitExecution(
   // North MCP is part of every managed lane's identity and reporting surface,
   // not only an orchestrator tool. A worker starting against a dead coordinator
   // would be an unrecorded native run wearing managed metadata.
-  await requireCoordinator(
-    options?.mcpServers?.north?.env?.NORTH_PORT,
-    options?.mcpServers?.north?.env?.FRAM_LOG,
-  );
+  await requireCoordinator(options?.mcpServers?.north?.env);
 }
 
 export function admitPinnedProvider(

@@ -205,50 +205,8 @@
                  (set (map :predicate @actions)))
               (= ["fired"]
                  (mapv :value
-                       (filter #(= "window_action" (:predicate %)) @actions)))))
-  (check "a fired window schedules the canary outside the Nix rebuild worker"
-         (let [canary-call (second @shell-calls)]
-           (and (= 2 (count @shell-calls))
-                (= "systemd-run" (first canary-call))
-                (some #{(str "--unit=north-rebuild-canary-" window-id)} canary-call)
-                (some #{"--property=Type=exec"} canary-call)
-                (= [(str root "/bin/north") "rebuild" "run-canary"
-                    window-id "/nix/store/test-generation"]
-                   (subvec canary-call (- (count canary-call) 5)))))))
-
-(let [shell-calls (atom [])
-      publications (atom [])]
-  (with-redefs
-    [babashka.process/shell
-     (fn [_ & args]
-       (swap! shell-calls conj (vec args))
-       {:exit 0 :out "canary green\n" :err ""})
-     north.coord/publish!
-     (fn [_ actions] (swap! publications conj actions) {:ok 1})]
-    (rq/run-post-window-canary! 7977 window-id "/nix/store/test-generation"))
-  (check "the detached canary records the landed generation result"
-         (and (= [[(str root "/bin/north") "canary" "run" "--matrix"]]
-                 @shell-calls)
-              (= "window_canary" (get-in @publications [0 0 :predicate]))
-              (str/includes? (get-in @publications [0 0 :values 0])
-                             "\"status\":\"full-green\""))))
-
-(let [publications (atom [])
-      alerts (atom [])]
-  (with-redefs
-    [babashka.process/shell
-     (fn [_ & _] {:exit 1 :out "" :err "systemd unavailable"})
-     north.coord/publish!
-     (fn [_ actions] (swap! publications conj actions) {:ok 1})
-     rq/send-urgent-alert! (fn [message] (swap! alerts conj message))]
-    (check "canary admission failure is recorded without reopening a fired window"
-           (false? (rq/schedule-post-window-canary!
-                    7977 window-id "/nix/store/test-generation"))))
-  (check "canary admission failure alerts with durable window provenance"
-         (and (= "window_canary" (get-in @publications [0 0 :predicate]))
-              (str/includes? (get-in @publications [0 0 :values 0])
-                             "\"status\":\"schedule-failure\"")
-              (str/includes? (first @alerts) window-id))))
+                       (filter #(= "window_action" (:predicate %)) @actions)))
+              (= 1 (count @shell-calls)))))
 
 (let [settled? (atom false)
       action (atom nil)

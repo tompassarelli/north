@@ -12,6 +12,20 @@ const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../..", "orchestration");
 // legitimately consume the 30s server budget. Keep Bun's ceiling above that
 // boundary, matching the client-side rationale in src/north-client.ts.
 const MCP_PROCESS_TEST_TIMEOUT_MS = 45_000;
+function framRpcEnvironment(root: string, port = "7977"): Record<string, string> {
+  return {
+    FRAM_HOME: join(root, "fram"),
+    FRAM_BIN: join(root, "fram/bin"),
+    FRAM_OUT: join(root, "fram/out"),
+    NORTH_FRAMRPC_OUT: join(root, "fram/out"),
+    FRAM_SPACE_ID: "north-coordination",
+    FRAM_SERVER_PORT: port,
+    NORTH_PORT: port,
+    NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+    NORTH_TELEMETRY_PORT: port === "65535" ? "65534" : String(Number(port) + 1),
+    NORTH_TELEMETRY_PARTITION: "1",
+  };
+}
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
@@ -50,7 +64,10 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   chmodSync(fakeNorth, 0o755);
 
   const selectors = [
-    "FRAM_LOG", "FRAM_TELEMETRY_LOG", "FRAM_THREADS", "NORTH_PORT",
+    "FRAM_THREADS", "NORTH_PORT",
+    "NORTH_FRAMRPC_OUT", "NORTH_TELEMETRY_PARTITION",
+    "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
+    "FRAM_BIN", "FRAM_HOME", "FRAM_OUT", "FRAM_SERVER_PORT", "FRAM_SPACE_ID",
     "AGENT_MODEL", "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_TIER",
     "AGENT_REASONING", "AGENT_EFFORT", "AGENT_POSTURE", "AGENT_COMPOSITION",
     "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS", "AGENT_TOPOLOGY",
@@ -59,7 +76,8 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   ];
   const env = Object.fromEntries(
     Object.entries(process.env)
-      .filter(([key, value]) => value !== undefined && !selectors.includes(key)),
+      .filter(([key, value]) => value !== undefined
+        && !key.startsWith("FRAM_") && !selectors.includes(key)),
   ) as Record<string, string>;
   Object.assign(env, {
     HOME: home,
@@ -69,6 +87,16 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
     NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
     NO_COLOR: "1",
+    FRAM_HOME: join(directory, "fram"),
+    FRAM_BIN: join(directory, "fram/bin"),
+    FRAM_OUT: join(directory, "fram/out"),
+    NORTH_FRAMRPC_OUT: join(directory, "fram/out"),
+    FRAM_SPACE_ID: "north-coordination",
+    FRAM_SERVER_PORT: "7977",
+    NORTH_PORT: "7977",
+    NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+    NORTH_TELEMETRY_PORT: "7978",
+    NORTH_TELEMETRY_PARTITION: "1",
     // Every ambient routing/proof axis below must be absent from the child.
     // The complete request-owned Orchestration contract is rebuilt below.
     AGENT_MODEL: "ambient-model",
@@ -313,54 +341,62 @@ test("MCP rejects an invalid detector override before SDK launch", () => {
   expect(() => readFileSync(marker)).toThrow();
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
-test("env-less MCP SDK launches materialize the canonical North instance exactly once", () => {
-  const defaulted = mcpSpawnEnvironment(() => {});
-  expect(defaulted.childEnv).toMatchObject({
-    FRAM_LOG: join(defaulted.home, ".local/state/north/facts.log"),
-    FRAM_THREADS: join(defaulted.home, ".local/state/north/threads"),
+test("MCP SDK launches forward the inherited canonical FRAMRPC instance exactly", () => {
+  const launched = mcpSpawnEnvironment((home, env) => {
+    env.FRAM_THREADS = join(home, "custom-threads");
+  });
+  expect(launched.childEnv).toMatchObject({
+    FRAM_HOME: join(launched.home, "../fram"),
+    FRAM_BIN: join(launched.home, "../fram/bin"),
+    FRAM_OUT: join(launched.home, "../fram/out"),
+    NORTH_FRAMRPC_OUT: join(launched.home, "../fram/out"),
+    FRAM_SPACE_ID: "north-coordination",
+    FRAM_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
+    NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+    NORTH_TELEMETRY_PORT: "7978",
+    NORTH_TELEMETRY_PARTITION: "1",
+    FRAM_THREADS: join(launched.home, "custom-threads"),
   });
-  expect(defaulted.childEnv).not.toHaveProperty("FRAM_TELEMETRY_LOG");
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
 
-  const split = mcpSpawnEnvironment((home) => {
-    const state = join(home, ".local/state/north");
-    mkdirSync(state, { recursive: true });
-    writeFileSync(join(state, "coordination.log"), "");
-  });
-  expect(split.childEnv).toMatchObject({
-    FRAM_LOG: join(split.home, ".local/state/north/coordination.log"),
-    FRAM_TELEMETRY_LOG: join(split.home, ".local/state/north/telemetry.log"),
-    FRAM_THREADS: join(split.home, ".local/state/north/threads"),
+test("MCP launch fails closed when the inherited FRAMRPC environment is incomplete", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-mcp-missing-framrpc-"));
+  temporary.push(directory);
+  const marker = join(directory, "sdk-launched");
+  const fakeBun = join(directory, "bun");
+  writeFileSync(fakeBun, `#!/usr/bin/env bash\ntouch ${JSON.stringify(marker)}\n`);
+  chmodSync(fakeBun, 0o755);
+  const environment: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    HOME: directory,
+    NORTH_MCP_BUN: fakeBun,
+    NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+    FRAM_HOME: join(directory, "fram"),
+    FRAM_BIN: join(directory, "fram/bin"),
+    FRAM_OUT: join(directory, "fram/out"),
+    NORTH_FRAMRPC_OUT: join(directory, "fram/out"),
+    FRAM_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
+    NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+    NORTH_TELEMETRY_PORT: "7978",
+    NORTH_TELEMETRY_PARTITION: "1",
+  };
+  delete environment.FRAM_SPACE_ID;
+  const request = `${JSON.stringify({
+    jsonrpc: "2.0", id: 1, method: "tools/call",
+    params: { name: "spawn", arguments: {
+      prompt: "must fail before launch", ...presetRequest("verifier"),
+    } },
+  })}\n`;
+  const result = spawnSync("bb", [resolve(import.meta.dir, "../..", "bin/north-mcp")], {
+    input: request, encoding: "utf8", env: environment,
   });
-
-  const splitWithExplicitTelemetry = mcpSpawnEnvironment((home, env) => {
-    const state = join(home, ".local/state/north");
-    mkdirSync(state, { recursive: true });
-    writeFileSync(join(state, "coordination.log"), "");
-    env.FRAM_TELEMETRY_LOG = join(state, "custom-telemetry.log");
-  });
-  expect(splitWithExplicitTelemetry.childEnv).toMatchObject({
-    FRAM_LOG: join(splitWithExplicitTelemetry.home, ".local/state/north/coordination.log"),
-    FRAM_TELEMETRY_LOG: join(splitWithExplicitTelemetry.home, ".local/state/north/custom-telemetry.log"),
-    FRAM_THREADS: join(splitWithExplicitTelemetry.home, ".local/state/north/threads"),
-    NORTH_PORT: "7977",
-  });
-
-  const explicit = mcpSpawnEnvironment((_home, env) => {
-    const selected = join(_home, "selected");
-    mkdirSync(selected, { recursive: true });
-    writeFileSync(join(selected, "coordination.log"), "");
-    env.FRAM_LOG = join(selected, "custom.log");
-    env.FRAM_THREADS = join(selected, "custom-threads");
-    env.NORTH_PORT = "64129";
-  });
-  expect(explicit.childEnv).toMatchObject({
-    FRAM_LOG: join(explicit.home, "selected/custom.log"),
-    FRAM_THREADS: join(explicit.home, "selected/custom-threads"),
-    NORTH_PORT: "64129",
-  });
-  expect(explicit.childEnv).not.toHaveProperty("FRAM_TELEMETRY_LOG");
+  expect(result.status, result.stderr).toBe(0);
+  const response = JSON.parse(result.stdout.trim());
+  expect(response.result.isError).toBe(true);
+  expect(response.result.content[0].text).toContain("missing FRAM_SPACE_ID");
+  expect(() => readFileSync(marker)).toThrow();
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("MCP dispatch runs warm child preflight within budget and forwards an exact account target", () => {
@@ -376,7 +412,7 @@ case "$*" in
   *mcp-route-preflight.ts*) exit 0 ;;
 esac
 printf 'spawn:%s\n' "$AGENT_ID" >> "$NORTH_MCP_EVENTS"
-printf '%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_LOG" "$*" > "$NORTH_MCP_CAPTURE"
+printf '%s|%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_SPACE_ID" "$FRAM_SERVER_PORT" "$*" > "$NORTH_MCP_CAPTURE"
 thread="\${@: -1}"
 NORTH_SDK_PREFLIGHT=1 "$NORTH_BIN" json show "$thread" >/dev/null || { printf '%s\n' NORTH_READ_UNAVAILABLE >&2; exit 17; }
 children="$(NORTH_SDK_PREFLIGHT=1 "$NORTH_BIN" json children "$thread")" || { printf '%s\n' NORTH_READ_UNAVAILABLE >&2; exit 17; }
@@ -408,7 +444,6 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   chmodSync(fakeNorth, 0o755);
 
   const north = resolve(import.meta.dir, "../..");
-  const exactFramLog = join(directory, "exact-coordination.log");
   const request = `${JSON.stringify({
     jsonrpc: "2.0", id: 1, method: "tools/call",
     params: { name: "dispatch", arguments: {
@@ -427,6 +462,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     encoding: "utf8",
     env: {
       ...process.env,
+      ...framRpcEnvironment(directory),
       HOME: directory,
       NORTH_MCP_BUN: fakeBun,
       NORTH_MCP_BB: fakeBb,
@@ -435,7 +471,16 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       NORTH_BIN: fakeNorth,
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
       NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
-      FRAM_LOG: exactFramLog,
+      FRAM_HOME: join(directory, "fram"),
+      FRAM_BIN: join(directory, "fram/bin"),
+      FRAM_OUT: join(directory, "fram/out"),
+      NORTH_FRAMRPC_OUT: join(directory, "fram/out"),
+      FRAM_SPACE_ID: "north-coordination",
+      FRAM_SERVER_PORT: "49321",
+      NORTH_PORT: "49321",
+      NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+      NORTH_TELEMETRY_PORT: "49322",
+      NORTH_TELEMETRY_PARTITION: "1",
     },
   });
   expect(result.status, result.stderr).toBe(0);
@@ -447,12 +492,13 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   expect(response.result.content[0].text).toContain("target=claude-personal-tompas0x-gmail");
   expect(response.result.content[0].text).toContain("thread @019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(response.result.content[0].text).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
-  const [target, provider, agentId, preclaimed, observedFramLog, command] =
+  const [target, provider, agentId, preclaimed, spaceId, serverPort, command] =
     readFileSync(capture, "utf8").trim().split("|");
   expect(target).toBe("claude-personal-tompas0x-gmail");
   expect(provider).toBe("anthropic");
   expect(preclaimed).toBe("1");
-  expect(observedFramLog).toBe(exactFramLog);
+  expect(spaceId).toBe("north-coordination");
+  expect(serverPort).toBe("49321");
   expect(command).toContain("/dispatch.ts");
   expect(command).toContain("/dispatch.ts 019f6c5e-61d0-7880-98a0-f8999eac7b03");
   expect(command).not.toContain("@@019f6c5e-61d0-7880-98a0-f8999eac7b03");
@@ -579,6 +625,7 @@ test("MCP spawn reports pre-identity construction failure instead of fabricating
     encoding: "utf8",
     env: {
       ...process.env,
+      ...framRpcEnvironment(directory),
       HOME: directory,
       NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_BIN: fakeNorth,
@@ -621,7 +668,8 @@ exit 3
         ...presetRequest("verifier"),
       } } })}\n`,
     encoding: "utf8",
-    env: { ...process.env, NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+    env: { ...process.env, ...framRpcEnvironment(directory),
+      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_MCP_BUN: fakeBun, NORTH_MCP_BB: fakeBb, NORTH_MCP_MARKER: marker },
   });
   expect(result.status).toBe(0);
@@ -834,6 +882,9 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
     },
   ];
   let id = 100;
+  const framOut = process.env.NORTH_FRAMRPC_OUT
+    ?? "/home/tom/code/fram/wt-core-target-production-5db9b38/out";
+  const framRoot = resolve(framOut, "..");
   for (const name of ["spawn", "dispatch"]) {
     for (const shape of shapes) {
       const arguments_ = name === "spawn"
@@ -847,6 +898,11 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
         encoding: "utf8",
         env: {
           ...process.env,
+          ...framRpcEnvironment(north, "59319"),
+          FRAM_HOME: framRoot,
+          FRAM_BIN: join(framRoot, "bin"),
+          FRAM_OUT: framOut,
+          NORTH_FRAMRPC_OUT: framOut,
           AGENT_TOPOLOGY: "orchestrator",
           AGENT_ID: "parent-director",
           NORTH_MCP_BUN: "/bin/false",

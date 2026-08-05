@@ -14,44 +14,6 @@ if [ "${1:-}" = "zero" ]; then
 fi
 
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
-_north_fram_log_explicit=0
-if [ -n "${FRAM_LOG:-}" ]; then _north_fram_log_explicit=1; fi
-export FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/facts.log}"
-# --- the log split: kind-routed telemetry segregation -------------------------
-# The existing A1 split keeps both origin logs behind one coordinator. An
-# explicit NORTH_TELEMETRY_PARTITION=1 advances to Stage A: coordination and
-# telemetry each have an independently fenced writer. FRAM_TELEMETRY_LOG is
-# still selected by either an explicit caller value or the presence of a seeded
-# coordination.log beside FRAM_LOG. An explicit telemetry path does not make the
-# default facts.log authoritative; when coordination.log exists it remains the
-# coordination writer's exact fence. Without the Stage-A flag, the prior
-# single-coordinator behavior remains unchanged.
-# Gated ONLY on whether the caller pinned FRAM_LOG. It was ALSO gated on
-# FRAM_TELEMETRY_LOG being unset, and that broke every write: the packaged
-# wrapper exports FRAM_TELEMETRY_LOG, so this branch never ran, FRAM_LOG stayed
-# at facts.log, and the coordinator serves coordination.log. Observed
-# 2026-07-29 — every `north tell` died with
-#   REFUSED — subject resolver unavailable (coordinator unavailable or
-#   incompatible)
-# which is a log-identity MISMATCH wearing the costume of a dead daemon: the
-# same write through `fram` with FRAM_LOG=coordination.log committed fine.
-#
-# The two variables answer different questions. FRAM_LOG is WHICH CORPUS;
-# FRAM_TELEMETRY_LOG is WHERE TELEMETRY GOES. Letting the second veto the first
-# conflated them. cli/tests/north-log-selection-test.sh pins all four cases.
-if [ "$_north_fram_log_explicit" -eq 0 ]; then
-  _north_log_dir="$(dirname "$FRAM_LOG")"
-  if [ -f "$_north_log_dir/coordination.log" ]; then
-    export FRAM_LOG="$_north_log_dir/coordination.log"
-    # Only DERIVED when the caller named none, so an explicit telemetry route
-    # is never clobbered.
-    if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
-      export FRAM_TELEMETRY_LOG="$_north_log_dir/telemetry.log"
-    fi
-  fi
-  unset _north_log_dir
-fi
-unset _north_fram_log_explicit
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -475,20 +437,6 @@ case "${1:-}" in
     # Presence-derived managed lanes + reservation thread bindings, coordinator
     # floor, and the ready/leverage pull queue. Read-only. cli/wip-cli.clj.
     exec "$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/wip-cli.clj" "${@:2}" ;;
-  dials)
-    # Compatibility bridge to the evidence-aware report. Dollar-centric dial
-    # scoring is intentionally retired for subscription entitlement routing.
-    exec "$BB" "$NORTH/cli/dials-cli.clj" "${@:2}" ;;
-  routing)
-    # Empirical routing feedback joins run telemetry to its exact proof-carrying
-    # lane terminal, with current thread facts retained only as review context.
-    # It never claims causal model quality or auto-promotes bespoke recurrence.
-    exec "$BB" "$NORTH/cli/routing-report.clj" "${@:2}" ;;
-  canary)
-    # Recurring reliability probe. `run` composes the existing capture + delegate
-    # production path; `report` reads the same terminal telemetry and failure
-    # attribution as routing performance.
-    exec "$BB" "$NORTH/cli/canary-cli.clj" "${@:2}" ;;
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a north.main verb, so it execs directly.

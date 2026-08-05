@@ -3,19 +3,14 @@
 # Declare a feature + its footprint; concerns coexist; overlap and likely-to-land
 # work are surfaced so agents shape around each other. See cli/concern-cli.clj.
 #
-# FOOTPRINT = CODE-GRAPH BLAST JOINS (thread 019f1010-2705): on a FLIPPED Beagle repo
-# (a warm fram code daemon is up) footprint rides code-node IDENTITY via the per-repo
-# code store — scope-correct, rename-stable. We discover that repo's code-daemon port
-# here and hand the exact port/log pair to the CLI (the :7977 board stays the spine).
-# No live code daemon -> the CLI degrades to path-string footprint.
+# Footprints stay path-based. Configured code stores remain durable-local until
+# they have their own explicit FRAMRPC endpoint.
 set -euo pipefail
 ROOT="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
-BOARD="${NORTH_PORT:-7977}"
-FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
-FRAM_BIN="${FRAM_BIN:-$FRAM_HOME/bin}"
-FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
-NORTH_RUNTIME_CLASSPATH="$ROOT/out:$FRAM_OUT"
-export FRAM_HOME FRAM_BIN FRAM_OUT NORTH_RUNTIME_CLASSPATH
+BOARD="${NORTH_PORT:?concern requires the canonical FRAMRPC port}"
+FRAMRPC_OUT="${NORTH_FRAMRPC_OUT:?concern requires the canonical FRAMRPC classpath}"
+NORTH_RUNTIME_CLASSPATH="$ROOT/out:$FRAMRPC_OUT"
+export NORTH_RUNTIME_CLASSPATH
 # See bin/north for the resolution-chain rationale: a promoted deployment's
 # exec unit may carry neither bb nor NORTH_BB on PATH.
 if [ -n "${NORTH_BB:-}" ]; then
@@ -28,75 +23,6 @@ else
   echo "concern: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
   exit 127
 fi
-# The concern CLI talks to the coordination spine directly instead of routing
-# through bin/north, so it must carry the same canonical log fence itself.
-# Leaving this unset falls back to the retired facts.log name in coord.clj and
-# makes every concern declaration fail against the live coordination.log daemon.
-FRAM_LOG="${FRAM_LOG:-$HOME/.local/state/north/coordination.log}"
-export FRAM_LOG
-
-# Best-effort repo for code-daemon discovery: `declare` carries it positionally
-# (`declare <agent> <repo> ...` => $3), other verbs read the concern's stored
-# code_port off the spine, so $PWD is a fine fallback for them.
-repo=""
-if [ "${1:-}" = "declare" ]; then repo="${3:-}"; fi
-[ -z "$repo" ] && repo="$PWD"
-repo="${repo/#\~/$HOME}"
-
-# True only when the exact port has a listener, on Linux or Darwin.
-port_listening() {
-  local port="$1"
-  if command -v ss >/dev/null 2>&1; then
-    ss -ltnH "sport = :$port" 2>/dev/null | grep -q .
-  elif command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | grep -q .
-  else
-    return 1
-  fi
-}
-
-canonical_file() {
-  local file="$1" parent
-  parent="$(cd "$(dirname "$file")" 2>/dev/null && pwd -P)" || return 1
-  printf '%s/%s\n' "$parent" "$(basename "$file")"
-}
-
-# Exact port/log pair of the per-repo warm code daemon, IFF one is listening.
-discover_code_target() {
-  local dir="$1" cand="" log="" pair=""
-  [ -d "$dir" ] || return 0
-  # 1) .mcp.json authoritative FRAM_CODE_PORT + FRAM_CODE_LOG pair.
-  if [ -f "$dir/.mcp.json" ]; then
-    pair="$("$BB" -e '
-      (require (quote [cheshire.core :as json]))
-      (try
-        (let [doc (json/parse-string (slurp (first *command-line-args*)))
-              env (or (get-in doc ["mcpServers" "fram" "env"])
-                      (get-in doc ["mcpServers" "fram-code" "env"]))
-              port (get env "FRAM_CODE_PORT")
-              log (get env "FRAM_CODE_LOG")]
-          (when (and (string? port) (string? log))
-            (println (str port "\t" log))))
-        (catch Exception _ nil))' "$dir/.mcp.json" 2>/dev/null || true)"
-    [ -n "$pair" ] || return 0
-    cand="${pair%%	*}"
-    log="${pair#*	}"
-  fi
-  [[ "$cand" =~ ^[0-9]+$ ]] || return 0
-  ((cand >= 1 && cand <= 65535)) || return 0
-  [[ "$log" = /* ]] || return 0
-  [ -e "$log" ] || return 0
-  log="$(canonical_file "$log")" || return 0
-  port_listening "$cand" || return 0
-  printf '%s\t%s\n' "$cand" "$log"
-}
-
-CODE_TARGET="$(discover_code_target "$repo" || true)"
-if [ -n "${CODE_TARGET:-}" ]; then
-  export NORTH_CODE_PORT="${CODE_TARGET%%	*}"
-  export NORTH_CODE_LOG="${CODE_TARGET#*	}"
-fi
-
 args=("$@")
 if [ "${1:-}" = "declare" ] &&
    [[ "${NORTH_THREAD_ID:-}" =~ [^[:space:]] ]]; then

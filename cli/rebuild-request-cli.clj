@@ -592,112 +592,6 @@
                :coordination-on? (coordination-on?)})]
     (assoc plan :unread-older 0)))
 
-;; ---- post-window canary probe ------------------------------------------------
-;; Gate D probes the landed generation after window close. It runs separately
-;; so a slow probe cannot block the Nix rebuild worker from reading its queue.
-
-(def canary-alert-subject "north-rebuild-canary")
-
-(defn canary-alert-recipient []
-  (or (System/getenv "NORTH_REBUILD_CANARY_RECIPIENT")
-      (System/getenv "NORTH_AUTHOR")
-      "tom_passarelli"))
-
-(defn send-urgent-alert! [body]
-  (try
-    (proc/shell {:out :string :err :string :continue true}
-               "bb" (str cli-dir "/msg-cli.clj") (str (or (System/getenv "NORTH_PORT") "7977"))
-               "send" canary-alert-subject (canary-alert-recipient) "URGENT" body)
-    (catch Throwable _ nil)))
-
-(defn run-post-window-canary!
-  [port window-id generation]
-  (try
-    (let [result (proc/shell {:out :string :err :string :continue true}
-                             (str repo-root "/bin/north") "canary" "run" "--matrix")
-          ok? (zero? (:exit result))
-          out (str (:out result) (:err result))
-          at (now-ms)]
-      (let [publication
-            (north.coord/publish!
-             port
-             [{:op :set :subject (window-subject window-id)
-               :predicate "window_canary"
-               :values [(json/generate-string
-                         (sorted-map "atMs" at "at" (instant at)
-                                     "generation" (str generation)
-                                     "status" (if ok? "full-green" "failure")
-                                     "exit" (:exit result)))]
-               :cardinality :one}])]
-        (when (:reject publication)
-          (throw (ex-info "FRAMRPC rejected rebuild canary publication"
-                          {:type :canary-publication-rejected
-                           :result publication}))))
-      (when-not ok?
-        (binding [*out* *err*]
-          (println (str "north rebuild: post-window canary FAILED for generation "
-                        generation " (window " window-id "); alerting")))
-        (send-urgent-alert!
-         (str "canary failed after rebuild window " window-id
-              " (generation " generation ", exit " (:exit result) "):\n"
-              (subs out 0 (min (count out) 4000))))))
-    (catch Throwable error
-      (binding [*out* *err*]
-        (println (str "north rebuild: post-window canary errored for window "
-                      window-id ": " (.getMessage error))))
-      (send-urgent-alert!
-       (str "canary probe itself errored after rebuild window " window-id
-            " (generation " generation "): " (.getMessage error))))))
-
-(defn record-canary-schedule-failure!
-  [port window-id generation message]
-  (let [at (now-ms)]
-    (try
-      (north.coord/publish!
-       port
-       [{:op :set :subject (window-subject window-id)
-         :predicate "window_canary"
-         :values [(json/generate-string
-                   (sorted-map "atMs" at "at" (instant at)
-                               "generation" (str generation)
-                               "status" "schedule-failure"))]
-         :cardinality :one}])
-      (catch Throwable _ nil))
-    (binding [*out* *err*]
-      (println (str "north rebuild: post-window canary was not scheduled for window "
-                    window-id ": " message)))
-    (send-urgent-alert!
-     (str "canary could not be scheduled after rebuild window " window-id
-          " (generation " generation "): " message))))
-
-(defn schedule-post-window-canary!
-  [port window-id generation]
-  (let [window-id (normalize-window-id window-id)
-        unit (str "north-rebuild-canary-" window-id)]
-    (try
-      (let [result
-            (proc/shell {:out :string :err :string :continue true}
-                        "systemd-run" "--user" "--collect"
-                        (str "--unit=" unit)
-                        "--description=north post-window canary"
-                        "--property=Type=exec"
-                        (str "--setenv=NORTH_PORT=" port)
-                        (str repo-root "/bin/north")
-                        "rebuild" "run-canary" window-id (str generation))]
-        (if (zero? (:exit result))
-          (do
-            (println (str "post-window canary scheduled · unit " unit))
-            true)
-          (do
-            (record-canary-schedule-failure!
-             port window-id generation
-             (str/trim (str (:out result) (:err result))))
-            false)))
-      (catch Throwable error
-        (record-canary-schedule-failure!
-         port window-id generation (or (.getMessage error) (str (class error))))
-        false))))
-
 (defn run-window!
   "Execute one claimed window through the mutexed rebuild/readiness path, then
    close every request the window claimed against the landed generation. Runs
@@ -738,7 +632,6 @@
                               "window_action" ["fired"])))))
         (println (str "rebuild window " window-id " fired · " (count requests)
                       " request(s) satisfied · generation " generation))
-        (schedule-post-window-canary! port window-id generation)
         0)
       (do
         (set-window-action! port window-id "failed")
@@ -869,11 +762,6 @@
             (when-not (:generation options) (fail! "satisfy requires --generation"))
             (mark-satisfied! port id options)
             (println (str "satisfied " (normalize-request-id id))))
-          "run-canary"
-          (if (= 2 (count args))
-            (let [[window-id generation] args]
-              (run-post-window-canary! port (normalize-window-id window-id) generation))
-            (fail! usage))
           "health-json" (println (json/generate-string (activation-health port)))
           (do (println usage) (when command (System/exit 2)))))
       (catch clojure.lang.ExceptionInfo error
