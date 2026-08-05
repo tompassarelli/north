@@ -24,9 +24,11 @@
   (str listener-lease-prefix (bare-agent control)))
 
 (defn lease-live-at? [lease now]
-  (and (north.coord/authoritative-lease? lease)
-       (> (:exp lease) now)
-       (pos? (:epoch lease))))
+  (and (map? lease)
+       (some? (:resource lease))
+       (some? (:holder lease))
+       (integer? (:exp lease))
+       (> (:exp lease) now)))
 
 (defn exact-singleton?
   [envelope expected]
@@ -45,7 +47,7 @@
   [port control]
   (let [subject (agent-subject control)
         resource (listener-resource control)
-        before (north.coord/lease-of port resource)]
+        before (north.coord/lease-status port resource)]
     ;; Keep every load-bearing read explicit and ordered: lease -> generation
     ;; -> state -> lease. Arming writes frozen, generation, armed; cleanup
     ;; writes frozen before release. No interleaving can expose a false live
@@ -56,11 +58,12 @@
           state
           (north.coord/resolved-envelope
            port subject "live_input_state")
-          after (north.coord/lease-of port resource)
+          after (north.coord/lease-status port resource)
           now (System/currentTimeMillis)]
       (boolean
        (and (lease-live-at? before now)
             (lease-live-at? after now)
+            (= resource (:resource before) (:resource after))
             (= (:holder before) (:holder after))
             (re-matches listener-generation-pattern (:holder before))
             (exact-singleton? generation (:holder before))
@@ -87,7 +90,7 @@
   (let [control (bare-agent control)]
     (boolean
      (and (not (str/blank? control))
-          (or (north.coord/online? port control)
+          (or (north.coord/session-online? port control)
               (armed-route-live? port control))))))
 
 (defn role-holders

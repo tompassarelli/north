@@ -32,24 +32,6 @@
   (swap! checks conj [label (boolean value)])
   (println (if value (str "PASS " label) (str "FAIL " label))))
 
-(let [expiry (+ (System/currentTimeMillis) 60000)]
-  (let [epoch-zero
-        (north.coord/decode-lease
-         (str "session-a|" expiry "|0"))]
-    (check "epoch zero remains parseable but is not lease authority"
-           (and (= 0 (:epoch epoch-zero))
-                (false?
-                 (north.coord/authoritative-lease? epoch-zero)))))
-  (doseq [[label value]
-          [["missing epoch" (str "session-a|" expiry)]
-           ["negative epoch" (str "session-a|" expiry "|-1")]
-           ["out-of-range epoch"
-            (str "session-a|" expiry "|9007199254740992")]
-           ["extra lease field" (str "session-a|" expiry "|1|extra")]
-           ["empty holder" (str "|" expiry "|1")]]]
-    (check (str label " is not lease authority")
-           (nil? (north.coord/decode-lease value)))))
-
 (def facts
   {["@role:north-integrator" "target"] "live-session"
    ["@agent:dead-session" "repo"] "north"
@@ -141,7 +123,7 @@
               (fn [_ subject predicate]
                 (swap! many-calls conj [subject predicate])
                 [])
-              north.coord/lease-of
+              north.coord/lease-status
               (fn [_ resource]
                 (when-let
                  [holder
@@ -151,10 +133,12 @@
                     "listener:ambiguous-state"
                     "00000000-0000-4000-8000-000000000203"
                     "listener:ambiguous-epoch"
-                    "00000000-0000-4000-8000-000000000204"}
+                   "00000000-0000-4000-8000-000000000204"}
                    resource)]
-                  {:holder holder :exp 9999999999999 :epoch 17}))
-              north.coord/online? (fn [_ control] (= control "live-session"))]
+                  {:resource resource :holder holder :exp 9999999999999
+                   :online? true}))
+              north.coord/session-online?
+              (fn [_ control] (= control "live-session"))]
   (check "direct live recipient passes"
          (= {:address "live-session" :recipient "live-session"
              :kind :direct :live true}

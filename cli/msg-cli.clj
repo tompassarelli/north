@@ -140,7 +140,7 @@
     (when (= :indeterminate (:status resolution))
       (reject-steer! "target lifecycle is inconsistent"))
     (let [online?
-          (try (north.coord/online? port control)
+          (try (north.coord/session-online? port control)
                (catch Exception _ ::unavailable))]
       (when (= ::unavailable online?)
         (reject-steer-unavailable! "target liveness projection is unreadable"))
