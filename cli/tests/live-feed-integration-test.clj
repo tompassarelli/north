@@ -9,9 +9,7 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
 (cp/add-classpath (str root "/out:" fram "/out"))
 (def live-feed-cli (str root "/cli/north-live-feed.clj"))
 (load-file (str root "/cli/coord.clj"))
