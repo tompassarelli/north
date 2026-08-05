@@ -32,12 +32,30 @@
 (defn unknown-attention-principal? [error]
   (= :unknown-attention-principal (:type (ex-data error))))
 
-(defn listener-attention-principals [port node agent-id]
+(defn listener-node-projection [port node]
+  (let [by-predicate
+        (reduce
+         (fn [index [predicate value]]
+           (update index predicate (fnil conj []) value))
+         {}
+         (north.coord/show-rows port node))
+        kinds (vec (distinct (get by-predicate "kind" [])))]
+    (when (> (count kinds) 1)
+      (throw
+       (ex-info "listener identity has an ambiguous kind"
+                {:type :ambiguous-listener-kind
+                 :node node
+                 :values kinds})))
+    {:kind (first kinds)
+     :holds (vec (distinct (get by-predicate "holds" [])))
+     :watches (vec (distinct (get by-predicate "watches" [])))}))
+
+(defn listener-attention-principals [node agent-id roles]
   ;; Concerns historically store their owner as @<lane-id>, while follow
   ;; ownership prefers @agent:<lane-id> or a role. Keep both exact refs in the
   ;; listener's attention set; direct-message addresses remain bare literals.
   (into #{node (str "@" agent-id)}
-        (north.attention/role-principals port agent-id)))
+        roles))
 
 (defn principal-follows [port principal]
   ;; Direct listeners predate graph-backed identities and remain valid for
@@ -130,6 +148,12 @@
   [holder response]
   (let [epoch (:epoch response)
         expiry (:exp response)]
+    (when (= :held (:reject response))
+      (throw
+       (ex-info "another listener generation already owns this identity"
+                {:type :listener-generation-held
+                 :holder (:holder response)
+                 :expiry expiry})))
     (when-not
      (and (map? response)
           (nil? (:reject response))
@@ -148,6 +172,11 @@
 
 (defn checked-listener-write!
   [operation response]
+  (when (= :fence-lost (:reject response))
+    (throw
+     (ex-info "listener generation was superseded"
+              {:type :listener-generation-superseded
+               :operation operation})))
   (when (or (not (map? response)) (:reject response))
     (throw
      (ex-info "coordinator rejected listener route publication"
@@ -250,15 +279,16 @@
                     :holder holder
                     :epoch (atom (:epoch grant))
                     :active? (atom true)
-                    :stop-renewal? (atom false)}]
+                    :stop-renewal? (atom false)
+                    :transport (atom nil)
+                    :renewal-error (atom nil)}]
     (try
       ;; A predecessor killed without cleanup may leave durable `armed` behind.
-      ;; Publish a false boundary under this new fence before installing its
-      ;; generation, then make armed the last route write.
+      ;; Publish a false boundary under this new fence before expensive scope
+      ;; projection. The subscription handshake makes armed the last route write.
       (fenced-listener-state! generation "frozen")
       (fenced-replace-listener-value!
        generation "live_input_epoch" holder)
-      (fenced-listener-state! generation "armed")
       generation
       (catch Exception error
         (try
@@ -268,6 +298,10 @@
                          :epoch @(:epoch generation)})
           (catch Exception _ nil))
         (throw error)))))
+
+(defn arm-listener-generation! [generation]
+  (when generation
+    (fenced-listener-state! generation "armed")))
 
 (defn renew-listener-generation!
   [generation]
@@ -319,7 +353,7 @@
             (flush)))))))
 
 (defn start-listener-renewer!
-  [generation unavailable!]
+  [generation]
   (future
     (loop []
       (Thread/sleep listener-renew-interval-ms)
@@ -329,28 +363,43 @@
                    (renew-listener-generation! generation)
                    nil
                    (catch Exception error error))]
-          (unavailable! error)
+          (do
+            (reset! (:renewal-error generation) error)
+            (when-let [socket @(:transport generation)]
+              (try (.close ^java.net.Socket socket)
+                   (catch Exception _ nil))))
           (recur))))))
 
 (defn with-native-listener-generation!
-  "Run BODY after the subscription handshake. Native sessions publish one
-   renewable listener generation; managed lanes retain SDK-only route authority."
-  [port node agent-id socket body]
-  (if-not (= "session" (rf port node "kind"))
-    (body)
+  "Fence a native listener before its scope projection. BODY receives the
+   generation or nil; managed lanes retain SDK-only route authority."
+  [port node agent-id kind body]
+  (if-not (= "session" kind)
+    (body nil)
     (let [generation (acquire-listener-generation! port node agent-id)
-          renewer (start-listener-renewer!
-                   generation
-                   (fn [_]
-                     (try (.close ^java.net.Socket socket)
-                          (catch Exception _ nil))))
+          renewer (start-listener-renewer! generation)
           shutdown-hook
           (Thread.
            (fn [] (finish-listener-generation! generation))
            (str "north-listener-cleanup-" agent-id))]
       (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
       (try
-        (body)
+        (let [result
+              (try
+                (body generation)
+                (catch Exception error
+                  (if-let [renewal-error @(:renewal-error generation)]
+                    (throw
+                     (ex-info "listener generation renewal failed"
+                              {:type :listener-generation-superseded}
+                              renewal-error))
+                    (throw error))))]
+          (if-let [renewal-error @(:renewal-error generation)]
+            (throw
+             (ex-info "listener generation renewal failed"
+                      {:type :listener-generation-superseded}
+                      renewal-error))
+            result))
         (finally
           (reset! (:stop-renewal? generation) true)
           (future-cancel renewer)
@@ -360,9 +409,10 @@
             (catch IllegalStateException _ nil)))))))
 
 (defn with-validated-native-listener-generation!
-  [port node agent-id socket subscription-response body]
+  [generation subscription-response body]
   (north.coord/validate-subscription! subscription-response)
-  (with-native-listener-generation! port node agent-id socket body))
+  (arm-listener-generation! generation)
+  (body))
 
 (defn validate-listener-corpus!
   "Fail before scope reads when this process is pointed at a coordinator for a
@@ -391,9 +441,16 @@
          (contains? #{:log-mismatch "log-mismatch"} (:code reply)))))
 
 (defn listener-pass-failure [error]
-  (cond
-    (= :listener-stop (:type (ex-data error)))
+  (let [type (:type (ex-data error))]
+   (cond
+    (= :listener-stop type)
     {:reason :stop}
+
+    (contains? #{:listener-generation-held
+                 :listener-generation-superseded}
+               type)
+    {:reason :superseded
+     :message (or (.getMessage error) "listener generation superseded")}
 
     (terminal-subscription-error? error)
     {:reason :fatal
@@ -402,7 +459,7 @@
 
     :else
     {:reason :unavailable
-     :message (or (.getMessage error) (.getName (class error)))}))
+     :message (or (.getMessage error) (.getName (class error)))})))
 
 (defn run-with-reconnect!
   "Drive transient subscription passes until a test/embedding pass returns
@@ -412,6 +469,7 @@
     (let [result (pass!)]
       (case (:reason result)
         :stop result
+        :superseded result
         :rescope (recur 0)
         :fatal
         (throw
@@ -520,24 +578,34 @@
       watched (atom #{})
       attention-principals (atom #{node})
       attention-scope (atom {:subscriptions [] :followed #{} :about->principals {}})]
-  ;; Every pass refreshes graph-backed scope, then arms one subscription. A
-  ;; scoped address change reconnects immediately. Transient coordinator EOF or
-  ;; restart-time protocol failure retries with bounded backoff; a static corpus
+  ;; One exact subject read identifies the route owner. Native listeners then
+  ;; fence before graph-backed scope reads and arm only after the subscription
+  ;; handshake. A scoped address change reconnects immediately; a static corpus
   ;; mismatch fails instead of retrying the same rejected fence forever.
   (run-with-reconnect!
    (fn []
     (let [reconnect? (atom false)]
           (try
             (validate-listener-corpus! port)
-            (reset! addrs
-                    (into #{uuid}
-                          (keep role-slug (rmany port node "holds"))))
-            (reset! watched (set (rmany port node "watches")))
-            (reset! attention-principals
-                    (listener-attention-principals port node uuid))
-            (reset! attention-scope
-                    (listener-attention-scope port @attention-principals))
-            (with-open [s (north.coord/connect-socket port)]
+            (let [{:keys [kind holds watches]}
+                  (listener-node-projection port node)
+                  roles
+                  (filterv #(and (string? %)
+                                 (str/starts-with? % "@role:"))
+                           holds)]
+             (with-native-listener-generation!
+              port node uuid kind
+              (fn [generation]
+               (reset! addrs
+                       (into #{uuid} (keep role-slug roles)))
+               (reset! watched (set watches))
+               (reset! attention-principals
+                       (listener-attention-principals node uuid roles))
+               (reset! attention-scope
+                       (listener-attention-scope port @attention-principals))
+               (with-open [s (north.coord/connect-socket port)]
+        (when generation
+          (reset! (:transport generation) s))
         (let [w (.getOutputStream s)
               reader (north.coord/coordinator-reader s)
               transport-watch
@@ -559,7 +627,7 @@
           ;; exact subscription. A listener that never completes the handshake
           ;; therefore cannot advertise itself as reachable.
           (with-validated-native-listener-generation!
-           port node uuid s
+           generation
            (north.coord/read-line-bounded! reader)
            (fn []
           (.setSoTimeout s 0)            ; validated long-lived stream: wait indefinitely for pushes
@@ -758,7 +826,7 @@
             (if @reconnect?
               {:reason :rescope}
               {:reason :closed
-               :message "coordinator subscription stream closed"})
+               :message "coordinator subscription stream closed"}))))
             (catch Exception error
               (listener-pass-failure error)))))
    (fn [delay-ms] (Thread/sleep delay-ms))
