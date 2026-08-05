@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FRAM="${FRAM_HOME:-$HOME/code/fram/main}"
 TMP="$(mktemp -d)"
-LOG="$TMP/facts.log"
-DAEMON_LOG="$TMP/coordinator.log"
+LOG="$TMP/history.framlog"
+SERVER_LOG="$TMP/server.log"
+SPACE="arena-seed-test"
 PID=""
 
 cleanup() {
@@ -17,15 +18,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-: >"$LOG"
 PORT=17970
 while ss -tlnH "sport = :$PORT" 2>/dev/null | grep -q .; do
   PORT=$((PORT + 1))
 done
 
-FRAM_REQUIRE_LOG_FENCE=1 \
 FRAM_SINGLE_VALUED="title exp_id arm task_id state tokens wall_s updated" \
-  "$FRAM/bin/fram-daemon" "$PORT" "$LOG" >"$DAEMON_LOG" 2>&1 &
+FRAM_SERVER_RUNTIME=jvm-dev \
+  "$FRAM/bin/fram-server" serve "$PORT" "$LOG" "$SPACE" \
+  >"$SERVER_LOG" 2>&1 &
 PID=$!
 
 for _ in $(seq 1 160); do
@@ -33,37 +34,47 @@ for _ in $(seq 1 160); do
     break
   fi
   if ! kill -0 "$PID" 2>/dev/null; then
-    cat "$DAEMON_LOG" >&2
+    cat "$SERVER_LOG" >&2
     exit 1
   fi
   sleep 0.25
 done
 ss -tlnH "sport = :$PORT" 2>/dev/null | grep -q . || {
-  cat "$DAEMON_LOG" >&2
-  echo "arena seed test: coordinator did not listen" >&2
+  cat "$SERVER_LOG" >&2
+  echo "arena seed test: Fram server did not listen" >&2
   exit 1
 }
 
 EXP="arena-seed-test-$$"
 OUTPUT="$(
-  FRAM_LOG="$LOG" FRAM_PORT=1 NORTH_PORT="$PORT" NORTH_ARENA_NO_SLEEP=1 \
+  FRAM_HOME="$FRAM" FRAM_OUT="$FRAM/out" FRAM_SPACE_ID="$SPACE" \
+    NORTH_PORT="$PORT" NORTH_ARENA_NO_SLEEP=1 \
     timeout 30s "$ROOT/bin/arena-seed" "$EXP"
 )"
 grep -Fq "done. control landed 3/5" <<<"$OUTPUT"
 
 RESULT="$(
-  FRAM_LOG="$LOG" NORTH_PORT="$PORT" \
-    bb -cp "$ROOT/out" -e '
-      (load-file (str (first *command-line-args*) "/cli/coord.clj"))
-      (let [port (parse-long (second *command-line-args*))
-            exp (nth *command-line-args* 2)]
+  bb -cp "$ROOT/out:$FRAM/out" -e '
+    (load-file (str (first *command-line-args*) "/cli/framrpc-client.clj"))
+    (require (quote [fram.types :as t])
+             (quote [north.framrpc-client :as rpc]))
+    (let [port (parse-long (second *command-line-args*))
+          space (nth *command-line-args* 2)
+          exp (nth *command-line-args* 3)
+          client (rpc/connect "127.0.0.1" port space)]
+      (try
         (println
-          (pr-str
-            [(north.coord/resolved port (str "@arena-" exp "-graph-4") "state")
-             (north.coord/resolved port (str "@arena-" exp "-control-4") "state")
-             (north.coord/resolved port (str "@arena-" exp "-control-2") "state")])) )' \
-      "$ROOT" "$PORT" "$EXP"
+         (pr-str
+          (mapv
+           (fn [[arm idx]]
+             (some-> (:rows (rpc/scan-all!
+                             client (str "@arena-" exp "-" arm "-" idx)
+                             "state" nil))
+                     first t/triple-slot2))
+           [["graph" 4] ["control" 4] ["control" 2]])))
+        (finally (rpc/close! client))))' \
+    "$ROOT" "$PORT" "$SPACE" "$EXP"
 )"
 [[ "$RESULT" == '["green" "failed" "blocked"]' ]]
 
-echo "arena seed test: PASS (strict fenced coordinator, NORTH_PORT precedence, no 60s delay)"
+echo "arena seed test: PASS (canonical FRAMRPC/FRAMLOG, current Fram main, no 60s delay)"

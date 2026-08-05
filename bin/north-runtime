@@ -27,6 +27,9 @@ coordination_log=${FRAM_LOG:-$HOME/.local/state/$project/coordination.log}
 port=${NORTH_PORT:-7977}
 bb=${NORTH_BB:-bb}
 cli_root=${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}
+fram_home=${FRAM_HOME:-$HOME/code/fram/main}
+fram_out=${FRAM_OUT:-$fram_home/out}
+north_runtime_classpath=$cli_root/out:$fram_out
 
 record_format=north-runtime/v1
 identity_format=north-runtime-v1
@@ -224,7 +227,7 @@ mint_id() {
 publish_fact() {
   local id=$1 kind=$2 revision=$3 previous=$4 why=$5 source=$6 origin=$7 ts=$8
 
-  FRAM_LOG="$coordination_log" "$bb" -e '
+  FRAM_LOG="$coordination_log" "$bb" -cp "$north_runtime_classpath" -e '
 (load-file (str (nth *command-line-args* 0) "/cli/coord.clj"))
 (let [args (vec *command-line-args*)
       port (Integer/parseInt (nth args 1))

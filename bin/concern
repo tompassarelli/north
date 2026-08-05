@@ -11,6 +11,11 @@
 set -euo pipefail
 ROOT="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
 BOARD="${NORTH_PORT:-7977}"
+FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
+FRAM_BIN="${FRAM_BIN:-$FRAM_HOME/bin}"
+FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
+NORTH_RUNTIME_CLASSPATH="$ROOT/out:$FRAM_OUT"
+export FRAM_HOME FRAM_BIN FRAM_OUT NORTH_RUNTIME_CLASSPATH
 # See bin/north for the resolution-chain rationale: a promoted deployment's
 # exec unit may carry neither bb nor NORTH_BB on PATH.
 if [ -n "${NORTH_BB:-}" ]; then
@@ -76,14 +81,6 @@ discover_code_target() {
     [ -n "$pair" ] || return 0
     cand="${pair%%	*}"
     log="${pair#*	}"
-  elif [ -d "$dir/.fram" ]; then
-    # Legacy boot residue is accepted only as a complete conventional pair.
-    local f
-    for f in "$dir"/.fram/coord-*.log; do
-      [ -e "$f" ] || continue
-      cand="$(basename "$f" | sed -E 's/coord-([0-9]+)\.log/\1/')"; [ -n "$cand" ] && break
-    done
-    log="$dir/.fram/code.log"
   fi
   [[ "$cand" =~ ^[0-9]+$ ]] || return 0
   ((cand >= 1 && cand <= 65535)) || return 0
@@ -116,4 +113,4 @@ if [ "${1:-}" = "declare" ] &&
   fi
 fi
 
-exec "$BB" "$ROOT/cli/concern-cli.clj" "$BOARD" "${args[@]}"
+exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$ROOT/cli/concern-cli.clj" "$BOARD" "${args[@]}"

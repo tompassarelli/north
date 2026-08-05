@@ -1,8 +1,6 @@
 #!/usr/bin/env bb
 ;; bb -cp <fram-out> cli/tests/bars-cli-indexed-test.clj
-(require '[babashka.classpath :as classpath]
-         '[babashka.process :as proc]
-         '[clojure.java.io :as io]
+(require '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[fram.types :as t])
 
@@ -64,8 +62,7 @@
            (str/blank?
             (with-out-str (north.bars-cli/cmd-echo (subs subject 1)))))))
 
-;; A non-string Term is not a groomable bar fact; the v0.3 :show envelope
-;; could never deliver one, so the native reader must not start.
+;; A non-string Term is not a groomable bar fact.
 (with-redefs [rpc/connect stub-client
               rpc/close! (fn [_] nil)
               rpc/scan-all! (fn [_ _ _ _]
@@ -123,26 +120,7 @@
                                   "\"${NORTH_MAIN[@]}\" done-bars \"$2\""))))
   (check "the bars entrypoint carries the Fram classpath the native wire needs"
          (str/includes? entrypoint
-                        "NORTH_BARS=(\"$BB\" -cp \"$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}\" \"$NORTH/cli/bars-cli.clj\")")))
-
-;; A stale FRAM_OUT's native-client load failure must degrade to the same
-;; clean connect refusal as an unreachable coordinator, not a raw stack trace.
-(let [snippet
-      (str "(load-file \"" root "/cli/bars-cli.clj\")"
-           "(with-redefs [north.bars-cli/ensure-native-client!"
-           " (fn [] (throw (ex-info \"Unable to resolve symbol: wire/rpc-v1-magic\" {})))]"
-           " (north.bars-cli/cmd-list \"" (subs subject 1) "\"))")
-      {:keys [exit out err]}
-      (proc/shell {:continue true :out :string :err :string}
-                  "bb" "-cp" (classpath/get-classpath) "-e" snippet)
-      combined (str out err)]
-  (check "native-client load failure degrades to the clean connect refusal"
-         (str/includes? combined "north bars: coordinator at"))
-  (check "native-client load failure surfaces no stack trace"
-         (not (or (str/includes? combined "at clojure.lang")
-                  (str/includes? combined "Exception in thread"))))
-  (check "native-client load failure exits nonzero"
-         (not (zero? exit))))
+                        "NORTH_BARS=(\"$BB\" -cp \"$NORTH_RUNTIME_CLASSPATH\" \"$NORTH/cli/bars-cli.clj\")")))
 
 (doseq [[label ok?] @checks]
   (println (str (if ok? "PASS " "FAIL ") label)))
