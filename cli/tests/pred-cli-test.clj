@@ -129,54 +129,17 @@
     ["cli/agent-fact-internal.clj" "put-with-fence!" "marker-predicate"]
     ["cli/agent-fact-internal.clj" "assert-after-read-with-fence!" "terminal-marker-predicate"]
     ["cli/agent-fact-internal.clj" "retract-with-fence!" "predicate"]
-    ["cli/coord.clj" "assert-after-read!" "p"]
-    ["cli/coord.clj" "assert-after-read-with-fence!" "p"]
+    ["cli/coord.clj" "assert-after-read!" "predicate"]
+    ["cli/coord.clj" "assert-after-read-with-fence!" "predicate"]
     ;; lease-cli put-fenced carries a caller-supplied predicate under the fence.
     ["cli/lease-cli.clj" "put-with-fence!" "(required-text \"predicate\" (nth args 4 nil))"]
-    ["cli/msg-cli.clj" "put!" "(arg-pred k)"]
-    ;; assert-batch-legacy!'s pre-gen-1023 fallback replays FACTS through put!
-    ;; one-by-one (the exact pre-atomicity behavior); `p` is destructured from
-    ;; each [p r] pair, closing over whatever predicates the send verb batched
-    ;; (from/subject/body/sent_at/to/target_identity_manifest_sha256 — all
-    ;; already fixed literals at their assert-batch! call sites above).
-    ["cli/msg-cli.clj" "put!" "p"]
-    ["cli/msg-cli.clj" "retract!" "predicate"]
-    ["cli/message-audience.clj" "append!" "rejected-by-predicate"]
-    ["cli/message-audience.clj" "append!" "rejection-predicate"]
     ;; Concern attention outboxes use fixed registered predicates.
     ["cli/concern-cli.clj" "append!" "attention-event-settled-predicate"]
     ["cli/concern-cli.clj" "retract!" "attention-event-intent-predicate"]
     ["cli/concern-cli.clj" "retract!" "attention-reconcile-pending-predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
-    ["cli/north-mine.clj" "append!" "pred"]
-    ["cli/north-mine.clj" "put!" "pred"]
-    ["cli/orchestration-vocab-cli.clj" "put!" "predicate"]
-    ["cli/orchestration-vocab-cli.clj" "retract!" "p"]
-    ["cli/orchestration-vocab-cli.clj" "retract!" "predicate"]
-    ;; Phase 3 @contract:dispatch publisher: fixed predicates (payload_field/
-    ;; error_code/example_payload/kind/doc, all registered VOCAB rows) written
-    ;; through set-multi!/retract-all! helper loops, never a caller-supplied
-    ;; predicate.
-    ["cli/orchestration-contract-cli.clj" "append!" "predicate"]
-    ["cli/orchestration-contract-cli.clj" "retract!" "p"]
-    ["cli/orchestration-contract-cli.clj" "retract!" "predicate"]
-    ;; Phase 1 catalog importer: fixed VOCAB predicates written through s1!/
-    ;; smulti! helper loops (the schema-migrate.clj pattern), never a caller-
-    ;; supplied predicate — every emitted predicate is a registered VOCAB row.
-    ["cli/orchestration-import-cli.clj" "append!" "p"]
-    ["cli/orchestration-import-cli.clj" "put!" "p"]
-    ["cli/orchestration-import-cli.clj" "retract!" "p"]
-    ["cli/pred-cli.clj" "put!" "p"]
-    ["cli/pred-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
-    ;; Terminal writers now publish their validated payloads through atomic
-    ;; assert-batch-after-read!, so predicate is no longer a per-fact put! site.
-    ["cli/schema-migrate.clj" "put!" "predicate"]
-    ["cli/schema-migrate.clj" "retract!" "predicate"]
-    ["cli/spend-breaker.clj" "retract!" "p"]
-    ["cli/spend-cli.clj" "append!" "p"]
-    ["cli/spend-cli.clj" "put!" "p"]
     ["cli/worktree-allocation-internal.clj" "retract!" "predicate"]
     ;; Listener route replacement is fenced, but its predicate remains an
     ;; explicit runtime input to the coordinator write.

@@ -75,42 +75,29 @@
          ["from" "subject" "body" "sent_at"]))))
 
 (defn online-handles
-  "Finite session audience at one coordinator observation. Liveness uses the
+  "Finite session audience at one database observation. Liveness uses the
    same unexpired renewable-lease rule as the presence roster."
   [port now]
-  (into (sorted-set)
-        (map :handle)
-        (coord/online-session-leases port now)))
+  (:handles (coord/online-session-handles port now)))
 
 (defn snapshot-broadcast!
   "Persist a finite audience before the wildcard `to` fact, excluding the sender. The caller
    must publish `to` last so subscribers cannot observe a partial snapshot."
   [port message from]
   (let [sender (bare-handle from)
-        recipients (disj (online-handles port (System/currentTimeMillis)) sender)]
-    ;; Literal predicate names keep the executable writer visible to North's
-    ;; static predicate-registry parity audit.
-    (when (:reject (coord/append! port message "broadcast_audience_version" audience-version))
-      (throw (ex-info "broadcast audience version write rejected"
-                      {:type :broadcast-audience-write-rejected :message message})))
-    (doseq [recipient recipients]
-      (when (:reject (coord/append! port message "broadcast_to" recipient))
-        (throw (ex-info "broadcast audience member write rejected"
-                        {:type :broadcast-audience-write-rejected
-                         :message message :recipient recipient}))))
-    ;; Read-back is the commit barrier before the caller publishes `to="*"`.
-    ;; A crash or rejection before this point leaves an inert, unaddressed draft.
-    (let [observed-version (coord/resolved port message audience-version-predicate)
-          observed-recipients (set (coord/many port message audience-predicate))]
-      (when-not (and (= audience-version observed-version)
-                     (= (set recipients) observed-recipients))
-        (throw (ex-info "broadcast audience read-back mismatch"
-                        {:type :broadcast-audience-readback-mismatch
-                         :message message
-                         :expected-version audience-version
-                         :observed-version observed-version
-                         :expected-recipients (set recipients)
-                         :observed-recipients observed-recipients}))))
+        recipients (disj (online-handles port (System/currentTimeMillis)) sender)
+        result (coord/publish!
+                port
+                [{:op :set :subject message
+                  :predicate "broadcast_audience_version"
+                  :values [audience-version] :cardinality :one}
+                 {:op :set :subject message
+                  :predicate "broadcast_to"
+                  :values (vec recipients) :cardinality :many}])]
+    (when (:reject result)
+      (throw (ex-info "broadcast audience publication rejected"
+                      {:type :broadcast-audience-write-rejected
+                       :message message :result result})))
     recipients))
 
 (defn audience [port message]
@@ -143,7 +130,7 @@
     (catch Exception _ nil)))
 
 (defn claim-delivery!
-  "Atomically elect one live consumer for MESSAGE/RECIPIENT. A short coordinator
+  "Atomically elect one live consumer for MESSAGE/RECIPIENT. A short database
    lease closes the listener-vs-hook query/ack race. It is released after ack;
    if the winner dies first, expiry restores at-least-once delivery. Therefore
    concurrent healthy consumers print once, while a crash after print but before
@@ -177,14 +164,16 @@
   [port message recipient claim]
   (try
     (let [recipient (bare-handle recipient)
-          result (coord/append! port message "acked_by" recipient)]
+          result (coord/publish!
+                  port
+                  [{:op :assert :subject message :predicate "acked_by"
+                    :value recipient :cardinality :many}
+                   {:op :assert :subject message :predicate "acked_at"
+                    :value (str (java.time.Instant/now)) :cardinality :one}])]
       (when (:reject result)
         (throw (ex-info "message acknowledgement rejected"
                         {:type :message-ack-rejected
                          :message message :recipient recipient})))
-      ;; Timestamp is diagnostic; acked_by is the durable delivery marker.
-      (try (coord/put! port message "acked_at" (str (java.time.Instant/now)))
-           (catch Exception _ nil))
       (when-not (acknowledged? port message recipient)
         (throw (ex-info "message acknowledgement read-back mismatch"
                         {:type :message-ack-readback-mismatch
@@ -231,18 +220,18 @@
         (when (> (utf8-bytes evidence) max-rejection-evidence-bytes)
           (throw (ex-info "message rejection evidence exceeds its byte bound"
                           {:type :invalid-message-rejection})))
-        (let [evidence-result
-              (coord/append! port message rejection-predicate evidence)]
-          (when (:reject evidence-result)
-            (throw (ex-info "message rejection evidence was rejected"
+        (let [result
+              (coord/publish!
+               port
+               [{:op :assert :subject message :predicate rejection-predicate
+                 :value evidence :cardinality :many}
+                {:op :assert :subject message :predicate rejected-by-predicate
+                 :value recipient :cardinality :many}])]
+          (when (:reject result)
+            (throw (ex-info "message rejection publication was rejected"
                             {:type :message-rejection-write-rejected
-                             :message message :recipient recipient}))))
-        (let [settlement-result
-              (coord/append! port message rejected-by-predicate recipient)]
-          (when (:reject settlement-result)
-            (throw (ex-info "message rejection settlement was rejected"
-                            {:type :message-rejection-write-rejected
-                             :message message :recipient recipient}))))
+                             :message message :recipient recipient
+                             :result result}))))
         (when-not (and (rejected? port message recipient)
                        (contains? (set (coord/many port message
                                                   rejection-predicate))
@@ -398,23 +387,18 @@
        (assoc response :rows rows :messages (mapv first rows))))))
 
 (defn- recipient-keyed-ids
-  "Message ids from ONE positive-triple rule, evaluated by the coordinator's warm
-   INCREMENTAL index engine (:op :query, the `simple-query?` fast path) rather than
-   the per-version scan projection. The index buckets recipient-keyed literals
-   (by-pr [pred obj]) directly, so cost is O(matching messages) and — unlike the
-   scan projection, which the coordinator rebuilds O(corpus) on every version bump —
-   it survives swarm write-churn. A single stratified/negated program would fall
-   back to that scan projection and time out at corpus scale, so the pending set is
-   assembled from these simple lookups and one client-side set difference instead."
+  "Message ids from one bounded positive-triple query. Keeping negation in the
+   client-side set difference preserves the indexed join shape and bounds every
+   server response."
   [port body]
-  (let [response
+  (let [{:keys [rows]}
         (coord/bounded-query
          port
          {:find "pending_candidate"
           :rules [{:head {:rel "pending_candidate" :args [{:var "e"}]}
                    :body body}]}
          coord/query-page-row-limit)]
-    (into #{} (map first) (:rows response))))
+    (into #{} (map first) rows)))
 
 (defn pending-message-ids
   "All pending ids for human/read-only callers (the `msg inbox` view). Same set as

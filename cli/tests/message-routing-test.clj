@@ -6,6 +6,10 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
+(def fram-out
+  (str (or (System/getenv "FRAM_HOME")
+           (.getCanonicalPath (io/file root ".." ".." "fram" "main")))
+       "/out"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-routing.clj"))
 (let [test-file (System/getProperty "babashka.file")
@@ -222,33 +226,18 @@
   (check "readiness dead-letter scan performs no per-message many reads"
          (empty? @many-calls)))
 
-(let [expiry (+ (System/currentTimeMillis) 60000)]
-  (with-redefs
-   [north.coord/resolved
-    (fn [_ subject predicate]
-      (when (= [subject predicate]
-               ["@lease:session:wrong-holder" "lease"])
-        (str "somebody-else|" expiry "|1")))]
-    (check "future lease held by another control cannot admit a direct route"
-           (false?
-            (north.message-routing/recipient-live? 1 "wrong-holder")))))
-
-(let [expiry (+ (System/currentTimeMillis) 60000)]
-  (with-redefs
-   [north.coord/resolved
-    (fn [_ subject predicate]
-      (when (= [subject predicate]
-               ["@lease:session:epoch-zero" "lease"])
-        (str "epoch-zero|" expiry "|0")))]
-    (check "future matching lease with epoch zero cannot admit a direct route"
-           (false?
-            (north.message-routing/recipient-live? 1 "epoch-zero")))))
+(with-redefs
+ [north.coord/session-online? (fn [& _] false)
+  north.coord/resolved-envelope
+  (fn [& _] {:value nil :members 0 :ambiguous? false :values [] :version 1})]
+  (check "an offline canonical session cannot admit a direct route"
+         (false? (north.message-routing/recipient-live? 1 "offline"))))
 
 (let [result
       (proc/shell
        {:continue true :out :string :err :string}
        "env" "NORTH_DEAD_RECIPIENT_CHILD=1"
-       "bb" (System/getProperty "babashka.file"))
+       "bb" "-cp" fram-out (System/getProperty "babashka.file"))
       diagnostic (str (:out result) "\n" (:err result))]
   (check "msg-cli send admission hard-fails for a dead recipient"
          (= 2 (:exit result)))

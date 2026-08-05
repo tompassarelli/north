@@ -1,19 +1,15 @@
 ;; msg-cli.clj — messaging-as-facts (North gate-2, primitive 3) + command-as-facts.
 ;; A message = @msg:<id> facts (human mail); a COMMAND = @cmd:<id> facts (op/target/args
 ;; each a separate fact, NEVER an opaque {:op :args} body blob). ack = a fact (acked_by);
-;; inbox/done/pending = DERIVED queries. The coordinator STORES + (with scoped-subscribe)
-;; NOTIFIES; it never ROUTES. Wire (daemon): :assert / :version / :query / :resolved.
+;; inbox/done/pending = derived queries. Fram stores and notifies; routing stays
+;; in North.
 (require '[cheshire.core :as json]
          '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; Reply-schema sidecar (the old rec4 JSON-Schema field + `validate` verb + schema-validate.clj)
-;; is GONE (assessment §3.3): it reimplemented a JSON-Schema engine duplicating the coordinator's
-;; own commit-time rule-check (closed-vocab/cardinality/dangling-ref). A reply is now just a FACT
-;; — the coordinator's commit rule-check IS the validator; a rejected fact IS the invalid reply.
+;; Reply validation uses Fram's commit-time closed-vocabulary, cardinality, and
+;; dangling-reference rules. A rejected fact is an invalid reply.
 
-;; shared coord substrate: cardinality-typed write verbs + the command-as-facts
-;; pending rule (move-C) live once in cli/coord.clj. append! = MULTI coexist; put! =
-;; SINGLE last-writer-wins; pending-cmds is the command consumer's shared Datalog rule.
+;; Shared cardinality-aware publication and command queries live in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
@@ -24,9 +20,6 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
-(def send-op north.coord/send-op)
-(def append! north.coord/append!)
-(def put!    north.coord/put!)
 (def one     north.coord/resolved)
 (def many    north.coord/many)
 
@@ -177,12 +170,14 @@
 (def supported-ops (set default-ops))
 (defn known-ops [port] (set (many port vocab-subj "known_op")))
 (defn ensure-vocab! [port]
-  ;; Converge stale live vocab facts too. Older generations advertised peer
-  ;; spawn/dispatch; code-owned support must fail closed even before this cleanup.
-  (let [known (known-ops port)]
-    (doseq [op (remove supported-ops known)]
-      (north.coord/retract! port vocab-subj "known_op" op))
-    (doseq [op (remove known default-ops)] (append! port vocab-subj "known_op" op))
+  (let [result
+        (north.coord/publish!
+         port
+         [{:op :set :subject vocab-subj :predicate "known_op"
+           :values default-ops :cardinality :many}])]
+    (when (:reject result)
+      (reject-message! (str "command vocabulary publication rejected: "
+                            (:reject result))))
     supported-ops))
 
 (def canonical-value north.command-id/canonical-value)
@@ -234,43 +229,28 @@
   ;; `to` or `target`. A fresh wake subject preserves command history while its
   ;; target fact supplies the address-bearing activation edge.
   (let [wake (str "@cmd-wake:" (java.util.UUID/randomUUID))]
-    (put! port wake "retry_command" command)
-    (put! port wake "target" target)
+    (let [result
+          (north.coord/publish!
+           port
+           [{:op :set :subject wake :predicate "retry_command"
+             :values [command] :cardinality :one}
+            {:op :set :subject wake :predicate "target"
+             :values [target] :cardinality :one}])]
+      (when (:reject result)
+        (reject-message! (str wake " publication rejected: " (:reject result)))))
     wake))
 
-;; assert-batch! — ONE all-or-none publication of every fact in FACTS about TE.
-;; Closes the torn-mail-subject window (thread 019f9063 / incident 019f8958):
-;; the coordinator validates every fact before the first mutation and commits
-;; them in a single tx (do-assert-batch, fram coord_daemon.clj:1237), so a
-;; crash/disconnect between facts leaves the complete subject or nothing.
-;; `to`/`target` are committed+notified LAST by the engine regardless of the
-;; order FACTS is given in, so the pre-atomicity to-last delivery-candidacy
-;; mitigation still holds structurally.
-;;
-;; COMPAT: the running coordinator generation may predate :assert-batch
-;; (gen-1022; the op lands gen-1023). Such a daemon's op dispatch falls to its
-;; default arm and answers {:error "unknown op"} — that specific rejection
-;; falls back to the pre-atomicity sequential per-fact :assert path (loudly
-;; flagged) so mail keeps flowing during the rollout window. Any OTHER
-;; rejection is a genuine failure: the whole batch was refused and there is no
-;; partial subject to clean up — that refusal IS the fix working.
-(defn assert-batch-legacy! [port te facts]
-  (binding [*out* *err*]
-    (println
-     (str "DEPRECATED: coordinator does not yet serve :assert-batch "
-          "(pre-gen-1023) — falling back to per-fact :assert for " te
-          "; upgrade the coordinator to close the torn-subject window")))
-  (doseq [[p r] facts] (put! port te p r))
-  {:ok :legacy-fallback})
-
-(defn assert-batch! [port te facts]
-  (let [response (send-op port
-                          {:op :assert-batch :te te
-                           :facts (mapv (fn [[p r]] {:p p :r (str r)}) facts)})]
-    (cond
-      (:ok response) response
-      (= "unknown op" (:error response)) (assert-batch-legacy! port te facts)
-      :else (reject-message! (str te " publication rejected: " (:reject response))))))
+(defn publish-facts! [port subject facts]
+  (let [result
+        (north.coord/publish!
+         port
+         (mapv (fn [[predicate value]]
+                 {:op :set :subject subject :predicate predicate
+                  :values [(str value)] :cardinality :one})
+               facts))]
+    (when (:reject result)
+      (reject-message! (str subject " publication rejected: " (:reject result))))
+    result))
 
 (defn publish-message!
   "Publish one complete human-message envelope. EXTRA-FRONT-FACTS are committed
@@ -288,7 +268,7 @@
         ;; Canonicalize the managed control type. Ordinary subjects retain their
         ;; original spelling; every producer-admitted steer is exactly "steer".
         ;; All message fields are write-once on a fresh @msg. `to` lands LAST
-        ;; (the listener trigger); assert-batch! guarantees that ordering.
+        ;; (the listener trigger); the atomic publication guarantees completeness.
         front-facts
         (into [["from" from]
                ["subject" (if steer? "steer" (or subj ""))]
@@ -304,10 +284,10 @@
     ;; worker -> coordinator completion/death mail remains legal; peer control
     ;; does not become legal merely because the producer bypassed agents-cli.
     (when steer-admission
-      ;; Steer's `to` lands through its own CAS below (assert-after-read!), not
-      ;; this batch — a route-change validation :assert-batch cannot express.
+      ;; Steer's `to` lands through its own CAS below because route validation
+      ;; must observe the exact version used by the publication.
       ;; Publish the complete front atomically first.
-      (assert-batch! port e complete-front-facts))
+      (publish-facts! port e complete-front-facts))
     ;; A broadcast's concrete recipients are durable facts, captured before
     ;; `to` lands. Sender exclusion is intentional: broadcast means peers.
     (let [broadcast-audience
@@ -336,8 +316,8 @@
             (reject-steer!
              "target route changed during message admission")))
         ;; Ordinary mail: every front fact plus `to` publishes as ONE
-        ;; all-or-none unit. assert-batch! still lands `to` last internally.
-        (assert-batch! port e (conj complete-front-facts ["to" to])))
+        ;; all-or-none unit.
+        (publish-facts! port e (conj complete-front-facts ["to" to])))
       (println (str (if steer? "queued for live injection " "sent ") e " -> " to
                     (when broadcast-audience
                       (str " (" (count broadcast-audience)
@@ -464,8 +444,15 @@
                        port e (one port e "to") me #{me})))
         (println (str "REJECTED: " e " is not addressed to " me))
         (System/exit 2))
-      (append! port e "acked_by" me)                       ; multi (many ackers)
-      (put!    port e "acked_at" (str (java.time.Instant/now))) ; single
+      (let [result
+            (north.coord/publish!
+             port
+             [{:op :assert :subject e :predicate "acked_by"
+               :value me :cardinality :many}
+              {:op :assert :subject e :predicate "acked_at"
+               :value (str (java.time.Instant/now)) :cardinality :one}])]
+        (when (:reject result)
+          (reject-message! (str e " acknowledgement rejected: " (:reject result)))))
       (println (str me " acked " e)))
 
     "send-cmd"    ; <from> <target> <op> "<args-edn>" [idempotency-key]
@@ -485,13 +472,10 @@
         (do (println "REJECTED: <args-edn> must be an EDN map") (System/exit 2))
         :else
         (let [e (str "@cmd:" (command-id op argm target idempotency-key))]
-          ;; arg facts + provenance + op first; `target` (the routing key the consumer
-          ;; triggers on) LAST → op/args already visible when it lands (no settle race).
-          ;; All write-once (put!): a re-send re-asserts identical facts = idempotent no-op.
-          (doseq [[k v] argm] (put! port e (arg-pred k) (encoded-arg v)))
-          (put! port e "from" from)
-          (put! port e "op" op)
-          (put! port e "target" target)
+          (publish-facts!
+           port e
+           (concat (map (fn [[k v]] [(arg-pred k) (encoded-arg v)]) argm)
+                   [["from" from] ["op" op] ["target" target]]))
           (println (str "sent cmd " e " op=" op " -> " target "  args=" (pr-str argm)))))))
 
     "retry"       ; <cmd-id> — explicit reactivation of a terminal failed command
@@ -499,11 +483,15 @@
       (north.topology-authority/require-coordination! "retry command")
       (let [[id] args
             e (if (str/starts-with? (str id) "@cmd:") id (str "@cmd:" id))
-            failures (many port e "failed_by")
-            retryable (one port e "retryable")
-            target (one port e "target")
-            requested (many port e "retry_requested")
-            acknowledged (many port e "acked_by")]
+            facts (get-in (north.coord/show-many port [e]) [:rows e])
+            by-predicate (reduce (fn [values [predicate value]]
+                                   (update values predicate (fnil conj []) value))
+                                 {} facts)
+            failures (get by-predicate "failed_by" [])
+            retryable (first (get by-predicate "retryable"))
+            target (first (get by-predicate "target"))
+            requested (get by-predicate "retry_requested" [])
+            acknowledged (get by-predicate "acked_by" [])]
         (cond
           (and (not (seq failures)) (seq requested) (not (seq acknowledged)) target)
           (do
@@ -519,28 +507,34 @@
           (str/blank? (str target))
           (do (println (str "REJECTED: " e " has no routing target")) (System/exit 2))
           :else
-          (do
-            ;; Durable retry intent first. If this process dies while failed_by
-            ;; remains, the command stays terminal. If it dies after clearing
-            ;; failed_by, the recovery branch above republishes the wake.
-            (append! port e "retry_requested" (str (java.time.Instant/now)))
-            (doseq [predicate ["execution_status" "failed_at" "retryable" "reply"]
-                    value (many port e predicate)]
-              (north.coord/retract! port e predicate value))
-            (doseq [value failures]
-              (north.coord/retract! port e "failed_by" value))
-            ;; Scoped subscribers match addresses on the commit itself; a
-            ;; failed_by retraction carries no address and cannot wake them.
-            ;; Publish an explicit addressed activation edge LAST.
-            (wake-command! port e target)
+          (let [wake (str "@cmd-wake:" (java.util.UUID/randomUUID))
+                result
+                (north.coord/publish!
+                 port
+                 (concat
+                  [{:op :assert :subject e :predicate "retry_requested"
+                    :value (str (java.time.Instant/now)) :cardinality :many}]
+                  (for [predicate ["execution_status" "failed_at" "retryable" "reply"]]
+                    {:op :set :subject e :predicate predicate
+                     :values [] :cardinality :many})
+                  [{:op :set :subject e :predicate "failed_by"
+                    :values [] :cardinality :many}
+                   {:op :set :subject wake :predicate "retry_command"
+                    :values [e] :cardinality :one}
+                   {:op :set :subject wake :predicate "target"
+                    :values [target] :cardinality :one}]))]
+            (when (:reject result)
+              (reject-message! (str e " retry publication rejected: "
+                                    (:reject result))))
             (println (str "retry requested for " e))))))
 
     "cmd"         ; <cmd-id>  — show ALL facts on a command (it is a queryable subject now)
     (let [[id] args, e (str "@cmd:" id)
-          rows (:ok (send-op port {:op :query
-                                   :query {:find "pv"
-                                           :rules [{:head {:rel "pv" :args [{:var "p"} {:var "o"}]}
-                                                    :body [{:rel "triple" :args [e {:var "p"} {:var "o"}]}]}]}}))]
+          rows (north.coord/query-rows
+                port
+                {:find "pv"
+                 :rules [{:head {:rel "pv" :args [{:var "p"} {:var "o"}]}
+                          :body [{:rel "triple" :args [e {:var "p"} {:var "o"}]}]}]})]
       (if (seq rows)
         (doseq [[p o] (sort rows)] (println (format "%-12s %s" p o)))
         (println (str "no facts on " e))))
