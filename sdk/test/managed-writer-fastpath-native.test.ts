@@ -40,13 +40,10 @@ const OPERATION_ID = "native-op";
 const MARKER = identityMarker(PRESET);
 const RESOURCE = writeLeaseResource(ENTITY);
 
-const savedProtocol = process.env.NORTH_COORD_PROTOCOL;
 const savedDisable = process.env.NORTH_MANAGED_WRITER_FASTPATH;
 const savedRedirect = process.env.NORTH_IDENTITY_TEST_REDIRECT;
 
 afterEach(() => {
-  if (savedProtocol === undefined) delete process.env.NORTH_COORD_PROTOCOL;
-  else process.env.NORTH_COORD_PROTOCOL = savedProtocol;
   if (savedDisable === undefined) delete process.env.NORTH_MANAGED_WRITER_FASTPATH;
   else process.env.NORTH_MANAGED_WRITER_FASTPATH = savedDisable;
   if (savedRedirect === undefined) delete process.env.NORTH_IDENTITY_TEST_REDIRECT;
@@ -232,12 +229,10 @@ function startHarness(options: HarnessOptions = {}): NativeHarness {
 }
 
 async function publish(harness: NativeHarness) {
-  process.env.NORTH_COORD_PROTOCOL = "framrpc";
   delete process.env.NORTH_MANAGED_WRITER_FASTPATH;
   delete process.env.NORTH_IDENTITY_TEST_REDIRECT;
   return fastPublish(
-    SUBJECT, PRESET, HOLDER, OPERATION_ID, 5_000, undefined,
-    { client: harness.client },
+    SUBJECT, PRESET, HOLDER, OPERATION_ID, 5_000, { client: harness.client },
   );
 }
 
