@@ -62,11 +62,17 @@
              "north-framrpc-runtime-attestation-"
              (make-array java.nio.file.attribute.FileAttribute 0)))
       source (.getCanonicalPath (io/file temp "fram"))
-      artifact (.getCanonicalPath (io/file temp "fram-server-graal"))
+      artifact-directory (.getCanonicalPath (io/file temp "native-build"))
+      artifact (.getCanonicalPath
+                (io/file artifact-directory "bin" "fram-server-native"))
+      ready (.getCanonicalPath (io/file artifact-directory "READY"))
+      input-manifest
+      (.getCanonicalPath (io/file artifact-directory "input.manifest"))
       log (.getCanonicalPath (io/file temp "coordination.framlog"))
       record (.getCanonicalPath (io/file temp "north-coord.runtime"))
       revision (apply str (repeat 40 "a"))
       tree (apply str (repeat 40 "b"))
+      manifest-payload "sealed Native input manifest fixture\n"
       space-id "north-coordination"
       port 47977
       pid 4242
@@ -74,10 +80,17 @@
       unit "north-coord.service"
       source-identity-var
       (ns-resolve 'north.runtime-attestation 'source-identity!)
+      closure-sha256
+      (atom nil)
       values
       (atom nil)]
   (try
     (.mkdirs (io/file source))
+    (.mkdirs (.getParentFile (io/file artifact)))
+    (spit input-manifest manifest-payload)
+    (reset! closure-sha256 (sha256-file input-manifest))
+    (spit ready (str "fram-native-build/v1 " @closure-sha256 "\n"))
+    (set-mode! ready record-permissions)
     (spit artifact "sealed executable fixture\n")
     (set-mode! artifact artifact-permissions)
     (spit log "FRAMLOG fixture\n")
@@ -87,8 +100,10 @@
       "FRAM_SOURCE" source
       "FRAM_REVISION" revision
       "FRAM_TREE" tree
-      "FRAM_ARTIFACT" artifact
-      "FRAM_ARTIFACT_SHA256" (sha256-file artifact)
+      "FRAM_NATIVE_ARTIFACT_DIR" artifact-directory
+      "FRAM_NATIVE_CLOSURE_SHA256" @closure-sha256
+      "FRAM_SERVER_ARTIFACT" artifact
+      "FRAM_SERVER_ARTIFACT_SHA256" (sha256-file artifact)
       "FRAM_SPACE_ID" space-id
       "FRAM_PORT" (str port)
       "FRAM_LOG" log
@@ -99,20 +114,22 @@
     (write-record! record @values)
     (let [environment
           {"FRAM_HOME" source
-           "FRAM_SERVER_RUNTIME" "graal"
-           "FRAM_GRAAL_ARTIFACT" artifact
+           "FRAM_SERVER_RUNTIME" "native"
+           "FRAM_NATIVE_ARTIFACT_DIR" artifact-directory
            "FRAM_SPACE_ID" space-id
            "FRAM_SERVER_PORT" (str port)
            "FRAM_LOG" log
            "NORTH_COORD_SYSTEMD_UNIT" unit}
           valid-redefs
-          {source-identity-var
+          {#'attestation/frozen-fram-source source
+           #'attestation/frozen-fram-revision revision
+           #'attestation/frozen-fram-tree tree
+           source-identity-var
            (fn [actual-source actual-revision actual-tree]
              (when-not (= [source revision tree]
                           [actual-source actual-revision actual-tree])
                (throw (ex-info "wrong source identity" {})))
-             {:source source :revision revision :tree tree
-              :published revision})
+             {:source source :revision revision :tree tree})
            #'attestation/listener-pids (fn [_] [pid])
            #'attestation/process-birth-token (fn [_] birth)
            #'attestation/process-start-millis (fn [_] 123456789)
@@ -120,7 +137,7 @@
            #'attestation/process-path
            (fn [_ leaf] (case leaf "cwd" source "exe" artifact nil))
            #'attestation/process-cmdline
-           (fn [_] [artifact "serve" (str port) log space-id])
+           (fn [_] [artifact])
            #'attestation/process-environment (fn [_] environment)}
           request {:port port :served-log log :space-id space-id
                    :record-path record :controller-unit unit}
@@ -129,7 +146,13 @@
             #(attestation/attest-active-runtime! request))]
       (check! "canonical record binds exact source, artifact, FRAMLOG, and SpaceId"
               (and (= attestation/attestation-format (:format verified))
-                   (= artifact (get-in verified [:identity :artifact :path]))
+                   (= artifact-directory
+                      (get-in verified [:identity :native-artifact :directory]))
+                   (= @closure-sha256
+                      (get-in verified
+                              [:identity :native-artifact :closure-sha256]))
+                   (= artifact
+                      (get-in verified [:identity :native-artifact :server :path]))
                    (= space-id (get-in verified [:identity :space-id]))
                    (= pid (get-in verified [:authority :pid]))))
       (check! "unchanged canonical runtime re-attests"
@@ -137,11 +160,20 @@
                (with-redefs-fn valid-redefs
                  #(attestation/assert-current! verified))))
 
-      (check! "noncanonical process arguments are rejected"
+      (check! "any argument after argv[0] is rejected"
               (= :runtime-process-attestation-failed
                  (with-redefs-fn
                    (assoc valid-redefs #'attestation/process-cmdline
-                          (fn [_] [artifact (str port) log space-id]))
+                          (fn [_] [artifact ""]))
+                   #(denied-type
+                     (fn [] (attestation/attest-active-runtime! request))))))
+
+      (check! "any additional runtime identity environment is rejected"
+              (= :runtime-process-attestation-failed
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/process-environment
+                          (fn [_] (assoc environment
+                                   "FRAM_SERVER_ARTIFACT" artifact)))
                    #(denied-type
                      (fn [] (attestation/attest-active-runtime! request))))))
 
@@ -169,7 +201,7 @@
                    #(denied-type
                      (fn [] (attestation/assert-current! verified)))))))
 
-    (write-record! record (assoc @values "FRAM_ARTIFACT_SHA256"
+    (write-record! record (assoc @values "FRAM_SERVER_ARTIFACT_SHA256"
                                  (apply str (repeat 64 "0"))))
     (check! "artifact digest disagreement is rejected"
             (= :runtime-record-invalid
@@ -177,6 +209,25 @@
                 #(attestation/attest-active-runtime!
                   {:port port :served-log log :space-id space-id
                    :record-path record :controller-unit unit}))))
+
+    (write-record! record @values)
+    (spit ready (str "fram-native-build/v1 " @closure-sha256))
+    (check! "READY receipt must have the exact closure and final LF"
+            (= :runtime-record-invalid
+               (denied-type
+                #(attestation/attest-active-runtime!
+                  {:port port :served-log log :space-id space-id
+                   :record-path record :controller-unit unit}))))
+    (spit ready (str "fram-native-build/v1 " @closure-sha256 "\n"))
+
+    (spit input-manifest "changed Native input manifest fixture\n")
+    (check! "input manifest must hash to the READY closure"
+            (= :runtime-record-invalid
+               (denied-type
+                #(attestation/attest-active-runtime!
+                  {:port port :served-log log :space-id space-id
+                   :record-path record :controller-unit unit}))))
+    (spit input-manifest manifest-payload)
 
     (spit record
           (str "FORMAT=" attestation/active-runtime-record-format "\n"
