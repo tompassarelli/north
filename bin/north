@@ -236,45 +236,33 @@ deny_generic_run_mutation() {
 
 deny_generic_run_mutation "$@" || exit 1
 
-# Cheap deployment-readiness boundary. Runtime identity comes from the selected
-# coordinator generation and the live listener process; unlike coord-doctor,
-# this never folds either log or reads the projected thread corpus. In Stage A,
-# each sole writer has its own runtime selector and must attest independently.
+# Cheap canonical FRAMRPC readiness boundary. A status request is fenced by the
+# configured SpaceId and never reads or folds the projected corpus.
 coord_runtime_ready() {
-  "$NORTH/bin/north-coord-up" --check-runtime || return $?
+  local runtime_root
+  runtime_root="${XDG_STATE_HOME:-$HOME/.local/state}/north/framrpc-runtime"
+  "$BB" "$NORTH/cli/coord.clj" "${NORTH_PORT:-7977}" coordination \
+    >/dev/null || return $?
+  "$BB" "$NORTH/cli/runtime-attestation.clj" \
+    "${NORTH_PORT:-7977}" "$FRAM_LOG" "$FRAM_SPACE_ID" \
+    "$runtime_root/north-coord.runtime" north-coord.service \
+    >/dev/null || return $?
   if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-    local telemetry_runtime_state
-    telemetry_runtime_state="${NORTH_TELEMETRY_RUNTIME_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/north/fram-telemetry-runtime}"
     env -u FRAM_TELEMETRY_LOG \
       NORTH_TELEMETRY_PARTITION=0 \
-      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-      NORTH_COORD_RUNTIME_STATE="$telemetry_runtime_state" \
-      NORTH_COORD_SYSTEMD_UNIT=north-telemetry-coord.service \
-      "$NORTH/bin/north-coord-up" --check-runtime
+      "$BB" "$NORTH/cli/coord.clj" "$NORTH_TELEMETRY_PORT" telemetry \
+      >/dev/null || return $?
+    "$BB" "$NORTH/cli/runtime-attestation.clj" \
+      "$NORTH_TELEMETRY_PORT" "$FRAM_TELEMETRY_LOG" \
+      "$NORTH_TELEMETRY_SPACE_ID" \
+      "$runtime_root/north-telemetry-coord.runtime" \
+      north-telemetry-coord.service >/dev/null
   fi
 }
 
 coord_safety_ready() {
-  local coordination_port="${NORTH_PORT:-${FRAM_PORT:-7977}}"
-
-  # Runtime identity proves that the intended immutable generation owns each
-  # listener. The strict probes then prove an exact-log fenced round trip
-  # without folding either log or loading the projected thread corpus.
   coord_runtime_ready || return $?
-  "$BB" "$NORTH/cli/coord.clj" strict-probe \
-    "$coordination_port" "$FRAM_LOG" >/dev/null || return $?
-  echo "coordinator strict log fence OK on :$coordination_port"
-
-  if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-    env -u FRAM_TELEMETRY_LOG \
-      NORTH_TELEMETRY_PARTITION=0 \
-      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-      "$BB" "$NORTH/cli/coord.clj" strict-probe \
-      "$NORTH_TELEMETRY_PORT" "$FRAM_TELEMETRY_LOG" >/dev/null || return $?
-    echo "telemetry coordinator strict log fence OK on :$NORTH_TELEMETRY_PORT"
-  fi
+  echo "canonical FRAMRPC SpaceId readiness OK"
 }
 
 case "${1:-}" in
@@ -437,47 +425,6 @@ case "${1:-}" in
     # entities. Bootstrap inventory is available only through its explicitly
     # weak offline lint; connected commands read the graph authority.
     exec "$BB" "$NORTH/cli/pred-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
-  schema-migrate)
-    # Exact Fram fold over coordination + telemetry. Canonical execution is a
-    # maintenance operation and must follow a verified two-corpus snapshot;
-    # plan/audit remain read-only at all times.
-    exec "$BB" -cp "$FRAM_OUT" "$NORTH/cli/schema-migrate.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
-  snapshot)
-    # Content-addressed dual-log preservation. Create and restore-plan default
-    # to dry-run; restore-plan can only emit a corpus-transaction plan and has
-    # no authority to apply it or mutate the selected live corpus.
-    exec "$BB" -cp "$FRAM_OUT" "$NORTH/cli/snapshot-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
-  corpus-transaction)
-    # Package-owned split-corpus replacement/recovery. The mutable journal and
-    # immutable preimage/receipt objects live under XDG state, never in a
-    # checkout; the system unit invokes the same route before/after daemon boot.
-    exec "$BB" -cp "$FRAM_OUT" "$NORTH/cli/corpus-transaction-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
-  up)
-    if [ "${NORTH_TELEMETRY_PARTITION:-0}" != 1 ]; then
-      exec "$NORTH/bin/north-coord-up" "${@:2}"
-    fi
-    if [ "${2:-}" = "--stop" ]; then
-      env -u FRAM_TELEMETRY_LOG \
-        NORTH_TELEMETRY_PARTITION=0 \
-        FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-        FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-        NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
-        "$NORTH/bin/north-coord-up" --stop
-      exec env -u FRAM_TELEMETRY_LOG \
-        NORTH_TELEMETRY_PARTITION=0 \
-        NORTH_COORD_SYSTEMD_UNIT=north-coord.service \
-        "$NORTH/bin/north-coord-up" --stop
-    fi
-    env -u FRAM_TELEMETRY_LOG \
-      NORTH_TELEMETRY_PARTITION=0 \
-      NORTH_COORD_SYSTEMD_UNIT=north-coord.service \
-      "$NORTH/bin/north-coord-up" "${@:2}"
-    exec env -u FRAM_TELEMETRY_LOG \
-      NORTH_TELEMETRY_PARTITION=0 \
-      FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-      FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-      NORTH_COORD_SYSTEMD_UNIT=north-telemetry.service \
-      "$NORTH/bin/north-coord-up" "${@:2}" ;;
   lanes)
     # Durable local lifecycle receipts remain readable during coordinator faults.
     exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;

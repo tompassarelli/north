@@ -184,7 +184,6 @@
             "FRAM_SERVER_CONNECT" "127.0.0.1"
             "FRAM_SERVER_PORT" port
             "FRAM_SPACE_ID" "north-coordination"
-            "NORTH_FRAMRPC_ENV" "/tmp/north-json-show-indexed-no-framrpc-env"
             "NORTH_FRAMRPC_HOST" "127.0.0.1"
             "NORTH_FRAMRPC_OUT" (str fram "/out")
             "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"

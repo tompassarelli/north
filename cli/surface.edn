@@ -218,13 +218,6 @@
    :summary "regenerate threads/ from the log — never during concurrent work"}
   {:verb "set" :form "north set …" :topic :store :dispatch :fram :status :legacy
    :summary "direct log append — single-writer/offline only; races otherwise"}
-  {:verb "snapshot" :form "north snapshot create|verify|restore-plan" :topic :store
-   :summary "immutable dual-log checkpoint and restore planning"}
-  {:verb "schema-migrate" :form "north schema-migrate plan|audit" :topic :store
-   :summary "deterministic schema cutover; plan/audit stay read-only"}
-  {:verb "corpus-transaction" :form "north corpus-transaction check-boundaries" :topic :store
-   :summary "verify split-log append safety before maintenance"}
-
   ;; ----------------------------------------------------------------- ops
   {:verb "dashboard" :form "north dashboard [--once]" :topic :ops
    :summary "live fleet, health, board, and accounts snapshots"
@@ -253,8 +246,6 @@
    :summary "cheap exact runtime identity for every active writer"}
   {:verb "coord-safety" :form "north coord-safety" :topic :ops
    :summary "runtime identity + strict log-fence round trip"}
-  {:verb "up" :form "north up [--restart|--stop]" :topic :ops
-   :summary "start/revive the fact-server daemon(s) on the canonical logs"}
   {:verb "stream-sync" :form "north stream-sync" :topic :ops
    :summary "cursor-based transcript log-shipping"}
   {:verb "rebuild" :form "north rebuild request --why \"…\"" :topic :ops

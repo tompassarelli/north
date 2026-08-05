@@ -983,8 +983,15 @@
               {:rel "settled" :args [{:var "command"}] :neg true}]}]]}))
 
 (defn -main [& args]
-  (let [port (port! (or (first args) PORT))]
-    (prn (status port))))
+  (let [port (port! (or (first args) PORT))
+        domain (case (second args)
+                 nil :coordination
+                 "coordination" :coordination
+                 "telemetry" :telemetry
+                 (throw (ex-info "coord status domain must be coordination or telemetry"
+                                 {:type :invalid-domain
+                                  :domain (second args)})))]
+    (prn (status-in-domain port domain))))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))
