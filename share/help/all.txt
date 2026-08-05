@@ -99,7 +99,7 @@ STORE — the fact corpus and its schema
   north history <id>                         a subject's full fact history from the log
   north json <view>                          machine-readable projections (plate, ready, show, …)
   north tools                                the curated MCP tool surface + the fram engine core
-  north heal [--adopt] [--resurrect]         reconcile threads/ files with the log; fails closed on hand edits
+  north heal [--adopt]                       reconcile threads/ files with the database; fails closed on hand edits
   north boot                                 session orientation: safety verdict, hygiene, the entry-point note
   north import                               fold threads/ file edits into the log (idempotent, safe anytime)
   north export <out-dir>                     regenerate threads/ from the log — never during concurrent work

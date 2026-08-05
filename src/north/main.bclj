@@ -19,7 +19,6 @@
 (import java.util.Random)   ; non-java.lang classes need an explicit import
 (import java.util.UUID)
 
-(declare-extern fram.rt/read-log [String -> (Vec fold/FactOp)])
 ;; NOTE: NO write-log extern. North is a CLIENT — it mutates state ONLY through
 ;; the coordinator (tell-retry -> coord-assert/retract). The removed `write-log`
 ;; was a direct log-file bypass; capture reached for it and stranded data in files
@@ -321,58 +320,18 @@
             (assoc m (fact-sig c) true))
           {} facts))
 
-;; --- daemon-first read (thread 019f2190) -------------------------------------
-;; Read verbs query the warm coordinator's already-folded live view instead of
-;; paying the per-process cold fold (read-log EDN parse + fold ≈ 700ms on the
-;; 11k-line log; the warm fetch + JSON decode ≈ 75ms). The daemon serves the
-;; view in fold emission order (the :facts wire-op contract (wire name frozen)), so every listing stays
-;; byte-identical to the cold path. A validated coord-live-state is the
-;; completeness witness; nil or an explicitly incomplete composed state falls
-;; back to the cold fold, so every verb works daemon-less, just slower.
-;; Deliberately NOT warm: doctor/heal/boot (doctor's whole job is checking the
-;; daemon AGAINST an independent fold of the log — a daemon-served view would
-;; have it vouch for itself; heal/boot classify through the same probe) and
-;; needs-review (reads fold-latest — per-assertion tx/frame provenance the live
-;; view doesn't carry; a candidate for plan (b)'s snapshot surface).
-;; logs: north-side mirror of the coordinator's read-logs-merged
-;; (coord_daemon.clj) for COLD reads. The warm store is already unified (A1), so
-;; live-facts' warm path sees every log for free; this matters ONLY when the
-;; daemon is down (cold fallback) and for the deliberately-cold doctor/schema
-;; paths. FRAM_TELEMETRY_LOG unset => the single coordination log, byte-identical
-;; to pre-split. The fold is order-independent across logs (disjoint subject
-;; keys, keyed-latest by max :tx), so a plain concat folds identically to the
-;; coordinator's :tx-sorted merge — no sort needed.
-;; Partitioned human-clock reads disable telemetry on the cold fallback.
-(defn compose-telemetry-log? [] :- Bool true)
-
-(defn- read-logs-merged [log :- String] :- (Vec fold/FactOp)
-  (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
-    (if (or (= tlog "") (not (compose-telemetry-log?)))
-      (fram.rt/read-log log)
-      (into (fram.rt/read-log log) (fram.rt/read-log tlog)))))
-
-;; Triples carrying a RETRACT op anywhere in log history: TOMBSTONES. A file-ahead
-;; fact whose exact (l,p,r) was retracted is stale projection residue (the .md was
-;; never re-rendered after the retract), NOT a genuine hand edit — re-adopting it
-;; RESURRECTS a deliberately-retracted fact (the heal --adopt loophole). A file-ahead
-;; fact is by construction absent from the live log, so ONE retract op in history is a
-;; sufficient net-dead signal: a later re-assert makes the triple live again and thus
-;; no longer file-ahead, so it never reaches this scan. Sigs match `fact-sig`; the scan
-;; reads read-logs-merged so BOTH the coordination + telemetry logs are seen.
-(defn- retracted-sigs [ops :- (Vec fold/FactOp)] :- (Map String Bool)
-  (reduce (fn
-            [m :- (Map String Bool)
-             a :- fold/FactOp] :- (Map String Bool)
-            (if (= (:op a) "retract")
-              (assoc m (str (:l a) "|" (:p a) "|" (:r a)) true)
-              m))
-          {} ops))
-
+;; Reads are server-authoritative. A stopped or mismatched server is an error;
+;; North never opens database storage bytes as a client-side fallback.
 (defn- live-facts [log :- String] :- (Vec k/Fact)
-  (let [warm-state (fram.rt/coord-live-state (fram.rt/coord-port) log)]
-    (if (and (some? warm-state) (not (= false (:complete warm-state))))
-      (:facts warm-state)
-      (:facts (fold/fold (read-logs-merged log))))))
+  (let [port (fram.rt/coord-port)
+        version (fram.rt/coord-version-for-log port log)]
+    (if (< version 0)
+      (throw (ex-info (str "North server read failed on 127.0.0.1:" port
+                           " (code " version ")")
+                      {:type :north/server-unavailable
+                       :port port
+                       :log log}))
+      (fram.rt/coord-live-facts port log))))
 
 (defn- live-idx [log :- String] :- k/Index
   (k/build-index (live-facts log)))
@@ -1269,13 +1228,15 @@
    (proj/work-thread-ids-i idx)))
 
 (defn- canonical-grooming-reviews
-  [cold-idx :- k/Index
-   latest :- (Vec fold/Latest)
+  [idx :- k/Index
    live-idx :- k/Index
    today :- String
    before? :- [String String -> Bool]
    live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
-  (let [base (stale/needs-review cold-idx latest today before?)
+  (let [base (vec (concat (stale/time-stale idx today before?)
+                          (vec (concat (stale/edge-stale idx)
+                                       (vec (concat (stale/bars-missing idx)
+                                                    (stale/bars-unevidenced idx)))))))
         live-base (filterv
                    (fn [rv :- stale/Review] :- Bool
                      (if (= (:pred rv) "done_when")
@@ -1320,14 +1281,7 @@
                  (mapv (fn [te :- String] :- JThread (jthread idx te today before? live?))
                        (recent-terminal-tes idx))))]
       [(= what "needs-review")
-       ;; COLD on purpose (see live-facts): fold-latest needs per-assertion
-       ;; tx/frame provenance. idx is re-derived from the SAME read so the
-       ;; staleness comparison never mixes two snapshots of the log.
-       (let [as (fram.rt/read-log log)
-             cidx (k/build-index (:facts (fold/fold as)))
-             latest (fold/fold-latest as)
-             today (fram.rt/today-iso)
-             reviews (canonical-grooming-reviews cidx latest idx today before? live?)]
+       (let [reviews (canonical-grooming-reviews idx idx today before? live?)]
          (println (fram.rt/to-json
                    (mapv (fn [rv :- stale/Review] :- JReview
                            (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv)))
@@ -1400,42 +1354,36 @@
     (cmd-json-corpus log what arg all?)))
 
 (defn cmd-needs-review [log :- String] :- Nil
-  (let [as (fram.rt/read-log log)
-        idx (k/build-index (:facts (fold/fold as)))
-        live-idx-now (live-idx log)
-        latest (fold/fold-latest as)
+  (let [live-idx-now (live-idx log)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
         live? (default-live?)
-        reviews (canonical-grooming-reviews idx latest live-idx-now today before? live?)
-        promo (stale/promotable idx)]
+        reviews (canonical-grooming-reviews live-idx-now live-idx-now today before? live?)
+        promo (stale/promotable live-idx-now)]
     (println (str "NEEDS REVIEW — " (count reviews) " judgment(s) whose inputs moved (" today ")"))
     (doseq [rv reviews]
       (println (str "  [" (:pred rv) "] " (short-id (:te rv)) "  " (trunc (title-of live-idx-now (:te rv)) 44)))
       (println (str "      " (:detail rv))))
     (println (str "\nPROMOTABLE — " (count promo) " uncommitted draft(s) that grew real structure"))
     (doseq [te promo]
-      (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
+      (println (str "  " (short-id te) "  " (trunc (title-of live-idx-now te) 52))))))
 
-;; --- doctor/heal/boot shared: safety verdict + file/log hygiene diff ---------
+;; --- doctor/heal/boot shared: server safety + file projection hygiene --------
 ;; SAFETY (can I write + warm-read right now?) and HYGIENE (is the file projection
 ;; tidy?) are ORTHOGONAL: a hand-edited .md never makes writes unsafe, and a stale
-;; daemon never means a file was tampered with. `probe` computes both from ONE log
-;; read + ONE corpus read so doctor/heal/boot classify identically.
+;; server never means a file was tampered with. `probe` computes both from one
+;; served snapshot and one corpus read so doctor/heal/boot classify identically.
 (defrecord Probe
   [up :- Bool
    serving :- Bool
-   fresh :- Bool         ; safety inputs
    port :- Int
    status :- String
    daemon-v :- Int
-   log-v :- Int
-   log-facts :- (Vec k/Fact)                      ; whole log (render/entry-point/board)
+   log-facts :- (Vec k/Fact)
    idx :- k/Index
    stale :- (Vec k/Fact)                           ; file-ahead, superseded projection
    hand :- (Vec k/Fact)                            ; file-ahead, genuinely-new (hand edit)
-   log-behind :- (Vec k/Fact)                      ; thread-facts not yet rendered to files
-   tombstoned :- (Vec k/Fact)])                    ; file-ahead, RETRACTED-in-log residue (never re-adopt)
+   log-behind :- (Vec k/Fact)])                     ; server facts not yet rendered to files
 
 ;; A file-ahead fact is a STALE PROJECTION (superseded, NOT a hand edit) iff its
 ;; predicate is single-valued (k/single? reads FRAM_SINGLE_VALUED, the same vocab
@@ -1454,21 +1402,10 @@
    log :- String] :- Probe
   (let [port (fram.rt/coord-port)
         status (fram.rt/coord-status-for-log port log)
-        ;; logs: fold the UNION so log-v (max :tx across BOTH logs) tracks
-        ;; the daemon's global :next-seq — a coordination-only fold would lag
-        ;; whenever the last write was telemetry and mis-report the daemon as
-        ;; "ahead of the log". Hygiene below is unaffected (telemetry has no title).
-        ops (read-logs-merged log)
-        f (fold/fold ops)
-        log-facts (:facts f)
-        log-v (:version f)
         daemon-v (fram.rt/coord-version-for-log port log)
         up (not (= daemon-v -1))
         serving (>= daemon-v 0)
-        ;; loaded >= log is HEALTHY: ephemeral lease txs consume seqs in the daemon's
-        ;; shared counter but are never flat-logged, so the daemon routinely runs
-        ;; AHEAD of the log's max :tx. Staleness is only loaded < log.
-        fresh (>= daemon-v log-v)
+        log-facts (if serving (fram.rt/coord-live-facts port log) [])
         idx (k/build-index log-facts)
         file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
         ;; Files are a PROJECTION of the log: only title-bearing threads render to a
@@ -1480,18 +1417,12 @@
         file-ahead (filterv (fn [c :- k/Fact] :- Bool (nil? (get tl-sigs (fact-sig c)))) file-facts)
         log-behind (filterv (fn [c :- k/Fact] :- Bool (nil? (get file-sigs (fact-sig c)))) thread-log)
         stale (filterv (fn [c :- k/Fact] :- Bool (stale-projection? idx c)) file-ahead)
-        ;; non-stale file-ahead splits again: a retracted-in-log triple is a
-        ;; TOMBSTONE (stale projection residue, re-render away — never re-adopt);
-        ;; the rest is a genuine hand edit.
-        non-stale (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)
-        tomb-sigs (retracted-sigs ops)
-        tombstoned (filterv (fn [c :- k/Fact] :- Bool (some? (get tomb-sigs (fact-sig c)))) non-stale)
-        hand (filterv (fn [c :- k/Fact] :- Bool (nil? (get tomb-sigs (fact-sig c)))) non-stale)]
-    (->Probe up serving fresh port status daemon-v log-v log-facts idx stale hand log-behind tombstoned)))
+        hand (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)]
+    (->Probe up serving port status daemon-v log-facts idx stale hand log-behind)))
 
 ;; SAFETY verdict: writes + warm reads are safe IFF the daemon is up, serving this
-;; log, and current with it. Hygiene NEVER enters this — a stale .md is not a write hazard.
-(defn- safe? [p :- Probe] :- Bool (and (:up p) (and (:serving p) (:fresh p))))
+;; database. Hygiene NEVER enters this — a stale .md is not a write hazard.
+(defn- safe? [p :- Probe] :- Bool (and (:up p) (:serving p)))
 
 (defn- safety-line [p :- Probe] :- String
   (if (safe? p)
@@ -1499,15 +1430,14 @@
     (cond
       [(not (:up p)) (str "DEGRADED: coordinator DOWN on 127.0.0.1:" (:port p) " — run `north up` (writes won't serialize)")]
       [(not (:serving p)) (str "DEGRADED: daemon not serving the canonical log — status: " (:status p))]
-      [:else (str "DEGRADED: daemon STALE (loaded v" (:daemon-v p) " behind log v" (:log-v p)
-                  ") — the log changed out-of-band; restart it + `north up`")])))
+      [:else "DEGRADED: server read failed"])))
 
 ;; One-line hygiene summary ("" when tidy) for the boot screen.
 (defn- hygiene-line [p :- Probe] :- String
-  (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p)) nt (count (:tombstoned p))]
-    (if (and (= ns 0) (and (= nh 0) (and (= nb 0) (= nt 0))))
+  (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p))]
+    (if (and (= ns 0) (and (= nh 0) (= nb 0)))
       ""
-      (str "hygiene: " (+ ns (+ nb nt)) " stale/lagging projection fact(s) — run `north heal`"
+      (str "hygiene: " (+ ns nb) " stale/lagging projection fact(s) — run `north heal`"
            (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
 
 ;; --- doctor: SAFETY handshake + HYGIENE report ------------------------------
@@ -1521,33 +1451,24 @@
       (do
         (println (str "  [ok]    coordinator UP on 127.0.0.1:" (:port p)))
         (if (:serving p)
-          (println "  [ok]    serving the canonical log")
-          (println (str "  [WARN]  daemon is NOT serving " log " — status: " (:status p))))
-        (if (:fresh p)
-          (if (= (:daemon-v p) (:log-v p))
-            (println "  [ok]    daemon state matches the on-disk log")
-            (println (str "  [ok]    daemon current with the log (loaded v" (:daemon-v p)
-                          " > log v" (:log-v p) " — in-memory lease txs, never flat-logged)")))
-          (println (str "  [WARN]  daemon is STALE (loaded v" (:daemon-v p) " behind log v" (:log-v p)
-                        ") — the log changed out-of-band; restart: kill it + `north up`"))))
+          (println (str "  [ok]    serving database version " (:daemon-v p)))
+          (println (str "  [WARN]  server is not serving the selected database — status: " (:status p)))))
       (println (str "  [DOWN]  no coordinator on 127.0.0.1:" (:port p) " — writes won't serialize. Run `north up`.")))
     (if (safe? p)
       (println "  => healthy: tell/untell + warm reads are safe")
       (println "  => DEGRADED: fix the warnings above"))
     ;; HYGIENE: is the file projection tidy? NEVER changes the verdict above.
     (println "  hygiene:")
-    (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p)) nt (count (:tombstoned p))]
-      (if (and (= ns 0) (and (= nh 0) (and (= nb 0) (= nt 0))))
-        (println "    [ok]    files <-> fact log in sync")
+    (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p))]
+      (if (and (= ns 0) (and (= nh 0) (= nb 0)))
+        (println "    [ok]    files <-> database projection in sync")
         (do
           (when (> ns 0)
             (println (str "    " ns " stale projection fact(s) — run `north heal`")))
-          (when (> nt 0)
-            (println (str "    " nt " retracted-but-still-in-file fact(s) (tombstones) — run `north heal`")))
           (when (> nh 0)
             (println (str "    " nh " genuinely-new file fact(s) (hand edits) — reconcile via tell or import")))
           (when (> nb 0)
-            (println (str "    " nb " log fact(s) not yet in files — benign projection lag; run `north heal`"))))))))
+            (println (str "    " nb " database fact(s) not yet in files — benign projection lag; run `north heal`"))))))))
 
 ;; --- heal: re-render stale/lagging thread files FROM the log (never the log) --
 ;; Idempotent, fail-closed. Flushes projection drift WITHOUT whole-corpus `export`
@@ -1562,7 +1483,7 @@
 ;; yet rendered. (hand edits are handled separately — heal refuses if any exist.)
 (defn- heal-targets [p :- Probe] :- (Vec String)
   (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c))
-                      (vec (concat (:stale p) (:log-behind p) (:tombstoned p))))))
+                      (vec (concat (:stale p) (:log-behind p))))))
 
 ;; The @subject the importer would read from a file's head ("" if none/blank/before ---).
 (defn- file-subject [content :- String] :- String
@@ -1718,62 +1639,38 @@
    (->AdoptResult 0 0 0 0)
    hand))
 
-;; List the tombstoned file lines heal is dropping (net-dead in the log). They are
-;; NOT re-asserted — heal-project re-renders the file without them, honoring the
-;; retraction. `--resurrect` force-adopts them instead (rare: a human genuinely
-;; re-adding a once-retracted triple by editing the .md).
-(defn- report-tombstoned [tombstoned :- (Vec k/Fact)] :- Nil
-  (if (empty? tombstoned)
-    nil
-    (do
-      (println (str "retracted (stale projection) — skipped " (count tombstoned)
-                    " fact(s) net-dead in the log (re-rendered away, NOT resurrected; --resurrect to force-adopt):"))
-      (doseq [c tombstoned]
-        (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))))
-
 (defn cmd-heal
   [threads-dir :- String
    log :- String
-   adopt :- Bool
-   resurrect :- Bool] :- Nil
+   adopt :- Bool] :- Nil
   (let [p (probe threads-dir log)
-        ;; --resurrect folds tombstones back into the adopt set (force-reassert a
-        ;; deliberately-retracted triple); default off leaves them to re-render away.
-        adopt-list (if resurrect (vec (concat (:hand p) (:tombstoned p))) (:hand p))
+        adopt-list (:hand p)
         has-hand (not (empty? (:hand p)))
         has-adoptable (not (empty? adopt-list))]
     (cond
-      ;; Bare heal fails closed on GENUINE hand edits (a human decides). Tombstones
-      ;; are NOT hand edits — they fall through to heal-project and re-render away.
-      ;; This IS the dry run — it lists what `--adopt` would absorb, touches nothing.
-      [(and has-hand (not (or adopt resurrect)))
+      ;; Bare heal fails closed on hand edits. Without a canonical history query,
+      ;; absence from current state is never guessed to mean a safe resurrection.
+      [(and has-hand (not adopt))
        (do
          (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in the log "
                        "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). "
                        "Nothing was touched:"))
          (doseq [c (:hand p)]
-           (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72))))
-         (report-tombstoned (:tombstoned p)))]
+           (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))]
       [:else
-       (if (and (or adopt resurrect) has-adoptable)
-         ;; ADOPT: absorb genuine (+ --resurrect'd) hand facts via the coordinator,
-         ;; then re-probe (the log now carries them) and run the projection pass.
-         ;; Tombstones NOT resurrected are reported + re-rendered away, never adopted.
+       (if (and adopt has-adoptable)
          (let [port (fram.rt/coord-port)
                coord-v (fram.rt/coord-version-for-log port log)]
            (if (< coord-v 0)
              (println (coordinator-failure-message
                        coord-v port log "heal --adopt was not recorded"))
              (do
-               (if (not resurrect) (report-tombstoned (:tombstoned p)) nil)
                (let [res (adopt-hand-facts port log (live-idx log) adopt-list)]
                  (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res)
                                " skipped (log won), " (:dropped res) " dropped (parse artifact), "
                                (:failed res) " failed via coordinator."))
                  (heal-project threads-dir (probe threads-dir log))))))
-         (do
-           (report-tombstoned (:tombstoned p))
-           (heal-project threads-dir p)))])))
+         (heal-project threads-dir p))])))
 
 ;; --- boot: the one-screen session-start view --------------------------------
 (defrecord EntryPoint
@@ -2074,20 +1971,6 @@
           (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
         (println (str "  " (padr "predicate-meta" 20) " " (count pred-subs)
                       " predicate(s) carry declared cardinality/value_kind/acyclic"))
-        ;; log-split steel thread: when telemetry is split to its own log, report
-        ;; each log's ON-DISK fact-op mass so it reads against the in-store kind
-        ;; census above — proof the kind-routing landed on disk. Both logs boot-
-        ;; merge into the ONE unified store the census counts, so the on-disk
-        ;; split is pure hygiene, never a read gap.
-        (let [tlog (fram.rt/getenv-or "FRAM_TELEMETRY_LOG" "")]
-          (when (not (str/blank? tlog))
-            (let [coord-n (count (fram.rt/read-log log))
-                  telem-n (count (fram.rt/read-log tlog))]
-              (println (str "  ── logs (on-disk fact-ops; unified in-store above) ──"))
-              (println (str "  " (padr "coordination" 20) " " coord-n " fact-ops  " log))
-              (println (str "  " (padr "telemetry" 20) " " telem-n " fact-ops  " tlog))
-              (println (str "  " (padr "total on-disk" 20) " " (+ coord-n telem-n)
-                            " fact-ops boot-merged by :tx")))))
         (println "→ north schema <kind> for the field spec — required vs optional preds, coverage %, who writes it")))))
 
 ;; Teaching is graph data: predicate entities point at normalized example
@@ -2156,7 +2039,7 @@
       [(= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))]
       [(= cmd "tools")    (cmd-tools)]
       [(= cmd "doctor")   (cmd-doctor threads-dir log)]
-      [(= cmd "heal")     (cmd-heal threads-dir log (has-flag? args "--adopt") (has-flag? args "--resurrect"))]
+      [(= cmd "heal")     (cmd-heal threads-dir log (has-flag? args "--adopt"))]
       [(= cmd "boot")     (cmd-boot threads-dir log)]
       [(= cmd "json")
        (cmd-json log (if (> (count args) 1) (nth args 1) "")

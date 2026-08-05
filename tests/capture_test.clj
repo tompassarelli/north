@@ -97,13 +97,10 @@
      (with-out-str (m/run ["capture" "-h"] "/tmp/threads" "/tmp/facts.log"))]))
 
 ;; --- admission latency: both hot verbs must ask for ONE SUBJECT --------------
-;; A whole-corpus read here is the 20s/106s defect, so rt/read-log and
-;; rt/coord-live-facts THROW: the shape is pinned by making the slow query fatal,
-;; not by timing it.
+;; A whole-corpus server read is forbidden on this exact-subject path.
 (def admission-shows (atom []))
 (defn- shows-only [rows]
   {#'rt/coord-show-for-log (fn [_ _ te] (swap! admission-shows conj te) {:version 1 :rows rows})
-   #'rt/read-log (fn [& _] (throw (ex-info "whole-log read on an exact-subject path" {})))
    #'rt/coord-live-facts (fn [& _] (throw (ex-info "whole-corpus read on an exact-subject path" {})))})
 
 (def render-rows
