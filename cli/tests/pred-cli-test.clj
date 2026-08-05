@@ -178,8 +178,6 @@
     ["cli/spend-breaker.clj" "retract!" "p"]
     ["cli/spend-cli.clj" "append!" "p"]
     ["cli/spend-cli.clj" "put!" "p"]
-    ["cli/worktree-allocation-internal.clj" "append!" "marker-predicate"]
-    ["cli/worktree-allocation-internal.clj" "append!" "predicate"]
     ["cli/worktree-allocation-internal.clj" "retract!" "predicate"]
     ;; Listener route replacement is fenced, but its predicate remains an
     ;; explicit runtime input to the coordinator write.

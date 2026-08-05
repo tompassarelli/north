@@ -101,7 +101,7 @@
           snapshot (facts-of port (get first-registration "subject"))
           allowed (set (concat registration-predicates
                                [marker-predicate "kind"]))]
-      (check "marker-last registration commits through the executable writer"
+      (check "atomic registration commits through the executable writer"
              (and (zero? (:exit committed))
                   (= #{"worktree_allocation"} (get snapshot "kind"))
                   (= 1 (count (get snapshot marker-predicate)))
@@ -184,30 +184,22 @@
     (let [failed-registration
           (registration "55555555-5555-4555-8555-555555555555" "5")
           subject (get failed-registration "subject")
-          original-append north.coord/append!
+          original-atomic-batch north.coord/assert-batch-after-read!
+          calls (atom 0)
           rejected
           (try
-            (with-redefs [north.coord/append!
-                          (fn [p s predicate value]
-                            (if (= marker-predicate predicate)
-                              {:reject :injected_marker_refusal}
-                              (original-append p s predicate value)))]
+            (with-redefs [north.coord/assert-batch-after-read!
+                          (fn [& args]
+                            (if (= 2 (swap! calls inc))
+                              {:reject :injected_atomic_batch_refusal}
+                              (apply original-atomic-batch args)))]
               (register! port failed-registration))
             nil
             (catch clojure.lang.ExceptionInfo error error))
           remaining (into {} (filter (comp seq val)) (facts-of port subject))
-          rolled-back? (and rejected (empty? remaining))
-          known-pinned-fram-gap?
-          (and (= "1" (System/getenv "NORTH_TEST_SANDBOX_HOME"))
-               (= "allocation registration failed and rollback is indeterminate"
-                  (some-> rejected ex-message))
-               (= #{"worktree_allocation_agent" "worktree_allocation_concern"
-                    "worktree_allocation_run" "worktree_allocation_thread"}
-                  (set (keys remaining))))]
-      (if known-pinned-fram-gap?
-        (println "SKIP NORTH-DOMAIN-WORKTREE-001: pinned Fram retains ref-valued facts in the injected rollback probe")
-        (check "injected commit-marker refusal rolls back every unqueryable prefix"
-               rolled-back?)))
+          refused-atomically? (and rejected (empty? remaining))]
+      (check "injected atomic registration refusal leaves no unqueryable prefix"
+             refused-atomically?))
     (finally
       (proc/destroy-tree daemon)
       (try @daemon (catch Exception _ nil))
