@@ -1,22 +1,35 @@
 #!/usr/bin/env bb
 (ns north.coordination-projection-worker-host
-  (:require [clojure.edn :as edn]
+  (:require [babashka.classpath :as classpath]
+            [babashka.process :as proc]
             [clojure.java.io :as io]
-            [clojure.string :as str]
-            [babashka.process :as proc]))
+            [clojure.string :as str]))
 
 (def root
   (-> (io/file (System/getProperty "babashka.file"))
       .getParentFile .getParentFile .getCanonicalPath))
+(def fram-out
+  (or (not-empty (System/getenv "FRAM_OUT"))
+      (str (System/getProperty "user.home") "/code/fram/main/out")))
+(classpath/add-classpath fram-out)
+(when-not (find-ns 'north.framrpc-client)
+  (load-file (str root "/cli/framrpc-client.clj")))
+(alias 'rpc 'north.framrpc-client)
+(alias 'term 'fram.types)
 (load-file (str root "/cli/coord.clj"))
 
 (def port
   (Integer/parseInt
    (or (first *command-line-args*)
-       (System/getenv "FRAM_PORT")
+       (System/getenv "FRAM_SERVER_PORT")
        "7977")))
 (def debounce-ms
   (Integer/parseInt (or (second *command-line-args*) "400")))
+(def poll-ms 500)
+(def server-host
+  (or (not-empty (System/getenv "FRAM_SERVER_CONNECT")) "127.0.0.1"))
+(def space-id
+  (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination"))
 (def north-bin (str root "/bin/north"))
 (def last-commit (atom 0))
 (def dirty (atom false))
@@ -76,38 +89,72 @@
     (reset! last-commit (System/currentTimeMillis))
     (reset! dirty true)))
 
-(defn subscribe-once! []
-  (with-open [socket (north.coord/connect-socket port)]
-    (let [writer (.getOutputStream socket)
-          reader (north.coord/coordinator-reader socket)]
-      (.write
-       writer
-       (.getBytes
-        (str (pr-str (north.coord/log-envelope {:op :subscribe})) "\n")
-        java.nio.charset.StandardCharsets/UTF_8))
-      (.flush writer)
-      (north.coord/validate-subscription!
-       (north.coord/read-line-bounded! reader))
-      (.setSoTimeout socket 0)
-      (loop []
-        (when-let [line (north.coord/read-stream-line-bounded! reader)]
-          (let [event (try (edn/read-string line) (catch Throwable _ nil))]
-            (when (and (map? event) (= (:event event) :commit))
-              (mark! (:l event))))
-          (recur))))))
+(defn connect! []
+  (rpc/connect server-host port space-id
+               {:connect-timeout-ms 1000
+                :read-timeout-ms 60000
+                :max-attempts 3
+                :retry-delay-ms 10
+                :jitter-ms 25}))
+
+(defn triple-values [triple]
+  [(term/triple-slot0 triple)
+   (term/triple-slot1 triple)
+   (term/triple-slot2 triple)])
+
+(defn tracked-projection [rows]
+  (reduce
+   (fn [projection triple]
+     (let [[subject :as values] (triple-values triple)]
+       (if (and (string? subject)
+                (not
+                 (some #(str/starts-with? subject %) ephemeral-prefixes)))
+         (update-in projection [subject values] (fnil inc 0))
+         projection)))
+   {}
+   rows))
+
+(defn observation! [client]
+  (let [{:keys [rows served-version]}
+        (rpc/scan-all! client nil nil nil)]
+    {:version served-version
+     :projection (tracked-projection rows)}))
+
+(defn poll-once! [client previous]
+  (let [served-version (:served-version (rpc/version! client))]
+    (if (= served-version (:version previous))
+      previous
+      (let [current (observation! client)]
+        (when (not= (:projection previous) (:projection current))
+          (mark! "@coordination-projection"))
+        current))))
+
+(defn session! []
+  (let [client (connect!)]
+    (try
+      (let [initial (observation! client)]
+        (mark! "@coordination-projection")
+        (loop [observation initial]
+          (Thread/sleep poll-ms)
+          (recur (poll-once! client observation))))
+      (finally
+        (rpc/close! client)))))
 
 (defn -main []
   (println
-   (str "[coordination-projection-worker] subscribe :" port
+   (str "[coordination-projection-worker] FRAMRPC v1 poll "
+        server-host ":" port
+        " space=" space-id
+        " poll_ms=" poll-ms
         " debounce_ms=" debounce-ms))
   (flush)
   (future (flush-when-quiet!))
   (loop []
     (try
-      (subscribe-once!)
+      (session!)
       (catch Throwable error
         (println
-         (str "[coordination-projection-worker] subscription lost ("
+         (str "[coordination-projection-worker] FRAMRPC poll lost ("
               (.getMessage error) ") — reconnecting"))
         (flush)))
     (Thread/sleep 1000)

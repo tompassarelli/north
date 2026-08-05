@@ -1,45 +1,47 @@
 #!/usr/bin/env bb
 (ns north.nix-rebuild-worker
-  (:require [cheshire.core :as json]
-            [clojure.edn :as edn]
+  (:require [babashka.classpath :as classpath]
+            [cheshire.core :as json]
             [clojure.java.io :as io]))
 
 (def ^:private cli-dir
   (.getParent (io/file (System/getProperty "babashka.file"))))
 (def ^:private root
   (.getCanonicalPath (io/file cli-dir "..")))
+(def ^:private fram-out
+  (or (not-empty (System/getenv "FRAM_OUT"))
+      (str (System/getProperty "user.home") "/code/fram/main/out")))
+(classpath/add-classpath fram-out)
+(when-not (find-ns 'north.framrpc-client)
+  (load-file (str cli-dir "/framrpc-client.clj")))
+(alias 'rpc 'north.framrpc-client)
+(alias 'term 'fram.types)
 (System/setProperty "north.rebuild-request-cli.lib" "1")
 (load-file (str cli-dir "/rebuild-request-cli.clj"))
 (load-file (str root "/out/north/worker_policy.clj"))
 
 (def port
   (Integer/parseInt
-   (or (System/getenv "NORTH_PORT")
-       (System/getenv "FRAM_PORT")
-       "7977")))
-(def event-debounce-ms 1000)
-(def ^:private max-event-debounce-ms 2000)
+   (or (System/getenv "FRAM_SERVER_PORT") "7977")))
+(def server-host
+  (or (not-empty (System/getenv "FRAM_SERVER_CONNECT")) "127.0.0.1"))
+(def space-id
+  (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination"))
+(def coalesce-ms 1000)
+(def ^:private max-coalesce-ms 2000)
+(def poll-ms 1000)
 
-(def ^:private event-state
+(def ^:private observed-state
   (atom {:version -1 :semantic nil}))
-
-(defn subscription-request []
-  {:op :subscribe
-   :filter {:watch #{north.rebuild-request/queue-subject}}})
-
-(defn queue-commit? [event]
-  (and (map? event)
-       (= :commit (:event event))
-       (= north.rebuild-request/queue-subject (:l event))
-       (= north.rebuild-request/queue-predicate (:p event))))
+(def ^:dynamic *client* nil)
 
 (defn queue-semantic [raw]
   (let [payload
         (try
           (json/parse-string (str raw))
           (catch Throwable error
-            (throw (ex-info "rebuild queue event is not valid JSON"
-                            {:type :malformed-rebuild-queue-event}
+            (throw (ex-info "rebuild queue projection is not valid JSON"
+                            {:type :malformed-rebuild-queue-projection}
                             error))))
         requests (get payload "requests")
         last-fired-ms (get payload "lastFiredMs")
@@ -51,57 +53,79 @@
                    (or (nil? last-fired-ms)
                        (and (integer? last-fired-ms)
                             (not (neg? last-fired-ms)))))
-      (throw (ex-info "rebuild queue event has invalid semantic fields"
-                      {:type :malformed-rebuild-queue-event})))
+      (throw (ex-info "rebuild queue projection has invalid semantic fields"
+                      {:type :malformed-rebuild-queue-projection})))
     {:request-ids (vec (sort ids))
      :last-fired-ms last-fired-ms}))
 
 (defn queue-observation [version raw]
   (when-not (and (integer? version) (not (neg? version)))
-    (throw (ex-info "rebuild queue event requires a non-negative version"
-                    {:type :malformed-rebuild-queue-event-version
+    (throw (ex-info "rebuild queue projection requires a non-negative version"
+                    {:type :malformed-rebuild-queue-projection-version
                      :version version})))
   {:version version :semantic (queue-semantic raw)})
 
-(defn current-queue-observation []
-  (let [{:keys [version rows]}
-        (north.coord/show-envelope port north.rebuild-request/queue-subject)
-        values (->> rows
-                    (keep (fn [[predicate value]]
-                            (when (= north.rebuild-request/queue-predicate
-                                     predicate)
-                              value)))
-                    vec)]
-    (when (> (count values) 1)
-      (throw (ex-info "rebuild queue singleton has multiple live values"
-                      {:type :malformed-rebuild-queue-event})))
-    (if-let [raw (first values)]
-      (queue-observation version raw)
-      {:version version
-       :semantic {:request-ids [] :last-fired-ms nil}})))
+(defn connect! []
+  (rpc/connect server-host port space-id
+               {:connect-timeout-ms 1000
+                :read-timeout-ms 60000
+                :max-attempts 3
+                :retry-delay-ms 10
+                :jitter-ms 25}))
 
-(defn reset-event-state! []
-  (reset! event-state {:version -1 :semantic nil}))
+(defn with-client [operation]
+  (if *client*
+    (operation *client*)
+    (let [client (connect!)]
+      (try
+        (operation client)
+        (finally
+          (rpc/close! client))))))
+
+(defn queue-scan! [client]
+  (rpc/scan-all! client
+                 north.rebuild-request/queue-subject
+                 north.rebuild-request/queue-predicate
+                 nil))
+
+(defn triple-value [triple]
+  (term/triple-slot2 triple))
+
+(defn current-queue-observation []
+  (with-client
+    (fn [client]
+      (let [{:keys [served-version rows]} (queue-scan! client)
+            values (mapv triple-value rows)]
+        (when (> (count values) 1)
+          (throw (ex-info "rebuild queue singleton has multiple live values"
+                          {:type :malformed-rebuild-queue-projection})))
+        (if-let [raw (first values)]
+          (queue-observation served-version raw)
+          {:version served-version
+           :semantic {:request-ids [] :last-fired-ms nil}})))))
+
+(defn reset-observed-state! []
+  (reset! observed-state {:version -1 :semantic nil}))
 
 (defn- observe-current-queue []
   (try
     (current-queue-observation)
     (catch Throwable _ nil)))
 
-(defn- advance-event-state! [observation]
+(defn- advance-observed-state! [observation]
   (when observation
-    (swap! event-state
+    (swap! observed-state
            (fn [current]
              (if (>= (:version observation) (:version current))
                observation
                current)))))
 
-(defn- bounded-event-debounce-ms []
-  (long (min max-event-debounce-ms
-             (max 0 event-debounce-ms))))
+(defn- bounded-coalesce-ms []
+  (long (min max-coalesce-ms
+             (max 0 coalesce-ms))))
 
-(defn- debounce! []
-  (Thread/sleep (bounded-event-debounce-ms)))
+(defn- coalesce! []
+  (Thread/sleep (bounded-coalesce-ms)))
 
 (defn process-queue!
   "Synchronously process at most one coalesced window from the durable queue."
@@ -112,11 +136,8 @@
           queue-read (:queue-read plan)]
       (println (str "[nix-rebuild-worker] queue"
                     " mode=" (:mode queue-read)
-                    " bridge_start=" (:start-offset queue-read)
-                    " bridge_end=" (:end-offset queue-read)
-                    " bridge_target=" (:target-offset queue-read)
-                    " bridge_bytes=" (:bytes-read queue-read)
-                    " bridge_events=" (:relevant-events queue-read)
+                    " served_version=" (:served-version queue-read)
+                    " pages=" (:pages queue-read)
                     " corpus_queries=" (:corpus-queries queue-read)
                     " caught_up=" (:caught-up queue-read)))
       (case (:action plan)
@@ -162,66 +183,60 @@
            :elapsed-ms elapsed-ms
            :queue-observation queue-observation)))
 
-(defn process-event! [event]
-  (when (queue-commit? event)
-    (let [incoming (queue-observation (:version event) (:r event))
-          observed @event-state
-          decision
-          (north.worker-policy/rebuild-wake-decision
-           (:version observed)
-           (:version incoming)
-           (not= (:semantic incoming) (:semantic observed))
-           (boolean
-            (seq (get-in incoming [:semantic :request-ids]))))]
-      (case (:action decision)
-        :ignore nil
-        :advance (advance-event-state! incoming)
-        :wake
-        (do
-          (advance-event-state! incoming)
-          (debounce!)
-          (let [result (run-worker! :queue-commit)]
-            (advance-event-state! (:queue-observation result))
-            result))))))
+(defn process-observation! [incoming reason]
+  (let [observed @observed-state
+        decision
+        (north.worker-policy/rebuild-wake-decision
+         (:version observed)
+         (:version incoming)
+         (not= (:semantic incoming) (:semantic observed))
+         (boolean
+          (seq (get-in incoming [:semantic :request-ids]))))]
+    (case (:action decision)
+      :ignore nil
+      :advance (advance-observed-state! incoming)
+      :wake
+      (do
+        (advance-observed-state! incoming)
+        (coalesce!)
+        (let [result (run-worker! reason)]
+          (advance-observed-state! (:queue-observation result))
+          result)))))
 
-(defn connected-catch-up! []
+(defn poll-once! []
+  (process-observation! (current-queue-observation) :queue-poll))
+
+(defn initial-catch-up! []
   (let [result (run-worker! :connected)]
-    (advance-event-state! (:queue-observation result))
+    (advance-observed-state! (:queue-observation result))
     result))
 
-(defn subscribe-once []
-  (with-open [socket (north.coord/connect-socket port)]
-    (let [writer (.getOutputStream socket)
-          reader (north.coord/coordinator-reader socket)]
-      (.write writer
-              (.getBytes
-               (str (pr-str
-                     (north.coord/log-envelope (subscription-request)))
-                    "\n")
-               java.nio.charset.StandardCharsets/UTF_8))
-      (.flush writer)
-      (north.coord/validate-subscription!
-       (north.coord/read-line-bounded! reader))
-      (.setSoTimeout socket 0)
-      (connected-catch-up!)
-      (loop []
-        (when-let [line (north.coord/read-stream-line-bounded! reader)]
-          (when-let [event
-                     (try (edn/read-string line)
-                          (catch Throwable _ nil))]
-            (process-event! event))
-          (recur))))))
+(defn session! []
+  (let [client (connect!)]
+    (try
+      (binding [*client* client]
+        (initial-catch-up!)
+        (loop []
+          (Thread/sleep poll-ms)
+          (poll-once!)
+          (recur)))
+      (finally
+        (rpc/close! client)))))
 
 (defn -main []
-  (println (str "[nix-rebuild-worker] scoped fact-server subscription :" port
-                " -> " north.rebuild-request/queue-subject))
+  (println
+   (str "[nix-rebuild-worker] FRAMRPC projection poll "
+        server-host ":" port
+        " space=" space-id
+        " -> rebuild request/window projections"))
   (flush)
   (loop []
     (try
-      (subscribe-once)
+      (session!)
       (catch Throwable error
-        (println (str "[nix-rebuild-worker] fact-server subscription lost ("
-                      (.getMessage error) ") — reconnecting"))
+        (println
+         (str "[nix-rebuild-worker] FRAMRPC projection poll lost ("
+              (.getMessage error) ") — reconnecting"))
         (flush)))
     (Thread/sleep 1000)
     (recur)))
