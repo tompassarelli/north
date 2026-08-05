@@ -1,19 +1,13 @@
 ;; orchestration-shape.clj — the generic default-deny SHAPE INTERPRETER for the
 ;; Orchestration -> North Orchestration migration (thread 019f8f5c-74e0-7be7-ba65-
 ;; 3179f1bccde1, design §2.1-2.3). Pure + stdlib-only by design so it can be
-;; exercised offline (the shape-lint corpus fold, cli/tests/*) AND lifted verbatim
-;; onto the coordinator's ONE serialized write path when that is authorized.
+;; exercised offline (the shape-lint corpus fold, cli/tests/*) and lifted onto
+;; Fram's one serialized server write path when that is authorized.
 ;;
-;; PLACEMENT (load-bearing, recorded on 019f8f5c): the "coordinator's single
-;; serialized write path" the design names is fram's coord_daemon.clj `do-assert`
-;; (the F3 schema-write gate precedent lives there). fram is a rev-pinned FLAKE
-;; INPUT of north, not north-repo source, and the live :7977 daemon runs it from
-;; the nix store — so wiring this interpreter into that path is a fram change plus
-;; a coordinator restart, BOTH forbidden by the Phase 3 orders. This library is
-;; therefore the terminal north-side deliverable for slice 1: the generic
-;; interpreter + the finite structural-rule vocabulary, proven at interpreter
-;; level, shaped for a drop-in lift. The client (cli/coord.clj) cannot reject a
-;; raw `tell`; only the daemon can.
+;; PLACEMENT (load-bearing, recorded on 019f8f5c): `fram:server.clj` owns that
+;; write path. This library therefore contains the North-side interpreter and
+;; finite structural-rule vocabulary; `north:cli/coord.clj` remains a client and
+;; cannot substitute for server-side admission.
 ;;
 ;; MODEL (design §2.1): every subject whose CURRENT `kind` fact has a @shape:<kind>
 ;; subject is default-deny — a write of predicate p is admitted iff p is in that

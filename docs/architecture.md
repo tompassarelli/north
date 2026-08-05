@@ -9,7 +9,7 @@ change X."
 **Engine** → [Fram](https://github.com/Autonymy/fram), checked out separately
 (`FRAM_HOME`, default `~/code/fram/main` per [`bin/north`](../bin/north)).
 Fram is a slot-addressable, typed-triple substrate: the triple store, the
-Datalog evaluator, and the coordinator daemon. North does not vendor it and
+Datalog evaluator, and the canonical FRAMRPC server. North does not vendor it and
 does not fork it — it links Fram's library API, so Fram's exact source revision
 is pinned by the `fram` node in [`flake.lock`](../flake.lock). The Nix package,
 CI, and the Docker image all consume that one lock record; there is no second
@@ -54,21 +54,20 @@ reservation written before the provider is invoked, a run ledger, and a
 truthful terminal (`delivery=reported|unverified|blocked`).
 
 **MCP** → [`bin/north-mcp`](../bin/north-mcp), the AI-facing edge. Every tool
-maps to a tested CLI operation through the coordinator write path, so in-harness
+maps to a tested CLI operation through the Fram server write path, so in-harness
 agents dispatch through `mcp__north__dispatch` / `spawn` rather than the shell
 verbs.
 
-**Data** → your own private store. The canonical `facts.log` is projected to
-`~/.local/state/north/` at runtime and is **not** part of this repository.
+**Data** → your own private store. Canonical FRAMLOG databases live in runtime
+state and are **not** part of this repository.
 
 ## The write path
 
-Every write serializes through one coordinator daemon, which rule-checks it
-before it lands. `north up` ([`bin/north-coord-up`](../bin/north-coord-up))
-starts one locally on `127.0.0.1:7977` (`NORTH_PORT`); hosted mode runs one per
-tenant via [`deploy/north-coordinator@.service`](../deploy/north-coordinator@.service).
-Deployed coordinators run with `FRAM_REQUIRE_LOG_FENCE=1`, which rejects an
-unfenced request before it can read or write.
+Every write serializes through one current Fram server, which rule-checks it
+before it lands. The configured server listens locally on `127.0.0.1:7977`
+(`NORTH_PORT`); canonical FRAMRPC requests carry the selected SpaceId, and
+`north:cli/runtime-attestation.clj` binds the live
+listener to its exact Fram source, artifact, database, and service owner.
 
 ## Routing: who versus where
 
@@ -83,7 +82,7 @@ through the chosen provider's catalog. See
 ## Emergency recovery
 
 `north panic` is a Bash-only kill switch that works when babashka, Fram, or the
-coordinator are unavailable. It writes `dispatch=native` and `guards=off` to
+FRAMRPC server are unavailable. It writes `dispatch=native` and `guards=off` to
 `~/.local/state/north/harness.conf`, preserves the other keys, and prints the
 exact restore commands. Use it to return to stock native operation while
 repairing North, not as a routine posture change — `north config` is the
@@ -91,8 +90,5 @@ routine surface.
 
 ## Hosting
 
-The same architecture runs on a laptop, on a server you own, or as a
-multi-tenant service, with only the transport in front of the coordinator
-changing. That is its own document: [hosting.md](hosting.md), with the
-artifacts in [`deploy/`](../deploy) and the authenticated edge in
-[`deploy/gateway/`](../deploy/gateway).
+The same architecture runs on a laptop or on a server you own. The supported
+operating layouts are documented in [hosting.md](hosting.md).

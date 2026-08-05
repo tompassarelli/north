@@ -54,9 +54,6 @@ shell_bars=(
   bin/tests/north-mark-delegated-test.sh
   bin/tests/identity-alias-test.sh
   bin/tests/native-identity-test.sh
-  cli/tests/north-coord-up-test.sh
-  cli/tests/coord-log-fence-integration-test.sh
-  cli/tests/telemetry-partition-integration-test.sh
 )
 clojure_bars=(
   cli/tests/agent-identity-publication-integration-test.clj
@@ -67,8 +64,6 @@ clojure_bars=(
   cli/tests/dashboard-doctor-exit-test.clj
   cli/tests/rebuild-request-window-test.clj
   cli/tests/nix-rebuild-worker-test.clj
-  cli/tests/coordinator-jvm-health-test.clj
-  cli/tests/deployed-cli-test.clj
   cli/tests/wip-cli-test.clj
   cli/tests/live-feed-integration-test.clj
   cli/tests/message-routing-test.clj
@@ -79,8 +74,6 @@ clojure_bars=(
   cli/tests/north-listen-reconnect-test.clj
   cli/tests/pending-pagination-integration-test.clj
   cli/tests/pred-cli-test.clj
-  cli/tests/routing-report-test.clj
-  cli/tests/canary-cli-test.clj
   cli/tests/spawn-process-integration-test.clj
   cli/tests/delegate-intake-e2e-test.clj
   cli/tests/peer-command-integration-test.clj
@@ -107,9 +100,12 @@ grep -Fq 'orchestration_ref=$(north/bin/github-flake-input-pin north/flake.lock 
 grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram' "$WORKFLOW"
 # shellcheck disable=SC2016
 grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration' "$WORKFLOW"
-grep -Fq 'test -s ../fram/coordination.log' "$WORKFLOW"
-grep -Fq 'FRAM_LOG=../fram/coordination.log' "$WORKFLOW"
-grep -Fq "grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS'" "$WORKFLOW"
+grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
+if grep -Fq '/home/tom/code/fram/main' "$WORKFLOW" ||
+   grep -Fq '/home/tom/code/fram/wt-core-target-production-5db9b38' "$WORKFLOW"; then
+  echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local Fram path' >&2
+  exit 1
+fi
 grep -Fq 'python3 cli/tests/north-coord-socket-activation-integration.py' "$WORKFLOW"
 
 # The patched executable's behavioral smoke must remain connected all the way

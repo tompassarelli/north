@@ -46,21 +46,21 @@ check() { # check <expect deny|allow> <path> <why>
 }
 
 # --- 1. primaries are denied -------------------------------------------------
-check deny "$HOME/code/fram/main/coord_daemon.clj"       "fram primary: dirty tree makes north up refuse"
+check deny "$HOME/code/fram/main/server.clj"             "fram primary is launch-critical"
 check deny "$HOME/code/north/main/cli/dashboard-cli.clj" "north primary"
 check deny "$HOME/code/beagle/main/bin/beagle-build"     "beagle primary"
 check deny "$HOME/code/nixos-config/main/flake.nix"      "nixos-config primary"
 check deny "$HOME/code/fram/main"                        "the checkout root itself, not only files under it"
 
 # --- 2. the sanctioned destinations are NOT denied ---------------------------
-check allow "$HOME/code/worktrees/fram/topic/coord_daemon.clj" "durable worktree is where agents are TOLD to work"
+check allow "$HOME/code/fram/wt-topic/server.clj"             "durable worktree is where agents are TOLD to work"
 check allow "/tmp/north-lane-abc123/cli/x.clj"                 "managed lane worktree"
 check allow "/tmp/fram-indexed-show-lane/bin/fram-fast.clj"    "ad-hoc lane worktree"
 
 # --- 2b. gitignored paths are exempt ----------------------------------------
 # A gitignored file can never make the tree tracked-dirty, so it cannot cause
-# either failure this guard prevents (`north up` refusing a dirty Fram checkout,
-# `firn rebuild` snapshotting only committed state). Blocking them bought
+# either failure this guard prevents (a runtime reading a dirty Fram checkout,
+# or a rebuild publishing only committed state). Blocking them bought
 # nothing and stopped agents writing docs/private/ notes — which is exactly
 # where policy says internal notes belong.
 check allow "$HOME/code/north/docs/private/overnight-notes.md" \

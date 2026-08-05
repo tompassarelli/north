@@ -46,7 +46,6 @@
   (or (= ek "lane") (or (= ek "managed") (= ek "session"))) "agent"
   (or (= ek "msg") (= ek "command")) "message"
   (= ek "mine") "north/mine"
-  (= ek "snapshot") "north/snapshot"
   :else ek))
 
 (defn- ^String namespace-kind [^String bare]
@@ -59,7 +58,6 @@
   (or (str/starts-with? bare "run-") (str/starts-with? bare "run:")) "run"
   (or (str/starts-with? bare "session:") (or (str/starts-with? bare "sess-") (str/starts-with? bare "cc-"))) "agent"
   (str/starts-with? bare "denial:") "guard_denial"
-  (str/starts-with? bare "snapshot:") "north/snapshot"
   (str/starts-with? bare "arena-") "north/arena_run"
   :else ""))
 
@@ -170,41 +168,41 @@
   (reduce (fn [m c] (assoc m (fact-sig c) true)) {} facts))
 
 (defn- live-facts [^String log]
-  (let [port (fram.rt/coord-port)
-   version (fram.rt/coord-version-for-log port log)]
-  (if (< version 0) (throw (ex-info (str "North server read failed on 127.0.0.1:" port " (code " version ")") {:type :north/server-unavailable :port port :log log})) (fram.rt/coord-live-facts port log))))
+  (let [port (fram.rt/server-port)
+   version (fram.rt/server-version-for-log port log)]
+  (if (< version 0) (throw (ex-info (str "North server read failed on 127.0.0.1:" port " (code " version ")") {:type :north/server-unavailable :port port :log log})) (fram.rt/server-live-facts port log))))
 
 (defn- live-idx [^String log]
   (k/build-index (live-facts log)))
 
-(defn- coord-subject-facts [^String log ^String te]
+(defn- server-subject-facts [^String log ^String te]
   (let [rows (try
-  (let [resp (fram.rt/coord-show-for-log (fram.rt/coord-port) log te)]
+  (let [resp (fram.rt/server-show-for-log (fram.rt/server-port) log te)]
   (if (nil? resp) [] (:rows resp)))
   (catch Exception _
     []))]
   (mapv (fn [row] (k/->Fact te (nth row 0) (nth row 1))) rows)))
 
 (defn- subject-facts [^String log ^String te]
-  (let [warm (coord-subject-facts log te)]
+  (let [warm (server-subject-facts log te)]
   (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
 
-(defn ^String coordinator-failure-message [code port ^String log ^String consequence]
+(defn ^String framrpc-failure-message [code port ^String log ^String consequence]
   (let [summary (cond
-  (= code -1) (str "coordinator UNREACHABLE on 127.0.0.1:" port)
-  (= code -2) (str "coordinator CORPUS MISMATCH on 127.0.0.1:" port " (this command requires " log ")")
-  (= code -3) (str "coordinator PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)
-  :else (str "coordinator preflight failed on 127.0.0.1:" port " (code " code ")"))
+  (= code -1) (str "FRAMRPC SERVER UNREACHABLE on 127.0.0.1:" port)
+  (= code -2) (str "FRAMRPC SPACE MISMATCH on 127.0.0.1:" port " (this command selected FRAMLOG database " log ")")
+  (= code -3) (str "FRAMRPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)
+  :else (str "FRAMRPC preflight failed on 127.0.0.1:" port " (code " code ")"))
    remedy (cond
-  (= code -1) "Run `north up`"
-  (= code -2) "Stop the coordinator serving the other corpus, then run `north up`"
-  (= code -3) "Rebuild and restart North + Fram from one matched release"
+  (= code -1) "Start the configured Fram service"
+  (= code -2) "Select the intended FRAMLOG database and SpaceId before retrying"
+  (= code -3) "Use one matched North + Fram release"
   :else "Inspect `north doctor` before retrying")]
   (str summary (if (str/blank? consequence) "" (str " — " consequence)) ". " remedy ".")))
 
 (defn- ^String tell-once [port ^String log ^String op ^String te ^String pred ^String rv]
-  (let [v (fram.rt/coord-version-for-log port log)]
-  (if (< v 0) (if (= v -2) "log-mismatch" (if (= v -3) "protocol-incompatible" "nodaemon")) (if (= op "assert") (fram.rt/coord-assert-for-log port log te pred rv v) (fram.rt/coord-retract-for-log port log te pred rv v)))))
+  (let [v (fram.rt/server-version-for-log port log)]
+  (if (< v 0) (if (= v -2) "space-mismatch" (if (= v -3) "protocol-incompatible" "server-unavailable")) (if (= op "assert") (fram.rt/server-assert-for-log port log te pred rv v) (fram.rt/server-retract-for-log port log te pred rv v)))))
 
 (defn- ^String tell-retry [port ^String log ^String op ^String te ^String pred ^String rv tries]
   (let [resp (tell-once port log op te pred rv)]
@@ -266,7 +264,7 @@
 (defn- ^Boolean cleanup-partial-capture [port ^String log ^String te ^String path facts results]
   (let [retracted (retract-committed-capture-facts port log facts results 0)
    _ (fram.rt/delete-file path)
-   remaining (filterv (fn [fact] (= te (:l fact))) (fram.rt/coord-live-facts port log))]
+   remaining (filterv (fn [fact] (= te (:l fact))) (fram.rt/server-live-facts port log))]
   (and retracted (empty? remaining) (not (fram.rt/file-exists path)))))
 
 (defn cmd-capture [^String threads-dir ^String log ^String title ^String owner]
@@ -286,16 +284,16 @@
    created-at (fram.rt/now-iso)
    te (str "@" id)
    path (str threads-dir "/" id "-" slug ".md")
-   port (fram.rt/coord-port)
-   coord-v (fram.rt/coord-version-for-log port log)]
-  (if (< coord-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "coordinator-unavailable") (println (coordinator-failure-message coord-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
+   port (fram.rt/server-port)
+   server-v (fram.rt/server-version-for-log port log)]
+  (if (< server-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "framrpc-unavailable") (println (framrpc-failure-message server-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
    results (mapv (fn [c] (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)) facts)
    oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
-  (fram.rt/spit-file path (exp/thread-md (let [warm (coord-subject-facts log te)]
+  (fram.rt/spit-file path (exp/thread-md (let [warm (server-subject-facts log te)]
   (if (empty? warm) facts warm)) te))
-  (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via coordinator. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
-  (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files.")))))))))))
+  (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via FRAMRPC. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
+  (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (FRAMRPC publication failure). Re-run — nothing is stranded in files.")))))))))))
 
 (defn- ^Boolean id-like? [^String bare]
   (and (not (str/blank? bare)) (str/blank? (str/replace bare #"[0-9a-f-]" "")) (or (str/includes? bare "-") (>= (count bare) 8))))
@@ -638,7 +636,7 @@
 (defn- cmd-json-show [^String log ^String arg]
   (println (fram.rt/to-json (mapv (fn [c] (->JFact (:p c) (:r c))) (subject-facts log (str "@" arg))))))
 
-(defn- cmd-json-corpus [^String log ^String what ^String arg ^Boolean all?]
+(defn- cmd-json-database [^String log ^String what ^String arg ^Boolean all?]
   (let [facts (live-facts log)
    idx (k/build-index facts)
    today (fram.rt/today-iso)
@@ -666,7 +664,7 @@
   :else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
 
 (defn cmd-json [^String log ^String what ^String arg ^Boolean all?]
-  (if (= what "show") (cmd-json-show log arg) (cmd-json-corpus log what arg all?)))
+  (if (= what "show") (cmd-json-show log arg) (cmd-json-database log what arg all?)))
 
 (defn cmd-needs-review [^String log]
   (let [live-idx-now (live-idx log)
@@ -683,7 +681,7 @@
   (doseq [te promo]
   (println (str "  " (short-id te) "  " (trunc (title-of live-idx-now te) 52))))))
 
-(defrecord Probe [up serving port status daemon-v log-facts idx stale hand log-behind])
+(defrecord Probe [up serving port status server-v log-facts idx stale hand log-behind])
 
 (defn probe-up [r] (:up r))
 
@@ -693,7 +691,7 @@
 
 (defn probe-status [r] (:status r))
 
-(defn probe-daemon-v [r] (:daemon-v r))
+(defn probe-server-v [r] (:server-v r))
 
 (defn probe-log-facts [r] (:log-facts r))
 
@@ -710,12 +708,12 @@
   (and (some? v) (not (= v (:r c)))))))
 
 (defn- ^Probe probe [^String threads-dir ^String log]
-  (let [port (fram.rt/coord-port)
-   status (fram.rt/coord-status-for-log port log)
-   daemon-v (fram.rt/coord-version-for-log port log)
-   up (not (= daemon-v -1))
-   serving (>= daemon-v 0)
-   log-facts (if serving (fram.rt/coord-live-facts port log) [])
+  (let [port (fram.rt/server-port)
+   status (fram.rt/server-status-for-log port log)
+   server-v (fram.rt/server-version-for-log port log)
+   up (not (= server-v -1))
+   serving (>= server-v 0)
+   log-facts (if serving (fram.rt/server-live-facts port log) [])
    idx (k/build-index log-facts)
    file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
    thread-log (filterv (fn [c] (some? (k/one-i idx (:l c) "title"))) log-facts)
@@ -725,15 +723,15 @@
    log-behind (filterv (fn [c] (nil? (get file-sigs (fact-sig c)))) thread-log)
    stale (filterv (fn [c] (stale-projection? idx c)) file-ahead)
    hand (filterv (fn [c] (not (stale-projection? idx c))) file-ahead)]
-  (->Probe up serving port status daemon-v log-facts idx stale hand log-behind)))
+  (->Probe up serving port status server-v log-facts idx stale hand log-behind)))
 
 (defn- ^Boolean safe? [^Probe p]
   (and (:up p) (:serving p)))
 
 (defn- ^String safety-line [^Probe p]
   (if (safe? p) "healthy: tell/untell + warm reads are safe" (cond
-  (not (:up p)) (str "DEGRADED: coordinator DOWN on 127.0.0.1:" (:port p) " — run `north up` (writes won't serialize)")
-  (not (:serving p)) (str "DEGRADED: daemon not serving the canonical log — status: " (:status p))
+  (not (:up p)) (str "DEGRADED: FRAMRPC server DOWN on 127.0.0.1:" (:port p) " — writes cannot publish")
+  (not (:serving p)) (str "DEGRADED: server not serving the selected FRAMLOG database — status: " (:status p))
   :else "DEGRADED: server read failed")))
 
 (defn- ^String hygiene-line [^Probe p]
@@ -746,8 +744,8 @@
   (let [p (probe threads-dir log)]
   (println "north doctor")
   (if (:up p) (do
-  (println (str "  [ok]    coordinator UP on 127.0.0.1:" (:port p)))
-  (if (:serving p) (println (str "  [ok]    serving database version " (:daemon-v p))) (println (str "  [WARN]  server is not serving the selected database — status: " (:status p))))) (println (str "  [DOWN]  no coordinator on 127.0.0.1:" (:port p) " — writes won't serialize. Run `north up`.")))
+  (println (str "  [ok]    FRAMRPC server UP on 127.0.0.1:" (:port p)))
+  (if (:serving p) (println (str "  [ok]    serving database version " (:server-v p))) (println (str "  [WARN]  server is not serving the selected database — status: " (:status p))))) (println (str "  [DOWN]  no FRAMRPC server on 127.0.0.1:" (:port p) " — writes cannot publish.")))
   (if (safe? p) (println "  => healthy: tell/untell + warm reads are safe") (println "  => DEGRADED: fix the warnings above"))
   (println "  hygiene:")
   (let [ns (count (:stale p))
@@ -807,7 +805,7 @@
    scan (scan-files threads-dir files ids)
    diff-ids (mapv (fn [te] (short-id te)) (heal-targets p))
    targets (distinct-ids (vec (concat diff-ids (broken-head-ids scan (:idx p)))))]
-  (if (empty? targets) (println "heal: nothing to do — every thread file already matches the log.") (do
+  (if (empty? targets) (println "heal: nothing to do — every thread file already matches FRAMLOG.") (do
   (doseq [id targets]
   (let [te (str "@" id)
    title (let [t (k/one-i (:idx p) te "title")]
@@ -816,7 +814,7 @@
    path (if (str/blank? existing) (str threads-dir "/" id "-" (fram.rt/slugify title) ".md") existing)]
   (fram.rt/spit-file path (exp/thread-md (:log-facts p) te))
   (println (str "  re-rendered " id "  " (trunc title 52)))))
-  (println (str "heal: re-rendered " (count targets) " thread file(s) from the log. Log untouched."))))))
+  (println (str "heal: re-rendered " (count targets) " thread file(s) from FRAMLOG. Database untouched."))))))
 
 (defrecord AdoptResult [adopted skipped failed dropped])
 
@@ -838,7 +836,7 @@
   (->AdoptResult (:adopted acc) (:skipped acc) (:failed acc) (+ (:dropped acc) 1)))
   (and (k/single? (:p c)) (let [v (k/one-i live (:l c) (:p c))]
   (and (some? v) (not (= v (:r c)))))) (do
-  (println (str "  skip (log won) " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
+  (println (str "  skip (FRAMLOG won) " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
   (->AdoptResult (:adopted acc) (+ (:skipped acc) 1) (:failed acc) (:dropped acc)))
   :else (let [r (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)]
   (if (str/starts-with? r "ok:") (do
@@ -854,14 +852,14 @@
    has-adoptable (not (empty? adopt-list))]
   (cond
   (and has-hand (not adopt)) (do
-  (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in the log " "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). " "Nothing was touched:"))
+  (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in FRAMLOG " "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). " "Nothing was touched:"))
   (doseq [c (:hand p)]
   (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))
-  :else (if (and adopt has-adoptable) (let [port (fram.rt/coord-port)
-   coord-v (fram.rt/coord-version-for-log port log)]
-  (if (< coord-v 0) (println (coordinator-failure-message coord-v port log "heal --adopt was not recorded")) (do
+  :else (if (and adopt has-adoptable) (let [port (fram.rt/server-port)
+   server-v (fram.rt/server-version-for-log port log)]
+  (if (< server-v 0) (println (framrpc-failure-message server-v port log "heal --adopt was not recorded")) (do
   (let [res (adopt-hand-facts port log (live-idx log) adopt-list)]
-  (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res) " skipped (log won), " (:dropped res) " dropped (parse artifact), " (:failed res) " failed via coordinator."))
+  (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res) " skipped (FRAMLOG won), " (:dropped res) " dropped (parse artifact), " (:failed res) " failed via FRAMRPC."))
   (heal-project threads-dir (probe threads-dir log)))))) (heal-project threads-dir p)))))
 
 (defrecord EntryPoint [te note created])
@@ -909,23 +907,18 @@
   (doseq [it ranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
 
-(defn cmd-schema-seed [^String _log ^Boolean _execute]
-  (do
-  (println "schema-seed RETIRED — no facts were written.")
-  (println "Use `north schema-migrate plan`, then maintenance-approved `migrate --execute`, and `audit --strict`.")))
-
 (defn cmd-tools []
   (do
   (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
   (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
-  (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage · schema-migrate (cutover/audit)")
+  (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage")
   (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
   (println "  agents     : dispatch · spawn")
   (println "  view       : presentation")
   (println "")
   (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
   (println "Vocabulary is DATA, not tools: `north show <pred>` reveals metadata and connected teaching facts")
-  (println "(cardinality/value_kind/acyclic/predicate_example facts). Govern it with `north predicate` and `north schema-migrate`.")))
+  (println "(cardinality/value_kind/acyclic/predicate_example facts). Govern it with `north predicate`.")))
 
 (defrecord PredCount [pred n])
 
@@ -1020,9 +1013,9 @@
   (= kind "run") "managed task telemetry -> sdk/src/telemetry.ts recordRun (kind=run)"
   (= kind "message") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"
   (= kind "north/mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"
-  (= kind "predicate") "executable schema -> north predicate define + north schema-migrate"
+  (= kind "predicate") "executable schema -> north predicate define"
   (= kind "topic") "topic grouping anchors (topic- prefix)"
-  :else "(writer not curated — grep the coordination log for this kind's writer)"))
+  :else "(writer not curated — query canonical FRAMLOG state for this kind's writer)"))
 
 (defn- print-schema-kind [idx facts ^String kind]
   (let [ksubs (kind-subjects idx kind)
@@ -1088,20 +1081,16 @@
   (= cmd "validate") (do
   (cmd-validate log)
   nil)
-  (= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))
   (= cmd "tools") (cmd-tools)
   (= cmd "doctor") (cmd-doctor threads-dir log)
   (= cmd "heal") (cmd-heal threads-dir log (has-flag? args "--adopt"))
   (= cmd "boot") (cmd-boot threads-dir log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) "") (has-flag? args "--all"))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | doctor | heal | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond
   (and (not (empty? args)) (= (first args) "validate")) (cmd-validate log)
-  (and (not (empty? args)) (= (first args) "schema-seed")) (do
-  (cmd-schema-seed log (has-flag? args "--execute"))
-  2)
   :else (do
   (run args threads-dir log)
   0)))

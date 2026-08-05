@@ -71,10 +71,10 @@ FRAM = "/home/tom/code/fram/main"
 print("--- must DENY: what actually happened on 2026-07-29 ---")
 
 check("heredoc patch with cwd in the north primary",
-      run(bash("python3 - <<'PYEOF'\nopen('cli/deployed-cli.clj','w')\nPYEOF", cwd=NORTH)))
+      run(bash("python3 - <<'PYEOF'\nopen('cli/x.clj','w')\nPYEOF", cwd=NORTH)))
 
 check("git add from inside the north primary",
-      run(bash("git add cli/deployed-cli.clj", cwd=NORTH)))
+      run(bash("git add cli/x.clj", cwd=NORTH)))
 
 check("git commit from inside the north primary",
       run(bash("git commit -q -m 'x'", cwd=NORTH)))
@@ -92,7 +92,7 @@ check("redirection into a primary file",
       run(bash("echo x > /home/tom/code/north/main/cli/x.clj")))
 
 check("sed -i against a primary file",
-      run(bash("sed -i s/a/b/ /home/tom/code/fram/main/coord_daemon.clj")))
+      run(bash("sed -i s/a/b/ /home/tom/code/fram/main/server.clj")))
 
 check("cp INTO a primary",
       run(bash("cp /tmp/x.clj /home/tom/code/north/main/cli/x.clj")))
@@ -143,13 +143,13 @@ check("fd duplication (2>&1) opens no file",
 check("a redirect inside a HEREDOC BODY is data, not shell syntax",
       run(bash("cat > /tmp/t.py <<'EOF'\ncheck('echo x > /home/tom/code/north/main/cli/x.clj')\nEOF")) is None)
 check("sed -i inside a heredoc body is data, not a command",
-      run(bash("cat > /tmp/t.sh <<'EOF'\nsed -i s/a/b/ /home/tom/code/fram/main/coord_daemon.clj\nEOF")) is None)
+      run(bash("cat > /tmp/t.sh <<'EOF'\nsed -i s/a/b/ /home/tom/code/fram/main/server.clj\nEOF")) is None)
 
 # ...while the real forms are still refused.
 check("a REAL redirect into a primary is still denied",
       run(bash("echo x > /home/tom/code/north/main/cli/zz.clj")))
 check("a REAL sed -i on a primary is still denied",
-      run(bash("sed -i s/a/b/ /home/tom/code/fram/main/coord_daemon.clj")))
+      run(bash("sed -i s/a/b/ /home/tom/code/fram/main/server.clj")))
 
 check("redirect to /tmp while cwd is a primary is fine",
       run(bash("grep foo cli/x.clj > /tmp/out", cwd=NORTH)) is None)

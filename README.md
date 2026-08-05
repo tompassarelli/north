@@ -22,9 +22,8 @@ substrate.
   safety. **Start here.**
 - [docs/architecture.md](docs/architecture.md) — what lives where: engine,
   coordination domain, CLI, agent SDK, MCP edge, your data.
-- [docs/hosting.md](docs/hosting.md) — laptop, a server you own, or
-  multi-tenant service off one architecture; [`deploy/`](deploy/) holds the
-  artifacts.
+- [docs/hosting.md](docs/hosting.md) — laptop and server-owned operating
+  layouts.
 - [docs/provider-architecture.md](docs/provider-architecture.md) — routing,
   provider accounts, subscription-entitlement billing.
 - [docs/fact-native-redesign.md](docs/fact-native-redesign.md) and
@@ -94,9 +93,9 @@ checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
   ([`cli/concern-cli.clj`](cli/concern-cli.clj),
   [`cli/lease-cli.clj`](cli/lease-cli.clj),
   [`cli/msg-cli.clj`](cli/msg-cli.clj)).
-- **One serialized write path.** Every write goes through a coordinator daemon
-  on `127.0.0.1:7977` (`NORTH_PORT`) that serializes and rule-checks it;
-  `north up` starts one ([`bin/north-coord-up`](bin/north-coord-up)).
+- **One serialized write path.** Every write goes through the current Fram
+  server on `127.0.0.1:7977` (`NORTH_PORT`), which serializes and rule-checks
+  each publication through canonical FRAMRPC.
 - **Agent duration is run telemetry.** Every managed lane records `kind=run`
   with its agent, thread, observed duration, outcome, and estimate comparison
   ([`sdk/src/telemetry.ts`](sdk/src/telemetry.ts)).
@@ -104,9 +103,9 @@ checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
 ## Status
 
 North is pre-1.0: surfaces change between releases and there are no
-back-compatibility shims. Your data is not in this repository — the canonical
-`facts.log` lives in your own store, projected to `~/.local/state/north/` at
-runtime. When the coordinator or its runtime is unavailable, `north panic` is a
+back-compatibility shims. Your data is not in this repository — canonical
+FRAMLOG databases live in your own state directory and are projected at
+runtime. When the Fram server or its runtime is unavailable, `north panic` is a
 Bash-only recovery path that writes `dispatch=native` and `guards=off` to
 `~/.local/state/north/harness.conf`, preserves other keys, and prints the exact
 restore commands.
