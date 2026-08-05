@@ -4,8 +4,8 @@
 ;; The historical @pred:p descriptive registry is intentionally never read.
 ;;
 ;; VOCAB below is migration bootstrap material, not a second live authority.
-;; `seed` fills those values into executable entities. Connected reads, census,
-;; and strict lint use only graph facts; `lint-offline` is the deliberately weak
+;; `seed` fills those values into executable entities. Connected reads and
+;; strict lint use only graph facts; `lint-offline` is the deliberately weak
 ;; bootstrap-only source check for CI without a coordinator.
 ;;
 ;; usage:
@@ -16,46 +16,30 @@
 ;;   bb pred-cli.clj <port> show   <name>                         one exact executable predicate
 ;;   bb pred-cli.clj <port> lint   [--strict]                     compare source literals with graph authority
 ;;   bb pred-cli.clj <port> lint-offline [--strict]               weak bootstrap-only source check
-;;   bb pred-cli.clj <port> census [logpath] [--strict]           compare log literals with graph authority
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str] '[clojure.walk :as walk])
+;;
+(require '[clojure.java.io :as io] '[clojure.string :as str] '[clojure.walk :as walk])
 
-;; shared coord substrate (Foundation Part B): the wire helpers live once in cli/coord.clj.
+;; Shared FRAMRPC coordination facade.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op  north.coord/send-op)
-(def send-op-for-log north.coord/send-op-for-log)
-(def append!  north.coord/append!)
-(def put!     north.coord/put!)
-(def retract! north.coord/retract!)
-(def resolved north.coord/resolved)
-(def many     north.coord/many)
 
-;; Predicate reads must stay on the caller-selected daemon.  The generic
-;; router classifies @agent-like query subjects as telemetry and can therefore
-;; send these registry queries to the other daemon after an epoch split.
-(defn pred-query [port query]
-  (let [log (if (= 7978 port)
-              (or (System/getenv "FRAM_TELEMETRY_LOG")
-                  (str (System/getenv "HOME") "/.local/state/north/telemetry.log"))
-              (north.coord/expected-log))]
-    (send-op-for-log port log {:op :query :query query})))
+(defn set-action [subject predicate values cardinality]
+  {:op :set
+   :subject subject
+   :predicate predicate
+   :values (vec (map str values))
+   :cardinality cardinality})
 
-(defn- pred-write-log [port]
-  (if (= 7978 port)
-    (or (System/getenv "FRAM_TELEMETRY_LOG")
-        (str (System/getenv "HOME") "/.local/state/north/telemetry.log"))
-    (north.coord/expected-log)))
-
-(defn- pred-write! [port op]
-  (let [reply (send-op-for-log port (pred-write-log port) op)]
-    (when-not (:ok reply)
-      (throw (ex-info "predicate write failed" {:port port :op op :reply reply})))
-    reply))
-
-(defn put! [port te p r]
-  (pred-write! port {:op :assert :te te :p p :r (north.coord/write-value! te p r)}))
-
-(defn retract! [port te p r]
-  (pred-write! port {:op :retract :te te :p p :r (north.coord/write-value! te p r)}))
+(defn publish-actions! [port actions]
+  (let [actions (vec actions)]
+    (if (empty? actions)
+      {:changed? false :results []}
+      (let [result (north.coord/publish! port actions)]
+        (when (:reject result)
+          (throw (ex-info "predicate publication rejected"
+                          {:type :predicate-publication-rejected
+                           :port port
+                           :reject (:reject result)})))
+        result))))
 
 (defn pred-ent [nm] (str "@" nm))
 (defn pred-name [ent]
@@ -63,39 +47,14 @@
 
 ;; Predicate subjects are not thread/name-resolvable. Query the exact subject.
 (defn exact-values [port subject predicate]
-  (->> (:ok (pred-query port {:find "v"
-                              :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                       :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}))
-       (map first)))
+  (north.coord/many port subject predicate))
 
 (defn exact-one [port subject predicate]
   (first (exact-values port subject predicate)))
 
 (defn exact-facts [port subject]
-  (->> (:ok (pred-query port {:find "p,v"
-                              :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
-                                       :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]}))
-       (map (fn [row] [(nth row 0) (nth row 1)]))
-       (sort-by (juxt first second))))
-
-;; Supersede explicitly so bootstrap works even before the meta-predicates have
-;; acquired their own executable cardinality facts in this same seed operation.
-(defn set-1! [port te p v]
-  (doseq [old (exact-values port te p)] (retract! port te p old))
-  (put! port te p (str v)))
-
-(defn ensure-1! [port te p v]
-  (let [wanted (str v)
-        existing (set (exact-values port te p))]
-    (when (not= existing #{wanted})
-      (doseq [old existing] (retract! port te p old))
-      (put! port te p wanted))))
-
-(defn ensure-many! [port te p values]
-  (let [wanted (set (map str values))
-        existing (set (exact-values port te p))]
-    (doseq [old (remove wanted existing)] (retract! port te p old))
-    (doseq [value (remove existing wanted)] (put! port te p value))))
+  (sort-by (juxt first second)
+           (:rows (north.coord/show-envelope port subject))))
 
 ;; ============================================================================
 ;; VOCAB — bootstrap + offline lint inventory. [name card kind doc]
@@ -765,43 +724,71 @@
   (when-not (every? valid-teaching? teaching)
     (throw (ex-info "malformed teaching bootstrap shape" {:teaching teaching}))))
 
-(defn seed-teaching! [port]
-  (doseq [{:keys [predicate examples see-also]} TEACHING]
-    (let [entity (pred-ent predicate)]
-      (ensure-many! port entity "see_also" (map pred-ent see-also))
-      (doseq [[n [slot0 slot2]] (map-indexed vector examples)]
-        (let [example (teaching-example-entity predicate n)]
-          (ensure-many! port entity "predicate_example" [example])
-          (ensure-1! port example "entity_kind" "predicate_example")
-          (ensure-1! port example "example_slot0" slot0)
-          (ensure-1! port example "example_slot2" slot2))))))
+(defn teaching-actions []
+  (mapcat
+   (fn [{:keys [predicate examples see-also]}]
+     (let [entity (pred-ent predicate)
+           example-entities
+           (mapv (fn [n] (teaching-example-entity predicate n))
+                 (range (count examples)))]
+       (concat
+        [(set-action entity "see_also" (map pred-ent see-also) :many)
+         (set-action entity "predicate_example" example-entities :many)]
+        (mapcat
+         (fn [[example [slot0 slot2]]]
+           [(set-action example "entity_kind" ["predicate_example"] :one)
+            (set-action example "example_slot0" [slot0] :one)
+            (set-action example "example_slot2" [slot2] :one)])
+         (map vector example-entities examples)))))
+   TEACHING))
 
 ;; ---- registry reads ----
+(defn registration-actions [entity card kind doc minter minted-at]
+  [(set-action entity "cardinality" [card] :one)
+   (set-action entity "value_kind" [kind] :one)
+   (set-action entity "doc" (if (seq (str doc)) [(str doc)] []) :one)
+   (set-action entity "entity_kind" ["predicate"] :one)
+   (set-action entity "minted_by" [minter] :one)
+   (set-action entity "minted_at" [minted-at] :one)])
+
 (defn register! [port nm card kind doc minter]
-  (let [e (pred-ent nm)]
-    (set-1! port e "cardinality" card)
-    (set-1! port e "value_kind" kind)
-    (when (seq (str doc)) (set-1! port e "doc" doc))
-    (set-1! port e "entity_kind" "predicate")
-    (set-1! port e "minted_by" (or minter "pred-cli"))
-    (set-1! port e "minted_at" (str (java.time.Instant/now)))
+  (let [e (pred-ent nm)
+        actions (registration-actions e card kind doc (or minter "pred-cli")
+                                      (str (java.time.Instant/now)))]
+    (publish-actions! port actions)
     e))
 
 ;; Seed only fills absent bootstrap facts. An existing graph declaration is the
 ;; authority, even when this historical bootstrap input disagrees with it.
-(defn seed-one! [port te p v]
-  (when (empty? (exact-values port te p))
-    (put! port te p (str v))))
+(defn seed-registration-specs []
+  (for [[name card kind doc] VOCAB
+        action (registration-actions (pred-ent name) card kind doc "seed" "bootstrap")
+        :let [{:keys [subject predicate values cardinality]} action]
+        :when (seq values)]
+    {:subject subject
+     :predicate predicate
+     :value (first values)
+     :cardinality cardinality}))
 
-(defn seed-register! [port nm card kind doc]
-  (let [e (pred-ent nm)]
-    (seed-one! port e "cardinality" card)
-    (seed-one! port e "value_kind" kind)
-    (when (seq (str doc)) (seed-one! port e "doc" doc))
-    (seed-one! port e "entity_kind" "predicate")
-    (seed-one! port e "minted_by" "seed")
-    (seed-one! port e "minted_at" "bootstrap")
-    e))
+(defn fill-absent-actions [port specs]
+  (mapcat
+   (fn [[subject subject-specs]]
+     (let [existing
+           (reduce (fn [out [predicate value]]
+                     (update out predicate (fnil conj #{}) value))
+                   {}
+                   (exact-facts port subject))]
+       (keep (fn [{:keys [predicate value cardinality]}]
+               (when (empty? (get existing predicate))
+                 (set-action subject predicate [value] cardinality)))
+             subject-specs)))
+   (group-by :subject specs)))
+
+(defn seed! [port]
+  (publish-actions!
+   port
+   (concat (fill-absent-actions port (seed-registration-specs))
+           (teaching-actions))))
 
 ;; Executable predicate identity is exact.  A same_as edge cannot make Fram use
 ;; another entity's cardinality, so aliases are never followed here.
@@ -810,9 +797,11 @@
 ;; Every executable @<name> carrying cardinality in the live graph.  Colon-bearing
 ;; subjects are entity namespaces (@agent:*, @entity-kind:*), not predicate names.
 (defn graph-pred-names [port]
-  (->> (:ok (pred-query port {:find "e"
-                              :rules [{:head {:rel "e" :args [{:var "e"}]}
-                                       :body [{:rel "triple" :args [{:var "e"} "cardinality" {:var "_"}]}]}]}))
+  (->> (north.coord/query-rows
+        port
+        {:find "e"
+         :rules [{:head {:rel "e" :args [{:var "e"}]}
+                  :body [{:rel "triple" :args [{:var "e"} "cardinality" {:var "_"}]}]}]})
        (map first)
        (filter #(and (str/starts-with? (str %) "@")
                      (not (str/includes? (str %) ":"))))
@@ -834,7 +823,20 @@
 ;; literals: the 3rd arg of a wire helper, a :p map key, and the middle of a
 ;; datalog `triple` arg-vector. Returns {predicate -> #{files}}.
 ;; ============================================================================
-(def pred-fns '#{append! put! swap! assert! retract! resolved one many rf rmany set-single! set-1!})
+(def pred-fn-index
+  {"append!" 3
+   "put!" 3
+   "swap!" 3
+   "assert!" 3
+   "retract!" 3
+   "resolved" 3
+   "one" 3
+   "many" 3
+   "rf" 3
+   "rmany" 3
+   "set-single!" 3
+   "set-1!" 3
+   "set-action" 2})
 
 (defn read-forms [path]
   (with-open [rdr (java.io.PushbackReader. (io/reader path))]
@@ -843,14 +845,15 @@
         (let [f (read {:eof eof :read-cond :allow} rdr)]
           (if (= f eof) acc (recur (conj acc f))))))))
 
-(def pred-fn-names (set (map name pred-fns)))   ; match on simple name so a fully-qualified
+(def pred-fn-names (set (keys pred-fn-index)))  ; match on simple name so a fully-qualified
                                                 ; north.coord/append! is caught like a bare append!
 (defn preds-in-form [form]
   (let [found (atom #{})]
     (walk/postwalk
      (fn [x]
        (when (and (seq? x) (symbol? (first x)) (contains? pred-fn-names (name (first x))))
-         (let [p (nth (vec x) 3 nil)] (when (string? p) (swap! found conj p))))
+         (let [p (nth (vec x) (get pred-fn-index (name (first x))) nil)]
+           (when (string? p) (swap! found conj p))))
        (when (map? x)
          (when (string? (:p x)) (swap! found conj (:p x)))
          (when (and (= "triple" (:rel x)) (vector? (:args x)) (= 3 (count (:args x))))
@@ -875,47 +878,12 @@
     @acc))
 
 ;; ============================================================================
-;; CENSUS — lightweight source/log inventory. The authoritative strict audit is
-;; schema-migrate.clj, which reuses Fram's exact two-pass fold across both corpus
-;; logs. This literal-only view never decides runtime schema semantics.
-;;
-;; A predicate name is registrable only if it is a bare identifier — the `define`
-;; verb and every wire writer produce such names. A torn merge write can leave a
-;; garbage predicate (e.g. a literal two-quote-char string) that can NEVER become
-;; an executable @<predicate> entity; the fold skips it rather than reporting an un-fixable miss,
-;; and `census` prints the skipped set so the corruption stays visible.
-;; ============================================================================
-(def FRAM-SCHEMA-PREDICATES #{"cardinality" "value_kind" "acyclic"})
-(def VALID-PRED-NAME #"^[A-Za-z][A-Za-z0-9_]*$")
-
-(defn census-literal-preds
-  "Fold logpath → {:counts {pred->n} :skipped {non-registrable-pred->n}} over
-   assert/retract records whose value is a literal (non-@ref)."
-  [logpath]
-  (let [counts (atom {}) skipped (atom {})]
-    (with-open [rdr (io/reader logpath)]
-      (loop []
-        (when-let [line (.readLine rdr)]
-          (when-let [m (try (edn/read-string line) (catch Exception _ nil))]
-            (when (and (map? m) (#{"assert" "retract"} (:op m)))
-              (let [p (:p m) r (:r m)]
-                (when (and (string? p) (not (str/blank? p))
-                           (not (contains? FRAM-SCHEMA-PREDICATES p))
-                           (string? r) (not (str/starts-with? r "@")))
-                  (if (re-matches VALID-PRED-NAME p)
-                    (swap! counts update p (fnil inc 0))
-                    (swap! skipped update p (fnil inc 0)))))))
-          (recur))))
-    {:counts @counts :skipped @skipped}))
-
-;; ============================================================================
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt (or ps "7977"))]
   (case verb
     "seed"
     (do (validate-teaching! TEACHING)
-        (doseq [[n c k d] VOCAB] (seed-register! port n c k d))
-        (seed-teaching! port)
+        (seed! port)
         (println (str "✓ seeded " (count VOCAB) " executable predicate entities and "
                       (reduce + (map #(count (:examples %)) TEACHING))
                       " connected teaching examples on :" port)))
@@ -960,24 +928,6 @@
                 rendered (if (seq values) (str/join " · " values) "-")]
             (println (format "  %-17s %s" predicate rendered))))))
 
-    "census"
-    (let [strict (some #{"--strict"} args)
-          logpath (or (first (remove #{"--strict"} args)) (north.coord/expected-log))
-          reg (registry-set port)
-          {:keys [counts skipped]} (census-literal-preds logpath)
-          misses (->> (keys counts) (remove reg) sort)]
-      (println (format "predicate source census — %d literal predicate(s) in %s; %d graph-authoritative names"
-                       (count counts) logpath (count reg)))
-      (when (seq skipped)
-        (println (str "  ⚠ " (count skipped) " non-registrable predicate name(s) skipped (torn/garbage writes):"))
-        (doseq [p (sort (keys skipped))] (println (format "    %-28s %d assertion(s)" (pr-str p) (skipped p)))))
-      (if (empty? misses)
-        (println "  ✓ every observed literal predicate has an executable graph declaration")
-        (do (println (str "  ✗ " (count misses) " predicate(s) lack an executable graph declaration:"))
-            (doseq [p misses] (println (format "    %-28s %d assertion(s)" p (counts p))))
-            (println "  -> run `north schema-migrate migrate --execute`; authoritative strict audit is `north schema-migrate audit --strict`")
-            (when strict (System/exit 1)))))
-
     "lint"
     (let [strict (some #{"--strict"} args)
           reg (registry-set port)
@@ -1005,5 +955,5 @@
             (println "  -> add bootstrap material only if the predicate is intentional; runtime authority remains the graph")
             (when strict (System/exit 1)))))
 
-    (do (println "usage: pred-cli.clj <port> {seed | define <n> <card> <kind> [doc] | alias (refused) | ls | show <n> | lint [--strict] | lint-offline [--strict] | census [logpath] [--strict]}")
+    (do (println "usage: pred-cli.clj <port> {seed | define <n> <card> <kind> [doc] | alias (refused) | ls | show <n> | lint [--strict] | lint-offline [--strict]}")
         (System/exit 2))))

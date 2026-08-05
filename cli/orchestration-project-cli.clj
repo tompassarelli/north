@@ -23,7 +23,6 @@
 (def CLI-DIR (.getParent (io/file *file*)))
 (load-file (str CLI-DIR "/coord.clj"))
 (load-file (str CLI-DIR "/orchestration-selection.clj"))
-(def send-op north.coord/send-op)
 (def enumerate-selection-rules north.orchestration-selection/enumerate-selection-rules)
 (def rule-map                  north.orchestration-selection/rule-map)
 (def rules-digest              north.orchestration-selection/rules-digest)
@@ -40,23 +39,25 @@
 ;; upstream can log exactly what the graph could not answer.
 (defn query-rows!
   [port query context]
-  (let [resp (send-op port {:op :query :query query})]
-    (if (vector? (:ok resp))
-      (:ok resp)
+  (try
+    (north.coord/query-rows port query)
+    (catch clojure.lang.ExceptionInfo error
       (throw (ex-info (str "catalog projection query failed for " context)
-                      {:type :catalog-projection-query-failed
-                       :context context
-                       :error (:error resp)
-                       :code (:code resp)})))))
+                      (merge {:type :catalog-projection-query-failed
+                              :context context}
+                             (select-keys (ex-data error) [:error :code]))
+                      error)))))
 
 (defn current-version [port]
-  (let [resp (send-op port {:op :resolved :te POINTER :p "catalog_version"})]
-    (when (or (contains? resp :error) (contains? resp :code))
-      (throw (ex-info "catalog projection failed resolving @catalog:current"
-                      {:type :catalog-projection-query-failed
-                       :context "@catalog:current version"
-                       :error (:error resp)
-                       :code (:code resp)})))
+  (let [resp
+        (try
+          (north.coord/resolved-envelope port POINTER "catalog_version")
+          (catch clojure.lang.ExceptionInfo error
+            (throw (ex-info "catalog projection failed resolving @catalog:current"
+                            (merge {:type :catalog-projection-query-failed
+                                    :context "@catalog:current version"}
+                                   (select-keys (ex-data error) [:error :code]))
+                            error))))]
     ;; :value is the coexist-elect winner (earliest fact), so an appended pointer
     ;; would project a STALE version silently — refuse instead of electing one.
     (when (:ambiguous? resp)
@@ -72,14 +73,16 @@
    warmup; under concurrent admission that warmup exhausted :query-time-limit
    before the already-ground subject lookup ran."
   [port subj]
-  (let [resp (send-op port {:op :show :te subj})]
-    (if (vector? (:rows resp))
-      (reduce (fn [m [p o]] (update m p (fnil conj []) o)) {} (:rows resp))
+  (try
+    (reduce (fn [m [p o]] (update m p (fnil conj []) o))
+            {}
+            (:rows (north.coord/show-envelope port subj)))
+    (catch clojure.lang.ExceptionInfo error
       (throw (ex-info (str "catalog projection query failed for facts of " subj)
-                      {:type :catalog-projection-query-failed
-                       :context (str "facts of " subj)
-                       :error (:error resp)
-                       :code (:code resp)})))))
+                      (merge {:type :catalog-projection-query-failed
+                              :context (str "facts of " subj)}
+                             (select-keys (ex-data error) [:error :code]))
+                      error)))))
 
 (defn one [f p] (first (get f p)))
 (defn many [f p] (vec (get f p)))
@@ -223,79 +226,47 @@
 (def MAX-POLICY-RULES 128)
 (def MAX-POLICY-RULE-FACTS 4096)
 (def POLICY-SCOPED-PROJECTION-DEADLINE-MS 5000)
-;; Malformed scoped success may be tampering; only transport/timeouts may fall back.
-(def ^:private scoped-fallback-types
-  #{:coordinator-operation-timeout :coordinator-response-timeout
-    :coordinator-response-closed})
 
-(defn- fold-rule-rows [rule-subjs rows]
-  (let [allowed (set rule-subjs)
-        returned (set (map first rows))]
-    (when-not (= allowed returned)
-      (throw (ex-info "policy rule projection did not return every linked subject"
-                      {:type :catalog-projection-query-failed
-                       :context "selection policy rule subjects"
-                       :missing (vec (sort (remove returned allowed)))})))
-    (reduce (fn [out [subject predicate value]]
-              (update-in out [subject predicate] (fnil conj []) value))
-            {}
-            rows)))
+(defn- fold-rule-rows [rows]
+  (reduce-kv
+   (fn [out subject facts]
+     (reduce (fn [subject-facts [predicate value]]
+               (update subject-facts predicate (fnil conj []) value))
+             (assoc out subject {})
+             facts))
+   {}
+   rows))
 
 (defn- scoped-rule-facts [port rule-subjs]
   (let [allowed (set rule-subjs)
         response
-        (try
-          (binding [north.coord/*request-deadline-ns*
-                    (north.coord/request-deadline-ns
-                     POLICY-SCOPED-PROJECTION-DEADLINE-MS)]
-            (send-op port {:op :facts-for-subjects :subjects rule-subjs}))
-          (catch clojure.lang.ExceptionInfo error
-            (if (scoped-fallback-types (:type (ex-data error)))
-              (throw (ex-info "scoped policy rule projection is unavailable"
-                              {:type :policy-scoped-projection-unavailable}
-                              error))
-              (throw error))))]
-    (when (and (map? response)
-               (#{:request-timeout :query-time-limit} (:code response)))
-      (throw (ex-info "scoped policy rule projection timed out"
-                      {:type :policy-scoped-projection-unavailable
-                       :code (:code response)})))
+        (binding [north.coord/*request-deadline-ns*
+                  (north.coord/request-deadline-ns
+                   POLICY-SCOPED-PROJECTION-DEADLINE-MS)]
+          (north.coord/show-many-in-domain port :coordination rule-subjs))
+        rows (:rows response)
+        fact-count (reduce + 0 (map count (vals rows)))]
     (when-not (and (map? response)
-                   (= #{:version :log :facts} (set (keys response)))
+                   (= #{:version :rows} (set (keys response)))
                    (integer? (:version response))
                    (not (neg? (:version response)))
-                   (string? (:log response))
-                   (vector? (:facts response))
-                   (<= (count (:facts response)) MAX-POLICY-RULE-FACTS)
-                   (every? (fn [row]
-                             (and (vector? row)
-                                  (= 3 (count row))
-                                  (every? string? row)
-                                  (contains? allowed (first row))))
-                           (:facts response)))
+                   (map? rows)
+                   (= allowed (set (keys rows)))
+                   (<= fact-count MAX-POLICY-RULE-FACTS)
+                   (every? (fn [[subject facts]]
+                             (and (contains? allowed subject)
+                                  (vector? facts)
+                                  (seq facts)
+                                  (every? (fn [row]
+                                            (and (vector? row)
+                                                 (= 2 (count row))
+                                                 (every? string? row)))
+                                          facts)))
+                           rows))
       (throw (ex-info "scoped policy rule projection was malformed"
                       {:type :catalog-projection-query-failed
                        :context "selection policy rule subjects"})))
-    (fold-rule-rows rule-subjs (:facts response))))
-
-(defn- parallel-rule-facts [port rule-subjs]
-  (let [reads (mapv (fn [subject] [subject (future (facts port subject))]) rule-subjs)
-        results (mapv (fn [[subject read]]
-                        (try [subject @read nil]
-                             (catch Throwable error [subject nil error])))
-                      reads)]
-    (when-let [error (some #(nth % 2) results)] (throw error))
-    (let [projected (into {} (map (fn [[subject rule-facts _]]
-                                    [subject rule-facts])
-                                  results))]
-      (when-not (= (set rule-subjs)
-                   (set (keep (fn [[subject rule-facts]]
-                                (when (seq rule-facts) subject))
-                              projected)))
-        (throw (ex-info "parallel policy rule projection did not return every linked subject"
-                        {:type :catalog-projection-query-failed
-                         :context "selection policy rule subjects"})))
-      projected)))
+    (fold-rule-rows rows)))
 
 (defn- project-rule-facts [port rule-subjs]
   (when (> (count rule-subjs) MAX-POLICY-RULES)
@@ -305,12 +276,7 @@
                      :count (count rule-subjs)})))
   (if (empty? rule-subjs)
     {}
-    (try
-      (scoped-rule-facts port rule-subjs)
-      (catch clojure.lang.ExceptionInfo error
-        (if (= :policy-scoped-projection-unavailable (:type (ex-data error)))
-          (parallel-rule-facts port rule-subjs)
-          (throw error))))))
+    (scoped-rule-facts port rule-subjs)))
 
 (defn project-policy-pin [port]
   (let [ver (current-version port)
@@ -403,7 +369,7 @@
 
 (defn project-catalog-pin [port]
   (let [ver (current-version port)
-        coord-ver (:version (send-op port {:op :version}))]
+        coord-ver (north.coord/cur-ver port)]
     (or (cached-catalog-pin ver coord-ver)
         (let [subgraph {"staffing"  (project-staffing port)
                         "providers" {"anthropic" (project-provider port "anthropic")
@@ -441,6 +407,6 @@
 
 ;; DUAL MODE (the coord.clj precedent): the main-guard keeps the projector
 ;; dormant when a sibling test load-file's it as a library to exercise the
-;; strict-envelope + named-field helpers against a stubbed send-op.
+;; strict-envelope + named-field helpers against stubbed coordination reads.
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))
