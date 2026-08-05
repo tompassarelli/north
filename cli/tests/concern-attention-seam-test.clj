@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
 ;; Concern transitions must materialize durable attention, not merely return
 ;; plausible event maps.
-(require '[babashka.process :as p]
-         '[clojure.edn :as edn]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as p]
          '[clojure.java.io :as io]
          '[clojure.java.shell :as shell]
          '[clojure.string :as str])
@@ -11,6 +11,13 @@
 (def root
   (-> (io/file test-script)
       .getParentFile .getParentFile .getParentFile .getCanonicalPath))
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")
+      (.getCanonicalPath
+       (io/file (System/getProperty "user.home") "code" "fram" "main"))))
+(def runtime-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath runtime-classpath)
 (def source-path (str root "/cli/concern-cli.clj"))
 (def source-text (slurp source-path))
 (def main-offset (str/last-index-of source-text "\n(let [[ps verb"))
@@ -39,11 +46,6 @@
       false)
     (catch Exception _ true)))
 
-(def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      (.getCanonicalPath
-       (io/file (System/getProperty "user.home") "code" "fram" "main"))))
 (def port
   (or (some #(when (port-free? %) %) (range 7650 7680))
       (throw (ex-info "no test port available" {}))))
@@ -52,11 +54,9 @@
    (java.nio.file.Files/createTempDirectory
     "north-concern-attention"
     (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log (io/file tmp "facts.log"))
-(def telemetry (io/file tmp "telemetry.log"))
+(def log (io/file tmp "facts.framlog"))
+(def telemetry (io/file tmp "telemetry.framlog"))
 (def candidate-repo (.getCanonicalPath (io/file tmp "candidate-repo")))
-(spit log "")
-(spit telemetry "")
 (doseq [result
         [(shell/sh "git" "init" "-q" "-b" "feature" candidate-repo)
          (shell/sh "git" "-C" candidate-repo
@@ -69,6 +69,7 @@
 (def canonical-telemetry-log (.getCanonicalPath telemetry))
 (def isolated-env
   {"FRAM_LOG" canonical-log
+   "FRAM_SPACE_ID" "north-coordination"
    "FRAM_TELEMETRY_LOG" canonical-telemetry-log
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
@@ -76,9 +77,12 @@
   (p/process {:dir fram
               :out :string
               :err :string
-              :extra-env (assoc isolated-env "FRAM_REQUIRE_LOG_FENCE" "1")}
-             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
-             (str port) canonical-log))
+              :extra-env (assoc isolated-env
+                                "FRAM_SERVER_RUNTIME" "jvm-dev"
+                                "FRAM_SERVER_QUIET" "1"
+                                "FRAM_SERVER_XMX" "1g")}
+             (str fram "/bin/fram-server") "serve" (str port)
+             canonical-log "north-coordination"))
 
 (defn cleanup []
   (try (p/destroy-tree daemon) (catch Throwable _ nil))
@@ -88,10 +92,12 @@
 
 (defn await-up []
   (loop [attempt 0]
-    (cond
-      (not (port-free? port)) true
-      (>= attempt 300) false
-      :else (do (Thread/sleep 250) (recur (inc attempt))))))
+    (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+      (cond
+        (and (= :ready (:state status))
+             (= "north-coordination" (:space-id status))) true
+        (>= attempt 800) false
+        :else (do (Thread/sleep 25) (recur (inc attempt)))))))
 
 (defn fail-daemon-boot! []
   (try (p/destroy-tree daemon) (catch Throwable _ nil))
@@ -103,24 +109,9 @@
        :stdout (or (:out result) "<unavailable>")
        :stderr (or (:err result) "<unavailable>")}))))
 
-(defn op [request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write
-       writer
-       (.getBytes
-        (str (pr-str {:op :for-log
-                      :expected-log canonical-log
-                      :request request})
-             "\n")))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
-
 (defn fact! [subject predicate object]
-  (let [result (op {:op :assert :te subject :p predicate :r object})]
-    (when-not (:ok result)
+  (let [result (north.coord/append! port subject predicate object)]
+    (when (:reject result)
       (throw (ex-info "fixture fact write failed" result)))
     result))
 
@@ -130,7 +121,7 @@
            :out :string
            :err :string
            :extra-env isolated-env}
-          "bb" source-path (str port) args))
+          "bb" "-cp" runtime-classpath source-path (str port) args))
 
 (defn run-concern [& args]
   (apply run-concern-in root args))
@@ -141,45 +132,35 @@
           :out :string
           :err :string
           :extra-env isolated-env}
-         "bb" "cli/concern-cli.clj" (str port) args))
+         "bb" "-cp" runtime-classpath
+         "cli/concern-cli.clj" (str port) args))
 
 (defn concern-id [result]
   (when-let [id (some-> (re-find #"(concern-\d+-[a-f0-9]+)" (:out result)) second)]
     (str "@" id)))
 
 (defn concern-subjects []
-  (->> (:ok
-        (op {:op :query
-             :query
-             {:find "concern"
-              :rules
-              [{:head {:rel "concern" :args [{:var "c"}]}
-                :body [{:rel "triple"
-                        :args [{:var "c"} "kind" "concern"]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "concern"
+         :rules
+         [{:head {:rel "concern" :args [{:var "c"}]}
+           :body [{:rel "triple"
+                   :args [{:var "c"} "kind" "concern"]}]}]})
        (map first)
        set))
 
 (defn values-of [subject predicate]
-  (->> (:ok
-        (op {:op :query
-             :query
-             {:find "value"
-              :rules
-              [{:head {:rel "value" :args [{:var "value"}]}
-                :body [{:rel "triple"
-                        :args [subject predicate {:var "value"}]}]}]}}))
-       (map first)
-       set))
+  (set (north.coord/many port subject predicate)))
 
 (defn notification-subjects []
-  (->> (:ok
-        (op {:op :query
-             :query
-             {:find "notification"
-              :rules
-              [{:head {:rel "notification" :args [{:var "n"}]}
-                :body [{:rel "triple"
-                        :args [{:var "n"} "kind" "notification"]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "notification"
+         :rules
+         [{:head {:rel "notification" :args [{:var "n"}]}
+           :body [{:rel "triple"
+                   :args [{:var "n"} "kind" "notification"]}]}]})
        (map first)
        set))
 
@@ -196,15 +177,7 @@
        (sort-by :id)
        vec))
 
-(def original-send-op-for-log north.coord/send-op-for-log)
-(defn isolated-send-op-for-log [requested-port _ operation]
-  (original-send-op-for-log requested-port canonical-log operation))
-(defn isolated-send-op [requested-port operation]
-  (original-send-op-for-log requested-port canonical-log operation))
-
-(with-redefs [north.coord/send-op isolated-send-op
-              north.coord/send-op-for-log isolated-send-op-for-log]
- (try
+(try
   (let [started? (await-up)]
     (check "throwaway coordinator starts" started?)
     (when-not started?
@@ -217,10 +190,10 @@
   (let [requests (atom [])
         page
         (with-redefs
-          [north.coord/indexed-query-in-domain
+          [north.coord/bounded-query-in-domain
            (fn [_ domain query limit]
              (swap! requests conj {:domain domain :query query :limit limit})
-             {:ok [] :version 0 :engine "index"})]
+             {:rows [] :served-version 0})]
           (pending-attention-event-intents port nil))
         errored
         (with-redefs
@@ -267,9 +240,9 @@
                 (zero? (:overlaps result))
                 (zero? (:deferred result)))))
 
-  (let [legacy (run-concern "declare" "agent-a" "/tmp/no-code"
-                            "legacy declaration" "src/shared.clj")
-        legacy-id (concern-id legacy)
+  (let [base-declaration (run-concern "declare" "agent-a" "/tmp/no-code"
+                                      "base declaration" "src/shared.clj")
+        base-id (concern-id base-declaration)
         before-invalid (concern-subjects)
         invalid (run-concern "declare" "agent-invalid" "/tmp/no-code"
                              "invalid about" "src/other.clj"
@@ -282,26 +255,26 @@
         anchored-state (meta-of port anchored-id)
         discovered (path-overlap-data port anchored-id)
         overlap (first (:overlaps discovered))
-        legacy-state (meta-of port legacy-id)
+        base-state (meta-of port base-id)
+        entered-reconcile (run-concern "reconcile-attention" anchored-id)
         entered-rows (notification-rows)]
-    (check "legacy four-position declaration remains valid"
-           (and (zero? (:exit legacy)) legacy-id))
+    (check "a declaration without an about binding remains valid"
+           (and (zero? (:exit base-declaration)) base-id))
     (check "wrong-kind about is rejected before any concern mutation"
            (and (= 2 (:exit invalid))
                 (= before-invalid after-invalid)))
     (check "validated about is stored as the exact thread ref"
            (and (zero? (:exit anchored))
                 (= "@thread-attention"
-                   (:value (op {:op :resolved
-                                :te anchored-id
-                                :p "about"})))))
+                   (north.coord/resolved port anchored-id "about"))))
     (check "later declaration discovers the earlier active overlap"
            (and (= 1 (count (:overlaps discovered)))
-                (= #{legacy-id anchored-id}
+                (= #{base-id anchored-id}
                    (set (:source-concerns overlap)))
                 (= ["src/shared.clj"] (:shared overlap))))
-    (check "entered overlap publishes two recipient-scoped notifications"
-           (and (= 2 (count entered-rows))
+    (check "entered overlap reconciliation publishes two recipient-scoped notifications"
+           (and (zero? (:exit entered-reconcile))
+                (= 2 (count entered-rows))
                 (= 2 (count (set (map :id entered-rows))))
                 (= #{"@agent-a" "@agent-b"}
                    (set (map :recipient entered-rows)))
@@ -311,11 +284,12 @@
                 (every? #(= "notify" (:delivery %)) entered-rows)
                 (every? #(= "@thread-attention" (:about %)) entered-rows)
                 (every? #(not (str/includes? (:body %) "src/shared.clj"))
-                        entered-rows)))
+                        entered-rows))
+           {:reconcile entered-reconcile :rows entered-rows})
 
-    (let [forward (canonical-overlap legacy-state anchored-state
+    (let [forward (canonical-overlap base-state anchored-state
                                      #{"src/z.clj" "src/a.clj"} "path")
-          reverse (canonical-overlap anchored-state legacy-state
+          reverse (canonical-overlap anchored-state base-state
                                      ["src/a.clj" "src/z.clj"] "path")]
       (check "pair identity and evidence are invariant under A/B order reversal"
              (= forward reverse)))
@@ -446,7 +420,7 @@
                   (= 2 (get current-kinds "overlap-entered"))
                   (= 1 (get current-kinds "likely-to-land"))
                   (= 1 (get current-kinds "overlap-left"))
-                  (empty? (:overlaps (path-overlap-data port legacy-id))))
+                  (empty? (:overlaps (path-overlap-data port base-id))))
              {:reconciled reconciled
               :repeated repeated-reconcile
               :intent-count (count intents)
@@ -502,8 +476,8 @@
                                      "ref-passing declaration" "src/reffed.clj")
                  reffed-id (concern-id reffed)]
              (= ["@agent-reffed" "@agent-reffed"]
-                [(:value (op {:op :resolved :te reffed-id :p "agent"}))
-                 (:value (op {:op :resolved :te reffed-id :p "driver"}))]))))
+                [(north.coord/resolved port reffed-id "agent")
+                 (north.coord/resolved port reffed-id "driver")]))))
 
   (let [mint (- (System/currentTimeMillis) (* 25 60 60 1000))
         retiring (str "@concern-" mint "-retire")
@@ -594,7 +568,7 @@
                 (not (str/includes? (:out explicit) "@thread-ambient")))))
 
   (finally
-    (cleanup))))
+    (cleanup)))
 
 (let [failed (remove second @checks)]
   (println

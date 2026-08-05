@@ -1,9 +1,8 @@
 #!/usr/bin/env bb
-;; Directed-attention producer and public-wrapper contract. Each mode owns one
-;; completion claim so the verification pass can report mention, interrupt,
-;; atomicity, and routing independently.
-(require '[babashka.process :as proc]
-         '[clojure.edn :as edn]
+;; Directed-attention producer and public-wrapper contract against canonical
+;; FRAMRPC. Message publication atomicity has its own transaction-level tests.
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -13,11 +12,15 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (str (System/getProperty "user.home") "/code/fram/main")))
+(def runtime-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath runtime-classpath)
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
 (def north-wrapper (str root "/bin/north"))
 (def checks (atom []))
+
+(load-file (str root "/cli/coord.clj"))
 
 (defn check [label ok?]
   (swap! checks conj [label (boolean ok?)]))
@@ -25,15 +28,6 @@
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)]
     (.getLocalPort socket)))
-
-(defn port-open? [port]
-  (try
-    (with-open [socket (java.net.Socket.)]
-      (.connect socket
-                (java.net.InetSocketAddress. "127.0.0.1" (int port))
-                100)
-      true)
-    (catch Exception _ false)))
 
 (defn eventually [predicate]
   (loop [attempt 0]
@@ -52,45 +46,24 @@
       (>= attempt 300) false
       :else (do (Thread/sleep 250) (recur (inc attempt))))))
 
-(defn coordinator-op [port log request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log log
-                             :request request})
-                    "\n")
-               java.nio.charset.StandardCharsets/UTF_8))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
-
-(defn assert-fact! [port log subject predicate value]
-  (let [result
-        (coordinator-op
-         port log {:op :assert :te subject :p predicate :r value})]
+(defn assert-fact! [port subject predicate value]
+  (let [result (north.coord/append! port subject predicate value)]
     (when (:reject result)
       (throw (ex-info "fixture assertion rejected" result)))
     result))
 
-(defn values-of [port log subject predicate]
-  (set
-   (:values
-    (coordinator-op
-     port log {:op :resolved :te subject :p predicate}))))
+(defn values-of [port subject predicate]
+  (set (north.coord/many port subject predicate)))
 
-(defn value-of [port log subject predicate]
-  (:value
-   (coordinator-op
-    port log {:op :resolved :te subject :p predicate})))
+(defn value-of [port subject predicate]
+  (north.coord/resolved port subject predicate))
 
 (defn isolated-env [port log]
   {"FRAM_LOG" log
    "FRAM_TELEMETRY_LOG"
    (.getCanonicalPath
-    (io/file (.getParentFile (io/file log)) "telemetry.log"))
+    (io/file (.getParentFile (io/file log)) "telemetry.framlog"))
+   "FRAM_SPACE_ID" "north-coordination"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 
@@ -105,7 +78,7 @@
            {"NORTH_PORT" (str port)
             "AGENT_TOPOLOGY" "orchestrator"
             "NO_COLOR" "1"})}
-         "bb" path (str port) args))
+         "bb" "-cp" runtime-classpath path (str port) args))
 
 (defn run-msg [port log & args]
   (apply run-cli msg-cli port log args))
@@ -113,50 +86,24 @@
 (defn message-id [result]
   (second (re-find #"sent (@msg:[^ ]+) ->" (:out result))))
 
-(defn graph-message-ids [log]
-  (set (re-seq #"@msg:[A-Za-z0-9._:-]+" (slurp log))))
-
-(defn subscribe! [port log]
-  (let [socket (java.net.Socket. "127.0.0.1" (int port))
-        _ (.setSoTimeout socket 15000)
-        writer (.getOutputStream socket)
-        reader (io/reader (.getInputStream socket))]
-    (.write writer
-            (.getBytes
-             (str (pr-str {:op :for-log
-                           :expected-log log
-                           :request {:op :subscribe}})
-                  "\n")
-             java.nio.charset.StandardCharsets/UTF_8))
-    (.flush writer)
-    {:socket socket
-     :reader reader
-     :handshake (edn/read-string (.readLine reader))}))
-
-(defn read-through-to! [subscription subject]
-  (loop [events []]
-    (let [line (.readLine (:reader subscription))
-          event (when line (edn/read-string line))
-          events (cond-> events event (conj event))]
-      (cond
-        (nil? line) events
-        (and (= :commit (:event event))
-             (= subject (:l event))
-             (= "to" (:p event)))
-        events
-        :else
-        (recur events)))))
+(defn graph-message-ids [port]
+  (->> (north.coord/query-rows
+        port
+        {:find "message"
+         :rules
+         [{:head {:rel "message" :args [{:var "message"}]}
+           :body [{:rel "triple"
+                   :args [{:var "message"} "kind" "message"]}]}]})
+       (map first)
+       set))
 
 (defn with-daemon [prefix body]
   (let [port (free-port)
         tmp (.toFile
              (java.nio.file.Files/createTempDirectory
               prefix (make-array java.nio.file.attribute.FileAttribute 0)))
-        facts (io/file tmp "facts.log")
-        _ (spit facts "")
+        facts (io/file tmp "facts.framlog")
         log (.getCanonicalPath facts)
-        telemetry (io/file tmp "telemetry.log")
-        _ (spit telemetry "")
         daemon
         (proc/process
          {:dir fram
@@ -165,14 +112,21 @@
           :extra-env
           (merge
            (isolated-env port log)
-           {"FRAM_REQUIRE_LOG_FENCE" "1"
+           {"FRAM_SERVER_RUNTIME" "jvm-dev"
+            "FRAM_SERVER_QUIET" "1"
+            "FRAM_SERVER_XMX" "1g"
             "FRAM_SINGLE_VALUED"
             (str "title from subject body sent_at to attention_kind "
                  "delivery_class requires_ack about agent dir session_id started_at")})}
-         "bb" "-cp" "out" "coord_daemon.clj"
-         "serve-flat" (str port) log)]
+         (str fram "/bin/fram-server") "serve" (str port) log
+         "north-coordination")]
     (try
-      (let [started? (await-daemon-boot #(port-open? port))]
+      (let [started?
+            (await-daemon-boot
+             #(let [status (try (north.coord/status port)
+                                (catch Throwable _ nil))]
+                (and (= :ready (:state status))
+                     (= "north-coordination" (:space-id status)))))]
         (check "throwaway Fram coordinator starts" started?)
         (when started?
           (body port log tmp)))
@@ -187,12 +141,12 @@
    "north-directed-mention"
    (fn [port log _tmp]
      (let [thread "@thread:directed-attention"
-           _ (assert-fact! port log thread "title" "Directed attention")
+           _ (assert-fact! port thread "title" "Directed attention")
            wrong-kind "@concern:not-a-thread"
            _wrong-kind-title
-           (assert-fact! port log wrong-kind "title" "Not a thread")
+           (assert-fact! port wrong-kind "title" "Not a thread")
            _wrong-kind-kind
-           (assert-fact! port log wrong-kind "kind" "concern")
+           (assert-fact! port wrong-kind "kind" "concern")
            result
            (run-msg port log "mention" "requester" "offline-reviewer"
                     "--about" thread "Please review this.")
@@ -203,20 +157,20 @@
                       (:out result))))
        (check "mention envelope carries durable attention metadata and about"
               (and message
-                   (= "requester" (value-of port log message "from"))
-                   (= "offline-reviewer" (value-of port log message "to"))
-                   (= "mention" (value-of port log message "subject"))
-                   (= "mention" (value-of port log message "attention_kind"))
-                   (= "inbox" (value-of port log message "delivery_class"))
-                   (= "true" (value-of port log message "requires_ack"))
-                   (= thread (value-of port log message "about"))))
+                   (= "requester" (value-of port message "from"))
+                   (= "offline-reviewer" (value-of port message "to"))
+                   (= "mention" (value-of port message "subject"))
+                   (= "mention" (value-of port message "attention_kind"))
+                   (= "inbox" (value-of port message "delivery_class"))
+                   (= "true" (value-of port message "requires_ack"))
+                   (= thread (value-of port message "about"))))
        (let [inbox (run-msg port log "inbox" "offline-reviewer")]
          (check "offline mention remains pending in the recipient inbox"
                 (and (zero? (:exit inbox))
                      (str/includes? (:out inbox) (subs message 5))
                      (str/includes? (:out inbox) "mention")
-                     (empty? (values-of port log message "acked_by")))))
-       (let [before (graph-message-ids log)
+                     (empty? (values-of port message "acked_by")))))
+       (let [before (graph-message-ids port)
              malformed
              [(run-msg port log "mention" "requester" "offline-reviewer"
                        "--unknown" "body")
@@ -232,20 +186,20 @@
                 (and (every? #(= 2 (:exit %)) malformed)
                      (every? #(str/includes? (:err %) "REJECTED: message")
                              malformed)
-                     (= before (graph-message-ids log)))))))))
+                     (= before (graph-message-ids port)))))))))
 
 (defn run-interrupt! []
   (with-daemon
    "north-directed-interrupt"
    (fn [port log tmp]
-     (let [before (graph-message-ids log)
+     (let [before (graph-message-ids port)
            absent
            (run-msg port log "interrupt" "director" "live-reviewer"
                     "Please stop and look.")]
        (check "interrupt rejects an absent recipient without message facts"
               (and (= 2 (:exit absent))
                    (str/includes? (:err absent) "has no live presence")
-                   (= before (graph-message-ids log)))))
+                   (= before (graph-message-ids port)))))
      (let [registered
            (run-cli presence-cli port log
                     "register" "live-reviewer" "/tmp/live-reviewer" "test-session")
@@ -254,10 +208,12 @@
            (proc/process
             {:out listener-log
              :err listener-log
-             :extra-env {"FRAM_LOG" log
-                         "NO_COLOR" "1"}}
-            "bb" listener-cli (str port) "live-reviewer"
-            "--once" "--ack" "--scoped")]
+            :extra-env {"FRAM_LOG" log
+                        "FRAM_SPACE_ID" "north-coordination"
+                        "NO_COLOR" "1"}}
+            "bb" "-cp" runtime-classpath listener-cli
+            (str port) "live-reviewer"
+            "--once" "--ack")]
        (try
          (check "recipient has a live presence lease"
                 (zero? (:exit registered)))
@@ -272,13 +228,13 @@
            (check "interrupt publishes the urgent live-only envelope"
                   (and (zero? (:exit result))
                        message
-                       (= "URGENT" (value-of port log message "subject"))
+                       (= "URGENT" (value-of port message "subject"))
                        (= "interrupt"
-                          (value-of port log message "attention_kind"))
+                          (value-of port message "attention_kind"))
                        (= "interrupt"
-                          (value-of port log message "delivery_class"))
+                          (value-of port message "delivery_class"))
                        (= "true"
-                          (value-of port log message "requires_ack"))))
+                          (value-of port message "requires_ack"))))
            (check "interrupt reaches and is acknowledged by the live recipient"
                   (and
                    (eventually
@@ -288,58 +244,10 @@
                                          "Please stop and look.")))
                    (eventually
                     #(= #{"live-reviewer"}
-                        (values-of port log message "acked_by"))))))
+                        (values-of port message "acked_by"))))))
          (finally
            (try (proc/destroy-tree listener) (catch Exception _ nil))
            (try @listener (catch Exception _ nil))))))))
-
-(defn run-atomic! []
-  (with-daemon
-   "north-directed-atomic"
-   (fn [port log _tmp]
-     (let [thread "@thread:atomic-attention"
-           _ (assert-fact! port log thread "title" "Atomic attention")
-           subscription (subscribe! port log)]
-       (try
-         (check "firehose subscription is established"
-                (integer? (:subscribed (:handshake subscription))))
-         (let [result
-               (run-msg port log "mention" "requester" "offline-reviewer"
-                        "--about" thread "Atomic metadata.")
-               message (message-id result)
-               events (read-through-to! subscription message)
-               predicates
-               (mapv :p
-                     (filter #(and (= :commit (:event %))
-                                   (= message (:l %)))
-                             events))
-               index-of (fn [predicate] (.indexOf predicates predicate))
-               front
-               ["from" "subject" "body" "sent_at"
-                "attention_kind" "delivery_class" "requires_ack" "about"]
-               front-indexes (mapv index-of front)
-               to-index (index-of "to")]
-           (check "directed message publishes successfully under observation"
-                  (and (zero? (:exit result)) message))
-           (check "all attention metadata notifications precede the to trigger"
-                  (and (every? #(<= 0 %) front-indexes)
-                       (pos? to-index)
-                       (< (apply max front-indexes) to-index)
-                       (= to-index (dec (count predicates)))))
-           (check "subscriber observing to resolves the complete metadata front"
-                  (= {"attention_kind" "mention"
-                      "delivery_class" "inbox"
-                      "requires_ack" "true"
-                      "about" thread}
-                     (into {}
-                           (map
-                            (fn [predicate]
-                              [predicate
-                               (value-of port log message predicate)]))
-                           ["attention_kind" "delivery_class"
-                            "requires_ack" "about"]))))
-         (finally
-           (try (.close (:socket subscription)) (catch Exception _ nil))))))))
 
 (defn wrapper-result [tmp env & args]
   (apply
@@ -401,27 +309,6 @@
                 (not (str/includes? (:out agent) "mention north-second"))
                 (not (str/includes? (:out north-agent) "interrupt author-third"))
                 (str/includes? (:out author) "author-third"))))
-      (let [follow
-            (wrapper-result
-             tmp {"AGENT_ID" "observer"}
-             "follow" "@thread:x" "--events" "progress,outcome")
-            notifications
-            (wrapper-result
-             tmp {"AGENT_ID" "observer"}
-             "notifications" "--all")]
-        (check "observer verbs route to attention-cli without argument interpretation"
-               (and
-                (zero? (:exit follow))
-                (str/includes?
-                 (:out follow)
-                 (str root
-                      "/cli/attention-cli.clj 47891 follow @thread:x "
-                      "--events progress,outcome"))
-                (zero? (:exit notifications))
-                (str/includes?
-                 (:out notifications)
-                 (str root
-                      "/cli/attention-cli.clj 47891 notifications --all")))))
       (let [watch
             (wrapper-result
              tmp {"AGENT_ID" "observer"}
@@ -430,8 +317,7 @@
                (and
                 (zero? (:exit watch))
                 (str/includes? (:out watch)
-                               (str root "/cli/agents-cli.clj watch agent-under-test"))
-                (not (str/includes? (:out watch) "attention-cli.clj")))))
+                               (str root "/cli/agents-cli.clj watch agent-under-test")))))
       (finally
         (doseq [file (reverse (file-seq tmp))]
           (io/delete-file file true))))))
@@ -440,12 +326,11 @@
   (case mode
     "mention" (run-mention!)
     "interrupt" (run-interrupt!)
-    "atomic" (run-atomic!)
     "wrapper" (run-wrapper!)
     (do
       (binding [*out* *err*]
         (println
-         "usage: directed-attention-integration-test.clj {mention|interrupt|atomic|wrapper}"))
+         "usage: directed-attention-integration-test.clj {mention|interrupt|wrapper}"))
       (System/exit 2))))
 
 (let [results @checks

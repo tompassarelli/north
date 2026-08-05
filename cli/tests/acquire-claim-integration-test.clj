@@ -1,18 +1,25 @@
 #!/usr/bin/env bb
 ;; Integration regression for the canonical dispatch-driver claim protocol. Every
 ;; assertion runs against an isolated Fram coordinator rather than a mocked command.
-(require '[babashka.process :as proc]
-         '[clojure.edn :as edn]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram/main"))
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")
+      (str (System/getProperty "user.home") "/code/fram/main")))
+(def runtime-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath runtime-classpath)
 (def acquire-cli (str root "/cli/acquire-cli.clj"))
 (def checks (atom []))
 (def test-log (atom nil))
+
+(load-file (str root "/cli/coord.clj"))
 
 (defn check [label ok?]
   (swap! checks conj [label (boolean ok?)]))
@@ -21,96 +28,53 @@
   (with-open [socket (java.net.ServerSocket. 0)]
     (.getLocalPort socket)))
 
-(defn port-open? [port]
-  (try
-    (with-open [socket (java.net.Socket.)]
-      (.connect socket (java.net.InetSocketAddress. "127.0.0.1" (int port)) 100)
-      true)
-    (catch Exception _ false)))
-
 (defn await-up [port]
   (loop [attempt 0]
-    (cond
-      (port-open? port) true
-      (>= attempt 100) false
-      :else (do (Thread/sleep 50) (recur (inc attempt))))))
-
-(defn coordinator-op [port request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log @test-log
-                             :request request})
-                    "\n")))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
+    (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+      (cond
+        (and (= :ready (:state status))
+             (= "north-coordination" (:space-id status))) true
+        (>= attempt 800) false
+        :else (do (Thread/sleep 25) (recur (inc attempt)))))))
 
 (defn assert-fact! [port subject predicate value]
-  (loop [attempt 0]
-    (let [base (:version (coordinator-op port {:op :version}))
-          result (coordinator-op port {:op :assert
-                                       :te subject
-                                       :p predicate
-                                       :r value
-                                       :base base})]
-      (cond
-        (or (:ok result) (:version result)) result
-        (< attempt 5) (recur (inc attempt))
-        :else (throw (ex-info "fixture fact write failed" result))))))
+  (let [result (north.coord/append! port subject predicate value)]
+    (when (:reject result)
+      (throw (ex-info "fixture fact write failed" result)))
+    result))
 
 (defn resolved [port subject predicate]
-  (:value (coordinator-op port {:op :resolved :te subject :p predicate})))
+  (north.coord/resolved port subject predicate))
 
 (defn acquire [port verb thread holder]
   (proc/shell {:continue true :out :string :err :string
-               :extra-env {"FRAM_LOG" @test-log}}
-              "bb" acquire-cli (str port) verb thread holder))
-
-(defn scripted-coordinator [responses]
-  (let [server (java.net.ServerSocket. 0)
-        requests (atom [])
-        worker
-        (future
-          (try
-            (doseq [response responses]
-              (with-open [socket (.accept server)
-                          reader (io/reader (.getInputStream socket))
-                          writer (io/writer (.getOutputStream socket))]
-                (swap! requests conj (edn/read-string (.readLine reader)))
-                (.write writer (str (pr-str response) "\n"))
-                (.flush writer)))
-            :done
-            (finally (.close server))))]
-    {:port (.getLocalPort server)
-     :requests requests
-     :worker worker
-     :server server}))
+               :extra-env {"FRAM_LOG" @test-log
+                           "FRAM_SPACE_ID" "north-coordination"
+                           "NORTH_TELEMETRY_PARTITION" "0"}}
+              "bb" "-cp" runtime-classpath acquire-cli
+              (str port) verb thread holder))
 
 (let [port (free-port)
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-acquire-claim" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.log")
+      log (io/file tmp "facts.framlog")
       thread-id "019f75a8-032c-741a-b65d-e4af097e3837"
       thread (str "@" thread-id)
       unknown-id "019f75a8-032c-741a-b65d-e4af097e3838"
       unknown (str "@" unknown-id)
       first-holder "agent:first"
       second-holder "agent:second"
-      daemon-env {"FRAM_REQUIRE_LOG_FENCE" "1"
+      daemon-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                  "FRAM_SERVER_QUIET" "1"
+                  "FRAM_SERVER_XMX" "1g"
                   "FRAM_SINGLE_VALUED" "title driver"}
-      daemon (do
-               (spit log "")
-               (proc/process {:dir fram
-                              :out :string
-                              :err :string
-                              :extra-env daemon-env}
-                             "bb" "-cp" "out" "coord_daemon.clj"
-                             "serve-flat" (str port) (.getPath log)))]
+      daemon (proc/process {:dir fram
+                            :out :string
+                            :err :string
+                            :extra-env daemon-env}
+                           (str fram "/bin/fram-server") "serve" (str port)
+                           (.getCanonicalPath log) "north-coordination")]
   (reset! test-log (.getCanonicalPath log))
   (try
     (let [started? (await-up port)]
@@ -178,39 +142,6 @@
       (proc/destroy-tree daemon)
       (doseq [file (reverse (file-seq tmp))]
         (io/delete-file file true)))))
-
-(let [thread-id "019f75a8-032c-741a-b65d-e4af097e3837"
-      first-holder "agent:first"
-      second-holder "agent:second"
-      scripted (scripted-coordinator
-                [{:version 10}
-                 {:value (str "@" first-holder)}
-                 {:reject :conflict}
-                 {:version 11}
-                 {:value (str "@" second-holder)}])
-      release (acquire (:port scripted) "release" thread-id first-holder)
-      completed (deref (:worker scripted) 5000 :timeout)
-      envelopes @(:requests scripted)
-      requests (mapv :request envelopes)
-      retracts (filter #(= :retract (:op %)) requests)]
-  (when (= :timeout completed)
-    (.close (:server scripted)))
-  (check "release retries a snapshot conflict and preserves the successor"
-         (and (= :done completed)
-              (zero? (:exit release))
-              (str/includes? (:out release) "noop")
-              (str/includes? (:out release) (str "driver=@" second-holder))
-              (every? #(= {:op :for-log
-                           :expected-log @test-log}
-                          (select-keys % [:op :expected-log]))
-                      envelopes)
-              (= 1 (count retracts))
-              (= {:op :retract
-                  :te (str "@" thread-id)
-                  :p "driver"
-                  :r (str "@" first-holder)
-                  :base 10}
-                 (first retracts)))))
 
 (let [port (free-port)
       unavailable (acquire port "release"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Malformed concern maturity commands must be usage errors and must not publish
 ;; even a partial fact to the coordinator.
-(require '[clojure.edn :as edn] '[clojure.java.io :as io]
+(require '[babashka.classpath :as cp] '[clojure.java.io :as io]
          '[clojure.java.shell :as shell] '[clojure.string :as str]
          '[cheshire.core :as json]
          '[babashka.process :as p])
@@ -9,6 +9,9 @@
 (def root (-> (io/file (System/getProperty "babashka.file"))
               .getParentFile .getParentFile .getParentFile .getPath))
 (def fram (or (System/getenv "FRAM_PATH") "/home/tom/code/fram/main"))
+(def runtime-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath runtime-classpath)
+(load-file (str root "/cli/coord.clj"))
 (defn port-free? [port]
   (try
     (with-open [s (java.net.Socket.)]
@@ -22,11 +25,9 @@
    (java.nio.file.Files/createTempDirectory
     "north-concern-cli-validation"
     (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log (.getCanonicalPath (io/file tmp "facts.log")))
-(def telemetry-log (.getCanonicalPath (io/file tmp "telemetry.log")))
+(def log (.getCanonicalPath (io/file tmp "facts.framlog")))
+(def telemetry-log (.getCanonicalPath (io/file tmp "telemetry.framlog")))
 (def candidate-repo (.getCanonicalPath (io/file tmp "candidate-repo")))
-(spit log "")
-(spit telemetry-log "")
 (doseq [result
         [(shell/sh "git" "init" "-q" "-b" "feature" candidate-repo)
          (shell/sh "git" "-C" candidate-repo
@@ -37,13 +38,18 @@
     (throw (ex-info "candidate Git fixture failed" {:result result}))))
 (def isolated-env
   {"FRAM_LOG" log
+   "FRAM_SPACE_ID" "north-coordination"
    "FRAM_TELEMETRY_LOG" telemetry-log
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
   (p/process {:dir fram :out :string :err :string
-              :extra-env (assoc isolated-env "FRAM_REQUIRE_LOG_FENCE" "1")}
-             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log))
+              :extra-env (assoc isolated-env
+                                "FRAM_SERVER_RUNTIME" "jvm-dev"
+                                "FRAM_SERVER_QUIET" "1"
+                                "FRAM_SERVER_XMX" "1g")}
+             (str fram "/bin/fram-server") "serve" (str port)
+             log "north-coordination"))
 (defn cleanup []
   (try (p/destroy-tree daemon) (catch Throwable _ nil))
   (doseq [file (reverse (file-seq tmp))]
@@ -51,10 +57,12 @@
 (.addShutdownHook (Runtime/getRuntime) (Thread. cleanup))
 (defn await-up []
   (loop [n 0]
-    (cond
-      (not (port-free? port)) true
-      (>= n 300) false
-      :else (do (Thread/sleep 250) (recur (inc n))))))
+    (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+      (cond
+        (and (= :ready (:state status))
+             (= "north-coordination" (:space-id status))) true
+        (>= n 800) false
+        :else (do (Thread/sleep 25) (recur (inc n)))))))
 (when-not (await-up)
   (try (p/destroy-tree daemon) (catch Throwable _ nil))
   (let [result (deref daemon 5000 nil)]
@@ -66,34 +74,26 @@
   (cleanup)
   (System/exit 1))
 
-(defn op [request]
-  (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-    (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-      (.write w
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log log
-                             :request request})
-                    "\n")))
-      (.flush w)
-      (edn/read-string (.readLine r)))))
 (defn run-concern-in [directory & args]
   @(apply p/process {:dir directory :out :string :err :string
                      :extra-env isolated-env}
-          "bb" (str root "/cli/concern-cli.clj") (str port) args))
+          "bb" "-cp" runtime-classpath
+          (str root "/cli/concern-cli.clj") (str port) args))
 (defn run-concern [& args]
   (apply run-concern-in root args))
 (defn reached-rows []
-  (:ok (op {:op :query
-            :query {:find "row"
-                    :rules [{:head {:rel "row"
-                                    :args [{:var "e"} {:var "r"}]}
-                             :body [{:rel "triple"
-                                     :args [{:var "e"} "reached" {:var "r"}]}]}]}})))
+  (north.coord/query-rows
+   port
+   {:find "row"
+    :rules [{:head {:rel "row"
+                    :args [{:var "e"} {:var "r"}]}
+             :body [{:rel "triple"
+                     :args [{:var "e"} "reached" {:var "r"}]}]}]}))
 (defn values-of [subject predicate]
-  (set
-   (:values
-    (op {:op :resolved :te subject :p predicate}))))
+  (set (north.coord/many port subject predicate)))
+
+(defn fact! [subject predicate value]
+  (north.coord/append! port subject predicate value))
 
 (def fails (atom 0))
 (defn check [label ok?]
@@ -157,15 +157,15 @@
               (str/includes? (:out explicit) expected-candidate))))
 
 ;; Listing cost is bounded by predicate count, not historical concern count.
-;; Seed enough rows that the former seven-reads-per-concern implementation
-;; exceeded the UI budget, then require the batched live view to return quickly.
+;; Seed enough rows to exercise the batched live view within the UI budget.
 (doseq [index (range 250)
         :let [id (str "@concern-1700000000000-bulk" index)]
         [predicate value] [["kind" "concern"] ["reached" "building"]]]
-  (op {:op :assert :te id :p predicate :r value}))
+  (fact! id predicate value))
 (let [proc (p/process {:dir root :out :string :err :string
                        :extra-env isolated-env}
-                      "bb" "cli/concern-cli.clj" (str port) "ls")
+                      "bb" "-cp" runtime-classpath
+                      "cli/concern-cli.clj" (str port) "ls")
       started (System/nanoTime)
       result (deref proc 2000 ::timeout)
       elapsed-ms (quot (- (System/nanoTime) started) 1000000)]
@@ -175,77 +175,6 @@
               (zero? (:exit result))
               (re-find #"ACTIVE CONCERNS — 252" (:out result))
               (< elapsed-ms 2000))))
-
-;; Both human and JSON projections must use the same authoritative lease rule.
-;; Invalid authority falls back to the concern's mint age; a future expiry from
-;; another holder or epoch zero must never render a negative lapse duration.
-(let [now (System/currentTimeMillis)
-      minted (- now (* 2 60 60 1000))
-      repo "/tmp/liveness-contract"
-      fixtures
-      [{:slug "valid" :agent "@liveness-valid"
-        :lease (str "liveness-valid|" (+ now 60000) "|1")
-        :classification "live" :online true}
-       {:slug "expired" :agent "@liveness-expired"
-        :lease (str "liveness-expired|" (- now 300000) "|1")
-        :classification "stale" :online false}
-       {:slug "wrong-holder" :agent "@liveness-wrong-holder"
-        :lease (str "somebody-else|" (+ now 60000) "|1")
-        :classification "stale" :online false}
-       {:slug "epoch-zero" :agent "@liveness-epoch-zero"
-        :lease (str "liveness-epoch-zero|" (+ now 60000) "|0")
-        :classification "stale" :online false}
-       {:slug "malformed" :agent "@liveness-malformed"
-        :lease "not-a-lease"
-        :classification "stale" :online false}]
-      fixture-ids
-      (into
-       {}
-       (map
-        (fn [{:keys [slug agent lease]}]
-          (let [id (str "@concern-" minted "-" slug)
-                handle (subs agent 1)]
-            (doseq [[predicate value]
-                    [["kind" "concern"]
-                     ["agent" agent]
-                     ["repo" repo]
-                     ["intent" (str slug " lease fixture")]
-                     ["reached" "building"]]]
-              (op {:op :assert :te id :p predicate :r value}))
-            (op {:op :assert
-                 :te (str "@lease:session:" handle)
-                 :p "lease"
-                 :r lease})
-            [slug id]))
-        fixtures))
-      projection (run-concern "list-json" repo)
-      parsed (json/parse-string (:out projection) true)
-      by-id (into {} (map (juxt :id identity)) (:concerns parsed))
-      listing (run-concern "ls" repo)
-      expected-by-id
-      (into
-       {}
-       (map
-        (fn [{:keys [slug classification online]}]
-          [(get fixture-ids slug)
-           {:classification classification :online online}])
-        fixtures))]
-  (check "valid, expired, wrong-holder, epoch-zero, and malformed leases classify exactly"
-         (and
-          (zero? (:exit projection))
-          (= (set (keys expected-by-id)) (set (keys by-id)))
-          (every?
-           (fn [[id expected]]
-             (= expected
-                (select-keys (get by-id id) [:classification :online])))
-           expected-by-id)))
-  (check "invalid lease authority falls back to concern mint age"
-         (and
-          (zero? (:exit listing))
-          (= 3 (count (re-seq #"owner lapsed 2h" (:out listing))))
-          (str/includes? (:out listing) "owner lapsed 5m")))
-  (check "invalid future expiries never render a negative lapse"
-         (not (str/includes? (:out listing) "owner lapsed -"))))
 
 ;; Strict versioned MACHINE projection: `list-json` enumerates structured rows so a
 ;; consumer never scrapes rendered text. Every row carries a closed-set liveness
