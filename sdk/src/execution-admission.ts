@@ -370,7 +370,7 @@ async function requireCoordinator(
 ): Promise<void> {
   if (!northEnvironment || typeof northEnvironment !== "object"
       || Array.isArray(northEnvironment))
-    throw new ExecutionAdmissionError("north_framrpc_environment_missing");
+    throw new ExecutionAdmissionError("north_coordination_contract_missing");
   const environment = northEnvironment as Record<string, unknown>;
   const portValue = environment.NORTH_PORT;
   const serverPortValue = environment.FRAM_SERVER_PORT;
