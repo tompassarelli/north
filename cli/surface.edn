@@ -103,7 +103,9 @@
              "--doctor [--deep|--canary|--json] — test every dispatch invariant at once"
              "in-harness agents dispatch via MCP: mcp__north__dispatch / spawn"]}
   {:verb "templates" :form "north templates" :topic :agents
-   :summary "Orchestration's reusable stock templates and routing defaults"}
+   :summary "Orchestration's reusable stock templates and routing defaults"
+   :card {:section :agents :form "north templates"
+          :text "stock templates and routing defaults"}}
   {:verb "watch" :form "north watch <id>" :topic :agents
    :summary "tail an agent's transcript"
    :card {:section :agents :form "north watch <id>"
