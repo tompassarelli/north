@@ -220,14 +220,107 @@
   (or (System/getenv "NORTH_ORCHESTRATION_HOME")
       (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
 
+(def MAX-POLICY-RULES 128)
+(def MAX-POLICY-RULE-FACTS 4096)
+(def POLICY-SCOPED-PROJECTION-DEADLINE-MS 5000)
+;; Malformed scoped success may be tampering; only transport/timeouts may fall back.
+(def ^:private scoped-fallback-types
+  #{:coordinator-operation-timeout :coordinator-response-timeout
+    :coordinator-response-closed})
+
+(defn- fold-rule-rows [rule-subjs rows]
+  (let [allowed (set rule-subjs)
+        returned (set (map first rows))]
+    (when-not (= allowed returned)
+      (throw (ex-info "policy rule projection did not return every linked subject"
+                      {:type :catalog-projection-query-failed
+                       :context "selection policy rule subjects"
+                       :missing (vec (sort (remove returned allowed)))})))
+    (reduce (fn [out [subject predicate value]]
+              (update-in out [subject predicate] (fnil conj []) value))
+            {}
+            rows)))
+
+(defn- scoped-rule-facts [port rule-subjs]
+  (let [allowed (set rule-subjs)
+        response
+        (try
+          (binding [north.coord/*request-deadline-ns*
+                    (north.coord/request-deadline-ns
+                     POLICY-SCOPED-PROJECTION-DEADLINE-MS)]
+            (send-op port {:op :facts-for-subjects :subjects rule-subjs}))
+          (catch clojure.lang.ExceptionInfo error
+            (if (scoped-fallback-types (:type (ex-data error)))
+              (throw (ex-info "scoped policy rule projection is unavailable"
+                              {:type :policy-scoped-projection-unavailable}
+                              error))
+              (throw error))))]
+    (when (and (map? response)
+               (#{:request-timeout :query-time-limit} (:code response)))
+      (throw (ex-info "scoped policy rule projection timed out"
+                      {:type :policy-scoped-projection-unavailable
+                       :code (:code response)})))
+    (when-not (and (map? response)
+                   (= #{:version :log :facts} (set (keys response)))
+                   (integer? (:version response))
+                   (not (neg? (:version response)))
+                   (string? (:log response))
+                   (vector? (:facts response))
+                   (<= (count (:facts response)) MAX-POLICY-RULE-FACTS)
+                   (every? (fn [row]
+                             (and (vector? row)
+                                  (= 3 (count row))
+                                  (every? string? row)
+                                  (contains? allowed (first row))))
+                           (:facts response)))
+      (throw (ex-info "scoped policy rule projection was malformed"
+                      {:type :catalog-projection-query-failed
+                       :context "selection policy rule subjects"})))
+    (fold-rule-rows rule-subjs (:facts response))))
+
+(defn- parallel-rule-facts [port rule-subjs]
+  (let [reads (mapv (fn [subject] [subject (future (facts port subject))]) rule-subjs)
+        results (mapv (fn [[subject read]]
+                        (try [subject @read nil]
+                             (catch Throwable error [subject nil error])))
+                      reads)]
+    (when-let [error (some #(nth % 2) results)] (throw error))
+    (let [projected (into {} (map (fn [[subject rule-facts _]]
+                                    [subject rule-facts])
+                                  results))]
+      (when-not (= (set rule-subjs)
+                   (set (keep (fn [[subject rule-facts]]
+                                (when (seq rule-facts) subject))
+                              projected)))
+        (throw (ex-info "parallel policy rule projection did not return every linked subject"
+                        {:type :catalog-projection-query-failed
+                         :context "selection policy rule subjects"})))
+      projected)))
+
+(defn- project-rule-facts [port rule-subjs]
+  (when (> (count rule-subjs) MAX-POLICY-RULES)
+    (throw (ex-info "selection policy links too many rules"
+                    {:type :catalog-projection-query-failed
+                     :context "selection policy rule subjects"
+                     :count (count rule-subjs)})))
+  (if (empty? rule-subjs)
+    {}
+    (try
+      (scoped-rule-facts port rule-subjs)
+      (catch clojure.lang.ExceptionInfo error
+        (if (= :policy-scoped-projection-unavailable (:type (ex-data error)))
+          (parallel-rule-facts port rule-subjs)
+          (throw error))))))
+
 (defn project-policy-pin [port]
   (let [ver (current-version port)
         policy (str "@catalog:v" ver ":selection-policy:minimum-sufficient-v1")
         pf (facts port policy)
         stored (one pf "policy_sha256")
-        rule-subjs (many pf "rule")
+        rule-subjs (vec (distinct (many pf "rule")))
+        rule-facts (project-rule-facts port rule-subjs)
         graph-rules (for [s rule-subjs]
-                      (let [f (facts port s)]
+                      (let [f (get rule-facts s)]
                         (rule-map (one f "signal") (one f "signal_value")
                                   (one f "rule_code") (one f "min_tier") (one f "min_reasoning"))))
         validator-rules (enumerate-selection-rules (orchestration-root))]

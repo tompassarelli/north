@@ -104,7 +104,79 @@
     (check "the end-to-end error names the model claude-opus-4-8 and the field"
            (and m (re-find #"claude-opus-4-8" m) (re-find #"context_window_tokens" m)))))
 
-;; --- E. durable catalog pin validates both version and canonical payload -----
+;; --- E. policy pin reads every linked rule in one bounded scoped projection --
+(let [rule (rule-map "decisionOwnership" "bounded" "decision-ownership:bounded"
+                     "standard" "medium")
+      rules [rule]
+      digest (rules-digest rules)
+      subject "@catalog:v2:rule:decision-ownership:bounded"
+      policy "@catalog:v2:selection-policy:minimum-sufficient-v1"
+      triples (fn [min-tier]
+                [[subject "kind" "selection_rule"]
+                 [subject "signal" (get rule "signal")]
+                 [subject "signal_value" (get rule "signal_value")]
+                 [subject "rule_code" (get rule "rule_code")]
+                 [subject "min_tier" min-tier]
+                 [subject "min_reasoning" (get rule "min_reasoning")]])
+      invoke
+      (fn [scoped]
+        (let [calls (atom [])]
+          (with-redefs
+            [enumerate-selection-rules (constantly rules)
+             send-op
+             (fn [_ op]
+               (swap! calls conj op)
+               (case (:op op)
+                 :resolved {:value "2" :ambiguous? false}
+                 :show (if (= policy (:te op))
+                         {:version 8 :rows [["policy_sha256" digest]
+                                           ["rule" subject]]}
+                         {:version 9 :rows (mapv #(subvec % 1) (triples "standard"))})
+                 :facts-for-subjects
+                 (if (= ::timeout scoped)
+                   (throw (ex-info "fixture timeout" {:type :coordinator-response-timeout}))
+                   scoped)))]
+            [(try {:value (project-policy-pin 7977)}
+                  (catch clojure.lang.ExceptionInfo error {:error error}))
+             @calls])))
+      healthy {:version 9 :log "/tmp/coordination.log" :facts (triples "standard")}
+      [primary primary-calls] (invoke healthy)
+      pin (:value primary)]
+  (check "policy pin uses resolved + policy show + one scoped rule request"
+         (= [:resolved :show :facts-for-subjects] (mapv :op primary-calls)))
+  (check "healthy scoped policy projection preserves three-way digest equality"
+         (= #{digest} (set (map pin ["storedSha256" "projectionSha256" "validatorSha256"]))))
+  (check "scoped request contains exactly the live linked rule subjects"
+         (= [subject] (:subjects (last primary-calls))))
+
+  (let [[tampered _]
+        (invoke (assoc healthy :facts (triples "frontier")))
+        tampered-pin (:value tampered)]
+    (check "a bare live rule write still changes only the projection digest"
+           (and (= digest (get tampered-pin "storedSha256"))
+                (= digest (get tampered-pin "validatorSha256"))
+                (not= digest (get tampered-pin "projectionSha256")))))
+
+  (let [[fallback fallback-calls] (invoke ::timeout)]
+    (check "typed scoped timeout alone selects bounded parallel exact-show fallback"
+           (and (:value fallback)
+                (= [:resolved :show :facts-for-subjects :show]
+                   (mapv :op fallback-calls)))))
+
+  (let [[malformed malformed-calls]
+        (invoke (assoc healthy :unexpected true))]
+    (check "malformed scoped success fails closed without exact-show fallback"
+           (and (= :catalog-projection-query-failed
+                   (some-> malformed :error ex-data :type))
+                (= [:resolved :show :facts-for-subjects]
+                   (mapv :op malformed-calls)))))
+
+  (let [[missing _] (invoke (assoc healthy :facts []))]
+    (check "scoped projection missing a linked rule subject fails closed"
+           (= :catalog-projection-query-failed
+              (some-> missing :error ex-data :type)))))
+
+;; --- F. durable catalog pin validates both version and canonical payload -----
 (let [path (str (java.nio.file.Files/createTempFile
                  "north-catalog-pin-test-" ".json"
                  (make-array java.nio.file.attribute.FileAttribute 0)))
