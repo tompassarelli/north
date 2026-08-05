@@ -351,6 +351,75 @@
 (defn query-rows [port query]
   (query-rows-in-domain port (domain-for-query query) query))
 
+(defn- occurrence-window-request! [lower-exclusive upper-inclusive]
+  (let [coordinate (wire/rpc-query-variable! "coordinate")
+        action (wire/rpc-query-variable! "action")
+        proposition (wire/rpc-query-variable! "proposition")]
+    (wire/rpc-query-request!
+     (wire/rpc-query-plan!
+      (wire/rpc-query-find-relation! "north_occurrence_window")
+      [(wire/rpc-query-stratum!
+        [(wire/rpc-query-rule!
+          (wire/rpc-query-head!
+           "north_occurrence_window" [coordinate action proposition])
+          [(wire/rpc-query-relation!
+            "occurrence" [coordinate action proposition] false)])])])
+     (wire/rpc-query-since!
+      lower-exclusive (wire/rpc-query-as-of! upper-inclusive)))))
+
+(defn- occurrence-event! [[coordinate action proposition :as row]]
+  (when-not (and (= 3 (count row))
+                 (t/occurrence-coordinate? coordinate)
+                 (contains? #{t/asserts t/retracts} action)
+                 (t/triple? proposition))
+    (throw (ex-info "occurrence window returned a malformed row"
+                    {:type :malformed-occurrence-window :row row})))
+  (let [[subject predicate value] (triple-row! proposition)
+        transaction (t/triple-slot0 coordinate)]
+    {:operation (if (= action t/asserts) :assert :retract)
+     :subject subject :predicate predicate :value value
+     :version (t/triple-slot2 transaction)}))
+
+(defn poll-occurrence-window-in-domain!
+  [port domain lower-exclusive upper-inclusive handle!]
+  (when-not (and (integer? lower-exclusive) (integer? upper-inclusive)
+                 (<= 0 lower-exclusive upper-inclusive))
+    (throw (ex-info "occurrence window bounds are invalid"
+                    {:type :invalid-occurrence-window
+                     :lower lower-exclusive :upper upper-inclusive})))
+  (when (< lower-exclusive upper-inclusive)
+    (with-client!
+     port domain
+     (fn [client]
+       (let [request (occurrence-window-request!
+                      lower-exclusive upper-inclusive)]
+         (loop [cursor nil]
+           (let [response
+                 (rpc/query!
+                  client request
+                  {:page (wire/rpc-page-request!
+                          rpc/effective-page-limit cursor)})
+                 page (:page response)]
+             (when-not (and page
+                            (= upper-inclusive (:served-version response)))
+               (throw (ex-info "occurrence window changed snapshot"
+                               {:type :occurrence-window-snapshot-changed
+                                :expected upper-inclusive
+                                :actual (:served-version response)})))
+             (doseq [row (:rows response)] (handle! (occurrence-event! row)))
+             (when-not (:done? page) (recur (:cursor page)))))))))
+  upper-inclusive)
+
+(defn poll-occurrence-window! [port lower-exclusive upper-inclusive handle!]
+  (poll-occurrence-window-in-domain!
+   port :coordination lower-exclusive upper-inclusive handle!))
+
+(defn occurrence-window [port lower-exclusive upper-inclusive]
+  (let [events (volatile! [])]
+    (poll-occurrence-window!
+     port lower-exclusive upper-inclusive #(vswap! events conj %))
+    {:version upper-inclusive :events @events}))
+
 (defn- subject-query [subjects]
   {:find "north_subject_fact"
    :rules
