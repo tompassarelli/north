@@ -99,15 +99,25 @@
       selector (str directory "/state/framrpc.env")
       config {:selector-path selector
               :ports {:coordination 17977 :telemetry 17978}}
-      contract {:source {:path "/home/tom/code/fram/main"
-                         :out "/home/tom/code/fram/main/out"}
-                :artifact {:path exact-artifact :sha256 exact-artifact-sha256}}
+      contract {:source {:path exact-fram-source
+                         :out (str exact-fram-source "/out")}
+                :native-artifact {:directory exact-native-artifact-dir
+                                  :closure-sha256
+                                  exact-native-closure-sha256
+                                  :server {:path (str exact-native-artifact-dir
+                                                      "/bin/fram-server-native")
+                                           :sha256 sha-a}}}
       migrations {:coordination {:output {:path (str directory "/coordination.framlog")}}
                   :telemetry {:output {:path (str directory "/telemetry.framlog")}}}
       content (selector-content config contract migrations)]
-  (check! "selector chooses only the exact Graal artifact"
-          (and (str/includes? content exact-artifact)
-               (str/includes? content "FRAM_SERVER_RUNTIME='graal'")
+  (check! "selector chooses only the exact Native READY artifact"
+          (and (str/includes? content exact-native-artifact-dir)
+               (str/includes? content "FRAM_SERVER_RUNTIME='native'")
+               (str/includes? content
+                              (str "FRAM_NATIVE_CLOSURE_SHA256='"
+                                   exact-native-closure-sha256 "'"))
+               (str/includes? content "FRAM_SERVER_ARTIFACT_SHA256='aaaaaaaa")
+               (not (str/includes? content "GRAAL"))
                (= 1 (count (re-seq #"export FRAM_SERVER_RUNTIME=" content)))))
   (check! "selector fences both canonical FRAMLOG paths"
           (and (str/includes? content (get-in migrations [:coordination :output :path]))
@@ -135,14 +145,17 @@
   (check! "conversion refuses an unfenced writer"
           (and error (str/includes? (.getMessage error) "must already be fenced"))))
 
-(check! "production contract is the exact published Fram main artifact"
+(check! "production contract is the exact frozen Fram Native artifact"
         (and (= exact-fram-revision (:fram-revision production-config))
              (= exact-fram-tree (:fram-tree production-config))
-             (= exact-artifact (:artifact production-config))
-             (str/starts-with? exact-artifact
-                               (str (System/getProperty "user.home")
-                                    "/.local/state/north/fram-artifacts/graal/"))
-             (= exact-artifact-sha256 (:artifact-sha256 production-config))))
+             (= exact-fram-source (:fram-source production-config))
+             (not (str/ends-with? exact-fram-source "/main"))
+             (= exact-native-artifact-dir
+                (:native-artifact-dir production-config))
+             (str/ends-with? exact-native-artifact-dir
+                             exact-native-closure-sha256)
+             (= exact-native-closure-sha256
+                (:native-closure-sha256 production-config))))
 
 (println (format "fram forward cutover: %d / %d PASS"
                  (- @checks @failures) @checks))
