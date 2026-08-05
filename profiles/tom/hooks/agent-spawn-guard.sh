@@ -56,6 +56,10 @@ if builtin source "${BASH_SOURCE[0]%/*}/lib/harness-dial.sh" 2>/dev/null; then
 fi
 
 NORTH_HOME="${NORTH_HOME:-$HOME/code/north/main}"
+# bin/north hard-requires FRAM_HOME and this guard invokes the checkout directly,
+# not the Nix-published wrapper that supplies it; without this it fails closed on
+# every Bash call.
+export FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
 if ! DISPATCH_ACTION="$("$NORTH_HOME/bin/north" config dispatch --guard-action)"; then
   printf 'agent-spawn-guard: north dispatch action lookup failed via %s\n' \
     "$NORTH_HOME/bin/north" >&2
