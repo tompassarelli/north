@@ -1,40 +1,6 @@
-// Persistent-connection fast path for the managed-lane identity PUBLISH write
-// (1k-tier cut #1, thread 019f90f5; atomic op adoption, thread 019f9374). The
-// admission bottleneck measured in docs/private/admission-benchmark-report.md is
-// a fresh bb/JVM cold-start per admission for cli/agent-fact-internal.clj
-// `publish`. This module removes that JVM on the common path by speaking the
-// coordinator's own EDN wire protocol (cli/coord.clj) directly over TCP from
-// TypeScript, under the SAME per-subject write-lease. It is a pure ACCELERATOR:
-//
-//   - It attempts ONLY a fresh publish whose projection validate-publish! would
-//     accept; any other shape returns null so the caller uses the subprocess.
-//   - It reports "committed" ONLY after the coordinator acknowledges the marker,
-//     exactly as commit-marker! does. Any deviation, timeout, or ambiguity
-//     returns null → the caller falls back to cli/agent-fact-internal.clj keyed
-//     by the SAME holder + operationId + desired projection, so
-//     recover-identity-write! deterministically reconciles any killed markerless
-//     prefix (recovered_killed_prefix / exact_replay). The fast path can
-//     therefore never double-publish or lose a write; the proven Clojure
-//     recovery stays the correctness authority.
-//
-// PREFERRED PATH — one atomic wire op (1k-tier lever #2, fram :managed-agent-
-// publish, promoted 2893706). The whole identity publish (assert-batch of every
-// present predicate + manifest marker) is committed server-side in ONE store
-// transaction under the canonical per-subject lease, collapsing ~115 serialized
-// round-trips per admission to one. When the coordinator does not advertise the
-// op ({:error "unknown op"}) the module transparently falls back to the LEGACY
-// per-predicate fenced-wire sequence below, so a rollout window with mixed
-// coordinator generations keeps accelerating. Marker bytes are identical on both
-// paths; a reject on either fails closed to the subprocess.
-//
-// This introduces no new long-lived process (avoiding the runaway-JVM hazard the
-// bench lane observed) and adds no client-side ordering: the coordinator's single
-// writer-lease per subject remains the sole serialization authority. The wire
-// codec + one-shot request/response transport live in ./coord-wire, shared
-// verbatim with the coordinator's own Clojure client (send-envelope).
+// Managed identity publication uses only canonical FRAMRPC. It reports a
+// commit only after exact marker readback under the subject's fenced lease.
 import { createHash } from "node:crypto";
-import type { EdnMap, OpPairs } from "./coord-wire";
-import { coordPort, expectedLog, kw, sendManagedAgentPublish, sendOp } from "./coord-wire";
 import {
   FramRpcClient, FramRpcServerError, FramRpcTransportError,
 } from "./framrpc-client";
@@ -159,12 +125,6 @@ export function validPublishProjection(projection: Record<string, string>): bool
   return true;
 }
 
-function rejected(m: EdnMap): boolean {
-  return m[":reject"] !== undefined && m[":reject"] !== null;
-}
-
-interface Lease { resource: string; holder: string; epoch: number; }
-
 export interface NativeFastPublishOptions {
   /** Hermetic transport seam. Production constructs the client from env. */
   client?: FramRpcClient;
@@ -175,70 +135,6 @@ type NativeProjectionClass = "blank" | "exact_replay" | "decline";
 interface NativeSnapshot {
   classification: NativeProjectionClass;
   servedVersion: number;
-}
-
-// Guard predicates for the atomic op's clean-fresh gate. IDENTITY_PREDICATES
-// already feed the manifest (so the server verifies each present/absent), and
-// the projection facts carry display_handle/display_name; these are the terminal
-// bodies + terminal marker whose presence must force publish-conflict, byte-for-
-// byte the clean-fresh gate the legacy path applies below.
-const ATOMIC_GUARD_PREDICATES = [
-  ...PROJECTION_PREDICATES, TERMINAL_MARKER_PREDICATE, ...TERMINAL_PREDICATES,
-];
-
-/** Carries the coordinator's own reject code out; the subprocess fallback can
- * only report its recovery classification, never why the atomic op refused. */
-export type AtomicPublishDiagnostic = (detail: string) => void;
-
-function rejectDetail(r: EdnMap): string {
-  const code = r[":code"] ?? r[":reject"];
-  const rendered = typeof code === "string" ? code
-    : Array.isArray(code) ? code.map(String).join("; ")
-    : code === undefined || code === null ? "no reject code" : String(code);
-  return `coordinator :managed-agent-publish refused (${rendered})`;
-}
-
-/**
- * Attempt the ONE atomic :managed-agent-publish op. Returns:
- *   - true         → committed (fresh publish or byte-identical idempotent replay)
- *   - false        → the coordinator refused this shape; fail closed to subprocess
- *   - "unsupported"→ the coordinator does not advertise the op; use the legacy wire
- * NEVER throws.
- */
-async function atomicPublish(
-  entity: string,
-  projection: Record<string, string>,
-  holder: string,
-  port: number,
-  log: string,
-  deadline: number,
-  note?: AtomicPublishDiagnostic,
-): Promise<boolean | "unsupported"> {
-  const marker = identityMarker(projection);
-  try {
-    const r = await sendManagedAgentPublish(port, log, {
-      entity,
-      facts: Object.entries(projection),
-      identityPreds: IDENTITY_PREDICATES,
-      guardPreds: ATOMIC_GUARD_PREDICATES,
-      marker,
-      holder,
-      ttlMs: 60_000,
-    }, deadline);
-    // A pre-op coordinator generation routes an unknown verb to its default arm.
-    if (r[":error"] === "unknown op") return "unsupported";
-    // Success ONLY on the acknowledged fenced-publish carrying our exact marker
-    // and normalized subject; every reject (:held, :publish-conflict,
-    // :manifest-mismatch, …) and any surprising shape fails closed to the
-    // subprocess so recover-identity-write! owns the reused/partial case.
-    const committed = Boolean(r[":ok"]) && r[":fenced-publish"] === true
-      && r[":te"] === entity && r[":marker"] === marker;
-    if (!committed) note?.(rejectDetail(r));
-    return committed;
-  } catch (cause) {
-    note?.(`coordinator :managed-agent-publish unreachable (${String(cause)})`);
-    return false;
-  }
 }
 
 function nativeIndeterminate(operationId: string, reason: string): ManagedWriteResult {
@@ -515,15 +411,13 @@ async function nativeFastPublish(
   }
 }
 
-/** Attempt the selected managed publish protocol. v03 returns committed/null;
- * framrpc also returns indeterminate when recovery cannot safely infer absence. */
+/** Attempt one canonical FRAMRPC identity publication. */
 export async function fastPublish(
   subject: string,
   projection: Record<string, string>,
   holder: string,
   operationId: string,
   timeoutMs: number,
-  note?: AtomicPublishDiagnostic,
   nativeOptions: NativeFastPublishOptions = {},
 ): Promise<ManagedWriteResult | null> {
   if (process.env.NORTH_MANAGED_WRITER_FASTPATH === "0") return null;
@@ -532,118 +426,7 @@ export async function fastPublish(
   const entity = normalizeAgentEntity(subject);
   if (entity === null) return null;
 
-  if (process.env.NORTH_COORD_PROTOCOL === "framrpc") {
-    return nativeFastPublish(
-      entity, projection, holder, operationId, timeoutMs, nativeOptions,
-    );
-  }
-
-  const port = coordPort();
-  const log = expectedLog();
-  const deadline = Date.now() + Math.max(1, Math.floor(timeoutMs));
-
-  // Preferred: one atomic server-side fenced publish. Fall back to the legacy
-  // per-predicate wire sequence only when the coordinator lacks the op.
-  const atomic = await atomicPublish(entity, projection, holder, port, log, deadline, note);
-  if (atomic === "unsupported") {
-    return legacyWirePublish(entity, projection, holder, operationId, port, log, deadline);
-  }
-  return atomic ? { status: "committed", operationId } : null;
-}
-
-/**
- * Legacy accelerator: the ~115 sequential per-predicate fenced writes, retained
- * verbatim for coordinators that predate :managed-agent-publish. Same contract
- * as fastPublish — committed result or null (fail closed to the subprocess).
- */
-async function legacyWirePublish(
-  entity: string,
-  projection: Record<string, string>,
-  holder: string,
-  operationId: string,
-  port: number,
-  log: string,
-  deadline: number,
-): Promise<ManagedWriteResult | null> {
-  const resource = writeLeaseResource(entity);
-  const op = (...pairs: OpPairs): OpPairs => pairs;
-  const send = (o: OpPairs) => sendOp(port, log, o, deadline);
-  const resolvedValues = async (p: string): Promise<unknown[]> => {
-    const r = await send(op([kw("op"), kw("resolved")], [kw("te"), entity], [kw("p"), p]));
-    const values = r[":values"];
-    return Array.isArray(values) ? values : [];
-  };
-
-  let lease: Lease | null = null;
-  try {
-    // Acquire the SAME per-subject write-lease the subprocess uses (60s TTL >
-    // the 10s writer budget, per acquire-write-lease!). Publish never waits on a
-    // held lease — a held lease means a concurrent writer owns this subject, so
-    // we fall back rather than race it.
-    const acq = await send(op(
-      [kw("op"), kw("acquire-lease")],
-      [kw("res"), resource],
-      [kw("holder"), holder],
-      [kw("ttl-ms"), 60_000],
-    ));
-    if (!acq[":ok"] || typeof acq[":epoch"] !== "number") return null;
-    lease = { resource, holder, epoch: acq[":epoch"] as number };
-
-    // Clean-fresh gate: any existing managed body/marker/terminal → fall back so
-    // recover-identity-write! owns the reused/partial case (fresh? in publish!).
-    for (const p of [...PUBLISH_PREDICATES, MARKER_PREDICATE, TERMINAL_MARKER_PREDICATE, ...TERMINAL_PREDICATES]) {
-      if ((await resolvedValues(p)).length > 0) return null;
-    }
-
-    const fence = (): OpPairs => [
-      [kw("res"), resource], [kw("holder"), holder], [kw("epoch"), lease!.epoch],
-    ];
-    // Write every projection fact under the fence (put-facts!).
-    for (const [p, value] of Object.entries(projection)) {
-      const put = await send([[kw("op"), kw("assert-with-fence")], ...fence(), [kw("te"), entity], [kw("p"), p], [kw("r"), value]]);
-      if (rejected(put)) return null;
-    }
-    // Verify the exact publish projection read back (verify-exact! publish-predicates).
-    for (const p of PUBLISH_PREDICATES) {
-      const values = await resolvedValues(p);
-      const want = projection[p];
-      if (want !== undefined && want !== "") {
-        if (values.length !== 1 || values[0] !== want) return null;
-      } else if (values.length !== 0) return null;
-    }
-    // Commit the marker last (commit-marker!): confirm no competing marker, put
-    // it under the fence, then confirm the marker AND identity readback exactly.
-    const marker = identityMarker(projection);
-    const existingMarker = await resolvedValues(MARKER_PREDICATE);
-    if (existingMarker.length > 0 && !(existingMarker.length === 1 && existingMarker[0] === marker)) return null;
-    const putMarker = await send([[kw("op"), kw("assert-with-fence")], ...fence(), [kw("te"), entity], [kw("p"), MARKER_PREDICATE], [kw("r"), marker]]);
-    if (rejected(putMarker)) return null;
-    const markerBack = await resolvedValues(MARKER_PREDICATE);
-    if (markerBack.length !== 1 || markerBack[0] !== marker) return null;
-    // Re-verify the identity projection is still exact under the committed marker.
-    for (const p of IDENTITY_PREDICATES) {
-      const values = await resolvedValues(p);
-      const want = projection[p];
-      if (want !== undefined && want !== "") {
-        if (values.length !== 1 || values[0] !== want) return null;
-      } else if (values.length !== 0) return null;
-    }
-    return { status: "committed", operationId };
-  } catch {
-    // Any transport/parse/timeout failure fails closed to the subprocess.
-    return null;
-  } finally {
-    if (lease) {
-      // Advisory release so the fallback (or a successor) can re-acquire a fresh
-      // epoch immediately; on success the marker is already durable.
-      try {
-        await sendOp(port, log, op(
-          [kw("op"), kw("release-lease")],
-          [kw("res"), lease.resource],
-          [kw("holder"), lease.holder],
-          [kw("epoch"), lease.epoch],
-        ), Date.now() + 1000);
-      } catch { /* expiry recovers the lease */ }
-    }
-  }
+  return nativeFastPublish(
+    entity, projection, holder, operationId, timeoutMs, nativeOptions,
+  );
 }

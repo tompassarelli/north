@@ -519,13 +519,9 @@ export async function writeAgentFacts(agentId: string, f: ManagedLaneIdentity): 
   // null and we fall through to the subprocess with the SAME holder/operationId,
   // so recover-identity-write! reconciles any killed markerless prefix. The
   // fast path never double-publishes and never reports uncommitted as durable.
-  // A fast-path refusal is the coordinator's own diagnosis; the subprocess can
-  // only report its recovery classification, so carry it onto the raised error.
-  let fastPathRefusal: string | undefined;
   if (!session.identity) {
     const fast = await fastPublish(
       subject, projection, session.holder, operationId, INTERNAL_WRITER_TIMEOUT_MS,
-      (detail) => { fastPathRefusal = detail; },
     );
     if (fast) {
       if (fast.status !== "committed")
@@ -535,23 +531,12 @@ export async function writeAgentFacts(agentId: string, f: ManagedLaneIdentity): 
       return;
     }
   }
-  try {
-    writeHarnessAgentOperation("publish", subject, JSON.stringify(projection), {
-      holder: session.holder,
-      operationId,
-      desiredIdentity: projection,
-      expectedIdentity: session.identity,
-    });
-  } catch (cause) {
-    if (fastPathRefusal && cause instanceof ManagedAgentWriteError) {
-      throw new ManagedAgentWriteError(
-        cause.operation,
-        { ...cause.result, reason: `${cause.result.reason ?? "unreported"}; ${fastPathRefusal}` },
-        { cause },
-      );
-    }
-    throw cause;
-  }
+  writeHarnessAgentOperation("publish", subject, JSON.stringify(projection), {
+    holder: session.holder,
+    operationId,
+    desiredIdentity: projection,
+    expectedIdentity: session.identity,
+  });
   session.identity = projection;
   session.terminalCommitted = false;
 }
