@@ -131,7 +131,7 @@ interface ReadyFrame {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "ready";
   recipient: string;
-  subscribed: number;
+  cursor: number;
 }
 
 interface MailFrame {
@@ -369,10 +369,10 @@ function feedFrame(line: string, maxFrameBytes: number): FeedFrame {
     throw new Error("North live-feed protocol mismatch");
 
   if (frame.type === "ready") {
-    if (!exactKeys(frame, ["protocol", "type", "recipient", "subscribed"])
+    if (!exactKeys(frame, ["protocol", "type", "recipient", "cursor"])
         || !boundedString(frame.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
-        || !Number.isSafeInteger(frame.subscribed)
-        || (frame.subscribed as number) < 0)
+        || !Number.isSafeInteger(frame.cursor)
+        || (frame.cursor as number) < 0)
       throw new Error("North live-feed ready frame is malformed");
     return frame as unknown as ReadyFrame;
   }

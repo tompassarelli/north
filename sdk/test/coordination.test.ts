@@ -168,7 +168,7 @@ function ready(child: FakeChild, recipient = "agent-test") {
     protocol,
     type: "ready",
     recipient,
-    subscribed: 17,
+    cursor: 17,
   });
 }
 
@@ -703,7 +703,7 @@ test("duplicate JSON members and frames before readiness fail closed", async () 
   const stopDuplicate = subscribeFeed("agent-test", () => {}, duplicate.runtime);
   emitLine(
     duplicate.children[0]!,
-    `{"protocol":"${protocol}","type":"ready","type":"mail","recipient":"agent-test","subscribed":1}`,
+    `{"protocol":"${protocol}","type":"ready","type":"mail","recipient":"agent-test","cursor":1}`,
   );
   expect(duplicate.children[0]!.signals).toContain("SIGKILL");
   stopDuplicate();

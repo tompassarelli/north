@@ -21,7 +21,7 @@ const readyFrame = JSON.stringify({
   protocol: "north-live-feed-v1",
   type: "ready",
   recipient,
-  subscribed: 0,
+  cursor: 0,
 });
 
 let releaseParentDisconnect!: () => void;
